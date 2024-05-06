@@ -1,0 +1,12 @@
+/scratch/group/p.atm170020.000/Pangu-UC
+/scratch/user/u.aw164890/.conda/envs/pangu-uc/lib/python3.11/site-packages/torch/functional.py:507: UserWarning: torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument. (Triggered internally at ../aten/src/ATen/native/TensorShape.cpp:3549.)
+  return _VF.meshgrid(tensors, **kwargs)  # type: ignore[attr-defined]
+............
+----------------------------------------------------------------------
+Ran 12 tests in 49.626s
+
+OK
+PyTorch pangu_plasim okay!
+Modulus pangu_plasim okay!
+PyTorch pangu_plasim cuda okay!
+Modulus pangu_plasim cuda okay!
