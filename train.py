@@ -415,16 +415,9 @@ if __name__ == '__main__':
 
     if 'WORLD_SIZE' in os.environ:
         params['world_size'] = int(os.environ['WORLD_SIZE'])
-
-    ''' #### 
-  import socket
-  from contextlib import closing
-
-  with closing(socket.socket(socket.AF_INET, socket.SOCK_STREAM)) as s:
-      s.bind(('', 0))
-      s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-      print(str(s.getsockname()[1]))
-  '''
+    else:
+        params['world_size'] = torch.cuda.device_count()
+        
 
     if torch.cuda.device_count() == 1:
         params['world_size'] = 1
@@ -432,7 +425,6 @@ if __name__ == '__main__':
         local_rank = 0
         params['batch_size'] = params['batch_size']//4
 
-    # params['world_size'] = 4  # uncomment only for UCAR cluster
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
         local_rank = int(os.environ["LOCAL_RANK"])
@@ -442,6 +434,9 @@ if __name__ == '__main__':
 
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
+    else:
+        world_rank = 0
+        local_rank = 0
 
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
