@@ -5,23 +5,23 @@ Reimplementation of Pangu-Weather paper
 Adjust the hyperparameters and model parameters in 
 
 ```bash
-config/PANGU.yaml
+v1.0/config/PANGU.yaml
 ```
 
 Train the model
 
 ```bash
-python train.py
+v1.0/python train.py
 ```
 
 Run on an HPC cluster such as FASTER or Anvil:
 
 FASTER:
 ```bash
-sbatch faster_ddp.sh
+sbatch v1.0/faster_ddp.sh
 ```
 
 Anvil:
 ```bash
-sbatch anvil_ddp.sh
+sbatch v1.0/anvil_ddp.sh
 ```
