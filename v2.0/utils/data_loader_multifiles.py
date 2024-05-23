@@ -72,6 +72,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
     dataset = GetDataset(params, files_pattern, year_start, year_end, train)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
 
+
     dataloader = DataLoader(dataset,
                             batch_size=int(params.batch_size),
                             num_workers=params.num_data_workers,
