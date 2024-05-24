@@ -39,7 +39,7 @@ export RANK=$PBS_ARRAYID
 
 module use /soft/modulefiles
 module load conda 
-source activate /eagle/MDClimSim/hyadav/Pangu_env_2
+conda activate /eagle/MDClimSim/hyadav/Pangu_env_2
 module load cudatoolkit-standalone/12.2.2
 
 # IMPORTANT: PyTorch data loader does not work for num_workers>0 for multiple node
