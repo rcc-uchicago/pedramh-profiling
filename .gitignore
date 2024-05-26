@@ -30,9 +30,12 @@ pangu_original/pre-trained/pangu_weather_3.onnx
 pangu_original/pre-trained/pangu_weather_6.onnx
 pangu_original/pre-trained/pangu_weather_24.onnx
 
+data/h5
 data/stats/global_means_pl.npy
 data/stats/global_means_sfc.npy
 data/stats/global_stds_pl.npy
 data/stats/global_stds_sfc.npy
 data/stats/time_means_pl.npy
 data/stats/time_means_sfc.npy
+
+data_utils/__pycache__
