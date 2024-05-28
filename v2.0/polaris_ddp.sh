@@ -25,13 +25,15 @@ EPOCHS_PER_JOB=2
 if [ -z "${MAX_EPOCHS}" ]; then MAX_EPOCHS=$EPOCHS_PER_JOB; fi
 
 MAX_EPOCHS_NEXT=$((MAX_EPOCHS + EPOCHS_PER_JOB))
-#JOB_ID="${PBS_JOBID%%.*}"
-JOB_ID=$PBS_JOBID
+JOB_ID="${PBS_JOBID%%.*}"
+#JOB_ID=$PBS_JOBID
 echo "Max Epochs: ${MAX_EPOCHS}"
 echo "Max Epochs next: ${MAX_EPOCHS}"
 echo "Job ID: ${JOB_ID}"
+COMMAND="qsub -v MAX_EPOCHS=${MAX_EPOCHS_NEXT} -W depend=afterok:${JOB_ID} /eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/polaris_ddp.sh"
+echo $COMMAND
 
-if [ "$MAX_EPOCHS_NEXT" -le "$FINAL_MAX_EPOCHS" ]; then qsub -v MAX_EPOCHS=$MAX_EPOCHS_NEXT -W depend=afterok:$JOB_ID /eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/polaris_ddp.sh; fi
+if [ "$MAX_EPOCHS_NEXT" -le "$FINAL_MAX_EPOCHS" ]; then $COMMAND; fi
 
 # Change to working directory
 cd $PBS_O_WORKDIR
