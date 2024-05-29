@@ -1,0 +1,71 @@
+### base config ###
+base_config: &BASE
+  loss: 'l1'
+  lr: 5E-4
+  weight_decay: 3e-6
+  scheduler: 'CosineAnnealingLR' #None #'ReduceLROnPlateau'
+  num_data_workers: 8
+  dt: 1 # how many timesteps ahead the model will predict
+  n_history: 0 #how many previous timesteps to consider
+  prediction_type: 'iterative'
+  prediction_length: 41 #applicable only if prediction_type == 'iterative'
+  n_initial_conditions: 5 #applicable only if prediction_type == 'iterative'
+  ics_type: "default"
+  save_raw_forecasts: !!bool True
+  save_channel: !!bool False
+  masked_acc: !!bool False
+  maskpath: None
+  perturb: !!bool False
+  add_grid: !!bool False
+  N_grid_channels: 0
+  gridtype: 'sinusoidal' #options 'sinusoidal' or 'linear'
+  roll: !!bool False
+  max_epochs: 100
+  batch_size: 192 #4
+  
+  mask_dir:        '/eagle/MDClimSim/awikner/PanguWeather-UC/data/constant_mask'
+  train_data_path: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/h5/train'
+  valid_data_path: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/h5/val'
+  inf_data_path:   '/eagle/MDClimSim/awikner/PanguWeather-UC/data/h5/test'
+  
+    #time_means_path_sfc:   '../data/stats/time_means_sfc.npy'
+  global_means_path_sfc: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_surface_wprecip_mean.npy'
+  global_stds_path_sfc:  '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_surface_wprecip_std.npy'
+
+    #time_means_path_pl:   'data/stats/time_means_pl.npy'
+  global_means_path_pl: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_mean.npy'
+  global_stds_path_pl:  '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_std.npy'
+
+  exp_dir: 'results'
+  
+  log_to_screen: !!bool True
+  log_to_wandb: !!bool False #True
+  save_checkpoint: !!bool True
+
+  enable_nhwc: !!bool False
+  optimizer_type: 'FusedAdam'
+  crop_size_x: None
+  crop_size_y: None
+
+  normalization: 'zscore' #options zscore (minmax not supported) 
+
+  target: 'default' 
+
+  plot_animations: !!bool False
+
+  add_noise: !!bool False 
+  noise_std: 0.3 
+
+  nettype: 'pangu'
+
+  img_scale: 1  # 720/img_scale, 1440/img_scale
+  
+
+modified_1: &MODIFIED
+  <<: *BASE
+  lr: 5E-4
+  batch_size: 16 
+  max_epochs: 80 
+  scheduler: 'CosineAnnealingLR'
+
+
