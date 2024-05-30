@@ -4,7 +4,7 @@ base_config: &BASE
   lr: 5E-4
   weight_decay: 3e-6
   scheduler: None #'ReduceLROnPlateau'
-  num_data_workers: 0
+  num_data_workers: 8
   
   log_to_screen: !!bool True
   log_to_wandb: !!bool False #True

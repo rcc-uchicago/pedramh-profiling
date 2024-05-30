@@ -26,7 +26,6 @@ import dask
 dask.config.set(scheduler='synchronous')
 
 
-
 class Trainer():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -81,7 +80,6 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
-            logging.info("Loading checkpoint %s" % params.checkpoint_path)
             self.restore_checkpoint(params.checkpoint_path)
 
         self.epoch = self.startEpoch
@@ -359,10 +357,12 @@ if __name__ == '__main__':
 
     if 'WORLD_SIZE' in os.environ:
         params['world_size'] = int(os.environ['WORLD_SIZE'])
+        print(params['world_size'])
     else:
         params['world_size'] = torch.cuda.device_count()
+        print(params['world_size'])
 
-    params['world_size'] = 1
+    # params['world_size'] = 1 ######WHYYYYY
     '''if torch.cuda.device_count() == 1:
         world_rank = 0
         local_rank = 0
@@ -377,6 +377,7 @@ if __name__ == '__main__':
 
         args.gpu = local_rank
         world_rank = dist.get_rank()
+        # print("##########WORLD RANK: TESTING ", world_rank)
 
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
