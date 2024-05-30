@@ -1,11 +1,12 @@
 #!/bin/bash -l
 #PBS -N random
+##PBS -l select=2:system=polaris:ncpus=128:ngpus=8:gputype=A100
 #PBS -l select=1:system=polaris
 #PBS -l place=scatter
 #PBS -q debug 
-#PBS -l walltime=1:00:00
+#PBS -l walltime=01:00:00
 #PBS -l filesystems=home:eagle                          
-#PBS -A lighthouse-uchicago
+#PBS -A MDClimSim
 #PBS -e logs/
 #PBS -o logs/
 
@@ -29,8 +30,10 @@ JOB_ID="${PBS_JOBID%%.*}"
 echo "Max Epochs: ${MAX_EPOCHS}"
 echo "Max Epochs next: ${MAX_EPOCHS}"
 echo "Job ID: ${JOB_ID}"
+COMMAND="qsub -v MAX_EPOCHS=${MAX_EPOCHS_NEXT} -W depend=afterok:${JOB_ID} /eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/polaris_ddp.sh"
+echo $COMMAND
 
-#if [ "$MAX_EPOCHS_NEXT" -le "$FINAL_MAX_EPOCHS" ]; then qsub -v MAX_EPOCHS="${MAX_EPOCHS_NEXT}" -W depend=afterok:$JOB_ID /eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/polaris_ddp.sh; fi
+if [ "$MAX_EPOCHS_NEXT" -le "$FINAL_MAX_EPOCHS" ]; then $COMMAND; fi
 
 # Change to working directory
 cd $PBS_O_WORKDIR
@@ -38,6 +41,8 @@ cd $PBS_O_WORKDIR
 # MPI and OpenMP settings
 NNODES=`wc -l < $PBS_NODEFILE`
 #Follwing will be the number of GPUs on each node, so 4 in our case as each node has 4 GPUs
+NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
+#NUM_TASKS_PER_NODE=2
 NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
 #NUM_TASKS_PER_NODE=2
 WORLD_SIZE=$((NNODES * NUM_TASKS_PER_NODE))

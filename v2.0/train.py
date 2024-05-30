@@ -158,6 +158,8 @@ class Trainer():
         nb = len(self.train_data_loader)
         pbar = enumerate(self.train_data_loader, 0)
         pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+
+        running_results = {"batch_sizes": 0, "loss": 0}
         
         # For each epoch, we iterate from 1979 to 2017
         for i, data in pbar:
@@ -216,6 +218,11 @@ class Trainer():
                 self.gscaler.update()
 
             tr_time += time.time() - tr_start
+
+            running_results["loss"] += loss.item() * self.params['batch_size']
+            running_results["batch_sizes"] += self.params['batch_size']
+
+            pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
 
 
         logs = {'loss': loss}
@@ -345,6 +352,7 @@ if __name__ == '__main__':
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
+    parser.add_argument("--epochs", default=0, type=int)
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -353,8 +361,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
+    if args.epochs > 0:
+        params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
-
+    
+    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    print('World size from Cuda: %d' % torch.cuda.device_count())
     if 'WORLD_SIZE' in os.environ:
         params['world_size'] = int(os.environ['WORLD_SIZE'])
         print(params['world_size'])
@@ -362,7 +374,7 @@ if __name__ == '__main__':
         params['world_size'] = torch.cuda.device_count()
         print(params['world_size'])
 
-    # params['world_size'] = 1 ######WHYYYYY
+    #params['world_size'] = 1
     '''if torch.cuda.device_count() == 1:
         world_rank = 0
         local_rank = 0
