@@ -36,3 +36,7 @@ data/stats/global_stds_pl.npy
 data/stats/global_stds_sfc.npy
 data/stats/time_means_pl.npy
 data/stats/time_means_sfc.npy
+
+logs/
+results/
+data/
