@@ -57,6 +57,7 @@ Pseudocode of Pangu-Weather
 
 import torch
 from torch import nn
+import torch.nn.functional as F
 import numpy as np 
 from utils.patch_embed import PatchEmbed2D, PatchEmbed3D
 from utils.patch_recovery import PatchRecovery2D, PatchRecovery3D
@@ -574,11 +575,10 @@ class EarthAttention3D(nn.Module):
             mask: (0/-inf) mask with shape of (num_lon, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon)
         """
         B_, nW_, N, C = x.shape
+        # Mem efficient attention doesn't have permute
         qkv = self.qkv(x).reshape(B_, nW_, N, 3, self.num_heads, C // self.num_heads).permute(3, 0, 4, 1, 2, 5)
-        q, k, v = qkv[0], qkv[1], qkv[2]
-
-        q = q * self.scale
-        attn = (q @ k.transpose(-2, -1))
+        q, k, v = torch.unbind(qkv, 0)
+        L = q.shape[-1]
 
         earth_position_bias = self.earth_position_bias_table[self.earth_position_index.view(-1)].view(
             self.window_size[0] * self.window_size[1] * self.window_size[2],
@@ -586,20 +586,21 @@ class EarthAttention3D(nn.Module):
             self.type_of_windows, -1
         )  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon, num_pl*num_lat, nH
         earth_position_bias = earth_position_bias.permute(
-            3, 2, 0, 1).contiguous()  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
-        attn = attn + earth_position_bias.unsqueeze(0)
-
+            3, 2, 0, 1).contiguous().unsqueeze(0)  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
+        #with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True):
         if mask is not None:
             nLon = mask.shape[0]
-            attn = attn.view(B_ // nLon, nLon, self.num_heads, nW_, N, N) + mask.unsqueeze(1).unsqueeze(0)
-            attn = attn.view(-1, self.num_heads, nW_, N, N)
-            attn = self.softmax(attn)
+            x = F.scaled_dot_product_attention(q.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+                                                    k.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+                                                    v.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+                                                    attn_mask=earth_position_bias.unsqueeze(0) + \
+                                                        mask.unsqueeze(1).unsqueeze(0),
+                                                    scale = self.scale)
+            x = x.view(-1, self.num_heads, nW_, N, L)
         else:
-            attn = self.softmax(attn)
+            x = F.scaled_dot_product_attention(q, k, v, attn_mask=earth_position_bias, scale=self.scale)
 
-        attn = self.attn_drop(attn)
-
-        x = (attn @ v).permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
+        x = x.permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x

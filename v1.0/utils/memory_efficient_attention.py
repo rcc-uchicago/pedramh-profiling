@@ -69,15 +69,13 @@ class MemEffAttentionTorch(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(0, 3, 2, 1, 4)
         q, k, v = torch.unbind(qkv, 2)
-        with sdpa_kernel([SDPBackend.MATH, SDPBackend.EFFICIENT_ATTENTION]):
-            x = F.scaled_dot_product_attention(
+        x = F.scaled_dot_product_attention(
                 q,
                 k,
                 v,
                 #attn_mask=attn_bias,
                 dropout_p=self.attn_drop,
-                scale=self.scale
-            )
+                scale=self.scale)
         """
         x = xops.memory_efficient_attention(
                 q,

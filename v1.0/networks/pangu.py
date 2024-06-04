@@ -58,6 +58,7 @@ Pseudocode of Pangu-Weather
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torchvision.ops import MLP
 #import xformers.ops as xops
 import numpy as np 
 from utils.patch_embed import PatchEmbed2D, PatchEmbed3D
@@ -883,18 +884,18 @@ class EarthAttention3DMemEff(nn.Module):
         )  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon, num_pl*num_lat, nH
         earth_position_bias = earth_position_bias.permute(
             3, 2, 0, 1).contiguous().unsqueeze(0)  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
-        with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True):
-            if mask is not None:
-                nLon = mask.shape[0]
-                x = F.scaled_dot_product_attention(q.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+        #with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True):
+        if mask is not None:
+            nLon = mask.shape[0]
+            x = F.scaled_dot_product_attention(q.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
                                                     k.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
                                                     v.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
                                                     attn_mask=earth_position_bias.unsqueeze(0) + \
                                                         mask.unsqueeze(1).unsqueeze(0),
                                                     scale = self.scale)
-                x = x.view(-1, self.num_heads, nW_, N, L)
-            else:
-                x = F.scaled_dot_product_attention(q, k, v, attn_mask=earth_position_bias, scale=self.scale)
+            x = x.view(-1, self.num_heads, nW_, N, L)
+        else:
+            x = F.scaled_dot_product_attention(q, k, v, attn_mask=earth_position_bias, scale=self.scale)
         """
         earth_position_bias = earth_position_bias.permute(3,2,0,1).unsqueeze(0).expand(B_, self.num_heads, nW_, N, N).reshape(-1, nW_, N, N)
         print(q.shape)
