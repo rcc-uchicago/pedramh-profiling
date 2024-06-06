@@ -25,11 +25,10 @@ torch.backends.cuda.enable_flash_sdp(True)
 torch.backends.cudnn.allow_tf32 = True
 TORCH_CUDNN_SDPA_ENABLED=1
 
-"""
 torch.manual_seed(0)
-model = PanguModel(params).to(dtype).to(device)
+model = PanguModelMemEff(params, embed_dim = 156).to(dtype).to(device)
 print("# parameters: ", sum(param.numel() for param in model.parameters()))
-#model = torch.compile(model, mode='default')
+model = torch.compile(model, mode='default')
 
 surface = torch.randn(1, num_surface, 721//img_scale, 1440//img_scale).to(dtype).to(device)
 surface_mask = torch.randn(1, num_constant, 721//img_scale, 1440//img_scale).to(dtype).to(device)
@@ -47,9 +46,9 @@ with profile(activities=[ProfilerActivity.CPU,ProfilerActivity.CUDA],
 print(out[0][0,0,0,-5:])
 print('Finished backward pass')
 print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
-"""
+
 torch.manual_seed(0)
-model = PanguModelMemEff(params, embed_dim = 144).to(dtype).to(device)
+model = PanguModel(params, embed_dim = 156).to(dtype).to(device)
 print("# parameters: ", sum(param.numel() for param in model.parameters()))
 #model = torch.compile(model, mode='default')
 

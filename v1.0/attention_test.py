@@ -7,13 +7,11 @@ import os
 import time
 from torch.profiler import profile, record_function, ProfilerActivity
 
-device = "cpu"
-dtype = torch.float32
-
 input_size = [3, 12, 144, 192]
 torch.set_float32_matmul_precision('high')
 torch.cuda.set_device(0)
 device = torch.cuda.current_device()
+#device = "cpu"
 dtype = torch.float32
 
 torch.manual_seed(0)

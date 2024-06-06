@@ -3,7 +3,7 @@ from typing import Optional, Union
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-#import xformers.ops as xops
+import xformers.ops as xops
 from torch.nn.attention import SDPBackend, sdpa_kernel
 
 def memory_efficient_attention_torch(
@@ -69,7 +69,9 @@ class MemEffAttentionTorch(nn.Module):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(0, 3, 2, 1, 4)
         q, k, v = torch.unbind(qkv, 2)
-        x = F.scaled_dot_product_attention(
+        """
+        with torch.backends.cuda.sdp_kernel(enable_flash=True, enable_math=False, enable_mem_effii):
+            x = F.scaled_dot_product_attention(
                 q,
                 k,
                 v,
@@ -81,9 +83,8 @@ class MemEffAttentionTorch(nn.Module):
                 q,
                 k,
                 v,
-                attn_bias=attn_bias,
-                p=self.attn_drop,
+                #attn_bias=attn_bias,
+                #p=self.attn_drop,
                 scale=self.scale
             )
-        """
         return self.proj_drop(self.proj(x.permute(0, 2, 1, 3).reshape([B, N, C])))

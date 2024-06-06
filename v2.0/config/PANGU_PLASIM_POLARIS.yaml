@@ -3,7 +3,7 @@ base_config: &BASE
   loss: 'l1'
   lr: 5E-4
   weight_decay: 3e-6
-  scheduler: None #'ReduceLROnPlateau'
+  scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
   num_data_workers: 8
   
   log_to_screen: !!bool True
@@ -41,7 +41,7 @@ PLASIM: &PLASIM
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
   batch_size: 64
-  max_epochs: 2
+  max_epochs: 100
 
   has_year_zero: False
 

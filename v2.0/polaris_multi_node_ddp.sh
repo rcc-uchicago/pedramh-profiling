@@ -1,11 +1,11 @@
 #!/bin/bash -l
 #PBS -N multi_node
-#PBS -l select=2:system=polaris
+#PBS -l select=18:system=polaris
 #PBS -l place=scatter
-#PBS -q debug 
-#PBS -l walltime=0:20:00
+#PBS -q prod 
+#PBS -l walltime=3:00:00
 #PBS -l filesystems=home:eagle                          
-#PBS -A MDClimSim
+#PBS -A lighthouse-uchicago
 #PBS -e logs/
 #PBS -o logs/
 
@@ -28,8 +28,8 @@ export TORCH_DISTRIBUTED_DEBUG=DETAIL
 cd $PBS_O_WORKDIR
 
 echo "Job ID: ${PBS_JOBID}"
-export PLASIM_TRAIN_ITER=$PLASIM_TRAIN_ITER+1
-echo "PLASIM Emulator training epoch: ${PLASIM_TRAIN_ITER}"
+#export PLASIM_TRAIN_ITER=$PLASIM_TRAIN_ITER+1
+#echo "PLASIM Emulator training epoch: ${PLASIM_TRAIN_ITER}"
 
 # Figure out training environment
 if [[ -z "${PBS_NODEFILE}" ]]; then
