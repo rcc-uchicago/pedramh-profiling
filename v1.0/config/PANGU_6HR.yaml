@@ -21,7 +21,7 @@ base_config: &BASE
   gridtype: 'sinusoidal' #options 'sinusoidal' or 'linear'
   roll: !!bool False
   max_epochs: 100
-  batch_size: 192 #4
+  batch_size: 8 #4
   
   mask_dir:        '/eagle/MDClimSim/awikner/PanguWeather-UC/data/constant_mask'
   train_data_path: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/h5/train'
@@ -58,7 +58,7 @@ base_config: &BASE
 
   nettype: 'pangu'
 
-  img_scale: 1  # 720/img_scale, 1440/img_scale
+  img_scale: 2  # 720/img_scale, 1440/img_scale
   
 
 modified_1: &MODIFIED

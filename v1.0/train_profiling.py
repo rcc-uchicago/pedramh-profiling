@@ -23,6 +23,9 @@ import logging
 from utils import logging_utils
 logging_utils.config_logger()
 from apex import optimizers
+from torch.profiler import profile, record_function, ProfilerActivity
+
+import pdb
 
 class Trainer():
     def count_parameters(self):
@@ -229,6 +232,12 @@ class Trainer():
                 # A example solution is using torch.optim.adam
                 UpdateModelParametersWithAdam()'''
 
+                print(inp_sfc.size())
+                print(self.surface_mask.size())
+                print(inp_pl.size())
+
+                pdb.set_trace()
+                
                 gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
                                  self.surface_mask.to(self.device, dtype=torch.float32),
                                  inp_pl.to(self.device, dtype=torch.float32))

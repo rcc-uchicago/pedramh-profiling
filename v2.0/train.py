@@ -25,6 +25,7 @@ from pathlib import Path
 import dask
 dask.config.set(scheduler='synchronous')
 
+torch.cuda.empty_cache() 
 
 class Trainer():
     def count_parameters(self):
@@ -216,6 +217,8 @@ class Trainer():
 
             if self.params.enable_amp:
                 self.gscaler.update()
+
+            torch.cuda.empty_cache() #Check
 
             tr_time += time.time() - tr_start
 
