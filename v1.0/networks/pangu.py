@@ -58,9 +58,10 @@ Pseudocode of Pangu-Weather
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 from torchvision.ops import MLP
-import xformers.ops as xops
-from memory_efficient_attention_pytorch import memory_efficient_attention
+#import xformers.ops as xops
+#from memory_efficient_attention_pytorch import memory_efficient_attention
 import numpy as np 
 from utils.patch_embed import PatchEmbed2D, PatchEmbed3D
 from utils.patch_recovery import PatchRecovery2D, PatchRecovery3D
@@ -83,9 +84,10 @@ class PanguModel(nn.Module):
         window_size (tuple[int]): Window size.
     """
 
-    def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 6, 12)):
+    def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 6, 12), use_mem_eff = True):
         super().__init__()
         drop_path = np.linspace(0, 0.2, 8).tolist()
+        self.checkpointing = params.checkpointing if params.checkpointing is not None else 0
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
         self.patchembed2d = PatchEmbed2D(
             img_size=(721//params.img_scale, 1440//params.img_scale),
@@ -105,7 +107,9 @@ class PanguModel(nn.Module):
             depth=2,
             num_heads=num_heads[0],
             window_size=window_size,
-            drop_path=drop_path[:2])
+            drop_path=drop_path[:2],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
         
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=(8, 181//params.img_scale, 360//params.img_scale), 
                                      output_resolution=(8, 91//params.img_scale, 180//params.img_scale))
@@ -115,7 +119,9 @@ class PanguModel(nn.Module):
             depth=6,
             num_heads=num_heads[1],
             window_size=window_size,
-            drop_path=drop_path[2:])
+            drop_path=drop_path[2:],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
         
         self.layer3 = EarthSpecificLayer(
             dim=embed_dim * 2,
@@ -123,7 +129,9 @@ class PanguModel(nn.Module):
             depth=6,
             num_heads=num_heads[2],
             window_size=window_size,
-            drop_path=drop_path[2:])
+            drop_path=drop_path[2:],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
         
         self.upsample = UpSample(embed_dim * 2, embed_dim, (8, 91//params.img_scale, 180//params.img_scale), 
                                  (8, 181//params.img_scale, 360//params.img_scale))
@@ -133,13 +141,15 @@ class PanguModel(nn.Module):
             depth=2,
             num_heads=num_heads[3],
             window_size=window_size,
-            drop_path=drop_path[:2])
+            drop_path=drop_path[:2],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
         
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
         self.patchrecovery2d = PatchRecovery2D((721//params.img_scale, 1440//params.img_scale), (4, 4), 2 * embed_dim, 4)
         self.patchrecovery3d = PatchRecovery3D((13, 721//params.img_scale, 1440//params.img_scale), (2, 4, 4), 2 * embed_dim, 5)
 
-    def forward(self, surface, surface_mask, upper_air):
+    def forward(self, surface, surface_mask, upper_air, train = False):
         """
         Args:
             surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
@@ -148,30 +158,175 @@ class PanguModel(nn.Module):
         """
         surface = torch.concat([surface, surface_mask], dim=1)
         #surface = torch.concat([surface, surface_mask.unsqueeze(0)], dim=1)
-        surface = self.patchembed2d(surface)
-        upper_air = self.patchembed3d(upper_air)
+        if self.checkpointing > 0 and train:
+            surface = checkpoint(self.patchembed2d, surface, use_reentrant=True)
+            upper_air = checkpoint(self.patchembed3d, upper_air, use_reentrant=True)
+        else:
+            surface = self.patchembed2d(surface)
+            upper_air = self.patchembed3d(upper_air)
 
         x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 
-        x = self.layer1(x)
+        if self.checkpointing == 2 and train:
+            x = checkpoint(self.layer1, x, use_reentrant=True)
+        else:
+            x = self.layer1(x, train = train)
 
         skip = x
 
         x = self.downsample(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.upsample(x)
-        x = self.layer4(x)
+        if self.checkpointing == 2 and train:
+            x = checkpoint(self.layer2, x, use_reentrant=True)
+            x = checkpoint(self.layer3, x, use_reentrant=True)
+            x = checkpoint(self.upsample, x, use_reentrant=True)
+            x = checkpoint(self.layer4, x, use_reentrant=True)
+        else:
+            x = self.layer2(x, train = train)
+            x = self.layer3(x, train = train)
+            x = self.upsample(x)
+            x = self.layer4(x, train = train)
+
+        output = torch.concat([x, skip], dim=-1)
+        output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
+        output_surface = output[:, :, 0, :, :]
+        output_upper_air = output[:, :, 1:, :, :]
+        
+        if self.checkpointing > 0 and train:
+            output_surface = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=True)
+            output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=True)
+        else:
+            output_surface = self.patchrecovery2d(output_surface)
+            output_upper_air = self.patchrecovery3d(output_upper_air)
+        return output_surface, output_upper_air
+
+class PanguPrecipModel(nn.Module):
+    """
+    Pangu A PyTorch impl of: `Pangu-Weather: A 3D High-Resolution Model for Fast and Accurate Global Weather Forecast`
+    - https://arxiv.org/abs/2211.02556
+
+    Args:
+        embed_dim (int): Patch embedding dimension. Default: 192
+        num_heads (tuple[int]): Number of attention heads in different layers.
+        window_size (tuple[int]): Window size.
+    """
+
+    def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 6, 12), use_mem_eff = True):
+        super().__init__()
+        drop_path = np.linspace(0, 0.2, 8).tolist()
+        self.checkpointing = params.checkpointing if params.checkpointing is not None else 0
+        # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
+        self.patchembed2d = PatchEmbed2D(
+            img_size=(721//params.img_scale, 1440//params.img_scale),
+            patch_size=(4, 4),
+            in_chans=5 + 3,  # add
+            embed_dim=embed_dim,)
+
+        self.patchembed3d = PatchEmbed3D(
+            img_size=(13, 721//params.img_scale, 1440//params.img_scale),
+            patch_size=(2, 4, 4),
+            in_chans=5,
+            embed_dim=embed_dim)
+
+        self.layer1 = EarthSpecificLayer(
+            dim=embed_dim,
+            input_resolution=(8, 181//params.img_scale, 360//params.img_scale),
+            depth=2,
+            num_heads=num_heads[0],
+            window_size=window_size,
+            drop_path=drop_path[:2],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
+
+        self.downsample = DownSample(in_dim=embed_dim, input_resolution=(8, 181//params.img_scale, 360//params.img_scale),
+                                     output_resolution=(8, 91//params.img_scale, 180//params.img_scale))
+        self.layer2 = EarthSpecificLayer(
+            dim=embed_dim * 2,
+            input_resolution=(8, 91//params.img_scale, 180//params.img_scale),
+            depth=6,
+            num_heads=num_heads[1],
+            window_size=window_size,
+            drop_path=drop_path[2:],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
+
+        self.layer3 = EarthSpecificLayer(
+            dim=embed_dim * 2,
+            input_resolution=(8, 91//params.img_scale, 180//params.img_scale),
+            depth=6,
+            num_heads=num_heads[2],
+            window_size=window_size,
+            drop_path=drop_path[2:],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
+
+        self.upsample = UpSample(embed_dim * 2, embed_dim, (8, 91//params.img_scale, 180//params.img_scale),
+                                 (8, 181//params.img_scale, 360//params.img_scale))
+        self.layer4 = EarthSpecificLayer(
+            dim=embed_dim,
+            input_resolution=(8, 181//params.img_scale, 360//params.img_scale),
+            depth=2,
+            num_heads=num_heads[3],
+            window_size=window_size,
+            drop_path=drop_path[:2],
+            use_mem_eff = use_mem_eff,
+            checkpointing = self.checkpointing)
+
+        # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
+        self.patchrecovery2d = PatchRecovery2D((721//params.img_scale, 1440//params.img_scale), (4, 4), 2 * embed_dim, 5)
+        self.patchrecovery3d = PatchRecovery3D((13, 721//params.img_scale, 1440//params.img_scale), (2, 4, 4), 2 * embed_dim, 5)
+
+    def forward(self, surface, surface_mask, upper_air, train = False):
+        """
+        Args:
+            surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
+            surface_mask (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
+            upper_air (torch.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
+        """
+        surface = torch.concat([surface, surface_mask], dim=1)
+        #surface = torch.concat([surface, surface_mask.unsqueeze(0)], dim=1)
+        if self.checkpointing > 0 and train:
+            surface = checkpoint(self.patchembed2d, surface, use_reentrant=True)
+            upper_air = checkpoint(self.patchembed3d, upper_air, use_reentrant=True)
+        else:
+            surface = self.patchembed2d(surface)
+            upper_air = self.patchembed3d(upper_air)
+
+        x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
+        B, C, Pl, Lat, Lon = x.shape
+        x = x.reshape(B, C, -1).transpose(1, 2)
+
+        if self.checkpointing == 2 and train:
+            x = checkpoint(self.layer1, x, use_reentrant=True)
+        else:
+            x = self.layer1(x, train = train)
+
+        skip = x
+
+        x = self.downsample(x)
+        if self.checkpointing == 2 and train:
+            x = checkpoint(self.layer2, x, use_reentrant=True)
+            x = checkpoint(self.layer3, x, use_reentrant=True)
+            x = checkpoint(self.upsample, x, use_reentrant=True)
+            x = checkpoint(self.layer4, x, use_reentrant=True)
+        else:
+            x = self.layer2(x, train = train)
+            x = self.layer3(x, train = train)
+            x = self.upsample(x)
+            x = self.layer4(x, train = train)
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
         output_surface = output[:, :, 0, :, :]
         output_upper_air = output[:, :, 1:, :, :]
 
-        output_surface = self.patchrecovery2d(output_surface)
-        output_upper_air = self.patchrecovery3d(output_upper_air)
+        if self.checkpointing > 0 and train:
+            output_surface = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=True)
+            output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=True)
+        else:
+            output_surface = self.patchrecovery2d(output_surface)
+            output_upper_air = self.patchrecovery3d(output_upper_air)
         return output_surface, output_upper_air
 
 class PanguModelMemEff(nn.Module):
@@ -458,24 +613,28 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm):
+                 drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm, use_mem_eff = False, checkpointing = 0):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
+        self.checkpointing = checkpointing
 
         self.blocks = nn.ModuleList([
             EarthSpecificBlock(dim=dim, input_resolution=input_resolution, num_heads=num_heads, window_size=window_size,
                                shift_size=(0, 0, 0) if i % 2 == 0 else None, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                                qk_scale=qk_scale, drop=drop, attn_drop=attn_drop,
                                drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                               norm_layer=norm_layer)
+                               norm_layer=norm_layer, use_mem_eff = use_mem_eff)
             for i in range(depth)
         ])
 
-    def forward(self, x):
+    def forward(self, x, train = False):
         for blk in self.blocks:
-            x = blk(x)
+            if self.checkpointing > 2 and train:
+                x = checkpoint(blk, x, use_reentrant=True)
+            else:
+                x = blk(x)
         return x
 
 class EarthSpecificLayerMemEff(nn.Module): #BasicLayer(nn.Module):
@@ -540,7 +699,7 @@ class EarthSpecificBlock(nn.Module):
 
     def __init__(self, dim, input_resolution, num_heads, window_size=None, shift_size=None, mlp_ratio=4.,
                  qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU,
-                 norm_layer=nn.LayerNorm):
+                 norm_layer=nn.LayerNorm, use_mem_eff = False):
         super().__init__()
         window_size = (2, 6, 12) if window_size is None else window_size
         shift_size = (1, 3, 6) if shift_size is None else shift_size
@@ -560,10 +719,16 @@ class EarthSpecificBlock(nn.Module):
         pad_resolution[1] += (padding[2] + padding[3])
         pad_resolution[2] += (padding[0] + padding[1])
 
-        self.attn = EarthAttention3D(
-            dim=dim, input_resolution=pad_resolution, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
-            qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop
-        )
+        if use_mem_eff:
+            self.attn = EarthAttention3DMemEff(
+                dim=dim, input_resolution=pad_resolution, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
+                qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop
+            )
+        else:
+            self.attn = EarthAttention3D(
+                dim=dim, input_resolution=pad_resolution, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
+                qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop
+            )
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
         self.norm2 = norm_layer(dim)
@@ -794,8 +959,10 @@ class EarthAttention3D(nn.Module):
         """
         B_, nW_, N, C = x.shape
         qkv = self.qkv(x).reshape(B_, nW_, N, 3, self.num_heads, C // self.num_heads).permute(3, 0, 4, 1, 2, 5)
-        q, k, v = torch.unbind(qkv, 0)
-        L = q.shape[-1]
+        q, k, v = qkv[0], qkv[1], qkv[2]
+
+        q = q * self.scale
+        attn = (q @ k.transpose(-2, -1))
 
         earth_position_bias = self.earth_position_bias_table[self.earth_position_index.view(-1)].view(
             self.window_size[0] * self.window_size[1] * self.window_size[2],
@@ -803,20 +970,20 @@ class EarthAttention3D(nn.Module):
             self.type_of_windows, -1
         )  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon, num_pl*num_lat, nH
         earth_position_bias = earth_position_bias.permute(
-            3, 2, 0, 1).contiguous().unsqueeze(0)  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
-        #with torch.backends.cuda.sdp_kernel(enable_flash=False, enable_mem_efficient=False, enable_math=True):
+            3, 2, 0, 1).contiguous()  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
+        attn = attn + earth_position_bias.unsqueeze(0)
+
         if mask is not None:
             nLon = mask.shape[0]
-            x = F.scaled_dot_product_attention(q.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
-                                                    k.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
-                                                    v.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
-                                                    attn_mask=earth_position_bias.unsqueeze(0) + \
-                                                        mask.unsqueeze(1).unsqueeze(0),
-                                                    scale = self.scale)
-            x = x.view(-1, self.num_heads, nW_, N, L)
+            attn = attn.view(B_ // nLon, nLon, self.num_heads, nW_, N, N) + mask.unsqueeze(1).unsqueeze(0)
+            attn = attn.view(-1, self.num_heads, nW_, N, N)
+            attn = self.softmax(attn)
         else:
-            x = F.scaled_dot_product_attention(q, k, v, attn_mask=earth_position_bias, scale=self.scale)
-        x = x.permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
+            attn = self.softmax(attn)
+
+        attn = self.attn_drop(attn)
+
+        x = (attn @ v).permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -872,29 +1039,29 @@ class EarthAttention3DMemEff(nn.Module):
         """
         B_, nW_, N, C = x.shape
         # Mem efficient attention doesn't have permute
-        qkv = self.qkv(x).reshape(B_ * nW_, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = self.qkv(x).reshape(B_, nW_, N, 3, self.num_heads, C // self.num_heads).permute(3, 0, 4, 1, 2, 5)
         q, k, v = torch.unbind(qkv, 0)
         L = q.shape[-1]
-        """
+
+        earth_position_bias = self.earth_position_bias_table[self.earth_position_index.view(-1)].view(
+            self.window_size[0] * self.window_size[1] * self.window_size[2],
+            self.window_size[0] * self.window_size[1] * self.window_size[2],
+            self.type_of_windows, -1
+        )  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon, num_pl*num_lat, nH
+        earth_position_bias = earth_position_bias.permute(
+            3, 2, 0, 1).contiguous().unsqueeze(0)  # nH, num_pl*num_lat, Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
         if mask is not None:
             nLon = mask.shape[0]
-            x = F.scaled_dot_product_attention(q, k, v,
-                                                    scale = self.scale)
-        else: 
-            x = F.scaled_dot_product_attention(q, k, v, scale = self.scale) #attn_mask=earth_position_bias, scale=self.scale)
-        x = x.view(-1, nW_, self.num_heads, N, L)
-        """
-        x = xops.memory_efficient_attention(
-        #x = memory_efficient_attention(
-                q,
-                k,
-                v,
-                #attn_bias=attn_bias,
-                #p=self.attn_drop,
-                scale=self.scale
-            )
-        x = x.view(-1, nW_, self.num_heads, N, L)
-        x = x.permute(0, 1, 3, 2, 4).reshape(B_, nW_, N, C)
+            x = F.scaled_dot_product_attention(q.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+                                                  k.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+                                                  v.view(B_ // nLon, nLon, self.num_heads, nW_, N, L),
+                                                  attn_mask=earth_position_bias.unsqueeze(0) + \
+                                                            mask.unsqueeze(1).unsqueeze(0),
+                                                  scale = self.scale)
+            x = x.view(-1, self.num_heads, nW_, N, L)
+        else:
+            x = F.scaled_dot_product_attention(q, k, v, attn_mask=earth_position_bias, scale=self.scale)
+        x = x.permute(0, 2, 3, 1, 4).reshape(B_, nW_, N, C)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
