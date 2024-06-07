@@ -23,6 +23,8 @@ import logging
 from utils import logging_utils
 logging_utils.config_logger()
 from apex import optimizers
+from pathlib import Path
+torch._dynamo.config.optimize_ddp = False
 
 class Trainer():
     def count_parameters(self):
@@ -53,6 +55,7 @@ class Trainer():
 
         if params.nettype == 'pangu':
             self.model = PanguModel(params).to(self.device)
+            self.model = torch.compile(self.model, mode = 'default') 
         else:
             raise Exception("not implemented")
 
@@ -231,7 +234,7 @@ class Trainer():
 
                 gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
                                  self.surface_mask.to(self.device, dtype=torch.float32),
-                                 inp_pl.to(self.device, dtype=torch.float32))
+                                 inp_pl.to(self.device, dtype=torch.float32), train = True)
                 
                 # We use the MAE loss to train the model
                 # The weight of surface loss is 0.25
@@ -295,7 +298,7 @@ class Trainer():
 
                 gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
                                  self.surface_mask.to(self.device, dtype=torch.float32),
-                                 inp_pl.to(self.device, dtype=torch.float32))
+                                 inp_pl.to(self.device, dtype=torch.float32), train = False)
 
                 loss_sfc = self.loss_obj_sfc(gen[0], tar_sfc)
                 loss_pl = self.loss_obj_pl(gen[1], tar_pl)
@@ -403,6 +406,7 @@ if __name__ == '__main__':
     parser.add_argument("--config", default='base_config', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
+    parser.add_argument("--local-rank", type=int)
 
     args = parser.parse_args()
 
@@ -423,7 +427,12 @@ if __name__ == '__main__':
 
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
+
+        #if 'eagle' in str(Path(__file__)):
+        #    local_rank = args.local_rank
+        #else:
         local_rank = int(os.environ["LOCAL_RANK"])
+
 
         args.gpu = local_rank
         world_rank = dist.get_rank()
