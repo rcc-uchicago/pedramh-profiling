@@ -61,9 +61,9 @@ import math
 from utils.img_utils import reshape_fields
 
 
-def get_data_loader(params, files_pattern, distributed, train):
+def get_data_loader(params, files_pattern, distributed, train, precip = False):
 
-  dataset = GetDataset(params, files_pattern, train)
+  dataset = GetDataset(params, files_pattern, train, precip)
   sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
   
   dataloader = DataLoader(dataset,
@@ -80,7 +80,8 @@ def get_data_loader(params, files_pattern, distributed, train):
     return dataloader, dataset
 
 class GetDataset(Dataset):
-  def __init__(self, params, location, train):
+  def __init__(self, params, location, train, precip = False):
+    self.precip = precip
     self.params = params
     self.location = location
     self.train = train
@@ -99,7 +100,10 @@ class GetDataset(Dataset):
 
 
   def _get_files_stats(self):
-    self.files_paths_sfc = glob.glob(self.location + "/*_sfc.h5")
+    if self.precip:
+        self.files_paths_sfc = glob.glob(self.location + "/*_sfc_wprecip.h5")
+    else:
+        self.files_paths_sfc = glob.glob(self.location + "/*_sfc.h5")
     self.files_paths_pl = glob.glob(self.location + "/*_pl.h5")
     self.files_paths_sfc.sort()
     self.files_paths_pl.sort()
