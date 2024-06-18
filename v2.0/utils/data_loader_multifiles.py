@@ -47,7 +47,7 @@
 # Karthik Kashinath - NVIDIA Corporation
 # Animashree Anandkumar - California Institute of Technology, NVIDIA Corporation
 
-import os
+import os, sys
 import logging
 import glob
 import torch
@@ -112,6 +112,9 @@ class GetDataset(Dataset):
         self.varying_boundary_variables = params.varying_boundary_variables or []
         self.boundary_dir = params.boundary_dir
         self.constant_boundary_data = self._load_constant_boundary_data()
+        if torch.any(torch.isnan(self.constant_boundary_data)):
+            print('Constant boundary has nan')
+            sys.exit(2)
 
         self.surface_mean, self.surface_std = self.load_mean_std(join(
             data_dir, params.surface_mean), join(data_dir, params.surface_std), self.surface_variables)
@@ -301,6 +304,15 @@ class GetDataset(Dataset):
         varying_boundary_data = self.boundary_transform(varying_boundary_data)
         surface_t, upper_air_t = self._get_data(start_idx, start_hour_diff[start_idx])
         surface_t_1, upper_air_t_1 = self._get_data(end_idx, end_hour_diff[end_idx])
+        if torch.any(torch.isnan(varying_boundary_data)):
+            print('Boundary data has nan')
+            sys.exit(2)
+        if torch.any(torch.isnan(surface_t)):
+            print('Surface has nan')
+            sys.exit(2)
+        if torch.any(torch.isnan(upper_air_t)):
+            print('Upper air has nan')
+            sys.exit(2)
 
         if self.train:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data

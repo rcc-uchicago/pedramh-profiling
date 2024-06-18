@@ -24,6 +24,7 @@ from apex import optimizers
 from pathlib import Path
 import dask
 dask.config.set(scheduler='synchronous')
+torch._dynamo.config.optimize_ddp = False
 
 
 
@@ -58,6 +59,7 @@ class Trainer():
 
         if params.nettype == 'pangu_plasim':
             self.model = PanguModel_Plasim(params).to(self.device)
+            self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
 

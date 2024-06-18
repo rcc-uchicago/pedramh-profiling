@@ -27,7 +27,6 @@ dependencies:
   - wheel=0.43.0=pyhd8ed1ab_0
   - xz=5.2.6=h166bdaf_0
   - pip:
-      - --extra-index-url https://download.pytorch.org/whl/cu118
       - aiobotocore==2.12.1
       - aiohttp==3.9.3
       - aioitertools==0.11.0
@@ -103,9 +102,9 @@ dependencies:
       - sympy==1.12
       - timm==0.9.10
       - toolz==0.12.1
-      - torch==2.2.2+cu118
-      - torchaudio==2.2.2+cu118
-      - torchvision==0.17.2+cu118
+      - torch
+      - torchaudio
+      - torchvision
       - tqdm==4.66.2
       - traitlets==5.14.2
       - treelib==1.7.0
