@@ -21,7 +21,8 @@ base_config: &BASE
   gridtype: 'sinusoidal' #options 'sinusoidal' or 'linear'
   roll: !!bool False
   max_epochs: 100
-  batch_size: 192 #4
+  batch_size: 4 #192
+  checkpointing: 3
   
   mask_dir:        '/eagle/MDClimSim/awikner/PanguWeather-UC/data/constant_mask'
   train_data_path: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/h5/train'
@@ -29,8 +30,8 @@ base_config: &BASE
   inf_data_path:   '/eagle/MDClimSim/awikner/PanguWeather-UC/data/h5/test'
   
     #time_means_path_sfc:   '../data/stats/time_means_sfc.npy'
-  global_means_path_sfc: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_surface_mean.npy'
-  global_stds_path_sfc:  '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_surface_std.npy'
+  global_means_path_sfc: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_new_6_surface_mean.npy'
+  global_stds_path_sfc:  '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_new_6_surface_std.npy'
 
     #time_means_path_pl:   'data/stats/time_means_pl.npy'
   global_means_path_pl: '/eagle/MDClimSim/awikner/PanguWeather-UC/data/stats/ERA5_1979_2017_6_mean.npy'

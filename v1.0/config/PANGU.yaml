@@ -58,7 +58,7 @@ base_config: &BASE
 
   nettype: 'pangu'
 
-  img_scale: 1  # 720/img_scale, 1440/img_scale
+  img_scale: 2  # 720/img_scale, 1440/img_scale
   
 
 modified_1: &MODIFIED
