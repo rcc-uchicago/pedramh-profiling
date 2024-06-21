@@ -25,6 +25,7 @@ logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
 torch._dynamo.config.optimize_ddp = False
+torch.set_float32_matmul_precision('high')
 
 class Trainer():
     def count_parameters(self):
@@ -55,7 +56,6 @@ class Trainer():
 
         if params.nettype == 'pangu':
             self.model = PanguModel(params).to(self.device)
-            self.model = torch.compile(self.model, mode = 'default') 
         else:
             raise Exception("not implemented")
 

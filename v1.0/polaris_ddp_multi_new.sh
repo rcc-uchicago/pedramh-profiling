@@ -25,7 +25,7 @@ export PYTHONFAULTHANDLER=1
 export TORCH_DISTRIBUTED_DEBUG=DETAIL
 
 # Change to working directory
-cd $PBS_O_WORKDIR
+# cd $PBS_O_WORKDIR
 
 echo "Job ID: ${PBS_JOBID}"
 export PLASIM_TRAIN_ITER=$PLASIM_TRAIN_ITER+1
@@ -70,7 +70,7 @@ else
     LAUNCHER+="--rdzv_backend=c10d --rdzv_endpoint=$MASTER_RANK "
 fi
 
-CMD="train.py --yaml_config=/eagle/lighthouse-uchicago/members/hyadav/PanguWeather/v1.0/config/PANGU_24HR.yaml"
+CMD="train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather-UC/v1.0/config/PANGU_24HR.yaml"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
