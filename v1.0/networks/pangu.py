@@ -88,6 +88,7 @@ class PanguModel(nn.Module):
         super().__init__()
         drop_path = np.linspace(0, 0.2, 8).tolist()
         self.checkpointing = params.checkpointing if params.checkpointing is not None else 0
+        self.use_reentrant = params.use_reentrant if params.use_reentrant is not None else False
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
         self.patchembed2d = PatchEmbed2D(
             img_size=(721//params.img_scale, 1440//params.img_scale),
@@ -109,7 +110,8 @@ class PanguModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[:2],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
         
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=(8, 181//params.img_scale, 360//params.img_scale), 
                                      output_resolution=(8, 91//params.img_scale, 180//params.img_scale))
@@ -121,7 +123,8 @@ class PanguModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[2:],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
         
         self.layer3 = EarthSpecificLayer(
             dim=embed_dim * 2,
@@ -131,7 +134,8 @@ class PanguModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[2:],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
         
         self.upsample = UpSample(embed_dim * 2, embed_dim, (8, 91//params.img_scale, 180//params.img_scale), 
                                  (8, 181//params.img_scale, 360//params.img_scale))
@@ -143,9 +147,11 @@ class PanguModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[:2],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
         
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
+        # self.patchrecovery2d = PatchRecovery2D((721//params.img_scale, 1440//params.img_scale), (4, 4), 2 * embed_dim, 4)
         self.patchrecovery2d = PatchRecovery2D((721//params.img_scale, 1440//params.img_scale), (4, 4), 2 * embed_dim, 4)
         self.patchrecovery3d = PatchRecovery3D((13, 721//params.img_scale, 1440//params.img_scale), (2, 4, 4), 2 * embed_dim, 5)
 
@@ -159,8 +165,10 @@ class PanguModel(nn.Module):
         surface = torch.concat([surface, surface_mask], dim=1)
         #surface = torch.concat([surface, surface_mask.unsqueeze(0)], dim=1)
         if self.checkpointing > 0 and train:
-            surface = checkpoint(self.patchembed2d, surface, use_reentrant=True)
-            upper_air = checkpoint(self.patchembed3d, upper_air, use_reentrant=True)
+            #surface = checkpoint(self.patchembed2d, surface, use_reentrant=True)
+            #upper_air = checkpoint(self.patchembed3d, upper_air, use_reentrant=True)
+            surface = self.patchembed2d(surface)
+            upper_air = self.patchembed3d(upper_air)
         else:
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air)
@@ -170,7 +178,7 @@ class PanguModel(nn.Module):
         x = x.reshape(B, C, -1).transpose(1, 2)
 
         if self.checkpointing == 2 and train:
-            x = checkpoint(self.layer1, x, use_reentrant=True)
+            x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
         else:
             x = self.layer1(x, train = train)
 
@@ -178,10 +186,10 @@ class PanguModel(nn.Module):
 
         x = self.downsample(x)
         if self.checkpointing == 2 and train:
-            x = checkpoint(self.layer2, x, use_reentrant=True)
-            x = checkpoint(self.layer3, x, use_reentrant=True)
-            x = checkpoint(self.upsample, x, use_reentrant=True)
-            x = checkpoint(self.layer4, x, use_reentrant=True)
+            x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
+            x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
+            x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
+            x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
         else:
             x = self.layer2(x, train = train)
             x = self.layer3(x, train = train)
@@ -194,8 +202,10 @@ class PanguModel(nn.Module):
         output_upper_air = output[:, :, 1:, :, :]
         
         if self.checkpointing > 0 and train:
-            output_surface = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=True)
-            output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=True)
+            #output_surface = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=True)
+            #output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=True)
+            output_surface = self.patchrecovery2d(output_surface)
+            output_upper_air = self.patchrecovery3d(output_upper_air)
         else:
             output_surface = self.patchrecovery2d(output_surface)
             output_upper_air = self.patchrecovery3d(output_upper_air)
@@ -216,6 +226,7 @@ class PanguPrecipModel(nn.Module):
         super().__init__()
         drop_path = np.linspace(0, 0.2, 8).tolist()
         self.checkpointing = params.checkpointing if params.checkpointing is not None else 0
+        self.use_reentrant = params.use_reentrant if params.use_reentrant is not None else False
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
         self.patchembed2d = PatchEmbed2D(
             img_size=(721//params.img_scale, 1440//params.img_scale),
@@ -237,7 +248,8 @@ class PanguPrecipModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[:2],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
 
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=(8, 181//params.img_scale, 360//params.img_scale),
                                      output_resolution=(8, 91//params.img_scale, 180//params.img_scale))
@@ -249,7 +261,8 @@ class PanguPrecipModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[2:],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
 
         self.layer3 = EarthSpecificLayer(
             dim=embed_dim * 2,
@@ -259,7 +272,8 @@ class PanguPrecipModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[2:],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
 
         self.upsample = UpSample(embed_dim * 2, embed_dim, (8, 91//params.img_scale, 180//params.img_scale),
                                  (8, 181//params.img_scale, 360//params.img_scale))
@@ -271,7 +285,8 @@ class PanguPrecipModel(nn.Module):
             window_size=window_size,
             drop_path=drop_path[:2],
             use_mem_eff = use_mem_eff,
-            checkpointing = self.checkpointing)
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
 
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
         self.patchrecovery2d = PatchRecovery2D((721//params.img_scale, 1440//params.img_scale), (4, 4), 2 * embed_dim, 5)
@@ -287,8 +302,10 @@ class PanguPrecipModel(nn.Module):
         surface = torch.concat([surface, surface_mask], dim=1)
         #surface = torch.concat([surface, surface_mask.unsqueeze(0)], dim=1)
         if self.checkpointing > 0 and train:
-            surface = checkpoint(self.patchembed2d, surface, use_reentrant=True)
-            upper_air = checkpoint(self.patchembed3d, upper_air, use_reentrant=True)
+            #surface = checkpoint(self.patchembed2d, surface, use_reentrant=True)
+            #upper_air = checkpoint(self.patchembed3d, upper_air, use_reentrant=True)
+            surface = self.patchembed2d(surface)
+            upper_air = self.patchembed3d(upper_air)
         else:
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air)
@@ -298,7 +315,7 @@ class PanguPrecipModel(nn.Module):
         x = x.reshape(B, C, -1).transpose(1, 2)
 
         if self.checkpointing == 2 and train:
-            x = checkpoint(self.layer1, x, use_reentrant=True)
+            x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
         else:
             x = self.layer1(x, train = train)
 
@@ -306,10 +323,10 @@ class PanguPrecipModel(nn.Module):
 
         x = self.downsample(x)
         if self.checkpointing == 2 and train:
-            x = checkpoint(self.layer2, x, use_reentrant=True)
-            x = checkpoint(self.layer3, x, use_reentrant=True)
-            x = checkpoint(self.upsample, x, use_reentrant=True)
-            x = checkpoint(self.layer4, x, use_reentrant=True)
+            x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
+            x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
+            x = self.upsample(x)
+            x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
         else:
             x = self.layer2(x, train = train)
             x = self.layer3(x, train = train)
@@ -322,8 +339,10 @@ class PanguPrecipModel(nn.Module):
         output_upper_air = output[:, :, 1:, :, :]
 
         if self.checkpointing > 0 and train:
-            output_surface = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=True)
-            output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=True)
+            #output_surface = checkpoint(self.patchrecovery2d, output_surface, use_reentrant=True)
+            #output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=True)
+            output_surface = self.patchrecovery2d(output_surface)
+            output_upper_air = self.patchrecovery3d(output_upper_air)
         else:
             output_surface = self.patchrecovery2d(output_surface)
             output_upper_air = self.patchrecovery3d(output_upper_air)
@@ -613,12 +632,14 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm, use_mem_eff = False, checkpointing = 0):
+                 drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm, use_mem_eff = False, checkpointing = 0,
+                 use_reentrant = False):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.checkpointing = checkpointing
+        self.use_reentrant = use_reentrant
 
         self.blocks = nn.ModuleList([
             EarthSpecificBlock(dim=dim, input_resolution=input_resolution, num_heads=num_heads, window_size=window_size,
@@ -632,7 +653,7 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
     def forward(self, x, train = False):
         for blk in self.blocks:
             if self.checkpointing > 2 and train:
-                x = checkpoint(blk, x, use_reentrant=True)
+                x = checkpoint(blk, x, use_reentrant=self.use_reentrant)
             else:
                 x = blk(x)
         return x

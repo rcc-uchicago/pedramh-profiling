@@ -5,7 +5,7 @@ from ruamel.yaml import YAML
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import wandb
-from utils.data_loader_multifiles import get_data_loader
+from utils.data_loader_multifiles_test import get_data_loader
 from utils.YParams import YParams
 import os
 import time
@@ -24,9 +24,8 @@ from apex import optimizers
 from pathlib import Path
 import dask
 dask.config.set(scheduler='synchronous')
-torch._dynamo.config.optimize_ddp = False
 
-torch.cuda.empty_cache() 
+
 
 class Trainer():
     def count_parameters(self):
@@ -43,10 +42,10 @@ class Trainer():
                        entity=params.entity)
 
         logging.info('rank %d, begin data loader init' % world_rank)
-        self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
+        self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, self.world_rank, params.data_dir, dist.is_initialized(), 
                                                                                          year_start=params.train_year_start, 
                                                                                          year_end=params.train_year_end, train=True)
-        self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
+        self.valid_data_loader, self.valid_dataset = get_data_loader(params, self.world_rank, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False)
 
@@ -59,7 +58,6 @@ class Trainer():
 
         if params.nettype == 'pangu_plasim':
             self.model = PanguModel_Plasim(params).to(self.device)
-            self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
 
@@ -83,6 +81,7 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
+            logging.info("Loading checkpoint %s" % params.checkpoint_path)
             self.restore_checkpoint(params.checkpoint_path)
 
         self.epoch = self.startEpoch
@@ -219,8 +218,6 @@ class Trainer():
 
             if self.params.enable_amp:
                 self.gscaler.update()
-
-            torch.cuda.empty_cache() #Check
 
             tr_time += time.time() - tr_start
 
@@ -374,10 +371,8 @@ if __name__ == '__main__':
     print('World size from Cuda: %d' % torch.cuda.device_count())
     if 'WORLD_SIZE' in os.environ:
         params['world_size'] = int(os.environ['WORLD_SIZE'])
-        print(params['world_size'])
     else:
         params['world_size'] = torch.cuda.device_count()
-        print(params['world_size'])
 
     #params['world_size'] = 1
     '''if torch.cuda.device_count() == 1:
@@ -386,7 +381,7 @@ if __name__ == '__main__':
         params['batch_size'] = params['batch_size']//4'''
     
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        dist.init_process_group(backend='nccl', init_method='env://',  world_size=params['world_size'])
         if 'derecho' in str(Path(__file__)):
             local_rank = args.local_rank
         else:
@@ -394,7 +389,6 @@ if __name__ == '__main__':
 
         args.gpu = local_rank
         world_rank = dist.get_rank()
-        # print("##########WORLD RANK: TESTING ", world_rank)
 
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])

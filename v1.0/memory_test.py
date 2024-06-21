@@ -26,7 +26,7 @@ torch.backends.cudnn.allow_tf32 = True
 TORCH_CUDNN_SDPA_ENABLED=1
 #device = "cpu"
 
-params['checkpointing'] = 0
+params['checkpointing'] = 2
 torch.manual_seed(0)
 model = PanguModel(params, embed_dim = 192, use_mem_eff = False).to(dtype).to(device)
 print("# parameters: ", sum(param.numel() for param in model.parameters()))
@@ -51,6 +51,7 @@ print('Finished backward pass')
 print(prof.key_averages().table(sort_by="self_cuda_memory_usage", row_limit=10))
 
 params['checkpointing'] = 2
+params['use_reentrant'] = True
 torch.manual_seed(0)
 model = PanguModel(params, embed_dim = 192, use_mem_eff = True).to(dtype).to(device)
 print("# parameters: ", sum(param.numel() for param in model.parameters()))
