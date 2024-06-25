@@ -1,4 +1,4 @@
-from networks.pangu import PanguModel_Plasim
+from networks.pangu import PanguModel
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
+from utils.weighted_acc_rmse import weighted_rmse_torch
 import os
 import time
 import numpy as np
@@ -14,6 +15,7 @@ import argparse
 import torch
 import torchvision
 from torchvision.utils import save_image
+import torch.nn as nn
 import torch.cuda.amp as amp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
@@ -21,13 +23,9 @@ import logging
 from utils import logging_utils
 logging_utils.config_logger()
 from apex import optimizers
-from pathlib import Path
-import dask
-dask.config.set(scheduler='synchronous')
-torch._dynamo.config.optimize_ddp = False
-torch.set_float32_matmul_precision('high')
+from torch.profiler import profile, record_function, ProfilerActivity
 
-torch.cuda.empty_cache() 
+import pdb
 
 class Trainer():
     def count_parameters(self):
@@ -44,33 +42,36 @@ class Trainer():
                        entity=params.entity)
 
         logging.info('rank %d, begin data loader init' % world_rank)
-        self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                                         year_start=params.train_year_start, 
-                                                                                         year_end=params.train_year_end, train=True)
-        self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                     year_start=params.val_year_start, 
-                                                                     year_end=params.val_year_end, train=False)
-
-        self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
-        self.constant_boundary_data = self.constant_boundary_data.to(self.device)
-
+        self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(
+            params, params.train_data_path, dist.is_initialized(), train=True)
+        self.valid_data_loader, self.valid_dataset = get_data_loader(
+            params, params.valid_data_path, dist.is_initialized(), train=False)
 
         logging.info('rank %d, data loader initialized' % world_rank)
 
+        params.crop_size_x = self.valid_dataset.crop_size_x
+        params.crop_size_y = self.valid_dataset.crop_size_y
+        params.img_shape_x = self.valid_dataset.img_shape_x
+        params.img_shape_y = self.valid_dataset.img_shape_y
 
-        if params.nettype == 'pangu_plasim':
-            self.model = PanguModel_Plasim(params).to(self.device)
-            #self.model = torch.compile(self.model, mode = 'default')
+        if params.nettype == 'pangu':
+            self.model = PanguModel(params).to(self.device)
         else:
             raise Exception("not implemented")
+
+        if self.params.enable_nhwc:
+            # NHWC: Convert model to channels_last memory format
+            self.model = self.model.to(memory_format=torch.channels_last)
 
         if params.log_to_wandb:
             wandb.watch(self.model)
 
-        if params.optimizer_type == 'FusedAdam':
-            self.optimizer = optimizers.FusedAdam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+        '''if params.optimizer_type == 'FusedAdam':
+            self.optimizer = optimizers.FusedAdam(self.model.parameters(), lr = params.lr, weight_decay=params.weight_decay)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr = params.lr, weight_decay=params.weight_decay)'''
+
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
 
         if params.enable_amp == True:
             self.gscaler = amp.GradScaler()
@@ -84,6 +85,7 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
+            logging.info("Loading checkpoint %s" % params.checkpoint_path)
             self.restore_checkpoint(params.checkpoint_path)
 
         self.epoch = self.startEpoch
@@ -99,8 +101,33 @@ class Trainer():
         '''if params.log_to_screen:
       logging.info(self.model)'''
         if params.log_to_screen:
-            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-          
+            logging.info("Number of trainable model parameters: {}".format(
+                self.count_parameters()))
+
+        # Pangu parameters:
+        #surface: [4, 721, 1440] # B, C, Lat, Lon
+        #surface_mask: [3, 721, 1440]  # topography mask, land-sea mask, soil-type mask
+        #upper_air: [5, 13, 721, 1440]  # B, C, Pl, Lat, Lon
+        #B = params.B
+        #C, Lat, Lon = params.surface
+        #self.surface = torch.randn(B, C, Lat//params.img_scale, Lon//params.img_scale)  # B, C, Lat, Lon
+        #topography_mask, land_sea_mask, soil_type_mask = params.surface_mask
+        # topography mask, land-sea mask, soil-type mask
+        #self.surface_mask = torch.randn(topography_mask, land_sea_mask//params.img_scale, soil_type_mask//params.img_scale)
+        #C, Pl, Lat, Lon = params.upper_air
+        #self.upper_air = torch.randn(B, C, Pl, Lat//params.img_scale, Lon//params.img_scale)  # B, C, Pl, Lat, Lon
+
+        img_size = [721//params.img_scale, 1440//params.img_scale]
+        params.img_size = img_size
+        
+        land_mask = torch.from_numpy(np.load(os.path.join(params.mask_dir, "land_mask.npy")).astype(np.float32))
+        soil_type = torch.from_numpy(np.load(os.path.join(params.mask_dir, "soil_type.npy")).astype(np.float32))
+        topography = torch.from_numpy(np.load(os.path.join(params.mask_dir, "topography.npy")).astype(np.float32))
+        self.surface_mask = torch.stack([land_mask, soil_type, topography], dim=0)
+        self.surface_mask = self.surface_mask.unsqueeze(0).repeat(params.batch_size, 1, 1, 1)
+        self.surface_mask = torchvision.transforms.functional.resize(self.surface_mask, img_size)   
+
+
         if params.loss == 'l1':
             self.loss_obj_sfc = torch.nn.L1Loss() 
             self.loss_obj_pl = torch.nn.L1Loss()
@@ -148,9 +175,11 @@ class Trainer():
                         best_valid_loss = valid_logs['valid_loss']
 
             if self.params.log_to_screen:
-                logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
-                logging.info('Train loss: {}. Surface MSE: {}. Upper Air MSE:{}'.format(
-                    train_logs['loss'], valid_logs['Surface MSE'], valid_logs['Upper Air MSE']))
+                logging.info('Time taken for epoch {} is {} sec'.format(
+                    epoch + 1, time.time()-start))
+                # logging.info('train data time={}, train step time={}, valid step time={}'.format(data_time, tr_time, valid_time))
+                logging.info('Train loss: {}. Valid loss: {}'.format(
+                    train_logs['loss'], valid_logs['valid_loss']))
 
 
     def train_one_epoch(self):
@@ -161,9 +190,7 @@ class Trainer():
 
         nb = len(self.train_data_loader)
         pbar = enumerate(self.train_data_loader, 0)
-        pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
-
-        running_results = {"batch_sizes": 0, "loss": 0}
+        pbar = tqdm(pbar, total=nb,bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
         
         # For each epoch, we iterate from 1979 to 2017
         for i, data in pbar:
@@ -173,9 +200,17 @@ class Trainer():
             self.iters += 1
             # adjust_LR(optimizer, params, iters)
             data_start = time.time()
-            #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
-            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-                lambda x: x.to(self.device, dtype=torch.float32), data)
+            inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
+
+            if self.params.enable_nhwc:
+                inp_sfc = inp_sfc.to(memory_format=torch.channels_last)
+                inp_pl = inp_pl.to(memory_format=torch.channels_last)
+                tar_sfc = tar_sfc.to(memory_format=torch.channels_last)
+                tar_pl = tar_pl.to(memory_format=torch.channels_last)
+
+            if 'residual_field' in self.params.target:
+                tar_sfc -= inp_sfc[:, 0:tar_sfc.size()[1]]
+                tar_pl -= inp_pl[:, 0:tar_pl.size()[1]]
 
             data_time += time.time() - data_start
 
@@ -197,17 +232,23 @@ class Trainer():
                 # A example solution is using torch.optim.adam
                 UpdateModelParametersWithAdam()'''
 
-                output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                              varying_boundary_data, input_upper_air)
+                print(inp_sfc.size())
+                print(self.surface_mask.size())
+                print(inp_pl.size())
 
+                pdb.set_trace()
+                
+                gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
+                                 self.surface_mask.to(self.device, dtype=torch.float32),
+                                 inp_pl.to(self.device, dtype=torch.float32))
                 
                 # We use the MAE loss to train the model
                 # The weight of surface loss is 0.25
                 # Different weight can be applied for differen fields if needed
                 #loss = TensorAbs(output-target) + TensorAbs(output_surface-target_surface) * 0.25
-                
-                loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-                loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+            
+                loss_sfc = self.loss_obj_sfc(gen[0], tar_sfc)
+                loss_pl = self.loss_obj_pl(gen[1], tar_pl)
 
                 loss = (loss_sfc * 0.25) + loss_pl
 
@@ -221,16 +262,8 @@ class Trainer():
             if self.params.enable_amp:
                 self.gscaler.update()
 
-            torch.cuda.empty_cache() #Check
-
             tr_time += time.time() - tr_start
-
-            running_results["loss"] += loss.item() * self.params['batch_size']
-            running_results["batch_sizes"] += self.params['batch_size']
-
-            pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-
-
+ 
         logs = {'loss': loss}
 
         if dist.is_initialized():
@@ -246,14 +279,19 @@ class Trainer():
 
     def validate_one_epoch(self):
         self.model.eval()
-        n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
+        n_valid_batches = 20  # do validation on first 20 images, just for LR scheduler
+        if self.params.normalization == 'minmax':
+            raise Exception("minmax normalization not supported")
+        elif self.params.normalization == 'zscore':
+            mult_sfc = torch.as_tensor(np.load(self.params.global_stds_path_sfc)[0, :, 0, 0]).to(self.device)
+            mult_pl = torch.as_tensor(np.load(self.params.global_stds_path_pl)[0, :, :, 0, 0]).to(self.device).reshape(-1)
 
-        valid_buff = torch.zeros((5), dtype=torch.float32, device=self.device)
+        valid_buff = torch.zeros((3), dtype=torch.float32, device=self.device)
         valid_loss = valid_buff[0].view(-1)
-        valid_loss_sfc = valid_buff[1].view(-1)
-        valid_loss_pl = valid_buff[2].view(-1)
-        valid_l1 = valid_buff[3].view(-1)
-        valid_steps = valid_buff[4].view(-1)
+        valid_l1 = valid_buff[1].view(-1)
+        valid_steps = valid_buff[2].view(-1)
+        valid_weighted_rmse_sfc = torch.zeros((mult_sfc.shape[0]), dtype=torch.float32, device=self.device)
+        valid_weighted_rmse_pl = torch.zeros((mult_pl.shape[0]), dtype=torch.float32, device=self.device)
 
         valid_start = time.time()
 
@@ -262,56 +300,72 @@ class Trainer():
             for i, data in enumerate(self.valid_data_loader, 0):
                 if i >= n_valid_batches:
                     break
-                val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
-                    lambda x: x.to(self.device, dtype=torch.float32), data)
+                inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
 
-                val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                      val_varying_boundary_data, val_input_upper_air)
+                gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
+                                 self.surface_mask.to(self.device, dtype=torch.float32),
+                                 inp_pl.to(self.device, dtype=torch.float32))
 
-                val_output_surface = val_output_surface.squeeze(0)
-                val_output_upper_air = val_output_upper_air.squeeze(0)
+                loss_sfc = self.loss_obj_sfc(gen[0], tar_sfc)
+                loss_pl = self.loss_obj_pl(gen[1], tar_pl)
 
-                val_target_surface = val_target_surface.squeeze(0)
-                val_target_upper_air = val_target_upper_air.squeeze(0)
-
-                loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
-                loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
+                loss = loss_sfc + loss_pl
                 
-                valid_loss += (loss_sfc + loss_pl) 
-                valid_l1 += (torch.nn.functional.l1_loss(val_output_surface, val_target_surface) + \
-                    torch.nn.functional.l1_loss(val_output_upper_air, val_target_upper_air))
+                valid_loss += loss
                 
-                valid_loss_sfc += loss_sfc 
-                valid_loss_pl += loss_pl
+                #valid_l1 += nn.functional.l1_loss(gen, tar)
+
                 valid_steps += 1.
 
-                # save first channel of first 5 images
-                if i < 5:
-                    try:
-                        os.mkdir(params['experiment_dir'] + "/" + str(i))
-                    except:
-                        pass
+                # direct prediction weighted rmse
 
-                    save_image(torch.cat((val_output_surface[0, 0], torch.zeros((val_output_surface.shape[2], 4)).to(self.device, dtype=torch.float), 
-                                      val_target_surface[0, 0]), axis=1), params['experiment_dir'] + "/" + str(i) + "/" + str(self.epoch) + ".png")
+                if 'residual_field' in self.params.target:
+                    valid_weighted_rmse_sfc += weighted_rmse_torch((gen[0] + inp_sfc), (tar_sfc + inp_sfc))
+                    valid_weighted_rmse_pl += weighted_rmse_torch((gen[1].reshape(gen[1].shape[0], -1, gen[1].shape[3], gen[1].shape[4]) + \
+                                                                   inp_pl.reshape(gen[1].shape[0], -1, gen[1].shape[3], gen[1].shape[4])), 
+                                                                   (tar_pl.reshape(gen[1].shape[0], -1, gen[1].shape[3], gen[1].shape[4]) + \
+                                                                    inp_pl.reshape(gen[1].shape[0], -1, gen[1].shape[3], gen[1].shape[4])))
+                else:
+                    valid_weighted_rmse_sfc += weighted_rmse_torch(gen[0], tar_sfc)
+                    valid_weighted_rmse_pl += weighted_rmse_torch(gen[1].reshape(gen[1].shape[0], -1, gen[1].shape[3], gen[1].shape[4]), 
+                                                                  tar_pl.reshape(gen[1].shape[0], -1, gen[1].shape[3], gen[1].shape[4]))
 
-        
+                try:
+                    os.mkdir(params['experiment_dir'] + "/" + str(i))
+                except:
+                    pass
+                # save first channel of image
+                save_image(torch.cat((gen[0][0, 0], torch.zeros((inp_sfc.shape[2], 4)).to(self.device, dtype=torch.float), 
+                                      tar_sfc[0, 0, :inp_sfc.shape[2], :inp_sfc.shape[3]]), axis=1), params['experiment_dir'] + "/" + str(i) + "/" + str(self.epoch) + ".png")
+
         if dist.is_initialized():
             dist.all_reduce(valid_buff)
+            dist.all_reduce(valid_weighted_rmse_sfc)
+            dist.all_reduce(valid_weighted_rmse_pl)
 
         # divide by number of steps
-        valid_buff[0:4] = valid_buff[0:4] / valid_buff[4]
-        
+        valid_buff[0:2] = valid_buff[0:2] / valid_buff[2]
+        valid_weighted_rmse_sfc = valid_weighted_rmse_sfc / valid_buff[2]
+        valid_weighted_rmse_pl = valid_weighted_rmse_pl / valid_buff[2]
+
+        valid_weighted_rmse_sfc *= mult_sfc
+        valid_weighted_rmse_pl *= mult_pl
+
         # download buffers
         valid_buff_cpu = valid_buff.detach().cpu().numpy()
+        valid_weighted_rmse_cpu_sfc = valid_weighted_rmse_sfc.detach().cpu().numpy()
+        valid_weighted_rmse_cpu_pl = valid_weighted_rmse_pl.detach().cpu().numpy()
 
         valid_time = time.time() - valid_start
+        valid_weighted_rmse_sfc = mult_sfc*torch.mean(valid_weighted_rmse_sfc, axis=0)
+        valid_weighted_rmse_pl = mult_pl*torch.mean(valid_weighted_rmse_pl, axis=0)
 
         try:
-            logs = {'valid_l1': valid_buff_cpu[3], 'valid_loss': valid_buff_cpu[0], 
-                    'Surface MSE': valid_buff_cpu[1], 'Upper Air MSE': valid_buff_cpu[2]}
+            logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0],
+                    'valid_rmse_u10': valid_weighted_rmse_cpu_sfc[0], 'valid_rmse_v10': valid_weighted_rmse_cpu_sfc[1]}
         except:
-            pass
+            # , 'valid_rmse_v10': valid_weighted_rmse[1]}
+            logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0], 'valid_rmse_u10': valid_weighted_rmse_cpu_sfc[0]}
 
         if self.params.log_to_wandb:
             wandb.log(logs, step=self.epoch)
@@ -354,48 +408,34 @@ class Trainer():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_num", default='0001', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
-    parser.add_argument("--config", default='PLASIM', type=str)
+    parser.add_argument("--yaml_config", default='./config/PANGU.yaml', type=str)
+    parser.add_argument("--config", default='base_config', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
-    parser.add_argument("--epochs", default=0, type=int)
-
-    ####### for UCAR
-    parser.add_argument("--local-rank", type=int)
-    #######
 
     args = parser.parse_args()
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
-    if args.epochs > 0:
-        params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
-    
-    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-    print('World size from Cuda: %d' % torch.cuda.device_count())
+
     if 'WORLD_SIZE' in os.environ:
         params['world_size'] = int(os.environ['WORLD_SIZE'])
-        print(params['world_size'])
     else:
         params['world_size'] = torch.cuda.device_count()
-        print(params['world_size'])
+        
 
-    #params['world_size'] = 1
-    '''if torch.cuda.device_count() == 1:
+    if torch.cuda.device_count() == 1:
+        params['world_size'] = 1
         world_rank = 0
         local_rank = 0
-        params['batch_size'] = params['batch_size']//4'''
-    
+        params['batch_size'] = params['batch_size']//4
+
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
-        if 'derecho' in str(Path(__file__)):
-            local_rank = args.local_rank
-        else:
-            local_rank = int(os.environ["LOCAL_RANK"])
+        local_rank = int(os.environ["LOCAL_RANK"])
 
         args.gpu = local_rank
         world_rank = dist.get_rank()
-        # print("##########WORLD RANK: TESTING ", world_rank)
 
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
@@ -428,8 +468,8 @@ if __name__ == '__main__':
 
     # this will be the wandb name
     params['name'] = args.config + '_' + str(args.run_num)
-    params['group'] = "Pangu_plasim_" + args.config  
-    params['project'] = "Pangu"  
+    params['group'] = "Pangu_era5_" + args.config  # "era5_precip" + args.config
+    params['project'] = "Pangu"  # "ERA5_precip"
     params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'

@@ -43,6 +43,8 @@ NNODES=`wc -l < $PBS_NODEFILE`
 #Follwing will be the number of GPUs on each node, so 4 in our case as each node has 4 GPUs
 NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
 #NUM_TASKS_PER_NODE=2
+NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
+#NUM_TASKS_PER_NODE=2
 WORLD_SIZE=$((NNODES * NUM_TASKS_PER_NODE))
 
 echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SIZE= ${WORLD_SIZE}"
