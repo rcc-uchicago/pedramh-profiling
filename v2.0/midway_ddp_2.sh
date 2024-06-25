@@ -2,10 +2,10 @@
 #SBATCH --account=pi-pedramh
 #SBATCH --time=2-00:00:00
 #SBATCH -p pedramh-gpu
-#SBATCH --mem-per-cpu=5G 
+#SBATCH --mem-per-gpu=40G 
 #SBATCH --nodes=1
-#SBATCH --gpus=4       #gpus=a100:4
-#SBATCH --ntasks=4
+#SBATCH --gpus=3       #gpus=a100:4
+#SBATCH --ntasks=3
 #SBATCH --cpus-per-task=8 #16 
 #SBATCH -o outs/midway_ddp_2.out
 
