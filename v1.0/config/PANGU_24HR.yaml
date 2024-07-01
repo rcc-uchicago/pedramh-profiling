@@ -21,8 +21,8 @@ base_config: &BASE
   gridtype: 'sinusoidal' #options 'sinusoidal' or 'linear'
   roll: !!bool False
   max_epochs: 100
-  batch_size: 8 #4
-  checkpointing: 2
+  batch_size: 16 #4
+  checkpointing: 3
   use_reentrant: False
   
   mask_dir:        '/eagle/MDClimSim/awikner/PanguWeather-UC/data/constant_mask'

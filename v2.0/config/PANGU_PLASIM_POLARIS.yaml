@@ -4,7 +4,7 @@ base_config: &BASE
   lr: 5E-4
   weight_decay: 3e-6
   scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
-  num_data_workers: 8
+  num_data_workers: 0
   
   log_to_screen: !!bool True
   log_to_wandb: !!bool False #True
@@ -31,7 +31,7 @@ PLASIM: &PLASIM
   train_year_start: 51
   train_year_end: 151
   val_year_start: 151
-  val_year_end: 161
+  val_year_end: 152
   surface_mean: 'plasim_test_51_150_surface_mean.nc'
   surface_std: 'plasim_test_51_150_surface_std.nc'
   upper_air_mean: 'plasim_test_51_150_mean.nc'
@@ -40,7 +40,7 @@ PLASIM: &PLASIM
   boundary_std: 'plasim_test_51_150_boundary_std.nc'
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 64
+  batch_size: 4
   max_epochs: 100
 
   has_year_zero: False

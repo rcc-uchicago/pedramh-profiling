@@ -63,6 +63,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from os.path import join
 import cftime
+from datetime import timedelta
 import xarray as xr
 import warnings
 
@@ -77,7 +78,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
                             batch_size=int(params.batch_size),
                             num_workers=params.num_data_workers,
                             shuffle=False,  # (sampler is None),
-                            sampler=sampler if train else None,
+                            sampler=sampler,# if train else None,
                             drop_last=True,
                             pin_memory=torch.cuda.is_available())
 
@@ -212,11 +213,11 @@ class GetDataset(Dataset):
             self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1)
 
     def _create_surface_inv_transform(self):
-        return lambda data: data * self.surface_std.reshape(-1, 1, 1) + self.surface_mean.reshape(-1, 1, 1)
+        return lambda data: data * self.surface_std.reshape(1, -1, 1, 1) + self.surface_mean.reshape(1, -1, 1, 1)
 
     def _create_upper_air_inv_transform(self):
-        return lambda data: data * self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1) + \
-            self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1)
+        return lambda data: data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
+            self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
     
     def _load_boundary_data(self):
         print('Loading varying boundary from %s' % join(self.data_dir, self.boundary_dir))
@@ -234,7 +235,10 @@ class GetDataset(Dataset):
     def _get_dates(self, hour_step = 6.):
         start_date = self.datetime_class(self.year_start, 1, 1)
         end_date = self.datetime_class(self.year_end, 1, 1)
-        hours = (end_date - start_date).days * 24.
+        if not self.train and self.params['inference_steps'] > 0:
+            hours = (end_date - start_date).days * 24. - (self.params['inference_steps'])
+        else:
+            hours = (end_date - start_date).days * 24.
         date_range = np.arange(0., hours, hour_step)
         return date_range
     
@@ -246,10 +250,10 @@ class GetDataset(Dataset):
     
     def _load_data(self):
         data_files = [join(self.data_dir, f'data_{year}.nc') for year in range(self.year_start, self.year_end)]
-        self.year_start_hours = [(self.datetime_class(year, 1, 1) - self.datetime_class(self.year_start, 1, 1)).days*24.
-                                 for year in range(self.year_start, self.year_end)]
-        self.is_leap_year = [self._check_leap_year(year, self.has_year_zero) for year in
-                             range(self.year_start, self.year_end)]
+        self.year_start_hours = np.array([(self.datetime_class(year, 1, 1) - self.datetime_class(self.year_start, 1, 1)).days*24.
+                                 for year in range(self.year_start, self.year_end)])
+        self.is_leap_year = np.array([self._check_leap_year(year, self.has_year_zero) for year in
+                             range(self.year_start, self.year_end)])
         data_dss = []
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
@@ -275,16 +279,34 @@ class GetDataset(Dataset):
 
 
     def _get_boundary_data(self, start_time_boundary, leap_idx):
-        varying_boundary_masked = []
-        for var in self.varying_boundary_variables:
-            varying_boundary_tensor = torch.from_numpy(
-                self.boundary_dss[leap_idx][var].sel(time=start_time_boundary).values).to(torch.float32)
-            nans = torch.isnan(varying_boundary_tensor)
-            if torch.any(nans):
-                varying_boundary_tensor = varying_boundary_tensor.masked_fill(nans, self.mask_fill[var])
-            varying_boundary_masked.append(varying_boundary_tensor)
-        varying_boundary_data = torch.stack(varying_boundary_masked, dim = 0)
-        return varying_boundary_data
+        if not self.train and self.params['inference_steps'] > 0: 
+            varying_boundary_data_all = []
+            print(start_time_boundary)
+            for start_time_boundary_i, leap_idx_i in zip(start_time_boundary, leap_idx):
+                varying_boundary_masked = []
+                for var in self.varying_boundary_variables:
+                    varying_boundary_tensor = torch.from_numpy(
+                        self.boundary_dss[leap_idx_i][var].sel(time=start_time_boundary_i).values).to(torch.float32)
+                    nans = torch.isnan(varying_boundary_tensor)
+                    if torch.any(nans):
+                        varying_boundary_tensor = varying_boundary_tensor.masked_fill(nans, self.mask_fill[var])
+                    varying_boundary_masked.append(varying_boundary_tensor)
+                varying_boundary_data = torch.stack(varying_boundary_masked, dim = 0)
+                varying_boundary_data_all.append(varying_boundary_data)
+            varying_boundary_data_out = torch.stack(varying_boundary_data_all, dim = 0)
+            print(varying_boundary_data_out.shape)
+            return varying_boundary_data_out
+        else:
+            varying_boundary_masked = []
+            for var in self.varying_boundary_variables:
+                varying_boundary_tensor = torch.from_numpy(
+                    self.boundary_dss[leap_idx][var].sel(time=start_time_boundary).values).to(torch.float32)
+                nans = torch.isnan(varying_boundary_tensor)
+                if torch.any(nans):
+                    varying_boundary_tensor = varying_boundary_tensor.masked_fill(nans, self.mask_fill[var])
+                varying_boundary_masked.append(varying_boundary_tensor)
+            varying_boundary_data = torch.stack(varying_boundary_masked, dim = 0)
+            return varying_boundary_data
     
 
 
@@ -293,17 +315,40 @@ class GetDataset(Dataset):
 
 
     def __getitem__(self, index):
-        start_time = self.dates[index]
-        end_time = self.dates[index + 1]
-        start_hour_diff = start_time - self.year_start_hours
-        start_idx = np.where(start_hour_diff >= 0)[0][-1]
-        start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
-        end_hour_diff = end_time - self.year_start_hours
-        end_idx = np.where(end_hour_diff >= 0)[0][-1]
-        varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
-        varying_boundary_data = self.boundary_transform(varying_boundary_data)
-        surface_t, upper_air_t = self._get_data(start_idx, start_hour_diff[start_idx])
-        surface_t_1, upper_air_t_1 = self._get_data(end_idx, end_hour_diff[end_idx])
+        if self.train or self.params['inference_steps'] == 0:
+            start_time = self.dates[index]
+            start_hour_diff = start_time - self.year_start_hours
+            start_idx = np.where(start_hour_diff >= 0)[0][-1]
+            start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
+            end_time = self.dates[index + 1]
+            end_hour_diff = end_time - self.year_start_hours
+            end_idx = np.where(end_hour_diff >= 0)[0][-1]
+            surface_t, upper_air_t = self._get_data(start_idx, start_hour_diff[start_idx])
+            surface_t_1, upper_air_t_1 = self._get_data(end_idx, end_hour_diff[end_idx])
+            varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
+            varying_boundary_data = self.boundary_transform(varying_boundary_data)
+        elif not self.train and self.params['inference_steps'] > 1:
+            start_time = np.array(self.dates[index:index + self.params['inference_steps']])
+            start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)
+            start_idx = np.array([np.where(start_hour_diff[i] >= 0)[0][-1] for i in range(start_hour_diff.shape[0])])
+            start_leap_idx = np.array([1 if self.is_leap_year[start_idx_i] else 0 for start_idx_i in start_idx])
+            surface_t, upper_air_t = self._get_data(start_idx[0], start_hour_diff[0][start_idx[0]])
+            varying_boundary_data = self._get_boundary_data(start_hour_diff[np.arange(len(start_time)), start_idx], start_leap_idx)
+            varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim = 0)
+            #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
+            #end_time = self.dates[index + 1:index + 1 + self.params['inference_steps']]
+        else:
+            start_time = self.dates[index]
+            start_hour_diff = start_time - self.year_start_hours
+            start_idx = np.where(start_hour_diff >= 0)[0][-1]
+            start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
+            surface_t, upper_air_t = self._get_data(start_idx, start_hour_diff[start_idx])
+            varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
+            varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
+            #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
+            #end_time = [self.dates[index + 1]]
+        #varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
+        #varying_boundary_data = self.boundary_transform(varying_boundary_data)
         if torch.any(torch.isnan(varying_boundary_data)):
             print('Boundary data has nan')
             sys.exit(2)
@@ -316,4 +361,7 @@ class GetDataset(Dataset):
 
         if self.train:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
-        return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
+        elif self.params['inference_steps'] > 0:
+            return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx[0], start_hour_diff[0][start_idx[0]]])
+        else:
+            return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
