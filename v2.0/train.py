@@ -91,7 +91,6 @@ class Trainer():
                         epoch_metrics.append(f'val_{var}_level{level:.4f}_lwrmse')
             else:
                 epoch_metrics = ['lr', 'train_loss', 'val_loss', 'val_loss_sfc', 'val_loss_upper_air']
-            print(epoch_metrics)
             for metric in epoch_metrics:
                 wandb.define_metric(metric, step_metric="epoch")
 
@@ -208,6 +207,7 @@ class Trainer():
             diagnostic_logs = {}
         
         # For each epoch, we iterate from 1979 to 2017
+        
         for i, data in pbar:
             # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
             # Note the data need to be randomly shuffled
@@ -240,7 +240,7 @@ class Trainer():
                 UpdateModelParametersWithAdam()'''
 
                 output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                              varying_boundary_data, input_upper_air)
+                                                                varying_boundary_data, input_upper_air)
 
                 
                 # We use the MAE loss to train the model
@@ -307,7 +307,6 @@ class Trainer():
                 diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
             logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
             if self.params.log_to_wandb:
-                print(logs)
                 wandb.log(logs)
             return tr_time, data_time, diagnostic_logs
         else:
@@ -393,8 +392,6 @@ class Trainer():
         valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[3]).detach()
 
         valid_buff_cpu = valid_buff.detach()
-        print(valid_surface_lwrmse.shape)
-        print(valid_upper_air_lwrmse.shape)
                     
         if self.params.diagnostic_logs:
             diagnostic_logs['epoch'] = self.epoch
@@ -413,7 +410,6 @@ class Trainer():
             #        dist.all_reduce(diagnostic_logs[key].detach())
             #        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
             if self.params.log_to_wandb:
-                print(diagnostic_logs)
                 wandb.log(diagnostic_logs)
             
             valid_time = time.time() - valid_start
@@ -540,7 +536,7 @@ if __name__ == '__main__':
 
     params['resuming'] = args.resuming
     params['local_rank'] = local_rank
-    params['enable_amp'] = args.enable_amp
+    params['enable_amp'] = False #args.enable_amp
 
     # this will be the wandb name
     params['name'] = args.config + '_' + str(args.run_num)

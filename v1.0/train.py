@@ -127,6 +127,9 @@ class Trainer():
         soil_type = torch.from_numpy(np.load(os.path.join(params.mask_dir, "soil_type.npy")).astype(np.float32))
         topography = torch.from_numpy(np.load(os.path.join(params.mask_dir, "topography.npy")).astype(np.float32))
         self.surface_mask = torch.stack([land_mask, soil_type, topography], dim=0)
+        mask_mean = torch.mean(self.surface_mask, dim = (1,2))
+        mask_std = torch.std(self.surface_mask, dim = (1,2))
+        self.surface_mask = (self.surface_mask - mask_mean.reshape(-1, 1, 1))/mask_std.reshape(-1, 1, 1)
         self.surface_mask = self.surface_mask.unsqueeze(0).repeat(params.batch_size, 1, 1, 1)
         self.surface_mask = torchvision.transforms.functional.resize(self.surface_mask, img_size)   
 

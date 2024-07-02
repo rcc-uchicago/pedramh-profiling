@@ -56,4 +56,4 @@ export WORLD_SIZE
 export RANK=$PBS_ARRAYID
 
 # Launch your script using torch.distributed.launch
-python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/config/PANGU_PLASIM_POLARIS.yaml --epochs=$MAX_EPOCHS
+python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/config/PANGU_PLASIM_POLARIS.yaml --num_num=0003

@@ -195,6 +195,9 @@ class GetDataset(Dataset):
                 constant_boundary_tensor = constant_boundary_tensor.masked_fill(nans, self.mask_fill[var])
             constant_boundary_masked.append(constant_boundary_tensor)
         constant_boundary_data = torch.stack(constant_boundary_masked, dim=0)
+        constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
+        constant_bounadry_std = torch.std(constant_boundary_data, dim = (1,2))
+        constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_bounadry_std.reshape(-1, 1, 1)
         return constant_boundary_data
 
     def load_mean_std(self, mean_file, std_file, datavars):
