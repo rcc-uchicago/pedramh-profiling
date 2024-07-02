@@ -23,11 +23,39 @@ logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
 import dask
+#from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
 torch.set_float32_matmul_precision('high')
 
-torch.cuda.empty_cache() 
+torch.cuda.empty_cache()
+
+#@torch.jit.script
+def latitude_weighting_factor_torch(latitudes):
+    lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
+    return latitudes.size()[0] * lat_weights_unweighted/torch.sum(lat_weights_unweighted)
+
+#@torch.jit.script
+def weighted_rmse_torch_channels(pred, target, latitudes):
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
+    num_lat = pred.shape[2]
+    #num_long = target.shape[2]
+    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
+    weight = torch.reshape(latitude_weighting_factor_torch(latitudes), (1, 1, -1, 1))
+    result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
+    return result
+
+#@torch.jit.script
+def weighted_rmse_torch_3D(pred, target, latitudes):
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
+    num_lat = pred.shape[3]
+    #num_long = target.shape[2]
+    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
+    weight = torch.reshape(latitude_weighting_factor_torch(latitudes), (1, 1, 1, -1, 1))
+    result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
+    return result
 
 class Trainer():
     def count_parameters(self):
@@ -39,10 +67,6 @@ class Trainer():
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
 
-        if params.log_to_wandb:
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project,
-                       entity=params.entity)
-
         logging.info('rank %d, begin data loader init' % world_rank)
         self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                                          year_start=params.train_year_start, 
@@ -53,6 +77,23 @@ class Trainer():
 
         self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
+
+        if params.log_to_wandb:
+            wandb.init(config=params, name=params.name, group=params.group, project=params.project)#,
+            #           entity=params.entity)
+            wandb.define_metric("epoch")
+            if self.params.diagnostic_logs:
+                epoch_metrics = ['lr', 'train_loss', 'val_loss', 'val_loss_sfc', 'val_loss_upper_air', 'val_mean_norm_lwrmse']
+                for j, var in enumerate(self.valid_dataset.surface_variables):
+                    epoch_metrics.append(f'val_{var}_lwrmse')
+                for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                    for k, level in enumerate(self.valid_dataset.lev):
+                        epoch_metrics.append(f'val_{var}_level{level:.4f}_lwrmse')
+            else:
+                epoch_metrics = ['lr', 'train_loss', 'val_loss', 'val_loss_sfc', 'val_loss_upper_air']
+            print(epoch_metrics)
+            for metric in epoch_metrics:
+                wandb.define_metric(metric, step_metric="epoch")
 
 
         logging.info('rank %d, data loader initialized' % world_rank)
@@ -100,7 +141,6 @@ class Trainer():
       logging.info(self.model)'''
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-          
         if params.loss == 'l1':
             self.loss_obj_sfc = torch.nn.L1Loss() 
             self.loss_obj_pl = torch.nn.L1Loss()
@@ -126,7 +166,7 @@ class Trainer():
             valid_time, valid_logs = self.validate_one_epoch()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
-                self.scheduler.step(valid_logs['valid_loss'])
+                self.scheduler.step(valid_logs['val_loss'])
             elif self.params.scheduler == 'CosineAnnealingLR':
                 self.scheduler.step()
                 if self.epoch >= self.params.max_epochs:
@@ -136,21 +176,21 @@ class Trainer():
             if self.params.log_to_wandb:
                 for pg in self.optimizer.param_groups:
                     lr = pg['lr']
-                wandb.log({'lr': lr})
+                wandb.log({'lr': lr, 'epoch': self.epoch})
 
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path)
-                    if valid_logs['valid_loss'] <= best_valid_loss:
+                    if valid_logs['val_loss'] <= best_valid_loss:
                         # logging.info('Val loss improved from {} to {}'.format(best_valid_loss, valid_logs['valid_loss']))
                         self.save_checkpoint(self.params.best_checkpoint_path)
-                        best_valid_loss = valid_logs['valid_loss']
+                        best_valid_loss = valid_logs['val_loss']
 
             if self.params.log_to_screen:
                 logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
-                logging.info('Train loss: {}. Surface MSE: {}. Upper Air MSE:{}'.format(
-                    train_logs['loss'], valid_logs['Surface MSE'], valid_logs['Upper Air MSE']))
+                logging.info('Train loss: {}. Surface Val loss: {}. Upper Air Val loss:{}'.format(
+                    train_logs['train_loss'], valid_logs['val_loss_sfc'], valid_logs['val_loss_upper_air']))
 
 
     def train_one_epoch(self):
@@ -164,6 +204,8 @@ class Trainer():
         pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
 
         running_results = {"batch_sizes": 0, "loss": 0}
+        if self.params.diagnostic_logs:
+            diagnostic_logs = {}
         
         # For each epoch, we iterate from 1979 to 2017
         for i, data in pbar:
@@ -211,6 +253,10 @@ class Trainer():
 
                 loss = (loss_sfc * 0.25) + loss_pl
 
+
+
+                
+
             if self.params.enable_amp:
                 self.gscaler.scale(loss).backward()
                 self.gscaler.step(self.optimizer)
@@ -220,70 +266,112 @@ class Trainer():
 
             if self.params.enable_amp:
                 self.gscaler.update()
+            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
+            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
+
+            if self.params.diagnostic_logs:
+                diagnostic_logs['train_batch_loss'] = loss
+                diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
+                diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
+                for j, var in enumerate(self.train_dataset.surface_variables):
+                    diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
+                for j, var in enumerate(self.train_dataset.upper_air_variables):
+                    for k, level in enumerate(self.train_dataset.lev):
+                        diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
+                if dist.is_initialized():
+                    for key in sorted(diagnostic_logs.keys()):
+                        dist.all_reduce(diagnostic_logs[key].detach())
+                        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+                if self.params.log_to_wandb:
+                    wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
 
             torch.cuda.empty_cache() #Check
 
             tr_time += time.time() - tr_start
 
-            running_results["loss"] += loss.item() * self.params['batch_size']
-            running_results["batch_sizes"] += self.params['batch_size']
+            if self.params.diagnostic_logs:
+                pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
+            else:
+                running_results["loss"] += loss.item() * self.params['batch_size']
+                running_results["batch_sizes"] += self.params['batch_size']
 
-            pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
+                pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
+            
 
+        if self.params.diagnostic_logs:
+            diagnostic_logs['train_loss'] = loss
+            if dist.is_initialized():
+                dist.all_reduce(diagnostic_logs['train_loss'].detach())
+                diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
+            logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
+            if self.params.log_to_wandb:
+                print(logs)
+                wandb.log(logs)
+            return tr_time, data_time, diagnostic_logs
+        else:
+            logs = {'train_loss': loss, 'epoch': self.epoch}
 
-        logs = {'loss': loss}
+            if dist.is_initialized():
+                for key in sorted(logs.keys()):
+                    dist.all_reduce(logs[key].detach())
+                    logs[key] = float(logs[key]/dist.get_world_size())
 
-        if dist.is_initialized():
-            for key in sorted(logs.keys()):
-                dist.all_reduce(logs[key].detach())
-                logs[key] = float(logs[key]/dist.get_world_size())
+            if self.params.log_to_wandb:
+                wandb.log(logs)
 
-        if self.params.log_to_wandb:
-            wandb.log(logs, step=self.epoch)
-
-        return tr_time, data_time, logs
+            return tr_time, data_time, logs
 
 
     def validate_one_epoch(self):
         self.model.eval()
-        n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
+        #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
 
-        valid_buff = torch.zeros((5), dtype=torch.float32, device=self.device)
+        valid_buff = torch.zeros((4), dtype=torch.float32, device=self.device)
         valid_loss = valid_buff[0].view(-1)
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
-        valid_l1 = valid_buff[3].view(-1)
-        valid_steps = valid_buff[4].view(-1)
+        valid_steps = valid_buff[3].view(-1)
+        valid_surface_lwrmse = torch.zeros((len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
+        valid_upper_air_lwrmse = torch.zeros((len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
 
         valid_start = time.time()
+        nb = len(self.valid_data_loader)
+        if self.params.diagnostic_logs:
+            diagnostic_logs = {}
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
         with torch.no_grad():
-            for i, data in enumerate(self.valid_data_loader, 0):
-                if i >= n_valid_batches:
-                    break
+            for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
+                #if i >= n_valid_batches:
+                #    break
                 val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data)
 
                 val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
                                                                       val_varying_boundary_data, val_input_upper_air)
 
-                val_output_surface = val_output_surface.squeeze(0)
-                val_output_upper_air = val_output_upper_air.squeeze(0)
-
-                val_target_surface = val_target_surface.squeeze(0)
-                val_target_upper_air = val_target_upper_air.squeeze(0)
-
                 loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
                 loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
                 
-                valid_loss += (loss_sfc + loss_pl) 
-                valid_l1 += (torch.nn.functional.l1_loss(val_output_surface, val_target_surface) + \
-                    torch.nn.functional.l1_loss(val_output_upper_air, val_target_upper_air))
+                loss = (loss_sfc * 0.25 + loss_pl)
+                valid_loss += loss
+                #valid_l1 += (torch.nn.functional.l1_loss(val_output_surface, val_target_surface) + \
+                #    torch.nn.functional.l1_loss(val_output_upper_air, val_target_upper_air))
                 
                 valid_loss_sfc += loss_sfc 
                 valid_loss_pl += loss_pl
+                    
+                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface, self.valid_dataset.lat.to(self.device))
+                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air, self.valid_dataset.lat.to(self.device))
+
+                valid_surface_lwrmse += torch.mean(surface_lwrmse, dim = 0)
+                valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim = 0)
+
                 valid_steps += 1.
+
+
 
                 # save first channel of first 5 images
                 if i < 5:
@@ -294,29 +382,57 @@ class Trainer():
 
                     save_image(torch.cat((val_output_surface[0, 0], torch.zeros((val_output_surface.shape[2], 4)).to(self.device, dtype=torch.float), 
                                       val_target_surface[0, 0]), axis=1), params['experiment_dir'] + "/" + str(i) + "/" + str(self.epoch) + ".png")
-
-        
         if dist.is_initialized():
             dist.all_reduce(valid_buff)
+            dist.all_reduce(valid_surface_lwrmse)
+            dist.all_reduce(valid_upper_air_lwrmse)
 
         # divide by number of steps
-        valid_buff[0:4] = valid_buff[0:4] / valid_buff[4]
-        
-        # download buffers
-        valid_buff_cpu = valid_buff.detach().cpu().numpy()
+        valid_buff[0:3] = valid_buff[0:3] / valid_buff[3]
+        valid_surface_lwrmse = (valid_surface_lwrmse / valid_buff[3]).detach()
+        valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[3]).detach()
 
-        valid_time = time.time() - valid_start
+        valid_buff_cpu = valid_buff.detach()
+        print(valid_surface_lwrmse.shape)
+        print(valid_upper_air_lwrmse.shape)
+                    
+        if self.params.diagnostic_logs:
+            diagnostic_logs['epoch'] = self.epoch
+            diagnostic_logs['val_loss'] = valid_buff_cpu[0]
+            diagnostic_logs['val_loss_sfc'] = valid_buff_cpu[1]
+            diagnostic_logs['val_loss_upper_air'] = valid_buff_cpu[2]
+            mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
+            diagnostic_logs['val_mean_norm_lwrmse'] = mean_norm_lwrmse
+            for j, var in enumerate(self.valid_dataset.surface_variables):
+                diagnostic_logs[f'val_{var}_lwrmse'] = valid_surface_lwrmse[j] * self.valid_dataset.surface_std[j]
+            for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                for k, level in enumerate(self.valid_dataset.lev):
+                    diagnostic_logs[f'val_{var}_level{level:.4f}_lwrmse'] = valid_upper_air_lwrmse[j, k] * self.valid_dataset.upper_air_std[j, k]
+            #if dist.is_initialized():
+            #    for key in sorted(diagnostic_logs.keys()):
+            #        dist.all_reduce(diagnostic_logs[key].detach())
+            #        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+            if self.params.log_to_wandb:
+                print(diagnostic_logs)
+                wandb.log(diagnostic_logs)
+            
+            valid_time = time.time() - valid_start
 
-        try:
-            logs = {'valid_l1': valid_buff_cpu[3], 'valid_loss': valid_buff_cpu[0], 
-                    'Surface MSE': valid_buff_cpu[1], 'Upper Air MSE': valid_buff_cpu[2]}
-        except:
-            pass
+            return valid_time, diagnostic_logs
+        else:
+            try:
+                logs = {'val_loss': valid_buff_cpu[0], 
+                        'val_loss_sfc': valid_buff_cpu[1], 'val_loss_upper_air': valid_buff_cpu[2],
+                        'epoch': self.epoch}
+            except:
+                pass
 
-        if self.params.log_to_wandb:
-            wandb.log(logs, step=self.epoch)
+            if self.params.log_to_wandb:
+                wandb.log(logs)
 
-        return valid_time, logs
+            valid_time = time.time() - valid_start
+
+            return valid_time, logs
     
 
 
@@ -430,7 +546,7 @@ if __name__ == '__main__':
     params['name'] = args.config + '_' + str(args.run_num)
     params['group'] = "Pangu_plasim_" + args.config  
     params['project'] = "Pangu"  
-    params['entity'] = "proj-ai-weather"
+    #params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'
         logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))

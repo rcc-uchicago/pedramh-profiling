@@ -110,9 +110,9 @@ def weighted_acc_masked(pred,target, weighted  = True, maskarray=1):
     return r
 
 def weighted_rmse(pred, target):
-    if len(pred.shape) ==2:
+    if len(pred.shape) == 2:
         pred = np.expand_dims(pred, 0)
-    if len(target.shape) ==2:
+    if len(target.shape) == 2:
         target = np.expand_dims(target, 0)
     #takes in arrays of size [1, h, w]  and returns latitude-weighted rmse
     num_lat = np.shape(pred)[1]
@@ -143,19 +143,30 @@ def top_quantiles_error(pred, target):
 def lat(j: torch.Tensor, num_lat: int) -> torch.Tensor:
     return 90. - j * 180./float(num_lat-1)
 
-@torch.jit.script
-def latitude_weighting_factor_torch(j: torch.Tensor, num_lat: int, s: torch.Tensor) -> torch.Tensor:
-    return num_lat * torch.cos(3.1416/180. * lat(j, num_lat))/s
+#@torch.jit.script
+def latitude_weighting_factor_torch(latitudes):
+    lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
+    return latitudes.size() * lat_weights_unweighted/torch.sum(lat_weights_unweighted)
 
-@torch.jit.script
-def weighted_rmse_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+#@torch.jit.script
+def weighted_rmse_torch_channels(pred, target, latitudes):
     #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
     num_lat = pred.shape[2]
     #num_long = target.shape[2]
-    lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
+    weight = latitude_weighting_factor_torch(latitudes).reshape(1, 1, -1, 1)
+    result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
+    return result
 
-    s = torch.sum(torch.cos(3.1416/180. * lat(lat_t, num_lat)))
-    weight = torch.reshape(latitude_weighting_factor_torch(lat_t, num_lat, s), (1, 1, -1, 1))
+#@torch.jit.script
+def weighted_rmse_torch_3D(pred, target, latitudes):
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
+    num_lat = pred.shape[3]
+    #num_long = target.shape[2]
+    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
+    weight = latitude_weighting_factor_torch(latitudes).reshape(1, 1, 1, -1, 1)
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
 

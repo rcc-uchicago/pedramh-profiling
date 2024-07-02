@@ -137,6 +137,8 @@ class GetDataset(Dataset):
         self.boundary_dss = self._load_boundary_data()
         self.dates = self._get_dates(hour_step=params.timedelta_hours)
         self.data_dss = self._load_data()
+        self.lat = torch.from_numpy(self.data_dss[0].lat.values)
+        self.lev = torch.from_numpy(self.data_dss[0].lev.values)
 
 
     def _get_files_stats(self):
