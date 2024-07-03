@@ -23,9 +23,27 @@ logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
 import dask
+import transformer_engine as te
+from transformer_engine.common import recipe
+from transformer_engine.pytorch import fp8_autocast
+
+from torch.optim.lr_scheduler import OneCycleLR
+
+fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
+                                   amax_history_len=16,
+                                   amax_compute_algo="max")
 #from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
+
+os.environ['WANDB_MODE'] = 'offline'
+os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
+os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
+
+
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 
 torch.cuda.empty_cache()
@@ -61,7 +79,7 @@ class Trainer():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-    def __init__(self, params, world_rank):
+    def __init__(self, params, world_rank, fresh_start=True):
 
         self.params = params
         self.world_rank = world_rank
@@ -123,8 +141,11 @@ class Trainer():
 
         self.iters = 0
         self.startEpoch = 0
-        if params.resuming:
+        if not fresh_start and params.resuming:
+            print("GOT HERE")
             self.restore_checkpoint(params.checkpoint_path)
+        else:
+            logging.info("Starting fresh training run")
 
         self.epoch = self.startEpoch
 
@@ -225,7 +246,8 @@ class Trainer():
 
             self.model.zero_grad()
 
-            with amp.autocast(self.params.enable_amp):
+            # with amp.autocast(self.params.enable_amp):
+            with fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
                 '''input, input_surface, target, target_surface = LoadData(step)
 
                 # Call the model and get the output
@@ -266,26 +288,28 @@ class Trainer():
 
             if self.params.enable_amp:
                 self.gscaler.update()
-            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
-            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
+            with torch.no_grad():
+                surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
+                upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
 
             if self.params.diagnostic_logs:
-                diagnostic_logs['train_batch_loss'] = loss
-                diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-                diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-                for j, var in enumerate(self.train_dataset.surface_variables):
-                    diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
-                for j, var in enumerate(self.train_dataset.upper_air_variables):
-                    for k, level in enumerate(self.train_dataset.lev):
-                        diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
-                if dist.is_initialized():
-                    for key in sorted(diagnostic_logs.keys()):
-                        dist.all_reduce(diagnostic_logs[key].detach())
-                        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-                if self.params.log_to_wandb:
-                    wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
+                with torch.no_grad():
+                    diagnostic_logs['train_batch_loss'] = loss
+                    diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
+                    diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+                    mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                    diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
+                    for j, var in enumerate(self.train_dataset.surface_variables):
+                        diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
+                    for j, var in enumerate(self.train_dataset.upper_air_variables):
+                        for k, level in enumerate(self.train_dataset.lev):
+                            diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
+                    if dist.is_initialized():
+                        for key in sorted(diagnostic_logs.keys()):
+                            dist.all_reduce(diagnostic_logs[key].detach())
+                            diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+                    if self.params.log_to_wandb:
+                        wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
 
             torch.cuda.empty_cache() #Check
 
@@ -294,23 +318,26 @@ class Trainer():
             if self.params.diagnostic_logs:
                 pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
             else:
-                running_results["loss"] += loss.item() * self.params['batch_size']
-                running_results["batch_sizes"] += self.params['batch_size']
+                with torch.no_grad():
+                    running_results["loss"] += loss.item() * self.params['batch_size']
+                    running_results["batch_sizes"] += self.params['batch_size']
 
-                pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
+                    pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
             
 
         if self.params.diagnostic_logs:
-            diagnostic_logs['train_loss'] = loss
-            if dist.is_initialized():
-                dist.all_reduce(diagnostic_logs['train_loss'].detach())
-                diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
-            logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
-            if self.params.log_to_wandb:
-                wandb.log(logs)
-            return tr_time, data_time, diagnostic_logs
+            with torch.no_grad():
+                diagnostic_logs['train_loss'] = loss
+                if dist.is_initialized():
+                    dist.all_reduce(diagnostic_logs['train_loss'].detach())
+                    diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
+                logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
+                if self.params.log_to_wandb:
+                    wandb.log(logs)
+                return tr_time, data_time, diagnostic_logs
         else:
-            logs = {'train_loss': loss, 'epoch': self.epoch}
+            with torch.no_grad():
+                logs = {'train_loss': loss, 'epoch': self.epoch}
 
             if dist.is_initialized():
                 for key in sorted(logs.keys()):
@@ -471,6 +498,8 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
+    parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -532,7 +561,8 @@ if __name__ == '__main__':
     params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
 
     # Do not comment this line out please:
-    args.resuming = True if os.path.isfile(params.checkpoint_path) else False
+    # args.resuming = True if os.path.isfile(params.checkpoint_path) else False
+    args.resuming = False
 
     params['resuming'] = args.resuming
     params['local_rank'] = local_rank
@@ -560,6 +590,6 @@ if __name__ == '__main__':
         with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
 
-    trainer = Trainer(params, world_rank)
+    trainer = Trainer(params, world_rank, fresh_start = args.fresh_start)
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)

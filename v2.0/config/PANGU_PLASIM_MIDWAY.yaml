@@ -7,10 +7,11 @@ base_config: &BASE
   num_data_workers: 8
   
   log_to_screen: !!bool True
-  log_to_wandb: !!bool False #True
-  save_checkpoint: !!bool True
+  log_to_wandb: !!bool False
+  diagnostic_logs: False
+  save_checkpoint: !!bool False
 
-  optimizer_type: 'Adam' #'FusedAdam'
+  optimizer_type: 'FusedAdam' #'FusedAdam', #'Adam'
 
   plot_animations: !!bool False
 
@@ -22,16 +23,16 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/scratch/midway3/awikner/PLASIM/data/train_val_test_data'
+  data_dir: '/scratch/midway2/awikner/PLASIM/data/train_val_test_data'
   boundary_dir: 'boundary_vars'
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw']
   surface_variables: ['pl', 'tas']
   constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
-  train_year_start: 51
-  train_year_end: 151
-  val_year_start: 151
-  val_year_end: 161
+  train_year_start: 100
+  train_year_end: 104
+  val_year_start: 104
+  val_year_end: 105
   surface_mean: 'plasim_test_51_150_surface_mean.nc'
   surface_std: 'plasim_test_51_150_surface_std.nc'
   upper_air_mean: 'plasim_test_51_150_mean.nc'
@@ -40,8 +41,8 @@ PLASIM: &PLASIM
   boundary_std: 'plasim_test_51_150_boundary_std.nc'
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 48
-  max_epochs: 100
+  batch_size: 32
+  max_epochs: 6
 
   has_year_zero: False
 
@@ -51,6 +52,8 @@ PLASIM: &PLASIM
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
+
+  inference_steps: 0
 
 
 
