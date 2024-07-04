@@ -203,6 +203,7 @@ class Trainer():
         pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
 
         running_results = {"batch_sizes": 0, "loss": 0}
+
         if self.params.diagnostic_logs:
             diagnostic_logs = {}
         
@@ -212,12 +213,15 @@ class Trainer():
             # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
             # Note the data need to be randomly shuffled
             # Note the input and target need to be normalized, see Inference() for details
+            
             self.iters += 1
             # adjust_LR(optimizer, params, iters)
             data_start = time.time()
             #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
-            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
+            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
                 lambda x: x.to(self.device, dtype=torch.float32), data)
+            print(index_info.shape)
+            index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
             data_time += time.time() - data_start
 
@@ -270,6 +274,10 @@ class Trainer():
             upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
 
             if self.params.diagnostic_logs:
+                for batch_idx in range(index_info.shape[0]):
+                    for j, index_type in enumerate(index_info_names):
+                        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
+
                 diagnostic_logs['train_batch_loss'] = loss
                 diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
                 diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
@@ -286,6 +294,7 @@ class Trainer():
                         diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
                 if self.params.log_to_wandb:
                     wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
+                
 
             torch.cuda.empty_cache() #Check
 
@@ -514,7 +523,7 @@ if __name__ == '__main__':
     else:
         world_rank = 0
         local_rank = 0
-
+    torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
 

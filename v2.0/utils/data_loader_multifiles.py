@@ -365,7 +365,7 @@ class GetDataset(Dataset):
             sys.exit(2)
 
         if self.train:
-            return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
+            return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
         elif self.params['inference_steps'] > 0:
             return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx[0], start_hour_diff[0][start_idx[0]]])
         else:
