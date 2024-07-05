@@ -57,6 +57,24 @@ def weighted_rmse_torch_3D(pred, target, latitudes):
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
 
+def grad_norm(model):
+    total_norm = 0
+    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_norm = p.grad.detach().data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+
+def grad_max(model):
+    max_grad = 0
+    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_max = torch.max(torch.abs(p.grad.detach().data))
+        if max_grad < param_max.item():
+            max_grad = param_max.item()
+    return param_max
+
 class Trainer():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -68,6 +86,8 @@ class Trainer():
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
 
         logging.info('rank %d, begin data loader init' % world_rank)
+        print(params)
+
         self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                                          year_start=params.train_year_start, 
                                                                                          year_end=params.train_year_end, train=True)
@@ -270,30 +290,37 @@ class Trainer():
 
             if self.params.enable_amp:
                 self.gscaler.update()
-            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
-            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
+            with torch.no_grad():
+                surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
+                upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
 
-            if self.params.diagnostic_logs:
-                for batch_idx in range(index_info.shape[0]):
-                    for j, index_type in enumerate(index_info_names):
-                        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
-
-                diagnostic_logs['train_batch_loss'] = loss
-                diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-                diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-                for j, var in enumerate(self.train_dataset.surface_variables):
-                    diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
-                for j, var in enumerate(self.train_dataset.upper_air_variables):
-                    for k, level in enumerate(self.train_dataset.lev):
-                        diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
-                if dist.is_initialized():
-                    for key in sorted(diagnostic_logs.keys()):
-                        dist.all_reduce(diagnostic_logs[key].detach())
-                        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-                if self.params.log_to_wandb:
-                    wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
+                if self.params.diagnostic_logs:
+                    #for batch_idx in range(index_info.shape[0]):
+                    #    for j, index_type in enumerate(index_info_names):
+                    #        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
+                    diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
+                    diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+                    diagnostic_logs['train_batch_loss'] = loss
+                    diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
+                    diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+                    mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                    diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
+                    for j, var in enumerate(self.train_dataset.surface_variables):
+                        diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
+                    for j, var in enumerate(self.train_dataset.upper_air_variables):
+                        for k, level in enumerate(self.train_dataset.lev):
+                            diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
+                    if dist.is_initialized():
+                        for key in sorted(diagnostic_logs.keys()):
+                            if key == 'batch_grad_max':
+                                grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
+                                dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
+                                diagnostic_logs[key] = torch.max(grad_max_tensor)
+                            else:
+                                dist.all_reduce(diagnostic_logs[key].detach())
+                                diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+                    if self.params.log_to_wandb:
+                        wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
                 
 
             torch.cuda.empty_cache() #Check

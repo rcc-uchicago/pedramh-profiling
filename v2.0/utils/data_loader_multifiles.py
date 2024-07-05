@@ -72,6 +72,8 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
     dataset = GetDataset(params, files_pattern, year_start, year_end, train)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
+    if train and not distributed:
+        sampler = torch.utils.data.RandomSampler(dataset)
 
 
     dataloader = DataLoader(dataset,
@@ -93,6 +95,7 @@ class GetDataset(Dataset):
         self.params = params
         self.data_dir = data_dir
         self.train = train
+        self.parallel = True if params['num_data_workers'] > 1 else False
 
         #self._get_files_stats()
 
@@ -183,10 +186,12 @@ class GetDataset(Dataset):
         constant_boundary_files = [join(self.data_dir, self.boundary_dir, f) for f in
                                    os.listdir(join(self.data_dir, self.boundary_dir))
                                    if any(var in f for var in self.constant_boundary_variables)]
+        print(constant_boundary_files)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            constant_boundary_ds = xr.open_mfdataset(constant_boundary_files, engine='netcdf4', parallel=True)
+            constant_boundary_ds = xr.open_mfdataset(constant_boundary_files, engine='netcdf4', parallel=self.parallel)
+        print('Loaded Constant Boundary')
         constant_boundary_masked = []
         for var in self.constant_boundary_variables:
             constant_boundary_tensor = torch.from_numpy(constant_boundary_ds[var].values).to(torch.float32)
@@ -233,8 +238,8 @@ class GetDataset(Dataset):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            boundary_ds_leap = xr.open_mfdataset(boundary_leap_files, chunks={'time': 1}, engine='netcdf4', parallel=True, decode_cf=False)
-            boundary_ds_noleap = xr.open_mfdataset(boundary_noleap_files, chunks={'time': 1}, engine='netcdf4', parallel=True, decode_cf=False)
+            boundary_ds_leap = xr.open_mfdataset(boundary_leap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+            boundary_ds_noleap = xr.open_mfdataset(boundary_noleap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
         return [boundary_ds_noleap, boundary_ds_leap]
     
     def _get_dates(self, hour_step = 6.):
@@ -264,7 +269,7 @@ class GetDataset(Dataset):
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
             for file in data_files:
-                data_ds = xr.open_mfdataset(file, chunks={'time': 1, 'lev': self.num_levels}, engine='netcdf4', parallel=True, decode_cf=False)
+                data_ds = xr.open_mfdataset(file, chunks={'time': 1, 'lev': self.num_levels}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
                 data_dss.append(data_ds)
         return data_dss
     

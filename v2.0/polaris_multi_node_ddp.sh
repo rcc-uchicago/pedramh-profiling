@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #PBS -N plasim_mn
-#PBS -l select=1:system=polaris
+#PBS -l select=2:system=polaris
 #PBS -l place=scatter
 #PBS -q debug
 #PBS -l walltime=1:00:00
@@ -63,14 +63,14 @@ TIMER="timeout 718m "
 
 # torchrun launch configuration
 LAUNCHER="python3 -m torch.distributed.run "
-LAUNCHER+="--nnodes=$NNODES --nproc_per_node=auto --max_restarts 0 "
+LAUNCHER+="--nnodes=$NNODES --nproc_per_node=$NUM_TASKS_PER_NODE --max_restarts 0 "
 if [[ "$NNODES" -eq 1 ]]; then
     LAUNCHER+="--standalone "
 else
     LAUNCHER+="--rdzv_backend=c10d --rdzv_endpoint=$MASTER_RANK "
 fi
 
-CMD="train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/config/PANGU_PLASIM_POLARIS.yaml --run_num=0003"
+CMD="train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/config/PANGU_PLASIM_POLARIS.yaml --run_num=0005"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
