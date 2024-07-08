@@ -27,7 +27,6 @@ import transformer_engine as te
 from transformer_engine.common import recipe
 from transformer_engine.pytorch import fp8_autocast
 
-from torch.optim.lr_scheduler import OneCycleLR
 
 fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
                                    amax_history_len=16,
@@ -142,7 +141,6 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if not fresh_start and params.resuming:
-            print("GOT HERE")
             self.restore_checkpoint(params.checkpoint_path)
         else:
             logging.info("Starting fresh training run")
@@ -154,6 +152,13 @@ class Trainer():
         elif params.scheduler == 'CosineAnnealingLR':
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=params.max_epochs, 
                                                                         last_epoch=self.startEpoch-1)
+        elif params.scheduler == 'OneCycleLR':
+            total_steps = len(self.train_data_loader) * params.max_epochs
+            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                self.optimizer,
+                max_lr=params.lr,
+                total_steps=total_steps
+            )
         else:
             self.scheduler = None
 
@@ -246,6 +251,9 @@ class Trainer():
 
             self.model.zero_grad()
 
+            # #OPTIMIZATION
+            # self.model.zero_grad(set_to_none=True)
+
             # with amp.autocast(self.params.enable_amp):
             with fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
                 '''input, input_surface, target, target_surface = LoadData(step)
@@ -288,6 +296,11 @@ class Trainer():
 
             if self.params.enable_amp:
                 self.gscaler.update()
+
+            if self.params.scheduler == 'OneCycleLR':
+                self.scheduler.step()
+
+
             with torch.no_grad():
                 surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
                 upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
@@ -368,6 +381,8 @@ class Trainer():
             diagnostic_logs = {}
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
+        # OPTIMIZATION
+        # with torch.inference_mode():
         with torch.no_grad():
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
                 #if i >= n_valid_batches:
@@ -456,6 +471,8 @@ class Trainer():
             valid_time = time.time() - valid_start
 
             return valid_time, logs
+
+    
     
 
 
