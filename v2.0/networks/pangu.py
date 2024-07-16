@@ -67,7 +67,21 @@ from utils.shift_window_mask import get_shift_window_mask, window_partition, win
 from utils.crop import crop3d
 from timm.models.layers import trunc_normal_, DropPath
 
+# Global flag for using Transformer Engine, initially set to True
+USE_TE = True
 
+# Import both TE and amp
+import transformer_engine.pytorch as te
+from transformer_engine.common import recipe
+from torch.cuda import amp
+
+# Global fp8_recipe
+if USE_TE:
+    fp8_recipe = recipe.DelayedScaling(
+        fp8_format=recipe.Format.HYBRID,
+        amax_history_len=16,
+        amax_compute_algo="max"
+    )
 
 class PanguModel_Plasim(nn.Module):
     """
@@ -84,6 +98,9 @@ class PanguModel_Plasim(nn.Module):
         super().__init__() 
 
         #####
+        global USE_TE
+        USE_TE = params.use_transformer_engine    
+
         #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
             drop_path = np.append(np.linspace(0, 0.2, np.sum(params.depths[:2])), np.linspace(0.2, 0, np.sum(params.depths[2:]))).tolist()
@@ -177,15 +194,36 @@ class PanguModel_Plasim(nn.Module):
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 
-        x = self.layer1(x)
+        # x = self.layer1(x)
 
-        skip = x
+        # skip = x
 
-        x = self.downsample(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.upsample(x)
-        x = self.layer4(x)
+        # x = self.downsample(x)
+        # x = self.layer2(x)
+        # x = self.layer3(x)
+        # x = self.upsample(x)
+        # x = self.layer4(x)
+
+        #OPTIMIZATION
+
+        if USE_TE:
+            # with te.fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe):
+            x = self.layer1(x)
+            skip = x
+            x = self.downsample(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            x = self.upsample(x)
+            x = self.layer4(x)
+        else:
+            # with amp.autocast(enabled=True):
+            x = self.layer1(x)
+            skip = x
+            x = self.downsample(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            x = self.upsample(x)
+            x = self.layer4(x)
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
@@ -281,11 +319,14 @@ class DownSample(nn.Module):
     def __init__(self, in_dim, input_resolution, output_resolution, downsample_factor=2):
         super().__init__()
         self.downsample_factor = downsample_factor
-        # self.linear = nn.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)
-        self.linear = te.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)  # TE Change
 
-        # self.norm = nn.LayerNorm((self.downsample_factor ** 2) * in_dim)
-        self.norm = te.LayerNorm((self.downsample_factor ** 2) * in_dim)
+        if USE_TE:
+            self.linear = te.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)
+            self.norm = te.LayerNorm((self.downsample_factor ** 2) * in_dim)
+        else:
+            self.linear = nn.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)
+            self.norm = nn.LayerNorm((self.downsample_factor ** 2) * in_dim)
+
 
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
@@ -338,15 +379,16 @@ class UpSample(nn.Module):
     def __init__(self, in_dim, out_dim, input_resolution, output_resolution, upsample_factor=2):
         super().__init__()
         self.upsample_factor = upsample_factor
-        # self.linear1 = nn.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)
-        # self.linear2 = nn.Linear(out_dim, out_dim, bias=False)
 
-        self.linear1 = te.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)  # TE Change
-        self.linear2 = te.Linear(out_dim, out_dim, bias=False)  # TE Change
+        if USE_TE:
+            self.linear1 = te.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)
+            self.linear2 = te.Linear(out_dim, out_dim, bias=False)
+            self.norm = te.LayerNorm(out_dim)
+        else:
+            self.linear1 = nn.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)
+            self.linear2 = nn.Linear(out_dim, out_dim, bias=False)
+            self.norm = nn.LayerNorm(out_dim)
 
-        # self.norm = nn.LayerNorm(out_dim)
-
-        self.norm = te.LayerNorm(out_dim)
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
 
@@ -400,11 +442,13 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop=0., attn_drop=0., drop_path=0., norm_layer=te.LayerNorm): # Using TE here is not working. 
+                 drop=0., attn_drop=0., drop_path=0., norm_layer = nn.LayerNorm): # Using TE here is not working. 
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
+        norm_layer = te.LayerNorm if USE_TE else nn.LayerNorm
+
 
         self.blocks = nn.ModuleList([
             EarthSpecificBlock(dim=dim, input_resolution=input_resolution, num_heads=num_heads, window_size=window_size,
@@ -558,8 +602,7 @@ class EarthSpecificBlock(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=None, shift_size=None, mlp_ratio=4.,
-                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU,
-                 norm_layer=te.LayerNorm):  # TE Change
+                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer = nn.LayerNorm): 
         super().__init__()
         window_size = (2, 6, 12) if window_size is None else window_size
         shift_size = (1, 3, 6) if shift_size is None else shift_size
@@ -570,7 +613,13 @@ class EarthSpecificBlock(nn.Module):
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
 
+        norm_layer = te.LayerNorm if USE_TE else nn.LayerNorm
+
+
+
         self.norm1 = norm_layer(dim)
+        self.norm2 = norm_layer(dim)
+
         padding = get_pad3d(input_resolution, window_size)
         self.pad = nn.ZeroPad3d(padding)
 
@@ -585,7 +634,6 @@ class EarthSpecificBlock(nn.Module):
         )
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
@@ -606,7 +654,10 @@ class EarthSpecificBlock(nn.Module):
 
         shortcut = x
         # Ensure x is contiguous before normalization (TE CHANGE)
-        x = self.norm1(x.contiguous())  
+        if USE_TE:
+            x = self.norm1(x.contiguous())
+        else:
+            x = self.norm1(x)
         x = x.view(B, Pl, Lat, Lon, C)
 
         # start pad
@@ -646,7 +697,10 @@ class EarthSpecificBlock(nn.Module):
         x = x.reshape(B, Pl * Lat * Lon, C)
         x = shortcut + self.drop_path(x)
 
-        x = x + self.drop_path(self.mlp(self.norm2(x.contiguous())))  # Ensure x is contiguous before normalization
+        if USE_TE:
+            x = x + self.drop_path(self.mlp(self.norm2(x.contiguous())))
+        else:
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
 
         return x
 
@@ -677,6 +731,7 @@ class EarthAttention3D(nn.Module):
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
+
         self.type_of_windows = (input_resolution[0] // window_size[0]) * (input_resolution[1] // window_size[1])
 
         self.earth_position_bias_table = nn.Parameter(
@@ -687,25 +742,15 @@ class EarthAttention3D(nn.Module):
         earth_position_index = get_earth_position_index(window_size)  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
         self.register_buffer("earth_position_index", earth_position_index)
 
-        # self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.qkv = te.Linear(dim, dim * 3, bias=qkv_bias)  # TE Change
+        if USE_TE:
+            self.qkv = te.Linear(dim, dim * 3, bias=qkv_bias)
+            self.proj = te.Linear(dim, dim)
+        else:
+            self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+            self.proj = nn.Linear(dim, dim)
 
         self.attn_drop = nn.Dropout(attn_drop)
-        # self.proj = nn.Linear(dim, dim)
-
-        self.proj = te.Linear(dim, dim)  # TE Change
-
         self.proj_drop = nn.Dropout(proj_drop)
-
-        #OPTIMIZATIONS
-        # self.qkv = te.LayerNormLinear(dim, dim * 3, bias=qkv_bias, normalization=te.LayerNorm)
-        # self.proj = te.Linear(dim, dim)
-        # # Replace Dropout with TE's Dropout
-        # self.attn_drop = te.Dropout(attn_drop)
-        # self.proj_drop = te.Dropout(proj_drop)
-
-
-
 
         trunc_normal_(self.earth_position_bias_table, std=.02)
         self.softmax = nn.Softmax(dim=-1)
@@ -754,13 +799,14 @@ class Mlp(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        self.fc1 = te.Linear(in_features, hidden_features)  # TE Change
 
-        # self.fc1 = nn.Linear(in_features, hidden_features)
+        if USE_TE:
+            self.fc1 = te.Linear(in_features, hidden_features)
+            self.fc2 = te.Linear(hidden_features, out_features)
+        else:
+            self.fc1 = nn.Linear(in_features, hidden_features)
+            self.fc2 = nn.Linear(hidden_features, out_features)
         self.act = act_layer()
-        # self.fc2 = nn.Linear(hidden_features, out_features)
-        self.fc2 = te.Linear(hidden_features, out_features)  # TE Change
-
         self.drop = nn.Dropout(drop)
 
     def forward(self, x: torch.Tensor):
@@ -789,4 +835,5 @@ def PerlinNoise():
   perlin_noise = noise_scale*GenerateFractalNoise((H, W), (period_number, period_number), octaves, persistence)
   return perlin_noise
   '''
+
 
