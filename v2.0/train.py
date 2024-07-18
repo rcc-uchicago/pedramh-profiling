@@ -23,16 +23,14 @@ logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
 import dask
-import transformer_engine as te
+import transformer_engine.pytorch as te
 from transformer_engine.common import recipe
 from transformer_engine.pytorch import fp8_autocast
 from torch.profiler import profile, record_function, ProfilerActivity
 
 
-fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
-                                   amax_history_len=16,
-                                   amax_compute_algo="max")
-#from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
+
+# from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 
 os.environ['WANDB_MODE'] = 'offline'
 os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
@@ -85,6 +83,7 @@ class Trainer():
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
 
+
         logging.info('rank %d, begin data loader init' % world_rank)
         self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                                          year_start=params.train_year_start, 
@@ -95,6 +94,14 @@ class Trainer():
 
         self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
+
+        self.enable_amp = params.enable_amp
+        self.enable_fp8 = params.enable_fp8
+        
+        if self.enable_fp8:
+            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
+                                                    amax_history_len=16,
+                                                    amax_compute_algo="max")
 
         if params.log_to_wandb:
             wandb.init(config=params, name=params.name, group=params.group, project=params.project)#,
@@ -118,7 +125,7 @@ class Trainer():
 
         if params.nettype == 'pangu_plasim':
             self.model = PanguModel_Plasim(params).to(self.device)
-            #self.model = torch.compile(self.model, mode = 'default')
+            # self.model = torch.compile(self.model, mode = 'reduce-overhead')
         else:
             raise Exception("not implemented")
 
@@ -253,13 +260,13 @@ class Trainer():
 
             tr_start = time.time()
 
-            self.model.zero_grad(set_to_none=True)
+            self.model.zero_grad()
 
             # #OPTIMIZATION
             # self.model.zero_grad()
 
-            if self.params.use_transformer_engine:
-                precision_context = fp8_autocast(enabled=True, fp8_recipe=fp8_recipe)
+            if self.params.enable_fp8:
+                precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
             else:
                 precision_context = amp.autocast(enabled=self.params.enable_amp)
 
@@ -357,7 +364,9 @@ class Trainer():
 
             return tr_time, data_time, logs
 
-    # PROFILING CODE
+
+# PROFILING
+
     # def train_one_epoch(self):
     #     self.epoch += 1
     #     tr_time = 0
@@ -372,31 +381,37 @@ class Trainer():
     #     if self.params.diagnostic_logs:
     #         diagnostic_logs = {}
         
-    #     # For each epoch, we iterate from 1979 to 2017
+    #     # Profiler configuration
+    #     profiler_schedule = torch.profiler.schedule(
+    #         wait=1,
+    #         warmup=1,
+    #         active=3,
+    #         repeat=2)
 
     #     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
+    #                 schedule=profiler_schedule,
+    #                 on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
     #                 record_shapes=True,
     #                 profile_memory=True,
-    #                 use_cuda=True) as prof:
-        
+    #                 with_stack=True) as prof:
+            
     #         for i, data in pbar:
     #             with record_function("train_batch"):
-    #                 # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
-    #                 # Note the data need to be randomly shuffled
-    #                 # Note the input and target need to be normalized, see Inference() for details
     #                 self.iters += 1
-    #                 # adjust_LR(optimizer, params, iters)
-    #                 data_start = time.time()
-    #                 input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-    #                     lambda x: x.to(self.device, dtype=torch.float32), data)
-
-    #                 data_time += time.time() - data_start
+                    
+    #                 with record_function("data_loading"):
+    #                     data_start = time.time()
+    #                     input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
+    #                         lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+    #                     data_time += time.time() - data_start
 
     #                 tr_start = time.time()
 
     #                 self.model.zero_grad()
 
-    #                 with fp8_autocast(enabled=True, fp8_recipe=fp8_recipe):
+    #                 precision_context = amp.autocast(enabled=self.params.enable_amp)
+
+    #                 with record_function("forward"), precision_context:
     #                     output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
     #                                                                 varying_boundary_data, input_upper_air)
                         
@@ -405,15 +420,14 @@ class Trainer():
 
     #                     loss = (loss_sfc * 0.25) + loss_pl
 
-    #                 if self.params.enable_amp:
-    #                     self.gscaler.scale(loss).backward()
-    #                     self.gscaler.step(self.optimizer)
-    #                 else:
-    #                     loss.backward()
-    #                     self.optimizer.step()
-
-    #                 if self.params.enable_amp:
-    #                     self.gscaler.update()
+    #                 with record_function("backward"):
+    #                     if self.params.enable_amp:
+    #                         self.gscaler.scale(loss).backward()
+    #                         self.gscaler.step(self.optimizer)
+    #                         self.gscaler.update()
+    #                     else:
+    #                         loss.backward()
+    #                         self.optimizer.step()
 
     #                 if self.params.scheduler == 'OneCycleLR':
     #                     self.scheduler.step()
@@ -441,7 +455,7 @@ class Trainer():
     #                         if self.params.log_to_wandb:
     #                             wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
 
-    #                 torch.cuda.empty_cache() #Check
+    #                 torch.cuda.empty_cache()
 
     #                 tr_time += time.time() - tr_start
 
@@ -451,15 +465,13 @@ class Trainer():
     #                     with torch.no_grad():
     #                         running_results["loss"] += loss.item() * self.params['batch_size']
     #                         running_results["batch_sizes"] += self.params['batch_size']
-
     #                         pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-                
-    #             # Optionally, break after a certain number of iterations for shorter profiling
-    #             # if i >= 10:
-    #             #     break
 
-    #     print(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-    #     prof.export_chrome_trace("trace.json")
+    #             prof.step()
+
+    #     # Log profiler results
+    #     logging.info(f"Profiler results for epoch {self.epoch}:")
+    #     logging.info(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
 
     #     if self.params.diagnostic_logs:
     #         with torch.no_grad():
@@ -484,6 +496,7 @@ class Trainer():
     #             wandb.log(logs)
 
     #         return tr_time, data_time, logs
+
 
     def validate_one_epoch(self):
         self.model.eval()
@@ -511,12 +524,18 @@ class Trainer():
                 #    break
                 val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                     lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                #OPTIMIZATION
-                # val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data = map(
-                #     lambda x: x.cuda(non_blocking=True), data)
+               
+                if self.params.enable_fp8:
+                    precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
+                else:
+                    precision_context = amp.autocast(enabled=self.params.enable_amp)
 
-                val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                      val_varying_boundary_data, val_input_upper_air)
+                with precision_context:
+                    val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                        val_varying_boundary_data, val_input_upper_air)
+
+                # val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                #                                                       val_varying_boundary_data, val_input_upper_air)
 
                 loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
                 loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
@@ -637,7 +656,7 @@ if __name__ == '__main__':
     parser.add_argument("--run_num", default='0001', type=str)
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
-    parser.add_argument("--enable_amp", default=True, action='store_true')
+    parser.add_argument("--enable_amp", default=False, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
@@ -713,16 +732,21 @@ if __name__ == '__main__':
 
     params['resuming'] = args.resuming
     params['local_rank'] = local_rank
-    # params['enable_amp'] = False #args.enable_amp
-    params['enable_amp'] = False if params['use_transformer_engine'] else args.enable_amp
+    params['enable_amp'] = False if params['enable_fp8'] else args.enable_amp
 
     # Add indicator for precision method
+    # Add indicator for precision method and engine
     if params['use_transformer_engine']:
-        print("Using Transformer Engine FP8 precision")
-    elif params['enable_amp']:
-        print("Using PyTorch native Automatic Mixed Precision (AMP)")
+        print("Using Transformer Engine")
     else:
-        print("Using PyTorch native full precision")
+        print("Using PyTorch native")
+
+    if params['enable_fp8']:
+        print("with FP8 precision")
+    elif params['enable_amp']:
+        print("with Automatic Mixed Precision (AMP)")
+    else:
+        print("with full precision")
 
     # this will be the wandb name
     params['name'] = args.config + '_' + str(args.run_num)

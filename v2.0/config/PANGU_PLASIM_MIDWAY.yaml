@@ -1,9 +1,9 @@
 ### base config ###
 base_config: &BASE
   loss: 'l1'
-  lr: 5E-4
+  lr: 2.5E-4
   weight_decay: 3e-6
-  scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
+  scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau', #'CosineAnnealingLR', #'OneCycleLR'
   num_data_workers: 8
   
   log_to_screen: !!bool True
@@ -11,13 +11,17 @@ base_config: &BASE
   diagnostic_logs: False
   save_checkpoint: !!bool False
 
-  optimizer_type: 'FusedAdam' #'FusedAdam', #'Adam'
+  optimizer_type: 'Adam' #'FusedAdam', #'Adam'
 
   plot_animations: !!bool False
 
   nettype: 'pangu_plasim'
 
   exp_dir: 'results'
+
+  # Add this line to enable/disable Transformer Engine
+  use_transformer_engine: !!bool True
+  enable_fp8: !!bool False
 
 
 
