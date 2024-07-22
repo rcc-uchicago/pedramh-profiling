@@ -19,6 +19,10 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
+##########################################
+## NEW IMPORTS
+from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss
+###############################@###########
 logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
@@ -166,6 +170,14 @@ class Trainer():
         elif params.loss == 'l2':
             self.loss_obj_sfc = torch.nn.MSELoss()
             self.loss_obj_pl = torch.nn.MSELoss()
+        elif params.loss == 'weightedl1':
+            self.lat = self.train_dataset.lat.to(self.device)
+            self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
+            self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
+        elif params.loss == 'weightedl2':
+            self.lat = self.train_dataset.lat.to(self.device)
+            self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
+            self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
         else:
             raise NotImplementedError
 
