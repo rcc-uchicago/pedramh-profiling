@@ -51,7 +51,7 @@ PLASIM: &PLASIM
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
-  window_size: [2, 4, 8]
+  window_size: [2, 6, 12]
 
 
 
