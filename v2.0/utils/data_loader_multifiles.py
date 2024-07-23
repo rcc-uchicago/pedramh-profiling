@@ -70,7 +70,7 @@ import warnings
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train):
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, epsilon_factor)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
@@ -91,10 +91,11 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train):
+    def __init__(self, params, data_dir, year_start, year_end, train, epsilon_factor = 0.):
         self.params = params
         self.data_dir = data_dir
         self.train = train
+        self.epsilon_factor = epsilon_factor
         self.parallel = True if params['num_data_workers'] > 1 else False
 
         #self._get_files_stats()
@@ -126,6 +127,13 @@ class GetDataset(Dataset):
         self.upper_air_mean, self.upper_air_std = self.load_mean_std(join(
             data_dir, params.upper_air_mean), join(data_dir, params.upper_air_std), self.upper_air_variables)
 
+        if 'surface_ff_std' in params.keys():
+            _, self.surface_ff_std = self.load_mean_std(join(
+                data_dir, params.surface_mean), join(data_dir, params.surface_ff_std), self.surface_variables)
+        if 'upper_air_ff_std' in params.keys():
+            _, self.upper_air_ff_std = self.load_mean_std(join(
+                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_ff_std), self.upper_air_variables)
+
         self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_dir, params.boundary_mean),
                                                                                    join(data_dir, params.boundary_dir, params.boundary_std),
                                                                                    self.varying_boundary_variables)
@@ -142,7 +150,8 @@ class GetDataset(Dataset):
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         self.lev = torch.from_numpy(self.data_dss[0].lev.values)
-
+        if self.epsilon_factor > 0.:
+            torch.manual_seed(0)
 
     def _get_files_stats(self):
         self.files_paths_sfc = glob.glob(self.data_dir + "/*_sfc.h5")
@@ -337,6 +346,16 @@ class GetDataset(Dataset):
             surface_t_1, upper_air_t_1 = self._get_data(end_idx, end_hour_diff[end_idx])
             varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
+            if self.epsilon_factor > 0.:
+                if 'surface_ff_std' in params.keys():
+                    surface_t_noise = torch.randn(*surface_t.shape) * (self.surface_std / self.surface_ff_std).reshape(len(self.surface_vars), 1, 1) * self. epsilon_factor
+                else:
+                    surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
+                surface_t = surface_t + surface_t_noise
+                if 'upper_air_ff_std' in params.keys():
+                    surface_t_noise = torch.randn(len(self.surface_variables)) * self.epsilon_factor * self.surface_std / self.surface_ff_std
+                else:
+                    surface_t_noise = torch.randn(len(self.surface_variables)) * self.epsilon_factor
         elif not self.train and self.params['inference_steps'] > 1:
             start_time = np.array(self.dates[index:index + self.params['inference_steps']])
             start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)

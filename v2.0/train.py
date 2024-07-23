@@ -30,6 +30,9 @@ torch.set_float32_matmul_precision('high')
 
 torch.cuda.empty_cache()
 
+def list_of_ints(arg):
+    return list(map(int, arg.split(',')))
+
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
     lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
@@ -507,6 +510,9 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
+    parser.add_argument("--loss", default = 'l1', type = str)
+    parser.add_argument("--window_size", default = '2,2,2', type = str)
+
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -518,6 +524,8 @@ if __name__ == '__main__':
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
+    params['window_size'] = tuple(list_of_ints(args.window_size))
+    params['loss'] = args.loss
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
