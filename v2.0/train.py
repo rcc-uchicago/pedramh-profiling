@@ -257,12 +257,12 @@ class Trainer():
                 lambda x: x.to(self.device, dtype=torch.float32), data)
             print(index_info.shape)
             # add noise to the input if self.params.noise_training is not 0.0
-            if self.params.noise_training!=0.0:
-                input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
-                input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
-                # add a clip to the input to avoid overflow, but need to be careful with the range of the input
-                # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
-                # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
+            #if self.params.noise_training!=0.0:
+            #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
+            #    input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
+            # add a clip to the input to avoid overflow, but need to be careful with the range of the input
+            # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
+            # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
 
             index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
@@ -528,10 +528,9 @@ if __name__ == '__main__':
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
-    parser.add_argument("--epsilon_factor", default=0, type=float)
+    #parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    parser.add_argument("--loss", default = 'l1', type = str)
-    parser.add_argument("--window_size", default = '2,2,2', type = str)
+    #parser.add_argument("--window_size", default = '2,2,2', type = str)
 
 
     ####### for UCAR
@@ -543,9 +542,8 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    params['epsilon_factor'] = args.epsilon_factor
-    params['window_size'] = tuple(list_of_ints(args.window_size))
-    params['loss'] = args.loss
+    #params['epsilon_factor'] = args.epsilon_factor
+    #params['loss'] = args.loss
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())

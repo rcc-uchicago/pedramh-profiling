@@ -348,14 +348,15 @@ class GetDataset(Dataset):
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
             if self.epsilon_factor > 0.:
                 if 'surface_ff_std' in params.keys():
-                    surface_t_noise = torch.randn(*surface_t.shape) * (self.surface_std / self.surface_ff_std).reshape(len(self.surface_vars), 1, 1) * self. epsilon_factor
+                    surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_std / self.surface_ff_std).reshape(len(self.surface_variables), 1, 1) * self. epsilon_factor
                 else:
                     surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
                 surface_t = surface_t + surface_t_noise
                 if 'upper_air_ff_std' in params.keys():
-                    surface_t_noise = torch.randn(len(self.surface_variables)) * self.epsilon_factor * self.surface_std / self.surface_ff_std
+                    upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_std / self.upper_air_ff_std).reshape(len(self.surface_variables), self.num_levels, 1, 1)
                 else:
-                    surface_t_noise = torch.randn(len(self.surface_variables)) * self.epsilon_factor
+                    upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
+                upper_air_t = upper_air_t + upper_air_t_noise
         elif not self.train and self.params['inference_steps'] > 1:
             start_time = np.array(self.dates[index:index + self.params['inference_steps']])
             start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)

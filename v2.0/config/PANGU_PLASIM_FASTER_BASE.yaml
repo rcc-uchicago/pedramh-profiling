@@ -1,7 +1,7 @@
 ### base config ###
 base_config: &BASE
-  loss: 'l1'
-  lr: 1E-4
+  loss: %LOSS%
+  lr: %LR%
   weight_decay: 3e-6
   scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
   num_data_workers: 8
@@ -53,6 +53,8 @@ PLASIM: &PLASIM
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
+  window_size: %WINDOW_SIZE%
+  epsilon_factor: %EPSILON%
 
 
 
