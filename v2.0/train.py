@@ -255,7 +255,7 @@ class Trainer():
             #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
             input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
                 lambda x: x.to(self.device, dtype=torch.float32), data)
-            print(index_info.shape)
+            #print(index_info.shape)
             # add noise to the input if self.params.noise_training is not 0.0
             #if self.params.noise_training!=0.0:
             #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)

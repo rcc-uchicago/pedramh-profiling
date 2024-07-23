@@ -70,7 +70,7 @@ import warnings
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train):
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, epsilon_factor)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
@@ -91,11 +91,11 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train, epsilon_factor = 0.):
+    def __init__(self, params, data_dir, year_start, year_end, train):
         self.params = params
         self.data_dir = data_dir
         self.train = train
-        self.epsilon_factor = epsilon_factor
+        self.epsilon_factor = self.params.epsilon_factor
         self.parallel = True if params['num_data_workers'] > 1 else False
 
         #self._get_files_stats()
@@ -353,7 +353,7 @@ class GetDataset(Dataset):
                     surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
                 surface_t = surface_t + surface_t_noise
                 if 'upper_air_ff_std' in self.params:
-                    upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_std / self.upper_air_ff_std).reshape(len(self.surface_variables), self.num_levels, 1, 1)
+                    upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_std / self.upper_air_ff_std).reshape(len(self.upper_air_variables), self.num_levels, 1, 1)
                 else:
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
                 upper_air_t = upper_air_t + upper_air_t_noise

@@ -94,7 +94,7 @@ class PanguModel_Plasim(nn.Module):
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
         self.window_size = params.window_size
-        self.noisy_training = params.noisy_training
+        #self.noisy_training = params.noisy_training
         # print("window_size", self.window_size)
         
         #####
