@@ -42,6 +42,7 @@ PLASIM: &PLASIM
   timedelta_hours: 6
   batch_size: 64
   max_epochs: 100
+  noise_traninig: 0.
 
   has_year_zero: False
 
@@ -51,6 +52,8 @@ PLASIM: &PLASIM
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
+  window_size: [2, 6, 12]
+ 
 
 
 
