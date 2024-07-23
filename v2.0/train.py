@@ -240,7 +240,7 @@ class Trainer():
             #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
             input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
                 lambda x: x.to(self.device, dtype=torch.float32), data)
-            print(index_info.shape)
+            #print(index_info.shape)
             index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
             data_time += time.time() - data_start

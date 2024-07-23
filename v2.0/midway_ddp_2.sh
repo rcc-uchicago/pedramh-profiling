@@ -15,7 +15,9 @@
 export MPICH_GPU_SUPPORT_ENABLED=1
 
 ml python/anaconda-2023.09
-conda activate /project/pedramh/anaconda/py311
+conda activate /project/pedramh/anaconda/py311 
+source /home/awikner/venvs/pangu-wandb/bin/activate  
+export WANDB_MODE=offline
 
 # Change to working directory
 cd $SLURM_SUBMIT_DIR
@@ -35,7 +37,7 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export MASTER_PORT=12345
 #export WORLD_SIZE
 #export RANK=$SLURM_ARRAY_TASK_ID
-export OMP_NUM_THREAD=8
+#export OMP_NUM_THREAD=8
 
 # Launch your script using torch.distributed.launch
-python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY_2.yaml --run_num=0002
+python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY_2.yaml --run_num=0007
