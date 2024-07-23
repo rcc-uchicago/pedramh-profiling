@@ -19,6 +19,10 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
+##########################################
+## NEW IMPORTS
+from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss
+###############################@###########
 logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
@@ -29,6 +33,9 @@ torch._dynamo.config.optimize_ddp = False
 torch.set_float32_matmul_precision('high')
 
 torch.cuda.empty_cache()
+
+def list_of_ints(arg):
+    return list(map(int, arg.split(',')))
 
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
@@ -166,6 +173,14 @@ class Trainer():
         elif params.loss == 'l2':
             self.loss_obj_sfc = torch.nn.MSELoss()
             self.loss_obj_pl = torch.nn.MSELoss()
+        elif params.loss == 'weightedl1':
+            self.lat = self.train_dataset.lat.to(self.device)
+            self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
+            self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
+        elif params.loss == 'weightedl2':
+            self.lat = self.train_dataset.lat.to(self.device)
+            self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
+            self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
         else:
             raise NotImplementedError
 
@@ -241,6 +256,14 @@ class Trainer():
             input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
                 lambda x: x.to(self.device, dtype=torch.float32), data)
             #print(index_info.shape)
+            # add noise to the input if self.params.noise_training is not 0.0
+            #if self.params.noise_training!=0.0:
+            #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
+            #    input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
+            # add a clip to the input to avoid overflow, but need to be careful with the range of the input
+            # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
+            # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
+
             index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
             data_time += time.time() - data_start
@@ -505,8 +528,10 @@ if __name__ == '__main__':
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
-    parser.add_argument("--epsilon_factor", default=0, type=float)
+    #parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
+    #parser.add_argument("--window_size", default = '2,2,2', type = str)
+
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -517,7 +542,8 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    params['epsilon_factor'] = args.epsilon_factor
+    #params['epsilon_factor'] = args.epsilon_factor
+    #params['loss'] = args.loss
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())

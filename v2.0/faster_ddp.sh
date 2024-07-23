@@ -1,12 +1,13 @@
 #!/bin/bash -l
-#SBATCH --time=1-00:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH -p gpu
 #SBATCH --mem-per-cpu=4G 
 #SBATCH --nodes=1
 #SBATCH --gpus=a40:4       #gpus=a100:4
 #SBATCH --ntasks=4
-#SBATCH --cpus-per-task=8 #16 
-#SBATCH -o outs/faster_ddp.out
+#SBATCH --cpus-per-task=16 
+#SBATCH -o outs/faster_ddp_%x_%j.out
+#SBATCH -e outs/faster_ddp_%x_%j.err
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
@@ -18,10 +19,13 @@ export NCCL_NET_GDR_LEVEL=PHB
 
 export MASTER_ADDR=$(hostname)
 
+ml Anaconda3
+conda activate /scratch/group/p.atm170020.000/anaconda/py311
+source /home/u.aw164890/venvs/pangu/bin/activate
 
 set -x
 srun -u --mpi=pmi2 \
     bash -c "
     source export_DDP_vars.sh
-    python train.py  
+    python train.py --run_num=${1} --yaml_config=${2}
     "

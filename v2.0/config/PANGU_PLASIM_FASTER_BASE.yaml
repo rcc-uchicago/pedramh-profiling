@@ -1,7 +1,7 @@
 ### base config ###
 base_config: &BASE
-  loss: 'l1'
-  lr: 5E-4
+  loss: %LOSS%
+  lr: %LR%
   weight_decay: 3e-6
   scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
   num_data_workers: 8
@@ -22,7 +22,7 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/eagle/MDClimSim/awikner/PLASIM/data/train_val_test_data'
+  data_dir: '/scratch/user/u.aw164890/PLASIM/train_val_test_data'
   boundary_dir: 'boundary_vars'
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw']
   surface_variables: ['pl', 'tas']
@@ -34,15 +34,16 @@ PLASIM: &PLASIM
   val_year_end: 161
   surface_mean: 'plasim_test_51_150_surface_mean.nc'
   surface_std: 'plasim_test_51_150_surface_res_std.nc'
+  surface_ff_std: 'plasim_test_51_150_surface_std.nc'
   upper_air_mean: 'plasim_test_51_150_mean.nc'
   upper_air_std: 'plasim_test_51_150_res_std.nc'
+  upper_air_ff_std: 'plasim_test_51_150_std.nc'
   boundary_mean: 'plasim_test_51_150_boundary_mean.nc'
   boundary_std: 'plasim_test_51_150_boundary_std.nc'
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
   batch_size: 64
   max_epochs: 100
-  noise_traninig: 0.
 
   has_year_zero: False
 
@@ -52,8 +53,8 @@ PLASIM: &PLASIM
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
-  window_size: [2, 6, 12]
- 
+  window_size: %WINDOW_SIZE%
+  epsilon_factor: %EPSILON%
 
 
 
