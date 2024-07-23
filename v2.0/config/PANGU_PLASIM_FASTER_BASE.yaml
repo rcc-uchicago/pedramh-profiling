@@ -56,6 +56,9 @@ PLASIM: &PLASIM
   window_size: %WINDOW_SIZE%
   epsilon_factor: %EPSILON%
 
+  diagnostic_logs: True
+  inference_steps: 0
+
 
 
   

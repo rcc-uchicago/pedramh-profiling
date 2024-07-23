@@ -127,10 +127,10 @@ class GetDataset(Dataset):
         self.upper_air_mean, self.upper_air_std = self.load_mean_std(join(
             data_dir, params.upper_air_mean), join(data_dir, params.upper_air_std), self.upper_air_variables)
 
-        if 'surface_ff_std' in params.keys():
+        if 'surface_ff_std' in self.params:
             _, self.surface_ff_std = self.load_mean_std(join(
                 data_dir, params.surface_mean), join(data_dir, params.surface_ff_std), self.surface_variables)
-        if 'upper_air_ff_std' in params.keys():
+        if 'upper_air_ff_std' in self.params:
             _, self.upper_air_ff_std = self.load_mean_std(join(
                 data_dir, params.upper_air_mean), join(data_dir, params.upper_air_ff_std), self.upper_air_variables)
 
@@ -347,12 +347,12 @@ class GetDataset(Dataset):
             varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
             if self.epsilon_factor > 0.:
-                if 'surface_ff_std' in params.keys():
+                if 'surface_ff_std' in self.params:
                     surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_std / self.surface_ff_std).reshape(len(self.surface_variables), 1, 1) * self. epsilon_factor
                 else:
                     surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
                 surface_t = surface_t + surface_t_noise
-                if 'upper_air_ff_std' in params.keys():
+                if 'upper_air_ff_std' in self.params:
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_std / self.upper_air_ff_std).reshape(len(self.surface_variables), self.num_levels, 1, 1)
                 else:
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
