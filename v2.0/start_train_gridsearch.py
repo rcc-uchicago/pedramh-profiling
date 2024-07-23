@@ -19,7 +19,7 @@ def create_config_file(run_num, loss = 'l1', lr = 1e-4, window_size = (2, 6, 12)
 
 losses = ['l1', 'weightedl1', 'weightedl2']
 lrs = [1e-4]
-window_sizes = [(2, 6, 12), (2, 4, 8), (2, 2, 4)]
+window_sizes = [[2, 6, 12], [2, 4, 8], [2, 2, 4]]
 epsilon_factors = [0, 5e-2]
 num_runs = 18
 
@@ -27,12 +27,19 @@ run_num = 100
 for i, (loss, lr, window_size, epsilon_factor) in enumerate(product(losses, lrs, window_sizes, epsilon_factors)):
     run_num_str = f'{run_num + i + 1:04}'
     config_file = create_config_file(run_num_str, loss, lr, window_size, epsilon_factor)
-    if i < num_runs // 2:
-        gpu_str = '--gpus=a40:4'
+    if i > 13:
+        gpu_str = '--gpus=a100:4'
+        job_str = ['sbatch', '-J', f'pp-{run_num_str}', '--time=4-00:00:00', gpu_str, '--ntasks=4',
+             '--cpus-per-task=8', 'faster_ddp.sh', run_num_str, config_file]
+        subprocess.run(job_str)
     else:
         gpu_str = '--gpus=a100:4'
-    job_str = ['sbatch', gpu_str, 'faster_ddp.sh', run_num_str, config_file]
-    subprocess.run(job_str)
-    
+        job_str = ['sbatch', '-J', f'pp-{run_num_str}', gpu_str, 'faster_ddp.sh', run_num_str, config_file]
+        subprocess.run(job_str)
+    #else:
+    #    gpu_str = '--gpus=a100:4'
+    #job_str = ['sbatch', '-J', f'pp-{run_num_str}', gpu_str, 'faster_ddp.sh', run_num_str, config_file]
+    #subprocess.run(job_str)
+
 
 
