@@ -28,7 +28,7 @@ for i, (loss, lr, window_size, epsilon_factor) in enumerate(product(losses, lrs,
     run_num_str = f'{run_num + i + 1:04}'
     config_file = create_config_file(run_num_str, loss, lr, window_size, epsilon_factor)
     if i > 13:
-        gpu_str = '--gpus=a100:4'
+        gpu_str = '--gpus=a40:4'
         job_str = ['sbatch', '-J', f'pp-{run_num_str}', '--time=4-00:00:00', gpu_str, '--ntasks=4',
              '--cpus-per-task=8', 'faster_ddp.sh', run_num_str, config_file]
         subprocess.run(job_str)
