@@ -47,7 +47,7 @@
 # Karthik Kashinath - NVIDIA Corporation
 # Animashree Anandkumar - California Institute of Technology, NVIDIA Corporation
 
-import os, sys
+import os, sys, gc
 import logging
 import glob
 import torch
@@ -96,7 +96,7 @@ class GetDataset(Dataset):
         self.data_dir = data_dir
         self.train = train
         self.epsilon_factor = self.params.epsilon_factor
-        self.parallel = True if params['num_data_workers'] > 1 else False
+        self.parallel = False #True if params['num_data_workers'] > 1 else False
 
         #self._get_files_stats()
 
@@ -152,6 +152,11 @@ class GetDataset(Dataset):
         self.lev = torch.from_numpy(self.data_dss[0].lev.values)
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
+        for ds in self.data_dss:
+            ds.close()
+        for ds in self.boundary_dss:
+            ds.close()
+        gc.collect()
 
     def _get_files_stats(self):
         self.files_paths_sfc = glob.glob(self.data_dir + "/*_sfc.h5")
@@ -208,6 +213,7 @@ class GetDataset(Dataset):
             if torch.any(nans):
                 constant_boundary_tensor = constant_boundary_tensor.masked_fill(nans, self.mask_fill[var])
             constant_boundary_masked.append(constant_boundary_tensor)
+        constant_boundary_ds.close()
         constant_boundary_data = torch.stack(constant_boundary_masked, dim=0)
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
         constant_bounadry_std = torch.std(constant_boundary_data, dim = (1,2))
@@ -238,17 +244,18 @@ class GetDataset(Dataset):
         return lambda data: data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
             self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
     
-    def _load_boundary_data(self):
-        print('Loading varying boundary from %s' % join(self.data_dir, self.boundary_dir))
-        boundary_files = [join(self.data_dir, self.boundary_dir, f) for f in os.listdir(join(self.data_dir, self.boundary_dir)) \
-                                 if any(var in f for var in self.varying_boundary_variables)]
-        boundary_leap_files = [file for file in boundary_files if '_leap' in os.path.basename(file)]
-        boundary_noleap_files = [file for file in boundary_files if '_leap' not in os.path.basename(file)]
+    def _load_boundary_data(self, initial = True):
+        if initial:
+            print('Loading varying boundary from %s' % join(self.data_dir, self.boundary_dir))
+            self.boundary_files = [join(self.data_dir, self.boundary_dir, f) for f in os.listdir(join(self.data_dir, self.boundary_dir)) \
+                                    if any(var in f for var in self.varying_boundary_variables)]
+            self.boundary_leap_files = [file for file in self.boundary_files if '_leap' in os.path.basename(file)]
+            self.boundary_noleap_files = [file for file in self.boundary_files if '_leap' not in os.path.basename(file)]
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            boundary_ds_leap = xr.open_mfdataset(boundary_leap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
-            boundary_ds_noleap = xr.open_mfdataset(boundary_noleap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+            boundary_ds_leap = xr.open_mfdataset(self.boundary_leap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+            boundary_ds_noleap = xr.open_mfdataset(self.boundary_noleap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
         return [boundary_ds_noleap, boundary_ds_leap]
     
     def _get_dates(self, hour_step = 6.):
@@ -267,31 +274,45 @@ class GetDataset(Dataset):
         else:
             return cftime.is_leap_year(date, calendar=self.calendar, has_year_zero=has_year_zero)
     
-    def _load_data(self):
-        data_files = [join(self.data_dir, f'data_{year}.nc') for year in range(self.year_start, self.year_end)]
-        self.year_start_hours = np.array([(self.datetime_class(year, 1, 1) - self.datetime_class(self.year_start, 1, 1)).days*24.
-                                 for year in range(self.year_start, self.year_end)])
-        self.is_leap_year = np.array([self._check_leap_year(year, self.has_year_zero) for year in
-                             range(self.year_start, self.year_end)])
+    def _load_data(self, initial = True):
+        if initial:
+            self.data_files = [join(self.data_dir, f'data_{year}.nc') for year in range(self.year_start, self.year_end)]
+            self.year_start_hours = np.array([(self.datetime_class(year, 1, 1) - self.datetime_class(self.year_start, 1, 1)).days*24.
+                                    for year in range(self.year_start, self.year_end)])
+            self.is_leap_year = np.array([self._check_leap_year(year, self.has_year_zero) for year in
+                                range(self.year_start, self.year_end)])
         data_dss = []
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            for file in data_files:
+            for file in self.data_files:
                 data_ds = xr.open_mfdataset(file, chunks={'time': 1, 'lev': self.num_levels}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
                 data_dss.append(data_ds)
         return data_dss
+
+    def _load_year_data(self, year_idx):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore",
+                                    message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
+            data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1, 'lev': self.num_levels},
+                engine='netcdf4', parallel=self.parallel, decode_cf=False)
+        return data_ds
     
-    def _get_data(self, year, hour):
+    def _get_data(self, data_ds, year, hour):
 
-        surface_data = torch.stack([torch.from_numpy(
-            self.data_dss[year][var].sel(time=hour).values).to(torch.float32) for var in self.surface_variables], dim = 0)
+        surface_da_list = [data_ds[var].sel(time=hour) for var in self.surface_variables]
+        surface_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in surface_da_list], dim = 0)
         surface_data = self.surface_transform(surface_data)
+        #for da in surface_da_list:
+        #    da[:] = np.nan
 
-        upper_air_data = torch.stack([
-            torch.from_numpy(self.data_dss[year][var].sel(time=hour).values).to(torch.float32)
-            for var in self.upper_air_variables], dim = 0)
+        upper_air_da_list = [data_ds[var].sel(time=hour) for var in self.upper_air_variables]
+        upper_air_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in upper_air_da_list], dim = 0)
         upper_air_data = self.upper_air_transform(upper_air_data)
+        #for da in upper_air_da_list:
+        #    da[:] = np.nan
+
+        #gc.collect()
         
         return surface_data, upper_air_data
 
@@ -334,6 +355,11 @@ class GetDataset(Dataset):
 
 
     def __getitem__(self, index):
+        self.boundary_dss = self._load_boundary_data(initial = False)
+        #self.dates = self._get_dates(hour_step=params.timedelta_hours)
+        #self.data_dss = self._load_data(initial=False)
+        #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
+        #self.lev = torch.from_numpy(self.data_dss[0].lev.values)
         if self.train or self.params['inference_steps'] == 0:
             start_time = self.dates[index]
             start_hour_diff = start_time - self.year_start_hours
@@ -342,8 +368,18 @@ class GetDataset(Dataset):
             end_time = self.dates[index + 1]
             end_hour_diff = end_time - self.year_start_hours
             end_idx = np.where(end_hour_diff >= 0)[0][-1]
-            surface_t, upper_air_t = self._get_data(start_idx, start_hour_diff[start_idx])
-            surface_t_1, upper_air_t_1 = self._get_data(end_idx, end_hour_diff[end_idx])
+            if start_idx == end_idx:
+                data_ds = self._load_year_data(start_idx)
+                surface_t, upper_air_t = self._get_data(data_ds, start_idx, start_hour_diff[start_idx])
+                surface_t_1, upper_air_t_1 = self._get_data(data_ds, end_idx, end_hour_diff[end_idx])
+                data_ds.close()
+            else:
+                data_ds_start = self._load_year_data(start_idx)
+                data_ds_end = self._load_year_data(end_idx)
+                surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
+                surface_t_1, upper_air_t_1 = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
+                data_ds_start.close()
+                data_ds_end.close()
             varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
             if self.epsilon_factor > 0.:
@@ -388,6 +424,9 @@ class GetDataset(Dataset):
         if torch.any(torch.isnan(upper_air_t)):
             print('Upper air has nan')
             sys.exit(2)
+        for ds in self.boundary_dss:
+            ds.close()
+        gc.collect()
 
         if self.train:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])

@@ -598,7 +598,7 @@ if __name__ == '__main__':
 
     params['resuming'] = args.resuming
     params['local_rank'] = local_rank
-    params['enable_amp'] = False #args.enable_amp
+    params['enable_amp'] = True #args.enable_amp
 
     # this will be the wandb name
     params['name'] = args.config + '_' + str(args.run_num)

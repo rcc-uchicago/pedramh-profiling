@@ -4,10 +4,10 @@ base_config: &BASE
   lr: %LR%
   weight_decay: 3e-6
   scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
-  num_data_workers: 8
+  num_data_workers: 16
   
   log_to_screen: !!bool True
-  log_to_wandb: !!bool False #True
+  log_to_wandb: !!bool True
   save_checkpoint: !!bool True
 
   optimizer_type: 'Adam' #'FusedAdam'
@@ -31,7 +31,7 @@ PLASIM: &PLASIM
   train_year_start: 51
   train_year_end: 151
   val_year_start: 151
-  val_year_end: 161
+  val_year_end: 153
   surface_mean: 'plasim_test_51_150_surface_mean.nc'
   surface_std: 'plasim_test_51_150_surface_res_std.nc'
   surface_ff_std: 'plasim_test_51_150_surface_std.nc'

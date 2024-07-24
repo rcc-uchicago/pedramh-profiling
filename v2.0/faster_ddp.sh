@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #SBATCH --time=2-00:00:00
 #SBATCH -p gpu
-#SBATCH --mem-per-cpu=4G 
+#SBATCH --mem=256G 
 #SBATCH --nodes=1
 #SBATCH --gpus=a40:4       #gpus=a100:4
 #SBATCH --ntasks=4

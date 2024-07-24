@@ -43,3 +43,5 @@ data/
 tests/
 
 core*
+outs/
+wandb/
