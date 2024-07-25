@@ -94,9 +94,8 @@ class PanguModel_Plasim(nn.Module):
         window_size (tuple[int]): Window size.
     """
 
-    def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), window_size=(2, 6, 12), drop_path=None):
+    def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), drop_path=None):
         super().__init__() 
-
         #####
         global USE_TE
         USE_TE = params.use_transformer_engine
@@ -124,6 +123,10 @@ class PanguModel_Plasim(nn.Module):
         atmo_resolution = [params.num_levels] + params.horizontal_resolution
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
+        self.window_size = params.window_size
+        #self.noisy_training = params.noisy_training
+        # print("window_size", self.window_size)
+        
         #####
 
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
@@ -152,7 +155,7 @@ class PanguModel_Plasim(nn.Module):
             input_resolution=EST_input_resolution,
             depth=params.depths[0],
             num_heads=num_heads[0],
-            window_size=window_size,
+            window_size=self.window_size,
             drop_path=drop_path[:depths_cumsum[0]])
         
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
@@ -163,7 +166,7 @@ class PanguModel_Plasim(nn.Module):
             input_resolution=downscale_resolution,
             depth=params.depths[1],
             num_heads=num_heads[1],
-            window_size=window_size,
+            window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]])
         
         self.layer3 = EarthSpecificLayer(
@@ -171,7 +174,7 @@ class PanguModel_Plasim(nn.Module):
             input_resolution=downscale_resolution,
             depth=params.depths[2],
             num_heads=num_heads[2],
-            window_size=window_size,
+            window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]])
         
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
@@ -182,7 +185,7 @@ class PanguModel_Plasim(nn.Module):
             input_resolution=EST_input_resolution,
             depth=params.depths[3],
             num_heads=num_heads[3],
-            window_size=window_size,
+            window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[2]:])
         
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.

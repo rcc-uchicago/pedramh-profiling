@@ -70,7 +70,7 @@ else
     LAUNCHER+="--rdzv_backend=c10d --rdzv_endpoint=$MASTER_RANK "
 fi
 
-CMD="train.py --yaml_config=/eagle/lighthouse-uchicago/members/hyadav/PanguWeather/v2.0/config/PANGU_PLASIM_POLARIS.yaml"
+CMD="train.py --yaml_config=/eagle/lighthouse-uchicago/members/hyadav/PanguWeather/v2.0/config/PANGU_PLASIM_POLARIS.yaml --run_num=0005"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"

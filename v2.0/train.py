@@ -19,6 +19,10 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
+##########################################
+## NEW IMPORTS
+from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss
+###############################@###########
 logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
@@ -32,9 +36,9 @@ from torch.profiler import profile, record_function, ProfilerActivity
 
 # from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 
-os.environ['WANDB_MODE'] = 'offline'
-os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
-os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
+# os.environ['WANDB_MODE'] = 'offline'
+# os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
+# os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
 
 dask.config.set(scheduler='synchronous')
@@ -45,6 +49,9 @@ torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 
 torch.cuda.empty_cache()
+
+def list_of_ints(arg):
+    return list(map(int, arg.split(',')))
 
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
@@ -73,6 +80,24 @@ def weighted_rmse_torch_3D(pred, target, latitudes):
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
 
+def grad_norm(model):
+    total_norm = 0
+    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_norm = p.grad.detach().data.norm(2)
+        total_norm += param_norm.item() ** 2
+    total_norm = total_norm ** 0.5
+    return total_norm
+
+def grad_max(model):
+    max_grad = 0
+    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
+    for p in parameters:
+        param_max = torch.max(torch.abs(p.grad.detach().data))
+        if max_grad < param_max.item():
+            max_grad = param_max.item()
+    return param_max
+
 class Trainer():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
@@ -85,6 +110,8 @@ class Trainer():
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
+        print(params)
+
         self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                                          year_start=params.train_year_start, 
                                                                                          year_end=params.train_year_end, train=True)
@@ -129,7 +156,7 @@ class Trainer():
 
         if params.nettype == 'pangu_plasim':
             self.model = PanguModel_Plasim(params).to(self.device)
-            # self.model = torch.compile(self.model, mode = 'reduce-overhead')
+            # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
 
@@ -184,6 +211,14 @@ class Trainer():
         elif params.loss == 'l2':
             self.loss_obj_sfc = torch.nn.MSELoss()
             self.loss_obj_pl = torch.nn.MSELoss()
+        elif params.loss == 'weightedl1':
+            self.lat = self.train_dataset.lat.to(self.device)
+            self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
+            self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
+        elif params.loss == 'weightedl2':
+            self.lat = self.train_dataset.lat.to(self.device)
+            self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
+            self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
         else:
             raise NotImplementedError
 
@@ -241,6 +276,7 @@ class Trainer():
         pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
 
         running_results = {"batch_sizes": 0, "loss": 0}
+
         if self.params.diagnostic_logs:
             diagnostic_logs = {}
         
@@ -250,15 +286,24 @@ class Trainer():
             # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
             # Note the data need to be randomly shuffled
             # Note the input and target need to be normalized, see Inference() for details
+            
             self.iters += 1
             # adjust_LR(optimizer, params, iters)
             data_start = time.time()
             #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
-            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
+            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
                 lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-            # OPTIMIZATION
-            # input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-            #     lambda x: x.cuda(non_blocking=True), data)
+            
+            #print(index_info.shape)
+            # add noise to the input if self.params.noise_training is not 0.0
+            #if self.params.noise_training!=0.0:
+            #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
+            #    input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
+            # add a clip to the input to avoid overflow, but need to be careful with the range of the input
+            # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
+            # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
+
+            index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
             data_time += time.time() - data_start
 
@@ -267,7 +312,7 @@ class Trainer():
             self.model.zero_grad()
 
             # #OPTIMIZATION
-            # self.model.zero_grad()
+            # self.model.zero_grad(set_to_none=True)
 
             if self.params.enable_fp8:
                 precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
@@ -311,8 +356,12 @@ class Trainer():
                 surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
                 upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
 
-            if self.params.diagnostic_logs:
-                with torch.no_grad():
+                if self.params.diagnostic_logs:
+                    #for batch_idx in range(index_info.shape[0]):
+                    #    for j, index_type in enumerate(index_info_names):
+                    #        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
+                    diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
+                    diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
                     diagnostic_logs['train_batch_loss'] = loss
                     diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
                     diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
@@ -325,10 +374,16 @@ class Trainer():
                             diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
                     if dist.is_initialized():
                         for key in sorted(diagnostic_logs.keys()):
-                            dist.all_reduce(diagnostic_logs[key].detach())
-                            diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+                            if key == 'batch_grad_max':
+                                grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
+                                dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
+                                diagnostic_logs[key] = torch.max(grad_max_tensor)
+                            else:
+                                dist.all_reduce(diagnostic_logs[key].detach())
+                                diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
                     if self.params.log_to_wandb:
                         wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
+                
 
             torch.cuda.empty_cache() #Check
 
@@ -337,7 +392,6 @@ class Trainer():
             if self.params.diagnostic_logs:
                 pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
             else:
-                with torch.no_grad():
                     running_results["loss"] += loss.item() * self.params['batch_size']
                     running_results["batch_sizes"] += self.params['batch_size']
 
@@ -357,7 +411,7 @@ class Trainer():
         else:
             with torch.no_grad():
                 # logs = {'train_loss': loss, 'epoch': self.epoch}
-                logs = {'train_loss': loss, 'epoch': torch.tensor(self.epoch).to(self.device)}
+                logs = {'train_loss': loss, 'epoch': self.epoch}
             
             if dist.is_initialized():
                 for key in sorted(logs.keys()):
@@ -670,8 +724,10 @@ if __name__ == '__main__':
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=False, action='store_true')
-    parser.add_argument("--epsilon_factor", default=0, type=float)
+    #parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
+    #parser.add_argument("--window_size", default = '2,2,2', type = str)
+
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
 
 
@@ -684,10 +740,8 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    params['epsilon_factor'] = args.epsilon_factor
-
-    
-
+    #params['epsilon_factor'] = args.epsilon_factor
+    #params['loss'] = args.loss
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
@@ -720,7 +774,7 @@ if __name__ == '__main__':
     else:
         world_rank = 0
         local_rank = 0
-
+    torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
 

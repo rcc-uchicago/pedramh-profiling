@@ -1,11 +1,11 @@
 #!/bin/bash -l
-#PBS -N multi_node
-#PBS -l select=18:system=polaris
+#PBS -N plasim_mn
+#PBS -l select=2:system=polaris
 #PBS -l place=scatter
-#PBS -q prod 
-#PBS -l walltime=3:00:00
+#PBS -q debug
+#PBS -l walltime=1:00:00
 #PBS -l filesystems=home:eagle                          
-#PBS -A lighthouse-uchicago
+#PBS -A MDClimSim
 #PBS -e logs/
 #PBS -o logs/
 
@@ -50,7 +50,7 @@ echo "NUM_OF_NODES= ${NNODES}"
 PRELOAD="source /etc/profile ; "
 PRELOAD+="module use /soft/modulefiles;"
 PRELOAD+="module load conda;"
-PRELOAD+="conda activate /eagle/MDClimSim/hyadav/Pangu_env_2;"
+PRELOAD+="conda activate pangu_xformers;"
 PRELOAD+="module load cudatoolkit-standalone/12.2.2;"
 PRELOAD+="export OMP_NUM_THREADS=4;"
 PRELOAD+="export NODES=1;"
@@ -63,14 +63,14 @@ TIMER="timeout 718m "
 
 # torchrun launch configuration
 LAUNCHER="python3 -m torch.distributed.run "
-LAUNCHER+="--nnodes=$NNODES --nproc_per_node=auto --max_restarts 0 "
+LAUNCHER+="--nnodes=$NNODES --nproc_per_node=$NUM_TASKS_PER_NODE --max_restarts 0 "
 if [[ "$NNODES" -eq 1 ]]; then
     LAUNCHER+="--standalone "
 else
     LAUNCHER+="--rdzv_backend=c10d --rdzv_endpoint=$MASTER_RANK "
 fi
 
-CMD="train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_POLARIS.yaml"
+CMD="train.py --yaml_config=/eagle/MDClimSim/awikner/PanguWeather-UC/v2.0/config/PANGU_PLASIM_POLARIS.yaml --run_num=0005"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
