@@ -120,7 +120,7 @@ class Trainer():
                                                                      year_end=params.val_year_end, train=False)
 
         self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
-        self.constant_boundary_data = self.constant_boundary_data.to(self.device)
+        self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
 
         self.enable_amp = params.enable_amp
         self.enable_fp8 = params.enable_fp8
@@ -212,7 +212,7 @@ class Trainer():
             self.loss_obj_sfc = torch.nn.MSELoss()
             self.loss_obj_pl = torch.nn.MSELoss()
         elif params.loss == 'weightedl1':
-            self.lat = self.train_dataset.lat.to(self.device)
+            self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
         elif params.loss == 'weightedl2':
@@ -353,8 +353,8 @@ class Trainer():
 
 
             with torch.no_grad():
-                surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
-                upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
+                surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device, non_blocking=True))
+                upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device, non_blocking=True))
 
                 if self.params.diagnostic_logs:
                     #for batch_idx in range(index_info.shape[0]):
@@ -615,8 +615,8 @@ class Trainer():
                 valid_loss_sfc += loss_sfc 
                 valid_loss_pl += loss_pl
                     
-                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface, self.valid_dataset.lat.to(self.device))
-                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air, self.valid_dataset.lat.to(self.device))
+                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface, self.valid_dataset.lat.to(self.device, non_blocking=True))
+                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air, self.valid_dataset.lat.to(self.device, non_blocking=True))
 
                 valid_surface_lwrmse += torch.mean(surface_lwrmse, dim = 0)
                 valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim = 0)
@@ -724,9 +724,9 @@ if __name__ == '__main__':
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=False, action='store_true')
-    #parser.add_argument("--epsilon_factor", default=0, type=float)
+    parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    #parser.add_argument("--window_size", default = '2,2,2', type = str)
+    # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
 
@@ -740,7 +740,7 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    #params['epsilon_factor'] = args.epsilon_factor
+    params['epsilon_factor'] = args.epsilon_factor
     #params['loss'] = args.loss
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
@@ -801,7 +801,6 @@ if __name__ == '__main__':
     params['local_rank'] = local_rank
     params['enable_amp'] = False if params['enable_fp8'] else args.enable_amp
 
-    # Add indicator for precision method
     # Add indicator for precision method and engine
     if params['use_transformer_engine']:
         print("Using Transformer Engine")
