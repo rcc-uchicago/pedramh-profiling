@@ -23,9 +23,9 @@ logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
 import dask
-import transformer_engine.pytorch as te
-from transformer_engine.common import recipe
-from transformer_engine.pytorch import fp8_autocast
+# import transformer_engine.pytorch as te
+# from transformer_engine.common import recipe
+# from transformer_engine.pytorch import fp8_autocast
 from torch.profiler import profile, record_function, ProfilerActivity
 
 
@@ -99,10 +99,14 @@ class Trainer():
         self.enable_fp8 = params.enable_fp8
         
         if self.enable_fp8:
+            global te, recipe, fp8_autocast
+            import transformer_engine.pytorch as te
+            from transformer_engine.common import recipe
+            from transformer_engine.pytorch import fp8_autocast
+
             self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
                                                     amax_history_len=16,
                                                     amax_compute_algo="max")
-
         if params.log_to_wandb:
             wandb.init(config=params, name=params.name, group=params.group, project=params.project)#,
             #           entity=params.entity)
@@ -352,12 +356,21 @@ class Trainer():
                 return tr_time, data_time, diagnostic_logs
         else:
             with torch.no_grad():
-                logs = {'train_loss': loss, 'epoch': self.epoch}
-
+                # logs = {'train_loss': loss, 'epoch': self.epoch}
+                logs = {'train_loss': loss, 'epoch': torch.tensor(self.epoch).to(self.device)}
+            
             if dist.is_initialized():
                 for key in sorted(logs.keys()):
-                    dist.all_reduce(logs[key].detach())
+                    if isinstance(logs[key], (int, float)):
+                        logs[key] = torch.tensor(logs[key]).to(self.device)
+                    dist.all_reduce(logs[key])
                     logs[key] = float(logs[key]/dist.get_world_size())
+
+
+            # if dist.is_initialized():
+            #     for key in sorted(logs.keys()):
+            #         dist.all_reduce(logs[key].detach())
+            #         logs[key] = float(logs[key]/dist.get_world_size())
 
             if self.params.log_to_wandb:
                 wandb.log(logs)

@@ -53,8 +53,6 @@ Pseudocode of Pangu-Weather
 # LoadConstantMask: Load constant masks, e.g., soil type
 # LoadStatic: Load mean and std of the ERA5 training data, every fields such as T850 is treated as an image and calculate the mean and std
 #from Your_AI_Library import LoadData, LoadConstantMask, LoadStatic
-
-import transformer_engine.pytorch as te
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -68,20 +66,22 @@ from utils.crop import crop3d
 from timm.models.layers import trunc_normal_, DropPath
 
 # Global flag for using Transformer Engine, initially set to True
-USE_TE = True
+USE_TE = False
 
-# Import both TE and amp
-import transformer_engine.pytorch as te
-from transformer_engine.common import recipe
-from torch.cuda import amp
 
-# Global fp8_recipe
-if USE_TE:
-    fp8_recipe = recipe.DelayedScaling(
-        fp8_format=recipe.Format.HYBRID,
-        amax_history_len=16,
-        amax_compute_algo="max"
-    )
+
+
+# # Conditional imports
+# if USE_TE:
+#     import transformer_engine.pytorch as te
+#     from transformer_engine.common import recipe
+#     from torch.cuda import amp
+
+#     fp8_recipe = recipe.DelayedScaling(
+#         fp8_format=recipe.Format.HYBRID,
+#         amax_history_len=16,
+#         amax_compute_algo="max"
+#     )
 
 class PanguModel_Plasim(nn.Module):
     """
@@ -99,7 +99,20 @@ class PanguModel_Plasim(nn.Module):
 
         #####
         global USE_TE
-        USE_TE = params.use_transformer_engine    
+        USE_TE = params.use_transformer_engine
+
+        if USE_TE:
+            global te, recipe, amp
+            import transformer_engine.pytorch as te
+            from transformer_engine.common import recipe
+            from torch.cuda import amp
+
+            global fp8_recipe
+            fp8_recipe = recipe.DelayedScaling(
+                fp8_format=recipe.Format.HYBRID,
+                amax_history_len=16,
+                amax_compute_algo="max"
+            )
 
         #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
@@ -739,12 +752,15 @@ class EarthAttention3D(nn.Module):
                         self.type_of_windows, num_heads)
         )  # Wpl**2 * Wlat**2 * Wlon*2-1, Npl//Wpl * Nlat//Wlat, nH
 
+
+
         earth_position_index = get_earth_position_index(window_size)  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
         self.register_buffer("earth_position_index", earth_position_index)
 
         if USE_TE:
             self.qkv = te.Linear(dim, dim * 3, bias=qkv_bias)
             self.proj = te.Linear(dim, dim)
+            # self.dpa = DotProductAttention(num_attention_heads=num_heads, kv_channels=dim // num_heads, num_gqa_groups=num_heads)
         else:
             self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
             self.proj = nn.Linear(dim, dim)
