@@ -47,7 +47,7 @@
 # Karthik Kashinath - NVIDIA Corporation
 # Animashree Anandkumar - California Institute of Technology, NVIDIA Corporation
 
-import os, sys, gc
+import os, sys, gc, shutil
 import logging
 import glob
 import torch
@@ -68,9 +68,9 @@ import xarray as xr
 import warnings
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0):
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
@@ -91,12 +91,13 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train):
+    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0):
         self.params = params
         self.data_dir = data_dir
         self.train = train
         self.epsilon_factor = self.params.epsilon_factor
         self.parallel = False #True if params['num_data_workers'] > 1 else False
+        self.num_inferences = num_inferences
 
         #self._get_files_stats()
 
@@ -147,6 +148,10 @@ class GetDataset(Dataset):
 
         self.boundary_dss = self._load_boundary_data()
         self.dates = self._get_dates(hour_step=params.timedelta_hours)
+        if self.num_inferences > 0:
+            self.inference_idxs = np.linspace(0, len(self.dates) - 1, num = num_inferences + 1, dtype = int)
+        else:
+            self.inference_idxs = np.arange(0, len(self.dates) - 1)
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         self.lev = torch.from_numpy(self.data_dss[0].lev.values)
@@ -157,6 +162,7 @@ class GetDataset(Dataset):
         for ds in self.boundary_dss:
             ds.close()
         gc.collect()
+
 
     def _get_files_stats(self):
         self.files_paths_sfc = glob.glob(self.data_dir + "/*_sfc.h5")
@@ -351,7 +357,10 @@ class GetDataset(Dataset):
 
 
     def __len__(self):
-        return len(self.dates) - 1
+        if self.num_inferences > 0:
+            return len(self.inference_idxs) - 1
+        else:
+            return len(self.dates) - 1
 
 
     def __getitem__(self, index):
@@ -394,21 +403,25 @@ class GetDataset(Dataset):
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
                 upper_air_t = upper_air_t + upper_air_t_noise
         elif not self.train and self.params['inference_steps'] > 1:
-            start_time = np.array(self.dates[index:index + self.params['inference_steps']])
+            start_time = np.array(self.dates[self.inference_idxs[index]:self.inference_idxs[index] + self.params['inference_steps']])
             start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)
             start_idx = np.array([np.where(start_hour_diff[i] >= 0)[0][-1] for i in range(start_hour_diff.shape[0])])
             start_leap_idx = np.array([1 if self.is_leap_year[start_idx_i] else 0 for start_idx_i in start_idx])
-            surface_t, upper_air_t = self._get_data(start_idx[0], start_hour_diff[0][start_idx[0]])
+            data_ds = self._load_year_data(start_idx[0])
+            surface_t, upper_air_t = self._get_data(data_ds, start_idx[0], start_hour_diff[0][start_idx[0]])
+            data_ds.close()
             varying_boundary_data = self._get_boundary_data(start_hour_diff[np.arange(len(start_time)), start_idx], start_leap_idx)
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim = 0)
             #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
             #end_time = self.dates[index + 1:index + 1 + self.params['inference_steps']]
         else:
-            start_time = self.dates[index]
+            start_time = self.dates[self.inference_idxs[index]]
             start_hour_diff = start_time - self.year_start_hours
             start_idx = np.where(start_hour_diff >= 0)[0][-1]
             start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
-            surface_t, upper_air_t = self._get_data(start_idx, start_hour_diff[start_idx])
+            data_ds = self._load_year_data(start_idx)
+            surface_t, upper_air_t = self._get_data(data_ds, start_idx, start_hour_diff[start_idx])
+            data_ds.close()
             varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
             varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
             #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
