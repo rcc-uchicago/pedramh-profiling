@@ -395,7 +395,7 @@ class GetDataset(Dataset):
         #self.data_dss = self._load_data(initial=False)
         #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         #self.lev = torch.from_numpy(self.data_dss[0].lev.values)
-        if (self.train or self.params['inference_steps'] == 0) and self.params['autoreg_steps'] == 0:
+        if self.train:
             start_time = self.dates[index]
             start_hour_diff = start_time - self.year_start_hours
             start_idx = np.where(start_hour_diff >= 0)[0][-1]
@@ -457,8 +457,9 @@ class GetDataset(Dataset):
                 data_ds_start.close()
                 data_ds_end.close()
 
+            # includes initial condition
             boundary_times = self.dates[index:index + self.params['autoreg_steps'] + 1]
-            boundary_hour_diffs = np.array([time - self.year_start_hours for time in boundary_times])
+            boundary_hour_diffs = np.array(boundary_times).reshape(-1,1) - self.year_start_hours.reshape(1,-1)
             boundary_idxs = np.array([np.where(diff >= 0)[0][-1] for diff in boundary_hour_diffs])
             boundary_leap_idxs = np.array([1 if self.is_leap_year[idx] else 0 for idx in boundary_idxs])
 
