@@ -16,7 +16,10 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 
 module load python
 # source activate /project/pedramh/anaconda/py311
-source activate /scratch/midway3/tvallabh/tarun_dev
+source activate /scratch/midway3/tvallabh/tarun_pangu
+
+# source activate /scratch/midway3/tvallabh/tarun_pangu
+
 
 
 # Change to working directory
@@ -43,7 +46,7 @@ export OMP_NUM_THREADS=1
 
 
 # Launch your script using torch.distributed.launch
-# python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml
-python train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml 
+# python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml 
+python train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml --enable_amp
 # --enable_amp if needed
 # python inference.py --run_num 0006 --yaml_config /home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml  --config PLASIM --inference_steps 2 

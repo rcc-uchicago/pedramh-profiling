@@ -854,5 +854,3 @@ def PerlinNoise():
   perlin_noise = noise_scale*GenerateFractalNoise((H, W), (period_number, period_number), octaves, persistence)
   return perlin_noise
   '''
-
-

@@ -20,8 +20,16 @@ base_config: &BASE
   exp_dir: 'results'
 
   # Add this line to enable/disable Transformer Engine
-  use_transformer_engine: !!bool True
+  use_transformer_engine: !!bool False
+  # Enables fp8 precision
   enable_fp8: !!bool False
+  # Enables early stopping
+  early_stopping: !!bool True 
+  # set the patience for the early stopping
+  early_stopping_patience: 5
+  # number of steps for the validation (set to 0 if using inference)
+  autoreg_steps: 3
+
 
 
 
@@ -33,7 +41,7 @@ PLASIM: &PLASIM
   surface_variables: ['pl', 'tas']
   constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
-  train_year_start: 100
+  train_year_start: 102
   train_year_end: 104
   val_year_start: 104
   val_year_end: 105
@@ -57,7 +65,10 @@ PLASIM: &PLASIM
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
 
+  # set to 0 during training
   inference_steps: 0
+
+  window_size: [2, 2, 2]
 
 
 

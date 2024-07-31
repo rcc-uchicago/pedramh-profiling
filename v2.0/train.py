@@ -228,6 +228,7 @@ class Trainer():
             logging.info("Starting Training Loop...")
 
         best_valid_loss = 1.e6
+        early_stopping_counter = 0
         for epoch in range(self.startEpoch, self.params.max_epochs):
             if dist.is_initialized():
                 self.train_sampler.set_epoch(epoch)
@@ -249,20 +250,41 @@ class Trainer():
                 for pg in self.optimizer.param_groups:
                     lr = pg['lr']
                 wandb.log({'lr': lr, 'epoch': self.epoch})
+            
+            # Early stopping logic should be outside of world_rank check
+            if valid_logs['val_loss'] <= best_valid_loss:
+                best_valid_loss = valid_logs['val_loss']
+                early_stopping_counter = 0  # Reset the counter
+            else:
+                early_stopping_counter += 1  # Increment the counter
+                
 
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path)
                     if valid_logs['val_loss'] <= best_valid_loss:
-                        # logging.info('Val loss improved from {} to {}'.format(best_valid_loss, valid_logs['valid_loss']))
                         self.save_checkpoint(self.params.best_checkpoint_path)
-                        best_valid_loss = valid_logs['val_loss']
+
 
             if self.params.log_to_screen:
                 logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
-                logging.info('Train loss: {}. Surface Val loss: {}. Upper Air Val loss:{}'.format(
-                    train_logs['train_loss'], valid_logs['val_loss_sfc'], valid_logs['val_loss_upper_air']))
+                logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
+                    train_logs['train_loss'], valid_logs['val_loss'], valid_logs['val_loss_sfc'], valid_logs['val_loss_upper_air']))
+                
+                if self.params.early_stopping:
+                    logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
+            
+            # Early stopping check
+            if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
+                if self.params.log_to_screen:
+                    logging.info('Early stopping triggered. Terminating training.')
+                return # Exit the train method
+            
+        # If we've reached this point, we've completed all epochs
+        if self.params.log_to_screen:
+            logging.info('Completed all epochs. Training finished.')
+            
 
 
     def train_one_epoch(self):
@@ -432,139 +454,6 @@ class Trainer():
             return tr_time, data_time, logs
 
 
-# PROFILING
-
-    # def train_one_epoch(self):
-    #     self.epoch += 1
-    #     tr_time = 0
-    #     data_time = 0
-    #     self.model.train()
-
-    #     nb = len(self.train_data_loader)
-    #     pbar = enumerate(self.train_data_loader, 0)
-    #     pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
-
-    #     running_results = {"batch_sizes": 0, "loss": 0}
-    #     if self.params.diagnostic_logs:
-    #         diagnostic_logs = {}
-        
-    #     # Profiler configuration
-    #     profiler_schedule = torch.profiler.schedule(
-    #         wait=1,
-    #         warmup=1,
-    #         active=3,
-    #         repeat=2)
-
-    #     with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA],
-    #                 schedule=profiler_schedule,
-    #                 on_trace_ready=torch.profiler.tensorboard_trace_handler('./log/profiler'),
-    #                 record_shapes=True,
-    #                 profile_memory=True,
-    #                 with_stack=True) as prof:
-            
-    #         for i, data in pbar:
-    #             with record_function("train_batch"):
-    #                 self.iters += 1
-                    
-    #                 with record_function("data_loading"):
-    #                     data_start = time.time()
-    #                     input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-    #                         lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-    #                     data_time += time.time() - data_start
-
-    #                 tr_start = time.time()
-
-    #                 self.model.zero_grad()
-
-    #                 precision_context = amp.autocast(enabled=self.params.enable_amp)
-
-    #                 with record_function("forward"), precision_context:
-    #                     output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-    #                                                                 varying_boundary_data, input_upper_air)
-                        
-    #                     loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-    #                     loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
-
-    #                     loss = (loss_sfc * 0.25) + loss_pl
-
-    #                 with record_function("backward"):
-    #                     if self.params.enable_amp:
-    #                         self.gscaler.scale(loss).backward()
-    #                         self.gscaler.step(self.optimizer)
-    #                         self.gscaler.update()
-    #                     else:
-    #                         loss.backward()
-    #                         self.optimizer.step()
-
-    #                 if self.params.scheduler == 'OneCycleLR':
-    #                     self.scheduler.step()
-
-    #                 with torch.no_grad():
-    #                     surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device))
-    #                     upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device))
-
-    #                 if self.params.diagnostic_logs:
-    #                     with torch.no_grad():
-    #                         diagnostic_logs['train_batch_loss'] = loss
-    #                         diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-    #                         diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-    #                         mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-    #                         diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-    #                         for j, var in enumerate(self.train_dataset.surface_variables):
-    #                             diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
-    #                         for j, var in enumerate(self.train_dataset.upper_air_variables):
-    #                             for k, level in enumerate(self.train_dataset.lev):
-    #                                 diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
-    #                         if dist.is_initialized():
-    #                             for key in sorted(diagnostic_logs.keys()):
-    #                                 dist.all_reduce(diagnostic_logs[key].detach())
-    #                                 diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-    #                         if self.params.log_to_wandb:
-    #                             wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
-
-    #                 torch.cuda.empty_cache()
-
-    #                 tr_time += time.time() - tr_start
-
-    #                 if self.params.diagnostic_logs:
-    #                     pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
-    #                 else:
-    #                     with torch.no_grad():
-    #                         running_results["loss"] += loss.item() * self.params['batch_size']
-    #                         running_results["batch_sizes"] += self.params['batch_size']
-    #                         pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-
-    #             prof.step()
-
-    #     # Log profiler results
-    #     logging.info(f"Profiler results for epoch {self.epoch}:")
-    #     logging.info(prof.key_averages().table(sort_by="cuda_time_total", row_limit=10))
-
-    #     if self.params.diagnostic_logs:
-    #         with torch.no_grad():
-    #             diagnostic_logs['train_loss'] = loss
-    #             if dist.is_initialized():
-    #                 dist.all_reduce(diagnostic_logs['train_loss'].detach())
-    #                 diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
-    #             logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
-    #             if self.params.log_to_wandb:
-    #                 wandb.log(logs)
-    #             return tr_time, data_time, diagnostic_logs
-    #     else:
-    #         with torch.no_grad():
-    #             logs = {'train_loss': loss, 'epoch': self.epoch}
-
-    #         if dist.is_initialized():
-    #             for key in sorted(logs.keys()):
-    #                 dist.all_reduce(logs[key].detach())
-    #                 logs[key] = float(logs[key]/dist.get_world_size())
-
-    #         if self.params.log_to_wandb:
-    #             wandb.log(logs)
-
-    #         return tr_time, data_time, logs
-
-
     def validate_one_epoch(self):
         self.model.eval()
         #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
@@ -583,6 +472,7 @@ class Trainer():
             diagnostic_logs = {}
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
+
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
@@ -591,6 +481,8 @@ class Trainer():
                 #    break
                 val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                     lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                
+                autoreg_steps = self.params['autoreg_steps']
                
                 if self.params.enable_fp8:
                     precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
@@ -598,11 +490,12 @@ class Trainer():
                     precision_context = amp.autocast(enabled=self.params.enable_amp)
 
                 with precision_context:
-                    val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                        val_varying_boundary_data, val_input_upper_air)
+                     # Autoregressive prediction
+                    val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
+                    for step in range(autoreg_steps):
+                        val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
+                                                                            val_varying_boundary_data[:, step], val_output_upper_air)
 
-                # val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                #                                                       val_varying_boundary_data, val_input_upper_air)
 
                 loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
                 loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
@@ -684,9 +577,6 @@ class Trainer():
             return valid_time, logs
 
     
-    
-
-
     def save_checkpoint(self, checkpoint_path, model=None):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
