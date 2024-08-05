@@ -272,6 +272,11 @@ class Trainer():
                 logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
                     train_logs['train_loss'], valid_logs['val_loss'], valid_logs['val_loss_sfc'], valid_logs['val_loss_upper_air']))
                 
+                # Add logging for multi-day losses
+                lead_times_steps = self.params.forecast_lead_times
+                multi_step_loss_str = '. '.join([f"{step}-step Val loss: {valid_logs.get(f'valid_loss_{step}step', 'N/A')}" for step in lead_times_steps])
+                logging.info(f'Multi-step validation losses: {multi_step_loss_str}')
+                
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
             
@@ -466,10 +471,19 @@ class Trainer():
         valid_surface_lwrmse = torch.zeros((len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
         valid_upper_air_lwrmse = torch.zeros((len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
 
+        # define the lead times to evaluate (in time steps)
+        lead_times_steps = self.params.forecast_lead_times
+
+        multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
+
+
+
         valid_start = time.time()
         nb = len(self.valid_data_loader)
         if self.params.diagnostic_logs:
             diagnostic_logs = {}
+        
+
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
 
@@ -482,7 +496,8 @@ class Trainer():
                 val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                     lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 
-                autoreg_steps = self.params['autoreg_steps']
+                autoreg_steps = max(self.params.autoreg_steps, max(lead_times_steps))
+
                
                 if self.params.enable_fp8:
                     precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
@@ -495,7 +510,13 @@ class Trainer():
                     for step in range(autoreg_steps):
                         val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_output_upper_air)
-
+                        
+                        # Calculate losses for different lead times
+                        if (step + 1) in lead_times_steps:
+                            loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
+                            loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
+                            loss = (loss_sfc * 0.25 + loss_pl)
+                            multi_step_losses[f"valid_loss_{step+1}step"] += loss
 
                 loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
                 loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
@@ -531,11 +552,15 @@ class Trainer():
             dist.all_reduce(valid_buff)
             dist.all_reduce(valid_surface_lwrmse)
             dist.all_reduce(valid_upper_air_lwrmse)
+            for loss_tensor in multi_step_losses.values():
+                dist.all_reduce(loss_tensor)
 
         # divide by number of steps
         valid_buff[0:3] = valid_buff[0:3] / valid_buff[3]
         valid_surface_lwrmse = (valid_surface_lwrmse / valid_buff[3]).detach()
         valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[3]).detach()
+        for key in multi_step_losses:
+            multi_step_losses[key] /= valid_buff[3]
 
         valid_buff_cpu = valid_buff.detach()
                     
@@ -555,6 +580,11 @@ class Trainer():
             #    for key in sorted(diagnostic_logs.keys()):
             #        dist.all_reduce(diagnostic_logs[key].detach())
             #        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+
+            # Add multi-day losses to diagnostic logs
+            for key, value in multi_step_losses.items():
+                diagnostic_logs[key] = value.item()
+
             if self.params.log_to_wandb:
                 wandb.log(diagnostic_logs)
             
@@ -566,6 +596,10 @@ class Trainer():
                 logs = {'val_loss': valid_buff_cpu[0], 
                         'val_loss_sfc': valid_buff_cpu[1], 'val_loss_upper_air': valid_buff_cpu[2],
                         'epoch': self.epoch}
+                # Add multi-day losses to logs
+                for key, value in multi_step_losses.items():
+                    logs[key] = value.item()
+
             except:
                 pass
 
@@ -632,6 +666,12 @@ if __name__ == '__main__':
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
     #params['loss'] = args.loss
+
+    # Add mandatory check for autoregressive steps
+    max_forecast_lead_time = max(params.forecast_lead_times)
+    if params.autoreg_steps < max_forecast_lead_time:
+        raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
+                         f"the maximum forecast lead time ({max_forecast_lead_time})")
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
