@@ -459,6 +459,7 @@ class Trainer():
             return tr_time, data_time, logs
 
 
+
     def validate_one_epoch(self):
         self.model.eval()
         #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
@@ -574,6 +575,8 @@ class Trainer():
             dist.all_reduce(valid_upper_air_lwrmse)
             for loss_tensor in multi_step_losses.values():
                 dist.all_reduce(loss_tensor)
+            for rmse_tensor in multi_step_rmse.values(): 
+                dist.all_reduce(rmse_tensor)
 
         # divide by number of steps
         valid_buff[0:3] = valid_buff[0:3] / valid_buff[3]
@@ -581,6 +584,8 @@ class Trainer():
         valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[3]).detach()
         for key in multi_step_losses:
             multi_step_losses[key] /= valid_buff[3]
+        for key in multi_step_rmse:  # Add this loop
+            multi_step_rmse[key] /= valid_buff[3]
 
         valid_buff_cpu = valid_buff.detach()
                     
@@ -604,6 +609,9 @@ class Trainer():
             # Add multi-day losses to diagnostic logs
             for key, value in multi_step_losses.items():
                 diagnostic_logs[key] = value.item()
+            
+            for key, value in multi_step_rmse.items():  
+                diagnostic_logs[key] = value.item()
 
             if self.params.log_to_wandb:
                 wandb.log(diagnostic_logs)
@@ -618,6 +626,10 @@ class Trainer():
                         'epoch': self.epoch}
                 # Add multi-day losses to logs
                 for key, value in multi_step_losses.items():
+                    logs[key] = value.item()
+                
+                # Aadd multi-day RMSE
+                for key, value in multi_step_rmse.items(): 
                     logs[key] = value.item()
 
             except:
