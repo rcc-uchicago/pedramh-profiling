@@ -496,46 +496,58 @@ class Trainer():
                 val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                     lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 
-                autoreg_steps = max(self.params.autoreg_steps, max(lead_times_steps))
+                max_lead_time = max(lead_times_steps)
 
-               
-                if self.params.enable_fp8:
-                    precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
-                else:
-                    precision_context = amp.autocast(enabled=self.params.enable_amp)
+                precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
 
                 with precision_context:
                      # Autoregressive prediction
                     val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
-                    for step in range(autoreg_steps):
+                    for step in range(max_lead_time):
                         val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_output_upper_air)
                         
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
-                            loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
-                            loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
+                            target_index = lead_times_steps.index(step + 1)
+                            loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[target_index])
+                            loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[target_index])
                             loss = (loss_sfc * 0.25 + loss_pl)
                             multi_step_losses[f"valid_loss_{step+1}step"] += loss
 
-                loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface)
-                loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air)
-                
-                loss = (loss_sfc * 0.25 + loss_pl)
-                valid_loss += loss
-                #valid_l1 += (torch.nn.functional.l1_loss(val_output_surface, val_target_surface) + \
-                #    torch.nn.functional.l1_loss(val_output_upper_air, val_target_upper_air))
-                
-                valid_loss_sfc += loss_sfc 
-                valid_loss_pl += loss_pl
-                    
-                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface, self.valid_dataset.lat.to(self.device, non_blocking=True))
-                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air, self.valid_dataset.lat.to(self.device, non_blocking=True))
+                            if step + 1 == max_lead_time:
+                                valid_loss += loss
+                                valid_loss_sfc += loss_sfc
+                                valid_loss_pl += loss_pl
 
-                valid_surface_lwrmse += torch.mean(surface_lwrmse, dim = 0)
-                valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim = 0)
+                                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+
+                                valid_surface_lwrmse += torch.mean(surface_lwrmse, dim=0)
+                                valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim=0)
 
                 valid_steps += 1.
+
+                            
+
+                # loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[-1])
+                # loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[-1])
+                
+                # loss = (loss_sfc * 0.25 + loss_pl)
+                # valid_loss += loss
+                # #valid_l1 += (torch.nn.functional.l1_loss(val_output_surface, val_target_surface) + \
+                # #    torch.nn.functional.l1_loss(val_output_upper_air, val_target_upper_air))
+                
+                # valid_loss_sfc += loss_sfc 
+                # valid_loss_pl += loss_pl
+                    
+                # surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface, self.valid_dataset.lat.to(self.device, non_blocking=True))
+                # upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air, self.valid_dataset.lat.to(self.device, non_blocking=True))
+
+                # valid_surface_lwrmse += torch.mean(surface_lwrmse, dim = 0)
+                # valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim = 0)
+
+                # valid_steps += 1.
 
 
 
