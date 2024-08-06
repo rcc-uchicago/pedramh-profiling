@@ -68,9 +68,9 @@ import xarray as xr
 import warnings
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate)
     sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
     if train and not distributed:
         sampler = torch.utils.data.RandomSampler(dataset)
@@ -287,15 +287,16 @@ class GetDataset(Dataset):
         
         if not self.train:
             # POTENTIAL BUG: WILL PRIORITIZE INFERENCE STEPS FIRST
-            if self.params['inference_steps'] > 0:
-                # Original inference mode
-                hours = (end_date - start_date).days * 24. - (self.params['inference_steps'])
-            elif self.params['autoreg_steps'] > 0:
-                # New autoregressive inference mode
-                hours = (end_date - start_date).days * 24. - (self.params['autoreg_steps'])
-            else:
-                # Default case (no steps specified)
-                hours = (end_date - start_date).days * 24.
+            #if self.params['inference_steps'] > 0:
+            #    # Original inference mode
+            #    hours = (end_date - start_date).days * 24. - (self.params['inference_steps'])
+            #elif self.params['autoreg_steps'] > 0:
+            #    # New autoregressive inference mode
+            #    hours = (end_date - start_date).days * 24. - (self.params['autoreg_steps'])
+            #else:
+            #    # Default case (no steps specified)
+            #    hours = (end_date - start_date).days * 24.
+            hours = (end_date - start_date).days * 24. - (max(self.params.forecast_lead_times) - 1) * hour_step
         else:
             # Training mode
             hours = (end_date - start_date).days * 24.
@@ -357,7 +358,7 @@ class GetDataset(Dataset):
     def _get_boundary_data(self, start_time_boundary, leap_idx):
         # Added fix for boundary data
         # load boundary data based on if multi step or single step. 
-        if not self.train and (self.params['inference_steps'] > 0 or self.params['autoreg_steps'] > 0): 
+        if not self.train and max(self.params.forecast_lead_times) > 1: 
             varying_boundary_data_all = []
             # print(start_time_boundary)
             for start_time_boundary_i, leap_idx_i in zip(start_time_boundary, leap_idx):
@@ -493,7 +494,7 @@ class GetDataset(Dataset):
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
                 current_ds.close()
-                targets_surface = torch.stack(target_surface, dim = 0)
+                targets_surface = torch.stack(targets_surface, dim = 0)
                 targets_upper_air = torch.stack(targets_upper_air, dim = 0)
             else:
                 current_ds.close()
@@ -543,10 +544,10 @@ class GetDataset(Dataset):
 
         if self.train:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
-        elif self.validate and self.lead_times
+        elif self.validate and lead_times:
             # return surface_t, upper_air_t, surface_t_target, upper_air_t_target, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx], self.params['autoreg_steps']])
             return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
-        elif self.lead_times:
+        elif lead_times:
             return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx[0], start_hour_diff[0][start_idx[0]]])
         else:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])

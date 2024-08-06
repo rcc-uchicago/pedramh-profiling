@@ -118,7 +118,9 @@ class Trainer():
                                                                                          year_end=params.train_year_end, train=True)
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
-                                                                     year_end=params.val_year_end, train=False)
+                                                                     year_end=params.val_year_end, train=False,
+                                                                     num_inferences = params.num_inferences,
+                                                                     validate = True)
 
         self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
@@ -140,14 +142,18 @@ class Trainer():
             #           entity=params.entity)
             wandb.define_metric("epoch")
             if self.params.diagnostic_logs:
-                epoch_metrics = ['lr', 'train_loss', 'val_loss', 'val_loss_sfc', 'val_loss_upper_air', 'val_mean_norm_lwrmse']
-                for j, var in enumerate(self.valid_dataset.surface_variables):
-                    epoch_metrics.append(f'val_{var}_lwrmse')
-                for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                    for k, level in enumerate(self.valid_dataset.lev):
-                        epoch_metrics.append(f'val_{var}_level{level:.4f}_lwrmse')
+                epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
+                for l, steps in enumerate(self.params.forecast_lead_times):
+                    epoch_metrics.append(f"valid_lwrmse_sfc_{steps}step")
+                    epoch_metrics.append(f"valid_lwrmse_pl_{steps}step")
+                    epoch_metrics.append(f"valid_loss_{steps}step")
+                    for j, var in enumerate(self.valid_dataset.surface_variables):
+                        epoch_metrics.append(f'valid_{var}_{steps}step_lwrmse')
+                    for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                        for k, level in enumerate(self.valid_dataset.lev):
+                            epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
             else:
-                epoch_metrics = ['lr', 'train_loss', 'val_loss', 'val_loss_sfc', 'val_loss_upper_air']
+                epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
             for metric in epoch_metrics:
                 wandb.define_metric(metric, step_metric="epoch")
 
@@ -240,7 +246,7 @@ class Trainer():
             valid_time, valid_logs = self.validate_one_epoch()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
-                self.scheduler.step(valid_logs['val_loss'])
+                self.scheduler.step(valid_logs['valid_loss'])
             elif self.params.scheduler == 'CosineAnnealingLR':
                 self.scheduler.step()
                 if self.epoch >= self.params.max_epochs:
@@ -253,8 +259,8 @@ class Trainer():
                 wandb.log({'lr': lr, 'epoch': self.epoch})
             
             # Early stopping logic should be outside of world_rank check
-            if valid_logs['val_loss'] <= best_valid_loss:
-                best_valid_loss = valid_logs['val_loss']
+            if valid_logs['valid_loss'] <= best_valid_loss:
+                best_valid_loss = valid_logs['valid_loss']
                 early_stopping_counter = 0  # Reset the counter
             else:
                 early_stopping_counter += 1  # Increment the counter
@@ -264,14 +270,14 @@ class Trainer():
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path)
-                    if valid_logs['val_loss'] <= best_valid_loss:
+                    if valid_logs['valid_loss'] <= best_valid_loss:
                         self.save_checkpoint(self.params.best_checkpoint_path)
 
 
             if self.params.log_to_screen:
                 logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
                 logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
-                    train_logs['train_loss'], valid_logs['val_loss'], valid_logs['val_loss_sfc'], valid_logs['val_loss_upper_air']))
+                    train_logs['train_loss'], valid_logs['valid_loss'], valid_logs['valid_loss_sfc'], valid_logs['valid_loss_upper_air']))
                 
                 # Add logging for multi-day losses
                 lead_times_steps = self.params.forecast_lead_times
@@ -472,20 +478,15 @@ class Trainer():
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
         valid_steps = valid_buff[3].view(-1)
-        valid_surface_lwrmse = torch.zeros((len(self.lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
-        valid_upper_air_lwrmse = torch.zeros((len(self.lead_times_steps), len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
+        valid_surface_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
+        valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
 
         
 
         multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         # Add RMSE storage for multiple lead times
-        multi_step_rmse = {f"valid_lwrmse_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
-
-        if diagnostic_logs:
-            multi_step_surface_var_rmse = {f"valid_lwrmse_{var}_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) \
-                for var, step in product(self.valid_dataset.surface_variables, lead_times_steps)}
-            multi_step_upper_air_var_rmse = {f"valid_lwrmse_{var}_level{level:.3f}_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) \
-                for var, level, step in product(self.valid_dataset.surface_variables, self.valid_dataset.lev, lead_times_steps)}
+        multi_step_rmse = {f"valid_lwrmse_sfc_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps} |\
+            {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
 
 
 
@@ -534,7 +535,7 @@ class Trainer():
                             multi_step_rmse[f"valid_lwrmse_pl_{step+1}step"] += torch.mean(rmse_pl)
 
                             valid_surface_lwrmse[step_idx] += torch.mean(rmse_sfc, dim = 0)
-                            valid_upper_air_lwrmse[step_idx] += torch.mean(upper_air_lwrmse, dim=0)
+                            valid_upper_air_lwrmse[step_idx] += torch.mean(rmse_pl, dim=0)
 
                             if step + 1 == max_lead_time:
                                 valid_loss += loss
@@ -683,9 +684,10 @@ if __name__ == '__main__':
     parser.add_argument("--run_num", default='0001', type=str)
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
-    parser.add_argument("--enable_amp", default=False, action='store_true')
+    parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
+    parser.add_argument("--num_inferences", default = 0, type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
@@ -701,13 +703,14 @@ if __name__ == '__main__':
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
+    params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
     # Add mandatory check for autoregressive steps
-    max_forecast_lead_time = max(params.forecast_lead_times)
-    if params.autoreg_steps < max_forecast_lead_time:
-        raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
-                         f"the maximum forecast lead time ({max_forecast_lead_time})")
+    #max_forecast_lead_time = max(params.forecast_lead_times)
+    #if params.autoreg_steps < max_forecast_lead_time:
+    #    raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
+    #                     f"the maximum forecast lead time ({max_forecast_lead_time})")
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
