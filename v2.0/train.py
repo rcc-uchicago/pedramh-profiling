@@ -475,6 +475,8 @@ class Trainer():
         lead_times_steps = self.params.forecast_lead_times
 
         multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
+        # Add RMSE storage for multiple lead times
+        multi_step_rmse = {f"valid_rmse_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
 
 
 
@@ -514,6 +516,12 @@ class Trainer():
                             loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[target_index])
                             loss = (loss_sfc * 0.25 + loss_pl)
                             multi_step_losses[f"valid_loss_{step+1}step"] += loss
+
+                            # Calculate RMSE
+                            rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                            rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                            rmse = (torch.mean(rmse_sfc) + torch.mean(rmse_pl)) / 2
+                            multi_step_rmse[f"valid_rmse_{step+1}step"] += rmse
 
                             if step + 1 == max_lead_time:
                                 valid_loss += loss
