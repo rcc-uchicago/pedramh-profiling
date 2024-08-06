@@ -281,7 +281,7 @@ class Trainer():
                     rmse_pl = valid_logs.get(f'valid_rmse_pl_{step}step', 'N/A')
                     multi_step_metrics.append(f"{step}-step: Loss={loss}, RMSE_sfc={rmse_sfc}, RMSE_pl={rmse_pl}")
                 multi_step_metrics_str = ' | '.join(multi_step_metrics)
-                logging.info(f'Multi-step validation metrics: {multi_step_metrics_str}'
+                logging.info(f'Multi-step validation metrics: {multi_step_metrics_str}')
                 
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
