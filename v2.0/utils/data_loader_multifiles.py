@@ -395,6 +395,9 @@ class GetDataset(Dataset):
         #self.data_dss = self._load_data(initial=False)
         #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         #self.lev = torch.from_numpy(self.data_dss[0].lev.values)
+        lead_times = self.params.forecast_lead_times
+
+        # Condition 1: Training
         if self.train:
             start_time = self.dates[index]
             start_hour_diff = start_time - self.year_start_hours
@@ -430,35 +433,55 @@ class GetDataset(Dataset):
                 upper_air_t = upper_air_t + upper_air_t_noise
         
         # Condition for autoregression
-        elif not self.train and self.params['autoreg_steps'] > 0:
-            self.boundary_dss = self._load_boundary_data(initial=False)
-            
+        elif lead_times and self.params['inference_steps'] < 1:
+
             start_time = self.dates[index]
             start_hour_diff = start_time - self.year_start_hours
             start_idx = np.where(start_hour_diff >= 0)[0][-1]
             start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
 
-            # Calculate end time and index based on auto_reg_steps
-            end_time = self.dates[index + self.params['autoreg_steps']]
-            end_hour_diff = end_time - self.year_start_hours
-            end_idx = np.where(end_hour_diff >= 0)[0][-1]
-
             # Load initial conditions
             data_ds_start = self._load_year_data(start_idx)
             surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
 
-            # Load target conditions
-            if start_idx == end_idx:
-                surface_t_target, upper_air_t_target = self._get_data(data_ds_start, end_idx, end_hour_diff[end_idx])
-                data_ds_start.close()
-            else:
-                data_ds_end = self._load_year_data(end_idx)
-                surface_t_target, upper_air_t_target = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
-                data_ds_start.close()
-                data_ds_end.close()
 
-            # includes initial condition
-            boundary_times = self.dates[index:index + self.params['autoreg_steps'] + 1]
+            # Load targets for each lead time
+            targets_surface = []
+            targets_upper_air = []
+            current_ds = data_ds_start
+            current_idx = start_idx
+
+            for step in lead_times:
+                target_time = self.dates[index + step]
+                target_hour_diff = target_time - self.year_start_hours
+                target_idx = np.where(target_hour_diff >= 0)[0][-1]
+                
+                if target_idx != current_idx:
+                    current_ds.close()
+                    current_ds = self._load_year_data(target_idx)
+                    current_idx = target_idx
+                
+                surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
+                
+                targets_surface.append(surface_target)
+                targets_upper_air.append(upper_air_target)
+
+            current_ds.close()
+
+            # # The final target is now the last element in the lists
+            # surface_t_target, upper_air_t_target = targets_surface[-1], targets_upper_air[-1]
+
+            # # Load target conditions
+            # if start_idx == end_idx:
+            #     surface_t_target, upper_air_t_target = self._get_data(data_ds_start, end_idx, end_hour_diff[end_idx])
+            #     data_ds_start.close()
+            # else:
+            #     data_ds_end = self._load_year_data(end_idx)
+            #     surface_t_target, upper_air_t_target = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
+            #     data_ds_start.close()
+            #     data_ds_end.close()
+            max_lead_time = lead_times[-1]
+            boundary_times = self.dates[index:index + max_lead_time + 1]
             boundary_hour_diffs = np.array(boundary_times).reshape(-1,1) - self.year_start_hours.reshape(1,-1)
             boundary_idxs = np.array([np.where(diff >= 0)[0][-1] for diff in boundary_hour_diffs])
             boundary_leap_idxs = np.array([1 if self.is_leap_year[idx] else 0 for idx in boundary_idxs])
@@ -511,7 +534,8 @@ class GetDataset(Dataset):
         if self.train:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
         elif not self.train and self.params['autoreg_steps'] > 0:
-            return surface_t, upper_air_t, surface_t_target, upper_air_t_target, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx], self.params['autoreg_steps']])
+            # return surface_t, upper_air_t, surface_t_target, upper_air_t_target, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx], self.params['autoreg_steps']])
+            return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], max_lead_time])
         elif self.params['inference_steps'] > 0:
             return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx[0], start_hour_diff[0][start_idx[0]]])
         else:
