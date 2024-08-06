@@ -53,8 +53,6 @@ Pseudocode of Pangu-Weather
 # LoadConstantMask: Load constant masks, e.g., soil type
 # LoadStatic: Load mean and std of the ERA5 training data, every fields such as T850 is treated as an image and calculate the mean and std
 #from Your_AI_Library import LoadData, LoadConstantMask, LoadStatic
-
-
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -67,7 +65,23 @@ from utils.shift_window_mask import get_shift_window_mask, window_partition, win
 from utils.crop import crop3d
 from timm.models.layers import trunc_normal_, DropPath
 
+# Global flag for using Transformer Engine, initially set to True
+USE_TE = False
 
+
+
+
+# # Conditional imports
+# if USE_TE:
+#     import transformer_engine.pytorch as te
+#     from transformer_engine.common import recipe
+#     from torch.cuda import amp
+
+#     fp8_recipe = recipe.DelayedScaling(
+#         fp8_format=recipe.Format.HYBRID,
+#         amax_history_len=16,
+#         amax_compute_algo="max"
+#     )
 
 class PanguModel_Plasim(nn.Module):
     """
@@ -83,6 +97,22 @@ class PanguModel_Plasim(nn.Module):
     def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), drop_path=None):
         super().__init__() 
         #####
+        global USE_TE
+        USE_TE = params.use_transformer_engine
+
+        if USE_TE:
+            global te, recipe, amp
+            import transformer_engine.pytorch as te
+            from transformer_engine.common import recipe
+            from torch.cuda import amp
+
+            global fp8_recipe
+            fp8_recipe = recipe.DelayedScaling(
+                fp8_format=recipe.Format.HYBRID,
+                amax_history_len=16,
+                amax_compute_algo="max"
+            )
+
         #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
             drop_path = np.append(np.linspace(0, 0.2, np.sum(params.depths[:2])), np.linspace(0.2, 0, np.sum(params.depths[2:]))).tolist()
@@ -180,15 +210,36 @@ class PanguModel_Plasim(nn.Module):
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 
-        x = self.layer1(x)
+        # x = self.layer1(x)
 
-        skip = x
+        # skip = x
 
-        x = self.downsample(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.upsample(x)
-        x = self.layer4(x)
+        # x = self.downsample(x)
+        # x = self.layer2(x)
+        # x = self.layer3(x)
+        # x = self.upsample(x)
+        # x = self.layer4(x)
+
+        #OPTIMIZATION
+
+        if USE_TE:
+            # with te.fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe):
+            x = self.layer1(x)
+            skip = x
+            x = self.downsample(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            x = self.upsample(x)
+            x = self.layer4(x)
+        else:
+            # with amp.autocast(enabled=True):
+            x = self.layer1(x)
+            skip = x
+            x = self.downsample(x)
+            x = self.layer2(x)
+            x = self.layer3(x)
+            x = self.upsample(x)
+            x = self.layer4(x)
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
@@ -284,8 +335,15 @@ class DownSample(nn.Module):
     def __init__(self, in_dim, input_resolution, output_resolution, downsample_factor=2):
         super().__init__()
         self.downsample_factor = downsample_factor
-        self.linear = nn.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)
-        self.norm = nn.LayerNorm((self.downsample_factor ** 2) * in_dim)
+
+        if USE_TE:
+            self.linear = te.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)
+            self.norm = te.LayerNorm((self.downsample_factor ** 2) * in_dim)
+        else:
+            self.linear = nn.Linear(in_dim * (self.downsample_factor ** 2), in_dim * self.downsample_factor, bias=False)
+            self.norm = nn.LayerNorm((self.downsample_factor ** 2) * in_dim)
+
+
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
 
@@ -337,9 +395,16 @@ class UpSample(nn.Module):
     def __init__(self, in_dim, out_dim, input_resolution, output_resolution, upsample_factor=2):
         super().__init__()
         self.upsample_factor = upsample_factor
-        self.linear1 = nn.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)
-        self.linear2 = nn.Linear(out_dim, out_dim, bias=False)
-        self.norm = nn.LayerNorm(out_dim)
+
+        if USE_TE:
+            self.linear1 = te.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)
+            self.linear2 = te.Linear(out_dim, out_dim, bias=False)
+            self.norm = te.LayerNorm(out_dim)
+        else:
+            self.linear1 = nn.Linear(in_dim, out_dim * (upsample_factor ** 2), bias=False)
+            self.linear2 = nn.Linear(out_dim, out_dim, bias=False)
+            self.norm = nn.LayerNorm(out_dim)
+
         self.input_resolution = input_resolution
         self.output_resolution = output_resolution
 
@@ -393,11 +458,13 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop=0., attn_drop=0., drop_path=0., norm_layer=nn.LayerNorm):
+                 drop=0., attn_drop=0., drop_path=0., norm_layer = nn.LayerNorm): # Using TE here is not working. 
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
+        norm_layer = te.LayerNorm if USE_TE else nn.LayerNorm
+
 
         self.blocks = nn.ModuleList([
             EarthSpecificBlock(dim=dim, input_resolution=input_resolution, num_heads=num_heads, window_size=window_size,
@@ -415,12 +482,128 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
 
 
 
+# class EarthSpecificBlock(nn.Module):
+#     """
+#     3D Transformer Block
+#     Args:
+#         dim (int): Number of input channels.
+#         input_resolution (tuple[int]): Input resulotion.
+#         num_heads (int): Number of attention heads.
+#         window_size (tuple[int]): Window size [pressure levels, latitude, longitude].
+#         shift_size (tuple[int]): Shift size for SW-MSA [pressure levels, latitude, longitude].
+#         mlp_ratio (float): Ratio of mlp hidden dim to embedding dim.
+#         qkv_bias (bool, optional): If True, add a learnable bias to query, key, value. Default: True
+#         qk_scale (float | None, optional): Override default qk scale of head_dim ** -0.5 if set.
+#         drop (float, optional): Dropout rate. Default: 0.0
+#         attn_drop (float, optional): Attention dropout rate. Default: 0.0
+#         drop_path (float, optional): Stochastic depth rate. Default: 0.0
+#         act_layer (nn.Module, optional): Activation layer. Default: nn.GELU
+#         norm_layer (nn.Module, optional): Normalization layer.  Default: nn.LayerNorm
+#     """
+
+#     # CHANGE NORM LAYER BACK TO nn.LayerNorm if not faster
+
+#     def __init__(self, dim, input_resolution, num_heads, window_size=None, shift_size=None, mlp_ratio=4.,
+#                  qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU,
+#                  norm_layer=te.LayerNorm): # TE Change
+#         super().__init__()
+#         window_size = (2, 6, 12) if window_size is None else window_size
+#         shift_size = (1, 3, 6) if shift_size is None else shift_size
+#         self.dim = dim
+#         self.input_resolution = input_resolution
+#         self.num_heads = num_heads
+#         self.window_size = window_size
+#         self.shift_size = shift_size
+#         self.mlp_ratio = mlp_ratio
+
+#         self.norm1 = norm_layer(dim)
+#         padding = get_pad3d(input_resolution, window_size)
+#         self.pad = nn.ZeroPad3d(padding)
+
+#         pad_resolution = list(input_resolution)
+#         pad_resolution[0] += (padding[-1] + padding[-2])
+#         pad_resolution[1] += (padding[2] + padding[3])
+#         pad_resolution[2] += (padding[0] + padding[1])
+
+#         self.attn = EarthAttention3D(
+#             dim=dim, input_resolution=pad_resolution, window_size=window_size, num_heads=num_heads, qkv_bias=qkv_bias,
+#             qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop
+#         )
+
+#         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
+#         self.norm2 = norm_layer(dim)
+#         mlp_hidden_dim = int(dim * mlp_ratio)
+#         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+
+#         shift_pl, shift_lat, shift_lon = self.shift_size
+#         self.roll = shift_pl and shift_lon and shift_lat
+
+#         if self.roll:
+#             attn_mask = get_shift_window_mask(pad_resolution, window_size, shift_size)
+#         else:
+#             attn_mask = None
+
+#         self.register_buffer("attn_mask", attn_mask)
+
+#     def forward(self, x: torch.Tensor):
+#         Pl, Lat, Lon = self.input_resolution
+#         B, L, C = x.shape
+#         assert L == Pl * Lat * Lon, "input feature has wrong size"
+
+#         shortcut = x
+#         x = self.norm1(x)
+#         x = x.view(B, Pl, Lat, Lon, C)
+
+#         # start pad
+#         x = self.pad(x.permute(0, 4, 1, 2, 3)).permute(0, 2, 3, 4, 1)
+
+#         _, Pl_pad, Lat_pad, Lon_pad, _ = x.shape
+
+#         shift_pl, shift_lat, shift_lon = self.shift_size
+#         if self.roll:
+#             shifted_x = torch.roll(x, shifts=(-shift_pl, -shift_lat, -shift_lon), dims=(1, 2, 3))
+#             x_windows = window_partition(shifted_x, self.window_size)
+#             # B*num_lon, num_pl*num_lat, win_pl, win_lat, win_lon, C
+#         else:
+#             shifted_x = x
+#             x_windows = window_partition(shifted_x, self.window_size)
+#             # B*num_lon, num_pl*num_lat, win_pl, win_lat, win_lon, C
+
+#         win_pl, win_lat, win_lon = self.window_size
+#         x_windows = x_windows.view(x_windows.shape[0], x_windows.shape[1], win_pl * win_lat * win_lon, C)
+#         # B*num_lon, num_pl*num_lat, win_pl*win_lat*win_lon, C
+
+#         attn_windows = self.attn(x_windows, mask=self.attn_mask)  # B*num_lon, num_pl*num_lat, win_pl*win_lat*win_lon, C
+
+#         attn_windows = attn_windows.view(attn_windows.shape[0], attn_windows.shape[1], win_pl, win_lat, win_lon, C)
+
+#         if self.roll:
+#             shifted_x = window_reverse(attn_windows, self.window_size, Pl_pad, Lat_pad, Lon_pad)
+#             # B * Pl * Lat * Lon * C
+#             x = torch.roll(shifted_x, shifts=(shift_pl, shift_lat, shift_lon), dims=(1, 2, 3))
+#         else:
+#             shifted_x = window_reverse(attn_windows, self.window_size, Pl_pad, Lat_pad, Lon_pad)
+#             x = shifted_x
+
+#         # crop, end pad
+#         x = crop3d(x.permute(0, 4, 1, 2, 3), self.input_resolution).permute(0, 2, 3, 4, 1)
+
+#         x = x.reshape(B, Pl * Lat * Lon, C)
+#         x = shortcut + self.drop_path(x)
+
+#         x = x + self.drop_path(self.mlp(self.norm2(x)))
+
+#         return x
+
+
+# CHANGE SO THAT I CAN REPLACE THE EARTHSPECIFIC LAYER NORMALIZATION SCHEME WITH TE. Must be contiguous before applying the normalization. 
+
 class EarthSpecificBlock(nn.Module):
     """
     3D Transformer Block
     Args:
         dim (int): Number of input channels.
-        input_resolution (tuple[int]): Input resulotion.
+        input_resolution (tuple[int]): Input resolution.
         num_heads (int): Number of attention heads.
         window_size (tuple[int]): Window size [pressure levels, latitude, longitude].
         shift_size (tuple[int]): Shift size for SW-MSA [pressure levels, latitude, longitude].
@@ -435,8 +618,7 @@ class EarthSpecificBlock(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=None, shift_size=None, mlp_ratio=4.,
-                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU,
-                 norm_layer=nn.LayerNorm):
+                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer = nn.LayerNorm): 
         super().__init__()
         window_size = (2, 6, 12) if window_size is None else window_size
         shift_size = (1, 3, 6) if shift_size is None else shift_size
@@ -447,7 +629,13 @@ class EarthSpecificBlock(nn.Module):
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
 
+        norm_layer = te.LayerNorm if USE_TE else nn.LayerNorm
+
+
+
         self.norm1 = norm_layer(dim)
+        self.norm2 = norm_layer(dim)
+
         padding = get_pad3d(input_resolution, window_size)
         self.pad = nn.ZeroPad3d(padding)
 
@@ -462,7 +650,6 @@ class EarthSpecificBlock(nn.Module):
         )
 
         self.drop_path = DropPath(drop_path) if drop_path > 0. else nn.Identity()
-        self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
@@ -482,7 +669,11 @@ class EarthSpecificBlock(nn.Module):
         assert L == Pl * Lat * Lon, "input feature has wrong size"
 
         shortcut = x
-        x = self.norm1(x)
+        # Ensure x is contiguous before normalization (TE CHANGE)
+        if USE_TE:
+            x = self.norm1(x.contiguous())
+        else:
+            x = self.norm1(x)
         x = x.view(B, Pl, Lat, Lon, C)
 
         # start pad
@@ -522,7 +713,10 @@ class EarthSpecificBlock(nn.Module):
         x = x.reshape(B, Pl * Lat * Lon, C)
         x = shortcut + self.drop_path(x)
 
-        x = x + self.drop_path(self.mlp(self.norm2(x)))
+        if USE_TE:
+            x = x + self.drop_path(self.mlp(self.norm2(x.contiguous())))
+        else:
+            x = x + self.drop_path(self.mlp(self.norm2(x)))
 
         return x
 
@@ -553,6 +747,7 @@ class EarthAttention3D(nn.Module):
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim ** -0.5
 
+
         self.type_of_windows = (input_resolution[0] // window_size[0]) * (input_resolution[1] // window_size[1])
 
         self.earth_position_bias_table = nn.Parameter(
@@ -560,12 +755,20 @@ class EarthAttention3D(nn.Module):
                         self.type_of_windows, num_heads)
         )  # Wpl**2 * Wlat**2 * Wlon*2-1, Npl//Wpl * Nlat//Wlat, nH
 
+
+
         earth_position_index = get_earth_position_index(window_size)  # Wpl*Wlat*Wlon, Wpl*Wlat*Wlon
         self.register_buffer("earth_position_index", earth_position_index)
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+        if USE_TE:
+            self.qkv = te.Linear(dim, dim * 3, bias=qkv_bias)
+            self.proj = te.Linear(dim, dim)
+            # self.dpa = DotProductAttention(num_attention_heads=num_heads, kv_channels=dim // num_heads, num_gqa_groups=num_heads)
+        else:
+            self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
+            self.proj = nn.Linear(dim, dim)
+
         self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
         trunc_normal_(self.earth_position_bias_table, std=.02)
@@ -615,9 +818,14 @@ class Mlp(nn.Module):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features)
+
+        if USE_TE:
+            self.fc1 = te.Linear(in_features, hidden_features)
+            self.fc2 = te.Linear(hidden_features, out_features)
+        else:
+            self.fc1 = nn.Linear(in_features, hidden_features)
+            self.fc2 = nn.Linear(hidden_features, out_features)
         self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features)
         self.drop = nn.Dropout(drop)
 
     def forward(self, x: torch.Tensor):
