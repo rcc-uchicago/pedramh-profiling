@@ -528,8 +528,8 @@ class Trainer():
                                 valid_loss_sfc += loss_sfc
                                 valid_loss_pl += loss_pl
 
-                                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
 
                                 valid_surface_lwrmse += torch.mean(surface_lwrmse, dim=0)
                                 valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim=0)
