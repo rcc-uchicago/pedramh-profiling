@@ -272,10 +272,16 @@ class Trainer():
                 logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
                     train_logs['train_loss'], valid_logs['val_loss'], valid_logs['val_loss_sfc'], valid_logs['val_loss_upper_air']))
                 
-                # Add logging for multi-day losses
+                # Add logging for multi-day losses and RMSE
                 lead_times_steps = self.params.forecast_lead_times
-                multi_step_loss_str = '. '.join([f"{step}-step Val loss: {valid_logs.get(f'valid_loss_{step}step', 'N/A')}" for step in lead_times_steps])
-                logging.info(f'Multi-step validation losses: {multi_step_loss_str}')
+                multi_step_metrics = []
+                for step in lead_times_steps:
+                    loss = valid_logs.get(f'valid_loss_{step}step', 'N/A')
+                    rmse_sfc = valid_logs.get(f'valid_rmse_sfc_{step}step', 'N/A')
+                    rmse_pl = valid_logs.get(f'valid_rmse_pl_{step}step', 'N/A')
+                    multi_step_metrics.append(f"{step}-step: Loss={loss}, RMSE_sfc={rmse_sfc}, RMSE_pl={rmse_pl}")
+                multi_step_metrics_str = ' | '.join(multi_step_metrics)
+                logging.info(f'Multi-step validation metrics: {multi_step_metrics_str}'
                 
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
@@ -584,7 +590,7 @@ class Trainer():
         valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[3]).detach()
         for key in multi_step_losses:
             multi_step_losses[key] /= valid_buff[3]
-        for key in multi_step_rmse:  # Add this loop
+        for key in multi_step_rmse:  
             multi_step_rmse[key] /= valid_buff[3]
 
         valid_buff_cpu = valid_buff.detach()
