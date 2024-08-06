@@ -91,10 +91,16 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0):
+    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False):
         self.params = params
         self.data_dir = data_dir
         self.train = train
+        if not self.train:
+            self.validate = validate
+        else:
+            self.validate = False
+        if not self.train and not self.params.forecast_lead_times:
+            self.params['forecast_lead_times'] = [1]
         self.epsilon_factor = self.params.epsilon_factor
         self.parallel = False #True if params['num_data_workers'] > 1 else False
         self.num_inferences = num_inferences
@@ -149,9 +155,9 @@ class GetDataset(Dataset):
         self.boundary_dss = self._load_boundary_data()
         self.dates = self._get_dates(hour_step=params.timedelta_hours)
         if self.num_inferences > 0:
-            self.inference_idxs = np.linspace(0, len(self.dates) - 1, num = num_inferences + 1, dtype = int)
+            self.inference_idxs = np.linspace(0, len(self.dates), num = num_inferences + 1, dtype = int)
         else:
-            self.inference_idxs = np.arange(0, len(self.dates) - 1)
+            self.inference_idxs = np.arange(0, len(self.dates))
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         self.lev = torch.from_numpy(self.data_dss[0].lev.values)
@@ -433,9 +439,9 @@ class GetDataset(Dataset):
                 upper_air_t = upper_air_t + upper_air_t_noise
         
         # Condition for autoregression
-        elif lead_times and self.params['inference_steps'] < 1:
+        elif lead_times:
 
-            start_time = self.dates[index]
+            start_time = self.dates[self.inference_idxs[index]]
             start_hour_diff = start_time - self.year_start_hours
             start_idx = np.where(start_hour_diff >= 0)[0][-1]
             start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
@@ -443,30 +449,6 @@ class GetDataset(Dataset):
             # Load initial conditions
             data_ds_start = self._load_year_data(start_idx)
             surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
-
-
-            # Load targets for each lead time
-            targets_surface = []
-            targets_upper_air = []
-            current_ds = data_ds_start
-            current_idx = start_idx
-
-            for step in lead_times:
-                target_time = self.dates[index + step]
-                target_hour_diff = target_time - self.year_start_hours
-                target_idx = np.where(target_hour_diff >= 0)[0][-1]
-                
-                if target_idx != current_idx:
-                    current_ds.close()
-                    current_ds = self._load_year_data(target_idx)
-                    current_idx = target_idx
-                
-                surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
-                
-                targets_surface.append(surface_target)
-                targets_upper_air.append(upper_air_target)
-
-            current_ds.close()
 
             # # The final target is now the last element in the lists
             # surface_t_target, upper_air_t_target = targets_surface[-1], targets_upper_air[-1]
@@ -481,7 +463,7 @@ class GetDataset(Dataset):
             #     data_ds_start.close()
             #     data_ds_end.close()
             max_lead_time = lead_times[-1]
-            boundary_times = self.dates[index:index + max_lead_time + 1]
+            boundary_times = self.dates[self.inference_idxs[index]:self.inference_idxs[index] + max_lead_time]
             boundary_hour_diffs = np.array(boundary_times).reshape(-1,1) - self.year_start_hours.reshape(1,-1)
             boundary_idxs = np.array([np.where(diff >= 0)[0][-1] for diff in boundary_hour_diffs])
             boundary_leap_idxs = np.array([1 if self.is_leap_year[idx] else 0 for idx in boundary_idxs])
@@ -489,19 +471,47 @@ class GetDataset(Dataset):
             varying_boundary_data = self._get_boundary_data(boundary_hour_diffs[np.arange(len(boundary_times)), boundary_idxs], boundary_leap_idxs)
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim=0)
 
+            if self.validate:
+                # Load targets for each lead time
+                targets_surface = []
+                targets_upper_air = []
+                current_ds = data_ds_start
+                current_idx = start_idx
+
+                for step in lead_times:
+                    target_time = self.dates[self.inference_idxs[index] + step]
+                    target_hour_diff = target_time - self.year_start_hours
+                    target_idx = np.where(target_hour_diff >= 0)[0][-1]
+                    
+                    if target_idx != current_idx:
+                        current_ds.close()
+                        current_ds = self._load_year_data(target_idx)
+                        current_idx = target_idx
+                    
+                    surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
+                    
+                    targets_surface.append(surface_target)
+                    targets_upper_air.append(upper_air_target)
+                current_ds.close()
+                targets_surface = torch.stack(target_surface, dim = 0)
+                targets_upper_air = torch.stack(targets_upper_air, dim = 0)
+            else:
+                current_ds.close()
+
+
         # inference steps > 1
-        elif not self.train and self.params['inference_steps'] > 1:
-            start_time = np.array(self.dates[self.inference_idxs[index]:self.inference_idxs[index] + self.params['inference_steps']])
-            start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)
-            start_idx = np.array([np.where(start_hour_diff[i] >= 0)[0][-1] for i in range(start_hour_diff.shape[0])])
-            start_leap_idx = np.array([1 if self.is_leap_year[start_idx_i] else 0 for start_idx_i in start_idx])
-            data_ds = self._load_year_data(start_idx[0])
-            surface_t, upper_air_t = self._get_data(data_ds, start_idx[0], start_hour_diff[0][start_idx[0]])
-            data_ds.close()
-            varying_boundary_data = self._get_boundary_data(start_hour_diff[np.arange(len(start_time)), start_idx], start_leap_idx)
-            varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim = 0)
-            #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
-            #end_time = self.dates[index + 1:index + 1 + self.params['inference_steps']]
+        #elif not self.train and self.params['inference_steps'] > 1:
+        #    start_time = np.array(self.dates[self.inference_idxs[index]:self.inference_idxs[index] + self.params['inference_steps']])
+        #    start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)
+        #    start_idx = np.array([np.where(start_hour_diff[i] >= 0)[0][-1] for i in range(start_hour_diff.shape[0])])
+        #    start_leap_idx = np.array([1 if self.is_leap_year[start_idx_i] else 0 for start_idx_i in start_idx])
+        #    data_ds = self._load_year_data(start_idx[0])
+        #    surface_t, upper_air_t = self._get_data(data_ds, start_idx[0], start_hour_diff[0][start_idx[0]])
+        #    data_ds.close()
+        #    varying_boundary_data = self._get_boundary_data(start_hour_diff[np.arange(len(start_time)), start_idx], start_leap_idx)
+        #    varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim = 0)
+        #    #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
+        #    #end_time = self.dates[index + 1:index + 1 + self.params['inference_steps']]
         
         # when inference steps is 1
         else:
@@ -533,10 +543,10 @@ class GetDataset(Dataset):
 
         if self.train:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
-        elif not self.train and self.params['autoreg_steps'] > 0:
+        elif self.validate and self.lead_times
             # return surface_t, upper_air_t, surface_t_target, upper_air_t_target, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx], self.params['autoreg_steps']])
-            return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], max_lead_time])
-        elif self.params['inference_steps'] > 0:
+            return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+        elif self.lead_times:
             return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx[0], start_hour_diff[0][start_idx[0]]])
         else:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
