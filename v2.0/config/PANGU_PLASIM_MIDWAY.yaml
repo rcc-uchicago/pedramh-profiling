@@ -8,7 +8,7 @@ base_config: &BASE
   
   log_to_screen: !!bool True
   log_to_wandb: !!bool False
-  diagnostic_logs: False
+  diagnostic_logs: !!bool False
   save_checkpoint: !!bool False
 
   optimizer_type: 'Adam' #'FusedAdam', #'Adam'
@@ -29,6 +29,8 @@ base_config: &BASE
   early_stopping_patience: 5
   # number of steps for the validation (set to 0 if using inference)
   autoreg_steps: 3
+  # fresh start: rerun training for benchmarking. Set to false for loading from checkpoint
+  fresh_start: !!bool True
 
 
 

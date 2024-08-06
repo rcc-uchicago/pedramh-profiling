@@ -102,7 +102,7 @@ class Trainer():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-    def __init__(self, params, world_rank, fresh_start=True):
+    def __init__(self, params, world_rank):
 
         self.params = params
         self.world_rank = world_rank
@@ -179,7 +179,7 @@ class Trainer():
 
         self.iters = 0
         self.startEpoch = 0
-        if not fresh_start and params.resuming:
+        if params.resuming:
             self.restore_checkpoint(params.checkpoint_path)
         else:
             logging.info("Starting fresh training run")
@@ -721,13 +721,28 @@ if __name__ == '__main__':
     params['checkpoint_path'] = os.path.join(expDir, ckpt_path)
     params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
 
-    # Do not comment this line out please:
-    # args.resuming = True if os.path.isfile(params.checkpoint_path) else False
-    args.resuming = False
+    checkpoint_exists = os.path.isfile(params.checkpoint_path)
 
-    
+    # Determine whether to resume or start fresh
+    if params.fresh_start:
+        params['resuming'] = False
+        if checkpoint_exists and world_rank == 0:
+            logging.info("Fresh start requested. Ignoring existing checkpoint.")
+    elif checkpoint_exists:
+        params['resuming'] = True
+        if world_rank == 0:
+            logging.info("Resuming from existing checkpoint.")
+    else:
+        params['resuming'] = False
+        if world_rank == 0:
+            logging.info("No checkpoint found. Starting fresh training run.")
 
-    params['resuming'] = args.resuming
+    # # Do not comment this line out please:
+    # # args.resuming = True if os.path.isfile(params.checkpoint_path) else False
+    # args.resuming = False
+    # params['resuming'] = args.resuming
+
+
     params['local_rank'] = local_rank
     params['enable_amp'] = False if params['enable_fp8'] else args.enable_amp
 
@@ -766,7 +781,7 @@ if __name__ == '__main__':
         with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
 
-    trainer = Trainer(params, world_rank, fresh_start = args.fresh_start)
+    trainer = Trainer(params, world_rank)
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)
 
