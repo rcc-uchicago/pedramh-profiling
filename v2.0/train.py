@@ -31,6 +31,7 @@ import dask
 # from transformer_engine.common import recipe
 # from transformer_engine.pytorch import fp8_autocast
 from torch.profiler import profile, record_function, ProfilerActivity
+from itertools import product
 
 
 
@@ -419,11 +420,11 @@ class Trainer():
             if self.params.diagnostic_logs:
                 pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
             else:
-                    running_results["loss"] += loss.item() * self.params['batch_size']
-                    running_results["batch_sizes"] += self.params['batch_size']
+                running_results["loss"] += loss.item() * self.params['batch_size']
+                running_results["batch_sizes"] += self.params['batch_size']
 
-                    pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-            
+                pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
+        
 
         if self.params.diagnostic_logs:
             with torch.no_grad():
@@ -463,20 +464,28 @@ class Trainer():
         self.model.eval()
         #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
 
+        # define the lead times to evaluate (in time steps)
+        lead_times_steps = self.params.forecast_lead_times
+
         valid_buff = torch.zeros((4), dtype=torch.float32, device=self.device)
         valid_loss = valid_buff[0].view(-1)
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
         valid_steps = valid_buff[3].view(-1)
-        valid_surface_lwrmse = torch.zeros((len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
-        valid_upper_air_lwrmse = torch.zeros((len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
+        valid_surface_lwrmse = torch.zeros((len(self.lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
+        valid_upper_air_lwrmse = torch.zeros((len(self.lead_times_steps), len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
 
-        # define the lead times to evaluate (in time steps)
-        lead_times_steps = self.params.forecast_lead_times
+        
 
         multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         # Add RMSE storage for multiple lead times
-        multi_step_rmse = {f"valid_rmse_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
+        multi_step_rmse = {f"valid_lwrmse_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
+
+        if diagnostic_logs:
+            multi_step_surface_var_rmse = {f"valid_lwrmse_{var}_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) \
+                for var, step in product(self.valid_dataset.surface_variables, lead_times_steps)}
+            multi_step_upper_air_var_rmse = {f"valid_lwrmse_{var}_level{level:.3f}_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) \
+                for var, level, step in product(self.valid_dataset.surface_variables, self.valid_dataset.lev, lead_times_steps)}
 
 
 
@@ -505,6 +514,7 @@ class Trainer():
                 with precision_context:
                      # Autoregressive prediction
                     val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
+                    step_idx = 0
                     for step in range(max_lead_time):
                         val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_output_upper_air)
@@ -520,19 +530,24 @@ class Trainer():
                             # Calculate RMSE
                             rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
                             rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                            multi_step_rmse[f"valid_rmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
-                            multi_step_rmse[f"valid_rmse_pl_{step+1}step"] += torch.mean(rmse_pl)
+                            multi_step_rmse[f"valid_lwrmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
+                            multi_step_rmse[f"valid_lwrmse_pl_{step+1}step"] += torch.mean(rmse_pl)
+
+                            valid_surface_lwrmse[step_idx] += torch.mean(rmse_sfc, dim = 0)
+                            valid_upper_air_lwrmse[step_idx] += torch.mean(upper_air_lwrmse, dim=0)
 
                             if step + 1 == max_lead_time:
                                 valid_loss += loss
                                 valid_loss_sfc += loss_sfc
                                 valid_loss_pl += loss_pl
 
-                                surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                                upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                                #surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                                #upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
 
-                                valid_surface_lwrmse += torch.mean(surface_lwrmse, dim=0)
-                                valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim=0)
+                                #valid_surface_lwrmse += torch.mean(surface_lwrmse, dim=0)
+                                #valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim=0)
+                            
+                            step_idx += 1
 
                 valid_steps += 1.
 
@@ -560,14 +575,14 @@ class Trainer():
 
 
                 # save first channel of first 5 images
-                if i < 5:
-                    try:
-                        os.mkdir(params['experiment_dir'] + "/" + str(i))
-                    except:
-                        pass
-
-                    save_image(torch.cat((val_output_surface[0, 0], torch.zeros((val_output_surface.shape[2], 4)).to(self.device, dtype=torch.float), 
-                                      val_target_surface[0, 0]), axis=1), params['experiment_dir'] + "/" + str(i) + "/" + str(self.epoch) + ".png")
+                #if i < 5:
+                #    try:
+                #        os.mkdir(params['experiment_dir'] + "/" + str(i))
+                #    except:
+                #        pass
+                #
+                #    save_image(torch.cat((val_output_surface[0, 0], torch.zeros((val_output_surface.shape[2], 4)).to(self.device, dtype=torch.float), 
+                #                      val_target_surface[0, 0]), axis=1), params['experiment_dir'] + "/" + str(i) + "/" + str(self.epoch) + ".png")
         if dist.is_initialized():
             dist.all_reduce(valid_buff)
             dist.all_reduce(valid_surface_lwrmse)
@@ -586,16 +601,17 @@ class Trainer():
                     
         if self.params.diagnostic_logs:
             diagnostic_logs['epoch'] = self.epoch
-            diagnostic_logs['val_loss'] = valid_buff_cpu[0]
-            diagnostic_logs['val_loss_sfc'] = valid_buff_cpu[1]
-            diagnostic_logs['val_loss_upper_air'] = valid_buff_cpu[2]
-            mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
-            diagnostic_logs['val_mean_norm_lwrmse'] = mean_norm_lwrmse
-            for j, var in enumerate(self.valid_dataset.surface_variables):
-                diagnostic_logs[f'val_{var}_lwrmse'] = valid_surface_lwrmse[j] * self.valid_dataset.surface_std[j]
-            for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                for k, level in enumerate(self.valid_dataset.lev):
-                    diagnostic_logs[f'val_{var}_level{level:.4f}_lwrmse'] = valid_upper_air_lwrmse[j, k] * self.valid_dataset.upper_air_std[j, k]
+            diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
+            diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
+            diagnostic_logs['valid_loss_upper_air'] = valid_buff_cpu[2]
+            #mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
+            #diagnostic_logs['valid_mean_norm_lwrmse'] = mean_norm_lwrmse
+            for l, steps in enumerate(lead_times_steps):
+                for j, var in enumerate(self.valid_dataset.surface_variables):
+                    diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_surface_lwrmse[l, j] * self.valid_dataset.surface_std[j]
+                for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                    for k, level in enumerate(self.valid_dataset.lev):
+                        diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
             #if dist.is_initialized():
             #    for key in sorted(diagnostic_logs.keys()):
             #        dist.all_reduce(diagnostic_logs[key].detach())
@@ -613,8 +629,8 @@ class Trainer():
             return valid_time, diagnostic_logs
         else:
             try:
-                logs = {'val_loss': valid_buff_cpu[0], 
-                        'val_loss_sfc': valid_buff_cpu[1], 'val_loss_upper_air': valid_buff_cpu[2],
+                logs = {'valid_loss': valid_buff_cpu[0], 
+                        'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
                         'epoch': self.epoch}
                 # Add multi-day losses to logs
                 for key, value in multi_step_losses.items():
