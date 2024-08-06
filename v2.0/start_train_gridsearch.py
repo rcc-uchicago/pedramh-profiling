@@ -31,10 +31,11 @@ for i, (loss, lr, window_size, epsilon_factor) in enumerate(product(losses, lrs,
         gpu_str = '--gpus=a40:4'
         job_str = ['sbatch', '-J', f'pp-{run_num_str}', '--time=4-00:00:00', gpu_str, '--ntasks=4',
              '--mem=120G', 'faster_ddp_2.sh', run_num_str, config_file]
-        subprocess.run(job_str)
-    elif i > 3 and i != 14:
+        #subprocess.run(job_str)
+    elif i == 13:
         gpu_str = '--gpus=a100:4'
         job_str = ['sbatch', '-J', f'pp-{run_num_str}', gpu_str, '--mem=200G', 'faster_ddp_2.sh', run_num_str, config_file]
+        print(' '.join(job_str))
         subprocess.run(job_str)
     #else:
     #    gpu_str = '--gpus=a100:4'
