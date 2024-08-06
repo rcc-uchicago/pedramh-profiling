@@ -512,14 +512,14 @@ class Trainer():
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
                             target_index = lead_times_steps.index(step + 1)
-                            loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[target_index])
-                            loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[target_index])
+                            loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[:,target_index])
+                            loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[:,target_index])
                             loss = (loss_sfc * 0.25 + loss_pl)
                             multi_step_losses[f"valid_loss_{step+1}step"] += loss
 
                             # Calculate RMSE
-                            rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                            rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                            rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                            rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
                             multi_step_rmse[f"valid_rmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
                             multi_step_rmse[f"valid_rmse_pl_{step+1}step"] += torch.mean(rmse_pl)
 
