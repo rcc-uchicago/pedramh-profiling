@@ -520,8 +520,8 @@ class Trainer():
                             # Calculate RMSE
                             rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
                             rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                            rmse = (torch.mean(rmse_sfc) + torch.mean(rmse_pl)) / 2
-                            multi_step_rmse[f"valid_rmse_{step+1}step"] += rmse
+                            multi_step_rmse[f"valid_rmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
+                            multi_step_rmse[f"valid_rmse_pl_{step+1}step"] += torch.mean(rmse_pl)
 
                             if step + 1 == max_lead_time:
                                 valid_loss += loss
