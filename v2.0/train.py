@@ -801,7 +801,7 @@ if __name__ == '__main__':
     # this will be the wandb name
     params['name'] = args.config + '_' + str(args.run_num)
     params['group'] = "Pangu_plasim_" + args.config  
-    params['project'] = "Pangu"  
+    params['project'] = "Pangu-PLASIM"  
     #params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'
