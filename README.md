@@ -1,33 +1,43 @@
 # PanguWeather
 v1.0 - Reimplementation of Pangu-Weather paper
+
 v2.0 - Modified implementation of PanguWeather, currently used for PanguPLASIM
 
 ## PanguPLASIM
 
 ### Code Locations
 Midway3: `/project/pedramh/awikner/PanguWeather/`
+
 FASTER: `/scratch/group/p.atm170020.000/PanguWeather-UC/`
+
 Anvil: `/anvil/projects/x-atm170020/awikner/PanguWeather`
 
 ### Data Locations
 Midway3: `'/scratch/midway2/awikner/PLASIM/data/train_val_test_data'`
+
 FASTER: `'/scratch/user/u.aw164890/PLASIM/train_val_test_data'`
+
 Anvil: `/anvil/projects/x-atm170020/awikner/PLASIM/data/train_val_test_data`
 
 ### Activating Environments
 Midway3:
+
 ```
 ml python/anaconda-2023.09
 conda activate /project/pedramh/anaconda/py311
 source /home/awikner/venvs/pangu-wandb/bin/activate
 ```
+
 FASTER:
+
 ```
 ml Anaconda3
 conda activate /scratch/group/p.atm170020.000/anaconda/py311
 source /home/u.aw164890/venvs/pangu/bin/activate
 ```
+
 Anvil:
+
 ```
 ml anaconda/2024.02-py311
 conda activate /anvil/projects/x-atm170020/anaconda/py311
