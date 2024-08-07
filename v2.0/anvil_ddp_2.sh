@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:4
 
 #SBATCH --ntasks=4
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=16 
 #SBATCH -o outs/anvil_ddp.out
 
 
@@ -20,14 +20,17 @@ export HDF5_USE_FILE_LOCKING=FALSE
 export NCCL_NET_GDR_LEVEL=PHB
 
 export MASTER_ADDR=$(hostname)
- 
-module load hdf5
-module load anaconda/2024.02-py311
-conda activate /anvil/projects/x-atm170020/anaconda/py311
 
-set -x
-srun -u --mpi=pmi2 \
-    bash -c "
-    source export_DDP_vars.sh
-    TORCH_USE_CUDA_DSA=1 python train.py 
-    "
+ml anaconda/2024.02-py311
+conda activate /anvil/projects/x-atm170020/anaconda/py311
+source /home/x-awikner/venvs/anvil/pangu/bin/activate
+
+source export_DDP_vars.sh
+
+export NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
+
+echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SIZE= ${WORLD_SIZE}"
+
+export OMP_NUM_THREADS=1
+
+python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --run_num=$1 --yaml_config=$2
