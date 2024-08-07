@@ -44,6 +44,17 @@ conda activate /anvil/projects/x-atm170020/anaconda/py311
 source /home/x-awikner/venvs/anvil/pangu/bin/activate
 ```
 
+You also may want to create your own virtual environment on top of the existing conda environment instead of using mine. This can be done by:
+```
+ml ${conda_module}
+conda activare ${conda_env_path}
+mkdir -p ~/venvs/${your_venv_name}
+python3 -m venv ~/venvs/${your_venv_name} --system-site-packages
+source ~/venvs/${your_venv_name}/bin/activate
+python3 -m pip install --upgrade pip setuptools wheel
+pip install everything else
+```
+
 ### Getting Started
 1. Either clone or fork this repository from the `optim-dev` branch (this is the main branch we'll be using for optimization) and create and checkout your own branch from it.
 2. Before beginning a training or inference run, you'll first need to create a configuration file. These should be stored in `v2.0/config` directory. The naming convention I've been using is `PANGU_PLASIM_${CLUSTER}_${RUN_NUM}.yaml`. Remember to use a `RUN_NUM` beginning with your assigned number.
