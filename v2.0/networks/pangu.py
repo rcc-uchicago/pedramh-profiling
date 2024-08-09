@@ -94,6 +94,8 @@ class PanguModel_Plasim(nn.Module):
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
         self.window_size = params.window_size
+        self.vertical_windowing=params.vertical_windowing
+        
 
         self.upper_air_boundary = params.upper_air_boundary
         self.varying_boundary_variables = params.varying_boundary_variables
@@ -135,9 +137,12 @@ class PanguModel_Plasim(nn.Module):
                                 (self.patchembed2d.output_size[1] - self.patchembed2d.output_size[1] % params.updown_scale_factor) \
                                 // params.updown_scale_factor + self.patchembed2d.output_size[1] % params.updown_scale_factor)
 
-        # self.downscale_resolution = downscale_resolution
+        self.downscale_resolution = downscale_resolution
         # print("downscale_resolution", downscale_resolution)
-        # self.EST_input_resolution = EST_input_resolution
+        self.EST_input_resolution = EST_input_resolution
+        print("EST_input_resolution", EST_input_resolution)
+        if not self.vertical_windowing:
+            self.window_size[0] = EST_input_resolution[0]
         # print("EST_input_resolution", EST_input_resolution)
 
         self.layer1 = EarthSpecificLayer(
