@@ -43,6 +43,7 @@ PLASIM: &PLASIM
   batch_size: 64
   max_epochs: 100
   noise_traninig: 0.
+  upper_air_boundary: True
 
   has_year_zero: False
 

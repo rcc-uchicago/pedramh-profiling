@@ -94,17 +94,31 @@ class PanguModel_Plasim(nn.Module):
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
         self.window_size = params.window_size
-        #self.noisy_training = params.noisy_training
-        # print("window_size", self.window_size)
+
+        self.upper_air_boundary = params.upper_air_boundary
+        self.varying_boundary_variables = params.varying_boundary_variables
+        self.num_varying_boundary_vars = len(params.varying_boundary_variables)
+        self.idx_upper_air_var_bound= self.varying_boundary_variables.index('rsdt') # carreful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
+        self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
+    
         
         #####
 
-        # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)
+        # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)        
+        if self.upper_air_boundary:
+            self.patchembed2d_upper_air_boundary = PatchEmbed2D(
+                img_size=params.horizontal_resolution,
+                patch_size=params.patch_size[1:],
+                in_chans=1, # to be changed if inncluding more variables in the future
+                embed_dim=embed_dim,)
+        
+
         self.patchembed2d = PatchEmbed2D(
             img_size=params.horizontal_resolution,
             patch_size=params.patch_size[1:],
-            in_chans=self.num_surface_vars + self.num_boundary_vars,  # add
+            in_chans=self.num_surface_vars + self.num_boundary_vars - 1*self.upper_air_boundary,
             embed_dim=embed_dim,)
+            
         
         self.patchembed3d = PatchEmbed3D(
             img_size=atmo_resolution,
@@ -112,13 +126,19 @@ class PanguModel_Plasim(nn.Module):
             in_chans=self.num_atmo_vars,
             embed_dim=embed_dim)
         
-        EST_input_resolution = (self.patchembed3d.output_size[0]+1, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2])
+        EST_input_resolution = (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2])
+
         
-        downscale_resolution = (self.patchembed3d.output_size[0]+1,
+        downscale_resolution = (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary,
                                 (self.patchembed2d.output_size[0] - self.patchembed2d.output_size[0] % params.updown_scale_factor) \
                                 // params.updown_scale_factor + self.patchembed2d.output_size[0] % params.updown_scale_factor,
                                 (self.patchembed2d.output_size[1] - self.patchembed2d.output_size[1] % params.updown_scale_factor) \
                                 // params.updown_scale_factor + self.patchembed2d.output_size[1] % params.updown_scale_factor)
+
+        # self.downscale_resolution = downscale_resolution
+        # print("downscale_resolution", downscale_resolution)
+        # self.EST_input_resolution = EST_input_resolution
+        # print("EST_input_resolution", EST_input_resolution)
 
         self.layer1 = EarthSpecificLayer(
             dim=embed_dim,
@@ -148,7 +168,7 @@ class PanguModel_Plasim(nn.Module):
             drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]])
         
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
-                                 (self.patchembed3d.output_size[0]+1, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
+                                 (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
         
         self.layer4 = EarthSpecificLayer(
             dim=embed_dim,
@@ -171,12 +191,30 @@ class PanguModel_Plasim(nn.Module):
         """
         if len(constant_boundary.size()) == 3:
             constant_boundary = constant_boundary.unsqueeze(0)
-        surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+        
+        if self.upper_air_boundary:
+            upper_air_varying_boundary = varying_boundary[:,self.idx_upper_air_var_bound, :, :].unsqueeze(1)
+            # print(upper_air_varying_boundary.size())
+            surface_varying_boundary = varying_boundary[:,self.idx_surface_var_bound, :, :]
+            # print(surface_varying_boundary.size())
 
-        surface = self.patchembed2d(surface)
-        upper_air = self.patchembed3d(upper_air_in)
+            surface = torch.cat([surface_in, constant_boundary, surface_varying_boundary], dim=1)
+            surface = self.patchembed2d(surface)
+            upper_air_varying_boundary = self.patchembed2d_upper_air_boundary(upper_air_varying_boundary)
+            # print(upper_air_varying_boundary.size())
+            upper_air = self.patchembed3d(upper_air_in)
 
-        x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
+            x = torch.cat([upper_air_varying_boundary.unsqueeze(2), upper_air, surface.unsqueeze(2)], dim=2)
+
+        else:
+            surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+            surface = self.patchembed2d(surface)
+            upper_air = self.patchembed3d(upper_air_in)
+
+            x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
+
+       
+        # print(x.size())
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 

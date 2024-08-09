@@ -262,6 +262,9 @@ class GetDataset(Dataset):
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
             boundary_ds_leap = xr.open_mfdataset(self.boundary_leap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
             boundary_ds_noleap = xr.open_mfdataset(self.boundary_noleap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+            # change ordering of the var names to put rsdt at the end
+            boundary_ds_leap = boundary_ds_leap[[var for var in boundary_ds_leap.data_vars if var != 'rsdt'] + ['rsdt']]
+            boundary_ds_noleap = boundary_ds_noleap[[var for var in boundary_ds_noleap.data_vars if var != 'rsdt'] + ['rsdt']]
         return [boundary_ds_noleap, boundary_ds_leap]
     
     def _get_dates(self, hour_step = 6.):
@@ -393,7 +396,7 @@ class GetDataset(Dataset):
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
             if self.epsilon_factor > 0.:
                 if 'surface_ff_std' in self.params:
-                    surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_std / self.surface_ff_std).reshape(len(self.surface_variables), 1, 1) * self. epsilon_factor
+                    surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_std / self.surface_ff_std).reshape(len(self.surface_variables), 1, 1)
                 else:
                     surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
                 surface_t = surface_t + surface_t_noise
