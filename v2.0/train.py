@@ -854,11 +854,11 @@ if __name__ == '__main__':
     params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
-    # Add mandatory check for autoregressive steps
-    #max_forecast_lead_time = max(params.forecast_lead_times)
-    #if params.autoreg_steps < max_forecast_lead_time:
-    #    raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
-    #                     f"the maximum forecast lead time ({max_forecast_lead_time})")
+    # # Add mandatory check for autoregressive steps
+    # max_forecast_lead_time = max(params.forecast_lead_times)
+    # if params.autoreg_steps < max_forecast_lead_time:
+    #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
+    #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
