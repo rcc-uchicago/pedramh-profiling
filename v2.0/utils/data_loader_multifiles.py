@@ -160,7 +160,7 @@ class GetDataset(Dataset):
             self.inference_idxs = np.arange(0, len(self.dates))
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
-        self.lev = torch.from_numpy(self.data_dss[0].lev.values)
+        self.lev = torch.from_numpy(self.data_dss[0][self.params.lev].values)
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
         for ds in self.data_dss:
@@ -323,7 +323,7 @@ class GetDataset(Dataset):
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
             for file in self.data_files:
-                data_ds = xr.open_mfdataset(file, chunks={'time': 1, 'lev': self.num_levels}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+                data_ds = xr.open_mfdataset(file, chunks={'time': 1, self.params.lev: self.num_levels}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
                 data_dss.append(data_ds)
         return data_dss
 
@@ -331,7 +331,7 @@ class GetDataset(Dataset):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1, 'lev': self.num_levels},
+            data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1, self.params.lev: self.num_levels},
                 engine='netcdf4', parallel=self.parallel, decode_cf=False)
         return data_ds
     

@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
-import os, shutil
+import os, shutil, sys
 import time
 import numpy as np
 import argparse
@@ -422,7 +422,14 @@ if __name__ == '__main__':
     params['config_filepath'] = args.yaml_config
     params['epsilon_factor'] = args.epsilon_factor
     params['run_num'] = args.run_num
-    params['inference_steps'] = args.inference_steps
+    if args.inference_steps > 0:
+        params['inference_steps'] = args.inference_steps
+    else:
+        try:
+            params['inference_steps'] = max(params.forecast_lead_times)
+        except:
+            print('args.inference_steps and params.forecast_lead_times not set, exiting...')
+            sys.exit(2)
     params['num_inferences'] = args.num_inferences
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
