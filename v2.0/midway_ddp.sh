@@ -16,9 +16,9 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 
 module load python
 # source activate /project/pedramh/anaconda/py311
-source activate /scratch/midway3/tvallabh/tarun_pangu
-
 # source activate /scratch/midway3/tvallabh/tarun_pangu
+
+source activate /scratch/midway3/tvallabh/tarun_pangu
 
 
 

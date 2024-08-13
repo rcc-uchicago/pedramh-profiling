@@ -20,7 +20,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
-from utils.power_spectrum import zonal_averaged_power_spectrum, plot_power_spectrum, plot_power_spectrum_test
+from utils.power_spectrum import zonal_averaged_power_spectrum, plot_power_spectrum, plot_power_spectrum_test, minimal_plot_function
 ##########################################
 ## NEW IMPORTS
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss
@@ -35,12 +35,16 @@ from datetime import timedelta
 # from transformer_engine.pytorch import fp8_autocast
 from torch.profiler import profile, record_function, ProfilerActivity
 from itertools import product
+import time 
+from multiprocessing import Process
+import psutil
+
 
 
 
 # from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 
-# os.environ['WANDB_MODE'] = 'offline'
+os.environ['WANDB_MODE'] = 'offline'
 # os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
 # os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
@@ -142,7 +146,14 @@ class Trainer():
                                                     amax_history_len=16,
                                                     amax_compute_algo="max")
         if params.log_to_wandb:
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project)#,
+
+            wandb.init(config=params, name=params.name, group=params.group, project=params.project)  # , entity=params.entity)
+
+            wandb.define_metric("custom_step")
+            wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
+    
+
+
             #           entity=params.entity)
             wandb.define_metric("epoch")
             if self.params.diagnostic_logs:
@@ -158,6 +169,7 @@ class Trainer():
                             epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
             else:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
+            # Add this line to ensure power_spectrum_plot is always defined as a metric
             for metric in epoch_metrics:
                 wandb.define_metric(metric, step_metric="epoch")
 
@@ -255,7 +267,8 @@ class Trainer():
                 self.scheduler.step()
                 if self.epoch >= self.params.max_epochs:
                     logging.info("Terminating training after reaching params.max_epochs while LR scheduler is set to CosineAnnealingLR")
-                    exit()
+                    # exit()
+                    break
 
             if self.params.log_to_wandb:
                 for pg in self.optimizer.param_groups:
@@ -296,7 +309,10 @@ class Trainer():
                 if self.params.log_to_screen:
                     logging.info('Early stopping triggered. Terminating training.')
                 return # Exit the train method
-            
+        
+        # After the training loop ends
+        if self.params.log_to_wandb:
+            self.log_all_plots_to_wandb()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
             logging.info('Completed all epochs. Training finished.')
@@ -527,7 +543,45 @@ class Trainer():
     
     def combine_datasets(self, datasets):
         return xr.concat(datasets, dim='time')
+    
 
+    def plot_in_separate_process(self, power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename):
+        # convert lead times to hours
+        lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
+
+        p = Process(target=plot_power_spectrum_test, args=(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times_hours))
+        p.start()
+        p.join()
+
+    
+
+    def log_all_plots_to_wandb(self):
+        if self.params.log_to_wandb:
+            output_dir = "/home/tvallabh/PanguWeather/v2.0/spectra_out"
+            plot_files = sorted([f for f in os.listdir(output_dir) if f.startswith("power_spectrum_epoch_")])
+            
+            print(f"Found plot files: {plot_files}")
+            
+            for plot_file in plot_files:
+                # Extract epoch number from filename
+                try:
+                    epoch = int(plot_file.split("_")[-1].split(".")[0])
+                    print(f"Processing file: {plot_file}, extracted epoch: {epoch}")
+                except ValueError as e:
+                    print(f"Error parsing epoch from filename {plot_file}: {e}")
+                    continue
+                
+                # Log plot to wandb
+                try:
+                    wandb.log({
+                        "power_spectrum_plot": wandb.Image(os.path.join(output_dir, plot_file)),
+                        "custom_step": epoch,
+                    })
+                    print(f"Logged file: {plot_file} with epoch: {epoch}")
+                except Exception as e:
+                    print(f"Error logging file {plot_file} to wandb: {e}")
+            
+            print(f"Logged {len(plot_files)} power spectrum plots to wandb")
 
         
     def validate_one_epoch(self):
@@ -560,7 +614,7 @@ class Trainer():
 
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
-        power_spectrum_data = {step: None for step in lead_times_steps}
+
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
@@ -583,17 +637,25 @@ class Trainer():
 
 
                 # for each lead time
-                val_output_surface_t = np.zeros((val_input_surface.shape[0], max_lead_time + 1,
-                                           val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                          dtype=np.float32)
-                val_output_upper_air_t = np.zeros((val_input_upper_air.shape[0], max_lead_time + 1,
-                                             val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                             val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                            dtype=np.float32)
+                # val_output_surface_t = np.zeros((val_input_surface.shape[0], max_lead_time + 1,
+                #                            val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
+                #                           dtype=np.float32)
+                # val_output_upper_air_t = np.zeros((val_input_upper_air.shape[0], max_lead_time + 1,
+                #                              val_input_upper_air.shape[1], val_input_upper_air.shape[2],
+                #                              val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
+                #                             dtype=np.float32)
+
+                val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
+                                       val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
+                                      dtype=np.float32)
+                val_output_upper_air_t = np.zeros((val_input_upper_air.shape[0], len(lead_times_steps),
+                                         val_input_upper_air.shape[1], val_input_upper_air.shape[2],
+                                         val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
+                                        dtype=np.float32)
                 
-                # initial conditions
-                val_output_surface_t[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.cpu()).numpy()
-                val_output_upper_air_t[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.cpu()).numpy()
+                # # initial conditions
+                # val_output_surface_t[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.cpu()).numpy()
+                # val_output_upper_air_t[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.cpu()).numpy()
 
                 precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
 
@@ -606,8 +668,8 @@ class Trainer():
                         val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_output_upper_air)
                         
-                        val_output_surface_t[:, step+1] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                        val_output_upper_air_t[:, step+1] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
+                        # val_output_surface_t[:, step+1] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
+                        # val_output_upper_air_t[:, step+1] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
                         
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
@@ -626,13 +688,9 @@ class Trainer():
                             valid_surface_lwrmse[step_idx] += torch.mean(rmse_sfc, dim = 0)
                             valid_upper_air_lwrmse[step_idx] += torch.mean(rmse_pl, dim=0)
 
-                            # if i in diagnostic_batches:
-                            #     print(f"\nStep {step+1} predictions:")
-                            #     print(f"  Surface prediction shape: {val_output_surface_t.shape}")
-                            #     print(f"  Upper air prediction shape: {val_output_upper_air_t.shape}")
-
-                            # Convert predictions to xarray Dataset for this lead time
-                            # In your validation loop
+                            val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
+                            val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
+                        
                            
                             if step + 1 == max_lead_time:
                                 valid_loss += loss
@@ -644,69 +702,47 @@ class Trainer():
 
                                 #valid_surface_lwrmse += torch.mean(surface_lwrmse, dim=0)
                                 #valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim=0)
+
+                                # Prepare the predictions
                                 datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_time, self.params, self.valid_dataset)
                                 prepared_datasets = [self.preprare_preds(ds) for ds in datasets]
-
-                                # Combine the prepared datasets
                                 combined_dataset = self.combine_datasets(prepared_datasets)
+
+                                # Prepare the ground truths
+
+                                gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
+                                gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
+                                gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_time, self.params, self.valid_dataset)
+                                gt_prepared_datasets = [self.preprare_preds(ds) for ds in gt_datasets]
+                                gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
+
+                        
                                 
 
                                 # Calculate zonal averaged power spectrum. 
-                                # Test only for predictions first, then can easily do ground truth. 
-                                k_x, power_spectrum_avg = zonal_averaged_power_spectrum(combined_dataset)
-                                preds_times = combined_dataset.time.values
 
+                                k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
+                                k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
+
+
+                                preds_times = combined_dataset.time.values
+                                output_dir = "/home/tvallabh/PanguWeather/v2.0/spectra_out"
+                                path_filename = os.path.join(output_dir, f"power_spectrum_epoch_{self.epoch}.png")
 
                                 # Check that lev values exist and print them
-                                if 'lev' in power_spectrum_avg.dims:
-                                    print(f"lev values are: {power_spectrum_avg.lev.values}")
+                                if 'lev' in power_spectrum_avg_pred.dims:
+                                    print(f"lev values are: {power_spectrum_avg_pred.lev.values}")
                                 else:
                                     raise ValueError("The dimension 'lev' is not found in the power_spectrum_avg dataset.")
-
-                                try:
-                                    # Move data to CPU and convert to numpy to free up GPU memory
-                                    power_spectrum_avg = power_spectrum_avg.compute()
-                                    preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
-
-
-                                    # Plot and immediately close the figure
-                                    plot_power_spectrum_test(power_spectrum_avg, preds_times)
-                                    
-
-                                    # Clear matplotlib's memory
-                                    plt.clf()
-                                    plt.close('all')
-
-                                except Exception as e:
-                                    print(f"Error in plotting or cleanup: {e}")
-                
-
-                                
-                                # if isinstance(power_spectrum_avg, xr.Dataset):
-                                #     power_spectrum_avg = power_spectrum_avg.compute()
-                                # else:
-                                #     power_spectrum_avg = power_spectrum_avg.compute()
-
-                                # # For preds_times, check if it's a torch tensor
-                                # if isinstance(preds_times, torch.Tensor):
-                                #     preds_times = preds_times.cpu().numpy()
-
-                                # torch.cuda.empty_cache()  # Free up GPU memory
-
-                                # try:
-                                #     fig, ax = plot_power_spectrum_test(power_spectrum_avg, preds_times)
-                                #     plt.close(fig)  # Close the figure to free up memory
-                                # except Exception as e:
-                                #     print(f"Error in plotting power spectrum: {e}")
-                                                                
+                                power_spectrum_avg_pred = power_spectrum_avg_pred.compute()
+                                power_spectrum_avg_gt = power_spectrum_avg_gt.compute()
 
                         
-                                # # Store power spectrum
-                                # power_spectrum_data[step + 1] = {
-                                #     'spectrum': power_spectrum_avg,
-                                #     'times': preds_times,
-                                #     'k_x': k_x
-                                # }
+                                
+
+                                preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+
+                                self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
 
                             
                             step_idx += 1
@@ -720,6 +756,7 @@ class Trainer():
             dist.all_reduce(valid_upper_air_lwrmse)
             for loss_tensor in multi_step_losses.values():
                 dist.all_reduce(loss_tensor)
+
         
         # Instead of plotting, just save the data
         # # power_spectrum_avg.to_netcdf(f'power_spectrum.nc')
@@ -947,9 +984,9 @@ if __name__ == '__main__':
         print("with full precision")
 
     # this will be the wandb name
-    params['name'] = args.config + '_' + str(args.run_num)
-    params['group'] = "Pangu_plasim_" + args.config  
-    params['project'] = "Pangu-PLASIM"  
+    # params['name'] = args.config + '_' + str(args.run_num)
+    # params['group'] = "Pangu_plasim_" + args.config  
+    # params['project'] = "Pangu-PLASIM"  
     #params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'

@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from collections import OrderedDict
 import torch
+import matplotlib
+
+matplotlib.use('Agg')  # Set the backend to 'Agg'
+
 
 # Assume field is your xarray DataArray with dimensions (lat, lon)
 # Load or define your field DataArray here
@@ -191,43 +195,108 @@ def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars = ["ta", "zg
     plt.savefig(f"spectrum_results.png", pad_inches=0.1, bbox_inches='tight')
     return fig, axs
 
+# Debugging Testing
+def minimal_plot_function(power_spectrum_avg_preds, preds_times):
+    print("Entering minimal plot function")
+    # Access some data to simulate the data access in the real function
+    _ = list(power_spectrum_avg_preds.data_vars)
+    _ = power_spectrum_avg_preds.lead_time.values
+    _ = power_spectrum_avg_preds.lev.values
+    print("Exiting minimal plot function")
 
+# def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename):
+#     """ Plot the power spectrum of the forecast and ground truth
+#     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
+#     :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
+#     :param preds_times: array, time values of the forecast
+#     :param filename: str, path to save the plot
+#     """
+#     # Get available variables, lead times, and sigma levels from the data
+#     available_vars = list(power_spectrum_avg_preds.data_vars)
+#     lead_times = power_spectrum_avg_preds.lead_time.values
+#     sigma_levels = power_spectrum_avg_preds.lev.values
 
-def plot_power_spectrum_test(power_spectrum_avg_preds, preds_times):
-    """ Plot the power spectrum of the forecast
+#     # Select a subset of variables, lead times, and sigma levels if there are too many
+#     if len(available_vars) > 3:
+#         available_vars = available_vars[:3]
+#     if len(lead_times) > 3:
+#         lead_times = [lead_times[0], lead_times[len(lead_times)//2], lead_times[-1]]
+#     if len(sigma_levels) > 3:
+#         sigma_levels = [sigma_levels[0], sigma_levels[len(sigma_levels)//2], sigma_levels[-1]]
+
+#     # Create subplots
+#     fig, axs = plt.subplots(len(lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+#     k_x_preds = power_spectrum_avg_preds.k_x.values
+#     k_x_gt = power_spectrum_avg_gt.k_x.values
+
+#     for i, lead_time in enumerate(lead_times):
+#         for j, var in enumerate(available_vars):
+#             for sigma in sigma_levels:
+#                 try:
+#                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
+#                     axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast σ={sigma:.4f}')
+                    
+#                     # Add ground truth plot
+#                     power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
+#                     axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth σ={sigma:.4f}')
+#                 except KeyError as e:
+#                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, sigma={sigma}. Error: {e}")
+#                     continue
+
+#             axs[i,j].set_yscale('log')
+#             axs[i,j].set_xscale('log')
+#             axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
+#             axs[i,j].set_ylabel('Energy Spectrum')
+#             axs[i,j].set_title(f"var = '{var}', lead time = {lead_time:.2f}")
+#             axs[i,j].grid(True)
+#             axs[i,j].legend()
+    
+#     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Sigma Levels)", y=1.01)
+#     plt.tight_layout() 
+#     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
+#     plt.close(fig)
+
+#     return fig, axs
+
+def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times):
+    """ Plot the power spectrum of the forecast and ground truth
     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
+    :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
     :param preds_times: array, time values of the forecast
+    :param filename: str, path to save the plot
+    :param lead_times: list, lead times in hours to plot (default: [6, 18])
     """
-    # Ensure all data is on CPU
-    # Ensure all data is on CPU
-    if isinstance(power_spectrum_avg_preds, xr.Dataset):
-        power_spectrum_avg_preds = power_spectrum_avg_preds.compute()
-    elif torch.is_tensor(power_spectrum_avg_preds):
-        power_spectrum_avg_preds = power_spectrum_avg_preds.detach().cpu().numpy()
-
-    # Get available variables, lead times, and sigma levels from the data
+    # Get available variables and sigma levels from the data
     available_vars = list(power_spectrum_avg_preds.data_vars)
-    lead_times = power_spectrum_avg_preds.lead_time.values
     sigma_levels = power_spectrum_avg_preds.lev.values
 
-    # Select a subset of variables, lead times, and sigma levels if there are too many
+    # Filter lead times that are present in the data
+    available_lead_times = power_spectrum_avg_preds.lead_time.values
+    plot_lead_times = [lt for lt in lead_times if lt in available_lead_times]
+    if not plot_lead_times:
+        raise ValueError(f"None of the specified lead times {lead_times} are present in the data. Available lead times: {available_lead_times}")
+
+    # Select a subset of variables and sigma levels if there are too many
     if len(available_vars) > 3:
         available_vars = available_vars[:3]
-    if len(lead_times) > 3:
-        lead_times = [lead_times[0], lead_times[len(lead_times)//2], lead_times[-1]]
     if len(sigma_levels) > 3:
         sigma_levels = [sigma_levels[0], sigma_levels[len(sigma_levels)//2], sigma_levels[-1]]
 
     # Create subplots
-    fig, axs = plt.subplots(len(lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+    fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
     k_x_preds = power_spectrum_avg_preds.k_x.values
+    k_x_gt = power_spectrum_avg_gt.k_x.values
 
-    for i, lead_time in enumerate(lead_times):
+    for i, lead_time in enumerate(plot_lead_times):
         for j, var in enumerate(available_vars):
             for sigma in sigma_levels:
                 try:
                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
-                    axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'σ={sigma:.4f}')
+                    axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast')
+                    
+                    # Add ground truth plot
+                    power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
+                    axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth')
                 except KeyError as e:
                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, sigma={sigma}. Error: {e}")
                     continue
@@ -236,14 +305,68 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, preds_times):
             axs[i,j].set_xscale('log')
             axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
             axs[i,j].set_ylabel('Energy Spectrum')
-            axs[i,j].set_title(f"var = '{var}', lead time = {lead_time:.2f}")
+            axs[i,j].set_title(f"var = '{var}', lead time = {lead_time} hours")
             axs[i,j].grid(True)
             axs[i,j].legend()
-
+    
     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Sigma Levels)", y=1.01)
     plt.tight_layout() 
-    plt.savefig(f"spectrum_results_sigma.png", pad_inches=0.1, bbox_inches='tight')
+    plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
     plt.close(fig)
 
-    # return fig, axs
+    return fig, axs
+
+# def plot_power_spectrum_test(power_spectrum_avg_preds, preds_times, filename):
+#     """ Plot the power spectrum of the forecast
+#     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
+#     :param preds_times: array, time values of the forecast
+#     """
+#     # Ensure all data is on CPU
+#     # Ensure all data is on CPU
+#     # if isinstance(power_spectrum_avg_preds, xr.Dataset):
+#     #     power_spectrum_avg_preds = power_spectrum_avg_preds.compute()
+#     # elif torch.is_tensor(power_spectrum_avg_preds):
+#     #     power_spectrum_avg_preds = power_spectrum_avg_preds.detach().cpu().numpy()
+
+#     # Get available variables, lead times, and sigma levels from the data
+#     available_vars = list(power_spectrum_avg_preds.data_vars)
+#     lead_times = power_spectrum_avg_preds.lead_time.values
+#     sigma_levels = power_spectrum_avg_preds.lev.values
+
+#     # Select a subset of variables, lead times, and sigma levels if there are too many
+#     if len(available_vars) > 3:
+#         available_vars = available_vars[:3]
+#     if len(lead_times) > 3:
+#         lead_times = [lead_times[0], lead_times[len(lead_times)//2], lead_times[-1]]
+#     if len(sigma_levels) > 3:
+#         sigma_levels = [sigma_levels[0], sigma_levels[len(sigma_levels)//2], sigma_levels[-1]]
+
+#     # Create subplots
+#     fig, axs = plt.subplots(len(lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+#     k_x_preds = power_spectrum_avg_preds.k_x.values
+
+#     for i, lead_time in enumerate(lead_times):
+#         for j, var in enumerate(available_vars):
+#             for sigma in sigma_levels:
+#                 try:
+#                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
+#                     axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'σ={sigma:.4f}')
+#                 except KeyError as e:
+#                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, sigma={sigma}. Error: {e}")
+#                     continue
+
+#             axs[i,j].set_yscale('log')
+#             axs[i,j].set_xscale('log')
+#             axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
+#             axs[i,j].set_ylabel('Energy Spectrum')
+#             axs[i,j].set_title(f"var = '{var}', lead time = {lead_time:.2f}")
+#             axs[i,j].grid(True)
+#             axs[i,j].legend()
+    
+#     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Sigma Levels)", y=1.01)
+#     plt.tight_layout() 
+#     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
+#     plt.close(fig)
+
+#     return fig, axs
 
