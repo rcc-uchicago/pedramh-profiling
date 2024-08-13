@@ -128,28 +128,6 @@ class GetDataset(Dataset):
             print('Constant boundary has nan')
             sys.exit(2)
 
-        self.surface_mean, self.surface_std = self.load_mean_std(join(
-            data_dir, params.surface_mean), join(data_dir, params.surface_std), self.surface_variables)
-
-        self.upper_air_mean, self.upper_air_std = self.load_mean_std(join(
-            data_dir, params.upper_air_mean), join(data_dir, params.upper_air_std), self.upper_air_variables)
-
-        if 'surface_ff_std' in self.params:
-            _, self.surface_ff_std = self.load_mean_std(join(
-                data_dir, params.surface_mean), join(data_dir, params.surface_ff_std), self.surface_variables)
-        if 'upper_air_ff_std' in self.params:
-            _, self.upper_air_ff_std = self.load_mean_std(join(
-                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_ff_std), self.upper_air_variables)
-
-        self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_dir, params.boundary_mean),
-                                                                                   join(data_dir, params.boundary_dir, params.boundary_std),
-                                                                                   self.varying_boundary_variables)
-        self.num_levels = self.upper_air_mean.size(-1)
-        self.surface_transform = self._create_surface_transform()
-        self.boundary_transform = self._create_boundary_transform()
-        self.upper_air_transform = self._create_upper_air_transform()
-        self.surface_inv_transform = self._create_surface_inv_transform()
-        self.upper_air_inv_transform = self._create_upper_air_inv_transform()
         # self.channel_seq = self.surface_variables + self.upper_air_variables
 
         self.boundary_dss = self._load_boundary_data()
@@ -160,7 +138,35 @@ class GetDataset(Dataset):
             self.inference_idxs = np.arange(0, len(self.dates))
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
-        self.lev = torch.from_numpy(self.data_dss[0][self.params.lev].values)
+        if len(params['levels']) > 0:
+            self.levels = np.array(params['levels'])
+        else:
+            self.levels = self.data_dss[0][self.params.lev].values
+        self.num_levels = len(self.levels)
+        self.lev = torch.from_numpy(self.levels)
+
+        self.surface_mean, self.surface_std = self.load_mean_std(join(
+            data_dir, params.surface_mean), join(data_dir, params.surface_std), self.surface_variables, upper_air = False)
+
+        self.upper_air_mean, self.upper_air_std = self.load_mean_std(join(
+            data_dir, params.upper_air_mean), join(data_dir, params.upper_air_std), self.upper_air_variables)
+
+        if 'surface_ff_std' in self.params:
+            _, self.surface_ff_std = self.load_mean_std(join(
+                data_dir, params.surface_mean), join(data_dir, params.surface_ff_std), self.surface_variables, upper_air = False)
+        if 'upper_air_ff_std' in self.params:
+            _, self.upper_air_ff_std = self.load_mean_std(join(
+                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_ff_std), self.upper_air_variables)
+
+        self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_dir, params.boundary_mean),
+                                                                                   join(data_dir, params.boundary_dir, params.boundary_std),
+                                                                                   self.varying_boundary_variables, upper_air = False)
+        self.surface_transform = self._create_surface_transform()
+        self.boundary_transform = self._create_boundary_transform()
+        self.upper_air_transform = self._create_upper_air_transform()
+        self.surface_inv_transform = self._create_surface_inv_transform()
+        self.upper_air_inv_transform = self._create_upper_air_inv_transform()
+
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
         for ds in self.data_dss:
@@ -232,11 +238,31 @@ class GetDataset(Dataset):
         constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_bounadry_std.reshape(-1, 1, 1)
         return constant_boundary_data
 
-    def load_mean_std(self, mean_file, std_file, datavars):
-        with xr.open_dataset(mean_file) as ds:
-            mean = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)
-        with xr.open_dataset(std_file) as ds:
-            std = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)
+    def load_mean_std(self, mean_file, std_file, datavars, upper_air = True):
+        if upper_air:
+            if self.params.lev == 'lev':
+                with xr.open_dataset(mean_file) as ds:
+                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds.lev.values], \
+                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
+                                                                                          for var in datavars], dim=0)
+                with xr.open_dataset(std_file) as ds:
+                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds.lev.values], \
+                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
+                                                                                          for var in datavars], dim=0)
+            elif self.params.lev == 'plev':
+                with xr.open_dataset(mean_file) as ds:
+                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds.plev.values], \
+                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
+                                                                                          for var in datavars], dim=0)
+                with xr.open_dataset(std_file) as ds:
+                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds.plev.values], \
+                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
+                                                                                          for var in datavars], dim=0)
+        else:
+            with xr.open_dataset(mean_file) as ds:
+                mean = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)
+            with xr.open_dataset(std_file) as ds:
+                std = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)
         return mean, std
     
     def _create_surface_transform(self):
@@ -323,7 +349,7 @@ class GetDataset(Dataset):
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
             for file in self.data_files:
-                data_ds = xr.open_mfdataset(file, chunks={'time': 1, self.params.lev: self.num_levels}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+                data_ds = xr.open_mfdataset(file, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
                 data_dss.append(data_ds)
         return data_dss
 
@@ -331,7 +357,7 @@ class GetDataset(Dataset):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1, self.params.lev: self.num_levels},
+            data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1},
                 engine='netcdf4', parallel=self.parallel, decode_cf=False)
         return data_ds
     
@@ -342,8 +368,10 @@ class GetDataset(Dataset):
         surface_data = self.surface_transform(surface_data)
         #for da in surface_da_list:
         #    da[:] = np.nan
-
-        upper_air_da_list = [data_ds[var].sel(time=hour) for var in self.upper_air_variables]
+        if self.params.lev == 'lev':
+            upper_air_da_list = [data_ds[var].sel(time=hour, lev=self.levels) for var in self.upper_air_variables]
+        elif self.params.lev == 'plev':
+            upper_air_da_list = [data_ds[var].sel(time=hour, plev=self.levels) for var in self.upper_air_variables]
         upper_air_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in upper_air_da_list], dim = 0)
         upper_air_data = self.upper_air_transform(upper_air_data)
         #for da in upper_air_da_list:
