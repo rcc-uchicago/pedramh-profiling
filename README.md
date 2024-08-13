@@ -61,7 +61,7 @@ source /home/x-awikner/venvs/anvil/pangu/bin/activate
 To create your own virtual environment on top of the existing conda environment, run:
 ```
 ml ${conda_module}
-conda activare ${conda_env_path}
+conda activate ${conda_env_path}
 mkdir -p ~/venvs/${your_venv_name}
 python3 -m venv ~/venvs/${your_venv_name} --system-site-packages
 source ~/venvs/${your_venv_name}/bin/activate
