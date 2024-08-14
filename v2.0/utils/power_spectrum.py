@@ -333,3 +333,24 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     plt.close(fig)
 
     return fig, axs
+
+
+def evaluate_iterative_forecast(da_fc, da_true, func, clim=None, mean_dims=xr.ALL_DIMS, weighted=True):
+    """
+    Compute iterative score (given by func) with latitude weighting from two xr.DataArrays.
+    Args:
+        da_fc (xr.DataArray): Iterative Forecast. Time coordinate must be initialization time.
+        da_true (xr.DataArray): Truth.
+        func: Function to compute the score
+        clim: Climatology data
+        mean_dims: dimensions over which to average score
+        weighted: Whether to use weighted computation
+    Returns:
+        score: Latitude weighted score
+    """
+    scores = []
+    for f in da_fc.lead_time:
+        fc = da_fc.sel(lead_time=f)
+        fc['time'] = fc.time + timedelta(hours=int(f))
+        scores.append(func(fc, da_true, mean_dims=mean_dims, weighted=weighted, clim=clim))
+    return xr.concat(scores, 'lead_time')

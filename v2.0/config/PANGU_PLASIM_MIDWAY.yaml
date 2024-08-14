@@ -41,9 +41,9 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/scratch/midway2/awikner/PLASIM/data/train_val_test_data'
+  data_dir: '/scratch/midway3/tvallabh/pangu_data/PLASIM/train_val_test_data_pl'
   boundary_dir: 'boundary_vars'
-  upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw']
+  upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw', 'zg']
   surface_variables: ['pl', 'tas']
   constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
@@ -65,12 +65,14 @@ PLASIM: &PLASIM
 
   has_year_zero: False
 
-  num_levels: 10
+  num_levels: 13
+  levels: []
   horizontal_resolution: [64, 128]
   depths: [2, 6, 6, 2]
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
+  lev: 'plev'
 
   # set to 0 during training
   # inference_steps: 0
