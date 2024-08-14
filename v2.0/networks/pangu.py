@@ -206,7 +206,7 @@ class PanguModel_Plasim(nn.Module):
         surface = self.patchembed2d(surface)
         upper_air = self.patchembed3d(upper_air_in)
 
-        x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
+        x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 
@@ -245,16 +245,16 @@ class PanguModel_Plasim(nn.Module):
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
 
         if self.predict_delta:
-            output_surface_delta  = output[:, :, 0, :, :]
-            output_upper_air_delta = output[:, :, 1:, :, :]
+            output_surface_delta  = output[:, :, -1, :, :]
+            output_upper_air_delta = output[:, :, :-1, :, :]
 
             output_surface_delta = self.patchrecovery2d(output_surface_delta)
             output_upper_air_delta = self.patchrecovery3d(output_upper_air_delta)
             output_surface = surface_in + output_surface_delta
             output_upper_air = upper_air_in + output_upper_air_delta
         else:
-            output_surface = output[:, :, 0, :, :]
-            output_upper_air = output[:, :, 1:, :, :]
+            output_surface = output[:, :, -1, :, :]
+            output_upper_air = output[:, :, :-1, :, :]
 
             output_surface = self.patchrecovery2d(output_surface)
             output_upper_air = self.patchrecovery3d(output_upper_air)

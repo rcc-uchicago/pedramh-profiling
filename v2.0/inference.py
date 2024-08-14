@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
-import os
+import os, shutil, sys
 import time
 import numpy as np
 import argparse
@@ -75,7 +75,8 @@ class Stepper():
         logging.info('rank %d, begin data loader init' % world_rank)
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
-                                                                     year_end=params.val_year_end, train=False)
+                                                                     year_end=params.val_year_end, train=False,
+                                                                     num_inferences = params.num_inferences)
 
         self.constant_boundary_data = self.valid_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
@@ -357,6 +358,9 @@ class Stepper():
         savedir = os.path.join(inference_results_dir, 'predictions')
         if not os.path.isdir(savedir):
             os.makedirs(savedir)
+        pred_config = os.path.join(self.params['experiment_dir'], os.path.basename(params['config_filepath']))
+        if not os.path.exists(pred_config):
+            shutil.copy(params['config_filepath'], pred_config)
         for sample in range(surface_prediction.shape[0]):
             time_range = xr.cftime_range(start_time + timedelta(hours = self.params['timedelta_hours'] * sample), 
                                          start_time + timedelta(hours = self.params['timedelta_hours'] * (sample + self.params['inference_steps'])),
@@ -403,8 +407,8 @@ if __name__ == '__main__':
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--inference_steps", default=0, type=int)
+    parser.add_argument("--num_inferences", default = 0, type = int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
-
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -415,9 +419,18 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
+    params['config_filepath'] = args.yaml_config
     params['epsilon_factor'] = args.epsilon_factor
     params['run_num'] = args.run_num
-    params['inference_steps'] = args.inference_steps
+    if args.inference_steps > 0:
+        params['inference_steps'] = args.inference_steps
+    else:
+        try:
+            params['inference_steps'] = max(params.forecast_lead_times)
+        except:
+            print('args.inference_steps and params.forecast_lead_times not set, exiting...')
+            sys.exit(2)
+    params['num_inferences'] = args.num_inferences
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
