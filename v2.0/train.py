@@ -487,11 +487,18 @@ class Trainer():
 
 
 
+    # def preprare_preds(self, preds):
+    #     preds = preds.rename({'time': 'lead_time'})
+    #     preds['time'] = preds.lead_time.values[0:1]
+    #     preds = preds.set_coords('time')
+    #     preds['lead_time'] = np.arange(0, len(preds.lead_time) * self.params['timedelta_hours'], self.params['timedelta_hours'])
+    #     return preds
+    
     def preprare_preds(self, preds):
         preds = preds.rename({'time': 'lead_time'})
-        preds['time'] = preds.lead_time.values[0:1]
+        preds['time'] = preds.lead_time.values[0]
         preds = preds.set_coords('time')
-        preds['lead_time'] = np.arange(0, len(preds.lead_time) * self.params['timedelta_hours'], self.params['timedelta_hours'])
+        preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in self.params['forecast_lead_times']]
         return preds
     
     def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_time, params, valid_dataset):
@@ -499,15 +506,20 @@ class Trainer():
         datasets = []
 
         for sample in range(batch_size):
-            time_range = xr.cftime_range(
-                start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
-                periods=time_steps,
-                freq=f"{params['timedelta_hours']}h"
-            )
+            # time_range = xr.cftime_range(
+            #     start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
+            #     periods=time_steps,
+            #     freq=f"{params['timedelta_hours']}h"
+            # )
+            time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            
+
+            # Determine the level coordinate name based on params.lev
+            level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
 
             coordinates = {
                 'time': time_range,
-                'lev': valid_dataset.data_dss[0].lev.values,
+                level_coord_name: valid_dataset.data_dss[0][level_coord_name].values,
                 'lat': valid_dataset.data_dss[0].lat.values,
                 'lon': valid_dataset.data_dss[0].lon.values
             }
@@ -531,7 +543,7 @@ class Trainer():
             for idx, var in enumerate(valid_dataset.upper_air_variables):
                 da = xr.DataArray(
                     data=upper_air_prediction[sample, :, idx],
-                    dims=["time", "lev", "lat", "lon"],
+                    dims=["time", level_coord_name, "lat", "lon"],
                     coords=coordinates
                 )
                 da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
@@ -667,10 +679,7 @@ class Trainer():
                     for step in range(max_lead_time):
                         val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_output_upper_air)
-                        
-                        # val_output_surface_t[:, step+1] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                        # val_output_upper_air_t[:, step+1] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                        
+                      
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
                             target_index = lead_times_steps.index(step + 1)
@@ -697,11 +706,6 @@ class Trainer():
                                 valid_loss_sfc += loss_sfc
                                 valid_loss_pl += loss_pl
 
-                                #surface_lwrmse = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                                #upper_air_lwrmse = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:, target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-
-                                #valid_surface_lwrmse += torch.mean(surface_lwrmse, dim=0)
-                                #valid_upper_air_lwrmse += torch.mean(upper_air_lwrmse, dim=0)
 
                                 # Prepare the predictions
                                 datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_time, self.params, self.valid_dataset)
@@ -730,8 +734,8 @@ class Trainer():
                                 path_filename = os.path.join(output_dir, f"power_spectrum_epoch_{self.epoch}.png")
 
                                 # Check that lev values exist and print them
-                                if 'lev' in power_spectrum_avg_pred.dims:
-                                    print(f"lev values are: {power_spectrum_avg_pred.lev.values}")
+                                if 'plev' in power_spectrum_avg_pred.dims:
+                                    print(f"lev values are: {power_spectrum_avg_pred.plev.values}")
                                 else:
                                     raise ValueError("The dimension 'lev' is not found in the power_spectrum_avg dataset.")
                                 power_spectrum_avg_pred = power_spectrum_avg_pred.compute()
