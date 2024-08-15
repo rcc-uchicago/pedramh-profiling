@@ -400,107 +400,102 @@ def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"
     plt.tight_layout()
     return fig, axs
 
-# Example usage:
-# fig, axs = plot_acc_over_lead_time(acc)
-# plt.show()
 
 
-# def plot_acc(acc, colors=None, vars = ["tas", "ta", "zg", "ua"], plevs = [None, 850*100, 500*100, 250*100], 
-#              units = ['K', 'K', 'm', 'm/s'], fontsize_title=14):
-#     """
-#     Plot the ACC for each variable and pressure level
-#     :param acc: dict, ACC scores
-#     :param colors: dict, colors for each model
-#     """
-#     # if score is not a OrderedDict, but a xr.Dataset with 'model' names as variables, convert it to an OrderedDict
-#     if isinstance(acc, xr.Dataset):
-#         print('Converting xr.Dataset to OrderedDict for ACC')
-#         acc = OrderedDict({key: acc.sel(model=key) for key in acc.model.values})
-
-#     # Check that len(vars) == len(plevs) == len(units)
-#     assert len(vars) == len(plevs) == len(units), 'vars, plevs, and units must have the same length'
-
-#     fig, axs = plt.subplots(len(plevs), 1, figsize=(12, 20))
-
-#     for i, (var, plev) in enumerate(zip(vars, plevs)):
-#         if plev is None:
-#             title = f'{var}'
-#         else:
-#             title = f'{var} at {plev/100:.0f} hPa'
-        
-#         create_plot(acc, var, lev=plev, ax=axs[i], ylabel=f'{var} ACC', title=title, colors=colors)
-#         axs[i].axhline(0, ls='--', c='0.', lw=2)
-#         axs[i].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
-#         axs[i].set_ylim(-0.3, 1.1)
-#         axs[i].title.set_fontsize(fontsize_title)
-
-#     for i in range(len(plevs)):
-#         axs[i].legend(loc='upper left')
-
-#     plt.tight_layout()
-#     return fig, axs
-
-# def create_plot(score, var, lev=None, colors=None, save_fn=None, ax=None, legend=False, ylabel=None, title=None, ylim=None, mult_tp=1.):
-#     """ Create a plot of a particular score
-#     :param score: dict, scores
-#     :param var: str, variable to plot
-#     :param lev: int, pressure level to plot
-#     :param colors: dict, colors for each model
-#     :param save_fn: str, path to save the plot
-#     :param ax: axis object
-#     :param legend: bool, whether to plot the legend
-#     """
-
-#     # if score is not a OrderedDict, but a xr.Dataset with 'model' names as variables, convert it to an OrderedDict
-#     if isinstance(score, xr.Dataset):
-#         print('Converting xr.Dataset to OrderedDict')
-#         score = OrderedDict({key: score.sel(model=key) for key in score.model.values})
-#         # print(score.keys())
-
-#     if colors is None: 
-#         colors = standard_color_dict = list(mcolors.CSS4_COLORS.values())[43:43+len(score.keys())]
-#         colors = {exp: colors[i] for i, exp in enumerate(score.keys())}
-
-#     if ax is None: 
-#         fig, ax = plt.subplots(1, 1, figsize=(5, 4)) 
-#     for exp, ds in score.items():
-#         s = ds.copy(deep=True)
-#         # # convert s to dataset
-#         # if isinstance(s, xr.DataArray):
-#         if var in s.variables:
-#             if var == 'tp': s[var] *= mult_tp
-#             if exp in ['Climatology', 'Weekly clim.']:
-#                 ax.axhline(s[var], ls='--', c=colors[exp], label=exp, lw=3)
-#             elif 'direct' in exp:
-#                 ax.scatter(s['lead_time'], s[var], c=colors[exp], s=100, label=exp, lw=2, edgecolors='k', zorder=10)
-#             else:
-#                 if 'plev' in s[var].dims and lev is not None:
-#                     s[var].sel(plev=lev, method='nearest').plot(c=colors[exp], label=exp, lw=3, ax=ax)
-#                 elif 'plev' in s[var].dims and lev is None:
-#                     print('lev is None. Please provide a level')
-#                 else:
-#                     s[var].plot(c=colors[exp], label=exp, lw=3, ax=ax)
-            
-#     ax.set_ylabel(ylabel)
-#     ax.set_title(title)
-#     ax.set_ylim(ylim)
-#     # ax.set_xlim(0, 122)
-#     # ax.set_xticks([0, 24, 48, 72, 96, 120])
-#     # ax.set_xticklabels([0, 1, 2, 3, 4, 5])
-#     # Calculating the number of days dynamically
-
-#     num_days = s.lead_time[-1].values // 24 + 1
-
-#     # Setting x-ticks dynamically based on the data range
-#     days = np.arange(0, num_days)
-#     hours_ticks = days * 24
-
-#     ax.set_xticks(hours_ticks)
-#     ax.set_xticklabels(days)
 
 
-#     ax.set_xlabel('Lead time [days]')
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import cartopy.crs as ccrs
+import numpy as np
+
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import cartopy.crs as ccrs
+import numpy as np
+import time
+
+
+# THIS WORKS
+
+def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filename, sample_index=0, plev=None):
+    """
+    Create a gif of the forecast for a single sample, evolving over lead times, without using coastlines.
+    """
+    start_time = time.time()
+    print(f"Starting GIF creation for {var}")
+
+    # Data selection and setup
+    if plev is not None:
+        data_inference = combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+        data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+    else:
+        data_inference = combined_dataset[var].isel(time=sample_index)
+        data_gt = gt_combined_dataset[var].isel(time=sample_index)
+
+    print(f"Data shape - Inference: {data_inference.shape}, Ground Truth: {data_gt.shape}")
+    print(f"Lead times: {data_inference.lead_time.values}")
+
+    vmin = float(min(data_inference.min(), data_gt.min()))
+    vmax = float(max(data_inference.max(), data_gt.max()))
+    print(f"Value range: {vmin} to {vmax}")
+
+    # Figure setup
+    fig_gif, axs = plt.subplots(1, 2, figsize=(15, 6), subplot_kw={'projection': ccrs.PlateCarree()})
+    print("Figure created")
+
+    # Create initial plots and colorbars
+    im1 = axs[0].pcolormesh(data_inference.lon, data_inference.lat, 
+                            data_inference.isel(lead_time=0),
+                            transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
+    im2 = axs[1].pcolormesh(data_gt.lon, data_gt.lat, 
+                            data_gt.isel(lead_time=0),
+                            transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
     
-#     if not save_fn is None: 
-#         plt.subplots_adjust(left=0.15, right=0.95, top=0.9, bottom=0.1)
-#         fig.savefig(save_fn)
+    # Add colorbars
+    plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05)
+    plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05)
+
+    axs[0].set_global()
+    axs[1].set_global()
+    axs[0].set_title(f'{name_fc}')
+    axs[1].set_title('Ground Truth')
+
+    frame_times = []
+
+    def plot(i):
+        frame_start = time.time()
+
+        lead_time = data_inference.lead_time.values[i]
+
+        forecast = data_inference.isel(lead_time=i)
+        truth = data_gt.isel(lead_time=i)
+
+        # Update plot data
+        im1.set_array(forecast.values.ravel())
+        im2.set_array(truth.values.ravel())
+
+        var_up = f'{var}_{plev/100:.0f}hPa' if plev is not None else var
+        title = f'{var_up} at lead time {lead_time} hours (Sample {sample_index})'
+        plt.suptitle(title, y=0.95)
+
+        frame_end = time.time()
+        frame_times.append(frame_end - frame_start)
+        print(f"Frame {i} completed in {frame_end - frame_start:.2f} seconds")
+
+    print("Starting animation creation")
+    ani = animation.FuncAnimation(fig_gif, plot, frames=len(data_inference.lead_time), repeat=False)
+    
+    print("Saving animation")
+    ani.save(output_filename, writer='pillow', fps=1)
+    plt.close(fig_gif)
+    
+    end_time = time.time()
+    total_time = end_time - start_time
+    print(f"GIF saved as {output_filename}")
+    print(f"Total time: {total_time:.2f} seconds")
+    print(f"Average frame time: {np.mean(frame_times):.2f} seconds")
+    print(f"Max frame time: {np.max(frame_times):.2f} seconds")
+
+    return ani
+

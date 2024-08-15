@@ -39,7 +39,7 @@ import time
 from multiprocessing import Process
 import psutil
 import shutil
-
+from datetime import datetime
 
 
 
@@ -164,14 +164,7 @@ def debug_subtraction(da_fc, climatology_aligned):
     return fa
 
 def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
-    def print_info(data, name):
-        print(f"\n{name} info:")
-        print(f"Sizes: {data.sizes}")
-        print(f"Dimensions: {data.dims}")
-        print(f"Coordinates: {data.coords}")
-        print(f"Data variables: {list(data.data_vars)}")
-        print(f"Contains NaNs: {data.isnull().any().values}")
-        print(f"NaN count: {data.isnull().sum().values}")
+
 
     # Assign dayofyear coordinate
     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
@@ -184,7 +177,7 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 
     if clim is not None:
         try:
-            print("\nAligning climatology:")
+            # print("\nAligning climatology:")
             # Remove 'zsfc' from climatology if it exists
             if 'zsfc' in clim:
                 clim = clim.drop_vars('zsfc')
@@ -195,7 +188,7 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             # Transpose climatology to match forecast data dimensions
             clim = clim.transpose('dayofyear', 'plev', 'lat', 'lon')
             
-            print("\nSelecting climatology based on dayofyear:")
+            # print("\nSelecting climatology based on dayofyear:")
             climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
             
             # Ensure climatology has the same dimensions as da_fc
@@ -212,12 +205,12 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 
 
             # Debug: Perform subtraction with verbose output
-            print("\nPerforming subtraction...")
+            # print("\nPerforming subtraction...")
             # fa = debug_subtraction(da_fc, climatology_aligned)
             fa = da_fc - climatology_aligned
 
             a = da_true - climatology_aligned
-            print("Subtraction complete.")
+            # print("Subtraction complete.")
 
             # Debug: Check latitude values after subtraction
             # print("\nForecast Anomaly latitude values:")
@@ -290,9 +283,17 @@ class Trainer():
         # print(self.climatology)
 
         self.spectra_dir = os.path.join(os.getcwd(), "spectra_out")
+        self.diagnostics_dir = os.path.join(os.getcwd(), "gif_out")
+        self.output_dir = os.path.join(os.getcwd(), "acc_plots")      
+        
         if world_rank == 0:
             os.makedirs(self.spectra_dir, exist_ok=True)
+            os.makedirs(self.diagnostics_dir, exist_ok=True)
+            os.makedirs(self.output_dir, exist_ok=True)
             print(f"Created directory: {self.spectra_dir}")
+            print(f"Created directory: {self.diagnostics_dir}")
+            print(f"Created directory: {self.output_dir}")
+
 
         self.enable_amp = params.enable_amp
         self.enable_fp8 = params.enable_fp8
@@ -794,9 +795,7 @@ class Trainer():
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
             print(f"Deleted ACC plots directory: {output_dir}")
-
-
-            
+    
 
         
     def validate_one_epoch(self):
@@ -831,9 +830,7 @@ class Trainer():
         sample_idx = np.random.randint(len(self.valid_data_loader))
 
 
-        output_dir = os.path.join(os.getcwd(), "acc_plots")      
-        # Create the directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
+        
 
         # OPTIMIZATION
         # with torch.inference_mode():
@@ -933,7 +930,8 @@ class Trainer():
                                 gt_prepared_datasets = [self.preprare_preds(ds) for ds in gt_datasets]
                                 gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
 
-
+                                # inspect_dataset(combined_dataset, "Model Forecast Dataset")
+                                # inspect_dataset(gt_combined_dataset, "Ground Truth Dataset")
 
                                 lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
                                                     # Compute ACC
@@ -952,12 +950,28 @@ class Trainer():
                                 # Plot ACC over lead time
                                 fig, axs = plot_acc_over_lead_time(acc, lead_times_hours)
 
+
                                 
                                 # Save the plot
-                                plot_filename = os.path.join(output_dir, f"acc_plot_epoch_{self.epoch}.png")
+                                plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
                                 fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
                                 plt.close(fig)  # Close the figure to free up memory
-                                
+                                print("\nFinished ACC..")
+
+
+
+                                print("\nMaking GIF...")
+
+                                gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
+                                make_gif(combined_dataset, gt_combined_dataset, "Model Forecast", "zg", gif_filename, plev=50000)
+
+
+
+                                print("\nFinished creating GIF animation.")
+
+                            
+
+                                print("\nMaking Power Spectrum...")
 
                                 # Calculate zonal averaged power spectrum. 
 
@@ -982,6 +996,8 @@ class Trainer():
                                 preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
 
                                 self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
+
+                                print("\nFinished Power Spectrum...")
 
                             
                             step_idx += 1
@@ -1052,6 +1068,11 @@ class Trainer():
                 "ACC_plot": wandb.Image(plot_filename),
                 "epoch": self.epoch
                 })
+                if gif_filename:
+                    wandb.log({
+                "Evolution_GIF": wandb.Video(gif_filename),
+                "epoch": self.epoch
+            })
             
             valid_time = time.time() - valid_start
 
@@ -1076,6 +1097,11 @@ class Trainer():
                     "ACC_plot": wandb.Image(plot_filename),
                     "epoch": self.epoch
                 })
+                if gif_filename:
+                    wandb.log({
+                "Evolution_GIF": wandb.Video(gif_filename),
+                "epoch": self.epoch
+            })
 
             valid_time = time.time() - valid_start
 
