@@ -20,7 +20,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
-from utils.power_spectrum import zonal_averaged_power_spectrum, plot_power_spectrum, plot_power_spectrum_test
+from utils.power_spectrum import *
 ##########################################
 ## NEW IMPORTS
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss
@@ -38,6 +38,7 @@ from itertools import product
 import time 
 from multiprocessing import Process
 import psutil
+import shutil
 
 
 
@@ -121,39 +122,119 @@ def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'l
         scores.append(score)
     return xr.concat(scores, dim='lead_time')
 
-# ACC Scores
-def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
-    """
-    Compute the ACC with latitude weighting from two xr.DataArrays.
-    WARNING: Does not work if datasets contain NaNs
-    """
-    # Ensure da_fc and da_true have matching times
-    # common_times = np.intersect1d(da_fc.time, da_true.time)
-    # da_fc = da_fc.sel(time=common_times)
-    # da_true = da_true.sel(time=common_times)
+# # ACC Scores
 
-    # Ensure da_fc and da_true have matching times
-    # t = np.intersect1d(da_fc.time, da_true.time)
-    # da_fc = da_fc.sel(time=t)
-    # da_true = da_true.sel(time=t)
-    print(f"DAFC = {da_fc}")
+
+def debug_subtraction(da_fc, climatology_aligned):
+    print("\nDebugging subtraction operation:")
     
-    # remove climatology 
+    # Check data types
+    print(f"da_fc data type: {type(da_fc)}")
+    print(f"climatology_aligned data type: {type(climatology_aligned)}")
+    
+    # Check latitude coordinates
+    print("\nLatitude coordinates:")
+    print(f"da_fc latitude: {da_fc.lat.values}")
+    print(f"climatology_aligned latitude: {climatology_aligned.lat.values}")
+    
+    # Check if latitudes are identical
+    lat_identical = np.allclose(da_fc.lat.values, climatology_aligned.lat.values)
+    print(f"\nLatitudes identical: {lat_identical}")
+    
+    # Perform subtraction
+    print("\nPerforming subtraction...")
+    fa = da_fc - climatology_aligned
+    
+    # Check result
+    print("\nSubtraction result:")
+    print(f"fa dimensions: {fa.dims}")
+    print(f"fa coordinates: {fa.coords}")
+    
+    if 'lat' in fa.coords:
+        print(f"fa latitude values: {fa.lat.values}")
+    else:
+        print("Latitude coordinate is missing in the result!")
+        
+        # Try to identify which variable caused the issue
+        for var in da_fc.data_vars:
+            temp_result = da_fc[var] - climatology_aligned[var]
+            if 'lat' not in temp_result.coords:
+                print(f"Variable '{var}' loses latitude coordinate during subtraction.")
+    
+    return fa
+
+def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
+    def print_info(data, name):
+        print(f"\n{name} info:")
+        print(f"Sizes: {data.sizes}")
+        print(f"Dimensions: {data.dims}")
+        print(f"Coordinates: {data.coords}")
+        print(f"Data variables: {list(data.data_vars)}")
+        print(f"Contains NaNs: {data.isnull().any().values}")
+        print(f"NaN count: {data.isnull().sum().values}")
+
+    # Assign dayofyear coordinate
     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
     da_true = da_true.assign_coords(dayofyear=da_true['time'].dt.dayofyear)
-    
+
+    # print_info(da_fc, "Forecast")
+    # print_info(da_true, "True")
+    # if clim is not None:
+    #     print_info(clim, "Climatology")
+
     if clim is not None:
-        climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
-        fa = da_fc - climatology_aligned
-        a = da_true - climatology_aligned
+        try:
+            print("\nAligning climatology:")
+            # Remove 'zsfc' from climatology if it exists
+            if 'zsfc' in clim:
+                clim = clim.drop_vars('zsfc')
+            
+            # Reorder variables in climatology to match forecast data
+            clim = clim[list(da_fc.data_vars)]
+            
+            # Transpose climatology to match forecast data dimensions
+            clim = clim.transpose('dayofyear', 'plev', 'lat', 'lon')
+            
+            print("\nSelecting climatology based on dayofyear:")
+            climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
+            
+            # Ensure climatology has the same dimensions as da_fc
+            climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
+            
+            # print_info(climatology_aligned, "Aligned Climatology")
+            climatology_aligned = climatology_aligned.assign_coords(lat=da_fc.lat)
+            
+            # Debug: Check latitude values before subtraction
+            # print("\nForecast latitude values:")
+            # print(da_fc.lat.values)
+            # print("\nClimatology latitude values:")
+            # print(climatology_aligned.lat.values)
+
+
+            # Debug: Perform subtraction with verbose output
+            print("\nPerforming subtraction...")
+            # fa = debug_subtraction(da_fc, climatology_aligned)
+            fa = da_fc - climatology_aligned
+
+            a = da_true - climatology_aligned
+            print("Subtraction complete.")
+
+            # Debug: Check latitude values after subtraction
+            # print("\nForecast Anomaly latitude values:")
+            # print(fa.lat.values)
+
+        except Exception as e:
+            print(f"Error during climatology alignment or subtraction: {str(e)}")
+            return xr.DataArray(np.nan, dims=['time'])
     else:
         fa = da_fc
         a = da_true
 
+    fa = fa.drop_vars('dayofyear', errors='ignore')
+    a = a.drop_vars('dayofyear', errors='ignore')
 
-    
-    fa = fa.drop_vars('dayofyear')
-    a = a.drop_vars('dayofyear')
+    # print_info(fa, "Forecast Anomaly")
+    # print_info(a, "True Anomaly")
 
     if weighted:
         weights_lat = np.cos(np.deg2rad(a.lat))
@@ -162,14 +243,19 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
         weights_lat = 1.
     w = weights_lat
 
-    fa_prime = fa - fa.mean(mean_dims)
-    a_prime = a - a.mean(mean_dims)
+    fa_prime = fa - fa.mean()
+    a_prime = a - a.mean()
 
     numerator = (w * fa_prime * a_prime).sum(mean_dims)
     denominator = np.sqrt((w * fa_prime ** 2).sum(mean_dims) * (w * a_prime ** 2).sum(mean_dims))
-
+    
     acc = numerator / denominator
+
+    # print_info(acc, "ACC")
+
     return acc
+
+
 
 class Trainer():
     def count_parameters(self):
@@ -201,7 +287,12 @@ class Trainer():
          # Load climatology
         clim_path = "/scratch/midway3/tvallabh/pangu_data/PLASIM/train_val_test_data_pl/mean_daily_climatology_pl.nc"
         self.climatology = xr.open_dataset(clim_path)
-        print(self.climatology)
+        # print(self.climatology)
+
+        self.spectra_dir = os.path.join(os.getcwd(), "spectra_out")
+        if world_rank == 0:
+            os.makedirs(self.spectra_dir, exist_ok=True)
+            print(f"Created directory: {self.spectra_dir}")
 
         self.enable_amp = params.enable_amp
         self.enable_fp8 = params.enable_fp8
@@ -221,11 +312,14 @@ class Trainer():
 
             wandb.define_metric("custom_step")
             wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
-    
+
+
+        
 
 
             #           entity=params.entity)
             wandb.define_metric("epoch")
+            wandb.define_metric("ACC_plot", step_metric="epoch")
             if self.params.diagnostic_logs:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
                 for l, steps in enumerate(self.params.forecast_lead_times):
@@ -383,6 +477,7 @@ class Trainer():
         # After the training loop ends
         if self.params.log_to_wandb:
             self.log_all_plots_to_wandb()
+        self.cleanup_acc_plots()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
             logging.info('Completed all epochs. Training finished.')
@@ -556,84 +651,6 @@ class Trainer():
             return tr_time, data_time, logs
 
 
-
-    # # ACC Scores
-    # def compute_weighted_acc(da_fc, da_true, clim, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
-    #     """
-    #     Compute the ACC with latitude weighting from two xr.DataArrays.
-    #     WARNING: Does not work if datasets contain NaNs
-
-    #     Args:
-    #         da_fc (xr.DataArray): Forecast. Time coordinate must be validation time.
-    #         da_true (xr.DataArray): Truth.
-    #         mean_dims: dimensions over which to average score
-    #     Returns:
-    #         acc: Latitude weighted acc
-    #     """
-
-        
-    #     t = np.intersect1d(da_fc.time, da_true.time)
-    #     da_fc = da_fc.sel(time=t)
-    #     da_true = da_true.sel(time=t)
-
-    #     # remove climatology 
-    #     # Convert time coordinate to day of the year
-    #     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
-    #     da_true = da_true.assign_coords(dayofyear=da_true['time'].dt.dayofyear)
-    #     # Align climatology with the day of the year from data1
-    #     climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
-    #     # Subtract climatology from data
-    #     fa = da_fc - climatology_aligned
-    #     a = da_true - climatology_aligned
-    #     # Remove the dayofyear coordinate if desired
-    #     fa = fa.drop_vars('dayofyear')
-    #     a = a.drop_vars('dayofyear')
-
-
-    #     if weighted:
-    #         weights_lat = np.cos(np.deg2rad(a.lat))
-    #         weights_lat /= weights_lat.mean()
-    #     else:
-    #         weights_lat = 1.
-    #     w = weights_lat
-
-    #     fa_prime = fa - fa.mean()
-    #     a_prime = a - a.mean()
-
-    #     # acc = (
-    #     #         np.sum(w * fa_prime * a_prime) /
-    #     #         np.sqrt(
-    #     #             np.sum(w * fa_prime ** 2) * np.sum(w * a_prime ** 2)
-    #     #         )
-    #     # )
-
-    #     numerator = (w * fa_prime * a_prime).sum(mean_dims)
-    #     denominator = np.sqrt((w * fa_prime ** 2).sum(mean_dims) * (w * a_prime ** 2).sum(mean_dims))
-
-    #     acc = numerator / denominator
-    #     return acc
-
-    # def evaluate_iterative_forecast(da_fc, da_true, func, clim=None, mean_dims=xr.ALL_DIMS, weighted=True):
-    #     """
-    #     Compute iterative score (given by func) with latitude weighting from two xr.DataArrays.
-    #     Args:
-    #         da_fc (xr.DataArray): Iterative Forecast. Time coordinate must be initialization time.
-    #         da_true (xr.DataArray): Truth.
-    #         mean_dims: dimensions over which to average score
-    #     Returns:
-    #         score: Latitude weighted score
-    #     """
-    #     scores = []
-    #     for f in da_fc.lead_time:
-    #         fc = da_fc.sel(lead_time=f)
-    #         # fc['time'] = fc.time + np.timedelta64(int(f), 'h')
-    #         fc['time'] = fc.time + timedelta(hours=int(f))
-    #         scores.append(func(fc, da_true, mean_dims=mean_dims, weighted=weighted, clim=clim))
-    #     return xr.concat(scores, 'lead_time')
-
-    
-
-
     def preprare_preds(self, preds):
         preds = preds.rename({'time': 'lead_time'})
         # If bug, change this back to values[0]
@@ -642,7 +659,7 @@ class Trainer():
         preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in self.params['forecast_lead_times']]
         return preds
     
-    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_time, params, valid_dataset):
+    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
         datasets = []
 
@@ -652,7 +669,8 @@ class Trainer():
             #     periods=time_steps,
             #     freq=f"{params['timedelta_hours']}h"
             # )
-            time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
             
 
             # Determine the level coordinate name based on params.lev
@@ -710,7 +728,12 @@ class Trainer():
 
     def log_all_plots_to_wandb(self):
         if self.params.log_to_wandb:
-            output_dir = "/home/tvallabh/PanguWeather/v2.0/spectra_out"
+            output_dir = self.spectra_dir
+            
+            # # Create the directory if it doesn't exist
+            # os.makedirs(output_dir, exist_ok=True)
+            # print(f"Created directory: {output_dir}")
+
             plot_files = sorted([f for f in os.listdir(output_dir) if f.startswith("power_spectrum_epoch_")])
             
             print(f"Found plot files: {plot_files}")
@@ -736,12 +759,43 @@ class Trainer():
             
             print(f"Logged {len(plot_files)} power spectrum plots to wandb")
 
+            # Delete the directory after logging
+            shutil.rmtree(output_dir)
+            print(f"Deleted directory: {output_dir}")
+
     def print_acc(self, acc):
         print("\nACC Results:")
-        for model, score in acc.items():
-            print(f"Model: {model}")
-            print(f"ACC values:")
-            print(score)
+        
+        # Define the variables and pressure levels you're interested in
+        variables = ["tas", "ta", "zg", "ua"]
+        pressure_levels = [None, 850, 500, 250]  # in hPa, None for surface variables
+        
+        # Convert pressure levels to Pa for selection
+        pressure_levels_pa = [p * 100 if p is not None else None for p in pressure_levels]
+        
+        for var, plev, plev_pa in zip(variables, pressure_levels, pressure_levels_pa):
+            print(f"\nVariable: {var}" + (f" at {plev} hPa" if plev else " (Surface)"))
+            
+            if isinstance(acc['Pangu'], xr.DataArray):
+                data = acc['Pangu'][var]
+                if plev_pa and 'plev' in data.dims:
+                    data = data.sel(plev=plev_pa, method='nearest')
+                
+                for lt in self.params.forecast_lead_times:
+                    hours = lt * self.params.timedelta_hours
+                    acc_value = data.sel(lead_time=lt).values
+                    print(f"  Lead time {hours:2d}h (Step {lt:2d}): {acc_value:.4f}")
+            else:
+                print("  Unexpected data type for ACC score. Please check the output of evaluate_iterative_forecast.")
+    
+
+    def cleanup_acc_plots(self):
+        output_dir = os.path.join(os.getcwd(), "acc_plots")
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted ACC plots directory: {output_dir}")
+
+
             
 
         
@@ -776,6 +830,11 @@ class Trainer():
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
 
+
+        output_dir = os.path.join(os.getcwd(), "acc_plots")      
+        # Create the directory if it doesn't exist
+        os.makedirs(output_dir, exist_ok=True)
+
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
@@ -784,14 +843,19 @@ class Trainer():
                 #    break
                 val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
                     lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                
-                # Correct time calculation
-                start_idx = times[0,0].item()
-                start_hour_diff = times[0,1].item()
-                start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour=0) + timedelta(hours=start_hour_diff)
-                # pred_year_hours = (self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour=0) - 
-                #     self.valid_dataset.datetime_class(self.params.val_year_start, 1, 1, hour=0)).seconds // 3600
-                # pred_idx = (pred_year_hours + start_hour_diff) // self.params.timedelta_hours
+
+
+                # get the correct start times for each sample
+                start_times = []
+                for i in range(times.shape[0]):  # Iterate over all samples in the batch
+                    start_idx = times[i,0].item()
+                    start_hour_diff = times[i,1].item()
+                    start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour=0) + timedelta(hours=start_hour_diff)
+                    start_times.append(start_time)
+
+                print(start_times)
+
+
 
                 
                 max_lead_time = max(lead_times_steps)
@@ -857,7 +921,7 @@ class Trainer():
 
 
                                 # Prepare the predictions
-                                datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_time, self.params, self.valid_dataset)
+                                datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset)
                                 prepared_datasets = [self.preprare_preds(ds) for ds in datasets]
                                 combined_dataset = self.combine_datasets(prepared_datasets)
 
@@ -865,22 +929,13 @@ class Trainer():
 
                                 gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
                                 gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
-                                gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_time, self.params, self.valid_dataset)
+                                gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset)
                                 gt_prepared_datasets = [self.preprare_preds(ds) for ds in gt_datasets]
                                 gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
 
 
-               
 
-
-                                clim_vars = list(self.climatology.data_vars)
-                                forecast_vars = list(combined_dataset.data_vars)
-                                print(clim_vars, forecast_vars)
-
-                                print(combined_dataset)
-                                print(gt_combined_dataset)
-
-
+                                lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
                                                     # Compute ACC
                                 print("\nComputing ACC...")
                                 acc = OrderedDict({
@@ -888,12 +943,20 @@ class Trainer():
                                         combined_dataset, 
                                         gt_combined_dataset, 
                                         compute_weighted_acc,
+                                        # mean over these specific dimensions
                                         mean_dims=['lat', 'lon', 'time'],
                                         clim=self.climatology
                                     )
                                 })
-                                # Print ACC results
-                                self.print_acc(acc)
+
+                                # Plot ACC over lead time
+                                fig, axs = plot_acc_over_lead_time(acc, lead_times_hours)
+
+                                
+                                # Save the plot
+                                plot_filename = os.path.join(output_dir, f"acc_plot_epoch_{self.epoch}.png")
+                                fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
+                                plt.close(fig)  # Close the figure to free up memory
                                 
 
                                 # Calculate zonal averaged power spectrum. 
@@ -903,8 +966,7 @@ class Trainer():
 
 
                                 preds_times = combined_dataset.time.values
-                                output_dir = "/home/tvallabh/PanguWeather/v2.0/spectra_out"
-                                path_filename = os.path.join(output_dir, f"power_spectrum_epoch_{self.epoch}.png")
+                                path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
 
                                 # Check that lev values exist and print them
                                 if 'plev' in power_spectrum_avg_pred.dims:
@@ -986,6 +1048,10 @@ class Trainer():
 
             if self.params.log_to_wandb:
                 wandb.log(diagnostic_logs)
+                wandb.log({
+                "ACC_plot": wandb.Image(plot_filename),
+                "epoch": self.epoch
+                })
             
             valid_time = time.time() - valid_start
 
@@ -1004,6 +1070,12 @@ class Trainer():
 
             if self.params.log_to_wandb:
                 wandb.log(logs)
+
+                    # Log ACC plot
+                wandb.log({
+                    "ACC_plot": wandb.Image(plot_filename),
+                    "epoch": self.epoch
+                })
 
             valid_time = time.time() - valid_start
 

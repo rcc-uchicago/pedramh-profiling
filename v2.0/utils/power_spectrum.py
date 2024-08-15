@@ -10,6 +10,20 @@ from collections import OrderedDict
 import torch
 import matplotlib
 
+import os
+import matplotlib.colors as mcolors
+
+from dask.diagnostics import ProgressBar
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
+import cartopy.crs as ccrs
+import seaborn as sns
+from collections import OrderedDict
+# sns.set_style('darkgrid')
+# sns.set_context('notebook')
+
+
 matplotlib.use('Agg')  # Set the backend to 'Agg'
 
 
@@ -335,22 +349,158 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     return fig, axs
 
 
-def evaluate_iterative_forecast(da_fc, da_true, func, clim=None, mean_dims=xr.ALL_DIMS, weighted=True):
+def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 850*100, 500*100, 250*100], 
+                            colors=None, fontsize_title=14):
     """
-    Compute iterative score (given by func) with latitude weighting from two xr.DataArrays.
-    Args:
-        da_fc (xr.DataArray): Iterative Forecast. Time coordinate must be initialization time.
-        da_true (xr.DataArray): Truth.
-        func: Function to compute the score
-        clim: Climatology data
-        mean_dims: dimensions over which to average score
-        weighted: Whether to use weighted computation
-    Returns:
-        score: Latitude weighted score
+    Plot the ACC over lead time for each variable and pressure level
+    :param acc: OrderedDict or xr.Dataset, ACC scores
+    :param lead_times_hours: list, lead times in hours
+    :param vars: list, variables to plot
+    :param plevs: list, pressure levels to plot (use None for surface variables)
+    :param colors: dict, colors for each model
+    :param fontsize_title: int, font size for the title
     """
-    scores = []
-    for f in da_fc.lead_time:
-        fc = da_fc.sel(lead_time=f)
-        fc['time'] = fc.time + timedelta(hours=int(f))
-        scores.append(func(fc, da_true, mean_dims=mean_dims, weighted=weighted, clim=clim))
-    return xr.concat(scores, 'lead_time')
+    if isinstance(acc, xr.Dataset):
+        acc = {'Model': acc}
+
+    if colors is None:
+        colors = {'Pangu': 'blue'}
+
+    fig, axs = plt.subplots(len(vars), 1, figsize=(12, 5*len(vars)), squeeze=False)
+
+    for i, (var, plev) in enumerate(zip(vars, plevs)):
+        ax = axs[i, 0]
+        
+        if plev is None:
+            title = f'ACC for {var}'
+        else:
+            title = f'ACC for {var} at {plev/100:.0f} hPa'
+        
+        for model, ds in acc.items():
+            if var in ds:
+                if 'plev' in ds[var].dims and plev is not None:
+                    data = ds[var].sel(plev=plev, method='nearest')
+                elif 'plev' not in ds[var].dims:
+                    data = ds[var]
+                else:
+                    print(f"Warning: {var} has unexpected dimensions. Skipping.")
+                    continue
+                
+                ax.plot(lead_times_hours, data.values, label=model, color=colors[model], marker='o')
+
+        ax.set_ylabel(f'{var} ACC')
+        ax.set_title(title, fontsize=fontsize_title)
+        ax.set_ylim(-0.3, 1.1)
+        ax.axhline(0, ls='--', c='0.', lw=1)
+        ax.set_xlabel('Lead time [hours]')
+        ax.set_xticks(lead_times_hours)
+        ax.set_xticklabels([f'{h}h\n(Step {i+1})' for i, h in enumerate(lead_times_hours)])
+        ax.legend(loc='lower left')
+
+    plt.tight_layout()
+    return fig, axs
+
+# Example usage:
+# fig, axs = plot_acc_over_lead_time(acc)
+# plt.show()
+
+
+# def plot_acc(acc, colors=None, vars = ["tas", "ta", "zg", "ua"], plevs = [None, 850*100, 500*100, 250*100], 
+#              units = ['K', 'K', 'm', 'm/s'], fontsize_title=14):
+#     """
+#     Plot the ACC for each variable and pressure level
+#     :param acc: dict, ACC scores
+#     :param colors: dict, colors for each model
+#     """
+#     # if score is not a OrderedDict, but a xr.Dataset with 'model' names as variables, convert it to an OrderedDict
+#     if isinstance(acc, xr.Dataset):
+#         print('Converting xr.Dataset to OrderedDict for ACC')
+#         acc = OrderedDict({key: acc.sel(model=key) for key in acc.model.values})
+
+#     # Check that len(vars) == len(plevs) == len(units)
+#     assert len(vars) == len(plevs) == len(units), 'vars, plevs, and units must have the same length'
+
+#     fig, axs = plt.subplots(len(plevs), 1, figsize=(12, 20))
+
+#     for i, (var, plev) in enumerate(zip(vars, plevs)):
+#         if plev is None:
+#             title = f'{var}'
+#         else:
+#             title = f'{var} at {plev/100:.0f} hPa'
+        
+#         create_plot(acc, var, lev=plev, ax=axs[i], ylabel=f'{var} ACC', title=title, colors=colors)
+#         axs[i].axhline(0, ls='--', c='0.', lw=2)
+#         axs[i].ticklabel_format(axis='y', style='sci', scilimits=(0,0))
+#         axs[i].set_ylim(-0.3, 1.1)
+#         axs[i].title.set_fontsize(fontsize_title)
+
+#     for i in range(len(plevs)):
+#         axs[i].legend(loc='upper left')
+
+#     plt.tight_layout()
+#     return fig, axs
+
+# def create_plot(score, var, lev=None, colors=None, save_fn=None, ax=None, legend=False, ylabel=None, title=None, ylim=None, mult_tp=1.):
+#     """ Create a plot of a particular score
+#     :param score: dict, scores
+#     :param var: str, variable to plot
+#     :param lev: int, pressure level to plot
+#     :param colors: dict, colors for each model
+#     :param save_fn: str, path to save the plot
+#     :param ax: axis object
+#     :param legend: bool, whether to plot the legend
+#     """
+
+#     # if score is not a OrderedDict, but a xr.Dataset with 'model' names as variables, convert it to an OrderedDict
+#     if isinstance(score, xr.Dataset):
+#         print('Converting xr.Dataset to OrderedDict')
+#         score = OrderedDict({key: score.sel(model=key) for key in score.model.values})
+#         # print(score.keys())
+
+#     if colors is None: 
+#         colors = standard_color_dict = list(mcolors.CSS4_COLORS.values())[43:43+len(score.keys())]
+#         colors = {exp: colors[i] for i, exp in enumerate(score.keys())}
+
+#     if ax is None: 
+#         fig, ax = plt.subplots(1, 1, figsize=(5, 4)) 
+#     for exp, ds in score.items():
+#         s = ds.copy(deep=True)
+#         # # convert s to dataset
+#         # if isinstance(s, xr.DataArray):
+#         if var in s.variables:
+#             if var == 'tp': s[var] *= mult_tp
+#             if exp in ['Climatology', 'Weekly clim.']:
+#                 ax.axhline(s[var], ls='--', c=colors[exp], label=exp, lw=3)
+#             elif 'direct' in exp:
+#                 ax.scatter(s['lead_time'], s[var], c=colors[exp], s=100, label=exp, lw=2, edgecolors='k', zorder=10)
+#             else:
+#                 if 'plev' in s[var].dims and lev is not None:
+#                     s[var].sel(plev=lev, method='nearest').plot(c=colors[exp], label=exp, lw=3, ax=ax)
+#                 elif 'plev' in s[var].dims and lev is None:
+#                     print('lev is None. Please provide a level')
+#                 else:
+#                     s[var].plot(c=colors[exp], label=exp, lw=3, ax=ax)
+            
+#     ax.set_ylabel(ylabel)
+#     ax.set_title(title)
+#     ax.set_ylim(ylim)
+#     # ax.set_xlim(0, 122)
+#     # ax.set_xticks([0, 24, 48, 72, 96, 120])
+#     # ax.set_xticklabels([0, 1, 2, 3, 4, 5])
+#     # Calculating the number of days dynamically
+
+#     num_days = s.lead_time[-1].values // 24 + 1
+
+#     # Setting x-ticks dynamically based on the data range
+#     days = np.arange(0, num_days)
+#     hours_ticks = days * 24
+
+#     ax.set_xticks(hours_ticks)
+#     ax.set_xticklabels(days)
+
+
+#     ax.set_xlabel('Lead time [days]')
+    
+#     if not save_fn is None: 
+#         plt.subplots_adjust(left=0.15, right=0.95, top=0.9, bottom=0.1)
+#         fig.savefig(save_fn)
