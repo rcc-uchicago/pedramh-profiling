@@ -324,11 +324,12 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
             for plev in available_plevs:
                 try:
                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, plev=plev, method='nearest')
-                    axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast')
+                    axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast {plev/100:.0f} hPa')
+
                     
                     # Add ground truth plot
                     power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, plev=plev, method='nearest')
-                    axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth')
+                    axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth {plev/100:.0f} hPa')
                 except KeyError as e:
                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, pressure level={plev}. Error: {e}")
                     continue
