@@ -278,8 +278,8 @@ class Trainer():
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
 
          # Load climatology
-        clim_path = "/scratch/midway3/tvallabh/pangu_data/PLASIM/train_val_test_data_pl/mean_daily_climatology_pl.nc"
-        self.climatology = xr.open_dataset(clim_path)
+        climatology_path = os.path.join(params.data_dir, "mean_daily_climatology_pl.nc")
+        self.climatology = xr.open_dataset(climatology_path)
         # print(self.climatology)
 
         self.spectra_dir = os.path.join(os.getcwd(), "spectra_out")
@@ -477,8 +477,10 @@ class Trainer():
         
         # After the training loop ends
         if self.params.log_to_wandb:
-            self.log_all_plots_to_wandb()
-        self.cleanup_acc_plots()
+            if self.world_rank == 0:
+                self.log_all_plots_to_wandb()
+        if self.world_rank == 0:
+            self.cleanup_acc_plots()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
             logging.info('Completed all epochs. Training finished.')
@@ -950,59 +952,56 @@ class Trainer():
                                 # Plot ACC over lead time
                                 fig, axs = plot_acc_over_lead_time(acc, lead_times_hours)
 
-
-                                
-                                # Save the plot
-                                plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
-                                fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
-                                plt.close(fig)  # Close the figure to free up memory
-                                print("\nFinished ACC..")
-
-
-
-                                print("\nMaking GIF...")
-
-                                gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-                                make_gif(combined_dataset, gt_combined_dataset, "Model Forecast", "zg", gif_filename, plev=50000)
-
-
-
-                                print("\nFinished creating GIF animation.")
-
-                            
-
-                                print("\nMaking Power Spectrum...")
-
-                                # Calculate zonal averaged power spectrum. 
-
                                 k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
                                 k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
 
 
                                 preds_times = combined_dataset.time.values
-                                path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
-
-                                # Check that lev values exist and print them
-                                if 'plev' in power_spectrum_avg_pred.dims:
-                                    print(f"lev values are: {power_spectrum_avg_pred.plev.values}")
-                                else:
-                                    raise ValueError("The dimension 'lev' is not found in the power_spectrum_avg dataset.")
-                                power_spectrum_avg_pred = power_spectrum_avg_pred.compute()
-                                power_spectrum_avg_gt = power_spectrum_avg_gt.compute()
-
-                        
-                                
-
                                 preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
 
-                                self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
 
-                                print("\nFinished Power Spectrum...")
+
+                                
+                                # Save the plot
+                                if self.world_rank == 0:
+                                    plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
+                                    fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
+                                    plt.close(fig)  # Close the figure to free up memory
+                                    print("\nFinished ACC..")
+
+
+
+                                    print("\nMaking GIF...")
+
+                                    gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
+                                    make_gif(combined_dataset, gt_combined_dataset, "Model Forecast", "zg", gif_filename, plev=50000)
+
+
+
+                                    print("\nFinished creating GIF animation.")
+
+                                
+
+                                    print("\nMaking Power Spectrum...")
+
+                                    # Calculate zonal averaged power spectrum. 
+
+                                    # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
+                                    # k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
+                                    # preds_times = combined_dataset.time.values
+
+                                    path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
+
+                                    
+
+                                    preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+
+                                    self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
+
+                                    print("\nFinished Power Spectrum...")
 
                             
                             step_idx += 1
-                    
-
                 valid_steps += 1.
 
         if dist.is_initialized():
