@@ -45,7 +45,7 @@ from datetime import datetime
 
 # from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 
-os.environ['WANDB_MODE'] = 'offline'
+#os.environ['WANDB_MODE'] = 'offline'
 # os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
 # os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
@@ -273,12 +273,15 @@ class Trainer():
                                                                      year_end=params.val_year_end, train=False,
                                                                      num_inferences = params.num_inferences,
                                                                      validate = True)
+        
+        print('Inference Idxs:')
+        print(self.valid_dataset.inference_idxs)
 
         self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
 
          # Load climatology
-        clim_path = "/scratch/midway3/tvallabh/pangu_data/PLASIM/train_val_test_data_pl/mean_daily_climatology_pl.nc"
+        clim_path = "/eagle/MDClimSim/awikner/PLASIM/data/train_val_test_data/postprocessed/mean_daily_climatology_pl.nc"
         self.climatology = xr.open_dataset(clim_path)
         # print(self.climatology)
 
@@ -1147,7 +1150,7 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    parser.add_argument("--num_inferences", default = 0, type = int)
+    # parser.add_argument("--num_inferences", default = 0, type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
@@ -1163,7 +1166,7 @@ if __name__ == '__main__':
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
-    params['num_inferences'] = args.num_inferences
+    # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
     # # Add mandatory check for autoregressive steps
