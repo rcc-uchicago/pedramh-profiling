@@ -833,7 +833,8 @@ class Trainer():
 
 
         
-
+        all_predictions = []
+        all_ground_truths = []
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
@@ -852,22 +853,9 @@ class Trainer():
                     start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour=0) + timedelta(hours=start_hour_diff)
                     start_times.append(start_time)
 
-                print(start_times)
-
-
 
                 
                 max_lead_time = max(lead_times_steps)
-
-
-                # for each lead time
-                # val_output_surface_t = np.zeros((val_input_surface.shape[0], max_lead_time + 1,
-                #                            val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                #                           dtype=np.float32)
-                # val_output_upper_air_t = np.zeros((val_input_upper_air.shape[0], max_lead_time + 1,
-                #                              val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                #                              val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                #                             dtype=np.float32)
 
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
                                        val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
@@ -876,10 +864,7 @@ class Trainer():
                                          val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                          val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                         dtype=np.float32)
-                
-                # # initial conditions
-                # val_output_surface_t[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.cpu()).numpy()
-                # val_output_upper_air_t[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.cpu()).numpy()
+
 
                 precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
 
@@ -935,74 +920,84 @@ class Trainer():
                                 # inspect_dataset(combined_dataset, "Model Forecast Dataset")
                                 # inspect_dataset(gt_combined_dataset, "Ground Truth Dataset")
 
-                                lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
-                                                    # Compute ACC
-                                print("\nComputing ACC...")
-                                acc = OrderedDict({
-                                    'Pangu': evaluate_iterative_forecast(
-                                        combined_dataset, 
-                                        gt_combined_dataset, 
-                                        compute_weighted_acc,
-                                        # mean over these specific dimensions
-                                        mean_dims=['lat', 'lon', 'time'],
-                                        clim=self.climatology
-                                    )
-                                })
+                                all_predictions.append(combined_dataset)
+                                all_ground_truths.append(gt_combined_dataset)
 
-                                # Plot ACC over lead time
-                                fig, axs = plot_acc_over_lead_time(acc, lead_times_hours)
-
-                                k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
-                                k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
-
-
-                                preds_times = combined_dataset.time.values
-                                preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
-
-
-
-                                
-                                # Save the plot
-                                if self.world_rank == 0:
-                                    plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
-                                    fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
-                                    plt.close(fig)  # Close the figure to free up memory
-                                    print("\nFinished ACC..")
-
-
-
-                                    print("\nMaking GIF...")
-
-                                    gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-                                    make_gif(combined_dataset, gt_combined_dataset, "Model Forecast", "zg", gif_filename, plev=50000)
-
-
-
-                                    print("\nFinished creating GIF animation.")
-
-                                
-
-                                    print("\nMaking Power Spectrum...")
-
-                                    # Calculate zonal averaged power spectrum. 
-
-                                    # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
-                                    # k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
-                                    # preds_times = combined_dataset.time.values
-
-                                    path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
-
-                                    
-
-                                    preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
-
-                                    self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
-
-                                    print("\nFinished Power Spectrum...")
-
-                            
                             step_idx += 1
                 valid_steps += 1.
+        
+
+        # After the loop, combine all predictions and ground truths
+        combined_predictions = xr.concat(all_predictions, dim='time')
+        combined_ground_truths = xr.concat(all_ground_truths, dim='time')
+
+        
+
+        lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
+
+        # Compute ACC
+        print("\nComputing ACC...")
+        # Compute ACC for all data
+        acc = OrderedDict({
+            'Pangu': evaluate_iterative_forecast(
+                combined_predictions, 
+                combined_ground_truths, 
+                compute_weighted_acc,
+                # mean over these dimensions
+                mean_dims=['lat', 'lon', 'time'],
+                clim=self.climatology
+            )
+        })
+
+        # Plot ACC over lead time
+        fig, axs = plot_acc_over_lead_time(acc, lead_times_hours)
+
+        k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
+        k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(combined_ground_truths, time_avg= True)
+
+
+        preds_times = combined_predictions.time.values
+        preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+        
+        # Save the plot
+        if self.world_rank == 0:
+            plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
+            fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
+            plt.close(fig)  # Close the figure to free up memory
+            print("\nFinished ACC..")
+
+
+            print("\nMaking GIF...")
+
+            gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
+            make_gif(combined_predictions, combined_ground_truths, "Model Forecast", "zg", gif_filename, plev=50000)
+
+
+
+            print("\nFinished creating GIF animation.")
+
+        
+            print("\nMaking Power Spectrum...")
+
+            # Calculate zonal averaged power spectrum. 
+
+            # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
+            # k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
+            # preds_times = combined_dataset.time.values
+
+            path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
+
+            
+
+            preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+
+            self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
+
+            print("\nFinished Power Spectrum...")
+
+
+
+
 
         if dist.is_initialized():
             dist.all_reduce(valid_buff)
@@ -1011,14 +1006,6 @@ class Trainer():
             for loss_tensor in multi_step_losses.values():
                 dist.all_reduce(loss_tensor)
 
-        
-        # Instead of plotting, just save the data
-        # # power_spectrum_avg.to_netcdf(f'power_spectrum.nc')
-        # try:
-        #     fig, ax = plot_power_spectrum_test(power_spectrum_avg, preds_times)
-        #     plt.close(fig)  # Close the figure to free up memory
-        # except Exception as e:
-        #     print(f"Error in plotting power spectrum: {e}")
 
         # divide by number of steps
         valid_buff[0:3] = valid_buff[0:3] / valid_buff[3]
@@ -1029,16 +1016,6 @@ class Trainer():
 
         valid_buff_cpu = valid_buff.detach()
 
-        # After the validation loop, create and log the power spectrum plot
-        # if self.params.log_to_wandb and power_spectrum_data:
-        #     # Combine power spectra for all lead times into a single xarray Dataset
-        #     combined_spectrum = xr.concat(list(power_spectrum_data.values()), dim="lead_time")
-        #     combined_spectrum = combined_spectrum.assign_coords(lead_time=list(power_spectrum_data.keys()))
-
-        #     fig, axs = plot_power_spectrum_test(combined_spectrum, preds_times)
-        #     wandb.log({"power_spectrum": wandb.Image(fig)})
-        #     plt.close(fig)  # Close the figure to free up memory
-                    
         if self.params.diagnostic_logs:
             diagnostic_logs['epoch'] = self.epoch
             diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
