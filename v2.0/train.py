@@ -661,7 +661,8 @@ class Trainer():
         preds = preds.set_coords('time')
         if acc:
         # For ACC, use all time steps
-            lead_times = range(len(preds.lead_time))
+            # lead_times = range(len(preds.lead_time))
+            lead_times = range(1, len(preds.lead_time) + 1)  # Start from 1 to match forecast lead times
         else:
         # For non-ACC, use forecast lead times
             lead_times = self.params['forecast_lead_times']
@@ -671,7 +672,7 @@ class Trainer():
     
     def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
-        # print(time_steps)
+        # print(f"TIME STEPS ARE: {time_steps}")
         datasets = []
 
         for sample in range(batch_size):
@@ -684,7 +685,8 @@ class Trainer():
             # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
             if acc:
             # For ACC, create time_range for all time steps
-                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
+                # time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
+                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(1, time_steps + 1)]
                 # print(time_range)
             else:
             # For specific lead times, use forecast_lead_times
