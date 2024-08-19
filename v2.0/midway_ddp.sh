@@ -4,7 +4,7 @@
 #SBATCH -p pedramh-gpu
 #SBATCH --mem-per-gpu=80G 
 #SBATCH --nodes=1
-#SBATCH --gpus=1       #gpus=a100:4
+#SBATCH --gpus=2       #gpus=a100:4
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=8 #16 
 #SBATCH -o outs/midway_ddp.out
@@ -46,7 +46,7 @@ export OMP_NUM_THREADS=1
 
 
 # Launch your script using torch.distributed.launch
-# python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml 
-python train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml --enable_amp --num_inferences 50
+python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml --enable_amp --num_inferences 50
+# python train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml --enable_amp --num_inferences 50
 # --enable_amp if needed
 # python inference.py --run_num 0006 --yaml_config /home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml  --config PLASIM --inference_steps 2 

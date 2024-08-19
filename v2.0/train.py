@@ -654,16 +654,24 @@ class Trainer():
             return tr_time, data_time, logs
 
 
-    def preprare_preds(self, preds):
+    def preprare_preds(self, preds, acc = False):
         preds = preds.rename({'time': 'lead_time'})
         # If bug, change this back to values[0]
         preds['time'] = preds.lead_time.values[0:1]
         preds = preds.set_coords('time')
-        preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in self.params['forecast_lead_times']]
+        if acc:
+        # For ACC, use all time steps
+            lead_times = range(len(preds.lead_time))
+        else:
+        # For non-ACC, use forecast lead times
+            lead_times = self.params['forecast_lead_times']
+
+        preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
         return preds
     
-    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset):
+    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
+        # print(time_steps)
         datasets = []
 
         for sample in range(batch_size):
@@ -672,8 +680,16 @@ class Trainer():
             #     periods=time_steps,
             #     freq=f"{params['timedelta_hours']}h"
             # )
-            time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
             # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            if acc:
+            # For ACC, create time_range for all time steps
+                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
+                # print(time_range)
+            else:
+            # For specific lead times, use forecast_lead_times
+                time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+                # print(time_range)
             
 
             # Determine the level coordinate name based on params.lev
@@ -835,6 +851,9 @@ class Trainer():
         
         all_predictions = []
         all_ground_truths = []
+        acc_predictions = []
+        acc_ground_truths = []
+
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
@@ -857,6 +876,16 @@ class Trainer():
                 
                 max_lead_time = max(lead_times_steps)
 
+                # Tensor for all time steps (ACC calculation)
+                val_output_surface_acc = np.zeros((val_input_surface.shape[0], max_lead_time,
+                                               val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
+                                              dtype=np.float32)
+                val_output_upper_air_acc = np.zeros((val_input_upper_air.shape[0], max_lead_time,
+                                                 val_input_upper_air.shape[1], val_input_upper_air.shape[2],
+                                                 val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
+                                                dtype=np.float32)
+                
+                # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
                                        val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
                                       dtype=np.float32)
@@ -876,10 +905,18 @@ class Trainer():
                     for step in range(max_lead_time):
                         val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:, step], val_output_upper_air)
+                        
+                        # Store output for ACC calculation (all time steps)
+                        val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
+                        val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
+                            
+
+
                       
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
-                            target_index = lead_times_steps.index(step + 1)
+                            # target_index = lead_times_steps.index(step + 1)
+                            target_index = step 
                             loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[:,target_index])
                             loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[:,target_index])
                             loss = (loss_sfc * 0.25 + loss_pl)
@@ -903,22 +940,40 @@ class Trainer():
                                 valid_loss_sfc += loss_sfc
                                 valid_loss_pl += loss_pl
 
+                                # Prepare datasets for ACC (all time steps)
+                                acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True)
+                                acc_prepared_datasets = [self.preprare_preds(ds, acc = True) for ds in acc_datasets]
+                                acc_combined_dataset = self.combine_datasets(acc_prepared_datasets)
+                                acc_predictions.append(acc_combined_dataset)
 
-                                # Prepare the predictions
-                                datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset)
-                                prepared_datasets = [self.preprare_preds(ds) for ds in datasets]
+                                acc_gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
+                                acc_gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
+                                acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True)
+                                acc_gt_prepared_datasets = [self.preprare_preds(ds, acc=True) for ds in acc_gt_datasets]
+                                acc_gt_combined_dataset = self.combine_datasets(acc_gt_prepared_datasets)
+                                acc_ground_truths.append(acc_gt_combined_dataset)
+
+
+
+                                # Prepare the predictions (only forecast lead times)
+                                datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False)
+                                prepared_datasets = [self.preprare_preds(ds, acc = False) for ds in datasets]
                                 combined_dataset = self.combine_datasets(prepared_datasets)
 
+
+
                                 # Prepare the ground truths
+                                lead_time_indices = [lt - 1 for lt in self.params.forecast_lead_times]  # Convert to 0-based index
 
-                                gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
-                                gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
-                                gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset)
-                                gt_prepared_datasets = [self.preprare_preds(ds) for ds in gt_datasets]
+                                # gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
+                                # gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
+
+                                # only take the necessary indices as the dataloader now returns all time steps. 
+                                gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices].cpu()).numpy()
+                                gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices].cpu()).numpy()
+                                gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False)
+                                gt_prepared_datasets = [self.preprare_preds(ds, acc = False) for ds in gt_datasets]
                                 gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
-
-                                # inspect_dataset(combined_dataset, "Model Forecast Dataset")
-                                # inspect_dataset(gt_combined_dataset, "Ground Truth Dataset")
 
                                 all_predictions.append(combined_dataset)
                                 all_ground_truths.append(gt_combined_dataset)
@@ -931,17 +986,23 @@ class Trainer():
         combined_predictions = xr.concat(all_predictions, dim='time')
         combined_ground_truths = xr.concat(all_ground_truths, dim='time')
 
+        acc_combined_predictions = xr.concat(acc_predictions, dim='time')
+        acc_combined_ground_truths = xr.concat(acc_ground_truths, dim='time')
+
         
 
-        lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
+        # lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
+        max_lead_time = max(self.params.forecast_lead_times)
+        acc_times_hours = [(lt + 1) * self.params.timedelta_hours for lt in range(max_lead_time)]
+
 
         # Compute ACC
         print("\nComputing ACC...")
         # Compute ACC for all data
         acc = OrderedDict({
             'Pangu': evaluate_iterative_forecast(
-                combined_predictions, 
-                combined_ground_truths, 
+                acc_combined_predictions, 
+                acc_combined_ground_truths, 
                 compute_weighted_acc,
                 # mean over these dimensions
                 mean_dims=['lat', 'lon', 'time'],
@@ -950,7 +1011,7 @@ class Trainer():
         })
 
         # Plot ACC over lead time
-        fig, axs = plot_acc_over_lead_time(acc, lead_times_hours)
+        fig, axs = plot_acc_over_lead_time(acc, acc_times_hours)
 
         k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
         k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(combined_ground_truths, time_avg= True)
