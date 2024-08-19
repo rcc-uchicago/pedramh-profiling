@@ -479,18 +479,7 @@ class GetDataset(Dataset):
             data_ds_start = self._load_year_data(start_idx)
             surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
 
-            # # The final target is now the last element in the lists
-            # surface_t_target, upper_air_t_target = targets_surface[-1], targets_upper_air[-1]
 
-            # # Load target conditions
-            # if start_idx == end_idx:
-            #     surface_t_target, upper_air_t_target = self._get_data(data_ds_start, end_idx, end_hour_diff[end_idx])
-            #     data_ds_start.close()
-            # else:
-            #     data_ds_end = self._load_year_data(end_idx)
-            #     surface_t_target, upper_air_t_target = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
-            #     data_ds_start.close()
-            #     data_ds_end.close()
             max_lead_time = lead_times[-1]
             boundary_times = self.dates[self.inference_idxs[index]:self.inference_idxs[index] + max_lead_time]
             boundary_hour_diffs = np.array(boundary_times).reshape(-1,1) - self.year_start_hours.reshape(1,-1)
@@ -500,49 +489,68 @@ class GetDataset(Dataset):
             varying_boundary_data = self._get_boundary_data(boundary_hour_diffs[np.arange(len(boundary_times)), boundary_idxs], boundary_leap_idxs)
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim=0)
 
-            if self.validate:
-                # Load targets for each lead time
+
+            if self.validate: 
+                # Load targets for each time step up to the maximum lead time
                 targets_surface = []
                 targets_upper_air = []
                 current_ds = data_ds_start
                 current_idx = start_idx
 
-                for step in lead_times:
+                # Iterate over each time step up to the maximum lead time
+                max_lead_time = lead_times[-1]
+
+                for step in range(1, max_lead_time + 1):
                     target_time = self.dates[self.inference_idxs[index] + step]
                     target_hour_diff = target_time - self.year_start_hours
                     target_idx = np.where(target_hour_diff >= 0)[0][-1]
-                    
+
                     if target_idx != current_idx:
                         current_ds.close()
                         current_ds = self._load_year_data(target_idx)
                         current_idx = target_idx
-                    
+
                     surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
-                    
+        
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
+
                 current_ds.close()
-                targets_surface = torch.stack(targets_surface, dim = 0)
-                targets_upper_air = torch.stack(targets_upper_air, dim = 0)
-            else:
+                targets_surface = torch.stack(targets_surface, dim=0)
+                targets_upper_air = torch.stack(targets_upper_air, dim=0)
+            else: 
                 current_ds.close()
+                    
 
 
-        # inference steps > 1
-        #elif not self.train and self.params['inference_steps'] > 1:
-        #    start_time = np.array(self.dates[self.inference_idxs[index]:self.inference_idxs[index] + self.params['inference_steps']])
-        #    start_hour_diff = start_time.reshape(-1,1) - self.year_start_hours.reshape(1,-1)
-        #    start_idx = np.array([np.where(start_hour_diff[i] >= 0)[0][-1] for i in range(start_hour_diff.shape[0])])
-        #    start_leap_idx = np.array([1 if self.is_leap_year[start_idx_i] else 0 for start_idx_i in start_idx])
-        #    data_ds = self._load_year_data(start_idx[0])
-        #    surface_t, upper_air_t = self._get_data(data_ds, start_idx[0], start_hour_diff[0][start_idx[0]])
-        #    data_ds.close()
-        #    varying_boundary_data = self._get_boundary_data(start_hour_diff[np.arange(len(start_time)), start_idx], start_leap_idx)
-        #    varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim = 0)
-        #    #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
-        #    #end_time = self.dates[index + 1:index + 1 + self.params['inference_steps']]
-        
-        # when inference steps is 1
+
+            # if self.validate:
+            #     # Load targets for each lead time
+            #     targets_surface = []
+            #     targets_upper_air = []
+            #     current_ds = data_ds_start
+            #     current_idx = start_idx
+
+            #     for step in lead_times:
+            #         target_time = self.dates[self.inference_idxs[index] + step]
+            #         target_hour_diff = target_time - self.year_start_hours
+            #         target_idx = np.where(target_hour_diff >= 0)[0][-1]
+                    
+            #         if target_idx != current_idx:
+            #             current_ds.close()
+            #             current_ds = self._load_year_data(target_idx)
+            #             current_idx = target_idx
+                    
+            #         surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
+                    
+            #         targets_surface.append(surface_target)
+            #         targets_upper_air.append(upper_air_target)
+            #     current_ds.close()
+            #     targets_surface = torch.stack(targets_surface, dim = 0)
+            #     targets_upper_air = torch.stack(targets_upper_air, dim = 0)
+            # else:
+            #     current_ds.close()
+
         else:
             start_time = self.dates[self.inference_idxs[index]]
             start_hour_diff = start_time - self.year_start_hours
