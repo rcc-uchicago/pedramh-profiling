@@ -24,6 +24,9 @@ base_config: &BASE
   use_transformer_engine: False
   early_stopping: False
 
+  project: 'Pangu-PLASIM'
+  name: 'PLASIM-0111'
+
 
 
 PLASIM: &PLASIM
@@ -67,6 +70,7 @@ PLASIM: &PLASIM
   forecast_lead_times: [1, 4, 12, 20, 40]
 
   lev: 'plev'
+  num_inferences: 100
 
 modified_1: &MODIFIED
   <<: *BASE
