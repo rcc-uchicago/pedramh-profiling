@@ -393,9 +393,10 @@ def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"
         ax.set_title(title, fontsize=fontsize_title)
         ax.set_ylim(-0.3, 1.1)
         ax.axhline(0, ls='--', c='0.', lw=1)
-        ax.set_xlabel('Lead time [hours]')
-        ax.set_xticks(lead_times_hours)
-        ax.set_xticklabels([f'{h}h\n(Step {i+1})' for i, h in enumerate(lead_times_hours)])
+        ax.set_xlabel('Lead time [days]')
+        lead_times_ticks = np.arange(0, max(lead_times_hours)+1, 24)
+        ax.set_xticks(lead_times_ticks)
+        ax.set_xticklabels(['%d' % i for i in range(len(lead_times_ticks))])
         ax.legend(loc='lower left')
 
     plt.tight_layout()
