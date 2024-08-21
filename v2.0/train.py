@@ -115,7 +115,7 @@ def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'l
     # print("Shape of full climatology:", clim.shape)
     scores = []
     for f in da_fc.lead_time:
-        print(f"Processing lead time: {f}")
+        # print(f"Processing lead time: {f}")
         fc = da_fc.sel(lead_time=f)
         true = da_true.sel(lead_time=f)
         score = func(fc, true, clim, mean_dims=mean_dims, weighted=weighted)
@@ -124,44 +124,6 @@ def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'l
 
 # # ACC Scores
 
-
-def debug_subtraction(da_fc, climatology_aligned):
-    print("\nDebugging subtraction operation:")
-    
-    # Check data types
-    print(f"da_fc data type: {type(da_fc)}")
-    print(f"climatology_aligned data type: {type(climatology_aligned)}")
-    
-    # Check latitude coordinates
-    print("\nLatitude coordinates:")
-    print(f"da_fc latitude: {da_fc.lat.values}")
-    print(f"climatology_aligned latitude: {climatology_aligned.lat.values}")
-    
-    # Check if latitudes are identical
-    lat_identical = np.allclose(da_fc.lat.values, climatology_aligned.lat.values)
-    print(f"\nLatitudes identical: {lat_identical}")
-    
-    # Perform subtraction
-    print("\nPerforming subtraction...")
-    fa = da_fc - climatology_aligned
-    
-    # Check result
-    print("\nSubtraction result:")
-    print(f"fa dimensions: {fa.dims}")
-    print(f"fa coordinates: {fa.coords}")
-    
-    if 'lat' in fa.coords:
-        print(f"fa latitude values: {fa.lat.values}")
-    else:
-        print("Latitude coordinate is missing in the result!")
-        
-        # Try to identify which variable caused the issue
-        for var in da_fc.data_vars:
-            temp_result = da_fc[var] - climatology_aligned[var]
-            if 'lat' not in temp_result.coords:
-                print(f"Variable '{var}' loses latitude coordinate during subtraction.")
-    
-    return fa
 
 def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
 
@@ -196,25 +158,12 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             
             # print_info(climatology_aligned, "Aligned Climatology")
             climatology_aligned = climatology_aligned.assign_coords(lat=da_fc.lat)
+
             
-            # Debug: Check latitude values before subtraction
-            # print("\nForecast latitude values:")
-            # print(da_fc.lat.values)
-            # print("\nClimatology latitude values:")
-            # print(climatology_aligned.lat.values)
-
-
-            # Debug: Perform subtraction with verbose output
-            # print("\nPerforming subtraction...")
-            # fa = debug_subtraction(da_fc, climatology_aligned)
             fa = da_fc - climatology_aligned
 
             a = da_true - climatology_aligned
-            # print("Subtraction complete.")
 
-            # Debug: Check latitude values after subtraction
-            # print("\nForecast Anomaly latitude values:")
-            # print(fa.lat.values)
 
         except Exception as e:
             print(f"Error during climatology alignment or subtraction: {str(e)}")
@@ -226,8 +175,6 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
     fa = fa.drop_vars('dayofyear', errors='ignore')
     a = a.drop_vars('dayofyear', errors='ignore')
 
-    # print_info(fa, "Forecast Anomaly")
-    # print_info(a, "True Anomaly")
 
     if weighted:
         weights_lat = np.cos(np.deg2rad(a.lat))
@@ -1033,7 +980,7 @@ class Trainer():
             print("\nMaking GIF...")
 
             gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-            make_gif(combined_predictions, combined_ground_truths, "Model Forecast", "zg", gif_filename, plev=50000)
+            make_gif(combined_predictions, combined_ground_truths, self.climatology, "Model Forecast", "zg", gif_filename, plev=50000)
 
 
 
