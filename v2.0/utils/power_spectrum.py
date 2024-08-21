@@ -384,9 +384,19 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
 
         print(f"Processed lead time {data_inference.lead_time.values[i]} hours, forecast date: {forecast_datetime}")
 
-    vmin = float(min(anomalies_inference.min(), anomalies_gt.min()))
-    vmax = float(max(anomalies_inference.max(), anomalies_gt.max()))
+
+
+    vmin = float(anomalies_gt.min())
+    vmax = float(anomalies_gt.max())
     print(f"Anomaly value range: {vmin} to {vmax}")
+
+    
+
+    # # Calculate symmetric range for anomalies
+    # max_abs_anomaly = abs(anomalies_gt).max()
+    # vmin = -max_abs_anomaly
+    # vmax = max_abs_anomaly
+    # print(f"Anomaly value range: {vmin} to {vmax}")
 
     # Figure setup
     fig_gif, axs = plt.subplots(1, 2, figsize=(15, 6), subplot_kw={'projection': ccrs.PlateCarree()})
@@ -447,6 +457,7 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
     print(f"Max frame time: {np.max(frame_times):.2f} seconds")
 
     return ani
+
 
 
 
