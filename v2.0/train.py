@@ -1305,7 +1305,7 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    parser.add_argument("--num_inferences", default = 0, type = int)
+    parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
@@ -1321,7 +1321,7 @@ if __name__ == '__main__':
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
-    params['num_inferences'] = args.num_inferences
+    # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
     # # Add mandatory check for autoregressive steps
