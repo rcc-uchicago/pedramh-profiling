@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
-import os, shutil
+import os, shutil, sys
 import time
 import numpy as np
 import argparse
@@ -26,21 +26,47 @@ import dask
 import cftime
 import xarray as xr
 from datetime import timedelta
+# import transformer_engine.pytorch as te
+# from transformer_engine.common import recipe
+# from transformer_engine.pytorch import fp8_autocast, fp8_model_init
+from torch.profiler import profile, record_function, ProfilerActivity
+import numpy as np
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+
+
+# fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
+#                                    amax_history_len=16,
+#                                    amax_compute_algo="max")
+
+
 dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
 torch.set_float32_matmul_precision('high')
 
 torch.cuda.empty_cache() 
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
+
+
 class Stepper():
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-    def __init__(self, params, world_rank):
+    def __init__(self, params, world_rank, async_save=False):
 
         self.params = params
         self.world_rank = world_rank
+        self.async_save = async_save
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+
+        if self.async_save:
+            logging.info('Asynchronous Saving')
+        else: 
+            logging.info('Synchronous Saving')
+
 
         if params.log_to_wandb:
             wandb.init(config=params, name=params.name, group=params.group, project=params.project,
@@ -59,9 +85,16 @@ class Stepper():
         logging.info('rank %d, data loader initialized' % world_rank)
 
 
+
         if params.nettype == 'pangu_plasim':
+            # with fp8_model_init(enabled=True):
             self.model = PanguModel_Plasim(params).to(self.device)
-            #self.model = torch.compile(self.model, mode = 'default')
+            # self.model = PanguModel_Plasim(params).to(self.device)
+            # self.model = torch.compile(self.model, mode = 'default')
+            # self.model = torch.compile(self.model, backend="torch_tensorrt", dynamic=False)
+
+            # Assuming val_input_surface has the correct shape
+
         else:
             raise Exception("not implemented")
 
@@ -86,7 +119,6 @@ class Stepper():
       logging.info(self.model)'''
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-          
 
     def predict(self):
         if self.params.log_to_screen:
@@ -94,8 +126,13 @@ class Stepper():
 
         start = time.time()
         #tr_time, data_time, train_logs = self.train_one_epoch()
-        valid_time, valid_logs = self.validate_one_epoch()
+        if self.async_save:
+            valid_time, valid_logs = asyncio.run(self.validate_one_epoch_async())
+        else:
+            valid_time, valid_logs = self.validate_one_epoch_sync()
+        
 
+  
         #if self.world_rank == 0:
         #    if self.params.save_checkpoint:
         #        # checkpoint at the end of every epoch
@@ -111,166 +148,150 @@ class Stepper():
         #        train_logs['loss'], valid_logs['Surface MSE'], valid_logs['Upper Air MSE']))
 
 
-    def train_one_epoch(self):
-        self.epoch += 1
-        tr_time = 0
-        data_time = 0
-        self.model.train()
+    async def save_prediction_async(self, surface_prediction, upper_air_prediction, start_time, pred_idx):
+        await asyncio.to_thread(self.save_prediction, surface_prediction, upper_air_prediction, start_time, pred_idx)
 
-        nb = len(self.train_data_loader)
-        pbar = enumerate(self.train_data_loader, 0)
-        pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+    async def save_results(self, queue):
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            surface_prediction, upper_air_prediction, start_time, pred_idx = item
+            save_start = time.time()
+            await self.save_prediction_async(surface_prediction, upper_air_prediction, start_time, pred_idx)
+            self.save_time += time.time() - save_start
+            queue.task_done()
 
-        running_results = {"batch_sizes": 0, "loss": 0}
-        
-        # For each epoch, we iterate from 1979 to 2017
-        for i, data in pbar:
-            # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
-            # Note the data need to be randomly shuffled
-            # Note the input and target need to be normalized, see Inference() for details
-            self.iters += 1
-            # adjust_LR(optimizer, params, iters)
-            data_start = time.time()
-            #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
-            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-                lambda x: x.to(self.device, dtype=torch.float32), data)
-
-            data_time += time.time() - data_start
-
-            tr_start = time.time()
-
-            self.model.zero_grad()
-
-            with amp.autocast(self.params.enable_amp):
-                '''input, input_surface, target, target_surface = LoadData(step)
-
-                # Call the model and get the output
-                output, output_surface = model(input, input_surface)
-
-                # Call the backward algorithm and calculate the gratitude of parameters
-                Backward(loss)
-
-                # Update model parameters with Adam optimizer
-                # The learning rate is 5e-4 as in the paper, while the weight decay is 3e-6
-                # A example solution is using torch.optim.adam
-                UpdateModelParametersWithAdam()'''
-
-                output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                              varying_boundary_data, input_upper_air)
-
-                
-                # We use the MAE loss to train the model
-                # The weight of surface loss is 0.25
-                # Different weight can be applied for differen fields if needed
-                #loss = TensorAbs(output-target) + TensorAbs(output_surface-target_surface) * 0.25
-                
-                loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-                loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
-
-                loss = (loss_sfc * 0.25) + loss_pl
-
-            if self.params.enable_amp:
-                self.gscaler.scale(loss).backward()
-                self.gscaler.step(self.optimizer)
-            else:
-                loss.backward()
-                self.optimizer.step()
-
-            if self.params.enable_amp:
-                self.gscaler.update()
-
-            torch.cuda.empty_cache() #Check
-
-            tr_time += time.time() - tr_start
-
-            running_results["loss"] += loss.item() * self.params['batch_size']
-            running_results["batch_sizes"] += self.params['batch_size']
-
-            pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-
-
-        logs = {'loss': loss}
-
-        if dist.is_initialized():
-            for key in sorted(logs.keys()):
-                dist.all_reduce(logs[key].detach())
-                logs[key] = float(logs[key]/dist.get_world_size())
-
-        if self.params.log_to_wandb:
-            wandb.log(logs, step=self.epoch)
-
-        return tr_time, data_time, logs
-
-
-    def validate_one_epoch(self):
+    async def validate_one_epoch_async(self):
         self.model.eval()
-        #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
+        total_start = time.time()
+        data_time = 0
+        inference_time = 0
+        self.save_time = 0
 
-        valid_buff = torch.zeros((5), dtype=torch.float32, device=self.device)
+        save_queue = asyncio.Queue()
+        save_task = asyncio.create_task(self.save_results(save_queue))
 
-        valid_start = time.time()
-
-        sample_idx = np.random.randint(len(self.valid_data_loader))
-        with torch.no_grad():
+        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.valid_data_loader, 0):
-                #if i >= n_valid_batches:
-                #    break
+                data_start = time.time()
                 val_input_surface, val_input_upper_air, val_varying_boundary_data = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
-                print(data[-1])
+                
                 start_idx = data[-1][0,0].item()
                 start_hour_diff = data[-1][0,1].item()
                 start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) + timedelta(hours = start_hour_diff)
-                pred_year_hours = (self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) - \
+                pred_year_hours = (self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) - 
                     self.valid_dataset.datetime_class(self.params.val_year_start, 1, 1, hour = 0)).seconds // 3600
                 pred_idx = (pred_year_hours + start_hour_diff) // self.params.timedelta_hours
-                
+                data_time += time.time() - data_start
+
+                inference_start = time.time()
                 val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
-                                                 val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                 dtype = np.float32)
+                                                val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                dtype = np.float32)
                 val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
-                                                   val_input_upper_air.shape[1], val_input_upper_air.shape[2],
-                                                     val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                   dtype = np.float32)
-                val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.detach().to('cpu')).numpy()
-                val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.detach().to('cpu')).numpy()
-                #val_output_surface[:,0] = val_input_surface.detach().to('cpu').numpy()
-                #val_output_upper_air[:,0] = val_input_upper_air.detach().to('cpu').numpy()
+                                                val_input_upper_air.shape[1], val_input_upper_air.shape[2],
+                                                    val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
+                                                dtype = np.float32)
+                
+                val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
+                val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+
                 for time_step in range(self.params['inference_steps']):
                     val_input_surface, val_input_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                              val_varying_boundary_data[:,time_step], val_input_upper_air)
-                    #val_output_surface[:,time_step + 1] = val_input_surface.detach().to('cpu').numpy()
-                    #val_output_upper_air[:,time_step + 1] = val_input_upper_air.detach().to('cpu').numpy()
-                    val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.detach().to('cpu')).numpy()
-                    val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.detach().to('cpu')).numpy()
+                                                                        val_varying_boundary_data[:,time_step], val_input_upper_air)
+                    val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
+                    val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
-                
-                
-                self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx)
+                inference_time += time.time() - inference_start
 
-        
-        if dist.is_initialized():
-            dist.all_reduce(valid_buff)
+                # Queue the results for asynchronous saving
+                await save_queue.put((val_output_surface.copy(), val_output_upper_air.copy(), start_time, pred_idx))
 
-        # divide by number of steps
-        valid_buff[0:4] = valid_buff[0:4] / valid_buff[4]
-        
-        # download buffers
-        valid_buff_cpu = valid_buff.detach().cpu().numpy()
+        # Signal that we're done
+        await save_queue.put(None)
+        # Wait for all saves to complete
+        await save_task
 
-        valid_time = time.time() - valid_start
+        total_time = time.time() - total_start
 
-        try:
-            logs = {'valid_l1': valid_buff_cpu[3], 'valid_loss': valid_buff_cpu[0], 
-                    'Surface MSE': valid_buff_cpu[1], 'Upper Air MSE': valid_buff_cpu[2]}
-        except:
-            pass
+        logs = {
+            'total_time': total_time,
+            'data_time': data_time,
+            'inference_time': inference_time,
+            'save_time': self.save_time
+        }
+
+        logging.info(f"Validation logs: {logs}")
 
         if self.params.log_to_wandb:
             wandb.log(logs, step=self.epoch)
 
-        return valid_time, logs
+        return total_time, logs
     
+
+    def validate_one_epoch_sync(self):
+        self.model.eval()
+        total_start = time.time()
+        data_time = 0
+        inference_time = 0
+        save_time = 0
+
+        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+            for i, data in enumerate(self.valid_data_loader, 0):
+                data_start = time.time()
+                val_input_surface, val_input_upper_air, val_varying_boundary_data = map(
+                    lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
+                
+                start_idx = data[-1][0,0].item()
+                start_hour_diff = data[-1][0,1].item()
+                start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) + timedelta(hours = start_hour_diff)
+                pred_year_hours = (self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour = 0) - 
+                    self.valid_dataset.datetime_class(self.params.val_year_start, 1, 1, hour = 0)).seconds // 3600
+                pred_idx = (pred_year_hours + start_hour_diff) // self.params.timedelta_hours
+                data_time += time.time() - data_start
+
+                inference_start = time.time()
+                val_output_surface = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
+                                                val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                dtype = np.float32)
+                val_output_upper_air = np.zeros((val_input_upper_air.shape[0], self.params['inference_steps']+1,
+                                                val_input_upper_air.shape[1], val_input_upper_air.shape[2],
+                                                    val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
+                                                dtype = np.float32)
+                
+                val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
+                val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+
+                for time_step in range(self.params['inference_steps']):
+                    val_input_surface, val_input_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                        val_varying_boundary_data[:,time_step], val_input_upper_air)
+                    val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
+                    val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+
+                inference_time += time.time() - inference_start
+
+                save_start = time.time()
+                self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx)
+                save_time += time.time() - save_start
+
+        total_time = time.time() - total_start
+
+        logs = {
+            'total_time': total_time,
+            'data_time': data_time,
+            'inference_time': inference_time,
+            'save_time': save_time
+        }
+
+        logging.info(f"Validation logs: {logs}")
+
+        if self.params.log_to_wandb:
+            wandb.log(logs, step=self.epoch)
+
+        return total_time, logs
+        
 
 
     def save_checkpoint(self, checkpoint_path, model=None):
@@ -284,27 +305,57 @@ class Stepper():
                     'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
+    # def restore_checkpoint(self, checkpoint_path):
+    #     """ We intentionally require a checkpoint_dir to be passed
+    #         in order to allow Ray Tune to use this function """
+    #     checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
+    #     try:
+    #         self.model.load_state_dict(checkpoint['model_state'])
+    #     except:
+    #         new_state_dict = OrderedDict()
+    #         for key, val in checkpoint['model_state'].items():
+    #             name = key[7:]
+    #             new_state_dict[name] = val
+    #         self.model.load_state_dict(new_state_dict)
+    #     self.iters = checkpoint['iters']
+    #     self.startEpoch = checkpoint['epoch']
+    #     print('START EPOCH:', self.startEpoch)
+    #     # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
+    #     if self.params.resuming:
+    #         self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
     def restore_checkpoint(self, checkpoint_path):
-        """ We intentionally require a checkpoint_dir to be passed
-            in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
-        try:
-            self.model.load_state_dict(checkpoint['model_state'])
-        except:
-            new_state_dict = OrderedDict()
-            for key, val in checkpoint['model_state'].items():
-                name = key[7:]
-                new_state_dict[name] = val
-            self.model.load_state_dict(new_state_dict)
+        model_state_dict = checkpoint['model_state']
+
+        # Remove 'module.' prefix if it exists
+        new_state_dict = OrderedDict()
+        for k, v in model_state_dict.items():
+            name = k[7:] if k.startswith('module.') else k
+            new_state_dict[name] = v
+
+        # Filter out unnecessary keys
+        model_dict = self.model.state_dict()
+        new_state_dict = {k: v for k, v in new_state_dict.items() if k in model_dict}
+
+        # Update model_dict
+        model_dict.update(new_state_dict)
+
+        # Load the filtered state dict
+        self.model.load_state_dict(model_dict, strict=False)
+
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         print('START EPOCH:', self.startEpoch)
-        # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
-        if self.params.resuming:
+
+        # Restore optimizer state if resuming
+        if self.params.resuming and 'optimizer_state_dict' in checkpoint:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        
+        print("Checkpoint restored successfully")
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_time, pred_idx):
-        savedir = os.path.join(self.params['experiment_dir'], 'predictions')
+        inference_results_dir = "/home/tvallabh/PanguWeather/v2.0/inference_results"
+        savedir = os.path.join(inference_results_dir, 'predictions')
         if not os.path.isdir(savedir):
             os.makedirs(savedir)
         pred_config = os.path.join(self.params['experiment_dir'], os.path.basename(params['config_filepath']))
@@ -349,7 +400,7 @@ class Stepper():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0001', type=str)
+    parser.add_argument("--run_num", default='0006', type=str)
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
@@ -357,6 +408,7 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--inference_steps", default=0, type=int)
     parser.add_argument("--num_inferences", default = 0, type = int)
+    parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -370,7 +422,14 @@ if __name__ == '__main__':
     params['config_filepath'] = args.yaml_config
     params['epsilon_factor'] = args.epsilon_factor
     params['run_num'] = args.run_num
-    params['inference_steps'] = args.inference_steps
+    if args.inference_steps > 0:
+        params['inference_steps'] = args.inference_steps
+    else:
+        try:
+            params['inference_steps'] = max(params.forecast_lead_times)
+        except:
+            print('args.inference_steps and params.forecast_lead_times not set, exiting...')
+            sys.exit(2)
     params['num_inferences'] = args.num_inferences
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
@@ -409,7 +468,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
 
     # Set up directory
-    expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
+    expDir = os.path.join('/project/pedramh/awikner/PanguWeather/v2.0/results', args.config, str(args.run_num))
     if world_rank == 0:
         if not os.path.isdir(expDir):
             os.makedirs(expDir)
@@ -435,7 +494,7 @@ if __name__ == '__main__':
     params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'
-        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
+        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join('/home/tvallabh/PanguWeather/v2.0/inference_results', log_file))
         logging_utils.log_versions()
         params.log()
 
@@ -449,7 +508,7 @@ if __name__ == '__main__':
             hparams[str(key)] = str(value)
         with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
-
-    inference = Stepper(params, world_rank)
+    
+    inference = Stepper(params, world_rank, args.async_save)
     inference.predict()
     logging.info('DONE ---- rank %d' % world_rank)

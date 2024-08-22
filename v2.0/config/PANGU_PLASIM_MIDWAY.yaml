@@ -1,16 +1,17 @@
 ### base config ###
 base_config: &BASE
   loss: 'l1'
-  lr: 5E-4
+  lr: 2.5E-4
   weight_decay: 3e-6
-  scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
+  scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau', #'CosineAnnealingLR', #'OneCycleLR'
   num_data_workers: 8
   
   log_to_screen: !!bool True
-  log_to_wandb: !!bool False #True
-  save_checkpoint: !!bool True
+  log_to_wandb: !!bool True
+  diagnostic_logs: !!bool False
+  save_checkpoint: !!bool False
 
-  optimizer_type: 'Adam' #'FusedAdam'
+  optimizer_type: 'Adam' #'FusedAdam', #'Adam'
 
   plot_animations: !!bool False
 
@@ -18,20 +19,38 @@ base_config: &BASE
 
   exp_dir: 'results'
 
+  # Add this line to enable/disable Transformer Engine
+  use_transformer_engine: !!bool False
+  # Enables fp8 precision
+  enable_fp8: !!bool False
+  # Enables early stopping
+  early_stopping: !!bool True 
+  # set the patience for the early stopping
+  early_stopping_patience: 5
+  # number of steps for the validation (set to 0 if using inference)
+  # forecast_lead_times: [2,3,4]
+  # fresh start: rerun training for benchmarking. Set to false for loading from checkpoint
+  fresh_start: !!bool True
+  num_inferences: 100
+  name: 'PLASIM_3001'
+  project: 'Pangu-PLASIM'
+  group: 'tarun-optim'
+
+
 
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/scratch/midway3/awikner/PLASIM/data/train_val_test_data'
+  data_dir: '/scratch/midway3/tvallabh/pangu_data/PLASIM/train_val_test_data_pl'
   boundary_dir: 'boundary_vars'
-  upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw']
+  upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw', 'zg']
   surface_variables: ['pl', 'tas']
   constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
-  train_year_start: 51
-  train_year_end: 151
-  val_year_start: 151
-  val_year_end: 161
+  train_year_start: 103
+  train_year_end: 104
+  val_year_start: 104
+  val_year_end: 105
   surface_mean: 'plasim_test_51_150_surface_mean.nc'
   surface_std: 'plasim_test_51_150_surface_std.nc'
   upper_air_mean: 'plasim_test_51_150_mean.nc'
@@ -40,17 +59,29 @@ PLASIM: &PLASIM
   boundary_std: 'plasim_test_51_150_boundary_std.nc'
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 48
-  max_epochs: 100
+  batch_size: 32
+  max_epochs: 4
+  forecast_lead_times: [1,4,8]
 
   has_year_zero: False
 
-  num_levels: 10
+  num_levels: 13
+  levels: []
   horizontal_resolution: [64, 128]
   depths: [2, 6, 6, 2]
   predict_delta: False
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
+  lev: 'plev'
+
+  # set to 0 during training
+  # inference_steps: 0
+
+  window_size: [2, 2, 2]
+  name: 'PLASIM_3001'
+  project: 'Pangu-PLASIM'
+  group: 'tarun-optim'
+
 
 
 

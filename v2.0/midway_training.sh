@@ -2,31 +2,27 @@
 #SBATCH --account=pi-pedramh
 #SBATCH --time=2-00:00:00
 #SBATCH -p pedramh-gpu
-#SBATCH --mem-per-gpu=80G 
+#SBATCH --mem-per-gpu=40G 
 #SBATCH --nodes=1
-#SBATCH --gpus=2       #gpus=a100:4
-#SBATCH --ntasks=1
+#SBATCH --gpus=4       #gpus=a100:4
+#SBATCH --ntasks=4
 #SBATCH --cpus-per-task=8 #16 
-#SBATCH -o outs/midway_ddp.out
+#SBATCH -o outs/midway_ddp_%x_%j.out
+#SBATCH -e outs/midway_ddp_%x_%j.err
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
 #echo $SLURM_LOCALID  # LOCAL_RANK
 export MPICH_GPU_SUPPORT_ENABLED=1
 
-module load python
-# source activate /project/pedramh/anaconda/py311
-# source activate /scratch/midway3/tvallabh/tarun_pangu
-
-source activate /scratch/midway3/tvallabh/tarun_pangu
-
-
+ml python/anaconda-2023.09
+conda activate /project/pedramh/anaconda/py311 
+source /home/awikner/venvs/pangu-wandb/bin/activate  
+export WANDB_MODE=offline
 
 # Change to working directory
 cd $SLURM_SUBMIT_DIR
 source export_DDP_vars.sh
-
-nvidia-smi
 
 # MPI and OpenMP settings
 # NNODES=`wc -l < $SLURM_JOB_NODELIST`
@@ -42,11 +38,7 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export MASTER_PORT=12345
 #export WORLD_SIZE
 #export RANK=$SLURM_ARRAY_TASK_ID
-export OMP_NUM_THREADS=1
-
+#export OMP_NUM_THREAD=8
 
 # Launch your script using torch.distributed.launch
-python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml --enable_amp --num_inferences 50
-# python train.py --yaml_config=/home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml --enable_amp --num_inferences 50
-# --enable_amp if needed
-# python inference.py --run_num 0006 --yaml_config /home/tvallabh/PanguWeather/v2.0/config/PANGU_PLASIM_MIDWAY.yaml  --config PLASIM --inference_steps 2 
+python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
