@@ -42,7 +42,7 @@ data/stats/time_means_sfc.npy
 logs/
 results/
 data/
-tests/
+# tests/
 
 core*
 outs/
