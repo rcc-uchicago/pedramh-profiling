@@ -239,7 +239,6 @@ class PanguModel_Plasim(nn.Module):
             # print(upper_air_varying_boundary.size())
             upper_air = self.patchembed3d(upper_air_in)
 
-<<<<<<< HEAD
             x = torch.cat([upper_air_varying_boundary.unsqueeze(2), upper_air, surface.unsqueeze(2)], dim=2)
 
         else:
@@ -251,9 +250,6 @@ class PanguModel_Plasim(nn.Module):
 
        
         # print(x.size())
-=======
-        x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
->>>>>>> 217af226f2bdd3acd203900b4867491bb750e79f
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 
