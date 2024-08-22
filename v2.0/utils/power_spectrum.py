@@ -386,8 +386,13 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
 
 
 
-    vmin = float(anomalies_gt.min())
-    vmax = float(anomalies_gt.max())
+    # vmin = float(anomalies_gt.min())
+    # vmax = float(anomalies_gt.max())
+    # print(f"Anomaly value range: {vmin} to {vmax}")
+
+    max_abs_anomaly = abs(anomalies_gt).max()
+    vmin = -max_abs_anomaly
+    vmax = max_abs_anomaly
     print(f"Anomaly value range: {vmin} to {vmax}")
 
     
