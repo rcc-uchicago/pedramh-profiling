@@ -46,8 +46,8 @@ from datetime import datetime
 # from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 
 os.environ['WANDB_MODE'] = 'offline'
-# os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
-# os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
+os.environ['WANDB_DIR'] = '/home/x-tvallabhanen/PanguWeather/v2.0/wandb'
+os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
 
 dask.config.set(scheduler='synchronous')
@@ -212,16 +212,38 @@ class Trainer():
         print(params)
         
 
-        self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                                         year_start=params.train_year_start, 
-                                                                                         year_end=params.train_year_end, train=True)
+        # self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
+        #                                                                                  year_start=params.train_year_start, 
+        #                                                                                  year_end=params.train_year_end, train=True)
+
+        self.train_data_loaders = []
+        self.train_datasets = []
+        self.train_samplers = []
+
+        for year_start in range(params.train_year_start, params.train_year_end):
+            year_end = year_start + 1
+            train_data_loader, train_dataset, train_sampler = get_data_loader(
+                params, 
+                params.data_dir, 
+                dist.is_initialized(), 
+                year_start=year_start, 
+                year_end=year_end, 
+                train=True
+            )
+            self.train_data_loaders.append(train_data_loader)
+            self.train_datasets.append(train_dataset)
+            self.train_samplers.append(train_sampler)
+
+                                                                                
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
                                                                      num_inferences = params.num_inferences,
                                                                      validate = True)
 
-        self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
+        # self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
+        # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
+        self.constant_boundary_data = self.train_datasets[0].constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
 
          # Load climatology
@@ -327,7 +349,9 @@ class Trainer():
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=params.max_epochs, 
                                                                         last_epoch=self.startEpoch-1)
         elif params.scheduler == 'OneCycleLR':
-            total_steps = len(self.train_data_loader) * params.max_epochs
+            # total_steps = len(self.train_data_loader) * params.max_epochs
+            total_steps = sum(len(loader) for loader in self.train_data_loaders) * params.max_epochs
+
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 self.optimizer,
                 max_lr=params.lr,
@@ -347,11 +371,15 @@ class Trainer():
             self.loss_obj_sfc = torch.nn.MSELoss()
             self.loss_obj_pl = torch.nn.MSELoss()
         elif params.loss == 'weightedl1':
-            self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
+            self.lat = self.train_datasets[0].lat.to(self.device, non_blocking=True)
+
+            # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
         elif params.loss == 'weightedl2':
-            self.lat = self.train_dataset.lat.to(self.device)
+            self.lat = self.train_datasets[0].lat.to(self.device)
+
+            # self.lat = self.train_dataset.lat.to(self.device)
             self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
         else:
@@ -366,7 +394,9 @@ class Trainer():
         early_stopping_counter = 0
         for epoch in range(self.startEpoch, self.params.max_epochs):
             if dist.is_initialized():
-                self.train_sampler.set_epoch(epoch)
+                for sampler in self.train_samplers:
+                    sampler.set_epoch(epoch)
+                # self.train_sampler.set_epoch(epoch)
 #        self.valid_sampler.set_epoch(epoch)
 
             start = time.time()
@@ -434,144 +464,293 @@ class Trainer():
             
 
 
+    # def train_one_epoch(self):
+    #     self.epoch += 1
+    #     tr_time = 0
+    #     data_time = 0
+    #     self.model.train()
+
+  
+
+
+
+    #     # pbar = enumerate(self.train_data_loader, 0)
+    #     # pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+
+    #     running_results = {"batch_sizes": 0, "loss": 0}
+
+    #     if self.params.diagnostic_logs:
+    #         diagnostic_logs = {}
+        
+    #     # For each epoch, we iterate from 1979 to 2017
+        
+    #     for i, data in pbar:
+    #         # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
+    #         # Note the data need to be randomly shuffled
+    #         # Note the input and target need to be normalized, see Inference() for details
+            
+    #         self.iters += 1
+    #         # adjust_LR(optimizer, params, iters)
+    #         data_start = time.time()
+    #         #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
+    #         input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
+    #             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+            
+    #         #print(index_info.shape)
+    #         # add noise to the input if self.params.noise_training is not 0.0
+    #         #if self.params.noise_training!=0.0:
+    #         #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
+    #         #    input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
+    #         # add a clip to the input to avoid overflow, but need to be careful with the range of the input
+    #         # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
+    #         # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
+
+    #         index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
+
+    #         data_time += time.time() - data_start
+
+    #         tr_start = time.time()
+
+    #         self.model.zero_grad()
+
+    #         # #OPTIMIZATION
+    #         # self.model.zero_grad(set_to_none=True)
+
+    #         if self.params.enable_fp8:
+    #             precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
+    #         else:
+    #             precision_context = amp.autocast(enabled=self.params.enable_amp)
+
+    #         with precision_context:
+    #             '''input, input_surface, target, target_surface = LoadData(step)
+
+    #             # Call the model and get the output
+    #             output, output_surface = model(input, input_surface)
+
+    #             # Call the backward algorithm and calculate the gratitude of parameters
+    #             Backward(loss)
+
+    #             # Update model parameters with Adam optimizer
+    #             # The learning rate is 5e-4 as in the paper, while the weight decay is 3e-6
+    #             # A example solution is using torch.optim.adam
+    #             UpdateModelParametersWithAdam()'''
+    #             output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
+    #                                                         varying_boundary_data, input_upper_air)
+                
+    #             loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
+    #             loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+
+    #             loss = (loss_sfc * 0.25) + loss_pl
+
+    #         if self.params.enable_amp:
+    #             self.gscaler.scale(loss).backward()
+    #             self.gscaler.step(self.optimizer)
+    #             self.gscaler.update()
+    #         else:
+    #             loss.backward()
+    #             self.optimizer.step()
+
+    #         if self.params.scheduler == 'OneCycleLR':
+    #             self.scheduler.step()
+
+
+    #         with torch.no_grad():
+    #             surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device, non_blocking=True))
+    #             upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device, non_blocking=True))
+
+    #             if self.params.diagnostic_logs:
+    #                 #for batch_idx in range(index_info.shape[0]):
+    #                 #    for j, index_type in enumerate(index_info_names):
+    #                 #        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
+    #                 diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
+    #                 diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+    #                 diagnostic_logs['train_batch_loss'] = loss
+    #                 diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
+    #                 diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+    #                 mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+    #                 diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
+    #                 for j, var in enumerate(self.train_dataset.surface_variables):
+    #                     diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
+    #                 for j, var in enumerate(self.train_dataset.upper_air_variables):
+    #                     for k, level in enumerate(self.train_dataset.lev):
+    #                         diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
+    #                 if dist.is_initialized():
+    #                     for key in sorted(diagnostic_logs.keys()):
+    #                         if key == 'batch_grad_max':
+    #                             grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
+    #                             dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
+    #                             diagnostic_logs[key] = torch.max(grad_max_tensor)
+    #                         else:
+    #                             dist.all_reduce(diagnostic_logs[key].detach())
+    #                             diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+    #                 if self.params.log_to_wandb:
+    #                     wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
+                
+
+    #         torch.cuda.empty_cache() #Check
+
+    #         tr_time += time.time() - tr_start
+            
+            
+
+    #         if self.params.diagnostic_logs:
+    #             pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
+    #         else:
+    #             running_results["loss"] += loss.item() * self.params['batch_size']
+    #             running_results["batch_sizes"] += self.params['batch_size']
+
+    #             pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
+        
+
+    #     if self.params.diagnostic_logs:
+    #         with torch.no_grad():
+    #             diagnostic_logs['train_loss'] = loss
+    #             if dist.is_initialized():
+    #                 dist.all_reduce(diagnostic_logs['train_loss'].detach())
+    #                 diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
+    #             logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
+    #             if self.params.log_to_wandb:
+    #                 wandb.log(logs)
+    #             return tr_time, data_time, diagnostic_logs
+    #     else:
+    #         with torch.no_grad():
+    #             # logs = {'train_loss': loss, 'epoch': self.epoch}
+    #             logs = {'train_loss': loss, 'epoch': self.epoch}
+            
+    #         if dist.is_initialized():
+    #             for key in sorted(logs.keys()):
+    #                 if isinstance(logs[key], (int, float)):
+    #                     logs[key] = torch.tensor(logs[key]).to(self.device)
+    #                 dist.all_reduce(logs[key])
+    #                 logs[key] = float(logs[key]/dist.get_world_size())
+
+
+    #         # if dist.is_initialized():
+    #         #     for key in sorted(logs.keys()):
+    #         #         dist.all_reduce(logs[key].detach())
+    #         #         logs[key] = float(logs[key]/dist.get_world_size())
+
+    #         if self.params.log_to_wandb:
+    #             wandb.log(logs)
+
+    #         return tr_time, data_time, logs
+
     def train_one_epoch(self):
         self.epoch += 1
         tr_time = 0
         data_time = 0
         self.model.train()
 
-        nb = len(self.train_data_loader)
-        pbar = enumerate(self.train_data_loader, 0)
-        pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+        total_iterations = sum(len(loader) for loader in self.train_data_loaders)
+        logging.info(f"Expected total batches: {total_iterations}")
 
-        running_results = {"batch_sizes": 0, "loss": 0}
+        if not self.train_data_loaders:
+            logging.warning("No training data loaders available.")
+            return 0, 0, {"train_loss": 0.0}
+
+        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+
+        running_results = {"batch_sizes": 0, "loss": 0.0}
 
         if self.params.diagnostic_logs:
             diagnostic_logs = {}
         
-        # For each epoch, we iterate from 1979 to 2017
-        
-        for i, data in pbar:
-            # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
-            # Note the data need to be randomly shuffled
-            # Note the input and target need to be normalized, see Inference() for details
+        for year_idx, train_data_loader in enumerate(self.train_data_loaders):
+            current_dataset = self.train_datasets[year_idx]
+            logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
+            # pbar.set_description(f"Year {self.params.train_year_start + year_idx}")
             
-            self.iters += 1
-            # adjust_LR(optimizer, params, iters)
-            data_start = time.time()
-            #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
-            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
-                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-            
-            #print(index_info.shape)
-            # add noise to the input if self.params.noise_training is not 0.0
-            #if self.params.noise_training!=0.0:
-            #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
-            #    input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
-            # add a clip to the input to avoid overflow, but need to be careful with the range of the input
-            # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
-            # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
-
-            index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
-
-            data_time += time.time() - data_start
-
-            tr_start = time.time()
-
-            self.model.zero_grad()
-
-            # #OPTIMIZATION
-            # self.model.zero_grad(set_to_none=True)
-
-            if self.params.enable_fp8:
-                precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
-            else:
-                precision_context = amp.autocast(enabled=self.params.enable_amp)
-
-            with precision_context:
-                '''input, input_surface, target, target_surface = LoadData(step)
-
-                # Call the model and get the output
-                output, output_surface = model(input, input_surface)
-
-                # Call the backward algorithm and calculate the gratitude of parameters
-                Backward(loss)
-
-                # Update model parameters with Adam optimizer
-                # The learning rate is 5e-4 as in the paper, while the weight decay is 3e-6
-                # A example solution is using torch.optim.adam
-                UpdateModelParametersWithAdam()'''
-                output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                            varying_boundary_data, input_upper_air)
+            for i, data in enumerate(train_data_loader):
+                logging.debug(f"Batch {i}, data shape: {data[0].shape}")
+                self.iters += 1
+                data_start = time.time()
+                input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
+                    lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 
-                loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-                loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+                index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
-                loss = (loss_sfc * 0.25) + loss_pl
+                data_time += time.time() - data_start
 
-            if self.params.enable_amp:
-                self.gscaler.scale(loss).backward()
-                self.gscaler.step(self.optimizer)
-                self.gscaler.update()
-            else:
-                loss.backward()
-                self.optimizer.step()
+                tr_start = time.time()
 
-            if self.params.scheduler == 'OneCycleLR':
-                self.scheduler.step()
+                self.model.zero_grad()
 
+                if self.params.enable_fp8:
+                    precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
+                else:
+                    precision_context = amp.autocast(enabled=self.params.enable_amp)
 
-            with torch.no_grad():
-                surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device, non_blocking=True))
-                upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device, non_blocking=True))
+                with precision_context:
+                    output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
+                                                                varying_boundary_data, input_upper_air)
+                    
+                    loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
+                    loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+
+                    loss = (loss_sfc * 0.25) + loss_pl
+
+                if self.params.enable_amp:
+                    self.gscaler.scale(loss).backward()
+                    self.gscaler.step(self.optimizer)
+                    self.gscaler.update()
+                else:
+                    loss.backward()
+                    self.optimizer.step()
+
+                if self.params.scheduler == 'OneCycleLR':
+                    self.scheduler.step()
+
+                with torch.no_grad():
+                    surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, current_dataset.lat.to(self.device, non_blocking=True))
+                    upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, current_dataset.lat.to(self.device, non_blocking=True))
+
+                    if self.params.diagnostic_logs:
+                        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
+                        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+                        diagnostic_logs['train_batch_loss'] = loss
+                        diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
+                        diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+                        mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                        diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
+                        for j, var in enumerate(current_dataset.surface_variables):
+                            diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
+                        for j, var in enumerate(current_dataset.upper_air_variables):
+                            for k, level in enumerate(current_dataset.lev):
+                                diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
+                        if dist.is_initialized():
+                            for key in sorted(diagnostic_logs.keys()):
+                                if key == 'batch_grad_max':
+                                    grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
+                                    dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
+                                    diagnostic_logs[key] = torch.max(grad_max_tensor)
+                                else:
+                                    dist.all_reduce(diagnostic_logs[key].detach())
+                                    diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+                        if self.params.log_to_wandb:
+                            wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+
+                torch.cuda.empty_cache()
+
+                tr_time += time.time() - tr_start
+
+                
 
                 if self.params.diagnostic_logs:
-                    #for batch_idx in range(index_info.shape[0]):
-                    #    for j, index_type in enumerate(index_info_names):
-                    #        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
-                    diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
-                    diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
-                    diagnostic_logs['train_batch_loss'] = loss
-                    diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-                    diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-                    mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                    diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-                    for j, var in enumerate(self.train_dataset.surface_variables):
-                        diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
-                    for j, var in enumerate(self.train_dataset.upper_air_variables):
-                        for k, level in enumerate(self.train_dataset.lev):
-                            diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
-                    if dist.is_initialized():
-                        for key in sorted(diagnostic_logs.keys()):
-                            if key == 'batch_grad_max':
-                                grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
-                                dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
-                                diagnostic_logs[key] = torch.max(grad_max_tensor)
-                            else:
-                                dist.all_reduce(diagnostic_logs[key].detach())
-                                diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-                    if self.params.log_to_wandb:
-                        wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
+                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                else:
+                    running_results["loss"] += loss.item() * self.params['batch_size']
+                    running_results["batch_sizes"] += self.params['batch_size']
+                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {running_results['loss'] / running_results['batch_sizes']:.4f}")
                 
+                pbar.update(1)
 
-            torch.cuda.empty_cache() #Check
-
-            tr_time += time.time() - tr_start
-
-            if self.params.diagnostic_logs:
-                pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
-            else:
-                running_results["loss"] += loss.item() * self.params['batch_size']
-                running_results["batch_sizes"] += self.params['batch_size']
-
-                pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-        
+        pbar.close()
 
         if self.params.diagnostic_logs:
             with torch.no_grad():
                 diagnostic_logs['train_loss'] = loss
                 if dist.is_initialized():
-                    dist.all_reduce(diagnostic_logs['train_loss'].detach())
+                    dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
                     diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
                 logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
                 if self.params.log_to_wandb:
@@ -579,7 +758,6 @@ class Trainer():
                 return tr_time, data_time, diagnostic_logs
         else:
             with torch.no_grad():
-                # logs = {'train_loss': loss, 'epoch': self.epoch}
                 logs = {'train_loss': loss, 'epoch': self.epoch}
             
             if dist.is_initialized():
@@ -589,16 +767,10 @@ class Trainer():
                     dist.all_reduce(logs[key])
                     logs[key] = float(logs[key]/dist.get_world_size())
 
-
-            # if dist.is_initialized():
-            #     for key in sorted(logs.keys()):
-            #         dist.all_reduce(logs[key].detach())
-            #         logs[key] = float(logs[key]/dist.get_world_size())
-
             if self.params.log_to_wandb:
                 wandb.log(logs)
 
-            return tr_time, data_time, logs
+        return tr_time, data_time, logs
 
 
     def preprare_preds(self, preds, acc = False):
