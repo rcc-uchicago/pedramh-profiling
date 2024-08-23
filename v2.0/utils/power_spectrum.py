@@ -157,133 +157,7 @@ def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars = ["ta", "zg
     plt.savefig(f"spectrum_results.png", pad_inches=0.1, bbox_inches='tight')
     return fig, axs
 
-# Debugging Testing
-def minimal_plot_function(power_spectrum_avg_preds, preds_times):
-    print("Entering minimal plot function")
-    # Access some data to simulate the data access in the real function
-    _ = list(power_spectrum_avg_preds.data_vars)
-    _ = power_spectrum_avg_preds.lead_time.values
-    _ = power_spectrum_avg_preds.lev.values
-    print("Exiting minimal plot function")
 
-
-
-# def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times):
-#     """ Plot the power spectrum of the forecast and ground truth
-#     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
-#     :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
-#     :param preds_times: array, time values of the forecast
-#     :param filename: str, path to save the plot
-#     :param lead_times: list, lead times in hours to plot (default: [6, 18])
-#     """
-#     # Get available variables and sigma levels from the data
-#     available_vars = list(power_spectrum_avg_preds.data_vars)
-#     sigma_levels = power_spectrum_avg_preds.plev.values
-
-#     # Filter lead times that are present in the data
-#     available_lead_times = power_spectrum_avg_preds.lead_time.values
-#     plot_lead_times = [lt for lt in lead_times if lt in available_lead_times]
-#     if not plot_lead_times:
-#         raise ValueError(f"None of the specified lead times {lead_times} are present in the data. Available lead times: {available_lead_times}")
-
-#     # Select a subset of variables and sigma levels if there are too many
-#     if len(available_vars) > 3:
-#         available_vars = available_vars[:3]
-#     if len(sigma_levels) > 3:
-#         sigma_levels = [sigma_levels[0], sigma_levels[len(sigma_levels)//2], sigma_levels[-1]]
-
-#     # Create subplots
-#     fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
-#     k_x_preds = power_spectrum_avg_preds.k_x.values
-#     k_x_gt = power_spectrum_avg_gt.k_x.values
-
-#     for i, lead_time in enumerate(plot_lead_times):
-#         for j, var in enumerate(available_vars):
-#             for sigma in sigma_levels:
-#                 try:
-#                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
-#                     axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast')
-                    
-#                     # Add ground truth plot
-#                     power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, lev=sigma, method='nearest')
-#                     axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth')
-#                 except KeyError as e:
-#                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, sigma={sigma}. Error: {e}")
-#                     continue
-
-#             axs[i,j].set_yscale('log')
-#             axs[i,j].set_xscale('log')
-#             axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
-#             axs[i,j].set_ylabel('Energy Spectrum')
-#             axs[i,j].set_title(f"var = '{var}', lead time = {lead_time} hours")
-#             axs[i,j].grid(True)
-#             axs[i,j].legend()
-    
-#     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Sigma Levels)", y=1.01)
-#     plt.tight_layout() 
-#     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
-#     plt.close(fig)
-
-#     return fig, axs
-
-
-# def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times):
-#     """ Plot the power spectrum of the forecast and ground truth
-#     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
-#     :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
-#     :param preds_times: array, time values of the forecast
-#     :param filename: str, path to save the plot
-#     :param lead_times: list, lead times in hours to plot (default: [6, 18])
-#     """
-#     # Get available variables and pressure levels from the data
-#     available_vars = list(power_spectrum_avg_preds.data_vars)
-#     pressure_levels = power_spectrum_avg_preds.plev.values
-
-#     # Filter lead times that are present in the data
-#     available_lead_times = power_spectrum_avg_preds.lead_time.values
-#     plot_lead_times = [lt for lt in lead_times if lt in available_lead_times]
-#     if not plot_lead_times:
-#         raise ValueError(f"None of the specified lead times {lead_times} are present in the data. Available lead times: {available_lead_times}")
-
-#     # Select a subset of variables and pressure levels if there are too many
-#     if len(available_vars) > 3:
-#         available_vars = available_vars[:3]
-#     if len(pressure_levels) > 3:
-#         pressure_levels = [pressure_levels[0], pressure_levels[len(pressure_levels)//2], pressure_levels[-1]]
-
-#     # Create subplots
-#     fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
-#     k_x_preds = power_spectrum_avg_preds.k_x.values
-#     k_x_gt = power_spectrum_avg_gt.k_x.values
-
-#     for i, lead_time in enumerate(plot_lead_times):
-#         for j, var in enumerate(available_vars):
-#             for plev in pressure_levels:
-#                 try:
-#                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, plev=plev, method='nearest')
-#                     axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast')
-                    
-#                     # Add ground truth plot
-#                     power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, plev=plev, method='nearest')
-#                     axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth')
-#                 except KeyError as e:
-#                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, pressure level={plev}. Error: {e}")
-#                     continue
-
-#             axs[i,j].set_yscale('log')
-#             axs[i,j].set_xscale('log')
-#             axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
-#             axs[i,j].set_ylabel('Energy Spectrum')
-#             axs[i,j].set_title(f"var = '{var}', lead time = {lead_time} hours")
-#             axs[i,j].grid(True)
-#             axs[i,j].legend()
-    
-#     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Pressure Levels)", y=1.01)
-#     plt.tight_layout() 
-#     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
-#     plt.close(fig)
-
-#     return fig, axs
 
 def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times,
                              vars=["ta", "zg", "ua"], 
@@ -315,12 +189,14 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
         raise ValueError(f"None of the specified lead times {lead_times} are present in the data. Available lead times: {available_lead_times}")
 
     # Create subplots
-    fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+    # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+    fig, axs = plt.subplots(len(available_vars), len(plot_lead_times), figsize=(18, 20), squeeze=False)
+
     k_x_preds = power_spectrum_avg_preds.k_x.values
     k_x_gt = power_spectrum_avg_gt.k_x.values
 
-    for i, lead_time in enumerate(plot_lead_times):
-        for j, var in enumerate(available_vars):
+    for i, var in enumerate(available_vars):
+        for j, lead_time in enumerate(plot_lead_times):
             for plev in available_plevs:
                 try:
                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, plev=plev, method='nearest')
@@ -341,6 +217,29 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
             axs[i,j].set_title(f"var = '{var}', lead time = {lead_time} hours")
             axs[i,j].grid(True)
             axs[i,j].legend()
+
+    # for i, lead_time in enumerate(plot_lead_times):
+    #     for j, var in enumerate(available_vars):
+    #         for plev in available_plevs:
+    #             try:
+    #                 power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, plev=plev, method='nearest')
+    #                 axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast {plev/100:.0f} hPa')
+
+                    
+    #                 # Add ground truth plot
+    #                 power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, plev=plev, method='nearest')
+    #                 axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth {plev/100:.0f} hPa')
+    #             except KeyError as e:
+    #                 print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, pressure level={plev}. Error: {e}")
+    #                 continue
+
+    #         axs[i,j].set_yscale('log')
+    #         axs[i,j].set_xscale('log')
+    #         axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
+    #         axs[i,j].set_ylabel('Energy Spectrum')
+    #         axs[i,j].set_title(f"var = '{var}', lead time = {lead_time} hours")
+    #         axs[i,j].grid(True)
+    #         axs[i,j].legend()
     
     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Pressure Levels)", y=1.01)
     plt.tight_layout() 
@@ -348,8 +247,6 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     plt.close(fig)
 
     return fig, axs
-
-
 def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 850*100, 500*100, 250*100], 
                             colors=None, fontsize_title=14):
     """
@@ -405,12 +302,6 @@ def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"
 
 
 
-
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
-import cartopy.crs as ccrs
-import numpy as np
-
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cartopy.crs as ccrs
@@ -418,50 +309,110 @@ import numpy as np
 import time
 
 
-# THIS WORKS
 
-def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filename, sample_index=0, plev=None):
+
+# THIS IS THE GIF OF ANOMOLIES
+
+from datetime import timedelta
+
+def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, output_filename, sample_index=0, plev=None):
     """
-    Create a gif of the forecast for a single sample, evolving over lead times, without using coastlines.
+    Create a gif of the forecast anomalies for a single sample, evolving over lead times, without using coastlines.
     """
     start_time = time.time()
-    print(f"Starting GIF creation for {var}")
+    print(f"Starting GIF creation for {var} anomalies")
 
     # Data selection and setup
     if plev is not None:
         data_inference = combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
         data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+        climatology_data = climatology[var].sel(plev=plev, method='nearest')
     else:
         data_inference = combined_dataset[var].isel(time=sample_index)
         data_gt = gt_combined_dataset[var].isel(time=sample_index)
+        climatology_data = climatology[var]
 
     print(f"Data shape - Inference: {data_inference.shape}, Ground Truth: {data_gt.shape}")
+    print(f"Inference dimensions: {data_inference.dims}")
+    print(f"Ground Truth dimensions: {data_gt.dims}")
+    print(f"Climatology dimensions: {climatology_data.dims}")
     print(f"Lead times: {data_inference.lead_time.values}")
+    
+    # Get the start time for this sample from the original dataset
+    start_datetime = combined_dataset.time.values[sample_index]
+    print(f"Start datetime for sample {sample_index}: {start_datetime}")
 
-    vmin = float(min(data_inference.min(), data_gt.min()))
-    vmax = float(max(data_inference.max(), data_gt.max()))
-    print(f"Value range: {vmin} to {vmax}")
+    # Calculate time range for all lead times
+    time_range = [start_datetime + timedelta(hours=int(lt)) for lt in data_inference.lead_time.values]
+
+    # Prepare climatology
+    if 'zsfc' in climatology_data:
+        climatology_data = climatology_data.drop_vars('zsfc')
+    
+    # Ensure climatology has the correct spatial dimensions
+    climatology_data = climatology_data.transpose('dayofyear', 'lat', 'lon')
+
+    
+    # print_info(climatology_aligned, "Aligned Climatology")
+    climatology_data = climatology_data.assign_coords(lat=data_inference.lat)
+
+    # Initialize anomalies arrays
+    anomalies_inference = xr.zeros_like(data_inference)
+    anomalies_gt = xr.zeros_like(data_gt)
+
+    # Calculate anomalies for each lead time
+    for i, forecast_datetime in enumerate(time_range):
+        # Get the day of year for this forecast time
+        forecast_doy = forecast_datetime.dayofyr
+        
+        # Select the corresponding climatology
+        clim_for_leadtime = climatology_data.sel(dayofyear=forecast_doy)
+        
+        # Calculate anomalies for this lead time
+        anomalies_inference[i] = data_inference[i] - clim_for_leadtime
+        anomalies_gt[i] = data_gt[i] - clim_for_leadtime
+
+        print(f"Processed lead time {data_inference.lead_time.values[i]} hours, forecast date: {forecast_datetime}")
+
+
+
+    # vmin = float(anomalies_gt.min())
+    # vmax = float(anomalies_gt.max())
+    # print(f"Anomaly value range: {vmin} to {vmax}")
+
+    max_abs_anomaly = abs(anomalies_gt).max()
+    vmin = -max_abs_anomaly
+    vmax = max_abs_anomaly
+    print(f"Anomaly value range: {vmin} to {vmax}")
+
+    
+
+    # # Calculate symmetric range for anomalies
+    # max_abs_anomaly = abs(anomalies_gt).max()
+    # vmin = -max_abs_anomaly
+    # vmax = max_abs_anomaly
+    # print(f"Anomaly value range: {vmin} to {vmax}")
 
     # Figure setup
     fig_gif, axs = plt.subplots(1, 2, figsize=(15, 6), subplot_kw={'projection': ccrs.PlateCarree()})
     print("Figure created")
 
     # Create initial plots and colorbars
-    im1 = axs[0].pcolormesh(data_inference.lon, data_inference.lat, 
-                            data_inference.isel(lead_time=0),
+    im1 = axs[0].pcolormesh(anomalies_inference.lon, anomalies_inference.lat, 
+                            anomalies_inference.isel(lead_time=0),
                             transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
-    im2 = axs[1].pcolormesh(data_gt.lon, data_gt.lat, 
-                            data_gt.isel(lead_time=0),
+    im2 = axs[1].pcolormesh(anomalies_gt.lon, anomalies_gt.lat, 
+                            anomalies_gt.isel(lead_time=0),
                             transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
     
     # Add colorbars
-    plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05)
-    plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05)
+    plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05, label='Anomaly')
+    plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05, label='Anomaly')
 
     axs[0].set_global()
     axs[1].set_global()
-    axs[0].set_title(f'{name_fc}')
-    axs[1].set_title('Ground Truth')
+    axs[0].set_title(f'{name_fc} Anomaly')
+    axs[1].set_title('Ground Truth Anomaly')
 
     frame_times = []
 
@@ -469,16 +420,17 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
         frame_start = time.time()
 
         lead_time = data_inference.lead_time.values[i]
+        current_time = time_range[i]
 
-        forecast = data_inference.isel(lead_time=i)
-        truth = data_gt.isel(lead_time=i)
+        forecast = anomalies_inference.isel(lead_time=i)
+        truth = anomalies_gt.isel(lead_time=i)
 
         # Update plot data
         im1.set_array(forecast.values.ravel())
         im2.set_array(truth.values.ravel())
 
         var_up = f'{var}_{plev/100:.0f}hPa' if plev is not None else var
-        title = f'{var_up} at lead time {lead_time} hours (Sample {sample_index})'
+        title = f'{var_up} Anomaly at {current_time} (Lead time: {lead_time} hours, Sample {sample_index})'
         plt.suptitle(title, y=0.95)
 
         frame_end = time.time()
@@ -486,7 +438,7 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
         print(f"Frame {i} completed in {frame_end - frame_start:.2f} seconds")
 
     print("Starting animation creation")
-    ani = animation.FuncAnimation(fig_gif, plot, frames=len(data_inference.lead_time), repeat=False)
+    ani = animation.FuncAnimation(fig_gif, plot, frames=len(anomalies_inference.lead_time), repeat=False)
     
     print("Saving animation")
     ani.save(output_filename, writer='pillow', fps=1)
@@ -501,3 +453,90 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
 
     return ani
 
+
+
+
+
+
+# Makes GIF of th full zg field
+
+# def make_gif_zg(combined_dataset, gt_combined_dataset, name_fc, var, output_filename, sample_index=0, plev=None):
+#     """
+#     Create a gif of the forecast for a single sample, evolving over lead times, without using coastlines.
+#     """
+#     start_time = time.time()
+#     print(f"Starting GIF creation for {var}")
+
+#     # Data selection and setup
+#     if plev is not None:
+#         data_inference = combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+#         data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+#     else:
+#         data_inference = combined_dataset[var].isel(time=sample_index)
+#         data_gt = gt_combined_dataset[var].isel(time=sample_index)
+
+#     print(f"Data shape - Inference: {data_inference.shape}, Ground Truth: {data_gt.shape}")
+#     print(f"Lead times: {data_inference.lead_time.values}")
+
+#     vmin = float(min(data_inference.min(), data_gt.min()))
+#     vmax = float(max(data_inference.max(), data_gt.max()))
+#     print(f"Value range: {vmin} to {vmax}")
+
+#     # Figure setup
+#     fig_gif, axs = plt.subplots(1, 2, figsize=(15, 6), subplot_kw={'projection': ccrs.PlateCarree()})
+#     print("Figure created")
+
+#     # Create initial plots and colorbars
+#     im1 = axs[0].pcolormesh(data_inference.lon, data_inference.lat, 
+#                             data_inference.isel(lead_time=0),
+#                             transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
+#     im2 = axs[1].pcolormesh(data_gt.lon, data_gt.lat, 
+#                             data_gt.isel(lead_time=0),
+#                             transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
+    
+#     # Add colorbars
+#     plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05)
+#     plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05)
+
+#     axs[0].set_global()
+#     axs[1].set_global()
+#     axs[0].set_title(f'{name_fc}')
+#     axs[1].set_title('Ground Truth')
+
+#     frame_times = []
+
+#     def plot(i):
+#         frame_start = time.time()
+
+#         lead_time = data_inference.lead_time.values[i]
+
+#         forecast = data_inference.isel(lead_time=i)
+#         truth = data_gt.isel(lead_time=i)
+
+#         # Update plot data
+#         im1.set_array(forecast.values.ravel())
+#         im2.set_array(truth.values.ravel())
+
+#         var_up = f'{var}_{plev/100:.0f}hPa' if plev is not None else var
+#         title = f'{var_up} at lead time {lead_time} hours (Sample {sample_index})'
+#         plt.suptitle(title, y=0.95)
+
+#         frame_end = time.time()
+#         frame_times.append(frame_end - frame_start)
+#         print(f"Frame {i} completed in {frame_end - frame_start:.2f} seconds")
+
+#     print("Starting animation creation")
+#     ani = animation.FuncAnimation(fig_gif, plot, frames=len(data_inference.lead_time), repeat=False)
+    
+#     print("Saving animation")
+#     ani.save(output_filename, writer='pillow', fps=1)
+#     plt.close(fig_gif)
+    
+#     end_time = time.time()
+#     total_time = end_time - start_time
+#     print(f"GIF saved as {output_filename}")
+#     print(f"Total time: {total_time:.2f} seconds")
+#     print(f"Average frame time: {np.mean(frame_times):.2f} seconds")
+#     print(f"Max frame time: {np.max(frame_times):.2f} seconds")
+
+#     return ani
