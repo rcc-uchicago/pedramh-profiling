@@ -157,15 +157,6 @@ def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars = ["ta", "zg
     plt.savefig(f"spectrum_results.png", pad_inches=0.1, bbox_inches='tight')
     return fig, axs
 
-# Debugging Testing
-def minimal_plot_function(power_spectrum_avg_preds, preds_times):
-    print("Entering minimal plot function")
-    # Access some data to simulate the data access in the real function
-    _ = list(power_spectrum_avg_preds.data_vars)
-    _ = power_spectrum_avg_preds.lead_time.values
-    _ = power_spectrum_avg_preds.lev.values
-    print("Exiting minimal plot function")
-
 
 
 def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times,
@@ -256,8 +247,6 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     plt.close(fig)
 
     return fig, axs
-
-
 def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 850*100, 500*100, 250*100], 
                             colors=None, fontsize_title=14):
     """
@@ -301,9 +290,10 @@ def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"
         ax.set_title(title, fontsize=fontsize_title)
         ax.set_ylim(-0.3, 1.1)
         ax.axhline(0, ls='--', c='0.', lw=1)
-        ax.set_xlabel('Lead time [hours]')
-        ax.set_xticks(lead_times_hours)
-        ax.set_xticklabels([f'{h}h\n(Step {i+1})' for i, h in enumerate(lead_times_hours)])
+        ax.set_xlabel('Lead time [days]')
+        lead_times_ticks = np.arange(0, max(lead_times_hours)+1, 24)
+        ax.set_xticks(lead_times_ticks)
+        ax.set_xticklabels(['%d' % i for i in range(len(lead_times_ticks))])
         ax.legend(loc='lower left')
 
     plt.tight_layout()
