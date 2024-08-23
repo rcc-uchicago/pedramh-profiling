@@ -170,7 +170,7 @@ class PanguModel_Plasim(nn.Module):
         self.downscale_resolution = downscale_resolution
         # print("downscale_resolution", downscale_resolution)
         self.EST_input_resolution = EST_input_resolution
-        print("EST_input_resolution", EST_input_resolution)
+        # print("EST_input_resolution", EST_input_resolution)
         if not self.vertical_windowing:
             self.window_size[0] = EST_input_resolution[0]
         # print("EST_input_resolution", EST_input_resolution)
