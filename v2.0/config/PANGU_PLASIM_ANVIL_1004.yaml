@@ -25,7 +25,7 @@ base_config: &BASE
   early_stopping: False
 
   project: 'Pangu-PLASIM'
-  name: 'PLASIM-1001'
+  name: 'PLASIM-1004'
   group: 'amaury-optim'
 
 
