@@ -23,7 +23,7 @@ export MASTER_ADDR=$(hostname)
 
 ml anaconda/2024.02-py311
 conda activate /anvil/projects/x-atm170020/anaconda/py311
-source /home/x-awikner/venvs/anvil/pangu/bin/activate
+source ~/venvs/amaury-env/bin/activate
 
 source export_DDP_vars.sh
 

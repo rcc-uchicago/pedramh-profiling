@@ -460,11 +460,7 @@ class GetDataset(Dataset):
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
             if self.epsilon_factor > 0.:
                 if 'surface_ff_std' in self.params:
-<<<<<<< HEAD
-                    surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_std / self.surface_ff_std).reshape(len(self.surface_variables), 1, 1)
-=======
                     surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_ff_std / self.surface_std).reshape(len(self.surface_variables), 1, 1)
->>>>>>> 217af226f2bdd3acd203900b4867491bb750e79f
                 else:
                     surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
                 surface_t = surface_t + surface_t_noise
