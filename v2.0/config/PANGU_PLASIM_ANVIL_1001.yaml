@@ -1,7 +1,7 @@
 ### base config ###
 base_config: &BASE
-  loss: l1
-  lr: 0.0005
+  loss: 'weightedl1'
+  lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'CosineAnnealingLR' #'ReduceLROnPlateau'
   num_data_workers: 16
@@ -15,6 +15,7 @@ base_config: &BASE
   plot_animations: !!bool False
 
   nettype: 'pangu_plasim'
+  
 
   exp_dir: 'results'
 
@@ -22,7 +23,7 @@ base_config: &BASE
   fresh_start: True
   use_transformer_engine: False
   early_stopping: False
-  
+
   project: 'Pangu-PLASIM'
   name: 'PLASIM-1001'
   group: 'amaury-optim'
@@ -31,7 +32,7 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/eagle/MDClimSim/awikner/PLASIM/data/train_val_test_data/postprocessed'
+  data_dir: '/anvil/projects/x-atm170020/awikner/PLASIM/data/train_val_test_data_pl'
   boundary_dir: 'boundary_vars'
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw', 'zg']
   surface_variables: ['pl', 'tas']
@@ -51,7 +52,7 @@ PLASIM: &PLASIM
   boundary_std: 'plasim_test_51_150_boundary_std.nc'
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 192
+  batch_size: 64
   max_epochs: 100
 
   has_year_zero: False
@@ -61,9 +62,9 @@ PLASIM: &PLASIM
   horizontal_resolution: [64, 128]
   depths: [2, 6, 6, 2]
   predict_delta: False
-  patch_size: [2, 4, 4]
+  patch_size: [2, 2, 2]
   updown_scale_factor: 2
-  window_size: [2, 6, 12]
+  window_size: [2, 2, 4]
   epsilon_factor: 0
 
   diagnostic_logs: True
@@ -72,7 +73,7 @@ PLASIM: &PLASIM
   lev: 'plev'
   num_inferences: 100
 
-  # ADDED BY AMAURY
+#  ADDED BY AMAURY
   upper_air_boundary: True # base False
   vertical_windowing: True # base True
 
@@ -80,6 +81,6 @@ modified_1: &MODIFIED
   <<: *BASE
   lr: 5E-4
   batch_size: 16 
-  max_epochs: 10 
+  max_epochs: 80 
   scheduler: 'CosineAnnealingLR'
   optimizer_type: 'FusedAdam'
