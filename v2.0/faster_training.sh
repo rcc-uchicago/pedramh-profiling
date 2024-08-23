@@ -5,6 +5,7 @@
 #SBATCH --gpus=a100:4       #gpus=a40:4
 #SBATCH --ntasks=4
 #SBATCH --cpus-per-task=16 
+#SBATCH --mem=200G
 #SBATCH -o outs/faster_ddp_%x_%j.out
 #SBATCH -e outs/faster_ddp_%x_%j.err
 
@@ -20,7 +21,9 @@ export MASTER_ADDR=$(hostname)
 
 ml Anaconda3
 conda activate /scratch/group/p.atm170020.000/anaconda/py311
-source /home/u.aw164890/venvs/pangu/bin/activate
+# source /home/u.aw164890/venvs/pangu/bin/activate
+source ~/venvs/amaury-env/bin/activate
+
 
 source export_DDP_vars.sh
 

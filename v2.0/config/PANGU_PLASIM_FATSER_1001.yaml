@@ -32,7 +32,7 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/eagle/MDClimSim/awikner/PLASIM/data/train_val_test_data/postprocessed'
+  data_dir: '/scratch/group/p.atm170020.000/PLASIM/data/train_val_test_data_pl/'
   boundary_dir: 'boundary_vars'
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'clw', 'zg']
   surface_variables: ['pl', 'tas']
