@@ -246,7 +246,7 @@ class PanguModel_Plasim(nn.Module):
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air_in)
 
-            x = torch.concat([surface.unsqueeze(2), upper_air], dim=2)
+            x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
 
        
         # print(x.size())
