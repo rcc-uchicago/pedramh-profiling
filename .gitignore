@@ -47,3 +47,6 @@ data/
 core*
 outs/
 wandb/
+gif_out/
+acc_plots/
+spectra_out/
