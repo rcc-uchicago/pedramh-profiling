@@ -40,13 +40,14 @@ from multiprocessing import Process
 import psutil
 import shutil
 from datetime import datetime
+import uuid
 
 
 
 # from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
 
-#os.environ['WANDB_MODE'] = 'offline'
-# os.environ['WANDB_DIR'] = '/home/tvallabh/PanguWeather/v2.0/wandb'
+# os.environ['WANDB_MODE'] = 'offline'
+# os.environ['WANDB_DIR'] = '/scratch/midway3/tvallabh/PanguWeather/v2.0'
 # os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
 
@@ -206,6 +207,8 @@ class Trainer():
         self.params = params
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+        self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
+        self.run_uuid = str(uuid.uuid4())
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -252,11 +255,16 @@ class Trainer():
          # Load climatology
         climatology_path = os.path.join(params.data_dir, "mean_daily_climatology_pl.nc")
         self.climatology = xr.open_dataset(climatology_path)
-        # print(self.climatology)
 
-        self.spectra_dir = os.path.join(os.getcwd(), "spectra_out")
-        self.diagnostics_dir = os.path.join(os.getcwd(), "gif_out")
-        self.output_dir = os.path.join(os.getcwd(), "acc_plots")      
+
+
+        main_dirs = ["spectra_out", "gif_out", "acc_plots"]
+        for dir_name in main_dirs:
+            os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
+
+        self.spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
+        self.diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
+        self.output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)      
         
         if world_rank == 0:
             os.makedirs(self.spectra_dir, exist_ok=True)
@@ -395,7 +403,15 @@ class Trainer():
 
         best_valid_loss = 1.e6
         early_stopping_counter = 0
+        early_stop_epoch_triggered = False
         for epoch in range(self.startEpoch, self.params.max_epochs):
+
+            if self.early_stop_epoch is not None and epoch > self.early_stop_epoch:
+                if self.params.log_to_screen:
+                    logging.info(f'Completed early stop epoch {self.early_stop_epoch}. Terminating training.')
+                early_stop_epoch_triggered = True
+                break
+            
             if dist.is_initialized():
                 for sampler in self.train_samplers:
                     sampler.set_epoch(epoch)
@@ -453,18 +469,21 @@ class Trainer():
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen:
                     logging.info('Early stopping triggered. Terminating training.')
-                return # Exit the train method
-        
+                break # Exit the train method
+            
         # After the training loop ends
         if self.params.log_to_wandb:
             if self.world_rank == 0:
                 self.log_all_plots_to_wandb()
         if self.world_rank == 0:
             self.cleanup_acc_plots()
+            self.cleanup_gifs()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
-            logging.info('Completed all epochs. Training finished.')
-            
+            if early_stop_epoch_triggered:
+                logging.info(f'Training finished early at epoch {self.early_stop_epoch} due to early_stop_epoch setting.')
+            else:
+                logging.info('Completed all epochs. Training finished normally.')
 
 
     # def train_one_epoch(self):
@@ -933,10 +952,15 @@ class Trainer():
     
 
     def cleanup_acc_plots(self):
-        output_dir = os.path.join(os.getcwd(), "acc_plots")
+        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
         if os.path.exists(output_dir):
             shutil.rmtree(output_dir)
             print(f"Deleted ACC plots directory: {output_dir}")
+
+    def cleanup_gifs(self):
+        if os.path.exists(self.diagnostics_dir):
+            shutil.rmtree(self.diagnostics_dir)
+            print(f"Deleted GIF directory: {self.diagnostics_dir}")
     
 
         
@@ -1308,7 +1332,7 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    # parser.add_argument("--num_inferences", default = 0, type = int)
+    # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")

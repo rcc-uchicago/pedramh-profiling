@@ -94,7 +94,7 @@ class PanguModel_Plasim(nn.Module):
         window_size (tuple[int]): Window size.
     """
 
-    def __init__(self, params, embed_dim=192, num_heads=(6, 12, 12, 6), drop_path=None):
+    def __init__(self, params, num_heads=(6, 12, 12, 6), drop_path=None):
         super().__init__() 
         #####
         global USE_TE
@@ -112,6 +112,11 @@ class PanguModel_Plasim(nn.Module):
                 amax_history_len=16,
                 amax_compute_algo="max"
             )
+            
+        if hasattr(params, 'embed_dims'):
+            embed_dim = params.embed_dims
+        else:
+            embed_dim = 192
 
         #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
