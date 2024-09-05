@@ -115,7 +115,10 @@ class GetDataset(Dataset):
         self.calendar = params.calendar
         self.timedelta_hours = params.timedelta_hours
         self.datetime_class = self.datetime_class_from_calendar(self.calendar)
-        self.timedelta = self.datetime_class(1, 1, 1, hour=self.timedelta_hours) - self.datetime_class(1, 1, 1, hour=0)
+        # for timedelta_hours > 24
+        days, hours = divmod(self.timedelta_hours, 24)
+        self.timedelta = self.datetime_class(1, 1, 1 + days, hour=hours) - self.datetime_class(1, 1, 1, hour=0)
+        # self.timedelta = self.datetime_class(1, 1, 1, hour=self.timedelta_hours) - self.datetime_class(1, 1, 1, hour=0)
 
         self.surface_variables = params.surface_variables or []
         self.upper_air_variables = params.upper_air_variables or []
