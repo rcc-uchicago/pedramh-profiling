@@ -1,6 +1,6 @@
 #!/bin/bash -l
 #SBATCH -A atm170020-gpu
-#SBATCH --time=3-00:00:00
+#SBATCH --time=2-00:00:00
 #SBATCH -p gpu
 #SBATCH --mem=200G #--mem-per-cpu=6G       
 #SBATCH --nodes=1

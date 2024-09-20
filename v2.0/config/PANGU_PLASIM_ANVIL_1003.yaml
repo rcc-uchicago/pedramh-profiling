@@ -17,6 +17,7 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   
 
+
   exp_dir: 'results'
 
   enable_fp8: False
@@ -27,6 +28,7 @@ base_config: &BASE
   project: 'Pangu-PLASIM'
   name: 'PLASIM-1003'
   group: 'amaury-optim'
+  entity: 'awikner-University of Chicago'
 
 
 
@@ -53,7 +55,7 @@ PLASIM: &PLASIM
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
   batch_size: 64
-  max_epochs: 100
+  max_epochs: 150
 
   has_year_zero: False
 

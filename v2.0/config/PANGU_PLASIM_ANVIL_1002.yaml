@@ -27,6 +27,7 @@ base_config: &BASE
   project: 'Pangu-PLASIM'
   name: 'PLASIM-1002'
   group: 'amaury-optim'
+  entity: 'awikner-University of Chicago'
 
 
 

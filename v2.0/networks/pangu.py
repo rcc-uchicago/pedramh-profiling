@@ -132,6 +132,10 @@ class PanguModel_Plasim(nn.Module):
         self.predict_delta = params.predict_delta
         self.window_size = params.window_size
         self.vertical_windowing=params.vertical_windowing
+        if hasattr(params, 'subpixel_deconv'):
+            self.subpixel_deconv = params.subpixel_deconv
+        else:
+            self.subpixel_deconv = False
         
 
         self.upper_air_boundary = params.upper_air_boundary
@@ -221,8 +225,15 @@ class PanguModel_Plasim(nn.Module):
             drop_path=drop_path[depths_cumsum[2]:])
         
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
-        self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars)
-        self.patchrecovery3d = PatchRecovery3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
+        
+        if self.subpixel_deconv:
+            from utils.patch_recovery import SubPixelConvICNR_2D, SubPixelConvICNR_3D
+            self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars)
+            self.patchrecovery3d = SubPixelConvICNR_3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
+            
+        else:
+            self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars)
+            self.patchrecovery3d = PatchRecovery3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
     def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in):
         """

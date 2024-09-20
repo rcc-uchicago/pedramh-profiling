@@ -289,7 +289,7 @@ class Trainer():
                                                     amax_compute_algo="max")
         if params.log_to_wandb:
 
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project)  # , entity=params.entity)
+            wandb.init(config=params, name=params.name, group=params.group, project=params.project, entity=params.entity)
 
             wandb.define_metric("custom_step")
             wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
