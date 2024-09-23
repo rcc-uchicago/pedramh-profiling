@@ -76,7 +76,7 @@ class Stepper():
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
-                                                                     num_inferences = params.num_inferences)
+                                                                     num_inferences = params.num_inferences, validate = False)
 
         self.constant_boundary_data = self.valid_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device)
@@ -354,7 +354,7 @@ class Stepper():
         print("Checkpoint restored successfully")
 
     def save_prediction(self, surface_prediction, upper_air_prediction, start_time, pred_idx):
-        inference_results_dir = "/home/tvallabh/PanguWeather/v2.0/inference_results"
+        inference_results_dir = self.params['experiment_dir']
         savedir = os.path.join(inference_results_dir, 'predictions')
         if not os.path.isdir(savedir):
             os.makedirs(savedir)
@@ -366,7 +366,7 @@ class Stepper():
                                          start_time + timedelta(hours = self.params['timedelta_hours'] * (sample + self.params['inference_steps'])),
                                          freq = "%dh" % self.params['timedelta_hours'], inclusive = "both")
             coordinates = {'time': time_range,
-                               'lev': self.valid_dataset.data_dss[0].lev.values,
+                               self.params.lev: self.valid_dataset.data_dss[0][self.params.lev].values,
                                'lat': self.valid_dataset.data_dss[0].lat.values,
                                'lon': self.valid_dataset.data_dss[0].lon.values}
             filename = '%s_%s_%dh_%dstep_%d_%d.nc' % (self.params.nettype, self.params.run_num, self.params['timedelta_hours'],
@@ -387,11 +387,11 @@ class Stepper():
                 dataset[var] = da
             for idx, var in enumerate(self.valid_dataset.upper_air_variables):
                 da = xr.DataArray(data = upper_air_prediction[sample, :, idx],
-                                  dims=["time", "lev", "lat", "lon"],
+                                  dims=["time", self.params.lev, "lat", "lon"],
                                   coords = coordinates)
                 da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
-            dataset = dataset.chunk({'time': 1, 'lev': 1})
+            dataset = dataset.chunk({'time': 1, self.params.lev: 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             dataset.to_netcdf(os.path.join(savedir, filename))
 
@@ -430,7 +430,7 @@ if __name__ == '__main__':
         except:
             print('args.inference_steps and params.forecast_lead_times not set, exiting...')
             sys.exit(2)
-    params['num_inferences'] = args.num_inferences
+    #params['num_inferences'] = args.num_inferences
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
@@ -468,7 +468,7 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
 
     # Set up directory
-    expDir = os.path.join('/project/pedramh/awikner/PanguWeather/v2.0/results', args.config, str(args.run_num))
+    expDir = os.path.join(os.getcwd(), 'results', args.config, str(args.run_num))
     if world_rank == 0:
         if not os.path.isdir(expDir):
             os.makedirs(expDir)
@@ -494,7 +494,7 @@ if __name__ == '__main__':
     params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'
-        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join('/home/tvallabh/PanguWeather/v2.0/inference_results', log_file))
+        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(os.getcwd(), 'logs', log_file))
         logging_utils.log_versions()
         params.log()
 

@@ -135,10 +135,11 @@ class GetDataset(Dataset):
 
         self.boundary_dss = self._load_boundary_data()
         self.dates = self._get_dates(hour_step=params.timedelta_hours)
+        max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times)
         if self.num_inferences > 0:
-            self.inference_idxs = np.linspace(0, len(self.dates), num = num_inferences + 1, dtype = int)
+            self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
         else:
-            self.inference_idxs = np.arange(0, len(self.dates))
+            self.inference_idxs = np.arange(0, max_inference_idx)
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         if len(params['levels']) > 0:
@@ -325,12 +326,13 @@ class GetDataset(Dataset):
             #else:
             #    # Default case (no steps specified)
             #    hours = (end_date - start_date).days * 24.
-            hours = (end_date - start_date).days * 24. - (max(self.params.forecast_lead_times) - 1) * hour_step
+            hours = (end_date - start_date).days * 24. #- (max(self.params.forecast_lead_times)) * hour_step
         else:
             # Training mode
             hours = (end_date - start_date).days * 24.
         
         date_range = np.arange(0., hours, hour_step)
+        print(f'End data hour: {date_range[-1]}')
         return date_range
 
     
@@ -522,7 +524,7 @@ class GetDataset(Dataset):
                 targets_surface = torch.stack(targets_surface, dim=0)
                 targets_upper_air = torch.stack(targets_upper_air, dim=0)
             else: 
-                current_ds.close()
+                data_ds_start.close()
                     
 
 
@@ -587,6 +589,6 @@ class GetDataset(Dataset):
             # return surface_t, upper_air_t, surface_t_target, upper_air_t_target, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx], self.params['autoreg_steps']])
             return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
         elif lead_times:
-            return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx[0], start_hour_diff[0][start_idx[0]]])
+            return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx, start_hour_diff[start_idx]])
         else:
             return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
