@@ -2,7 +2,7 @@
 #SBATCH -A atm170020-gpu
 #SBATCH --time=2-00:00:00
 #SBATCH -p gpu
-#SBATCH --mem-per-cpu=6G       #mem=128G
+#SBATCH --mem=200G #--mem-per-cpu=6G       
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:4
 #SBATCH --ntasks=4
@@ -23,7 +23,7 @@ export MASTER_ADDR=$(hostname)
 
 ml anaconda/2024.02-py311
 conda activate /anvil/projects/x-atm170020/anaconda/py311
-source /home/x-awikner/venvs/anvil/pangu/bin/activate
+source ~/venvs/amaury-env/bin/activate
 
 source export_DDP_vars.sh
 

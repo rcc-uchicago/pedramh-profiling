@@ -42,8 +42,11 @@ data/stats/time_means_sfc.npy
 logs/
 results/
 data/
-tests/
+# tests/
 
 core*
 outs/
 wandb/
+gif_out/
+acc_plots/
+spectra_out/

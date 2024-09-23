@@ -290,6 +290,7 @@ def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"
         ax.set_title(title, fontsize=fontsize_title)
         ax.set_ylim(-0.3, 1.1)
         ax.axhline(0, ls='--', c='0.', lw=1)
+        ax.axhline(0.6, ls='--', c='r', lw=1, label='ACC = 0.6')  # Add horizontal line at ACC = 0.6
         ax.set_xlabel('Lead time [days]')
         lead_times_ticks = np.arange(0, max(lead_times_hours)+1, 24)
         ax.set_xticks(lead_times_ticks)
