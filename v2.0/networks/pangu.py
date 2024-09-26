@@ -141,7 +141,12 @@ class PanguModel_Plasim(nn.Module):
         self.upper_air_boundary = params.upper_air_boundary
         self.varying_boundary_variables = params.varying_boundary_variables
         self.num_varying_boundary_vars = len(params.varying_boundary_variables)
-        self.idx_upper_air_var_bound= self.varying_boundary_variables.index('rsdt') # carreful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
+        try:
+            self.diagnostic_vars = params.diagnostic_vars
+        except:
+            self.diagnostic_vars = []
+        self.num_diagnostic_vars = len(self.diagnostic_vars)
+        self.idx_upper_air_var_bound= self.varying_boundary_variables.index('rsdt') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
     
         
@@ -228,11 +233,11 @@ class PanguModel_Plasim(nn.Module):
         
         if self.subpixel_deconv:
             from utils.patch_recovery import SubPixelConvICNR_2D, SubPixelConvICNR_3D
-            self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars)
+            self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
             self.patchrecovery3d = SubPixelConvICNR_3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
             
         else:
-            self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars)
+            self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
             self.patchrecovery3d = PatchRecovery3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
     def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in):
@@ -309,17 +314,22 @@ class PanguModel_Plasim(nn.Module):
             output_surface_delta  = output[:, :, -1, :, :]
             output_upper_air_delta = output[:, :, :-1, :, :]
 
-            output_surface_delta = self.patchrecovery2d(output_surface_delta)
+            output_2D = self.patchrecovery2d(output_surface_delta)
             output_upper_air_delta = self.patchrecovery3d(output_upper_air_delta)
-            output_surface = surface_in + output_surface_delta
+            output_surface = surface_in + output_2D[:, :self.num_surface_vars]
             output_upper_air = upper_air_in + output_upper_air_delta
         else:
             output_surface = output[:, :, -1, :, :]
             output_upper_air = output[:, :, :-1, :, :]
 
-            output_surface = self.patchrecovery2d(output_surface)
+            output_2D = self.patchrecovery2d(output_surface)
+            output_surface = output_2D[:, :self.num_surface_vars]
             output_upper_air = self.patchrecovery3d(output_upper_air)
-        return output_surface, output_upper_air
+        if len(self.num_diagnostic_vars) > 0:
+            output_diagnostic = output_2D[:, self.num_surface_vars:]
+            return output_surface, output_upper_air, output_diagnostic
+        else:
+            return output_surface, output_upper_air
 
 '''
 PatchEmbed2D and PatchEmbed3D from utils.patch_embed

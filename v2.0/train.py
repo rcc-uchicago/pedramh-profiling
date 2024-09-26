@@ -679,6 +679,8 @@ class Trainer():
         
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             current_dataset = self.train_datasets[year_idx]
+            with torch.no_grad():
+                latitudes = current_dataset.lat.to(self.device, non_blocking=True)
             logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
             # pbar.set_description(f"Year {self.params.train_year_start + year_idx}")
             
@@ -686,8 +688,12 @@ class Trainer():
                 logging.debug(f"Batch {i}, data shape: {data[0].shape}")
                 self.iters += 1
                 data_start = time.time()
-                input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
-                    lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                if self.params.has_diagnostic:
+                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data, index_info = map(
+                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                else:
+                    input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
+                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 
                 index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 
@@ -703,13 +709,21 @@ class Trainer():
                     precision_context = amp.autocast(enabled=self.params.enable_amp)
 
                 with precision_context:
-                    output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                                varying_boundary_data, input_upper_air)
+                    if self.params.has_diagnostic:
+                        output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
+                                                                    varying_boundary_data, input_upper_air)
+                        loss_diagnostic = self.loss_obj_sfc(output_diagnostic, target_diagnostic)
+                    else:
+                        output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
+                                                                    varying_boundary_data, input_upper_air)
                     
                     loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
                     loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
 
-                    loss = (loss_sfc * 0.25) + loss_pl
+                    if self.params.has_diagnostic:
+                        loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+                    else:
+                        loss = (loss_sfc * 0.25) + loss_pl
 
                 if self.params.enable_amp:
                     self.gscaler.scale(loss).backward()
@@ -723,8 +737,10 @@ class Trainer():
                     self.scheduler.step()
 
                 with torch.no_grad():
-                    surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, current_dataset.lat.to(self.device, non_blocking=True))
-                    upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, current_dataset.lat.to(self.device, non_blocking=True))
+                    surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
+                    upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
+                    if self.params.has_diagnostic:
+                        diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
 
                     if self.params.diagnostic_logs:
                         diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
@@ -732,10 +748,17 @@ class Trainer():
                         diagnostic_logs['train_batch_loss'] = loss
                         diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
                         diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-                        mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                        if self.params.has_diagnostic:
+                            diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
+                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                        else:
+                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
                         diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
                         for j, var in enumerate(current_dataset.surface_variables):
                             diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
+                        if self.params.has_diagnostic:
+                            for j, var in enumerate(current_dataset.diagnostic_variables):
+                                diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
                         for j, var in enumerate(current_dataset.upper_air_variables):
                             for k, level in enumerate(current_dataset.lev):
                                 diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
@@ -795,7 +818,7 @@ class Trainer():
         return tr_time, data_time, logs
 
 
-    def preprare_preds(self, preds, acc = False):
+    def prepare_preds(self, preds, acc = False):
         preds = preds.rename({'time': 'lead_time'})
         # If bug, change this back to values[0]
         preds['time'] = preds.lead_time.values[0:1]
@@ -811,7 +834,7 @@ class Trainer():
         preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
         return preds
     
-    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True):
+    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
         # print(f"TIME STEPS ARE: {time_steps}")
         datasets = []
@@ -860,6 +883,18 @@ class Trainer():
                 )
                 da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
+
+            if type(diagnostic_prediction) is not type(None):
+                for idx, var in enumerate(valid_dataset.diagnostic_variables):
+                    da = xr.DataArray(
+                        data=diagnostic_prediction[sample, :, idx],
+                        dims=["time", "lat", "lon"],
+                        coords={'time': time_range,
+                                'lat': dataset.lat.values,
+                                'lon': dataset.lon.values}
+                    )
+                    da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                    dataset[var] = da
 
             for idx, var in enumerate(valid_dataset.upper_air_variables):
                 da = xr.DataArray(
@@ -970,20 +1005,33 @@ class Trainer():
 
         # define the lead times to evaluate (in time steps)
         lead_times_steps = self.params.forecast_lead_times
+        with torch.no_grad():
+                latitudes = self.valid_dataset.lat.to(self.device, non_blocking=True)
 
-        valid_buff = torch.zeros((4), dtype=torch.float32, device=self.device)
+        if self.params.has_diagnostic:
+            valid_buff = torch.zeros((5), dtype=torch.float32, device=self.device)
+            valid_loss_diag = valid_buff[3].view(-1)
+        else:
+            valid_buff = torch.zeros((4), dtype=torch.float32, device=self.device)
         valid_loss = valid_buff[0].view(-1)
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
-        valid_steps = valid_buff[3].view(-1)
+        valid_steps = valid_buff[-1].view(-1)
         valid_surface_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
         valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
+        if self.params.has_diagnostic:
+            valid_diagnostic_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.diagnostic_variables)), dtype=torch.float32, device=self.device)
 
         
         multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         # Add RMSE storage for multiple lead times
-        multi_step_rmse = {f"valid_lwrmse_sfc_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps} |\
-            {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
+        if self.params.has_diagnostic:
+            multi_step_rmse = {f"valid_lwrmse_sfc_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps} |\
+                {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}|\
+                {f"valid_lwrmse_diag_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
+        else:
+            multi_step_rmse = {f"valid_lwrmse_sfc_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps} |\
+                {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
 
         
@@ -1008,8 +1056,12 @@ class Trainer():
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
                 #if i >= n_valid_batches:
                 #    break
-                val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
-                    lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                if self.params.has_diagnostic:
+                    val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
+                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                else:
+                    val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
+                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
 
                 # get the correct start times for each sample
@@ -1032,6 +1084,10 @@ class Trainer():
                                                  val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                                  val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                                 dtype=np.float32)
+                if self.params.has_diagnostic:
+                    val_output_diagnostic_acc = np.zeros((val_target_diagnostic.shape[0], max_lead_time,
+                                                    val_target_diagnostic.shape[1], val_target_diagnostic.shape[2],
+                                                    val_target_diagnostic.shape[3]), dtype=np.float32)
                 
                 # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
@@ -1041,6 +1097,11 @@ class Trainer():
                                          val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                          val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                         dtype=np.float32)
+                if self.params.has_diagnostic:
+                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
+                                                        val_target_diagnostic.shape[1], val_target_diagnostic.shape[2],
+                                                        val_target_diagnostic.shape[3]), dtype=np.float32)
+                
 
 
                 precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
@@ -1051,14 +1112,18 @@ class Trainer():
                     val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
                     step_idx = 0
                     for step in range(max_lead_time):
-                        val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
-                                                                            val_varying_boundary_data[:, step], val_output_upper_air)
+                        if self.params.has_diagnostic:
+                            val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
+                                val_output_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_output_upper_air)
+                        else:
+                            val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
+                                                                                  val_varying_boundary_data[:, step], val_output_upper_air)
                         
                         # Store output for ACC calculation (all time steps)
                         val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                         val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                            
-
+                        if self.params.has_diagnostic:
+                            val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_upper_air.cpu()).numpy()
 
                       
                         # Calculate losses for different lead times
@@ -1067,12 +1132,28 @@ class Trainer():
                             target_index = step 
                             loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[:,target_index])
                             loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[:,target_index])
-                            loss = (loss_sfc * 0.25 + loss_pl)
+                            if self.params.has_diagnostic:
+                                loss_diag = self.loss_obj_sfc(val_output_diagnostic, val_target_diagnostic[:,target_index])
+                                loss = (loss_sfc + loss_diag) * 0.25 + loss_pl
+                            else:
+                                loss = (loss_sfc * 0.25 + loss_pl)
                             multi_step_losses[f"valid_loss_{step+1}step"] += loss
+                            if step == 0:
+                                valid_loss += loss
+                                valid_loss_sfc += loss_sfc
+                                valid_loss_pl += loss_pl
+                                if self.params.has_diagnostic:
+                                    valid_loss_diag += loss_diag
 
                             # Calculate RMSE
-                            rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
-                            rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], self.valid_dataset.lat.to(self.device, non_blocking=True))
+                            rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], latitudes)
+                            rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], latitudes)
+                            if self.params.has_diagnostic:
+                                rmse_diag = weighted_rmse_torch_channels(val_output_diagnostic, val_target_diagnostic[:,target_index], latitudes)
+                                multi_step_rmse[f"valid_lwrmse_diag_{step+1}step"] += torch.mean(rmse_diag)
+                                valid_diagnostic_lwrmse[step_idx] += torch.mean(rmse_diag, dim = 0)
+                                val_output_diagnostic_t[:, step_idx] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
+
                             multi_step_rmse[f"valid_lwrmse_sfc_{step+1}step"] += torch.mean(rmse_sfc)
                             multi_step_rmse[f"valid_lwrmse_pl_{step+1}step"] += torch.mean(rmse_pl)
 
@@ -1081,31 +1162,40 @@ class Trainer():
 
                             val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                             val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                        
                            
                             if step + 1 == max_lead_time:
-                                valid_loss += loss
-                                valid_loss_sfc += loss_sfc
-                                valid_loss_pl += loss_pl
 
                                 # Prepare datasets for ACC (all time steps)
-                                acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True)
-                                acc_prepared_datasets = [self.preprare_preds(ds, acc = True) for ds in acc_datasets]
+                                if self.params.has_diagnostic:
+                                    acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True,
+                                                                          diagnostic_prediction=val_output_diagnostic_acc)
+                                else:
+                                    acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True)
+                                acc_prepared_datasets = [self.prepare_preds(ds, acc = True) for ds in acc_datasets]
                                 acc_combined_dataset = self.combine_datasets(acc_prepared_datasets)
                                 acc_predictions.append(acc_combined_dataset)
 
                                 acc_gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
                                 acc_gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
-                                acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True)
-                                acc_gt_prepared_datasets = [self.preprare_preds(ds, acc=True) for ds in acc_gt_datasets]
+                                if self.params.has_diagnostic:
+                                    acc_gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic.cpu()).numpy()
+                                    acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True,
+                                                                             diagnostic_predictions = acc_gt_diagnostic)
+                                else:
+                                    acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True)
+                                acc_gt_prepared_datasets = [self.prepare_preds(ds, acc=True) for ds in acc_gt_datasets]
                                 acc_gt_combined_dataset = self.combine_datasets(acc_gt_prepared_datasets)
                                 acc_ground_truths.append(acc_gt_combined_dataset)
 
 
 
                                 # Prepare the predictions (only forecast lead times)
-                                datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False)
-                                prepared_datasets = [self.preprare_preds(ds, acc = False) for ds in datasets]
+                                if self.params.has_diagnostic:
+                                    datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False,
+                                                                      diagnostic_prediction = val_output_diagnostic)
+                                else:
+                                    datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False)
+                                prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in datasets]
                                 combined_dataset = self.combine_datasets(prepared_datasets)
 
 
@@ -1119,8 +1209,13 @@ class Trainer():
                                 # only take the necessary indices as the dataloader now returns all time steps. 
                                 gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices].cpu()).numpy()
                                 gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices].cpu()).numpy()
-                                gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False)
-                                gt_prepared_datasets = [self.preprare_preds(ds, acc = False) for ds in gt_datasets]
+                                if self.params.has_diagnostic:
+                                    gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic[:, lead_time_indices].cpu()).numpy()
+                                    gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False,
+                                                                         diagnostic_prediction = gt_diagnostic)
+                                else:
+                                    gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False)
+                                gt_prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in gt_datasets]
                                 gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
 
                                 all_predictions.append(combined_dataset)
@@ -1179,7 +1274,7 @@ class Trainer():
             print("\nMaking GIF...")
 
             gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-            make_gif(combined_predictions, combined_ground_truths, self.climatology, "Model Forecast", "zg", gif_filename, plev=50000)
+            make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "zg", gif_filename, plev=50000)
 
 
 
@@ -1217,11 +1312,13 @@ class Trainer():
 
 
         # divide by number of steps
-        valid_buff[0:3] = valid_buff[0:3] / valid_buff[3]
-        valid_surface_lwrmse = (valid_surface_lwrmse / valid_buff[3]).detach()
-        valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[3]).detach()
+        valid_buff[0:-1] = valid_buff[0:-1] / valid_buff[-1]
+        valid_surface_lwrmse = (valid_surface_lwrmse / valid_buff[-1]).detach()
+        valid_upper_air_lwrmse = (valid_upper_air_lwrmse / valid_buff[-1]).detach()
+        if self.params.has_diagnostic:
+            valid_diagnostic_lwrmse = (valid_diagnostic_lwrmse / valid_buff[-1]).detach()
         for key in multi_step_losses:
-            multi_step_losses[key] /= valid_buff[3]
+            multi_step_losses[key] /= valid_buff[-1]
 
         valid_buff_cpu = valid_buff.detach()
 
@@ -1230,6 +1327,9 @@ class Trainer():
             diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
             diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
             diagnostic_logs['valid_loss_upper_air'] = valid_buff_cpu[2]
+            if self.params.has_diagnostic:
+                diagnostic_logs['valid_loss_diag'] = valid_buff_cpu[3]
+
             #mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
             #diagnostic_logs['valid_mean_norm_lwrmse'] = mean_norm_lwrmse
             for l, steps in enumerate(lead_times_steps):
@@ -1238,6 +1338,9 @@ class Trainer():
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
                     for k, level in enumerate(self.valid_dataset.lev):
                         diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
+                if self.params.has_diagnostic:
+                    for j, var in enumerate(self.valid_dataset.diagnostic_variables):
+                        diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
             #if dist.is_initialized():
             #    for key in sorted(diagnostic_logs.keys()):
             #        dist.all_reduce(diagnostic_logs[key].detach())
@@ -1264,9 +1367,15 @@ class Trainer():
             return valid_time, diagnostic_logs
         else:
             try:
-                logs = {'valid_loss': valid_buff_cpu[0], 
-                        'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
-                        'epoch': self.epoch}
+                if self.params.has_diagnostic:
+                    logs = {'valid_loss': valid_buff_cpu[0], 
+                            'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
+                            'valid_loss_diag': valud_buff_cpu[3],
+                            'epoch': self.epoch}
+                else:
+                    logs = {'valid_loss': valid_buff_cpu[0], 
+                            'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
+                            'epoch': self.epoch}
                 # Add multi-day losses to logs
                 for key, value in multi_step_losses.items():
                     logs[key] = value.item()
@@ -1348,6 +1457,13 @@ if __name__ == '__main__':
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
+    if hasattr(params, 'diagnostic_variables'):
+        if len(params.diagnostic_variables) > 0:
+            params['has_diagnostic'] = True
+        else:
+            params['has_diagnostic'] = False
+    else:
+        params['has_diagnostic'] = False
     # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 

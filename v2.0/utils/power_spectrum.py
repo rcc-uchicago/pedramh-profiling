@@ -318,7 +318,8 @@ from datetime import timedelta
 
 def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, output_filename, sample_index=0, plev=None):
     """
-    Create a gif of the forecast anomalies for a single sample, evolving over lead times, without using coastlines.
+    Create a gif of the forecast anomalies for a single sample, evolving over all time steps up the maximum lead time,
+    without using coastlines.
     """
     start_time = time.time()
     print(f"Starting GIF creation for {var} anomalies")
