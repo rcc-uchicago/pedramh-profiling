@@ -140,6 +140,8 @@ class GetDataset(Dataset):
             self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
         else:
             self.inference_idxs = np.arange(0, max_inference_idx)
+        #print('Inference idxs:')
+        #print(self.inference_idxs)
         self.data_dss = self._load_data()
         self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         if len(params['levels']) > 0:
@@ -165,11 +167,20 @@ class GetDataset(Dataset):
         self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_dir, params.boundary_mean),
                                                                                    join(data_dir, params.boundary_dir, params.boundary_std),
                                                                                    self.varying_boundary_variables, upper_air = False)
-        self.surface_transform = self._create_surface_transform()
-        self.boundary_transform = self._create_boundary_transform()
-        self.upper_air_transform = self._create_upper_air_transform()
-        self.surface_inv_transform = self._create_surface_inv_transform()
-        self.upper_air_inv_transform = self._create_upper_air_inv_transform()
+        
+        if hasattr(params, 'diagnostic_variables'):
+            if len(params.diagnostic_variables) > 0:
+                self.diagnostic_variables = params.diagnostic_variables
+                self.diagnostic_mean, self.diagnostic_std = self.load_mean_std(join(data_dir, params.diagnostic_mean),
+                                                                                    join(data_dir, params.diagnostic_std),
+                                                                                    self.diagnostic_variables, upper_air = False)
+                #self.diagnostic_inv_transform = self._create_diagnostic_inv_transform()
+
+        #self.surface_transform = self._create_surface_transform()
+        #self.boundary_transform = self._create_boundary_transform()
+        #self.upper_air_transform = self._create_upper_air_transform()
+        #self.surface_inv_transform = self._create_surface_inv_transform()
+        #self.upper_air_inv_transform = self._create_upper_air_inv_transform()
 
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
@@ -269,6 +280,7 @@ class GetDataset(Dataset):
                 std = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)
         return mean, std
     
+    """
     def _create_surface_transform(self):
         return lambda data: (data - self.surface_mean.reshape(-1, 1, 1))/self.surface_std.reshape(-1, 1, 1)
 
@@ -285,6 +297,32 @@ class GetDataset(Dataset):
     def _create_upper_air_inv_transform(self):
         return lambda data: data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
             self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
+    
+    def _create_diagnostic_inv_transform(self):
+    """
+    def surface_transform(self, data):
+        return (data - self.surface_mean.reshape(-1, 1, 1))/self.surface_std.reshape(-1, 1, 1)
+    
+    def diagnostic_transform(self, data):
+        return (data - self.diagnostic_mean.reshape(-1, 1, 1))/self.diagnostic_std.reshape(-1, 1, 1)
+    
+    def boundary_transform(self, data):
+        return (data - self.varying_boundary_mean.reshape(-1, 1, 1))/self.varying_boundary_std.reshape(-1, 1, 1)
+    
+    def upper_air_transform(self, data):
+        return (data - self.upper_air_mean.reshape(len(self.upper_air_variables), -1, 1, 1))/ \
+            self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1)
+    
+    def surface_inv_transform(self, data):
+        return data * self.surface_std.reshape(1, -1, 1, 1) + self.surface_mean.reshape(1, -1, 1, 1)
+    
+    def upper_air_inv_transform(self, data):
+        return data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
+            self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
+    
+    def diagnostic_inv_transform(self, data):
+        return data * self.diagnostic_std.reshape(1, -1, 1, 1) + self.diagnostic_mean.reshape(1, -1, 1, 1)
+
     
     def _load_boundary_data(self, initial = True):
         if initial:
@@ -367,7 +405,7 @@ class GetDataset(Dataset):
                 engine='netcdf4', parallel=self.parallel, decode_cf=False)
         return data_ds
     
-    def _get_data(self, data_ds, year, hour):
+    def _get_data(self, data_ds, year, hour, output = False):
 
         surface_da_list = [data_ds[var].sel(time=hour) for var in self.surface_variables]
         surface_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in surface_da_list], dim = 0)
@@ -384,8 +422,13 @@ class GetDataset(Dataset):
         #    da[:] = np.nan
 
         #gc.collect()
-        
-        return surface_data, upper_air_data
+        if len(self.diagnostic_variables) > 0 and output:
+            diagnostic_da_list = [data_ds[var].sel(time=hour) for var in self.diagnostic_variables]
+            diagnostic_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in diagnostic_da_list], dim = 0)
+            diagnostic_data = self.diagnostic_transform(diagnostic_data)
+            return surface_data, upper_air_data, diagnostic_data
+        else:
+            return surface_data, upper_air_data
 
 
 
@@ -424,10 +467,7 @@ class GetDataset(Dataset):
 
 
     def __len__(self):
-        if self.num_inferences > 0:
-            return len(self.inference_idxs) - 1
-        else:
-            return len(self.dates) - 1
+        return len(self.inference_idxs) - 1
 
 
     def __getitem__(self, index):
@@ -450,13 +490,19 @@ class GetDataset(Dataset):
             if start_idx == end_idx:
                 data_ds = self._load_year_data(start_idx)
                 surface_t, upper_air_t = self._get_data(data_ds, start_idx, start_hour_diff[start_idx])
-                surface_t_1, upper_air_t_1 = self._get_data(data_ds, end_idx, end_hour_diff[end_idx])
+                if len(self.diagnostic_variables) > 0:
+                    surface_t_1, upper_air_t_1, diagnostic_t_1 = self._get_data(data_ds, end_idx, end_hour_diff[end_idx], output=True)
+                else:
+                    surface_t_1, upper_air_t_1 = self._get_data(data_ds, end_idx, end_hour_diff[end_idx])
                 data_ds.close()
             else:
                 data_ds_start = self._load_year_data(start_idx)
                 data_ds_end = self._load_year_data(end_idx)
                 surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
-                surface_t_1, upper_air_t_1 = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
+                if len(self.diagnostic_variables) > 0:
+                    surface_t_1, upper_air_t_1, diagnostic_t_1 = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx], output=True)
+                else:
+                    surface_t_1, upper_air_t_1 = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
                 data_ds_start.close()
                 data_ds_end.close()
             varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
@@ -500,6 +546,8 @@ class GetDataset(Dataset):
                 # Load targets for each time step up to the maximum lead time
                 targets_surface = []
                 targets_upper_air = []
+                if len(self.diagnostic_variables) > 0:
+                    targets_diagnostic = []
                 current_ds = data_ds_start
                 current_idx = start_idx
 
@@ -516,7 +564,11 @@ class GetDataset(Dataset):
                         current_ds = self._load_year_data(target_idx)
                         current_idx = target_idx
 
-                    surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
+                    if len(self.diagnostic_variables) > 0:
+                        surface_target, upper_air_target, diagnostic_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx], output = True)
+                        targets_diagnostic.append(diagnostic_target)
+                    else:
+                        surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
         
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
@@ -524,6 +576,8 @@ class GetDataset(Dataset):
                 current_ds.close()
                 targets_surface = torch.stack(targets_surface, dim=0)
                 targets_upper_air = torch.stack(targets_upper_air, dim=0)
+                if len(self.diagnostic_variables) > 0:
+                    targets_diagnostic = torch.stack(targets_diagnostic, dim=0)
             else: 
                 data_ds_start.close()
                     
@@ -585,11 +639,23 @@ class GetDataset(Dataset):
         gc.collect()
 
         if self.train:
-            return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
+            if len(self.diagnostic_variables) > 0:
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data, \
+                    torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
+            else:
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data,\
+                      torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
         elif self.validate and lead_times:
-            # return surface_t, upper_air_t, surface_t_target, upper_air_t_target, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx], self.params['autoreg_steps']])
-            return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+            if len(self.diagnostic_variables) > 0:
+                return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, \
+                    varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+            else:
+                return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, \
+                    torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
         elif lead_times:
             return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx, start_hour_diff[start_idx]])
         else:
-            return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
+            if len(self.diagnostic_variables) > 0:
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
+            else:
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])

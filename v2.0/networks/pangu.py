@@ -142,10 +142,11 @@ class PanguModel_Plasim(nn.Module):
         self.varying_boundary_variables = params.varying_boundary_variables
         self.num_varying_boundary_vars = len(params.varying_boundary_variables)
         try:
-            self.diagnostic_vars = params.diagnostic_vars
+            self.diagnostic_vars = params.diagnostic_variables
         except:
             self.diagnostic_vars = []
         self.num_diagnostic_vars = len(self.diagnostic_vars)
+        print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
         self.idx_upper_air_var_bound= self.varying_boundary_variables.index('rsdt') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
     
@@ -325,8 +326,9 @@ class PanguModel_Plasim(nn.Module):
             output_2D = self.patchrecovery2d(output_surface)
             output_surface = output_2D[:, :self.num_surface_vars]
             output_upper_air = self.patchrecovery3d(output_upper_air)
-        if len(self.num_diagnostic_vars) > 0:
-            output_diagnostic = output_2D[:, self.num_surface_vars:]
+        if self.num_diagnostic_vars > 0:
+            output_diagnostic = output_2D[:, self.num_surface_vars:].reshape(
+                output_upper_air.shape[0], -1, output_upper_air.shape[-2], output_upper_air.shape[-1])
             return output_surface, output_upper_air, output_diagnostic
         else:
             return output_surface, output_upper_air

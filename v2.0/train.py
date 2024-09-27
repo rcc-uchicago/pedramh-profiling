@@ -223,23 +223,36 @@ class Trainer():
         #                                                                                  year_start=params.train_year_start, 
         #                                                                                  year_end=params.train_year_end, train=True)
 
-        self.train_data_loaders = []
-        self.train_datasets = []
-        self.train_samplers = []
-
-        for year_start in range(params.train_year_start, params.train_year_end):
-            year_end = year_start + 1
+        if self.params.train_year_to_year:
+            self.train_data_loaders = []
+            self.train_datasets = []
+            self.train_samplers = []
+            for year_start in range(params.train_year_start, params.train_year_end):
+                year_end = year_start + 1
+                train_data_loader, train_dataset, train_sampler = get_data_loader(
+                    params, 
+                    params.data_dir, 
+                    dist.is_initialized(), 
+                    year_start=year_start, 
+                    year_end=year_end, 
+                    train=True
+                )
+                self.train_data_loaders.append(train_data_loader)
+                self.train_datasets.append(train_dataset)
+                self.train_samplers.append(train_sampler)
+        else:
             train_data_loader, train_dataset, train_sampler = get_data_loader(
-                params, 
-                params.data_dir, 
-                dist.is_initialized(), 
-                year_start=year_start, 
-                year_end=year_end, 
-                train=True
-            )
-            self.train_data_loaders.append(train_data_loader)
-            self.train_datasets.append(train_dataset)
-            self.train_samplers.append(train_sampler)
+                    params, 
+                    params.data_dir, 
+                    dist.is_initialized(), 
+                    year_start=params.train_year_start, 
+                    year_end=params.train_year_end, 
+                    train=True
+                )
+            self.train_data_loaders = [train_data_loader]
+            self.train_datasets = [train_dataset]
+            self.train_samplers = [train_sampler]
+
 
                                                                                 
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
@@ -248,8 +261,8 @@ class Trainer():
                                                                      num_inferences = params.num_inferences,
                                                                      validate = True)
         
-        print('Inference Idxs:')
-        print(self.valid_dataset.inference_idxs)
+        #print('Inference Idxs:')
+        #print(self.valid_dataset.inference_idxs)
 
         # self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
@@ -293,7 +306,7 @@ class Trainer():
                                                     amax_compute_algo="max")
         if params.log_to_wandb:
 
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project, entity=params.entity)
+            wandb.init(config=params, name=params.name, group=params.group, project=params.project)#, entity=params.entity)
 
             wandb.define_metric("custom_step")
             wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
@@ -685,7 +698,10 @@ class Trainer():
             current_dataset = self.train_datasets[year_idx]
             with torch.no_grad():
                 latitudes = current_dataset.lat.to(self.device, non_blocking=True)
-            logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
+            if self.params.train_year_to_year:
+                logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
+            else:
+                logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
             # pbar.set_description(f"Year {self.params.train_year_start + year_idx}")
             
             for i, data in enumerate(train_data_loader):
@@ -1090,8 +1106,8 @@ class Trainer():
                                                 dtype=np.float32)
                 if self.params.has_diagnostic:
                     val_output_diagnostic_acc = np.zeros((val_target_diagnostic.shape[0], max_lead_time,
-                                                    val_target_diagnostic.shape[1], val_target_diagnostic.shape[2],
-                                                    val_target_diagnostic.shape[3]), dtype=np.float32)
+                                                    val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
+                                                    val_target_diagnostic.shape[4]), dtype=np.float32)
                 
                 # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
@@ -1103,8 +1119,8 @@ class Trainer():
                                         dtype=np.float32)
                 if self.params.has_diagnostic:
                     val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
-                                                        val_target_diagnostic.shape[1], val_target_diagnostic.shape[2],
-                                                        val_target_diagnostic.shape[3]), dtype=np.float32)
+                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
+                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
                 
 
 
@@ -1127,7 +1143,10 @@ class Trainer():
                         val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                         val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
                         if self.params.has_diagnostic:
-                            val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_upper_air.cpu()).numpy()
+                            #print(f'val_output_diagnostic_acc[:,step].shape: {val_output_diagnostic_acc[:, step].shape}')
+                            #print(f'val_output_diagnostic.cpu().shape: {val_output_diagnostic.cpu().shape}')
+                            #print(f'self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape: {self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape}')
+                            val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
 
                       
                         # Calculate losses for different lead times
@@ -1184,7 +1203,7 @@ class Trainer():
                                 if self.params.has_diagnostic:
                                     acc_gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic.cpu()).numpy()
                                     acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True,
-                                                                             diagnostic_predictions = acc_gt_diagnostic)
+                                                                             diagnostic_prediction = acc_gt_diagnostic)
                                 else:
                                     acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True)
                                 acc_gt_prepared_datasets = [self.prepare_preds(ds, acc=True) for ds in acc_gt_datasets]
@@ -1196,7 +1215,7 @@ class Trainer():
                                 # Prepare the predictions (only forecast lead times)
                                 if self.params.has_diagnostic:
                                     datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False,
-                                                                      diagnostic_prediction = val_output_diagnostic)
+                                                                      diagnostic_prediction = val_output_diagnostic_t)
                                 else:
                                     datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False)
                                 prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in datasets]
@@ -1468,6 +1487,7 @@ if __name__ == '__main__':
             params['has_diagnostic'] = False
     else:
         params['has_diagnostic'] = False
+    print(f'Has diagnostic: {params.has_diagnostic}')
     # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 

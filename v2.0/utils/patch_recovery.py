@@ -149,11 +149,13 @@ class SubPixelConvICNR_3D(nn.Module):
 
     def forward(self, x: torch.Tensor):
         # first, split in dimension
+        # print(x.shape)
         x = x.reshape(x.shape[0], x.shape[1]//2, 2, *x.shape[2:]).flatten(2, 3)[:, :, 1:] # to make 13 vertical dims
-        
+        #print(x.shape)
         x = x.movedim(-3, 1).flatten(0, 1)
         output = self.conv(x)
         output = self.pixelshuffle(output)
+        #print(output.shape)
         output = output.reshape(-1, self.img_size[0], *output.shape[1:]).movedim(1, -3)
         
         _, _, Pl, Lat, Lon = output.shape
