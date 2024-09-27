@@ -139,11 +139,14 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
     #     print_info(clim, "Climatology")
 
     if clim is not None:
-        try:
+        if True:
             # print("\nAligning climatology:")
             # Remove 'zsfc' from climatology if it exists
             if 'zsfc' in clim:
                 clim = clim.drop_vars('zsfc')
+            if 'pr_12h' in da_fc:
+                clim['pr_12h'] = clim['tas'].copy()
+                clim['pr_12h'][:] = 0.
             
             # Reorder variables in climatology to match forecast data
             clim = clim[list(da_fc.data_vars)]
@@ -166,7 +169,8 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             a = da_true - climatology_aligned
 
 
-        except Exception as e:
+            #except Exception as e:
+        else:
             print(f"Error during climatology alignment or subtraction: {str(e)}")
             return xr.DataArray(np.nan, dims=['time'])
     else:
