@@ -1,0 +1,90 @@
+### base config ###
+base_config: &BASE
+  loss: 'weightedl1'
+  lr: 0.0001
+  weight_decay: 3e-6
+  scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
+  num_data_workers: 16
+  
+  log_to_screen: !!bool True
+  log_to_wandb: !!bool True
+  save_checkpoint: !!bool True
+
+  optimizer_type: 'Adam' #'FusedAdam'
+
+  plot_animations: !!bool False
+
+  nettype: 'pangu_plasim'
+  group: 'alex-optim'
+
+  exp_dir: 'results'
+
+  enable_fp8: False
+  fresh_start: True
+  use_transformer_engine: False
+  early_stopping: False
+
+  project: 'Pangu-PLASIM'
+  name: 'PLASIM-0150'
+
+
+
+PLASIM: &PLASIM
+  <<: *BASE
+  data_dir: '/scratch/midway2/awikner/PLASIM/train_val_test_data_pl'
+  boundary_dir: 'boundary_vars'
+  upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
+  surface_variables: ['pl', 'tas']
+  diagnostic_variables: ['pr_12h']
+  constant_boundary_variables: ['lsm', 'z0', 'sg']
+  varying_boundary_variables: ['sst', 'rsdt', 'sic']
+  train_year_start: 51
+  train_year_end: 151
+  val_year_start: 151
+  val_year_end: 152
+  surface_mean: 'plasim_pr_12h_51_150_surface_mean.nc'
+  surface_std: 'plasim_pr_12h_51_150_surface_std.nc'
+  #surface_ff_std: 'plasim_pr_12h_51_150_surface_std.nc'
+  upper_air_mean: 'plasim_pr_12h_51_150_mean.nc'
+  upper_air_std: 'plasim_pr_12h_51_150_std.nc'
+  #upper_air_ff_std: 'plasim_pr_12h_51_150_std.nc'
+  boundary_mean: 'plasim_test_51_150_boundary_mean.nc'
+  boundary_std: 'plasim_test_51_150_boundary_std.nc'
+  diagnostic_mean: 'plasim_pr_12h_51_150_surface_mean.nc'
+  diagnostic_std: 'plasim_pr_12h_51_150_surface_std.nc'
+  calendar: 'proleptic_gregorian'
+  timedelta_hours: 12
+  batch_size: 64
+  max_epochs: 100
+
+  has_year_zero: False
+
+  num_levels: 13
+  #levels: [5000., 10000., 20000., 25000., 40000., 50000., 70000., 85000., 92500., 100000.]
+  levels: []
+  horizontal_resolution: [64, 128]
+  depths: [2, 6, 6, 2]
+  predict_delta: False
+  patch_size: [2, 2, 2]
+  updown_scale_factor: 2
+  window_size: [2, 2, 4]
+  epsilon_factor: 0
+  upper_air_boundary: False
+  subpixel_deconv: True
+  vertical_windowing: False
+  train_year_to_year: False
+
+  diagnostic_logs: True
+  forecast_lead_times: [1, 6, 10, 20, 30]
+
+  lev: 'plev'
+  num_inferences: 100
+  #use_ff_input: False
+
+modified_1: &MODIFIED
+  <<: *BASE
+  lr: 5E-4
+  batch_size: 16 
+  max_epochs: 80 
+  scheduler: 'CosineAnnealingLR'
+  optimizer_type: 'FusedAdam'

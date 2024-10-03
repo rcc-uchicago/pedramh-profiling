@@ -1,12 +1,14 @@
 #!/bin/bash -l
 #SBATCH --account=pi-pedramh
-#SBATCH --time=2-00:00:00
+#SBATCH --time=3-00:00:00
 #SBATCH -p pedramh-gpu
-#SBATCH --mem-per-gpu=40G 
 #SBATCH --nodes=1
-#SBATCH --gpus=4       #gpus=a100:4
-#SBATCH --ntasks=4
-#SBATCH --cpus-per-task=8 #16 
+#SBATCH --exclusive
+#SBATCH --mem=0
+#SBATCH --ntasks-per-node=32
+#SBATCH --cpus-per-task=1
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=1 #16 
 #SBATCH -o outs/midway_ddp_%x_%j.out
 #SBATCH -e outs/midway_ddp_%x_%j.err
 
@@ -15,8 +17,10 @@
 #echo $SLURM_LOCALID  # LOCAL_RANK
 export MPICH_GPU_SUPPORT_ENABLED=1
 
+ulimit -l unlimited
+
 ml python/anaconda-2023.09
-conda activate /project/pedramh/anaconda/py311 
+source activate /project/pedramh/anaconda/py311 
 source /home/awikner/venvs/pangu-wandb/bin/activate  
 export WANDB_MODE=offline
 
@@ -41,4 +45,4 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export OMP_NUM_THREAD=8
 
 # Launch your script using torch.distributed.launch
-python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
+/project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
