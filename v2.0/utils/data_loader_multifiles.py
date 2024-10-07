@@ -257,20 +257,20 @@ class GetDataset(Dataset):
         if upper_air:
             if self.params.lev == 'lev':
                 with xr.open_dataset(mean_file) as ds:
-                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds.lev.values], \
+                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in self.data_dss[0].lev.values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
                 with xr.open_dataset(std_file) as ds:
-                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds.lev.values], \
+                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in self.data_dss[0].lev.values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
             elif self.params.lev == 'plev':
                 with xr.open_dataset(mean_file) as ds:
-                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds.plev.values], \
+                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in self.data_dss[0].plev.values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
                 with xr.open_dataset(std_file) as ds:
-                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds.plev.values], \
+                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in self.data_dss[0].plev.values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
         else:
@@ -394,6 +394,8 @@ class GetDataset(Dataset):
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
             for file in self.data_files:
                 data_ds = xr.open_mfdataset(file, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
+                if data_ds.time[1].item() < 1.:
+                    data_ds['time'] = data_ds['time'] * 24.
                 data_dss.append(data_ds)
         return data_dss
 
@@ -403,10 +405,13 @@ class GetDataset(Dataset):
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
             data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1},
                 engine='netcdf4', parallel=self.parallel, decode_cf=False)
+            if data_ds.time[1].item() < 1.:
+                    data_ds['time'] = data_ds['time'] * 24.
         return data_ds
     
     def _get_data(self, data_ds, year, hour, output = False):
-
+        
+        #print(data_ds['tas'].time)
         surface_da_list = [data_ds[var].sel(time=hour) for var in self.surface_variables]
         surface_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in surface_da_list], dim = 0)
         surface_data = self.surface_transform(surface_data)
