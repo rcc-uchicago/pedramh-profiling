@@ -198,7 +198,8 @@ class PanguModel_Plasim(nn.Module):
             depth=params.depths[0],
             num_heads=num_heads[0],
             window_size=self.window_size,
-            drop_path=drop_path[:depths_cumsum[0]])
+            drop_path=drop_path[:depths_cumsum[0]],
+            vertical_windowing=params.vertical_windowing)
         
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
                                      downsample_factor=params.updown_scale_factor)
@@ -209,7 +210,8 @@ class PanguModel_Plasim(nn.Module):
             depth=params.depths[1],
             num_heads=num_heads[1],
             window_size=self.window_size,
-            drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]])
+            drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]],
+            vertical_windowing=params.vertical_windowing)
         
         self.layer3 = EarthSpecificLayer(
             dim=embed_dim * params.updown_scale_factor,
@@ -217,7 +219,8 @@ class PanguModel_Plasim(nn.Module):
             depth=params.depths[2],
             num_heads=num_heads[2],
             window_size=self.window_size,
-            drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]])
+            drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]],
+            vertical_windowing=params.vertical_windowing)
         
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
@@ -228,7 +231,8 @@ class PanguModel_Plasim(nn.Module):
             depth=params.depths[3],
             num_heads=num_heads[3],
             window_size=self.window_size,
-            drop_path=drop_path[depths_cumsum[2]:])
+            drop_path=drop_path[depths_cumsum[2]:],
+            vertical_windowing=params.vertical_windowing)
         
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
         
@@ -531,7 +535,7 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, depth, num_heads, window_size, mlp_ratio=4., qkv_bias=True, qk_scale=None,
-                 drop=0., attn_drop=0., drop_path=0., norm_layer = nn.LayerNorm): # Using TE here is not working. 
+                 drop=0., attn_drop=0., drop_path=0., norm_layer = nn.LayerNorm, vertical_windowing = True): # Using TE here is not working. 
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -544,7 +548,7 @@ class EarthSpecificLayer(nn.Module): #BasicLayer(nn.Module):
                                shift_size=(0, 0, 0) if i % 2 == 0 else None, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
                                qk_scale=qk_scale, drop=drop, attn_drop=attn_drop,
                                drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
-                               norm_layer=norm_layer)
+                               norm_layer=norm_layer, vertical_windowing = vertical_windowing)
             for i in range(depth)
         ])
 
@@ -691,10 +695,11 @@ class EarthSpecificBlock(nn.Module):
     """
 
     def __init__(self, dim, input_resolution, num_heads, window_size=None, shift_size=None, mlp_ratio=4.,
-                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer = nn.LayerNorm): 
+                 qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer = nn.LayerNorm,
+                 vertical_windowing = True): 
         super().__init__()
         window_size = (2, 6, 12) if window_size is None else window_size
-        if self.vertical_windowing:
+        if vertical_windowing:
             shift_size = (window_size[0] // 2, window_size[1] // 2, window_size[2] // 2) if shift_size is None else shift_size
         else:
             shift_size = (0, window_size[1] // 2, window_size[2] // 2) if shift_size is None else shift_size

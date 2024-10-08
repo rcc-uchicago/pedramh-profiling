@@ -66,7 +66,6 @@ import cftime
 from datetime import timedelta
 import xarray as xr
 import warnings
-from netCDF4 import Dataset
 
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
