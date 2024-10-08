@@ -694,7 +694,10 @@ class EarthSpecificBlock(nn.Module):
                  qkv_bias=True, qk_scale=None, drop=0., attn_drop=0., drop_path=0., act_layer=nn.GELU, norm_layer = nn.LayerNorm): 
         super().__init__()
         window_size = (2, 6, 12) if window_size is None else window_size
-        shift_size = (1, 3, 6) if shift_size is None else shift_size
+        if self.vertical_windowing:
+            shift_size = (window_size[0] // 2, window_size[1] // 2, window_size[2] // 2) if shift_size is None else shift_size
+        else:
+            shift_size = (0, window_size[1] // 2, window_size[2] // 2) if shift_size is None else shift_size
         self.dim = dim
         self.input_resolution = input_resolution
         self.num_heads = num_heads
