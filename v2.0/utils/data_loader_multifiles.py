@@ -403,7 +403,7 @@ class GetDataset(Dataset):
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
                                     message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            data_nc = Dataset(self.data_files[year_idx], 'r', parallel = True)
+            #data_nc = Dataset(self.data_files[year_idx], 'r', parallel = True)
             data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1},
                 engine='netcdf4', parallel=self.parallel, decode_cf=False)
             if data_ds.time[1].item() < 1.:
