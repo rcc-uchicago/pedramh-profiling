@@ -400,7 +400,10 @@ class Trainer():
                 self.optimizer,
                 max_lr=params.lr,
                 total_steps=total_steps,
-                last_epoch=self.startEpoch-1
+                last_epoch=self.startEpoch-1,
+                pct_start = pct_start,
+                div_factor = div_factor,
+                final_div_factor=final_div_factor
             )
         else:
             self.scheduler = None
