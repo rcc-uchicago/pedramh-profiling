@@ -383,7 +383,8 @@ class Trainer():
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                 self.optimizer,
                 max_lr=params.lr,
-                total_steps=total_steps
+                total_steps=total_steps,
+                last_epoch=self.startEpoch-1
             )
         else:
             self.scheduler = None

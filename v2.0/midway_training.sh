@@ -7,9 +7,9 @@
 ##SBATCH --time=8:00:00
 #SBATCH --nodes=1
 ###SBATCH --nodelist=midway3-0559
-#SBATCH --mem=200G
-#SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2
+#SBATCH --mem=0
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8 #16 
 #SBATCH -o outs/midway_ddp_%x_%j.out
 #SBATCH -e outs/midway_ddp_%x_%j.err
@@ -47,4 +47,4 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export OMP_NUM_THREAD=8
 
 # Launch your script using torch.distributed.launch
-/project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=2 train.py --yaml_config=$2 --run_num=$1
+/project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
