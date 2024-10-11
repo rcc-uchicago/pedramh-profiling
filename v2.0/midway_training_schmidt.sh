@@ -1,9 +1,10 @@
 #!/bin/bash -l
-#SBATCH -p schmidt-gpu 
-#SBATCH --account=pi-dfreeman
+#SBATCH -p schmidt-gpu
+#SBATCH --account=pi-dfreedman
+#SBATCH --qos=schmidt
 #SBATCH --time=8:00:00
 #SBATCH --nodes=1
-#SBATCH --nodelist=midway3-0559
+#SBATCH --exclusive
 #SBATCH --mem=0
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4

@@ -132,6 +132,8 @@ class PanguModel_Plasim(nn.Module):
         self.predict_delta = params.predict_delta
         self.window_size = params.window_size
         self.vertical_windowing=params.vertical_windowing
+        self.embed_dim = embed_dim
+        self.updown_scale_factor = params.updown_scale_factor
         if hasattr(params, 'subpixel_deconv'):
             self.subpixel_deconv = params.subpixel_deconv
         else:
@@ -201,6 +203,17 @@ class PanguModel_Plasim(nn.Module):
             drop_path=drop_path[:depths_cumsum[0]],
             vertical_windowing=params.vertical_windowing)
         
+        print('Embed Dim:')
+        print(embed_dim)
+        print('Input resolution:')
+        print(EST_input_resolution)
+        print('depth')
+        print(params.depths[0])
+        print('num_heads')
+        print(num_heads[0])
+        print('drop_path:')
+        print(drop_path[:depths_cumsum[0]])
+        
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
                                      downsample_factor=params.updown_scale_factor)
         
@@ -238,8 +251,9 @@ class PanguModel_Plasim(nn.Module):
         
         if self.subpixel_deconv:
             from utils.patch_recovery import SubPixelConvICNR_2D, SubPixelConvICNR_3D
-            self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
-            self.patchrecovery3d = SubPixelConvICNR_3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
+            self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars,
+                                                       )
+            self.patchrecovery3d = SubPixelConvICNR_3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front)
             
         else:
             self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
@@ -263,18 +277,39 @@ class PanguModel_Plasim(nn.Module):
 
             surface = torch.cat([surface_in, constant_boundary, surface_varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
+            #print(f'Shape after 2D patch embedding:{surface.shape}')
+            #print(surface[0,0,:,0])
+            #print(surface[0,0,:,-1])
+            #print(torch.std(surface, dim=(0,1,3)))
+            #print(torch.std(surface))
             upper_air_varying_boundary = self.patchembed2d_upper_air_boundary(upper_air_varying_boundary)
             # print(upper_air_varying_boundary.size())
             upper_air = self.patchembed3d(upper_air_in)
+            #print(f'Shape after 3D patch embedding:{upper_air.shape}')
+            #print(upper_air[0,0,0,:,0])
+            #print(upper_air[0,0,0,:,-1])
+            #print(torch.std(upper_air, dim=(0,1,4)))
+            #print(torch.std(upper_air))
 
             x = torch.cat([upper_air_varying_boundary.unsqueeze(2), upper_air, surface.unsqueeze(2)], dim=2)
+            #print(f'Shape after patch embedding:{x.shape}')
+            #print(x[0,0,0,:,0])
+            #print(x[0,0,0,:,-1])
+            #print(torch.std(x, dim=(0,1,4)))
+            #print(torch.std(x))
+
 
         else:
             surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air_in)
 
+
             x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
+            #print(f'Shape after patch embedding:{x.shape}')
+            #print(x[0,0,0,:,0])
+            #print(x[0,0,0,:,-1])
+            #print(torch.std(x, dim=(0,1,4)))
 
        
         # print(x.size())
@@ -296,28 +331,68 @@ class PanguModel_Plasim(nn.Module):
         if USE_TE:
             # with te.fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe):
             x = self.layer1(x)
+            #print(f'Shape after layer 1: {x.shape}')
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
             skip = x
             x = self.downsample(x)
+            #print(f'Shape after downsample: {x.shape}')
+            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
+            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
+            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
+            #print(torch.std(x))
             x = self.layer2(x)
             x = self.layer3(x)
             x = self.upsample(x)
+            #print(f'Shape after upsample: {x.shape}')
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(torch.std(x))
             x = self.layer4(x)
         else:
             # with amp.autocast(enabled=True):
             x = self.layer1(x)
+            #print(f'Shape after layer 1: {x.shape}')
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
             skip = x
             x = self.downsample(x)
+            #print(f'Shape after downsample: {x.shape}')
+            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
+            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
+            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
+            #print(torch.std(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
+            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor), dim=(0,3,4)))
             x = self.layer2(x)
             x = self.layer3(x)
             x = self.upsample(x)
+            #print(f'Shape after upsample: {x.shape}')
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
             x = self.layer4(x)
+            #print(f'Shape after layer 4: {x.shape}')
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
+            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
+        #print(f'Shape after concatenation: {output.shape}')
+        #print(output[0,-1,0,:,0])
+        #print(output[0,-1,0,:,0])
+        #print(torch.std(output.mean(dim=1), dim = (0,3)))
 
         if self.predict_delta:
             output_surface_delta  = output[:, :, -1, :, :]
-            output_upper_air_delta = output[:, :, :-1, :, :]
+            if self.upper_air_boundary:
+                output_upper_air_delta = output[:, :, 1:-1, :, :]
+            else:
+                output_upper_air_delta = output[:, :, :-1, :, :]
 
             output_2D = self.patchrecovery2d(output_surface_delta)
             output_upper_air_delta = self.patchrecovery3d(output_upper_air_delta)
@@ -325,11 +400,24 @@ class PanguModel_Plasim(nn.Module):
             output_upper_air = upper_air_in + output_upper_air_delta
         else:
             output_surface = output[:, :, -1, :, :]
-            output_upper_air = output[:, :, :-1, :, :]
+            if self.upper_air_boundary:
+                output_upper_air = output[:, :, 1:-1, :, :]
+            else:
+                output_upper_air = output[:, :, :-1, :, :]
 
             output_2D = self.patchrecovery2d(output_surface)
+            #print(f'Shape after 2D patch recovery:{x.shape}')
+            #print(output_2D[0,0,:,0])
+            #print(output_2D[0,0,:,-1])
+            #print(torch.std(output_2D, dim=(0,1,3)))
+            #print(torch.std(output_2D))
             output_surface = output_2D[:, :self.num_surface_vars]
             output_upper_air = self.patchrecovery3d(output_upper_air)
+            #print(f'Shape after 3D patch recovery:{x.shape}')
+            #print(output_upper_air[0,0,0,:,0])
+            #print(output_upper_air[0,0,0,:,-1])
+            #print(torch.std(output_upper_air, dim=(0,1,4)))
+            #print(torch.std(output_upper_air))
         if self.num_diagnostic_vars > 0:
             output_diagnostic = output_2D[:, self.num_surface_vars:].reshape(
                 output_upper_air.shape[0], -1, output_upper_air.shape[-2], output_upper_air.shape[-1])
@@ -735,7 +823,10 @@ class EarthSpecificBlock(nn.Module):
         self.mlp = Mlp(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
 
         shift_pl, shift_lat, shift_lon = self.shift_size
-        self.roll = shift_pl and shift_lon and shift_lat
+        if vertical_windowing:
+            self.roll = shift_pl and shift_lon and shift_lat
+        else:
+            self.roll = shift_lon and shift_lat
 
         if self.roll:
             attn_mask = get_shift_window_mask(pad_resolution, window_size, shift_size)

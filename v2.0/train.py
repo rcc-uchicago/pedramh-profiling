@@ -382,15 +382,15 @@ class Trainer():
         elif params.scheduler == 'OneCycleLR':
             # total_steps = len(self.train_data_loader) * params.max_epochs
             total_steps = sum(len(loader) for loader in self.train_data_loaders) * params.max_epochs
-            if 'oc_pct_start' in params.keys():
+            if hasattr(params, 'oc_pct_start'):
                 pct_start = params.oc_pct_start
             else:
                 pct_start = 0.3
-            if 'oc_div_factor' in params.keys():
+            if hasattr(params, 'oc_div_factor'):
                 div_factor = params.oc_div_factor
             else:
                 div_factor = 25
-            if 'oc_final_div_factor' in params.keys():
+            if hasattr(params, 'oc_final_div_factor'):
                 final_div_factor = params.oc_final_div_factor
             else:
                 final_div_factor = 1e4
