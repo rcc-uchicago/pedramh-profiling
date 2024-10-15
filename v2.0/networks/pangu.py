@@ -64,6 +64,9 @@ from utils.pad import get_pad3d
 from utils.shift_window_mask import get_shift_window_mask, window_partition, window_reverse
 from utils.crop import crop3d
 from timm.models.layers import trunc_normal_, DropPath
+from utils.integrate import forward_euler
+import os
+import xarray as xr
 
 # Global flag for using Transformer Engine, initially set to True
 USE_TE = False
@@ -94,7 +97,8 @@ class PanguModel_Plasim(nn.Module):
         window_size (tuple[int]): Window size.
     """
 
-    def __init__(self, params, num_heads=(6, 12, 12, 6), drop_path=None):
+    def __init__(self, params, num_heads=(6, 12, 12, 6), drop_path=None, land_mask = None, land_mask_fill = None,
+                 surface_ff_std = None, surface_delta_std = None, upper_air_ff_std = None, upper_air_delta_std = None):
         super().__init__() 
         #####
         global USE_TE
@@ -127,9 +131,28 @@ class PanguModel_Plasim(nn.Module):
         self.num_surface_vars = len(params.surface_variables)
         self.num_atmo_vars = len(params.upper_air_variables)
         self.num_boundary_vars = len(params.constant_boundary_variables) + len(params.varying_boundary_variables)
-        atmo_resolution = [params.num_levels] + params.horizontal_resolution
+        self.atmo_resolution = [params.num_levels] + params.horizontal_resolution
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
+        if self.predict_delta:
+            try:
+                assert None not in [surface_ff_std, surface_delta_std, upper_air_ff_std, upper_air_delta_std]
+            except:
+                raise ValueError('surface_ff_std, surface_delta_std, upper_air_ff_std, and upper_air_delta_std must be defined if predict_delta = True.')
+            self.surface_ff_std = surface_ff_std
+            self.surface_delta_std = surface_delta_std
+            self.upper_air_ff_std = upper_air_ff_std
+            self.upper_air_delta_std = upper_air_delta_std
+            if hasattr(params, delta_integrator):
+                delta_integrator = params.delta_integrator
+            else:
+                delta_integrator = 'forward_euler'
+            if delta_integrator == 'forward_euler':
+                self.delta_integrator = forward_euler
+            else:
+                raise ValueError(f'delta_integrator must be in {['forward_euler']}')
+            
+
         self.window_size = params.window_size
         self.vertical_windowing=params.vertical_windowing
         self.embed_dim = embed_dim
@@ -138,6 +161,7 @@ class PanguModel_Plasim(nn.Module):
             self.subpixel_deconv = params.subpixel_deconv
         else:
             self.subpixel_deconv = False
+        
         
 
         self.upper_air_boundary = params.upper_air_boundary
@@ -172,7 +196,7 @@ class PanguModel_Plasim(nn.Module):
             
         
         self.patchembed3d = PatchEmbed3D(
-            img_size=atmo_resolution,
+            img_size=self.atmo_resolution,
             patch_size=params.patch_size,
             in_chans=self.num_atmo_vars,
             embed_dim=embed_dim)
@@ -253,11 +277,34 @@ class PanguModel_Plasim(nn.Module):
             from utils.patch_recovery import SubPixelConvICNR_2D, SubPixelConvICNR_3D
             self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars,
                                                        )
-            self.patchrecovery3d = SubPixelConvICNR_3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front)
+            self.patchrecovery3d = SubPixelConvICNR_3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front)
             
         else:
             self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
-            self.patchrecovery3d = PatchRecovery3D(atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
+            self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
+        
+        # Masked output
+
+        if hasattr(params, land_variables):
+            if len(params.land_variables) > 0:
+                self.has_land = True
+                if land_mask is not None:
+                    self.land_mask = land_mask
+                else:
+                    lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
+                    land_mask_ds   = xr.open_dataset(lm_file)
+                    self.land_mask = torch.from_numpy(land_mask_ds.lsm.values, dtype = torch.float32)
+                    nans = torch.isnan(self.land_mask)
+                    self.land_mask = self.land_mask.masked_fill_(nans, 0.)
+                    land_mask_ds.close()
+                if not self.predict_delta:
+                    self.land_mask_fill = torch.stack([(1. - self.land_mask) * land_mask_fill[var] for var in self.land_variables])
+                self.land_idxs = [var in params.land_variables for var in params.surface_variables]
+            else:
+                self.has_land = False
+        else:
+            self.has_land = False
+
 
     def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in):
         """
@@ -393,11 +440,11 @@ class PanguModel_Plasim(nn.Module):
                 output_upper_air_delta = output[:, :, 1:-1, :, :]
             else:
                 output_upper_air_delta = output[:, :, :-1, :, :]
-
             output_2D = self.patchrecovery2d(output_surface_delta)
+            output_surface = output_2D[:, :self.num_surface_vars]
+            if self.has_land:
+                output_surface[:, self.land_idxs] = output_surface[:, self.land_idxs] * self.land_mask
             output_upper_air_delta = self.patchrecovery3d(output_upper_air_delta)
-            output_surface = surface_in + output_2D[:, :self.num_surface_vars]
-            output_upper_air = upper_air_in + output_upper_air_delta
         else:
             output_surface = output[:, :, -1, :, :]
             if self.upper_air_boundary:
@@ -406,6 +453,8 @@ class PanguModel_Plasim(nn.Module):
                 output_upper_air = output[:, :, :-1, :, :]
 
             output_2D = self.patchrecovery2d(output_surface)
+            if self.has_land:
+                output_2D[:, self.land_idxs] = output_2D[:, self.land_idxs] * self.land_mask + self.land_mask_fill
             #print(f'Shape after 2D patch recovery:{x.shape}')
             #print(output_2D[0,0,:,0])
             #print(output_2D[0,0,:,-1])
@@ -424,6 +473,17 @@ class PanguModel_Plasim(nn.Module):
             return output_surface, output_upper_air, output_diagnostic
         else:
             return output_surface, output_upper_air
+        
+    def integrate(self, surface, upper_air, surface_dx, upper_air_dx):
+        if not self.predict_delta:
+            raise ValueError('Model is set to predict full field. integrate cannot be called.')
+        else:
+            output_surface = self.delta_integrator(surface, surface_dx * (self.surface_delta_std / self.surface_ff_std).reshape(1, -1, 1, 1), 1.)
+            output_upper_air = self.delta_integrator(upper_air, 
+                                                        upper_air_dx * (self.upper_air_delta_std / self.upper_air_ff_std).reshape(1, -1, self.atmo_resolution[0], 1, 1),
+                                                        1.)
+            return output_surface, output_upper_air
+        
 
 '''
 PatchEmbed2D and PatchEmbed3D from utils.patch_embed

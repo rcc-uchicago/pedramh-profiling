@@ -108,7 +108,7 @@ class GetDataset(Dataset):
         #self._get_files_stats()
 
         self.has_year_zero = params.has_year_zero
-        self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., }
+        self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
 
         self.year_start = year_start
         self.year_end = year_end
@@ -174,6 +174,18 @@ class GetDataset(Dataset):
                 self.diagnostic_mean, self.diagnostic_std = self.load_mean_std(join(data_dir, params.diagnostic_mean),
                                                                                     join(data_dir, params.diagnostic_std),
                                                                                     self.diagnostic_variables, upper_air = False)
+            else:
+                self.diagnostic_variables = []
+        else:
+            self.diagnostic_variables = []
+
+        if hasattr(params, 'land_variables'):
+            if len(params.land_variables) > 0:
+                self.land_variables = params.land_variables
+            else:
+                self.land_variables = []
+        else:
+            self.land_variables = []
                 #self.diagnostic_inv_transform = self._create_diagnostic_inv_transform()
 
         #self.surface_transform = self._create_surface_transform()
@@ -413,8 +425,18 @@ class GetDataset(Dataset):
     def _get_data(self, data_ds, year, hour, output = False):
         
         #print(data_ds['tas'].time)
-        surface_da_list = [data_ds[var].sel(time=hour) for var in self.surface_variables]
-        surface_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in surface_da_list], dim = 0)
+        surface_da_list = []
+        for var in self.surface_variables:
+            if var in self.land_variables:
+                var_data = torch.from_numpy(data_ds[var].sel(time=hour).values).to(torch.float32)
+                nans = torch.isnan(var_data)
+                if torch.any(nans):
+                        var_data = var_data.masked_fill(nans, self.mask_fill[var])
+                surface_da_list.append(var_data)
+            else:
+                surface_da_list.append(torch.from_numpy(data_ds[var].sel(time=hour).values).to(torch.float32))
+        surface_data = torch.stack(surface_da_list, dim = 0)
+
         surface_data = self.surface_transform(surface_data)
         #for da in surface_da_list:
         #    da[:] = np.nan

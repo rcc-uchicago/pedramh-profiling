@@ -381,7 +381,8 @@ class Trainer():
                                                                         last_epoch=self.startEpoch-1)
         elif params.scheduler == 'OneCycleLR':
             # total_steps = len(self.train_data_loader) * params.max_epochs
-            total_steps = sum(len(loader) for loader in self.train_data_loaders) * params.max_epochs
+            steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
+            total_steps = steps_per_epoch * params.max_epochs
             if hasattr(params, 'oc_pct_start'):
                 pct_start = params.oc_pct_start
             else:
@@ -395,16 +396,27 @@ class Trainer():
             else:
                 final_div_factor = 1e4
 
-
-            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                self.optimizer,
-                max_lr=params.lr,
-                total_steps=total_steps,
-                last_epoch=self.startEpoch-1,
-                pct_start = pct_start,
-                div_factor = div_factor,
-                final_div_factor=final_div_factor
-            )
+            if self.startEpoch < 1:
+                self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                    self.optimizer,
+                    max_lr=params.lr,
+                    total_steps=total_steps,
+                    steps_per_epoch=steps_per_epoch,
+                    pct_start = pct_start,
+                    div_factor = div_factor,
+                    final_div_factor=final_div_factor
+                )
+            else:
+                self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                    self.optimizer,
+                    max_lr=params.lr,
+                    total_steps=total_steps,
+                    steps_per_epoch=steps_per_epoch,
+                    last_epoch=(self.startEpoch-1) * steps_per_epoch,
+                    pct_start = pct_start,
+                    div_factor = div_factor,
+                    final_div_factor=final_div_factor
+                )
         else:
             self.scheduler = None
 
@@ -777,6 +789,9 @@ class Trainer():
                     self.scheduler.step()
 
                 with torch.no_grad():
+                    if self.params.predict_delta:
+                        output_surface, output_upper_air = self.model.integrate(input_surface, input_upper_air, output_surface, output_upper_air)
+                        target_surface, target_upper_air = self.model.integrate(input_surface, input_upper_air, target_surface, target_upper_air)
                     surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
                     upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
                     if self.params.has_diagnostic:
@@ -1158,17 +1173,6 @@ class Trainer():
                         else:
                             val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
                                                                                   val_varying_boundary_data[:, step], val_output_upper_air)
-                        
-                        # Store output for ACC calculation (all time steps)
-                        val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                        val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                        if self.params.has_diagnostic:
-                            #print(f'val_output_diagnostic_acc[:,step].shape: {val_output_diagnostic_acc[:, step].shape}')
-                            #print(f'val_output_diagnostic.cpu().shape: {val_output_diagnostic.cpu().shape}')
-                            #print(f'self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape: {self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape}')
-                            val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
-
-                      
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
                             # target_index = lead_times_steps.index(step + 1)
@@ -1187,6 +1191,24 @@ class Trainer():
                                 valid_loss_pl += loss_pl
                                 if self.params.has_diagnostic:
                                     valid_loss_diag += loss_diag
+
+                        if self.predict_delta:
+                            val_output_surface, val_output_upper_air = self.model.integrate(val_input_surface, val_input_upper_air, val_output_surface,
+                                                                                            val_output_upper_air)
+                            val_target_surface, val_target_upper_air = self.model.integrate(val_input_surface, val_input_upper_air, val_target_surface,
+                                                                                            val_target_upper_air)
+                        # Store output for ACC calculation (all time steps)
+                        val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
+                        val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
+                        if self.params.has_diagnostic:
+                            #print(f'val_output_diagnostic_acc[:,step].shape: {val_output_diagnostic_acc[:, step].shape}')
+                            #print(f'val_output_diagnostic.cpu().shape: {val_output_diagnostic.cpu().shape}')
+                            #print(f'self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape: {self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape}')
+                            val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
+
+                      
+                        # Calculate losses for different lead times
+                        if (step + 1) in lead_times_steps:
 
                             # Calculate RMSE
                             rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], latitudes)
