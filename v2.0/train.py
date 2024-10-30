@@ -343,7 +343,19 @@ class Trainer():
 
 
         if params.nettype == 'pangu_plasim':
-            self.model = PanguModel_Plasim(params).to(self.device)
+            if len(self.train_datasets[0].land_variables) > 0:
+                land_mask = torch.clone(self.train_datasets[0].constant_boundary_data[np.array(self.params.constant_boundary_variables) == 'lsm'].detach()).to(self.device)
+                print(f'Land Mask shape: {land_mask.shape}')
+            else:
+                land_mask = None
+            if self.params.predict_delta:
+                self.model = PanguModel_Plasim(params, land_mask = land_mask,
+                                               surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
+                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
+            else:
+                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
@@ -764,6 +776,9 @@ class Trainer():
                     if self.params.has_diagnostic:
                         output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
                                                                     varying_boundary_data, input_upper_air)
+                        #print(output_surface.shape)
+                        #print(output_upper_air.shape)
+                        #print(output_diagnostic.shape)
                         loss_diagnostic = self.loss_obj_sfc(output_diagnostic, target_diagnostic)
                     else:
                         output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
@@ -790,8 +805,16 @@ class Trainer():
 
                 with torch.no_grad():
                     if self.params.predict_delta:
+                        #print(input_surface.shape)
+                        #print(input_upper_air.shape)
+                        #print(target_surface.shape)
+                        #print(target_upper_air.shape)
                         output_surface, output_upper_air = self.model.integrate(input_surface, input_upper_air, output_surface, output_upper_air)
                         target_surface, target_upper_air = self.model.integrate(input_surface, input_upper_air, target_surface, target_upper_air)
+                        #print(output_surface.shape)
+                        #print(output_upper_air.shape)
+                        #print(target_surface.shape)
+                        #print(target_upper_air.shape)
                     surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
                     upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
                     if self.params.has_diagnostic:
@@ -1111,12 +1134,20 @@ class Trainer():
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
                 #if i >= n_valid_batches:
                 #    break
-                if self.params.has_diagnostic:
-                    val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
-                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                if self.params.predict_delta:
+                    if self.params.has_diagnostic:
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_target_surface_delta, val_target_upper_air_delta,\
+                            val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    else:
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_surface_delta, val_target_upper_air_delta,\
+                            val_varying_boundary_data, times = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 else:
-                    val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
-                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    if self.params.has_diagnostic:
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_varying_boundary_data, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    else:
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times = map(
+                            lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
 
                 # get the correct start times for each sample
@@ -1164,21 +1195,25 @@ class Trainer():
                 with precision_context:
 
                      # Autoregressive prediction
-                    val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
+                    # val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
                     step_idx = 0
                     for step in range(max_lead_time):
                         if self.params.has_diagnostic:
                             val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
-                                val_output_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_output_upper_air)
+                                val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         else:
-                            val_output_surface, val_output_upper_air = self.model(val_output_surface, self.constant_boundary_data, 
-                                                                                  val_varying_boundary_data[:, step], val_output_upper_air)
+                            val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                                  val_varying_boundary_data[:, step], val_input_upper_air)
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
                             # target_index = lead_times_steps.index(step + 1)
-                            target_index = step 
-                            loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[:,target_index])
-                            loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[:,target_index])
+                            target_index = step
+                            if self.params.predict_delta:
+                                loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface_delta[:,target_index])
+                                loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air_delta[:,target_index])
+                            else:
+                                loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[:,target_index])
+                                loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[:,target_index])
                             if self.params.has_diagnostic:
                                 loss_diag = self.loss_obj_sfc(val_output_diagnostic, val_target_diagnostic[:,target_index])
                                 loss = (loss_sfc + loss_diag) * 0.25 + loss_pl
@@ -1192,11 +1227,9 @@ class Trainer():
                                 if self.params.has_diagnostic:
                                     valid_loss_diag += loss_diag
 
-                        if self.predict_delta:
+                        if self.params.predict_delta:
                             val_output_surface, val_output_upper_air = self.model.integrate(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                             val_output_upper_air)
-                            val_target_surface, val_target_upper_air = self.model.integrate(val_input_surface, val_input_upper_air, val_target_surface,
-                                                                                            val_target_upper_air)
                         # Store output for ACC calculation (all time steps)
                         val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                         val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
@@ -1287,6 +1320,7 @@ class Trainer():
                                 all_ground_truths.append(gt_combined_dataset)
 
                             step_idx += 1
+                        val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
                 valid_steps += 1.
         
 

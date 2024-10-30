@@ -27,7 +27,7 @@ source /home/awikner/venvs/pangu-wandb/bin/activate
 export WANDB_MODE=offline
 
 # Change to working directory
-cd $SLURM_SUBMIT_DIR
+#cd $SLURM_SUBMIT_DIR
 source export_DDP_vars.sh
 
 # MPI and OpenMP settings
@@ -45,6 +45,8 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export WORLD_SIZE
 #export RANK=$SLURM_ARRAY_TASK_ID
 #export OMP_NUM_THREAD=8
+
+export NUM_TASKS_PER_NODE=1
 
 # Launch your script using torch.distributed.launch
 /project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1

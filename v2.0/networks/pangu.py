@@ -140,17 +140,21 @@ class PanguModel_Plasim(nn.Module):
             except:
                 raise ValueError('surface_ff_std, surface_delta_std, upper_air_ff_std, and upper_air_delta_std must be defined if predict_delta = True.')
             self.surface_ff_std = surface_ff_std
+            self.surface_ff_std.requires_grad = False
             self.surface_delta_std = surface_delta_std
+            self.surface_delta_std.requires_grad = False
             self.upper_air_ff_std = upper_air_ff_std
+            self.upper_air_ff_std.requires_grad = False
             self.upper_air_delta_std = upper_air_delta_std
-            if hasattr(params, delta_integrator):
+            self.upper_air_delta_std.requires_grad = False
+            if hasattr(params, 'delta_integrator'):
                 delta_integrator = params.delta_integrator
             else:
                 delta_integrator = 'forward_euler'
             if delta_integrator == 'forward_euler':
                 self.delta_integrator = forward_euler
             else:
-                raise ValueError(f'delta_integrator must be in {['forward_euler']}')
+                raise ValueError(f'delta_integrator must be in {["forward_euler"]}')
             
 
         self.window_size = params.window_size
@@ -159,8 +163,22 @@ class PanguModel_Plasim(nn.Module):
         self.updown_scale_factor = params.updown_scale_factor
         if hasattr(params, 'subpixel_deconv'):
             self.subpixel_deconv = params.subpixel_deconv
+            if hasattr(params, 'polar_pad'):
+                self.polar_pad = params.polar_pad
+                if self.polar_pad and hasattr(params, 'grid_has_poles'):
+                    grid_has_poles = params.grid_has_poles
+                elif self.polar_pad:
+                    print('Polar padding for patch recovery is enables, but grid_has_poles is unspecified. If grid has poles, this will lead to patch artifacts.')
+                    grid_has_poles = False
+                else:
+                    grid_has_poles = False
+
+            else:
+                self.polar_pad = False
+                grid_has_poles = False
         else:
             self.subpixel_deconv = False
+            grid_has_poles = False
         
         
 
@@ -276,8 +294,9 @@ class PanguModel_Plasim(nn.Module):
         if self.subpixel_deconv:
             from utils.patch_recovery import SubPixelConvICNR_2D, SubPixelConvICNR_3D
             self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars,
-                                                       )
-            self.patchrecovery3d = SubPixelConvICNR_3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front)
+                                                       num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
+            self.patchrecovery3d = SubPixelConvICNR_3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front,
+                                                       num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
             
         else:
             self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
@@ -285,7 +304,7 @@ class PanguModel_Plasim(nn.Module):
         
         # Masked output
 
-        if hasattr(params, land_variables):
+        if hasattr(params, 'land_variables'):
             if len(params.land_variables) > 0:
                 self.has_land = True
                 if land_mask is not None:
@@ -293,12 +312,18 @@ class PanguModel_Plasim(nn.Module):
                 else:
                     lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
                     land_mask_ds   = xr.open_dataset(lm_file)
-                    self.land_mask = torch.from_numpy(land_mask_ds.lsm.values, dtype = torch.float32)
-                    nans = torch.isnan(self.land_mask)
-                    self.land_mask = self.land_mask.masked_fill_(nans, 0.)
+                    land_mask = torch.from_numpy(land_mask_ds.lsm.values).to(torch.float32)
+                    nans = torch.isnan(land_mask)
+                    land_mask = land_mask.masked_fill_(nans, 0.)
                     land_mask_ds.close()
+                self.land_mask = torch.nn.Linear(self.atmo_resolution[1]*self.atmo_resolution[2],
+                                                 self.atmo_resolution[1]*self.atmo_resolution[2], bias = False if self.predict_delta else True)
+                self.land_mask.weight.data.copy_(land_mask.flatten())
                 if not self.predict_delta:
-                    self.land_mask_fill = torch.stack([(1. - self.land_mask) * land_mask_fill[var] for var in self.land_variables])
+                    land_mask_fill = torch.stack([(1. - land_mask) * land_mask_fill[var] for var in self.land_variables])
+                    self.land_mask.bias.data.copy_(land_mask_fill.flatten())
+                for param in self.land_mask.parameters():
+                    param.requires_grad = False
                 self.land_idxs = [var in params.land_variables for var in params.surface_variables]
             else:
                 self.has_land = False
@@ -443,8 +468,8 @@ class PanguModel_Plasim(nn.Module):
             output_2D = self.patchrecovery2d(output_surface_delta)
             output_surface = output_2D[:, :self.num_surface_vars]
             if self.has_land:
-                output_surface[:, self.land_idxs] = output_surface[:, self.land_idxs] * self.land_mask
-            output_upper_air_delta = self.patchrecovery3d(output_upper_air_delta)
+                output_surface[:, self.land_idxs] = self.land_mask(output_surface[:, self.land_idxs].flatten(start_dim=-2)).reshape(*output_surface[:, self.land_idxs].shape)
+            output_upper_air = self.patchrecovery3d(output_upper_air_delta)
         else:
             output_surface = output[:, :, -1, :, :]
             if self.upper_air_boundary:
@@ -454,7 +479,7 @@ class PanguModel_Plasim(nn.Module):
 
             output_2D = self.patchrecovery2d(output_surface)
             if self.has_land:
-                output_2D[:, self.land_idxs] = output_2D[:, self.land_idxs] * self.land_mask + self.land_mask_fill
+                output_2D[:, self.land_idxs] = self.land_mask(output_surface[:, self.land_idxs].flatten(start_dim=-2)).reshape(*output_surface[:, self.land_idxs].shape)
             #print(f'Shape after 2D patch recovery:{x.shape}')
             #print(output_2D[0,0,:,0])
             #print(output_2D[0,0,:,-1])
@@ -469,7 +494,7 @@ class PanguModel_Plasim(nn.Module):
             #print(torch.std(output_upper_air))
         if self.num_diagnostic_vars > 0:
             output_diagnostic = output_2D[:, self.num_surface_vars:].reshape(
-                output_upper_air.shape[0], -1, output_upper_air.shape[-2], output_upper_air.shape[-1])
+                output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
             return output_surface, output_upper_air, output_diagnostic
         else:
             return output_surface, output_upper_air

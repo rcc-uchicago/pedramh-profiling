@@ -96,11 +96,14 @@ class SubPixelConvICNR_2D(nn.Module):
         out_chans (int): Number of output channels.
     """
 
-    def __init__(self, img_size, patch_size, in_chans, out_chans):
+    def __init__(self, img_size, patch_size, in_chans, out_chans, num_lat = None, polar_pad = True, grid_has_poles = False):
         super().__init__()
         self.img_size = img_size
         assert patch_size[0] == patch_size[1], 'mismatch'
-        self.pad_zero = nn.ZeroPad2d((0, 0, 1, 1))
+        if polar_pad:
+            self.pad_poles = PolarPad2d((1, 1), num_lat=num_lat, grid_has_poles=grid_has_poles)
+        else:
+            self.pad_poles = nn.ZeroPad2d((0, 0, 1, 1))
         self.pad_circular = nn.CircularPad2d((1, 1, 0, 0))
         self.conv = nn.Conv2d(in_chans, out_chans*patch_size[0]**2, kernel_size=3, stride=1, padding=0, bias=0)
         self.pixelshuffle = nn.PixelShuffle(patch_size[0])
@@ -110,7 +113,7 @@ class SubPixelConvICNR_2D(nn.Module):
         self.conv.weight.data.copy_(weight)   # initialize conv.weight
 
     def forward(self, x):
-        x_padded = self.pad_zero(self.pad_circular(x))
+        x_padded = self.pad_poles(self.pad_circular(x))
         output = self.conv(x_padded)
         #print(output.shape)
         
@@ -141,12 +144,16 @@ class SubPixelConvICNR_3D(nn.Module):
         out_chans (int): Number of output channels.
     """
 
-    def __init__(self, img_size, patch_size, in_chans, out_chans, padded_front = False):
+    def __init__(self, img_size, patch_size, in_chans, out_chans, padded_front = False, polar_pad = True, num_lat = None,
+                 grid_has_poles = False):
         super().__init__()
         self.img_size = img_size
         self.padded_front = padded_front
         assert patch_size[1] == patch_size[2], 'mismatch'
-        self.pad_zero = nn.ZeroPad3d((0, 0, 1, 1, 0, 0))
+        if polar_pad:
+            self.pad_poles = PolarPad3d((1, 1), num_lat = num_lat, grid_has_poles=grid_has_poles)
+        else:
+            self.pad_poles = nn.ZeroPad3d((0, 0, 1, 1, 0, 0))
         self.pad_circular = nn.CircularPad3d((1, 1, 0, 0, 0, 0))
         self.conv = nn.Conv2d(in_chans//2, out_chans*patch_size[1]**2, kernel_size=3, stride=1, padding=0, bias=0)
         self.pixelshuffle = nn.PixelShuffle(patch_size[1])
@@ -158,7 +165,7 @@ class SubPixelConvICNR_3D(nn.Module):
     def forward(self, x: torch.Tensor):
         # first, split in dimension
         # print(x.shape)
-        x_padded = self.pad_zero(self.pad_circular(x))
+        x_padded = self.pad_poles(self.pad_circular(x))
         x_padded = x_padded.reshape(x_padded.shape[0], x_padded.shape[1]//2, 2, *x_padded.shape[2:])
         x_padded = x_padded.flatten(2, 3)
         if not self.padded_front:
@@ -243,3 +250,75 @@ class PatchRecovery5(nn.Module):
         output_level = self.proj_level(x[:, :, 1:])
 
         return output_level, output_surface.unsqueeze(-3)
+    
+class PolarPad2d(nn.Module):
+    """
+    Padding for convolutions on a 2D grid over the pole.
+
+    Args:
+        pad: (size of top padding, size of bottom padding)
+        x: Image with shape (n_batches, n_channels, lat, lon)
+    """
+    def __init__(self, pad, num_lat = None, grid_has_poles = False):
+        super().__init__()
+        self.pad_top = pad[0]
+        self.pad_bottom = pad[1]
+        self.num_lat = num_lat if num_lat is not None else 64
+        if not grid_has_poles:
+            self.pad_idxs = torch.cat((torch.arange(self.pad_top), torch.arange(self.pad_top+1, self.num_lat+self.pad_top+1),
+                                       torch.arange(self.num_lat+self.pad_top+2, self.num_lat+self.pad_top+self.pad_bottom+2))).long()
+            self.pad_idxs.requires_grad_(requires_grad = False)
+
+    def forward(self, x):
+        try:
+            assert x.shape[-2] == self.num_lat
+        except:
+            raise ValueError(f'Number of latitude grid points must equal {self.num_lat}.')
+        try:
+            assert x.shape[-1] % 2 == 0
+        except:
+            raise ValueError('Input to PolarPadding2D must have an even number of longitude grid points.')
+        if not self.grid_has_poles:
+            padded_x = nn.functional.pad(nn.functional.pad(x, (0, 0, 1, 1), mode = 'constant', value = 0.),
+                                        (0, 0, self.pad_top, self.pad_bottom), mode = 'reflect')[..., self.pad_idxs, :]
+        else:
+            padded_x = nn.functional.pad(x, (0, 0, self.pad_top, self.pad_bottom), mode = 'reflect')
+        padded_x[..., :self.pad_top, :] = torch.roll(padded_x[..., :self.pad_top, :], padded_x.shape[-1] // 2, dims = -1)
+        padded_x[..., -self.pad_bottom:, :] = torch.roll(padded_x[..., -self.pad_bottom:, :], padded_x.shape[-1] // 2, dims = -1)
+        return padded_x
+    
+class PolarPad3d(nn.Module):
+    """
+    Padding for convolutions on a 3D grid over the pole.
+
+    Args:
+        pad: (size of top padding, size of bottom padding)
+        x: Image with shape (n_batches, n_channels, vertical_levels, lat, lon)
+    """
+    def __init__(self, pad, num_lat = 64, grid_has_poles = False):
+        super().__init__()
+        self.pad_top = pad[0]
+        self.pad_bottom = pad[1]
+        self.num_lat = num_lat if num_lat is not None else 64
+        if not grid_has_poles:
+            self.pad_idxs = torch.cat((torch.arange(self.pad_top), torch.arange(self.pad_top+1, self.num_lat+self.pad_top+1),
+                                       torch.arange(self.num_lat+self.pad_top+2, self.num_lat+self.pad_top+self.pad_bottom+2))).long()
+            self.pad_idxs.requires_grad_(requires_grad = False)
+
+    def forward(self, x):
+        try:
+            assert x.shape[-2] == self.num_lat
+        except:
+            raise ValueError(f'Number of latitude grid points must equal {self.num_lat}.')
+        try:
+            assert x.shape[-1] % 2 == 0
+        except:
+            raise ValueError('Input to PolarPadding2D must have an even number of longitude grid points.')
+        if not self.grid_has_poles:
+            padded_x = nn.functional.pad(nn.functional.pad(x, (0, 0, 1, 1, 0, 0), mode = 'constant', value = 0.),
+                                        (0, 0, self.pad_top, self.pad_bottom, 0, 0), mode = 'reflect')[..., self.pad_idxs, :]
+        else:
+            padded_x = nn.functional.pad(x, (0, 0, self.pad_top, self.pad_bottom, 0, 0), mode = 'reflect')
+        padded_x[..., :self.pad_top, :] = torch.roll(padded_x[..., :self.pad_top, :], padded_x.shape[-1] // 2, dims = -1)
+        padded_x[..., -self.pad_bottom:, :] = torch.roll(padded_x[..., -self.pad_bottom:, :], padded_x.shape[-1] // 2, dims = -1)
+        return padded_x
