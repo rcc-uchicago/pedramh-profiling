@@ -126,7 +126,7 @@ class GetDataset(Dataset):
         self.constant_boundary_variables = params.constant_boundary_variables or []
         self.varying_boundary_variables = params.varying_boundary_variables or []
         self.boundary_dir = params.boundary_dir
-        self.constant_boundary_data = self._load_constant_boundary_data()
+        self.constant_boundary_data, self.land_mask = self._load_constant_boundary_data()
         if torch.any(torch.isnan(self.constant_boundary_data)):
             print('Constant boundary has nan')
             sys.exit(2)
@@ -251,6 +251,7 @@ class GetDataset(Dataset):
         constant_boundary_files = [join(self.data_dir, self.boundary_dir, f) for f in
                                    os.listdir(join(self.data_dir, self.boundary_dir))
                                    if any(var in f for var in self.constant_boundary_variables)]
+        land_mask = None
         print(constant_boundary_files)
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore",
@@ -263,13 +264,15 @@ class GetDataset(Dataset):
             nans = torch.isnan(constant_boundary_tensor)
             if torch.any(nans):
                 constant_boundary_tensor = constant_boundary_tensor.masked_fill(nans, self.mask_fill[var])
+            if var == 'lsm':
+                land_mask = torch.clone(constant_boundary_tensor.detach())
             constant_boundary_masked.append(constant_boundary_tensor)
         constant_boundary_ds.close()
         constant_boundary_data = torch.stack(constant_boundary_masked, dim=0)
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
         constant_bounadry_std = torch.std(constant_boundary_data, dim = (1,2))
         constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_bounadry_std.reshape(-1, 1, 1)
-        return constant_boundary_data
+        return constant_boundary_data, land_mask
 
     def load_mean_std(self, mean_file, std_file, datavars, upper_air = True):
         if upper_air:
@@ -510,7 +513,7 @@ class GetDataset(Dataset):
 
     def __getitem__(self, index):
         self.boundary_dss = self._load_boundary_data(initial = False)
-        print('Loaded Boundary Data')
+        #print('Loaded Boundary Data')
         #self.dates = self._get_dates(hour_step=params.timedelta_hours)
         #self.data_dss = self._load_data(initial=False)
         #self.lat = torch.from_numpy(self.data_dss[0].lat.values)

@@ -41,6 +41,7 @@ import psutil
 import shutil
 from datetime import datetime
 import uuid
+from utils.integrate import Integrator, forward_euler
 
 
 
@@ -344,13 +345,13 @@ class Trainer():
 
         if params.nettype == 'pangu_plasim':
             if len(self.train_datasets[0].land_variables) > 0:
-                land_mask = torch.clone(self.train_datasets[0].constant_boundary_data[np.array(self.params.constant_boundary_variables) == 'lsm'].detach()).to(self.device)
+                land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
             else:
                 land_mask = None
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask,
-                                               surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
+                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
@@ -376,6 +377,11 @@ class Trainer():
                                                  device_ids=[
                                                      params.local_rank],
                                                  output_device=[params.local_rank], find_unused_parameters=True)
+            #if self.params.predict_delta:
+            #    self.integrator = DistributedDataParallel(self.integrator,
+            #                                        device_ids=[
+            #                                            params.local_rank],
+            #                                        output_device=[params.local_rank], find_unused_parameters=True)
 
         self.iters = 0
         self.startEpoch = 0
@@ -809,8 +815,8 @@ class Trainer():
                         #print(input_upper_air.shape)
                         #print(target_surface.shape)
                         #print(target_upper_air.shape)
-                        output_surface, output_upper_air = self.model.integrate(input_surface, input_upper_air, output_surface, output_upper_air)
-                        target_surface, target_upper_air = self.model.integrate(input_surface, input_upper_air, target_surface, target_upper_air)
+                        output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                        target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
                         #print(output_surface.shape)
                         #print(output_upper_air.shape)
                         #print(target_surface.shape)
@@ -1228,7 +1234,7 @@ class Trainer():
                                     valid_loss_diag += loss_diag
 
                         if self.params.predict_delta:
-                            val_output_surface, val_output_upper_air = self.model.integrate(val_input_surface, val_input_upper_air, val_output_surface,
+                            val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                             val_output_upper_air)
                         # Store output for ACC calculation (all time steps)
                         val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
@@ -1534,8 +1540,8 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0001', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
+    parser.add_argument("--run_num", default='0170', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0170.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
@@ -1573,6 +1579,8 @@ if __name__ == '__main__':
     #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
     #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
     
+    #params['world_size'] = 1
+    #os.environ['WANDB_MODE'] = 'offline'
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
     if 'WORLD_SIZE' in os.environ:
