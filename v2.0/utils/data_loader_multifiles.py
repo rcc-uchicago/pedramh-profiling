@@ -592,8 +592,6 @@ class GetDataset(Dataset):
             # Load initial conditions
             data_ds_start = self._load_year_data(start_idx)
             surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
-            surface_t = self.surface_transform(surface_t)
-            upper_air_t = self.upper_air_transform(upper_air_t)
 
             max_lead_time = lead_times[-1]
             boundary_times = self.dates[self.inference_idxs[index]:self.inference_idxs[index] + max_lead_time]
@@ -635,9 +633,6 @@ class GetDataset(Dataset):
                         targets_diagnostic.append(diagnostic_target)
                     else:
                         surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
-
-                    surface_target = self.surface_transform(surface_target)
-                    upper_air_target = self.upper_air_transform(upper_air_target)
         
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
@@ -654,6 +649,13 @@ class GetDataset(Dataset):
 
                         targets_delta_surface.append(surface_delta_target)
                         targets_delta_upper_air.append(upper_air_delta_target)
+
+                for step in range(0, max_lead_time):
+                    targets_surface[step] = self.surface_transform(targets_surface[step])
+                    targets_upper_air[step] = self.upper_air_transform(targets_upper_air[step])
+                
+                surface_t = self.surface_transform(surface_t)
+                upper_air_t = self.upper_air_transform(upper_air_t)
 
                 current_ds.close()
                 targets_surface = torch.stack(targets_surface, dim=0)
@@ -721,22 +723,22 @@ class GetDataset(Dataset):
         if torch.any(torch.isnan(upper_air_t)):
             print('Upper air t has nan')
             sys.exit(2)
-        if torch.any(torch.isnan(surface_t_1)):
-            print('Surface t+1 has nan')
-            sys.exit(2)
-        if torch.any(torch.isnan(upper_air_t_1)):
-            print('Upper air t+1 has nan')
-            sys.exit(2)
-        if len(self.diagnostic_variables) > 0:
-            if torch.any(torch.isnan(diagnostic_t_1)):
-                print('Diagnostic has nan')
-                sys.exit(2)
 
         for ds in self.boundary_dss:
             ds.close()
         gc.collect()
 
         if self.train:
+            if torch.any(torch.isnan(surface_t_1)):
+                print('Surface t+1 has nan')
+                sys.exit(2)
+            if torch.any(torch.isnan(upper_air_t_1)):
+                print('Upper air t+1 has nan')
+                sys.exit(2)
+            if len(self.diagnostic_variables) > 0:
+                if torch.any(torch.isnan(diagnostic_t_1)):
+                    print('Diagnostic has nan')
+                    sys.exit(2)
             if len(self.diagnostic_variables) > 0:
                 return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data, \
                     torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])

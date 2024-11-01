@@ -148,6 +148,12 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             if 'pr_12h' in da_fc:
                 clim['pr_12h'] = clim['tas'].copy()
                 clim['pr_12h'][:] = 0.
+            if 'pr_6h' in da_fc:
+                clim['pr_6h'] = clim['tas'].copy()
+                clim['pr_6h'][:] = 0.
+            if 'mrso' in da_fc:
+                clim['mrso'] = clim['tas'].copy()
+                clim['mrso'][:] = 0.
             
             # Reorder variables in climatology to match forecast data
             clim = clim[list(da_fc.data_vars)]
@@ -1581,6 +1587,7 @@ if __name__ == '__main__':
     
     #params['world_size'] = 1
     #os.environ['WANDB_MODE'] = 'offline'
+
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
     if 'WORLD_SIZE' in os.environ:
@@ -1589,6 +1596,7 @@ if __name__ == '__main__':
     else:
         params['world_size'] = torch.cuda.device_count()
         print(params['world_size'])
+
 
     #params['world_size'] = 1
     '''if torch.cuda.device_count() == 1:

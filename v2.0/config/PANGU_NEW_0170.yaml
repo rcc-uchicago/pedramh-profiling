@@ -20,7 +20,7 @@ base_config: &BASE
   exp_dir: 'results'
 
   enable_fp8: False
-  fresh_start: False
+  fresh_start: True
   use_transformer_engine: False
   early_stopping: False
 
@@ -31,7 +31,7 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: '/scratch/midway3/awikner/PLASIM/train_val_test_data_res'
+  data_dir: '/scratch/midway2/awikner/PLASIM/train_val_test_data_res'
   boundary_dir: 'boundary_vars'
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas', 'mrso']
