@@ -23,7 +23,8 @@ from utils import logging_utils
 from utils.power_spectrum import *
 ##########################################
 ## NEW IMPORTS
-from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss
+from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
+    Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss
 ###############################@###########
 logging_utils.config_logger()
 from apex import optimizers
@@ -220,6 +221,10 @@ class Trainer():
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         self.run_uuid = str(uuid.uuid4())
+        self.has_land = False
+        if hasattr(self.params, 'land_variables'):
+            if len(self.params.land_variables) > 0:
+                self.has_land = True
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -350,9 +355,16 @@ class Trainer():
 
 
         if params.nettype == 'pangu_plasim':
-            if len(self.train_datasets[0].land_variables) > 0:
+            if self.has_land:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
+                land_mask_bool = []
+                for var in self.params.surface_variables:
+                    if var in self.params.land_variables:
+                        land_mask_bool.append(torch.clone(land_mask).to(torch.bool))
+                    else:
+                        land_mask_bool.append(torch.ones(land_mask.shape, device=self.device, dtype=torch.bool))
+                land_mask_bool = torch.stack(land_mask_bool)
             else:
                 land_mask = None
             if self.params.predict_delta:
@@ -449,23 +461,42 @@ class Trainer():
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
         if params.loss == 'l1':
-            self.loss_obj_sfc = torch.nn.L1Loss() 
             self.loss_obj_pl = torch.nn.L1Loss()
+            if self.has_land:
+                self.loss_obj_sfc = Masked_L1Loss(land_mask_bool)
+            else:
+                self.loss_obj_sfc = torch.nn.L1Loss()
+            if self.params.has_diagnostic:
+                self.loss_obj_diagnostic = torch.nn.L1Loss()
         elif params.loss == 'l2':
-            self.loss_obj_sfc = torch.nn.MSELoss()
             self.loss_obj_pl = torch.nn.MSELoss()
+            if self.has_land:
+                self.loss_obj_sfc = Masked_MSELoss(land_mask_bool)
+            else:
+                self.loss_obj_sfc = torch.nn.MSELoss()
+            if self.params.has_diagnostic:
+                self.loss_obj_diagnostic = torch.nn.MSELoss()
         elif params.loss == 'weightedl1':
             self.lat = self.train_datasets[0].lat.to(self.device, non_blocking=True)
 
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
-            self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
+            if self.has_land:
+                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, land_mask_bool)
+            else:
+                self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
+            if self.params.has_diagnostic:
+                self.loss_obj_diagnostic = Latitude_weighted_L1Loss(self.lat)
         elif params.loss == 'weightedl2':
             self.lat = self.train_datasets[0].lat.to(self.device)
-
-            # self.lat = self.train_dataset.lat.to(self.device)
-            self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
+            
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
+            if self.has_land:
+                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, land_mask_bool)
+            else:
+                self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
+            if self.params.has_diagnostic:
+                self.loss_obj_diagnostic = Latitude_weighted_MSELoss(self.lat)
         else:
             raise NotImplementedError
 
@@ -791,7 +822,7 @@ class Trainer():
                         #print(output_surface.shape)
                         #print(output_upper_air.shape)
                         #print(output_diagnostic.shape)
-                        loss_diagnostic = self.loss_obj_sfc(output_diagnostic, target_diagnostic)
+                        loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                     else:
                         output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
                                                                     varying_boundary_data, input_upper_air)
@@ -1227,7 +1258,7 @@ class Trainer():
                                 loss_sfc = self.loss_obj_sfc(val_output_surface, val_target_surface[:,target_index])
                                 loss_pl = self.loss_obj_pl(val_output_upper_air, val_target_upper_air[:,target_index])
                             if self.params.has_diagnostic:
-                                loss_diag = self.loss_obj_sfc(val_output_diagnostic, val_target_diagnostic[:,target_index])
+                                loss_diag = self.loss_obj_diagnostic(val_output_diagnostic, val_target_diagnostic[:,target_index])
                                 loss = (loss_sfc + loss_diag) * 0.25 + loss_pl
                             else:
                                 loss = (loss_sfc * 0.25 + loss_pl)

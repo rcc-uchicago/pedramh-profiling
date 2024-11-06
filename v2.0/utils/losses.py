@@ -15,14 +15,24 @@ def weighted_mse(pred, target, latitudes, reduction='mean'):
     #takes in arrays of size [n, c, h, w]  or [n, c, l, h, w]
     reshape_shape = tuple(1 if i != len(pred.shape) - 2 else -1 for i in range(len(pred.shape)))
     weight = torch.reshape(latitude_weighting_factor_torch(latitudes), reshape_shape)
-    result = torch.mean(weight * (pred - target)**2)
+    if reduction == 'mean':
+        result = torch.mean(weight * (pred - target)**2)
+    elif reduction == 'sum':
+        result = torch.sum(weight * (pred - target)**2)
+    else:
+        result = weight * (pred - target)**2
     return result
 
 def weighted_mae(pred, target, latitudes, reduction='mean'):
     #takes in arrays of size [n, c, h, w]  or [n, c, l, h, w]
     reshape_shape = tuple(1 if i != len(pred.shape) - 2 else -1 for i in range(len(pred.shape)))
     weight = torch.reshape(latitude_weighting_factor_torch(latitudes), reshape_shape)
-    result = torch.mean(weight * torch.abs(pred - target))
+    if reduction == 'mean':
+        result = torch.mean(weight * torch.abs(pred - target))
+    elif reduction == 'sum':
+        result = torch.sum(weight * torch.abs(pred - target))
+    else:
+        result = weight * torch.abs(pred - target)
     return result
 
 
@@ -42,3 +52,45 @@ class Latitude_weighted_L1Loss(_Loss):
 
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
         return weighted_mae(input, target, self.latitudes)
+    
+class Masked_L1Loss(_Loss):
+    def __init__(self, mask) -> None:
+        super().__init__()
+        self.mask = mask
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        elem_loss =  F.l1_loss(input, target, reduction = 'none')
+        masked_loss = torch.where(self.mask, elem_loss, torch.nan)
+        return torch.nanmean(masked_loss)
+
+class Masked_MSELoss(_Loss):
+    def __init__(self, mask) -> None:
+        super().__init__()
+        self.mask = mask
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        elem_loss =  F.mse_loss(input, target, reduction = 'none')
+        masked_loss = torch.where(self.mask, elem_loss, torch.nan)
+        return torch.nanmean(masked_loss)
+    
+class Latitude_weighted_masked_L1Loss(_Loss):
+    def __init__(self, latitudes, mask) -> None:
+        super().__init__()
+        self.latitudes = latitudes
+        self.mask = mask
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        elem_loss =  weighted_mae(input, target, self.latitudes, reduction = 'none')
+        masked_loss = torch.where(self.mask, elem_loss, torch.nan)
+        return torch.nanmean(masked_loss)
+    
+class Latitude_weighted_masked_MSELoss(_Loss):
+    def __init__(self, latitudes, mask) -> None:
+        super().__init__()
+        self.latitudes = latitudes
+        self.mask = mask
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        elem_loss =  weighted_mse(input, target, self.latitudes, reduction = 'none')
+        masked_loss = torch.where(self.mask, elem_loss, torch.nan)
+        return torch.nanmean(masked_loss)
