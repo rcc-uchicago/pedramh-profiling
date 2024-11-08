@@ -222,9 +222,17 @@ class Trainer():
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         self.run_uuid = str(uuid.uuid4())
         self.has_land = False
+        self.has_ocean = False
         if hasattr(self.params, 'land_variables'):
             if len(self.params.land_variables) > 0:
                 self.has_land = True
+        else:
+            self.params['land_variables'] = []
+        if hasattr(self.params, 'ocean_variables'):
+            if len(self.params.ocean_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['ocean_variables'] = []
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -355,16 +363,18 @@ class Trainer():
 
 
         if params.nettype == 'pangu_plasim':
-            if self.has_land:
+            if self.has_land or self.has_ocean:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
-                land_mask_bool = []
+                mask_bool = []
                 for var in self.params.surface_variables:
                     if var in self.params.land_variables:
-                        land_mask_bool.append(torch.clone(land_mask).to(torch.bool))
+                        mask_bool.append(torch.clone(land_mask).to(torch.bool))
+                    elif var in self.params.ocean_variables:
+                        mask_bool.append(torch.logical_not(torch.clone(land_mask).to(torch.bool)))
                     else:
-                        land_mask_bool.append(torch.ones(land_mask.shape, device=self.device, dtype=torch.bool))
-                land_mask_bool = torch.stack(land_mask_bool)
+                        mask_bool.append(torch.ones(land_mask.shape, device=self.device, dtype=torch.bool))
+                mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
             if self.params.predict_delta:
@@ -374,7 +384,8 @@ class Trainer():
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
+                self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                                               mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
@@ -462,16 +473,16 @@ class Trainer():
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
         if params.loss == 'l1':
             self.loss_obj_pl = torch.nn.L1Loss()
-            if self.has_land:
-                self.loss_obj_sfc = Masked_L1Loss(land_mask_bool)
+            if self.has_land or self.has_ocean:
+                self.loss_obj_sfc = Masked_L1Loss(mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.L1Loss()
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = torch.nn.L1Loss()
         elif params.loss == 'l2':
             self.loss_obj_pl = torch.nn.MSELoss()
-            if self.has_land:
-                self.loss_obj_sfc = Masked_MSELoss(land_mask_bool)
+            if self.has_land or self.has_ocean:
+                self.loss_obj_sfc = Masked_MSELoss(mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.MSELoss()
             if self.params.has_diagnostic:
@@ -481,8 +492,8 @@ class Trainer():
 
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
-            if self.has_land:
-                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, land_mask_bool)
+            if self.has_land or self.has_ocean:
+                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             if self.params.has_diagnostic:
@@ -491,8 +502,8 @@ class Trainer():
             self.lat = self.train_datasets[0].lat.to(self.device)
             
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
-            if self.has_land:
-                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, land_mask_bool)
+            if self.has_land or self.has_ocean:
+                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
             if self.params.has_diagnostic:
@@ -1577,8 +1588,8 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0170', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0170.yaml', type=str)
+    parser.add_argument("--run_num", default='0173', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0173.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)

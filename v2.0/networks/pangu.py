@@ -97,7 +97,7 @@ class PanguModel_Plasim(nn.Module):
         window_size (tuple[int]): Window size.
     """
 
-    def __init__(self, params, num_heads=(6, 12, 12, 6), drop_path=None, land_mask = None, land_mask_fill = None,
+    def __init__(self, params, num_heads=(6, 12, 12, 6), drop_path=None, land_mask = None, mask_fill = None,
                  surface_ff_std = None, surface_delta_std = None, upper_air_ff_std = None, upper_air_delta_std = None):
         super().__init__() 
         #####
@@ -299,15 +299,39 @@ class PanguModel_Plasim(nn.Module):
                     land_mask = land_mask.masked_fill_(nans, 0.)
                     land_mask_ds.close()
                 if self.predict_delta:
-                    self.land_mask = LandMask(land_mask)
+                    self.land_mask = Mask(land_mask)
                 else:
-                    land_mask_fill = torch.stack([(1. - land_mask) * land_mask_fill[var] for var in self.land_variables])
-                    self.land_mask = LandMask(land_mask, land_mask_fill)
+                    land_mask_fill = torch.stack([(1. - land_mask) * mask_fill[var] for var in params.land_variables])
+                    self.land_mask = Mask(land_mask, land_mask_fill)
                 self.land_idxs = [var in params.land_variables for var in params.surface_variables]
             else:
                 self.has_land = False
         else:
             self.has_land = False
+
+        if hasattr(params, 'ocean_variables'):
+            if len(params.ocean_variables) > 0:
+                self.has_ocean = True
+                if self.has_land:
+                    ocean_mask = (1. - land_mask)
+                elif land_mask is None:
+                    lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
+                    land_mask_ds   = xr.open_dataset(lm_file)
+                    land_mask = torch.from_numpy(land_mask_ds.lsm.values).to(torch.float32)
+                    nans = torch.isnan(land_mask)
+                    land_mask = land_mask.masked_fill_(nans, 0.)
+                    land_mask_ds.close()
+                    ocean_mask = (1. - land_mask)
+                if self.predict_delta:
+                    self.ocean_mask = Mask(ocean_mask)
+                else:
+                    ocean_mask_fill = torch.stack([(1. - ocean_mask) * mask_fill[var] for var in params.ocean_variables])
+                    self.ocean_mask = Mask(ocean_mask, ocean_mask_fill)
+                self.ocean_idxs = [var in params.ocean_variables for var in params.surface_variables]
+            else:
+                self.has_ocean = False
+        else:
+            self.has_ocean = False
 
 
     def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in):
@@ -448,6 +472,8 @@ class PanguModel_Plasim(nn.Module):
             output_surface = output_2D[:, :self.num_surface_vars]
             if self.has_land:
                 output_surface[:, self.land_idxs] = self.land_mask(output_surface[:, self.land_idxs]).to(output_surface.dtype)
+            if self.has_ocean:
+                output_surface[:, self.ocean_idxs] = self.ocean_mask(output_surface[:, self.ocean_idxs]).to(output_surface.dtype)
             output_upper_air = self.patchrecovery3d(output_upper_air_delta)
         else:
             output_surface = output[:, :, -1, :, :]
@@ -460,6 +486,8 @@ class PanguModel_Plasim(nn.Module):
             output_surface = output_2D[:, :self.num_surface_vars]
             if self.has_land:
                 output_surface[:, self.land_idxs] = self.land_mask(output_surface[:, self.land_idxs]).to(output_surface.dtype)
+            if self.has_ocean:
+                output_surface[:, self.ocean_idxs] = self.ocean_mask(output_surface[:, self.ocean_idxs]).to(output_surface.dtype)
             #print(f'Shape after 2D patch recovery:{x.shape}')
             #print(output_2D[0,0,:,0])
             #print(output_2D[0,0,:,-1])
@@ -553,20 +581,20 @@ class PatchRecovery:
     return output, output_surface
 '''
 
-class LandMask(nn.Module):
-    def __init__(self, land_mask, land_mask_fill = None):
+class Mask(nn.Module):
+    def __init__(self, mask, mask_fill = None):
         super().__init__() 
-        self.land_mask = nn.parameter.Parameter(land_mask.unsqueeze(0).unsqueeze(0), requires_grad=False)
-        if land_mask_fill:
-            self.land_mask_fill = nn.parameter.Parameter(land_mask_fill.unsqueeze(0), requires_grad=False)
+        self.mask = nn.parameter.Parameter(mask.unsqueeze(0).unsqueeze(0), requires_grad=False)
+        if type(mask_fill) is not type(None):
+            self.mask_fill = nn.parameter.Parameter(mask_fill.unsqueeze(0), requires_grad=False)
         else:
-            self.land_mask_fill = None
+            self.mask_fill = None
 
     def forward(self, x):
-        if self.land_mask_fill:
-            return x * self.land_mask + self.land_mask_fill
+        if type(self.mask_fill) is not type(None):
+            return x * self.mask + self.mask_fill
         else:
-            return x * self.land_mask
+            return x * self.mask
         
 
 class DownSample(nn.Module):

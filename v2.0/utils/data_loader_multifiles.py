@@ -108,7 +108,10 @@ class GetDataset(Dataset):
         #self._get_files_stats()
 
         self.has_year_zero = params.has_year_zero
-        self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
+        if hasattr(params, 'mask_fill'):
+            self.mask_fill = self.params.mask_fill
+        else:
+            self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
 
         self.year_start = year_start
         self.year_end = year_end
@@ -192,6 +195,14 @@ class GetDataset(Dataset):
                 self.land_variables = []
         else:
             self.land_variables = []
+
+        if hasattr(params, 'ocean_variables'):
+            if len(params.ocean_variables) > 0:
+                self.ocean_variables = params.ocean_variables
+            else:
+                self.ocean_variables = []
+        else:
+            self.ocean_variables = []
                 #self.diagnostic_inv_transform = self._create_diagnostic_inv_transform()
 
         #self.surface_transform = self._create_surface_transform()
