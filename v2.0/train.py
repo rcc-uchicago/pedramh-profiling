@@ -24,7 +24,8 @@ from utils.power_spectrum import *
 ##########################################
 ## NEW IMPORTS
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
-    Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss
+    Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
+    Latitude_weighted_CRPSLoss
 ###############################@###########
 logging_utils.config_logger()
 from apex import optimizers
@@ -208,6 +209,10 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
 
     return acc
 
+def to_ensemble_batch(data, ens_members):
+    """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
+
+    return (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1)
 
 
 class Trainer():
@@ -288,6 +293,9 @@ class Trainer():
         # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         self.constant_boundary_data = self.train_datasets[0].constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
+        if params.num_ensemble_members > 1:
+            self.constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, params.num_ensemble_members)
+            logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
 
          # Load climatology
         climatology_path = os.path.join(params.data_dir, "mean_daily_climatology_pl.nc")
@@ -508,6 +516,17 @@ class Trainer():
                 self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_MSELoss(self.lat)
+        elif params.loss == 'weightedCRPS':
+            self.lat = self.train_datasets[0].lat.to(self.device)
+            
+            self.loss_obj_pl = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
+            if self.has_land or self.has_ocean:
+                self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members,
+                                                               mask_bool)
+            else:
+                self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
+            if self.params.has_diagnostic:
+                self.loss_obj_diagnostic = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
         else:
             raise NotImplementedError
 
@@ -812,6 +831,18 @@ class Trainer():
                 else:
                     input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
                         lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                
+                if self.params.num_ensemble_members > 1:
+                    if self.params.has_diagnostic:
+                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                            [input_surface, input_upper_air, target_surface, target_upper_air, 
+                                            target_diagnostic, varying_boundary_data]]
+                        input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
+                    else:
+                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                            [input_surface, input_upper_air, target_surface, target_upper_air, 
+                                            varying_boundary_data]]
+                        input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
                 
                 index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
 

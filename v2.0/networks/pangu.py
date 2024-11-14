@@ -128,6 +128,8 @@ class PanguModel_Plasim(nn.Module):
         if not drop_path:
             drop_path = np.append(np.linspace(0, 0.2, np.sum(params.depths[:2])), np.linspace(0.2, 0, np.sum(params.depths[2:]))).tolist()
 
+        drop_path = np.zeros(np.sum(params.depths)).tolist()
+
         self.num_surface_vars = len(params.surface_variables)
         self.num_atmo_vars = len(params.upper_air_variables)
         self.num_boundary_vars = len(params.constant_boundary_variables) + len(params.varying_boundary_variables)
@@ -250,7 +252,8 @@ class PanguModel_Plasim(nn.Module):
             num_heads=num_heads[1],
             window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]],
-            vertical_windowing=params.vertical_windowing)
+            vertical_windowing=params.vertical_windowing,
+            drop=params.drop_rate)
         
         self.layer3 = EarthSpecificLayer(
             dim=embed_dim * params.updown_scale_factor,
@@ -259,7 +262,8 @@ class PanguModel_Plasim(nn.Module):
             num_heads=num_heads[2],
             window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]],
-            vertical_windowing=params.vertical_windowing)
+            vertical_windowing=params.vertical_windowing,
+            drop=params.drop_rate)
         
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
