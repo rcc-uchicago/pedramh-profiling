@@ -124,6 +124,16 @@ class GetDataset(Dataset):
         # self.timedelta = self.datetime_class(1, 1, 1, hour=self.timedelta_hours) - self.datetime_class(1, 1, 1, hour=0)
 
         self.surface_variables = params.surface_variables or []
+        if hasattr(params, 'land_variables'):
+            if any([land_variable in self.surface_variables for land_variable in params.land_variables]):
+                raise ValueError('land variables cannot be in surface variables.')
+            self.land_variables = params.land_variables
+            self.surface_variables = self.surface_variables + self.land_variables
+        if hasattr(params, 'ocean_variables'):
+            if any([ocean_variable in self.surface_variables for ocean_variable in params.ocean_variables]):
+                raise ValueError('ocean variables cannot be in surface variables.')
+            self.ocean_variables = params.ocean_variables
+            self.surface_variables = self.surface_variables + self.ocean_variables
         self.upper_air_variables = params.upper_air_variables or []
 
         self.constant_boundary_variables = params.constant_boundary_variables or []
@@ -453,7 +463,7 @@ class GetDataset(Dataset):
         #print(data_ds['tas'].time)
         surface_da_list = []
         for var in self.surface_variables:
-            if var in self.land_variables:
+            if var in self.land_variables or var in self.ocean_variables:
                 var_data = torch.from_numpy(data_ds[var].sel(time=hour).values).to(torch.float32)
                 nans = torch.isnan(var_data)
                 if torch.any(nans):

@@ -223,6 +223,7 @@ class Trainer():
         self.run_uuid = str(uuid.uuid4())
         self.has_land = False
         self.has_ocean = False
+        self.mask_output = False
         if hasattr(self.params, 'land_variables'):
             if len(self.params.land_variables) > 0:
                 self.has_land = True
@@ -233,6 +234,8 @@ class Trainer():
                 self.has_land = True
         else:
             self.params['ocean_variables'] = []
+        if hasattr(self.params, 'mask_output'):
+            self.mask_output = params.mask_output
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -331,8 +334,8 @@ class Trainer():
                 resume = "never"
             wandb.init(config=params, name=params.name, group=params.group, project=params.project, resume=resume)#, entity=params.entity)
 
-            wandb.define_metric("custom_step")
-            wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
+            #wandb.define_metric("custom_step")
+            #wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
 
 
         
@@ -341,6 +344,7 @@ class Trainer():
             #           entity=params.entity)
             wandb.define_metric("epoch")
             wandb.define_metric("ACC_plot", step_metric="epoch")
+            wandb.define_metric("power_spectrum_plot", step_metric="epoch")
             if self.params.diagnostic_logs:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
                 for l, steps in enumerate(self.params.forecast_lead_times):
@@ -363,7 +367,7 @@ class Trainer():
 
 
         if params.nettype == 'pangu_plasim':
-            if self.has_land or self.has_ocean:
+            if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
                 mask_bool = []
@@ -473,7 +477,7 @@ class Trainer():
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
         if params.loss == 'l1':
             self.loss_obj_pl = torch.nn.L1Loss()
-            if self.has_land or self.has_ocean:
+            if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_L1Loss(mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.L1Loss()
@@ -481,7 +485,7 @@ class Trainer():
                 self.loss_obj_diagnostic = torch.nn.L1Loss()
         elif params.loss == 'l2':
             self.loss_obj_pl = torch.nn.MSELoss()
-            if self.has_land or self.has_ocean:
+            if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_MSELoss(mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.MSELoss()
@@ -492,7 +496,7 @@ class Trainer():
 
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
-            if self.has_land or self.has_ocean:
+            if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
@@ -502,7 +506,7 @@ class Trainer():
             self.lat = self.train_datasets[0].lat.to(self.device)
             
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
-            if self.has_land or self.has_ocean:
+            if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
@@ -587,12 +591,13 @@ class Trainer():
                 break # Exit the train method
             
         # After the training loop ends
-        if self.params.log_to_wandb:
-            if self.world_rank == 0:
-                self.log_all_plots_to_wandb()
+        #if self.params.log_to_wandb:
+        #    if self.world_rank == 0:
+        #        self.log_all_plots_to_wandb()
         if self.world_rank == 0:
             self.cleanup_acc_plots()
             self.cleanup_gifs()
+            self.cleanup_power_spectrum_plots()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
             if early_stop_epoch_triggered:
@@ -1124,6 +1129,12 @@ class Trainer():
             shutil.rmtree(output_dir)
             print(f"Deleted ACC plots directory: {output_dir}")
 
+    def cleanup_power_spectrum_plots(self):
+        output_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted Power Spectrum plots directory: {output_dir}")
+
     def cleanup_gifs(self):
         if os.path.exists(self.diagnostics_dir):
             shutil.rmtree(self.diagnostics_dir)
@@ -1506,14 +1517,18 @@ class Trainer():
             if self.params.log_to_wandb:
                 wandb.log(diagnostic_logs)
                 wandb.log({
-                "ACC_plot": wandb.Image(plot_filename),
-                "epoch": self.epoch
+                    "ACC_plot": wandb.Image(plot_filename),
+                    "epoch": self.epoch
                 })
                 if gif_filename:
                     wandb.log({
-                "Evolution_GIF": wandb.Video(gif_filename),
-                "epoch": self.epoch
-            })
+                        "Evolution_GIF": wandb.Video(gif_filename),
+                        "epoch": self.epoch
+                    })
+                wandb.log({
+                    "power_spectrum_plot": wandb.Image(path_filename),
+                    "epoch": self.epoch,
+                })
             
             valid_time = time.time() - valid_start
 
@@ -1523,7 +1538,7 @@ class Trainer():
                 if self.params.has_diagnostic:
                     logs = {'valid_loss': valid_buff_cpu[0], 
                             'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
-                            'valid_loss_diag': valud_buff_cpu[3],
+                            'valid_loss_diag': valid_buff_cpu[3],
                             'epoch': self.epoch}
                 else:
                     logs = {'valid_loss': valid_buff_cpu[0], 
@@ -1546,9 +1561,13 @@ class Trainer():
                 })
                 if gif_filename:
                     wandb.log({
-                "Evolution_GIF": wandb.Video(gif_filename),
-                "epoch": self.epoch
-            })
+                        "Evolution_GIF": wandb.Video(gif_filename),
+                        "epoch": self.epoch
+                    })
+                wandb.log({
+                    "power_spectrum_plot": wandb.Image(path_filename),
+                    "epoch": self.epoch,
+                })
 
             valid_time = time.time() - valid_start
 
@@ -1588,8 +1607,8 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0173', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0173.yaml', type=str)
+    parser.add_argument("--run_num", default='0188', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0188.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)

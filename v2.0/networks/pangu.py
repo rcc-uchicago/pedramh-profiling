@@ -128,12 +128,75 @@ class PanguModel_Plasim(nn.Module):
         if not drop_path:
             drop_path = np.append(np.linspace(0, 0.2, np.sum(params.depths[:2])), np.linspace(0.2, 0, np.sum(params.depths[2:]))).tolist()
 
+        # Masked output
+        if hasattr(params, 'mask_output'):
+            self.mask_output = params.mask_output
+        else:
+            self.mask_output = False
+        self.has_land = False
+        self.has_ocean = False
+        self.num_land_vars = 0
+        self.num_ocean_vars = 0
+        self.diagnostic_vars = []
+        self.num_diagnostic_vars = 0
+
+        if hasattr(params, 'land_variables'):
+            if len(params.land_variables) > 0:
+                self.has_land = True
+                self.num_land_vars = len(params.land_variables)
+                if not self.mask_output:
+                    print('mask_output is False. Land variables output will not be masked.')
+                else:
+                    if land_mask is None:
+                        lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
+                        land_mask_ds   = xr.open_dataset(lm_file)
+                        land_mask = torch.from_numpy(land_mask_ds.lsm.values).to(torch.float32)
+                        nans = torch.isnan(land_mask)
+                        land_mask = land_mask.masked_fill_(nans, 0.)
+                        land_mask_ds.close()
+                    if self.predict_delta:
+                        self.land_mask = Mask(land_mask)
+                    else:
+                        land_mask_fill = torch.stack([(1. - land_mask) * mask_fill[var] for var in params.land_variables])
+                        self.land_mask = Mask(land_mask, land_mask_fill)
+
+        if hasattr(params, 'ocean_variables'):
+            if len(params.ocean_variables) > 0:
+                self.has_ocean = True
+                self.num_ocean_vars = len(params.ocean_variables)
+                if not self.mask_output:
+                    print('mask_output is False. Ocean variables output will not be masked.')
+                else:
+                    if self.has_land:
+                        ocean_mask = (1. - land_mask)
+                    elif land_mask is None:
+                        lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
+                        land_mask_ds   = xr.open_dataset(lm_file)
+                        land_mask = torch.from_numpy(land_mask_ds.lsm.values).to(torch.float32)
+                        nans = torch.isnan(land_mask)
+                        land_mask = land_mask.masked_fill_(nans, 0.)
+                        land_mask_ds.close()
+                        ocean_mask = (1. - land_mask)
+                    if self.predict_delta:
+                        self.ocean_mask = Mask(ocean_mask)
+                    else:
+                        ocean_mask_fill = torch.stack([(1. - ocean_mask) * mask_fill[var] for var in params.ocean_variables])
+                        self.ocean_mask = Mask(ocean_mask, ocean_mask_fill)
+
+        if hasattr(params, 'diagnostic_variables'):
+            self.diagnostic_vars = params.diagnostic_variables
+            self.num_diagnostic_vars = len(self.diagnostic_vars)
+        print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
+
         self.num_surface_vars = len(params.surface_variables)
         self.num_atmo_vars = len(params.upper_air_variables)
         self.num_boundary_vars = len(params.constant_boundary_variables) + len(params.varying_boundary_variables)
         self.atmo_resolution = [params.num_levels] + params.horizontal_resolution
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
+
+        self.surface_prognostic_idxs = torch.cat((torch.arange(self.num_surface_vars).long(), 
+                                                  torch.arange(self.num_surface_vars + self.num_diagnostic_vars, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
         #if self.predict_delta:
         #    try:
         #        assert None not in [surface_ff_std, surface_delta_std, upper_air_ff_std, upper_air_delta_std]
@@ -145,6 +208,11 @@ class PanguModel_Plasim(nn.Module):
         self.vertical_windowing=params.vertical_windowing
         self.embed_dim = embed_dim
         self.updown_scale_factor = params.updown_scale_factor
+        self.subpixed_deconv = False
+        grid_has_poles = False
+        self.polar_pad = False
+        self.recovery_head = False
+        self.diagnostic_head = False
         if hasattr(params, 'subpixel_deconv'):
             self.subpixel_deconv = params.subpixel_deconv
             if hasattr(params, 'polar_pad'):
@@ -152,29 +220,17 @@ class PanguModel_Plasim(nn.Module):
                 if self.polar_pad and hasattr(params, 'grid_has_poles'):
                     grid_has_poles = params.grid_has_poles
                 elif self.polar_pad:
-                    print('Polar padding for patch recovery is enables, but grid_has_poles is unspecified. If grid has poles, this will lead to patch artifacts.')
-                    grid_has_poles = False
-                else:
-                    grid_has_poles = False
-
-            else:
-                self.polar_pad = False
-                grid_has_poles = False
-        else:
-            self.subpixel_deconv = False
-            grid_has_poles = False
+                    print('Polar padding for patch recovery is enabled, but grid_has_poles is unspecified. If grid has poles, this will lead to patch artifacts.')
+            if hasattr(params, 'recovery_head'):
+                self.recovery_head = params.recovery_head
+            if hasattr(params, 'diagnostic_head'):
+                self.diagnostic_head = params.diagnostic_head
         
         
 
         self.upper_air_boundary = params.upper_air_boundary
         self.varying_boundary_variables = params.varying_boundary_variables
         self.num_varying_boundary_vars = len(params.varying_boundary_variables)
-        try:
-            self.diagnostic_vars = params.diagnostic_variables
-        except:
-            self.diagnostic_vars = []
-        self.num_diagnostic_vars = len(self.diagnostic_vars)
-        print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
         self.idx_upper_air_var_bound= self.varying_boundary_variables.index('rsdt') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
     
@@ -193,7 +249,7 @@ class PanguModel_Plasim(nn.Module):
         self.patchembed2d = PatchEmbed2D(
             img_size=params.horizontal_resolution,
             patch_size=params.patch_size[1:],
-            in_chans=self.num_surface_vars + self.num_boundary_vars - 1*self.upper_air_boundary,
+            in_chans=self.num_surface_vars + self.num_land_vars + self.num_ocean_vars + self.num_boundary_vars - 1*self.upper_air_boundary,
             embed_dim=embed_dim,)
             
         
@@ -273,65 +329,39 @@ class PanguModel_Plasim(nn.Module):
             drop_path=drop_path[depths_cumsum[2]:],
             vertical_windowing=params.vertical_windowing)
         
+        
         # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
         
         if self.subpixel_deconv:
-            from utils.patch_recovery import SubPixelConvICNR_2D, SubPixelConvICNR_3D
-            self.patchrecovery2d = SubPixelConvICNR_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars,
-                                                       num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
-            self.patchrecovery3d = SubPixelConvICNR_3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front,
-                                                       num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
+            if self.recovery_head:
+                from utils.patch_recovery import SubPixelConvICNR_2D_wHead as SubPixelConv_2D
+                from utils.patch_recovery import SubPixelConvICNR_3D_wHead as SubPixelConv_3D
+
+                if self.diagnostic_head:
+                    self.patchrecovery2d = SubPixelConv_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, 
+                                                           self.num_surface_vars, diagnostic_variables=self.num_diagnostic_vars, diagnostic_head=self.diagnostic_head,
+                                                           land_variables=self.num_land_vars, ocean_variables=self.num_ocean_vars,
+                                                           num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
+                else:
+                    self.patchrecovery2d = SubPixelConv_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, 
+                                                           self.num_surface_vars + self.num_diagnostic_vars, diagnostic_variables=0, diagnostic_head=self.diagnostic_head,
+                                                           land_variables=self.num_land_vars, ocean_variables=self.num_ocean_vars,
+                                                           num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
+                
+                self.patchrecovery3d = SubPixelConv_3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front,
+                                                        num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
+            else:
+                from utils.patch_recovery import SubPixelConvICNR_2D as SubPixelConv_2D
+                from utils.patch_recovery import SubPixelConvICNR_3D as SubPixelConv_3D
+                self.patchrecovery2d = SubPixelConv_2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, 
+                                                    self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars,
+                                                        num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
+                self.patchrecovery3d = SubPixelConv_3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars, padded_front = self.patchembed3d.padded_front,
+                                                        num_lat = self.atmo_resolution[1], polar_pad=self.polar_pad, grid_has_poles = grid_has_poles)
             
         else:
-            self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars)
+            self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars)
             self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
-        
-        # Masked output
-
-        if hasattr(params, 'land_variables'):
-            if len(params.land_variables) > 0:
-                self.has_land = True
-                if land_mask is None:
-                    lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
-                    land_mask_ds   = xr.open_dataset(lm_file)
-                    land_mask = torch.from_numpy(land_mask_ds.lsm.values).to(torch.float32)
-                    nans = torch.isnan(land_mask)
-                    land_mask = land_mask.masked_fill_(nans, 0.)
-                    land_mask_ds.close()
-                if self.predict_delta:
-                    self.land_mask = Mask(land_mask)
-                else:
-                    land_mask_fill = torch.stack([(1. - land_mask) * mask_fill[var] for var in params.land_variables])
-                    self.land_mask = Mask(land_mask, land_mask_fill)
-                self.land_idxs = [var in params.land_variables for var in params.surface_variables]
-            else:
-                self.has_land = False
-        else:
-            self.has_land = False
-
-        if hasattr(params, 'ocean_variables'):
-            if len(params.ocean_variables) > 0:
-                self.has_ocean = True
-                if self.has_land:
-                    ocean_mask = (1. - land_mask)
-                elif land_mask is None:
-                    lm_file        = os.path.join(params.data_dir, params.boundary_dir, 'lsm.nc')                
-                    land_mask_ds   = xr.open_dataset(lm_file)
-                    land_mask = torch.from_numpy(land_mask_ds.lsm.values).to(torch.float32)
-                    nans = torch.isnan(land_mask)
-                    land_mask = land_mask.masked_fill_(nans, 0.)
-                    land_mask_ds.close()
-                    ocean_mask = (1. - land_mask)
-                if self.predict_delta:
-                    self.ocean_mask = Mask(ocean_mask)
-                else:
-                    ocean_mask_fill = torch.stack([(1. - ocean_mask) * mask_fill[var] for var in params.ocean_variables])
-                    self.ocean_mask = Mask(ocean_mask, ocean_mask_fill)
-                self.ocean_idxs = [var in params.ocean_variables for var in params.surface_variables]
-            else:
-                self.has_ocean = False
-        else:
-            self.has_ocean = False
 
 
     def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in):
@@ -469,11 +499,13 @@ class PanguModel_Plasim(nn.Module):
             else:
                 output_upper_air_delta = output[:, :, :-1, :, :]
             output_2D = self.patchrecovery2d(output_surface_delta)
-            output_surface = output_2D[:, :self.num_surface_vars]
-            if self.has_land:
-                output_surface[:, self.land_idxs] = self.land_mask(output_surface[:, self.land_idxs]).to(output_surface.dtype)
-            if self.has_ocean:
-                output_surface[:, self.ocean_idxs] = self.ocean_mask(output_surface[:, self.ocean_idxs]).to(output_surface.dtype)
+            output_surface = output_2D[:, self.surface_prognostic_idxs]
+            if self.has_land and self.mask_output:
+                output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars] = \
+                    self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
+            if self.has_ocean and self.mask_output:
+                output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
+                    self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
             output_upper_air = self.patchrecovery3d(output_upper_air_delta)
         else:
             output_surface = output[:, :, -1, :, :]
@@ -481,13 +513,14 @@ class PanguModel_Plasim(nn.Module):
                 output_upper_air = output[:, :, 1:-1, :, :]
             else:
                 output_upper_air = output[:, :, :-1, :, :]
-
             output_2D = self.patchrecovery2d(output_surface)
-            output_surface = output_2D[:, :self.num_surface_vars]
-            if self.has_land:
-                output_surface[:, self.land_idxs] = self.land_mask(output_surface[:, self.land_idxs]).to(output_surface.dtype)
-            if self.has_ocean:
-                output_surface[:, self.ocean_idxs] = self.ocean_mask(output_surface[:, self.ocean_idxs]).to(output_surface.dtype)
+            output_surface = output_2D[:, self.surface_prognostic_idxs]
+            if self.has_land and self.mask_output:
+                output_surface[:, self.num_surface_vars : self.num_surface_vars + self.num_land_vars] = \
+                    self.land_mask(output_surface[:, self.num_surface_vars: self.num_surface_vars + self.num_land_vars]).to(output_surface.dtype)
+            if self.has_ocean and self.mask_output:
+                output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
+                    self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
             #print(f'Shape after 2D patch recovery:{x.shape}')
             #print(output_2D[0,0,:,0])
             #print(output_2D[0,0,:,-1])
@@ -500,7 +533,7 @@ class PanguModel_Plasim(nn.Module):
             #print(torch.std(output_upper_air, dim=(0,1,4)))
             #print(torch.std(output_upper_air))
         if self.num_diagnostic_vars > 0:
-            output_diagnostic = output_2D[:, self.num_surface_vars:].reshape(
+            output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
                 output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
             return output_surface, output_upper_air, output_diagnostic
         else:
