@@ -4,7 +4,7 @@ base_config: &BASE
   lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
-  num_data_workers: 8
+  num_data_workers: 16
   oc_pct_start: 0.1
   oc_div_factor: 1e5
   oc_final_div_factor: 0.00025
@@ -18,16 +18,16 @@ base_config: &BASE
   plot_animations: !!bool False
 
   nettype: 'pangu_plasim'
-  group: 'alex-optim'
+  group: 's2s-dev'
 
   exp_dir: 'results'
 
   enable_fp8: False
-  fresh_start: True
+  fresh_start: False
   use_transformer_engine: False
   early_stopping: False
 
-  project: 'Pangu-PLASIM'
+  project: 'Pangu-S2S'
   name: 'PLASIM-S2S'
 
 
