@@ -56,6 +56,7 @@ Pseudocode of Pangu-Weather
 import torch
 from torch import nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 import numpy as np 
 from utils.patch_embed import PatchEmbed2D, PatchEmbed3D
 from utils.patch_recovery import PatchRecovery2D, PatchRecovery3D
@@ -187,6 +188,9 @@ class PanguModel_Plasim(nn.Module):
             self.diagnostic_vars = params.diagnostic_variables
             self.num_diagnostic_vars = len(self.diagnostic_vars)
         print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
+        if hasattr(params, "drop_rate"):
+            if params.drop_rate > 0.:
+                drop_path = np.zeros(np.sum(params.depths)).tolist()
 
         self.num_surface_vars = len(params.surface_variables)
         self.num_atmo_vars = len(params.upper_air_variables)
@@ -306,7 +310,8 @@ class PanguModel_Plasim(nn.Module):
             num_heads=num_heads[1],
             window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]],
-            vertical_windowing=params.vertical_windowing)
+            vertical_windowing=params.vertical_windowing,
+            drop=params.drop_rate)
         
         self.layer3 = EarthSpecificLayer(
             dim=embed_dim * params.updown_scale_factor,
@@ -315,7 +320,8 @@ class PanguModel_Plasim(nn.Module):
             num_heads=num_heads[2],
             window_size=self.window_size,
             drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]],
-            vertical_windowing=params.vertical_windowing)
+            vertical_windowing=params.vertical_windowing,
+            drop=params.drop_rate)
         
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
