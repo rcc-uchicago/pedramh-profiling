@@ -865,14 +865,14 @@ class Trainer():
                 with precision_context:
                     if self.params.has_diagnostic:
                         output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air)
+                                                                    varying_boundary_data, input_upper_air, train = True)
                         #print(output_surface.shape)
                         #print(output_upper_air.shape)
                         #print(output_diagnostic.shape)
                         loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                     else:
                         output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air)
+                                                                    varying_boundary_data, input_upper_air, train = True)
                     
                     loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
                     loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
@@ -1638,8 +1638,8 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0188', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0188.yaml', type=str)
+    parser.add_argument("--run_num", default='0194', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0194.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
@@ -1670,6 +1670,8 @@ if __name__ == '__main__':
     else:
         params['has_diagnostic'] = False
     print(f'Has diagnostic: {params.has_diagnostic}')
+    if not hasattr(params, 'num_ensemble_members'):
+        params['num_ensemble_members'] = 1
     # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
