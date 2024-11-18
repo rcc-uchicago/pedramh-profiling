@@ -33,6 +33,8 @@ from torch.profiler import profile, record_function, ProfilerActivity
 import numpy as np
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
+import uuid
+from utils.integrate import Integrator, forward_euler
 
 
 # fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
@@ -61,11 +63,26 @@ class Stepper():
         self.world_rank = world_rank
         self.async_save = async_save
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-
         if self.async_save:
             logging.info('Asynchronous Saving')
         else: 
             logging.info('Synchronous Saving')
+        self.run_uuid = str(uuid.uuid4())
+        self.has_land = False
+        self.has_ocean = False
+        self.mask_output = False
+        if hasattr(self.params, 'land_variables'):
+            if len(self.params.land_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['land_variables'] = []
+        if hasattr(self.params, 'ocean_variables'):
+            if len(self.params.ocean_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['ocean_variables'] = []
+        if hasattr(self.params, 'mask_output'):
+            self.mask_output = params.mask_output
 
 
         if params.log_to_wandb:
@@ -87,14 +104,30 @@ class Stepper():
 
 
         if params.nettype == 'pangu_plasim':
-            # with fp8_model_init(enabled=True):
-            self.model = PanguModel_Plasim(params).to(self.device)
-            # self.model = PanguModel_Plasim(params).to(self.device)
+            if (self.has_land or self.has_ocean) and self.mask_output:
+                land_mask = torch.clone(self.valid_dataset.land_mask.detach()).to(self.device)
+                print(f'Land Mask shape: {land_mask.shape}')
+                mask_bool = []
+                for var in self.params.surface_variables:
+                    if var in self.params.land_variables:
+                        mask_bool.append(torch.clone(land_mask).to(torch.bool))
+                    elif var in self.params.ocean_variables:
+                        mask_bool.append(torch.logical_not(torch.clone(land_mask).to(torch.bool)))
+                    else:
+                        mask_bool.append(torch.ones(land_mask.shape, device=self.device, dtype=torch.bool))
+                mask_bool = torch.stack(mask_bool)
+            else:
+                land_mask = None
+            if self.params.predict_delta:
+                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
+                self.integrator = Integrator(params, surface_ff_std=self.valid_dataset.surface_std.detach().to(self.device),
+                                               surface_delta_std=self.valid_dataset.surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.valid_dataset.upper_air_std.detach().to(self.device),
+                                               upper_air_delta_std=self.valid_dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
+            else:
+                self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                                               mask_fill = self.valid_dataset.mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
-            # self.model = torch.compile(self.model, backend="torch_tensorrt", dynamic=False)
-
-            # Assuming val_input_surface has the correct shape
-
         else:
             raise Exception("not implemented")
 
@@ -194,20 +227,38 @@ class Stepper():
                                                 val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                                     val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                                 dtype = np.float32)
+                if self.params.has_diagnostic:
+                    val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
+                                                    self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                    dtype = np.float32)
                 
                 val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                 val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
+                
 
                 for time_step in range(self.params['inference_steps']):
-                    val_input_surface, val_input_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                        val_varying_boundary_data[:,time_step], val_input_upper_air)
+                    if self.params.has_diagnostic:
+                        val_out_surface, val_out_upper_air, val_output_diagnostic[:, time_step + 1] = self.model(val_input_surface, 
+                                                                                                                     self.constant_boundary_data, 
+                                                                                                                     val_varying_boundary_data[:,time_step],
+                                                                                                                     val_input_upper_air)
+                    else:
+                        val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                            val_varying_boundary_data[:,time_step], val_input_upper_air)
+                    if self.params.predict_delta:
+                        val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
+                    else:
+                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                     val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                     val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
                 inference_time += time.time() - inference_start
 
                 # Queue the results for asynchronous saving
-                await save_queue.put((val_output_surface.copy(), val_output_upper_air.copy(), start_time, pred_idx))
+                if self.params.has_diagnostic:
+                    await save_queue.put((val_output_surface.copy(), val_output_upper_air.copy(), val_output_diagnostic.copy(), start_time, pred_idx))
+                else:
+                    await save_queue.put((val_output_surface.copy(), val_output_upper_air.copy(), start_time, pred_idx))
 
         # Signal that we're done
         await save_queue.put(None)
@@ -260,13 +311,27 @@ class Stepper():
                                                 val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                                     val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                                 dtype = np.float32)
+                if self.params.has_diagnostic:
+                    val_output_diagnostic = np.zeros((val_input_surface.shape[0], self.params['inference_steps']+1,
+                                                self.model.num_diagnostic_vars, val_input_surface.shape[2], val_input_surface.shape[3]),
+                                                dtype = np.float32)
                 
                 val_output_surface[:,0] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                 val_output_upper_air[:,0] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
                 for time_step in range(self.params['inference_steps']):
-                    val_input_surface, val_input_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                        val_varying_boundary_data[:,time_step], val_input_upper_air)
+                    if self.params.has_diagnostic:
+                        val_out_surface, val_out_upper_air, val_output_diagnostic[:, time_step + 1] = self.model(val_input_surface, 
+                                                                                                                     self.constant_boundary_data, 
+                                                                                                                     val_varying_boundary_data[:,time_step],
+                                                                                                                     val_input_upper_air)
+                    else:
+                        val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                            val_varying_boundary_data[:,time_step], val_input_upper_air)
+                    if self.params.predict_delta:
+                        val_input_surface, val_input_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_out_surface, val_out_upper_air)
+                    else:
+                        val_input_surface, val_input_upper_air = val_out_surface, val_out_upper_air
                     val_output_surface[:,time_step + 1] = self.valid_dataset.surface_inv_transform(val_input_surface.to('cpu')).numpy()
                     val_output_upper_air[:,time_step + 1] = self.valid_dataset.upper_air_inv_transform(val_input_upper_air.to('cpu')).numpy()
 
@@ -376,6 +441,12 @@ class Stepper():
             dataset = xr.Dataset(data_vars = dict(),
                                  coords = coordinates,
                                  attrs = dict(description = f"Prediction from {self.params.nettype} model run {self.params.run_num}"))
+            # print("Adding attributes to coordinates")
+            ds[self.params.lev].attrs['axis'] = 'Z'
+            ds['lat'].attrs['axis'] = 'Y'
+            ds['lon'].attrs['axis'] = 'X'
+            ds[self.params.lev].attrs['positive'] = 'down' # this litle line cost me half a day of work. It's for guess_coord_axis to work properly.
+            ds = ds.cf.guess_coord_axis()
             for idx, var in enumerate(self.valid_dataset.surface_variables):
                 da = xr.DataArray(data = surface_prediction[sample, :, idx],
                                   dims=["time", "lat", "lon"],
@@ -406,8 +477,8 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
-    parser.add_argument("--inference_steps", default=0, type=int)
-    parser.add_argument("--num_inferences", default = 0, type = int)
+    #parser.add_argument("--inference_steps", default=0, type=int)
+    #parser.add_argument("--num_inferences", default = 0, type = int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
 
     ####### for UCAR
@@ -419,17 +490,16 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    params['config_filepath'] = args.yaml_config
     params['epsilon_factor'] = args.epsilon_factor
-    params['run_num'] = args.run_num
-    if args.inference_steps > 0:
-        params['inference_steps'] = args.inference_steps
+    params['run_iter'] = args.run_iter
+    if hasattr(params, 'diagnostic_variables'):
+        if len(params.diagnostic_variables) > 0:
+            params['has_diagnostic'] = True
+        else:
+            params['has_diagnostic'] = False
     else:
-        try:
-            params['inference_steps'] = max(params.forecast_lead_times)
-        except:
-            print('args.inference_steps and params.forecast_lead_times not set, exiting...')
-            sys.exit(2)
+        params['has_diagnostic'] = False
+    print(f'Has diagnostic: {params.has_diagnostic}')
     #params['num_inferences'] = args.num_inferences
     
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))

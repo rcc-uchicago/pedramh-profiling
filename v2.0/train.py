@@ -332,7 +332,7 @@ class Trainer():
                 resume = "allow"
             else:
                 resume = "never"
-            wandb.init(config=params, name=params.name, group=params.group, project=params.project, resume=resume)#, entity=params.entity)
+            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', group=params.group, project=params.project, resume=resume)#, entity=params.entity)
 
             #wandb.define_metric("custom_step")
             #wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
@@ -1613,6 +1613,7 @@ if __name__ == '__main__':
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
+    parser.add_argument("--run_iter", default=1, type=int)
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
@@ -1629,6 +1630,7 @@ if __name__ == '__main__':
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
+    params['run_iter'] = args.run_iter
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
             params['has_diagnostic'] = True
