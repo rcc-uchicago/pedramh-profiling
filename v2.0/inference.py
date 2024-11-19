@@ -505,17 +505,17 @@ if __name__ == '__main__':
     print(f'Has diagnostic: {params.has_diagnostic}')
     #params['num_inferences'] = args.num_inferences
     
-    params['world_size'] = 1
-    os.environ['WANDB_MODE'] = 'offline'
+    #params['world_size'] = 1
+    #os.environ['WANDB_MODE'] = 'offline'
 
-    #print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-    #print('World size from Cuda: %d' % torch.cuda.device_count())
-    #if 'WORLD_SIZE' in os.environ:
-    #    params['world_size'] = int(os.environ['WORLD_SIZE'])
-    #    print(params['world_size'])
-    #else:
-    #    params['world_size'] = torch.cuda.device_count()
-    #    print(params['world_size'])
+    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    print('World size from Cuda: %d' % torch.cuda.device_count())
+    if 'WORLD_SIZE' in os.environ:
+        params['world_size'] = int(os.environ['WORLD_SIZE'])
+        print(params['world_size'])
+    else:
+        params['world_size'] = torch.cuda.device_count()
+        print(params['world_size'])
 
     #params['world_size'] = 1
     '''if torch.cuda.device_count() == 1:
