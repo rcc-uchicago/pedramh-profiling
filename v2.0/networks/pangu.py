@@ -104,8 +104,12 @@ class PanguModel_Plasim(nn.Module):
         #####
         global USE_TE
         USE_TE = params.use_transformer_engine
-        self.checkpointing = params.checkpointing if params.checkpointing is not None else 0
-        self.use_reentrant = params.use_reentrant if params.use_reentrant is not None else False
+        self.checkpointing = 0
+        self.use_reentrant = False
+        if hasattr(params, 'checkpointing'):
+            self.checkpointing = params.checkpoining
+        if hasattr(params, 'use_reentrant'):
+            self.use_reentrant = params.use_reentrant
 
         if USE_TE:
             global te, recipe, amp

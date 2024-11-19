@@ -25,6 +25,7 @@ from pathlib import Path
 import dask
 import cftime
 import xarray as xr
+import cf_xarray as cfxr
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -321,10 +322,11 @@ class Stepper():
 
                 for time_step in range(self.params['inference_steps']):
                     if self.params.has_diagnostic:
-                        val_out_surface, val_out_upper_air, val_output_diagnostic[:, time_step + 1] = self.model(val_input_surface, 
+                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.model(val_input_surface, 
                                                                                                                      self.constant_boundary_data, 
                                                                                                                      val_varying_boundary_data[:,time_step],
                                                                                                                      val_input_upper_air)
+                        val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_inv_transform(val_out_diagnostic.to('cpu')).numpy()
                     else:
                         val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:,time_step], val_input_upper_air)
@@ -442,11 +444,11 @@ class Stepper():
                                  coords = coordinates,
                                  attrs = dict(description = f"Prediction from {self.params.nettype} model run {self.params.run_num}"))
             # print("Adding attributes to coordinates")
-            ds[self.params.lev].attrs['axis'] = 'Z'
-            ds['lat'].attrs['axis'] = 'Y'
-            ds['lon'].attrs['axis'] = 'X'
-            ds[self.params.lev].attrs['positive'] = 'down' # this litle line cost me half a day of work. It's for guess_coord_axis to work properly.
-            ds = ds.cf.guess_coord_axis()
+            dataset[self.params.lev].attrs['axis'] = 'Z'
+            dataset['lat'].attrs['axis'] = 'Y'
+            dataset['lon'].attrs['axis'] = 'X'
+            dataset[self.params.lev].attrs['positive'] = 'down' # this litle line cost me half a day of work. It's for guess_coord_axis to work properly.
+            dataset = dataset.cf.guess_coord_axis()
             for idx, var in enumerate(self.valid_dataset.surface_variables):
                 da = xr.DataArray(data = surface_prediction[sample, :, idx],
                                   dims=["time", "lat", "lon"],
@@ -471,14 +473,15 @@ class Stepper():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0006', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM.yaml', type=str)
+    parser.add_argument("--run_num", default='0189', type=str)
+    parser.add_argument("--yaml_config", default='config/PANGU_NEW_0189.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     #parser.add_argument("--inference_steps", default=0, type=int)
     #parser.add_argument("--num_inferences", default = 0, type = int)
+    parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
 
     ####### for UCAR
@@ -502,14 +505,17 @@ if __name__ == '__main__':
     print(f'Has diagnostic: {params.has_diagnostic}')
     #params['num_inferences'] = args.num_inferences
     
-    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-    print('World size from Cuda: %d' % torch.cuda.device_count())
-    if 'WORLD_SIZE' in os.environ:
-        params['world_size'] = int(os.environ['WORLD_SIZE'])
-        print(params['world_size'])
-    else:
-        params['world_size'] = torch.cuda.device_count()
-        print(params['world_size'])
+    params['world_size'] = 1
+    os.environ['WANDB_MODE'] = 'offline'
+
+    #print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    #print('World size from Cuda: %d' % torch.cuda.device_count())
+    #if 'WORLD_SIZE' in os.environ:
+    #    params['world_size'] = int(os.environ['WORLD_SIZE'])
+    #    print(params['world_size'])
+    #else:
+    #    params['world_size'] = torch.cuda.device_count()
+    #    print(params['world_size'])
 
     #params['world_size'] = 1
     '''if torch.cuda.device_count() == 1:
@@ -534,6 +540,11 @@ if __name__ == '__main__':
         world_rank = 0
         local_rank = 0
 
+    if not hasattr(params, 'forecast_lead_times'):
+        params['inference_steps'] = (24 * 15) // params.timedelta_hours
+    else:
+        params['inference_steps'] = max(params.forecast_lead_times)
+
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
 
@@ -549,6 +560,8 @@ if __name__ == '__main__':
     best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
     params['checkpoint_path'] = os.path.join(expDir, ckpt_path)
     params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+    params['config_filepath'] = os.path.join(os.getcwd(), args.yaml_config)
+    params['run_num'] = args.run_num
 
     # Do not comment this line out please:
     args.resuming = True if os.path.isfile(params.checkpoint_path) else False
