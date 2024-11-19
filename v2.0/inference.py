@@ -182,17 +182,23 @@ class Stepper():
         #        train_logs['loss'], valid_logs['Surface MSE'], valid_logs['Upper Air MSE']))
 
 
-    async def save_prediction_async(self, surface_prediction, upper_air_prediction, start_time, pred_idx):
-        await asyncio.to_thread(self.save_prediction, surface_prediction, upper_air_prediction, start_time, pred_idx)
+    async def save_prediction_async(self, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction = None):
+        await asyncio.to_thread(self.save_prediction, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction)
 
     async def save_results(self, queue):
         while True:
             item = await queue.get()
             if item is None:
                 break
-            surface_prediction, upper_air_prediction, start_time, pred_idx = item
+            if self.params.has_diagnostic:
+                surface_prediction, upper_air_prediction, diagnostic_prediction, start_time, pred_idx = item
+            else:
+                surface_prediction, upper_air_prediction, start_time, pred_idx = item
             save_start = time.time()
-            await self.save_prediction_async(surface_prediction, upper_air_prediction, start_time, pred_idx)
+            if self.params.has_diagnostic:
+                await self.save_prediction_async(surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction)
+            else:
+                await self.save_prediction_async(surface_prediction, upper_air_prediction, start_time, pred_idx)
             self.save_time += time.time() - save_start
             queue.task_done()
 
@@ -239,10 +245,11 @@ class Stepper():
 
                 for time_step in range(self.params['inference_steps']):
                     if self.params.has_diagnostic:
-                        val_out_surface, val_out_upper_air, val_output_diagnostic[:, time_step + 1] = self.model(val_input_surface, 
-                                                                                                                     self.constant_boundary_data, 
-                                                                                                                     val_varying_boundary_data[:,time_step],
-                                                                                                                     val_input_upper_air)
+                        val_out_surface, val_out_upper_air, val_out_diagnostic = self.model(val_input_surface, 
+                                                                                            self.constant_boundary_data, 
+                                                                                            val_varying_boundary_data[:,time_step],
+                                                                                            val_input_upper_air)
+                        val_output_diagnostic[:, time_step + 1] = self.valid_dataset.diagnostic_transform(val_out_diagnostic.to('cpu')).numpy()
                     else:
                         val_out_surface, val_out_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
                                                                             val_varying_boundary_data[:,time_step], val_input_upper_air)
@@ -340,7 +347,10 @@ class Stepper():
                 inference_time += time.time() - inference_start
 
                 save_start = time.time()
-                self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx)
+                if self.params.has_diagnostic:
+                    self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx, val_output_diagnostic)
+                else:
+                    self.save_prediction(val_output_surface, val_output_upper_air, start_time, pred_idx)
                 save_time += time.time() - save_start
 
         total_time = time.time() - total_start
@@ -420,7 +430,7 @@ class Stepper():
         
         print("Checkpoint restored successfully")
 
-    def save_prediction(self, surface_prediction, upper_air_prediction, start_time, pred_idx):
+    def save_prediction(self, surface_prediction, upper_air_prediction, start_time, pred_idx, diagnostic_prediction = None):
         inference_results_dir = self.params['experiment_dir']
         savedir = os.path.join(inference_results_dir, 'predictions')
         if not os.path.isdir(savedir):
@@ -464,6 +474,16 @@ class Stepper():
                                   coords = coordinates)
                 da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
+            if self.params.has_diagnostic:
+                for idx, var in enumerate(self.valid_dataset.diagnostic_variables):
+                    da = xr.DataArray(data = diagnostic_prediction[sample, :, idx],
+                                    dims=["time", "lat", "lon"],
+                                    coords = {'time': time_range,
+                                                    'lat': dataset.lat.values,
+                                                    'lon': dataset.lon.values
+                                                        })
+                    da = da.assign_attrs(self.valid_dataset.data_dss[0][var].attrs)
+                    dataset[var] = da
             dataset = dataset.chunk({'time': 1, self.params.lev: 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             dataset.to_netcdf(os.path.join(savedir, filename))
@@ -482,7 +502,7 @@ if __name__ == '__main__':
     #parser.add_argument("--inference_steps", default=0, type=int)
     #parser.add_argument("--num_inferences", default = 0, type = int)
     parser.add_argument("--run_iter", default=1, type=int)
-    parser.add_argument("--async_save", default = False, action="store_true", help="Enable asynchronous saving")
+    parser.add_argument("--async_save", default = True, action="store_true", help="Enable asynchronous saving")
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
