@@ -45,9 +45,14 @@ PLASIM: &PLASIM
                          'maximum_2m_temperature_since_previous_post_processing']
   land_variables: ['volumetric_soil_water_layer_1', 'soil_temperature_level_1', 'skin_temperature']
   ocean_variables: ['sea_surface_temperature']
-  mask_output: False
   constant_boundary_variables: ['land_sea_mask', 'geopotential_at_surface']
   varying_boundary_variables: ['toa_incident_solar_radiation', 'snow_depth', 'sea_ice_cover']
+  mask_fill: {'volumetric_soil_water_layer_1': 0.,
+              'soil_temperature_level_1': 270.,
+              'skin_temperature': 270.,
+              'sea_surface_temperature': 270.,
+              'sea_ice_cover': 0.}
+  mask_output: False
   train_year_start: 1979
   train_year_end: 2019
   val_year_start: 2019

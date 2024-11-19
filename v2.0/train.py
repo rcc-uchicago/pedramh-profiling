@@ -396,8 +396,12 @@ class Trainer():
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask, 
-                                               mask_fill = self.train_datasets[0].mask_fill).to(self.device)
+                if hasattr(params, 'mask_fill'):
+                    self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                                               mask_fill = params.mask_fill).to(self.device)
+                else:
+                    self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                                                mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         else:
             raise Exception("not implemented")
