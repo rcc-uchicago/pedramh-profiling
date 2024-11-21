@@ -107,7 +107,7 @@ class PanguModel_Plasim(nn.Module):
         self.checkpointing = 0
         self.use_reentrant = False
         if hasattr(params, 'checkpointing'):
-            self.checkpointing = params.checkpoining
+            self.checkpointing = params.checkpointing
         if hasattr(params, 'use_reentrant'):
             self.use_reentrant = params.use_reentrant
 
