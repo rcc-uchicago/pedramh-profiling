@@ -835,10 +835,10 @@ class Trainer():
                 self.iters += 1
                 data_start = time.time()
                 if self.params.has_diagnostic:
-                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data, index_info = map(
+                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
                         lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 else:
-                    input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
+                    input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
                         lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                 
                 if self.params.num_ensemble_members > 1:
@@ -1643,8 +1643,8 @@ class Trainer():
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_num", default='0194', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_NEW_0194.yaml', type=str)
-    parser.add_argument("--config", default='PLASIM', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
+    parser.add_argument("--config", default='S2S', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)

@@ -51,6 +51,7 @@ import os, sys, gc, shutil
 import logging
 import glob
 import torch
+import h5py
 #import random
 import numpy as np
 from torch.utils.data import DataLoader, Dataset
@@ -60,12 +61,30 @@ from torch.utils.data.distributed import DistributedSampler
 #import math
 # import cv2
 #from utils.img_utils import reshape_fields
-
+from itertools import product
 from os.path import join
 import cftime
 from datetime import timedelta
 import xarray as xr
 import warnings
+
+def get_data_given_path(path, variables):
+    with h5py.File(path, 'r') as f:
+        data = {
+            main_key: {
+                sub_key: np.array(value) for sub_key, value in group.items() if sub_key in variables + ['time']
+        } for main_key, group in f.items() if main_key in ['input']}
+
+    x = [data['input'][v] for v in variables]
+    return np.stack(x, axis=0)
+
+def get_out_path(root_dir, year, inp_file_idx):
+    # year: current year
+    # inp_file_idx: file index of the input in the current year
+    # steps: number of steps forward
+    out_path = os.path.join(root_dir, f'{year}_{inp_file_idx:04}.h5')
+    return out_path
+
 
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
@@ -111,13 +130,15 @@ class GetDataset(Dataset):
         if hasattr(params, 'mask_fill'):
             self.mask_fill = self.params.mask_fill
         else:
-            self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
+            #self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
+            self.mask_fill = {'land_sea_mask': 0., 'sea_surface_temperature': 270., 'sea_ice_cover': 0., 'volumetric_soil_water_layer_1': 0.}
 
         self.year_start = year_start
         self.year_end = year_end
         self.calendar = params.calendar
         self.timedelta_hours = params.timedelta_hours
-        self.datetime_class = self.datetime_class_from_calendar(self.calendar)
+        self.data_timedelta_hours = params.data_timedelta_hours
+        self.datetime_class  = self.datetime_class_from_calendar(self.calendar)
         # for timedelta_hours > 24
         days, hours = divmod(self.timedelta_hours, 24)
         self.timedelta = self.datetime_class(1, 1, 1 + days, hour=hours) - self.datetime_class(1, 1, 1, hour=0)
@@ -125,45 +146,56 @@ class GetDataset(Dataset):
 
         self.surface_variables = params.surface_variables or []
         if hasattr(params, 'land_variables'):
-            if any([land_variable in self.surface_variables for land_variable in params.land_variables]):
-                raise ValueError('land variables cannot be in surface variables.')
+            if len(params.land_variables) > 0:
+                if any([land_variable in self.surface_variables for land_variable in params.land_variables]):
+                    raise ValueError('land variables cannot be in surface variables.')
+                self.surface_variables = self.surface_variables + params.land_variables
             self.land_variables = params.land_variables
-            self.surface_variables = self.surface_variables + self.land_variables
+        else:
+            self.land_variables = []
+            
+
         if hasattr(params, 'ocean_variables'):
-            if any([ocean_variable in self.surface_variables for ocean_variable in params.ocean_variables]):
-                raise ValueError('ocean variables cannot be in surface variables.')
-            self.ocean_variables = params.ocean_variables
-            self.surface_variables = self.surface_variables + self.ocean_variables
+            if len(params.land_variables) > 0:
+                if any([ocean_variable in self.surface_variables for ocean_variable in params.ocean_variables]):
+                    raise ValueError('ocean variables cannot be in surface variables.')
+                self.ocean_variables = params.ocean_variables
+            self.surface_variables = self.surface_variables + params.ocean_variables
+        else:
+            self.ocean_variables = []
         self.upper_air_variables = params.upper_air_variables or []
 
         self.constant_boundary_variables = params.constant_boundary_variables or []
         self.varying_boundary_variables = params.varying_boundary_variables or []
-        self.boundary_dir = params.boundary_dir
+
+
+
+        # self.channel_seq = self.surface_variables + self.upper_air_variables
+
+        # self.boundary_dss = self._load_boundary_data()
+        self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.data_timedelta_hours)#(hour_step=params.timedelta_hours)
+
         self.constant_boundary_data, self.land_mask = self._load_constant_boundary_data()
         if torch.any(torch.isnan(self.constant_boundary_data)):
             print('Constant boundary has nan')
             sys.exit(2)
-
-        # self.channel_seq = self.surface_variables + self.upper_air_variables
-
-        self.boundary_dss = self._load_boundary_data()
-        self.dates = self._get_dates(hour_step=params.timedelta_hours)
-        max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times)
+        
+        max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
         if self.num_inferences > 0:
             self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
         else:
             self.inference_idxs = np.arange(0, max_inference_idx)
         #print('Inference idxs:')
         #print(self.inference_idxs)
-        self.data_dss = self._load_data()
-        self.lat = torch.from_numpy(self.data_dss[0].lat.values)
+        #self.data_dss = self._load_data()
+        #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         if len(params['levels']) > 0:
             self.levels = np.array(params['levels'])
         else:
-            self.levels = self.data_dss[0][self.params.lev].values
-        self.num_levels = len(self.levels)
-        self.lev = torch.from_numpy(self.levels)
-
+            #self.levels = self.data_dss[0][self.params.lev].values
+            raise ValueError('levels must now be explicitly specified in config file.')
+        
+        """
         self.surface_mean, self.surface_std = self.load_mean_std(join(
             data_dir, params.surface_mean), join(data_dir, params.surface_std), self.surface_variables, upper_air = False)
 
@@ -186,34 +218,20 @@ class GetDataset(Dataset):
         self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_dir, params.boundary_mean),
                                                                                    join(data_dir, params.boundary_dir, params.boundary_std),
                                                                                    self.varying_boundary_variables, upper_air = False)
+        """
         
         if hasattr(params, 'diagnostic_variables'):
             if len(params.diagnostic_variables) > 0:
                 self.diagnostic_variables = params.diagnostic_variables
-                self.diagnostic_mean, self.diagnostic_std = self.load_mean_std(join(data_dir, params.diagnostic_mean),
-                                                                                    join(data_dir, params.diagnostic_std),
-                                                                                    self.diagnostic_variables, upper_air = False)
+                #self.diagnostic_mean, self.diagnostic_std = self.load_mean_std(join(data_dir, params.diagnostic_mean),
+                #                                                                    join(data_dir, params.diagnostic_std),
+                #                                                                    self.diagnostic_variables, upper_air = False)
             else:
                 self.diagnostic_variables = []
         else:
             self.diagnostic_variables = []
 
-        if hasattr(params, 'land_variables'):
-            if len(params.land_variables) > 0:
-                self.land_variables = params.land_variables
-            else:
-                self.land_variables = []
-        else:
-            self.land_variables = []
-
-        if hasattr(params, 'ocean_variables'):
-            if len(params.ocean_variables) > 0:
-                self.ocean_variables = params.ocean_variables
-            else:
-                self.ocean_variables = []
-        else:
-            self.ocean_variables = []
-                #self.diagnostic_inv_transform = self._create_diagnostic_inv_transform()
+        self._get_variable_list()
 
         #self.surface_transform = self._create_surface_transform()
         #self.boundary_transform = self._create_boundary_transform()
@@ -223,38 +241,64 @@ class GetDataset(Dataset):
 
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
-        for ds in self.data_dss:
-            ds.close()
-        for ds in self.boundary_dss:
-            ds.close()
-        gc.collect()
 
+    def _get_variable_list(self, level_units = '.0'):
+        self.variable_list_out = []
+        for variable, level in product(self.upper_air_variables, self.levels):
+            self.variable_list_out.append(f'{variable}_{int(level)}{level_units}')
+        self.upper_air_len = len(self.variable_list_out)
+        self.variable_list_out.extend(self.surface_variables)
+        self.variable_list_in = self.variable_list_out.copy()
+        self.variable_list_out.extend(self.diagnostic_variables)
+        self.variable_list_in.extend(self.varying_boundary_variables)
 
-    def _get_files_stats(self):
-        self.files_paths_sfc = glob.glob(self.data_dir + "/*_sfc.h5")
-        self.files_paths_pl = glob.glob(self.data_dir + "/*_pl.h5")
-        self.files_paths_sfc.sort()
-        self.files_paths_pl.sort()
-        assert len(self.files_paths_sfc) == len(self.files_paths_pl), 'number of surface and upper_air files must be equal'
-        self.n_years = len(self.files_paths_sfc)
-        with h5py.File(self.files_paths_sfc[0], 'r') as _f:
-            logging.info("Getting file stats from {}".format(self.files_paths_sfc[0]))
-            self.n_samples_per_year = _f['fields'].shape[0]
-            self.N_channel = _f['fields'].shape[1]
-            # original image shape (before padding)
-            # -1#just get rid of one of the pixels
-            self.img_shape_x = _f['fields'].shape[2]
-            self.img_shape_y = _f['fields'].shape[3]
+    def _reshape_and_mask_variables(self, data_array, out = False):
+        upper_air = torch.from_numpy(data_array[:self.upper_air_len].reshape(len(self.upper_air_variables),
+                                                            len(self.levels),
+                                                            self.params.horizontal_resolution[0],
+                                                            self.params.horizontal_resolution[1])).to(torch.float32)
+        surface = torch.from_numpy(data_array[self.upper_air_len:self.upper_air_len+len(self.surface_variables)]\
+            .reshape(len(self.surface_variables),
+                     self.params.horizontal_resolution[0],
+                     self.params.horizontal_resolution[1])).to(torch.float32)
+        surface = self._fill_mask(surface, self.surface_variables, self.land_variables + self.ocean_variables)
+        if out:
+            if len(self.diagnostic_variables) > 0:
+                diagnostic = torch.from_numpy(data_array[self.upper_air_len+len(self.surface_variables):\
+                                        self.upper_air_len+len(self.surface_variables)+len(self.diagnostic_variables)]\
+                                .reshape(len(self.diagnostic_variables),
+                                self.params.horizontal_resolution[0],
+                                self.params.horizontal_resolution[1])).to(torch.float32)
+                diagnostic = self._fill_mask(diagnostic, self.diagnostic_variables)
+                return upper_air, surface, diagnostic
+            else:
+                return upper_air, surface
+        else:
+            if len(self.varying_boundary_variables) > 0:
+                varying_boundary = torch.from_numpy(data_array[self.upper_air_len+len(self.surface_variables):\
+                                        self.upper_air_len+len(self.surface_variables)+len(self.varying_boundary_variables)]\
+                                .reshape(len(self.varying_boundary_variables),
+                                self.params.horizontal_resolution[0],
+                                self.params.horizontal_resolution[1])).to(torch.float32)
+                varying_boundary = self._fill_mask(varying_boundary, self.varying_boundary_variables)
+                return upper_air, surface, varying_boundary
+            else:
+                return upper_air, diagnostic
+            
 
-        self.n_samples_total = self.n_years * self.n_samples_per_year
-        self.files_sfc = [None for _ in range(self.n_years)]
-        self.files_pl = [None for _ in range(self.n_years)]
-        logging.info("Number of samples per year: {}".format(self.n_samples_per_year))
-        logging.info("Found data at path {}. Number of examples: {}. Image Shape: {} x {} x {}".format(
-            self.data_dir, self.n_samples_total, self.N_channel, self.img_shape_x, self.img_shape_y))
-        logging.info("Delta t: {} hours".format(6*self.dt))
-        logging.info("Including {} hours of past history in training at a frequency of {} hours".format(6*self.dt*self.n_history, 6*self.dt))
-
+    def _fill_mask(self, data, variables, optional_variables = None):
+        if optional_variables:
+            for i, var in enumerate(variables):
+                if var in optional_variables:
+                    nans = torch.isnan(data[i])
+                    if torch.any(nans):
+                        data[i] = data[i].masked_fill(nans, self.mask_fill[var])
+        else:
+            for i, var in enumerate(variables):
+                nans = torch.isnan(data[i])
+                if torch.any(nans):
+                    data[i] = data[i].masked_fill(nans, self.mask_fill[var])
+        return data
 
     def datetime_class_from_calendar(self, calendar):
         datetime_class_dict = {'standard': cftime.DatetimeGregorian,
@@ -269,29 +313,11 @@ class GetDataset(Dataset):
         return datetime_class_dict[calendar]
 
     def _load_constant_boundary_data(self):
-        constant_boundary_files = [join(self.data_dir, self.boundary_dir, f) for f in
-                                   os.listdir(join(self.data_dir, self.boundary_dir))
-                                   if any(var in f for var in self.constant_boundary_variables)]
-        land_mask = None
-        print(constant_boundary_files)
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore",
-                                    message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            constant_boundary_ds = xr.open_mfdataset(constant_boundary_files, engine='netcdf4', parallel=self.parallel)
-        print('Loaded Constant Boundary')
-        constant_boundary_masked = []
-        for var in self.constant_boundary_variables:
-            constant_boundary_tensor = torch.from_numpy(constant_boundary_ds[var].values).to(torch.float32)
-            nans = torch.isnan(constant_boundary_tensor)
-            if torch.any(nans):
-                constant_boundary_tensor = constant_boundary_tensor.masked_fill(nans, self.mask_fill[var])
-            if var == 'lsm':
-                land_mask = torch.clone(constant_boundary_tensor.detach())
-            constant_boundary_masked.append(constant_boundary_tensor)
-        constant_boundary_ds.close()
-        constant_boundary_data = torch.stack(constant_boundary_masked, dim=0)
+        constant_boundary_data = torch.from_numpy(self._get_data(self.start_date, variable_list = self.constant_boundary_variables)).to(torch.float32)
+        constant_boundary_data = self._fill_mask(constant_boundary_data, self.constant_boundary_variables)
+        land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == 'land_sea_mask'].detach())
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
-        constant_bounadry_std = torch.std(constant_boundary_data, dim = (1,2))
+        constant_bounadry_std = torch.std(constant_boundary_data, dim=(1,2))
         constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_bounadry_std.reshape(-1, 1, 1)
         return constant_boundary_data, land_mask
 
@@ -322,26 +348,6 @@ class GetDataset(Dataset):
                 std = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)
         return mean, std
     
-    """
-    def _create_surface_transform(self):
-        return lambda data: (data - self.surface_mean.reshape(-1, 1, 1))/self.surface_std.reshape(-1, 1, 1)
-
-    def _create_boundary_transform(self):
-        return lambda data: (data - self.varying_boundary_mean.reshape(-1, 1, 1))/self.varying_boundary_std.reshape(-1, 1, 1)
-
-    def _create_upper_air_transform(self):
-        return lambda data: (data - self.upper_air_mean.reshape(len(self.upper_air_variables), -1, 1, 1))/ \
-            self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1)
-
-    def _create_surface_inv_transform(self):
-        return lambda data: data * self.surface_std.reshape(1, -1, 1, 1) + self.surface_mean.reshape(1, -1, 1, 1)
-
-    def _create_upper_air_inv_transform(self):
-        return lambda data: data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
-            self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
-    
-    def _create_diagnostic_inv_transform(self):
-    """
     def surface_transform(self, data):
         return (data - self.surface_mean.reshape(-1, 1, 1))/self.surface_std.reshape(-1, 1, 1)
     
@@ -371,48 +377,12 @@ class GetDataset(Dataset):
     def upper_air_delta_transform(self, data):
         return data / self.upper_air_delta_std.reshape(len(self.upper_air_variables), -1, 1, 1)
 
-    
-    def _load_boundary_data(self, initial = True):
-        if initial:
-            print('Loading varying boundary from %s' % join(self.data_dir, self.boundary_dir))
-            self.boundary_files = [join(self.data_dir, self.boundary_dir, f) for f in os.listdir(join(self.data_dir, self.boundary_dir)) \
-                                    if any(var in f for var in self.varying_boundary_variables)]
-            self.boundary_leap_files = [file for file in self.boundary_files if '_leap' in os.path.basename(file)]
-            self.boundary_noleap_files = [file for file in self.boundary_files if '_leap' not in os.path.basename(file)]
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore",
-                                    message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            boundary_ds_leap = xr.open_mfdataset(self.boundary_leap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
-            boundary_ds_noleap = xr.open_mfdataset(self.boundary_noleap_files, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
-   
-        return [boundary_ds_noleap, boundary_ds_leap]
-    
-    # def _get_dates(self, hour_step = 6.):
-    #     start_date = self.datetime_class(self.year_start, 1, 1)
-    #     end_date = self.datetime_class(self.year_end, 1, 1)
-    #     if not self.train and self.params['inference_steps'] > 0:
-    #         hours = (end_date - start_date).days * 24. - (self.params['inference_steps'])
-    #     else:
-    #         hours = (end_date - start_date).days * 24.
-    #     date_range = np.arange(0., hours, hour_step)
-    #     return date_range
-
     # Modification for the autoregressive parameter
     def _get_dates(self, hour_step=6.):
         start_date = self.datetime_class(self.year_start, 1, 1)
         end_date = self.datetime_class(self.year_end, 1, 1)
         
         if not self.train:
-            # POTENTIAL BUG: WILL PRIORITIZE INFERENCE STEPS FIRST
-            #if self.params['inference_steps'] > 0:
-            #    # Original inference mode
-            #    hours = (end_date - start_date).days * 24. - (self.params['inference_steps'])
-            #elif self.params['autoreg_steps'] > 0:
-            #    # New autoregressive inference mode
-            #    hours = (end_date - start_date).days * 24. - (self.params['autoreg_steps'])
-            #else:
-            #    # Default case (no steps specified)
-            #    hours = (end_date - start_date).days * 24.
             hours = (end_date - start_date).days * 24. #- (max(self.params.forecast_lead_times)) * hour_step
         else:
             # Training mode
@@ -420,120 +390,27 @@ class GetDataset(Dataset):
         
         date_range = np.arange(0., hours, hour_step)
         print(f'End data hour: {date_range[-1]}')
-        return date_range
+        return date_range, start_date, end_date
 
-    
-    def _check_leap_year(self, date, has_year_zero=None):
-        if has_year_zero is None:
-            return cftime.is_leap_year(date.year, calendar = self.calendar, has_year_zero=date.has_year_zero)
+    def _get_data(self, data_datetime, out = False, variable_list = None):
+        data_year = data_datetime.year
+        data_idx = int((data_datetime - self.datetime_class(data_year, 1, 1, hour=0, has_year_zero=self.has_year_zero)).total_seconds())\
+              // 3600 // self.data_timedelta_hours
+        data_file_path = get_out_path(self.data_dir, data_year, data_idx)
+        if variable_list:
+            raw_data = get_data_given_path(data_file_path, variable_list)
         else:
-            return cftime.is_leap_year(date, calendar=self.calendar, has_year_zero=has_year_zero)
-    
-    def _load_data(self, initial = True):
-        if initial:
-            self.data_files = [join(self.data_dir, f'data_{year}.nc') for year in range(self.year_start, self.year_end)]
-            self.year_start_hours = np.array([(self.datetime_class(year, 1, 1) - self.datetime_class(self.year_start, 1, 1)).days*24.
-                                    for year in range(self.year_start, self.year_end)])
-            self.is_leap_year = np.array([self._check_leap_year(year, self.has_year_zero) for year in
-                                range(self.year_start, self.year_end)])
-        data_dss = []
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore",
-                                    message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            for file in self.data_files:
-                data_ds = xr.open_mfdataset(file, chunks={'time': 1}, engine='netcdf4', parallel=self.parallel, decode_cf=False)
-                if data_ds.time[1].item() < 1.:
-                    data_ds['time'] = data_ds['time'] * 24.
-                data_dss.append(data_ds)
-        return data_dss
-
-    def _load_year_data(self, year_idx):
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore",
-                                    message='^.*Unable to decode time axis into full numpy.datetime64 objects.*$')
-            #data_nc = Dataset(self.data_files[year_idx], 'r', parallel = True)
-            data_ds = xr.open_mfdataset(self.data_files[year_idx], chunks={'time': 1},
-                engine='netcdf4', parallel=self.parallel, decode_cf=False)
-            if data_ds.time[1].item() < 1.:
-                    data_ds['time'] = data_ds['time'] * 24.
-        return data_ds
-    
-    def _get_data(self, data_ds, year, hour, output = False):
-        
-        #print(data_ds['tas'].time)
-        surface_da_list = []
-        for var in self.surface_variables:
-            if var in self.land_variables or var in self.ocean_variables:
-                var_data = torch.from_numpy(data_ds[var].sel(time=hour).values).to(torch.float32)
-                nans = torch.isnan(var_data)
-                if torch.any(nans):
-                    var_data = var_data.masked_fill(nans, self.mask_fill[var])
-                surface_da_list.append(var_data)
+            if out:
+                raw_data = get_data_given_path(data_file_path, self.variable_list_out)
             else:
-                surface_da_list.append(torch.from_numpy(data_ds[var].sel(time=hour).values).to(torch.float32))
-        surface_data = torch.stack(surface_da_list, dim = 0)
-
-        #for da in surface_da_list:
-        #    da[:] = np.nan
-        if self.params.lev == 'lev':
-            upper_air_da_list = [data_ds[var].sel(time=hour, lev=self.levels) for var in self.upper_air_variables]
-        elif self.params.lev == 'plev':
-            upper_air_da_list = [data_ds[var].sel(time=hour, plev=self.levels) for var in self.upper_air_variables]
-        upper_air_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in upper_air_da_list], dim = 0)
-        #for da in upper_air_da_list:
-        #    da[:] = np.nan
-
-        #gc.collect()
-        if len(self.diagnostic_variables) > 0 and output:
-            diagnostic_da_list = [data_ds[var].sel(time=hour) for var in self.diagnostic_variables]
-            diagnostic_data = torch.stack([torch.from_numpy(da.values).to(torch.float32) for da in diagnostic_da_list], dim = 0)
-            diagnostic_data = self.diagnostic_transform(diagnostic_data)
-            return surface_data, upper_air_data, diagnostic_data
-        else:
-            return surface_data, upper_air_data
-
-
-
-    def _get_boundary_data(self, start_time_boundary, leap_idx):
-        # Added fix for boundary data
-        # load boundary data based on if multi step or single step. 
-        if not self.train and max(self.params.forecast_lead_times) > 1: 
-            varying_boundary_data_all = []
-            # print(start_time_boundary)
-            for start_time_boundary_i, leap_idx_i in zip(start_time_boundary, leap_idx):
-                varying_boundary_masked = []
-                for var in self.varying_boundary_variables:
-                    varying_boundary_tensor = torch.from_numpy(
-                        self.boundary_dss[leap_idx_i][var].sel(time=start_time_boundary_i).values).to(torch.float32)
-                    nans = torch.isnan(varying_boundary_tensor)
-                    if torch.any(nans):
-                        varying_boundary_tensor = varying_boundary_tensor.masked_fill(nans, self.mask_fill[var])
-                    varying_boundary_masked.append(varying_boundary_tensor)
-                varying_boundary_data = torch.stack(varying_boundary_masked, dim = 0)
-                varying_boundary_data_all.append(varying_boundary_data)
-            varying_boundary_data_out = torch.stack(varying_boundary_data_all, dim = 0)
-            # print(varying_boundary_data_out.shape)
-            return varying_boundary_data_out
-        else:
-            varying_boundary_masked = []
-            for var in self.varying_boundary_variables:
-                varying_boundary_tensor = torch.from_numpy(
-                    self.boundary_dss[leap_idx][var].sel(time=start_time_boundary).values).to(torch.float32)
-                nans = torch.isnan(varying_boundary_tensor)
-                if torch.any(nans):
-                    varying_boundary_tensor = varying_boundary_tensor.masked_fill(nans, self.mask_fill[var])
-                varying_boundary_masked.append(varying_boundary_tensor)
-            varying_boundary_data = torch.stack(varying_boundary_masked, dim = 0)
-            return varying_boundary_data
-    
-
+                raw_data = get_data_given_path(data_file_path, self.variable_list_out)
+        return raw_data
 
     def __len__(self):
-        return len(self.inference_idxs) - 1
+        return len(self.inference_idxs)
 
 
     def __getitem__(self, index):
-        self.boundary_dss = self._load_boundary_data(initial = False)
         #print('Loaded Boundary Data')
         #self.dates = self._get_dates(hour_step=params.timedelta_hours)
         #self.data_dss = self._load_data(initial=False)
@@ -543,52 +420,34 @@ class GetDataset(Dataset):
 
         # Condition 1: Training
         if self.train:
-            start_time = self.dates[index]
-            start_hour_diff = start_time - self.year_start_hours
-            start_idx = np.where(start_hour_diff >= 0)[0][-1]
-            start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
-            end_time = self.dates[index + 1]
-            end_hour_diff = end_time - self.year_start_hours
-            end_idx = np.where(end_hour_diff >= 0)[0][-1]
-            if start_idx == end_idx:
-                data_ds = self._load_year_data(start_idx)
-                surface_t, upper_air_t = self._get_data(data_ds, start_idx, start_hour_diff[start_idx])
-                #print('Loaded data ds')
-                if len(self.diagnostic_variables) > 0:
-                    surface_t_1, upper_air_t_1, diagnostic_t_1 = self._get_data(data_ds, end_idx, end_hour_diff[end_idx], output=True)
-                else:
-                    surface_t_1, upper_air_t_1 = self._get_data(data_ds, end_idx, end_hour_diff[end_idx])
-                #print('Got data sample')
-                data_ds.close()
+            start_time = self.start_date + timedelta(hours=self.dates[index])
+            end_time = self.start_date + timedelta(hours=self.dates[index] + self.timedelta_hours)
+            if start_time.year == 2019 or end_time.year == 2019:
+                print('2019')
+            data_in  = self._get_data(start_time, out = False)
+            data_out = self._get_data(end_time, out = True)
+            if len(self.varying_boundary_variables) > 0:
+                upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out = False)
             else:
-                data_ds_start = self._load_year_data(start_idx)
-                data_ds_end = self._load_year_data(end_idx)
-                #print('Loaded data ds')
-                surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
-                if len(self.diagnostic_variables) > 0:
-                    surface_t_1, upper_air_t_1, diagnostic_t_1 = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx], output=True)
-                else:
-                    surface_t_1, upper_air_t_1 = self._get_data(data_ds_end, end_idx, end_hour_diff[end_idx])
-                #print('Got data sample')
-                data_ds_start.close()
-                data_ds_end.close()
+                upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False)
+            if len(self.diagnostic_variables) > 0:
+                upper_air_t_1, surface_t_1, diagnostic_t_1 = self._reshape_and_mask_variables(data_out, out = True)
+            else:
+                upper_air_t_1, surface_t_1 = self._reshape_and_mask_variables(data_out, out = True)
             
             if self.params.predict_delta:
                 surface_t_1 = surface_t_1 - surface_t
                 upper_air_t_1 = upper_air_t_1 - upper_air_t
-                surface_t = self.surface_transform(surface_t)
-                surface_t_1 = self.surface_delta_transform(surface_t_1)
-                upper_air_t = self.upper_air_transform(upper_air_t)
-                upper_air_t_1 = self.upper_air_delta_transform(upper_air_t_1)
-            else:
-                surface_t = self.surface_transform(surface_t)
-                surface_t_1 = self.surface_transform(surface_t_1)
-                upper_air_t = self.upper_air_transform(upper_air_t)
-                upper_air_t_1 = self.upper_air_transform(upper_air_t_1)
-            #print('Normalized data')
-            varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
-            #print('Got boundary data')
-            varying_boundary_data = self.boundary_transform(varying_boundary_data)
+                #surface_t = self.surface_transform(surface_t)
+                #surface_t_1 = self.surface_delta_transform(surface_t_1)
+                #upper_air_t = self.upper_air_transform(upper_air_t)
+                #upper_air_t_1 = self.upper_air_delta_transform(upper_air_t_1)
+            #else:
+            #    surface_t = self.surface_transform(surface_t)
+            #    surface_t_1 = self.surface_transform(surface_t_1)
+            #    upper_air_t = self.upper_air_transform(upper_air_t)
+            #    upper_air_t_1 = self.upper_air_transform(upper_air_t_1)
+            #varying_boundary_data = self.boundary_transform(varying_boundary_data)
             #print('Normalized Boundary')
             if self.epsilon_factor > 0.:
                 if 'surface_ff_std' in self.params:
@@ -597,7 +456,7 @@ class GetDataset(Dataset):
                     surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
                 surface_t = surface_t + surface_t_noise
                 if 'upper_air_ff_std' in self.params:
-                    upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_ff_std / self.upper_air_std).reshape(len(self.upper_air_variables), self.num_levels, 1, 1)
+                    upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_ff_std / self.upper_air_std).reshape(len(self.upper_air_variables), len(self.levels), 1, 1)
                 else:
                     upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
                 upper_air_t = upper_air_t + upper_air_t_noise
@@ -605,22 +464,20 @@ class GetDataset(Dataset):
         # Condition for autoregression
         elif lead_times:
 
-            start_time = self.dates[self.inference_idxs[index]]
-            start_hour_diff = start_time - self.year_start_hours
-            start_idx = np.where(start_hour_diff >= 0)[0][-1]
-            start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
+            start_time = self.start_date + timedelta(hours=self.dates[index])
 
             # Load initial conditions
-            data_ds_start = self._load_year_data(start_idx)
-            surface_t, upper_air_t = self._get_data(data_ds_start, start_idx, start_hour_diff[start_idx])
+            data_in = self._get_data(start_time, out = False)
+            if len(self.varying_boundary_variables) > 0:
+                surface_t, upper_air_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
+            else:
+                surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out = False)
 
             max_lead_time = lead_times[-1]
-            boundary_times = self.dates[self.inference_idxs[index]:self.inference_idxs[index] + max_lead_time]
-            boundary_hour_diffs = np.array(boundary_times).reshape(-1,1) - self.year_start_hours.reshape(1,-1)
-            boundary_idxs = np.array([np.where(diff >= 0)[0][-1] for diff in boundary_hour_diffs])
-            boundary_leap_idxs = np.array([1 if self.is_leap_year[idx] else 0 for idx in boundary_idxs])
-
-            varying_boundary_data = self._get_boundary_data(boundary_hour_diffs[np.arange(len(boundary_times)), boundary_idxs], boundary_leap_idxs)
+            boundary_times = [self.start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
+            varying_boundary_data = [varying_boundary_data_t]
+            varying_boundary_data.extend([self._fill_mask(\
+                self._get_data(boundary_time, variable_list = self.varying_boundary_variables), self.varying_boundary_variables) for boundary_time in boundary_times])
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim=0)
 
 
@@ -633,27 +490,19 @@ class GetDataset(Dataset):
                     targets_delta_upper_air = []
                 if len(self.diagnostic_variables) > 0:
                     targets_diagnostic = []
-                current_ds = data_ds_start
-                current_idx = start_idx
 
                 # Iterate over each time step up to the maximum lead time
                 max_lead_time = lead_times[-1]
 
                 for step in range(1, max_lead_time + 1):
-                    target_time = self.dates[self.inference_idxs[index] + step]
-                    target_hour_diff = target_time - self.year_start_hours
-                    target_idx = np.where(target_hour_diff >= 0)[0][-1]
-
-                    if target_idx != current_idx:
-                        current_ds.close()
-                        current_ds = self._load_year_data(target_idx)
-                        current_idx = target_idx
+                    target_time = start_time + timedelta(hours = self.timedelta_hours * step)
+                    raw_target_data = self._get_data(target_time, out = True)
 
                     if len(self.diagnostic_variables) > 0:
-                        surface_target, upper_air_target, diagnostic_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx], output = True)
+                        surface_target, upper_air_target, diagnostic_target = self._reshape_and_mask_variables(raw_target_data, out = True)
                         targets_diagnostic.append(diagnostic_target)
                     else:
-                        surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
+                        surface_target, upper_air_target = self._reshape_and_mask_variables(raw_target_data, out = True)
         
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
@@ -678,7 +527,6 @@ class GetDataset(Dataset):
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
 
-                current_ds.close()
                 targets_surface = torch.stack(targets_surface, dim=0)
                 targets_upper_air = torch.stack(targets_upper_air, dim=0)
                 if len(self.diagnostic_variables) > 0:
@@ -686,55 +534,18 @@ class GetDataset(Dataset):
                 if self.params.predict_delta:
                     targets_delta_surface = torch.stack(targets_delta_surface, dim=0)
                     targets_delta_upper_air = torch.stack(targets_delta_upper_air, dim=0)
-            else: 
-                data_ds_start.close()
                     
-
-
-
-            # if self.validate:
-            #     # Load targets for each lead time
-            #     targets_surface = []
-            #     targets_upper_air = []
-            #     current_ds = data_ds_start
-            #     current_idx = start_idx
-
-            #     for step in lead_times:
-            #         target_time = self.dates[self.inference_idxs[index] + step]
-            #         target_hour_diff = target_time - self.year_start_hours
-            #         target_idx = np.where(target_hour_diff >= 0)[0][-1]
-                    
-            #         if target_idx != current_idx:
-            #             current_ds.close()
-            #             current_ds = self._load_year_data(target_idx)
-            #             current_idx = target_idx
-                    
-            #         surface_target, upper_air_target = self._get_data(current_ds, target_idx, target_hour_diff[target_idx])
-                    
-            #         targets_surface.append(surface_target)
-            #         targets_upper_air.append(upper_air_target)
-            #     current_ds.close()
-            #     targets_surface = torch.stack(targets_surface, dim = 0)
-            #     targets_upper_air = torch.stack(targets_upper_air, dim = 0)
-            # else:
-            #     current_ds.close()
 
         else:
-            start_time = self.dates[self.inference_idxs[index]]
-            start_hour_diff = start_time - self.year_start_hours
-            start_idx = np.where(start_hour_diff >= 0)[0][-1]
-            start_leap_idx = 1 if self.is_leap_year[start_idx] else 0
-            data_ds = self._load_year_data(start_idx)
-            surface_t, upper_air_t = self._get_data(data_ds, start_idx, start_hour_diff[start_idx])
+            start_time = self.start_date + timedelta(hours=self.dates[index])
+            data_in = self._get_data(start_time, out = False)
+            if len(self.varying_boundary_variables) > 0:
+                surface_t, upper_air_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False)
+                varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
+            else:
+                surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out=False)
             surface_t = self.surface_transform(surface_t)
             upper_air_t = self.upper_air_transform(upper_air_t)
-            data_ds.close()
-            varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
-            varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
-            #start_time_cf = self.datetime_class(start_idx[0] + self.params.val_year_start, 1, 1, hour = 0) + timedelta(start_hour_diff[0][start_idx[0]])
-            #end_time = [self.dates[index + 1]]
-        #varying_boundary_data = self._get_boundary_data(start_hour_diff[start_idx], start_leap_idx)
-        #varying_boundary_data = self.boundary_transform(varying_boundary_data)
         if torch.any(torch.isnan(varying_boundary_data)):
             print('Boundary data has nan')
             sys.exit(2)
@@ -744,10 +555,6 @@ class GetDataset(Dataset):
         if torch.any(torch.isnan(upper_air_t)):
             print('Upper air t has nan')
             sys.exit(2)
-
-        for ds in self.boundary_dss:
-            ds.close()
-        gc.collect()
 
         if self.train:
             if torch.any(torch.isnan(surface_t_1)):
@@ -761,30 +568,27 @@ class GetDataset(Dataset):
                     print('Diagnostic has nan')
                     sys.exit(2)
             if len(self.diagnostic_variables) > 0:
-                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data, \
-                    torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data
             else:
-                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data,\
-                      torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx], end_time, end_idx, end_hour_diff[end_idx]])
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data
+        ### ERROR - Need to have data loader return times for validation
         elif self.validate and lead_times:
             if self.params.predict_delta:
                 if len(self.diagnostic_variables) > 0:
                     return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, targets_delta_surface, targets_delta_upper_air, \
-                        varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+                        varying_boundary_data
                 else:
-                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, targets_delta_surface, targets_delta_upper_air, \
-                        torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, targets_delta_surface, targets_delta_upper_air
             else:
                 if len(self.diagnostic_variables) > 0:
                     return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, \
-                        varying_boundary_data, torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+                        varying_boundary_data
                 else:
-                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, \
-                        torch.tensor([index, start_time, start_idx, start_leap_idx, start_hour_diff[start_idx]])
+                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data
         elif lead_times:
-            return surface_t, upper_air_t, varying_boundary_data, torch.tensor([start_idx, start_hour_diff[start_idx]])
+            return surface_t, upper_air_t, varying_boundary_data
         else:
             if len(self.diagnostic_variables) > 0:
-                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, diagnostic_t_1, varying_boundary_data
             else:
-                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data, torch.tensor([start_time, end_time])
+                return surface_t, upper_air_t, surface_t_1, upper_air_t_1, varying_boundary_data

@@ -203,7 +203,7 @@ class PanguModel_Plasim(nn.Module):
         self.num_surface_vars = len(params.surface_variables)
         self.num_atmo_vars = len(params.upper_air_variables)
         self.num_boundary_vars = len(params.constant_boundary_variables) + len(params.varying_boundary_variables)
-        self.atmo_resolution = [params.num_levels] + params.horizontal_resolution
+        self.atmo_resolution = [len(params.levels)] + params.horizontal_resolution
         depths_cumsum = np.cumsum(params.depths).astype(int)
         self.predict_delta = params.predict_delta
 

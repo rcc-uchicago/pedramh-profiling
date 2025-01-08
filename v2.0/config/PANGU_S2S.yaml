@@ -28,13 +28,13 @@ base_config: &BASE
   early_stopping: False
 
   project: 'Pangu-S2S'
-  name: 'PLASIM-S2S'
+  name: 'S2S'
 
 
 
-PLASIM: &PLASIM
+S2S: &S2S
   <<: *BASE
-  #data_dir: '/scratch/midway2/awikner/PLASIM/train_val_test_data_res'
+  #data_dir: '/scratch/midway3/awikner/pangu_s2s/val'
   #boundary_dir: 'boundary_vars'
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
@@ -54,9 +54,10 @@ PLASIM: &PLASIM
               'sea_ice_cover': 0.}
   mask_output: False
   train_year_start: 1979
-  train_year_end: 2019
-  val_year_start: 2019
-  val_year_end: 2020
+  train_year_end: 2018
+  val_year_start: 2018
+  val_year_end: 2019
+  data_timedelta_hours: 6
   #surface_mean: 'data_12-111_surface_mean.nc'
   #surface_std: 'data_12-111_pr_12h_mrso_res_std.py'
   #surface_ff_std: 'plasim_pr_12h_51_150_surface_std.nc'
@@ -69,7 +70,7 @@ PLASIM: &PLASIM
   #diagnostic_std: 'data_12-111_surface_std.nc'
   #surface_delta_std: 'data_12-111_surface_delta_std.nc'
   #upper_air_delta_std: 'data_12-111_delta_std_Z.nc'
-  calendar: 'gregorian'
+  calendar: 'standard'
   timedelta_hours: 24
   batch_size: 64
   max_epochs: 100
@@ -78,9 +79,8 @@ PLASIM: &PLASIM
 
   num_levels: 17
   #num_levels: 10
-  #levels: [5000., 10000., 20000., 25000., 40000., 50000., 70000., 85000., 92500., 100000.]
-  levels: []
-  horizontal_resolution: [180, 380]
+  levels: [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+  horizontal_resolution: [180, 360]
   depths: [2, 6, 6, 2]
   predict_delta: False
   patch_size: [2, 2, 2]
