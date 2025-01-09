@@ -195,7 +195,7 @@ class GetDataset(Dataset):
             #self.levels = self.data_dss[0][self.params.lev].values
             raise ValueError('levels must now be explicitly specified in config file.')
         
-        """
+        
         self.surface_mean, self.surface_std = self.load_mean_std(join(
             data_dir, params.surface_mean), join(data_dir, params.surface_std), self.surface_variables, upper_air = False)
 
@@ -215,10 +215,10 @@ class GetDataset(Dataset):
             _, self.upper_air_delta_std = self.load_mean_std(join(
                 data_dir, params.upper_air_mean), join(data_dir, params.upper_air_delta_std), self.upper_air_variables)
 
-        self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_dir, params.boundary_mean),
-                                                                                   join(data_dir, params.boundary_dir, params.boundary_std),
+        self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_mean),
+                                                                                   join(data_dir, params.boundary_std),
                                                                                    self.varying_boundary_variables, upper_air = False)
-        """
+        
         
         if hasattr(params, 'diagnostic_variables'):
             if len(params.diagnostic_variables) > 0:
@@ -317,28 +317,28 @@ class GetDataset(Dataset):
         constant_boundary_data = self._fill_mask(constant_boundary_data, self.constant_boundary_variables)
         land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == 'land_sea_mask'].detach())
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
-        constant_bounadry_std = torch.std(constant_boundary_data, dim=(1,2))
-        constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_bounadry_std.reshape(-1, 1, 1)
+        constant_boundary_std = torch.std(constant_boundary_data, dim=(1,2))
+        constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_boundary_std.reshape(-1, 1, 1)
         return constant_boundary_data, land_mask
 
     def load_mean_std(self, mean_file, std_file, datavars, upper_air = True):
         if upper_air:
             if self.params.lev == 'lev':
                 with xr.open_dataset(mean_file) as ds:
-                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in self.data_dss[0].lev.values], \
+                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds["Z"].values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
                 with xr.open_dataset(std_file) as ds:
-                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in self.data_dss[0].lev.values], \
+                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds["Z"].values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
             elif self.params.lev == 'plev':
                 with xr.open_dataset(mean_file) as ds:
-                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in self.data_dss[0].plev.values], \
+                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds["Z"].values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
                 with xr.open_dataset(std_file) as ds:
-                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in self.data_dss[0].plev.values], \
+                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds["Z"].values], \
                                                                                     dims = ["Z"]), drop = True).values).to(torch.float32)\
                                                                                           for var in datavars], dim=0)
         else:
@@ -438,16 +438,16 @@ class GetDataset(Dataset):
             if self.params.predict_delta:
                 surface_t_1 = surface_t_1 - surface_t
                 upper_air_t_1 = upper_air_t_1 - upper_air_t
-                #surface_t = self.surface_transform(surface_t)
-                #surface_t_1 = self.surface_delta_transform(surface_t_1)
-                #upper_air_t = self.upper_air_transform(upper_air_t)
-                #upper_air_t_1 = self.upper_air_delta_transform(upper_air_t_1)
-            #else:
-            #    surface_t = self.surface_transform(surface_t)
-            #    surface_t_1 = self.surface_transform(surface_t_1)
-            #    upper_air_t = self.upper_air_transform(upper_air_t)
-            #    upper_air_t_1 = self.upper_air_transform(upper_air_t_1)
-            #varying_boundary_data = self.boundary_transform(varying_boundary_data)
+                surface_t = self.surface_transform(surface_t)
+                surface_t_1 = self.surface_delta_transform(surface_t_1)
+                upper_air_t = self.upper_air_transform(upper_air_t)
+                upper_air_t_1 = self.upper_air_delta_transform(upper_air_t_1)
+            else:
+                surface_t = self.surface_transform(surface_t)
+                surface_t_1 = self.surface_transform(surface_t_1)
+                upper_air_t = self.upper_air_transform(upper_air_t)
+                upper_air_t_1 = self.upper_air_transform(upper_air_t_1)
+            varying_boundary_data = self.boundary_transform(varying_boundary_data)
             #print('Normalized Boundary')
             if self.epsilon_factor > 0.:
                 if 'surface_ff_std' in self.params:

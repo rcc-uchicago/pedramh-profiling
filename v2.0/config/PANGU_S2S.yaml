@@ -35,7 +35,6 @@ base_config: &BASE
 S2S: &S2S
   <<: *BASE
   #data_dir: '/scratch/midway3/awikner/pangu_s2s/val'
-  #boundary_dir: 'boundary_vars'
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
   surface_variables: ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',
@@ -58,16 +57,16 @@ S2S: &S2S
   val_year_start: 2018
   val_year_end: 2019
   data_timedelta_hours: 6
-  #surface_mean: 'data_12-111_surface_mean.nc'
-  #surface_std: 'data_12-111_pr_12h_mrso_res_std.py'
-  #surface_ff_std: 'plasim_pr_12h_51_150_surface_std.nc'
-  #upper_air_mean: 'data_12-111_mean_Z.nc'
-  #upper_air_std: 'data_12-111_pr_12h_mrso_res_std.py'
-  #upper_air_ff_std: 'plasim_pr_12h_51_150_std.nc'
-  #boundary_mean: 'plasim_test_51_150_boundary_mean.nc'
-  #boundary_std: 'plasim_test_51_150_boundary_std.nc'
-  #diagnostic_mean: 'data_12-111_surface_mean.nc'
-  #diagnostic_std: 'data_12-111_surface_std.nc'
+  surface_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
+  surface_std: 'pangu_s2s_1979-2018_surface_std.nc'
+  surface_ff_std: 'pangu_s2s_1979-2018_surface_std.nc'
+  upper_air_mean: 'pangu_s2s_1979-2018_mean.nc'
+  upper_air_std: 'pangu_s2s_1979-2018_std.nc'
+  upper_air_ff_std: 'pangu_s2s_1979-2018_std.nc'
+  boundary_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
+  boundary_std: 'pangu_s2s_1979-2018_surface_std.nc'
+  diagnostic_mean: 'pangu_s2s_1979-2018_surface_mean.nc'
+  diagnostic_std: 'pangu_s2s_1979-2018_surface_std.nc'
   #surface_delta_std: 'data_12-111_surface_delta_std.nc'
   #upper_air_delta_std: 'data_12-111_delta_std_Z.nc'
   calendar: 'standard'
