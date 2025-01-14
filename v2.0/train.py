@@ -28,7 +28,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
     Latitude_weighted_CRPSLoss
 ###############################@###########
 logging_utils.config_logger()
-from apex import optimizers
+#from apex import optimizers
 from pathlib import Path
 import dask
 from datetime import timedelta
@@ -161,10 +161,10 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             clim = clim[list(da_fc.data_vars)]
             
             # Transpose climatology to match forecast data dimensions
-            clim = clim.transpose('dayofyear', 'plev', 'lat', 'lon')
+            clim = clim.transpose('time', 'plev', 'lat', 'lon')
             
             # print("\nSelecting climatology based on dayofyear:")
-            climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
+            climatology_aligned = clim.sel(time=da_fc['dayofyear'])
             
             # Ensure climatology has the same dimensions as da_fc
             climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
@@ -301,7 +301,7 @@ class Trainer():
             logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
 
          # Load climatology
-        climatology_path = os.path.join(params.data_dir, "mean_daily_climatology_pl.nc")
+        climatology_path = os.path.join(params.data_dir, "1979-2018_mean_climatology.nc")
         self.climatology = xr.open_dataset(climatology_path)
 
 
@@ -410,7 +410,7 @@ class Trainer():
             wandb.watch(self.model)
 
         if params.optimizer_type == 'FusedAdam':
-            self.optimizer = optimizers.FusedAdam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
         else:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
 
@@ -504,7 +504,7 @@ class Trainer():
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = torch.nn.MSELoss()
         elif params.loss == 'weightedl1':
-            self.lat = self.train_datasets[0].lat.to(self.device, non_blocking=True)
+            self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
 
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
@@ -515,7 +515,7 @@ class Trainer():
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_L1Loss(self.lat)
         elif params.loss == 'weightedl2':
-            self.lat = self.train_datasets[0].lat.to(self.device)
+            self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
             
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -525,7 +525,7 @@ class Trainer():
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_MSELoss(self.lat)
         elif params.loss == 'weightedCRPS':
-            self.lat = self.train_datasets[0].lat.to(self.device)
+            self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
             
             self.loss_obj_pl = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
             if self.has_land or self.has_ocean:
@@ -823,7 +823,7 @@ class Trainer():
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             current_dataset = self.train_datasets[year_idx]
             with torch.no_grad():
-                latitudes = current_dataset.lat.to(self.device, non_blocking=True)
+                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
             if self.params.train_year_to_year:
                 logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
             else:
@@ -1136,7 +1136,7 @@ class Trainer():
         print("\nACC Results:")
         
         # Define the variables and pressure levels you're interested in
-        variables = ["tas", "ta", "zg", "ua"]
+        variables = ["2m_temperature", "temperature", "geopotential", "u_component_of_wind"]
         pressure_levels = [None, 850, 500, 250]  # in hPa, None for surface variables
         
         # Convert pressure levels to Pa for selection
@@ -1473,7 +1473,7 @@ class Trainer():
             print("\nMaking GIF...")
 
             gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-            make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "zg", gif_filename, plev=50000)
+            make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "geopotential", gif_filename, plev=50000)
 
 
 
