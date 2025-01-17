@@ -223,9 +223,9 @@ class GetDataset(Dataset):
         if hasattr(params, 'diagnostic_variables'):
             if len(params.diagnostic_variables) > 0:
                 self.diagnostic_variables = params.diagnostic_variables
-                #self.diagnostic_mean, self.diagnostic_std = self.load_mean_std(join(data_dir, params.diagnostic_mean),
-                #                                                                    join(data_dir, params.diagnostic_std),
-                #                                                                    self.diagnostic_variables, upper_air = False)
+                self.diagnostic_mean, self.diagnostic_std = self.load_mean_std(join(data_dir, params.diagnostic_mean),
+                                                                                    join(data_dir, params.diagnostic_std),
+                                                                                    self.diagnostic_variables, upper_air = False)
             else:
                 self.diagnostic_variables = []
         else:
@@ -469,16 +469,17 @@ class GetDataset(Dataset):
             # Load initial conditions
             data_in = self._get_data(start_time, out = False)
             if len(self.varying_boundary_variables) > 0:
-                surface_t, upper_air_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
+                upper_air_t, surface_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
             else:
-                surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out = False)
+                upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False)
 
             max_lead_time = lead_times[-1]
-            boundary_times = [self.start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
+            boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
+            start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
             varying_boundary_data.extend([self._fill_mask(\
-                self._get_data(boundary_time, variable_list = self.varying_boundary_variables), self.varying_boundary_variables) for boundary_time in boundary_times])
-            varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data[i]) for i in range(varying_boundary_data.shape[0])], dim=0)
+                torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+            varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data_i) for varying_boundary_data_i in varying_boundary_data], dim=0)
 
 
             if self.validate: 
@@ -499,10 +500,10 @@ class GetDataset(Dataset):
                     raw_target_data = self._get_data(target_time, out = True)
 
                     if len(self.diagnostic_variables) > 0:
-                        surface_target, upper_air_target, diagnostic_target = self._reshape_and_mask_variables(raw_target_data, out = True)
+                        upper_air_target, surface_target, diagnostic_target = self._reshape_and_mask_variables(raw_target_data, out = True)
                         targets_diagnostic.append(diagnostic_target)
                     else:
-                        surface_target, upper_air_target = self._reshape_and_mask_variables(raw_target_data, out = True)
+                        upper_air_target, surface_target = self._reshape_and_mask_variables(raw_target_data, out = True)
         
                     targets_surface.append(surface_target)
                     targets_upper_air.append(upper_air_target)
@@ -576,15 +577,15 @@ class GetDataset(Dataset):
             if self.params.predict_delta:
                 if len(self.diagnostic_variables) > 0:
                     return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, targets_delta_surface, targets_delta_upper_air, \
-                        varying_boundary_data
+                        varying_boundary_data, start_time_tensor
                 else:
-                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, targets_delta_surface, targets_delta_upper_air
+                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, targets_delta_surface, targets_delta_upper_air, start_time_tensor
             else:
                 if len(self.diagnostic_variables) > 0:
                     return surface_t, upper_air_t, targets_surface, targets_upper_air, targets_diagnostic, \
-                        varying_boundary_data
+                        varying_boundary_data, start_time_tensor
                 else:
-                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data
+                    return surface_t, upper_air_t, targets_surface, targets_upper_air, varying_boundary_data, start_time_tensor
         elif lead_times:
             return surface_t, upper_air_t, varying_boundary_data
         else:

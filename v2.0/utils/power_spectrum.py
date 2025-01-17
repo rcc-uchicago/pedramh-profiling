@@ -120,7 +120,8 @@ def zonal_averaged_power_spectrum(field, time_avg=True):
 
 
 # Amaury's code
-def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars = ["ta", "zg", "ua"], plevs = [850*100, 500*100, 250*100], lead_times=[6, 48, 120]):
+def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars=["temperatire", "geopotential", "u_component_of_wind"],
+                         plevs = [850, 500, 250], lead_times=[6, 48, 120]):
     """ Plot the power spectrum of the ground truth and the forecast
     :param power_spectrum_avg: xarray dataset, power spectrum of the ground truth
     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
@@ -147,9 +148,9 @@ def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars = ["ta", "zg
             axs[i,j].set_xlabel(r'Zonal Wavenumber $k_x$')
             axs[i,j].set_ylabel('Energy Spectrum')
             if i==0:
-                axs[i,j].set_title(f"var = '{var}' at {int(plev/100)} hPa, lead time = {lead_time} hours")
+                axs[i,j].set_title(f"var = '{var}' at {int(plev)} hPa, lead time = {lead_time} hours")
             else:
-                axs[i,j].set_title(f"var = '{var}' at {int(plev/100)} hPa, lead time = {lead_time//24} days")
+                axs[i,j].set_title(f"var = '{var}' at {int(plev)} hPa, lead time = {lead_time//24} days")
             axs[i,j].grid(True)
 
     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum", y = 1.01)
@@ -160,8 +161,8 @@ def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars = ["ta", "zg
 
 
 def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times,
-                             vars=["ta", "zg", "ua"], 
-                             plevs=[850*100, 500*100, 250*100]):
+                             vars=["temperatire", "geopotential", "u_component_of_wind"], 
+                             plevs=[850, 500, 250]):
     """ Plot the power spectrum of the forecast and ground truth
     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
     :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
@@ -200,12 +201,12 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
             for plev in available_plevs:
                 try:
                     power_spectrum_avg_preds2 = power_spectrum_avg_preds[var].sel(lead_time=lead_time, plev=plev, method='nearest')
-                    axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast {plev/100:.0f} hPa')
+                    axs[i,j].plot(k_x_preds, power_spectrum_avg_preds2.values, label=f'Forecast {plev:.0f} hPa')
 
                     
                     # Add ground truth plot
                     power_spectrum_avg_gt2 = power_spectrum_avg_gt[var].sel(lead_time=lead_time, plev=plev, method='nearest')
-                    axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth {plev/100:.0f} hPa')
+                    axs[i,j].plot(k_x_gt, power_spectrum_avg_gt2.values, linestyle='--', label=f'Ground Truth {plev:.0f} hPa')
                 except KeyError as e:
                     print(f"Warning: Could not select data for var={var}, lead_time={lead_time}, pressure level={plev}. Error: {e}")
                     continue
@@ -247,7 +248,7 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     plt.close(fig)
 
     return fig, axs
-def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 850*100, 500*100, 250*100], 
+def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 850, 500, 250], 
                             colors=None, fontsize_title=14):
     """
     Plot the ACC over lead time for each variable and pressure level
@@ -272,7 +273,7 @@ def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"
         if plev is None:
             title = f'ACC for {var}'
         else:
-            title = f'ACC for {var} at {plev/100:.0f} hPa'
+            title = f'ACC for {var} at {plev:.0f} hPa'
         
         for model, ds in acc.items():
             if var in ds:
@@ -431,7 +432,7 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
         im1.set_array(forecast.values.ravel())
         im2.set_array(truth.values.ravel())
 
-        var_up = f'{var}_{plev/100:.0f}hPa' if plev is not None else var
+        var_up = f'{var}_{plev:.0f}hPa' if plev is not None else var
         title = f'{var_up} Anomaly at {current_time} (Lead time: {lead_time} hours, Sample {sample_index})'
         plt.suptitle(title, y=0.95)
 

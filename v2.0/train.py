@@ -161,10 +161,10 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             clim = clim[list(da_fc.data_vars)]
             
             # Transpose climatology to match forecast data dimensions
-            clim = clim.transpose('time', 'plev', 'lat', 'lon')
+            clim = clim.transpose('dayofyear', 'plev', 'lat', 'lon')
             
             # print("\nSelecting climatology based on dayofyear:")
-            climatology_aligned = clim.sel(time=da_fc['dayofyear'])
+            climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
             
             # Ensure climatology has the same dimensions as da_fc
             climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
@@ -301,8 +301,9 @@ class Trainer():
             logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
 
          # Load climatology
-        climatology_path = os.path.join(params.data_dir, "1979-2018_mean_climatology.nc")
+        climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
+        self.climatology = self.climatology.rename({'time':'dayofyear'})
 
 
 
@@ -1035,9 +1036,9 @@ class Trainer():
 
             coordinates = {
                 'time': time_range,
-                level_coord_name: valid_dataset.data_dss[0][level_coord_name].values,
-                'lat': valid_dataset.data_dss[0].lat.values,
-                'lon': valid_dataset.data_dss[0].lon.values
+                level_coord_name: valid_dataset.levels,
+                'lat': self.params.lat,
+                'lon': self.params.lon
             }
 
             dataset = xr.Dataset(
@@ -1053,7 +1054,7 @@ class Trainer():
                             'lat': dataset.lat.values,
                             'lon': dataset.lon.values}
                 )
-                da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
 
             if type(diagnostic_prediction) is not type(None):
@@ -1065,7 +1066,7 @@ class Trainer():
                                 'lat': dataset.lat.values,
                                 'lon': dataset.lon.values}
                     )
-                    da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                    #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
                     dataset[var] = da
 
             for idx, var in enumerate(valid_dataset.upper_air_variables):
@@ -1074,7 +1075,7 @@ class Trainer():
                     dims=["time", level_coord_name, "lat", "lon"],
                     coords=coordinates
                 )
-                da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
 
             datasets.append(dataset)
@@ -1184,7 +1185,7 @@ class Trainer():
         # define the lead times to evaluate (in time steps)
         lead_times_steps = self.params.forecast_lead_times
         with torch.no_grad():
-                latitudes = self.valid_dataset.lat.to(self.device, non_blocking=True)
+                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
 
         if self.params.has_diagnostic:
             valid_buff = torch.zeros((5), dtype=torch.float32, device=self.device)
@@ -1196,7 +1197,7 @@ class Trainer():
         valid_loss_pl = valid_buff[2].view(-1)
         valid_steps = valid_buff[-1].view(-1)
         valid_surface_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
-        valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), self.valid_dataset.num_levels), dtype=torch.float32, device=self.device)
+        valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), len(self.valid_dataset.levels)), dtype=torch.float32, device=self.device)
         if self.params.has_diagnostic:
             valid_diagnostic_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.diagnostic_variables)), dtype=torch.float32, device=self.device)
 
@@ -1253,9 +1254,7 @@ class Trainer():
                 # get the correct start times for each sample
                 start_times = []
                 for i in range(times.shape[0]):  # Iterate over all samples in the batch
-                    start_idx = times[i,0].item()
-                    start_hour_diff = times[i,1].item()
-                    start_time = self.valid_dataset.datetime_class(start_idx + self.params.val_year_start, 1, 1, hour=0) + timedelta(hours=start_hour_diff)
+                    start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
                     start_times.append(start_time)
 
 
@@ -1642,7 +1641,7 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0194', type=str)
+    parser.add_argument("--run_num", default='0100', type=str)
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
     parser.add_argument("--config", default='S2S', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
@@ -1685,17 +1684,17 @@ if __name__ == '__main__':
     #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
     #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
     
-    #params['world_size'] = 1
-    #os.environ['WANDB_MODE'] = 'offline'
+    params['world_size'] = 1
+    os.environ['WANDB_MODE'] = 'offline'
 
-    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-    print('World size from Cuda: %d' % torch.cuda.device_count())
-    if 'WORLD_SIZE' in os.environ:
-        params['world_size'] = int(os.environ['WORLD_SIZE'])
-        print(params['world_size'])
-    else:
-        params['world_size'] = torch.cuda.device_count()
-        print(params['world_size'])
+    #print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    #print('World size from Cuda: %d' % torch.cuda.device_count())
+    #if 'WORLD_SIZE' in os.environ:
+    #    params['world_size'] = int(os.environ['WORLD_SIZE'])
+    #    print(params['world_size'])
+    #else:
+    #    params['world_size'] = torch.cuda.device_count()
+    #    print(params['world_size'])
 
 
     #params['world_size'] = 1
