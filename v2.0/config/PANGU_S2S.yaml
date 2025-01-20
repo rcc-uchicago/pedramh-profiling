@@ -34,26 +34,28 @@ base_config: &BASE
 
 S2S: &S2S
   <<: *BASE
-  data_dir: '/eagle/MDClimSim/awikner/pangu_s2s/val'
+  #data_dir: '/eagle/MDClimSim/awikner/pangu_s2s/val'
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
   surface_variables: ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',
                       'mean_sea_level_pressure', 'surface_pressure']
-  diagnostic_variables: ['total_precipitation_24hr', 'mean_top_net_long_wave_radiation_flux', 
-                         'minimum_2m_temperature_since_previous_post_processing',
-                         'maximum_2m_temperature_since_previous_post_processing']
+  diagnostic_variables: ['total_precipitation_24hr', 'mean_top_net_long_wave_radiation_flux']
+  #'minimum_2m_temperature_since_previous_post_processing',
+  #'maximum_2m_temperature_since_previous_post_processing']
   land_variables: ['volumetric_soil_water_layer_1', 'soil_temperature_level_1', 'skin_temperature']
   ocean_variables: ['sea_surface_temperature']
   constant_boundary_variables: ['land_sea_mask', 'geopotential_at_surface']
-  varying_boundary_variables: ['toa_incident_solar_radiation', 'snow_depth', 'sea_ice_cover']
+  varying_boundary_variables: ['toa_incident_solar_radiation']
+  #, 'snow_depth', 'sea_ice_cover']
   mask_fill: {'volumetric_soil_water_layer_1': 0.,
               'soil_temperature_level_1': 270.,
               'skin_temperature': 270.,
               'sea_surface_temperature': 270.,
-              'sea_ice_cover': 0.}
+              'sea_ice_cover': 0.,
+              'snow_depth': 0.}
   mask_output: False
-  train_year_start: 2018
-  train_year_end: 2019
+  train_year_start: 1979
+  train_year_end: 2018
   val_year_start: 2018
   val_year_end: 2019
   data_timedelta_hours: 6
@@ -72,7 +74,7 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 8
+  batch_size: 64
   max_epochs: 100
 
   has_year_zero: False
@@ -97,11 +99,11 @@ S2S: &S2S
   diagnostic_logs: True
   diagnostic_acc: False
   diagnostic_gif: False
-  diagnostic_spectra: False
+  diagnostic_spectra: True
   forecast_lead_times: [1, 3, 5, 10, 15]
 
   lev: 'plev'
-  num_inferences: 25
+  num_inferences: 100
 
   use_reentrant: False
   checkpointing: 2
