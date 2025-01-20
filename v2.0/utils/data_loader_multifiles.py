@@ -403,7 +403,7 @@ class GetDataset(Dataset):
             if out:
                 raw_data = get_data_given_path(data_file_path, self.variable_list_out)
             else:
-                raw_data = get_data_given_path(data_file_path, self.variable_list_out)
+                raw_data = get_data_given_path(data_file_path, self.variable_list_in)
         return raw_data
 
     def __len__(self):
@@ -422,8 +422,6 @@ class GetDataset(Dataset):
         if self.train:
             start_time = self.start_date + timedelta(hours=self.dates[index])
             end_time = self.start_date + timedelta(hours=self.dates[index] + self.timedelta_hours)
-            if start_time.year == 2019 or end_time.year == 2019:
-                print('2019')
             data_in  = self._get_data(start_time, out = False)
             data_out = self._get_data(end_time, out = True)
             if len(self.varying_boundary_variables) > 0:
@@ -447,6 +445,8 @@ class GetDataset(Dataset):
                 surface_t_1 = self.surface_transform(surface_t_1)
                 upper_air_t = self.upper_air_transform(upper_air_t)
                 upper_air_t_1 = self.upper_air_transform(upper_air_t_1)
+            if len(self.diagnostic_variables) > 0:
+                diagnostic_t_1 = self.diagnostic_transform(diagnostic_t_1)
             varying_boundary_data = self.boundary_transform(varying_boundary_data)
             #print('Normalized Boundary')
             if self.epsilon_factor > 0.:
@@ -524,6 +524,8 @@ class GetDataset(Dataset):
                 for step in range(0, max_lead_time):
                     targets_surface[step] = self.surface_transform(targets_surface[step])
                     targets_upper_air[step] = self.upper_air_transform(targets_upper_air[step])
+                    if len(self.diagnostic_variables) > 0:
+                        targets_diagnostic[step] = self.diagnostic_transform(targets_diagnostic[step])
                 
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)

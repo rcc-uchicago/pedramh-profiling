@@ -23,7 +23,7 @@ base_config: &BASE
   exp_dir: 'results'
 
   enable_fp8: False
-  fresh_start: False
+  fresh_start: True
   use_transformer_engine: False
   early_stopping: False
 
@@ -94,11 +94,14 @@ S2S: &S2S
   vertical_windowing: True
   train_year_to_year: False
 
-  diagnostic_logs: False
-  forecast_lead_times: [1]
+  diagnostic_logs: True
+  diagnostic_acc: False
+  diagnostic_gif: False
+  diagnostic_spectra: False
+  forecast_lead_times: [1, 3, 5, 10, 15]
 
   lev: 'plev'
-  num_inferences: 100
+  num_inferences: 25
 
   use_reentrant: False
   checkpointing: 2

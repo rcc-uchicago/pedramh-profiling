@@ -363,7 +363,7 @@ class Trainer():
                     for j, var in enumerate(self.valid_dataset.surface_variables):
                         epoch_metrics.append(f'valid_{var}_{steps}step_lwrmse')
                     for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                        for k, level in enumerate(self.valid_dataset.lev):
+                        for k, level in enumerate(self.valid_dataset.levels):
                             epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
             else:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
@@ -619,9 +619,12 @@ class Trainer():
         #    if self.world_rank == 0:
         #        self.log_all_plots_to_wandb()
         if self.world_rank == 0:
-            self.cleanup_acc_plots()
-            self.cleanup_gifs()
-            self.cleanup_power_spectrum_plots()
+            if self.params.diagnostic_acc:
+                self.cleanup_acc_plots()
+            if self.params.diagnostic_gif:
+                self.cleanup_gifs()
+            if self.params.diagnostic_spectra:
+                self.cleanup_power_spectrum_plots()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
             if early_stop_epoch_triggered:
@@ -933,7 +936,7 @@ class Trainer():
                             for j, var in enumerate(current_dataset.diagnostic_variables):
                                 diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
                         for j, var in enumerate(current_dataset.upper_air_variables):
-                            for k, level in enumerate(current_dataset.lev):
+                            for k, level in enumerate(current_dataset.levels):
                                 diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
                         if dist.is_initialized():
                             for key in sorted(diagnostic_logs.keys()):
@@ -1363,60 +1366,58 @@ class Trainer():
                             if step + 1 == max_lead_time:
 
                                 # Prepare datasets for ACC (all time steps)
-                                if self.params.has_diagnostic:
-                                    acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True,
-                                                                          diagnostic_prediction=val_output_diagnostic_acc)
-                                else:
-                                    acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True)
-                                acc_prepared_datasets = [self.prepare_preds(ds, acc = True) for ds in acc_datasets]
-                                acc_combined_dataset = self.combine_datasets(acc_prepared_datasets)
-                                acc_predictions.append(acc_combined_dataset)
+                                if self.params.diagnostic_acc or self.params.diagnostic_gif:
+                                    if self.params.has_diagnostic:
+                                        acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True,
+                                                                            diagnostic_prediction=val_output_diagnostic_acc)
+                                    else:
+                                        acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc = True)
+                                    acc_prepared_datasets = [self.prepare_preds(ds, acc = True) for ds in acc_datasets]
+                                    acc_combined_dataset = self.combine_datasets(acc_prepared_datasets)
+                                    acc_predictions.append(acc_combined_dataset)
 
-                                acc_gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
-                                acc_gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
-                                if self.params.has_diagnostic:
-                                    acc_gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic.cpu()).numpy()
-                                    acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True,
-                                                                             diagnostic_prediction = acc_gt_diagnostic)
-                                else:
-                                    acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True)
-                                acc_gt_prepared_datasets = [self.prepare_preds(ds, acc=True) for ds in acc_gt_datasets]
-                                acc_gt_combined_dataset = self.combine_datasets(acc_gt_prepared_datasets)
-                                acc_ground_truths.append(acc_gt_combined_dataset)
-
-
-
-                                # Prepare the predictions (only forecast lead times)
-                                if self.params.has_diagnostic:
-                                    datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False,
-                                                                      diagnostic_prediction = val_output_diagnostic_t)
-                                else:
-                                    datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False)
-                                prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in datasets]
-                                combined_dataset = self.combine_datasets(prepared_datasets)
-
-
+                                    acc_gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
+                                    acc_gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
+                                    if self.params.has_diagnostic:
+                                        acc_gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic.cpu()).numpy()
+                                        acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True,
+                                                                                diagnostic_prediction = acc_gt_diagnostic)
+                                    else:
+                                        acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc = True)
+                                    acc_gt_prepared_datasets = [self.prepare_preds(ds, acc=True) for ds in acc_gt_datasets]
+                                    acc_gt_combined_dataset = self.combine_datasets(acc_gt_prepared_datasets)
+                                    acc_ground_truths.append(acc_gt_combined_dataset)
 
                                 # Prepare the ground truths
                                 lead_time_indices = [lt - 1 for lt in self.params.forecast_lead_times]  # Convert to 0-based index
 
-                                # gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
-                                # gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
+                                if self.params.diagnostic_spectra:
+                                    # Prepare the predictions (only forecast lead times)
+                                    if self.params.has_diagnostic:
+                                        datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False,
+                                                                        diagnostic_prediction = val_output_diagnostic_t)
+                                    else:
+                                        datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc = False)
+                                    prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in datasets]
+                                    combined_dataset = self.combine_datasets(prepared_datasets)
 
-                                # only take the necessary indices as the dataloader now returns all time steps. 
-                                gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices].cpu()).numpy()
-                                gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices].cpu()).numpy()
-                                if self.params.has_diagnostic:
-                                    gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic[:, lead_time_indices].cpu()).numpy()
-                                    gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False,
-                                                                         diagnostic_prediction = gt_diagnostic)
-                                else:
-                                    gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False)
-                                gt_prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in gt_datasets]
-                                gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
+                                    # gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
+                                    # gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
 
-                                all_predictions.append(combined_dataset)
-                                all_ground_truths.append(gt_combined_dataset)
+                                    # only take the necessary indices as the dataloader now returns all time steps. 
+                                    gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices].cpu()).numpy()
+                                    gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices].cpu()).numpy()
+                                    if self.params.has_diagnostic:
+                                        gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic[:, lead_time_indices].cpu()).numpy()
+                                        gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False,
+                                                                            diagnostic_prediction = gt_diagnostic)
+                                    else:
+                                        gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc = False)
+                                    gt_prepared_datasets = [self.prepare_preds(ds, acc = False) for ds in gt_datasets]
+                                    gt_combined_dataset = self.combine_datasets(gt_prepared_datasets)
+
+                                    all_predictions.append(combined_dataset)
+                                    all_ground_truths.append(gt_combined_dataset)
 
                             step_idx += 1
                         val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
@@ -1424,11 +1425,13 @@ class Trainer():
         
 
         # After the loop, combine all predictions and ground truths
-        combined_predictions = xr.concat(all_predictions, dim='time')
-        combined_ground_truths = xr.concat(all_ground_truths, dim='time')
+        if self.params.diagnostic_spectra:
+            combined_predictions = xr.concat(all_predictions, dim='time')
+            combined_ground_truths = xr.concat(all_ground_truths, dim='time')
 
-        acc_combined_predictions = xr.concat(acc_predictions, dim='time')
-        acc_combined_ground_truths = xr.concat(acc_ground_truths, dim='time')
+        if self.params.diagnostic_acc or self.params.diagnostic_gif:
+            acc_combined_predictions = xr.concat(acc_predictions, dim='time')
+            acc_combined_ground_truths = xr.concat(acc_ground_truths, dim='time')
 
         
 
@@ -1436,66 +1439,68 @@ class Trainer():
         max_lead_time = max(self.params.forecast_lead_times)
         acc_times_hours = [(lt + 1) * self.params.timedelta_hours for lt in range(max_lead_time)]
 
+        if self.params.diagnostic_acc:
+            # Compute ACC
+            print("\nComputing ACC...")
+            # Compute ACC for all data
+            acc = OrderedDict({
+                'Pangu': evaluate_iterative_forecast(
+                    acc_combined_predictions, 
+                    acc_combined_ground_truths, 
+                    compute_weighted_acc,
+                    # mean over these dimensions
+                    mean_dims=['lat', 'lon', 'time'],
+                    clim=self.climatology
+                )
+            })
 
-        # Compute ACC
-        print("\nComputing ACC...")
-        # Compute ACC for all data
-        acc = OrderedDict({
-            'Pangu': evaluate_iterative_forecast(
-                acc_combined_predictions, 
-                acc_combined_ground_truths, 
-                compute_weighted_acc,
-                # mean over these dimensions
-                mean_dims=['lat', 'lon', 'time'],
-                clim=self.climatology
-            )
-        })
+            # Plot ACC over lead time
+            fig, axs = plot_acc_over_lead_time(acc, acc_times_hours)
 
-        # Plot ACC over lead time
-        fig, axs = plot_acc_over_lead_time(acc, acc_times_hours)
-
-        k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
-        k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(combined_ground_truths, time_avg= True)
+        if self.params.diagnostic_spectra:
+            k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
+            k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(combined_ground_truths, time_avg= True)
 
 
-        preds_times = combined_predictions.time.values
-        preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+            preds_times = combined_predictions.time.values
+            preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
         
         # Save the plot
         if self.world_rank == 0:
-            plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
-            fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
-            plt.close(fig)  # Close the figure to free up memory
-            print("\nFinished ACC..")
+            if self.params.diagnostic_acc:
+                plot_filename = os.path.join(self.output_dir, f"acc_plot_epoch_{self.epoch}.png")
+                fig.savefig(plot_filename, dpi=300, bbox_inches='tight')
+                plt.close(fig)  # Close the figure to free up memory
+                print("\nFinished ACC..")
+
+            if self.params.diagnostic_gif:
+                print("\nMaking GIF...")
+
+                gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
+                make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "geopotential", gif_filename, plev=50000)
 
 
-            print("\nMaking GIF...")
 
-            gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-            make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "geopotential", gif_filename, plev=50000)
+                print("\nFinished creating GIF animation.")
 
+            if self.params.diagnostic_spectra:
+                print("\nMaking Power Spectrum...")
 
+                # Calculate zonal averaged power spectrum. 
 
-            print("\nFinished creating GIF animation.")
+                # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
+                # k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
+                # preds_times = combined_dataset.time.values
 
-        
-            print("\nMaking Power Spectrum...")
-
-            # Calculate zonal averaged power spectrum. 
-
-            # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
-            # k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(gt_combined_dataset, time_avg= True)
-            # preds_times = combined_dataset.time.values
-
-            path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
+                path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
 
             
 
-            preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+                preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
 
-            self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
+                self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
 
-            print("\nFinished Power Spectrum...")
+                print("\nFinished Power Spectrum...")
 
 
 
@@ -1534,7 +1539,7 @@ class Trainer():
                 for j, var in enumerate(self.valid_dataset.surface_variables):
                     diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_surface_lwrmse[l, j] * self.valid_dataset.surface_std[j]
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                    for k, level in enumerate(self.valid_dataset.lev):
+                    for k, level in enumerate(self.valid_dataset.levels):
                         diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
                 if self.params.has_diagnostic:
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
@@ -1550,19 +1555,22 @@ class Trainer():
 
             if self.params.log_to_wandb:
                 wandb.log(diagnostic_logs)
-                wandb.log({
-                    "ACC_plot": wandb.Image(plot_filename),
-                    "epoch": self.epoch
-                })
-                if gif_filename:
+                if self.params.diagnostic_acc:
                     wandb.log({
-                        "Evolution_GIF": wandb.Video(gif_filename),
+                        "ACC_plot": wandb.Image(plot_filename),
                         "epoch": self.epoch
                     })
-                wandb.log({
-                    "power_spectrum_plot": wandb.Image(path_filename),
-                    "epoch": self.epoch,
-                })
+                if self.params.diagnostic_gif:
+                    if gif_filename:
+                        wandb.log({
+                            "Evolution_GIF": wandb.Video(gif_filename),
+                            "epoch": self.epoch
+                        })
+                if self.params.diagnostic_spectra:
+                    wandb.log({
+                        "power_spectrum_plot": wandb.Image(path_filename),
+                        "epoch": self.epoch,
+                    })
             
             valid_time = time.time() - valid_start
 
@@ -1589,19 +1597,21 @@ class Trainer():
                 wandb.log(logs)
 
                     # Log ACC plot
-                wandb.log({
-                    "ACC_plot": wandb.Image(plot_filename),
-                    "epoch": self.epoch
-                })
-                if gif_filename:
+                if self.params.diagnostic_acc:
+                    wandb.log({
+                        "ACC_plot": wandb.Image(plot_filename),
+                        "epoch": self.epoch
+                    })
+                if gif_filename and self.params.diagnostic_gif:
                     wandb.log({
                         "Evolution_GIF": wandb.Video(gif_filename),
                         "epoch": self.epoch
                     })
-                wandb.log({
-                    "power_spectrum_plot": wandb.Image(path_filename),
-                    "epoch": self.epoch,
-                })
+                if self.params.diagnostic_spectra:
+                    wandb.log({
+                        "power_spectrum_plot": wandb.Image(path_filename),
+                        "epoch": self.epoch,
+                    })
 
             valid_time = time.time() - valid_start
 

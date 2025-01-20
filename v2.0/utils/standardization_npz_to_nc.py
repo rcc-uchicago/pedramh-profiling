@@ -24,8 +24,8 @@ if __name__ == '__main__':
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
     parser.add_argument("--config", default='S2S', type=str)
     parser.add_argument("--data_name", default='pangu_s2s_1979-2018', type=str)
-    parser.add_argument("--mean_npz", default='/scratch/midway3/awikner/pangu_s2s/normalize_diff_mean_None.npz', type=str)
-    parser.add_argument("--std_npz", default='/scratch/midway3/awikner/pangu_s2s/normalize_diff_std_None.npz', type=str)
+    parser.add_argument("--mean_npz", default='/eagle/MDClimSim/awikner/pangu_s2s/normalize_mean.npz', type=str)
+    parser.add_argument("--std_npz", default='/eagle/MDClimSim/awikner/pangu_s2s/normalize_std.npz', type=str)
 
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
