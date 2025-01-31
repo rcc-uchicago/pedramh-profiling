@@ -127,11 +127,12 @@ class GetDataset(Dataset):
         #self._get_files_stats()
 
         self.has_year_zero = params.has_year_zero
+        self.land_sea_mask_name = 'lsm'
         if hasattr(params, 'mask_fill'):
             self.mask_fill = self.params.mask_fill
         else:
-            #self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
-            self.mask_fill = {'land_sea_mask': 0., 'sea_surface_temperature': 270., 'sea_ice_cover': 0., 'volumetric_soil_water_layer_1': 0.}
+            self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
+            #self.mask_fill = {'lsm': 0., 'sst': 270., 'sea_ice_cover': 0., 'volumetric_soil_water_layer_1': 0.}
 
         self.year_start = year_start
         self.year_end = year_end
@@ -195,25 +196,41 @@ class GetDataset(Dataset):
             #self.levels = self.data_dss[0][self.params.lev].values
             raise ValueError('levels must now be explicitly specified in config file.')
         
+        self.use_sigma_levels = False
+        if hasattr(params, 'use_sigma_levels'):
+            self.use_sigma_levels = params.use_sigma_levels
+            if self.use_sigma_levels:
+                try:
+                    self.sigma_levels = np.array(params.sigma_levels)
+                except:
+                    raise ValueError('use_sigma_levels is True, but no sigma_levels are specified.')
+                try:
+                    assert len(self.sigma_levels) == len(self.levels)
+                except:
+                    raise ValueError('sigma_levels and levels must be the same length and ordered from top to bottom.')
+                
         
-        self.surface_mean, self.surface_std = self.load_mean_std(join(
-            data_dir, params.surface_mean), join(data_dir, params.surface_std), self.surface_variables, upper_air = False)
+        
+        self.surface_mean, self.surface_std = self.load_mean_std(join(data_dir, params.surface_mean),
+                                                                 join(data_dir, params.surface_std), self.surface_variables,
+                                                                 upper_air = False,
+                                                                 use_sigma_levels=self.use_sigma_levels)
 
         self.upper_air_mean, self.upper_air_std = self.load_mean_std(join(
-            data_dir, params.upper_air_mean), join(data_dir, params.upper_air_std), self.upper_air_variables)
+            data_dir, params.upper_air_mean), join(data_dir, params.upper_air_std), self.upper_air_variables, use_sigma_levels=self.use_sigma_levels)
 
         if 'surface_ff_std' in self.params:
             _, self.surface_ff_std = self.load_mean_std(join(
                 data_dir, params.surface_mean), join(data_dir, params.surface_ff_std), self.surface_variables, upper_air = False)
         if 'upper_air_ff_std' in self.params:
             _, self.upper_air_ff_std = self.load_mean_std(join(
-                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_ff_std), self.upper_air_variables)
+                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_ff_std), self.upper_air_variables, use_sigma_levels=self.use_sigma_levels)
 
         if self.params.predict_delta:
             _, self.surface_delta_std = self.load_mean_std(join(
                 data_dir, params.surface_mean), join(data_dir, params.surface_delta_std), self.surface_variables, upper_air = False)
             _, self.upper_air_delta_std = self.load_mean_std(join(
-                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_delta_std), self.upper_air_variables)
+                data_dir, params.upper_air_mean), join(data_dir, params.upper_air_delta_std), self.upper_air_variables, use_sigma_levels=self.use_sigma_levels)
 
         self.varying_boundary_mean, self.varying_boundary_std = self.load_mean_std(join(data_dir, params.boundary_mean),
                                                                                    join(data_dir, params.boundary_std),
@@ -244,8 +261,13 @@ class GetDataset(Dataset):
 
     def _get_variable_list(self, level_units = '.0'):
         self.variable_list_out = []
-        for variable, level in product(self.upper_air_variables, self.levels):
-            self.variable_list_out.append(f'{variable}_{int(level)}{level_units}')
+        for variable in self.upper_air_variables:
+            if variable != 'zg' and variable != 'geopotential_height' and self.use_sigma_levels:
+                for level in self.sigma_levels:
+                    self.variable_list_out.append(f'{variable}_{level}')
+            else:
+                for level in self.levels:
+                    self.variable_list_out.append(f'{variable}_{int(level)}{level_units}')
         self.upper_air_len = len(self.variable_list_out)
         self.variable_list_out.extend(self.surface_variables)
         self.variable_list_in = self.variable_list_out.copy()
@@ -315,32 +337,36 @@ class GetDataset(Dataset):
     def _load_constant_boundary_data(self):
         constant_boundary_data = torch.from_numpy(self._get_data(self.start_date, variable_list = self.constant_boundary_variables)).to(torch.float32)
         constant_boundary_data = self._fill_mask(constant_boundary_data, self.constant_boundary_variables)
-        land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == 'land_sea_mask'].detach())
+        land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == self.land_sea_mask_name].detach())
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
         constant_boundary_std = torch.std(constant_boundary_data, dim=(1,2))
         constant_boundary_data = (constant_boundary_data - constant_boundary_mean.reshape(-1, 1, 1)) / constant_boundary_std.reshape(-1, 1, 1)
         return constant_boundary_data, land_mask
 
-    def load_mean_std(self, mean_file, std_file, datavars, upper_air = True):
+    def load_mean_std(self, mean_file, std_file, datavars, upper_air = True, use_sigma_levels = False, level_delta = 1e-4):
         if upper_air:
-            if self.params.lev == 'lev':
-                with xr.open_dataset(mean_file) as ds:
-                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds["Z"].values], \
-                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
-                                                                                          for var in datavars], dim=0)
-                with xr.open_dataset(std_file) as ds:
-                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[lev in self.levels for lev in ds["Z"].values], \
-                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
-                                                                                          for var in datavars], dim=0)
-            elif self.params.lev == 'plev':
-                with xr.open_dataset(mean_file) as ds:
-                    mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds["Z"].values], \
-                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
-                                                                                          for var in datavars], dim=0)
-                with xr.open_dataset(std_file) as ds:
-                    std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[plev in self.levels for plev in ds["Z"].values], \
-                                                                                    dims = ["Z"]), drop = True).values).to(torch.float32)\
-                                                                                          for var in datavars], dim=0)
+            if use_sigma_levels:
+                coordinates = []
+                levels_for_var = []
+                for var in datavars:
+                    if var == 'zg' or var == 'geopotential_height':
+                        coordinates.append("Z")
+                        levels_for_var.append(self.levels)
+                    else:
+                        coordinates.append("Z_2")
+                        levels_for_var.append(self.sigma_levels)
+            else:
+                coordinates = ["Z"] * len(datavars)
+                levels_for_var = [self.levels] * len(datavars)
+                
+            with xr.open_dataset(mean_file) as ds:
+                mean = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[any(np.abs(lev - levels) < level_delta) for lev in ds[coordinate].values], \
+                                                                                dims = [coordinate]), drop = True).values).to(torch.float32)\
+                                                                                        for var, coordinate, levels in zip(datavars, coordinates, levels_for_var)], dim=0)
+            with xr.open_dataset(std_file) as ds:
+                std = torch.stack([torch.from_numpy(ds[var].where(xr.DataArray(data=[any(np.abs(lev - levels) < level_delta) for lev in ds[coordinate].values], \
+                                                                                dims = [coordinate]), drop = True).values).to(torch.float32)\
+                                                                                        for var, coordinate, levels in zip(datavars, coordinates, levels_for_var)], dim=0)
         else:
             with xr.open_dataset(mean_file) as ds:
                 mean = torch.stack([torch.from_numpy(ds[var].values).to(torch.float32) for var in datavars], dim=0)

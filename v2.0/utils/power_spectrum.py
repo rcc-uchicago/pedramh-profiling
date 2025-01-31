@@ -317,19 +317,27 @@ import time
 
 from datetime import timedelta
 
-def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, output_filename, sample_index=0, plev=None):
+def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filename, climatology = None, sample_index=0, level_coord_name = 'plev', plev=None):
     """
     Create a gif of the forecast anomalies for a single sample, evolving over all time steps up the maximum lead time,
     without using coastlines.
     """
     start_time = time.time()
-    print(f"Starting GIF creation for {var} anomalies")
+    if climatology:
+        print(f"Starting GIF creation for {var} anomalies")
+    else:
+        print(f"Starting GIF creation for {var}")
 
     # Data selection and setup
     if plev is not None:
-        data_inference = combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
-        data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
-        climatology_data = climatology[var].sel(plev=plev, method='nearest')
+        if level_coord_name == 'lev' and var != 'zg' and var != 'geopotential_height':
+            data_inference = combined_dataset[var].isel(time=sample_index).sel(lev=plev, method='nearest')
+            data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(lev=plev, method='nearest')
+            climatology_data = climatology[var].sel(lev=plev, method='nearest')
+        else:
+            data_inference = combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+            data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
+            climatology_data = climatology[var].sel(plev=plev, method='nearest')
     else:
         data_inference = combined_dataset[var].isel(time=sample_index)
         data_gt = gt_combined_dataset[var].isel(time=sample_index)
@@ -348,34 +356,38 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
     # Calculate time range for all lead times
     time_range = [start_datetime + timedelta(hours=int(lt)) for lt in data_inference.lead_time.values]
 
-    # Prepare climatology
-    if 'zsfc' in climatology_data:
-        climatology_data = climatology_data.drop_vars('zsfc')
-    
-    # Ensure climatology has the correct spatial dimensions
-    climatology_data = climatology_data.transpose('dayofyear', 'lat', 'lon')
-
-    
-    # print_info(climatology_aligned, "Aligned Climatology")
-    climatology_data = climatology_data.assign_coords(lat=data_inference.lat)
-
-    # Initialize anomalies arrays
-    anomalies_inference = xr.zeros_like(data_inference)
-    anomalies_gt = xr.zeros_like(data_gt)
-
-    # Calculate anomalies for each lead time
-    for i, forecast_datetime in enumerate(time_range):
-        # Get the day of year for this forecast time
-        forecast_doy = forecast_datetime.dayofyr
+    if climatology:
+        # Prepare climatology
+        if 'zsfc' in climatology_data:
+            climatology_data = climatology_data.drop_vars('zsfc')
         
-        # Select the corresponding climatology
-        clim_for_leadtime = climatology_data.sel(dayofyear=forecast_doy)
-        
-        # Calculate anomalies for this lead time
-        anomalies_inference[i] = data_inference[i] - clim_for_leadtime
-        anomalies_gt[i] = data_gt[i] - clim_for_leadtime
+        # Ensure climatology has the correct spatial dimensions
+        climatology_data = climatology_data.transpose('dayofyear', 'lat', 'lon')
 
-        print(f"Processed lead time {data_inference.lead_time.values[i]} hours, forecast date: {forecast_datetime}")
+        
+        # print_info(climatology_aligned, "Aligned Climatology")
+        climatology_data = climatology_data.assign_coords(lat=data_inference.lat)
+
+        # Initialize anomalies arrays
+        anomalies_inference = xr.zeros_like(data_inference)
+        anomalies_gt = xr.zeros_like(data_gt)
+
+        # Calculate anomalies for each lead time
+        for i, forecast_datetime in enumerate(time_range):
+            # Get the day of year for this forecast time
+            forecast_doy = forecast_datetime.dayofyr
+            
+            # Select the corresponding climatology
+            clim_for_leadtime = climatology_data.sel(dayofyear=forecast_doy)
+            
+            # Calculate anomalies for this lead time
+            anomalies_inference[i] = data_inference[i] - clim_for_leadtime
+            anomalies_gt[i] = data_gt[i] - clim_for_leadtime
+
+            print(f"Processed lead time {data_inference.lead_time.values[i]} hours, forecast date: {forecast_datetime}")
+    else:
+        anomalies_inference = data_inference
+        anomalies_gt = data_gt
 
 
 
@@ -386,7 +398,7 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
     max_abs_anomaly = abs(anomalies_gt).max()
     vmin = -max_abs_anomaly
     vmax = max_abs_anomaly
-    print(f"Anomaly value range: {vmin} to {vmax}")
+    print(f"Value range: {vmin} to {vmax}")
 
     
 
@@ -409,13 +421,21 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
                             transform=ccrs.PlateCarree(), vmin=vmin, vmax=vmax, cmap='RdBu_r')
     
     # Add colorbars
-    plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05, label='Anomaly')
-    plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05, label='Anomaly')
+    if climatology:
+        plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05, label='Anomaly')
+        plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05, label='Anomaly')
+    else:
+        plt.colorbar(im1, ax=axs[0], orientation='horizontal', pad=0.05, label=var)
+        plt.colorbar(im2, ax=axs[1], orientation='horizontal', pad=0.05, label=var)
 
     axs[0].set_global()
     axs[1].set_global()
-    axs[0].set_title(f'{name_fc} Anomaly')
-    axs[1].set_title('Ground Truth Anomaly')
+    if climatology:
+        axs[0].set_title(f'{name_fc} Anomaly')
+        axs[1].set_title('Ground Truth Anomaly')
+    else:
+        axs[0].set_title(f'{name_fc}')
+        axs[1].set_title('Ground Truth')
 
     frame_times = []
 
@@ -432,8 +452,14 @@ def make_gif(combined_dataset, gt_combined_dataset, climatology, name_fc, var, o
         im1.set_array(forecast.values.ravel())
         im2.set_array(truth.values.ravel())
 
-        var_up = f'{var}_{plev:.0f}hPa' if plev is not None else var
-        title = f'{var_up} Anomaly at {current_time} (Lead time: {lead_time} hours, Sample {sample_index})'
+        if level_coord_name == 'lev' and var != 'zg' and var != 'geopotential_height':
+            var_up = f'{var}_{plev:.0f}' if plev is not None else var
+        else:
+            var_up = f'{var}_{plev:.0f}hPa' if plev is not None else var
+        if climatology:
+            title = f'{var_up} Anomaly at {current_time} (Lead time: {lead_time} hours, Sample {sample_index})'
+        else:
+            title = f'{var_up} at {current_time} (Lead time: {lead_time} hours, Sample {sample_index})'
         plt.suptitle(title, y=0.95)
 
         frame_end = time.time()

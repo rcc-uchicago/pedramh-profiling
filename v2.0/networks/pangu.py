@@ -243,7 +243,7 @@ class PanguModel_Plasim(nn.Module):
         self.upper_air_boundary = params.upper_air_boundary
         self.varying_boundary_variables = params.varying_boundary_variables
         self.num_varying_boundary_vars = len(params.varying_boundary_variables)
-        self.idx_upper_air_var_bound= self.varying_boundary_variables.index('toa_incident_solar_radiation') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
+        self.idx_upper_air_var_bound= self.varying_boundary_variables.index('rsdt') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
     
         

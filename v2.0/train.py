@@ -341,7 +341,8 @@ class Trainer():
                 resume = "allow"
             else:
                 resume = "never"
-            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', group=params.group, project=params.project, resume=resume)#, entity=params.entity)
+            wandb.init(config=params, entity=params.entity, name=f'{params.name}-{params.run_iter}',
+                        group=params.group, project=params.project, resume=resume)#, entity=params.entity)
 
             #wandb.define_metric("custom_step")
             #wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
@@ -363,8 +364,12 @@ class Trainer():
                     for j, var in enumerate(self.valid_dataset.surface_variables):
                         epoch_metrics.append(f'valid_{var}_{steps}step_lwrmse')
                     for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                        for k, level in enumerate(self.valid_dataset.levels):
-                            epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
+                        if var != 'zg' and var != 'geopotential_height' and self.valid_dataset.use_sigma_levels:
+                            for k, level in enumerate(self.valid_dataset.sigma_levels):
+                                epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
+                        else:
+                            for k, level in enumerate(self.valid_dataset.levels):
+                                epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
             else:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
             # Add this line to ensure power_spectrum_plot is always defined as a metric
@@ -412,6 +417,8 @@ class Trainer():
 
         if params.optimizer_type == 'FusedAdam':
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+        elif params.optimizer_type == 'AdamW':
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
         else:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
 
@@ -936,8 +943,12 @@ class Trainer():
                             for j, var in enumerate(current_dataset.diagnostic_variables):
                                 diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
                         for j, var in enumerate(current_dataset.upper_air_variables):
-                            for k, level in enumerate(current_dataset.levels):
-                                diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
+                            if var != 'zg' and var != 'geopotential_height' and current_dataset.use_sigma_levels:
+                                for k, level in enumerate(current_dataset.sigma_levels):
+                                    diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
+                            else:
+                                for k, level in enumerate(current_dataset.levels):
+                                    diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
                         if dist.is_initialized():
                             for key in sorted(diagnostic_logs.keys()):
                                 if key == 'batch_grad_max':
@@ -1476,8 +1487,9 @@ class Trainer():
             if self.params.diagnostic_gif:
                 print("\nMaking GIF...")
 
-                gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-                make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "geopotential", gif_filename, plev=50000)
+                gif_filename = os.path.join(self.diagnostics_dir, f"ua_top_animation_epoch_{self.epoch}.gif")
+                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "ua", gif_filename, 
+                         climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.levels[0])
 
 
 
@@ -1539,8 +1551,12 @@ class Trainer():
                 for j, var in enumerate(self.valid_dataset.surface_variables):
                     diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_surface_lwrmse[l, j] * self.valid_dataset.surface_std[j]
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                    for k, level in enumerate(self.valid_dataset.levels):
-                        diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
+                    if var != 'zg' and var != 'geopotential_height' and self.valid_dataset.use_sigma_levels:
+                        for k, level in enumerate(self.valid_dataset.sigma_levels):
+                            diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
+                    else:
+                        for k, level in enumerate(self.valid_dataset.levels):
+                            diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
                 if self.params.has_diagnostic:
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
                         diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
@@ -1651,9 +1667,9 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0100', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
-    parser.add_argument("--config", default='S2S', type=str)
+    parser.add_argument("--run_num", default='0300', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5.yaml', type=str)
+    parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
@@ -1807,6 +1823,13 @@ if __name__ == '__main__':
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)
+    
+    if hasattr(params, 'use_sigma_levels'):
+        if params.use_sigma_levels:
+            print('For sigma level training, disabling diagnostic ACC and diagnostic spectra')
+            params['diagnostic_acc'] = False
+            params['diagnostic_spectra'] = False
+            
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)
 
