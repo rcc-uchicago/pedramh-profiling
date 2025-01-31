@@ -151,16 +151,20 @@ class GetDataset(Dataset):
                 if any([land_variable in self.surface_variables for land_variable in params.land_variables]):
                     raise ValueError('land variables cannot be in surface variables.')
                 self.surface_variables = self.surface_variables + params.land_variables
+            else:
+                self.land_variables = []
             self.land_variables = params.land_variables
         else:
             self.land_variables = []
             
 
         if hasattr(params, 'ocean_variables'):
-            if len(params.land_variables) > 0:
+            if len(params.ocean_variables) > 0:
                 if any([ocean_variable in self.surface_variables for ocean_variable in params.ocean_variables]):
                     raise ValueError('ocean variables cannot be in surface variables.')
                 self.ocean_variables = params.ocean_variables
+            else:
+                self.ocean_variables = []
             self.surface_variables = self.surface_variables + params.ocean_variables
         else:
             self.ocean_variables = []

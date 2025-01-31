@@ -1667,13 +1667,14 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0300', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_test.yaml', type=str)
+    parser.add_argument("--run_num", default='0303', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
+    parser.add_argument("--debug", default=False, action='store_true')
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
@@ -1710,17 +1711,19 @@ if __name__ == '__main__':
     #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
     #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
     
-    #params['world_size'] = 1
     os.environ['WANDB_MODE'] = 'offline'
-
-    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-    print('World size from Cuda: %d' % torch.cuda.device_count())
-    if 'WORLD_SIZE' in os.environ:
-        params['world_size'] = int(os.environ['WORLD_SIZE'])
-        print(params['world_size'])
+    
+    if args.debug:
+        params['world_size'] = 1
     else:
-        params['world_size'] = torch.cuda.device_count()
-        print(params['world_size'])
+        print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+        print('World size from Cuda: %d' % torch.cuda.device_count())
+        if 'WORLD_SIZE' in os.environ:
+            params['world_size'] = int(os.environ['WORLD_SIZE'])
+            print(params['world_size'])
+        else:
+            params['world_size'] = torch.cuda.device_count()
+            print(params['world_size'])
 
 
     #params['world_size'] = 1
