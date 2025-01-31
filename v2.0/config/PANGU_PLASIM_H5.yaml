@@ -40,7 +40,7 @@ PLASIM: &PLASIM
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
   diagnostic_variables: ['pr_6h']
-  land_variables: ['mrso']
+  land_variables: []
   mask_output: False
   constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
@@ -71,7 +71,7 @@ PLASIM: &PLASIM
   climatology_file: "mean_daymean_climatology_sigma.nc"
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 16
+  batch_size: 128
   max_epochs: 100
 
   has_year_zero: True

@@ -333,11 +333,13 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
         if level_coord_name == 'lev' and var != 'zg' and var != 'geopotential_height':
             data_inference = combined_dataset[var].isel(time=sample_index).sel(lev=plev, method='nearest')
             data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(lev=plev, method='nearest')
-            climatology_data = climatology[var].sel(lev=plev, method='nearest')
+            if climatology:
+                climatology_data = climatology[var].sel(lev=plev, method='nearest')
         else:
             data_inference = combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
             data_gt = gt_combined_dataset[var].isel(time=sample_index).sel(plev=plev, method='nearest')
-            climatology_data = climatology[var].sel(plev=plev, method='nearest')
+            if climatology:
+                climatology_data = climatology[var].sel(plev=plev, method='nearest')
     else:
         data_inference = combined_dataset[var].isel(time=sample_index)
         data_gt = gt_combined_dataset[var].isel(time=sample_index)
@@ -346,7 +348,8 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
     print(f"Data shape - Inference: {data_inference.shape}, Ground Truth: {data_gt.shape}")
     print(f"Inference dimensions: {data_inference.dims}")
     print(f"Ground Truth dimensions: {data_gt.dims}")
-    print(f"Climatology dimensions: {climatology_data.dims}")
+    if climatology:
+        print(f"Climatology dimensions: {climatology_data.dims}")
     print(f"Lead times: {data_inference.lead_time.values}")
     
     # Get the start time for this sample from the original dataset
