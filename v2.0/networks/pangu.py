@@ -998,12 +998,11 @@ class EarthSpecificBlock(nn.Module):
 
         norm_layer = te.LayerNorm if USE_TE else nn.LayerNorm
 
-
-
         self.norm1 = norm_layer(dim)
         self.norm2 = norm_layer(dim)
 
         padding = get_pad3d(input_resolution, window_size)
+        print(padding)
         self.pad = nn.ZeroPad3d(padding)
 
         pad_resolution = list(input_resolution)

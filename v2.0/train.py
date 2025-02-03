@@ -1490,6 +1490,10 @@ class Trainer():
                 gif_filename = os.path.join(self.diagnostics_dir, f"ua_top_animation_epoch_{self.epoch}.gif")
                 make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "ua", gif_filename, 
                          climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.levels[0])
+                
+                gif_filename_z500 = os.path.join(self.diagnostics_dir, f"z500_anomaly_animation_epoch_{self.epoch}.gif")
+                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "Z500 Anomaly", gif_filename_z500, 
+                         climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.levels[0])
 
 
 
