@@ -1047,13 +1047,23 @@ class Trainer():
 
             # Determine the level coordinate name based on params.lev
             level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
+            levels = valid_dataset.sigma_levels if params.lev == 'lev' else valid_dataset.levels
 
-            coordinates = {
-                'time': time_range,
-                level_coord_name: valid_dataset.levels,
-                'lat': self.params.lat,
-                'lon': self.params.lon
-            }
+            if params.lev == 'lev' and ('zg' in params.upper_air_variables or 'geopotential' in params.upper_air_variables):
+                coordinates = {
+                    'time': time_range,
+                    level_coord_name: levels,
+                    'plev': valid_dataset.levels,
+                    'lat': self.params.lat,
+                    'lon': self.params.lon
+                }
+            else:
+                coordinates = {
+                    'time': time_range,
+                    level_coord_name: levels,
+                    'lat': self.params.lat,
+                    'lon': self.params.lon
+                }
 
             dataset = xr.Dataset(
                 coords=coordinates,
@@ -1084,11 +1094,34 @@ class Trainer():
                     dataset[var] = da
 
             for idx, var in enumerate(valid_dataset.upper_air_variables):
-                da = xr.DataArray(
-                    data=upper_air_prediction[sample, :, idx],
-                    dims=["time", level_coord_name, "lat", "lon"],
-                    coords=coordinates
-                )
+                if params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
+                    da = xr.DataArray(
+                        data=upper_air_prediction[sample, :, idx],
+                        dims=["time", "plev", "lat", "lon"],
+                        coords = {
+                            'time': time_range,
+                            'plev': dataset.plev.values,
+                            'lat': dataset.lat.values,
+                            'lon': dataset.lon.values
+                        }
+                    )
+                elif params.lev == 'lev':
+                    da = xr.DataArray(
+                        data=upper_air_prediction[sample, :, idx],
+                        dims=["time", params.lev, "lat", "lon"],
+                        coords = {
+                            'time': time_range,
+                            params.lev: dataset.lev.values,
+                            'lat': dataset.lat.values,
+                            'lon': dataset.lon.values
+                        }
+                    )
+                else:
+                    da = xr.DataArray(
+                        data=upper_air_prediction[sample, :, idx],
+                        dims=["time", level_coord_name, "lat", "lon"],
+                        coords=coordinates
+                    )
                 #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
                 dataset[var] = da
 
@@ -1489,11 +1522,11 @@ class Trainer():
 
                 gif_filename = os.path.join(self.diagnostics_dir, f"ua_top_animation_epoch_{self.epoch}.gif")
                 make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "ua", gif_filename, 
-                         climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.levels[0])
+                         climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.sigma_levels[0])
                 
                 gif_filename_z500 = os.path.join(self.diagnostics_dir, f"z500_anomaly_animation_epoch_{self.epoch}.gif")
-                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "Z500 Anomaly", gif_filename_z500, 
-                         climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.levels[0])
+                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "zg", gif_filename_z500, 
+                         climatology=self.climatology, level_coord_name='plev', plev=50000.)
 
 
 
@@ -1583,7 +1616,11 @@ class Trainer():
                 if self.params.diagnostic_gif:
                     if gif_filename:
                         wandb.log({
-                            "Evolution_GIF": wandb.Video(gif_filename),
+                            "Evolution_GIF_1": wandb.Video(gif_filename),
+                            "epoch": self.epoch
+                        })
+                        wandb.log({
+                            "Evolution_GIF_2": wandb.Video(gif_filename_z500),
                             "epoch": self.epoch
                         })
                 if self.params.diagnostic_spectra:
@@ -1624,7 +1661,11 @@ class Trainer():
                     })
                 if gif_filename and self.params.diagnostic_gif:
                     wandb.log({
-                        "Evolution_GIF": wandb.Video(gif_filename),
+                        "Evolution_GIF_1": wandb.Video(gif_filename),
+                        "epoch": self.epoch
+                    })
+                    wandb.log({
+                        "Evolution_GIF_2": wandb.Video(gif_filename_z500),
                         "epoch": self.epoch
                     })
                 if self.params.diagnostic_spectra:
@@ -1671,8 +1712,8 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0303', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI.yaml', type=str)
+    parser.add_argument("--run_num", default='0305', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI_4_test.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
@@ -1715,10 +1756,11 @@ if __name__ == '__main__':
     #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
     #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
     
-    os.environ['WANDB_MODE'] = 'offline'
+    #os.environ['WANDB_MODE'] = 'offline'
     
     if args.debug:
         params['world_size'] = 1
+        os.environ['WANDB_MODE'] = 'offline'
     else:
         print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
         print('World size from Cuda: %d' % torch.cuda.device_count())

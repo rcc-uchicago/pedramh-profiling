@@ -378,10 +378,10 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
         # Calculate anomalies for each lead time
         for i, forecast_datetime in enumerate(time_range):
             # Get the day of year for this forecast time
-            forecast_doy = forecast_datetime.dayofyr
+            forecast_day = forecast_datetime.dayofyr
             
             # Select the corresponding climatology
-            clim_for_leadtime = climatology_data.sel(dayofyear=forecast_doy)
+            clim_for_leadtime = climatology_data.sel(dayofyear=np.array([date.dayofyr for date in climatology_data.dayofyear.values]) == forecast_day).squeeze(axis=0)
             
             # Calculate anomalies for this lead time
             anomalies_inference[i] = data_inference[i] - clim_for_leadtime
