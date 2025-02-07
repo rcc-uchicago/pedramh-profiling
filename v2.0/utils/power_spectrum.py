@@ -13,7 +13,7 @@ import matplotlib
 import os
 import matplotlib.colors as mcolors
 
-from dask.diagnostics import ProgressBar
+#from dask.diagnostics import ProgressBar
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation

@@ -30,7 +30,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
 logging_utils.config_logger()
 #from apex import optimizers
 from pathlib import Path
-import dask
+#import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -54,7 +54,7 @@ from utils.integrate import Integrator, forward_euler
 # os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
 
-dask.config.set(scheduler='synchronous')
+#dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
 
 torch.backends.cuda.matmul.allow_tf32 = True
@@ -1694,17 +1694,19 @@ if __name__ == '__main__':
     #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
     #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
     
-    params['world_size'] = 1
-    os.environ['WANDB_MODE'] = 'offline'
+    #params['world_size'] = 1
+    if hasattr(params, "wandb_offline"):
+        if params.wandb_offline:
+            os.environ['WANDB_MODE'] = 'offline'
 
-    #print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-    #print('World size from Cuda: %d' % torch.cuda.device_count())
-    #if 'WORLD_SIZE' in os.environ:
-    #    params['world_size'] = int(os.environ['WORLD_SIZE'])
-    #    print(params['world_size'])
-    #else:
-    #    params['world_size'] = torch.cuda.device_count()
-    #    print(params['world_size'])
+    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    print('World size from Cuda: %d' % torch.cuda.device_count())
+    if 'WORLD_SIZE' in os.environ:
+        params['world_size'] = int(os.environ['WORLD_SIZE'])
+        print(params['world_size'])
+    else:
+        params['world_size'] = torch.cuda.device_count()
+        print(params['world_size'])
 
 
     #params['world_size'] = 1
