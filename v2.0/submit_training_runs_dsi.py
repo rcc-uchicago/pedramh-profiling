@@ -16,12 +16,12 @@ os.makedirs(os.path.dirname(config), exist_ok=True)
 
 my_scratch = '/net/scratch2/awikner' # CHANGE THIS TO YOUR SCRATCH DIRECTORY
 
-replace_fields = ['name', 'data_dir']
-replace_values = [f'S2S-{run_num}', os.path.join(my_scratch, 'pangu_s2s/all_data')]
+replace_fields = {'name': f'S2S-{run_num}',
+                  'data_dir': os.path.join(my_scratch, 'pangu_s2s/all_data')}
 
 with open(base_config, "r") as src, open(config, "w") as dest:
     for line in src:
-        for field, value in zip(replace_fields, replace_values):
+        for field, value in replace_fields.items():
             if f'{field}:' in line:
                 line = f'  {field}: {value} \n'
         dest.write(line)
