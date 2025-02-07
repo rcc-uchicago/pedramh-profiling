@@ -341,7 +341,7 @@ class Trainer():
                 resume = "allow"
             else:
                 resume = "never"
-            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', group=params.group, project=params.project, resume=resume)#, entity=params.entity)
+            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', entity=params.entity, group=params.group, project=params.project, resume=resume)#, entity=params.entity)
 
             #wandb.define_metric("custom_step")
             #wandb.define_metric("power_spectrum_plot", step_metric="custom_step")

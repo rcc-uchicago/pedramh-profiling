@@ -28,6 +28,7 @@ base_config: &BASE
   use_transformer_engine: False
   early_stopping: False
 
+  entity: 'awikner-University of Chicago'
   project: 'Pangu-S2S'
   name: 'S2S-0001'
 
