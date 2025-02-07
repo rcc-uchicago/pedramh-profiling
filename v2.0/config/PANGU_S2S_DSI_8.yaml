@@ -24,7 +24,7 @@ base_config: &BASE
   exp_dir: 'results'
 
   enable_fp8: False
-  fresh_start: True
+  fresh_start: False
   use_transformer_engine: False
   early_stopping: False
 
