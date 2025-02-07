@@ -14,8 +14,10 @@ run_num = '0001' # Number for run that will be logged to wandb
 config = os.path.join(os.getcwd(), 'config', os.path.basename(base_config).split('.')[0] + f'_{run_num}.yaml')
 os.makedirs(os.path.dirname(config), exist_ok=True)
 
-replace_fields = ['name']
-replace_values = [f'S2S-{run_num}']
+my_scratch = '/net/scratch2/awikner' # CHANGE THIS TO YOUR SCRATCH DIRECTORY
+
+replace_fields = ['name', 'data_dir']
+replace_values = [f'S2S-{run_num}', os.path.join(my_scratch, 'pangu_s2s/all_data')]
 
 with open(base_config, "r") as src, open(config, "w") as dest:
     for line in src:
