@@ -1814,7 +1814,7 @@ if __name__ == '__main__':
     checkpoint_exists = os.path.isfile(params.checkpoint_path)
 
     # Determine whether to resume or start fresh
-    if params.fresh_start:
+    if params.fresh_start or args.fresh_start:
         params['resuming'] = False
         if checkpoint_exists and world_rank == 0:
             logging.info("Fresh start requested. Ignoring existing checkpoint.")

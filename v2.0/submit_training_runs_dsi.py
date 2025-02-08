@@ -1,23 +1,24 @@
 import os, subprocess
 
-num_gpus = 4 # Either 4 or 8
-num_training_runs = 5 # Total number of 12 hour trainings runs expected to reach the final epoch
+num_gpus = 8 # Either 4 or 8
+num_training_runs = 3 # Total number of 12 hour trainings runs expected to reach the final epoch
 
 if num_gpus == 4:
     base_config = '/net/scratch2/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DSI_4.yaml'
     submit_script = 'dsi_training.sh'
 elif num_gpus == 8:
-    base_config = '/net/scratch2/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DSI_4.yaml'
+    base_config = '/net/scratch2/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DSI.yaml'
     submit_script = 'dsi_training_8.sh'
     
-run_num = '0501' # Number for run that will be logged to wandb
+run_num = '0502' # Number for run that will be logged to wandb
 config = os.path.join(os.getcwd(), 'config', os.path.basename(base_config).split('.')[0] + f'_{run_num}.yaml')
 os.makedirs(os.path.dirname(config), exist_ok=True)
 
 my_scratch = '/net/scratch2/awikner' # CHANGE THIS TO YOUR SCRATCH DIRECTORY
 
-replace_fields = {'name': f'S2S-{run_num}',
-                  'data_dir': os.path.join(my_scratch, 'PLASIM/data/h5/sigma_data')}
+replace_fields = {'name': f'Pangu-PLASIM-{run_num}',
+                  'data_dir': os.path.join(my_scratch, 'PLASIM/data/sigma_data'),
+                  'land_variables': "['mrso']"}
 
 with open(base_config, "r") as src, open(config, "w") as dest:
     for line in src:

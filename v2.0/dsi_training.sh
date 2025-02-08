@@ -2,7 +2,7 @@
 #SBATCH -p general
 #SBATCH --time=12:00:00
 ##SBATCH --mem-per-gpu=60G 
-##SBATCH --exclusive
+#SBATCH --exclusive
 #SBATCH --nodes=1
 #SBATCH --nodelist=h001,h002,l001,m001,m002,n001
 #SBATCH --gpus=4
@@ -20,7 +20,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 #./home/awikner/miniconda3/bin/conda init; bash
-conda activate /home/awikner/miniconda3/envs/py311_nompi
+conda activate py311_pip
 #export cuda_version=12.1
 #export CUDA_HOME=/usr/local/cuda-${cuda_version}
 #export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
@@ -54,5 +54,9 @@ export OMP_NUM_THREADS=1
 
 
 # Launch your script using torch.distributed.launch
-python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
+if [ -z "$3" ]; then
+	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1 --fresh_start
+else
+	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
+fi
 # --enable_amp if needed
