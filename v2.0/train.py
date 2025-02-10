@@ -1723,7 +1723,7 @@ if __name__ == '__main__':
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
-    parser.add_argument("--fresh_start", action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+    parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
 
 
     ####### for UCAR
