@@ -28,9 +28,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
     Latitude_weighted_CRPSLoss
 ###############################@###########
 logging_utils.config_logger()
-from apex import optimizers
 from pathlib import Path
-import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -48,7 +46,7 @@ from utils.integrate import Integrator, forward_euler
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_num", default='0194', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S_222_0222.yaml', type=str)
     parser.add_argument("--config", default='S2S', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
