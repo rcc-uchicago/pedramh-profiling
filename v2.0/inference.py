@@ -22,7 +22,7 @@ from utils import logging_utils
 logging_utils.config_logger()
 from apex import optimizers
 from pathlib import Path
-import dask
+#import dask
 import cftime
 import xarray as xr
 import cf_xarray as cfxr
@@ -43,7 +43,7 @@ from utils.integrate import Integrator, forward_euler
 #                                    amax_compute_algo="max")
 
 
-dask.config.set(scheduler='synchronous')
+#dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
 torch.set_float32_matmul_precision('high')
 

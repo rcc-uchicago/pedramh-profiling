@@ -30,7 +30,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
 logging_utils.config_logger()
 #from apex import optimizers
 from pathlib import Path
-import dask
+#import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -54,7 +54,7 @@ from utils.integrate import Integrator, forward_euler
 # os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
 
-dask.config.set(scheduler='synchronous')
+#dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
 
 torch.backends.cuda.matmul.allow_tf32 = True
