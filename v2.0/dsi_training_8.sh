@@ -20,7 +20,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 #./home/awikner/miniconda3/bin/conda init; bash
-conda activate /home/awikner/miniconda3/envs/py311_pip
+source /home/awikner/miniconda3/bin/activate ;
+conda activate /home/awikner/miniconda3/envs/py311_pip ;
 #export cuda_version=12.1
 #export CUDA_HOME=/usr/local/cuda-${cuda_version}
 #export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH

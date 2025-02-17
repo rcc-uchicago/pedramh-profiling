@@ -10,7 +10,7 @@ elif num_gpus == 8:
     base_config = '/net/scratch2/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DSI.yaml'
     submit_script = 'dsi_training_8.sh'
     
-run_num = '0501' # Number for run that will be logged to wandb
+run_num = '0502' # Number for run that will be logged to wandb
 config = os.path.join(os.getcwd(), 'config', os.path.basename(base_config).split('.')[0] + f'_{run_num}.yaml')
 os.makedirs(os.path.dirname(config), exist_ok=True)
 
