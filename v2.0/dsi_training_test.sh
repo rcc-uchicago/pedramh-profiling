@@ -1,13 +1,13 @@
 #!/bin/bash -l
 #SBATCH -p general
-#SBATCH --time=12:00:00
-##SBATCH --mem-per-gpu=60G 
-#SBATCH --exclusive
+#SBATCH --time=1:00:00
+##SBATCH --exclusive
 #SBATCH --nodes=1
-#SBATCH --nodelist=h001,h002,l001,m001,m002,n001
+##SBATCH --nodelist=h001,h002,l001,m001,m002,n001
 #SBATCH --gpus=4
 #SBATCH --ntasks=4
 #SBATCH --cpus-per-task=16 
+#SBATCH --mem-per-cpu=4G
 #SBATCH -o outs/dsi_%x_%j.out
 #SBATCH -e outs/dsi_%x_%j.err
 
@@ -20,7 +20,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 #./home/awikner/miniconda3/bin/conda init; bash
-source /home/awikner/miniconda3/bin/activate
+source ~/miniconda3/bin/activate
 conda activate /home/awikner/miniconda3/envs/py311_pip
 #export cuda_version=12.1
 #export CUDA_HOME=/usr/local/cuda-${cuda_version}
@@ -34,6 +34,8 @@ conda activate /home/awikner/miniconda3/envs/py311_pip
 # Change to working directory
 cd /net/scratch2/awikner/PanguWeather/v2.0
 #source export_DDP_vars.sh
+which conda
+python test_torch.py
 
 nvidia-smi
 
@@ -55,9 +57,5 @@ export OMP_NUM_THREADS=1
 
 
 # Launch your script using torch.distributed.launch
-if [ -z "$3" ]; then
-	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1 --fresh_start
-else
-	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
-fi
+python -m torch.distributed.launch --nproc_per_node=4 train.py --yaml_config=config/PANGU_PLASIM_H5_DSI_test.yaml --run_num=0107 --fresh_start
 # --enable_amp if needed

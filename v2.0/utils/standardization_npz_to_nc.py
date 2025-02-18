@@ -24,8 +24,8 @@ if __name__ == '__main__':
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
     parser.add_argument("--config", default='S2S', type=str)
     parser.add_argument("--data_name", default='pangu_s2s_1979-2018', type=str)
-    parser.add_argument("--mean_npz", default='/eagle/MDClimSim/awikner/pangu_s2s/normalize_mean.npz', type=str)
-    parser.add_argument("--std_npz", default='/eagle/MDClimSim/awikner/pangu_s2s/normalize_std.npz', type=str)
+    parser.add_argument("--mean_npz", default='/eagle/MDClimSim/awikner/pangu_s2s/normalize_diff_mean_24.npz', type=str)
+    parser.add_argument("--std_npz", default='/eagle/MDClimSim/awikner/pangu_s2s/normalize_diff_std_24.npz', type=str)
 
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
@@ -53,8 +53,8 @@ if __name__ == '__main__':
     surface_mean_ds = xr.Dataset(surface_mean_dict)
     surface_std_ds = xr.Dataset(surface_std_dict)
 
-    upper_air_mean_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_mean.nc'))
-    upper_air_std_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_std.nc'))
-    surface_mean_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_surface_mean.nc'))
-    surface_std_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_surface_std.nc'))
+    upper_air_mean_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_diff_mean.nc'))
+    upper_air_std_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_diff_std.nc'))
+    surface_mean_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_surface_diff_mean.nc'))
+    surface_std_ds.to_netcdf(os.path.join(params.data_dir, f'{args.data_name}_surface_diff_std.nc'))
 
