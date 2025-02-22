@@ -51,20 +51,16 @@ def get_shift_window_mask(input_resolution, window_size, shift_size):
     win_pl, win_lat, win_lon = window_size
     shift_pl, shift_lat, shift_lon = shift_size
 
-    img_mask = torch.zeros((1, Pl, Lat, Lon + shift_lon, 1))
+    img_mask = torch.zeros((1, Pl, Lat, Lon , 1))
 
     pl_slices = (slice(0, -win_pl), slice(-win_pl, -shift_pl), slice(-shift_pl, None))
     lat_slices = (slice(0, -win_lat), slice(-win_lat, -shift_lat), slice(-shift_lat, None))
-    lon_slices = (slice(0, -win_lon), slice(-win_lon, -shift_lon), slice(-shift_lon, None))
 
     cnt = 0
     for pl in pl_slices:
         for lat in lat_slices:
-            for lon in lon_slices:
-                img_mask[:, pl, lat, lon, :] = cnt
-                cnt += 1
-
-    img_mask = img_mask[:, :, :, :Lon, :]
+            img_mask[:, pl, lat, :, :] = cnt
+            cnt += 1
 
     mask_windows = window_partition(img_mask, window_size)  # n_lon, n_pl*n_lat, win_pl, win_lat, win_lon, 1
     mask_windows = mask_windows.view(mask_windows.shape[0], mask_windows.shape[1], win_pl * win_lat * win_lon)
