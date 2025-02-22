@@ -1047,8 +1047,14 @@ class Trainer():
 
             # Determine the level coordinate name based on params.lev
             level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
-            levels = valid_dataset.sigma_levels if params.lev == 'lev' else valid_dataset.levels
-
+            if hasattr(valid_dataset, 'sigma_levels'):
+                if params.lev == 'lev':
+                    levels = valid_dataset.sigma_levels
+                else:
+                    levels = valid_dataset.levels
+            else:
+                levels = valid_dataset.levels
+                
             if params.lev == 'lev' and ('zg' in params.upper_air_variables or 'geopotential' in params.upper_air_variables):
                 coordinates = {
                     'time': time_range,
@@ -1209,18 +1215,18 @@ class Trainer():
     def cleanup_acc_plots(self):
         output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
         if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
+            shutil.rmtree(output_dir, ignore_errors=True)
             print(f"Deleted ACC plots directory: {output_dir}")
 
     def cleanup_power_spectrum_plots(self):
         output_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
         if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
+            shutil.rmtree(output_dir, ignore_errors=True)
             print(f"Deleted Power Spectrum plots directory: {output_dir}")
 
     def cleanup_gifs(self):
         if os.path.exists(self.diagnostics_dir):
-            shutil.rmtree(self.diagnostics_dir)
+            shutil.rmtree(self.diagnostics_dir, ignore_errors=True)
             print(f"Deleted GIF directory: {self.diagnostics_dir}")
     
 
@@ -1518,19 +1524,29 @@ class Trainer():
                 print("\nFinished ACC..")
 
             if self.params.diagnostic_gif:
-                print("\nMaking GIF...")
-
-                gif_filename = os.path.join(self.diagnostics_dir, f"ua_top_animation_epoch_{self.epoch}.gif")
-                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "ua", gif_filename, 
-                         climatology=None, level_coord_name=self.params.lev, plev=self.valid_dataset.sigma_levels[0])
+                print("\nMaking GIFs...")
                 
-                gif_filename_z500 = os.path.join(self.diagnostics_dir, f"z500_anomaly_animation_epoch_{self.epoch}.gif")
-                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", "zg", gif_filename_z500, 
-                         climatology=self.climatology, level_coord_name='plev', plev=50000.)
-
-
-
-                print("\nFinished creating GIF animation.")
+                gif_filenames = []
+                for variable in self.params.diagnostic_gif_var_dict.keys():
+                    clim_in = None
+                    if variable in ['zg', 'tas', 'geopotential', '2m_temperature']:
+                        clim_in = self.climatology
+                    if len(self.params.diagnostic_gif_var_dict[variable]) > 0:
+                        if variable == 'zg':
+                            level_coord_name = 'plev'
+                        else:
+                            level_coord_name = self.params.lev
+                        for level in self.params.diagnostic_gif_var_dict[variable]:
+                            gif_filenames.append(os.path.join(self.diagnostics_dir, f"{variable}_{level}_animation_epoch_{self.epoch}.gif"))
+                            make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", variable, gif_filenames[-1], 
+                                    climatology=clim_in, level_coord_name=level_coord_name, plev=level)
+                            print(f"\nFinished creating {variable} {level} GIF animation.")
+                    else:
+                        gif_filenames.append(os.path.join(self.diagnostics_dir, f"{variable}_animation_epoch_{self.epoch}.gif"))
+                        make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", variable, gif_filenames[-1], 
+                                climatology=clim_in, level_coord_name=None, plev=None)
+                        print(f"\nFinished creating {variable} GIF animation.")
+                        
 
             if self.params.diagnostic_spectra:
                 print("\nMaking Power Spectrum...")
@@ -1614,15 +1630,12 @@ class Trainer():
                         "epoch": self.epoch
                     })
                 if self.params.diagnostic_gif:
-                    if gif_filename:
-                        wandb.log({
-                            "Evolution_GIF_1": wandb.Video(gif_filename),
-                            "epoch": self.epoch
-                        })
-                        wandb.log({
-                            "Evolution_GIF_2": wandb.Video(gif_filename_z500),
-                            "epoch": self.epoch
-                        })
+                    if gif_filenames:
+                        for gif_filename in gif_filenames:
+                            wandb.log({
+                                '_'.join(os.path.basename(gif_filename).split('_')[:2]): wandb.Video(gif_filename),
+                                "epoch": self.epoch
+                            })
                 if self.params.diagnostic_spectra:
                     wandb.log({
                         "power_spectrum_plot": wandb.Image(path_filename),
@@ -1659,15 +1672,12 @@ class Trainer():
                         "ACC_plot": wandb.Image(plot_filename),
                         "epoch": self.epoch
                     })
-                if gif_filename and self.params.diagnostic_gif:
-                    wandb.log({
-                        "Evolution_GIF_1": wandb.Video(gif_filename),
-                        "epoch": self.epoch
-                    })
-                    wandb.log({
-                        "Evolution_GIF_2": wandb.Video(gif_filename_z500),
-                        "epoch": self.epoch
-                    })
+                if gif_filenames and self.params.diagnostic_gif:
+                    for gif_filename in gif_filenames:
+                        wandb.log({
+                            '_'.join(os.path.basename(gif_filename).split('_')[:2]): wandb.Video(gif_filename),
+                            "epoch": self.epoch
+                        })
                 if self.params.diagnostic_spectra:
                     wandb.log({
                         "power_spectrum_plot": wandb.Image(path_filename),
@@ -1735,7 +1745,7 @@ if __name__ == '__main__':
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    params['epsilon_factor'] = args.epsilon_factor
+    #params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
@@ -1872,6 +1882,13 @@ if __name__ == '__main__':
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)
+    
+    if params.diagnostic_gif:
+        if not hasattr(params, "diagnostic_gif_var_dict"):
+            params['diagnostic_gif_var_dict'] = {'zg': [50000]}
+            
+            
+            
     
     if hasattr(params, 'use_sigma_levels'):
         if params.use_sigma_levels:
