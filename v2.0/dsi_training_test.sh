@@ -6,6 +6,8 @@
 ##SBATCH --nodelist=h001,h002,l001,m001,m002,n001
 #SBATCH --gpus=4
 #SBATCH --ntasks=4
+##SBATCH --gpus=a40:1
+##SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16 
 #SBATCH --mem-per-cpu=4G
 #SBATCH -o outs/dsi_%x_%j.out
@@ -57,5 +59,8 @@ export OMP_NUM_THREADS=1
 
 
 # Launch your script using torch.distributed.launch
-python -m torch.distributed.launch --nproc_per_node=4 train.py --yaml_config=config/PANGU_PLASIM_H5_DSI_test.yaml --run_num=0107 --fresh_start
+python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=config/PANGU_PLASIM_H5_DSI_test.yaml --run_num=0109 --fresh_start
+
+python -m torch.distributed.launch --nproc_per_node=2 train.py --yaml_config=config/PANGU_PLASIM_H5_DSI_test.yaml --run_num=0109 --fresh_start
+#python train.py --yaml_config=config/PANGU_PLASIM_H5_DSI_test.yaml --run_num=0109 --fresh_start --debug
 # --enable_amp if needed

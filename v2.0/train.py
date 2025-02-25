@@ -824,7 +824,7 @@ class Trainer():
             logging.warning("No training data loaders available.")
             return 0, 0, {"train_loss": 0.0}
 
-        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1)
 
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
@@ -1043,6 +1043,7 @@ class Trainer():
             # For specific lead times, use forecast_lead_times
                 time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
                 # print(time_range)
+            print(time_range[0], time_range[-1])
             
 
             # Determine the level coordinate name based on params.lev
@@ -1132,6 +1133,7 @@ class Trainer():
                 dataset[var] = da
 
             datasets.append(dataset)
+                
 
         return datasets
     
@@ -1285,7 +1287,7 @@ class Trainer():
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
-            for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
+            for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1):
                 #if i >= n_valid_batches:
                 #    break
                 if self.params.predict_delta:
@@ -1474,7 +1476,7 @@ class Trainer():
                 valid_steps += 1.
         
 
-        # After the loop, combine all predictions and ground truths
+        # After the loop, combine all predictions and ground truthsacc_combined_predictions.to_netcdf(os.path.join(val_data_dir, 'predictions.nc'))
         if self.params.diagnostic_spectra:
             combined_predictions = xr.concat(all_predictions, dim='time')
             combined_ground_truths = xr.concat(all_ground_truths, dim='time')
@@ -1482,7 +1484,21 @@ class Trainer():
         if self.params.diagnostic_acc or self.params.diagnostic_gif:
             acc_combined_predictions = xr.concat(acc_predictions, dim='time')
             acc_combined_ground_truths = xr.concat(acc_ground_truths, dim='time')
-
+            if self.params.just_validate or (not self.params.just_validate and self.epoch == 100):
+                val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                os.makedirs(val_data_dir, exist_ok=True)
+                for start_time in acc_combined_predictions.time.values:
+                    pred_out = acc_combined_predictions.sel(time = start_time)
+                    pred_out = pred_out.drop_vars("time")
+                    pred_out['lead_time'] = [start_time + timedelta(hours = int(elem)) for elem in pred_out.lead_time.values]
+                    pred_out = pred_out.rename({'lead_time': 'time'})
+                    pred_out.to_netcdf(os.path.join(val_data_dir, f'prediction_{start_time.strftime("%Y-%m-%d_%H")}.nc'))
+                for start_time in acc_combined_ground_truths.time.values:
+                    truth_out = acc_combined_ground_truths.sel(time = start_time)
+                    truth_out = truth_out.drop_vars("time")
+                    truth_out['lead_time'] = [start_time + timedelta(hours = int(elem)) for elem in truth_out.lead_time.values]
+                    truth_out = truth_out.rename({'lead_time': 'time'})
+                    truth_out.to_netcdf(os.path.join(val_data_dir, f'ground_truth_{start_time.strftime("%Y-%m-%d_%H")}.nc'))
         
 
         # lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
@@ -1703,7 +1719,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         try:
             self.model.load_state_dict(checkpoint['model_state'])
         except:
@@ -1734,6 +1750,7 @@ if __name__ == '__main__':
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+    parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
 
 
     ####### for UCAR
@@ -1757,6 +1774,7 @@ if __name__ == '__main__':
     print(f'Has diagnostic: {params.has_diagnostic}')
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
+    params['just_validate'] = args.just_validate
     # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
@@ -1895,7 +1913,10 @@ if __name__ == '__main__':
             print('For sigma level training, disabling diagnostic ACC and diagnostic spectra')
             params['diagnostic_acc'] = False
             params['diagnostic_spectra'] = False
-            
-    trainer.train()
+    
+    if not params.just_validate:
+        trainer.train()
+    else:
+        trainer.validate_one_epoch()
     logging.info('DONE ---- rank %d' % world_rank)
 
