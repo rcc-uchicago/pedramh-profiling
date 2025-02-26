@@ -494,7 +494,7 @@ class GetDataset(Dataset):
         # Condition for autoregression
         elif lead_times:
 
-            start_time = self.start_date + timedelta(hours=self.dates[index])
+            start_time = self.start_date + timedelta(hours=self.dates[self.inference_idxs[index]])
 
             # Load initial conditions
             data_in = self._get_data(start_time, out = False)
@@ -570,7 +570,7 @@ class GetDataset(Dataset):
                     
 
         else:
-            start_time = self.start_date + timedelta(hours=self.dates[index])
+            start_time = self.start_date + timedelta(hours=self.dates[self.inference_idxs[index]])
             data_in = self._get_data(start_time, out = False)
             if len(self.varying_boundary_variables) > 0:
                 surface_t, upper_air_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False)
