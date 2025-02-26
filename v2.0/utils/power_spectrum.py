@@ -160,8 +160,8 @@ def plot_power_spectrum(power_spectrum_avg_preds, preds_times, vars=["temperatir
 
 
 def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times,
-                             vars=["temperatire", "geopotential", "u_component_of_wind"], 
-                             plevs=[850, 500, 250]):
+                             vars=["ta", "zg", "ua"], 
+                             plevs=[85000, 50000, 25000]):
     """ Plot the power spectrum of the forecast and ground truth
     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
     :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
@@ -247,7 +247,7 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     plt.close(fig)
 
     return fig, axs
-def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 850, 500, 250], 
+def plot_acc_over_lead_time(acc, lead_times_hours, vars=["tas", "ta", "zg", "ua"], plevs=[None, 85000, 50000, 25000], 
                             colors=None, fontsize_title=14):
     """
     Plot the ACC over lead time for each variable and pressure level

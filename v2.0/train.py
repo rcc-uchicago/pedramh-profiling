@@ -135,6 +135,7 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
     # Assign dayofyear coordinate
     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
     da_true = da_true.assign_coords(dayofyear=da_true['time'].dt.dayofyear)
+    clim = clim.rename({'dayofyear':'time'})
 
     # print_info(da_fc, "Forecast")
     # print_info(da_true, "True")
@@ -161,10 +162,14 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
             clim = clim[list(da_fc.data_vars)]
             
             # Transpose climatology to match forecast data dimensions
-            clim = clim.transpose('dayofyear', 'plev', 'lat', 'lon')
+            clim = clim.transpose('time', 'plev', 'lat', 'lon')
             
             # print("\nSelecting climatology based on dayofyear:")
-            climatology_aligned = clim.sel(dayofyear=da_fc['dayofyear'])
+            climatology_aligned = clim.isel(time=da_fc.dayofyear.values - 1)
+            climatology_aligned['time'] = da_fc['time']
+            if "plev" in da_fc.coords.keys():
+                climatology_aligned = climatology_aligned.sel(plev = da_fc.plev)
+            
             
             # Ensure climatology has the same dimensions as da_fc
             climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
@@ -303,6 +308,7 @@ class Trainer():
          # Load climatology
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
+        self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
 
 
