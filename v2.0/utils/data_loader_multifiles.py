@@ -87,21 +87,33 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False):
+    if train:
+        try:
+            assert not single_ic
+        except:
+            raise ValueError('single_ic cannot be True when train is True.')
+    if validate:
+        try:
+            assert not single_ic
+        except:
+            raise ValueError('Set validate to False when using single_ic = True.')
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic)
+    if single_ic:
+        dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
+    else:
+        sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
+        if train and not distributed:
+            sampler = torch.utils.data.RandomSampler(dataset)
 
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate)
-    sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
-    if train and not distributed:
-        sampler = torch.utils.data.RandomSampler(dataset)
 
-
-    dataloader = DataLoader(dataset,
-                            batch_size=int(params.batch_size),
-                            num_workers=params.num_data_workers,
-                            shuffle=False,  # (sampler is None),
-                            sampler=sampler,# if train else None,
-                            drop_last=True,
-                            pin_memory=torch.cuda.is_available())
+        dataloader = DataLoader(dataset,
+                                batch_size=int(params.batch_size),
+                                num_workers=params.num_data_workers,
+                                shuffle=False,  # (sampler is None),
+                                sampler=sampler,# if train else None,
+                                drop_last=True,
+                                pin_memory=torch.cuda.is_available())
 
     if train:
         return dataloader, dataset, sampler
@@ -110,16 +122,32 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 
 class GetDataset(Dataset):
-    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False):
+    def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False):
         self.params = params
         self.data_dir = data_dir
         self.train = train
-        if not self.train:
+        self.single_ic = single_ic
+        if not self.train and not self.single_ic:
             self.validate = validate
         else:
             self.validate = False
         if not self.train and not self.params.forecast_lead_times:
             self.params['forecast_lead_times'] = [1]
+        if self.single_ic:
+            self.single_ic_offset   = 0
+            self.long_rollout_years = 1
+            self.no_leap_year       = 51
+            self.leap_year          = 52
+            if hasattr(params, 'long_rollout_years'):
+                self.long_rollout_years = self.params.long_rollout_years
+            if hasattr(params, 'no_leap_year'):
+                self.no_leap_year = self.params.no_leap_year
+            if hasattr(params, 'leap_year'):
+                self.leap_year = self.params.leap_year
+            if hasattr(params, 'single_ic_offset'):
+                self.single_ic_offset = self.params.single_ic_offset
+            
+            
         self.epsilon_factor = self.params.epsilon_factor
         self.parallel = False #True if params['num_data_workers'] > 1 else False
         self.num_inferences = num_inferences
@@ -409,9 +437,13 @@ class GetDataset(Dataset):
 
     # Modification for the autoregressive parameter
     def _get_dates(self, hour_step=6.):
-        start_date = self.datetime_class(self.year_start, 1, 1)
-        end_date = self.datetime_class(self.year_end, 1, 1)
-        
+        if self.single_ic:
+            start_date = self.datetime_class(self.year_start, 1, 1) + timedelta(hours=self.single_ic_offset)
+            end_date = self.datetime_class(self.year_start + self.long_rollout_years, 1, 1)
+        else:
+            start_date = self.datetime_class(self.year_start, 1, 1)
+            end_date = self.datetime_class(self.year_end, 1, 1)
+            
         if not self.train:
             hours = (end_date - start_date).days * 24. #- (max(self.params.forecast_lead_times)) * hour_step
         else:
@@ -435,6 +467,17 @@ class GetDataset(Dataset):
             else:
                 raw_data = get_data_given_path(data_file_path, self.variable_list_in)
         return raw_data
+    
+    def _get_boundary_data(self, data_datetime):
+        data_year = data_datetime.year
+        data_idx = int((data_datetime - self.datetime_class(data_year, 1, 1, hour=0, has_year_zero=self.has_year_zero)).total_seconds())\
+              // 3600 // self.data_timedelta_hours
+        if cftime.is_leap_year(data_year, self.params.calendar, self.has_year_zero):
+            data_file_path = get_out_path(self.data_dir, self.leap_year, data_idx)
+        else:
+            data_file_path = get_out_path(self.data_dir, self.no_leap_year, data_idx)
+        raw_data = get_data_given_path(data_file_path, self.varying_boundary_variables)
+        return torch.from_numpy(raw_data).to(torch.float32)
 
     def __len__(self):
         return len(self.inference_idxs)
@@ -446,6 +489,34 @@ class GetDataset(Dataset):
         #self.data_dss = self._load_data(initial=False)
         #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         #self.lev = torch.from_numpy(self.data_dss[0].lev.values)
+        if self.single_ic:
+            start_time = self.start_date + timedelta(hours=self.dates[index])
+            if index == 0:
+                data_in  = self._get_data(start_time, out = False)
+                if len(self.varying_boundary_variables) > 0:
+                    upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out = False)
+                    varying_boundary_data = self.boundary_transform(varying_boundary_data)
+                else:
+                    upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False)
+                surface_t = self.surface_transform(surface_t)
+                upper_air_t = self.upper_air_transform(upper_air_t)
+                if self.epsilon_factor > 0.:
+                    if 'surface_ff_std' in self.params:
+                        surface_t_noise = torch.randn(*surface_t.shape) * (self.epsilon_factor * self.surface_ff_std / self.surface_std).reshape(len(self.surface_variables), 1, 1)
+                    else:
+                        surface_t_noise = torch.randn(*surface_t.shape) * self.epsilon_factor
+                    surface_t = surface_t + surface_t_noise
+                    if 'upper_air_ff_std' in self.params:
+                        upper_air_t_noise = torch.randn(*upper_air_t.shape) * (self.epsilon_factor * self.upper_air_ff_std / self.upper_air_std).reshape(len(self.upper_air_variables), len(self.levels), 1, 1)
+                    else:
+                        upper_air_t_noise = torch.randn(*upper_air_t.shape) * self.epsilon_factor
+                    upper_air_t = upper_air_t + upper_air_t_noise
+                return surface_t, upper_air_t, varying_boundary_data, torch.tensor(start_time.year)
+            else:
+                varying_boundary_data = self._get_boundary_data(start_time)
+                varying_boundary_data = self._fill_mask(varying_boundary_data, self.varying_boundary_variables)
+                varying_boundary_data = self.boundary_transform(varying_boundary_data)
+                return varying_boundary_data, torch.tensor(start_time.year)
         lead_times = self.params.forecast_lead_times
 
         # Condition 1: Training

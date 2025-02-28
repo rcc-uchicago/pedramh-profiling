@@ -17,8 +17,10 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cartopy.crs as ccrs
+import cartopy.feature as cfeature
 import seaborn as sns
 from collections import OrderedDict
+from itertools import product
 # sns.set_style('darkgrid')
 # sns.set_context('notebook')
 
@@ -242,6 +244,63 @@ def plot_power_spectrum_test(power_spectrum_avg_preds, power_spectrum_avg_gt, pr
     #         axs[i,j].legend()
     
     plt.suptitle(f"Latitude-averaged Instantaneous Fourier Spectrum (Pressure Levels)", y=1.01)
+    plt.tight_layout() 
+    plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
+    plt.close(fig)
+    
+def plot_bias(bias_pred, bias_gt, filename,
+              vars=["tas", "zg", "ua", "hus"], 
+              plevs=[None, 50000, 25000, 85000]):
+    """ Plot the power spectrum of the forecast and ground truth
+    :param bias_pred: xarray dataset, power spectrum of the forecast
+    :param bias_gt: xarray dataset, power spectrum of the ground truth
+    :param preds_times: array, time values of the forecast
+    :param filename: str, path to save the plot
+    :param lead_times: list, lead times in hours to plot
+    :param vars: list, variables to plot (default: ["ta", "zg", "ua"])
+    :param plevs: list, pressure levels in Pa to plot (default: [850*100, 500*100, 250*100])
+    """
+    # Filter variables that are present in the data
+    available_vars = [var for var in vars if var in bias_pred.data_vars]
+    if not available_vars:
+        raise ValueError(f"None of the specified variables {vars} are present in the data. Available variables: {list(bias_pred.data_vars)}")
+
+    # Filter pressure levels that are present in the data
+    available_plevs = [plev for plev in plevs if plev in bias_pred.plev.values and plev != None]
+    if not available_plevs:
+        raise ValueError(f"None of the specified pressure levels {plevs} are present in the data. Available levels: {bias_pred.plev.values}")
+
+    # Create subplots
+    # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+    plot_dims =  (len(available_vars) // 2, len(available_vars) // 2 + len(available_vars) % 2)
+    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(12, 13), squeeze=False, subplot_kw={"projection": ccrs.PlateCarree()})
+
+    for i, j in product(range(plot_dims[0]), range(plot_dims[1])):
+        var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
+        if plev:
+            
+            var_bias_pred = bias_pred[var].sel(plev = plev)
+            var_bias_gt = bias_gt[var].sel(plev = plev)
+        else:
+            var_bias_pred = bias_pred[var]
+            var_bias_gt = bias_gt[var]
+        var_bias_pred_aligned = var_bias_pred.squeeze().transpose(*var_bias_gt.dims)
+        var_bias_pred_aligned['lat'] = var_bias_gt.lat
+        diff = var_bias_pred_aligned - var_bias_gt
+        
+        pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r", transform=ccrs.PlateCarree())
+        contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1, transform=ccrs.PlateCarree())
+        
+        # Add continent outlines
+        axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
+        axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
+        
+        # Add colorbar
+        cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
+        cbar.set_label("Field Difference")
+        axs[i,j].clabel(contours, inline=True, fontsize=8)
+    
+    plt.suptitle(f"Prediction Bias (Pred. - Truth)", y=1.01)
     plt.tight_layout() 
     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
     plt.close(fig)

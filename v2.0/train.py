@@ -246,6 +246,10 @@ class Trainer():
             self.params['ocean_variables'] = []
         if hasattr(self.params, 'mask_output'):
             self.mask_output = params.mask_output
+            
+        self.long_validation = False
+        if hasattr(params, 'long_validation'):
+            self.long_validation = params.long_validation
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -294,6 +298,18 @@ class Trainer():
                                                                      num_inferences = params.num_inferences,
                                                                      validate = True)
         
+        if self.long_validation and self.world_rank == 0:
+            self.long_valid_data_loader, self.long_valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
+                                                                                   year_start=params.long_val_year_start,
+                                                                                   year_end=params.long_val_year_start + params.long_rollout_years,
+                                                                                   train=False, single_ic=True)
+            self.epochs_per_long_validation = 1
+            if hasattr(params, "epochs_per_long_validation"):
+                self.epochs_per_long_validation = params.epochs_per_long_validation
+            self.long_validation_spinup_years = 1
+            if hasattr(params, "long_validation_spinup_years"):
+                self.long_validation_spinup_years = params.long_validation_spinup_years
+        
         #print('Inference Idxs:')
         #print(self.valid_dataset.inference_idxs)
 
@@ -308,8 +324,22 @@ class Trainer():
          # Load climatology
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
+        if 'time_bnds' in self.climatology.data_vars:
+            self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
+        if self.long_validation:
+            self.climatology_bias = self.climatology.mean(dim='dayofyear')
+            self.clim_surface_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.surface_variables]))
+            upper_air_clim = []
+            for var in self.params.upper_air_variables:
+                if var != 'zg' and var != 'geopotential' and self.params.use_sigma_levels:
+                    upper_air_clim.append(self.climatology_bias[var].sel(lev = self.params.sigma_levels))
+                else:
+                    upper_air_clim.append(self.climatology_bias[var].sel(plev = self.params.levels))
+            self.clim_upper_air_bias = torch.from_numpy(np.stack(upper_air_clim))
+            if self.params.has_diagnostic:
+                self.clim_diagnostic_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.diagnostic_variables]))
 
 
 
@@ -319,7 +349,8 @@ class Trainer():
 
         self.spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
         self.diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
-        self.output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)      
+        self.output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
+        self.bias_dir = os.path.join(os.getcwd(), "bias_plots", self.run_uuid)          
         
         if world_rank == 0:
             os.makedirs(self.spectra_dir, exist_ok=True)
@@ -328,6 +359,9 @@ class Trainer():
             print(f"Created directory: {self.spectra_dir}")
             print(f"Created directory: {self.diagnostics_dir}")
             print(f"Created directory: {self.output_dir}")
+            if self.long_validation:
+                os.makedirs(self.bias_dir, exist_ok = True)
+                print(f"Created directory: {self.bias_dir}")
 
 
         self.enable_amp = params.enable_amp
@@ -376,6 +410,18 @@ class Trainer():
                         else:
                             for k, level in enumerate(self.valid_dataset.levels):
                                 epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
+                if self.long_validation:
+                    wandb.define_metric("bias_plot", step_metric="epoch")
+                    for j, var in enumerate(self.valid_dataset.surface_variables):
+                        epoch_metrics.append(f'valid_{var}_bias_lwrmse')
+                    for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                        if var != 'zg' and var != 'geopotential_height' and self.valid_dataset.use_sigma_levels:
+                            for k, level in enumerate(self.valid_dataset.sigma_levels):
+                                epoch_metrics.append(f'valid_{var}_level{level:.3f}_bias_lwrmse')
+                        else:
+                            for k, level in enumerate(self.valid_dataset.levels):
+                                epoch_metrics.append(f'valid_{var}_level{level:.3f}_bias_lwrmse')
+                    
             else:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
             # Add this line to ensure power_spectrum_plot is always defined as a metric
@@ -638,6 +684,8 @@ class Trainer():
                 self.cleanup_gifs()
             if self.params.diagnostic_spectra:
                 self.cleanup_power_spectrum_plots()
+            if self.long_validation:
+                self.cleanup_bias()
         # If we've reached this point, we've completed all epochs
         if self.params.log_to_screen:
             if early_stop_epoch_triggered:
@@ -1147,11 +1195,14 @@ class Trainer():
         return xr.concat(datasets, dim='time')
     
 
-    def plot_in_separate_process(self, power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename):
+    def plot_in_separate_process(self, avg_preds, avg_gt, preds_times, filename):
         # convert lead times to hours
         lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
-
-        p = Process(target=plot_power_spectrum_test, args=(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times_hours))
+        
+        if len(preds_times) > 0:
+            p = Process(target=plot_power_spectrum_test, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours))
+        else:
+            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
         p.start()
         p.join()
 
@@ -1236,6 +1287,11 @@ class Trainer():
         if os.path.exists(self.diagnostics_dir):
             shutil.rmtree(self.diagnostics_dir, ignore_errors=True)
             print(f"Deleted GIF directory: {self.diagnostics_dir}")
+            
+    def cleanup_bias(self):
+        if os.path.exists(self.bias_dir):
+            shutil.rmtree(self.bias_dir, ignore_errors=True)
+            print(f"Deleted GIF directory: {self.bias_dir}")
     
 
         
@@ -1293,6 +1349,84 @@ class Trainer():
         # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
+            
+            precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
+            
+            if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
+                print('Performing long validation...')
+                cnt = 0
+                no_nans = True
+                val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                print(val_data_dir)
+                os.makedirs(val_data_dir, exist_ok=True)
+                pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                for i, data in pbar:
+                    if i == 0:
+                        val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    else:
+                        val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    if (i + 2) % 4 == 0:
+                        pbar.set_description(f'Sample year: {int(year.item())}, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
+                    #with precision_context:
+                    if self.params.has_diagnostic:
+                        val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
+                            val_input_surface, self.constant_boundary_data[0], val_varying_boundary_data, val_input_upper_air)
+                    else:
+                        val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data[0], 
+                                                                            val_varying_boundary_data, val_input_upper_air)
+                    if self.params.predict_delta:
+                        val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
+                                                                                        val_output_upper_air)
+                    val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
+                    val_surface_numpy = val_output_surface.cpu().squeeze(0).numpy()
+                    np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
+                    if torch.any(torch.isnan(val_output_surface)) or torch.any(torch.isnan(val_output_upper_air)):
+                        print(f'Long emulation diverged after {i} steps')
+                        no_nans = False
+                        break
+                    if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
+                        if cnt == 0:
+                            val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
+                            if self.params.has_diagnostic:
+                                val_diagnostic_bias = val_output_diagnostic
+                        else:
+                            val_surface_bias = val_surface_bias * (cnt / (cnt + 1)) + val_output_surface / (cnt + 1)
+                            val_upper_air_bias = val_upper_air_bias * (cnt / (cnt + 1)) + val_output_upper_air / (cnt + 1)
+                            if self.params.has_diagnostic:
+                                val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
+                        cnt += 1
+                if no_nans:
+                    val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
+                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu())
+                    val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias.cpu())
+                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.cpu(), latitudes.cpu())
+                    if self.params.has_diagnostic:
+                        val_diagnostic_bias = self.long_valid_dataset.diagnostic_inv_transform(val_diagnostic_bias.cpu())
+                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.cpu(), latitudes.cpu())
+                    start_times = [self.long_valid_dataset.datetime_class(self.params.long_val_year_start + self.long_validation_spinup_years,
+                                                                        1, 1, has_year_zero = self.long_valid_dataset.has_year_zero) - \
+                                                                            timedelta(hours=self.params.timedelta_hours)]
+                    bias_datasets = self.convert_to_xarray(np.expand_dims(val_surface_bias.numpy(), axis = 1),
+                                                        np.expand_dims(val_upper_air_bias.numpy(), axis = 1),
+                                                        start_times, self.params, self.long_valid_dataset, acc = True,
+                                                        diagnostic_prediction = None if not self.params.has_diagnostic else np.expand_dims(val_diagnostic_bias.numpy(), axis=1))
+                        
+                    print('Plotting Bias')
+                    bias_filename = os.path.join(self.bias_dir, f"bias_epoch_{self.epoch}.png")
+                    
+                    self.plot_in_separate_process(bias_datasets[0], self.climatology_bias, [], bias_filename)
+
+                    print("\nFinished Bias Plots...")
+                    
+                    if self.params.log_to_wandb:
+                        wandb.log({
+                            "bias_plot": wandb.Image(bias_filename),
+                            "epoch": self.epoch
+                        })
+                    
+                
+                
+                                
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1):
                 #if i >= n_valid_batches:
                 #    break
@@ -1347,10 +1481,6 @@ class Trainer():
                     val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
                                                         val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
                                                         val_target_diagnostic.shape[4]), dtype=np.float32)
-                
-
-
-                precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
 
                 with precision_context:
 
@@ -1525,6 +1655,7 @@ class Trainer():
                     clim=self.climatology
                 )
             })
+            
 
             # Plot ACC over lead time
             fig, axs = plot_acc_over_lead_time(acc, acc_times_hours)
@@ -1635,6 +1766,21 @@ class Trainer():
                 if self.params.has_diagnostic:
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
                         diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
+                        
+            if self.long_validation and self.world_rank == 0:
+                for j, var in enumerate(self.valid_dataset.surface_variables):
+                    diagnostic_logs[f'valid_{var}_bias_lwrmse'] = val_surface_bias_lwrmse[j]
+                for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                    if var != 'zg' and var != 'geopotential_height' and self.valid_dataset.use_sigma_levels:
+                        for k, level in enumerate(self.valid_dataset.sigma_levels):
+                            diagnostic_logs[f'valid_{var}_level{level:.3f}_bias_lwrmse'] = val_upper_air_bias_lwrmse[j, k]
+                    else:
+                        for k, level in enumerate(self.valid_dataset.levels):
+                            diagnostic_logs[f'valid_{var}_level{level:.3f}_bias_lwrmse'] = val_upper_air_bias_lwrmse[j, k]
+                if self.params.has_diagnostic:
+                    for j, var in enumerate(self.valid_dataset.diagnostic_variables):
+                        diagnostic_logs[f'valid_{var}_bias_lwrmse'] = val_diagnostic_bias_lwrmse[j]
+                
             #if dist.is_initialized():
             #    for key in sorted(diagnostic_logs.keys()):
             #        dist.all_reduce(diagnostic_logs[key].detach())
@@ -1781,6 +1927,8 @@ if __name__ == '__main__':
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
     params['just_validate'] = args.just_validate
+    if params.just_validate:
+        os.environ["WANDB_MODE"] = "offline"
     # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
