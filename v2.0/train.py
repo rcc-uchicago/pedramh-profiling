@@ -1356,17 +1356,17 @@ class Trainer():
                 print('Performing long validation...')
                 cnt = 0
                 no_nans = True
-                val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
-                print(val_data_dir)
-                os.makedirs(val_data_dir, exist_ok=True)
+                #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                #print(val_data_dir)
+                #os.makedirs(val_data_dir, exist_ok=True)
                 pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
                 for i, data in pbar:
                     if i == 0:
                         val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    if (i + 2) % 4 == 0:
-                        pbar.set_description(f'Sample year: {int(year.item())}, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
+                    #if (i + 2) % 4 == 0:
+                    pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
                     #with precision_context:
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
@@ -1378,8 +1378,8 @@ class Trainer():
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                         val_output_upper_air)
                     val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
-                    val_surface_numpy = val_output_surface.cpu().squeeze(0).numpy()
-                    np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
+                    #val_surface_numpy = val_output_surface.cpu().squeeze(0).numpy()
+                    #np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
                     if torch.any(torch.isnan(val_output_surface)) or torch.any(torch.isnan(val_output_upper_air)):
                         print(f'Long emulation diverged after {i} steps')
                         no_nans = False

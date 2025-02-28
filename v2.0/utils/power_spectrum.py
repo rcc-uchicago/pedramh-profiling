@@ -297,7 +297,10 @@ def plot_bias(bias_pred, bias_gt, filename,
         
         # Add colorbar
         cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
-        cbar.set_label("Field Difference")
+        if plev:
+            cbar.set_label(f"{var}")
+        else:
+            cbar.set_label(f"{var} {plev}")
         axs[i,j].clabel(contours, inline=True, fontsize=8)
     
     plt.suptitle(f"Prediction Bias (Pred. - Truth)", y=1.01)
