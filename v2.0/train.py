@@ -1,4 +1,5 @@
 from networks.pangu import PanguModel_Plasim
+from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
@@ -308,9 +309,10 @@ class Trainer():
          # Load climatology
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
+        if 'time_bnds' in self.climatology.data_vars:
+            self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
-
 
 
         main_dirs = ["spectra_out", "gif_out", "acc_plots"]
@@ -415,6 +417,16 @@ class Trainer():
                     self.model = PanguModel_Plasim(params, land_mask = land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
+        elif params.nettype == 'sfno_plasim':
+            print(f'\n\nRunning SFNO model\n\n')
+            self.model = SFNO(params, train_dataset).to(self.device)
+            if params.sync_norm:
+                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+            if self.params.predict_delta:
+                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
+                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
         else:
             raise Exception("not implemented")
 
