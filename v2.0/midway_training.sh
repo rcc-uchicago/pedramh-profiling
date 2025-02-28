@@ -5,8 +5,8 @@
 ##SBATCH --exclusive
 #SBATCH --nodes=1
 ##SBATCH --nodelist=h001,h002,l001,m001,m002,n001
-#SBATCH --gpus=3
-#SBATCH --ntasks=3
+#SBATCH --gpus=4
+#SBATCH --ntasks=4
 #SBATCH --cpus-per-task=8
 ##SBATCH --mem-per-cpu=4G
 #SBATCH -o outs/%x_%j.out
