@@ -1352,21 +1352,22 @@ class Trainer():
             
             precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
             
+            no_nans = True
             if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
                 print('Performing long validation...')
                 cnt = 0
-                no_nans = True
                 #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
                 #print(val_data_dir)
                 #os.makedirs(val_data_dir, exist_ok=True)
-                pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                #pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                pbar = enumerate(self.long_valid_data_loader, 0)
                 for i, data in pbar:
                     if i == 0:
                         val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     #if (i + 2) % 4 == 0:
-                    pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
+                    #pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
                     #with precision_context:
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
@@ -1397,12 +1398,12 @@ class Trainer():
                         cnt += 1
                 if no_nans:
                     val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
-                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu())
+                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu()).squeeze(0)
                     val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias.cpu())
-                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.cpu(), latitudes.cpu())
+                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.cpu(), latitudes.cpu()).squeeze(0)
                     if self.params.has_diagnostic:
                         val_diagnostic_bias = self.long_valid_dataset.diagnostic_inv_transform(val_diagnostic_bias.cpu())
-                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.cpu(), latitudes.cpu())
+                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.cpu(), latitudes.cpu()).squeeze(0)
                     start_times = [self.long_valid_dataset.datetime_class(self.params.long_val_year_start + self.long_validation_spinup_years,
                                                                         1, 1, has_year_zero = self.long_valid_dataset.has_year_zero) - \
                                                                             timedelta(hours=self.params.timedelta_hours)]
@@ -1767,7 +1768,7 @@ class Trainer():
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
                         diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
                         
-            if self.long_validation and self.world_rank == 0:
+            if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0 and no_nans:
                 for j, var in enumerate(self.valid_dataset.surface_variables):
                     diagnostic_logs[f'valid_{var}_bias_lwrmse'] = val_surface_bias_lwrmse[j]
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
