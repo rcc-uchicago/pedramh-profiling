@@ -1767,7 +1767,7 @@ class Trainer():
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
                         diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
                         
-            if self.long_validation and self.world_rank == 0:
+            if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
                 for j, var in enumerate(self.valid_dataset.surface_variables):
                     diagnostic_logs[f'valid_{var}_bias_lwrmse'] = val_surface_bias_lwrmse[j]
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
