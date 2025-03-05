@@ -87,7 +87,8 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 
-def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False):
+def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
+                    ensemble = False):
     if train:
         try:
             assert not single_ic
@@ -100,7 +101,11 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
             raise ValueError('Set validate to False when using single_ic = True.')
     dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic)
     if single_ic:
-        dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
+        if ensemble:
+            dataloader = DataLoader(dataset, batch_size = int(params.batch_size), num_workers = params.num_data_workers,
+                                    shuffle = False, pin_memory=torch.cuda.is_available())
+        else:
+            dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
     else:
         sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
         if train and not distributed:
@@ -439,7 +444,11 @@ class GetDataset(Dataset):
     def _get_dates(self, hour_step=6.):
         if self.single_ic:
             start_date = self.datetime_class(self.year_start, 1, 1) + timedelta(hours=self.single_ic_offset)
-            end_date = self.datetime_class(self.year_start + self.long_rollout_years, 1, 1)
+            if hasattr(self.params, "prediction_duration_days"):
+                print(f'Initializing data loader for {self.params.prediction_duration_days} day prediction.')
+                end_date = start_date + timedelta(days=self.params.prediction_duration_days)
+            else:
+                end_date = self.datetime_class(self.year_start + self.long_rollout_years, 1, 1)
         else:
             start_date = self.datetime_class(self.year_start, 1, 1)
             end_date = self.datetime_class(self.year_end, 1, 1)

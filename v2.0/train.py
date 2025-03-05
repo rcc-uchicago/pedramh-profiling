@@ -250,6 +250,10 @@ class Trainer():
         self.long_validation = False
         if hasattr(params, 'long_validation'):
             self.long_validation = params.long_validation
+            
+        self.ensemble_validation = False
+        if hasattr(params, 'ensemble_validation'):
+            self.ensemble_validation = params.ensemble_validation
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -300,9 +304,9 @@ class Trainer():
         
         if self.long_validation and self.world_rank == 0:
             self.long_valid_data_loader, self.long_valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                                   year_start=params.long_val_year_start,
-                                                                                   year_end=params.long_val_year_start + params.long_rollout_years,
-                                                                                   train=False, single_ic=True)
+                                                                                year_start=params.long_val_year_start,
+                                                                                year_end=params.long_val_year_start + params.long_rollout_years,
+                                                                                train=False, single_ic=True, ensemble=self.ensemble_validation)
             self.epochs_per_long_validation = 1
             if hasattr(params, "epochs_per_long_validation"):
                 self.epochs_per_long_validation = params.epochs_per_long_validation
@@ -410,7 +414,7 @@ class Trainer():
                         else:
                             for k, level in enumerate(self.valid_dataset.levels):
                                 epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
-                if self.long_validation:
+                if self.long_validation and not self.ensemble_validation:
                     wandb.define_metric("bias_plot", step_metric="epoch")
                     for j, var in enumerate(self.valid_dataset.surface_variables):
                         epoch_metrics.append(f'valid_{var}_bias_lwrmse')
@@ -1356,9 +1360,10 @@ class Trainer():
                 print('Performing long validation...')
                 cnt = 0
                 no_nans = True
-                #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
-                #print(val_data_dir)
-                #os.makedirs(val_data_dir, exist_ok=True)
+                if self.ensemble_validation:
+                    val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                    print(val_data_dir)
+                    os.makedirs(val_data_dir, exist_ok=True)
                 pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
                 for i, data in pbar:
                     if i == 0:
@@ -1384,18 +1389,27 @@ class Trainer():
                         print(f'Long emulation diverged after {i} steps')
                         no_nans = False
                         break
-                    if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
-                        if cnt == 0:
-                            val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
-                            if self.params.has_diagnostic:
-                                val_diagnostic_bias = val_output_diagnostic
-                        else:
-                            val_surface_bias = val_surface_bias * (cnt / (cnt + 1)) + val_output_surface / (cnt + 1)
-                            val_upper_air_bias = val_upper_air_bias * (cnt / (cnt + 1)) + val_output_upper_air / (cnt + 1)
-                            if self.params.has_diagnostic:
-                                val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
-                        cnt += 1
-                if no_nans:
+                    if self.ensemble_validation:
+                        val_surface_numpy = val_output_surface.cpu().numpy()
+                        np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
+                        val_upper_air_numpy = val_output_upper_air.cpu().numpy()
+                        np.save(os.path.join(val_data_dir, f'upper_air_{int(year.item())}_{i:04}.npy'), val_upper_air_numpy)
+                        if self.params.has_diagnostic:
+                            val_diagnostic_numpy = val_output_diagnostic.cpu().numpy()
+                            np.save(os.path.join(val_data_dir, f'diagnostic_{int(year.item())}_{i:04}.npy'), val_diagnostic_numpy)
+                    else:
+                        if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
+                            if cnt == 0:
+                                val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
+                                if self.params.has_diagnostic:
+                                    val_diagnostic_bias = val_output_diagnostic
+                            else:
+                                val_surface_bias = val_surface_bias * (cnt / (cnt + 1)) + val_output_surface / (cnt + 1)
+                                val_upper_air_bias = val_upper_air_bias * (cnt / (cnt + 1)) + val_output_upper_air / (cnt + 1)
+                                if self.params.has_diagnostic:
+                                    val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
+                            cnt += 1
+                if no_nans and not self.ensemble_validation:
                     val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
                     val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu())
                     val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias.cpu())
@@ -1767,7 +1781,7 @@ class Trainer():
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
                         diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
                         
-            if self.long_validation and self.world_rank == 0:
+            if self.long_validation and self.world_rank == 0 and not self.ensemble_validation:
                 for j, var in enumerate(self.valid_dataset.surface_variables):
                     diagnostic_logs[f'valid_{var}_bias_lwrmse'] = val_surface_bias_lwrmse[j]
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
