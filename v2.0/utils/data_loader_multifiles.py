@@ -478,7 +478,7 @@ class GetDataset(Dataset):
         data_year = data_datetime.year
         data_idx = int((data_datetime - self.datetime_class(data_year, 1, 1, hour=0, has_year_zero=self.has_year_zero)).total_seconds())\
               // 3600 // self.data_timedelta_hours
-        print(data_datetime.strftime("%Y-%m-%d %H:%M:%S"), data_year, data_idx)
+        #print(data_datetime.strftime("%Y-%m-%d %H:%M:%S"), data_year, data_idx)
         if cftime.is_leap_year(data_year, self.params.calendar, self.has_year_zero):
             data_file_path = get_out_path(self.data_dir, self.leap_year, data_idx)
         else:
