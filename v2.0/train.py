@@ -1359,8 +1359,8 @@ class Trainer():
                 #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
                 #print(val_data_dir)
                 #os.makedirs(val_data_dir, exist_ok=True)
-                #pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
-                pbar = enumerate(self.long_valid_data_loader, 0)
+                pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                #pbar = enumerate(self.long_valid_data_loader, 0)
                 for i, data in pbar:
                     if i == 0:
                         val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
