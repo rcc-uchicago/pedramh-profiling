@@ -206,18 +206,24 @@ class GetDataset(Dataset):
         # self.channel_seq = self.surface_variables + self.upper_air_variables
 
         # self.boundary_dss = self._load_boundary_data()
-        self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.data_timedelta_hours)#(hour_step=params.timedelta_hours)
+        if single_ic:
+            self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.timedelta_hours)
+        else:
+            self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.data_timedelta_hours)#(hour_step=params.timedelta_hours)
 
         self.constant_boundary_data, self.land_mask = self._load_constant_boundary_data()
         if torch.any(torch.isnan(self.constant_boundary_data)):
             print('Constant boundary has nan')
             sys.exit(2)
         
-        max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
-        if self.num_inferences > 0:
-            self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
+        if single_ic:
+            self.inference_idxs = np.arange(0, len(self.dates))
         else:
-            self.inference_idxs = np.arange(0, max_inference_idx)
+            max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
+            if self.num_inferences > 0:
+                self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
+            else:
+                self.inference_idxs = np.arange(0, max_inference_idx)
         #print('Inference idxs:')
         #print(self.inference_idxs)
         #self.data_dss = self._load_data()
