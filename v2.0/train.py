@@ -492,8 +492,12 @@ class Trainer():
         self.startEpoch = 0
         if params.resuming:
             self.restore_checkpoint(params.checkpoint_path)
+            if params.debug:
+                self.params.max_epochs = self.startEpoch + 1
         else:
             logging.info("Starting fresh training run")
+            if params.debug:
+                self.params.max_epochs = 1
 
         self.epoch = self.startEpoch
 
@@ -1097,7 +1101,7 @@ class Trainer():
             # For specific lead times, use forecast_lead_times
                 time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
                 # print(time_range)
-            print(time_range[0], time_range[-1])
+            #print(time_range[0], time_range[-1])
             
 
             # Determine the level coordinate name based on params.lev
@@ -1941,9 +1945,16 @@ if __name__ == '__main__':
     
     #os.environ['WANDB_MODE'] = 'offline'
     
+    params['debug'] = False
     if args.debug:
+        params['debug'] = True
         params['world_size'] = 1
         os.environ['WANDB_MODE'] = 'offline'
+        params['train_year_start'] = params['train_year_end'] - 1
+        params['batch_size'] = params['num_data_workers']
+        params['long_rollout_years'] = 2
+        params['epochs_per_long_validation'] = 1
+        params['num_inferences'] = params['num_data_workers']
     else:
         print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
         print('World size from Cuda: %d' % torch.cuda.device_count())
