@@ -1,15 +1,12 @@
 #!/bin/bash -l
 #SBATCH -p general
-#SBATCH --time=12:00:00
+#SBATCH --time=1:00:00
 ##SBATCH --mem-per-gpu=60G 
-#SBATCH --exclusive
 #SBATCH --nodes=1
-#SBATCH --nodelist=h001,h002,l001,m001,m002,n001
-#SBATCH --gpus=4
-#SBATCH --ntasks=4
-#SBATCH --cpus-per-task=16 
+#SBATCH --gpus=2
+#SBATCH --ntasks=2
+#SBATCH --cpus-per-task=8 
 #SBATCH -o outs/dsi_%x_%j.out
-#SBATCH -e outs/dsi_%x_%j.err
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
@@ -20,8 +17,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 #./home/awikner/miniconda3/bin/conda init; bash
-source /home/awikner/miniconda3/bin/activate
-conda activate /home/awikner/miniconda3/envs/py311_pip
+source /net/scratch2/tvallabh/miniconda3/bin/activate /net/scratch2/tvallabh/miniconda3/envs/py311_pip
+
 #export cuda_version=12.1
 #export CUDA_HOME=/usr/local/cuda-${cuda_version}
 #export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
@@ -32,7 +29,7 @@ conda activate /home/awikner/miniconda3/envs/py311_pip
 
 
 # Change to working directory
-cd /net/scratch2/awikner/PanguWeather/v2.0
+cd /net/scratch2/tvallabh/PanguWeather/v2.0
 #source export_DDP_vars.sh
 
 nvidia-smi
