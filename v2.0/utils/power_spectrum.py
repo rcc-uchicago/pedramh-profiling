@@ -404,7 +404,8 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
     else:
         data_inference = combined_dataset[var].isel(time=sample_index)
         data_gt = gt_combined_dataset[var].isel(time=sample_index)
-        climatology_data = climatology[var]
+        if climatology:
+            climatology_data = climatology[var]
 
     print(f"Data shape - Inference: {data_inference.shape}, Ground Truth: {data_gt.shape}")
     print(f"Inference dimensions: {data_inference.dims}")
