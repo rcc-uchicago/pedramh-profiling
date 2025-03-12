@@ -1206,7 +1206,10 @@ class Trainer():
         if len(preds_times) > 0:
             p = Process(target=plot_power_spectrum_test, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours))
         else:
-            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
+            if 'mrso' in self.params.land_variables:
+                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            else:
+                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
         p.start()
         p.join()
 
@@ -1687,7 +1690,7 @@ class Trainer():
                 gif_filenames = []
                 for variable in self.params.diagnostic_gif_var_dict.keys():
                     clim_in = None
-                    if variable in ['zg', 'tas', 'geopotential', '2m_temperature']:
+                    if variable in ['zg', 'tas', 'geopotential', '2m_temperature', 'ta', 'temperature']:
                         clim_in = self.climatology
                     if len(self.params.diagnostic_gif_var_dict[variable]) > 0:
                         if variable == 'zg':

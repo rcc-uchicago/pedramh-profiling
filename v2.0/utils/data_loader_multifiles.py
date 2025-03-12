@@ -159,7 +159,8 @@ class GetDataset(Dataset):
         if hasattr(params, 'mask_fill'):
             self.mask_fill = self.params.mask_fill
         else:
-            self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
+            self.mask_fill = {'alb': 0.069, 'dlai': 0., 'glac': 0., 'lsm': 0., 'mrfc': 0., 'mrso': 0., 
+                              'sic': 0., 'sst': 270., 'ts': 270, 'vegc': 0., 'vegf': 0.}
             #self.mask_fill = {'lsm': 0., 'sst': 270., 'sea_ice_cover': 0., 'volumetric_soil_water_layer_1': 0.}
 
         self.year_start = year_start

@@ -273,7 +273,7 @@ def plot_bias(bias_pred, bias_gt, filename,
     # Create subplots
     # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
     plot_dims =  (len(available_vars) // 2, len(available_vars) // 2 + len(available_vars) % 2)
-    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(12, 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
+    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(6*plot_dims[1], 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
 
     for i, j in product(range(plot_dims[0]), range(plot_dims[1])):
         var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
