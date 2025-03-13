@@ -298,7 +298,8 @@ class GetDataset(Dataset):
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
 
-    def _get_variable_list(self, level_units = '.0'):
+    def _get_variable_list(self, level_unit_str = '.0'):
+        self.level_unit_str = level_unit_str
         self.variable_list_out = []
         for variable in self.upper_air_variables:
             if variable != 'zg' and variable != 'geopotential_height' and self.use_sigma_levels:
@@ -306,7 +307,7 @@ class GetDataset(Dataset):
                     self.variable_list_out.append(f'{variable}_{level}')
             else:
                 for level in self.levels:
-                    self.variable_list_out.append(f'{variable}_{int(level)}{level_units}')
+                    self.variable_list_out.append(f'{variable}_{int(level)}{level_unit_str}')
         self.upper_air_len = len(self.variable_list_out)
         self.variable_list_out.extend(self.surface_variables)
         self.variable_list_in = self.variable_list_out.copy()
@@ -345,6 +346,44 @@ class GetDataset(Dataset):
                 return upper_air, surface, varying_boundary
             else:
                 return upper_air, diagnostic
+            
+    def _load_bias(self):
+        upper_air_bias = []
+        surface_bias = []
+        if self.params.timedelta_hours == 24:
+            start_hour_z = int(self.start_time.hours)
+            bias_hour_str = f'_{start_hour_z}z'
+        elif self.params.timedelta_hours == 6:
+            bias_hour_str = ''
+        else:
+            raise ValueError('Only 6 and 24 hour timesteps supported for long validation at this time.')
+        for variable in self.upper_air_variables:
+            if variable != 'zg' and variable != 'geopotential_height' and self.use_sigma_levels:
+                for level in self.sigma_levels:
+                    bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_{level}_bias{bias_hour_str}.npy')
+                    data = np.load(bias_file)
+                    upper_air_bias.append(data)
+            else:
+                for level in self.levels:
+                    bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_{int(level)}{self.level_unit_str}_bias{bias_hour_str}.npy')
+                    data = np.load(bias_file)
+                    upper_air_bias.append(data)
+        for variable in self.surface_variables:
+            bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_bias{bias_hour_str}.npy')
+            data = np.load(bias_file)
+            surface_bias.append(data)
+        upper_air_bias = np.stack(upper_air_bias, axis = 0).reshape(len(self.upper_air_variables), -1, data.shape[0], data.shape[1])
+        surface_bias = np.stack(surface_bias, axis = 0)
+        if len(self.diagnostic_variables) > 0:
+            diagnostic_bias = []
+            for variable in self.diagnostic_variables:
+                bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_bias{bias_hour_str}.npy')
+                data = np.load(bias_file)
+                diagnostic_bias.append(data)
+            diagnostic_bias = np.stack(diagnostic_bias, axis = 0)
+            return torch.from_numpy(surface_bias), torch.from_numpy(upper_air_bias), torch.from_numpy(diagnostic_bias)
+        else:
+            return torch.from_numpy(surface_bias), torch.from_numpy(upper_air_bias)
             
 
     def _fill_mask(self, data, variables, optional_variables = None):

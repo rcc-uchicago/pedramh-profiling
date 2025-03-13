@@ -250,6 +250,10 @@ class Trainer():
         self.long_validation = False
         if hasattr(params, 'long_validation'):
             self.long_validation = params.long_validation
+        if self.long_validation:
+            if not hasattr(params, 'bias_data_dir'):
+                params['bias_data_dir'] = os.path.join(os.path.dirname(params.data_dir), 'bias')
+                
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -309,6 +313,11 @@ class Trainer():
             self.long_validation_spinup_years = 1
             if hasattr(params, "long_validation_spinup_years"):
                 self.long_validation_spinup_years = params.long_validation_spinup_years
+            
+            if len(self.params.diagnostic_variables) > 0:
+                self.clim_surface_bias, self.clim_upper_air_bias, self.clim_diagnostic_bias = self.long_valid_dataset._load_bias()
+            else:
+                self.clim_surface_bias, self.clim_upper_air_bias = self.long_valid_dataset._load_bias()
         
         #print('Inference Idxs:')
         #print(self.valid_dataset.inference_idxs)
@@ -328,18 +337,7 @@ class Trainer():
             self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
-        if self.long_validation:
-            self.climatology_bias = self.climatology.mean(dim='dayofyear')
-            self.clim_surface_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.surface_variables]))
-            upper_air_clim = []
-            for var in self.params.upper_air_variables:
-                if var != 'zg' and var != 'geopotential' and self.params.use_sigma_levels:
-                    upper_air_clim.append(self.climatology_bias[var].sel(lev = self.params.sigma_levels))
-                else:
-                    upper_air_clim.append(self.climatology_bias[var].sel(plev = self.params.levels))
-            self.clim_upper_air_bias = torch.from_numpy(np.stack(upper_air_clim))
-            if self.params.has_diagnostic:
-                self.clim_diagnostic_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.diagnostic_variables]))
+            
 
 
 
