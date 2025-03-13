@@ -1945,12 +1945,12 @@ if __name__ == '__main__':
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
-    parser.add_argument("--debug", default=True, action='store_true')
+    parser.add_argument("--debug", default=False, action='store_true')
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
-    parser.add_argument("--just_validate", default = True, action="store_true", help="Only run single epoch of validation")
+    parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
 
 
     ####### for UCAR
