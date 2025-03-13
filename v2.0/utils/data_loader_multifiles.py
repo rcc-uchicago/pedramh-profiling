@@ -351,7 +351,7 @@ class GetDataset(Dataset):
         upper_air_bias = []
         surface_bias = []
         if self.params.timedelta_hours == 24:
-            start_hour_z = int(self.start_time.hours)
+            start_hour_z = int(self.start_date.hour)
             bias_hour_str = f'_{start_hour_z}z'
         elif self.params.timedelta_hours == 6:
             bias_hour_str = ''

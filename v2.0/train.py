@@ -45,6 +45,12 @@ import shutil
 from datetime import datetime
 import uuid
 from utils.integrate import Integrator, forward_euler
+"""
+import matplotlib
+matplotlib.use('QtAgg')
+from box import Box
+%matplotlib inline
+"""
 
 
 
@@ -319,6 +325,10 @@ class Trainer():
                 self.clim_surface_bias, self.clim_upper_air_bias, self.clim_diagnostic_bias = self.long_valid_dataset._load_bias()
             else:
                 self.clim_surface_bias, self.clim_upper_air_bias = self.long_valid_dataset._load_bias()
+            self.climatology_bias = self.convert_to_xarray(self.clim_surface_bias.unsqueeze(0).unsqueeze(0).numpy(),
+                                                        self.clim_upper_air_bias.unsqueeze(0).unsqueeze(0).numpy(),
+                                                        [self.long_valid_dataset.start_date], self.params, self.long_valid_dataset, acc = True,
+                                                        diagnostic_prediction = None if not self.params.has_diagnostic else self.clim_diagnostic_bias.unsqueeze(0).unsqueeze(0).numpy())[0].squeeze()
         
         #print('Inference Idxs:')
         #print(self.valid_dataset.inference_idxs)
@@ -1368,11 +1378,33 @@ class Trainer():
                 #os.makedirs(val_data_dir, exist_ok=True)
                 pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
                 #pbar = enumerate(self.long_valid_data_loader, 0)
+                #pbar = enumerate(self.long_valid_data_loader, 0)
+                plt.ion()
                 for i, data in pbar:
                     if i == 0:
                         val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    """
+                    fig, axs = plt.subplots(1, 4, figsize = (24, 6))
+                    im_1 = axs[0].imshow(val_varying_boundary_data[0,0].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
+                    axs[0].set_title('sst')
+                    cbar_1 = plt.colorbar(im_1, orientation='horizontal', ax=axs[0], fraction=0.046, pad=0.04)
+                    im_2 = axs[1].imshow(val_varying_boundary_data[0,1].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
+                    axs[1].set_title('rsdt')
+                    cbar_2 = plt.colorbar(im_2, orientation='horizontal', ax=axs[1], fraction=0.046, pad=0.04)
+                    im_3 = axs[2].imshow(val_varying_boundary_data[0,2].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
+                    axs[2].set_title('sic')
+                    cbar_3 = plt.colorbar(im_3, orientation='horizontal', ax=axs[2], fraction=0.046, pad=0.04)
+                    im_4 = axs[3].imshow(val_input_upper_air[0,1,4].cpu().numpy() * self.long_valid_dataset.upper_air_std[1, 4].numpy(), cmap = 'bwr', 
+                                         vmin = -3*self.long_valid_dataset.upper_air_std[1, 4].numpy(), vmax = 3*self.long_valid_dataset.upper_air_std[1, 4].numpy())
+                    axs[3].set_title('ua_250')
+                    cbar_4 = plt.colorbar(im_4, orientation='horizontal', ax=axs[3], fraction=0.046, pad=0.04)
+                    plt.suptitle(str(i))
+                    plt.draw()
+                    plt.pause(0.1)
+                    time.sleep(0.1)
+                    """
                     #if (i + 2) % 4 == 0:
                     #pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
                     #with precision_context:
@@ -1403,6 +1435,8 @@ class Trainer():
                             if self.params.has_diagnostic:
                                 val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
                         cnt += 1
+                #plt.ioff()
+                #plt.show(block=True)
                 if no_nans:
                     val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
                     val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu()).squeeze(0)
@@ -1903,19 +1937,20 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0305', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI_4_test.yaml', type=str)
+    
+    parser.add_argument("--run_num", default='0514', type=str)
+    parser.add_argument("--yaml_config", default='/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0514.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
-    parser.add_argument("--debug", default=False, action='store_true')
+    parser.add_argument("--debug", default=True, action='store_true')
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
-    parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
+    parser.add_argument("--just_validate", default = True, action="store_true", help="Only run single epoch of validation")
 
 
     ####### for UCAR
@@ -1923,6 +1958,21 @@ if __name__ == '__main__':
     #######
 
     args = parser.parse_args()
+    """
+    args = Box({
+        "run_num": "0510",
+        "yaml_config": "/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0510.yaml",
+        "config": "PLASIM",
+        "enable_amp": True,
+        "epsilon_factor": 0.0,
+        "epochs": 0,
+        "run_iter": 1,
+        "debug": True,
+        "just_validate": True,
+        "fresh_start": False,
+        "local-rank": None  # Since it has no default, set to None
+    })
+    """
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
@@ -1960,7 +2010,7 @@ if __name__ == '__main__':
         os.environ['WANDB_MODE'] = 'offline'
         params['train_year_start'] = params['train_year_end'] - 1
         params['batch_size'] = params['num_data_workers']
-        params['long_rollout_years'] = 2
+        #params['long_rollout_years'] = 2
         params['epochs_per_long_validation'] = 1
         params['num_inferences'] = params['num_data_workers']
     else:
