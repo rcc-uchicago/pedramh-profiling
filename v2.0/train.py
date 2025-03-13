@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
-import os
+import os, glob
 import time
+from natsort import natsorted
 import numpy as np
 import argparse
 import torch
@@ -489,7 +490,8 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
-            self.restore_checkpoint(params.checkpoint_path)
+            checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
+            self.restore_checkpoint(checkpoint_path)
             if params.debug:
                 self.params.max_epochs = self.startEpoch + 1
         else:
@@ -651,9 +653,9 @@ class Trainer():
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
-                    self.save_checkpoint(self.params.checkpoint_path)
+                    self.save_checkpoint(self.params.checkpoint_path_globstr, self.epoch)
                     if valid_logs['valid_loss'] <= best_valid_loss:
-                        self.save_checkpoint(self.params.best_checkpoint_path)
+                        self.save_checkpoint(self.params.best_checkpoint_path, -1)
 
 
             if self.params.log_to_screen:
@@ -1863,15 +1865,20 @@ class Trainer():
             return valid_time, logs
 
     
-    def save_checkpoint(self, checkpoint_path, model=None):
+    def save_checkpoint(self, checkpoint_path, epoch, model=None):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
 
         if not model:
             model = self.model
 
-        torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
+        if epoch >= 0:
+            checkpoint_path_out = '_'.join(checkpoint_path.split('_')[:-1]) + f'_{epoch}.tar'
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path_out)
+        else:
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
     def restore_checkpoint(self, checkpoint_path):
@@ -2001,12 +2008,13 @@ if __name__ == '__main__':
             os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
 
     params['experiment_dir'] = os.path.abspath(expDir)
-    ckpt_path = 'training_checkpoints/ckpt.tar'
+    ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
     best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path'] = os.path.join(expDir, ckpt_path)
+    params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
     params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
 
-    checkpoint_exists = os.path.isfile(params.checkpoint_path)
+    checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr) if os.path.isfile(file)]
+    checkpoint_exists = len(checkpoint_paths) > 0
 
     # Determine whether to resume or start fresh
     if params.fresh_start or args.fresh_start:
