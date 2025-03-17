@@ -1,14 +1,12 @@
 #!/bin/bash -l
-#SBATCH --account=pi-pedramh
-#SBATCH -p pedramh-gpu
+#SBATCH --account=m4416
+#SBATCH --qos=regular
+#SBATCH --constraint=gpu
 #SBATCH --time=48:00:00
-##SBATCH --exclusive
 #SBATCH --nodes=1
-##SBATCH --nodelist=h001,h002,l001,m001,m002,n001
-#SBATCH --gpus=4
+#SBATCH --gpus-per-node=4
 #SBATCH --ntasks=4
-#SBATCH --cpus-per-task=8
-##SBATCH --mem-per-cpu=4G
+#SBATCH --cpus-per-task=16
 #SBATCH -o outs/%x_%j.out
 #SBATCH -e outs/%x_%j.err
 
@@ -21,8 +19,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 
 #./home/awikner/miniconda3/bin/conda init; bash
-source /project/awikner/miniconda3/bin/activate
-conda activate /project/awikner/miniconda3/envs/py311_pip
+module load conda
+conda activate py311_pip_sfno
 #export cuda_version=12.1
 #export CUDA_HOME=/usr/local/cuda-${cuda_version}
 #export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
@@ -33,7 +31,7 @@ conda activate /project/awikner/miniconda3/envs/py311_pip
 
 
 # Change to working directory
-cd /project/pedramh/PanguWeather/v2.0
+cd "/pscratch/sd/a/awikner/PanguWeather+SFNO/v2.0"
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
@@ -58,12 +56,13 @@ export RANK=$SLURM_ARRAY_TASK_ID
 export OMP_NUM_THREADS=1
 
 
-# Launch your script using torch.distributed.launch
-if [ -z "$3" ]; then
-	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1 --fresh_start
-	#python train.py --yaml_config=$2 --run_num=$1 --fresh_start --debug
+if [[ "$3" == "1" ]]; then
+	CMD="python train.py --yaml_config=${2} --run_num=${1} --debug --config=SFNO"
 else
-	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
-	#python train.py --yaml_config=$2 --run_num=$1 --debug
+	CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${2} --run_num=${1} --config=SFNO"
 fi
-# --enable_amp if needed
+if [[ -z "$4" ]]; then
+	CMD+=" --fresh_start"
+fi
+# Launch your script using torch.distributed.launch
+eval "$CMD"

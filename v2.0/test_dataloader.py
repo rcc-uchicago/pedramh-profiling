@@ -28,9 +28,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
     Latitude_weighted_CRPSLoss
 ###############################@###########
 logging_utils.config_logger()
-from apex import optimizers
 from pathlib import Path
-import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -47,9 +45,9 @@ from utils.integrate import Integrator, forward_euler
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0194', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
-    parser.add_argument("--config", default='S2S', type=str)
+    parser.add_argument("--run_num", default='0508', type=str)
+    parser.add_argument("--yaml_config", default='/net/scratch2/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DSI_0508.yaml', type=str)
+    parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
@@ -149,14 +147,14 @@ if __name__ == '__main__':
     params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
     device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
 
-    data_loader, dataset, sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                     year_start=params.val_year_start, 
-                                                                     year_end=params.val_year_end, train=True)
-for i, data in tqdm(enumerate(data_loader), total = len(data_loader)):
-        if params.has_diagnostic:
-            input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data= map(
+    data_loader, dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
+                                                                     year_start=7,
+                                                                     year_end=12, train=False, single_ic=True)
+    for i, data in tqdm(enumerate(data_loader), total = len(data_loader)):
+        if i == 0:
+            input_surface, input_upper_air, varying_boundary_data= map(
                 lambda x: x.to(device, dtype=torch.float32, non_blocking=True), data)
         else:
-            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data= map(
+            varying_boundary_data= map(
                 lambda x: x.to(device, dtype=torch.float32, non_blocking=True), data)
 

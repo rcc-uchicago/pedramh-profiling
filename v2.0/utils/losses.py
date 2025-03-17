@@ -35,6 +35,14 @@ def weighted_mae(pred, target, latitudes, reduction='mean'):
         result = weight * torch.abs(pred - target)
     return result
 
+class Raw_MSELoss(_Loss):
+    def __init__(self, latitudes) -> None:
+        super().__init__()
+        self.latitudes = latitudes
+
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        return weighted_mse(input, target, self.latitudes)
+
 
 class Latitude_weighted_MSELoss(_Loss):
     def __init__(self, latitudes) -> None:
