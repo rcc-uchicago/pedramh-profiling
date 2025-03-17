@@ -28,6 +28,7 @@ from utils.power_spectrum import *
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
     Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
     Latitude_weighted_CRPSLoss
+from utils.lr_scheduler_sfno import LinearWarmupCosineAnnealingLR
 ###############################@###########
 logging_utils.config_logger()
 #from apex import optimizers
@@ -526,6 +527,14 @@ class Trainer():
         elif params.scheduler == 'CosineAnnealingLR':
             self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=params.max_epochs, 
                                                                         last_epoch=self.startEpoch-1)
+        elif params.scheduler == 'LinearWarmupCosineAnnealingLR':
+            steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
+            self.scheduler = LinearWarmupCosineAnnealingLR(self.optimizer,
+                                                           warmup_epochs=self.params.num_warmup_epochs*steps_per_epoch,
+                                                           max_epochs=self.params.max_epochs*steps_per_epoch,
+                                                           warmup_start_lr=self.params.warmup_start_lr,
+                                                           eta_min = self.params.eta_min,
+                                                           last_epoch = (self.startEpoch-1)*steps_per_epoch)
         elif params.scheduler == 'OneCycleLR':
             # total_steps = len(self.train_data_loader) * params.max_epochs
             steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
@@ -571,7 +580,7 @@ class Trainer():
       logging.info(self.model)'''
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-        if params.loss == 'l1':
+        if params.loss == 'l1' or params.loss == 'raw_mse':
             self.loss_obj_pl = torch.nn.L1Loss()
             if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_L1Loss(mask_bool)
@@ -970,10 +979,21 @@ class Trainer():
                     loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
                     loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
 
-                    if self.params.has_diagnostic:
-                        loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+                    if self.params.loss == 'raw_mse':
+                        if self.params.has_diagnostic:
+                            loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
+                                     loss_sfc * output_surface.shape[1] + \
+                                     loss_diagnostic * output_diagnostic.shape[1]) / \
+                                         (output_upper_air.shape[1] * output_upper_air.shape[2] + output_surface.shape[1] + output_diagnostic.shape[1])
+                        else:
+                            loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
+                                     loss_sfc * output_surface.shape[1]) / \
+                                    (output_upper_air.shape[1] * output_upper_air.shape[2] + output_surface.shape[1])  
                     else:
-                        loss = (loss_sfc * 0.25) + loss_pl
+                        if self.params.has_diagnostic:
+                            loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+                        else:
+                            loss = (loss_sfc * 0.25) + loss_pl
 
                 if self.params.enable_amp:
                     self.gscaler.scale(loss).backward()
@@ -984,6 +1004,8 @@ class Trainer():
                     self.optimizer.step()
 
                 if self.params.scheduler == 'OneCycleLR':
+                    self.scheduler.step()
+                elif self.params.scheduler == 'LinearWarmupCosineAnnealingLR':
                     self.scheduler.step()
 
                 with torch.no_grad():
