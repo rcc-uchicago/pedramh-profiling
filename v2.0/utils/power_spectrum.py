@@ -273,7 +273,7 @@ def plot_bias(bias_pred, bias_gt, filename,
     # Create subplots
     # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
     plot_dims =  (len(available_vars) // 2, len(available_vars) // 2 + len(available_vars) % 2)
-    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(12, 13), squeeze=False, subplot_kw={"projection": ccrs.PlateCarree()})
+    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(12, 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
 
     for i, j in product(range(plot_dims[0]), range(plot_dims[1])):
         var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
@@ -288,12 +288,12 @@ def plot_bias(bias_pred, bias_gt, filename,
         var_bias_pred_aligned['lat'] = var_bias_gt.lat
         diff = var_bias_pred_aligned - var_bias_gt
         
-        pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r", transform=ccrs.PlateCarree())
-        contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1, transform=ccrs.PlateCarree())
+        pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r")#, transform=ccrs.PlateCarree())
+        contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1)#, transform=ccrs.PlateCarree())
         
         # Add continent outlines
-        axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
-        axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
+        #axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
+        #axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
         
         # Add colorbar
         cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
