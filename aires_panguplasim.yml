@@ -39,7 +39,7 @@ dependencies:
   - expat=2.6.4=h5888daf_0
   - fftw=3.3.10=nompi_hf1063bd_110
   - findlibs=0.0.5=pyhd8ed1ab_0
-  - fmt=11.1.4=h07f6e7f_0
+  - fmt=11.1.4=h07f6e7f_1
   - font-ttf-dejavu-sans-mono=2.37=hab24e00_0
   - font-ttf-inconsolata=3.000=h77eed37_0
   - font-ttf-source-code-pro=2.038=h77eed37_0

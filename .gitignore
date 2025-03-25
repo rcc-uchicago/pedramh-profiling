@@ -43,6 +43,7 @@ logs/
 results/
 data/
 # tests/
+config/
 
 core*
 outs/
