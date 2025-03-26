@@ -52,6 +52,13 @@ import json
 from natsort import natsorted
 import glob
 
+def cleanup():
+    if dist.is_initialized():
+        dist.destroy_process_group()
+        
+import atexit
+atexit.register(cleanup)
+
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
     mult_shape = [1] * (len(data.shape) + 1)
@@ -101,15 +108,23 @@ def combine_A_ensemble(save_basenames, regions):
 
 class Stepper():
     def count_parameters(self):
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+        if self.use_6h_24h_model:
+            return sum(p.numel() for p in self.model_6.parameters() if p.requires_grad) + \
+                sum(p.numel() for p in self.model_24.parameters() if p.requires_grad)
+        else:
+            return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
-    def __init__(self, params, world_rank, async_save = False, obs_function = None, obs_args = None):
-
-        self.params = params
+    def __init__(self, params_list, world_rank, use_6h_24h_model=False,
+                 async_save = False, obs_function = None, obs_args = None,
+                 load_all_bcs = True):
+        self.params = params_list[0]
+        self.use_6h_24h_model = use_6h_24h_model
+        if use_6h_24h_model:
+            self.params_24h = params_list[1]
         self.world_rank = world_rank
         self.async_save = async_save
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-        self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
+        self.early_stop_epoch = self.params['early_stop_epoch'] - 1 if 'early_stop_epoch' in self.params else None
         self.run_uuid = str(uuid.uuid4())
         self.has_land = False
         self.has_ocean = False
@@ -125,7 +140,26 @@ class Stepper():
         else:
             self.params['ocean_variables'] = []
         if hasattr(self.params, 'mask_output'):
-            self.mask_output = params.mask_output
+            self.mask_output = self.params.mask_output
+        if use_6h_24h_model:
+            has_land = False
+            has_ocean = False
+            mask_output = False
+            if hasattr(self.params_24h, 'land_variables'):
+                if len(self.params_24h.land_variables) > 0:
+                    has_land = True
+            else:
+                self.params_24h['land_variables'] = []
+            if hasattr(self.params_24h, 'ocean_variables'):
+                if len(self.self.params_24h.ocean_variables) > 0:
+                    has_land = True
+            else:
+                self.params_24h['ocean_variables'] = []
+            if hasattr(self.params_24h, 'mask_output'):
+                mask_output = self.params_24h.mask_output
+            assert has_land == self.has_land
+            assert has_ocean == self.has_ocean
+            assert mask_output == self.mask_output
         self.obs_function = obs_function
         self.obs_args = obs_args
         self.save_forecasts = False
@@ -134,17 +168,19 @@ class Stepper():
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
-        print(params)
+        for params in params_list:
+            print(params)
 
 
                                                                                 
-        self.data_loader, self.dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                         year_start=params.val_year_start, 
-                                                         year_end=params.val_year_end, train=False,
-                                                         ensemble = True, init_from_nc = True)
+        self.data_loader, self.dataset = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
+                                                         year_start=self.params.val_year_start, 
+                                                         year_end=self.params.val_year_end, train=False,
+                                                         ensemble = True, init_from_nc = True,
+                                                         load_all_bcs = load_all_bcs)
         
         if self.params.epsilon_factor > 0.:
-            self.perturber = Perturber(params, self.dataset, device = self.device,
+            self.perturber = Perturber(self.params, self.dataset, device = self.device,
                                     device_idx = self.world_rank)
         
         
@@ -153,7 +189,7 @@ class Stepper():
 
         # self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
-        self.constant_boundary_data = self.dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
+        self.constant_boundary_data = self.dataset.constant_boundary_data.unsqueeze(0) * torch.ones(self.params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         if params.num_ensemble_members > 1:
             logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
@@ -181,8 +217,8 @@ class Stepper():
         """
 
 
-        self.enable_amp = params.enable_amp
-        self.enable_fp8 = params.enable_fp8
+        self.enable_amp = self.params.enable_amp
+        self.enable_fp8 = self.params.enable_fp8
         
         if self.enable_fp8:
             global te, recipe, fp8_autocast
@@ -196,9 +232,9 @@ class Stepper():
             
         logging.info('rank %d, data loader initialized' % world_rank)
         
-        if params.nettype == 'pangu_plasim':
+        if self.params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
-                land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
+                land_mask = torch.clone(self.dataset.land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
                 mask_bool = []
                 for var in self.params.surface_variables:
@@ -212,11 +248,11 @@ class Stepper():
             else:
                 land_mask = None
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
-                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
-                                            surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
-                                            upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
-                                            upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
+                self.model = PanguModel_Plasim(self.params, land_mask = land_mask).to(self.device)
+                self.integrator = Integrator(self.params, surface_ff_std=self.dataset.surface_std.detach().to(self.device),
+                                            surface_delta_std=self.dataset.surface_delta_std.detach().to(self.device),
+                                            upper_air_ff_std=self.dataset.upper_air_std.detach().to(self.device),
+                                            upper_air_delta_std=self.dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(params, 'mask_fill'):
                     self.model = PanguModel_Plasim(params, land_mask = land_mask, 
@@ -224,6 +260,13 @@ class Stepper():
                 else:
                     self.model = PanguModel_Plasim(params, land_mask = land_mask, 
                                                 mask_fill = self.dataset.mask_fill).to(self.device)
+            if self.use_6h_24h_model:
+                _, dataset_24h = get_data_loader(self.params_24h, self.params_24h.data_dir, dist.is_initialized(), 
+                                                 year_start=self.params_24h.val_year_start, 
+                                                 year_end=self.params_24h.val_year_end, train=False,
+                                                 ensemble = True, init_from_nc = True,
+                                                 load_all_bcs = load_all_bcs)
+                
             #self.restore_checkpoint(params.best_checkpoint_path)
             #self.model = torch.compile(self.model, mode="max-autotune")
             #self.model = torch.compile(self.model, mode = 'default')
@@ -687,6 +730,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_num", default='0305', type=str)
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI_4_test.yaml', type=str)
+    parser.add_argument("--use_6h_24h_model", default = False, action="store_true")
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
@@ -706,92 +750,80 @@ if __name__ == '__main__':
     #just_validate = True
     #debug = True
     #run_num = '0510'
-
-    params = YParams(os.path.abspath(args.yaml_config), args.config)
+    os.environ["WANDB_MODE"] = "offline"
+    if args.use_6h_24h_model:
+        run_nums = args.run_num.split(',')
+        yaml_configs = args.yaml_config.split(',')
+    else:
+        run_nums = [args.run_num]
+        yaml_configs = [args.yaml_config]
+    params_list = [YParams(os.path.abspath(yaml_config), args.config) for yaml_config in yaml_configs]
     #params['epsilon_factor'] = args.epsilon_factor
-    params['run_iter'] = 1
-    if hasattr(params, 'diagnostic_variables'):
-        if len(params.diagnostic_variables) > 0:
-            params['has_diagnostic'] = True
+    with params_list[0] as params:
+        params['run_iter'] = 1
+        if hasattr(params, 'diagnostic_variables'):
+            if len(params.diagnostic_variables) > 0:
+                params['has_diagnostic'] = True
+            else:
+                params['has_diagnostic'] = False
         else:
             params['has_diagnostic'] = False
-    else:
-        params['has_diagnostic'] = False
-    print(f'Has diagnostic: {params.has_diagnostic}')
-    if not hasattr(params, 'num_ensemble_members'):
-        params['num_ensemble_members'] = 1
-    os.environ["WANDB_MODE"] = "offline"
-    params['init_nc_filepaths'] = args.init_nc_filepaths.split(',')
-    if not hasattr(params, 'ensemble_members_per_pred'):
-        params['ensemble_members_per_pred'] = params.num_ensemble_members
-    # params['num_inferences'] = args.num_inferences
-    #params['loss'] = args.loss
-
-    # # Add mandatory check for autoregressive steps
-    # max_forecast_lead_time = max(params.forecast_lead_times)
-    # if params.autoreg_steps < max_forecast_lead_time:
-    #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
-    #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
-
-    #os.environ['WANDB_MODE'] = 'offline'
-
-    if args.debug:
-        params['world_size'] = 1
-        os.environ['WANDB_MODE'] = 'offline'
-    else:
-        print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-        print('World size from Cuda: %d' % torch.cuda.device_count())
-        if 'WORLD_SIZE' in os.environ:
-            params['world_size'] = int(os.environ['WORLD_SIZE'])
-            print(params['world_size'])
+        print(f'Has diagnostic: {params.has_diagnostic}')
+        if not hasattr(params, 'num_ensemble_members'):
+            params['num_ensemble_members'] = 1
+        params['init_nc_filepaths'] = args.init_nc_filepaths.split(',')
+        if not hasattr(params, 'ensemble_members_per_pred'):
+            params['ensemble_members_per_pred'] = params.num_ensemble_members
+        if args.debug:
+            params['world_size'] = 1
         else:
-            params['world_size'] = torch.cuda.device_count()
-            print(params['world_size'])
+            print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+            print('World size from Cuda: %d' % torch.cuda.device_count())
+            if 'WORLD_SIZE' in os.environ:
+                params['world_size'] = int(os.environ['WORLD_SIZE'])
+                print(params['world_size'])
+            else:
+                params['world_size'] = torch.cuda.device_count()
+                print(params['world_size'])
+        if params['world_size'] > 1:
+            dist.init_process_group(backend='nccl', init_method='env://')
+            if 'derecho' in str(Path(__file__)):
+                local_rank = args.local_rank
+            else:
+                local_rank = int(os.environ["LOCAL_RANK"])
 
+            gpu = local_rank
+            world_rank = dist.get_rank()
+            # print("##########WORLD RANK: TESTING ", world_rank)
 
-    #params['world_size'] = 1
-    '''if torch.cuda.device_count() == 1:
-        world_rank = 0
-        local_rank = 0
-        params['batch_size'] = params['batch_size']//4'''
-
-    if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
-        if 'derecho' in str(Path(__file__)):
-            local_rank = args.local_rank
+            params['global_batch_size'] = params.batch_size
+            params['batch_size'] = int(params.batch_size//params['world_size'])
         else:
-            local_rank = int(os.environ["LOCAL_RANK"])
-
-        gpu = local_rank
-        world_rank = dist.get_rank()
-        # print("##########WORLD RANK: TESTING ", world_rank)
-
-        params['global_batch_size'] = params.batch_size
-        params['batch_size'] = int(params.batch_size//params['world_size'])
-    else:
-        world_rank = 0
-        local_rank = 0
+            world_rank = 0
+            local_rank = 0
+            
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
 
-    # Set up directory
-    expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
-    if world_rank == 0:
-        if not os.path.isdir(expDir):
-            os.makedirs(expDir)
-            os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
+    # Set up directories
+    for params, run_num in zip(params_list, run_nums):
+        expDir = os.path.join(params.exp_dir, args.config, str(run_num))
+        if world_rank == 0:
+            if not os.path.isdir(expDir):
+                os.makedirs(expDir)
+                os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
 
-    params['experiment_dir'] = os.path.abspath(expDir)
-    ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
-    best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
-    params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+        params['experiment_dir'] = os.path.abspath(expDir)
+        ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
+        best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
+        params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
+        params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
 
-    checkpoint_exists = os.path.isfile(params.best_checkpoint_path)
+        checkpoint_exists = os.path.isfile(params.best_checkpoint_path)
 
-    # Determine whether to resume or start fresh
-    params['resuming'] = True
+        # Determine whether to resume or start fresh
+        params['resuming'] = True
     if world_rank == 0:
         logging.info("Resuming from existing checkpoint.")
 
@@ -800,65 +832,65 @@ if __name__ == '__main__':
     # args.resuming = False
     # params['resuming'] = args.resuming
 
+    with params_list[0] as params:
+        params['local_rank'] = local_rank
+        params['enable_amp'] = True
 
-    params['local_rank'] = local_rank
-    params['enable_amp'] = True
-
-    # Add indicator for precision method and engine
-    if params['use_transformer_engine']:
-        print("Using Transformer Engine")
-    else:
-        print("Using PyTorch native")
-
-    if params['enable_fp8']:
-        print("with FP8 precision")
-    elif params['enable_amp']:
-        print("with Automatic Mixed Precision (AMP)")
-    else:
-        print("with full precision")
-
-    # this will be the wandb name
-    # params['name'] = args.config + '_' + str(args.run_num)
-    # params['group'] = "Pangu_plasim_" + args.config  
-    # params['project'] = "Pangu-PLASIM"  
-    #params['entity'] = "proj-ai-weather"
-    if world_rank == 0:
-        log_file = 'out.log'
-        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
-        logging_utils.log_versions()
-        params.log()
-
-    params['log_to_wandb'] = False
-    params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
-
-    if world_rank == 0:
-        hparams = ruamelDict()
-        yaml = YAML()
-        for key, value in params.params.items():
-            hparams[str(key)] = str(value)
-        with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
-            yaml.dump(hparams,  hpfile)
-
-
-    if len(args.init_datetime) == 0:
-        if hasattr(params, "init_datetime"):
-            params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
-                                                                               has_year_zero = params.has_year_zero,
-                                                                               calendar = 'proleptic_gregorian')
+        # Add indicator for precision method and engine
+        if params['use_transformer_engine']:
+            print("Using Transformer Engine")
         else:
-            params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
-                                                               calendar = 'proleptic_gregorian')
-    else:
-        params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
-                                                                               has_year_zero = params.has_year_zero,
-                                                                               calendar = 'proleptic_gregorian')
-    params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
-                                                                params.init_datetime.month,
-                                                                params.init_datetime.day,
-                                                                hour = params.init_datetime.hour,
-                                                                has_year_zero = params.has_year_zero)
-    
-    stepper = Stepper(params, world_rank, async_save = args.async_save)
+            print("Using PyTorch native")
+
+        if params['enable_fp8']:
+            print("with FP8 precision")
+        elif params['enable_amp']:
+            print("with Automatic Mixed Precision (AMP)")
+        else:
+            print("with full precision")
+
+        if world_rank == 0:
+            log_file = f'out_{i}.log'
+            logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(params.experiment_dir, log_file))
+            logging_utils.log_versions()
+            params.log()
+
+            params['log_to_wandb'] = False
+            params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
+
+    if world_rank == 0:
+        for params in params_list:
+            hparams = ruamelDict()
+            yaml = YAML()
+            for key, value in params.params.items():
+                hparams[str(key)] = str(value)
+            with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
+                yaml.dump(hparams,  hpfile)
+
+    with params_list[0] as params:
+        if len(args.init_datetime) == 0:
+            if hasattr(params, "init_datetime"):
+                params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
+                                                                                has_year_zero = params.has_year_zero,
+                                                                                calendar = 'proleptic_gregorian')
+            else:
+                params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
+                                                                calendar = 'proleptic_gregorian')
+        else:
+            params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
+                                                                                has_year_zero = params.has_year_zero,
+                                                                                calendar = 'proleptic_gregorian')
+        params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
+                                                                    params.init_datetime.month,
+                                                                    params.init_datetime.day,
+                                                                    hour = params.init_datetime.hour,
+                                                                    has_year_zero = params.has_year_zero)
+        if params.ensemble_inference_hours < 8760:
+            load_all_bcs = True
+        else:
+            load_all_bcs = False
+    stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
+                      async_save = args.async_save, load_all_bcs = load_all_bcs)
     
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
@@ -876,4 +908,5 @@ if __name__ == '__main__':
 
 
     logging.info('DONE ---- rank %d' % world_rank)
-    torch.distributed.destroy_process_group()
+    dist.barrier()
+    cleanup()
