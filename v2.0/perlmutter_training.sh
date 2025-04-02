@@ -56,12 +56,13 @@ export RANK=$SLURM_ARRAY_TASK_ID
 export OMP_NUM_THREADS=1
 
 
-# Launch your script using torch.distributed.launch
-if [ -z "$3" ]; then
-	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1 --fresh_start
-	#python train.py --yaml_config=$2 --run_num=$1 --fresh_start --debug
+if [[ "$3" == "1" ]]; then
+	CMD="python train.py --yaml_config=${2} --run_num=${1} --debug"
 else
-	python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
-	#python train.py --yaml_config=$2 --run_num=$1 --debug
+	CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${2} --run_num=${1}"
 fi
-# --enable_amp if needed
+if [[ -z "$4" ]]; then
+	CMD+=" --fresh_start"
+fi
+# Launch your script using torch.distributed.launch
+eval "$CMD"

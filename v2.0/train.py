@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
-import os
+import os, glob
 import time
+from natsort import natsorted
 import numpy as np
 import argparse
 import torch
@@ -44,6 +45,12 @@ import shutil
 from datetime import datetime
 import uuid
 from utils.integrate import Integrator, forward_euler
+"""
+import matplotlib
+matplotlib.use('QtAgg')
+from box import Box
+%matplotlib inline
+"""
 
 
 
@@ -254,6 +261,10 @@ class Trainer():
         self.ensemble_validation = False
         if hasattr(params, 'ensemble_validation'):
             self.ensemble_validation = params.ensemble_validation
+        if self.long_validation:
+            if not hasattr(params, 'bias_data_dir'):
+                params['bias_data_dir'] = os.path.join(os.path.dirname(params.data_dir), 'bias')
+                
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
@@ -313,6 +324,15 @@ class Trainer():
             self.long_validation_spinup_years = 1
             if hasattr(params, "long_validation_spinup_years"):
                 self.long_validation_spinup_years = params.long_validation_spinup_years
+            
+            if len(self.params.diagnostic_variables) > 0:
+                self.clim_surface_bias, self.clim_upper_air_bias, self.clim_diagnostic_bias = self.long_valid_dataset._load_bias()
+            else:
+                self.clim_surface_bias, self.clim_upper_air_bias = self.long_valid_dataset._load_bias()
+            self.climatology_bias = self.convert_to_xarray(self.clim_surface_bias.unsqueeze(0).unsqueeze(0).numpy(),
+                                                        self.clim_upper_air_bias.unsqueeze(0).unsqueeze(0).numpy(),
+                                                        [self.long_valid_dataset.start_date], self.params, self.long_valid_dataset, acc = True,
+                                                        diagnostic_prediction = None if not self.params.has_diagnostic else self.clim_diagnostic_bias.unsqueeze(0).unsqueeze(0).numpy())[0].squeeze()
         
         #print('Inference Idxs:')
         #print(self.valid_dataset.inference_idxs)
@@ -332,18 +352,7 @@ class Trainer():
             self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
-        if self.long_validation:
-            self.climatology_bias = self.climatology.mean(dim='dayofyear')
-            self.clim_surface_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.surface_variables]))
-            upper_air_clim = []
-            for var in self.params.upper_air_variables:
-                if var != 'zg' and var != 'geopotential' and self.params.use_sigma_levels:
-                    upper_air_clim.append(self.climatology_bias[var].sel(lev = self.params.sigma_levels))
-                else:
-                    upper_air_clim.append(self.climatology_bias[var].sel(plev = self.params.levels))
-            self.clim_upper_air_bias = torch.from_numpy(np.stack(upper_air_clim))
-            if self.params.has_diagnostic:
-                self.clim_diagnostic_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.diagnostic_variables]))
+            
 
 
 
@@ -495,9 +504,14 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
-            self.restore_checkpoint(params.checkpoint_path)
+            checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
+            self.restore_checkpoint(checkpoint_path)
+            if params.debug:
+                self.params.max_epochs = self.startEpoch + 1
         else:
             logging.info("Starting fresh training run")
+            if params.debug:
+                self.params.max_epochs = 1
 
         self.epoch = self.startEpoch
 
@@ -653,9 +667,9 @@ class Trainer():
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
-                    self.save_checkpoint(self.params.checkpoint_path)
+                    self.save_checkpoint(self.params.checkpoint_path_globstr, self.epoch)
                     if valid_logs['valid_loss'] <= best_valid_loss:
-                        self.save_checkpoint(self.params.best_checkpoint_path)
+                        self.save_checkpoint(self.params.best_checkpoint_path, -1)
 
 
             if self.params.log_to_screen:
@@ -1101,7 +1115,7 @@ class Trainer():
             # For specific lead times, use forecast_lead_times
                 time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
                 # print(time_range)
-            print(time_range[0], time_range[-1])
+            #print(time_range[0], time_range[-1])
             
 
             # Determine the level coordinate name based on params.lev
@@ -1206,7 +1220,10 @@ class Trainer():
         if len(preds_times) > 0:
             p = Process(target=plot_power_spectrum_test, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours))
         else:
-            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
+            if 'mrso' in self.params.land_variables:
+                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            else:
+                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
         p.start()
         p.join()
 
@@ -1356,6 +1373,7 @@ class Trainer():
             
             precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
             
+            no_nans = True
             if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
                 print('Performing long validation...')
                 cnt = 0
@@ -1364,14 +1382,40 @@ class Trainer():
                     val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
                     print(val_data_dir)
                     os.makedirs(val_data_dir, exist_ok=True)
+                #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                #print(val_data_dir)
+                #os.makedirs(val_data_dir, exist_ok=True)
                 pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                #pbar = enumerate(self.long_valid_data_loader, 0)
+                #pbar = enumerate(self.long_valid_data_loader, 0)
+                plt.ion()
                 for i, data in pbar:
                     if i == 0:
                         val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                    """
+                    fig, axs = plt.subplots(1, 4, figsize = (24, 6))
+                    im_1 = axs[0].imshow(val_varying_boundary_data[0,0].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
+                    axs[0].set_title('sst')
+                    cbar_1 = plt.colorbar(im_1, orientation='horizontal', ax=axs[0], fraction=0.046, pad=0.04)
+                    im_2 = axs[1].imshow(val_varying_boundary_data[0,1].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
+                    axs[1].set_title('rsdt')
+                    cbar_2 = plt.colorbar(im_2, orientation='horizontal', ax=axs[1], fraction=0.046, pad=0.04)
+                    im_3 = axs[2].imshow(val_varying_boundary_data[0,2].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
+                    axs[2].set_title('sic')
+                    cbar_3 = plt.colorbar(im_3, orientation='horizontal', ax=axs[2], fraction=0.046, pad=0.04)
+                    im_4 = axs[3].imshow(val_input_upper_air[0,1,4].cpu().numpy() * self.long_valid_dataset.upper_air_std[1, 4].numpy(), cmap = 'bwr', 
+                                         vmin = -3*self.long_valid_dataset.upper_air_std[1, 4].numpy(), vmax = 3*self.long_valid_dataset.upper_air_std[1, 4].numpy())
+                    axs[3].set_title('ua_250')
+                    cbar_4 = plt.colorbar(im_4, orientation='horizontal', ax=axs[3], fraction=0.046, pad=0.04)
+                    plt.suptitle(str(i))
+                    plt.draw()
+                    plt.pause(0.1)
+                    time.sleep(0.1)
+                    """
                     #if (i + 2) % 4 == 0:
-                    pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
+                    #pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
                     #with precision_context:
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
@@ -1410,13 +1454,27 @@ class Trainer():
                                     val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
                             cnt += 1
                 if no_nans and not self.ensemble_validation:
+                    if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
+                        if cnt == 0:
+                            val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
+                            if self.params.has_diagnostic:
+                                val_diagnostic_bias = val_output_diagnostic
+                        else:
+                            val_surface_bias = val_surface_bias * (cnt / (cnt + 1)) + val_output_surface / (cnt + 1)
+                            val_upper_air_bias = val_upper_air_bias * (cnt / (cnt + 1)) + val_output_upper_air / (cnt + 1)
+                            if self.params.has_diagnostic:
+                                val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
+                        cnt += 1
+                #plt.ioff()
+                #plt.show(block=True)
+                if no_nans:
                     val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
-                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu())
+                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu()).squeeze(0)
                     val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias.cpu())
-                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.cpu(), latitudes.cpu())
+                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.cpu(), latitudes.cpu()).squeeze(0)
                     if self.params.has_diagnostic:
                         val_diagnostic_bias = self.long_valid_dataset.diagnostic_inv_transform(val_diagnostic_bias.cpu())
-                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.cpu(), latitudes.cpu())
+                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.cpu(), latitudes.cpu()).squeeze(0)
                     start_times = [self.long_valid_dataset.datetime_class(self.params.long_val_year_start + self.long_validation_spinup_years,
                                                                         1, 1, has_year_zero = self.long_valid_dataset.has_year_zero) - \
                                                                             timedelta(hours=self.params.timedelta_hours)]
@@ -1696,7 +1754,7 @@ class Trainer():
                 gif_filenames = []
                 for variable in self.params.diagnostic_gif_var_dict.keys():
                     clim_in = None
-                    if variable in ['zg', 'tas', 'geopotential', '2m_temperature']:
+                    if variable in ['zg', 'tas', 'geopotential', '2m_temperature', 'ta', 'temperature']:
                         clim_in = self.climatology
                     if len(self.params.diagnostic_gif_var_dict[variable]) > 0:
                         if variable == 'zg':
@@ -1781,7 +1839,7 @@ class Trainer():
                     for j, var in enumerate(self.valid_dataset.diagnostic_variables):
                         diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
                         
-            if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
+            if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0 and no_nans:
                 for j, var in enumerate(self.valid_dataset.surface_variables):
                     diagnostic_logs[f'valid_{var}_bias_lwrmse'] = val_surface_bias_lwrmse[j]
                 for j, var in enumerate(self.valid_dataset.upper_air_variables):
@@ -1871,15 +1929,20 @@ class Trainer():
             return valid_time, logs
 
     
-    def save_checkpoint(self, checkpoint_path, model=None):
+    def save_checkpoint(self, checkpoint_path, epoch, model=None):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
 
         if not model:
             model = self.model
 
-        torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                    'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
+        if epoch >= 0:
+            checkpoint_path_out = '_'.join(checkpoint_path.split('_')[:-1]) + f'_{epoch}.tar'
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path_out)
+        else:
+            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
 
 
     def restore_checkpoint(self, checkpoint_path):
@@ -1904,8 +1967,9 @@ class Trainer():
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run_num", default='0305', type=str)
-    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI_4_test.yaml', type=str)
+    
+    parser.add_argument("--run_num", default='0514', type=str)
+    parser.add_argument("--yaml_config", default='/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0514.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
@@ -1924,6 +1988,21 @@ if __name__ == '__main__':
     #######
 
     args = parser.parse_args()
+    """
+    args = Box({
+        "run_num": "0510",
+        "yaml_config": "/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0510.yaml",
+        "config": "PLASIM",
+        "enable_amp": True,
+        "epsilon_factor": 0.0,
+        "epochs": 0,
+        "run_iter": 1,
+        "debug": True,
+        "just_validate": True,
+        "fresh_start": False,
+        "local-rank": None  # Since it has no default, set to None
+    })
+    """
 
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
@@ -1954,9 +2033,16 @@ if __name__ == '__main__':
     
     #os.environ['WANDB_MODE'] = 'offline'
     
+    params['debug'] = False
     if args.debug:
+        params['debug'] = True
         params['world_size'] = 1
         os.environ['WANDB_MODE'] = 'offline'
+        params['train_year_start'] = params['train_year_end'] - 1
+        params['batch_size'] = params['num_data_workers']
+        #params['long_rollout_years'] = 2
+        params['epochs_per_long_validation'] = 1
+        params['num_inferences'] = params['num_data_workers']
     else:
         print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
         print('World size from Cuda: %d' % torch.cuda.device_count())
@@ -2002,12 +2088,13 @@ if __name__ == '__main__':
             os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
 
     params['experiment_dir'] = os.path.abspath(expDir)
-    ckpt_path = 'training_checkpoints/ckpt.tar'
+    ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
     best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path'] = os.path.join(expDir, ckpt_path)
+    params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
     params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
 
-    checkpoint_exists = os.path.isfile(params.checkpoint_path)
+    checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr) if os.path.isfile(file)]
+    checkpoint_exists = len(checkpoint_paths) > 0
 
     # Determine whether to resume or start fresh
     if params.fresh_start or args.fresh_start:

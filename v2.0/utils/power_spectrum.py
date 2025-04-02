@@ -273,35 +273,36 @@ def plot_bias(bias_pred, bias_gt, filename,
     # Create subplots
     # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
     plot_dims =  (len(available_vars) // 2, len(available_vars) // 2 + len(available_vars) % 2)
-    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(12, 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
+    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(6*plot_dims[1], 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
 
     for i, j in product(range(plot_dims[0]), range(plot_dims[1])):
-        var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
-        if plev:
+        if j+i*plot_dims[1] < len(vars):
+            var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
+            if plev:
+                
+                var_bias_pred = bias_pred[var].sel(plev = plev)
+                var_bias_gt = bias_gt[var].sel(plev = plev)
+            else:
+                var_bias_pred = bias_pred[var]
+                var_bias_gt = bias_gt[var]
+            var_bias_pred_aligned = var_bias_pred.squeeze().transpose(*var_bias_gt.dims)
+            var_bias_pred_aligned['lat'] = var_bias_gt.lat
+            diff = var_bias_pred_aligned - var_bias_gt
             
-            var_bias_pred = bias_pred[var].sel(plev = plev)
-            var_bias_gt = bias_gt[var].sel(plev = plev)
-        else:
-            var_bias_pred = bias_pred[var]
-            var_bias_gt = bias_gt[var]
-        var_bias_pred_aligned = var_bias_pred.squeeze().transpose(*var_bias_gt.dims)
-        var_bias_pred_aligned['lat'] = var_bias_gt.lat
-        diff = var_bias_pred_aligned - var_bias_gt
-        
-        pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r")#, transform=ccrs.PlateCarree())
-        contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1)#, transform=ccrs.PlateCarree())
-        
-        # Add continent outlines
-        #axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
-        #axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
-        
-        # Add colorbar
-        cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
-        if plev:
-            cbar.set_label(f"{var}")
-        else:
-            cbar.set_label(f"{var} {plev}")
-        axs[i,j].clabel(contours, inline=True, fontsize=8)
+            pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r")#, transform=ccrs.PlateCarree())
+            contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1)#, transform=ccrs.PlateCarree())
+            
+            # Add continent outlines
+            #axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
+            #axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
+            
+            # Add colorbar
+            cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
+            if plev:
+                cbar.set_label(f"{var}")
+            else:
+                cbar.set_label(f"{var} {plev}")
+            axs[i,j].clabel(contours, inline=True, fontsize=8)
     
     plt.suptitle(f"Prediction Bias (Pred. - Truth)", y=1.01)
     plt.tight_layout() 
@@ -404,7 +405,8 @@ def make_gif(combined_dataset, gt_combined_dataset, name_fc, var, output_filenam
     else:
         data_inference = combined_dataset[var].isel(time=sample_index)
         data_gt = gt_combined_dataset[var].isel(time=sample_index)
-        climatology_data = climatology[var]
+        if climatology:
+            climatology_data = climatology[var]
 
     print(f"Data shape - Inference: {data_inference.shape}, Ground Truth: {data_gt.shape}")
     print(f"Inference dimensions: {data_inference.dims}")

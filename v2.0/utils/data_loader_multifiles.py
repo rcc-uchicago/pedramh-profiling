@@ -192,7 +192,8 @@ class GetDataset(Dataset):
         if hasattr(params, 'mask_fill'):
             self.mask_fill = self.params.mask_fill
         else:
-            self.mask_fill = {'lsm': 0., 'sst': 270., 'sic': 0., 'mrso': 0.}
+            self.mask_fill = {'alb': 0.069, 'dlai': 0., 'glac': 0., 'lsm': 0., 'mrfc': 0., 'mrso': 0., 
+                              'sic': 0., 'sst': 270., 'ts': 270, 'vegc': 0., 'vegf': 0.}
             #self.mask_fill = {'lsm': 0., 'sst': 270., 'sea_ice_cover': 0., 'volumetric_soil_water_layer_1': 0.}
 
         self.year_start = year_start
@@ -253,7 +254,11 @@ class GetDataset(Dataset):
             print('Constant boundary has nan')
             sys.exit(2)
         
+<<<<<<< HEAD
         if self.single_ic or self.ensemble:
+=======
+        if single_ic:
+>>>>>>> 0a64e7e13412878f3cffdfb42b551716d1e49d56
             self.inference_idxs = np.arange(0, len(self.dates))
         else:
             max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
@@ -347,7 +352,8 @@ class GetDataset(Dataset):
                 self.varying_boundary_data[i] = self.boundary_transform(varying_boundary_data)
                 
 
-    def _get_variable_list(self, level_units = '.0'):
+    def _get_variable_list(self, level_unit_str = '.0'):
+        self.level_unit_str = level_unit_str
         self.variable_list_out = []
         for variable in self.upper_air_variables:
             if variable != 'zg' and variable != 'geopotential_height' and self.use_sigma_levels:
@@ -355,7 +361,7 @@ class GetDataset(Dataset):
                     self.variable_list_out.append(f'{variable}_{level}')
             else:
                 for level in self.levels:
-                    self.variable_list_out.append(f'{variable}_{int(level)}{level_units}')
+                    self.variable_list_out.append(f'{variable}_{int(level)}{level_unit_str}')
         self.upper_air_len = len(self.variable_list_out)
         self.variable_list_out.extend(self.surface_variables)
         self.variable_list_in = self.variable_list_out.copy()
@@ -399,6 +405,44 @@ class GetDataset(Dataset):
                 return upper_air, surface, varying_boundary
             else:
                 return upper_air, surface
+            
+    def _load_bias(self):
+        upper_air_bias = []
+        surface_bias = []
+        if self.params.timedelta_hours == 24:
+            start_hour_z = int(self.start_date.hour)
+            bias_hour_str = f'_{start_hour_z}z'
+        elif self.params.timedelta_hours == 6:
+            bias_hour_str = ''
+        else:
+            raise ValueError('Only 6 and 24 hour timesteps supported for long validation at this time.')
+        for variable in self.upper_air_variables:
+            if variable != 'zg' and variable != 'geopotential_height' and self.use_sigma_levels:
+                for level in self.sigma_levels:
+                    bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_{level}_bias{bias_hour_str}.npy')
+                    data = np.load(bias_file)
+                    upper_air_bias.append(data)
+            else:
+                for level in self.levels:
+                    bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_{int(level)}{self.level_unit_str}_bias{bias_hour_str}.npy')
+                    data = np.load(bias_file)
+                    upper_air_bias.append(data)
+        for variable in self.surface_variables:
+            bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_bias{bias_hour_str}.npy')
+            data = np.load(bias_file)
+            surface_bias.append(data)
+        upper_air_bias = np.stack(upper_air_bias, axis = 0).reshape(len(self.upper_air_variables), -1, data.shape[0], data.shape[1])
+        surface_bias = np.stack(surface_bias, axis = 0)
+        if len(self.diagnostic_variables) > 0:
+            diagnostic_bias = []
+            for variable in self.diagnostic_variables:
+                bias_file = os.path.join(self.params.bias_data_dir, f'{variable}_bias{bias_hour_str}.npy')
+                data = np.load(bias_file)
+                diagnostic_bias.append(data)
+            diagnostic_bias = np.stack(diagnostic_bias, axis = 0)
+            return torch.from_numpy(surface_bias), torch.from_numpy(upper_air_bias), torch.from_numpy(diagnostic_bias)
+        else:
+            return torch.from_numpy(surface_bias), torch.from_numpy(upper_air_bias)
             
 
     def _fill_mask(self, data, variables, optional_variables = None):
@@ -545,6 +589,7 @@ class GetDataset(Dataset):
         data_year = data_datetime.year
         data_idx = int((data_datetime - self.datetime_class(data_year, 1, 1, hour=0, has_year_zero=self.has_year_zero)).total_seconds())\
               // 3600 // self.data_timedelta_hours
+        #print(data_datetime.strftime("%Y-%m-%d %H:%M:%S"), data_year, data_idx)
         if cftime.is_leap_year(data_year, self.params.calendar, self.has_year_zero):
             data_file_path = get_out_path(self.data_dir, self.leap_year, data_idx)
         else:
