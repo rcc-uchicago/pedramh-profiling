@@ -108,7 +108,7 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
-                    ensemble = False, init_from_nc = False):
+                    ensemble = False, init_from_nc = False, load_all_bcs = True):
     if train:
         try:
             assert not single_ic
@@ -119,7 +119,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
             assert not single_ic
         except:
             raise ValueError('Set validate to False when using single_ic = True.')
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic, ensemble, init_from_nc)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic, ensemble, init_from_nc, load_all_bcs)
     if single_ic:
         dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
     else:
@@ -144,7 +144,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 class GetDataset(Dataset):
     def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
-                 ensemble = False, init_from_nc = False):
+                 ensemble = False, init_from_nc = False, load_all_bcs = True, ):
         self.params = params
         self.data_dir = data_dir
         self.train = train
@@ -154,6 +154,8 @@ class GetDataset(Dataset):
         else:
             self.validate = False
         self.ensemble = ensemble
+        if self.ensemble:
+            self.load_all_bcs = load_all_bcs
         self.init_from_nc = init_from_nc
         if self.ensemble:
             assert self.init_from_nc
@@ -166,6 +168,7 @@ class GetDataset(Dataset):
         if self.single_ic:
             self.single_ic_offset   = 0
             self.long_rollout_years = 1
+            self.nc_bc_offset       = 0
             if hasattr(params, 'long_rollout_years'):
                 self.long_rollout_years = self.params.long_rollout_years
             if hasattr(params, 'no_leap_year'):
@@ -174,6 +177,8 @@ class GetDataset(Dataset):
                 self.leap_year = self.params.leap_year
             if hasattr(params, 'single_ic_offset'):
                 self.single_ic_offset = self.params.single_ic_offset
+            if hasattr(params, 'nc_bc_offset'):
+                self.nc_bc_offset = self.params.nc_bc_offset
             
             
         self.epsilon_factor = self.params.epsilon_factor
@@ -333,7 +338,7 @@ class GetDataset(Dataset):
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
             
-        if self.ensemble:
+        if self.ensemble and self.load_all_bcs:
             self.varying_boundary_data = torch.zeros((self.ensemble_inference_steps, len(self.params.varying_boundary_variables), self.params.horizontal_resolution[0], self.params.horizontal_resolution[1]), dtype = torch.float32)
             for i, hour in tqdm(enumerate(range(0, self.params.ensemble_inference_hours, self.params.timedelta_hours)), total = self.ensemble_inference_steps, desc = 'Loading boundary data'):
                 data_datetime = self.start_date + timedelta(hours=hour)
@@ -558,7 +563,7 @@ class GetDataset(Dataset):
         #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         #self.lev = torch.from_numpy(self.data_dss[0].lev.values)
         if self.single_ic:
-            start_time = self.start_date + timedelta(hours=self.dates[index])
+            start_time = self.start_date + timedelta(hours=self.dates[index]) + timedelta(hours=self.nc_bc_offset)
             if index == 0:
                 data_in  = self._get_data(start_time, out = False)
                 if len(self.varying_boundary_variables) > 0:
