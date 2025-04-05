@@ -29,16 +29,29 @@
                   ]        
                 },
         {
-          "name": "Python Debugger: Long Emulation 1 init",
+          "name": "Python Debugger: Long Emulation 1 init Perlmutter",
           "type": "debugpy",
           "request": "launch",
           "program": "${file}",
           "cwd": "${fileDirname}",
           "console": "integratedTerminal",
-          "args": ["--run_num=0515,0514", "--yaml_config=config/PANGU_PLASIM_H5_POLARIS_0515_longtest.yaml,config/PANGU_PLASIM_H5_POLARIS_0514.yaml",
-                        "--debug", "--use_6h_24h_model", "--async_save",
+          "args": ["--run_num=0515,0514", "--yaml_config=config/PANGU_PLASIM_H5_PERLMUTTER_0515_longtest.yaml,config/PANGU_PLASIM_H5_PERLMUTTER_0514_longtest.yaml",
+                        "--debug", "--use_6h_24h_model", "--async_save", "--save_basename=pangu_plasim_6h_24h_noise_no_soil_ff",
                         "--init_datetime=0001-01-01 18:00:00", "--final_datetime=0003-01-01 00:00:00",
-                  "--init_nc_filepaths=/eagle/MDClimSim/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/start_0.nc"
+                  "--init_nc_filepaths=/pscratch/sd/a/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/start_0.nc"
+                  ]        
+                },
+        {
+          "name": "Python Debugger: Long Emulation 1 init 24h Perlmutter",
+          "type": "debugpy",
+          "request": "launch",
+          "program": "${file}",
+          "cwd": "${fileDirname}",
+          "console": "integratedTerminal",
+          "args": ["--run_num=0514", "--yaml_config=config/PANGU_PLASIM_H5_PERLMUTTER_0514_longtest.yaml",
+                        "--debug", "--async_save",
+                        "--init_datetime=0001-01-01 18:00:00", "--final_datetime=0003-01-01 00:00:00",
+                  "--init_nc_filepaths=/pscratch/sd/a/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/start_0.nc"
                   ]        
                 },
         {
@@ -54,6 +67,19 @@
                   "--init_nc_filepaths=/eagle/MDClimSim/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/start_0.nc"
                   ]        
                 },
+                {
+                  "name": "Python Debugger: Long Emulation 6h Perlmutter",
+                  "type": "debugpy",
+                  "request": "launch",
+                  "program": "${file}",
+                  "cwd": "${fileDirname}",
+                  "console": "integratedTerminal",
+                  "args": ["--run_num=0515", "--yaml_config=config/PANGU_PLASIM_H5_PERLMUTTER_0515_longtest.yaml",
+                                "--debug", "--async_save",
+                                "--init_datetime=0001-01-01 18:00:00", "--final_datetime=0003-01-01 00:00:00",
+                          "--init_nc_filepaths=/pscratch/sd/a/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/start_0.nc"
+                          ]        
+                        },
         {
             "name": "Python Attach (Current Terminal)",
             "type": "debugpy",

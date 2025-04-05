@@ -168,6 +168,7 @@ class Stepper():
         self.save_forecasts = False
         if hasattr(self.params, 'save_forecasts'):
             self.save_forecasts = self.params.save_forecasts
+        print(f'Save forecasts: {self.save_forecasts}')
             
         if hasattr(self.params, 'save_level_idxs'):
             self.save_level_idxs = np.array(self.params.save_level_idxs)
@@ -192,7 +193,8 @@ class Stepper():
                                                          year_end=self.params.val_year_end, train=False,
                                                          ensemble = True, init_from_nc = True,
                                                          load_all_bcs = False)
-        self.params.single_ic_offset = int((self.params.init_datetime - \
+        print(f'Len(data_loader): {len(self.data_loader)}')
+        self.params['single_ic_offset'] = int((self.params.init_datetime - \
             self.dataset.datetime_class(self.params.init_datetime.year, 1, 1, 0, has_year_zero = self.params.has_year_zero)).total_seconds() // 3600)
         self.data_loader_bcs, self.dataset_bcs = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
                                                          year_start=self.params.val_year_start, 
@@ -371,8 +373,8 @@ class Stepper():
         else:
             valid_time, valid_logs = self.predict_sync()
             
-    async def save_prediction_async(self, dataset, current_year, total_run_iter):
-        await asyncio.to_thread(self.save_prediction, dataset, current_year, total_run_iter)
+    async def save_prediction_async(self, datasets, prediction_idxs, ensemble_start, ensemble_end):
+        await asyncio.to_thread(self.save_prediction, datasets, prediction_idxs, ensemble_start, ensemble_end)
         
     async def run_obs_function_async(self, dataset, particle_idx, ensemble_start, ensemble_end, obs_args):
         await asyncio.to_thread(self.obs_function, [dataset, particle_idx, ensemble_start, ensemble_end] + obs_args)
@@ -382,9 +384,9 @@ class Stepper():
             item = await queue.get()
             if item is None:
                 break
-            dataset, current_year, total_run_iter = item
+            datasets, prediction_idxs, ensemble_start, ensemble_end = item
             save_start = time.time()
-            await self.save_prediction_async(dataset, current_year, total_run_iter)
+            await self.save_prediction_async(datasets, prediction_idxs, ensemble_start, ensemble_end)
             self.save_time += time.time() - save_start
             queue.task_done()
             
@@ -447,12 +449,14 @@ class Stepper():
                     if self.use_6h_24h_model:
                         input_surface_24h = torch.clone(input_surface)
                         input_upper_air_24h = torch.clone(input_upper_air)
+                    #print('Input:', input_surface[0,1,16,1])
                     
                     # Create arrays for first year of output data
                     current_datetime = self.params.init_datetime
                     current_year = self.params.init_datetime.year
+                    next_year_offset_hours = current_datetime.hour % self.params.timedelta_hours
                     time_step_in_year = 0
-                    next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=0,
+                    next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=next_year_offset_hours,
                                                                     has_year_zero = self.params.has_year_zero)
                     output_inference_steps = int((next_output_datetime - current_datetime).total_seconds() // 3600 / self.params.timedelta_hours)
                     output_surface = np.zeros((input_surface.shape[0], output_inference_steps,
@@ -489,7 +493,7 @@ class Stepper():
                         data_time += time.time() - data_start
                         
                         # If using 6h and 24h model and time is 0z
-                        if self.use_6h_24h_model and i % 4 == 0:
+                        if self.use_6h_24h_model and time_step_in_year % 4 == 0:
                             # Predict to next 0z with 24h model
                             inference_start = time.time()
                             if self.params_24h.has_diagnostic:
@@ -500,6 +504,7 @@ class Stepper():
                             else:
                                 out_surface_24h, out_upper_air_24h = self.model_24h(input_surface_24h, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air_24h)
+                            #print(f'Output 24 at step {i}:', out_surface_24h[0,1,16,1])
                             # Predict to next 6z with 6h model
                             if self.params.has_diagnostic:
                                 out_surface, out_upper_air, out_diagnostic = self.model(input_surface_24h, 
@@ -509,16 +514,16 @@ class Stepper():
                             else:
                                 out_surface, out_upper_air = self.model(input_surface_24h, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air_24h)
-                            
+                            #print(f'Output 6 at step {i}:', out_surface[0,1,16,1])
                             # If needed, integrate tendency predictions
-                            if self.params_24h.predict_delta:
-                                input_surface_24h, input_upper_air_24h = self.integrator(input_surface_24h, input_upper_air_24h, out_surface_24h, out_upper_air_24h)
-                            else:
-                                input_surface_24h, input_upper_air_24h = out_surface, out_upper_air
                             if self.params.predict_delta:
                                 input_surface, input_upper_air = self.integrator(input_surface_24h, input_upper_air_24h, out_surface, out_upper_air)
                             else:
                                 input_surface, input_upper_air = out_surface, out_upper_air
+                            if self.params_24h.predict_delta:
+                                input_surface_24h, input_upper_air_24h = self.integrator(input_surface_24h, input_upper_air_24h, out_surface_24h, out_upper_air_24h)
+                            else:
+                                input_surface_24h, input_upper_air_24h = out_surface_24h, out_upper_air_24h
                             inference_time += time.time() - inference_start
                             
                             # If we have not reached the end of a year, save the non-diagnostic output from the 24h model at next 0z
@@ -537,7 +542,7 @@ class Stepper():
                                 output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                 transform_time += time.time() - transform_start
                         # If not using 6h and 24h model, or time is 6z or 12z
-                        elif (not self.use_6h_24h_model) or (i+1) % 4 != 0:
+                        elif (not self.use_6h_24h_model) or (time_step_in_year+1) % 4 != 0:
                             # Predict with base model
                             inference_start = time.time()
                             if self.params.has_diagnostic:
@@ -548,6 +553,7 @@ class Stepper():
                             else:
                                 out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air)
+                            #print(f'Output {self.params.timdelta_hours} at step {i}:', out_surface[0,1,16,1])
                             # If needed, integrate tendency predictions
                             if self.params.predict_delta:
                                 input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
@@ -564,7 +570,7 @@ class Stepper():
                                 transform_time += time.time() - transform_start
                                 
                         # If we are using the 6h and 24h model and we are at 18z
-                        elif self.use_6h_24h_model and (i+1) % 4 == 0 and self.params_24h.has_diagnostic:
+                        elif self.use_6h_24h_model and (time_step_in_year+1) % 4 == 0 and self.params_24h.has_diagnostic:
                             # Get the 24h model diagnostic output and subtract the accumulated precip from the 3 6h model predictions
                             transform_start = time.time()
                             output_diagnostic_24h = self.dataset_24h.diagnostic_transform(out_diagnostic_24h.to('cpu')).numpy()
@@ -587,13 +593,13 @@ class Stepper():
                                 ensemble_datasets = self.convert_ensemble_to_xarray(\
                                     output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
                                     output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
-                                    particle_idxs, current_year, np.arange(ensemble_start, ensemble_end),
+                                    particle_idxs, current_datetime, next_output_datetime, np.arange(ensemble_start, ensemble_end),
                                     diagnostic_prediction = output_diagnostic.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_diagnostic.shape[1:]).copy())
                             else:
                                 ensemble_datasets = self.convert_ensemble_to_xarray(\
                                     output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
                                     output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
-                                    particle_idxs, current_year, np.arange(ensemble_start, ensemble_end))
+                                    particle_idxs, current_datetime, next_output_datetime, np.arange(ensemble_start, ensemble_end))
                             conversion_time += time.time() - conversion_start
                             
                             # If computing an observable, send this computatation to a separate thread
@@ -604,23 +610,17 @@ class Stepper():
                             # If saving the forecasts, send this computation to another thread
                             if self.params.save_forecasts:
                                 # Queue the results for asynchronous saving
-                                for i, (dataset, particle_idx) in enumerate(zip(ensemble_datasets, particle_idxs)):
-                                    print(dataset)
-                                    for j, ensemble_member in enumerate(range(ensemble_start, ensemble_end)):
-                                        total_run_iter = (self.params.run_iter - 1) * (self.params.num_ensemble_members * len(self.params.init_nc_filepaths)) + \
-                                            self.params.num_ensemble_members * int(particle_idx) + ensemble_member
-                                        current_year = dataset.time[0].item().year
-                                        dataset_in = dataset.sel(ensemble_idx = ensemble_member)
-                                        await save_queue.put((dataset_in.copy(deep = True), current_year, total_run_iter))
-                                        await asyncio.sleep(0)
+                                await save_queue.put((deepcopy(ensemble_datasets), particle_idxs.numpy(), ensemble_start, ensemble_end))
+                                await asyncio.sleep(0)
+                                        
                             
                             current_year += 1
                             # If this was not the final year
                             if current_year < self.params.final_datetime.year:
                                 # Get the number of time steps in the next year
-                                current_datetime = self.dataset.datetime_class(current_year, 1, 1, hour=0,
-                                                                                has_year_zero = self.params.has_year_zero)
-                                next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=0,
+                                current_datetime = next_output_datetime
+                                next_year_offset_hours = current_datetime.hour % self.params.timedelta_hours
+                                next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=next_year_offset_hours,
                                                                                 has_year_zero = self.params.has_year_zero)
                                 output_inference_steps = int((next_output_datetime - current_datetime).total_seconds() // 3600 / self.params.timedelta_hours)
                                 
@@ -639,7 +639,7 @@ class Stepper():
                                 
                                 # Set first time step of new array to last prediction from model
                                 transform_start = time.time()
-                                if self.use_6h_24h_model:
+                                if self.use_6h_24h_model and self.params.init_datetime.hour == 0:
                                     if self.params.has_diagnostic:
                                         output_diagnostic[:, time_step_in_year] = output_diagnostic_24h
                                     output_surface[:,time_step_in_year] = self.dataset_24h.surface_inv_transform(input_surface_24h.to('cpu')).numpy()
@@ -649,6 +649,8 @@ class Stepper():
                                         output_diagnostic[:, time_step_in_year] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
                                     output_surface[:,time_step_in_year] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                     output_upper_air[:,time_step_in_year] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                                    if self.use_6h_24h_model:
+                                        input_surface_24h, input_upper_air_24h = input_surface, input_upper_air
                                 transform_time += time.time() - transform_start
                         
 
@@ -684,96 +686,246 @@ class Stepper():
         total_start = time.time()
         data_time = 0
         inference_time = 0
+        transform_time = 0
         conversion_time = 0
         obs_time = 0
         save_time = 0
 
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.data_loader, 0):
+                # Load ith set of initial conditions from .nc files
                 data_start = time.time()
-                #particle_idxs = np.arange(self.params.batch_size*i, self.params.batch_size*(i+1))
                 input_surface_in, input_upper_air_in = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
-                print(f'Particle idxs:{particle_idxs}')
+                print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
+                data_time += time.time() - data_start
                 
+                # Get beginning and end indices for ensemble sets
                 ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
                                                    self.params.ensemble_members_per_pred)
+                
+                # For each ensemble set
                 for ensemble_start, ensemble_end in zip(ensemble_member_splits[:-1], ensemble_member_splits[1:]):
+                    # Create ensemble batch from ICs
                     ensemble_end = min(ensemble_end, self.params.num_ensemble_members)
                     input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
-                    varying_boundary_data = to_ensemble_batch(self.dataset.varying_boundary_data.to(self.device).unsqueeze(0), ensemble_end - ensemble_start)
                     constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
-                    #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
                     
-                    input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
+                    # Perturb initial conditions if using perturbations
+                    if self.params.epsilon_factor > 0.:
+                        input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
                     
+                    #If using 6h and 24h models, also initialize initial condition for 24h model
+                    if self.use_6h_24h_model:
+                        input_surface_24h = torch.clone(input_surface)
+                        input_upper_air_24h = torch.clone(input_upper_air)
+                    #print('Input:', input_surface[0,1,16,1])
                     
-                    
-
-                    inference_start = time.time()
-                    output_surface = np.zeros((input_surface.shape[0], self.dataset.ensemble_inference_steps,
+                    # Create arrays for first year of output data
+                    current_datetime = self.params.init_datetime
+                    current_year = self.params.init_datetime.year
+                    next_year_offset_hours = current_datetime.hour % self.params.timedelta_hours
+                    time_step_in_year = 0
+                    next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=next_year_offset_hours,
+                                                                    has_year_zero = self.params.has_year_zero)
+                    output_inference_steps = int((next_output_datetime - current_datetime).total_seconds() // 3600 / self.params.timedelta_hours)
+                    output_surface = np.zeros((input_surface.shape[0], output_inference_steps,
                                                     input_surface.shape[1], input_surface.shape[2], input_surface.shape[3]),
                                                     dtype = np.float32)
-                    output_upper_air = np.zeros((input_upper_air.shape[0], self.dataset.ensemble_inference_steps,
+                    output_upper_air = np.zeros((input_upper_air.shape[0], output_inference_steps,
                                                     input_upper_air.shape[1], input_upper_air.shape[2],
                                                     input_upper_air.shape[3], input_upper_air.shape[4]),
                                                     dtype = np.float32)
                     if self.params.has_diagnostic:
-                        output_diagnostic = np.zeros((input_surface.shape[0], self.dataset.ensemble_inference_steps,
+                        output_diagnostic = np.zeros((input_surface.shape[0], output_inference_steps,
                                                         len(self.params.diagnostic_variables), input_surface.shape[2], input_surface.shape[3]),
                                                         dtype = np.float32)
                     
-                    #output_surface[:,0] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
-                    #output_upper_air[:,0] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                    # Set initial values in arrays from loaded and perturbed ICs
+                    transform_start = time.time()
+                    output_surface[:,time_step_in_year] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                    output_upper_air[:,time_step_in_year] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                    transform_time += time.time() - transform_start
                     
-
-                    for time_step in tqdm(range(self.dataset.ensemble_inference_steps),
-                                          desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
-                        if self.params.has_diagnostic:
-                            out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
-                                                                                    constant_boundary_data, 
-                                                                                    varying_boundary_data[:,time_step],
-                                                                                    input_upper_air)
-                            output_diagnostic[:, time_step] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                    # For every time step in duration of ensemble emulation
+                    pbar = tqdm(enumerate(self.data_loader_bcs, 0), total=len(self.data_loader_bcs), miniters=1,
+                                desc = f'Emulating year {self.params.init_datetime.year}')
+                    for i, bc_data in pbar:
+                        # Load varying boundary conditions
+                        data_start = time.time()
+                        if i == 0:
+                            _, _, varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), bc_data)
                         else:
-                            out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
-                                                                    varying_boundary_data[:,time_step], input_upper_air)
-                        if self.params.predict_delta:
-                            input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
-                        else:
-                            input_surface, input_upper_air = out_surface, out_upper_air
-                        output_surface[:,time_step] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
-                        output_upper_air[:,time_step] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
-
-                    inference_time += time.time() - inference_start
-                    
-                    conversion_start = time.time()
-                    
-                    if self.params.has_diagnostic:
-                        ensemble_datasets = self.convert_ensemble_to_xarray(\
-                            output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
-                            output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
-                            particle_idxs, np.arange(ensemble_start, ensemble_end), 
-                            diagnostic_prediction = output_diagnostic.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_diagnostic.shape[1:]).copy())
-                    else:
-                        ensemble_datasets = self.convert_ensemble_to_xarray(\
-                            output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
-                            output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
-                            particle_idxs, np.arange(ensemble_start, ensemble_end))
-                    #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
-                    conversion_time += time.time() - conversion_start
-                    
-                    if self.obs_function:
-                        obs_start = time.time()
-                        self.obs_function([ensemble_datasets[0], particle_idxs[0], ensemble_start, ensemble_end] + self.obs_args)
-                        obs_time += time.time() - obs_start
+                            varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), bc_data)
+                        pbar.set_description(f'Emulating year {year}')
+                        # Create ensemble of boundary conditions
+                        varying_boundary_data = to_ensemble_batch(varying_boundary_data, ensemble_end - ensemble_start)
+                        data_time += time.time() - data_start
                         
-                    if self.save_forecasts:
-                        save_start = time.time()
-                        self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
-                        save_time += time.time() - save_start
+                        # If using 6h and 24h model and time is 0z
+                        if self.use_6h_24h_model and time_step_in_year % 4 == 0:
+                            # Predict to next 0z with 24h model
+                            inference_start = time.time()
+                            if self.params_24h.has_diagnostic:
+                                out_surface_24h, out_upper_air_24h, out_diagnostic_24h = self.model_24h(input_surface_24h, 
+                                                                                        constant_boundary_data, 
+                                                                                        varying_boundary_data,
+                                                                                        input_upper_air_24h)
+                            else:
+                                out_surface_24h, out_upper_air_24h = self.model_24h(input_surface_24h, constant_boundary_data, 
+                                                                        varying_boundary_data, input_upper_air_24h)
+                            #print(f'Output 24 at step {i}:', out_surface_24h[0,1,16,1])
+                            # Predict to next 6z with 6h model
+                            if self.params.has_diagnostic:
+                                out_surface, out_upper_air, out_diagnostic = self.model(input_surface_24h, 
+                                                                                        constant_boundary_data, 
+                                                                                        varying_boundary_data,
+                                                                                        input_upper_air_24h)
+                            else:
+                                out_surface, out_upper_air = self.model(input_surface_24h, constant_boundary_data, 
+                                                                        varying_boundary_data, input_upper_air_24h)
+                            #print(f'Output 6 at step {i}:', out_surface[0,1,16,1])
+                            # If needed, integrate tendency predictions
+                            if self.params.predict_delta:
+                                input_surface, input_upper_air = self.integrator(input_surface_24h, input_upper_air_24h, out_surface, out_upper_air)
+                            else:
+                                input_surface, input_upper_air = out_surface, out_upper_air
+                            if self.params_24h.predict_delta:
+                                input_surface_24h, input_upper_air_24h = self.integrator(input_surface_24h, input_upper_air_24h, out_surface_24h, out_upper_air_24h)
+                            else:
+                                input_surface_24h, input_upper_air_24h = out_surface_24h, out_upper_air_24h
+                            inference_time += time.time() - inference_start
+                            
+                            # If we have not reached the end of a year, save the non-diagnostic output from the 24h model at next 0z
+                            if time_step_in_year + 4 < output_surface.shape[1]:
+                                transform_start = time.time()
+                                output_surface[:,time_step_in_year + 4] = self.dataset_24h.surface_inv_transform(input_surface_24h.to('cpu')).numpy()
+                                output_upper_air[:,time_step_in_year + 4] = self.dataset_24h.upper_air_inv_transform(input_upper_air_24h.to('cpu')).numpy()
+                                transform_time += time.time() - transform_start
+                            
+                            # If we have not reached the end of a year, save the output from the 6h model at next 6z
+                            if time_step_in_year + 1 < output_surface.shape[1]:
+                                transform_start = time.time()
+                                if self.params.has_diagnostic:
+                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                output_surface[:,time_step_in_year + 1] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                                output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                                transform_time += time.time() - transform_start
+                        # If not using 6h and 24h model, or time is 6z or 12z
+                        elif (not self.use_6h_24h_model) or (time_step_in_year+1) % 4 != 0:
+                            # Predict with base model
+                            inference_start = time.time()
+                            if self.params.has_diagnostic:
+                                out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                                                                                        constant_boundary_data, 
+                                                                                        varying_boundary_data,
+                                                                                        input_upper_air)
+                            else:
+                                out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                                                                        varying_boundary_data, input_upper_air)
+                            #print(f'Output {self.params.timdelta_hours} at step {i}:', out_surface[0,1,16,1])
+                            # If needed, integrate tendency predictions
+                            if self.params.predict_delta:
+                                input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
+                            else:
+                                input_surface, input_upper_air = out_surface, out_upper_air
+                            inference_time += time.time() - inference_start
+                            # If we have not reached the end of a year, save the output from the model
+                            if time_step_in_year + 1 < output_surface.shape[1]:
+                                transform_start = time.time()
+                                if self.params.has_diagnostic:
+                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                output_surface[:,time_step_in_year + 1] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                                output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                                transform_time += time.time() - transform_start
+                                
+                        # If we are using the 6h and 24h model and we are at 18z
+                        elif self.use_6h_24h_model and (time_step_in_year+1) % 4 == 0 and self.params_24h.has_diagnostic:
+                            # Get the 24h model diagnostic output and subtract the accumulated precip from the 3 6h model predictions
+                            transform_start = time.time()
+                            output_diagnostic_24h = self.dataset_24h.diagnostic_transform(out_diagnostic_24h.to('cpu')).numpy()
+                            if 'pr_6h' in self.params.diagnostic_variables:
+                                output_diagnostic_24h[:, self.pr_6h_idx] -= np.sum(output_diagnostic[:, time_step_in_year+1:time_step_in_year+4, self.pr_6h_idx], axis = 1)
+                            if time_step_in_year + 1 < output_surface.shape[1]:
+                                output_diagnostic[:, time_step_in_year + 1] = output_diagnostic_24h
+                            transform_time += time.time() - transform_start
+                        
+                        # Go to next yearly time step
+                        time_step_in_year += 1
+                        
+                        # If we have reached the end of a year of predictions
+                        if time_step_in_year == output_surface.shape[1]:
+                            # Reset the yearly timestep counter
+                            time_step_in_year = 0
+                            # Convert numpy data to xarray
+                            conversion_start = time.time()
+                            if self.params.has_diagnostic:
+                                ensemble_datasets = self.convert_ensemble_to_xarray(\
+                                    output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
+                                    output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
+                                    particle_idxs, current_datetime, next_output_datetime, np.arange(ensemble_start, ensemble_end),
+                                    diagnostic_prediction = output_diagnostic.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_diagnostic.shape[1:]).copy())
+                            else:
+                                ensemble_datasets = self.convert_ensemble_to_xarray(\
+                                    output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
+                                    output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
+                                    particle_idxs, current_datetime, next_output_datetime, np.arange(ensemble_start, ensemble_end))
+                            conversion_time += time.time() - conversion_start
+                            
+                            # If computing an observable, send this computatation to a separate thread
+                            if type(self.obs_function) is not type(None):
+                                obs_start = time.time()
+                                self.obs_functions(deepcopy(ensemble_datasets)[0], particle_idxs.numpy()[0], ensemble_start, ensemble_end, deepcopy(self.obs_args))
+                                obs_time += time.time() - obs_start
+                                
+                            # If saving the forecasts, send this computation to another thread
+                            if self.params.save_forecasts:
+                                # Queue the results for asynchronous saving
+                                save_start = time.time()
+                                self.save_prediction(deepcopy(ensemble_datasets), particle_idxs.numpy(), ensemble_start, ensemble_end)
+                                save_time += time.time() - save_start
+                                        
+                            
+                            current_year += 1
+                            # If this was not the final year
+                            if current_year < self.params.final_datetime.year:
+                                # Get the number of time steps in the next year
+                                current_datetime = next_output_datetime
+                                next_year_offset_hours = current_datetime.hour % self.params.timedelta_hours
+                                next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=next_year_offset_hours,
+                                                                                has_year_zero = self.params.has_year_zero)
+                                output_inference_steps = int((next_output_datetime - current_datetime).total_seconds() // 3600 / self.params.timedelta_hours)
+                                
+                                # Create new numpy arrays for the next year of data
+                                output_surface = np.zeros((input_surface.shape[0], output_inference_steps,
+                                                                input_surface.shape[1], input_surface.shape[2], input_surface.shape[3]),
+                                                                dtype = np.float32)
+                                output_upper_air = np.zeros((input_upper_air.shape[0], output_inference_steps,
+                                                                input_upper_air.shape[1], input_upper_air.shape[2],
+                                                                input_upper_air.shape[3], input_upper_air.shape[4]),
+                                                                dtype = np.float32)
+                                if self.params.has_diagnostic:
+                                    output_diagnostic = np.zeros((input_surface.shape[0], output_inference_steps,
+                                                                    len(self.params.diagnostic_variables), input_surface.shape[2], input_surface.shape[3]),
+                                                                    dtype = np.float32)
+                                
+                                # Set first time step of new array to last prediction from model
+                                transform_start = time.time()
+                                if self.use_6h_24h_model and self.params.init_datetime.hour == 0:
+                                    if self.params.has_diagnostic:
+                                        output_diagnostic[:, time_step_in_year] = output_diagnostic_24h
+                                    output_surface[:,time_step_in_year] = self.dataset_24h.surface_inv_transform(input_surface_24h.to('cpu')).numpy()
+                                    output_upper_air[:,time_step_in_year] = self.dataset_24h.upper_air_inv_transform(input_upper_air_24h.to('cpu')).numpy()
+                                else:
+                                    if self.params.has_diagnostic:
+                                        output_diagnostic[:, time_step_in_year] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                    output_surface[:,time_step_in_year] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                                    output_upper_air[:,time_step_in_year] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                                    if self.use_6h_24h_model:
+                                        input_surface_24h, input_upper_air_24h = input_surface, input_upper_air
+                                transform_time += time.time() - transform_start
 
         total_time = time.time() - total_start
 
@@ -781,6 +933,7 @@ class Stepper():
             'total_time': total_time,
             'data_time': data_time,
             'inference_time': inference_time,
+            'transform_time': transform_time,
             'conversion_time': conversion_time,
             'obs_time': obs_time,
             'save_time': save_time
@@ -790,7 +943,8 @@ class Stepper():
 
         return total_time, logs
     
-    def convert_ensemble_to_xarray(self, surface_prediction, upper_air_prediction, particle_idxs, current_year, ensemble_idxs = None, diagnostic_prediction = None):
+    def convert_ensemble_to_xarray(self, surface_prediction, upper_air_prediction, particle_idxs, current_year_datetime, next_year_datetime,
+                                   ensemble_idxs = None, diagnostic_prediction = None):
         batch_size, num_ensemble_members, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
         if type(ensemble_idxs) is type(None):
             ensemble_idxs = np.arange(num_ensemble_members)
@@ -808,12 +962,11 @@ class Stepper():
             # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
             # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
             time_range = xr.date_range(
-                self.dataset.datetime_class(current_year, 1, 1, hour=0, has_year_zero=self.params.has_year_zero),
-                self.dataset.datetime_class(current_year+1, 1, 1, hour=0, has_year_zero=self.params.has_year_zero),
+                current_year_datetime, next_year_datetime,
                 freq = f'{self.params.timedelta_hours}h', inclusive='left', calendar = self.params.calendar,
                 use_cftime = True
             )
-            time_range = time_range[-time_steps:]
+            #time_range = time_range[-time_steps:]
             #print(time_range[0], time_range[-1])
             
 
@@ -920,18 +1073,27 @@ class Stepper():
 
         return datasets
     
-    def save_prediction(self, dataset, current_year, total_run_iter):
+    def save_prediction(self, ensemble_datasets, particle_idxs, ensemble_start, ensemble_end):
         savedir = self.params.output_dir
         save_basename = os.path.join(savedir, self.params.save_basename)
         if not os.path.isdir(savedir):
-            os.makedirs(savedir)
-        print(f'Saving prediction {total_run_iter} year {current_year}...')
-        #dataset = dataset.chunk({'time': 1, self.params.lev: 1})
-        #if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
-        #    dataset = dataset.chunk({'plev': 1})
-        #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
-        filename = save_basename + f'_member{total_run_iter:03}_y{current_year:04}.nc'
-        dataset.to_netcdf(os.path.join(savedir, filename))
+            os.makedirs(savedir, exist_ok=True)
+        for i, (dataset, particle_idx) in enumerate(zip(ensemble_datasets, particle_idxs)):
+            for j, ensemble_member in enumerate(range(ensemble_start, ensemble_end)):
+                total_run_iter = (self.params.run_iter - 1) * (self.params.num_ensemble_members * len(self.params.init_nc_filepaths)) + \
+                    self.params.num_ensemble_members * int(particle_idx) + ensemble_member
+                current_year = dataset.time[0].item().year
+                dataset_in = dataset.sel(ensemble_idx = ensemble_member)
+                print(f'Saving prediction {total_run_iter} year {current_year}...')
+                #dataset = dataset.chunk({'time': 1, self.params.lev: 1})
+                #if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
+                #    dataset = dataset.chunk({'plev': 1})
+                #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
+                filename = save_basename + f'_member{total_run_iter:03}_y{current_year:04}.nc'
+                if os.path.isfile(filename):
+                    os.remove(filename)
+                dataset_in.to_netcdf(filename)
+            dataset.close()
 
 
 if __name__ == '__main__':
@@ -948,6 +1110,8 @@ if __name__ == '__main__':
     parser.add_argument("--init_nc_filepaths", required=True, type=str)
     parser.add_argument("--async_save", default = False, action='store_true')
     parser.add_argument("--run_iter", default = 1, type = int)
+    parser.add_argument("--output_dir", default = "", type = str)
+    parser.add_argument("--save_basename", default = "", type = str)
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -985,6 +1149,10 @@ if __name__ == '__main__':
         params['num_ensemble_members'] = 1
     params['init_nc_filepaths'] = args.init_nc_filepaths.split(',')
     params['nc_bc_offset'] = 18
+    if len(args.output_dir) > 0:
+        params['output_dir'] = args.output_dir
+    if len(args.save_basename) > 0:
+        params['save_basename'] = args.save_basename
     if not hasattr(params, 'ensemble_members_per_pred'):
         params['ensemble_members_per_pred'] = params.num_ensemble_members
     if args.debug:
@@ -998,6 +1166,7 @@ if __name__ == '__main__':
         else:
             params['world_size'] = torch.cuda.device_count()
             print(params['world_size'])
+    params['batch_size'] = params['world_size']
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
         if 'derecho' in str(Path(__file__)):
@@ -1014,6 +1183,8 @@ if __name__ == '__main__':
     else:
         world_rank = 0
         local_rank = 0
+    if world_rank == 0:
+        print(f'World size: {params.world_size}')
             
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
@@ -1024,14 +1195,14 @@ if __name__ == '__main__':
         
     if len(args.init_datetime) == 0:
         if hasattr(params, "init_datetime"):
-            params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
+            params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
                                                                             calendar = 'proleptic_gregorian')
         else:
             params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
                                                             calendar = 'proleptic_gregorian')
     else:
-        params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
+        params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
                                                                             calendar = 'proleptic_gregorian')
     params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
@@ -1039,16 +1210,27 @@ if __name__ == '__main__':
                                                                 params.init_datetime.day,
                                                                 hour = params.init_datetime.hour,
                                                                 has_year_zero = params.has_year_zero)
+    
+    params['init_nc_timestep_offset'] = []
+    for file in params.init_nc_filepaths:
+        ds = xr.open_dataset(file, engine = 'netcdf4')
+        index = ds.get_index("time").get_loc(params["init_datetime"])
+        params['init_nc_timestep_offset'].append(index)
+        ds.close()
+    print('Init filepaths:')
+    print(params.init_nc_filepaths)
+    print("Init .nc file time offset:")
+    print(params['init_nc_timestep_offset'])
     if len(args.final_datetime) == 0:
         if hasattr(params, "final_datetime"):
-            params['final_datetime'] = cftime.datetime.strptime(params.final_datetime, "%Y-%m-%d %H:%M:%S",
+            params['final_datetime'] = cftime.datetime.strptime(params.final_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
                                                                             calendar = 'proleptic_gregorian')
         else:
             params['final_datetime'] = cftime.datetime(params.val_year_end, 1, 1, 0, has_year_zero = params.has_year_zero,
                                                             calendar = 'proleptic_gregorian')
     else:
-        params['final_datetime'] = cftime.datetime.strptime(args.final_datetime, "%Y-%m-%d %H:%M:%S",
+        params['final_datetime'] = cftime.datetime.strptime(args.final_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
                                                                             calendar = 'proleptic_gregorian')
     params['final_datetime'] = cftime.DatetimeProlepticGregorian(params.final_datetime.year,
@@ -1056,8 +1238,14 @@ if __name__ == '__main__':
                                                                 params.final_datetime.day,
                                                                 hour = params.final_datetime.hour,
                                                                 has_year_zero = params.has_year_zero)
+    print('Init datetime:')
+    print(params.init_datetime)
+    print('Final datetime:')
+    print(params.final_datetime)
 
     params['local_rank'] = local_rank
+    if len(params_list) > 1:
+        params_list[1]['local_rank'] = local_rank
     params['enable_amp'] = True
 
     # Add indicator for precision method and engine

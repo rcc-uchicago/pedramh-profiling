@@ -80,19 +80,19 @@ def get_data_given_path(path, variables):
     x = [data['input'][v] for v in variables]
     return np.stack(x, axis=0)
 
-def get_data_given_path_nc(path, variables_3D, variables_2D):
+def get_data_given_path_nc(path, variables_3D, variables_2D, timestep_offset = -1):
     x = []
     with nc.Dataset(path, 'r') as f:
         if variables_3D:
             for variable in variables_3D:
                 if len(f.variables[variable].shape) == 4:
-                    x.append(f.variables[variable][-1,:])
+                    x.append(f.variables[variable][timestep_offset,:])
                 else:
                     x.append(f.variables[variable][:])
         if variables_2D:
             for variable in variables_2D:
                 if len(f.variables[variable].shape) == 3:
-                    x_in = f.variables[variable][-1,:]
+                    x_in = f.variables[variable][timestep_offset,:]
                 else:
                     x_in = f.variables[variable][:]
                 x.append(x_in.reshape(1, x_in.shape[0], x_in.shape[1]))
@@ -160,6 +160,9 @@ class GetDataset(Dataset):
         if self.ensemble:
             assert self.init_from_nc
             assert hasattr(self.params, "init_nc_filepaths")
+            self.init_nc_timestep_offset = -1
+            if hasattr(self.params, "init_nc_timestep_offset"):
+                self.init_nc_timestep_offset = self.params.init_nc_timestep_offset
         if not self.train and not self.params.forecast_lead_times:
             self.params['forecast_lead_times'] = [1]
         if self.single_ic or self.ensemble:
@@ -245,6 +248,7 @@ class GetDataset(Dataset):
         elif self.ensemble:
             self.ensemble_inference_steps = self.params.ensemble_inference_hours // self.params.timedelta_hours
             self.dates = np.zeros(len(self.params.init_nc_filepaths))
+            print(f'Num dates: {len(self.dates)}')
             self.start_date = self.params.init_datetime
         else:
             self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
@@ -254,11 +258,7 @@ class GetDataset(Dataset):
             print('Constant boundary has nan')
             sys.exit(2)
         
-<<<<<<< HEAD
         if self.single_ic or self.ensemble:
-=======
-        if single_ic:
->>>>>>> 0a64e7e13412878f3cffdfb42b551716d1e49d56
             self.inference_idxs = np.arange(0, len(self.dates))
         else:
             max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
@@ -266,6 +266,7 @@ class GetDataset(Dataset):
                 self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
             else:
                 self.inference_idxs = np.arange(0, max_inference_idx)
+        print(f'Len(inference_idxs): {len(self.inference_idxs)}')
         #print('Inference idxs:')
         #print(self.inference_idxs)
         #self.data_dss = self._load_data()
@@ -577,12 +578,12 @@ class GetDataset(Dataset):
     def _get_data_nc(self, index, out = False, variable_list_3D = None, variable_list_2D = None):
         data_file_path = self.params.init_nc_filepaths[index]
         if variable_list_3D or variable_list_2D:
-            raw_data = get_data_given_path_nc(data_file_path, variable_list_3D, variable_list_2D)
+            raw_data = get_data_given_path_nc(data_file_path, variable_list_3D, variable_list_2D, self.init_nc_timestep_offset[index])
         else:
             if out:
-                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables + self.diagnostic_variables)
+                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables + self.diagnostic_variables, self.init_nc_timestep_offset[index])
             else:
-                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables)
+                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables, self.init_nc_timestep_offset[index])
         return raw_data
     
     def _get_boundary_data(self, data_datetime):
