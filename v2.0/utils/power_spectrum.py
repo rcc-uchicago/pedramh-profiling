@@ -258,68 +258,184 @@ def plot_power_spectrum(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_t
     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
     plt.close(fig)
     
-def plot_bias(bias_pred, bias_gt, filename,
-              vars=["tas", "zg", "ua", "hus"], 
-              plevs=[None, 50000, 25000, 85000]):
-    """ Plot the power spectrum of the forecast and ground truth
-    :param bias_pred: xarray dataset, power spectrum of the forecast
-    :param bias_gt: xarray dataset, power spectrum of the ground truth
-    :param preds_times: array, time values of the forecast
-    :param filename: str, path to save the plot
-    :param lead_times: list, lead times in hours to plot
-    :param vars: list, variables to plot (default: ["ta", "zg", "ua"])
-    :param plevs: list, pressure levels in Pa to plot (default: [850*100, 500*100, 250*100])
-    """
-    # Filter variables that are present in the data
-    available_vars = [var for var in vars if var in bias_pred.data_vars]
-    if not available_vars:
-        raise ValueError(f"None of the specified variables {vars} are present in the data. Available variables: {list(bias_pred.data_vars)}")
+# def plot_bias(bias_pred, bias_gt, filename,
+#               vars=["tas", "zg", "ua", "hus"], 
+#               plevs=[None, 50000, 25000, 85000]):
+#     """ Plot the power spectrum of the forecast and ground truth
+#     :param bias_pred: xarray dataset, power spectrum of the forecast
+#     :param bias_gt: xarray dataset, power spectrum of the ground truth
+#     :param preds_times: array, time values of the forecast
+#     :param filename: str, path to save the plot
+#     :param lead_times: list, lead times in hours to plot
+#     :param vars: list, variables to plot (default: ["ta", "zg", "ua"])
+#     :param plevs: list, pressure levels in Pa to plot (default: [850*100, 500*100, 250*100])
+#     """
+#     # Filter variables that are present in the data
+#     available_vars = [var for var in vars if var in bias_pred.data_vars]
+#     if not available_vars:
+#         raise ValueError(f"None of the specified variables {vars} are present in the data. Available variables: {list(bias_pred.data_vars)}")
 
-    # Filter pressure levels that are present in the data
-    available_plevs = [plev for plev in plevs if plev in bias_pred.plev.values and plev != None]
-    if not available_plevs:
-        raise ValueError(f"None of the specified pressure levels {plevs} are present in the data. Available levels: {bias_pred.plev.values}")
+#     # Filter pressure levels that are present in the data
+#     available_plevs = [plev for plev in plevs if plev in bias_pred.plev.values and plev != None]
+#     if not available_plevs:
+#         raise ValueError(f"None of the specified pressure levels {plevs} are present in the data. Available levels: {bias_pred.plev.values}")
 
-    # Create subplots
-    # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
-    plot_dims =  (len(available_vars) // 2, len(available_vars) // 2 + len(available_vars) % 2)
-    fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(6*plot_dims[1], 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
+#     # Create subplots
+#     # fig, axs = plt.subplots(len(plot_lead_times), len(available_vars), figsize=(18, 20), squeeze=False)
+#     plot_dims =  (len(available_vars) // 2, len(available_vars) // 2 + len(available_vars) % 2)
+#     fig, axs = plt.subplots(plot_dims[0], plot_dims[1], figsize=(6*plot_dims[1], 13), squeeze=False)#, subplot_kw={"projection": ccrs.PlateCarree()})
 
-    for i, j in product(range(plot_dims[0]), range(plot_dims[1])):
-        if j+i*plot_dims[1] < len(vars):
-            var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
-            if plev:
+#     for i, j in product(range(plot_dims[0]), range(plot_dims[1])):
+#         if j+i*plot_dims[1] < len(vars):
+#             var, plev = vars[j + i*plot_dims[1]], plevs[j + i*plot_dims[1]]
+#             if plev:
                 
-                var_bias_pred = bias_pred[var].sel(plev = plev)
-                var_bias_gt = bias_gt[var].sel(plev = plev)
-            else:
+#                 var_bias_pred = bias_pred[var].sel(plev = plev)
+#                 var_bias_gt = bias_gt[var].sel(plev = plev)
+#             else:
+#                 var_bias_pred = bias_pred[var]
+#                 var_bias_gt = bias_gt[var]
+#             var_bias_pred_aligned = var_bias_pred.squeeze().transpose(*var_bias_gt.dims)
+#             var_bias_pred_aligned['lat'] = var_bias_gt.lat
+#             diff = var_bias_pred_aligned - var_bias_gt
+            
+#             pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r")#, transform=ccrs.PlateCarree())
+#             contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1)#, transform=ccrs.PlateCarree())
+            
+#             # Add continent outlines
+#             #axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
+#             #axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
+            
+#             # Add colorbar
+#             cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
+#             if plev:
+#                 cbar.set_label(f"{var}")
+#             else:
+#                 cbar.set_label(f"{var} {plev}")
+#             axs[i,j].clabel(contours, inline=True, fontsize=8)
+    
+#     plt.suptitle(f"Prediction Bias (Pred. - Truth)", y=1.01)
+#     plt.tight_layout() 
+#     plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
+#     plt.close(fig)
+
+#     return fig, axs
+
+def plot_bias(bias_pred, bias_gt, filename, var_level_dict):
+    """
+    """
+    # Filter variables based on presence in both datasets
+    available_vars_dict = {
+        var: levels for var, levels in var_level_dict.items()
+        if var in bias_pred.data_vars and var in bias_gt.data_vars
+    }
+
+    if not available_vars_dict:
+        print(f"Warning: No valid variables found to plot based on var_level_dict and data availability. Skipping bias plot.")
+        return
+
+    num_vars = len(available_vars_dict)
+    var_list = list(available_vars_dict.keys())
+
+    # Determine subplot layout
+    cols = 2 if num_vars > 1 else 1
+    rows = (num_vars + cols - 1) // cols
+    plot_dims = (rows, cols)
+
+    fig, axs = plt.subplots(
+        plot_dims[0], plot_dims[1],
+        figsize=(7 * plot_dims[1], 6 * plot_dims[0]),
+        squeeze=False,
+        subplot_kw={"projection": ccrs.PlateCarree()}
+    )
+    axs_flat = axs.flatten()
+
+    plot_idx = 0
+    for var in var_list:
+        levels = available_vars_dict[var]
+        ax = axs_flat[plot_idx]
+
+        is_surface = not levels
+        level_coord_name = None
+        level_value = None
+        level_label = "Surface"
+
+        try:
+            if not is_surface:
+                # one level per panel? 
+                level_value = levels[0] 
+
+                # Consistent with plot_acc_over_lead_time heuristic
+                threshold = 10.0 
+                if 0 < level_value < threshold: # Assumed sigma
+                     level_coord_name = 'lev'
+                     level_label = f"{level_value:.4f} σ"
+                elif level_value >= threshold: # Assumed pressure (Pa)
+                     level_coord_name = 'plev'
+                     level_label = f"{level_value/100:.0f} hPa"
+                else:
+                    raise ValueError(f"Invalid level value {level_value} for non-surface variable {var}")
+
+                # Check if the determined coordinate exists before selecting
+                if level_coord_name not in bias_pred.coords or level_coord_name not in bias_gt.coords:
+                     print(f"Warning: Determined coordinate '{level_coord_name}' not found for variable '{var}'. Skipping plot.")
+                     ax.set_title(f"{var} ({level_label})\nCoord Missing")
+                     ax.set_axis_off()
+                     plot_idx += 1
+                     continue
+
+                # Select data using the determined coordinate
+                var_bias_pred = bias_pred[var].sel(**{level_coord_name: level_value}, method='nearest')
+                var_bias_gt = bias_gt[var].sel(**{level_coord_name: level_value}, method='nearest')
+
+            else: # Surface variable
                 var_bias_pred = bias_pred[var]
                 var_bias_gt = bias_gt[var]
-            var_bias_pred_aligned = var_bias_pred.squeeze().transpose(*var_bias_gt.dims)
-            var_bias_pred_aligned['lat'] = var_bias_gt.lat
-            diff = var_bias_pred_aligned - var_bias_gt
-            
-            pcm = axs[i,j].pcolormesh(diff.lon, diff.lat, diff, cmap="RdBu_r")#, transform=ccrs.PlateCarree())
-            contours = axs[i,j].contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt, colors="black", linewidths=1)#, transform=ccrs.PlateCarree())
-            
-            # Add continent outlines
-            #axs[i,j].add_feature(cfeature.COASTLINE, linewidth=1)
-            #axs[i,j].add_feature(cfeature.BORDERS, linestyle=":")
-            
-            # Add colorbar
-            cbar = plt.colorbar(pcm, ax=axs[i,j], orientation="horizontal", fraction=0.046, pad=0.04)
-            if plev:
-                cbar.set_label(f"{var}")
-            else:
-                cbar.set_label(f"{var} {plev}")
-            axs[i,j].clabel(contours, inline=True, fontsize=8)
-    
-    plt.suptitle(f"Prediction Bias (Pred. - Truth)", y=1.01)
-    plt.tight_layout() 
-    plt.savefig(filename, pad_inches=0.1, bbox_inches='tight')
-    plt.close(fig)
 
-    return fig, axs
+            var_bias_pred_aligned = var_bias_pred.squeeze().transpose(*var_bias_gt.dims)
+            var_bias_pred_aligned = var_bias_pred_aligned.assign_coords(lat=var_bias_gt.lat, lon=var_bias_gt.lon)
+            diff = var_bias_pred_aligned - var_bias_gt
+
+            max_abs_diff = np.max(np.abs(diff.fillna(0).values))
+            cmap_limit = max_abs_diff if max_abs_diff > 1e-9 else 1.0
+
+            pcm = ax.pcolormesh(diff.lon, diff.lat, diff.values, cmap="RdBu_r",
+                                vmin=-cmap_limit, vmax=cmap_limit, transform=ccrs.PlateCarree())
+            contours = ax.contour(var_bias_gt.lon, var_bias_gt.lat, var_bias_gt.values,
+                                  colors="black", linewidths=0.8, transform=ccrs.PlateCarree())
+
+            ax.coastlines(linewidth=0.5)
+            ax.gridlines(draw_labels=True, linewidth=0.5, color='gray', alpha=0.5, linestyle='--')
+            cbar = plt.colorbar(pcm, ax=ax, orientation="horizontal", fraction=0.046, pad=0.1, extend='both')
+            cbar.set_label(f"Bias")
+            ax.clabel(contours, inline=True, fontsize=8, fmt='%g')
+            ax.set_title(f"Bias: {var} ({level_label})")
+            # --- End Plotting Logic ---
+
+            plot_idx += 1 # Increment successfully plotted index
+
+        except Exception as e:
+            print(f"ERROR plotting {var} at level '{level_label}': {e}")
+            traceback.print_exc()
+            ax.set_title(f"{var} ({level_label})\nPlotting Error")
+            ax.set_axis_off()
+            plot_idx += 1
+
+    # Hide unused axes
+    for k in range(plot_idx, len(axs_flat)):
+        fig.delaxes(axs_flat[k])
+
+    plt.suptitle(f"Prediction Bias (Forecast Mean - Climatology Mean)", y=1.02, fontsize=16)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.98])
+
+    try:
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        plt.savefig(filename, dpi=200, bbox_inches='tight')
+        print(f"Saved bias plot (level value heuristic) to: {filename}")
+    except Exception as e:
+        print(f"ERROR saving bias plot '{filename}': {e}")
+    finally:
+        plt.close(fig)
 
 # def plot_power_spectrum(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times,
 #                              var_dict=None):
@@ -660,10 +776,11 @@ def plot_acc_over_lead_time(acc, lead_times_hours, var_dict=None, colors=None, f
                 for model, ds in acc.items():
                     if var in ds:
                         # Determine coordinate system based on level value
-                        if level < 1.0:  # This is a sigma level
+                        # set threshold for sigma levels
+                        if level < 1.0:  
                             coord = 'lev'
                             level_label = f"{level:.4f} σ"
-                        else:  # This is a pressure level
+                        else: 
                             coord = 'plev'
                             level_label = f"{level/100:.0f} hPa"
 

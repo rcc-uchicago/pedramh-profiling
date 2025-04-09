@@ -1361,16 +1361,26 @@ class Trainer():
         lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
                 
         if len(preds_times) > 0:
-            # Get variable dictionary from params if available
+            # Get variable dictionary from params 
             var_dict = self.params.diagnostic_spectrum_var_dict if hasattr(self.params, 'diagnostic_spectrum_var_dict') else None
 
-            # Call the plotting function with the updated parameters
             p = Process(target=plot_power_spectrum, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours, var_dict))
         else:
-            if 'mrso' in self.params.land_variables:
-                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            if hasattr(self.params, 'diagnostic_bias_var_dict'):
+                var_dict = self.params.diagnostic_bias_var_dict
+            elif 'mrso' in self.params.land_variables:
+                vars = ["tas", "mrso", "zg", "ua", "hus"]
+                levels = [None, None, 50000, 25000, 85000]
+                var_dict = {var: [level] if level is not None else [] for var, level in zip(vars, levels)}
             else:
-                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
+                # basic fallback
+                var_dict = {"tas": [], "zg": [50000], "ua": [0.4368000030517578]}
+                
+            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, var_dict))
+            # if 'mrso' in self.params.land_variables:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            # else:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
         p.start()
         p.join()
 
@@ -2313,9 +2323,9 @@ if __name__ == '__main__':
     if hasattr(params, 'use_sigma_levels'):
         if params.use_sigma_levels:
             print('For sigma level training, disabling diagnostic ACC and diagnostic spectra')
-            params['diagnostic_acc'] = True
-            params['diagnostic_spectra'] = True
-            params['diagnostic_gif'] = True
+            params['diagnostic_acc'] = False
+            params['diagnostic_spectra'] = False
+            params['diagnostic_gif'] = False
 
     
     if not params.just_validate:
