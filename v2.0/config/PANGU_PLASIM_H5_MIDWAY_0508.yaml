@@ -36,7 +36,7 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: /net/scratch2/tvallabh/data/sigma_data
+  data_dir: /net/scratch2/awikner/PLASIM/data/sigma_data
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
   diagnostic_variables: ['pr_6h']
