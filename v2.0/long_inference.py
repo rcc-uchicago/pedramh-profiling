@@ -53,7 +53,7 @@ from natsort import natsorted
 import glob
 
 
-mp.set_start_method("spawn", force=True)
+#mp.set_start_method("spawn", force=True)
 
 
 def cleanup():
@@ -197,13 +197,13 @@ class Stepper():
         self.params['single_ic_offset'] = int((self.params.init_datetime - \
             self.dataset.datetime_class(self.params.init_datetime.year, 1, 1, 0, has_year_zero = self.params.has_year_zero)).total_seconds() // 3600)
         self.data_loader_bcs, self.dataset_bcs = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
-                                                         year_start=self.params.val_year_start, 
-                                                         year_end=self.params.val_year_end, train=False,
+                                                         year_start=self.params.init_datetime.year, 
+                                                         year_end=self.params.final_datetime.year, train=False,
                                                          single_ic = True, load_all_bcs = False)
         
         if self.params.epsilon_factor > 0.:
             self.perturber = Perturber(self.params, self.dataset, device = self.device,
-                                    device_idx = self.world_rank)
+                                    device_idx = self.world_rank, seed = self.params.run_iter*self.params.world_size)
         
         
         #print('Inference Idxs:')
@@ -441,10 +441,6 @@ class Stepper():
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
                     constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
                     
-                    # Perturb initial conditions if using perturbations
-                    if self.params.epsilon_factor > 0.:
-                        input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
-                    
                     #If using 6h and 24h models, also initialize initial condition for 24h model
                     if self.use_6h_24h_model:
                         input_surface_24h = torch.clone(input_surface)
@@ -458,6 +454,12 @@ class Stepper():
                     time_step_in_year = 0
                     next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=next_year_offset_hours,
                                                                     has_year_zero = self.params.has_year_zero)
+                    
+                    # Perturb initial conditions if using perturbations
+                    if self.params.epsilon_factor > 0. and self.params.init_datetime.year == 1:
+                        print('Perturbing ICs...')
+                        input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
+                        
                     output_inference_steps = int((next_output_datetime - current_datetime).total_seconds() // 3600 / self.params.timedelta_hours)
                     output_surface = np.zeros((input_surface.shape[0], output_inference_steps,
                                                     input_surface.shape[1], input_surface.shape[2], input_surface.shape[3]),
@@ -537,7 +539,7 @@ class Stepper():
                             if time_step_in_year + 1 < output_surface.shape[1]:
                                 transform_start = time.time()
                                 if self.params.has_diagnostic:
-                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_inv_transform(out_diagnostic.to('cpu')).numpy()
                                 output_surface[:,time_step_in_year + 1] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                 output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                 transform_time += time.time() - transform_start
@@ -564,7 +566,7 @@ class Stepper():
                             if time_step_in_year + 1 < output_surface.shape[1]:
                                 transform_start = time.time()
                                 if self.params.has_diagnostic:
-                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_inv_transform(out_diagnostic.to('cpu')).numpy()
                                 output_surface[:,time_step_in_year + 1] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                 output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                 transform_time += time.time() - transform_start
@@ -573,7 +575,7 @@ class Stepper():
                         elif self.use_6h_24h_model and (time_step_in_year+1) % 4 == 0 and self.params_24h.has_diagnostic:
                             # Get the 24h model diagnostic output and subtract the accumulated precip from the 3 6h model predictions
                             transform_start = time.time()
-                            output_diagnostic_24h = self.dataset_24h.diagnostic_transform(out_diagnostic_24h.to('cpu')).numpy()
+                            output_diagnostic_24h = self.dataset_24h.diagnostic_inv_transform(out_diagnostic_24h.to('cpu')).numpy()
                             if 'pr_6h' in self.params.diagnostic_variables:
                                 output_diagnostic_24h[:, self.pr_6h_idx] -= np.sum(output_diagnostic[:, time_step_in_year+1:time_step_in_year+4, self.pr_6h_idx], axis = 1)
                             if time_step_in_year + 1 < output_surface.shape[1]:
@@ -646,7 +648,7 @@ class Stepper():
                                     output_upper_air[:,time_step_in_year] = self.dataset_24h.upper_air_inv_transform(input_upper_air_24h.to('cpu')).numpy()
                                 else:
                                     if self.params.has_diagnostic:
-                                        output_diagnostic[:, time_step_in_year] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                        output_diagnostic[:, time_step_in_year] = self.dataset.diagnostic_inv_transform(out_diagnostic.to('cpu')).numpy()
                                     output_surface[:,time_step_in_year] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                     output_upper_air[:,time_step_in_year] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                     if self.use_6h_24h_model:
@@ -713,10 +715,6 @@ class Stepper():
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
                     constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
                     
-                    # Perturb initial conditions if using perturbations
-                    if self.params.epsilon_factor > 0.:
-                        input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
-                    
                     #If using 6h and 24h models, also initialize initial condition for 24h model
                     if self.use_6h_24h_model:
                         input_surface_24h = torch.clone(input_surface)
@@ -728,6 +726,12 @@ class Stepper():
                     current_year = self.params.init_datetime.year
                     next_year_offset_hours = current_datetime.hour % self.params.timedelta_hours
                     time_step_in_year = 0
+                    
+                    # Perturb initial conditions if using perturbations
+                    if self.params.epsilon_factor > 0. and self.params.init_datetime.year == 1:
+                        print('Perturbing ICs...')
+                        input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
+                        
                     next_output_datetime = self.dataset.datetime_class(current_year+1, 1, 1, hour=next_year_offset_hours,
                                                                     has_year_zero = self.params.has_year_zero)
                     output_inference_steps = int((next_output_datetime - current_datetime).total_seconds() // 3600 / self.params.timedelta_hours)
@@ -809,7 +813,7 @@ class Stepper():
                             if time_step_in_year + 1 < output_surface.shape[1]:
                                 transform_start = time.time()
                                 if self.params.has_diagnostic:
-                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_inv_transform(out_diagnostic.to('cpu')).numpy()
                                 output_surface[:,time_step_in_year + 1] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                 output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                 transform_time += time.time() - transform_start
@@ -836,7 +840,7 @@ class Stepper():
                             if time_step_in_year + 1 < output_surface.shape[1]:
                                 transform_start = time.time()
                                 if self.params.has_diagnostic:
-                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                    output_diagnostic[:, time_step_in_year + 1] = self.dataset.diagnostic_inv_transform(out_diagnostic.to('cpu')).numpy()
                                 output_surface[:,time_step_in_year + 1] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                 output_upper_air[:,time_step_in_year + 1] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                 transform_time += time.time() - transform_start
@@ -845,7 +849,7 @@ class Stepper():
                         elif self.use_6h_24h_model and (time_step_in_year+1) % 4 == 0 and self.params_24h.has_diagnostic:
                             # Get the 24h model diagnostic output and subtract the accumulated precip from the 3 6h model predictions
                             transform_start = time.time()
-                            output_diagnostic_24h = self.dataset_24h.diagnostic_transform(out_diagnostic_24h.to('cpu')).numpy()
+                            output_diagnostic_24h = self.dataset_24h.diagnostic_inv_transform(out_diagnostic_24h.to('cpu')).numpy()
                             if 'pr_6h' in self.params.diagnostic_variables:
                                 output_diagnostic_24h[:, self.pr_6h_idx] -= np.sum(output_diagnostic[:, time_step_in_year+1:time_step_in_year+4, self.pr_6h_idx], axis = 1)
                             if time_step_in_year + 1 < output_surface.shape[1]:
@@ -952,6 +956,14 @@ class Stepper():
         #    Warning('Obs functions assume a batch size of 1!')
         # print(f"TIME STEPS ARE: {time_steps}")
         datasets = []
+        if next_year_datetime.year == self.params.final_datetime.year:
+            save_level_idxs = np.arange(len(self.params.levels))
+            if self.params.use_sigma_levels:
+                save_sigma_level_idxs = np.arange(len(self.params.sigma_levels))
+        else:
+            save_level_idxs = self.save_level_idxs
+            if self.params.use_sigma_levels:
+                save_sigma_level_idxs = self.save_sigma_level_idxs
 
         for sample, particle_idx in enumerate(particle_idxs):
             # time_range = xr.cftime_range(
@@ -984,8 +996,8 @@ class Stepper():
                 coordinates = {
                     'ensemble_idx': ensemble_idxs,
                     'time': time_range,
-                    level_coord_name: levels[self.save_sigma_level_idxs],
-                    'plev': self.dataset.levels[self.save_level_idxs],
+                    level_coord_name: levels[save_sigma_level_idxs],
+                    'plev': self.dataset.levels[save_level_idxs],
                     'lat': self.params.lat,
                     'lon': self.params.lon
                 }
@@ -993,7 +1005,7 @@ class Stepper():
                 coordinates = {
                     'ensemble_idx': ensemble_idxs,
                     'time': time_range,
-                    level_coord_name: levels[self.save_level_idxs],
+                    level_coord_name: levels[save_level_idxs],
                     'lat': self.params.lat,
                     'lon': self.params.lon
                 }
@@ -1031,36 +1043,36 @@ class Stepper():
             for idx, var in enumerate(self.dataset.upper_air_variables):
                 if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
                     da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, :, idx][:, :, self.save_level_idxs],
+                        data=upper_air_prediction[sample, :, :, idx][:, :, save_level_idxs],
                         dims=["ensemble_idx", "time", "plev", "lat", "lon"],
                         coords = {
                             'ensemble_idx': ensemble_idxs,
                             'time': time_range,
-                            'plev': self.dataset.plev.values[self.save_level_idxs],
+                            'plev': self.dataset.plev.values,
                             'lat': self.params.lat,
                             'lon': self.params.lon
                         }
                     )
                 elif self.params.lev == 'lev':
                     da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, :, idx][:, :, self.save_sigma_level_idxs],
+                        data=upper_air_prediction[sample, :, :, idx][:, :, save_sigma_level_idxs],
                         dims=["ensemble_idx", "time", self.params.lev, "lat", "lon"],
                         coords = {
                             'ensemble_idx': ensemble_idxs,
                             'time': time_range,
-                            self.params.lev: dataset.lev.values[self.save_sigma_level_idxs],
+                            self.params.lev: dataset.lev.values,
                             'lat': self.params.lat,
                             'lon': self.params.lon
                         }
                     )
                 else:
                     da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, :, idx][:, :, self.save_level_idxs],
+                        data=upper_air_prediction[sample, :, :, idx][:, :, save_level_idxs],
                         dims=["ensemble_idx", "time", level_coord_name, "lat", "lon"],
                         coords = {
                             'ensemble_idx': ensemble_idxs,
                             'time': time_range,
-                            self.params.lev: dataset[self.params.lev].values[self.save_level_idxs],
+                            self.params.lev: dataset[self.params.lev].values,
                             'lat': self.params.lat,
                             'lon': self.params.lon
                         }
@@ -1084,15 +1096,19 @@ class Stepper():
                     self.params.num_ensemble_members * int(particle_idx) + ensemble_member
                 current_year = dataset.time[0].item().year
                 dataset_in = dataset.sel(ensemble_idx = ensemble_member)
+                dataset_in = dataset_in.drop_vars("ensemble_idx")
                 print(f'Saving prediction {total_run_iter} year {current_year}...')
                 #dataset = dataset.chunk({'time': 1, self.params.lev: 1})
                 #if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
                 #    dataset = dataset.chunk({'plev': 1})
                 #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
                 filename = save_basename + f'_member{total_run_iter:03}_y{current_year:04}.nc'
-                if os.path.isfile(filename):
-                    os.remove(filename)
-                dataset_in.to_netcdf(filename)
+                if filename in self.params.init_nc_filepaths:
+                    print(f'Skipping ic file: {os.path.basename(filename)}')
+                else:
+                    if os.path.isfile(filename):
+                        os.remove(filename)
+                    dataset_in.to_netcdf(filename)
             dataset.close()
 
 

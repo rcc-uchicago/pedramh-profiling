@@ -28,7 +28,6 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 which python
 # Launch your script using torch.distributed.launch
 python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE long_inference.py \
-    --run_num=0515 --yaml_config=config/PANGU_PLASIM_H5_DERECHO_0515_longtest_2.yaml\
-    --async_save \
+    --run_num=0515 --yaml_config=config/PANGU_PLASIM_H5_DERECHO_0515_longtest_3.yaml \
     --init_datetime=$INIT_DATETIME --final_datetime=$FINAL_DATETIME --init_nc_filepaths=$INIT_NC_FILEPATHS\
-    --run_iter=$RUN_ITER
+    --run_iter=$RUN_ITER --output_dir=$OUTPUT_DIR

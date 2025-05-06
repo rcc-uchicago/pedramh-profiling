@@ -473,7 +473,9 @@ class GetDataset(Dataset):
         return datetime_class_dict[calendar]
 
     def _load_constant_boundary_data(self):
-        constant_boundary_data = torch.from_numpy(self._get_data(self.start_date, variable_list = self.constant_boundary_variables)).to(torch.float32)
+        constant_boundary_date = self.datetime_class(self.params.val_year_start, 1, 1, 0, has_year_zero = self.params.has_year_zero)
+        constant_boundary_data = torch.from_numpy(self._get_data(constant_boundary_date, 
+                                                                 variable_list = self.constant_boundary_variables)).to(torch.float32)
         constant_boundary_data = self._fill_mask(constant_boundary_data, self.constant_boundary_variables)
         land_mask = torch.clone(constant_boundary_data[np.array(self.constant_boundary_variables) == self.land_sea_mask_name].detach())
         constant_boundary_mean = torch.mean(constant_boundary_data, dim=(1,2))
@@ -544,19 +546,22 @@ class GetDataset(Dataset):
     # Modification for the autoregressive parameter
     def _get_dates(self, hour_step=6.):
         if self.single_ic:
-            start_date = self.datetime_class(self.year_start, 1, 1) + timedelta(hours=self.single_ic_offset)
+            start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero) + timedelta(hours=self.single_ic_offset)
+            print(f'Start date: {start_date.strftime("%Y-%m-%d_%H:%M:%S")}')
             if hasattr(self.params, "prediction_duration_days"):
                 print(f'Initializing data loader for {self.params.prediction_duration_days} day prediction.')
                 end_date = start_date + timedelta(days=self.params.prediction_duration_days)
             else:
-                end_date = self.datetime_class(self.year_start + self.long_rollout_years, 1, 1)
+                end_date = self.datetime_class(self.year_start + self.long_rollout_years, 1, 1, has_year_zero = self.has_year_zero)
+            print(f'End date: {end_date.strftime("%Y-%m-%d_%H:%M:%S")}')
         else:
-            start_date = self.datetime_class(self.year_start, 1, 1)
-            end_date = self.datetime_class(self.year_end, 1, 1)
+            start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
+            end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
             
-        hours = (end_date - start_date).days * 24.
+        hours = (end_date - start_date).total_seconds() // 3600
         
         date_range = np.arange(0., hours, hour_step)
+        print(f'Hours: {hours}')
         print(f'End data hour: {date_range[-1]}')
         return date_range, start_date, end_date
         
@@ -609,8 +614,18 @@ class GetDataset(Dataset):
         #self.lat = torch.from_numpy(self.data_dss[0].lat.values)
         #self.lev = torch.from_numpy(self.data_dss[0].lev.values)
         if self.single_ic:
-            start_time = self.start_date + timedelta(hours=self.dates[index]) + timedelta(hours=self.nc_bc_offset)
             if index == 0:
+                if self.start_date.year != self.params.val_year_start:
+                    if cftime.is_leap_year(self.start_date.year, self.params.calendar, self.has_year_zero):
+                        start_time = self.datetime_class(self.leap_year, self.start_date.month, self.start_date.day,
+                                                         self.start_date.hour, has_year_zero = self.has_year_zero) +\
+                                                             timedelta(hours=self.dates[index]) + timedelta(hours=self.nc_bc_offset)
+                    else:
+                        start_time = self.datetime_class(self.no_leap_year, self.start_date.month, self.start_date.day,
+                                                         self.start_date.hour, has_year_zero = self.has_year_zero) +\
+                                                             timedelta(hours=self.dates[index]) + timedelta(hours=self.nc_bc_offset)
+                else:
+                    start_time = self.start_date + timedelta(hours=self.dates[index]) + timedelta(hours=self.nc_bc_offset)
                 data_in  = self._get_data(start_time, out = False)
                 if len(self.varying_boundary_variables) > 0:
                     upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out = False)
@@ -632,6 +647,7 @@ class GetDataset(Dataset):
                     upper_air_t = upper_air_t + upper_air_t_noise
                 return surface_t, upper_air_t, varying_boundary_data, torch.tensor(start_time.year)
             else:
+                start_time = self.start_date + timedelta(hours=self.dates[index]) + timedelta(hours=self.nc_bc_offset)
                 varying_boundary_data = self._get_boundary_data(start_time)
                 varying_boundary_data = self._fill_mask(varying_boundary_data, self.varying_boundary_variables)
                 varying_boundary_data = self.boundary_transform(varying_boundary_data)
