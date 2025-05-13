@@ -492,7 +492,8 @@ class Trainer():
          # Load climatology
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
-        self.climatology = self.climatology.drop_vars('time_bnds')
+        if 'time_bnds' in self.climatology.variables:
+            self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
             
