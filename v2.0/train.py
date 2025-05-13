@@ -135,93 +135,237 @@ def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'l
         scores.append(score)
     return xr.concat(scores, dim='lead_time')
 
+def get_climatology_index(date):
+    """
+    Maps a date to the correct index in a 366-day climatology,
+    adjusting for leap years vs. non-leap years.
+    
+    Args:
+        date: A cftime.datetime or datetime object
+        
+    Returns:
+        int: The index in the climatology (0-based)
+    """
+    # Get day of year (1-based)
+    if hasattr(date, 'dayofyr'):
+        day_of_year = date.dayofyr
+    elif hasattr(date, 'dayofyear'):
+        day_of_year = date.dayofyear
+    else:
+        day_of_year = date.timetuple().tm_yday
+    
+    # Check if it's a leap year
+    if hasattr(date, 'is_leap_year'):
+        is_leap_year = date.is_leap_year
+    elif hasattr(date, 'calendar'):
+        if date.calendar in ['standard', 'gregorian', 'proleptic_gregorian']:
+            year = date.year
+            is_leap_year = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+        else:
+            is_leap_year = False
+    else:
+        year = date.year
+        is_leap_year = (year % 4 == 0 and year % 100 != 0) or (year % 400 == 0)
+    
+    # For non-leap years, if date is after Feb 28, adjust the index
+    if not is_leap_year and day_of_year > 59:  # Feb 28 is the 59th day
+        clim_index = day_of_year  # Skip leap day (Feb 29)
+    else:
+        clim_index = day_of_year - 1  # Convert to 0-based index
+    
+    return clim_index
+
 # # ACC Scores
-
-
 def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
-
-
+    """
+    Compute Anomaly Correlation Coefficient with proper handling of leap years and
+    support for both pressure levels and sigma levels.
+    
+    Args:
+        da_fc: xarray Dataset, forecast data
+        da_true: xarray Dataset, ground truth data
+        clim: xarray Dataset, climatology data
+        weighted: bool, whether to use weighted averaging
+        mean_dims: list, dimensions to average over
+        
+    Returns:
+        xarray DataArray containing ACC values
+    """
     # Assign dayofyear coordinate
     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
     da_true = da_true.assign_coords(dayofyear=da_true['time'].dt.dayofyear)
-    clim = clim.rename({'dayofyear':'time'})
-
-    # print_info(da_fc, "Forecast")
-    # print_info(da_true, "True")
-    # if clim is not None:
-    #     print_info(clim, "Climatology")
-
+    
+    # Create a DataArray with the same lead_time dimension for proper error handling
+    empty_result = xr.ones_like(da_fc.isel(time=0, lat=[0], lon=[0]))
+    empty_result = empty_result.mean(['lat', 'lon']) * np.nan  # Creates proper dimensions
+    
     if clim is not None:
-        if True:
-            # print("\nAligning climatology:")
+        try:
+            # Rename dayofyear to time in climatology if needed
+            if 'dayofyear' in clim.dims:
+                clim = clim.rename({'dayofyear':'time'})
+            
             # Remove 'zsfc' from climatology if it exists
             if 'zsfc' in clim:
                 clim = clim.drop_vars('zsfc')
-            if 'pr_12h' in da_fc:
+                
+            # Add missing variables with zero values
+            if 'pr_12h' in da_fc and 'pr_12h' not in clim:
                 clim['pr_12h'] = clim['tas'].copy()
                 clim['pr_12h'][:] = 0.
-            if 'pr_6h' in da_fc:
+            if 'pr_6h' in da_fc and 'pr_6h' not in clim:
                 clim['pr_6h'] = clim['tas'].copy()
                 clim['pr_6h'][:] = 0.
-            if 'mrso' in da_fc:
+            if 'mrso' in da_fc and 'mrso' not in clim:
                 clim['mrso'] = clim['tas'].copy()
                 clim['mrso'][:] = 0.
             
             # Reorder variables in climatology to match forecast data
             clim = clim[list(da_fc.data_vars)]
             
-            # Transpose climatology to match forecast data dimensions
-            clim = clim.transpose('time', 'plev', 'lat', 'lon')
+            # Map each time to the correct climatology index
+            # Don't use .item() which doesn't work with cftime objects
+            mapped_indices = []
+            for time in da_fc['time'].values:
+                clim_index = get_climatology_index(time)
+                mapped_indices.append(clim_index)
             
-            # print("\nSelecting climatology based on dayofyear:")
-            climatology_aligned = clim.isel(time=da_fc.dayofyear.values - 1)
+            # Select climatology using the mapped indices
+            climatology_aligned = clim.isel(time=mapped_indices)
             climatology_aligned['time'] = da_fc['time']
-            if "plev" in da_fc.coords.keys():
-                climatology_aligned = climatology_aligned.sel(plev = da_fc.plev)
             
+            # Handle both coordinate systems
+            if "plev" in da_fc.coords and "plev" in climatology_aligned.coords:
+                climatology_aligned = climatology_aligned.sel(plev=da_fc.plev)
+            if "lev" in da_fc.coords and "lev" in climatology_aligned.coords:
+                climatology_aligned = climatology_aligned.sel(lev=da_fc.lev)
             
-            # Ensure climatology has the same dimensions as da_fc
+            # Ensure climatology has the same dimensions
             climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
             
-            # print_info(climatology_aligned, "Aligned Climatology")
+            # Match latitude coordinates
             climatology_aligned = climatology_aligned.assign_coords(lat=da_fc.lat)
-
             
+            # Calculate anomalies
             fa = da_fc - climatology_aligned
-
             a = da_true - climatology_aligned
-
-
-            #except Exception as e:
-        else:
-            print(f"Error during climatology alignment or subtraction: {str(e)}")
-            return xr.DataArray(np.nan, dims=['time'])
+            
+        except Exception as e:
+            print(f"Error during climatology processing: {str(e)}")
+            return empty_result  # Return properly dimensioned NaN array
     else:
         fa = da_fc
         a = da_true
-
+    
+    # Remove temporary dayofyear coordinate
     fa = fa.drop_vars('dayofyear', errors='ignore')
     a = a.drop_vars('dayofyear', errors='ignore')
-
-
+    
+    # Calculate latitude weights
     if weighted:
         weights_lat = np.cos(np.deg2rad(a.lat))
         weights_lat /= weights_lat.mean()
     else:
         weights_lat = 1.
     w = weights_lat
-
+    
+    # Calculate anomalies from mean
     fa_prime = fa - fa.mean()
     a_prime = a - a.mean()
-
+    
+    # Calculate ACC
     numerator = (w * fa_prime * a_prime).sum(mean_dims)
     denominator = np.sqrt((w * fa_prime ** 2).sum(mean_dims) * (w * a_prime ** 2).sum(mean_dims))
     
     acc = numerator / denominator
-
-    # print_info(acc, "ACC")
-
+    
     return acc
+
+
+# def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
+
+
+#     # Assign dayofyear coordinate
+#     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
+#     da_true = da_true.assign_coords(dayofyear=da_true['time'].dt.dayofyear)
+#     clim = clim.rename({'dayofyear':'time'})
+
+#     # print_info(da_fc, "Forecast")
+#     # print_info(da_true, "True")
+#     # if clim is not None:
+#     #     print_info(clim, "Climatology")
+
+#     if clim is not None:
+#         if True:
+#             # print("\nAligning climatology:")
+#             # Remove 'zsfc' from climatology if it exists
+#             if 'zsfc' in clim:
+#                 clim = clim.drop_vars('zsfc')
+#             if 'pr_12h' in da_fc:
+#                 clim['pr_12h'] = clim['tas'].copy()
+#                 clim['pr_12h'][:] = 0.
+#             if 'pr_6h' in da_fc:
+#                 clim['pr_6h'] = clim['tas'].copy()
+#                 clim['pr_6h'][:] = 0.
+#             if 'mrso' in da_fc:
+#                 clim['mrso'] = clim['tas'].copy()
+#                 clim['mrso'][:] = 0.
+            
+#             # Reorder variables in climatology to match forecast data
+#             clim = clim[list(da_fc.data_vars)]
+            
+#             # Transpose climatology to match forecast data dimensions
+#             clim = clim.transpose('time', 'plev', 'lat', 'lon')
+            
+#             # print("\nSelecting climatology based on dayofyear:")
+#             climatology_aligned = clim.isel(time=da_fc.dayofyear.values - 1)
+#             climatology_aligned['time'] = da_fc['time']
+#             if "plev" in da_fc.coords.keys():
+#                 climatology_aligned = climatology_aligned.sel(plev = da_fc.plev)
+            
+            
+#             # Ensure climatology has the same dimensions as da_fc
+#             climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
+            
+#             # print_info(climatology_aligned, "Aligned Climatology")
+#             climatology_aligned = climatology_aligned.assign_coords(lat=da_fc.lat)
+
+            
+#             fa = da_fc - climatology_aligned
+
+#             a = da_true - climatology_aligned
+
+
+#             #except Exception as e:
+#         else:
+#             print(f"Error during climatology alignment or subtraction: {str(e)}")
+#             return xr.DataArray(np.nan, dims=['time'])
+#     else:
+#         fa = da_fc
+#         a = da_true
+
+#     fa = fa.drop_vars('dayofyear', errors='ignore')
+#     a = a.drop_vars('dayofyear', errors='ignore')
+
+
+#     if weighted:
+#         weights_lat = np.cos(np.deg2rad(a.lat))
+#         weights_lat /= weights_lat.mean()
+#     else:
+#         weights_lat = 1.
+#     w = weights_lat
+
+#     fa_prime = fa - fa.mean()
+#     a_prime = a - a.mean()
+
+#     numerator = (w * fa_prime * a_prime).sum(mean_dims)
+#     denominator = np.sqrt((w * fa_prime ** 2).sum(mean_dims) * (w * a_prime ** 2).sum(mean_dims))
+    
+#     acc = numerator / denominator
+
+#     # print_info(acc, "ACC")
+
+#     return acc
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
@@ -259,6 +403,10 @@ class Trainer():
         self.long_validation = False
         if hasattr(params, 'long_validation'):
             self.long_validation = params.long_validation
+            
+        self.ensemble_validation = False
+        if hasattr(params, 'ensemble_validation'):
+            self.ensemble_validation = params.ensemble_validation
         if self.long_validation:
             if not hasattr(params, 'bias_data_dir'):
                 params['bias_data_dir'] = os.path.join(os.path.dirname(params.data_dir), 'bias')
@@ -313,9 +461,9 @@ class Trainer():
         
         if self.long_validation and self.world_rank == 0:
             self.long_valid_data_loader, self.long_valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-                                                                                   year_start=params.long_val_year_start,
-                                                                                   year_end=params.long_val_year_start + params.long_rollout_years,
-                                                                                   train=False, single_ic=True)
+                                                                                year_start=params.long_val_year_start,
+                                                                                year_end=params.long_val_year_start + params.long_rollout_years,
+                                                                                train=False, single_ic=True, ensemble=self.ensemble_validation)
             self.epochs_per_long_validation = 1
             if hasattr(params, "epochs_per_long_validation"):
                 self.epochs_per_long_validation = params.epochs_per_long_validation
@@ -346,7 +494,7 @@ class Trainer():
          # Load climatology
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
-        if 'time_bnds' in self.climatology.data_vars:
+        if 'time_bnds' in self.climatology.variables:
             self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
@@ -420,7 +568,7 @@ class Trainer():
                         else:
                             for k, level in enumerate(self.valid_dataset.levels):
                                 epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
-                if self.long_validation:
+                if self.long_validation and not self.ensemble_validation:
                     wandb.define_metric("bias_plot", step_metric="epoch")
                     for j, var in enumerate(self.valid_dataset.surface_variables):
                         epoch_metrics.append(f'valid_{var}_bias_lwrmse')
@@ -1244,14 +1392,28 @@ class Trainer():
     def plot_in_separate_process(self, avg_preds, avg_gt, preds_times, filename):
         # convert lead times to hours
         lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
-        
+                
         if len(preds_times) > 0:
-            p = Process(target=plot_power_spectrum_test, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours))
+            # Get variable dictionary from params 
+            var_dict = self.params.diagnostic_spectrum_var_dict if hasattr(self.params, 'diagnostic_spectrum_var_dict') else None
+
+            p = Process(target=plot_power_spectrum, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours, var_dict))
         else:
-            if 'mrso' in self.params.land_variables:
-                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            if hasattr(self.params, 'diagnostic_bias_var_dict'):
+                var_dict = self.params.diagnostic_bias_var_dict
+            elif 'mrso' in self.params.land_variables:
+                vars = ["tas", "mrso", "zg", "ua", "hus"]
+                levels = [None, None, 50000, 25000, 85000]
+                var_dict = {var: [level] if level is not None else [] for var, level in zip(vars, levels)}
             else:
-                p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
+                # basic fallback
+                var_dict = {"tas": [], "zg": [50000], "ua": [0.4368000030517578]}
+                
+            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, var_dict))
+            # if 'mrso' in self.params.land_variables:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            # else:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
         p.start()
         p.join()
 
@@ -1405,6 +1567,11 @@ class Trainer():
             if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
                 print('Performing long validation...')
                 cnt = 0
+                no_nans = True
+                if self.ensemble_validation:
+                    val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                    print(val_data_dir)
+                    os.makedirs(val_data_dir, exist_ok=True)
                 #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
                 #print(val_data_dir)
                 #os.makedirs(val_data_dir, exist_ok=True)
@@ -1456,6 +1623,27 @@ class Trainer():
                         print(f'Long emulation diverged after {i} steps')
                         no_nans = False
                         break
+                    if self.ensemble_validation:
+                        val_surface_numpy = val_output_surface.cpu().numpy()
+                        np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
+                        val_upper_air_numpy = val_output_upper_air.cpu().numpy()
+                        np.save(os.path.join(val_data_dir, f'upper_air_{int(year.item())}_{i:04}.npy'), val_upper_air_numpy)
+                        if self.params.has_diagnostic:
+                            val_diagnostic_numpy = val_output_diagnostic.cpu().numpy()
+                            np.save(os.path.join(val_data_dir, f'diagnostic_{int(year.item())}_{i:04}.npy'), val_diagnostic_numpy)
+                    else:
+                        if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
+                            if cnt == 0:
+                                val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
+                                if self.params.has_diagnostic:
+                                    val_diagnostic_bias = val_output_diagnostic
+                            else:
+                                val_surface_bias = val_surface_bias * (cnt / (cnt + 1)) + val_output_surface / (cnt + 1)
+                                val_upper_air_bias = val_upper_air_bias * (cnt / (cnt + 1)) + val_output_upper_air / (cnt + 1)
+                                if self.params.has_diagnostic:
+                                    val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
+                            cnt += 1
+                if no_nans and not self.ensemble_validation:
                     if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
                         if cnt == 0:
                             val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
@@ -1732,7 +1920,7 @@ class Trainer():
             
 
             # Plot ACC over lead time
-            fig, axs = plot_acc_over_lead_time(acc, acc_times_hours)
+            fig, axs = plot_acc_over_lead_time(acc, acc_times_hours, var_dict=self.params.diagnostic_acc_var_dict)
 
         if self.params.diagnostic_spectra:
             k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
@@ -2170,10 +2358,11 @@ if __name__ == '__main__':
             print('For sigma level training, disabling diagnostic ACC and diagnostic spectra')
             params['diagnostic_acc'] = False
             params['diagnostic_spectra'] = False
+            params['diagnostic_gif'] = False
+
     
     if not params.just_validate:
         trainer.train()
     else:
         trainer.validate_one_epoch()
     logging.info('DONE ---- rank %d' % world_rank)
-

@@ -1,176 +1,225 @@
-import argparse
-import os
-from datetime import datetime
-import cftime
+### From FourCastNet repo
+
+#BSD 3-Clause License
+#
+#Copyright (c) 2022, FourCastNet authors
+#All rights reserved.
+#
+#Redistribution and use in source and binary forms, with or without
+#modification, are permitted provided that the following conditions are met:
+#
+#1. Redistributions of source code must retain the above copyright notice, this
+#   list of conditions and the following disclaimer.
+#
+#2. Redistributions in binary form must reproduce the above copyright notice,
+#   this list of conditions and the following disclaimer in the documentation
+#   and/or other materials provided with the distribution.
+#
+#3. Neither the name of the copyright holder nor the names of its
+#   contributors may be used to endorse or promote products derived from
+#   this software without specific prior written permission.
+#
+#THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+#AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+#IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+#DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+#FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+#DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+#SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+#CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+#OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+#OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+#
+#The code was authored by the following people:
+#
+#Jaideep Pathak - NVIDIA Corporation
+#Shashank Subramanian - NERSC, Lawrence Berkeley National Laboratory
+#Peter Harrington - NERSC, Lawrence Berkeley National Laboratory
+#Sanjeev Raja - NERSC, Lawrence Berkeley National Laboratory 
+#Ashesh Chattopadhyay - Rice University 
+#Morteza Mardani - NVIDIA Corporation 
+#Thorsten Kurth - NVIDIA Corporation 
+#David Hall - NVIDIA Corporation 
+#Zongyi Li - California Institute of Technology, NVIDIA Corporation 
+#Kamyar Azizzadenesheli - Purdue University 
+#Pedram Hassanzadeh - Rice University 
+#Karthik Kashinath - NVIDIA Corporation 
+#Animashree Anandkumar - California Institute of Technology, NVIDIA Corporation
+
+#import os
+#import time
 import numpy as np
-
-
-from torch.utils.data import DataLoader
-from torch import nn
+#import argparse
+#import h5py
+#from netCDF4 import Dataset as DS
+#from collections import OrderedDict
+from utils import logging_utils
+logging_utils.config_logger()
+#from utils.YParams import YParams
+#from utils.data_loader_multifiles import get_data_loader
+#import wandb
 import torch
-from tqdm import tqdm
-import pandas as pd
-import modulus
+#import warnings
 
-# vscode Relative path
-import sys
-sys.path.append("../../")
-sys.path.append("/glade/work/awikner/Pangu-UC")
+def unlog_tp(x, eps=1E-5):
+#    return np.exp(x + np.log(eps)) - eps
+    return eps*(np.exp(x)-1)
 
-from weatherlearn.models import PanguPlasimModulus
-from data_loader_nc import DatasetFromFolder
+def unlog_tp_torch(x, eps=1E-5):
+#    return torch.exp(x + torch.log(eps)) - eps
+    return eps*(torch.exp(x)-1)
 
-parser = argparse.ArgumentParser(description="Train Pangu_Plasim Models")
-parser.add_argument("--num_epochs", default=50, type=int, help="train epoch number")
-parser.add_argument("--data_dir", type=str, required=True, help="Path to the data directory")
-parser.add_argument("--boundary_dir", type=str, default='boundary_vars', help="Path to boundary data directory")
-parser.add_argument("--train_year_start", type=int, required=True, help="Start year for the training data")
-parser.add_argument("--train_year_end", type=int, required=True, help="End year for the training data")
-parser.add_argument("--val_year_start", type=int, required=True, help="Start year for the validation data")
-parser.add_argument("--val_year_end", type=int, required=True, help="End year for the validation data")
-parser.add_argument("--batch_size", type=int, default=1, help="Number of samples per batch")
-parser.add_argument("--surface_variables", nargs="*", required=True, help="List of surface variables to include")
-parser.add_argument("--upper_air_variables", nargs="*", required=True, help="List of upper air variables to include")
-parser.add_argument("--constant_boundary_variables", nargs="*", required=True, help="List of constant boundary variables to include")
-parser.add_argument("--varying_boundary_variables", nargs="*", required=True, help="List of varying boundary variables to include")
-parser.add_argument("--surface_mean", type=str, default="surface_mean.nc", help="Name of surface mean file in datadir")
-parser.add_argument("--surface_std", type=str, default="surface_std.nc", help="Name of surface std file in datadir")
-parser.add_argument("--upper_air_mean", type=str, default="upper_air_mean.nc", help="Name of upper_air mean file in datadir")
-parser.add_argument("--upper_air_std", type=str, default="upper_air_std.nc", help="Name of upper air std file in datadir")
-parser.add_argument("--calendar", type=str, default = 'proleptic_gregorian', help="Type of calendar for data (cftime)")
-parser.add_argument("--timedelta_hours", type=int, default=6, help="Prediction lead time in hours")
+def mean(x, axis = None):
+    #spatial mean
+    y = np.sum(x, axis) / np.size(x, axis)
+    return y
 
-if __name__ == "__main__":
-    opt = parser.parse_args()
+def lat_np(j, num_lat):
+    return 90 - j * 180/(num_lat-1)
 
-    NUM_EPOCHS = opt.num_epochs
-    DATA_DIR = opt.data_dir
-    BOUNDARY_DIR = opt.boundary_dir
-    YEAR_START_TRAIN = opt.train_year_start
-    YEAR_END_TRAIN = opt.train_year_end
-    YEAR_START_VAL = opt.val_year_start
-    YEAR_END_VAL = opt.val_year_end
-    SURFACE_VARIABLES = opt.surface_variables
-    UPPER_AIR_VARIABLES = opt.upper_air_variables
-    CONSTANT_BOUNDARY_VARIABLES = opt.constant_boundary_variables
-    VARYING_BOUNDARY_VARIABLES = opt.varying_boundary_variables
-    SURFACE_MEAN = opt.surface_mean
-    SURFACE_STD  = opt.surface_std
-    UPPER_AIR_MEAN = opt.upper_air_mean
-    UPPER_AIR_STD  = opt.upper_air_std
-    CALENDAR = opt.calendar
-    TIMEDELTA_HOURS = opt.timedelta_hours
-    BATCH_SIZE=opt.batch_size
+def weighted_acc(pred,target, weighted  = True):
+    #takes in shape [1, num_lat, num_long]
+    if len(pred.shape) ==2:
+        pred = np.expand_dims(pred, 0)
+    if len(target.shape) ==2:
+        target = np.expand_dims(target, 0)
+    
+    num_lat = np.shape(pred)[1]
+    num_long = np.shape(target)[2]
+#    pred -= mean(pred)
+#    target -= mean(target)
+    s = np.sum(np.cos(np.pi/180* lat_np(np.arange(0, num_lat), num_lat)))
+    weight = np.expand_dims(latitude_weighting_factor(np.arange(0, num_lat), num_lat, s), -1) if weighted else 1
+    r = (weight*pred*target).sum() /np.sqrt((weight*pred*pred).sum() * (weight*target*target).sum())
+    return r
 
-    train_set = DatasetFromFolder(DATA_DIR, YEAR_START_TRAIN, YEAR_END_TRAIN, "train", SURFACE_VARIABLES, UPPER_AIR_VARIABLES,
-                                  CONSTANT_BOUNDARY_VARIABLES, VARYING_BOUNDARY_VARIABLES,BOUNDARY_DIR, SURFACE_MEAN, SURFACE_STD, 
-                                  UPPER_AIR_MEAN,UPPER_AIR_STD, CALENDAR, TIMEDELTA_HOURS)
-    val_set = DatasetFromFolder(DATA_DIR, YEAR_START_VAL, YEAR_END_VAL, "valid", SURFACE_VARIABLES, UPPER_AIR_VARIABLES,
-                                CONSTANT_BOUNDARY_VARIABLES, VARYING_BOUNDARY_VARIABLES, BOUNDARY_DIR, SURFACE_MEAN, SURFACE_STD, 
-                                UPPER_AIR_MEAN,UPPER_AIR_STD, CALENDAR, TIMEDELTA_HOURS)
-    train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True)
-    val_loader = DataLoader(val_set, batch_size=BATCH_SIZE, shuffle=False)
+def weighted_acc_masked(pred,target, weighted  = True, maskarray=1):
+    #takes in shape [1, num_lat, num_long]
+    if len(pred.shape) ==2:
+        pred = np.expand_dims(pred, 0)
+    if len(target.shape) ==2:
+        target = np.expand_dims(target, 0)
 
-    constant_boundary_data = train_set.constant_boundary_data.unsqueeze(0) * torch.ones(BATCH_SIZE, 1, 1, 1)
-    if torch.cuda.is_available():
-        constant_boundary_data = constant_boundary_data.cuda()
+    num_lat = np.shape(pred)[1]
+    num_long = np.shape(target)[2]
+    pred -= mean(pred)
+    target -= mean(target)
+    s = np.sum(np.cos(np.pi/180* lat(np.arange(0, num_lat), num_lat)))
+    weight = np.expand_dims(latitude_weighting_factor(np.arange(0, num_lat), num_lat, s), -1) if weighted else 1
+    r = (maskarray*weight*pred*target).sum() /np.sqrt((maskarray*weight*pred*pred).sum() * (maskarray*weight*target*target).sum())
+    return r
 
-    lat, lon = train_set.get_lat_lon()
+def weighted_rmse(pred, target):
+    if len(pred.shape) == 2:
+        pred = np.expand_dims(pred, 0)
+    if len(target.shape) == 2:
+        target = np.expand_dims(target, 0)
+    #takes in arrays of size [1, h, w]  and returns latitude-weighted rmse
+    num_lat = np.shape(pred)[1]
+    num_long = np.shape(target)[2]
+    s = np.sum(np.cos(np.pi/180* lat_np(np.arange(0, num_lat), num_lat)))
+    weight = np.expand_dims(latitude_weighting_factor(np.arange(0, num_lat), num_lat, s), -1)
+    return np.sqrt(1/num_lat * 1/num_long  * np.sum(np.dot(weight.T, (pred[0] - target[0])**2)))
 
-    PanguPlasim = PanguPlasimModulus(horizontal_resolution = (65, 128),
-                              num_levels = 10, num_atmo_vars = len(UPPER_AIR_VARIABLES),
-                              num_surface_vars = len(SURFACE_VARIABLES),
-                              num_boundary_vars = len(CONSTANT_BOUNDARY_VARIABLES) + len(VARYING_BOUNDARY_VARIABLES),
-                              patch_size = (2,2,2))
-    print("# parameters: ", sum(param.numel() for param in PanguPlasim.parameters()))
+def latitude_weighting_factor(j, num_lat, s):
+    return num_lat*np.cos(np.pi/180. * lat_np(j, num_lat))/s
 
-    surface_criterion = nn.L1Loss()
-    upper_air_criterion = nn.L1Loss()
+def top_quantiles_error(pred, target):
+    if len(pred.shape) ==2:
+        pred = np.expand_dims(pred, 0)
+    if len(target.shape) ==2:
+        target = np.expand_dims(target, 0)
+    qs = 100
+    qlim = 5
+    qcut = 0.1
+    qtile = 1. - np.logspace(-qlim, -qcut, num=qs)
+    P_tar = np.quantile(target, q=qtile, axis=(1,2))
+    P_pred = np.quantile(pred, q=qtile, axis=(1,2))
+    return np.mean(P_pred - P_tar, axis=0)
 
-    if torch.cuda.is_available():
-        PanguPlasim.cuda()
-        surface_criterion.cuda()
-        upper_air_criterion.cuda()
 
-    surface_invTrans = train_set.surface_inv_transform
-    upper_air_invTrans = train_set.upper_air_inv_transform
+# torch version for rmse comp
+@torch.jit.script
+def lat(j: torch.Tensor, num_lat: int) -> torch.Tensor:
+    return 90. - j * 180./float(num_lat-1)
 
-    optimizer = torch.optim.Adam(PanguPlasim.parameters(), lr=5e-4, weight_decay=3e-6)
+#@torch.jit.script
+def latitude_weighting_factor_torch(latitudes):
+    lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
+    return latitudes.size() * lat_weights_unweighted/torch.sum(lat_weights_unweighted)
 
-    results = {'loss': [], 'surface_mse': [], 'upper_air_mse': []}
+#@torch.jit.script
+def weighted_rmse_torch_channels(pred, target, latitudes):
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
+    num_lat = pred.shape[2]
+    #num_long = target.shape[2]
+    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
+    weight = latitude_weighting_factor_torch(latitudes).reshape(1, 1, -1, 1)
+    result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
+    return result
 
-    for epoch in range(1, NUM_EPOCHS + 1):
-        train_bar = tqdm(train_loader)
-        running_results = {"batch_sizes": 0, "loss": 0}
+#@torch.jit.script
+def weighted_rmse_torch_3D(pred, target, latitudes):
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
+    num_lat = pred.shape[3]
+    #num_long = target.shape[2]
+    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
+    weight = latitude_weighting_factor_torch(latitudes).reshape(1, 1, 1, -1, 1)
+    result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
+    return result
 
-        PanguPlasim.train()
-        for input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data in train_bar:
-            batch_size = input_surface.size(0)
-            if torch.cuda.is_available():
-                input_surface = input_surface.cuda()
-                input_upper_air = input_upper_air.cuda()
-                target_surface = target_surface.cuda()
-                target_upper_air = target_upper_air.cuda()
-                varying_boundary_data = varying_boundary_data.cuda()
+@torch.jit.script
+def weighted_rmse_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    result = weighted_rmse_torch_channels(pred, target)
+    return torch.mean(result, dim=0)
 
-            output_surface, output_upper_air = PanguPlasim(input_surface, constant_boundary_data, varying_boundary_data, input_upper_air)
+@torch.jit.script
+def weighted_acc_masked_torch_channels(pred: torch.Tensor, target: torch.Tensor, maskarray: torch.Tensor) -> torch.Tensor:
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted acc
+    num_lat = pred.shape[2]
+    lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    s = torch.sum(torch.cos(3.1416/180. * lat(lat_t, num_lat)))
+    weight = torch.reshape(latitude_weighting_factor_torch(lat_t, num_lat, s), (1, 1, -1, 1))
+    result = torch.sum(maskarray * weight * pred * target, dim=(-1,-2)) / torch.sqrt(torch.sum(maskarray * weight * pred * pred, dim=(-1,-2)) * torch.sum(maskarray * weight * target *  target, dim=(-1,-2)))
+    return result
 
-            optimizer.zero_grad()
-            surface_loss = surface_criterion(output_surface, target_surface)
-            upper_air_loss = upper_air_criterion(output_upper_air, target_upper_air)
-            loss = upper_air_loss + surface_loss * 0.25
-            loss.backward()
-            optimizer.step()
+@torch.jit.script
+def weighted_acc_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted acc
+    num_lat = pred.shape[2]
+    #num_long = target.shape[2]
+    lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
+    s = torch.sum(torch.cos(3.1416/180. * lat(lat_t, num_lat)))
+    weight = torch.reshape(latitude_weighting_factor_torch(lat_t, num_lat, s), (1, 1, -1, 1))
+    result = torch.sum(weight * pred * target, dim=(-1,-2)) / torch.sqrt(torch.sum(weight * pred * pred, dim=(-1,-2)) * torch.sum(weight * target *
+    target, dim=(-1,-2)))
+    return result
 
-            running_results["loss"] += loss.item() * batch_size
-            running_results["batch_sizes"] += batch_size
+@torch.jit.script
+def weighted_acc_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    result = weighted_acc_torch_channels(pred, target)
+    return torch.mean(result, dim=0)
 
-            train_bar.set_description(desc="[%d/%d] Loss: %.4f" % (epoch, NUM_EPOCHS, running_results["loss"] / running_results["batch_sizes"]))
+@torch.jit.script
+def unweighted_acc_torch_channels(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    result = torch.sum(pred * target, dim=(-1,-2)) / torch.sqrt(torch.sum(pred * pred, dim=(-1,-2)) * torch.sum(target *
+    target, dim=(-1,-2)))
+    return result
 
-        with torch.no_grad():
-            val_bar = tqdm(val_loader)
-            valing_results = {"batch_sizes": 0, "surface_mse": 0, "upper_air_mse": 0}
-            for val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_varying_boundary_data, times in val_bar:
-                batch_size = val_input_surface.size(0)
-                if torch.cuda.is_available():
-                    val_input_surface = val_input_surface.cuda()
-                    val_input_upper_air = val_input_upper_air.cuda()
-                    val_target_surface = val_target_surface.cuda()
-                    val_target_upper_air = val_target_upper_air.cuda()
-                    val_varying_boundary_data = val_varying_boundary_data.cuda()
+@torch.jit.script
+def unweighted_acc_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    result = unweighted_acc_torch_channels(pred, target)
+    return torch.mean(result, dim=0)
 
-                val_output_surface, val_output_upper_air = PanguPlasim(val_input_surface, constant_boundary_data, val_varying_boundary_data, val_input_upper_air)
-
-                val_output_surface = val_output_surface.squeeze(0)
-                val_output_upper_air = val_output_upper_air.squeeze(0)
-
-                val_target_surface = val_target_surface.squeeze(0)
-                val_target_upper_air = val_target_upper_air.squeeze(0)
-
-                valing_results["batch_sizes"] += batch_size
-
-                surface_mse = ((val_output_surface - val_target_surface) ** 2).data.mean().cpu().item()
-                upper_air_mse = ((val_output_upper_air - val_target_upper_air) ** 2).data.mean().cpu().item()
-
-                valing_results["surface_mse"] += surface_mse * batch_size
-                valing_results["upper_air_mse"] += upper_air_mse * batch_size
-
-                val_bar.set_description(desc="[validating] Surface MSE: %.4f Upper Air MSE: %.4f" % (valing_results["surface_mse"] / valing_results["batch_sizes"], valing_results["upper_air_mse"] / valing_results["batch_sizes"]))
-
-        os.makedirs("epochs", exist_ok=True)
-        torch.save(PanguPlasim.state_dict(), "epochs/pangu_plasim_epoch_%d.pth" % (epoch))
-
-        results["loss"].append(running_results["loss"] / running_results["batch_sizes"])
-        results["surface_mse"].append(valing_results["surface_mse"] / valing_results["batch_sizes"])
-        results["upper_air_mse"].append(valing_results["upper_air_mse"] / valing_results["batch_sizes"])
-
-        data_frame = pd.DataFrame(
-            data=results,
-            index=range(1, epoch + 1)
-        )
-        save_root = "train_logs"
-        if not os.path.exists(save_root):
-            os.makedirs(save_root)
-
-        data_frame.to_csv(os.path.join(save_root, "logs.csv"), index_label="Epoch")
-
+@torch.jit.script
+def top_quantiles_error_torch(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    qs = 100
+    qlim = 3
+    qcut = 0.1
+    n, c, h, w = pred.size()
+    qtile = 1. - torch.logspace(-qlim, -qcut, steps=qs, device=pred.device)
+    P_tar = torch.quantile(target.view(n,c,h*w), q=qtile, dim=-1)
+    P_pred = torch.quantile(pred.view(n,c,h*w), q=qtile, dim=-1)
+    return torch.mean(P_pred - P_tar, dim=0)

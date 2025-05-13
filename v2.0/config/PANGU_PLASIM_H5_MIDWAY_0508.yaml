@@ -10,7 +10,7 @@ base_config: &BASE
   oc_final_div_factor: 0.00025
   
   log_to_screen: !!bool True
-  log_to_wandb: !!bool True
+  log_to_wandb: !!bool False
   save_checkpoint: !!bool True
 
   optimizer_type: 'AdamW' #'Adam' #'FusedAdam'
@@ -36,7 +36,7 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: /scratch/midway2/awikner/PLASIM/data/h5/sigma_data 
+  data_dir: /net/scratch2/awikner/PLASIM/data/sigma_data
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
   diagnostic_variables: ['pr_6h']
@@ -45,8 +45,8 @@ PLASIM: &PLASIM
   mask_output: False
   constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
-  train_year_start: 12
-  train_year_end: 112
+  train_year_start: 14
+  train_year_end: 15
   val_year_start: 11
   val_year_end: 12
   #, 'snow_depth', 'sea_ice_cover']
@@ -99,13 +99,20 @@ PLASIM: &PLASIM
   grid_has_poles: False
 
   diagnostic_logs: True
-  diagnostic_acc: False
+  diagnostic_acc: True
   diagnostic_gif: True
   diagnostic_gif_var_dict: {'zg': [20000, 50000, 100000],
                             'ua': [0.03830000013113022, 0.4368000030517578, 0.983299970626831],
                             'tas': []}
   diagnostic_spectra: False
   forecast_lead_times: [1, 12, 20, 40, 60]
+  diagnostic_acc_var_dict: {'zg': [50000, 100000],
+                          'ua': [0.03830000013113022, 0.4368000030517578, 0.983299970626831],
+                          'tas': []}
+  
+  diagnostic_spectrum_var_dict: {'zg': [50000, 100000],
+                          'ua': [0.03830000013113022, 0.4368000030517578, 0.983299970626831],
+                          'tas': []}
 
   lev: 'lev'
   num_inferences: 100
