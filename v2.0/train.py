@@ -534,7 +534,7 @@ class Trainer():
                                                            max_epochs=self.params.max_epochs*steps_per_epoch,
                                                            warmup_start_lr=self.params.warmup_start_lr,
                                                            eta_min = self.params.eta_min,
-                                                           last_epoch = (self.startEpoch-1)*steps_per_epoch)
+                                                           last_epoch = -1) # (self.startEpoch-1)*steps_per_epoch)
         elif params.scheduler == 'OneCycleLR':
             # total_steps = len(self.train_data_loader) * params.max_epochs
             steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
