@@ -728,7 +728,7 @@ class Trainer():
       logging.info(self.model)'''
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-        if params.loss == 'l1' or params.loss == 'raw_mse':
+        if params.loss == 'l1' or params.loss == 'raw_l1':
             self.loss_obj_pl = torch.nn.L1Loss()
             if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_L1Loss(mask_bool)
@@ -736,7 +736,7 @@ class Trainer():
                 self.loss_obj_sfc = torch.nn.L1Loss()
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = torch.nn.L1Loss()
-        elif params.loss == 'l2':
+        elif params.loss == 'l2' or params.loss == 'raw_l2':
             self.loss_obj_pl = torch.nn.MSELoss()
             if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_MSELoss(mask_bool)
@@ -1127,7 +1127,7 @@ class Trainer():
                     loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
                     loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
 
-                    if self.params.loss == 'raw_mse':
+                    if 'raw_' in self.params.loss:
                         if self.params.has_diagnostic:
                             loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
                                      loss_sfc * output_surface.shape[1] + \
