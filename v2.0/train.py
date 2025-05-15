@@ -621,7 +621,7 @@ class Trainer():
             # self.model = torch.compile(self.model, mode = 'default')
         elif params.nettype == 'sfno_plasim':
             print(f'\n\nRunning SFNO model\n\n')
-            self.model = SFNO(params, train_dataset).to(self.device)
+            self.model = SFNO(params, self.train_datasets[0]).to(self.device)
             if params.sync_norm:
                 model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
@@ -1609,9 +1609,9 @@ class Trainer():
                     #with precision_context:
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
-                            val_input_surface, self.constant_boundary_data[0], val_varying_boundary_data, val_input_upper_air)
+                            val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
                     else:
-                        val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data[0], 
+                        val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data[[0]], 
                                                                             val_varying_boundary_data, val_input_upper_air)
                     if self.params.predict_delta:
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
@@ -2171,6 +2171,7 @@ if __name__ == '__main__':
 
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
+    parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
 
 
     ####### for UCAR
@@ -2212,6 +2213,7 @@ if __name__ == '__main__':
     params['just_validate'] = args.just_validate
     if params.just_validate:
         os.environ["WANDB_MODE"] = "offline"
+    params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
     # params['num_inferences'] = args.num_inferences
     #params['loss'] = args.loss
 
@@ -2364,5 +2366,14 @@ if __name__ == '__main__':
     if not params.just_validate:
         trainer.train()
     else:
-        trainer.validate_one_epoch()
+        if len(params.validation_epochs) == 0:
+            trainer.validate_one_epoch()
+        else:
+            for ckpt_i in params.validation_epochs:
+                print(f'Validating epoch {ckpt_i}...')
+                ckpt_path = params.checkpoint_path_globstr.replace('*', str(ckpt_i))
+                trainer.restore_checkpoint(ckpt_path)
+                trainer.epoch = trainer.startEpoch
+                trainer.validate_one_epoch()
+                
     logging.info('DONE ---- rank %d' % world_rank)

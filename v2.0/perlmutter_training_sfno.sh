@@ -31,12 +31,11 @@ conda activate py311_pip_sfno
 
 
 # Change to working directory
-cd "/pscratch/sd/d/dpp94/PanguWeather/v2.0"
+cd /pscratch/sd/a/awikner/PanguWeather+SFNO/v2.0
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
-source /global/homes/d/dpp94/set_wandb_key_dpp94.sh
-export WANDB_MODE=online
+export WANDB_MODE=offline
 
 nvidia-smi
 

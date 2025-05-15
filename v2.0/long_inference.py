@@ -1,4 +1,5 @@
 from networks.pangu import PanguModel_Plasim
+from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
@@ -305,6 +306,16 @@ class Stepper():
             #self.restore_checkpoint(params.best_checkpoint_path)
             #self.model = torch.compile(self.model, mode="max-autotune")
             #self.model = torch.compile(self.model, mode = 'default')
+        elif params.nettype == 'sfno_plasim':
+            print(f'\n\nRunning SFNO model\n\n')
+            self.model = SFNO(params, self.dataset).to(self.device)
+            if params.sync_norm:
+                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+            if self.params.predict_delta:
+                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
+                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
         else:
             raise Exception("not implemented")
 
