@@ -31,7 +31,7 @@ conda activate py311_pip_sfno
 
 
 # Change to working directory
-cd /pscratch/sd/a/awikner/PanguWeather-long/v2.0
+#cd /pscratch/sd/a/awikner/PanguWeather-long/v2.0
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
