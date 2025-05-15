@@ -23,6 +23,7 @@ from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
 from utils.power_spectrum import *
+from utils.perturbation import Perturber
 ##########################################
 ## NEW IMPORTS
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
@@ -47,6 +48,7 @@ import shutil
 from datetime import datetime
 import uuid
 from utils.integrate import Integrator, forward_euler
+import copy
 """
 import matplotlib
 matplotlib.use('QtAgg')
@@ -459,7 +461,7 @@ class Trainer():
                                                                      num_inferences = params.num_inferences,
                                                                      validate = True)
         
-        if self.long_validation and self.world_rank == 0:
+        if self.long_validation:
             self.long_valid_data_loader, self.long_valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                                 year_start=params.long_val_year_start,
                                                                                 year_end=params.long_val_year_start + params.long_rollout_years,
@@ -479,6 +481,13 @@ class Trainer():
                                                         self.clim_upper_air_bias.unsqueeze(0).unsqueeze(0).numpy(),
                                                         [self.long_valid_dataset.start_date], self.params, self.long_valid_dataset, acc = True,
                                                         diagnostic_prediction = None if not self.params.has_diagnostic else self.clim_diagnostic_bias.unsqueeze(0).unsqueeze(0).numpy())[0].squeeze()
+            
+            perturb_params = copy.deepcopy(params)
+            perturb_params['epsilon_factor'] = 0.1
+            perturb_params['perturbation_type'] = 'gaussian_noise'
+            
+            self.perturber = Perturber(perturb_params, self.valid_dataset, device = self.device,
+                                    device_idx = self.world_rank, seed = self.params.run_iter*self.params.world_size)
         
         #print('Inference Idxs:')
         #print(self.valid_dataset.inference_idxs)
@@ -1564,7 +1573,7 @@ class Trainer():
             precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
             
             no_nans = True
-            if self.long_validation and self.world_rank == 0 and self.epoch % self.epochs_per_long_validation == 0:
+            if self.long_validation and self.epoch % self.epochs_per_long_validation == 0:
                 print('Performing long validation...')
                 cnt = 0
                 no_nans = True
@@ -1575,13 +1584,17 @@ class Trainer():
                 #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
                 #print(val_data_dir)
                 #os.makedirs(val_data_dir, exist_ok=True)
-                pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                if self.world_rank == 0:
+                    pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
+                else:
+                    pbar = enumerate(self.long_valid_data_loader, 0)
                 #pbar = enumerate(self.long_valid_data_loader, 0)
                 #pbar = enumerate(self.long_valid_data_loader, 0)
                 plt.ion()
                 for i, data in pbar:
                     if i == 0:
                         val_input_surface, val_input_upper_air, val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                        val_input_surface, val_input_upper_air = self.perturber(val_input_surface, val_input_upper_air)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     """
@@ -1655,9 +1668,18 @@ class Trainer():
                             if self.params.has_diagnostic:
                                 val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
                         cnt += 1
+                print(f'Completed {len(self.long_valid_data_loader)} step long validation')
                 #plt.ioff()
                 #plt.show(block=True)
-                if no_nans:
+                if dist.is_initialized():
+                    dist.all_reduce(val_surface_bias, op = dist.ReduceOp.AVG)
+                    dist.all_reduce(val_upper_air_bias, op = dist.ReduceOp.AVG)
+                    if self.params.has_diagnostic:
+                        dist.all_reduce(val_diagnostic_bias, op = dist.ReduceOp.AVG)
+                    if torch.any(torch.isnan(val_output_surface)) or torch.any(torch.isnan(val_output_upper_air)):
+                        no_nans = False
+                
+                if no_nans and self.world_rank == 0:
                     val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
                     val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), latitudes.cpu()).squeeze(0)
                     val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias.cpu())
