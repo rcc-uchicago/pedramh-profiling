@@ -3,14 +3,14 @@ import numpy as np
 from datetime import timedelta
 from utils.YParams import YParams
 
-def submit_long_emulation(init_nc_filepaths, init_datetime, final_datetime,
+def submit_long_emulation(yaml_config, run_num, init_nc_filepaths, init_datetime, final_datetime,
                           run_iter, dependency_jobID=None, runtime = '12:00:00',
                           use_6h_24h_model = False, num_gpus = 4, output_dir=None):
     init_datetime_str = init_datetime.strftime("%Y-%m-%d_%H:%M:%S")
     final_datetime_str = final_datetime.strftime("%Y-%m-%d_%H:%M:%S")
     init_nc_filestr = '\,'.join(init_nc_filepaths)
     num_cpus = num_gpus * 16
-    cmd = ['qsub', '-l' f'select=1:ncpus={num_cpus}:ngpus={num_gpus}', '-v', f'INIT_DATETIME="{init_datetime_str}",FINAL_DATETIME="{final_datetime_str}",INIT_NC_FILEPATHS={init_nc_filestr},RUN_ITER={run_iter}']
+    cmd = ['qsub', '-l' f'select=1:ncpus={num_cpus}:ngpus={num_gpus}', '-v', f'YAML_CONFIG="{yaml_config}",RUN_NUM="{run_num}",INIT_DATETIME="{init_datetime_str}",FINAL_DATETIME="{final_datetime_str}",INIT_NC_FILEPATHS={init_nc_filestr},RUN_ITER={run_iter}']
     if output_dir:
         cmd[-1] += f',OUTPUT_DIR="{output_dir}"'
     else:
@@ -38,14 +38,18 @@ gpus_per_run = 4
 sim_start = 0
 sim_end = 4
 runtime_per_job = '3:00:00'
-use_6h_24h_model = True
+use_6h_24h_model = False
 #dependency_jobIDs = '9101934:9101936:9101938:9101939:9101940:9101941:9101942:9101943:9101944:9101945:9101946'
 
 reinit_offset = 24
-yaml_config   = '/glade/work/awikner/PanguWeather-long/v2.0/config/PANGU_PLASIM_H5_DERECHO_0515_longtest_3.yaml'
-init_nc_dir = '/glade/derecho/scratch/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/'
-output_dir = '/glade/derecho/scratch/awikner/PLASIM/data/panguplasim_no_soil_moisture_6h_24h/'
+run_num = '0517'
+yaml_config   = '/glade/work/awikner/PanguWeather+SFNO/v2.0/config/PANGU_PLASIM_H5_DERECHO_0517_longtest.yaml'
+output_dir = '/glade/derecho/scratch/awikner/PLASIM/data/panguplasim_no_soil_moisture_0517/'
 params = YParams(os.path.abspath(yaml_config), "PLASIM")
+if params.use_sigma_levels:
+    init_nc_dir = '/glade/derecho/scratch/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data_sigma/'
+else:
+    init_nc_dir = '/glade/derecho/scratch/awikner/PLASIM/data/panguplasim_no_soil_moisture_1/start_data/'
 
 year_splits = [round(year) for year in np.linspace(start_year, end_year, jobs_per_sim+1)]
 
@@ -74,7 +78,7 @@ for sim_run in range(sim_job_start, sim_job_end):
         init_nc_filepaths = [os.path.join(params.output_dir, f'{params.save_basename}_member{i:03}_y{year_splits[0]-1:04}.nc') for i in \
             range(sim_run*members_per_sim, (sim_run+1)*members_per_sim)]
     print(f'Submitting sims {sim_run*members_per_sim}-{(sim_run+1)*members_per_sim}, years {year_splits[0]}-{year_splits[1]}')
-    jobID = submit_long_emulation(init_nc_filepaths, init_datetimes[0], final_datetimes[0],
+    jobID = submit_long_emulation(yaml_config, run_num, init_nc_filepaths, init_datetimes[0], final_datetimes[0],
                                   sim_run+1, runtime = runtime_per_job, num_gpus = gpus_per_run,
                                   output_dir = output_dir, use_6h_24h_model=use_6h_24h_model)#, dependency_jobID=dependency_jobIDs)
     #jobID = dependency_jobIDs + f':{jobID}'
@@ -82,7 +86,7 @@ for sim_run in range(sim_job_start, sim_job_end):
         init_nc_filepaths = [os.path.join(params.output_dir, f'{params.save_basename}_member{i:03}_y{year_splits[j]-1:04}.nc') for i in \
             range(sim_run*members_per_sim, (sim_run+1)*members_per_sim)]
         print(f'Submitting sims {sim_run*members_per_sim}-{(sim_run+1)*members_per_sim}, years {year_splits[j]}-{year_splits[j+1]}')
-        jobID = submit_long_emulation(init_nc_filepaths, init_datetimes[j], final_datetimes[j],
+        jobID = submit_long_emulation(yaml_config, run_num, init_nc_filepaths, init_datetimes[j], final_datetimes[j],
                                     sim_run+1, dependency_jobID=jobID, runtime = runtime_per_job, num_gpus = gpus_per_run,
                                     output_dir = output_dir, use_6h_24h_model=use_6h_24h_model)
         #jobID = jobID + f':{jobID_out}'

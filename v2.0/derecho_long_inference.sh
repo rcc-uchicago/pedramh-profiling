@@ -4,6 +4,8 @@
 #PBS -q main
 #PBS -l walltime=12:00:00
 #PBS -A UCHI0014
+#PBS -e logs/
+#PBS -o logs/
 
 # Enable GPU-MPI (if supported by application)
 export MPICH_GPU_SUPPORT_ENABLED=1

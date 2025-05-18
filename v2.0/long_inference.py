@@ -1059,7 +1059,7 @@ class Stepper():
                         coords = {
                             'ensemble_idx': ensemble_idxs,
                             'time': time_range,
-                            'plev': self.dataset.plev.values,
+                            'plev': dataset.plev.values,
                             'lat': self.params.lat,
                             'lon': self.params.lon
                         }
