@@ -49,20 +49,6 @@ from datetime import datetime
 import uuid
 from utils.integrate import Integrator, forward_euler
 import copy
-"""
-import matplotlib
-matplotlib.use('QtAgg')
-from box import Box
-%matplotlib inline
-"""
-
-
-
-# from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
-
-# os.environ['WANDB_MODE'] = 'offline'
-# os.environ['WANDB_DIR'] = '/scratch/midway3/tvallabh/PanguWeather/v2.0'
-# os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
 
 
 #dask.config.set(scheduler='synchronous')
@@ -282,92 +268,6 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
     acc = numerator / denominator
     
     return acc
-
-
-# def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.ALL_DIMS, **kwargs):
-
-
-#     # Assign dayofyear coordinate
-#     da_fc = da_fc.assign_coords(dayofyear=da_fc['time'].dt.dayofyear)
-#     da_true = da_true.assign_coords(dayofyear=da_true['time'].dt.dayofyear)
-#     clim = clim.rename({'dayofyear':'time'})
-
-#     # print_info(da_fc, "Forecast")
-#     # print_info(da_true, "True")
-#     # if clim is not None:
-#     #     print_info(clim, "Climatology")
-
-#     if clim is not None:
-#         if True:
-#             # print("\nAligning climatology:")
-#             # Remove 'zsfc' from climatology if it exists
-#             if 'zsfc' in clim:
-#                 clim = clim.drop_vars('zsfc')
-#             if 'pr_12h' in da_fc:
-#                 clim['pr_12h'] = clim['tas'].copy()
-#                 clim['pr_12h'][:] = 0.
-#             if 'pr_6h' in da_fc:
-#                 clim['pr_6h'] = clim['tas'].copy()
-#                 clim['pr_6h'][:] = 0.
-#             if 'mrso' in da_fc:
-#                 clim['mrso'] = clim['tas'].copy()
-#                 clim['mrso'][:] = 0.
-            
-#             # Reorder variables in climatology to match forecast data
-#             clim = clim[list(da_fc.data_vars)]
-            
-#             # Transpose climatology to match forecast data dimensions
-#             clim = clim.transpose('time', 'plev', 'lat', 'lon')
-            
-#             # print("\nSelecting climatology based on dayofyear:")
-#             climatology_aligned = clim.isel(time=da_fc.dayofyear.values - 1)
-#             climatology_aligned['time'] = da_fc['time']
-#             if "plev" in da_fc.coords.keys():
-#                 climatology_aligned = climatology_aligned.sel(plev = da_fc.plev)
-            
-            
-#             # Ensure climatology has the same dimensions as da_fc
-#             climatology_aligned = climatology_aligned.transpose(*da_fc.dims)
-            
-#             # print_info(climatology_aligned, "Aligned Climatology")
-#             climatology_aligned = climatology_aligned.assign_coords(lat=da_fc.lat)
-
-            
-#             fa = da_fc - climatology_aligned
-
-#             a = da_true - climatology_aligned
-
-
-#             #except Exception as e:
-#         else:
-#             print(f"Error during climatology alignment or subtraction: {str(e)}")
-#             return xr.DataArray(np.nan, dims=['time'])
-#     else:
-#         fa = da_fc
-#         a = da_true
-
-#     fa = fa.drop_vars('dayofyear', errors='ignore')
-#     a = a.drop_vars('dayofyear', errors='ignore')
-
-
-#     if weighted:
-#         weights_lat = np.cos(np.deg2rad(a.lat))
-#         weights_lat /= weights_lat.mean()
-#     else:
-#         weights_lat = 1.
-#     w = weights_lat
-
-#     fa_prime = fa - fa.mean()
-#     a_prime = a - a.mean()
-
-#     numerator = (w * fa_prime * a_prime).sum(mean_dims)
-#     denominator = np.sqrt((w * fa_prime ** 2).sum(mean_dims) * (w * a_prime ** 2).sum(mean_dims))
-    
-#     acc = numerator / denominator
-
-#     # print_info(acc, "ACC")
-
-#     return acc
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
@@ -882,178 +782,6 @@ class Trainer():
                 logging.info(f'Training finished early at epoch {self.early_stop_epoch} due to early_stop_epoch setting.')
             else:
                 logging.info('Completed all epochs. Training finished normally.')
-
-
-    # def train_one_epoch(self):
-    #     self.epoch += 1
-    #     tr_time = 0
-    #     data_time = 0
-    #     self.model.train()
-
-  
-
-
-
-    #     # pbar = enumerate(self.train_data_loader, 0)
-    #     # pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
-
-    #     running_results = {"batch_sizes": 0, "loss": 0}
-
-    #     if self.params.diagnostic_logs:
-    #         diagnostic_logs = {}
-        
-    #     # For each epoch, we iterate from 1979 to 2017
-        
-    #     for i, data in pbar:
-    #         # Load weather data at time t as the input; load weather data at time t+1/3/6/24 as the output
-    #         # Note the data need to be randomly shuffled
-    #         # Note the input and target need to be normalized, see Inference() for details
-            
-    #         self.iters += 1
-    #         # adjust_LR(optimizer, params, iters)
-    #         data_start = time.time()
-    #         #inp_sfc, inp_pl, tar_sfc, tar_pl = map(lambda x: x.to(self.device, dtype=torch.float32), data)
-    #         input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data, index_info = map(
-    #             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-            
-    #         #print(index_info.shape)
-    #         # add noise to the input if self.params.noise_training is not 0.0
-    #         #if self.params.noise_training!=0.0:
-    #         #    input_surface = input_surface + torch.normal(mean=0.0, std=self.params.noise_training, size=input_surface.shape).to(self.device)
-    #         #    input_upper_air = input_upper_air + torch.normal(mean=0.0, std=self.params.noise_training, size=input_upper_air.shape).to(self.device)
-    #         # add a clip to the input to avoid overflow, but need to be careful with the range of the input
-    #         # input_surface = torch.clamp(input_surface, min=-1.0, max=1.0)
-    #         # input_upper_air = torch.clamp(input_upper_air, min=-1.0, max=1.0)
-
-    #         index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
-
-    #         data_time += time.time() - data_start
-
-    #         tr_start = time.time()
-
-    #         self.model.zero_grad()
-
-    #         # #OPTIMIZATION
-    #         # self.model.zero_grad(set_to_none=True)
-
-    #         if self.params.enable_fp8:
-    #             precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
-    #         else:
-    #             precision_context = amp.autocast(enabled=self.params.enable_amp)
-
-    #         with precision_context:
-    #             '''input, input_surface, target, target_surface = LoadData(step)
-
-    #             # Call the model and get the output
-    #             output, output_surface = model(input, input_surface)
-
-    #             # Call the backward algorithm and calculate the gratitude of parameters
-    #             Backward(loss)
-
-    #             # Update model parameters with Adam optimizer
-    #             # The learning rate is 5e-4 as in the paper, while the weight decay is 3e-6
-    #             # A example solution is using torch.optim.adam
-    #             UpdateModelParametersWithAdam()'''
-    #             output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-    #                                                         varying_boundary_data, input_upper_air)
-                
-    #             loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-    #             loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
-
-    #             loss = (loss_sfc * 0.25) + loss_pl
-
-    #         if self.params.enable_amp:
-    #             self.gscaler.scale(loss).backward()
-    #             self.gscaler.step(self.optimizer)
-    #             self.gscaler.update()
-    #         else:
-    #             loss.backward()
-    #             self.optimizer.step()
-
-    #         if self.params.scheduler == 'OneCycleLR':
-    #             self.scheduler.step()
-
-
-    #         with torch.no_grad():
-    #             surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.train_dataset.lat.to(self.device, non_blocking=True))
-    #             upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.train_dataset.lat.to(self.device, non_blocking=True))
-
-    #             if self.params.diagnostic_logs:
-    #                 #for batch_idx in range(index_info.shape[0]):
-    #                 #    for j, index_type in enumerate(index_info_names):
-    #                 #        diagnostic_logs[f'{index_type}_batch{batch_idx}_gpu{self.world_rank}'] = index_info[batch_idx, j]
-    #                 diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
-    #                 diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
-    #                 diagnostic_logs['train_batch_loss'] = loss
-    #                 diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-    #                 diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-    #                 mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-    #                 diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-    #                 for j, var in enumerate(self.train_dataset.surface_variables):
-    #                     diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * self.train_dataset.surface_std[j]
-    #                 for j, var in enumerate(self.train_dataset.upper_air_variables):
-    #                     for k, level in enumerate(self.train_dataset.lev):
-    #                         diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * self.train_dataset.upper_air_std[j, k]
-    #                 if dist.is_initialized():
-    #                     for key in sorted(diagnostic_logs.keys()):
-    #                         if key == 'batch_grad_max':
-    #                             grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
-    #                             dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
-    #                             diagnostic_logs[key] = torch.max(grad_max_tensor)
-    #                         else:
-    #                             dist.all_reduce(diagnostic_logs[key].detach())
-    #                             diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-    #                 if self.params.log_to_wandb:
-    #                     wandb.log(diagnostic_logs, step=(self.epoch-1) * len(self.train_data_loader) + i)
-                
-
-    #         torch.cuda.empty_cache() #Check
-
-    #         tr_time += time.time() - tr_start
-            
-            
-
-    #         if self.params.diagnostic_logs:
-    #             pbar.set_description(desc="Loss: %.4f" % diagnostic_logs['train_batch_loss'])
-    #         else:
-    #             running_results["loss"] += loss.item() * self.params['batch_size']
-    #             running_results["batch_sizes"] += self.params['batch_size']
-
-    #             pbar.set_description(desc="Loss: %.4f" % (running_results["loss"] / running_results["batch_sizes"]))
-        
-
-    #     if self.params.diagnostic_logs:
-    #         with torch.no_grad():
-    #             diagnostic_logs['train_loss'] = loss
-    #             if dist.is_initialized():
-    #                 dist.all_reduce(diagnostic_logs['train_loss'].detach())
-    #                 diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
-    #             logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
-    #             if self.params.log_to_wandb:
-    #                 wandb.log(logs)
-    #             return tr_time, data_time, diagnostic_logs
-    #     else:
-    #         with torch.no_grad():
-    #             # logs = {'train_loss': loss, 'epoch': self.epoch}
-    #             logs = {'train_loss': loss, 'epoch': self.epoch}
-            
-    #         if dist.is_initialized():
-    #             for key in sorted(logs.keys()):
-    #                 if isinstance(logs[key], (int, float)):
-    #                     logs[key] = torch.tensor(logs[key]).to(self.device)
-    #                 dist.all_reduce(logs[key])
-    #                 logs[key] = float(logs[key]/dist.get_world_size())
-
-
-    #         # if dist.is_initialized():
-    #         #     for key in sorted(logs.keys()):
-    #         #         dist.all_reduce(logs[key].detach())
-    #         #         logs[key] = float(logs[key]/dist.get_world_size())
-
-    #         if self.params.log_to_wandb:
-    #             wandb.log(logs)
-
-    #         return tr_time, data_time, logs
 
     def train_one_epoch(self):
         self.epoch += 1
@@ -1581,15 +1309,10 @@ class Trainer():
                     val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
                     print(val_data_dir)
                     os.makedirs(val_data_dir, exist_ok=True)
-                #val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
-                #print(val_data_dir)
-                #os.makedirs(val_data_dir, exist_ok=True)
                 if self.world_rank == 0:
                     pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
                 else:
                     pbar = enumerate(self.long_valid_data_loader, 0)
-                #pbar = enumerate(self.long_valid_data_loader, 0)
-                #pbar = enumerate(self.long_valid_data_loader, 0)
                 plt.ion()
                 for i, data in pbar:
                     if i == 0:
@@ -1597,29 +1320,6 @@ class Trainer():
                         val_input_surface, val_input_upper_air = self.perturber(val_input_surface, val_input_upper_air)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    """
-                    fig, axs = plt.subplots(1, 4, figsize = (24, 6))
-                    im_1 = axs[0].imshow(val_varying_boundary_data[0,0].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
-                    axs[0].set_title('sst')
-                    cbar_1 = plt.colorbar(im_1, orientation='horizontal', ax=axs[0], fraction=0.046, pad=0.04)
-                    im_2 = axs[1].imshow(val_varying_boundary_data[0,1].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
-                    axs[1].set_title('rsdt')
-                    cbar_2 = plt.colorbar(im_2, orientation='horizontal', ax=axs[1], fraction=0.046, pad=0.04)
-                    im_3 = axs[2].imshow(val_varying_boundary_data[0,2].cpu().numpy(), cmap = 'bwr', vmin = -3, vmax = 3)
-                    axs[2].set_title('sic')
-                    cbar_3 = plt.colorbar(im_3, orientation='horizontal', ax=axs[2], fraction=0.046, pad=0.04)
-                    im_4 = axs[3].imshow(val_input_upper_air[0,1,4].cpu().numpy() * self.long_valid_dataset.upper_air_std[1, 4].numpy(), cmap = 'bwr', 
-                                         vmin = -3*self.long_valid_dataset.upper_air_std[1, 4].numpy(), vmax = 3*self.long_valid_dataset.upper_air_std[1, 4].numpy())
-                    axs[3].set_title('ua_250')
-                    cbar_4 = plt.colorbar(im_4, orientation='horizontal', ax=axs[3], fraction=0.046, pad=0.04)
-                    plt.suptitle(str(i))
-                    plt.draw()
-                    plt.pause(0.1)
-                    time.sleep(0.1)
-                    """
-                    #if (i + 2) % 4 == 0:
-                    #pbar.set_description(f'Sample year: {int(year.item())}')#, TISR over France: {val_varying_boundary_data[0,1,16,0].item():.3f}')
-                    #with precision_context:
                     if self.params.has_diagnostic:
                         val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
                             val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
@@ -1630,8 +1330,6 @@ class Trainer():
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                         val_output_upper_air)
                     val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
-                    #val_surface_numpy = val_output_surface.cpu().squeeze(0).numpy()
-                    #np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
                     if torch.any(torch.isnan(val_output_surface)) or torch.any(torch.isnan(val_output_upper_air)):
                         print(f'Long emulation diverged after {i} steps')
                         no_nans = False
@@ -1669,8 +1367,6 @@ class Trainer():
                                 val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
                         cnt += 1
                 print(f'Completed {len(self.long_valid_data_loader)} step long validation')
-                #plt.ioff()
-                #plt.show(block=True)
                 if dist.is_initialized():
                     dist.all_reduce(val_surface_bias, op = dist.ReduceOp.AVG)
                     dist.all_reduce(val_upper_air_bias, op = dist.ReduceOp.AVG)
@@ -1921,7 +1617,6 @@ class Trainer():
                     truth_out.to_netcdf(os.path.join(val_data_dir, f'ground_truth_{start_time.strftime("%Y-%m-%d_%H")}.nc'))
         
 
-        # lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
         max_lead_time = max(self.params.forecast_lead_times)
         acc_times_hours = [(lt + 1) * self.params.timedelta_hours for lt in range(max_lead_time)]
 
@@ -2201,22 +1896,6 @@ if __name__ == '__main__':
     #######
 
     args = parser.parse_args()
-    """
-    args = Box({
-        "run_num": "0510",
-        "yaml_config": "/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0510.yaml",
-        "config": "PLASIM",
-        "enable_amp": True,
-        "epsilon_factor": 0.0,
-        "epochs": 0,
-        "run_iter": 1,
-        "debug": True,
-        "just_validate": True,
-        "fresh_start": False,
-        "local-rank": None  # Since it has no default, set to None
-    })
-    """
-
     params = YParams(os.path.abspath(args.yaml_config), args.config)
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
@@ -2236,16 +1915,6 @@ if __name__ == '__main__':
     if params.just_validate:
         os.environ["WANDB_MODE"] = "offline"
     params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
-    # params['num_inferences'] = args.num_inferences
-    #params['loss'] = args.loss
-
-    # # Add mandatory check for autoregressive steps
-    # max_forecast_lead_time = max(params.forecast_lead_times)
-    # if params.autoreg_steps < max_forecast_lead_time:
-    #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
-    #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
-    
-    #os.environ['WANDB_MODE'] = 'offline'
     
     params['debug'] = False
     if args.debug:
@@ -2269,10 +1938,6 @@ if __name__ == '__main__':
 
 
     #params['world_size'] = 1
-    '''if torch.cuda.device_count() == 1:
-        world_rank = 0
-        local_rank = 0
-        params['batch_size'] = params['batch_size']//4'''
     
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
@@ -2323,11 +1988,6 @@ if __name__ == '__main__':
         params['resuming'] = False
         if world_rank == 0:
             logging.info("No checkpoint found. Starting fresh training run.")
-
-    # # Do not comment this line out please:
-    # # args.resuming = True if os.path.isfile(params.checkpoint_path) else False
-    # args.resuming = False
-    # params['resuming'] = args.resuming
 
 
     params['local_rank'] = local_rank
