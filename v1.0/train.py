@@ -1,4 +1,4 @@
-from networks.pangu import PanguModel
+from networks.pangu import PanguModel, PanguPrecipModel
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
@@ -23,9 +23,9 @@ import logging
 from utils import logging_utils
 logging_utils.config_logger()
 from apex import optimizers
-
-
-
+from pathlib import Path
+torch._dynamo.config.optimize_ddp = False
+torch.set_float32_matmul_precision('high')
 
 class Trainer():
     def count_parameters(self):
@@ -42,10 +42,11 @@ class Trainer():
                        entity=params.entity)
 
         logging.info('rank %d, begin data loader init' % world_rank)
+        self.params['precip'] = True if 'precip' in params.nettype else False
         self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(
-            params, params.train_data_path, dist.is_initialized(), train=True)
+            params, params.train_data_path, dist.is_initialized(), train=True, precip = self.params.precip)
         self.valid_data_loader, self.valid_dataset = get_data_loader(
-            params, params.valid_data_path, dist.is_initialized(), train=False)
+            params, params.valid_data_path, dist.is_initialized(), train=False, precip = self.params.precip)
 
         logging.info('rank %d, data loader initialized' % world_rank)
 
@@ -56,6 +57,8 @@ class Trainer():
 
         if params.nettype == 'pangu':
             self.model = PanguModel(params).to(self.device)
+        elif params.nettype == 'pangu_precip':
+            self.model = PanguPrecipModel(params).to(self.device)
         else:
             raise Exception("not implemented")
 
@@ -124,6 +127,9 @@ class Trainer():
         soil_type = torch.from_numpy(np.load(os.path.join(params.mask_dir, "soil_type.npy")).astype(np.float32))
         topography = torch.from_numpy(np.load(os.path.join(params.mask_dir, "topography.npy")).astype(np.float32))
         self.surface_mask = torch.stack([land_mask, soil_type, topography], dim=0)
+        mask_mean = torch.mean(self.surface_mask, dim = (1,2))
+        mask_std = torch.std(self.surface_mask, dim = (1,2))
+        self.surface_mask = (self.surface_mask - mask_mean.reshape(-1, 1, 1))/mask_std.reshape(-1, 1, 1)
         self.surface_mask = self.surface_mask.unsqueeze(0).repeat(params.batch_size, 1, 1, 1)
         self.surface_mask = torchvision.transforms.functional.resize(self.surface_mask, img_size)   
 
@@ -234,7 +240,7 @@ class Trainer():
 
                 gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
                                  self.surface_mask.to(self.device, dtype=torch.float32),
-                                 inp_pl.to(self.device, dtype=torch.float32))
+                                 inp_pl.to(self.device, dtype=torch.float32), train = True)
                 
                 # We use the MAE loss to train the model
                 # The weight of surface loss is 0.25
@@ -257,8 +263,7 @@ class Trainer():
                 self.gscaler.update()
 
             tr_time += time.time() - tr_start
-
-
+ 
         logs = {'loss': loss}
 
         if dist.is_initialized():
@@ -299,7 +304,7 @@ class Trainer():
 
                 gen = self.model(inp_sfc.to(self.device, dtype=torch.float32),
                                  self.surface_mask.to(self.device, dtype=torch.float32),
-                                 inp_pl.to(self.device, dtype=torch.float32))
+                                 inp_pl.to(self.device, dtype=torch.float32), train = False)
 
                 loss_sfc = self.loss_obj_sfc(gen[0], tar_sfc)
                 loss_pl = self.loss_obj_pl(gen[1], tar_pl)
@@ -407,6 +412,7 @@ if __name__ == '__main__':
     parser.add_argument("--config", default='base_config', type=str)
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
+    parser.add_argument("--local-rank", type=int)
 
     args = parser.parse_args()
 
@@ -427,7 +433,12 @@ if __name__ == '__main__':
 
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
+
+        #if 'eagle' in str(Path(__file__)):
+        #    local_rank = args.local_rank
+        #else:
         local_rank = int(os.environ["LOCAL_RANK"])
+
 
         args.gpu = local_rank
         world_rank = dist.get_rank()

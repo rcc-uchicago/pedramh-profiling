@@ -7,7 +7,7 @@
 #SBATCH --gres=gpu:4
 
 #SBATCH --ntasks=4
-#SBATCH --cpus-per-task=16 
+#SBATCH --cpus-per-task=32
 #SBATCH -o outs/anvil_ddp.out
 
 
@@ -22,6 +22,8 @@ export NCCL_NET_GDR_LEVEL=PHB
 export MASTER_ADDR=$(hostname)
  
 module load hdf5
+module load anaconda/2024.02-py311
+conda activate /anvil/projects/x-atm170020/anaconda/py311
 
 set -x
 srun -u --mpi=pmi2 \

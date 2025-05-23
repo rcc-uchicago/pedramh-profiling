@@ -1,0 +1,944 @@
+from networks.pangu import PanguModel_Plasim
+from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
+from tqdm import tqdm
+from ruamel.yaml.comments import CommentedMap as ruamelDict
+from ruamel.yaml import YAML
+from collections import OrderedDict
+import matplotlib.pyplot as plt
+from utils.data_loader_multifiles import get_data_loader
+from utils.YParams import YParams
+import os
+import time
+import numpy as np
+import argparse
+import torch
+import xarray as xr
+import torchvision
+from torchvision.utils import save_image
+import torch.cuda.amp as amp
+import torch.distributed as dist
+from torch.nn.parallel import DistributedDataParallel
+import logging
+from utils import logging_utils
+from utils.power_spectrum import *
+from utils.perturbation import Perturber
+##########################################
+## NEW IMPORTS
+from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
+    Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
+    Latitude_weighted_CRPSLoss
+###############################@###########
+logging_utils.config_logger()
+#from apex import optimizers
+from pathlib import Path
+import dask
+from datetime import timedelta
+# import transformer_engine.pytorch as te
+# from transformer_engine.common import recipe
+# from transformer_engine.pytorch import fp8_autocast
+from torch.profiler import profile, record_function, ProfilerActivity
+from itertools import product
+import time 
+from multiprocessing import Process
+import psutil
+import shutil
+from datetime import datetime
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+import uuid
+from utils.integrate import Integrator, forward_euler
+import cftime
+from copy import deepcopy
+import json
+from natsort import natsorted
+import glob
+
+def cleanup():
+    if dist.is_initialized():
+        dist.destroy_process_group()
+        
+import atexit
+atexit.register(cleanup)
+
+def to_ensemble_batch(data, ens_members):
+    """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
+    mult_shape = [1] * (len(data.shape) + 1)
+    mult_shape[1] = ens_members
+    return (data.unsqueeze(1)*torch.ones(mult_shape, device = data.device)).flatten(0, 1)
+
+def compute_A_ensemble(args):
+    """
+    Computes the A values for an ensemble forecast.
+    """
+    # Open the dataset for existing paths
+    ds, particle_idx, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
+    # ds = xr.open_dataset(path, decode_times=True, use_cftime=True)
+    # Load region boundaries from a JSON file
+    print(f'Computing obs for particle {particle_idx}, members {ensemble_start} to {ensemble_end}')
+    with open(PATH_REGIONS, 'r') as f:
+        all_regions = json.load(f)
+    for region in regions:
+        lon_region = all_regions[region]['lon']
+        lat_region = all_regions[region]['lat']
+        # Select the region of interest from the dataset
+        ds_region = ds.sel(lon=lon_region, lat=lat_region, method='nearest')
+        # Compute the distribution of A values for the selected region and variable
+        if var in ['tas', 'ta']:
+            A = ds_region[var].mean(dim=['lon', 'lat']) - 273.15  # Convert temperature from Kelvin to Celsius
+        else:
+            A = ds_region[var].mean(dim=['lon', 'lat'])
+        A = A.resample(time='1D').mean()  # Resample to daily mean
+        A = A.isel(time=slice(lead_time, lead_time+target_duration))  # Select the first T days
+        A = A.mean(dim='time')  # Compute the mean over the selected time period
+        filepath = save_basenames[particle_idx] + f'_{ensemble_start:04d}-{ensemble_end:04d}_A_{region}.npy'
+        np.save(filepath, A.values.flatten())
+        
+def combine_A_ensemble(save_basenames, regions):
+    for save_basename, region in tqdm(product(save_basename, region), 
+                                      total = len(save_basenames)*len(regions),
+                                      desc = "Combining obs files..."):
+        files = natsorted(glob.glob(save_basename + f'_**-**_A_{region}.npy'))
+        data = []
+        for file in files:
+            data.append(np.load(data))
+            #os.remove(file)
+        data = np.concat(data, axis = 0)
+        filepath_out = save_basename + f'_A_{region}.npy'
+        np.save(filepath_out)
+
+
+class Stepper():
+    def count_parameters(self):
+        if self.use_6h_24h_model:
+            return sum(p.numel() for p in self.model_6.parameters() if p.requires_grad) + \
+                sum(p.numel() for p in self.model_24.parameters() if p.requires_grad)
+        else:
+            return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+    def __init__(self, params_list, world_rank, use_6h_24h_model=False,
+                 async_save = False, obs_function = None, obs_args = None,
+                 load_all_bcs = True):
+        self.params = params_list[0]
+        self.use_6h_24h_model = use_6h_24h_model
+        self.load_all_bcs = load_all_bcs
+        if use_6h_24h_model:
+            self.params_24h = params_list[1]
+        self.world_rank = world_rank
+        self.async_save = async_save
+        self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+        self.early_stop_epoch = self.params['early_stop_epoch'] - 1 if 'early_stop_epoch' in self.params else None
+        self.run_uuid = str(uuid.uuid4())
+        self.has_land = False
+        self.has_ocean = False
+        self.mask_output = False
+        if hasattr(self.params, 'land_variables'):
+            if len(self.params.land_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['land_variables'] = []
+        if hasattr(self.params, 'ocean_variables'):
+            if len(self.params.ocean_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['ocean_variables'] = []
+        if hasattr(self.params, 'mask_output'):
+            self.mask_output = self.params.mask_output
+        if use_6h_24h_model:
+            has_land = False
+            has_ocean = False
+            mask_output = False
+            if hasattr(self.params_24h, 'land_variables'):
+                if len(self.params_24h.land_variables) > 0:
+                    has_land = True
+            else:
+                self.params_24h['land_variables'] = []
+            if hasattr(self.params_24h, 'ocean_variables'):
+                if len(self.self.params_24h.ocean_variables) > 0:
+                    has_land = True
+            else:
+                self.params_24h['ocean_variables'] = []
+            if hasattr(self.params_24h, 'mask_output'):
+                mask_output = self.params_24h.mask_output
+            assert has_land == self.has_land
+            assert has_ocean == self.has_ocean
+            assert mask_output == self.mask_output
+        self.obs_function = obs_function
+        self.obs_args = obs_args
+        self.save_forecasts = False
+        if hasattr(params, 'save_forecasts'):
+            self.save_forecasts = params.save_forecasts
+
+
+        logging.info('rank %d, begin data loader init' % world_rank)
+        for params in params_list:
+            print(params)
+
+
+                                                                                
+        self.data_loader, self.dataset = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
+                                                         year_start=self.params.val_year_start, 
+                                                         year_end=self.params.val_year_end, train=False,
+                                                         ensemble = True, init_from_nc = True,
+                                                         load_all_bcs = self.load_all_bcs)
+        
+        if self.params.epsilon_factor > 0.:
+            self.perturber = Perturber(self.params, self.dataset, device = self.device,
+                                    device_idx = self.world_rank)
+        
+        
+        #print('Inference Idxs:')
+        #print(self.valid_dataset.inference_idxs)
+
+        # self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
+        # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
+        self.constant_boundary_data = self.dataset.constant_boundary_data.unsqueeze(0) * torch.ones(self.params.batch_size, 1, 1, 1)
+        self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
+        if params.num_ensemble_members > 1:
+            logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
+
+         # Load climatology
+        """
+        climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
+        self.climatology = xr.open_dataset(climatology_path)
+        if 'time_bnds' in self.climatology.data_vars:
+            self.climatology = self.climatology.drop_vars('time_bnds')
+        self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
+        self.climatology = self.climatology.rename({'time':'dayofyear'})
+        if self.long_validation:
+            self.climatology_bias = self.climatology.mean(dim='dayofyear')
+            self.clim_surface_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.surface_variables]))
+            upper_air_clim = []
+            for var in self.params.upper_air_variables:
+                if var != 'zg' and var != 'geopotential' and self.params.use_sigma_levels:
+                    upper_air_clim.append(self.climatology_bias[var].sel(lev = self.params.sigma_levels))
+                else:
+                    upper_air_clim.append(self.climatology_bias[var].sel(plev = self.params.levels))
+            self.clim_upper_air_bias = torch.from_numpy(np.stack(upper_air_clim))
+            if self.params.has_diagnostic:
+                self.clim_diagnostic_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.diagnostic_variables]))
+        """
+
+
+        self.enable_amp = self.params.enable_amp
+        self.enable_fp8 = self.params.enable_fp8
+        
+        if self.enable_fp8:
+            global te, recipe, fp8_autocast
+            import transformer_engine.pytorch as te
+            from transformer_engine.common import recipe
+            from transformer_engine.pytorch import fp8_autocast
+
+            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
+                                                    amax_history_len=16,
+                                                    amax_compute_algo="max")
+            
+        logging.info('rank %d, data loader initialized' % world_rank)
+        
+        if self.params.nettype == 'pangu_plasim':
+            if (self.has_land or self.has_ocean) and self.mask_output:
+                land_mask = torch.clone(self.dataset.land_mask.detach()).to(self.device)
+                print(f'Land Mask shape: {land_mask.shape}')
+                mask_bool = []
+                for var in self.params.surface_variables:
+                    if var in self.params.land_variables:
+                        mask_bool.append(torch.clone(land_mask).to(torch.bool))
+                    elif var in self.params.ocean_variables:
+                        mask_bool.append(torch.logical_not(torch.clone(land_mask).to(torch.bool)))
+                    else:
+                        mask_bool.append(torch.ones(land_mask.shape, device=self.device, dtype=torch.bool))
+                mask_bool = torch.stack(mask_bool)
+            else:
+                land_mask = None
+            if self.params.predict_delta:
+                self.model = PanguModel_Plasim(self.params, land_mask = land_mask).to(self.device)
+                self.integrator = Integrator(self.params, surface_ff_std=self.dataset.surface_std.detach().to(self.device),
+                                            surface_delta_std=self.dataset.surface_delta_std.detach().to(self.device),
+                                            upper_air_ff_std=self.dataset.upper_air_std.detach().to(self.device),
+                                            upper_air_delta_std=self.dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
+            else:
+                if hasattr(params, 'mask_fill'):
+                    self.model = PanguModel_Plasim(self.params, land_mask = land_mask, 
+                                            mask_fill = self.params.mask_fill).to(self.device)
+                else:
+                    self.model = PanguModel_Plasim(self.params, land_mask = land_mask, 
+                                                mask_fill = self.dataset.mask_fill).to(self.device)
+            if self.use_6h_24h_model:
+                _, dataset_24h = get_data_loader(self.params_24h, self.params_24h.data_dir, dist.is_initialized(), 
+                                                 year_start=self.params_24h.val_year_start, 
+                                                 year_end=self.params_24h.val_year_end, train=False,
+                                                 ensemble = True, init_from_nc = True,
+                                                 load_all_bcs = self.load_all_bcs)
+                if self.params_24h.predict_delta:
+                    self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask).to(self.device)
+                    self.integrator_24h = Integrator(self.params_24h, surface_ff_std=dataset_24h.surface_std.detach().to(self.device),
+                                                surface_delta_std=dataset_24h.surface_delta_std.detach().to(self.device),
+                                                upper_air_ff_std=dataset_24h.upper_air_std.detach().to(self.device),
+                                                upper_air_delta_std=dataset_24h.upper_air_delta_std.detach().to(self.device)).to(self.device)
+                else:
+                    if hasattr(params, 'mask_fill'):
+                        self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask, 
+                                                mask_fill = self.params_24h.mask_fill).to(self.device)
+                    else:
+                        self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask, 
+                                                    mask_fill = dataset_24h.mask_fill).to(self.device)
+                
+            #self.restore_checkpoint(params.best_checkpoint_path)
+            #self.model = torch.compile(self.model, mode="max-autotune")
+            #self.model = torch.compile(self.model, mode = 'default')
+        elif params.nettype == 'sfno_plasim':
+            print(f'\n\nRunning SFNO model\n\n')
+            self.model = SFNO(params, self.dataset).to(self.device)
+            if params.sync_norm:
+                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+            if self.params.predict_delta:
+                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
+                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
+        else:
+            raise Exception("not implemented")
+
+        if dist.is_initialized():
+            self.model = DistributedDataParallel(self.model,
+                                                 device_ids=[
+                                                     params.local_rank],
+                                                 output_device=[params.local_rank], find_unused_parameters=True)
+            if self.use_6h_24h_model:
+                self.model_24h = DistributedDataParallel(self.model_24h,
+                                                 device_ids=[
+                                                     params.local_rank],
+                                                 output_device=[params.local_rank], find_unused_parameters=True)
+        self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
+        if self.use_6h_24h_model:
+            self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
+        
+        if params.log_to_screen:
+            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
+            
+    def restore_checkpoint(self, model, checkpoint_path):
+        """ We intentionally require a checkpoint_dir to be passed
+            in order to allow Ray Tune to use this function """
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        try:
+            model.load_state_dict(checkpoint['model_state'])
+        except:
+            new_state_dict = OrderedDict()
+            for key, val in checkpoint['model_state'].items():
+                name = key[7:]
+                new_state_dict[name] = val
+            model.load_state_dict(new_state_dict)
+        #self.model = torch.compile(self.model)
+        self.iters = checkpoint['iters']
+        self.startEpoch = checkpoint['epoch']
+        print('START EPOCH:', self.startEpoch)
+        # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
+        #if self.params.resuming:
+        #    self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            
+    def predict(self, obs_function = None, obs_args = None):
+        if self.params.log_to_screen:
+            logging.info("Starting Model Inference Loop...")
+
+        start = time.time()
+        #tr_time, data_time, train_logs = self.train_one_epoch()
+        self.obs_function = obs_function
+        self.obs_args = obs_args
+        #if self.params.batch_size > 1 and self.obs_function:
+        #    raise ValueError('Program assumes obs_function only works for a batch size of 1.')
+        if self.async_save and (self.save_forecasts or type(self.obs_function) is not type(None)):
+            valid_time, valid_logs = asyncio.run(self.predict_async())
+        else:
+            valid_time, valid_logs = self.predict_sync()
+            
+    async def save_prediction_async(self, datasets, particle_idxs, ensemble_start, ensemble_end):
+        await asyncio.to_thread(self.save_prediction, datasets, particle_idxs, ensemble_start, ensemble_end)
+        
+    async def run_obs_function_async(self, dataset, particle_idx, ensemble_start, ensemble_end, obs_args):
+        await asyncio.to_thread(self.obs_function, [dataset, particle_idx, ensemble_start, ensemble_end] + obs_args)
+        
+    async def save_results(self, queue):
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            datasets, particle_idxs, ensemble_start, ensemble_end = item
+            save_start = time.time()
+            await self.save_prediction_async(datasets, particle_idxs, ensemble_start, ensemble_end)
+            self.save_time += time.time() - save_start
+            queue.task_done()
+            
+    async def obs_results(self, queue):
+        while True:
+            item = await queue.get()
+            if item is None:
+                break
+            dataset, particle_idx, ensemble_start, ensemble_end, obs_args = item
+            obs_start = time.time()
+            await self.run_obs_function_async(dataset, particle_idx, ensemble_start, ensemble_end, obs_args)
+            self.obs_time += time.time() - obs_start
+            queue.task_done()
+            
+    async def predict_async(self):
+        self.model.eval()
+        total_start = time.time()
+        data_time = 0
+        inference_time = 0
+        transform_time = 0
+        conversion_time = 0
+        self.obs_time = 0
+        self.save_time = 0
+
+        if self.params.save_forecasts:
+            save_queue = asyncio.Queue()
+            save_task = asyncio.create_task(self.save_results(save_queue))
+        
+        if type(self.obs_function) is not type(None):
+            obs_queue = asyncio.Queue()
+            obs_task = asyncio.create_task(self.obs_results(obs_queue))
+
+        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+            for i, data in enumerate(self.data_loader, 0):
+                data_start = time.time()
+                input_surface_in, input_upper_air_in = map(
+                    lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
+                particle_idxs = data[-1]
+                print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
+                
+                ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
+                                                   self.params.ensemble_members_per_pred)
+                for ensemble_start, ensemble_end in zip(ensemble_member_splits[:-1], ensemble_member_splits[1:]):
+                    ensemble_end = min(ensemble_end, self.params.num_ensemble_members)
+                    input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
+                    input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
+                    varying_boundary_data = to_ensemble_batch(self.dataset.varying_boundary_data.to(self.device).unsqueeze(0), ensemble_end - ensemble_start)
+                    constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
+                    #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
+                    
+                    input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
+                    
+                    
+                    
+
+                    inference_start = time.time()
+                    output_surface = np.zeros((input_surface.shape[0], self.dataset.ensemble_inference_steps,
+                                                    input_surface.shape[1], input_surface.shape[2], input_surface.shape[3]),
+                                                    dtype = np.float32)
+                    output_upper_air = np.zeros((input_upper_air.shape[0], self.dataset.ensemble_inference_steps,
+                                                    input_upper_air.shape[1], input_upper_air.shape[2],
+                                                    input_upper_air.shape[3], input_upper_air.shape[4]),
+                                                    dtype = np.float32)
+                    if self.params.has_diagnostic:
+                        output_diagnostic = np.zeros((input_surface.shape[0], self.dataset.ensemble_inference_steps,
+                                                        len(self.params.diagnostic_variables), input_surface.shape[2], input_surface.shape[3]),
+                                                        dtype = np.float32)
+                    
+                    #output_surface[:,0] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                    #output_upper_air[:,0] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                    
+
+                    for time_step in tqdm(range(self.dataset.ensemble_inference_steps),
+                                          desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
+                        inference_start = time.time()
+                        if self.params.has_diagnostic:
+                            out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                                                                                    constant_boundary_data, 
+                                                                                    varying_boundary_data[:,time_step],
+                                                                                    input_upper_air)
+                        else:
+                            out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                                                                    varying_boundary_data[:,time_step], input_upper_air)
+                        if self.params.predict_delta:
+                            input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
+                        else:
+                            input_surface, input_upper_air = out_surface, out_upper_air
+                        inference_time += time.time() - inference_start
+                        transform_start = time.time()
+                        if self.params.has_diagnostic:
+                            output_diagnostic[:, time_step] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                        output_surface[:,time_step] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                        output_upper_air[:,time_step] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                        transform_time += time.time() - transform_start
+
+                    inference_time += time.time() - inference_start
+                    
+                    conversion_start = time.time()
+                    
+                    if self.params.has_diagnostic:
+                        ensemble_datasets = self.convert_ensemble_to_xarray(\
+                            output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
+                            output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
+                            particle_idxs, np.arange(ensemble_start, ensemble_end), 
+                            diagnostic_prediction = output_diagnostic.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_diagnostic.shape[1:]).copy())
+                    else:
+                        ensemble_datasets = self.convert_ensemble_to_xarray(\
+                            output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
+                            output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
+                            particle_idxs, np.arange(ensemble_start, ensemble_end))
+                    #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
+                    conversion_time += time.time() - conversion_start
+                    
+                    if type(self.obs_function) is not type(None):
+                        await obs_queue.put((deepcopy(ensemble_datasets)[0], particle_idxs.numpy()[0], ensemble_start, ensemble_end, deepcopy(self.obs_args)))
+                        await asyncio.sleep(0)
+                        
+                    if self.params.save_forecasts:
+                        # Queue the results for asynchronous saving
+                        await save_queue.put((deepcopy(ensemble_datasets),  particle_idxs.numpy(), ensemble_start, ensemble_end))
+                        await asyncio.sleep(0)
+
+        if type(self.obs_function) is not type(None):
+            # Signal that we're done
+            await obs_queue.put(None)
+            # Wait for all saves to complete
+            await obs_task
+        if self.params.save_forecasts:
+            # Signal that we're done
+            await save_queue.put(None)
+            # Wait for all saves to complete
+            await save_task
+
+        total_time = time.time() - total_start
+
+        logs = {
+            'total_time': total_time,
+            'data_time': data_time,
+            'inference_time': inference_time,
+            'transform_time': transform_time,
+            'conversion_time': conversion_time,
+            'obs_time': self.obs_time,
+            'save_time': self.save_time
+        }
+
+        logging.info(f"Validation logs: {logs}")
+
+        return total_time, logs
+    
+    def predict_sync(self):
+        self.model.eval()
+        total_start = time.time()
+        data_time = 0
+        inference_time = 0
+        conversion_time = 0
+        obs_time = 0
+        save_time = 0
+
+        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+            for i, data in enumerate(self.data_loader, 0):
+                data_start = time.time()
+                #particle_idxs = np.arange(self.params.batch_size*i, self.params.batch_size*(i+1))
+                input_surface_in, input_upper_air_in = map(
+                    lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
+                particle_idxs = data[-1]
+                print(f'Particle idxs:{particle_idxs}')
+                
+                ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
+                                                   self.params.ensemble_members_per_pred)
+                for ensemble_start, ensemble_end in zip(ensemble_member_splits[:-1], ensemble_member_splits[1:]):
+                    ensemble_end = min(ensemble_end, self.params.num_ensemble_members)
+                    input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
+                    input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
+                    varying_boundary_data = to_ensemble_batch(self.dataset.varying_boundary_data.to(self.device).unsqueeze(0), ensemble_end - ensemble_start)
+                    constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
+                    #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
+                    
+                    input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
+                    
+                    
+                    
+
+                    inference_start = time.time()
+                    output_surface = np.zeros((input_surface.shape[0], self.dataset.ensemble_inference_steps,
+                                                    input_surface.shape[1], input_surface.shape[2], input_surface.shape[3]),
+                                                    dtype = np.float32)
+                    output_upper_air = np.zeros((input_upper_air.shape[0], self.dataset.ensemble_inference_steps,
+                                                    input_upper_air.shape[1], input_upper_air.shape[2],
+                                                    input_upper_air.shape[3], input_upper_air.shape[4]),
+                                                    dtype = np.float32)
+                    if self.params.has_diagnostic:
+                        output_diagnostic = np.zeros((input_surface.shape[0], self.dataset.ensemble_inference_steps,
+                                                        len(self.params.diagnostic_variables), input_surface.shape[2], input_surface.shape[3]),
+                                                        dtype = np.float32)
+                    
+                    #output_surface[:,0] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                    #output_upper_air[:,0] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+                    
+
+                    for time_step in tqdm(range(self.dataset.ensemble_inference_steps),
+                                          desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
+                        if self.params.has_diagnostic:
+                            out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                                                                                    constant_boundary_data, 
+                                                                                    varying_boundary_data[:,time_step],
+                                                                                    input_upper_air)
+                            output_diagnostic[:, time_step] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                        else:
+                            out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                                                                    varying_boundary_data[:,time_step], input_upper_air)
+                        if self.params.predict_delta:
+                            input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
+                        else:
+                            input_surface, input_upper_air = out_surface, out_upper_air
+                        output_surface[:,time_step] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
+                        output_upper_air[:,time_step] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
+
+                    inference_time += time.time() - inference_start
+                    
+                    conversion_start = time.time()
+                    
+                    if self.params.has_diagnostic:
+                        ensemble_datasets = self.convert_ensemble_to_xarray(\
+                            output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
+                            output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
+                            particle_idxs, np.arange(ensemble_start, ensemble_end), 
+                            diagnostic_prediction = output_diagnostic.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_diagnostic.shape[1:]).copy())
+                    else:
+                        ensemble_datasets = self.convert_ensemble_to_xarray(\
+                            output_surface.reshape(input_surface_in.shape[0], ensemble_end - ensemble_start, *output_surface.shape[1:]).copy(),
+                            output_upper_air.reshape(input_upper_air_in.shape[0], ensemble_end - ensemble_start, *output_upper_air.shape[1:]).copy(),
+                            particle_idxs, np.arange(ensemble_start, ensemble_end))
+                    #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
+                    conversion_time += time.time() - conversion_start
+                    
+                    if self.obs_function:
+                        obs_start = time.time()
+                        self.obs_function([ensemble_datasets[0], particle_idxs[0], ensemble_start, ensemble_end] + self.obs_args)
+                        obs_time += time.time() - obs_start
+                        
+                    if self.save_forecasts:
+                        save_start = time.time()
+                        self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
+                        save_time += time.time() - save_start
+
+        total_time = time.time() - total_start
+
+        logs = {
+            'total_time': total_time,
+            'data_time': data_time,
+            'inference_time': inference_time,
+            'conversion_time': conversion_time,
+            'obs_time': obs_time,
+            'save_time': save_time
+        }
+
+        logging.info(f"Validation logs: {logs}")
+
+        return total_time, logs
+    
+    def convert_ensemble_to_xarray(self, surface_prediction, upper_air_prediction, particle_idxs, ensemble_idxs = None, diagnostic_prediction = None):
+        batch_size, num_ensemble_members, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
+        if type(ensemble_idxs) is type(None):
+            ensemble_idxs = np.arange(num_ensemble_members)
+        #if batch_size > 1:
+        #    Warning('Obs functions assume a batch size of 1!')
+        # print(f"TIME STEPS ARE: {time_steps}")
+        datasets = []
+
+        for sample, particle_idx in enumerate(particle_idxs):
+            # time_range = xr.cftime_range(
+            #     start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
+            #     periods=time_steps,
+            #     freq=f"{params['timedelta_hours']}h"
+            # )
+            # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            time_range = [self.params.init_datetime + timedelta(hours=step * self.params['timedelta_hours']) for step in range(1, time_steps + 1)]
+            #print(time_range[0], time_range[-1])
+            
+
+            # Determine the level coordinate name based on params.lev
+            level_coord_name = 'lev' if self.params.lev == 'lev' else 'plev'
+            if hasattr(self.dataset, 'sigma_levels'):
+                if self.params.lev == 'lev':
+                    levels = self.dataset.sigma_levels
+                else:
+                    levels = self.dataset.levels
+            else:
+                levels = self.dataset.levels
+                
+            if self.params.lev == 'lev' and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
+                coordinates = {
+                    'ensemble_idx': ensemble_idxs,
+                    'time': time_range,
+                    level_coord_name: levels,
+                    'plev': self.dataset.levels,
+                    'lat': self.params.lat,
+                    'lon': self.params.lon
+                }
+            else:
+                coordinates = {
+                    'ensemble_idx': ensemble_idxs,
+                    'time': time_range,
+                    level_coord_name: levels,
+                    'lat': self.params.lat,
+                    'lon': self.params.lon
+                }
+
+            dataset = xr.Dataset(
+                coords=coordinates,
+                attrs=dict(description=f"Prediction from {self.params.nettype} model run, particle {particle_idx}")
+            )
+
+            for idx, var in enumerate(self.dataset.surface_variables):
+                da = xr.DataArray(
+                    data=surface_prediction[sample, :, :, idx],
+                    dims=["ensemble_idx", "time", "lat", "lon"],
+                    coords={'ensemble_idx': ensemble_idxs,
+                            'time': time_range,
+                            'lat': self.params.lat,
+                            'lon': self.params.lon}
+                )
+                #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
+                dataset[var] = da
+
+            if type(diagnostic_prediction) is not type(None):
+                for idx, var in enumerate(self.dataset.diagnostic_variables):
+                    da = xr.DataArray(
+                        data=diagnostic_prediction[sample, :, :, idx],
+                        dims=["ensemble_idx", "time", "lat", "lon"],
+                        coords={'ensemble_idx': ensemble_idxs,
+                                'time': time_range,
+                                'lat': self.params.lat,
+                                'lon': self.params.lon}
+                    )
+                    #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
+                    dataset[var] = da
+
+            for idx, var in enumerate(self.dataset.upper_air_variables):
+                if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
+                    da = xr.DataArray(
+                        data=upper_air_prediction[sample, :, :, idx],
+                        dims=["ensemble_idx", "time", "plev", "lat", "lon"],
+                        coords = {
+                            'ensemble_idx': ensemble_idxs,
+                            'time': time_range,
+                            'plev': self.dataset.plev.values,
+                            'lat': self.params.lat,
+                            'lon': self.params.lon
+                        }
+                    )
+                elif self.params.lev == 'lev':
+                    da = xr.DataArray(
+                        data=upper_air_prediction[sample, :, :, idx],
+                        dims=["ensemble_idx", "time", self.params.lev, "lat", "lon"],
+                        coords = {
+                            'ensemble_idx': ensemble_idxs,
+                            'time': time_range,
+                            self.params.lev: dataset.lev.values,
+                            'lat': self.params.lat,
+                            'lon': self.params.lon
+                        }
+                    )
+                else:
+                    da = xr.DataArray(
+                        data=upper_air_prediction[sample, :, :, idx],
+                        dims=["ensemble_idx", "time", level_coord_name, "lat", "lon"],
+                        coords=coordinates
+                    )
+                #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
+                dataset[var] = da
+
+            datasets.append(dataset)
+                
+
+        return datasets
+    
+    def save_prediction(self, datasets, particle_idxs, ensemble_start, ensemble_end):
+        savedirs = [self.params.output_dirs[particle_idx] for particle_idx in particle_idxs]
+        save_basenames = [self.params.save_basenames[particle_idx] for particle_idx in particle_idxs]
+        for savedir in savedirs:
+            if not os.path.isdir(savedir):
+                os.makedirs(savedir)
+        for i, (dataset, save_basename) in enumerate(zip(datasets, save_basenames)):
+            print(f'Saving prediction {particle_idxs[i]} members {ensemble_start}-{ensemble_end}...')
+            dataset = dataset.chunk({'ensemble_idx': 1, 'time': 1, self.params.lev: 1})
+            if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
+                dataset = dataset.chunk({'plev': 1})
+            #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
+            filename = save_basename + f'_run.{ensemble_start:04d}-{ensemble_end:04d}_output.nc'
+            dataset.to_netcdf(os.path.join(savedir, filename))
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run_num", default='0305', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_PLASIM_H5_DSI_4_test.yaml', type=str)
+    parser.add_argument("--use_6h_24h_model", default = False, action="store_true")
+    parser.add_argument("--config", default='PLASIM', type=str)
+    parser.add_argument("--enable_amp", default=True, action='store_true')
+    parser.add_argument("--epsilon_factor", default=0, type=float)
+    parser.add_argument("--debug", default=False, action='store_true')
+    parser.add_argument("--init_datetime", default="", type=str)
+    parser.add_argument("--init_nc_filepaths", required=True, type=str)
+    parser.add_argument("--async_save", default = False, action='store_true')
+
+    ####### for UCAR
+    parser.add_argument("--local-rank", type=int)
+    #######
+
+    args = parser.parse_args()
+
+    #config = 'PLASIM'
+    #yaml_config = 'config/PANGU_PLASIM_H5_PERLMUTTER_0510_ensemble.yaml'
+    #just_validate = True
+    #debug = True
+    #run_num = '0510'
+    os.environ["WANDB_MODE"] = "offline"
+    if args.use_6h_24h_model:
+        run_nums = args.run_num.split(',')
+        yaml_configs = args.yaml_config.split(',')
+    else:
+        run_nums = [args.run_num]
+        yaml_configs = [args.yaml_config]
+    params_list = [YParams(os.path.abspath(yaml_config), args.config) for yaml_config in yaml_configs]
+    #params['epsilon_factor'] = args.epsilon_factor
+    with params_list[0] as params:
+        params['run_iter'] = 1
+        if hasattr(params, 'diagnostic_variables'):
+            if len(params.diagnostic_variables) > 0:
+                params['has_diagnostic'] = True
+            else:
+                params['has_diagnostic'] = False
+        else:
+            params['has_diagnostic'] = False
+        print(f'Has diagnostic: {params.has_diagnostic}')
+        if not hasattr(params, 'num_ensemble_members'):
+            params['num_ensemble_members'] = 1
+        params['init_nc_filepaths'] = args.init_nc_filepaths.split(',')
+        if not hasattr(params, 'ensemble_members_per_pred'):
+            params['ensemble_members_per_pred'] = params.num_ensemble_members
+        if args.debug:
+            params['world_size'] = 1
+        else:
+            print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+            print('World size from Cuda: %d' % torch.cuda.device_count())
+            if 'WORLD_SIZE' in os.environ:
+                params['world_size'] = int(os.environ['WORLD_SIZE'])
+                print(params['world_size'])
+            else:
+                params['world_size'] = torch.cuda.device_count()
+                print(params['world_size'])
+        if params['world_size'] > 1:
+            dist.init_process_group(backend='nccl', init_method='env://')
+            if 'derecho' in str(Path(__file__)):
+                local_rank = args.local_rank
+            else:
+                local_rank = int(os.environ["LOCAL_RANK"])
+
+            gpu = local_rank
+            world_rank = dist.get_rank()
+            # print("##########WORLD RANK: TESTING ", world_rank)
+
+            params['global_batch_size'] = params.batch_size
+            params['batch_size'] = int(params.batch_size//params['world_size'])
+        else:
+            world_rank = 0
+            local_rank = 0
+            
+    torch.manual_seed(world_rank)
+    torch.cuda.set_device(local_rank)
+    torch.backends.cudnn.benchmark = True
+
+    # Set up directories
+    for params, run_num in zip(params_list, run_nums):
+        expDir = os.path.join(params.exp_dir, args.config, str(run_num))
+        if world_rank == 0:
+            if not os.path.isdir(expDir):
+                os.makedirs(expDir)
+                os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
+
+        params['experiment_dir'] = os.path.abspath(expDir)
+        ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
+        best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
+        params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
+        params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+
+        checkpoint_exists = os.path.isfile(params.best_checkpoint_path)
+
+        # Determine whether to resume or start fresh
+        params['resuming'] = True
+    if world_rank == 0:
+        logging.info("Resuming from existing checkpoint.")
+
+    # # Do not comment this line out please:
+    # # args.resuming = True if os.path.isfile(params.checkpoint_path) else False
+    # args.resuming = False
+    # params['resuming'] = args.resuming
+
+    with params_list[0] as params:
+        params['local_rank'] = local_rank
+        params['enable_amp'] = True
+
+        # Add indicator for precision method and engine
+        if params['use_transformer_engine']:
+            print("Using Transformer Engine")
+        else:
+            print("Using PyTorch native")
+
+        if params['enable_fp8']:
+            print("with FP8 precision")
+        elif params['enable_amp']:
+            print("with Automatic Mixed Precision (AMP)")
+        else:
+            print("with full precision")
+
+        if world_rank == 0:
+            log_file = f'out_{i}.log'
+            logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(params.experiment_dir, log_file))
+            logging_utils.log_versions()
+            params.log()
+
+            params['log_to_wandb'] = False
+            params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
+
+    if world_rank == 0:
+        for params in params_list:
+            hparams = ruamelDict()
+            yaml = YAML()
+            for key, value in params.params.items():
+                hparams[str(key)] = str(value)
+            with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
+                yaml.dump(hparams,  hpfile)
+
+    with params_list[0] as params:
+        if len(args.init_datetime) == 0:
+            if hasattr(params, "init_datetime"):
+                params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
+                                                                                has_year_zero = params.has_year_zero,
+                                                                                calendar = 'proleptic_gregorian')
+            else:
+                params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
+                                                                calendar = 'proleptic_gregorian')
+        else:
+            params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
+                                                                                has_year_zero = params.has_year_zero,
+                                                                                calendar = 'proleptic_gregorian')
+        params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
+                                                                    params.init_datetime.month,
+                                                                    params.init_datetime.day,
+                                                                    hour = params.init_datetime.hour,
+                                                                    has_year_zero = params.has_year_zero)
+        if params.ensemble_inference_hours < 8760:
+            load_all_bcs = True
+        else:
+            load_all_bcs = False
+    stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
+                      async_save = args.async_save, load_all_bcs = load_all_bcs)
+    
+    if hasattr(params, 'use_default_obs'):
+        if params.use_default_obs:
+            lead_time = 5
+            target_duration = params.ensemble_inference_hours // 24 - lead_time
+            var = "tas"
+            regions = ["France", "PNW"]
+            PATH_REGIONS = "/pscratch/sd/a/awikner/AI-RES/RES/regions.json"
+            stepper.predict(obs_function=compute_A_ensemble, 
+                            obs_args=[params.save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS])
+        else:
+            stepper.predict()
+    else:
+        stepper.predict()
+
+
+    logging.info('DONE ---- rank %d' % world_rank)
+    dist.barrier()
+    cleanup()
