@@ -858,11 +858,13 @@ class Stepper():
                                 
                         # If we are using the 6h and 24h model and we are at 18z
                         elif self.use_6h_24h_model and (time_step_in_year+1) % 4 == 0 and self.params_24h.has_diagnostic:
-                            # Get the 24h model diagnostic output and subtract the accumulated precip from the 3 6h model predictions
+                            # Get the 24h model diagnostic output and subtract the accumulated precip from the 3 6h model pnredictions
                             transform_start = time.time()
                             output_diagnostic_24h = self.dataset_24h.diagnostic_inv_transform(out_diagnostic_24h.to('cpu')).numpy()
+                            if (time_step_in_year + 1) == output_surface.shape[1]:
+                                print(time_step_in_year + 1)
                             if 'pr_6h' in self.params.diagnostic_variables:
-                                output_diagnostic_24h[:, self.pr_6h_idx] -= np.sum(output_diagnostic[:, time_step_in_year+1:time_step_in_year+4, self.pr_6h_idx], axis = 1)
+                                output_diagnostic_24h[:, self.pr_6h_idx] -= np.sum(output_diagnostic[:, time_step_in_year-2:time_step_in_year+1, self.pr_6h_idx], axis = 1)
                             if time_step_in_year + 1 < output_surface.shape[1]:
                                 output_diagnostic[:, time_step_in_year + 1] = output_diagnostic_24h
                             transform_time += time.time() - transform_start
@@ -935,7 +937,7 @@ class Stepper():
                                     output_upper_air[:,time_step_in_year] = self.dataset_24h.upper_air_inv_transform(input_upper_air_24h.to('cpu')).numpy()
                                 else:
                                     if self.params.has_diagnostic:
-                                        output_diagnostic[:, time_step_in_year] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
+                                        output_diagnostic[:, time_step_in_year] = self.dataset.diagnostic_inv_transform(out_diagnostic.to('cpu')).numpy()
                                     output_surface[:,time_step_in_year] = self.dataset.surface_inv_transform(input_surface.to('cpu')).numpy()
                                     output_upper_air[:,time_step_in_year] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                                     if self.use_6h_24h_model:
