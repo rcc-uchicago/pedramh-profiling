@@ -44,23 +44,15 @@ import shutil
 from datetime import datetime
 import uuid
 from utils.integrate import Integrator, forward_euler
-
-
-
 # from utils.weighted_acc_rmse import weighted_rmse_torch_channels, weighted_rmse_torch_3D
-
 # os.environ['WANDB_MODE'] = 'offline'
 # os.environ['WANDB_DIR'] = '/scratch/midway3/tvallabh/PanguWeather/v2.0'
 # os.environ['WANDB_SERVICE_WAIT'] = '300'  # Wait for 300 seconds
-
-
 #dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
-
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
-
 torch.cuda.empty_cache()
 
 def list_of_ints(arg):
@@ -110,7 +102,6 @@ def grad_max(model):
         if max_grad < param_max.item():
             max_grad = param_max.item()
     return param_max
-
 
 
 def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'lon', 'time'], weighted=True):

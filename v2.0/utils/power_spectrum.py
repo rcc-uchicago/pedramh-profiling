@@ -2,24 +2,17 @@
 import sys
 import xarray as xr
 import numpy as np
-import xarray as xr
-import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+#import seaborn as sns
 from collections import OrderedDict
 import torch
 import matplotlib
-
 import os
 import matplotlib.colors as mcolors
-
 #from dask.diagnostics import ProgressBar
 import pandas as pd
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cartopy.crs as ccrs
-import seaborn as sns
-from collections import OrderedDict
 # sns.set_style('darkgrid')
 # sns.set_context('notebook')
 

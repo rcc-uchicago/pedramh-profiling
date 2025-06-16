@@ -19,6 +19,7 @@ mkdir -p $TMPDIR
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 echo "Job started at: {$TSTAMP}"
 
+Sqstat -u $USER
 
 cd /glade/work/bgong/PanguWeather/v2.0
 
@@ -42,7 +43,6 @@ WORLD_SIZE=$((NNODES * NUM_TASKS_PER_NODE))
 
 echo "NUM_OF_NODES= ${NNODES}"
 
-
 PRELOAD="module load conda;"
 PRELOAD+="conda activate /glade/derecho/scratch/zand/anaconda/py311;"
 PRELOAD+="export NODES=1;"
@@ -63,7 +63,7 @@ else
 fi
 
 
-CMD="trainB.py --yaml_config=./config/PANGU_S2S_lr3b.yaml --run_num=0005"
+CMD="train.py --yaml_config=./config/PANGU_S2S_lr3b.yaml --run_num=0005"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
