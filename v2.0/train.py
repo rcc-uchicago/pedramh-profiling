@@ -43,7 +43,12 @@ torch._dynamo.config.optimize_ddp = False
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
-torch.cuda.empty_cache()
+torch.cuda.empty_cache()           
+global te, recipe, fp8_autocast
+import transformer_engine.pytorch as te
+from transformer_engine.common import recipe
+from transformer_engine.pytorch import fp8_autocast
+
 
 
 #@torch.jit.script
@@ -64,11 +69,7 @@ def weighted_rmse_torch_channels(pred, target, latitudes):
 
 #@torch.jit.script
 def weighted_rmse_torch_3D(pred, target, latitudes):
-    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
     num_lat = pred.shape[3]
-    #num_long = target.shape[2]
-    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
-    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
     weight = torch.reshape(latitude_weighting_factor_torch(latitudes), (1, 1, 1, -1, 1))
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
@@ -167,6 +168,7 @@ def to_ensemble_batch(data, ens_members):
 
 
 class Trainer():
+
     def count_parameters(self):
         return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
@@ -176,6 +178,18 @@ class Trainer():
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         self.run_uuid = str(uuid.uuid4())
+        self.check_land_ocean_variables()
+        self.spectra_dir, self.diagnostics_dir, self.output_dir = self.create_dirs(self.run_uuid)    
+        
+        logging.info('Params' % params)
+        
+
+
+    def check_land_ocean_variables(self) -> None:
+        """
+        The function is used to update the boolean variable to check if there is land/ocean variables
+        """
+        #initlisation
         self.has_land = False
         self.has_ocean = False
         self.mask_output = False
@@ -193,14 +207,37 @@ class Trainer():
             self.mask_output = params.mask_output
 
 
-        logging.info('rank %d, begin data loader init' % world_rank)
-        print(params)
-        
 
-        # self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-        #                                                                                  year_start=params.train_year_start, 
-        #                                                                                  year_end=params.train_year_end, train=True)
+    def create_dirs(run_uuid:int)->tuple[str, str, str]:
+        """
+        To create the output directories to store the spectra_output, image, and evaluation metrics plot.
+        """
 
+        main_dirs = ["spectra_out", "gif_out", "acc_plots"]
+        for dir_name in main_dirs:
+            os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
+        spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
+        diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
+        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid) 
+        logging.info('The output directories %s ; %s; %s', spectra_dir,diagnostics_dir,output_dir)
+
+        if world_rank == 0:
+            os.makedirs(self.spectra_dir, exist_ok=True)
+            os.makedirs(self.diagnostics_dir, exist_ok=True)
+            os.makedirs(self.output_dir, exist_ok=True)
+            logging.info(f"Created directory: {spectra_dir}")
+            logging.info(f"Created directory: {diagnostics_dir}")
+            logging.info(f"Created directory: {output_dir}")
+        return spectra_dir, diagnostics_dir, output_dir 
+             
+
+
+
+    def get_dataset(self):
+        """
+        setup data loader
+        """
+        logging.info('rank %d, begin data loader init' % self.world_rank)
         if self.params.train_year_to_year:
             self.train_data_loaders = []
             self.train_datasets = []
@@ -231,19 +268,13 @@ class Trainer():
             self.train_datasets = [train_dataset]
             self.train_samplers = [train_sampler]
 
-
-                                                                                
+                                                                        
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
                                                                      num_inferences = params.num_inferences,
                                                                      validate = True)
         
-        #print('Inference Idxs:')
-        #print(self.valid_dataset.inference_idxs)
-
-        # self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
-        # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         self.constant_boundary_data = self.train_datasets[0].constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         if params.num_ensemble_members > 1:
@@ -254,50 +285,34 @@ class Trainer():
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
         self.climatology = self.climatology.rename({'time':'dayofyear'})
+        logging.info('rank %d, data loader initialized' % self.world_rank)
 
-        main_dirs = ["spectra_out", "gif_out", "acc_plots"]
-        for dir_name in main_dirs:
-            os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
-
-        self.spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
-        self.diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
-        self.output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)      
-        
-        if world_rank == 0:
-            os.makedirs(self.spectra_dir, exist_ok=True)
-            os.makedirs(self.diagnostics_dir, exist_ok=True)
-            os.makedirs(self.output_dir, exist_ok=True)
-            print(f"Created directory: {self.spectra_dir}")
-            print(f"Created directory: {self.diagnostics_dir}")
-            print(f"Created directory: {self.output_dir}")
-
+    ### Bing stop here####
+    def enable_fp(self):
         self.enable_amp = params.enable_amp
         self.enable_fp8 = params.enable_fp8
-        
         if self.enable_fp8:
-            global te, recipe, fp8_autocast
-            import transformer_engine.pytorch as te
-            from transformer_engine.common import recipe
-            from transformer_engine.pytorch import fp8_autocast
-
             self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
                                                     amax_history_len=16,
                                                     amax_compute_algo="max")
+     
+
+    def init_wandb(params:dict):    
+        """
+        Initialise wandb, setup metrics to log
+        """
         if params.log_to_wandb:
             if self.params.resuming:
                 resume = "allow"
             else:
                 resume = "never"
-            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', entity=params.entity, group=params.group, project=params.project, resume=resume)#, entity=params.entity)
-
-            #wandb.define_metric("custom_step")
-            #wandb.define_metric("power_spectrum_plot", step_metric="custom_step")
-
-
-            #  entity=params.entity)
+            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
+                entity=params.entity, group=params.group, 
+                project=params.project, resume=resume)
             wandb.define_metric("epoch")
             wandb.define_metric("ACC_plot", step_metric="epoch")
             wandb.define_metric("power_spectrum_plot", step_metric="epoch")
+
             if self.params.diagnostic_logs:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
                 for l, steps in enumerate(self.params.forecast_lead_times):
@@ -311,13 +326,14 @@ class Trainer():
                             epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
             else:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
+
             # Add this line to ensure power_spectrum_plot is always defined as a metric
             for metric in epoch_metrics:
                 wandb.define_metric(metric, step_metric="epoch")
 
 
-        logging.info('rank %d, data loader initialized' % world_rank)
-
+        
+       
 
         if params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -366,13 +382,8 @@ class Trainer():
             self.model = DistributedDataParallel(self.model,
                                                  device_ids=[
                                                      params.local_rank],
-                                                 output_device=[params.local_rank], find_unused_parameters=True)
-            #if self.params.predict_delta:
-            #    self.integrator = DistributedDataParallel(self.integrator,
-            #                                        device_ids=[
-            #                                            params.local_rank],
-            #                                        output_device=[params.local_rank], find_unused_parameters=True)
-
+                                                 output_device=[params.local_rank], 
+                                                 find_unused_parameters=True)
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
@@ -427,6 +438,9 @@ class Trainer():
                 )
         else:
             self.scheduler = None
+
+
+
 
         '''if params.log_to_screen:
         logging.info(self.model)'''
@@ -486,7 +500,6 @@ class Trainer():
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
-
         best_valid_loss = 1.e6
         early_stopping_counter = 0
         early_stop_epoch_triggered = False
@@ -574,7 +587,7 @@ class Trainer():
             else:
                 logging.info('Completed all epochs. Training finished normally.')
 
-
+    
     def train_one_epoch(self):
         self.epoch += 1
         tr_time = 0
@@ -602,8 +615,7 @@ class Trainer():
                 logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
             else:
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
-            # pbar.set_description(f"Year {self.params.train_year_start + year_idx}")
-            
+      
             for i, data in enumerate(train_data_loader):
                 logging.debug(f"Batch {i}, data shape: {data[0].shape}")
                 self.iters += 1
@@ -644,9 +656,7 @@ class Trainer():
                     if self.params.has_diagnostic:
                         output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
                                                                     varying_boundary_data, input_upper_air, train = True)
-                        #print(output_surface.shape)
-                        #print(output_upper_air.shape)
-                        #print(output_diagnostic.shape)
+                
                         loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                     else:
                         output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
@@ -685,6 +695,7 @@ class Trainer():
                         #print(target_upper_air.shape)
                     surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
                     upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
+
                     if self.params.has_diagnostic:
                         diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
 
@@ -694,6 +705,7 @@ class Trainer():
                         diagnostic_logs['train_batch_loss'] = loss
                         diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
                         diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+
                         if self.params.has_diagnostic:
                             diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
                             mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
@@ -721,11 +733,9 @@ class Trainer():
                             wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
                 torch.cuda.empty_cache()
-
                 tr_time += time.time() - tr_start
 
-                
-
+        
                 if self.params.diagnostic_logs:
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
                 else:
@@ -760,7 +770,6 @@ class Trainer():
 
             if self.params.log_to_wandb:
                 wandb.log(logs)
-
         return tr_time, data_time, logs
 
 
@@ -852,31 +861,25 @@ class Trainer():
                 dataset[var] = da
 
             datasets.append(dataset)
-
         return datasets
     
     def combine_datasets(self, datasets):
         return xr.concat(datasets, dim='time')
-    
+
 
     def plot_in_separate_process(self, power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename):
         # convert lead times to hours
         lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
-
         p = Process(target=plot_power_spectrum_test, args=(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times_hours))
         p.start()
         p.join()
 
-    
-
     def log_all_plots_to_wandb(self):
         if self.params.log_to_wandb:
             output_dir = self.spectra_dir
-            
             # # Create the directory if it doesn't exist
             # os.makedirs(output_dir, exist_ok=True)
             # print(f"Created directory: {output_dir}")
-
             plot_files = sorted([f for f in os.listdir(output_dir) if f.startswith("power_spectrum_epoch_")])
             
             print(f"Found plot files: {plot_files}")
@@ -949,12 +952,9 @@ class Trainer():
             shutil.rmtree(self.diagnostics_dir)
             print(f"Deleted GIF directory: {self.diagnostics_dir}")
     
-
-        
     def validate_one_epoch(self):
         self.model.eval()
         #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
-
         # define the lead times to evaluate (in time steps)
         lead_times_steps = self.params.forecast_lead_times
         with torch.no_grad():
@@ -992,11 +992,8 @@ class Trainer():
         if self.params.diagnostic_logs:
             diagnostic_logs = {}
 
-
         sample_idx = np.random.randint(len(self.valid_data_loader))
 
-
-        
         all_predictions = []
         all_ground_truths = []
         acc_predictions = []
@@ -1202,8 +1199,6 @@ class Trainer():
         if self.params.diagnostic_acc or self.params.diagnostic_gif:
             acc_combined_predictions = xr.concat(acc_predictions, dim='time')
             acc_combined_ground_truths = xr.concat(acc_ground_truths, dim='time')
-
-        
 
         # lead_times_hours = [lt * self.params.timedelta_hours for lt in self.params.forecast_lead_times]
         max_lead_time = max(self.params.forecast_lead_times)
@@ -1434,10 +1429,9 @@ if __name__ == '__main__':
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
-
     args = parser.parse_args()
-
     params = YParams(os.path.abspath(args.yaml_config), args.config)
+
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
@@ -1449,19 +1443,11 @@ if __name__ == '__main__':
             params['has_diagnostic'] = False
     else:
         params['has_diagnostic'] = False
+
     print(f'Has diagnostic: {params.has_diagnostic}')
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
-    # params['num_inferences'] = args.num_inferences
-    #params['loss'] = args.loss
 
-    # # Add mandatory check for autoregressive steps
-    # max_forecast_lead_time = max(params.forecast_lead_times)
-    # if params.autoreg_steps < max_forecast_lead_time:
-    #     raise ValueError(f"autoregressive steps ({params.autoreg_steps}) must be >= "
-    #                      f"the maximum forecast lead time ({max_forecast_lead_time})")
-    
-    #params['world_size'] = 1
     if hasattr(params, "wandb_offline"):
         if params.wandb_offline:
             os.environ['WANDB_MODE'] = 'offline'
@@ -1476,12 +1462,7 @@ if __name__ == '__main__':
         print(params['world_size'])
 
 
-    #params['world_size'] = 1
-    '''if torch.cuda.device_count() == 1:
-        world_rank = 0
-        local_rank = 0
-        params['batch_size'] = params['batch_size']//4'''
-    
+     
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
         if 'derecho' in str(Path(__file__)):
@@ -1492,12 +1473,12 @@ if __name__ == '__main__':
         args.gpu = local_rank
         world_rank = dist.get_rank()
         # print("##########WORLD RANK: TESTING ", world_rank)
-
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
     else:
         world_rank = 0
         local_rank = 0
+
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
@@ -1536,7 +1517,6 @@ if __name__ == '__main__':
     # args.resuming = False
     # params['resuming'] = args.resuming
 
-
     params['local_rank'] = local_rank
     params['enable_amp'] = False if params['enable_fp8'] else args.enable_amp
 
@@ -1545,19 +1525,13 @@ if __name__ == '__main__':
         print("Using Transformer Engine")
     else:
         print("Using PyTorch native")
-
     if params['enable_fp8']:
         print("with FP8 precision")
     elif params['enable_amp']:
         print("with Automatic Mixed Precision (AMP)")
     else:
         print("with full precision")
-
-    # this will be the wandb name
-    # params['name'] = args.config + '_' + str(args.run_num)
-    # params['group'] = "Pangu_plasim_" + args.config  
-    # params['project'] = "Pangu-PLASIM"  
-    #params['entity'] = "proj-ai-weather"
+        "
     if world_rank == 0:
         log_file = 'out.log'
         logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
@@ -1576,6 +1550,7 @@ if __name__ == '__main__':
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)
+
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)
 

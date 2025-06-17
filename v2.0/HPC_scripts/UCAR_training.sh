@@ -7,10 +7,8 @@
 #PBS -e ucar_005_3_error.txt
 #PBS -o ucar_005_3.out
 #PBS -l gpu_type=a100
-
 #export WORLD_SIZE=$((PBS_NUM_NODES * PBS_NUM_PPN))
 #echo "Total tasks: $WORLD_SIZE"
-
 
 # Use scratch for temporary files to avoid space limits in /tmp
 export TMPDIR=/glade/derecho/scratch/$USER/tmp
