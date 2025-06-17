@@ -1,0 +1,11 @@
+export RANK=$SLURM_PROCID
+echo "RANK=${RANK}"
+export WORLD_RANK=$SLURM_PROCID
+echo "WORLD_RANK=${WORLD_RANK}"
+export LOCAL_RANK=$SLURM_LOCALID
+echo "LOCAL_RANK=${LOCAL_RANK}"
+export WORLD_SIZE=$SLURM_NTASKS
+echo "WORLD_SIZE=${WORLD_SIZE}"
+export MASTER_ADDR='localhost' ####
+export MASTER_PORT=29500 # default from torch launcher
+export WANDB_START_METHOD="thread"

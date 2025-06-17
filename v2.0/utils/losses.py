@@ -5,7 +5,6 @@ from torch import Tensor
 import torch.nn.functional as F
 
 
-
 def latitude_weighting_factor_torch(latitudes):
     lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
     n_lat = latitudes.shape[0]
@@ -34,7 +33,6 @@ def weighted_mae(pred, target, latitudes, reduction='mean'):
     else:
         result = weight * torch.abs(pred - target)
     return result
-
 
 class Latitude_weighted_MSELoss(_Loss):
     def __init__(self, latitudes) -> None:
