@@ -678,7 +678,7 @@ class Trainer():
                 index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
                 data_time += time.time() - data_start
                 tr_start = time.time()
-                
+
                 self.model.zero_grad()
                 if self.params.enable_fp8:
                     precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
@@ -1560,7 +1560,7 @@ if __name__ == '__main__':
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)
-
+    train.setup()
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)
 
