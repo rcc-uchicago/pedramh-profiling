@@ -169,20 +169,42 @@ def to_ensemble_batch(data, ens_members):
 
 class Trainer():
 
-    def count_parameters(self):
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-
     def __init__(self, params, world_rank):
         self.params = params
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+        ###Setup the initia epochs and iteration #######
+        self.iters = 0
+        self.startEpoch = 0
+        if params.resuming:
+            self.restore_checkpoint(params.checkpoint_path)
+        else:
+            logging.info("Starting fresh training run")
+        self.epoch = self.startEpoch
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
+        #################################################
         self.run_uuid = str(uuid.uuid4())
         self.check_land_ocean_variables()
+        if self.params.enable_amp == True:  self.gscaler = amp.GradScaler()
+        # Create output directories
         self.spectra_dir, self.diagnostics_dir, self.output_dir = self.create_dirs(self.run_uuid)    
-        
+        # Enable mixed precision training
+        self.enable_mix_prcision()
+        # Initial wandb
+        self.init_wandb(self.params)
+        # Setup model
+        self.setup_model()
         logging.info('Params' % params)
         
+
+
+
+    def setup_model(self):
+        # Set up model
+        self.model = self.get_model()
+        self.optimizer = self.get_optimizer()
+        self.scheduler = self.setup_scheduler()
+        self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
 
 
     def check_land_ocean_variables(self) -> None:
@@ -231,7 +253,15 @@ class Trainer():
         return spectra_dir, diagnostics_dir, output_dir 
              
 
-
+    def enable_mix_prcision(self) -> None:
+        """
+        Enable mixed precision training with FP8
+        """
+        self.enable_fp8 = params.enable_fp8
+        if self.enable_fp8:
+            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
+                                                    amax_history_len=16,
+                                                    amax_compute_algo="max")
 
     def get_dataset(self):
         """
@@ -287,22 +317,15 @@ class Trainer():
         self.climatology = self.climatology.rename({'time':'dayofyear'})
         logging.info('rank %d, data loader initialized' % self.world_rank)
 
-    ### Bing stop here####
-    def enable_fp(self):
-        self.enable_amp = params.enable_amp
-        self.enable_fp8 = params.enable_fp8
-        if self.enable_fp8:
-            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
-                                                    amax_history_len=16,
-                                                    amax_compute_algo="max")
-     
+
+
 
     def init_wandb(params:dict):    
         """
         Initialise wandb, setup metrics to log
         """
         if params.log_to_wandb:
-            if self.params.resuming:
+            if params.resuming:
                 resume = "allow"
             else:
                 resume = "never"
@@ -312,10 +335,9 @@ class Trainer():
             wandb.define_metric("epoch")
             wandb.define_metric("ACC_plot", step_metric="epoch")
             wandb.define_metric("power_spectrum_plot", step_metric="epoch")
-
-            if self.params.diagnostic_logs:
+            if params.diagnostic_logs:
                 epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
-                for l, steps in enumerate(self.params.forecast_lead_times):
+                for l, steps in enumerate(params.forecast_lead_times):
                     epoch_metrics.append(f"valid_lwrmse_sfc_{steps}step")
                     epoch_metrics.append(f"valid_lwrmse_pl_{steps}step")
                     epoch_metrics.append(f"valid_loss_{steps}step")
@@ -333,9 +355,9 @@ class Trainer():
 
 
         
-       
 
-        if params.nettype == 'pangu_plasim':
+    def get_model(self):
+        if self.params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
@@ -367,58 +389,64 @@ class Trainer():
         else:
             raise Exception("not implemented")
 
-        if params.log_to_wandb:
+        
+        if dist.is_initialized():
+            self.model = DistributedDataParallel(self.model,
+                                                 device_ids=[params.local_rank],
+                                                 output_device=[params.local_rank], 
+                                                 find_unused_parameters=True)
+        #Logging
+        if self.params.log_to_wandb:
             wandb.watch(self.model)
+        '''if params.log_to_screen:
+        logging.info(self.model)'''
+        if params.log_to_screen:
+            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
+        return self.model
+        
 
+    def count_parameters(self):
+        """
+        Count the trainable parameters
+        """
+        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+
+    def get_optimizer(self):
         if params.optimizer_type == 'FusedAdam':
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
         else:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+        return self.optimizer 
 
-        if params.enable_amp == True:
-            self.gscaler = amp.GradScaler()
 
-        if dist.is_initialized():
-            self.model = DistributedDataParallel(self.model,
-                                                 device_ids=[
-                                                     params.local_rank],
-                                                 output_device=[params.local_rank], 
-                                                 find_unused_parameters=True)
-        self.iters = 0
-        self.startEpoch = 0
-        if params.resuming:
-            self.restore_checkpoint(params.checkpoint_path)
-        else:
-            logging.info("Starting fresh training run")
-
-        self.epoch = self.startEpoch
-
-        if params.scheduler == 'ReduceLROnPlateau':
+    def setup_scheduler(self):
+        if self.params.scheduler == 'ReduceLROnPlateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, factor=0.2, patience=5, mode='min')
-        elif params.scheduler == 'CosineAnnealingLR':
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=params.max_epochs, 
+        elif self.params.scheduler == 'CosineAnnealingLR':
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.params.max_epochs, 
                                                                         last_epoch=self.startEpoch-1)
-        elif params.scheduler == 'OneCycleLR':
+        elif self.params.scheduler == 'OneCycleLR':
             # total_steps = len(self.train_data_loader) * params.max_epochs
             steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
-            total_steps = steps_per_epoch * params.max_epochs
-            if hasattr(params, 'oc_pct_start'):
-                pct_start = params.oc_pct_start
+            total_steps = steps_per_epoch * self.params.max_epochs
+            if hasattr(self.params, 'oc_pct_start'):
+                pct_start = self.params.oc_pct_start
             else:
                 pct_start = 0.3
-            if hasattr(params, 'oc_div_factor'):
-                div_factor = params.oc_div_factor
+            if hasattr(self.params, 'oc_div_factor'):
+                div_factor = self.params.oc_div_factor
             else:
                 div_factor = 25
-            if hasattr(params, 'oc_final_div_factor'):
-                final_div_factor = params.oc_final_div_factor
+            if hasattr(self.params, 'oc_final_div_factor'):
+                final_div_factor = self.params.oc_final_div_factor
             else:
                 final_div_factor = 1e4
 
             if self.startEpoch < 1:
-                self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     self.optimizer,
-                    max_lr=params.lr,
+                    max_lr=self.params.lr,
                     total_steps=total_steps,
                     steps_per_epoch=steps_per_epoch,
                     pct_start = pct_start,
@@ -438,15 +466,18 @@ class Trainer():
                 )
         else:
             self.scheduler = None
+        logging.info("Scheduler is setup")
 
 
-
-
-        '''if params.log_to_screen:
-        logging.info(self.model)'''
-        if params.log_to_screen:
-            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-        if params.loss == 'l1':
+    def setup_loss_fun(self):
+        """
+        Set up loss function to return the loss for pl, sfc and diagnoistic
+        """
+        #initialisation
+        self.loss_obj_pl = 0 
+        self.loss_obj_sfc = 0
+        self.loss_obj_diagnostic = 0
+        if self.params.loss == 'l1':
             self.loss_obj_pl = torch.nn.L1Loss()
             if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_L1Loss(mask_bool)
@@ -454,7 +485,7 @@ class Trainer():
                 self.loss_obj_sfc = torch.nn.L1Loss()
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = torch.nn.L1Loss()
-        elif params.loss == 'l2':
+        elif self.params.loss == 'l2':
             self.loss_obj_pl = torch.nn.MSELoss()
             if (self.has_land or self.has_ocean) and self.mask_output:
                 self.loss_obj_sfc = Masked_MSELoss(mask_bool)
@@ -462,9 +493,8 @@ class Trainer():
                 self.loss_obj_sfc = torch.nn.MSELoss()
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = torch.nn.MSELoss()
-        elif params.loss == 'weightedl1':
+        elif self.params.loss == 'weightedl1':
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
-
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -473,7 +503,7 @@ class Trainer():
                 self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_L1Loss(self.lat)
-        elif params.loss == 'weightedl2':
+        elif self.params.loss == 'weightedl2':
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -482,9 +512,8 @@ class Trainer():
                 self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_MSELoss(self.lat)
-        elif params.loss == 'weightedCRPS':
+        elif self.params.loss == 'weightedCRPS':
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
-            
             self.loss_obj_pl = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
             if self.has_land or self.has_ocean:
                 self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members,
@@ -495,6 +524,8 @@ class Trainer():
                 self.loss_obj_diagnostic = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
         else:
             raise NotImplementedError
+        logging.info("Losses is setup")
+        return self.loss_obj_pl, self.loss_obj_sfc, self.loss_obj_diagnostic
 
 
     def train(self):
@@ -503,8 +534,8 @@ class Trainer():
         best_valid_loss = 1.e6
         early_stopping_counter = 0
         early_stop_epoch_triggered = False
-        for epoch in range(self.startEpoch, self.params.max_epochs):
 
+        for epoch in range(self.startEpoch, self.params.max_epochs):
             if self.early_stop_epoch is not None and epoch > self.early_stop_epoch:
                 if self.params.log_to_screen:
                     logging.info(f'Completed early stop epoch {self.early_stop_epoch}. Terminating training.')
@@ -514,8 +545,6 @@ class Trainer():
             if dist.is_initialized():
                 for sampler in self.train_samplers:
                     sampler.set_epoch(epoch)
-                # self.train_sampler.set_epoch(epoch)
-#        self.valid_sampler.set_epoch(epoch)
 
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
@@ -683,16 +712,8 @@ class Trainer():
 
                 with torch.no_grad():
                     if self.params.predict_delta:
-                        #print(input_surface.shape)
-                        #print(input_upper_air.shape)
-                        #print(target_surface.shape)
-                        #print(target_upper_air.shape)
                         output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
                         target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
-                        #print(output_surface.shape)
-                        #print(output_upper_air.shape)
-                        #print(target_surface.shape)
-                        #print(target_upper_air.shape)
                     surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
                     upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
 
@@ -973,7 +994,6 @@ class Trainer():
         valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), len(self.valid_dataset.levels)), dtype=torch.float32, device=self.device)
         if self.params.has_diagnostic:
             valid_diagnostic_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.diagnostic_variables)), dtype=torch.float32, device=self.device)
-
         
         multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         # Add RMSE storage for multiple lead times
@@ -986,7 +1006,6 @@ class Trainer():
                 {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
 
-        
         valid_start = time.time()
         nb = len(self.valid_data_loader)
         if self.params.diagnostic_logs:
@@ -1412,6 +1431,7 @@ class Trainer():
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
 
 
 if __name__ == '__main__':
