@@ -257,11 +257,14 @@ class Trainer():
         """
         Enable mixed precision training with FP8
         """
-        self.enable_fp8 = params.enable_fp8
-        if self.enable_fp8:
+        if self.params.enable_fp8:
             self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
                                                     amax_history_len=16,
                                                     amax_compute_algo="max")
+            self.precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
+        else:
+            self.precision_context = amp.autocast(enabled=self.params.enable_amp)
+
 
     def get_dataset(self):
         """
@@ -580,6 +583,11 @@ class Trainer():
             #     wandb.log({'lr': lr, 'epoch': self.epoch})
             self.log_wandb_epoch(epoch)
             self.log_screen_epoch(epcoh,time)
+                    # Early stopping check
+            if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
+                if self.params.log_to_screen:
+                    logging.info('Early stopping triggered. Terminating training.')
+                    break # Exit the train method
 
         if self.params.log_to_screen:
             if early_stop_epoch_triggered:
@@ -593,7 +601,7 @@ class Trainer():
         Log to wandb
         """
         if self.params.log_to_wandb:
-             for pg in self.optimizer.param_groups:
+            for pg in self.optimizer.param_groups:
                 lr = pg['lr']
             wandb.log({'lr': lr, 'epoch': self.epoch})
     
@@ -613,18 +621,8 @@ class Trainer():
                 logging.info(f'Multi-step validation losses: {multi_step_loss_str}')
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
-            
-    
-        # Early stopping check
-        if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
-            if self.params.log_to_screen:
-                    logging.info('Early stopping triggered. Terminating training.')
-            break # Exit the train method
 
-
-
-
-    def train_one_epoch(self):
+    def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
         data_time = 0
@@ -674,18 +672,15 @@ class Trainer():
                                             [input_surface, input_upper_air, target_surface, target_upper_air, 
                                             varying_boundary_data]]
                         input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
-                
-                index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
+            
                 data_time += time.time() - data_start
                 tr_start = time.time()
 
                 self.model.zero_grad()
-                if self.params.enable_fp8:
-                    precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
-                else:
-                    precision_context = amp.autocast(enabled=self.params.enable_amp)
 
-                with precision_context:
+               
+
+                with self.precision_context:
                     if self.params.has_diagnostic:
                         output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
                                                                     varying_boundary_data, input_upper_air, train = True)
@@ -901,7 +896,7 @@ class Trainer():
                 
 
 
-                precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
+               
 
                 with precision_context:
 
@@ -1210,7 +1205,6 @@ class Trainer():
 
             return valid_time, logs
 
-    
 
 
     def prepare_preds(self, preds, acc = False):
@@ -1441,7 +1435,7 @@ if __name__ == '__main__':
     #######
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
-
+    print("This is the starting point f")
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     params['epsilon_factor'] = args.epsilon_factor
@@ -1541,7 +1535,7 @@ if __name__ == '__main__':
         print("with Automatic Mixed Precision (AMP)")
     else:
         print("with full precision")
-        "
+        
     if world_rank == 0:
         log_file = 'out.log'
         logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
@@ -1561,6 +1555,6 @@ if __name__ == '__main__':
 
     trainer = Trainer(params, world_rank)
     train.setup()
-    trainer.train()
-    logging.info('DONE ---- rank %d' % world_rank)
+    # trainer.train()
+    # logging.info('DONE ---- rank %d' % world_rank)
 
