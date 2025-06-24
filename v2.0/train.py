@@ -164,7 +164,6 @@ def to_ensemble_batch(data, ens_members):
 
 
 class Trainer():
-
     def __init__(self, params, world_rank):
         self.params = params
         self.world_rank = world_rank
@@ -697,7 +696,7 @@ class Trainer():
 
 
 
-    def prepare_inputs_batch(self, data:torch.Tensor)-> tuple(torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor):
+    def prepare_inputs_batch(self, data:torch.Tensor):
         """
         prepare input variables for each iteration from data loader.
         The return must contain input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
@@ -821,6 +820,7 @@ class Trainer():
         self.model.eval()
         #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
         # define the lead times to evaluate (in time steps)
+        
         lead_times_steps = self.params.forecast_lead_times
         with torch.no_grad():
                 latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
@@ -835,6 +835,8 @@ class Trainer():
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
         valid_steps = valid_buff[-1].view(-1)
+
+
         valid_surface_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
         valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), len(self.valid_dataset.levels)), dtype=torch.float32, device=self.device)
         if self.params.has_diagnostic:
@@ -862,7 +864,6 @@ class Trainer():
         acc_predictions = []
         acc_ground_truths = []
 
-        # OPTIMIZATION
         # with torch.inference_mode():
         with torch.no_grad():
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
@@ -905,6 +906,11 @@ class Trainer():
                                                     val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
                                                     val_target_diagnostic.shape[4]), dtype=np.float32)
                 
+                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
+                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
+                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
+
+
                 # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
                                        val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
@@ -913,11 +919,9 @@ class Trainer():
                                          val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                          val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                         dtype=np.float32)
-                if self.params.has_diagnostic:
-                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
-                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
-                
+                                        
+         
+
                 with self.precision_context:
                      # Autoregressive prediction
                     # val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
@@ -959,15 +963,11 @@ class Trainer():
                         val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                         val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
                         if self.params.has_diagnostic:
-                            #print(f'val_output_diagnostic_acc[:,step].shape: {val_output_diagnostic_acc[:, step].shape}')
-                            #print(f'val_output_diagnostic.cpu().shape: {val_output_diagnostic.cpu().shape}')
-                            #print(f'self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape: {self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape}')
                             val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
 
-                      
+                    
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
-
                             # Calculate RMSE
                             rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], latitudes)
                             rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], latitudes)
@@ -1567,6 +1567,6 @@ if __name__ == '__main__':
 
     trainer = Trainer(params, world_rank)
     train.setup()
-    # trainer.train()
-    # logging.info('DONE ---- rank %d' % world_rank)
+    trainer.train()
+    logging.info('DONE ---- rank %d' % world_rank)
 
