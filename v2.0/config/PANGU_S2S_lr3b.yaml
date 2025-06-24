@@ -16,7 +16,6 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 's2s-dev'
   exp_dir: 'results'
-  enable_fp8: False
   fresh_start: True
   use_transformer_engine: False
   early_stopping: False

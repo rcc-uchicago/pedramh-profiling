@@ -44,10 +44,6 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()           
-global te, recipe, fp8_autocast
-import transformer_engine.pytorch as te
-from transformer_engine.common import recipe
-from transformer_engine.pytorch import fp8_autocast
 
 
 
@@ -185,19 +181,14 @@ class Trainer():
         #################################################
         self.run_uuid = str(uuid.uuid4())
         self.check_land_ocean_variables()
-        if self.params.enable_amp == True:  self.gscaler = amp.GradScaler()
         # Create output directories
         self.spectra_dir, self.diagnostics_dir, self.output_dir = self.create_dirs(self.run_uuid)    
-        # Enable mixed precision training
-        self.enable_mix_prcision()
         # Initial wandb
         self.init_wandb(self.params)
         # Setup model
         self.setup_model()
         logging.info('Params' % params)
         
-
-
 
     def setup_model(self):
         # Set up model
@@ -230,7 +221,7 @@ class Trainer():
 
 
 
-    def create_dirs(run_uuid:int)->tuple[str, str, str]:
+    def create_dirs(self, run_uuid:int)->tuple[str, str, str]:
         """
         To create the output directories to store the spectra_output, image, and evaluation metrics plot.
         """
@@ -252,19 +243,6 @@ class Trainer():
             logging.info(f"Created directory: {output_dir}")
         return spectra_dir, diagnostics_dir, output_dir 
              
-
-    def enable_mix_prcision(self) -> None:
-        """
-        Enable mixed precision training with FP8
-        """
-        if self.params.enable_fp8:
-            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
-                                                    amax_history_len=16,
-                                                    amax_compute_algo="max")
-            self.precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
-        else:
-            self.precision_context = amp.autocast(enabled=self.params.enable_amp)
-
 
     def get_dataset(self):
         """
@@ -358,7 +336,6 @@ class Trainer():
 
 
         
-
     def get_model(self):
         if self.params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -576,14 +553,9 @@ class Trainer():
                     if valid_logs['valid_loss'] <= best_valid_loss:
                         self.save_checkpoint(self.params.best_checkpoint_path)
 
-            #Bing: Is this a bug? why log the same lr ?
-            # if self.params.log_to_wandb:
-            #     for pg in self.optimizer.param_groups:
-            #         lr = pg['lr']
-            #     wandb.log({'lr': lr, 'epoch': self.epoch})
             self.log_wandb_epoch(epoch)
             self.log_screen_epoch(epcoh,time)
-                    # Early stopping check
+            # Early stopping check
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen:
                     logging.info('Early stopping triggered. Terminating training.')
@@ -626,10 +598,11 @@ class Trainer():
         self.epoch += 1
         tr_time = 0
         data_time = 0
+        total_iterations = sum(len(loader) for loader in self.train_data_loaders)
+
         if self.params.diagnostic_logs:
             diagnostic_logs = {}
 
-        total_iterations = sum(len(loader) for loader in self.train_data_loaders)
         logging.info(f"Expected total batches: {total_iterations}")
         if not self.train_data_loaders:
             logging.warning("No training data loaders available.")
@@ -641,10 +614,8 @@ class Trainer():
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
+
             current_dataset = self.train_datasets[year_idx]
-            with torch.no_grad():
-                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
-                
             if self.params.train_year_to_year:
                 logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
             else:
@@ -653,104 +624,46 @@ class Trainer():
             for i, data in enumerate(train_data_loader):
                 logging.debug(f"Batch {i}, data shape: {data[0].shape}")
                 self.iters += 1
+
                 data_start = time.time()
-                if self.params.has_diagnostic:
-                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
-                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                else:
-                    input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                
-                if self.params.num_ensemble_members > 1:
-                    if self.params.has_diagnostic:
-                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
-                                            [input_surface, input_upper_air, target_surface, target_upper_air, 
-                                            target_diagnostic, varying_boundary_data]]
-                        input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
-                    else:
-                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
-                                            [input_surface, input_upper_air, target_surface, target_upper_air, 
-                                            varying_boundary_data]]
-                        input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
-            
+                input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self.prepare_inputs_batch(data)
                 data_time += time.time() - data_start
+
+
                 tr_start = time.time()
-
-                self.model.zero_grad()
-
-               
-
-                with self.precision_context:
-                    if self.params.has_diagnostic:
-                        output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air, train = True)
+                self.model.zero_grad()                
+                #define loss
+                output_surface, output_upper_air, output_diagnostic, loss = self.cal_loss(input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air)
+                loss.backward()
                 
-                        loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
-                    else:
-                        output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air, train = True)
-                    
-                    loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-                    loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
-
-                    if self.params.has_diagnostic:
-                        loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
-                    else:
-                        loss = (loss_sfc * 0.25) + loss_pl
-
-                if self.params.enable_amp:
-                    self.gscaler.scale(loss).backward()
-                    self.gscaler.step(self.optimizer)
-                    self.gscaler.update()
-                else:
-                    loss.backward()
-                    self.optimizer.step()
-
+                self.optimizer.step()
                 if self.params.scheduler == 'OneCycleLR':
                     self.scheduler.step()
 
+
                 with torch.no_grad():
+
                     if self.params.predict_delta:
                         output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
                         target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+
+                    latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
                     surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
                     upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
 
                     if self.params.has_diagnostic:
                         diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
+                        mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                    else:
+                        mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
+                    ######diagnoistic logging per iteration ###################
                     if self.params.diagnostic_logs:
-                        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
-                        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
-                        diagnostic_logs['train_batch_loss'] = loss
-                        diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-                        diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
+                        diagnostic_logs = self.diagnostic_log_per_iter(diagnoistic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, train_batch_loss = loss, 
+                                                                    train_batch_loss_sfc = loss_sfc, 
+                                                                    train_batch_loss_upper_air = loss_pl)
 
-                        if self.params.has_diagnostic:
-                            diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        else:
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-                        for j, var in enumerate(current_dataset.surface_variables):
-                            diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
-                        if self.params.has_diagnostic:
-                            for j, var in enumerate(current_dataset.diagnostic_variables):
-                                diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
-                        for j, var in enumerate(current_dataset.upper_air_variables):
-                            for k, level in enumerate(current_dataset.levels):
-                                diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
-                        if dist.is_initialized():
-                            for key in sorted(diagnostic_logs.keys()):
-                                if key == 'batch_grad_max':
-                                    grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
-                                    dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
-                                    diagnostic_logs[key] = torch.max(grad_max_tensor)
-                                else:
-                                    dist.all_reduce(diagnostic_logs[key].detach())
-                                    diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-                        if self.params.log_to_wandb:
-                            wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                        wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
                 torch.cuda.empty_cache()
                 tr_time += time.time() - tr_start
@@ -761,36 +674,147 @@ class Trainer():
                     running_results["loss"] += loss.item() * self.params['batch_size']
                     running_results["batch_sizes"] += self.params['batch_size']
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {running_results['loss'] / running_results['batch_sizes']:.4f}")
-                
                 pbar.update(1)
         pbar.close()
 
         if self.params.diagnostic_logs:
             with torch.no_grad():
-                diagnostic_logs['train_loss'] = loss
-                if dist.is_initialized():
-                    dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
-                    diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
-                logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
-                if self.params.log_to_wandb:
-                    wandb.log(logs)
+                diagnoistic_logs = self.diagnostic_log_per_epoch(diagnoistic_logs, train_loss = diagnostic_logs['train_loss'], epoch = self.epoch)
                 return tr_time, data_time, diagnostic_logs
         else:
             with torch.no_grad():
                 logs = {'train_loss': loss, 'epoch': self.epoch}
-            
             if dist.is_initialized():
                 for key in sorted(logs.keys()):
                     if isinstance(logs[key], (int, float)):
                         logs[key] = torch.tensor(logs[key]).to(self.device)
                     dist.all_reduce(logs[key])
                     logs[key] = float(logs[key]/dist.get_world_size())
-
             if self.params.log_to_wandb:
                 wandb.log(logs)
         return tr_time, data_time, logs
 
 
+
+
+    def prepare_inputs_batch(self, data:torch.Tensor)-> tuple(torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor,torch.Tensor):
+        """
+        prepare input variables for each iteration from data loader.
+        The return must contain input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
+        """
+        #Initilaise variables
+        input_surface = None
+        input_upper_air = None
+        target_surface = None
+        target_upper_air = None
+        target_diagnoistic = None
+        varying_boundary_data = None
+        if self.params.has_diagnostic:
+            input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
+                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+        else:
+            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
+                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+        
+        if self.params.num_ensemble_members > 1:
+            if self.params.has_diagnostic:
+                ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                    [input_surface, input_upper_air, target_surface, target_upper_air, 
+                                    target_diagnostic, varying_boundary_data]]
+                input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
+            else:
+                ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                    [input_surface, input_upper_air, target_surface, target_upper_air, 
+                                    varying_boundary_data]]
+                input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
+        
+        return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnoistic, varying_boundary_data
+
+
+    def cal_loss(self, input_surface:tensor.Tensor, 
+                        constant_boundary_data:tensor.Tensor,
+                        varying_boundary_data:tensor.Tensor,
+                        input_upper_air:tensor.Tensor, **kwargs):
+        """
+        Get the prediction and calculate the loss. 
+
+        """
+        output_surface = 0 
+        output_upper_air = 0 
+        output_diagnostic = 0 
+        loss = 0 
+        if self.params.has_diagnostic:
+            output_surface, output_upper_air, output_diagnostic = self.model(input_surface, constant_boundary_data, 
+                                                                varying_boundary_data, input_upper_air, train = True)
+            loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
+        else:
+            output_surface, output_upper_air = self.model(input_surface, constant_boundary_data, 
+                                                                varying_boundary_data, input_upper_air, train = True)
+                
+        loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
+        loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+
+        if self.params.has_diagnostic:
+            loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+        else:
+            loss = (loss_sfc * 0.25) + loss_pl
+        return output_surface, output_upper_air, output_diagnostic, loss
+
+
+    def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
+        """
+        This function is used for logging the results from each iteration.
+        Given the diagnostic logging input and return the update diagnostic_logs
+        """
+
+        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
+        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+        
+        for key, value in kwargs.items():
+            diagnoistic_logs[key] = value
+
+        if self.params.has_diagnostic:
+            diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
+            for j, var in enumerate(current_dataset.diagnostic_variables):
+                diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
+        
+        diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
+        for j, var in enumerate(current_dataset.surface_variables):
+            diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
+
+        for j, var in enumerate(current_dataset.upper_air_variables):
+            for k, level in enumerate(current_dataset.levels):
+                diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
+
+        if dist.is_initialized():
+            for key in sorted(diagnostic_logs.keys()):
+                if key == 'batch_grad_max':
+                    grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
+                    dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
+                    diagnostic_logs[key] = torch.max(grad_max_tensor)
+                else:
+                    dist.all_reduce(diagnostic_logs[key].detach())
+                    diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+
+        return diagnostic_logs
+
+
+    def diagnostic_log_per_epoch(self, diagnoistic_logs, train_loss, epoch, **kwargs)->dict:
+        """
+        Generate logging information for each epoch.
+        """
+        logs = {}
+        with torch.no_grad():
+            if dist.is_initialized():
+                dist.all_reduce(torch.tensor(train_loss).to(self.device))
+                train_loss = float(train_loss/dist.get_world_size())  
+                diagnoistic_logs["train_loss"] = train_loss
+            logs = {'train_loss': train_loss, 'epoch': epoch}
+            if self.params.log_to_wandb:
+                wandb.log(logs)
+        for key, value in kwargs.items():
+            diagnoistic_logs[key] = value
+        return diagnoistic_logs
 
 
     def validate_one_epoch(self):
@@ -894,12 +918,7 @@ class Trainer():
                                                         val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
                                                         val_target_diagnostic.shape[4]), dtype=np.float32)
                 
-
-
-               
-
-                with precision_context:
-
+                with self.precision_context:
                      # Autoregressive prediction
                     # val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
                     step_idx = 0
@@ -1223,6 +1242,7 @@ class Trainer():
         preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
         return preds
     
+
     def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
         # print(f"TIME STEPS ARE: {time_steps}")
@@ -1422,8 +1442,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("--run_num", default='0100', type=str)
     parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S.yaml', type=str)
-    parser.add_argument("--config", default='S2S', type=str)
-    parser.add_argument("--enable_amp", default=True, action='store_true')
+    parser.add_argument("--config", default='S2S', type=str) 
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
@@ -1522,20 +1541,13 @@ if __name__ == '__main__':
     # params['resuming'] = args.resuming
 
     params['local_rank'] = local_rank
-    params['enable_amp'] = False if params['enable_fp8'] else args.enable_amp
 
     # Add indicator for precision method and engine
     if params['use_transformer_engine']:
         print("Using Transformer Engine")
     else:
         print("Using PyTorch native")
-    if params['enable_fp8']:
-        print("with FP8 precision")
-    elif params['enable_amp']:
-        print("with Automatic Mixed Precision (AMP)")
-    else:
-        print("with full precision")
-        
+
     if world_rank == 0:
         log_file = 'out.log'
         logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
