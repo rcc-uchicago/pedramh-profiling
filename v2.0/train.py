@@ -180,6 +180,8 @@ class Trainer():
         #################################################
         self.run_uuid = str(uuid.uuid4())
         self.check_land_ocean_variables()
+        # get dataset
+        self.get_dataset()
         # Create output directories
         self.spectra_dir, self.diagnostics_dir, self.output_dir = self.create_dirs(self.run_uuid)    
         # Initial wandb
@@ -191,6 +193,7 @@ class Trainer():
 
     def setup_model(self):
         # Set up model
+        self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model = self.get_model()
         self.optimizer = self.get_optimizer()
         self.scheduler = self.setup_scheduler()
@@ -234,9 +237,9 @@ class Trainer():
         logging.info('The output directories %s ; %s; %s', spectra_dir,diagnostics_dir,output_dir)
 
         if world_rank == 0:
-            os.makedirs(self.spectra_dir, exist_ok=True)
-            os.makedirs(self.diagnostics_dir, exist_ok=True)
-            os.makedirs(self.output_dir, exist_ok=True)
+            os.makedirs(spectra_dir, exist_ok=True)
+            os.makedirs(diagnostics_dir, exist_ok=True)
+            os.makedirs(output_dir, exist_ok=True)
             logging.info(f"Created directory: {spectra_dir}")
             logging.info(f"Created directory: {diagnostics_dir}")
             logging.info(f"Created directory: {output_dir}")
@@ -298,9 +301,7 @@ class Trainer():
         logging.info('rank %d, data loader initialized' % self.world_rank)
 
 
-
-    @staticmethod
-    def init_wandb(params:dict):    
+    def init_wandb(self, params:dict):    
         """
         Initialise wandb, setup metrics to log
         """
@@ -334,8 +335,10 @@ class Trainer():
                 wandb.define_metric(metric, step_metric="epoch")
 
 
-        
-    def get_model(self):
+    def get_land_mask_bool(self) -> torch.Tensor:
+        """
+        Get a boolean mask for the land or ocean based on the variable name.
+        """
         if self.params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
@@ -351,18 +354,29 @@ class Trainer():
                 mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
+        
+        else:
+            raise Exception("not implemented")
+    
+        return mask_bool, land_mask
+        
+    def get_model(self):
+        """ 
+        Get the model based on the nettype specified in params.
+        """ 
+        if self.params.nettype == 'pangu_plasim':
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
+                self.model = PanguModel_Plasim(params, land_mask = self.land_mask).to(self.device)
                 self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(params, 'mask_fill'):
-                    self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                    self.model = PanguModel_Plasim(params, land_mask = self.land_mask, 
                                                mask_fill = params.mask_fill).to(self.device)
                 else:
-                    self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                    self.model = PanguModel_Plasim(params, land_mask = self.land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         else:
@@ -459,7 +473,7 @@ class Trainer():
         if self.params.loss == 'l1':
             self.loss_obj_pl = torch.nn.L1Loss()
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Masked_L1Loss(mask_bool)
+                self.loss_obj_sfc = Masked_L1Loss(self.mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.L1Loss()
             if self.params.has_diagnostic:
@@ -467,7 +481,7 @@ class Trainer():
         elif self.params.loss == 'l2':
             self.loss_obj_pl = torch.nn.MSELoss()
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Masked_MSELoss(mask_bool)
+                self.loss_obj_sfc = Masked_MSELoss(self.mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.MSELoss()
             if self.params.has_diagnostic:
@@ -477,7 +491,7 @@ class Trainer():
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, mask_bool)
+                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, self.mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             if self.params.has_diagnostic:
@@ -486,7 +500,7 @@ class Trainer():
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, mask_bool)
+                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, self.mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
             if self.params.has_diagnostic:
@@ -496,7 +510,7 @@ class Trainer():
             self.loss_obj_pl = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
             if self.has_land or self.has_ocean:
                 self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members,
-                                                               mask_bool)
+                                                               self.mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
             if self.params.has_diagnostic:
@@ -553,7 +567,7 @@ class Trainer():
                         self.save_checkpoint(self.params.best_checkpoint_path)
 
             self.log_wandb_epoch(epoch)
-            self.log_screen_epoch(epcoh,time)
+            self.log_screen_epoch(epoch,time)
             # Early stopping check
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen:
@@ -585,7 +599,6 @@ class Trainer():
                 logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
                 logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
                     train_logs['train_loss'], valid_logs['valid_loss'], valid_logs['valid_loss_sfc'], valid_logs['valid_loss_upper_air']))
-                
                 # Add logging for multi-day losses
                 lead_times_steps = self.params.forecast_lead_times
                 multi_step_loss_str = '. '.join([f"{step}-step Val loss: {valid_logs.get(f'valid_loss_{step}step', 'N/A')}" for step in lead_times_steps])
@@ -593,6 +606,7 @@ class Trainer():
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
 
+    
     def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
@@ -730,10 +744,7 @@ class Trainer():
         return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnoistic, varying_boundary_data
 
 
-    def cal_loss(self, input_surface:tensor.Tensor, 
-                        constant_boundary_data:tensor.Tensor,
-                        varying_boundary_data:tensor.Tensor,
-                        input_upper_air:tensor.Tensor, **kwargs):
+    def cal_loss(self, input_surface,constant_boundary_data,varying_boundary_data,input_upper_air, **kwargs):
         """
         Get the prediction and calculate the loss. 
 
