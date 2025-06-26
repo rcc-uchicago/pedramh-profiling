@@ -166,7 +166,6 @@ def to_ensemble_batch(data, ens_members):
 class Trainer():
     def __init__(self, params, world_rank):
         self.params = params
-        print("Batch size: ", params.batch_size)
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
         ###Setup the initia epochs and iteration #######
@@ -186,6 +185,15 @@ class Trainer():
         # Create output directories
         self.spectra_dir, self.diagnostics_dir, self.output_dir = self.create_dirs(self.run_uuid)    
         # Initial wandb
+        if params.log_to_wandb:
+            if params.resuming:
+                resume = "allow"
+            else:
+                resume = "never"
+            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
+                entity=params.entity, group=params.group, 
+                project=params.project, resume=resume)
+            logging.info("WandB initialized with config: %s", params)
         self.init_wandb(self.params)
         # Setup model
         #self.setup_model()
@@ -308,13 +316,14 @@ class Trainer():
         Initialise wandb, setup metrics to log
         """
         if params.log_to_wandb:
-            if params.resuming:
-                resume = "allow"
-            else:
-                resume = "never"
-            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
-                entity=params.entity, group=params.group, 
-                project=params.project, resume=resume)
+            # if params.resuming:
+            #     resume = "allow"
+            # else:
+            #     resume = "never"
+            # wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
+            #     entity=params.entity, group=params.group, 
+            #     project=params.project, resume=resume)
+            # logging.info("WandB initialized with config: %s", params)
             wandb.define_metric("epoch")
             wandb.define_metric("ACC_plot", step_metric="epoch")
             wandb.define_metric("power_spectrum_plot", step_metric="epoch")
@@ -573,7 +582,7 @@ class Trainer():
                         self.save_checkpoint(self.params.best_checkpoint_path)
             if world_rank == 0:
                 self.log_wandb_epoch(epoch)
-                self.log_screen_epoch(epoch,time)
+                self.log_screen_epoch(epoch,time, train_logs, valid_logs, early_stopping_counter)
             # Early stopping check
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen and world_rank == 0:
@@ -597,7 +606,7 @@ class Trainer():
             wandb.log({'lr': lr, 'epoch': self.epoch})
     
 
-    def log_screen_epoch(self, epoch:int, start, **kwargs) ->None:
+    def log_screen_epoch(self, epoch:int, start, train_logs, valid_logs, early_stopping_counter, **kwargs) ->None:
         """
         Log to screen 
         """
