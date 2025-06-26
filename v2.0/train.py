@@ -187,7 +187,7 @@ class Trainer():
         # Initial wandb
         self.init_wandb(self.params)
         # Setup model
-        self.setup_model()
+        #self.setup_model()
         logging.info('Params' % params)
         
 
@@ -196,7 +196,7 @@ class Trainer():
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model = self.get_model()
         self.optimizer = self.get_optimizer()
-        self.scheduler = self.setup_scheduler()
+        self.setup_scheduler()
         self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
 
 
@@ -339,6 +339,8 @@ class Trainer():
         """
         Get a boolean mask for the land or ocean based on the variable name.
         """
+        mask_bool = []
+        land_mask = []
         if self.params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
@@ -357,8 +359,8 @@ class Trainer():
         
         else:
             raise Exception("not implemented")
-    
         return mask_bool, land_mask
+        
         
     def get_model(self):
         """ 
@@ -437,7 +439,7 @@ class Trainer():
                 final_div_factor = 1e4
 
             if self.startEpoch < 1:
-                scheduler = torch.optim.lr_scheduler.OneCycleLR(
+                self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     self.optimizer,
                     max_lr=self.params.lr,
                     total_steps=total_steps,
@@ -457,9 +459,11 @@ class Trainer():
                     div_factor = div_factor,
                     final_div_factor=final_div_factor
                 )
+            logging.info("Scheduler is setup")
         else:
             self.scheduler = None
-        logging.info("Scheduler is setup")
+
+        
 
 
     def setup_loss_fun(self):
@@ -646,10 +650,15 @@ class Trainer():
                 tr_start = time.time()
                 self.model.zero_grad()                
                 #define loss
-                output_surface, output_upper_air, output_diagnostic, loss = self.cal_loss(input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air)
+                print("target_diagnostic shape: ", target_diagnostic.shape)
+
+                output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss = self.cal_loss(
+                    input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
+                    target_diagnostic, target_surface, target_upper_air
+                )
                 loss.backward()
-                
                 self.optimizer.step()
+
                 if self.params.scheduler == 'OneCycleLR':
                     self.scheduler.step()
 
@@ -672,9 +681,10 @@ class Trainer():
 
                     ######diagnoistic logging per iteration ###################
                     if self.params.diagnostic_logs:
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnoistic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, train_batch_loss = loss, 
-                                                                    train_batch_loss_sfc = loss_sfc, 
-                                                                    train_batch_loss_upper_air = loss_pl)
+                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                       train_batch_loss = loss, 
+                                                                       train_batch_loss_sfc = loss_sfc, 
+                                                                       train_batch_loss_upper_air = loss_pl)
 
                         wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
@@ -705,7 +715,7 @@ class Trainer():
                     logs[key] = float(logs[key]/dist.get_world_size())
             if self.params.log_to_wandb:
                 wandb.log(logs)
-        return tr_time, data_time, logs
+            return tr_time, data_time, logs
 
 
 
@@ -720,7 +730,7 @@ class Trainer():
         input_upper_air = None
         target_surface = None
         target_upper_air = None
-        target_diagnoistic = None
+        target_diagnostic = None
         varying_boundary_data = None
         if self.params.has_diagnostic:
             input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
@@ -741,13 +751,28 @@ class Trainer():
                                     varying_boundary_data]]
                 input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
         
-        return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnoistic, varying_boundary_data
+        return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
 
 
-    def cal_loss(self, input_surface,constant_boundary_data,varying_boundary_data,input_upper_air, **kwargs):
+    def cal_loss(self, input_surface, constant_boundary_data, varying_boundary_data, input_upper_air, 
+                 target_diagnostic, target_surface, target_upper_air, **kwargs):
         """
-        Get the prediction and calculate the loss. 
-
+        Calculates the model predictions and corresponding loss values for surface, upper air, and (optionally) diagnostic outputs.
+            Args:
+                    input_surface (Tensor): Input data for the surface variables.
+                    constant_boundary_data (Tensor): Input data for constant boundary conditions.
+                    varying_boundary_data (Tensor): Input data for varying boundary conditions.
+                    input_upper_air (Tensor): Input data for upper air variables.
+                    target_diagnostic (Tensor): Target data for diagnostic variables.
+                    target_surface (Tensor): Target data for surface variables.
+                    target_upper_air (Tensor): Target data for upper air variables.
+                    **kwargs: Additional keyword arguments.
+            Returns:
+                    Tuple[Tensor, Tensor, Tensor, Tensor]: 
+                        - output_surface: Predicted surface variables.
+                        - output_upper_air: Predicted upper air variables.
+                        - output_diagnostic: Predicted diagnostic variables (zero if diagnostics are not used).
+                        - loss: Computed total loss value.
         """
         output_surface = 0 
         output_upper_air = 0 
@@ -756,6 +781,8 @@ class Trainer():
         if self.params.has_diagnostic:
             output_surface, output_upper_air, output_diagnostic = self.model(input_surface, constant_boundary_data, 
                                                                 varying_boundary_data, input_upper_air, train = True)
+            print("target_diagnostic shape in loss_fun: ", target_diagnostic.shape)
+            print("output_diagnostic shape in loss_fun: ", output_diagnostic.shape)
             loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
         else:
             output_surface, output_upper_air = self.model(input_surface, constant_boundary_data, 
@@ -768,7 +795,7 @@ class Trainer():
             loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
         else:
             loss = (loss_sfc * 0.25) + loss_pl
-        return output_surface, output_upper_air, output_diagnostic, loss
+        return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss
 
 
     def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
@@ -781,7 +808,7 @@ class Trainer():
         diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
         
         for key, value in kwargs.items():
-            diagnoistic_logs[key] = value
+            diagnostic_logs[key] = value
 
         if self.params.has_diagnostic:
             diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
@@ -1577,7 +1604,7 @@ if __name__ == '__main__':
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)
-    train.setup()
+    trainer.setup_model()
     trainer.train()
     logging.info('DONE ---- rank %d' % world_rank)
 
