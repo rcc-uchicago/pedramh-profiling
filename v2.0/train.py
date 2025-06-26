@@ -801,7 +801,7 @@ class Trainer():
             loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
         else:
             output_surface, output_upper_air = self.model(input_surface, constant_boundary_data, 
-                                                                varying_boundary_data, input_upper_air, train = True)
+                                                        varying_boundary_data, input_upper_air, train = True)
                 
         loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
         loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)

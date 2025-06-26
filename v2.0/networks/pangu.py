@@ -245,9 +245,7 @@ class PanguModel_Plasim(nn.Module):
         self.num_varying_boundary_vars = len(params.varying_boundary_variables)
         self.idx_upper_air_var_bound= self.varying_boundary_variables.index('toa_incident_solar_radiation') # careful, if change, change also the self.patchembed2d_upper_air_boundary and patchembed2d
         self.idx_surface_var_bound = [i for i in range(self.num_varying_boundary_vars) if i != self.idx_upper_air_var_bound]
-    
-        
-        #####
+
 
         # In addition, three constant masks(the topography mask, land-sea mask and soil type mask)        
         if self.upper_air_boundary:
@@ -281,9 +279,10 @@ class PanguModel_Plasim(nn.Module):
                                 // params.updown_scale_factor + self.patchembed2d.output_size[1] % params.updown_scale_factor)
 
         self.downscale_resolution = downscale_resolution
-        # print("downscale_resolution", downscale_resolution)
+        print("downscale_resolution", downscale_resolution) # (10, 23, 45)
         self.EST_input_resolution = EST_input_resolution
-        # print("EST_input_resolution", EST_input_resolution)
+        print("EST_input_resolution", EST_input_resolution) #(10, 45, 90)
+
         if not self.vertical_windowing:
             self.window_size[0] = EST_input_resolution[0]
         # print("EST_input_resolution", EST_input_resolution)
@@ -299,17 +298,7 @@ class PanguModel_Plasim(nn.Module):
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
-        print('Embed Dim:')
-        print(embed_dim)
-        print('Input resolution:')
-        print(EST_input_resolution)
-        print('depth')
-        print(params.depths[0])
-        print('num_heads')
-        print(num_heads[0])
-        print('drop_path:')
-        print(drop_path[:depths_cumsum[0]])
-        
+    
         self.downsample = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
                                      downsample_factor=params.updown_scale_factor)
         
@@ -337,6 +326,19 @@ class PanguModel_Plasim(nn.Module):
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
+        def reparameterize(self, mu, sigma):
+            std = torch.exp(0.5 * sigma)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+        
+        
+
+        #############VAE part #############
+        self.layer_mu =  nn.Conv2d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
+        self.layer_sigma = nn.Conv2d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
+        self.layer_purturbation = nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
+
+
         self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
         
@@ -398,81 +400,35 @@ class PanguModel_Plasim(nn.Module):
         
         if self.upper_air_boundary:
             upper_air_varying_boundary = varying_boundary[:,self.idx_upper_air_var_bound, :, :].unsqueeze(1)
-            # print(upper_air_varying_boundary.size())
             surface_varying_boundary = varying_boundary[:,self.idx_surface_var_bound, :, :]
-            # print(surface_varying_boundary.size())
-
             surface = torch.cat([surface_in, constant_boundary, surface_varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
-            #print(f'Shape after 2D patch embedding:{surface.shape}')
-            #print(surface[0,0,:,0])
-            #print(surface[0,0,:,-1])
-            #print(torch.std(surface, dim=(0,1,3)))
-            #print(torch.std(surface))
             upper_air_varying_boundary = self.patchembed2d_upper_air_boundary(upper_air_varying_boundary)
-            # print(upper_air_varying_boundary.size())
             upper_air = self.patchembed3d(upper_air_in)
-            #print(f'Shape after 3D patch embedding:{upper_air.shape}')
-            #print(upper_air[0,0,0,:,0])
-            #print(upper_air[0,0,0,:,-1])
-            #print(torch.std(upper_air, dim=(0,1,4)))
-            #print(torch.std(upper_air))
-
             x = torch.cat([upper_air_varying_boundary.unsqueeze(2), upper_air, surface.unsqueeze(2)], dim=2)
-            #print(f'Shape after patch embedding:{x.shape}')
-            #print(x[0,0,0,:,0])
-            #print(x[0,0,0,:,-1])
-            #print(torch.std(x, dim=(0,1,4)))
-            #print(torch.std(x))
-
-
         else:
             surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air_in)
-
-
             x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
-            #print(f'Shape after patch embedding:{x.shape}')
-            #print(x[0,0,0,:,0])
-            #print(x[0,0,0,:,-1])
-            #print(torch.std(x, dim=(0,1,4)))
 
-       
-        # print(x.size())
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
 
-        # x = self.layer1(x)
 
-        # skip = x
-
-        # x = self.downsample(x)
-        # x = self.layer2(x)
-        # x = self.layer3(x)
-        # x = self.upsample(x)
-        # x = self.layer4(x)
+        print("USE_TE:", USE_TE)
+        print(" Checkpointing:", self.checkpointing)
+        print("train:", train)
 
         #OPTIMIZATION
-
         if USE_TE:
-            # with te.fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe):
             if self.checkpointing == 2 and train:
                 x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
             else:
                 x = self.layer1(x, train)
-            #print(f'Shape after layer 1: {x.shape}')
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
             skip = x
             x = self.downsample(x)
-            #print(f'Shape after downsample: {x.shape}')
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(torch.std(x))
+
             if self.checkpointing == 2 and train:
                 x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
                 x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
@@ -482,51 +438,46 @@ class PanguModel_Plasim(nn.Module):
                 x = self.layer2(x, train)
                 x = self.layer3(x, train)
                 x = self.upsample(x)
-                #print(f'Shape after upsample: {x.shape}')
-                #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-                #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-                #print(torch.std(x))
                 x = self.layer4(x, train)
         else:
-            # with amp.autocast(enabled=True):
             if self.checkpointing == 2 and train:
                 x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
+                print("Checkpointing layer 1", x.shape)  #8, 40500, 192
             else:
                 x = self.layer1(x, train)
-            #print(f'Shape after layer 1: {x.shape}')
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-            #print(torch.std(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim), dim=(0,3,4)))
             skip = x
-            x = self.downsample(x)
-            #print(f'Shape after downsample: {x.shape}')
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor)[0,-1,:,0,0])
-            #print(torch.std(x.reshape(1, (self.downscale_resolution[0]), self.downscale_resolution[1], 
-            #                      self.downscale_resolution[2], self.embed_dim*self.updown_scale_factor), dim=(0,3,4)))
+            x = self.downsample(x) #8, 10350, 384
+            print("Downsampled x", x.shape) 
             if self.checkpointing == 2 and train:
                 x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
+                print("Checkpointing layer 2", x.shape) #8, 10350, 384
                 x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
+                print("Checkpointing layer 3", x.shape) #8, 10350, 384
+                ##################Reshape the x tensor 
+                x_vae = x.reshape(B, self.downscale_resolution[0],self.downscale_resolution[1],self.downscale_resolution[2],-1) # should be #8, 10,23,45, 384
+                print("x_vae reshaped after ", x_vae.shape)
+                ###########VAE#################
+                mu = self.layer_mu(x_vae) # should be #8, 10,23,45, C_new=192
+                sigma = self.layer_sigma(x_vae) # should be #8, 10,23,45, C_new=192
+                norm = self.reparameterize(mu, sigma) # should be #8, 10, 23,45, C_new=192
+                x_purb = self.layer_purturbation(norm) 
+                print("mu, sigma, norm, x_purb", mu.shape, sigma.shape, norm.shape, x_purb.shape)
+                ###########VAE#################
+      
                 x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
+                print("Checkpointing upsample", x.shape) #  8, 40500, 192
                 x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
+                print("Checkpointing layer 4", x.shape) #  8, 40500, 192
             else:
                 x = self.layer2(x, train)
                 x = self.layer3(x, train)
                 x = self.upsample(x)
-                #print(f'Shape after upsample: {x.shape}')
-                #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-                #print(x.reshape(1, (self.EST_input_resolution[0]), self.EST_input_resolution[1], self.EST_input_resolution[2], self.embed_dim)[0,-1,:,0,0])
-                #print(torch.std(x))
                 x = self.layer4(x, train)
+
+    
 
         output = torch.concat([x, skip], dim=-1)
         output = output.transpose(1, 2).reshape(B, -1, Pl, Lat, Lon)
-        #print(f'Shape after concatenation: {output.shape}')
-        #print(output[0,-1,0,:,0])
-        #print(output[0,-1,0,:,0])
-        #print(torch.std(output.mean(dim=1), dim = (0,3)))
 
         if self.predict_delta:
             output_surface_delta  = output[:, :, -1, :, :]
@@ -566,20 +517,10 @@ class PanguModel_Plasim(nn.Module):
             if self.has_ocean and self.mask_output:
                 output_surface[:, self.num_surface_vars + self.num_land_vars:] = \
                     self.land_mask(output_surface[:, self.num_surface_vars + self.num_land_vars:]).to(output_surface.dtype)
-            #print(f'Shape after 2D patch recovery:{x.shape}')
-            #print(output_2D[0,0,:,0])
-            #print(output_2D[0,0,:,-1])
-            #print(torch.std(output_2D, dim=(0,1,3)))
-            #print(torch.std(output_2D))
             if self.checkpointing > 0 and train:
                 output_upper_air = checkpoint(self.patchrecovery3d, output_upper_air, use_reentrant=self.use_reentrant)
             else:
                 output_upper_air = self.patchrecovery3d(output_upper_air)
-            #print(f'Shape after 3D patch recovery:{x.shape}')
-            #print(output_upper_air[0,0,0,:,0])
-            #print(output_upper_air[0,0,0,:,-1])
-            #print(torch.std(output_upper_air, dim=(0,1,4)))
-            #print(torch.std(output_upper_air))
         if self.num_diagnostic_vars > 0:
             output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
                 output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
@@ -1044,6 +985,7 @@ class EarthSpecificBlock(nn.Module):
             x = self.norm1(x.contiguous())
         else:
             x = self.norm1(x)
+
         x = x.view(B, Pl, Lat, Lon, C)
 
         # start pad
@@ -1052,6 +994,7 @@ class EarthSpecificBlock(nn.Module):
         _, Pl_pad, Lat_pad, Lon_pad, _ = x.shape
 
         shift_pl, shift_lat, shift_lon = self.shift_size
+
         if self.roll:
             shifted_x = torch.roll(x, shifts=(-shift_pl, -shift_lat, -shift_lon), dims=(1, 2, 3))
             x_windows = window_partition(shifted_x, self.window_size)
