@@ -166,6 +166,7 @@ def to_ensemble_batch(data, ens_members):
 class Trainer():
     def __init__(self, params, world_rank):
         self.params = params
+        print("Batch size: ", params.batch_size)
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
         ###Setup the initia epochs and iteration #######
@@ -298,7 +299,8 @@ class Trainer():
         climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
         self.climatology = xr.open_dataset(climatology_path)
         self.climatology = self.climatology.rename({'time':'dayofyear'})
-        logging.info('rank %d, data loader initialized' % self.world_rank)
+        if world_rank == 0:
+            logging.info('rank %d, data loader initialized' % self.world_rank)
 
 
     def init_wandb(self, params:dict):    
@@ -569,16 +571,16 @@ class Trainer():
                     self.save_checkpoint(self.params.checkpoint_path)
                     if valid_logs['valid_loss'] <= best_valid_loss:
                         self.save_checkpoint(self.params.best_checkpoint_path)
-
-            self.log_wandb_epoch(epoch)
-            self.log_screen_epoch(epoch,time)
+            if world_rank == 0:
+                self.log_wandb_epoch(epoch)
+                self.log_screen_epoch(epoch,time)
             # Early stopping check
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
-                if self.params.log_to_screen:
+                if self.params.log_to_screen and world_rank == 0:
                     logging.info('Early stopping triggered. Terminating training.')
                     break # Exit the train method
 
-        if self.params.log_to_screen:
+        if self.params.log_to_screen and world_rank == 0:
             if early_stop_epoch_triggered:
                 logging.info(f'Training finished early at epoch {self.early_stop_epoch} due to early_stop_epoch setting.')
             else:
@@ -617,8 +619,8 @@ class Trainer():
         data_time = 0
         total_iterations = sum(len(loader) for loader in self.train_data_loaders)
 
-        if self.params.diagnostic_logs:
-            diagnostic_logs = {}
+        #if self.params.diagnostic_logs:
+        diagnostic_logs = {}
 
         logging.info(f"Expected total batches: {total_iterations}")
         if not self.train_data_loaders:
@@ -652,7 +654,7 @@ class Trainer():
                 #define loss
                 print("target_diagnostic shape: ", target_diagnostic.shape)
 
-                output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss = self.cal_loss(
+                output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss= self.cal_loss(
                     input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                     target_diagnostic, target_surface, target_upper_air
                 )
@@ -677,6 +679,7 @@ class Trainer():
                         diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
                         mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
                     else:
+                        diagnostic_lwrmse  = 0
                         mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
                     ######diagnoistic logging per iteration ###################
@@ -684,7 +687,9 @@ class Trainer():
                         diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
                                                                        train_batch_loss = loss, 
                                                                        train_batch_loss_sfc = loss_sfc, 
-                                                                       train_batch_loss_upper_air = loss_pl)
+                                                                       train_batch_loss_upper_air = loss_pl,
+                                                                       train_batch_loss_diagnostic =loss_diagnostic,
+                                                                       train_mean_norm_lwrmse = mean_norm_lwrmse)
 
                         wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
@@ -778,11 +783,12 @@ class Trainer():
         output_upper_air = 0 
         output_diagnostic = 0 
         loss = 0 
+        loss_diagnostic = 0
+        loss_pl = 0 
+        loss_sfc = 0
         if self.params.has_diagnostic:
             output_surface, output_upper_air, output_diagnostic = self.model(input_surface, constant_boundary_data, 
                                                                 varying_boundary_data, input_upper_air, train = True)
-            print("target_diagnostic shape in loss_fun: ", target_diagnostic.shape)
-            print("output_diagnostic shape in loss_fun: ", output_diagnostic.shape)
             loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
         else:
             output_surface, output_upper_air = self.model(input_surface, constant_boundary_data, 
@@ -795,7 +801,7 @@ class Trainer():
             loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
         else:
             loss = (loss_sfc * 0.25) + loss_pl
-        return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss
+        return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss
 
 
     def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
@@ -811,11 +817,9 @@ class Trainer():
             diagnostic_logs[key] = value
 
         if self.params.has_diagnostic:
-            diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
             for j, var in enumerate(current_dataset.diagnostic_variables):
                 diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
         
-        diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
         for j, var in enumerate(current_dataset.surface_variables):
             diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
 
@@ -873,7 +877,6 @@ class Trainer():
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
         valid_steps = valid_buff[-1].view(-1)
-
 
         valid_surface_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
         valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), len(self.valid_dataset.levels)), dtype=torch.float32, device=self.device)
