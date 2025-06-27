@@ -208,7 +208,8 @@ class PanguModel_Plasim(nn.Module):
         self.predict_delta = params.predict_delta
 
         self.surface_prognostic_idxs = torch.cat((torch.arange(self.num_surface_vars).long(), 
-                                                  torch.arange(self.num_surface_vars + self.num_diagnostic_vars, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
+                                                  torch.arange(self.num_surface_vars + self.num_diagnostic_vars, 
+                                                               self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars).long()))
         #if self.predict_delta:
         #    try:
         #        assert None not in [surface_ff_std, surface_delta_std, upper_air_ff_std, upper_air_delta_std]
@@ -326,20 +327,21 @@ class PanguModel_Plasim(nn.Module):
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
-        def reparameterize(self, mu, sigma):
-            std = torch.exp(0.5 * sigma)
-            eps = torch.randn_like(std)
-            return mu + eps * std
-        
-        
-
         #############VAE part #############
-        self.layer_mu =  nn.Conv2d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_sigma = nn.Conv2d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_purturbation = nn.Conv2d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
+        self.layer_mu =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
+        self.layer_sigma = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
+        self.layer_purturbation = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
+        #############VAE part #############
+
+        ############2nd Encoder #############
+        
 
 
-        self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
+
+
+                
+        ############Upsample the output of the 1st encoder ############
+        self.upsample = UpSample(embed_dim * params.updown_scale_factor + embed_dim, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
         
         self.layer4 = EarthSpecificLayer(
@@ -353,8 +355,10 @@ class PanguModel_Plasim(nn.Module):
             checkpointing = self.checkpointing,
             use_reentrant = self.use_reentrant)
         
-        
-        # The outputs of the 2nd encoder layer and the 7th decoder layer are concatenated along the channel dimension.
+
+    
+
+
         
         if self.subpixel_deconv:
             if self.recovery_head:
@@ -387,17 +391,24 @@ class PanguModel_Plasim(nn.Module):
             self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars)
             self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
-
-    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False):
+    def reparameterize(self, mu, sigma):
+            std = torch.exp(0.5 * sigma)
+            eps = torch.randn_like(std)
+            return mu + eps * std
+    
+    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, target_surface, target_upper_air, train = False):
         """
         Args:
             surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
             surface_mask (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=3.
             upper_air (torch.Tensor): 3D n_pl=13, n_lat=721, n_lon=1440, chans=5.
         """
+        
+        
         if len(constant_boundary.size()) == 3:
             constant_boundary = constant_boundary.unsqueeze(0)
-        
+
+        ##############Data Preparation for Encoder 1############################
         if self.upper_air_boundary:
             upper_air_varying_boundary = varying_boundary[:,self.idx_upper_air_var_bound, :, :].unsqueeze(1)
             surface_varying_boundary = varying_boundary[:,self.idx_surface_var_bound, :, :]
@@ -414,6 +425,20 @@ class PanguModel_Plasim(nn.Module):
 
         B, C, Pl, Lat, Lon = x.shape
         x = x.reshape(B, C, -1).transpose(1, 2)
+
+        ##############Data Preparation for Encoder 2############################
+        #### Need to check with Qiang ###########
+        if self.upper_air_boundary:
+            surface_target = torch.cat([target_surface, constant_boundary, surface_varying_boundary], dim=1)
+            surface_target = self.patchembed2d(surface)
+            target_upper_air = self.patchembed3d(target_upper_air)
+            x_target = torch.cat([upper_air_varying_boundary.unsqueeze(2), target_upper_air, surface_target.unsqueeze(2)], dim=2)
+
+        else:
+            surface_target = torch.concat([target_surface, constant_boundary, varying_boundary], dim=1)
+            surface_target = self.patchembed2d(surface_target)
+            target_upper_air = self.patchembed3d(target_upper_air)
+            x_target = torch.concat([target_upper_air, surface_target.unsqueeze(2)], dim=2)
 
 
         print("USE_TE:", USE_TE)
@@ -453,17 +478,24 @@ class PanguModel_Plasim(nn.Module):
                 print("Checkpointing layer 2", x.shape) #8, 10350, 384
                 x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
                 print("Checkpointing layer 3", x.shape) #8, 10350, 384
-                ##################Reshape the x tensor 
+                ##################Reshape the x tensor ##################
                 x_vae = x.reshape(B, self.downscale_resolution[0],self.downscale_resolution[1],self.downscale_resolution[2],-1) # should be #8, 10,23,45, 384
-                print("x_vae reshaped after ", x_vae.shape)
-                ###########VAE#################
-                mu = self.layer_mu(x_vae) # should be #8, 10,23,45, C_new=192
-                sigma = self.layer_sigma(x_vae) # should be #8, 10,23,45, C_new=192
-                norm = self.reparameterize(mu, sigma) # should be #8, 10, 23,45, C_new=192
-                x_purb = self.layer_purturbation(norm) 
-                print("mu, sigma, norm, x_purb", mu.shape, sigma.shape, norm.shape, x_purb.shape)
-                ###########VAE#################
-      
+                print("x_vae reshaped after ", x_vae.shape) #8, 10, 23, 45, 384
+
+
+                ###########VAE Enocer 1#################
+                mu = self.layer_mu(x_vae.permute(0, 4, 1, 2, 3)) # should be #8,192, 10,23,45, 
+                sigma = self.layer_sigma(x_vae.permute(0, 4, 1, 2, 3)) # should be #8,192, 10,23,45, 
+                norm = self.reparameterize(mu, sigma) # should be #8,192, 10,23,45
+                x_purb = self.layer_purturbation(norm).permute(0, 2, 3, 4, 1) 
+                print("mu, sigma, norm, x_purb", mu.shape, sigma.shape, norm.shape, x_purb.shape) #8, 10, 23, 45, 192
+                x_purb = x_purb.reshape(B, -1, self.embed_dim)
+                ###########VAE Enocer 1#################
+                ###########VAE Enocer 2#################
+
+                ##############Decoder ##################
+                x  = torch.cat((x_purb, x), dim=-1)
+                print("x after VAE", x.shape) 
                 x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
                 print("Checkpointing upsample", x.shape) #  8, 40500, 192
                 x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
