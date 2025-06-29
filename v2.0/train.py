@@ -667,6 +667,7 @@ class Trainer():
                     input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                     target_diagnostic, target_surface, target_upper_air
                 )
+                
                 loss.backward()
                 self.optimizer.step()
 
@@ -700,7 +701,7 @@ class Trainer():
                                                                        train_batch_loss_diagnostic =loss_diagnostic,
                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
 
-                        wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                        #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
                 torch.cuda.empty_cache()
                 tr_time += time.time() - tr_start
@@ -796,12 +797,14 @@ class Trainer():
         loss_pl = 0 
         loss_sfc = 0
         if self.params.has_diagnostic:
-            output_surface, output_upper_air, output_diagnostic = self.model(input_surface, constant_boundary_data, 
-                                                                varying_boundary_data, input_upper_air, train = True)
+            output_surface, output_upper_air, output_diagnostic, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
+                                                                varying_boundary_data, input_upper_air, 
+                                                                target_surface, target_upper_air,train = True)
             loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
         else:
-            output_surface, output_upper_air = self.model(input_surface, constant_boundary_data, 
-                                                        varying_boundary_data, input_upper_air, train = True)
+            output_surface, output_upper_air, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
+                                                        varying_boundary_data, input_upper_air, 
+                                                        target_surface, target_upper_air, train = True)
                 
         loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
         loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
@@ -810,6 +813,7 @@ class Trainer():
             loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
         else:
             loss = (loss_sfc * 0.25) + loss_pl
+
         return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss
 
 

@@ -331,17 +331,57 @@ class PanguModel_Plasim(nn.Module):
         self.layer_mu =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
         self.layer_sigma = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
         self.layer_purturbation = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
-        #############VAE part #############
-
-        ############2nd Encoder #############
+        self.layer_perturbation2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor, 
+                                             out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
+        #############VAE part ############# 
         
 
-
-
-
-                
+        ############2nd Encoder #############
+        self.layer1_e2 = EarthSpecificLayer(
+            dim=embed_dim,
+            input_resolution=EST_input_resolution,
+            depth=params.depths[0],
+            num_heads=num_heads[0],
+            window_size=self.window_size,
+            drop_path=drop_path[:depths_cumsum[0]],
+            vertical_windowing=params.vertical_windowing,
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
+        self.layer2_e2 = EarthSpecificLayer(
+            dim=embed_dim * params.updown_scale_factor,
+            input_resolution=downscale_resolution,
+            depth=params.depths[1],
+            num_heads=num_heads[1],
+            window_size=self.window_size,
+            drop_path=drop_path[depths_cumsum[0]:depths_cumsum[1]],
+            vertical_windowing=params.vertical_windowing,
+            drop=params.drop_rate,
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
+        self.layer3_e3 = EarthSpecificLayer(
+            dim=embed_dim * params.updown_scale_factor,
+            input_resolution=downscale_resolution,
+            depth=params.depths[2],
+            num_heads=num_heads[2],
+            window_size=self.window_size,
+            drop_path=drop_path[depths_cumsum[1]:depths_cumsum[2]],
+            vertical_windowing=params.vertical_windowing,
+            drop=params.drop_rate,
+            checkpointing = self.checkpointing,
+            use_reentrant = self.use_reentrant)
+        self.downsample_e2 = DownSample(in_dim=embed_dim, input_resolution=EST_input_resolution, output_resolution=downscale_resolution, 
+                                     downsample_factor=params.updown_scale_factor)
         ############Upsample the output of the 1st encoder ############
-        self.upsample = UpSample(embed_dim * params.updown_scale_factor + embed_dim, embed_dim, downscale_resolution, 
+        self.layer_mu_e2 =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
+        self.layer_sigma_e2 = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
+        self.layer_purturbation_e2 = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
+        self.layer_perturbation2_e2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor, 
+                                             out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
+
+
+
+        
+        self.upsample = UpSample(embed_dim * params.updown_scale_factor, embed_dim, downscale_resolution, 
                                  (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2]))
         
         self.layer4 = EarthSpecificLayer(
@@ -424,6 +464,7 @@ class PanguModel_Plasim(nn.Module):
             x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)
 
         B, C, Pl, Lat, Lon = x.shape
+        print("x shape before reshape", x.shape) 
         x = x.reshape(B, C, -1).transpose(1, 2)
 
         ##############Data Preparation for Encoder 2############################
@@ -438,8 +479,10 @@ class PanguModel_Plasim(nn.Module):
             surface_target = torch.concat([target_surface, constant_boundary, varying_boundary], dim=1)
             surface_target = self.patchembed2d(surface_target)
             target_upper_air = self.patchembed3d(target_upper_air)
-            x_target = torch.concat([target_upper_air, surface_target.unsqueeze(2)], dim=2)
-
+            x_target = torch.concat([target_upper_air, surface_target.unsqueeze(2)], dim=2) #8, 192, 10, 45, 90
+            print("x_target shape  before reshape", x_target.shape) #8, 40500, 192
+        
+        x_target = x_target.reshape(B, C, -1).transpose(1, 2)
 
         print("USE_TE:", USE_TE)
         print(" Checkpointing:", self.checkpointing)
@@ -452,7 +495,10 @@ class PanguModel_Plasim(nn.Module):
             else:
                 x = self.layer1(x, train)
             skip = x
+
             x = self.downsample(x)
+           
+
 
             if self.checkpointing == 2 and train:
                 x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
@@ -466,36 +512,53 @@ class PanguModel_Plasim(nn.Module):
                 x = self.layer4(x, train)
         else:
             if self.checkpointing == 2 and train:
-                x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)
-                print("Checkpointing layer 1", x.shape)  #8, 40500, 192
+                x = checkpoint(self.layer1, x, use_reentrant=self.use_reentrant)#8, 40500, 192
+                x_e2 = checkpoint(self.layer1_e2, x_target, use_reentrant=self.use_reentrant)
             else:
                 x = self.layer1(x, train)
             skip = x
+            
             x = self.downsample(x) #8, 10350, 384
-            print("Downsampled x", x.shape) 
+            x_e2 = self.downsample_e2(x_e2)
+            print("x_e2 after downsample", x_e2.shape) 
+
             if self.checkpointing == 2 and train:
                 x = checkpoint(self.layer2, x, use_reentrant=self.use_reentrant)
                 print("Checkpointing layer 2", x.shape) #8, 10350, 384
+        
                 x = checkpoint(self.layer3, x, use_reentrant=self.use_reentrant)
                 print("Checkpointing layer 3", x.shape) #8, 10350, 384
+                x = x.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3)
+                #print("x reshaped after layer 3 reshape", x.shape) 
                 ##################Reshape the x tensor ##################
-                x_vae = x.reshape(B, self.downscale_resolution[0],self.downscale_resolution[1],self.downscale_resolution[2],-1) # should be #8, 10,23,45, 384
+                x_vae = x
+                #reshape(B, self.downscale_resolution[0],self.downscale_resolution[1],self.downscale_resolution[2],-1).permute(0, 4, 1, 2, 3) # should be #8, 10,23,45, 384
                 print("x_vae reshaped after ", x_vae.shape) #8, 10, 23, 45, 384
 
-
                 ###########VAE Enocer 1#################
-                mu = self.layer_mu(x_vae.permute(0, 4, 1, 2, 3)) # should be #8,192, 10,23,45, 
-                sigma = self.layer_sigma(x_vae.permute(0, 4, 1, 2, 3)) # should be #8,192, 10,23,45, 
+                mu = self.layer_mu(x_vae) # should be #8,192, 10,23,45, 
+                sigma = self.layer_sigma(x_vae) # should be #8, 192, 10,23,45, 
                 norm = self.reparameterize(mu, sigma) # should be #8,192, 10,23,45
-                x_purb = self.layer_purturbation(norm).permute(0, 2, 3, 4, 1) 
+                x_purb = self.layer_purturbation(norm)
                 print("mu, sigma, norm, x_purb", mu.shape, sigma.shape, norm.shape, x_purb.shape) #8, 10, 23, 45, 192
-                x_purb = x_purb.reshape(B, -1, self.embed_dim)
+                #x_purb = x_purb.reshape(B, -1, self.embed_dim)
                 ###########VAE Enocer 1#################
                 ###########VAE Enocer 2#################
+                x_e2 = checkpoint(self.layer2_e2, x_e2, use_reentrant=self.use_reentrant)
+                x_e2 = checkpoint(self.layer3_e3, x_e2, use_reentrant=self.use_reentrant)
+                x_e2_vae = x_e2.reshape(B, self.downscale_resolution[0], self.downscale_resolution[1], self.downscale_resolution[2], -1).permute(0, 4, 1, 2, 3) 
+
+                mu_e2 = self.layer_mu_e2(x_e2_vae) 
+                sigma_e2 = self.layer_sigma_e2(x_e2_vae)
+                norm_e2 = self.reparameterize(mu_e2, sigma_e2) 
+
+            
+
 
                 ##############Decoder ##################
-                x  = torch.cat((x_purb, x), dim=-1)
-                print("x after VAE", x.shape) 
+                x  = torch.cat((x_purb, x), dim=1)
+                x = self.layer_perturbation2(x) #8, 384, 10, 23, 45
+                x = x.permute(0, 2, 3,4, 1).reshape(B, -1, self.embed_dim * self.updown_scale_factor) #8, 10350, 384
                 x = checkpoint(self.upsample, x, use_reentrant=self.use_reentrant)
                 print("Checkpointing upsample", x.shape) #  8, 40500, 192
                 x = checkpoint(self.layer4, x, use_reentrant=self.use_reentrant)
@@ -556,9 +619,9 @@ class PanguModel_Plasim(nn.Module):
         if self.num_diagnostic_vars > 0:
             output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
                 output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
-            return output_surface, output_upper_air, output_diagnostic
+            return output_surface, output_upper_air, output_diagnostic, mu, sigma, mu_e2, sigma_e2
         else:
-            return output_surface, output_upper_air
+            return output_surface, output_upper_air, mu, sigma, mu_e2, sigma_e2
         
 """
         
