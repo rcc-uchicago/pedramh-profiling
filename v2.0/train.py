@@ -33,7 +33,7 @@ from utils import logging_utils
 from utils.power_spectrum import *
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
     Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
-    Latitude_weighted_CRPSLoss
+    Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
@@ -485,6 +485,10 @@ class Trainer():
         self.loss_obj_pl = 0 
         self.loss_obj_sfc = 0
         self.loss_obj_diagnostic = 0
+        self.loss_vae = 0
+        if self.params.vae_loss:
+            self.loss_vae = Kl_divergence_gaussians()
+            logging.info("VAE loss is setup")
         if self.params.loss == 'l1':
             self.loss_obj_pl = torch.nn.L1Loss()
             if (self.has_land or self.has_ocean) and self.mask_output:
@@ -663,7 +667,7 @@ class Trainer():
                 #define loss
                 print("target_diagnostic shape: ", target_diagnostic.shape)
 
-                output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss= self.cal_loss(
+                output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                     input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                     target_diagnostic, target_surface, target_upper_air
                 )
@@ -699,6 +703,7 @@ class Trainer():
                                                                        train_batch_loss_sfc = loss_sfc, 
                                                                        train_batch_loss_upper_air = loss_pl,
                                                                        train_batch_loss_diagnostic =loss_diagnostic,
+                                                                       train_batch_loss_vae = loss_vae,
                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
 
                         #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
@@ -796,11 +801,13 @@ class Trainer():
         loss_diagnostic = 0
         loss_pl = 0 
         loss_sfc = 0
+        loss_vae = 0
         if self.params.has_diagnostic:
             output_surface, output_upper_air, output_diagnostic, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
                                                                 varying_boundary_data, input_upper_air, 
                                                                 target_surface, target_upper_air,train = True)
             loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
+            
         else:
             output_surface, output_upper_air, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
                                                         varying_boundary_data, input_upper_air, 
@@ -814,7 +821,12 @@ class Trainer():
         else:
             loss = (loss_sfc * 0.25) + loss_pl
 
-        return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss
+        if self.params.vae_loss:    
+            loss_vae = self.loss_vae(mu, sigma, mu_e2, sigma_e2)
+            loss += self.params.vae_loss_weight * loss_vae
+
+
+        return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
 
 
     def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:

@@ -480,9 +480,9 @@ class PanguModel_Plasim(nn.Module):
             surface_target = self.patchembed2d(surface_target)
             target_upper_air = self.patchembed3d(target_upper_air)
             x_target = torch.concat([target_upper_air, surface_target.unsqueeze(2)], dim=2) #8, 192, 10, 45, 90
-            print("x_target shape  before reshape", x_target.shape) #8, 40500, 192
+            print("x_target shape  before reshape", x_target.shape)
         
-        x_target = x_target.reshape(B, C, -1).transpose(1, 2)
+        x_target = x_target.reshape(B, C, -1).transpose(1, 2)  #8, 40500, 192
 
         print("USE_TE:", USE_TE)
         print(" Checkpointing:", self.checkpointing)
