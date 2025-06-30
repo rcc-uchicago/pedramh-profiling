@@ -22,6 +22,8 @@ base_config: &BASE
   project: 'Pangu-S2S'
   name: 'S2S'
   entity: 'binggong'
+  vae_loss: !!bool True
+  vae_loss_weight: 0.1
 
 
 
