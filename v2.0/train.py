@@ -678,7 +678,6 @@ class Trainer():
                 if self.params.scheduler == 'OneCycleLR':
                     self.scheduler.step()
 
-
                 with torch.no_grad():
 
                     if self.params.predict_delta:
@@ -705,8 +704,9 @@ class Trainer():
                                                                        train_batch_loss_diagnostic =loss_diagnostic,
                                                                        train_batch_loss_vae = loss_vae,
                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
-
-                        #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                    ##########################################################
+                        if self.world_rank == 0:
+                            wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
                 torch.cuda.empty_cache()
                 tr_time += time.time() - tr_start
@@ -722,7 +722,7 @@ class Trainer():
 
         if self.params.diagnostic_logs:
             with torch.no_grad():
-                diagnoistic_logs = self.diagnostic_log_per_epoch(diagnoistic_logs, train_loss = diagnostic_logs['train_loss'], epoch = self.epoch)
+                diagnoistic_logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = diagnostic_logs['train_loss'], epoch = self.epoch)
                 return tr_time, data_time, diagnostic_logs
         else:
             with torch.no_grad():
@@ -865,7 +865,7 @@ class Trainer():
         return diagnostic_logs
 
 
-    def diagnostic_log_per_epoch(self, diagnoistic_logs, train_loss, epoch, **kwargs)->dict:
+    def diagnostic_log_per_epoch(self, diagnostic_logs, train_loss, epoch, **kwargs)->dict:
         """
         Generate logging information for each epoch.
         """
@@ -879,8 +879,8 @@ class Trainer():
             if self.params.log_to_wandb:
                 wandb.log(logs)
         for key, value in kwargs.items():
-            diagnoistic_logs[key] = value
-        return diagnoistic_logs
+            diagnostic_logs[key] = value
+        return diagnostic_logs
 
 
     def validate_one_epoch(self):
