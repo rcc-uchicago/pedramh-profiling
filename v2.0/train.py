@@ -327,19 +327,16 @@ class Trainer():
             wandb.define_metric("epoch")
             wandb.define_metric("ACC_plot", step_metric="epoch")
             wandb.define_metric("power_spectrum_plot", step_metric="epoch")
-            if params.diagnostic_logs:
-                epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
-                for l, steps in enumerate(params.forecast_lead_times):
-                    epoch_metrics.append(f"valid_lwrmse_sfc_{steps}step")
-                    epoch_metrics.append(f"valid_lwrmse_pl_{steps}step")
-                    epoch_metrics.append(f"valid_loss_{steps}step")
-                    for j, var in enumerate(self.valid_dataset.surface_variables):
-                        epoch_metrics.append(f'valid_{var}_{steps}step_lwrmse')
-                    for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                        for k, level in enumerate(self.valid_dataset.levels):
-                            epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
-            else:
-                epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air']
+            epoch_metrics = ['lr', 'train_loss', 'valid_loss', 'valid_loss_sfc', 'valid_loss_upper_air', 'valid_mean_norm_lwrmse']
+            for l, steps in enumerate(params.forecast_lead_times):
+                epoch_metrics.append(f"valid_lwrmse_sfc_{steps}step")
+                epoch_metrics.append(f"valid_lwrmse_pl_{steps}step")
+                epoch_metrics.append(f"valid_loss_{steps}step")
+                for j, var in enumerate(self.valid_dataset.surface_variables):
+                    epoch_metrics.append(f'valid_{var}_{steps}step_lwrmse')
+                for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                    for k, level in enumerate(self.valid_dataset.levels):
+                        epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
 
             # Add this line to ensure power_spectrum_plot is always defined as a metric
             for metric in epoch_metrics:
@@ -632,7 +629,6 @@ class Trainer():
         data_time = 0
         total_iterations = sum(len(loader) for loader in self.train_data_loaders)
 
-        #if self.params.diagnostic_logs:
         diagnostic_logs = {}
 
         logging.info(f"Expected total batches: {total_iterations}")
@@ -696,46 +692,29 @@ class Trainer():
                         mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
                     ######diagnoistic logging per iteration ###################
-                    if self.params.diagnostic_logs:
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
-                                                                       train_batch_loss = loss, 
-                                                                       train_batch_loss_sfc = loss_sfc, 
-                                                                       train_batch_loss_upper_air = loss_pl,
-                                                                       train_batch_loss_diagnostic =loss_diagnostic,
-                                                                       train_batch_loss_vae = loss_vae,
-                                                                       train_mean_norm_lwrmse = mean_norm_lwrmse)
-                    ##########################################################
-                        if self.world_rank == 0:
-                            wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                    diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                    train_batch_loss = loss, 
+                                                                    train_batch_loss_sfc = loss_sfc, 
+                                                                    train_batch_loss_upper_air = loss_pl,
+                                                                    train_batch_loss_diagnostic =loss_diagnostic,
+                                                                    train_batch_loss_vae = loss_vae,
+                                                                    train_mean_norm_lwrmse = mean_norm_lwrmse)
+                ##########################################################
+                    if self.world_rank == 0:
+                        wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
                 torch.cuda.empty_cache()
                 tr_time += time.time() - tr_start
+            
+                pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
 
-                if self.params.diagnostic_logs:
-                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                else:
-                    running_results["loss"] += loss.item() * self.params['batch_size']
-                    running_results["batch_sizes"] += self.params['batch_size']
-                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {running_results['loss'] / running_results['batch_sizes']:.4f}")
                 pbar.update(1)
         pbar.close()
 
-        if self.params.diagnostic_logs:
-            with torch.no_grad():
-                diagnoistic_logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = diagnostic_logs['train_loss'], epoch = self.epoch)
-                return tr_time, data_time, diagnostic_logs
-        else:
-            with torch.no_grad():
-                logs = {'train_loss': loss, 'epoch': self.epoch}
-            if dist.is_initialized():
-                for key in sorted(logs.keys()):
-                    if isinstance(logs[key], (int, float)):
-                        logs[key] = torch.tensor(logs[key]).to(self.device)
-                    dist.all_reduce(logs[key])
-                    logs[key] = float(logs[key]/dist.get_world_size())
-            if self.params.log_to_wandb:
-                wandb.log(logs)
-            return tr_time, data_time, logs
+        with torch.no_grad():    
+            diagnoistic_logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
+            return tr_time, data_time, diagnostic_logs
+
 
 
 
@@ -874,7 +853,7 @@ class Trainer():
             if dist.is_initialized():
                 dist.all_reduce(torch.tensor(train_loss).to(self.device))
                 train_loss = float(train_loss/dist.get_world_size())  
-                diagnoistic_logs["train_loss"] = train_loss
+                diagnostic_logs["train_loss"] = train_loss
             logs = {'train_loss': train_loss, 'epoch': epoch}
             if self.params.log_to_wandb:
                 wandb.log(logs)
@@ -920,8 +899,8 @@ class Trainer():
         
         valid_start = time.time()
         nb = len(self.valid_data_loader)
-        if self.params.diagnostic_logs:
-            diagnostic_logs = {}
+
+        diagnostic_logs = {}
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
 
@@ -1198,97 +1177,53 @@ class Trainer():
 
         valid_buff_cpu = valid_buff.detach()
 
-        if self.params.diagnostic_logs:
-            diagnostic_logs['epoch'] = self.epoch
-            diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
-            diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
-            diagnostic_logs['valid_loss_upper_air'] = valid_buff_cpu[2]
+        diagnostic_logs['epoch'] = self.epoch
+        diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
+        diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
+        diagnostic_logs['valid_loss_upper_air'] = valid_buff_cpu[2]
+        if self.params.has_diagnostic:
+            diagnostic_logs['valid_loss_diag'] = valid_buff_cpu[3]
+
+        #mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
+        #diagnostic_logs['valid_mean_norm_lwrmse'] = mean_norm_lwrmse
+        for l, steps in enumerate(lead_times_steps):
+            for j, var in enumerate(self.valid_dataset.surface_variables):
+                diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_surface_lwrmse[l, j] * self.valid_dataset.surface_std[j]
+            for j, var in enumerate(self.valid_dataset.upper_air_variables):
+                for k, level in enumerate(self.valid_dataset.levels):
+                    diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
             if self.params.has_diagnostic:
-                diagnostic_logs['valid_loss_diag'] = valid_buff_cpu[3]
+                for j, var in enumerate(self.valid_dataset.diagnostic_variables):
+                    diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
 
-            #mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
-            #diagnostic_logs['valid_mean_norm_lwrmse'] = mean_norm_lwrmse
-            for l, steps in enumerate(lead_times_steps):
-                for j, var in enumerate(self.valid_dataset.surface_variables):
-                    diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_surface_lwrmse[l, j] * self.valid_dataset.surface_std[j]
-                for j, var in enumerate(self.valid_dataset.upper_air_variables):
-                    for k, level in enumerate(self.valid_dataset.levels):
-                        diagnostic_logs[f'valid_{var}_level{level:.3f}_{steps}step_lwrmse'] = valid_upper_air_lwrmse[l, j, k] * self.valid_dataset.upper_air_std[j, k]
-                if self.params.has_diagnostic:
-                    for j, var in enumerate(self.valid_dataset.diagnostic_variables):
-                        diagnostic_logs[f'valid_{var}_{steps}step_lwrmse'] = valid_diagnostic_lwrmse[l, j] * self.valid_dataset.diagnostic_std[j]
-            #if dist.is_initialized():
-            #    for key in sorted(diagnostic_logs.keys()):
-            #        dist.all_reduce(diagnostic_logs[key].detach())
-            #        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
 
-            # Add multi-day losses to diagnostic logs
-            for key, value in multi_step_losses.items():
-                diagnostic_logs[key] = value.item()
+        # Add multi-day losses to diagnostic logs
+        for key, value in multi_step_losses.items():
+            diagnostic_logs[key] = value.item()
 
-            if self.params.log_to_wandb:
-                wandb.log(diagnostic_logs)
-                if self.params.diagnostic_acc:
-                    wandb.log({
-                        "ACC_plot": wandb.Image(plot_filename),
-                        "epoch": self.epoch
-                    })
-                if self.params.diagnostic_gif:
-                    if gif_filename:
-                        wandb.log({
-                            "Evolution_GIF": wandb.Video(gif_filename),
-                            "epoch": self.epoch
-                        })
-                if self.params.diagnostic_spectra:
-                    wandb.log({
-                        "power_spectrum_plot": wandb.Image(path_filename),
-                        "epoch": self.epoch,
-                    })
-            
-            valid_time = time.time() - valid_start
-
-            return valid_time, diagnostic_logs
-        else:
-            try:
-                if self.params.has_diagnostic:
-                    logs = {'valid_loss': valid_buff_cpu[0], 
-                            'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
-                            'valid_loss_diag': valid_buff_cpu[3],
-                            'epoch': self.epoch}
-                else:
-                    logs = {'valid_loss': valid_buff_cpu[0], 
-                            'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
-                            'epoch': self.epoch}
-                # Add multi-day losses to logs
-                for key, value in multi_step_losses.items():
-                    logs[key] = value.item()
-
-            except:
-                pass
-
-            if self.params.log_to_wandb:
-                wandb.log(logs)
-
-                    # Log ACC plot
-                if self.params.diagnostic_acc:
-                    wandb.log({
-                        "ACC_plot": wandb.Image(plot_filename),
-                        "epoch": self.epoch
-                    })
-                if gif_filename and self.params.diagnostic_gif:
+        if self.params.log_to_wandb:
+            wandb.log(diagnostic_logs)
+            if self.params.diagnostic_acc:
+                wandb.log({
+                    "ACC_plot": wandb.Image(plot_filename),
+                    "epoch": self.epoch
+                })
+            if self.params.diagnostic_gif:
+                if gif_filename:
                     wandb.log({
                         "Evolution_GIF": wandb.Video(gif_filename),
                         "epoch": self.epoch
                     })
-                if self.params.diagnostic_spectra:
-                    wandb.log({
-                        "power_spectrum_plot": wandb.Image(path_filename),
-                        "epoch": self.epoch,
-                    })
+            if self.params.diagnostic_spectra:
+                wandb.log({
+                    "power_spectrum_plot": wandb.Image(path_filename),
+                    "epoch": self.epoch,
+                })
+        
+        valid_time = time.time() - valid_start
 
-            valid_time = time.time() - valid_start
+        return valid_time, diagnostic_logs
 
-            return valid_time, logs
 
 
 

@@ -89,7 +89,6 @@ S2S: &S2S
   diagnostic_head: False
   vertical_windowing: True
   train_year_to_year: False
-  diagnostic_logs: True
   diagnostic_acc: False
   diagnostic_gif: False
   diagnostic_spectra: True
