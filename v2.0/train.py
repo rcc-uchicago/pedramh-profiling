@@ -654,13 +654,11 @@ class Trainer():
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
             for i, data in enumerate(train_data_loader):
-
-                if self.params.mode == "test":
-                    if i > self.params.test_iterations:
-                        logging.info("Test mode: only processing first 30 batches")
-                        break
+                logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
+                if self.params.mode == "test" and i >= self.params.test_iterations:
+                    logging.info("Test mode: only processing first 30 batches")
+                    break
                 else:
-                    logging.debug(f"Batch {i}, data shape: {data[0].shape}")
                     self.iters += 1
 
                     data_start = time.time()

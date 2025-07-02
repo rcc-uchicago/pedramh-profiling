@@ -128,7 +128,7 @@ class PanguModel_Plasim(nn.Module):
         else:
             embed_dim = 192
         
-        print(f"Embedding Dimensions are {embed_dim}")
+        #print(f"Embedding Dimensions are {embed_dim}")
 
         #drop_path = np.linspace(0, 0.2, 8).tolist()
         if not drop_path:
@@ -192,7 +192,7 @@ class PanguModel_Plasim(nn.Module):
         if hasattr(params, 'diagnostic_variables'):
             self.diagnostic_vars = params.diagnostic_variables
             self.num_diagnostic_vars = len(self.diagnostic_vars)
-        print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
+        #print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
         if hasattr(params, "drop_rate"):
             if params.drop_rate > 0.:
                 drop_path = np.zeros(np.sum(params.depths)).tolist()
