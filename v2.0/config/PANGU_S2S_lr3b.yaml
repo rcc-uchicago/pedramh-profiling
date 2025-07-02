@@ -151,10 +151,3 @@ S2S: &S2S
        352., 353., 354., 355., 356., 357., 358., 359.]
   #use_ff_input: False
 
-modified_1: &MODIFIED
-  <<: *BASE
-  lr: 5E-4
-  batch_size: 16 
-  max_epochs: 80 
-  scheduler: 'CosineAnnealingLR'
-  optimizer_type: 'FusedAdam'
