@@ -586,7 +586,7 @@ class Trainer():
                         self.save_checkpoint(self.params.best_checkpoint_path)
             if world_rank == 0:
                 self.log_wandb_epoch(epoch)
-                self.log_screen_epoch(epoch,time, train_logs, valid_logs, early_stopping_counter)
+                self.log_screen_epoch(epoch, start, train_logs, valid_logs, early_stopping_counter)
             # Early stopping check
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen and world_rank == 0:
@@ -937,6 +937,7 @@ class Trainer():
         acc_ground_truths = []
 
         # with torch.inference_mode():
+
         with torch.no_grad():
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}'):
                 if world_rank == 0:
@@ -957,7 +958,6 @@ class Trainer():
                             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
 
-                #input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
 
 
                 # get the correct start times for each sample
@@ -1115,8 +1115,12 @@ class Trainer():
                                 all_ground_truths.append(gt_combined_dataset)
 
                         step_idx += 1
+                    
                     val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
-                
+                    del val_output_surface, val_output_upper_air
+                    
+                del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
+                torch.cuda.empty_cache()
                 valid_steps += 1.
             print("Finished batch validation.")
         
@@ -1157,10 +1161,12 @@ class Trainer():
             fig, axs = plot_acc_over_lead_time(acc, acc_times_hours)
 
         if self.params.diagnostic_spectra:
+            print("\nCalculating power spectrum...")
             k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
             k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(combined_ground_truths, time_avg= True)
             preds_times = combined_predictions.time.values
             preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+            print("\nFinished calculating power spectrum.")
         
         # Save the plot
         if self.world_rank == 0:
@@ -1179,7 +1185,6 @@ class Trainer():
 
             if self.params.diagnostic_spectra:
                 print("\nMaking Power Spectrum...")
-
                 # Calculate zonal averaged power spectrum. 
 
                 # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
