@@ -16,8 +16,8 @@ mkdir -p $TMPDIR
 
 TSTAMP=$(date "+%Y-%m-%d-%H%M%S")
 echo "Job started at: {$TSTAMP}"
-
 Sqstat -u $USER
+echo nvidia-smi
 
 cd /glade/work/bgong/PanguWeather/v2.0
 

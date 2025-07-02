@@ -379,9 +379,10 @@ class GetDataset(Dataset):
 
     # Modification for the autoregressive parameter
     def _get_dates(self, hour_step=6.):
+
         start_date = self.datetime_class(self.year_start, 1, 1)
-        end_date = self.datetime_class(self.year_end, 1, 1)
-        
+        end_date = self.datetime_class(self.year_end, 1, 1) 
+
         if not self.train:
             hours = (end_date - start_date).days * 24. #- (max(self.params.forecast_lead_times)) * hour_step
         else:
@@ -389,7 +390,7 @@ class GetDataset(Dataset):
             hours = (end_date - start_date).days * 24.
         
         date_range = np.arange(0., hours, hour_step)
-        print(f'End data hour: {date_range[-1]}')
+        #print(f'End data hour: {date_range[-1]}')
         return date_range, start_date, end_date
 
     def _get_data(self, data_datetime, out = False, variable_list = None):

@@ -1,18 +1,14 @@
 #!/bin/bash -l
 #SBATCH --account=pi-pedramh
-#SBATCH --time=6-00:00:00
-#SBATCH -p pedramh-gpu
-##SBATCH -p schmidt-gpu 
-##SBATCH --account=pi-dfreeman
-##SBATCH --time=8:00:00
+#SBATCH --time=04:10:00
+#SBATCH -p pedramh-gpu 
 #SBATCH --nodes=1
-###SBATCH --nodelist=midway3-0559
-#SBATCH --mem=0
+##SBATCH --mem=0
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8 #16 
-#SBATCH -o outs/midway_ddp_%x_%j.out
-#SBATCH -e outs/midway_ddp_%x_%j.err
+#SBATCH -o midway_ddp_%x_%j.out
+#SBATCH -e midway_ddp_%x_%j.err
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
@@ -20,15 +16,17 @@
 export MPICH_GPU_SUPPORT_ENABLED=1
 
 ulimit -l unlimited
-
 ml python
-source activate /project/pedramh/anaconda/py311
-source /home/awikner/venvs/pangu-wandb/bin/activate  
+conda activate /project/pedramh/bing/env
 export WANDB_MODE=offline
+
+
+echo nvidia-smi
 
 # Change to working directory
 #cd $SLURM_SUBMIT_DIR
-source export_DDP_vars.sh
+# source export_DDP_vars.sh
+# cd /project/pedramh/bing/PanguWeather/v2.0
 
 # MPI and OpenMP settings
 # NNODES=`wc -l < $SLURM_JOB_NODELIST`
@@ -48,9 +46,8 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 #export WORLD_SIZE
 #export RANK=$SLURM_ARRAY_TASK_ID
 #export OMP_NUM_THREAD=8
-
-
-
 # Launch your script using torch.distributed.launch
-/project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE train.py --yaml_config=$2 --run_num=$1
+# config_file=../config/PANGU_S2S_lr3b_midway.yaml
+config_file=../config/test.yaml
+/project/pedramh/anaconda/py311/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=004
 #/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1
