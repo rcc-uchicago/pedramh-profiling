@@ -561,6 +561,7 @@ class Trainer():
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             valid_time, valid_logs = self.validate_one_epoch()
+            torch.cuda.empty_cache()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
                 self.scheduler.step(valid_logs['valid_loss'])
@@ -1122,6 +1123,7 @@ class Trainer():
                 del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
                 torch.cuda.empty_cache()
                 valid_steps += 1.
+                
             print("Finished batch validation.")
         
 
@@ -1259,7 +1261,7 @@ class Trainer():
                 })
         
         valid_time = time.time() - valid_start
-
+        del all_predictions, acc_combined_dataset, acc_combined_ground_truths, prepared_datasets, gt_combined_dataset, gt_datasets
         return valid_time, diagnostic_logs
 
 

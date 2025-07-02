@@ -72,7 +72,7 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 8
+  batch_size: 16
   max_epochs: 100
   has_year_zero: False
   num_levels: 17
@@ -152,11 +152,3 @@ S2S: &S2S
        341., 342., 343., 344., 345., 346., 347., 348., 349., 350., 351.,
        352., 353., 354., 355., 356., 357., 358., 359.]
   #use_ff_input: False
-
-modified_1: &MODIFIED
-  <<: *BASE
-  lr: 5E-4
-  batch_size: 16 
-  max_epochs: 80 
-  scheduler: 'CosineAnnealingLR'
-  optimizer_type: 'FusedAdam'
