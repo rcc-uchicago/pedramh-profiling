@@ -3,7 +3,7 @@
 #SBATCH --time=04:10:00
 #SBATCH -p pedramh-gpu 
 #SBATCH --nodes=1
-##SBATCH --mem=0
+#SBATCH --mem=500G
 #SBATCH --ntasks-per-node=4
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8 #16 
