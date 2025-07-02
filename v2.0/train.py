@@ -658,6 +658,7 @@ class Trainer():
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
                     logging.info("Test mode: only processing first 30 batches")
+                    pbar.update(total_iterations - self.iters)
                     break
                 else:
                     self.iters += 1
@@ -1261,7 +1262,7 @@ class Trainer():
                 })
         
         valid_time = time.time() - valid_start
-        del all_predictions, acc_combined_dataset, acc_combined_ground_truths, prepared_datasets, gt_combined_dataset, gt_datasets
+       
         return valid_time, diagnostic_logs
 
 
