@@ -1,7 +1,7 @@
 
 ### base config ###
 base_config: &BASE
-  loss: 'weightedl1'
+  loss: 'weightedCRPS'
   lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
@@ -27,7 +27,7 @@ base_config: &BASE
   vae_loss_weight: 0.1
   test_iterations: 10
   mode: 'test'
-
+  num_ensemble_members : 4
 
 
 S2S: &S2S
@@ -72,10 +72,10 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 16
+  batch_size: 4
   max_epochs: 100
   has_year_zero: False
-  num_levels: 17
+  num_levels: 17upper_air_boundary
   #num_levels: 10
   levels: [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
   horizontal_resolution: [180, 360]

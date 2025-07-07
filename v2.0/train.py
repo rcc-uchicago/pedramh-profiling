@@ -671,7 +671,6 @@ class Trainer():
                     tr_start = time.time()
                     self.model.zero_grad()                
                     #define loss
-
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
@@ -753,6 +752,9 @@ class Trainer():
                                     [input_surface, input_upper_air, target_surface, target_upper_air, 
                                     target_diagnostic, varying_boundary_data]]
                 input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
+                print("Ensemble input surface shape is ", input_surface.shape)
+                print("input upper air shape is ", input_upper_air.shape)
+                
             else:
                 ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
                                     [input_surface, input_upper_air, target_surface, target_upper_air, 
@@ -960,7 +962,23 @@ class Trainer():
                             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
 
-
+                if self.params.num_ensemble_members > 1:
+            
+                    if self.params.has_diagnostic:
+                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                        [val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, 
+                                        val_target_diagnostic, val_varying_boundary_data]]
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, \
+                        val_target_diagnostic, val_varying_boundary_data = ensemble_batches
+                
+                    else:
+                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                        [val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, 
+                                        val_varying_boundary_data]]
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, \
+                        val_varying_boundary_data = ensemble_batches
+        
+       
 
                 # get the correct start times for each sample
                 start_times = []
