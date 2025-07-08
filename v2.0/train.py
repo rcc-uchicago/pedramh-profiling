@@ -752,8 +752,7 @@ class Trainer():
                                     [input_surface, input_upper_air, target_surface, target_upper_air, 
                                     target_diagnostic, varying_boundary_data]]
                 input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
-                print("Ensemble input surface shape is ", input_surface.shape)
-                print("input upper air shape is ", input_upper_air.shape)
+
                 
             else:
                 ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
