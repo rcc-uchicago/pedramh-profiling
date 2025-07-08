@@ -52,7 +52,7 @@ S2S: &S2S
               'snow_depth': 0.}
   mask_output: False
   train_year_start: 1979
-  train_year_end: 1980
+  train_year_end: 2018
   val_year_start: 2018
   val_year_end: 2019
   data_timedelta_hours: 6
