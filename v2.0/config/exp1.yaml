@@ -26,7 +26,8 @@ base_config: &BASE
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
   mode: 'train'
-  num_ensemble_members : 4
+  num_ensemble_members : 3
+  checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/004/training_checkpoints/ckpt.tar'
 
 
 S2S: &S2S
@@ -72,7 +73,7 @@ S2S: &S2S
   calendar: 'standard'
   timedelta_hours: 24
   batch_size: 4
-  max_epochs: 100
+  max_epochs: 2
   has_year_zero: False
   num_levels: 17upper_air_boundary
   #num_levels: 10
@@ -90,6 +91,7 @@ S2S: &S2S
   diagnostic_head: False
   vertical_windowing: True
   train_year_to_year: False
+  diagnostic_logs: True
   diagnostic_acc: False
   diagnostic_gif: False
   diagnostic_spectra: False
