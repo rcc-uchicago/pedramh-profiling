@@ -24,10 +24,9 @@ base_config: &BASE
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
-  mode: 'test'
-  test_iterations: 10
+  mode: 'train'
   num_ensemble_members : 4
-  fresh_start: False
+  fresh_start: True
   checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/1/training_checkpoints/ckpt.tar'
 
 
