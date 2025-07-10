@@ -2,10 +2,10 @@
 #PBS -A UCHI0014
 #PBS -N train_005
 #PBS -q main
-#PBS -l walltime=00:10:00 
-#PBS -l select=2:ncpus=64:ngpus=4
-#PBS -e ucar_005_3_error.txt
-#PBS -o ucar_005_3.out
+#PBS -l walltime=12:00:00 
+#PBS -l select=1:ncpus=64:ngpus=4
+#PBS -e ucar_exp2_error.txt
+#PBS -o ucar_exp2.out
 #PBS -l gpu_type=a100
 #export WORLD_SIZE=$((PBS_NUM_NODES * PBS_NUM_PPN))
 #echo "Total tasks: $WORLD_SIZE"
@@ -61,7 +61,7 @@ else
 fi
 
 
-CMD="train.py --yaml_config=./config/PANGU_S2S_lr3b.yaml --run_num=0005"
+CMD="train.py --yaml_config=./config/exp2.yaml --run_num=0005"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
