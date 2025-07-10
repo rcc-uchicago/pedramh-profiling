@@ -171,10 +171,6 @@ class Trainer():
         ###Setup the initia epochs and iteration #######
         self.iters = 0
         self.startEpoch = 0
-        if params.resuming:
-            self.restore_checkpoint(params.checkpoint_path)
-        else:
-            logging.info("Starting fresh training run")
         self.epoch = self.startEpoch
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         #################################################
@@ -205,6 +201,12 @@ class Trainer():
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model = self.get_model()
         self.optimizer = self.get_optimizer()
+        if params.resuming:
+            self.restore_checkpoint(params.checkpoint_path)
+            logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
+        else:
+            logging.info("Starting fresh training run")
+        
         self.setup_scheduler()
         self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
 
@@ -647,7 +649,7 @@ class Trainer():
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
-
+            logging.debug(f"Processing year idx {year_idx}")
             current_dataset = self.train_datasets[year_idx]
             if self.params.train_year_to_year:
                 logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
@@ -709,7 +711,8 @@ class Trainer():
                                                                         train_mean_norm_lwrmse = mean_norm_lwrmse)
                     ##########################################################
                         if self.world_rank == 0:
-                            wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                            wandb.log(diagnostic_logs, step= self.iters)
 
                     torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
@@ -719,9 +722,8 @@ class Trainer():
                     pbar.update(1)
         pbar.close()
 
-        with torch.no_grad():    
-            diagnoistic_logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
-            return tr_time, data_time, diagnostic_logs
+        logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
+        return tr_time, data_time, logs
 
 
 
@@ -859,17 +861,30 @@ class Trainer():
         Generate logging information for each epoch.
         """
         logs = {}
-        with torch.no_grad():
+        if self.params.diagnostic_logs:
+            with torch.no_grad():
+                diagnostic_logs['train_loss'] = train_loss
+                if dist.is_initialized():
+                    dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
+                    diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
+                logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
+                if self.params.log_to_wandb:
+                    wandb.log(logs)
+                return diagnostic_logs
+        else:
+            with torch.no_grad():
+                logs = {'train_loss': train_loss, 'epoch': self.epoch}
+            
             if dist.is_initialized():
-                dist.all_reduce(torch.tensor(train_loss).to(self.device))
-                train_loss = float(train_loss/dist.get_world_size())  
-                diagnostic_logs["train_loss"] = train_loss
-            logs = {'train_loss': train_loss, 'epoch': epoch}
+                for key in sorted(logs.keys()):
+                    if isinstance(logs[key], (int, float)):
+                        logs[key] = torch.tensor(logs[key]).to(self.device)
+                    dist.all_reduce(logs[key])
+                    logs[key] = float(logs[key]/dist.get_world_size())
+
             if self.params.log_to_wandb:
                 wandb.log(logs)
-        for key, value in kwargs.items():
-            diagnostic_logs[key] = value
-        return diagnostic_logs
+            return logs
 
 
 
@@ -906,8 +921,6 @@ class Trainer():
             multi_step_rmse = {f"valid_lwrmse_sfc_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps} |\
                 {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
-
-
         return valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse
 
     def validate_one_epoch(self):
@@ -1593,6 +1606,7 @@ if __name__ == '__main__':
         params['resuming'] = False
         if checkpoint_exists and world_rank == 0:
             logging.info("Fresh start requested. Ignoring existing checkpoint.")
+
     elif checkpoint_exists:
         params['resuming'] = True
         if world_rank == 0:
