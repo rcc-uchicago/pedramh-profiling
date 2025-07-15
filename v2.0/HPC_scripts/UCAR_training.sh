@@ -61,7 +61,7 @@ else
 fi
 
 
-CMD="train.py --yaml_config=./config/exp2.yaml --run_num=0005"
+CMD="train.py --yaml_config=./config/exp2.yaml --run_num=2"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
