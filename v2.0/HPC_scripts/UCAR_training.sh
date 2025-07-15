@@ -4,8 +4,8 @@
 #PBS -q main
 #PBS -l walltime=12:00:00 
 #PBS -l select=1:ncpus=64:ngpus=4
-#PBS -e ucar_exp3_error.txt
-#PBS -o ucar_exp3.out
+#PBS -e ucar_exp0715_error.txt
+#PBS -o ucar_exp0715.out
 #PBS -l gpu_type=a100
 #export WORLD_SIZE=$((PBS_NUM_NODES * PBS_NUM_PPN))
 #echo "Total tasks: $WORLD_SIZE"
@@ -61,7 +61,7 @@ else
 fi
 
 
-CMD="train.py --yaml_config=./config/exp2.yaml --run_num=0005"
+CMD="train.py --yaml_config=./config/exp2.yaml --run_num=2"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
