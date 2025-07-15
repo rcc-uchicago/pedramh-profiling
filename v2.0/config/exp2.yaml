@@ -21,11 +21,12 @@ base_config: &BASE
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
-  name: 'S2S'
+  name: 'S2S-2'
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
   mode: 'train'
+  test_iterations: 10
   checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/2/training_checkpoints/ckpt.tar'
 
 
