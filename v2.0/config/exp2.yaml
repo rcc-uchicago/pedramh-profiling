@@ -17,7 +17,7 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 's2s-dev'
   exp_dir: 'results'
-  fresh_start: False
+  fresh_start: True
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
