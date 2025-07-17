@@ -17,7 +17,7 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 's2s-dev'
   exp_dir: 'results'
-  fresh_start: True
+  fresh_start: False
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
@@ -28,7 +28,7 @@ base_config: &BASE
   mode: 'train'
   num_ensemble_members: 1
   test_iterations: 10
-  checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/3/training_checkpoints/ckpt.tar'
+  checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/3/ckpt.tar'
 
 
 
