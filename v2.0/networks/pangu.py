@@ -327,7 +327,7 @@ class PanguModel_Plasim(nn.Module):
         #############VAE part #############
         self.layer_mu =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
         self.layer_sigma = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
-        self.layer_purturbation = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
+        self.layer_purturbation = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim*2, kernel_size=1)
         self.layer_perturbation2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor, 
                                              out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
         #############VAE part ############# 
@@ -374,8 +374,7 @@ class PanguModel_Plasim(nn.Module):
         self.layer_mu_e2 =  nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
         self.layer_sigma_e2 = nn.Conv3d(in_channels=self.embed_dim * params.updown_scale_factor, out_channels=self.embed_dim, kernel_size=1)
         self.layer_purturbation_e2 = nn.Conv3d(in_channels=embed_dim, out_channels=embed_dim, kernel_size=1)
-        self.layer_perturbation2_e2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor, 
-                                             out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
+        #self.layer_perturbation2_e2 = nn.Conv3d(in_channels=embed_dim + embed_dim * params.updown_scale_factor,  out_channels=embed_dim * params.updown_scale_factor, kernel_size=1)
 
 
 
@@ -521,8 +520,8 @@ class PanguModel_Plasim(nn.Module):
 
 
         ##############Decoder ##################
-        x  = torch.cat((x_purb, x), dim=1)
-        x = self.layer_perturbation2(x) #8, 384, 10, 23, 45
+        x  = x_purb  +  x
+        #x = self.layer_perturbation2(x) #8, 384, 10, 23, 45
         x = x.permute(0, 2, 3,4, 1).reshape(B, -1, self.embed_dim * self.updown_scale_factor) #8, 10350, 384
         x = self.upsample(x)
         x = self.layer4(x)
