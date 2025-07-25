@@ -659,7 +659,7 @@ class Trainer():
             for i, data in enumerate(train_data_loader):
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
-                    logging.info("Test mode: only processing first 30 batches")
+                    logging.info("Test mode: only processing first few batches")
                     pbar.update(total_iterations - self.iters)
                     break
                 else:
@@ -668,7 +668,7 @@ class Trainer():
                     data_start = time.time()
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
                     data_time += time.time() - data_start
-
+                    logging.info(f"Data preparation took {data_time:.2f} seconds for batch {i} of year {self.params.train_year_start + year_idx}")
 
                     tr_start = time.time()
                     self.model.zero_grad()                
@@ -716,7 +716,7 @@ class Trainer():
 
                     torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
-                
+                    logging.info(f"Training step took {tr_time:.2f} seconds for batch {i} of year {self.params.train_year_start + year_idx}")
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
 
                     pbar.update(1)
