@@ -21,7 +21,7 @@ conda activate /home1/10786/bgong1/stampede3/env
 export NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
 
 
-config_file=../config/exp3.yaml
+config_file=../config/exp2.yaml
 
-torchrun --standalone -m torch.distributed.launch --nproc_per_node=gpu ../train.py --yaml_config=$config_file --run_num=3stampede
+torchrun --standalone -m torch.distributed.launch --nproc_per_node=gpu ../train.py --yaml_config=$config_file --run_num=2
 #/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1

@@ -17,24 +17,24 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 's2s-dev'
   exp_dir: 'results'
-  fresh_start: True
+  fresh_start: False
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
-  name: 'S2S-2'
+  name: 'S2S-2Stamp'
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
   mode: 'train'
   num_ensemble_members: 1
   test_iterations: 10
-  checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/2/training_checkpoints/ckpt.tar'
+  checkpoint_path: '/home1/10786/bgong1/WORK/PanguWeather/v2.0/HPC_scripts/results/S2S/2/training_checkpoints/ckpt.tar'
 
 
 
 S2S: &S2S
   <<: *BASE
-  data_dir: '/glade/campaign/univ/uchi0014/yqsun/pangu_s2s/h5data'
+  data_dir: '/scratch/08198/tg874973/pangu-s2s/h5data'
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
   surface_variables: ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',

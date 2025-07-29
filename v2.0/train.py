@@ -1492,7 +1492,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank),weights_only=False)
         try:
             self.model.load_state_dict(checkpoint['model_state'])
         except:
