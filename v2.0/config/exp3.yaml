@@ -17,18 +17,18 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 's2s-dev'
   exp_dir: 'results'
-  fresh_start: False
+  fresh_start: True
   use_transformer_engine: False
   early_stopping: False
   project: 'Pangu-S2S'
-  name: 'S2S-3'
+  name: 'S2S-3-workflow'
   entity: 'binggong'
   vae_loss: !!bool True
   vae_loss_weight: 0.0001
-  mode: 'train'
+  mode: 'test'
   num_ensemble_members: 1
   test_iterations: 10
-  checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/3/ckpt.tar'
+  #checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/3/ckpt.tar'
 
 
 

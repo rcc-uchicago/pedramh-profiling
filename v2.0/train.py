@@ -37,6 +37,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
+from utils.utils import log_memory_usage, log_gpu_memory
 from networks.pangu import PanguModel_Plasim
 logging_utils.config_logger()
 torch._dynamo.config.optimize_ddp = False
@@ -194,8 +195,8 @@ class Trainer():
         # Setup model
         #self.setup_model()
         logging.info('Params' % params)
-        
-
+    
+    @log_gpu_memory    
     def setup_model(self):
         # Set up model
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
@@ -256,7 +257,7 @@ class Trainer():
             logging.info(f"Created directory: {output_dir}")
         return spectra_dir, diagnostics_dir, output_dir 
              
-
+    @log_gpu_memory     
     def get_dataset(self):
         """
         setup data loader
@@ -370,8 +371,8 @@ class Trainer():
         else:
             raise Exception("not implemented")
         return mask_bool, land_mask
-        
-        
+    
+    @log_gpu_memory     
     def get_model(self):
         """ 
         Get the model based on the nettype specified in params.
@@ -538,7 +539,7 @@ class Trainer():
         logging.info("Losses is setup")
         return self.loss_obj_pl, self.loss_obj_sfc, self.loss_obj_diagnostic
 
-
+    @log_gpu_memory     
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
@@ -628,7 +629,7 @@ class Trainer():
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
 
-    
+    @log_gpu_memory     
     def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
@@ -727,8 +728,7 @@ class Trainer():
 
 
 
-
-
+    @log_gpu_memory     
     def _prepare_inputs_batch(self, data:torch.Tensor):
         """
         prepare input variables for each iteration from data loader.
@@ -764,7 +764,7 @@ class Trainer():
         
         return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
 
-
+    @log_gpu_memory     
     def cal_loss(self, input_surface, constant_boundary_data, varying_boundary_data, input_upper_air, 
                  target_diagnostic, target_surface, target_upper_air, **kwargs):
         """
@@ -818,8 +818,7 @@ class Trainer():
 
 
         return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
-
-
+    @log_gpu_memory     
     def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
         """
         This function is used for logging the results from each iteration.
@@ -922,7 +921,8 @@ class Trainer():
                 {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
         return valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse
-
+    
+    @log_gpu_memory     
     def validate_one_epoch(self):
         if world_rank == 0:
             print("Validating...")
@@ -1314,7 +1314,7 @@ class Trainer():
         preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
         return preds
     
-
+    @log_gpu_memory     
     def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
         # print(f"TIME STEPS ARE: {time_steps}")
