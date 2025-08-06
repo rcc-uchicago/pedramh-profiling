@@ -2,10 +2,10 @@
 #PBS -A UCHI0014
 #PBS -N train_exp03
 #PBS -q main
-#PBS -l walltime=12:00:00 
+#PBS -l walltime=01:00:00 
 #PBS -l select=1:ncpus=64:ngpus=4
-#PBS -e ucar_exp0716_exp3_error.txt
-#PBS -o ucar_exp0716_exp3.out
+#PBS -e ucar_exp0804_workflow6_error.txt
+#PBS -o ucar_exp0804_workflow6.out
 #PBS -l gpu_type=a100
 #export WORLD_SIZE=$((PBS_NUM_NODES * PBS_NUM_PPN))
 #echo "Total tasks: $WORLD_SIZE"
@@ -19,7 +19,7 @@ echo "Job started at: {$TSTAMP}"
 Sqstat -u $USER
 echo nvidia-smi
 
-cd /glade/work/bgong/PanguWeather/v2.0
+cd /glade/work/bgong/PanguWeather2/PanguWeather/v2.0
 
 
 export MPICH_GPU_SUPPORT_ENABLED=1
@@ -42,7 +42,7 @@ WORLD_SIZE=$((NNODES * NUM_TASKS_PER_NODE))
 echo "NUM_OF_NODES= ${NNODES}"
 
 PRELOAD="module load conda;"
-PRELOAD+="conda activate /glade/derecho/scratch/zand/anaconda/py311;"
+PRELOAD+="conda activate  /glade/work/zand/anaconda/py311;"
 PRELOAD+="export NODES=1;"
 PRELOAD+="export MASTER_ADDR=$(hostname);"
 PRELOAD+="export MASTER_PORT=12345;"
@@ -61,7 +61,7 @@ else
 fi
 
 
-CMD="train.py --yaml_config=./config/exp3.yaml --run_num=3"
+CMD="train.py --yaml_config=./config/exp3.yaml --run_num=3_workflow"
 
 FULL_CMD=" $PRELOAD $TIMER $LAUNCHER $CMD $@ "
 echo "Training Command: $FULL_CMD"
