@@ -37,16 +37,18 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
 from utils.integrate import Integrator, forward_euler
-from utils.utils import log_memory_usage, log_gpu_memory
 from networks.pangu import PanguModel_Plasim
+from utils.utils import log_memory_usage, log_gpu_memory   
+
 logging_utils.config_logger()
 torch._dynamo.config.optimize_ddp = False
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()           
-
-
+dist.init_process_group(backend='nccl', init_method='env://')
+world_rank = dist.get_rank()
+print(f"World rank: {world_rank}")
 
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
@@ -195,8 +197,7 @@ class Trainer():
         # Setup model
         #self.setup_model()
         logging.info('Params' % params)
-    
-    @log_gpu_memory    
+        
     def setup_model(self):
         # Set up model
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
@@ -257,7 +258,8 @@ class Trainer():
             logging.info(f"Created directory: {output_dir}")
         return spectra_dir, diagnostics_dir, output_dir 
              
-    @log_gpu_memory     
+    @log_memory_usage(rank=world_rank)
+    @log_gpu_memory
     def get_dataset(self):
         """
         setup data loader
@@ -371,8 +373,7 @@ class Trainer():
         else:
             raise Exception("not implemented")
         return mask_bool, land_mask
-    
-    @log_gpu_memory     
+              
     def get_model(self):
         """ 
         Get the model based on the nettype specified in params.
@@ -539,7 +540,8 @@ class Trainer():
         logging.info("Losses is setup")
         return self.loss_obj_pl, self.loss_obj_sfc, self.loss_obj_diagnostic
 
-    @log_gpu_memory     
+    @log_memory_usage(rank=world_rank)
+    @log_gpu_memory
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
@@ -629,7 +631,8 @@ class Trainer():
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
 
-    @log_gpu_memory     
+    @log_memory_usage(rank=world_rank)
+    @log_gpu_memory
     def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
@@ -660,16 +663,17 @@ class Trainer():
             for i, data in enumerate(train_data_loader):
                 logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
-                    logging.info("Test mode: only processing first few batches")
+                    logging.info("Test mode: only processing first 30 batches")
                     pbar.update(total_iterations - self.iters)
-                    break
+                    data_time += time.time() - data_start
+
                 else:
                     self.iters += 1
 
                     data_start = time.time()
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
                     data_time += time.time() - data_start
-                    logging.info(f"Data preparation took {data_time:.2f} seconds for batch {i} of year {self.params.train_year_start + year_idx}")
+
 
                     tr_start = time.time()
                     self.model.zero_grad()                
@@ -717,7 +721,7 @@ class Trainer():
 
                     torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
-                    logging.info(f"Training step took {tr_time:.2f} seconds for batch {i} of year {self.params.train_year_start + year_idx}")
+                
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
 
                     pbar.update(1)
@@ -728,19 +732,19 @@ class Trainer():
 
 
 
-    @log_gpu_memory     
+    @log_gpu_memory
     def _prepare_inputs_batch(self, data:torch.Tensor):
         """
         prepare input variables for each iteration from data loader.
         The return must contain input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
         """
         #Initilaise variables
-        input_surface = None
-        input_upper_air = None
-        target_surface = None
-        target_upper_air = None
-        target_diagnostic = None
-        varying_boundary_data = None
+        input_surface = 0
+        input_upper_air = 0
+        target_surface = 0
+        target_upper_air = 0
+        target_diagnostic = 0
+        varying_boundary_data = 0
         if self.params.has_diagnostic:
             input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
                 lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
@@ -764,7 +768,7 @@ class Trainer():
         
         return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
 
-    @log_gpu_memory     
+
     def cal_loss(self, input_surface, constant_boundary_data, varying_boundary_data, input_upper_air, 
                  target_diagnostic, target_surface, target_upper_air, **kwargs):
         """
@@ -794,13 +798,13 @@ class Trainer():
         loss_sfc = 0
         loss_vae = 0
         if self.params.has_diagnostic:
-            output_surface, output_upper_air, output_diagnostic, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
+            output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
                                                                 varying_boundary_data, input_upper_air, 
                                                                 target_surface, target_upper_air,train = True)
             loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
             
-        else:
-            output_surface, output_upper_air, mu, sigma, mu_e2, sigma_e2 = self.model(input_surface, constant_boundary_data, 
+        else: 
+            output_surface, output_upper_air, mu, sigma,  mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
                                                         varying_boundary_data, input_upper_air, 
                                                         target_surface, target_upper_air, train = True)
                 
@@ -813,12 +817,13 @@ class Trainer():
             loss = (loss_sfc * 0.25) + loss_pl
 
         if self.params.vae_loss:    
-            loss_vae = self.loss_vae(mu, sigma, mu_e2, sigma_e2)
+            loss_vae = self.loss_vae(mu, sigma, mu2, sigma2)
             loss += self.params.vae_loss_weight * loss_vae
 
 
         return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
-    @log_gpu_memory     
+
+
     def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
         """
         This function is used for logging the results from each iteration.
@@ -921,8 +926,9 @@ class Trainer():
                 {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
         return valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse
-    
-    @log_gpu_memory     
+   
+    @log_memory_usage(rank=world_rank)
+    @log_gpu_memory
     def validate_one_epoch(self):
         if world_rank == 0:
             print("Validating...")
@@ -1314,7 +1320,7 @@ class Trainer():
         preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
         return preds
     
-    @log_gpu_memory     
+
     def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
         batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
         # print(f"TIME STEPS ARE: {time_steps}")
@@ -1492,7 +1498,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank),weights_only=False)
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
         try:
             self.model.load_state_dict(checkpoint['model_state'])
         except:
@@ -1567,14 +1573,14 @@ if __name__ == '__main__':
 
      
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        
         if 'derecho' in str(Path(__file__)):
             local_rank = args.local_rank
         else:
             local_rank = int(os.environ["LOCAL_RANK"])
 
         args.gpu = local_rank
-        world_rank = dist.get_rank()
+        
         # print("##########WORLD RANK: TESTING ", world_rank)
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])

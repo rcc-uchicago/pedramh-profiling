@@ -27,7 +27,7 @@ base_config: &BASE
   vae_loss_weight: 0.0001
   mode: 'test'
   num_ensemble_members: 1
-  test_iterations: 10
+  test_iterations: 5
   #checkpoint_path: '/glade/work/bgong/PanguWeather/v2.0/results/S2S/3/ckpt.tar'
 
 
