@@ -477,7 +477,6 @@ class Trainer():
 
         
 
-
     def setup_loss_fun(self):
         """
         Set up loss function to return the loss for pl, sfc and diagnoistic
@@ -540,8 +539,7 @@ class Trainer():
         logging.info("Losses is setup")
         return self.loss_obj_pl, self.loss_obj_sfc, self.loss_obj_diagnostic
 
-    @log_memory_usage(rank=world_rank)
-    @log_gpu_memory
+
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
@@ -565,7 +563,9 @@ class Trainer():
 
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
+            logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
             valid_time, valid_logs = self.validate_one_epoch()
+            logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
             torch.cuda.empty_cache()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
@@ -669,11 +669,10 @@ class Trainer():
 
                 else:
                     self.iters += 1
-
                     data_start = time.time()
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
                     data_time += time.time() - data_start
-
+                    logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
                     tr_start = time.time()
                     self.model.zero_grad()                
@@ -685,7 +684,8 @@ class Trainer():
                     
                     loss.backward()
                     self.optimizer.step()
-
+                    tr_end_time = time.time()
+                    logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
                         self.scheduler.step()
 
@@ -1498,7 +1498,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank))
+        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank),weights_only=False)
         try:
             self.model.load_state_dict(checkpoint['model_state'])
         except:

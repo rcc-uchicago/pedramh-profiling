@@ -20,7 +20,6 @@ from torch.nn.parallel import DistributedDataParallel
 import logging
 from utils import logging_utils
 logging_utils.config_logger()
-from apex import optimizers
 from pathlib import Path
 import dask
 import cftime
