@@ -107,7 +107,7 @@ class Latitude_weighted_CRPSLoss(_Loss):
         total_loss = []
         for i in range(B):
             loss = self.CRPSSkill(reshaped_input[i], reshaped_target[i]) - \
-                0.5 * self.CRPSSpread(reshaped_input[i], reshaped_target[i])
+                0.5 * self.CRPSSpread(reshaped_input[i], reshaped_input[i])
             if self.mask:
                 loss = torch.where(self.mask, loss, torch.nan)
                 
