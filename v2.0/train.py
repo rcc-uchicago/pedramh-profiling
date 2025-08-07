@@ -25,7 +25,7 @@ import logging
 import torch
 import torchvision
 from torchvision.utils import save_image
-import torch.cuda.amp as amp
+from torch.amp import autocast, GradScaler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
 from torch.profiler import profile, record_function, ProfilerActivity
@@ -203,6 +203,7 @@ class Trainer():
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model = self.get_model()
         self.optimizer = self.get_optimizer()
+        self.scaler = GradScaler()
         if params.resuming:
             self.restore_checkpoint(params.checkpoint_path)
             logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
@@ -682,8 +683,10 @@ class Trainer():
                         target_diagnostic, target_surface, target_upper_air
                     )
                     
-                    loss.backward()
-                    self.optimizer.step()
+                    
+                    self.scaler.scale(loss).backward()
+                    self.scaler.step(self.optimizer)
+                    self.scaler.update()
                     tr_end_time = time.time()
                     logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler == 'OneCycleLR':
@@ -797,28 +800,29 @@ class Trainer():
         loss_pl = 0 
         loss_sfc = 0
         loss_vae = 0
-        if self.params.has_diagnostic:
-            output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
-                                                                varying_boundary_data, input_upper_air, 
-                                                                target_surface, target_upper_air,train = True)
-            loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
-            
-        else: 
-            output_surface, output_upper_air, mu, sigma,  mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
-                                                        varying_boundary_data, input_upper_air, 
-                                                        target_surface, target_upper_air, train = True)
+        with autocast(device_type="cuda"):
+            if self.params.has_diagnostic:
+                output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+                                                                    varying_boundary_data, input_upper_air, 
+                                                                    target_surface, target_upper_air,train = True)
+                loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                 
-        loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-        loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+            else: 
+                output_surface, output_upper_air, mu, sigma,  mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+                                                            varying_boundary_data, input_upper_air, 
+                                                            target_surface, target_upper_air, train = True)
+                
+            loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
+            loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
 
-        if self.params.has_diagnostic:
-            loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
-        else:
-            loss = (loss_sfc * 0.25) + loss_pl
+            if self.params.has_diagnostic:
+                loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+            else:
+                loss = (loss_sfc * 0.25) + loss_pl
 
-        if self.params.vae_loss:    
-            loss_vae = self.loss_vae(mu, sigma, mu2, sigma2)
-            loss += self.params.vae_loss_weight * loss_vae
+            if self.params.vae_loss:    
+                loss_vae = self.loss_vae(mu, sigma, mu2, sigma2)
+                loss += self.params.vae_loss_weight * loss_vae
 
 
         return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
