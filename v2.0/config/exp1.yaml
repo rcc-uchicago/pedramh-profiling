@@ -72,7 +72,7 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 4
+  batch_size: 8
   max_epochs: 100
   has_year_zero: False
   num_levels: 17upper_air_boundary

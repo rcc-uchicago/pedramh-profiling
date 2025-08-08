@@ -46,6 +46,8 @@ torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()           
+logging.info("Torch version: {}".format(torch.__version__))
+
 dist.init_process_group(backend='nccl', init_method='env://')
 world_rank = dist.get_rank()
 print(f"World rank: {world_rank}")
@@ -259,8 +261,8 @@ class Trainer():
             logging.info(f"Created directory: {output_dir}")
         return spectra_dir, diagnostics_dir, output_dir 
              
-    @log_memory_usage(rank=world_rank)
-    @log_gpu_memory
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
     def get_dataset(self):
         """
         setup data loader
@@ -632,8 +634,8 @@ class Trainer():
                 if self.params.early_stopping:
                     logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
 
-    @log_memory_usage(rank=world_rank)
-    @log_gpu_memory
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
     def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
@@ -735,7 +737,7 @@ class Trainer():
 
 
 
-    @log_gpu_memory
+    # @log_gpu_memory
     def _prepare_inputs_batch(self, data:torch.Tensor):
         """
         prepare input variables for each iteration from data loader.
@@ -931,8 +933,8 @@ class Trainer():
         
         return valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse
    
-    @log_memory_usage(rank=world_rank)
-    @log_gpu_memory
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
     def validate_one_epoch(self):
         if world_rank == 0:
             print("Validating...")
