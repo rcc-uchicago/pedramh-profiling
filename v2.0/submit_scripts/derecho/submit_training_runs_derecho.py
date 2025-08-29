@@ -4,13 +4,13 @@ if __name__ == "__main__":
     args = sys.argv[1:]
     num_gpus = 4 # Either 4 or 8
     num_training_runs = 4 # Total number of 12 hour trainings runs expected to reach the final epoch
-    config = "SFNO"
+    config = "Pangu"
 
     if config == "SFNO":
-        base_config = '/glade/work/awikner/PanguWeather+SFNO/v2.0/config/SFNO_PLASIM_H5_DERECHO_'
+        base_config = '/glade/work/awikner/PanguWeather/v2.0/config/SFNO_PLASIM_H5_DERECHO_'
         submit_script = 'derecho_training_sfno.sh'
     else:
-        base_config = '/glade/work/awikner/PanguWeather+SFNO/v2.0/config/PANGU_PLASIM_H5_DERECHO_'
+        base_config = '/glade/work/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DERECHO_'
         submit_script = 'derecho_training.sh'
         
     run_nums = args[0].split(',') # Number for run that will be logged to wandb

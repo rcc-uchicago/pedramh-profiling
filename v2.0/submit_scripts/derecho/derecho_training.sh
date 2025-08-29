@@ -4,8 +4,8 @@
 #PBS -q main
 #PBS -l walltime=12:00:00
 #PBS -A UCHI0014
-#PBS -e logs/
-#PBS -o logs/
+#PBS -e /glade/work/awikner/PanguWeather/v2.0/logs/
+#PBS -o /glade/work/awikner/PanguWeather/v2.0/logs/
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
@@ -28,7 +28,7 @@ conda activate aires_panguplasim
 
 
 # Change to working directory
-cd /glade/work/awikner/PanguWeather+SFNO/v2.0/
+cd /glade/work/awikner/PanguWeather/v2.0/
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
