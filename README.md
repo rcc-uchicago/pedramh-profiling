@@ -22,6 +22,7 @@ For ensemble inference, use `v2.0/ensemble_inference.py`. For long inferences, u
 # Data Structure
 
 ## Overview
+```
 DATA_DIRECTORY/
 ├── InputOutput/ # raw data, one HDF5 file per sample
 │ ├── {year}{year_time_idx:04}.h5
@@ -64,6 +65,7 @@ DATA_DIRECTORY/
 ├── {var}{level}bias.npy → float32 # sigma levels
 ├── {var}{level}.0_bias{init_hour}z.npy → float32
 └── {var}_{level}bias{init_hour}z.npy → float32
+```
 
 
 ---
