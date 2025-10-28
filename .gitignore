@@ -41,6 +41,7 @@ data/stats/time_means_pl.npy
 data/stats/time_means_sfc.npy
 
 logs/
+v2.0/results/
 results/
 data/
 # tests/
