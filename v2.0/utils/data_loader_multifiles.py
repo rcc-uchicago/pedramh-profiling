@@ -108,7 +108,7 @@ def get_out_path(root_dir, year, inp_file_idx):
 
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
-                    ensemble = False, init_from_nc = False, load_all_bcs = True):
+                    ensemble = False, init_from_nc = False):
     if train:
         try:
             assert not single_ic
@@ -119,7 +119,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
             assert not single_ic
         except:
             raise ValueError('Set validate to False when using single_ic = True.')
-    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic, ensemble, init_from_nc, load_all_bcs)
+    dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic, ensemble, init_from_nc)
     if single_ic:
         dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
     else:
@@ -144,7 +144,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 
 class GetDataset(Dataset):
     def __init__(self, params, data_dir, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
-                 ensemble = False, init_from_nc = False, load_all_bcs = True, ):
+                 ensemble = False, init_from_nc = False):
         self.params = params
         self.data_dir = data_dir
         self.train = train
@@ -154,15 +154,19 @@ class GetDataset(Dataset):
         else:
             self.validate = False
         self.ensemble = ensemble
-        if self.ensemble:
-            self.load_all_bcs = load_all_bcs
         self.init_from_nc = init_from_nc
         if self.ensemble:
-            assert self.init_from_nc
-            assert hasattr(self.params, "init_nc_filepaths")
-            self.init_nc_timestep_offset = -1
-            if hasattr(self.params, "init_nc_timestep_offset"):
-                self.init_nc_timestep_offset = self.params.init_nc_timestep_offset
+            if self.init_from_nc and hasattr(self.params, "init_nc_filepaths"):
+                self.init_nc_timestep_offset = [-1] * len(self.params.init_nc_filepaths)
+                if hasattr(self.params, "init_nc_timestep_offset"):
+                    self.init_nc_timestep_offset = [self.params.init_nc_timestep_offset] * len(self.params.init_nc_filepaths)
+            if hasattr(self.params, 'init_datetimes'):
+                self.init_datetimes = self.params.init_datetimes
+            elif hasattr(self.params, 'init_datetime'):
+                self.init_datetimes = [self.params.init_datetime]
+            else:
+                raise ValueError('init_datetime or init_datetimes must be specified.')
+
         if not self.train and not self.params.forecast_lead_times:
             self.params['forecast_lead_times'] = [1]
         if self.single_ic or self.ensemble:
@@ -247,9 +251,8 @@ class GetDataset(Dataset):
             self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.timedelta_hours)
         elif self.ensemble:
             self.ensemble_inference_steps = self.params.ensemble_inference_hours // self.params.timedelta_hours
-            self.dates = np.zeros(len(self.params.init_nc_filepaths))
+            self.dates, self.start_date, self.end_date = self._get_dates()
             print(f'Num dates: {len(self.dates)}')
-            self.start_date = self.params.init_datetime
         else:
             self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
 
@@ -344,13 +347,42 @@ class GetDataset(Dataset):
         if self.epsilon_factor > 0.:
             torch.manual_seed(0)
             
-        if self.ensemble and self.load_all_bcs:
-            self.varying_boundary_data = torch.zeros((self.ensemble_inference_steps, len(self.params.varying_boundary_variables), self.params.horizontal_resolution[0], self.params.horizontal_resolution[1]), dtype = torch.float32)
-            for i, hour in tqdm(enumerate(range(0, self.params.ensemble_inference_hours, self.params.timedelta_hours)), total = self.ensemble_inference_steps, desc = 'Loading boundary data'):
-                data_datetime = self.start_date + timedelta(hours=hour)
-                varying_boundary_data = self._get_boundary_data(data_datetime)
-                varying_boundary_data = self._fill_mask(varying_boundary_data, self.varying_boundary_variables)
-                self.varying_boundary_data[i] = self.boundary_transform(varying_boundary_data)
+        if self.ensemble and len(self.init_datetimes) == 1:
+            self.varying_boundary_data = self._load_varying_boundary_data()
+
+    def _load_varying_boundary_data(self, batch_idx = None):
+        if batch_idx is None or len(self.init_datetimes) == 1:
+            if hasattr(self, 'varying_boundary_data'):
+                return self.varying_boundary_data
+            else:
+                datetimes = xr.cftime_range(start=self.start_date, 
+                                            end=self.init_datetimes[0] + timedelta(hours=self.params.ensemble_inference_hours),
+                                            freq=f'{self.params.timedelta_hours}h', 
+                                            inclusive='left')
+            varying_boundary_data = torch.zeros((len(datetimes),
+                                                        len(self.params.varying_boundary_variables),
+                                                        self.params.horizontal_resolution[0],
+                                                        self.params.horizontal_resolution[1]),
+                                                        dtype = torch.float32)
+            print(f'Varying boundary data shape: {varying_boundary_data.shape}')
+        else:
+            datetimes = xr.cftime_range(start=self.init_datetimes[batch_idx],
+                                        end=self.init_datetimes[batch_idx] + \
+                                            timedelta(hours=self.params.ensemble_inference_hours),
+                            freq=f'{self.params.timedelta_hours}h', inclusive='left')
+            varying_boundary_data = torch.zeros((len(datetimes),
+                                                        len(self.params.varying_boundary_variables),
+                                                        self.params.horizontal_resolution[0],
+                                                        self.params.horizontal_resolution[1]),
+                                                        dtype = torch.float32)
+        for i, data_datetime in tqdm(enumerate(datetimes), total = len(datetimes), desc = 'Loading boundary data'):
+            varying_boundary_data_i = self._get_boundary_data(data_datetime)
+            varying_boundary_data_i = self._fill_mask(varying_boundary_data_i, self.varying_boundary_variables)
+            varying_boundary_data_i = self.boundary_transform(varying_boundary_data_i)
+            #print(f'Varying boundary data shape: {varying_boundary_data_i.shape}')
+            varying_boundary_data[i] = varying_boundary_data_i
+        return varying_boundary_data
+
                 
 
     def _get_variable_list(self, level_unit_str = '.0'):
@@ -554,6 +586,15 @@ class GetDataset(Dataset):
             else:
                 end_date = self.datetime_class(self.year_start + self.long_rollout_years, 1, 1, has_year_zero = self.has_year_zero)
             print(f'End date: {end_date.strftime("%Y-%m-%d_%H:%M:%S")}')
+        elif self.ensemble and hasattr(self, 'init_datetimes'):
+            if len(self.init_datetimes) == 1:
+                date_range = np.zeros(len(self.params.save_basenames))
+                start_date = self.init_datetimes[0]
+                end_date = self.init_datetimes[0] + timedelta(hours=self.params.ensemble_inference_hours)
+            else:
+                start_date = min(self.init_datetimes)
+                end_date = max(self.init_datetimes) + timedelta(hours=self.params.ensemble_inference_hours)
+                hours = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
@@ -656,18 +697,19 @@ class GetDataset(Dataset):
             if self.init_from_nc:
                 data_in = self._get_data_nc(index, out = False)
             else:
-                data_in  = self._get_data(start_time, out = False)
+                data_in  = self._get_data(self.start_date + timedelta(hours=self.dates[index]), out = False)
             if len(self.varying_boundary_variables) > 0 and not self.init_from_nc:
-                upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out = False)
-                varying_boundary_data = self.boundary_transform(varying_boundary_data)
+                upper_air_t, surface_t, _ = self._reshape_and_mask_variables(data_in, out = False)
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
-                return surface_t, upper_air_t, varying_boundary_data, torch.tensor(start_time.year)
+                varying_boundary_data = self._load_varying_boundary_data(index)
+                return surface_t, upper_air_t, varying_boundary_data, index
             else:
                 upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False, from_nc = True)
                 surface_t = self.surface_transform(surface_t)
                 upper_air_t = self.upper_air_transform(upper_air_t)
-                return surface_t, upper_air_t, index
+                varying_boundary_data = self._load_varying_boundary_data(index)
+                return surface_t, upper_air_t, varying_boundary_data, index
             
             
         lead_times = self.params.forecast_lead_times

@@ -116,11 +116,9 @@ class Stepper():
             return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
     def __init__(self, params_list, world_rank, use_6h_24h_model=False,
-                 async_save = False, obs_function = None, obs_args = None,
-                 load_all_bcs = True):
+                 async_save = False, obs_function = None, obs_args = None):
         self.params = params_list[0]
         self.use_6h_24h_model = use_6h_24h_model
-        self.load_all_bcs = load_all_bcs
         if use_6h_24h_model:
             self.params_24h = params_list[1]
         self.world_rank = world_rank
@@ -165,21 +163,23 @@ class Stepper():
         self.obs_function = obs_function
         self.obs_args = obs_args
         self.save_forecasts = False
-        if hasattr(params, 'save_forecasts'):
-            self.save_forecasts = params.save_forecasts
+        if hasattr(self.params, 'save_forecasts'):
+            self.save_forecasts = self.params.save_forecasts
 
 
         logging.info('rank %d, begin data loader init' % world_rank)
         for params in params_list:
             print(params)
 
-
+        if hasattr(self.params, 'init_nc_filepaths'):
+            self.init_from_nc = True
+        else:
+            self.init_from_nc = False
                                                                                 
         self.data_loader, self.dataset = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
                                                          year_start=self.params.val_year_start, 
                                                          year_end=self.params.val_year_end, train=False,
-                                                         ensemble = True, init_from_nc = True,
-                                                         load_all_bcs = self.load_all_bcs)
+                                                         ensemble = True, init_from_nc = self.init_from_nc)
         
         if self.params.epsilon_factor > 0.:
             self.perturber = Perturber(self.params, self.dataset, device = self.device,
@@ -193,8 +193,8 @@ class Stepper():
         # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         self.constant_boundary_data = self.dataset.constant_boundary_data.unsqueeze(0) * torch.ones(self.params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
-        if params.num_ensemble_members > 1:
-            logging.info('Ensemble Mode. Ensemble size = {params.num_ensemble_members}\n')
+        if self.params.num_ensemble_members > 1:
+            logging.info('Ensemble Mode. Ensemble size = {self.params.num_ensemble_members}\n')
 
          # Load climatology
         """
@@ -256,7 +256,7 @@ class Stepper():
                                             upper_air_ff_std=self.dataset.upper_air_std.detach().to(self.device),
                                             upper_air_delta_std=self.dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
-                if hasattr(params, 'mask_fill'):
+                if hasattr(self.params, 'mask_fill'):
                     self.model = PanguModel_Plasim(self.params, land_mask = land_mask, 
                                             mask_fill = self.params.mask_fill).to(self.device)
                 else:
@@ -266,8 +266,7 @@ class Stepper():
                 _, dataset_24h = get_data_loader(self.params_24h, self.params_24h.data_dir, dist.is_initialized(), 
                                                  year_start=self.params_24h.val_year_start, 
                                                  year_end=self.params_24h.val_year_end, train=False,
-                                                 ensemble = True, init_from_nc = True,
-                                                 load_all_bcs = self.load_all_bcs)
+                                                 ensemble = True, init_from_nc = self.init_from_nc)
                 if self.params_24h.predict_delta:
                     self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask).to(self.device)
                     self.integrator_24h = Integrator(self.params_24h, surface_ff_std=dataset_24h.surface_std.detach().to(self.device),
@@ -275,7 +274,7 @@ class Stepper():
                                                 upper_air_ff_std=dataset_24h.upper_air_std.detach().to(self.device),
                                                 upper_air_delta_std=dataset_24h.upper_air_delta_std.detach().to(self.device)).to(self.device)
                 else:
-                    if hasattr(params, 'mask_fill'):
+                    if hasattr(self.params_24h, 'mask_fill'):
                         self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask, 
                                                 mask_fill = self.params_24h.mask_fill).to(self.device)
                     else:
@@ -285,13 +284,13 @@ class Stepper():
             #self.restore_checkpoint(params.best_checkpoint_path)
             #self.model = torch.compile(self.model, mode="max-autotune")
             #self.model = torch.compile(self.model, mode = 'default')
-        elif params.nettype == 'sfno_plasim':
+        elif self.params.nettype == 'sfno_plasim':
             print(f'\n\nRunning SFNO model\n\n')
-            self.model = SFNO(params, self.dataset).to(self.device)
-            if params.sync_norm:
+            self.model = SFNO(self.params, self.dataset).to(self.device)
+            if self.params.sync_norm:
                 model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
-                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
+                self.integrator = Integrator(self.params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
@@ -301,18 +300,18 @@ class Stepper():
         if dist.is_initialized():
             self.model = DistributedDataParallel(self.model,
                                                  device_ids=[
-                                                     params.local_rank],
-                                                 output_device=[params.local_rank], find_unused_parameters=True)
+                                                     self.params.local_rank],
+                                                 output_device=[self.params.local_rank], find_unused_parameters=True)
             if self.use_6h_24h_model:
                 self.model_24h = DistributedDataParallel(self.model_24h,
                                                  device_ids=[
-                                                     params.local_rank],
-                                                 output_device=[params.local_rank], find_unused_parameters=True)
+                                                     self.params.local_rank],
+                                                 output_device=[self.params.local_rank], find_unused_parameters=True)
         self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
         if self.use_6h_24h_model:
             self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
         
-        if params.log_to_screen:
+        if self.params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
             
     def restore_checkpoint(self, model, checkpoint_path):
@@ -399,7 +398,7 @@ class Stepper():
         with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
             for i, data in enumerate(self.data_loader, 0):
                 data_start = time.time()
-                input_surface_in, input_upper_air_in = map(
+                input_surface_in, input_upper_air_in, varying_boundary_data_in = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
                 print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
@@ -410,7 +409,7 @@ class Stepper():
                     ensemble_end = min(ensemble_end, self.params.num_ensemble_members)
                     input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
-                    varying_boundary_data = to_ensemble_batch(self.dataset.varying_boundary_data.to(self.device).unsqueeze(0), ensemble_end - ensemble_start)
+                    varying_boundary_data = to_ensemble_batch(varying_boundary_data_in, ensemble_end - ensemble_start)
                     constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
                     
@@ -526,7 +525,7 @@ class Stepper():
             for i, data in enumerate(self.data_loader, 0):
                 data_start = time.time()
                 #particle_idxs = np.arange(self.params.batch_size*i, self.params.batch_size*(i+1))
-                input_surface_in, input_upper_air_in = map(
+                input_surface_in, input_upper_air_in, varying_boundary_data_in = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
                 print(f'Particle idxs:{particle_idxs}')
@@ -537,7 +536,7 @@ class Stepper():
                     ensemble_end = min(ensemble_end, self.params.num_ensemble_members)
                     input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
-                    varying_boundary_data = to_ensemble_batch(self.dataset.varying_boundary_data.to(self.device).unsqueeze(0), ensemble_end - ensemble_start)
+                    varying_boundary_data = to_ensemble_batch(varying_boundary_data_in, ensemble_end - ensemble_start)
                     constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
                     
@@ -641,7 +640,8 @@ class Stepper():
             # )
             # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
             # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-            time_range = [self.params.init_datetime + timedelta(hours=step * self.params['timedelta_hours']) for step in range(1, time_steps + 1)]
+            init_datetime = self.params.init_datetime if not hasattr(self.params, 'init_datetimes') else self.params.init_datetimes[particle_idx]
+            time_range = [init_datetime + timedelta(hours=step * self.params['timedelta_hours']) for step in range(1, time_steps + 1)]
             #print(time_range[0], time_range[-1])
             
 
@@ -746,8 +746,7 @@ class Stepper():
         savedirs = [self.params.output_dirs[particle_idx] for particle_idx in particle_idxs]
         save_basenames = [self.params.save_basenames[particle_idx] for particle_idx in particle_idxs]
         for savedir in savedirs:
-            if not os.path.isdir(savedir):
-                os.makedirs(savedir)
+            os.makedirs(savedir, exist_ok = True)
         for i, (dataset, save_basename) in enumerate(zip(datasets, save_basenames)):
             print(f'Saving prediction {particle_idxs[i]} members {ensemble_start}-{ensemble_end}...')
             dataset = dataset.chunk({'ensemble_idx': 1, 'time': 1, self.params.lev: 1})
@@ -768,7 +767,8 @@ if __name__ == '__main__':
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--debug", default=False, action='store_true')
     parser.add_argument("--init_datetime", default="", type=str)
-    parser.add_argument("--init_nc_filepaths", required=True, type=str)
+    parser.add_argument("--init_datetimes", default="", type=str)
+    parser.add_argument("--init_nc_filepaths", default="", type=str)
     parser.add_argument("--async_save", default = False, action='store_true')
 
     ####### for UCAR
@@ -791,48 +791,50 @@ if __name__ == '__main__':
         yaml_configs = [args.yaml_config]
     params_list = [YParams(os.path.abspath(yaml_config), args.config) for yaml_config in yaml_configs]
     #params['epsilon_factor'] = args.epsilon_factor
-    with params_list[0] as params:
-        params['run_iter'] = 1
-        if hasattr(params, 'diagnostic_variables'):
-            if len(params.diagnostic_variables) > 0:
-                params['has_diagnostic'] = True
-            else:
-                params['has_diagnostic'] = False
+    params = params_list[0]
+    params['run_iter'] = 1
+    if hasattr(params, 'diagnostic_variables'):
+        if len(params.diagnostic_variables) > 0:
+            params['has_diagnostic'] = True
         else:
             params['has_diagnostic'] = False
-        print(f'Has diagnostic: {params.has_diagnostic}')
-        if not hasattr(params, 'num_ensemble_members'):
-            params['num_ensemble_members'] = 1
+    else:
+        params['has_diagnostic'] = False
+    print(f'Has diagnostic: {params.has_diagnostic}')
+    if not hasattr(params, 'num_ensemble_members'):
+        params['num_ensemble_members'] = 1
+    if len(args.init_nc_filepaths) > 0:
         params['init_nc_filepaths'] = args.init_nc_filepaths.split(',')
-        if not hasattr(params, 'ensemble_members_per_pred'):
-            params['ensemble_members_per_pred'] = params.num_ensemble_members
-        if args.debug:
-            params['world_size'] = 1
+    if not hasattr(params, 'ensemble_members_per_pred'):
+        params['ensemble_members_per_pred'] = params.num_ensemble_members
+    if args.debug:
+        params['world_size'] = 1
+    else:
+        print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+        print('World size from Cuda: %d' % torch.cuda.device_count())
+        if 'WORLD_SIZE' in os.environ:
+            params['world_size'] = int(os.environ['WORLD_SIZE'])
+            print(params['world_size'])
         else:
-            print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-            print('World size from Cuda: %d' % torch.cuda.device_count())
-            if 'WORLD_SIZE' in os.environ:
-                params['world_size'] = int(os.environ['WORLD_SIZE'])
-                print(params['world_size'])
-            else:
-                params['world_size'] = torch.cuda.device_count()
-                print(params['world_size'])
-        if params['world_size'] > 1:
-            dist.init_process_group(backend='nccl', init_method='env://')
-            if 'derecho' in str(Path(__file__)):
-                local_rank = args.local_rank
-            else:
-                local_rank = int(os.environ["LOCAL_RANK"])
-
-            gpu = local_rank
-            world_rank = dist.get_rank()
-            # print("##########WORLD RANK: TESTING ", world_rank)
-
-            params['global_batch_size'] = params.batch_size
-            params['batch_size'] = int(params.batch_size//params['world_size'])
+            params['world_size'] = torch.cuda.device_count()
+            print(params['world_size'])
+    if params['world_size'] > 1:
+        dist.init_process_group(backend='nccl', init_method='env://')
+        if 'derecho' in str(Path(__file__)):
+            local_rank = args.local_rank
         else:
-            world_rank = 0
-            local_rank = 0
+            local_rank = int(os.environ["LOCAL_RANK"])
+
+        gpu = local_rank
+        world_rank = dist.get_rank()
+        # print("##########WORLD RANK: TESTING ", world_rank)
+
+        params['global_batch_size'] = params.batch_size
+        params['batch_size'] = int(params.batch_size//params['world_size'])
+    else:
+        world_rank = 0
+        local_rank = 0
+    params_list[0] = params
             
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
@@ -864,31 +866,33 @@ if __name__ == '__main__':
     # args.resuming = False
     # params['resuming'] = args.resuming
 
-    with params_list[0] as params:
-        params['local_rank'] = local_rank
-        params['enable_amp'] = True
+    params = params_list[0]
+    params['local_rank'] = local_rank
+    params['enable_amp'] = True
 
-        # Add indicator for precision method and engine
-        if params['use_transformer_engine']:
-            print("Using Transformer Engine")
-        else:
-            print("Using PyTorch native")
+    # Add indicator for precision method and engine
+    if params['use_transformer_engine']:
+        print("Using Transformer Engine")
+    else:
+        print("Using PyTorch native")
 
-        if params['enable_fp8']:
-            print("with FP8 precision")
-        elif params['enable_amp']:
-            print("with Automatic Mixed Precision (AMP)")
-        else:
-            print("with full precision")
+    if params['enable_fp8']:
+        print("with FP8 precision")
+    elif params['enable_amp']:
+        print("with Automatic Mixed Precision (AMP)")
+    else:
+        print("with full precision")
 
-        if world_rank == 0:
-            log_file = f'out_{i}.log'
-            logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(params.experiment_dir, log_file))
-            logging_utils.log_versions()
-            params.log()
+    if world_rank == 0:
+        #log_file = f'out_{i}.log'
+        log_file = 'out.log'
+        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(params.experiment_dir, log_file))
+        logging_utils.log_versions()
+        params.log()
 
-            params['log_to_wandb'] = False
-            params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
+        params['log_to_wandb'] = False
+        params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
+    params_list[0] = params
 
     if world_rank == 0:
         for params in params_list:
@@ -899,30 +903,57 @@ if __name__ == '__main__':
             with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
                 yaml.dump(hparams,  hpfile)
 
-    with params_list[0] as params:
-        if len(args.init_datetime) == 0:
-            if hasattr(params, "init_datetime"):
-                params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
-                                                                                has_year_zero = params.has_year_zero,
-                                                                                calendar = 'proleptic_gregorian')
-            else:
-                params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
-                                                                calendar = 'proleptic_gregorian')
+    params = params_list[0]
+    if len(args.init_datetime) == 0:
+        if hasattr(params, "init_datetime"):
+            params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
+                                                                            has_year_zero = params.has_year_zero,
+                                                                            calendar = 'proleptic_gregorian')
         else:
-            params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
-                                                                                has_year_zero = params.has_year_zero,
-                                                                                calendar = 'proleptic_gregorian')
+            params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
+                                                            calendar = 'proleptic_gregorian')
+        params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
+                                                                params.init_datetime.month,
+                                                                params.init_datetime.day,
+                                                                hour = params.init_datetime.hour,
+                                                                has_year_zero = params.has_year_zero)
+    else:
+        params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
+                                                                            has_year_zero = params.has_year_zero,
+                                                                            calendar = 'proleptic_gregorian')
         params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
                                                                     params.init_datetime.month,
                                                                     params.init_datetime.day,
                                                                     hour = params.init_datetime.hour,
                                                                     has_year_zero = params.has_year_zero)
-        if params.ensemble_inference_hours < 8760:
-            load_all_bcs = True
-        else:
-            load_all_bcs = False
+    if len(args.init_datetimes) == 0 and len(args.init_datetime) == 0:
+        if hasattr(params, "init_datetimes"):
+            params['init_datetimes'] = [cftime.datetime.strptime(datetime, "%Y-%m-%d %H:%M:%S",
+                                                                            has_year_zero = params.has_year_zero,
+                                                                            calendar = 'proleptic_gregorian') for \
+                                                                                datetime in params.init_datetimes]
+            params['init_datetimes'] = [cftime.DatetimeProlepticGregorian(init_datetime.year,
+                                                                    init_datetime.month,
+                                                                    init_datetime.day,
+                                                                    hour = init_datetime.hour,
+                                                                    has_year_zero = params.has_year_zero) for \
+                                                                    init_datetime in params.init_datetimes]
+    else:
+        params['init_datetimes'] = [cftime.datetime.strptime(datetime, "%Y-%m-%d %H:%M:%S",
+                                                                            has_year_zero = params.has_year_zero,
+                                                                            calendar = 'proleptic_gregorian') for \
+                                                                                datetime in args.init_datetimes.split(',')]
+        params['init_datetimes'] = [cftime.DatetimeProlepticGregorian(init_datetime.year,
+                                                                    init_datetime.month,
+                                                                    init_datetime.day,
+                                                                    hour = init_datetime.hour,
+                                                                    has_year_zero = params.has_year_zero) for \
+                                                                    init_datetime in params.init_datetimes]
+
+    params_list[0] = params
+
     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
-                      async_save = args.async_save, load_all_bcs = load_all_bcs)
+                      async_save = args.async_save)
     
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
@@ -930,7 +961,7 @@ if __name__ == '__main__':
             target_duration = params.ensemble_inference_hours // 24 - lead_time
             var = "tas"
             regions = ["France", "PNW"]
-            PATH_REGIONS = "/pscratch/sd/a/awikner/AI-RES/RES/regions.json"
+            PATH_REGIONS = params.region_file
             stepper.predict(obs_function=compute_A_ensemble, 
                             obs_args=[params.save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS])
         else:
@@ -939,6 +970,8 @@ if __name__ == '__main__':
         stepper.predict()
 
 
+
     logging.info('DONE ---- rank %d' % world_rank)
-    dist.barrier()
-    cleanup()
+    if params['world_size'] > 1:
+        dist.barrier()
+        cleanup()
