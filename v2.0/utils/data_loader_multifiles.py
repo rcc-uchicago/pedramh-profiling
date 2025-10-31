@@ -594,7 +594,8 @@ class GetDataset(Dataset):
             else:
                 start_date = min(self.init_datetimes)
                 end_date = max(self.init_datetimes) + timedelta(hours=self.params.ensemble_inference_hours)
-                hours = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
+                date_range = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
+            return date_range, start_date, end_date
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
