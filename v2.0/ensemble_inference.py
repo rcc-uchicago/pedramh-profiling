@@ -769,6 +769,7 @@ if __name__ == '__main__':
     parser.add_argument("--init_datetime", default="", type=str)
     parser.add_argument("--init_datetimes", default="", type=str)
     parser.add_argument("--init_nc_filepaths", default="", type=str)
+    parser.add_argument("--output_dir", default="", type=str) # without s (different from output_dirs in the yaml file)
     parser.add_argument("--async_save", default = False, action='store_true')
 
     ####### for UCAR
@@ -950,6 +951,18 @@ if __name__ == '__main__':
                                                                     has_year_zero = params.has_year_zero) for \
                                                                     init_datetime in params.init_datetimes]
 
+
+    # @Amaury ADD a condition to generate the output_dirs and save_basenames if they are not provided (consistent with the total number of particles)
+    if args.output_dir:
+       if  len(params['init_datetimes']) > 0:
+           N_ICs = len(params['init_datetimes'])
+       else:
+           N_ICs = len(args.init_nc_filepaths.split(','))
+       params['output_dirs'] = [args.output_dir] * N_ICs
+       print(f'Output dirs: {params["output_dirs"]}')
+       params['save_basenames'] = [args.output_dir + f'/particle_{i}' for i in range(N_ICs)]
+    #    print(f'Save basenames: {params["save_basenames"]}')
+
     params_list[0] = params
 
     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
@@ -960,7 +973,7 @@ if __name__ == '__main__':
             lead_time = 5
             target_duration = params.ensemble_inference_hours // 24 - lead_time
             var = "tas"
-            regions = ["France", "PNW"]
+            regions = ["France", "Chicago"]
             PATH_REGIONS = params.region_file
             stepper.predict(obs_function=compute_A_ensemble, 
                             obs_args=[params.save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS])
