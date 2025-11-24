@@ -49,7 +49,7 @@ from datetime import datetime
 import uuid
 from utils.integrate import Integrator, forward_euler
 import copy
-
+import json
 
 #dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -544,12 +544,15 @@ class Trainer():
         if params.log_to_wandb:
             wandb.watch(self.model)
 
-        if params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
-        elif params.optimizer_type == 'AdamW':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+        if params.finetune_epochs > 0:
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+            if params.optimizer_type == 'FusedAdam':
+                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+            elif params.optimizer_type == 'AdamW':
+                self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+            else:
+                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
 
         if params.enable_amp == True:
             self.gscaler = amp.GradScaler()
@@ -568,8 +571,12 @@ class Trainer():
         self.iters = 0
         self.startEpoch = 0
         if params.resuming:
-            checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
-            self.restore_checkpoint(checkpoint_path)
+            checkpoint_paths = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])
+            if hasattr(self.params, 'checkpoint_num'):
+                checkpoint_path = [p for p in checkpoint_paths if f"ckpt_{params.checkpoint_num}.tar" in os.path.basename(p)][0]
+            else:
+                checkpoint_path = checkpoint_paths[-1]
+            self.restore_checkpoint(checkpoint_path, self.params.finetune_epochs > 0)
             if params.debug:
                 self.params.max_epochs = self.startEpoch + 1
         else:
@@ -1845,14 +1852,16 @@ class Trainer():
 
         if epoch >= 0:
             checkpoint_path_out = '_'.join(checkpoint_path.split('_')[:-1]) + f'_{epoch}.tar'
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path_out)
         else:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
+            checkpoint_path_out = checkpoint_path
+        save_dict = {'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
+                        'optimizer_state_dict': self.optimizer.state_dict()}
+        if hasattr(self, 'finetune_startEpoch'):
+            save_dict['finetune_startEpoch'] = self.finetune_startEpoch
+        torch.save(save_dict, checkpoint_path_out)
 
 
-    def restore_checkpoint(self, checkpoint_path):
+    def restore_checkpoint(self, checkpoint_path, finetune=False):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
@@ -1866,6 +1875,8 @@ class Trainer():
             self.model.load_state_dict(new_state_dict)
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
+        if finetune:
+            self.finetune_startEpoch = self.startEpoch
         print('START EPOCH:', self.startEpoch)
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
@@ -1889,6 +1900,12 @@ if __name__ == '__main__':
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
     parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
+    parser.add_argument("--finetune_run_num", default=None, type=str, help="Run number of the finetuning model")
+    parser.add_argument("--finetune_epochs", default=0, type=int, help="Number of epochs to finetune")
+    parser.add_argument("--finetune_lr", default=0, type=int, help="Finetuning learning rate")
+    parser.add_argument("--train_date_ranges_json", default=None, type=str, help="JSON file containing train date ranges")
+    parser.add_argument("--validation_date_ranges_json", default=None, type=str, help="JSON file containing validation date ranges")
+    parser.add_argument("--checkpoint_num", default=None, type=int, help="Checkpoint number to load")
 
 
     ####### for UCAR
@@ -1915,7 +1932,21 @@ if __name__ == '__main__':
     if params.just_validate:
         os.environ["WANDB_MODE"] = "offline"
     params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
-    
+    params['finetune_epochs'] = args.finetune_epochs
+    if args.finetune_run_num is not None:
+        params['finetune_run_num'] = args.finetune_run_num
+    if params.finetune_epochs > 0 and args.finetune_run_num is None:
+        raise ValueError("Finetuning epochs specified but finetuning run number is not specified")
+    if args.finetune_lr > 0:
+        params['lr'] = args.finetune_lr
+    if args.train_date_ranges_json is not None:
+        with open(args.train_date_ranges_json, 'r') as f:
+            params['train_date_ranges'] = json.load(f)
+    if args.validation_date_ranges_json is not None:
+        with open(args.validation_date_ranges_json, 'r') as f:
+            params['validation_date_ranges'] = json.load(f)
+    if args.checkpoint_num is not None:
+        params['checkpoint_num'] = args.checkpoint_num
     params['debug'] = False
     if args.debug:
         params['debug'] = True
@@ -1960,17 +1991,22 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
 
     # Set up directory
-    expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
+    if args.finetune_run_num is not None:
+        save_expDir = os.path.join(params.exp_dir, args.config, str(args.finetune_run_num))
+        load_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
+    else:
+        save_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
+        load_expDir = save_expDir
     if world_rank == 0:
-        if not os.path.isdir(expDir):
-            os.makedirs(expDir)
-            os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
+        if not os.path.isdir(save_expDir):
+            os.makedirs(save_expDir)
+            os.makedirs(os.path.join(save_expDir, 'training_checkpoints/'))
 
-    params['experiment_dir'] = os.path.abspath(expDir)
+    params['experiment_dir'] = os.path.abspath(save_expDir)
     ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
     best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
-    params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+    params['checkpoint_path_globstr'] = os.path.join(load_expDir, ckpt_path_globstr)
+    params['best_checkpoint_path'] = os.path.join(load_expDir, best_ckpt_path)
 
     checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr) if os.path.isfile(file)]
     checkpoint_exists = len(checkpoint_paths) > 0
@@ -2013,7 +2049,7 @@ if __name__ == '__main__':
     #params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'
-        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(expDir, log_file))
+        logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(save_expDir, log_file))
         logging_utils.log_versions()
         params.log()
 
@@ -2025,7 +2061,7 @@ if __name__ == '__main__':
         yaml = YAML()
         for key, value in params.params.items():
             hparams[str(key)] = str(value)
-        with open(os.path.join(expDir, 'hyperparams.yaml'), 'w') as hpfile:
+        with open(os.path.join(save_expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)

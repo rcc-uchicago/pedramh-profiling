@@ -596,6 +596,31 @@ class GetDataset(Dataset):
                 end_date = max(self.init_datetimes) + timedelta(hours=self.params.ensemble_inference_hours)
                 date_range = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
             return date_range, start_date, end_date
+        elif self.train and hasattr(self.params, 'train_date_ranges') or self.validate and hasattr(self.params, 'validation_date_ranges'):
+            start_dates, end_dates = [], []
+            for start_date_str_i, end_date_str_i in self.params.train_date_ranges:
+                start_date_i = cftime.datetime.strptime(start_date_str_i, "%Y-%m-%d %H:%M:%S",
+                                                        has_year_zero = self.params.has_year_zero,
+                                                        calendar = self.params.calendar)
+                start_dates.append(self.datetime_class(start_date_i.year,
+                                                        start_date_i.month,
+                                                        start_date_i.day,
+                                                        hour = start_date_i.hour,
+                                                        has_year_zero = self.params.has_year_zero))
+                end_date_i = cftime.datetime.strptime(end_date_str_i, "%Y-%m-%d %H:%M:%S",
+                                                      has_year_zero = self.params.has_year_zero,
+                                                      calendar = self.params.calendar)
+                end_dates.append(self.datetime_class(end_date_i.year,
+                                end_date_i.month,
+                                end_date_i.day,
+                                hour = end_date_i.hour,
+                                has_year_zero = self.params.has_year_zero))
+            start_date = min(start_dates)
+            end_date = max(end_dates)
+            date_range = np.array([])
+            for start_date_i, end_date_i in zip(start_dates, end_dates):
+                date_range = np.append(date_range, np.arange((start_date_i - start_date).total_seconds() // 3600, (end_date_i - start_date).total_seconds() // 3600, hour_step))
+            return date_range, start_date, end_date     
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
@@ -716,6 +741,7 @@ class GetDataset(Dataset):
         lead_times = self.params.forecast_lead_times
 
         # Condition 1: Training
+        
         if self.train:
             start_time = self.start_date + timedelta(hours=self.dates[index])
             end_time = self.start_date + timedelta(hours=self.dates[index] + self.timedelta_hours)
