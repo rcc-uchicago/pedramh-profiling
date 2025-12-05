@@ -147,6 +147,11 @@ class GetDataset(Dataset):
                  ensemble = False, init_from_nc = False):
         self.params = params
         self.data_dir = data_dir
+        self.data_dirs = [data_dir]
+        if hasattr(params, 'boundary_data_dir'):
+            self.boundary_data_dir = params.boundary_data_dir
+        else:
+            self.boundary_data_dir = data_dir
         self.train = train
         self.single_ic = single_ic
         if not self.train and not self.single_ic:
@@ -248,13 +253,13 @@ class GetDataset(Dataset):
 
         # self.boundary_dss = self._load_boundary_data()
         if self.single_ic:
-            self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.timedelta_hours)
+            self.dates, self.start_date, self.end_date, self.data_dirs_idxs = self._get_dates(hour_step=params.timedelta_hours)
         elif self.ensemble:
             self.ensemble_inference_steps = self.params.ensemble_inference_hours // self.params.timedelta_hours
-            self.dates, self.start_date, self.end_date = self._get_dates()
+            self.dates, self.start_date, self.end_date, self.data_dirs_idxs = self._get_dates()
             print(f'Num dates: {len(self.dates)}')
         else:
-            self.dates, self.start_date, self.end_date = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
+            self.dates, self.start_date, self.end_date, self.data_dirs_idxs = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
 
         self.constant_boundary_data, self.land_mask = self._load_constant_boundary_data()
         if torch.any(torch.isnan(self.constant_boundary_data)):
@@ -595,10 +600,12 @@ class GetDataset(Dataset):
                 start_date = min(self.init_datetimes)
                 end_date = max(self.init_datetimes) + timedelta(hours=self.params.ensemble_inference_hours)
                 date_range = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
-            return date_range, start_date, end_date
-        elif self.train and hasattr(self.params, 'train_date_ranges') or self.validate and hasattr(self.params, 'validation_date_ranges'):
+            return date_range, start_date, end_date, np.zeros(len(date_range))
+        elif (self.train and hasattr(self.params, 'train_data_sets')) or (self.validate and hasattr(self.params, 'validation_data_sets')):
             start_dates, end_dates = [], []
-            for start_date_str_i, end_date_str_i in self.params.train_date_ranges:
+            date_ranges = self.params.train_data_sets if self.train else self.params.validation_data_sets
+            for data_dir, (start_date_str_i, end_date_str_i) in date_ranges.items():
+                self.data_dirs.append(data_dir)
                 start_date_i = cftime.datetime.strptime(start_date_str_i, "%Y-%m-%d %H:%M:%S",
                                                         has_year_zero = self.params.has_year_zero,
                                                         calendar = self.params.calendar)
@@ -617,10 +624,13 @@ class GetDataset(Dataset):
                                 has_year_zero = self.params.has_year_zero))
             start_date = min(start_dates)
             end_date = max(end_dates)
-            date_range = np.array([])
-            for start_date_i, end_date_i in zip(start_dates, end_dates):
-                date_range = np.append(date_range, np.arange((start_date_i - start_date).total_seconds() // 3600, (end_date_i - start_date).total_seconds() // 3600, hour_step))
-            return date_range, start_date, end_date     
+            date_range, data_dirs_idxs = np.array([]), np.array([], dtype = int)
+            for i, (start_date_i, end_date_i) in enumerate(zip(start_dates, end_dates)):
+                date_range_i = np.arange((start_date_i - start_date).total_seconds() // 3600, (end_date_i - start_date).total_seconds() // 3600, hour_step)
+                data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), i+1))
+                date_range = np.append(date_range, date_range_i)
+
+            return date_range, start_date, end_date, data_dirs_idxs   
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
@@ -630,14 +640,14 @@ class GetDataset(Dataset):
         date_range = np.arange(0., hours, hour_step)
         print(f'Hours: {hours}')
         print(f'End data hour: {date_range[-1]}')
-        return date_range, start_date, end_date
+        return date_range, start_date, end_date, np.zeros(len(date_range))
         
 
-    def _get_data(self, data_datetime, out = False, variable_list = None):
+    def _get_data(self, data_datetime, out = False, variable_list = None, data_dir_idx = 0):
         data_year = data_datetime.year
         data_idx = int((data_datetime - self.datetime_class(data_year, 1, 1, hour=0, has_year_zero=self.has_year_zero)).total_seconds())\
               // 3600 // self.data_timedelta_hours
-        data_file_path = get_out_path(self.data_dir, data_year, data_idx)
+        data_file_path = get_out_path(self.data_dirs[data_dir_idx], data_year, data_idx)
         if variable_list:
             raw_data = get_data_given_path(data_file_path, variable_list)
         else:
@@ -664,9 +674,9 @@ class GetDataset(Dataset):
               // 3600 // self.data_timedelta_hours
         #print(data_datetime.strftime("%Y-%m-%d %H:%M:%S"), data_year, data_idx)
         if cftime.is_leap_year(data_year, self.params.calendar, self.has_year_zero):
-            data_file_path = get_out_path(self.data_dir, self.leap_year, data_idx)
+            data_file_path = get_out_path(self.boundary_data_dir, self.leap_year, data_idx)
         else:
-            data_file_path = get_out_path(self.data_dir, self.no_leap_year, data_idx)
+            data_file_path = get_out_path(self.boundary_data_dir, self.no_leap_year, data_idx)
         raw_data = get_data_given_path(data_file_path, self.varying_boundary_variables)
         return torch.from_numpy(raw_data).to(torch.float32)
 
@@ -745,8 +755,8 @@ class GetDataset(Dataset):
         if self.train:
             start_time = self.start_date + timedelta(hours=self.dates[index])
             end_time = self.start_date + timedelta(hours=self.dates[index] + self.timedelta_hours)
-            data_in  = self._get_data(start_time, out = False)
-            data_out = self._get_data(end_time, out = True)
+            data_in  = self._get_data(start_time, out = False, data_dir_idx = self.data_dirs_idxs[index])
+            data_out = self._get_data(end_time, out = True, data_dir_idx = self.data_dirs_idxs[index])
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out = False)
             else:
@@ -790,7 +800,7 @@ class GetDataset(Dataset):
             start_time = self.start_date + timedelta(hours=self.dates[self.inference_idxs[index]])
 
             # Load initial conditions
-            data_in = self._get_data(start_time, out = False)
+            data_in = self._get_data(start_time, out = False, data_dir_idx = self.data_dirs_idxs[index])
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
             else:
@@ -801,7 +811,8 @@ class GetDataset(Dataset):
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
             varying_boundary_data.extend([self._fill_mask(\
-                torch.from_numpy(self._get_data(boundary_time, variable_list = self.varying_boundary_variables)).to(torch.float32), self.varying_boundary_variables) for boundary_time in boundary_times])
+                torch.from_numpy(self._get_boundary_data(boundary_time)).to(torch.float32), self.varying_boundary_variables) \
+                     for boundary_time in boundary_times])
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data_i) for varying_boundary_data_i in varying_boundary_data], dim=0)
 
 

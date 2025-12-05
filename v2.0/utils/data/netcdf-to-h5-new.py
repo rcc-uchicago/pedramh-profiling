@@ -55,6 +55,7 @@ SINGLE_LEVEL_VARS = [
     "pr_6h",
     "pr_12h",
     "pr_24h",
+    "snd",
     "snm",
     "sndc",
     "rss",

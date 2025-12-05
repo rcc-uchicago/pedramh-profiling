@@ -1894,17 +1894,14 @@ if __name__ == '__main__':
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--debug", default=False, action='store_true')
-    # parser.add_argument("--num_inferences", type = int)
-    # parser.add_argument("--window_size", default = '2,2,2', type = str)
-
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
     parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
     parser.add_argument("--finetune_run_num", default=None, type=str, help="Run number of the finetuning model")
     parser.add_argument("--finetune_epochs", default=0, type=int, help="Number of epochs to finetune")
     parser.add_argument("--finetune_lr", default=0, type=int, help="Finetuning learning rate")
-    parser.add_argument("--train_date_ranges_json", default=None, type=str, help="JSON file containing train date ranges")
-    parser.add_argument("--validation_date_ranges_json", default=None, type=str, help="JSON file containing validation date ranges")
+    parser.add_argument("--train_data_sets_json", default=None, type=str, help="JSON file containing train data ditectories and date ranges")
+    parser.add_argument("--validation_data_sets_json", default=None, type=str, help="JSON file containing validation data directories and date ranges")
     parser.add_argument("--checkpoint_num", default=None, type=int, help="Checkpoint number to load")
 
 
@@ -1939,12 +1936,12 @@ if __name__ == '__main__':
         raise ValueError("Finetuning epochs specified but finetuning run number is not specified")
     if args.finetune_lr > 0:
         params['lr'] = args.finetune_lr
-    if args.train_date_ranges_json is not None:
-        with open(args.train_date_ranges_json, 'r') as f:
-            params['train_date_ranges'] = json.load(f)
-    if args.validation_date_ranges_json is not None:
-        with open(args.validation_date_ranges_json, 'r') as f:
-            params['validation_date_ranges'] = json.load(f)
+    if args.train_data_sets_json is not None:
+        with open(args.train_data_sets_json, 'r') as f:
+            params['train_data_sets'] = json.load(f)
+    if args.validation_data_sets_json is not None:
+        with open(args.validation_data_sets_json, 'r') as f:
+            params['validation_data_sets'] = json.load(f)
     if args.checkpoint_num is not None:
         params['checkpoint_num'] = args.checkpoint_num
     params['debug'] = False
