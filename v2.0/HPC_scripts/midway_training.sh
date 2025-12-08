@@ -1,0 +1,58 @@
+#!/bin/bash -l
+#SBATCH --account=pi-pedramh
+#SBATCH --time=20:10:00
+#SBATCH -p pedramh-gpu 
+#SBATCH --nodes=1
+#SBATCH --mem=500G
+#SBATCH --ntasks-per-node=4
+#SBATCH --gres=gpu:4
+#SBATCH --cpus-per-task=8 #16 
+#SBATCH -o midway_ddp_%x_%j.out
+#SBATCH -e midway_ddp_%x_%j.err
+
+#echo $SLURM_NTASKS   # WORLD_SIZE
+#echo $SLURM_PROCID   # WORLD_RANK
+#echo $SLURM_LOCALID  # LOCAL_RANK
+export MPICH_GPU_SUPPORT_ENABLED=1
+
+ulimit -l unlimited
+ml python
+conda activate /project/pedramh/bing/env
+export WANDB_MODE=offline
+
+
+echo nvidia-smi
+
+# Change to working directory
+#cd $SLURM_SUBMIT_DIR
+# source export_DDP_vars.sh
+# cd /project/pedramh/bing/PanguWeather/v2.0
+
+# MPI and OpenMP settings
+# NNODES=`wc -l < $SLURM_JOB_NODELIST`
+#Follwing will be the number of GPUs on each node, so 4 in our case as each node has 4 GPUs
+export NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
+#NUM_TASKS_PER_NODE=2
+#WORLD_SIZE=$((NNODES * NUM_TASKS_PER_NODE))
+
+#export WORLD_SIZE=1
+#export NUM_TASKS_PER_NODE=1
+
+echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SIZE= ${WORLD_SIZE}"
+
+# Set up the PyTorch distributed environment
+#export MASTER_ADDR=$(hostname)
+#export MASTER_PORT=12345
+#export WORLD_SIZE
+#export RANK=$SLURM_ARRAY_TASK_ID
+#export OMP_NUM_THREAD=8
+# Launch your script using torch.distributed.launch
+# config_file=../config/PANGU_S2S_lr3b_midway.yaml
+config_file=../config/exp1.yaml
+/project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
+#/project/pedramh/anaconda/py311/bin/python -u train.py --yaml_config=$2 --run_num=$1
+
+
+#Inference 
+#/project/pedramh/bing/env/bin/python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE ../train.py --yaml_config=$config_file --run_num=1
+#  /project/pedramh/anaconda/py311/bin/python

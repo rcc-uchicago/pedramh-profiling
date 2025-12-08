@@ -45,9 +45,15 @@ from utils.integrate import Integrator, forward_euler
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
+<<<<<<<< HEAD:v2.0/Jupiter/test_dataloader.py
     parser.add_argument("--run_num", default='0508', type=str)
     parser.add_argument("--yaml_config", default='/net/scratch2/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_DSI_0508.yaml', type=str)
     parser.add_argument("--config", default='PLASIM', type=str)
+========
+    parser.add_argument("--run_num", default='0194', type=str)
+    parser.add_argument("--yaml_config", default='v2.0/config/PANGU_S2S_222_0222.yaml', type=str)
+    parser.add_argument("--config", default='S2S', type=str)
+>>>>>>>> 64904090bcac5cc00e76d8122609204d04aaf57f:v2.0/test/dataloader_test.py
     parser.add_argument("--enable_amp", default=True, action='store_true')
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
