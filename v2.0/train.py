@@ -1,4 +1,5 @@
 from networks.pangu import PanguModel_Plasim
+from networks.pangu_legacy import PanguModel_Plasim as PanguModel_Plasim_Legacy
 from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
 from tqdm import tqdm
 from pathlib import Path
@@ -582,18 +583,22 @@ class Trainer():
         Get the model based on the nettype specified in params.
         """ 
         if self.params.nettype == 'pangu_plasim':
+            if self.params.use_legacy_model:
+                model_class = PanguModel_Plasim_Legacy
+            else:
+                model_class = PanguModel_Plasim
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = self.land_mask).to(self.device)
+                self.model = model_class(params, land_mask = self.land_mask).to(self.device)
                 self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(params, 'mask_fill'):
-                    self.model = PanguModel_Plasim(params, land_mask = self.land_mask, 
+                    self.model = model_class(params, land_mask = self.land_mask, 
                                                mask_fill = params.mask_fill).to(self.device)
                 else:
-                    self.model = PanguModel_Plasim(params, land_mask = self.land_mask, 
+                    self.model = model_class(params, land_mask = self.land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         elif params.nettype == 'sfno_plasim':
@@ -1971,6 +1976,7 @@ if __name__ == '__main__':
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
     parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
+    parser.add_argument("--use_legacy_model", default=False, action='store_true', help="Use legacy model")
 
 
     ####### for UCAR
@@ -1987,6 +1993,7 @@ if __name__ == '__main__':
         params['max_epochs'] = args.epochs
     #params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
+    params['use_legacy_model'] = args.use_legacy_model
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
             params['has_diagnostic'] = True
