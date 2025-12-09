@@ -204,15 +204,15 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
                 clim = clim.drop_vars('zsfc')
                 
             # Add missing variables with zero values
-            if 'pr_12h' in da_fc and 'pr_12h' not in clim:
-                clim['pr_12h'] = clim['tas'].copy()
-                clim['pr_12h'][:] = 0.
-            if 'pr_6h' in da_fc and 'pr_6h' not in clim:
-                clim['pr_6h'] = clim['tas'].copy()
-                clim['pr_6h'][:] = 0.
-            if 'mrso' in da_fc and 'mrso' not in clim:
-                clim['mrso'] = clim['tas'].copy()
-                clim['mrso'][:] = 0.
+            #if 'pr_12h' in da_fc and 'pr_12h' not in clim:
+            #    clim['pr_12h'] = clim['tas'].copy()
+            #    clim['pr_12h'][:] = 0.
+            #if 'pr_6h' in da_fc and 'pr_6h' not in clim:
+            #    clim['pr_6h'] = clim['tas'].copy()
+            #    clim['pr_6h'][:] = 0.
+            #if 'mrso' in da_fc and 'mrso' not in clim:
+            #    clim['mrso'] = clim['tas'].copy()
+            #    clim['mrso'][:] = 0.
             
             # Reorder variables in climatology to match forecast data
             clim = clim[list(da_fc.data_vars)]
@@ -295,9 +295,7 @@ class Trainer():
         # get dataset
         self.get_dataset()
         # Create output directories
-        self.spectra_dir, self.diagnostics_dir, self.output_dir = self.create_dirs(self.run_uuid)
-        if self.params.long_validation:
-            self.bias_dir = self.params.bias_dir
+        self.spectra_dir, self.diagnostics_dir, self.output_dir, self.bias_dir = self.create_dirs(self.run_uuid)
         # Initial wandb
         if params.log_to_wandb:
             if params.resuming:
@@ -376,21 +374,31 @@ class Trainer():
         """
 
         main_dirs = ["spectra_out", "gif_out", "acc_plots"]
+        if self.params.long_validation:
+            main_dirs.append("bias_out")
         for dir_name in main_dirs:
             os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
         spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
         diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
-        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid) 
-        logging.info('The output directories %s ; %s; %s', spectra_dir,diagnostics_dir,output_dir)
+        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
+        if self.params.long_validation:
+            bias_dir = os.path.join(os.getcwd(), "bias_out", self.run_uuid)
+            logging.info('The output directories %s ; %s; %s; %s', spectra_dir,diagnostics_dir,output_dir,bias_dir)
+        else:
+            logging.info('The output directories %s ; %s; %s', spectra_dir,diagnostics_dir,output_dir)
 
         if world_rank == 0:
             os.makedirs(spectra_dir, exist_ok=True)
             os.makedirs(diagnostics_dir, exist_ok=True)
-            os.makedirs(output_dir, exist_ok=True)
+            os.makedirs(output_dir, exist_ok=True)         
             logging.info(f"Created directory: {spectra_dir}")
             logging.info(f"Created directory: {diagnostics_dir}")
             logging.info(f"Created directory: {output_dir}")
-        return spectra_dir, diagnostics_dir, output_dir 
+            if self.params.long_validation:
+                os.makedirs(bias_dir, exist_ok=True)
+                logging.info(f"Created directory: {bias_dir}")
+        
+        return spectra_dir, diagnostics_dir, output_dir, bias_dir if self.params.long_validation else None
              
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
@@ -1299,8 +1307,12 @@ class Trainer():
                         
                     print('Plotting Bias')
                     bias_filename = os.path.join(self.bias_dir, f"bias_epoch_{self.epoch}.png")
+                    #print("Bias datasets")
+                    #print(bias_datasets[0])
+                    #print("Climatology bias")
+                    #print(self.climatology_bias)
                     
-                    self.plot_in_separate_process(bias_datasets[0], self.climatology_bias, [], bias_filename)
+                    self.plot_in_separate_process(bias_datasets[0].squeeze("time"), self.climatology_bias, [], bias_filename)
 
                     print("\nFinished Bias Plots...")
                     
@@ -1585,7 +1597,9 @@ class Trainer():
                 print("\nMaking GIF...")
 
                 gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
-                make_gif(acc_combined_predictions, acc_combined_ground_truths, self.climatology, "Model Forecast", "geopotential", gif_filename, plev=50000)
+                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast",
+                    list(set(['geopotential', 'zg']) & set(self.params.upper_air_variables))[0],
+                    gif_filename, climatology=self.climatology, plev=50000)
                 print("\nFinished creating GIF animation.")
 
             if self.params.diagnostic_spectra:
@@ -1787,10 +1801,31 @@ class Trainer():
         return xr.concat(datasets, dim='time')
 
 
-    def plot_in_separate_process(self, power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename):
+    def plot_in_separate_process(self, avg_preds, avg_gt, preds_times, filename):
         # convert lead times to hours
         lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
-        p = Process(target=plot_power_spectrum, args=(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times_hours))
+                
+        if len(preds_times) > 0:
+            # Get variable dictionary from params 
+            var_dict = self.params.diagnostic_spectrum_var_dict if hasattr(self.params, 'diagnostic_spectrum_var_dict') else None
+
+            p = Process(target=plot_power_spectrum, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours, self.params.use_sigma_levels, var_dict))
+        else:
+            if hasattr(self.params, 'diagnostic_bias_var_dict'):
+                var_dict = self.params.diagnostic_bias_var_dict
+            elif 'mrso' in self.params.land_variables:
+                vars = ["tas", "mrso", "zg", "ua", "hus"]
+                levels = [None, None, 50000, 25000, 85000]
+                var_dict = {var: [level] if level is not None else [] for var, level in zip(vars, levels)}
+            else:
+                # basic fallback
+                var_dict = {"tas": [], "zg": [50000], "ua": [0.4368000030517578]}
+                
+            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, var_dict))
+            # if 'mrso' in self.params.land_variables:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            # else:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
         p.start()
         p.join()
 
@@ -1868,11 +1903,18 @@ class Trainer():
             print(f"Deleted Power Spectrum plots directory: {output_dir}")
 
     def cleanup_gifs(self):
-        if os.path.exists(self.diagnostics_dir):
-            shutil.rmtree(self.diagnostics_dir)
-            print(f"Deleted GIF directory: {self.diagnostics_dir}")
+        output_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted GIF directory: {output_dir}")
     
-    def save_checkpoint(self, checkpoint_path, epoch, model=None):
+    def cleanup_bias(self):
+        output_dir = os.path.join(os.getcwd(), "bias_out", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted Bias plots directory: {output_dir}")
+
+    def save_checkpoint(self, checkpoint_path, epoch=-1, model=None):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
 
@@ -2025,8 +2067,6 @@ if __name__ == '__main__':
         if not os.path.isdir(expDir):
             os.makedirs(expDir)
             os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
-    if params.long_validation and not hasattr(params, 'bias_dir'):
-        params['bias_dir'] = os.path.join(os.path.dirname(params.data_dir), 'bias')
 
     params['experiment_dir'] = os.path.abspath(expDir)
     ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'

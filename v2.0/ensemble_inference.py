@@ -769,6 +769,9 @@ if __name__ == '__main__':
     parser.add_argument("--init_datetime", default="", type=str)
     parser.add_argument("--init_datetimes", default="", type=str)
     parser.add_argument("--init_nc_filepaths", default="", type=str)
+    parser.add_argument("--save_basenames", default="", type=str)
+    parser.add_argument("--output_dirs", default="", type=str)
+    parser.add_argument("--region_file", default="", type=str)
     parser.add_argument("--async_save", default = False, action='store_true')
 
     ####### for UCAR
@@ -792,6 +795,18 @@ if __name__ == '__main__':
     params_list = [YParams(os.path.abspath(yaml_config), args.config) for yaml_config in yaml_configs]
     #params['epsilon_factor'] = args.epsilon_factor
     params = params_list[0]
+    if len(args.save_basenames) > 0:
+        params['save_basenames'] = args.save_basenames.split(',')
+    if len(args.output_dirs) > 0:
+        params['output_dirs'] = args.output_dirs.split(',')
+    if len(args.region_file) > 0:
+        params['region_file'] = args.region_file
+    if not hasattr(params, 'output_dirs') and hasattr(params, 'save_basenames'):
+        params['output_dirs'] = [os.path.dirname(save_basename) for save_basename in params['save_basenames']]
+    try:
+        assert len(params['save_basenames']) == len(params['output_dirs'])
+    except AssertionError:
+        raise ValueError("Number of save basenames and output directories must match")
     params['run_iter'] = 1
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
