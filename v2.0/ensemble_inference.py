@@ -151,9 +151,9 @@ class Stepper():
         
 
     def get_dataset(self):
-        logging.info('rank %d, begin data loader init' % world_rank)
-        for params in params_list:
-            print(params)
+        logging.info('rank %d, begin data loader init' % self.world_rank)
+        # for params in self.params:
+        #     print(params)
 
         if hasattr(self.params, 'init_nc_filepaths'):
             self.init_from_nc = True
@@ -174,7 +174,7 @@ class Stepper():
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         if self.params.num_ensemble_members > 1:
             logging.info('Ensemble Mode. Ensemble size = {self.params.num_ensemble_members}\n')
-        logging.info('rank %d, data loader initialized' % world_rank)
+        logging.info('rank %d, data loader initialized' % self.world_rank)
 
     def setup_model(self):
         # Set up model
@@ -317,7 +317,7 @@ class Stepper():
         else:
             self.params['ocean_variables'] = []
         if hasattr(self.params, 'mask_output'):
-            self.mask_output = params.mask_output
+            self.mask_output = self.params.mask_output
         if self.use_6h_24h_model:
             has_land = False
             has_ocean = False
