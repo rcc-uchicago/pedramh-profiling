@@ -374,7 +374,6 @@ class SubPixelConvICNR_3D_wHead(nn.Module):
         if polar_pad:
             
             self.pad_poles = PolarPad3d((1, 1), num_lat = num_lat, grid_has_poles=grid_has_poles)
-            
             self.head = nn.Sequential(
                 PolarPad3d((1, 1), num_lat = num_lat, grid_has_poles=grid_has_poles),
                 nn.CircularPad3d((1, 1, 0, 0, 0, 0)),
@@ -401,11 +400,9 @@ class SubPixelConvICNR_3D_wHead(nn.Module):
                 nn.Conv3d(hidden_dim, out_chans, kernel_size=1, stride=1, padding=0)
             )
             """
-            
         else:
             
             self.pad_poles = nn.ZeroPad3d((0, 0, 1, 1, 0, 0))
-            
             self.head = nn.Sequential(
                 nn.ZeroPad3d((0, 0, 1, 1, 0, 0)),
                 nn.CircularPad3d((1, 1, 0, 0, 0, 0)),
@@ -430,7 +427,6 @@ class SubPixelConvICNR_3D_wHead(nn.Module):
                 nn.Conv3d(hidden_dim, out_chans, kernel_size=1, stride=1, padding=0)
             )
             """
-            
         self.pad_circular = nn.CircularPad3d((1, 1, 0, 0, 0, 0))
         self.conv = nn.Conv2d(in_chans//2, hidden_dim*patch_size[1]**2, kernel_size=3, stride=1, padding=0, bias=0)
         self.pixelshuffle = nn.PixelShuffle(patch_size[1])

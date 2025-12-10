@@ -1,6 +1,7 @@
+
 ### base config ###
 base_config: &BASE
-  loss: 'weightedl1'
+  loss: 'weightedCRPS'
   lr: 0.0001
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
@@ -8,33 +9,30 @@ base_config: &BASE
   oc_pct_start: 0.1
   oc_div_factor: 1e5
   oc_final_div_factor: 0.00025
-  
   log_to_screen: !!bool True
   log_to_wandb: !!bool True
   save_checkpoint: !!bool True
-
   optimizer_type: 'Adam' #'FusedAdam'
-
   plot_animations: !!bool False
-
   nettype: 'pangu_plasim'
   group: 's2s-dev'
-
   exp_dir: 'results'
-
-  enable_fp8: False
-  fresh_start: True
   use_transformer_engine: False
   early_stopping: False
-
   project: 'Pangu-S2S'
   name: 'S2S'
-
+  entity: 'binggong'
+  vae_loss: !!bool True
+  vae_loss_weight: 0.0001
+  mode: 'train'
+  num_ensemble_members : 4
+  fresh_start: False
+  checkpoint_path: '/project/pedramh/bing/PanguWeather/v2.0/HPC_scripts/results/S2S/1/training_checkpoints/ckpt.tar'
 
 
 S2S: &S2S
   <<: *BASE
-  #data_dir: '/eagle/MDClimSim/awikner/pangu_s2s/val'
+  data_dir: '/project/pedramh/h5data/h5data'
   upper_air_variables: ['temperature', 'u_component_of_wind', 'v_component_of_wind',
                         'specific_humidity', 'geopotential']
   surface_variables: ['2m_temperature', '10m_u_component_of_wind', '10m_v_component_of_wind',
@@ -74,12 +72,10 @@ S2S: &S2S
   climatology_file: "1979-2018_mean_climatology.nc"
   calendar: 'standard'
   timedelta_hours: 24
-  batch_size: 64
+  batch_size: 8
   max_epochs: 100
-
   has_year_zero: False
-
-  num_levels: 17
+  num_levels: 17upper_air_boundary
   #num_levels: 10
   levels: [5, 10, 20, 30, 50, 70, 100, 150, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
   horizontal_resolution: [180, 360]
@@ -95,16 +91,14 @@ S2S: &S2S
   diagnostic_head: False
   vertical_windowing: True
   train_year_to_year: False
-
   diagnostic_logs: True
   diagnostic_acc: False
   diagnostic_gif: False
-  diagnostic_spectra: True
+  diagnostic_spectra: False
   forecast_lead_times: [1, 3, 5, 10, 15]
 
   lev: 'plev'
   num_inferences: 100
-
   use_reentrant: False
   checkpointing: 2
   lat: [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, 
@@ -158,11 +152,3 @@ S2S: &S2S
        341., 342., 343., 344., 345., 346., 347., 348., 349., 350., 351.,
        352., 353., 354., 355., 356., 357., 358., 359.]
   #use_ff_input: False
-
-modified_1: &MODIFIED
-  <<: *BASE
-  lr: 5E-4
-  batch_size: 16 
-  max_epochs: 80 
-  scheduler: 'CosineAnnealingLR'
-  optimizer_type: 'FusedAdam'

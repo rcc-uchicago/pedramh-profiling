@@ -2,19 +2,15 @@
 import sys
 import xarray as xr
 import numpy as np
-import xarray as xr
-import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+#import seaborn as sns
 from collections import OrderedDict
 import torch
 import matplotlib
-
 import os
 import matplotlib.colors as mcolors
 
 import pandas as pd
-import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -120,13 +116,14 @@ def zonal_averaged_power_spectrum(field, time_avg=True):
     return k_x, power_spectrum_avg
 
 def plot_power_spectrum(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_times, filename, lead_times,
-                             var_dict=None):
+                             use_sigma_levels=False, var_dict=None):
     """ Plot the power spectrum of the forecast and ground truth
     :param power_spectrum_avg_preds: xarray dataset, power spectrum of the forecast
     :param power_spectrum_avg_gt: xarray dataset, power spectrum of the ground truth
     :param preds_times: array, time values of the forecast
     :param filename: str, path to save the plot
     :param lead_times: list, lead times in hours
+    :param use_sigma_levels: bool, whether to use sigma levels or pressure levels for non-zg variables
     :param var_dict: dict, variables to levels mapping {'var': [levels]}
     """
     import matplotlib.pyplot as plt
@@ -168,7 +165,7 @@ def plot_power_spectrum(power_spectrum_avg_preds, power_spectrum_avg_gt, preds_t
             
             # Determine which coordinate system to use (plev or lev)
             is_zg = var == 'zg' or var == 'geopotential_height'
-            level_coord_name = 'plev' if is_zg else 'lev'
+            level_coord_name = 'plev' if is_zg or not use_sigma_levels else 'lev'
             
             if is_surface:
                 # For surface variables (like tas)
@@ -325,6 +322,9 @@ def plot_bias(bias_pred, bias_gt, filename, var_level_dict):
     """
     """
     # Filter variables based on presence in both datasets
+    print(f"Bias pred: {bias_pred.data_vars}")
+    print(f"Bias gt: {bias_gt.data_vars}")
+    print(f"Var level dict: {var_level_dict}")
     available_vars_dict = {
         var: levels for var, levels in var_level_dict.items()
         if var in bias_pred.data_vars and var in bias_gt.data_vars
@@ -336,6 +336,7 @@ def plot_bias(bias_pred, bias_gt, filename, var_level_dict):
 
     num_vars = len(available_vars_dict)
     var_list = list(available_vars_dict.keys())
+    print(f"Available variables: {var_list}")
 
     # Determine subplot layout
     cols = 2 if num_vars > 1 else 1
