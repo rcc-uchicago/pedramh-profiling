@@ -80,9 +80,24 @@ def get_data_given_path(path, variables):
     x = [data['input'][v] for v in variables]
     return np.stack(x, axis=0)
 
-def get_data_given_path_nc(path, variables_3D, variables_2D, timestep_offset = -1):
+def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = None):
     x = []
     with nc.Dataset(path, 'r') as f:
+        if init_datetime is not None:
+            # Read the time variable from the netCDF dataset
+            time_var = f.variables["time"]
+            # Decode time values to cftime objects
+            # Get calendar from time variable or dataset, default to 'standard' if not found
+            calendar = getattr(time_var, 'calendar', getattr(f, 'calendar', 'standard'))
+            time_values = nc.num2date(time_var[:], time_var.units, calendar=calendar)
+            # Find the index that matches init_datetime using array operation
+            matching_indices = np.where(np.array([tv == init_datetime for tv in time_values]))[0]
+            if len(matching_indices) == 0:
+                raise ValueError(f"Could not find matching time for {init_datetime} in dataset {path}")
+            timestep_offset = matching_indices[0]
+        else:
+            timestep_offset = -1
+        print(f'Timestep offset: {timestep_offset}')
         if variables_3D:
             for variable in variables_3D:
                 if len(f.variables[variable].shape) == 4:
@@ -156,10 +171,6 @@ class GetDataset(Dataset):
         self.ensemble = ensemble
         self.init_from_nc = init_from_nc
         if self.ensemble:
-            if self.init_from_nc and hasattr(self.params, "init_nc_filepaths"):
-                self.init_nc_timestep_offset = [-1] * len(self.params.init_nc_filepaths)
-                if hasattr(self.params, "init_nc_timestep_offset"):
-                    self.init_nc_timestep_offset = [self.params.init_nc_timestep_offset] * len(self.params.init_nc_filepaths)
             if hasattr(self.params, 'init_datetimes'):
                 self.init_datetimes = self.params.init_datetimes
             elif hasattr(self.params, 'init_datetime'):
@@ -625,12 +636,15 @@ class GetDataset(Dataset):
     def _get_data_nc(self, index, out = False, variable_list_3D = None, variable_list_2D = None):
         data_file_path = self.params.init_nc_filepaths[index]
         if variable_list_3D or variable_list_2D:
-            raw_data = get_data_given_path_nc(data_file_path, variable_list_3D, variable_list_2D, self.init_nc_timestep_offset[index])
+            raw_data = get_data_given_path_nc(data_file_path, variable_list_3D, variable_list_2D,
+                                              self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0])
         else:
             if out:
-                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables + self.diagnostic_variables, self.init_nc_timestep_offset[index])
+                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables + self.diagnostic_variables,
+                                                  self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0])
             else:
-                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables, self.init_nc_timestep_offset[index])
+                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables,
+                                                  self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0])
         return raw_data
     
     def _get_boundary_data(self, data_datetime):

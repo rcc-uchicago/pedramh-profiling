@@ -148,6 +148,7 @@ class Stepper():
             self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
                                                     amax_history_len=16,
                                                     amax_compute_algo="max")
+        self.setup_model()
         
 
     def get_dataset(self):
@@ -328,7 +329,7 @@ class Stepper():
             else:
                 self.params_24h['land_variables'] = []
             if hasattr(self.params_24h, 'ocean_variables'):
-                if len(self.self.params_24h.ocean_variables) > 0:
+                if len(self.params_24h.ocean_variables) > 0:
                     has_land = True
             else:
                 self.params_24h['ocean_variables'] = []
@@ -1007,7 +1008,6 @@ if __name__ == '__main__':
 
     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
                       async_save = args.async_save)
-    stepper.setup_model()
     
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
