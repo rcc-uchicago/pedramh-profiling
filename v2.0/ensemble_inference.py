@@ -72,28 +72,36 @@ def compute_A_ensemble(args):
     Computes the A values for an ensemble forecast.
     """
     # Open the dataset for existing paths
-    ds, particle_idx, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
+    ds_list, particle_idxs_list, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
     # ds = xr.open_dataset(path, decode_times=True, use_cftime=True)
     # Load region boundaries from a JSON file
-    print(f'Computing obs for particle {particle_idx}, members {ensemble_start} to {ensemble_end}')
-    with open(PATH_REGIONS, 'r') as f:
-        all_regions = json.load(f)
-    for region in regions:
-        lon_region = all_regions[region]['lon']
-        lat_region = all_regions[region]['lat']
-        # Select the region of interest from the dataset
-        ds_region = ds.sel(lon=lon_region, lat=lat_region, method='nearest')
-        # Compute the distribution of A values for the selected region and variable
-        if var in ['tas', 'ta']:
-            A = ds_region[var].mean(dim=['lon', 'lat']) - 273.15  # Convert temperature from Kelvin to Celsius
-        else:
-            A = ds_region[var].mean(dim=['lon', 'lat'])
-        A = A.resample(time='1D').mean()  # Resample to daily mean
-        A = A.isel(time=slice(lead_time, lead_time+target_duration))  # Select the first T days
-        A = A.mean(dim='time')  # Compute the mean over the selected time period
-        os.makedirs(os.path.dirname(save_basenames[particle_idx]), exist_ok=True)
-        filepath = save_basenames[particle_idx] + f'_{ensemble_start:04d}-{ensemble_end:04d}_A_{region}.npy'
-        np.save(filepath, A.values.flatten())
+    # print("DEBUG: ds_list: ", ds_list)
+    # print("DEBUG: particle_idxs_list: ", particle_idxs_list)
+    
+    # if not isinstance(ds_list, list):
+    #     ds_list = [ds_list]
+    # if not isinstance(particle_idxs_list, list):
+    #     particle_idxs_list = [particle_idxs_list]
+
+    for ds, particle_idx in zip(ds_list, particle_idxs_list):
+        with open(PATH_REGIONS, 'r') as f:
+            all_regions = json.load(f)
+        for region in regions:
+            lon_region = all_regions[region]['lon']
+            lat_region = all_regions[region]['lat']
+            # Select the region of interest from the dataset
+            ds_region = ds.sel(lon=lon_region, lat=lat_region, method='nearest')
+            # Compute the distribution of A values for the selected region and variable
+            if var in ['tas', 'ta']:
+                A = ds_region[var].mean(dim=['lon', 'lat']) - 273.15  # Convert temperature from Kelvin to Celsius
+            else:
+                A = ds_region[var].mean(dim=['lon', 'lat'])
+            A = A.resample(time='1D').mean()  # Resample to daily mean
+            A = A.isel(time=slice(lead_time, lead_time+target_duration))  # Select the first T days
+            A = A.mean(dim='time')  # Compute the mean over the selected time period
+            filepath = save_basenames[particle_idx] + f'_{ensemble_start:04d}-{ensemble_end:04d}_A_{region}.npy'
+            #print(f'Obs filepath: {filepath}')
+            np.save(filepath, A.values.flatten())
         
 def combine_A_ensemble(save_basenames, regions):
     for save_basename, region in tqdm(product(save_basename, region), 
@@ -629,7 +637,8 @@ class Stepper():
                     
                     if self.obs_function:
                         obs_start = time.time()
-                        self.obs_function([ensemble_datasets[0], particle_idxs[0], ensemble_start, ensemble_end] + self.obs_args)
+                        # print("DEBUG: particle_idxs from ensemble_inference.py", particle_idxs)
+                        self.obs_function([ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + self.obs_args)
                         obs_time += time.time() - obs_start
                         
 
