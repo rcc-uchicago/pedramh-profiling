@@ -806,8 +806,13 @@ if __name__ == '__main__':
     parser.add_argument("--save_basenames", default="", type=str)
     parser.add_argument("--output_dirs", default="", type=str)
     parser.add_argument("--region_file", default="", type=str)
+    parser.add_argument("--regions", default="", type=str)
     parser.add_argument("--async_save", default = False, action='store_true')
     parser.add_argument("--use_legacy_model", default=False, action='store_true')
+    parser.add_argument("--ensemble_timedelta_hours", default=0, type=int)
+    parser.add_argument("--num_ensemble_members", default=0, type=int)
+    parser.add_argument("--ensemble_members_per_pred", default=0, type=int)
+    parser.add_argument("--batch_size", default=0, type=int)
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -843,6 +848,16 @@ if __name__ == '__main__':
         assert len(params['save_basenames']) == len(params['output_dirs'])
     except AssertionError:
         raise ValueError("Number of save basenames and output directories must match")
+
+    if args.ensemble_timedelta_hours > 0:
+        params['ensemble_timedelta_hours'] = args.ensemble_timedelta_hours
+    if args.num_ensemble_members > 0:
+        params['num_ensemble_members'] = args.num_ensemble_members
+    if args.ensemble_members_per_pred > 0:
+        params['ensemble_members_per_pred'] = args.ensemble_members_per_pred
+    if args.batch_size > 0:
+        params['batch_size'] = args.batch_size
+    
     params['run_iter'] = 1
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
@@ -1003,7 +1018,7 @@ if __name__ == '__main__':
 
 
     # @Amaury ADD a condition to generate the output_dirs and save_basenames if they are not provided (consistent with the total number of particles)
-    if args.output_dir:
+    if args.output_dirs:
        if  len(params['init_datetimes']) > 0:
            N_ICs = len(params['init_datetimes'])
        else:
@@ -1023,7 +1038,10 @@ if __name__ == '__main__':
             lead_time = 5
             target_duration = params.ensemble_inference_hours // 24 - lead_time
             var = "tas"
-            regions = ["France", "Chicago"]
+            if len(args.regions) > 0:
+                regions = args.regions.split(',')
+            else:
+                regions = ["France"]
             PATH_REGIONS = params.region_file
             stepper.predict(obs_function=compute_A_ensemble, 
                             obs_args=[params.save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS])

@@ -82,6 +82,8 @@ def get_data_given_path(path, variables):
 
 def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = None):
     x = []
+    print(f'Loading data from {path}')
+    print(f'Init datetime: {init_datetime}')
     with nc.Dataset(path, 'r') as f:
         if init_datetime is not None:
             # Read the time variable from the netCDF dataset
@@ -148,7 +150,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
                                 num_workers=params.num_data_workers,
                                 shuffle=False,  # (sampler is None),
                                 sampler=sampler,# if train else None,
-                                drop_last=True,
+                                drop_last=True if not ensemble else False,
                                 pin_memory=torch.cuda.is_available())
 
     if train:
