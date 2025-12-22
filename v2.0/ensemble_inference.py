@@ -1017,31 +1017,41 @@ if __name__ == '__main__':
                                                                     init_datetime in params.init_datetimes]
 
 
-    # @Amaury ADD a condition to generate the output_dirs and save_basenames if they are not provided (consistent with the total number of particles)
-    if args.output_dirs:
-       if  len(params['init_datetimes']) > 0:
-           N_ICs = len(params['init_datetimes'])
-       else:
-           N_ICs = len(args.init_nc_filepaths.split(','))
-       params['output_dirs'] = [args.output_dir] * N_ICs
-       print(f'Output dirs: {params["output_dirs"]}')
-       params['save_basenames'] = [args.output_dir + f'/particle_{i}' for i in range(N_ICs)]
+    # # @Amaury ADD a condition to generate the output_dirs and save_basenames if they are not provided (consistent with the total number of particles)
+    # if args.output_dir:
+    #    if  len(params['init_datetimes']) > 0:
+    #        N_ICs = len(params['init_datetimes'])
+    #    else:
+    #        N_ICs = len(args.init_nc_filepaths.split(','))
+    #    params['output_dirs'] = [args.output_dir] * N_ICs
+    #    print(f'Output dirs: {params["output_dirs"]}')
+    #    params['save_basenames'] = [args.output_dir + f'/particle_{i}' for i in range(N_ICs)]
     #    print(f'Save basenames: {params["save_basenames"]}')
 
     params_list[0] = params
+
+    # if output_dirs dosen't exist, create it #Added by Amaury on 12/22/2025
+    # print("DEBUG: output_dirs: ", params['output_dirs'])
+    # # output_dirs = params['output_dirs'] if isinstance(params['output_dirs'], (list, tuple)) else [params['output_dirs']]
+    # for dirname in params['output_dirs']:
+    #     print("DEBUG: dirname: ", dirname + "/")
+    #     if not os.path.isdir(dirname + "/"):
+    #         os.makedirs(dirname + "/", exist_ok=True)
 
     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
                       async_save = args.async_save)
     
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
-            lead_time = 5
-            target_duration = params.ensemble_inference_hours // 24 - lead_time
+            target_duration = 7
+            lead_time = params.ensemble_timedelta_hours // 24 - target_duration
+            print("DEBUG: lead_time: ", lead_time)
+            print("DEBUG: target_duration: ", target_duration)
             var = "tas"
             if len(args.regions) > 0:
                 regions = args.regions.split(',')
             else:
-                regions = ["France"]
+                regions = ["France", "Chicago"]
             PATH_REGIONS = params.region_file
             stepper.predict(obs_function=compute_A_ensemble, 
                             obs_args=[params.save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS])
