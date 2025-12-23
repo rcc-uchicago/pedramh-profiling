@@ -809,7 +809,7 @@ if __name__ == '__main__':
     parser.add_argument("--regions", default="", type=str)
     parser.add_argument("--async_save", default = False, action='store_true')
     parser.add_argument("--use_legacy_model", default=False, action='store_true')
-    parser.add_argument("--ensemble_timedelta_hours", default=0, type=int)
+    parser.add_argument("--ensemble_inference_hours", default=0, type=int)
     parser.add_argument("--num_ensemble_members", default=0, type=int)
     parser.add_argument("--ensemble_members_per_pred", default=0, type=int)
     parser.add_argument("--batch_size", default=0, type=int)
@@ -849,8 +849,8 @@ if __name__ == '__main__':
     except AssertionError:
         raise ValueError("Number of save basenames and output directories must match")
 
-    if args.ensemble_timedelta_hours > 0:
-        params['ensemble_timedelta_hours'] = args.ensemble_timedelta_hours
+    if args.ensemble_inference_hours > 0:
+        params['ensemble_inference_hours'] = args.ensemble_inference_hours
     if args.num_ensemble_members > 0:
         params['num_ensemble_members'] = args.num_ensemble_members
     if args.ensemble_members_per_pred > 0:
