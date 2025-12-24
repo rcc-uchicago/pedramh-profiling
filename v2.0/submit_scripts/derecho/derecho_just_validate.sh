@@ -1,6 +1,6 @@
 #!/bin/bash -l
-#PBS -N pangu_train
-#PBS -l select=1:ncpus=64:ngpus=4
+#PBS -N pangu_validate
+#PBS -l select=1:ncpus=32:ngpus=4
 #PBS -q main
 #PBS -l walltime=01:00:00
 #PBS -A UCHI0014
@@ -21,7 +21,7 @@ cd /glade/u/home/plyu/PanguWeather/v2.0/
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
-export WANDB_MODE=online
+export WANDB_MODE=offline
 
 nvidia-smi
 
@@ -43,12 +43,12 @@ export OMP_NUM_THREADS=1
 
 
 if [[ "$DEBUG" == "1" ]]; then
-	CMD="python train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug"
+	CMD="python train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug --just_validate"
 else
-	CMD="torchrun --nproc_per_node=4 --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM}"
+	CMD="torchrun --nproc_per_node=4 --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --just_validate"
 fi
-# if [[ -z "$JOBID" ]]; then
-# 	CMD+=" --fresh_start"
-# fi
+if [[ -z "$JOBID" ]]; then
+	CMD+=" --fresh_start"
+fi
 # Launch your script using torch.distributed.launch
 eval "$CMD"

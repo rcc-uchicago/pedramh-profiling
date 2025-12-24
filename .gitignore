@@ -45,7 +45,7 @@ v2.0/results/
 results/
 data/
 # tests/
-config/
+# config/
 
 core*
 outs/
@@ -53,3 +53,4 @@ wandb/
 gif_out/
 acc_plots/
 spectra_out/
+pangu_train*

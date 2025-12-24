@@ -63,21 +63,21 @@ torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()           
 logging.info("Torch version: {}".format(torch.__version__))
-is_ddp = False
+# is_ddp = False
 
-if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
-    if int(os.environ["WORLD_SIZE"]) > 1:
-        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-        dist.init_process_group(backend="nccl", init_method="env://")
-        is_ddp = True
+# if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+#     if int(os.environ["WORLD_SIZE"]) > 1:
+#         torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+#         dist.init_process_group(backend="nccl", init_method="env://")
+#         is_ddp = True
 
-if is_ddp and dist.get_rank() == 0:
-    print("DDP initialized")
-    world_rank = dist.get_rank()
-    print(f"World rank: {world_rank}")
+# if is_ddp and dist.get_rank() == 0:
+#     print("DDP initialized")
+#     world_rank = dist.get_rank()
+#     print(f"World rank: {world_rank}")
 
-if not is_ddp:
-    print("Single-process mode")
+# if not is_ddp:
+#     print("Single-process mode")
 
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
@@ -298,38 +298,67 @@ class Trainer():
         # Create output directories
         self.spectra_dir, self.diagnostics_dir, self.output_dir, self.bias_dir = self.create_dirs(self.run_uuid)
         # Initial wandb
-        if params.log_to_wandb:
-            if params.resuming:
-                resume = "allow"
-            else:
-                resume = "never"
-            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
-                entity=params.entity, group=params.group, 
-                project=params.project, resume=resume)
-            logging.info("WandB initialized with config: %s", params)
         self.init_wandb(self.params)
-        # Setup model
-        #self.setup_model()
         logging.info('Params' % params)
         
     def setup_model(self):
         # Set up model
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model = self.get_model()
-        self.optimizer = self.get_optimizer()
+        
         if self.params.enable_amp == True:
             self.scaler = GradScaler()
         if self.params.resuming:
-            checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
+            checkpoint_path = None
+            
+            # For validation without specific epochs, prefer best checkpoint
+            if self.params.just_validate and len(self.params.validation_epochs) == 0:
+                if os.path.isfile(self.params.best_checkpoint_path):
+                    checkpoint_path = self.params.best_checkpoint_path
+                    logging.info("Validation mode: using best checkpoint")
+            
+            # For training resume: priority is latest > numbered > best
+            if checkpoint_path is None:
+                if os.path.isfile(self.params.latest_checkpoint_path):
+                    checkpoint_path = self.params.latest_checkpoint_path
+                else:
+                    checkpoint_paths = natsorted([
+                        file for file in glob.glob(self.params.checkpoint_path_globstr) 
+                        if os.path.isfile(file)
+                    ])
+                    if len(checkpoint_paths) > 0:
+                        checkpoint_path = checkpoint_paths[-1]
+                    elif os.path.isfile(self.params.best_checkpoint_path):
+                        checkpoint_path = self.params.best_checkpoint_path
+            
+            if checkpoint_path is None:
+                raise FileNotFoundError(
+                    f"No checkpoint files found for resuming.\n"
+                    f"Searched: {self.params.checkpoint_path_globstr}, "
+                    f"{self.params.latest_checkpoint_path}, {self.params.best_checkpoint_path}"
+                )
+            
             self.restore_checkpoint(checkpoint_path)
-            logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
-            if self.params.debug:
-                self.params.max_epochs = self.startEpoch + 1
+            logging.info("Loaded checkpoint: %s", checkpoint_path)
         else:
             logging.info("Starting fresh training run")
-            if self.params.debug:
-                self.params.max_epochs = 1
+        if self.params.debug:
+            self.params.max_epochs = self.startEpoch + 1
         
+        if dist.is_initialized():
+            self.model = DistributedDataParallel(self.model,
+                                                 device_ids=[params.local_rank],
+                                                 output_device=[params.local_rank], 
+                                                 find_unused_parameters=True)
+        #Logging
+        if self.params.log_to_wandb:
+            wandb.watch(self.model)
+        '''if params.log_to_screen:
+        logging.info(self.model)'''
+        if params.log_to_screen:
+            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
+        
+        self.optimizer = self.get_optimizer()
         self.setup_scheduler()
         self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
 
@@ -369,37 +398,25 @@ class Trainer():
 
 
 
-    def create_dirs(self, run_uuid:int)->tuple[str, str, str]:
+    def create_dirs(self, run_uuid: int) -> tuple[str, str, str, str]:
         """
-        To create the output directories to store the spectra_output, image, and evaluation metrics plot.
+        Returns the output directories for plots (already created in main block).
+        Kept for backward compatibility - directories are now created in main.
         """
-
-        main_dirs = ["spectra_out", "gif_out", "acc_plots"]
-        if self.params.long_validation:
-            main_dirs.append("bias_out")
-        for dir_name in main_dirs:
-            os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
-        spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
-        diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
-        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
-        if self.params.long_validation:
-            bias_dir = os.path.join(os.getcwd(), "bias_out", self.run_uuid)
-            logging.info('The output directories %s ; %s; %s; %s', spectra_dir,diagnostics_dir,output_dir,bias_dir)
-        else:
-            logging.info('The output directories %s ; %s; %s', spectra_dir,diagnostics_dir,output_dir)
-
-        if world_rank == 0:
-            os.makedirs(spectra_dir, exist_ok=True)
-            os.makedirs(diagnostics_dir, exist_ok=True)
-            os.makedirs(output_dir, exist_ok=True)         
-            logging.info(f"Created directory: {spectra_dir}")
-            logging.info(f"Created directory: {diagnostics_dir}")
-            logging.info(f"Created directory: {output_dir}")
-            if self.params.long_validation:
-                os.makedirs(bias_dir, exist_ok=True)
-                logging.info(f"Created directory: {bias_dir}")
+        spectra_dir = self.params.spectra_dir
+        diagnostics_dir = self.params.gif_dir
+        output_dir = self.params.acc_dir
+        bias_dir = self.params.bias_dir if self.params.long_validation else None
         
-        return spectra_dir, diagnostics_dir, output_dir, bias_dir if self.params.long_validation else None
+        if self.world_rank == 0:
+            logging.info(f"Output directories under: {self.params.experiment_dir}")
+            logging.info(f"  Spectra: {spectra_dir}")
+            logging.info(f"  GIFs: {diagnostics_dir}")
+            logging.info(f"  ACC plots: {output_dir}")
+            if bias_dir:
+                logging.info(f"  Bias plots: {bias_dir}")
+        
+        return spectra_dir, diagnostics_dir, output_dir, bias_dir
              
     # @log_memory_usage(rank=world_rank)
     # @log_gpu_memory
@@ -500,10 +517,15 @@ class Trainer():
         Initialise wandb, setup metrics to log
         """
         if params.log_to_wandb:
-            if self.params.resuming:
+            if params.resuming:
                 resume = "allow"
             else:
                 resume = "never"
+            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
+                entity=params.entity, group=params.group, 
+                project=params.project, resume=resume)
+            logging.info("WandB initialized with config: %s", params)
+
             wandb.init(config=params, entity=params.entity, name=f'{params.name}-{params.run_iter}',
                         group=params.group, project=params.project, resume=resume)#, entity=params.entity)
 
@@ -514,7 +536,7 @@ class Trainer():
         
 
 
-            #           entity=params.entity)
+            # entity=params.entity)
             wandb.define_metric("epoch")
             wandb.define_metric("ACC_plot", step_metric="epoch")
             wandb.define_metric("power_spectrum_plot", step_metric="epoch")
@@ -605,7 +627,7 @@ class Trainer():
             print(f'\n\nRunning SFNO model\n\n')
             self.model = SFNO(params, self.train_datasets[0]).to(self.device)
             if params.sync_norm:
-                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+                self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
                 self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
@@ -614,19 +636,6 @@ class Trainer():
         else:
             raise Exception("not implemented")
 
-        
-        if dist.is_initialized():
-            self.model = DistributedDataParallel(self.model,
-                                                 device_ids=[params.local_rank],
-                                                 output_device=[params.local_rank], 
-                                                 find_unused_parameters=True)
-        #Logging
-        if self.params.log_to_wandb:
-            wandb.watch(self.model)
-        '''if params.log_to_screen:
-        logging.info(self.model)'''
-        if params.log_to_screen:
-            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
         return self.model
         
 
@@ -638,12 +647,13 @@ class Trainer():
 
 
     def get_optimizer(self):
+        self.lr = (2 ** params.loglr) * params["global_batch_size"] / 16.0
         if params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=params.weight_decay, fused=True)
         elif params.optimizer_type == 'AdamW':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=params.weight_decay, fused=True)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=params.weight_decay)
 
         return self.optimizer
 
@@ -681,7 +691,7 @@ class Trainer():
             
             self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     self.optimizer,
-                    max_lr=self.params.lr,
+                    max_lr=self.lr,
                     total_steps=total_steps,
                     steps_per_epoch=steps_per_epoch,
                     pct_start = pct_start,
@@ -796,7 +806,10 @@ class Trainer():
                     break
             
             # Early stopping logic should be outside of world_rank check
-            if valid_logs['valid_loss'] <= best_valid_loss:
+            # Check if validation improved BEFORE updating best_valid_loss
+            is_best = valid_logs['valid_loss'] <= best_valid_loss
+            
+            if is_best:
                 best_valid_loss = valid_logs['valid_loss']
                 early_stopping_counter = 0  # Reset the counter
             else:
@@ -804,9 +817,11 @@ class Trainer():
             
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
-                    # checkpoint at the end of every epoch
-                    self.save_checkpoint(self.params.checkpoint_path_globstr, self.epoch)
-                    if valid_logs['valid_loss'] <= best_valid_loss:
+                    # Save latest checkpoint (and numbered checkpoint at intervals)
+                    self.save_checkpoint(self.params.latest_checkpoint_path, epoch)
+                    
+                    # Save best checkpoint only if validation improved
+                    if is_best:
                         self.save_checkpoint(self.params.best_checkpoint_path)
             if self.params.log_to_wandb and self.world_rank == 0:
                 self.log_wandb_epoch(epoch)
@@ -954,7 +969,7 @@ class Trainer():
                                                                         train_batch_loss_sfc = loss_sfc, 
                                                                         train_batch_loss_upper_air = loss_pl,
                                                                         train_batch_loss_diagnostic =loss_diagnostic,
-                                                                        train_batch_loss_vae = loss_vae,
+                                                                        # train_batch_loss_vae = loss_vae,
                                                                         train_mean_norm_lwrmse = mean_norm_lwrmse)
                     ##########################################################
                         if self.world_rank == 0:
@@ -1225,7 +1240,7 @@ class Trainer():
                 cnt = 0
                 no_nans = True
                 if self.ensemble_validation:
-                    val_data_dir = os.path.join(self.params.experiment_dir, 'validation_data')
+                    val_data_dir = self.params.validation_data_dir
                     print(val_data_dir)
                     os.makedirs(val_data_dir, exist_ok=True)
                 if self.world_rank == 0:
@@ -1708,9 +1723,6 @@ class Trainer():
        
         return valid_time, diagnostic_logs
 
-
-
-
     def prepare_preds(self, preds, acc = False):
         preds = preds.rename({'time': 'lead_time'})
         # If bug, change this back to values[0]
@@ -1896,43 +1908,76 @@ class Trainer():
     
 
     def cleanup_acc_plots(self):
-        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-            print(f"Deleted ACC plots directory: {output_dir}")
+        if os.path.exists(self.params.acc_dir):
+            shutil.rmtree(self.params.acc_dir)
+            logging.info(f"Deleted ACC plots directory: {self.params.acc_dir}")
 
     def cleanup_power_spectrum_plots(self):
-        output_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-            print(f"Deleted Power Spectrum plots directory: {output_dir}")
+        if os.path.exists(self.params.spectra_dir):
+            shutil.rmtree(self.params.spectra_dir)
+            logging.info(f"Deleted Power Spectrum plots directory: {self.params.spectra_dir}")
 
     def cleanup_gifs(self):
-        output_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-            print(f"Deleted GIF directory: {output_dir}")
+        if os.path.exists(self.params.gif_dir):
+            shutil.rmtree(self.params.gif_dir)
+            logging.info(f"Deleted GIF directory: {self.params.gif_dir}")
     
     def cleanup_bias(self):
-        output_dir = os.path.join(os.getcwd(), "bias_out", self.run_uuid)
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir)
-            print(f"Deleted Bias plots directory: {output_dir}")
+        if os.path.exists(self.params.bias_dir):
+            shutil.rmtree(self.params.bias_dir)
+            logging.info(f"Deleted Bias plots directory: {self.params.bias_dir}")
 
     def save_checkpoint(self, checkpoint_path, epoch=-1, model=None):
-        """ We intentionally require a checkpoint_dir to be passed
-            in order to allow Ray Tune to use this function """
-
+        """
+        Save checkpoint with the following strategy:
+        - Always save ckpt_latest.tar (overwritten each epoch)
+        - Save ckpt_epoch_{N}.tar every checkpoint_save_interval epochs
+        - Maintain at most max_checkpoints_to_keep numbered checkpoints
+        - best_ckpt.tar is saved separately when validation improves
+        """
         if not model:
             model = self.model
 
-        if epoch >= 0:
-            checkpoint_path_out = '_'.join(checkpoint_path.split('_')[:-1]) + f'_{epoch}.tar'
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path_out)
-        else:
-            torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                        'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path)
+        checkpoint_data = {
+            'iters': self.iters,
+            'epoch': self.epoch,
+            'model_state': model.module.state_dict() if dist.is_initialized() else model.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict()
+        }
+
+        # Always save latest checkpoint
+        torch.save(checkpoint_data, self.params.latest_checkpoint_path)
+        logging.info(f"Saved latest checkpoint: {self.params.latest_checkpoint_path}")
+
+        # Save numbered checkpoint at intervals
+        if epoch >= 0 and (epoch + 1) % self.params.checkpoint_save_interval == 0:
+            numbered_path = os.path.join(
+                self.params.checkpoint_dir, 
+                f'ckpt_epoch_{epoch}.tar'
+            )
+            torch.save(checkpoint_data, numbered_path)
+            logging.info(f"Saved numbered checkpoint: {numbered_path}")
+            
+            # Clean up old numbered checkpoints
+            self._cleanup_old_checkpoints()
+
+        # Save best checkpoint (called separately from train loop)
+        if checkpoint_path == self.params.best_checkpoint_path:
+            torch.save(checkpoint_data, checkpoint_path)
+            logging.info(f"Saved best checkpoint: {checkpoint_path}")
+
+    def _cleanup_old_checkpoints(self):
+        """Remove old numbered checkpoints, keeping only the most recent N."""
+        checkpoint_paths = natsorted([
+            file for file in glob.glob(self.params.checkpoint_path_globstr) 
+            if os.path.isfile(file)
+        ])
+        
+        num_to_delete = len(checkpoint_paths) - self.params.max_checkpoints_to_keep
+        if num_to_delete > 0:
+            for old_ckpt in checkpoint_paths[:num_to_delete]:
+                os.remove(old_ckpt)
+                logging.info(f"Removed old checkpoint: {old_ckpt}")
 
 
     def restore_checkpoint(self, checkpoint_path):
@@ -1955,6 +2000,32 @@ class Trainer():
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 
+def seed_torch(seed=0):
+    os.environ['PYTHONHASHSEED'] = str(seed) 
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.enabled = True
+
+def setup_distributed(params: YParams, args: argparse.Namespace) -> tuple[int, int]:
+    """Return (world_rank, local_rank)."""
+    if params['world_size'] > 1:
+        dist.init_process_group(backend='nccl', init_method='env://')
+        rank = dist.get_rank()
+        device = rank % torch.cuda.device_count()
+        seed = args.global_seed * dist.get_world_size() + rank
+        params['global_batch_size'] = params['batch_size'] * params['world_size']
+    else:
+        rank = 0
+        device = 0
+        seed = args.global_seed
+        params['global_batch_size'] = params['batch_size']
+    
+    seed_torch(seed)
+    torch.cuda.set_device(device)
+    return rank, device
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -1970,6 +2041,7 @@ if __name__ == '__main__':
     parser.add_argument("--vae_loss", default=False, action='store_true')
     parser.add_argument("--mode", default='train', type=str, choices=['train', 'test'])
     parser.add_argument("--test_iterations", default=30, type=int)
+    parser.add_argument("--global_seed", type=int, default=0)
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
 
@@ -2032,64 +2104,73 @@ if __name__ == '__main__':
     if hasattr(params, "wandb_offline"):
         if params.wandb_offline:
             os.environ['WANDB_MODE'] = 'offline'
+    
+    # initialize DDP.
+    world_rank, local_rank = setup_distributed(params, args)
 
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
-
 
     ##Check GPU memory 
     print(torch.cuda.get_device_name(0))
     print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
     print(f"Memory Cached: {torch.cuda.memory_reserved(0)/1024**2:.2f} MB")
 
-    #params['world_size'] = 1
-    '''if torch.cuda.device_count() == 1:
-        world_rank = 0
-        local_rank = 0
-        params['batch_size'] = params['batch_size']//4'''
-    
-    if params['world_size'] > 1:
-        
-        if 'derecho' in str(Path(__file__)):
-            local_rank = args.local_rank
-        else:
-            local_rank = int(os.environ["LOCAL_RANK"])
-
-        args.gpu = local_rank
-        
-        # print("##########WORLD RANK: TESTING ", world_rank)
-        params['global_batch_size'] = params.batch_size
-        params['batch_size'] = int(params.batch_size//params['world_size'])
-    else:
-        world_rank = 0
-        local_rank = 0
-
-    torch.manual_seed(world_rank)
-    torch.cuda.set_device(local_rank)
-    torch.backends.cudnn.benchmark = True
-
-    # Set up directory
+    # Set up directory structure
     expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
-    if world_rank == 0:
-        if not os.path.isdir(expDir):
-            os.makedirs(expDir)
-            os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
-
     params['experiment_dir'] = os.path.abspath(expDir)
-    ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
-    best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
-    params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+    
+    # Define subdirectories
+    params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints')
+    params['plots_dir'] = os.path.join(expDir, 'plots')
+    params['spectra_dir'] = os.path.join(params['plots_dir'], 'spectra')
+    params['acc_dir'] = os.path.join(params['plots_dir'], 'acc')
+    params['gif_dir'] = os.path.join(params['plots_dir'], 'gif')
+    params['bias_dir'] = os.path.join(params['plots_dir'], 'bias')
+    params['validation_data_dir'] = os.path.join(expDir, 'validation_data')
+    
+    # Checkpoint paths
+    params['checkpoint_path_globstr'] = os.path.join(params['checkpoint_dir'], 'ckpt_epoch_*.tar')
+    params['best_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'best_ckpt.tar')
+    params['latest_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'ckpt_latest.tar')
+    
+    # Set default config values if not specified
+    if not hasattr(params, 'checkpoint_save_interval'):
+        params['checkpoint_save_interval'] = 10
+    if not hasattr(params, 'max_checkpoints_to_keep'):
+        params['max_checkpoints_to_keep'] = 5
+    
+    # Create directories
+    if world_rank == 0:
+        os.makedirs(params['checkpoint_dir'], exist_ok=True)
+        os.makedirs(params['spectra_dir'], exist_ok=True)
+        os.makedirs(params['acc_dir'], exist_ok=True)
+        os.makedirs(params['gif_dir'], exist_ok=True)
+        if params.long_validation:
+            os.makedirs(params['bias_dir'], exist_ok=True)
+        os.makedirs(params['validation_data_dir'], exist_ok=True)
 
     checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr) if os.path.isfile(file)]
-    checkpoint_exists = len(checkpoint_paths) > 0
+    best_checkpoint_exists = os.path.isfile(params['best_checkpoint_path'])
+    if hasattr(params, 'latest_checkpoint_path'):
+        latest_checkpoint_exists = os.path.isfile(params['latest_checkpoint_path'])
+    checkpoint_exists = len(checkpoint_paths) > 0 or best_checkpoint_exists or latest_checkpoint_exists
 
     # Determine whether to resume or start fresh
-    if params.fresh_start or args.fresh_start:
+    if params.just_validate:
+        # Validation requires a trained model - must load checkpoint
+        if not checkpoint_exists:
+            raise FileNotFoundError(
+                "just_validate=True but no checkpoint found. "
+                f"Searched: {params.checkpoint_path_globstr}, {params.best_checkpoint_path}"
+            )
+        params['resuming'] = True
+        if world_rank == 0:
+            logging.info("Validation mode: will load checkpoint.")
+    elif params.fresh_start or args.fresh_start:
         params['resuming'] = False
         if checkpoint_exists and world_rank == 0:
             logging.info("Fresh start requested. Ignoring existing checkpoint.")
-
     elif checkpoint_exists:
         params['resuming'] = True
         if world_rank == 0:
@@ -2148,6 +2229,9 @@ if __name__ == '__main__':
             for ckpt_i in params.validation_epochs:
                 print(f'Validating epoch {ckpt_i}...')
                 ckpt_path = params.checkpoint_path_globstr.replace('*', str(ckpt_i))
+                if not os.path.isfile(ckpt_path):
+                    logging.warning(f"Checkpoint not found: {ckpt_path}, skipping epoch {ckpt_i}")
+                    continue
                 trainer.restore_checkpoint(ckpt_path)
                 trainer.epoch = trainer.startEpoch
                 trainer.validate_one_epoch()
