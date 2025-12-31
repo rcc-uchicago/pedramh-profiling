@@ -69,6 +69,7 @@ SINGLE_LEVEL_VARS = [
     #Prognostic
     "mrso",
     "pl",
+    "snd",
     "tas",
     "ts"
 ]

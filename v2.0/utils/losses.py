@@ -5,7 +5,6 @@ from torch import Tensor
 import torch.nn.functional as F
 
 
-
 def latitude_weighting_factor_torch(latitudes):
     lat_weights_unweighted = torch.cos(3.1416/180. * latitudes)
     n_lat = latitudes.shape[0]
@@ -138,3 +137,44 @@ class Latitude_weighted_CRPSLoss(_Loss):
         prefactor = 1 / (self.num_ensemble_members * (self.num_ensemble_members - 1))
         spread = prefactor * spread
         return spread
+    
+
+
+
+class Kl_divergence_gaussians(_Loss):
+    def __init__(self) -> None:
+        super().__init__()
+  
+    def forward(self, mu_q, logvar_q, mu_p=None, logvar_p=None):
+        """
+        Computes the KL divergence between two multivariate Gaussians with diagonal covariances.
+        
+        q ~ N(mu_q, var_q), p ~ N(mu_p, var_p)
+        logvar_* are the log variances (for numerical stability).
+
+        If mu_p and logvar_p are None, assumes p is standard normal (mu=0, var=1).
+
+        Args:
+            mu_q.   : Tensor of shape [batch_size, latent_dim]
+            logvar_q: Tensor of shape [batch_size, latent_dim]
+            mu_p.   : Tensor of shape [batch_size, latent_dim] or None
+            logvar_p: Tensor of shape [batch_size, latent_dim] or None
+
+        Returns:
+            kl: average KL divergence over the batch, a scalar tensor.
+        """
+        if mu_p is None:
+            mu_p = torch.zeros_like(mu_q)
+        if logvar_p is None:
+            logvar_p = torch.zeros_like(logvar_q)
+
+        var_q = torch.exp(logvar_q)
+        var_p = torch.exp(logvar_p)
+
+        kl = 0.5 * (
+            logvar_p - logvar_q
+            + (var_q + (mu_q - mu_p).pow(2)) / var_p
+            - 1
+        )
+
+        return kl.mean()    # Sum over latent dimension

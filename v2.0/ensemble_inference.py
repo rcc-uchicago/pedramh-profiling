@@ -1,4 +1,5 @@
 from networks.pangu import PanguModel_Plasim
+from networks.pangu_legacy import PanguModel_Plasim as PanguModel_Plasim_Legacy
 from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
 from tqdm import tqdm
 from ruamel.yaml.comments import CommentedMap as ruamelDict
@@ -71,27 +72,36 @@ def compute_A_ensemble(args):
     Computes the A values for an ensemble forecast.
     """
     # Open the dataset for existing paths
-    ds, particle_idx, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
+    ds_list, particle_idxs_list, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
     # ds = xr.open_dataset(path, decode_times=True, use_cftime=True)
     # Load region boundaries from a JSON file
-    print(f'Computing obs for particle {particle_idx}, members {ensemble_start} to {ensemble_end}')
-    with open(PATH_REGIONS, 'r') as f:
-        all_regions = json.load(f)
-    for region in regions:
-        lon_region = all_regions[region]['lon']
-        lat_region = all_regions[region]['lat']
-        # Select the region of interest from the dataset
-        ds_region = ds.sel(lon=lon_region, lat=lat_region, method='nearest')
-        # Compute the distribution of A values for the selected region and variable
-        if var in ['tas', 'ta']:
-            A = ds_region[var].mean(dim=['lon', 'lat']) - 273.15  # Convert temperature from Kelvin to Celsius
-        else:
-            A = ds_region[var].mean(dim=['lon', 'lat'])
-        A = A.resample(time='1D').mean()  # Resample to daily mean
-        A = A.isel(time=slice(lead_time, lead_time+target_duration))  # Select the first T days
-        A = A.mean(dim='time')  # Compute the mean over the selected time period
-        filepath = save_basenames[particle_idx] + f'_{ensemble_start:04d}-{ensemble_end:04d}_A_{region}.npy'
-        np.save(filepath, A.values.flatten())
+    # print("DEBUG: ds_list: ", ds_list)
+    # print("DEBUG: particle_idxs_list: ", particle_idxs_list)
+    
+    # if not isinstance(ds_list, list):
+    #     ds_list = [ds_list]
+    # if not isinstance(particle_idxs_list, list):
+    #     particle_idxs_list = [particle_idxs_list]
+
+    for ds, particle_idx in zip(ds_list, particle_idxs_list):
+        with open(PATH_REGIONS, 'r') as f:
+            all_regions = json.load(f)
+        for region in regions:
+            lon_region = all_regions[region]['lon']
+            lat_region = all_regions[region]['lat']
+            # Select the region of interest from the dataset
+            ds_region = ds.sel(lon=lon_region, lat=lat_region, method='nearest')
+            # Compute the distribution of A values for the selected region and variable
+            if var in ['tas', 'ta']:
+                A = ds_region[var].mean(dim=['lon', 'lat']) - 273.15  # Convert temperature from Kelvin to Celsius
+            else:
+                A = ds_region[var].mean(dim=['lon', 'lat'])
+            A = A.resample(time='1D').mean()  # Resample to daily mean
+            A = A.isel(time=slice(lead_time, lead_time+target_duration))  # Select the first T days
+            A = A.mean(dim='time')  # Compute the mean over the selected time period
+            filepath = save_basenames[particle_idx] + f'_{ensemble_start:04d}-{ensemble_end:04d}_A_{region}.npy'
+            #print(f'Obs filepath: {filepath}')
+            np.save(filepath, A.values.flatten())
         
 def combine_A_ensemble(save_basenames, regions):
     for save_basename, region in tqdm(product(save_basename, region), 
@@ -124,42 +134,9 @@ class Stepper():
         self.world_rank = world_rank
         self.async_save = async_save
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-        self.early_stop_epoch = self.params['early_stop_epoch'] - 1 if 'early_stop_epoch' in self.params else None
         self.run_uuid = str(uuid.uuid4())
-        self.has_land = False
-        self.has_ocean = False
-        self.mask_output = False
-        if hasattr(self.params, 'land_variables'):
-            if len(self.params.land_variables) > 0:
-                self.has_land = True
-        else:
-            self.params['land_variables'] = []
-        if hasattr(self.params, 'ocean_variables'):
-            if len(self.params.ocean_variables) > 0:
-                self.has_land = True
-        else:
-            self.params['ocean_variables'] = []
-        if hasattr(self.params, 'mask_output'):
-            self.mask_output = self.params.mask_output
-        if use_6h_24h_model:
-            has_land = False
-            has_ocean = False
-            mask_output = False
-            if hasattr(self.params_24h, 'land_variables'):
-                if len(self.params_24h.land_variables) > 0:
-                    has_land = True
-            else:
-                self.params_24h['land_variables'] = []
-            if hasattr(self.params_24h, 'ocean_variables'):
-                if len(self.self.params_24h.ocean_variables) > 0:
-                    has_land = True
-            else:
-                self.params_24h['ocean_variables'] = []
-            if hasattr(self.params_24h, 'mask_output'):
-                mask_output = self.params_24h.mask_output
-            assert has_land == self.has_land
-            assert has_ocean == self.has_ocean
-            assert mask_output == self.mask_output
+        self.check_land_ocean_variables()
+        self.get_dataset()
         self.obs_function = obs_function
         self.obs_args = obs_args
         self.save_forecasts = False
@@ -167,9 +144,25 @@ class Stepper():
             self.save_forecasts = self.params.save_forecasts
 
 
-        logging.info('rank %d, begin data loader init' % world_rank)
-        for params in params_list:
-            print(params)
+        self.enable_amp = self.params.enable_amp
+        self.enable_fp8 = self.params.enable_fp8
+        
+        if self.enable_fp8:
+            global te, recipe, fp8_autocast
+            import transformer_engine.pytorch as te
+            from transformer_engine.common import recipe
+            from transformer_engine.pytorch import fp8_autocast
+
+            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
+                                                    amax_history_len=16,
+                                                    amax_compute_algo="max")
+        self.setup_model()
+        
+
+    def get_dataset(self):
+        logging.info('rank %d, begin data loader init' % self.world_rank)
+        # for params in self.params:
+        #     print(params)
 
         if hasattr(self.params, 'init_nc_filepaths'):
             self.init_from_nc = True
@@ -186,55 +179,58 @@ class Stepper():
                                     device_idx = self.world_rank)
         
         
-        #print('Inference Idxs:')
-        #print(self.valid_dataset.inference_idxs)
-
-        # self.constant_boundary_data = self.train_dataset.constant_boundary_data.unsqueeze(0) * torch.ones(params.batch_size, 1, 1, 1)
-        # self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         self.constant_boundary_data = self.dataset.constant_boundary_data.unsqueeze(0) * torch.ones(self.params.batch_size, 1, 1, 1)
         self.constant_boundary_data = self.constant_boundary_data.to(self.device, non_blocking=True)
         if self.params.num_ensemble_members > 1:
             logging.info('Ensemble Mode. Ensemble size = {self.params.num_ensemble_members}\n')
+        logging.info('rank %d, data loader initialized' % self.world_rank)
 
-         # Load climatology
+    def setup_model(self):
+        # Set up model
+        self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
+        self.model, self.model_24h = self.get_model()
+        self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
+        logging.info("Loading model from checkpoint: %s", self.params.best_checkpoint_path)
+        if self.use_6h_24h_model:
+            self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
+            logging.info("Loading 24h model from checkpoint: %s", self.params_24h.best_checkpoint_path)
+
+    def get_land_mask_bool(self) -> torch.Tensor:
         """
-        climatology_path = os.path.join(params.data_dir, self.params.climatology_file)
-        self.climatology = xr.open_dataset(climatology_path)
-        if 'time_bnds' in self.climatology.data_vars:
-            self.climatology = self.climatology.drop_vars('time_bnds')
-        self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
-        self.climatology = self.climatology.rename({'time':'dayofyear'})
-        if self.long_validation:
-            self.climatology_bias = self.climatology.mean(dim='dayofyear')
-            self.clim_surface_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.surface_variables]))
-            upper_air_clim = []
-            for var in self.params.upper_air_variables:
-                if var != 'zg' and var != 'geopotential' and self.params.use_sigma_levels:
-                    upper_air_clim.append(self.climatology_bias[var].sel(lev = self.params.sigma_levels))
-                else:
-                    upper_air_clim.append(self.climatology_bias[var].sel(plev = self.params.levels))
-            self.clim_upper_air_bias = torch.from_numpy(np.stack(upper_air_clim))
-            if self.params.has_diagnostic:
-                self.clim_diagnostic_bias = torch.from_numpy(np.stack([self.climatology_bias[var].values for var in self.params.diagnostic_variables]))
+        Get a boolean mask for the land or ocean based on the variable name.
         """
-
-
-        self.enable_amp = self.params.enable_amp
-        self.enable_fp8 = self.params.enable_fp8
-        
-        if self.enable_fp8:
-            global te, recipe, fp8_autocast
-            import transformer_engine.pytorch as te
-            from transformer_engine.common import recipe
-            from transformer_engine.pytorch import fp8_autocast
-
-            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
-                                                    amax_history_len=16,
-                                                    amax_compute_algo="max")
-            
-        logging.info('rank %d, data loader initialized' % world_rank)
-        
+        mask_bool = []
+        land_mask = []
         if self.params.nettype == 'pangu_plasim':
+            if (self.has_land or self.has_ocean) and self.mask_output:
+                land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
+                print(f'Land Mask shape: {land_mask.shape}')
+                mask_bool = []
+                for var in self.params.surface_variables:
+                    if var in self.params.land_variables:
+                        mask_bool.append(torch.clone(land_mask).to(torch.bool))
+                    elif var in self.params.ocean_variables:
+                        mask_bool.append(torch.logical_not(torch.clone(land_mask).to(torch.bool)))
+                    else:
+                        mask_bool.append(torch.ones(land_mask.shape, device=self.device, dtype=torch.bool))
+                mask_bool = torch.stack(mask_bool)
+            else:
+                land_mask = None
+        
+        else:
+            raise Exception("not implemented")
+        return mask_bool, land_mask
+
+    def get_model(self):
+        """ 
+        Get the model based on the nettype specified in params.
+        """
+        self.model_24h = None
+        if self.params.nettype == 'pangu_plasim':
+            if self.params.use_legacy_model:
+                model_class = PanguModel_Plasim_Legacy
+            else:
+                model_class = PanguModel_Plasim
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.dataset.land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
@@ -250,17 +246,17 @@ class Stepper():
             else:
                 land_mask = None
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(self.params, land_mask = land_mask).to(self.device)
+                self.model = model_class(self.params, land_mask = land_mask).to(self.device)
                 self.integrator = Integrator(self.params, surface_ff_std=self.dataset.surface_std.detach().to(self.device),
                                             surface_delta_std=self.dataset.surface_delta_std.detach().to(self.device),
                                             upper_air_ff_std=self.dataset.upper_air_std.detach().to(self.device),
                                             upper_air_delta_std=self.dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(self.params, 'mask_fill'):
-                    self.model = PanguModel_Plasim(self.params, land_mask = land_mask, 
+                    self.model = model_class(self.params, land_mask = land_mask, 
                                             mask_fill = self.params.mask_fill).to(self.device)
                 else:
-                    self.model = PanguModel_Plasim(self.params, land_mask = land_mask, 
+                    self.model = model_class(self.params, land_mask = land_mask, 
                                                 mask_fill = self.dataset.mask_fill).to(self.device)
             if self.use_6h_24h_model:
                 _, dataset_24h = get_data_loader(self.params_24h, self.params_24h.data_dir, dist.is_initialized(), 
@@ -268,17 +264,17 @@ class Stepper():
                                                  year_end=self.params_24h.val_year_end, train=False,
                                                  ensemble = True, init_from_nc = self.init_from_nc)
                 if self.params_24h.predict_delta:
-                    self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask).to(self.device)
+                    self.model_24h = model_class(self.params_24h, land_mask = land_mask).to(self.device)
                     self.integrator_24h = Integrator(self.params_24h, surface_ff_std=dataset_24h.surface_std.detach().to(self.device),
                                                 surface_delta_std=dataset_24h.surface_delta_std.detach().to(self.device),
                                                 upper_air_ff_std=dataset_24h.upper_air_std.detach().to(self.device),
                                                 upper_air_delta_std=dataset_24h.upper_air_delta_std.detach().to(self.device)).to(self.device)
                 else:
                     if hasattr(self.params_24h, 'mask_fill'):
-                        self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask, 
+                        self.model_24h = model_class(self.params_24h, land_mask = land_mask, 
                                                 mask_fill = self.params_24h.mask_fill).to(self.device)
                     else:
-                        self.model_24h = PanguModel_Plasim(self.params_24h, land_mask = land_mask, 
+                        self.model_24h = model_class(self.params_24h, land_mask = land_mask, 
                                                     mask_fill = dataset_24h.mask_fill).to(self.device)
                 
             #self.restore_checkpoint(params.best_checkpoint_path)
@@ -288,7 +284,7 @@ class Stepper():
             print(f'\n\nRunning SFNO model\n\n')
             self.model = SFNO(self.params, self.dataset).to(self.device)
             if self.params.sync_norm:
-                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+                self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
                 self.integrator = Integrator(self.params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
@@ -307,13 +303,50 @@ class Stepper():
                                                  device_ids=[
                                                      self.params.local_rank],
                                                  output_device=[self.params.local_rank], find_unused_parameters=True)
-        self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
-        if self.use_6h_24h_model:
-            self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
-        
         if self.params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-            
+        return self.model, self.model_24h
+
+    def check_land_ocean_variables(self) -> None:
+        """
+        The function is used to update the boolean variable to check if there is land/ocean variables
+        """
+        #initlisation
+        self.has_land = False
+        self.has_ocean = False
+        self.mask_output = False
+        if hasattr(self.params, 'land_variables'):
+            if len(self.params.land_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['land_variables'] = []
+        if hasattr(self.params, 'ocean_variables'):
+            if len(self.params.ocean_variables) > 0:
+                self.has_land = True
+        else:
+            self.params['ocean_variables'] = []
+        if hasattr(self.params, 'mask_output'):
+            self.mask_output = self.params.mask_output
+        if self.use_6h_24h_model:
+            has_land = False
+            has_ocean = False
+            mask_output = False
+            if hasattr(self.params_24h, 'land_variables'):
+                if len(self.params_24h.land_variables) > 0:
+                    has_land = True
+            else:
+                self.params_24h['land_variables'] = []
+            if hasattr(self.params_24h, 'ocean_variables'):
+                if len(self.params_24h.ocean_variables) > 0:
+                    has_land = True
+            else:
+                self.params_24h['ocean_variables'] = []
+            if hasattr(self.params_24h, 'mask_output'):
+                mask_output = self.params_24h.mask_output
+            assert has_land == self.has_land
+            assert has_ocean == self.has_ocean
+            assert mask_output == self.mask_output
+
     def restore_checkpoint(self, model, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
@@ -330,9 +363,6 @@ class Stepper():
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         print('START EPOCH:', self.startEpoch)
-        # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
-        #if self.params.resuming:
-        #    self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
             
     def predict(self, obs_function = None, obs_args = None):
         if self.params.log_to_screen:
@@ -439,12 +469,12 @@ class Stepper():
                                           desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
                         inference_start = time.time()
                         if self.params.has_diagnostic:
-                            out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                            out_surface, out_upper_air, out_diagnostic, _, _ = self.model(input_surface, 
                                                                                     constant_boundary_data, 
                                                                                     varying_boundary_data[:,time_step],
                                                                                     input_upper_air)
                         else:
-                            out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                            out_surface, out_upper_air, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                     varying_boundary_data[:,time_step], input_upper_air)
                         if self.params.predict_delta:
                             input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
@@ -565,13 +595,13 @@ class Stepper():
                     for time_step in tqdm(range(self.dataset.ensemble_inference_steps),
                                           desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
                         if self.params.has_diagnostic:
-                            out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                            out_surface, out_upper_air, out_diagnostic, _, _ = self.model(input_surface, 
                                                                                     constant_boundary_data, 
                                                                                     varying_boundary_data[:,time_step],
                                                                                     input_upper_air)
                             output_diagnostic[:, time_step] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
                         else:
-                            out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                            out_surface, out_upper_air, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                     varying_boundary_data[:,time_step], input_upper_air)
                         if self.params.predict_delta:
                             input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
@@ -597,16 +627,20 @@ class Stepper():
                             particle_idxs, np.arange(ensemble_start, ensemble_end))
                     #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
                     conversion_time += time.time() - conversion_start
-                    
-                    if self.obs_function:
-                        obs_start = time.time()
-                        self.obs_function([ensemble_datasets[0], particle_idxs[0], ensemble_start, ensemble_end] + self.obs_args)
-                        obs_time += time.time() - obs_start
-                        
+
+
+
                     if self.save_forecasts:
                         save_start = time.time()
                         self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
                         save_time += time.time() - save_start
+                    
+                    if self.obs_function:
+                        obs_start = time.time()
+                        # print("DEBUG: particle_idxs from ensemble_inference.py", particle_idxs)
+                        self.obs_function([ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + self.obs_args)
+                        obs_time += time.time() - obs_start
+                        
 
         total_time = time.time() - total_start
 
@@ -769,7 +803,16 @@ if __name__ == '__main__':
     parser.add_argument("--init_datetime", default="", type=str)
     parser.add_argument("--init_datetimes", default="", type=str)
     parser.add_argument("--init_nc_filepaths", default="", type=str)
+    parser.add_argument("--save_basenames", default="", type=str)
+    parser.add_argument("--output_dirs", default="", type=str)
+    parser.add_argument("--region_file", default="", type=str)
+    parser.add_argument("--regions", default="", type=str)
     parser.add_argument("--async_save", default = False, action='store_true')
+    parser.add_argument("--use_legacy_model", default=False, action='store_true')
+    parser.add_argument("--ensemble_inference_hours", default=0, type=int)
+    parser.add_argument("--num_ensemble_members", default=0, type=int)
+    parser.add_argument("--ensemble_members_per_pred", default=0, type=int)
+    parser.add_argument("--batch_size", default=0, type=int)
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -792,6 +835,29 @@ if __name__ == '__main__':
     params_list = [YParams(os.path.abspath(yaml_config), args.config) for yaml_config in yaml_configs]
     #params['epsilon_factor'] = args.epsilon_factor
     params = params_list[0]
+    params['use_legacy_model'] = args.use_legacy_model
+    if len(args.save_basenames) > 0:
+        params['save_basenames'] = args.save_basenames.split(',')
+    if len(args.output_dirs) > 0:
+        params['output_dirs'] = args.output_dirs.split(',')
+    if len(args.region_file) > 0:
+        params['region_file'] = args.region_file
+    if not hasattr(params, 'output_dirs') and hasattr(params, 'save_basenames'):
+        params['output_dirs'] = [os.path.dirname(save_basename) for save_basename in params['save_basenames']]
+    try:
+        assert len(params['save_basenames']) == len(params['output_dirs'])
+    except AssertionError:
+        raise ValueError("Number of save basenames and output directories must match")
+
+    if args.ensemble_inference_hours > 0:
+        params['ensemble_inference_hours'] = args.ensemble_inference_hours
+    if args.num_ensemble_members > 0:
+        params['num_ensemble_members'] = args.num_ensemble_members
+    if args.ensemble_members_per_pred > 0:
+        params['ensemble_members_per_pred'] = args.ensemble_members_per_pred
+    if args.batch_size > 0:
+        params['batch_size'] = args.batch_size
+    
     params['run_iter'] = 1
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
@@ -950,17 +1016,42 @@ if __name__ == '__main__':
                                                                     has_year_zero = params.has_year_zero) for \
                                                                     init_datetime in params.init_datetimes]
 
+
+    # # @Amaury ADD a condition to generate the output_dirs and save_basenames if they are not provided (consistent with the total number of particles)
+    # if args.output_dir:
+    #    if  len(params['init_datetimes']) > 0:
+    #        N_ICs = len(params['init_datetimes'])
+    #    else:
+    #        N_ICs = len(args.init_nc_filepaths.split(','))
+    #    params['output_dirs'] = [args.output_dir] * N_ICs
+    #    print(f'Output dirs: {params["output_dirs"]}')
+    #    params['save_basenames'] = [args.output_dir + f'/particle_{i}' for i in range(N_ICs)]
+    #    print(f'Save basenames: {params["save_basenames"]}')
+
     params_list[0] = params
+
+    # if output_dirs dosen't exist, create it #Added by Amaury on 12/22/2025
+    # print("DEBUG: output_dirs: ", params['output_dirs'])
+    # # output_dirs = params['output_dirs'] if isinstance(params['output_dirs'], (list, tuple)) else [params['output_dirs']]
+    # for dirname in params['output_dirs']:
+    #     print("DEBUG: dirname: ", dirname + "/")
+    #     if not os.path.isdir(dirname + "/"):
+    #         os.makedirs(dirname + "/", exist_ok=True)
 
     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
                       async_save = args.async_save)
     
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
-            lead_time = 5
-            target_duration = params.ensemble_inference_hours // 24 - lead_time
+            target_duration = 7
+            lead_time = params.ensemble_timedelta_hours // 24 - target_duration
+            print("DEBUG: lead_time: ", lead_time)
+            print("DEBUG: target_duration: ", target_duration)
             var = "tas"
-            regions = ["France", "PNW"]
+            if len(args.regions) > 0:
+                regions = args.regions.split(',')
+            else:
+                regions = ["France", "Chicago"]
             PATH_REGIONS = params.region_file
             stepper.predict(obs_function=compute_A_ensemble, 
                             obs_args=[params.save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS])

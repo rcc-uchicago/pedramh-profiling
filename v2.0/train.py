@@ -1,6 +1,10 @@
 from networks.pangu import PanguModel_Plasim
+from networks.pangu_legacy import PanguModel_Plasim as PanguModel_Plasim_Legacy
 from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
 from tqdm import tqdm
+from pathlib import Path
+from datetime import timedelta
+from datetime import datetime
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
 from collections import OrderedDict
@@ -13,14 +17,15 @@ import time
 from natsort import natsorted
 import numpy as np
 import argparse
-import torch
 import xarray as xr
+import logging
+import torch
 import torchvision
 from torchvision.utils import save_image
-import torch.cuda.amp as amp
+from torch.amp import autocast, GradScaler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel
-import logging
+from torch.profiler import profile, record_function, ProfilerActivity
 from utils import logging_utils
 from utils.power_spectrum import *
 from utils.perturbation import Perturber
@@ -28,13 +33,13 @@ from utils.perturbation import Perturber
 ## NEW IMPORTS
 from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Masked_L1Loss,\
     Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
-    Latitude_weighted_CRPSLoss
+    Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
 from utils.lr_scheduler_sfno import LinearWarmupCosineAnnealingLR
 ###############################@###########
 logging_utils.config_logger()
 #from apex import optimizers
 from pathlib import Path
-#import dask
+import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -53,15 +58,26 @@ import json
 
 #dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
-
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
+torch.cuda.empty_cache()           
+logging.info("Torch version: {}".format(torch.__version__))
+is_ddp = False
 
-torch.cuda.empty_cache()
+if "RANK" in os.environ and "WORLD_SIZE" in os.environ:
+    if int(os.environ["WORLD_SIZE"]) > 1:
+        torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
+        dist.init_process_group(backend="nccl", init_method="env://")
+        is_ddp = True
 
-def list_of_ints(arg):
-    return list(map(int, arg.split(',')))
+if is_ddp and dist.get_rank() == 0:
+    print("DDP initialized")
+    world_rank = dist.get_rank()
+    print(f"World rank: {world_rank}")
+
+if not is_ddp:
+    print("Single-process mode")
 
 #@torch.jit.script
 def latitude_weighting_factor_torch(latitudes):
@@ -81,11 +97,7 @@ def weighted_rmse_torch_channels(pred, target, latitudes):
 
 #@torch.jit.script
 def weighted_rmse_torch_3D(pred, target, latitudes):
-    #takes in arrays of size [n, c, h, w]  and returns latitude-weighted rmse for each chann
     num_lat = pred.shape[3]
-    #num_long = target.shape[2]
-    #lat_t = torch.arange(start=0, end=num_lat, device=pred.device)
-    #s = torch.sum(torch.cos(3.1416/180. * latitudes))
     weight = torch.reshape(latitude_weighting_factor_torch(latitudes), (1, 1, 1, -1, 1))
     result = torch.sqrt(torch.mean(weight * (pred - target)**2., dim=(-1,-2)))
     return result
@@ -109,14 +121,9 @@ def grad_max(model):
     return param_max
 
 
-
 def evaluate_iterative_forecast(da_fc, da_true, func, clim, mean_dims=['lat', 'lon', 'time'], weighted=True):
-    # print("Shape of full da_fc:", da_fc.shape)
-    # print("Shape of full da_true:", da_true.shape)
-    # print("Shape of full climatology:", clim.shape)
     scores = []
     for f in da_fc.lead_time:
-        # print(f"Processing lead time: {f}")
         fc = da_fc.sel(lead_time=f)
         true = da_true.sel(lead_time=f)
         score = func(fc, true, clim, mean_dims=mean_dims, weighted=weighted)
@@ -198,15 +205,15 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
                 clim = clim.drop_vars('zsfc')
                 
             # Add missing variables with zero values
-            if 'pr_12h' in da_fc and 'pr_12h' not in clim:
-                clim['pr_12h'] = clim['tas'].copy()
-                clim['pr_12h'][:] = 0.
-            if 'pr_6h' in da_fc and 'pr_6h' not in clim:
-                clim['pr_6h'] = clim['tas'].copy()
-                clim['pr_6h'][:] = 0.
-            if 'mrso' in da_fc and 'mrso' not in clim:
-                clim['mrso'] = clim['tas'].copy()
-                clim['mrso'][:] = 0.
+            #if 'pr_12h' in da_fc and 'pr_12h' not in clim:
+            #    clim['pr_12h'] = clim['tas'].copy()
+            #    clim['pr_12h'][:] = 0.
+            #if 'pr_6h' in da_fc and 'pr_6h' not in clim:
+            #    clim['pr_6h'] = clim['tas'].copy()
+            #    clim['pr_6h'][:] = 0.
+            #if 'mrso' in da_fc and 'mrso' not in clim:
+            #    clim['mrso'] = clim['tas'].copy()
+            #    clim['mrso'][:] = 0.
             
             # Reorder variables in climatology to match forecast data
             clim = clim[list(da_fc.data_vars)]
@@ -264,28 +271,74 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
     # Calculate ACC
     numerator = (w * fa_prime * a_prime).sum(mean_dims)
     denominator = np.sqrt((w * fa_prime ** 2).sum(mean_dims) * (w * a_prime ** 2).sum(mean_dims))
-    
     acc = numerator / denominator
     
     return acc
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
-
     return (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1)
 
 
 class Trainer():
-    def count_parameters(self):
-        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-
     def __init__(self, params, world_rank):
-
         self.params = params
         self.world_rank = world_rank
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
+        ###Setup the initia epochs and iteration #######
+        self.iters = 0
+        self.startEpoch = 0
+        self.epoch = self.startEpoch
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
+        #################################################
         self.run_uuid = str(uuid.uuid4())
+        self.check_land_ocean_variables()
+        # get dataset
+        self.get_dataset()
+        # Create output directories
+        self.spectra_dir, self.diagnostics_dir, self.output_dir, self.bias_dir = self.create_dirs(self.run_uuid)
+        # Initial wandb
+        if params.log_to_wandb:
+            if params.resuming:
+                resume = "allow"
+            else:
+                resume = "never"
+            wandb.init(config=params, name=f'{params.name}-{params.run_iter}', 
+                entity=params.entity, group=params.group, 
+                project=params.project, resume=resume)
+            logging.info("WandB initialized with config: %s", params)
+        self.init_wandb(self.params)
+        # Setup model
+        #self.setup_model()
+        logging.info('Params' % params)
+        
+    def setup_model(self):
+        # Set up model
+        self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
+        self.model = self.get_model()
+        self.optimizer = self.get_optimizer()
+        if self.params.enable_amp == True:
+            self.scaler = GradScaler()
+        if self.params.resuming:
+            checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
+            self.restore_checkpoint(checkpoint_path)
+            logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
+            if self.params.debug:
+                self.params.max_epochs = self.startEpoch + 1
+        else:
+            logging.info("Starting fresh training run")
+            if self.params.debug:
+                self.params.max_epochs = 1
+        
+        self.setup_scheduler()
+        self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
+
+
+    def check_land_ocean_variables(self) -> None:
+        """
+        The function is used to update the boolean variable to check if there is land/ocean variables
+        """
+        #initlisation
         self.has_land = False
         self.has_ocean = False
         self.mask_output = False
@@ -315,14 +368,46 @@ class Trainer():
                 
 
 
-        logging.info('rank %d, begin data loader init' % world_rank)
-        print(params)
+
+    def create_dirs(self, run_uuid:int)->tuple[str, str, str]:
+        """
+        To create the output directories to store the spectra_output, image, and evaluation metrics plot.
+        """
+
+        main_dirs = ["spectra_out", "gif_out", "acc_plots"]
+        if self.params.long_validation:
+            main_dirs.append("bias_out")
+        for dir_name in main_dirs:
+            os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
+        spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
+        diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
+        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
+        if self.params.long_validation:
+            bias_dir = os.path.join(os.getcwd(), "bias_out", self.run_uuid)
+            logging.info('The output directories %s ; %s; %s; %s', spectra_dir,diagnostics_dir,output_dir,bias_dir)
+        else:
+            logging.info('The output directories %s ; %s; %s', spectra_dir,diagnostics_dir,output_dir)
+
+        if world_rank == 0:
+            os.makedirs(spectra_dir, exist_ok=True)
+            os.makedirs(diagnostics_dir, exist_ok=True)
+            os.makedirs(output_dir, exist_ok=True)         
+            logging.info(f"Created directory: {spectra_dir}")
+            logging.info(f"Created directory: {diagnostics_dir}")
+            logging.info(f"Created directory: {output_dir}")
+            if self.params.long_validation:
+                os.makedirs(bias_dir, exist_ok=True)
+                logging.info(f"Created directory: {bias_dir}")
         
-
-        # self.train_data_loader, self.train_dataset, self.train_sampler = get_data_loader(params, params.data_dir, dist.is_initialized(), 
-        #                                                                                  year_start=params.train_year_start, 
-        #                                                                                  year_end=params.train_year_end, train=True)
-
+        return spectra_dir, diagnostics_dir, output_dir, bias_dir if self.params.long_validation else None
+             
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
+    def get_dataset(self):
+        """
+        setup data loader
+        """
+        logging.info('rank %d, begin data loader init' % self.world_rank)
         if self.params.train_year_to_year:
             self.train_data_loaders = []
             self.train_datasets = []
@@ -353,8 +438,7 @@ class Trainer():
             self.train_datasets = [train_dataset]
             self.train_samplers = [train_sampler]
 
-
-                                                                                
+                                                                        
         self.valid_data_loader, self.valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                      year_start=params.val_year_start, 
                                                                      year_end=params.val_year_end, train=False,
@@ -407,42 +491,14 @@ class Trainer():
             self.climatology = self.climatology.drop_vars('time_bnds')
         self.climatology = self.climatology.astype({var: np.float32 for var in self.climatology.data_vars})
         self.climatology = self.climatology.rename({'time':'dayofyear'})
-            
-
-
-        main_dirs = ["spectra_out", "gif_out", "acc_plots"]
-        for dir_name in main_dirs:
-            os.makedirs(os.path.join(os.getcwd(), dir_name), exist_ok=True)
-
-        self.spectra_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
-        self.diagnostics_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
-        self.output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
-        self.bias_dir = os.path.join(os.getcwd(), "bias_plots", self.run_uuid)          
-        
         if world_rank == 0:
-            os.makedirs(self.spectra_dir, exist_ok=True)
-            os.makedirs(self.diagnostics_dir, exist_ok=True)
-            os.makedirs(self.output_dir, exist_ok=True)
-            print(f"Created directory: {self.spectra_dir}")
-            print(f"Created directory: {self.diagnostics_dir}")
-            print(f"Created directory: {self.output_dir}")
-            if self.long_validation:
-                os.makedirs(self.bias_dir, exist_ok = True)
-                print(f"Created directory: {self.bias_dir}")
+            logging.info('rank %d, data loader initialized' % self.world_rank)
 
 
-        self.enable_amp = params.enable_amp
-        self.enable_fp8 = params.enable_fp8
-        
-        if self.enable_fp8:
-            global te, recipe, fp8_autocast
-            import transformer_engine.pytorch as te
-            from transformer_engine.common import recipe
-            from transformer_engine.pytorch import fp8_autocast
-
-            self.fp8_recipe = recipe.DelayedScaling(fp8_format=recipe.Format.HYBRID,
-                                                    amax_history_len=16,
-                                                    amax_compute_algo="max")
+    def init_wandb(self, params:dict):    
+        """
+        Initialise wandb, setup metrics to log
+        """
         if params.log_to_wandb:
             if self.params.resuming:
                 resume = "allow"
@@ -496,10 +552,13 @@ class Trainer():
                 wandb.define_metric(metric, step_metric="epoch")
 
 
-        logging.info('rank %d, data loader initialized' % world_rank)
-
-
-        if params.nettype == 'pangu_plasim':
+    def get_land_mask_bool(self) -> torch.Tensor:
+        """
+        Get a boolean mask for the land or ocean based on the variable name.
+        """
+        mask_bool = []
+        land_mask = []
+        if self.params.nettype == 'pangu_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
@@ -514,18 +573,32 @@ class Trainer():
                 mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
+        
+        else:
+            raise Exception("not implemented")
+        return mask_bool, land_mask
+              
+    def get_model(self):
+        """ 
+        Get the model based on the nettype specified in params.
+        """ 
+        if self.params.nettype == 'pangu_plasim':
+            if self.params.use_legacy_model:
+                model_class = PanguModel_Plasim_Legacy
+            else:
+                model_class = PanguModel_Plasim
             if self.params.predict_delta:
-                self.model = PanguModel_Plasim(params, land_mask = land_mask).to(self.device)
+                self.model = model_class(params, land_mask = self.land_mask).to(self.device)
                 self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
                                                upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
                                                upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
             else:
                 if hasattr(params, 'mask_fill'):
-                    self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                    self.model = model_class(params, land_mask = self.land_mask, 
                                                mask_fill = params.mask_fill).to(self.device)
                 else:
-                    self.model = PanguModel_Plasim(params, land_mask = land_mask, 
+                    self.model = model_class(params, land_mask = self.land_mask, 
                                                 mask_fill = self.train_datasets[0].mask_fill).to(self.device)
             # self.model = torch.compile(self.model, mode = 'default')
         elif params.nettype == 'sfno_plasim':
@@ -541,55 +614,45 @@ class Trainer():
         else:
             raise Exception("not implemented")
 
-        if params.log_to_wandb:
-            wandb.watch(self.model)
-
-        if params.finetune_epochs > 0:
-            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
-        else:
-            if params.optimizer_type == 'FusedAdam':
-                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
-            elif params.optimizer_type == 'AdamW':
-                self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
-            else:
-                self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
-
-        if params.enable_amp == True:
-            self.gscaler = amp.GradScaler()
-
+        
         if dist.is_initialized():
             self.model = DistributedDataParallel(self.model,
-                                                 device_ids=[
-                                                     params.local_rank],
-                                                 output_device=[params.local_rank], find_unused_parameters=True)
-            #if self.params.predict_delta:
-            #    self.integrator = DistributedDataParallel(self.integrator,
-            #                                        device_ids=[
-            #                                            params.local_rank],
-            #                                        output_device=[params.local_rank], find_unused_parameters=True)
+                                                 device_ids=[params.local_rank],
+                                                 output_device=[params.local_rank], 
+                                                 find_unused_parameters=True)
+        #Logging
+        if self.params.log_to_wandb:
+            wandb.watch(self.model)
+        '''if params.log_to_screen:
+        logging.info(self.model)'''
+        if params.log_to_screen:
+            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
+        return self.model
+        
 
-        self.iters = 0
-        self.startEpoch = 0
-        if params.resuming:
-            checkpoint_paths = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])
-            if hasattr(self.params, 'checkpoint_num'):
-                checkpoint_path = [p for p in checkpoint_paths if f"ckpt_{params.checkpoint_num}.tar" in os.path.basename(p)][0]
-            else:
-                checkpoint_path = checkpoint_paths[-1]
-            self.restore_checkpoint(checkpoint_path, self.params.finetune_epochs > 0)
-            if params.debug:
-                self.params.max_epochs = self.startEpoch + 1
+    def count_parameters(self):
+        """
+        Count the trainable parameters
+        """
+        return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
+
+
+    def get_optimizer(self):
+        if params.optimizer_type == 'FusedAdam':
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
+        elif params.optimizer_type == 'AdamW':
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay, fused=True)
         else:
-            logging.info("Starting fresh training run")
-            if params.debug:
-                self.params.max_epochs = 1
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=params.lr, weight_decay=params.weight_decay)
 
-        self.epoch = self.startEpoch
+        return self.optimizer
 
-        if params.scheduler == 'ReduceLROnPlateau':
+    def setup_scheduler(self):
+
+        if self.params.scheduler == 'ReduceLROnPlateau':
             self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, factor=0.2, patience=5, mode='min')
-        elif params.scheduler == 'CosineAnnealingLR':
-            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=params.max_epochs, 
+        elif self.params.scheduler == 'CosineAnnealingLR':
+            self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.params.max_epochs, 
                                                                         last_epoch=self.startEpoch-1)
         elif params.scheduler == 'LinearWarmupCosineAnnealingLR':
             steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
@@ -598,56 +661,56 @@ class Trainer():
                                                            max_epochs=self.params.max_epochs*steps_per_epoch,
                                                            warmup_start_lr=self.params.warmup_start_lr,
                                                            eta_min = self.params.eta_min,
-                                                           last_epoch = -1) # (self.startEpoch-1)*steps_per_epoch)
+                                                           last_epoch = -1 if self.startEpoch < 1 else (self.startEpoch-1) * steps_per_epoch)
         elif params.scheduler == 'OneCycleLR':
             # total_steps = len(self.train_data_loader) * params.max_epochs
             steps_per_epoch = sum(len(loader) for loader in self.train_data_loaders)
-            total_steps = steps_per_epoch * params.max_epochs
-            if hasattr(params, 'oc_pct_start'):
-                pct_start = params.oc_pct_start
+            total_steps = steps_per_epoch * self.params.max_epochs
+            if hasattr(self.params, 'oc_pct_start'):
+                pct_start = self.params.oc_pct_start
             else:
                 pct_start = 0.3
-            if hasattr(params, 'oc_div_factor'):
-                div_factor = params.oc_div_factor
+            if hasattr(self.params, 'oc_div_factor'):
+                div_factor = self.params.oc_div_factor
             else:
                 div_factor = 25
-            if hasattr(params, 'oc_final_div_factor'):
-                final_div_factor = params.oc_final_div_factor
+            if hasattr(self.params, 'oc_final_div_factor'):
+                final_div_factor = self.params.oc_final_div_factor
             else:
                 final_div_factor = 1e4
-
-            if self.startEpoch < 1:
-                self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            
+            self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
                     self.optimizer,
-                    max_lr=params.lr,
+                    max_lr=self.params.lr,
                     total_steps=total_steps,
                     steps_per_epoch=steps_per_epoch,
                     pct_start = pct_start,
                     div_factor = div_factor,
-                    final_div_factor=final_div_factor
+                    final_div_factor=final_div_factor,
+                    last_epoch = -1 if self.startEpoch < 1 else (self.startEpoch-1) * steps_per_epoch
                 )
-            else:
-                self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
-                    self.optimizer,
-                    max_lr=params.lr,
-                    total_steps=total_steps,
-                    steps_per_epoch=steps_per_epoch,
-                    last_epoch=(self.startEpoch-1) * steps_per_epoch,
-                    pct_start = pct_start,
-                    div_factor = div_factor,
-                    final_div_factor=final_div_factor
-                )
+            logging.info("Scheduler is setup")
         else:
             self.scheduler = None
 
-        '''if params.log_to_screen:
-      logging.info(self.model)'''
-        if params.log_to_screen:
-            logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
-        if params.loss == 'l1' or params.loss == 'raw_l1':
+        
+
+    def setup_loss_fun(self):
+        """
+        Set up loss function to return the loss for pl, sfc and diagnoistic
+        """
+        #initialisation
+        self.loss_obj_pl = 0 
+        self.loss_obj_sfc = 0
+        self.loss_obj_diagnostic = 0
+        self.loss_vae = 0
+        if self.params.vae_loss:
+            self.loss_vae = Kl_divergence_gaussians()
+            logging.info("VAE loss is setup")
+        if self.params.loss == 'l1' or self.params.loss == 'raw_l1':
             self.loss_obj_pl = torch.nn.L1Loss()
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Masked_L1Loss(mask_bool)
+                self.loss_obj_sfc = Masked_L1Loss(self.mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.L1Loss()
             if self.params.has_diagnostic:
@@ -655,55 +718,56 @@ class Trainer():
         elif params.loss == 'l2' or params.loss == 'raw_l2':
             self.loss_obj_pl = torch.nn.MSELoss()
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Masked_MSELoss(mask_bool)
+                self.loss_obj_sfc = Masked_MSELoss(self.mask_bool)
             else:
                 self.loss_obj_sfc = torch.nn.MSELoss()
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = torch.nn.MSELoss()
-        elif params.loss == 'weightedl1':
+        elif self.params.loss == 'weightedl1':
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
-
             # self.lat = self.train_dataset.lat.to(self.device, non_blocking=True)
             self.loss_obj_pl = Latitude_weighted_L1Loss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, mask_bool)
+                self.loss_obj_sfc = Latitude_weighted_masked_L1Loss(self.lat, self.mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_L1Loss(self.lat)
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_L1Loss(self.lat)
-        elif params.loss == 'weightedl2':
+        elif self.params.loss == 'weightedl2':
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
-            
             self.loss_obj_pl = Latitude_weighted_MSELoss(self.lat)
             if (self.has_land or self.has_ocean) and self.mask_output:
-                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, mask_bool)
+                self.loss_obj_sfc = Latitude_weighted_masked_MSELoss(self.lat, self.mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_MSELoss(self.lat)
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_MSELoss(self.lat)
-        elif params.loss == 'weightedCRPS':
+        elif self.params.loss == 'weightedCRPS':
             self.lat = torch.from_numpy(np.array(self.params.lat)).to(self.device)
-            
             self.loss_obj_pl = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
             if self.has_land or self.has_ocean:
                 self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members,
-                                                               mask_bool)
+                                                               self.mask_bool)
             else:
                 self.loss_obj_sfc = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
             if self.params.has_diagnostic:
                 self.loss_obj_diagnostic = Latitude_weighted_CRPSLoss(self.lat, params.num_ensemble_members)
         else:
             raise NotImplementedError
+        logging.info("Losses is setup")
+        return self.loss_obj_pl, self.loss_obj_sfc, self.loss_obj_diagnostic
 
 
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
-
         best_valid_loss = 1.e6
         early_stopping_counter = 0
         early_stop_epoch_triggered = False
+
         for epoch in range(self.startEpoch, self.params.max_epochs):
+            if world_rank == 0:
+                logging.info(f'Starting epoch {epoch + 1}/{self.params.max_epochs}')
 
             if self.early_stop_epoch is not None and epoch > self.early_stop_epoch:
                 if self.params.log_to_screen:
@@ -714,12 +778,13 @@ class Trainer():
             if dist.is_initialized():
                 for sampler in self.train_samplers:
                     sampler.set_epoch(epoch)
-                # self.train_sampler.set_epoch(epoch)
-#        self.valid_sampler.set_epoch(epoch)
 
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
+            logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
             valid_time, valid_logs = self.validate_one_epoch()
+            logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
+            torch.cuda.empty_cache()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
                 self.scheduler.step(valid_logs['valid_loss'])
@@ -729,11 +794,6 @@ class Trainer():
                     logging.info("Terminating training after reaching params.max_epochs while LR scheduler is set to CosineAnnealingLR")
                     # exit()
                     break
-
-            if self.params.log_to_wandb:
-                for pg in self.optimizer.param_groups:
-                    lr = pg['lr']
-                wandb.log({'lr': lr, 'epoch': self.epoch})
             
             # Early stopping logic should be outside of world_rank check
             if valid_logs['valid_loss'] <= best_valid_loss:
@@ -741,32 +801,19 @@ class Trainer():
                 early_stopping_counter = 0  # Reset the counter
             else:
                 early_stopping_counter += 1  # Increment the counter
-                
-
+            
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
                     self.save_checkpoint(self.params.checkpoint_path_globstr, self.epoch)
                     if valid_logs['valid_loss'] <= best_valid_loss:
-                        self.save_checkpoint(self.params.best_checkpoint_path, -1)
-
-
-            if self.params.log_to_screen:
-                logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
-                logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
-                    train_logs['train_loss'], valid_logs['valid_loss'], valid_logs['valid_loss_sfc'], valid_logs['valid_loss_upper_air']))
-                
-                # Add logging for multi-day losses
-                lead_times_steps = self.params.forecast_lead_times
-                multi_step_loss_str = '. '.join([f"{step}-step Val loss: {valid_logs.get(f'valid_loss_{step}step', 'N/A')}" for step in lead_times_steps])
-                logging.info(f'Multi-step validation losses: {multi_step_loss_str}')
-                
-                if self.params.early_stopping:
-                    logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
-            
+                        self.save_checkpoint(self.params.best_checkpoint_path)
+            if self.params.log_to_wandb and self.world_rank == 0:
+                self.log_wandb_epoch(epoch)
+                self.log_screen_epoch(epoch, start, train_logs, valid_logs, early_stopping_counter)
             # Early stopping check
             if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
-                if self.params.log_to_screen:
+                if self.params.log_to_screen and world_rank == 0:
                     logging.info('Early stopping triggered. Terminating training.')
                 break # Exit the train method
             
@@ -784,205 +831,307 @@ class Trainer():
             if self.long_validation:
                 self.cleanup_bias()
         # If we've reached this point, we've completed all epochs
-        if self.params.log_to_screen:
+        if self.params.log_to_screen and self.world_rank == 0:
             if early_stop_epoch_triggered:
                 logging.info(f'Training finished early at epoch {self.early_stop_epoch} due to early_stop_epoch setting.')
             else:
                 logging.info('Completed all epochs. Training finished normally.')
 
-    def train_one_epoch(self):
+
+    def log_wandb_epoch(self, epoch:int)->None:
+        """
+        Log to wandb
+        """
+        if self.params.log_to_wandb:
+            for pg in self.optimizer.param_groups:
+                lr = pg['lr']
+            wandb.log({'lr': lr, 'epoch': self.epoch})
+    
+
+    def log_screen_epoch(self, epoch:int, start, train_logs, valid_logs, early_stopping_counter, **kwargs) ->None:
+        """
+        Log to screen 
+        """
+        if self.params.log_to_screen:
+                logging.info('Time taken for epoch {} is {} sec'.format(epoch + 1, time.time()-start))
+                logging.info('Train loss: {}. Validation loss: {}. Surface Val loss: {}. Upper Air Val loss: {}'.format(
+                    train_logs['train_loss'], valid_logs['valid_loss'], valid_logs['valid_loss_sfc'], valid_logs['valid_loss_upper_air']))
+                # Add logging for multi-day losses
+                lead_times_steps = self.params.forecast_lead_times
+                multi_step_loss_str = '. '.join([f"{step}-step Val loss: {valid_logs.get(f'valid_loss_{step}step', 'N/A')}" for step in lead_times_steps])
+                logging.info(f'Multi-step validation losses: {multi_step_loss_str}')
+                if self.params.early_stopping:
+                    logging.info(f'EarlyStopping counter: {early_stopping_counter} out of {self.params.early_stopping_patience}')
+
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
+    def train_one_epoch(self)->None:
         self.epoch += 1
         tr_time = 0
         data_time = 0
-        self.model.train()
-
         total_iterations = sum(len(loader) for loader in self.train_data_loaders)
-        logging.info(f"Expected total batches: {total_iterations}")
 
+        diagnostic_logs = {}
+        loss = 0
+
+        logging.info(f"Expected total batches: {total_iterations}")
         if not self.train_data_loaders:
             logging.warning("No training data loaders available.")
             return 0, 0, {"train_loss": 0.0}
 
-        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1)
+        # What does this do?
+        self.model.train()
 
+        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
-        if self.params.diagnostic_logs:
-            diagnostic_logs = {}
-        
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
+            logging.debug(f"Processing year idx {year_idx}")
             current_dataset = self.train_datasets[year_idx]
-            with torch.no_grad():
-                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
             if self.params.train_year_to_year:
                 logging.debug(f"Processing year {self.params.train_year_start + year_idx}")
             else:
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
-            # pbar.set_description(f"Year {self.params.train_year_start + year_idx}")
-            
+      
             for i, data in enumerate(train_data_loader):
-                logging.debug(f"Batch {i}, data shape: {data[0].shape}")
-                self.iters += 1
-                data_start = time.time()
-                if self.params.has_diagnostic:
-                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
-                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+                if self.params.mode == "test":
+                    logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
+                if self.params.mode == "test" and i >= self.params.test_iterations:
+                    logging.info("Test mode: only processing first 30 batches")
+                    pbar.update(total_iterations - self.iters)
+                    data_time += time.time() - data_start
+
                 else:
-                    input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
-                        lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                
-                if self.params.num_ensemble_members > 1:
-                    if self.params.has_diagnostic:
-                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
-                                            [input_surface, input_upper_air, target_surface, target_upper_air, 
-                                            target_diagnostic, varying_boundary_data]]
-                        input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
-                    else:
-                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
-                                            [input_surface, input_upper_air, target_surface, target_upper_air, 
-                                            varying_boundary_data]]
-                        input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
-                
-                index_info_names = ['index', 'start_time', 'start_idx', 'start_leap_idx', 'start_hour_diff', 'end_time', 'end_idx', 'end_hour_diff']
+                    self.iters += 1
+                    data_start = time.time()
+                    input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
+                    data_time += time.time() - data_start
+                    if self.params.mode == "test":
+                        logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
-                data_time += time.time() - data_start
-
-                tr_start = time.time()
-
-                self.model.zero_grad()
-
-                if self.params.enable_fp8:
-                    precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe)
-                else:
-                    precision_context = amp.autocast(enabled=self.params.enable_amp)
-
-                with precision_context:
-                    if self.params.has_diagnostic:
-                        output_surface, output_upper_air, output_diagnostic = self.model(input_surface, self.constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air, train = True)
-                        #print(output_surface.shape)
-                        #print(output_upper_air.shape)
-                        #print(output_diagnostic.shape)
-                        loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
-                    else:
-                        output_surface, output_upper_air = self.model(input_surface, self.constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air, train = True)
+                    tr_start = time.time()
+                    self.model.zero_grad()                
+                    #define loss
+                    output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
+                        input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
+                        target_diagnostic, target_surface, target_upper_air
+                    )
                     
-                    loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
-                    loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
-
-                    if 'raw_' in self.params.loss:
-                        if self.params.has_diagnostic:
-                            loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
-                                     loss_sfc * output_surface.shape[1] + \
-                                     loss_diagnostic * output_diagnostic.shape[1]) / \
-                                         (output_upper_air.shape[1] * output_upper_air.shape[2] + output_surface.shape[1] + output_diagnostic.shape[1])
-                        else:
-                            loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
-                                     loss_sfc * output_surface.shape[1]) / \
-                                    (output_upper_air.shape[1] * output_upper_air.shape[2] + output_surface.shape[1])  
+                    
+                    if self.params.enable_amp:
+                        self.scaler.scale(loss).backward()
+                        self.scaler.step(self.optimizer)
+                        self.scaler.update()
                     else:
+                        loss.backward()
+                        self.optimizer.step()
+                    tr_end_time = time.time()
+                    if self.params.mode == "test":
+                        logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
+                    if self.params.scheduler in ['OneCycleLR', 'LinearWarmupCosineAnnealingLR']:
+                        self.scheduler.step()
+
+                    with torch.no_grad():
+
+                        if self.params.predict_delta:
+                            output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                            target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+
+                        latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
+                        surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
+                        upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
+
                         if self.params.has_diagnostic:
-                            loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
-                        else:
-                            loss = (loss_sfc * 0.25) + loss_pl
-
-                if self.params.enable_amp:
-                    self.gscaler.scale(loss).backward()
-                    self.gscaler.step(self.optimizer)
-                    self.gscaler.update()
-                else:
-                    loss.backward()
-                    self.optimizer.step()
-
-                if self.params.scheduler == 'OneCycleLR':
-                    self.scheduler.step()
-                elif self.params.scheduler == 'LinearWarmupCosineAnnealingLR':
-                    self.scheduler.step()
-
-                with torch.no_grad():
-                    if self.params.predict_delta:
-                        #print(input_surface.shape)
-                        #print(input_upper_air.shape)
-                        #print(target_surface.shape)
-                        #print(target_upper_air.shape)
-                        output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
-                        target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
-                        #print(output_surface.shape)
-                        #print(output_upper_air.shape)
-                        #print(target_surface.shape)
-                        #print(target_upper_air.shape)
-                    surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, latitudes)
-                    upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, latitudes)
-                    if self.params.has_diagnostic:
-                        diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
-
-                    if self.params.diagnostic_logs:
-                        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
-                        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
-                        diagnostic_logs['train_batch_loss'] = loss
-                        diagnostic_logs['train_batch_loss_sfc'] = loss_sfc
-                        diagnostic_logs['train_batch_loss_upper_air'] = loss_pl
-                        if self.params.has_diagnostic:
-                            diagnostic_logs['train_batch_loss_diagnostic'] = loss_diagnostic
+                            diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, latitudes)
                             mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
                         else:
+                            diagnostic_lwrmse  = 0
                             mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        diagnostic_logs['train_mean_norm_lwrmse'] = mean_norm_lwrmse
-                        for j, var in enumerate(current_dataset.surface_variables):
-                            diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
-                        if self.params.has_diagnostic:
-                            for j, var in enumerate(current_dataset.diagnostic_variables):
-                                diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
-                        for j, var in enumerate(current_dataset.upper_air_variables):
-                            if var != 'zg' and var != 'geopotential_height' and current_dataset.use_sigma_levels:
-                                for k, level in enumerate(current_dataset.sigma_levels):
-                                    diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
-                            else:
-                                for k, level in enumerate(current_dataset.levels):
-                                    diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
-                        if dist.is_initialized():
-                            for key in sorted(diagnostic_logs.keys()):
-                                if key == 'batch_grad_max':
-                                    grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
-                                    dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
-                                    diagnostic_logs[key] = torch.max(grad_max_tensor)
-                                else:
-                                    dist.all_reduce(diagnostic_logs[key].detach())
-                                    diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
-                        if self.params.log_to_wandb:
-                            wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
 
-                torch.cuda.empty_cache()
+                        ######diagnoistic logging per iteration ###################
+                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                        train_batch_loss = loss, 
+                                                                        train_batch_loss_sfc = loss_sfc, 
+                                                                        train_batch_loss_upper_air = loss_pl,
+                                                                        train_batch_loss_diagnostic =loss_diagnostic,
+                                                                        train_batch_loss_vae = loss_vae,
+                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
+                    ##########################################################
+                        if self.world_rank == 0:
+                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                            wandb.log(diagnostic_logs, step= self.iters)
 
-                tr_time += time.time() - tr_start
-
+                    torch.cuda.empty_cache()
+                    tr_time += time.time() - tr_start
                 
-
-                if self.params.diagnostic_logs:
                     pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                else:
-                    running_results["loss"] += loss.item() * self.params['batch_size']
-                    running_results["batch_sizes"] += self.params['batch_size']
-                    pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {running_results['loss'] / running_results['batch_sizes']:.4f}")
-                
-                pbar.update(1)
 
+                    pbar.update(1)
         pbar.close()
 
+        logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
+        return tr_time, data_time, logs
+
+
+
+    # @log_gpu_memory
+    def _prepare_inputs_batch(self, data:torch.Tensor):
+        """
+        prepare input variables for each iteration from data loader.
+        The return must contain input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
+        """
+        #Initilaise variables
+        input_surface = 0
+        input_upper_air = 0
+        target_surface = 0
+        target_upper_air = 0
+        target_diagnostic = 0
+        varying_boundary_data = 0
+        if self.params.has_diagnostic:
+            input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = map(
+                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+        else:
+            input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = map(
+                lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
+        
+        if self.params.num_ensemble_members > 1:
+            if self.params.has_diagnostic:
+                ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                    [input_surface, input_upper_air, target_surface, target_upper_air, 
+                                    target_diagnostic, varying_boundary_data]]
+                input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = ensemble_batches
+
+                
+            else:
+                ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                    [input_surface, input_upper_air, target_surface, target_upper_air, 
+                                    varying_boundary_data]]
+                input_surface, input_upper_air, target_surface, target_upper_air, varying_boundary_data = ensemble_batches
+        
+        return input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data
+
+
+    def cal_loss(self, input_surface, constant_boundary_data, varying_boundary_data, input_upper_air, 
+                 target_diagnostic, target_surface, target_upper_air, **kwargs):
+        """
+        Calculates the model predictions and corresponding loss values for surface, upper air, and (optionally) diagnostic outputs.
+            Args:
+                    input_surface (Tensor): Input data for the surface variables.
+                    constant_boundary_data (Tensor): Input data for constant boundary conditions.
+                    varying_boundary_data (Tensor): Input data for varying boundary conditions.
+                    input_upper_air (Tensor): Input data for upper air variables.
+                    target_diagnostic (Tensor): Target data for diagnostic variables.
+                    target_surface (Tensor): Target data for surface variables.
+                    target_upper_air (Tensor): Target data for upper air variables.
+                    **kwargs: Additional keyword arguments.
+            Returns:
+                    Tuple[Tensor, Tensor, Tensor, Tensor]: 
+                        - output_surface: Predicted surface variables.
+                        - output_upper_air: Predicted upper air variables.
+                        - output_diagnostic: Predicted diagnostic variables (zero if diagnostics are not used).
+                        - loss: Computed total loss value.
+        """
+        output_surface = 0 
+        output_upper_air = 0 
+        output_diagnostic = 0 
+        loss = 0 
+        loss_diagnostic = 0
+        loss_pl = 0 
+        loss_sfc = 0
+        loss_vae = 0
+        with autocast(device_type="cuda"):
+            if self.params.has_diagnostic:
+                output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+                                                                    varying_boundary_data, input_upper_air, 
+                                                                    target_surface, target_upper_air,train = True)
+                loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
+                
+            else: 
+                output_surface, output_upper_air, mu, sigma,  mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
+                                                            varying_boundary_data, input_upper_air, 
+                                                            target_surface, target_upper_air, train = True)
+                
+            loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
+            loss_pl = self.loss_obj_pl(output_upper_air, target_upper_air)
+
+            if 'raw_' in self.params.loss:
+                if self.params.has_diagnostic:
+                    loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
+                                loss_sfc * output_surface.shape[1] + \
+                                loss_diagnostic * output_diagnostic.shape[1]) / \
+                                    (output_upper_air.shape[1] * output_upper_air.shape[2] + output_surface.shape[1] + output_diagnostic.shape[1])
+                else:
+                    loss = ((loss_pl * output_upper_air.shape[1] * output_upper_air.shape[2]) +\
+                                loss_sfc * output_surface.shape[1]) / \
+                            (output_upper_air.shape[1] * output_upper_air.shape[2] + output_surface.shape[1])  
+            else:
+                if self.params.has_diagnostic:
+                    loss = (loss_sfc + loss_diagnostic) * 0.25 + loss_pl
+                else:
+                    loss = (loss_sfc * 0.25) + loss_pl
+
+            if self.params.vae_loss:    
+                loss_vae = self.loss_vae(mu, sigma, mu2, sigma2)
+                loss += self.params.vae_loss_weight * loss_vae
+
+
+        return output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss
+
+
+    def diagnostic_log_per_iter(self, diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset, **kwargs)->dict:
+        """
+        This function is used for logging the results from each iteration.
+        Given the diagnostic logging input and return the update diagnostic_logs
+        """
+
+        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
+        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+        
+        for key, value in kwargs.items():
+            diagnostic_logs[key] = value
+
+        if self.params.has_diagnostic:
+            for j, var in enumerate(current_dataset.diagnostic_variables):
+                diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(diagnostic_lwrmse[:, j]) * current_dataset.diagnostic_std[j]
+        
+        for j, var in enumerate(current_dataset.surface_variables):
+            diagnostic_logs[f'train_{var}_lwrmse'] = torch.mean(surface_lwrmse[:, j]) * current_dataset.surface_std[j]
+
+        for j, var in enumerate(current_dataset.upper_air_variables):
+            for k, level in enumerate(current_dataset.levels):
+                diagnostic_logs[f'train_{var}_level{level:.4f}_lwrmse'] = torch.mean(upper_air_lwrmse[:, j, k]) * current_dataset.upper_air_std[j, k]
+
+        if dist.is_initialized():
+            for key in sorted(diagnostic_logs.keys()):
+                if key == 'batch_grad_max':
+                    grad_max_tensor = torch.zeros(dist.get_world_size(), dtype = torch.float32, device=self.device)
+                    dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
+                    diagnostic_logs[key] = torch.max(grad_max_tensor)
+                else:
+                    dist.all_reduce(diagnostic_logs[key].detach())
+                    diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
+
+        return diagnostic_logs
+
+
+    def diagnostic_log_per_epoch(self, diagnostic_logs, train_loss, epoch, **kwargs)->dict:
+        """
+        Generate logging information for each epoch.
+        """
+        logs = {}
         if self.params.diagnostic_logs:
             with torch.no_grad():
-                diagnostic_logs['train_loss'] = loss
+                diagnostic_logs['train_loss'] = train_loss
                 if dist.is_initialized():
                     dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
                     diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
                 logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
                 if self.params.log_to_wandb:
                     wandb.log(logs)
-                return tr_time, data_time, diagnostic_logs
+                return diagnostic_logs
         else:
             with torch.no_grad():
-                logs = {'train_loss': loss, 'epoch': self.epoch}
+                logs = {'train_loss': train_loss, 'epoch': self.epoch}
             
             if dist.is_initialized():
                 for key in sorted(logs.keys()):
@@ -993,286 +1142,32 @@ class Trainer():
 
             if self.params.log_to_wandb:
                 wandb.log(logs)
+            return logs
 
-        return tr_time, data_time, logs
 
 
-    def prepare_preds(self, preds, acc = False):
-        preds = preds.rename({'time': 'lead_time'})
-        # If bug, change this back to values[0]
-        preds['time'] = preds.lead_time.values[0:1]
-        preds = preds.set_coords('time')
-        if acc:
-        # For ACC, use all time steps
-            # lead_times = range(len(preds.lead_time))
-            lead_times = range(1, len(preds.lead_time) + 1)  # Start from 1 to match forecast lead times
-        else:
-        # For non-ACC, use forecast lead times
-            lead_times = self.params['forecast_lead_times']
 
-        preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
-        return preds
-    
-    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
-        batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
-        # print(f"TIME STEPS ARE: {time_steps}")
-        datasets = []
 
-        for sample in range(batch_size):
-            # time_range = xr.cftime_range(
-            #     start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
-            #     periods=time_steps,
-            #     freq=f"{params['timedelta_hours']}h"
-            # )
-            # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-            # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-            if acc:
-            # For ACC, create time_range for all time steps
-                # time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
-                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(1, time_steps + 1)]
-                # print(time_range)
-            else:
-            # For specific lead times, use forecast_lead_times
-                time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
-                # print(time_range)
-            #print(time_range[0], time_range[-1])
-            
-
-            # Determine the level coordinate name based on params.lev
-            level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
-            if hasattr(valid_dataset, 'sigma_levels'):
-                if params.lev == 'lev':
-                    levels = valid_dataset.sigma_levels
-                else:
-                    levels = valid_dataset.levels
-            else:
-                levels = valid_dataset.levels
-                
-            if params.lev == 'lev' and ('zg' in params.upper_air_variables or 'geopotential' in params.upper_air_variables):
-                coordinates = {
-                    'time': time_range,
-                    level_coord_name: levels,
-                    'plev': valid_dataset.levels,
-                    'lat': self.params.lat,
-                    'lon': self.params.lon
-                }
-            else:
-                coordinates = {
-                    'time': time_range,
-                    level_coord_name: levels,
-                    'lat': self.params.lat,
-                    'lon': self.params.lon
-                }
-
-            dataset = xr.Dataset(
-                coords=coordinates,
-                attrs=dict(description=f"Prediction from {params.nettype} model run, sample {sample}")
-            )
-
-            for idx, var in enumerate(valid_dataset.surface_variables):
-                da = xr.DataArray(
-                    data=surface_prediction[sample, :, idx],
-                    dims=["time", "lat", "lon"],
-                    coords={'time': time_range,
-                            'lat': dataset.lat.values,
-                            'lon': dataset.lon.values}
-                )
-                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
-                dataset[var] = da
-
-            if type(diagnostic_prediction) is not type(None):
-                for idx, var in enumerate(valid_dataset.diagnostic_variables):
-                    da = xr.DataArray(
-                        data=diagnostic_prediction[sample, :, idx],
-                        dims=["time", "lat", "lon"],
-                        coords={'time': time_range,
-                                'lat': dataset.lat.values,
-                                'lon': dataset.lon.values}
-                    )
-                    #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
-                    dataset[var] = da
-
-            for idx, var in enumerate(valid_dataset.upper_air_variables):
-                if params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
-                    da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, idx],
-                        dims=["time", "plev", "lat", "lon"],
-                        coords = {
-                            'time': time_range,
-                            'plev': dataset.plev.values,
-                            'lat': dataset.lat.values,
-                            'lon': dataset.lon.values
-                        }
-                    )
-                elif params.lev == 'lev':
-                    da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, idx],
-                        dims=["time", params.lev, "lat", "lon"],
-                        coords = {
-                            'time': time_range,
-                            params.lev: dataset.lev.values,
-                            'lat': dataset.lat.values,
-                            'lon': dataset.lon.values
-                        }
-                    )
-                else:
-                    da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, idx],
-                        dims=["time", level_coord_name, "lat", "lon"],
-                        coords=coordinates
-                    )
-                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
-                dataset[var] = da
-
-            datasets.append(dataset)
-                
-
-        return datasets
-    
-    def combine_datasets(self, datasets):
-        return xr.concat(datasets, dim='time')
-    
-
-    def plot_in_separate_process(self, avg_preds, avg_gt, preds_times, filename):
-        # convert lead times to hours
-        lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
-                
-        if len(preds_times) > 0:
-            # Get variable dictionary from params 
-            var_dict = self.params.diagnostic_spectrum_var_dict if hasattr(self.params, 'diagnostic_spectrum_var_dict') else None
-
-            p = Process(target=plot_power_spectrum, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours, var_dict))
-        else:
-            if hasattr(self.params, 'diagnostic_bias_var_dict'):
-                var_dict = self.params.diagnostic_bias_var_dict
-            elif 'mrso' in self.params.land_variables:
-                vars = ["tas", "mrso", "zg", "ua", "hus"]
-                levels = [None, None, 50000, 25000, 85000]
-                var_dict = {var: [level] if level is not None else [] for var, level in zip(vars, levels)}
-            else:
-                # basic fallback
-                var_dict = {"tas": [], "zg": [50000], "ua": [0.4368000030517578]}
-                
-            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, var_dict))
-            # if 'mrso' in self.params.land_variables:
-            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
-            # else:
-            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
-        p.start()
-        p.join()
-
-    
-
-    def log_all_plots_to_wandb(self):
-        if self.params.log_to_wandb:
-            output_dir = self.spectra_dir
-            
-            # # Create the directory if it doesn't exist
-            # os.makedirs(output_dir, exist_ok=True)
-            # print(f"Created directory: {output_dir}")
-
-            plot_files = sorted([f for f in os.listdir(output_dir) if f.startswith("power_spectrum_epoch_")])
-            
-            print(f"Found plot files: {plot_files}")
-            
-            for plot_file in plot_files:
-                # Extract epoch number from filename
-                try:
-                    epoch = int(plot_file.split("_")[-1].split(".")[0])
-                    print(f"Processing file: {plot_file}, extracted epoch: {epoch}")
-                except ValueError as e:
-                    print(f"Error parsing epoch from filename {plot_file}: {e}")
-                    continue
-                
-                # Log plot to wandb
-                try:
-                    wandb.log({
-                        "power_spectrum_plot": wandb.Image(os.path.join(output_dir, plot_file)),
-                        "custom_step": epoch,
-                    })
-                    print(f"Logged file: {plot_file} with epoch: {epoch}")
-                except Exception as e:
-                    print(f"Error logging file {plot_file} to wandb: {e}")
-            
-            print(f"Logged {len(plot_files)} power spectrum plots to wandb")
-
-            # Delete the directory after logging
-            shutil.rmtree(output_dir)
-            print(f"Deleted directory: {output_dir}")
-
-    def print_acc(self, acc):
-        print("\nACC Results:")
-        
-        # Define the variables and pressure levels you're interested in
-        variables = ["2m_temperature", "temperature", "geopotential", "u_component_of_wind"]
-        pressure_levels = [None, 850, 500, 250]  # in hPa, None for surface variables
-        
-        # Convert pressure levels to Pa for selection
-        pressure_levels_pa = [p * 100 if p is not None else None for p in pressure_levels]
-        
-        for var, plev, plev_pa in zip(variables, pressure_levels, pressure_levels_pa):
-            print(f"\nVariable: {var}" + (f" at {plev} hPa" if plev else " (Surface)"))
-            
-            if isinstance(acc['Pangu'], xr.DataArray):
-                data = acc['Pangu'][var]
-                if plev_pa and 'plev' in data.dims:
-                    data = data.sel(plev=plev_pa, method='nearest')
-                
-                for lt in self.params.forecast_lead_times:
-                    hours = lt * self.params.timedelta_hours
-                    acc_value = data.sel(lead_time=lt).values
-                    print(f"  Lead time {hours:2d}h (Step {lt:2d}): {acc_value:.4f}")
-            else:
-                print("  Unexpected data type for ACC score. Please check the output of evaluate_iterative_forecast.")
-    
-
-    def cleanup_acc_plots(self):
-        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir, ignore_errors=True)
-            print(f"Deleted ACC plots directory: {output_dir}")
-
-    def cleanup_power_spectrum_plots(self):
-        output_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
-        if os.path.exists(output_dir):
-            shutil.rmtree(output_dir, ignore_errors=True)
-            print(f"Deleted Power Spectrum plots directory: {output_dir}")
-
-    def cleanup_gifs(self):
-        if os.path.exists(self.diagnostics_dir):
-            shutil.rmtree(self.diagnostics_dir, ignore_errors=True)
-            print(f"Deleted GIF directory: {self.diagnostics_dir}")
-            
-    def cleanup_bias(self):
-        if os.path.exists(self.bias_dir):
-            shutil.rmtree(self.bias_dir, ignore_errors=True)
-            print(f"Deleted GIF directory: {self.bias_dir}")
-    
-
-        
-    def validate_one_epoch(self):
-        self.model.eval()
-        #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
-
-        # define the lead times to evaluate (in time steps)
-        lead_times_steps = self.params.forecast_lead_times
-        with torch.no_grad():
-                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
-
+    def inti_valid_loss(self, lead_times_steps) -> tuple:
+        """
+        Initialise the validation loss variables.
+        """
         if self.params.has_diagnostic:
             valid_buff = torch.zeros((5), dtype=torch.float32, device=self.device)
             valid_loss_diag = valid_buff[3].view(-1)
         else:
             valid_buff = torch.zeros((4), dtype=torch.float32, device=self.device)
+
         valid_loss = valid_buff[0].view(-1)
         valid_loss_sfc = valid_buff[1].view(-1)
         valid_loss_pl = valid_buff[2].view(-1)
         valid_steps = valid_buff[-1].view(-1)
+
+
         valid_surface_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.surface_variables)), dtype=torch.float32, device=self.device)
         valid_upper_air_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.upper_air_variables), len(self.valid_dataset.levels)), dtype=torch.float32, device=self.device)
         if self.params.has_diagnostic:
             valid_diagnostic_lwrmse = torch.zeros((len(lead_times_steps), len(self.valid_dataset.diagnostic_variables)), dtype=torch.float32, device=self.device)
-
         
         multi_step_losses = {f"valid_loss_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         # Add RMSE storage for multiple lead times
@@ -1284,28 +1179,45 @@ class Trainer():
             multi_step_rmse = {f"valid_lwrmse_sfc_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps} |\
                 {f"valid_lwrmse_pl_{step}step": torch.zeros(1, dtype=torch.float32, device=self.device) for step in lead_times_steps}
         
-
+        return valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse
+   
+    # @log_memory_usage(rank=world_rank)
+    # @log_gpu_memory
+    def validate_one_epoch(self):
+        if world_rank == 0:
+            print("Validating...")
+        self.model.eval()
+        #n_valid_batches = 50  # do validation on first 50 images, just for LR scheduler
+        # define the lead times to evaluate (in time steps)
         
+        lead_times_steps = self.params.forecast_lead_times
+        with torch.no_grad():
+                latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
+
+        # Initialize validation loss variables
+        valid_loss_diag, valid_buff, valid_loss, valid_loss_sfc, valid_loss_pl, valid_steps, \
+        valid_surface_lwrmse, valid_upper_air_lwrmse, valid_diagnostic_lwrmse, \
+        multi_step_losses, multi_step_rmse = self.inti_valid_loss(lead_times_steps)
+        
+
         valid_start = time.time()
         nb = len(self.valid_data_loader)
-        if self.params.diagnostic_logs:
-            diagnostic_logs = {}
 
+        diagnostic_logs = {}
 
         sample_idx = np.random.randint(len(self.valid_data_loader))
 
-
-        
         all_predictions = []
         all_ground_truths = []
         acc_predictions = []
         acc_ground_truths = []
 
-        # OPTIMIZATION
         # with torch.inference_mode():
+
         with torch.no_grad():
             
-            precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else amp.autocast(enabled=self.params.enable_amp)
+            precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else \
+                autocast(enabled=self.params.enable_amp, device_type="cuda")
             
             no_nans = True
             if self.long_validation and self.epoch % self.epochs_per_long_validation == 0:
@@ -1328,10 +1240,10 @@ class Trainer():
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     if self.params.has_diagnostic:
-                        val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
+                        val_output_surface, val_output_upper_air, val_output_diagnostic, _, _ = self.model(
                             val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
                     else:
-                        val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data[[0]], 
+                        val_output_surface, val_output_upper_air, _, _ = self.model(val_input_surface, self.constant_boundary_data[[0]], 
                                                                             val_varying_boundary_data, val_input_upper_air)
                     if self.params.predict_delta:
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
@@ -1400,8 +1312,12 @@ class Trainer():
                         
                     print('Plotting Bias')
                     bias_filename = os.path.join(self.bias_dir, f"bias_epoch_{self.epoch}.png")
+                    #print("Bias datasets")
+                    #print(bias_datasets[0])
+                    #print("Climatology bias")
+                    #print(self.climatology_bias)
                     
-                    self.plot_in_separate_process(bias_datasets[0], self.climatology_bias, [], bias_filename)
+                    self.plot_in_separate_process(bias_datasets[0].squeeze("time"), self.climatology_bias, [], bias_filename)
 
                     print("\nFinished Bias Plots...")
                     
@@ -1415,8 +1331,8 @@ class Trainer():
                 
                                 
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1):
-                #if i >= n_valid_batches:
-                #    break
+                if world_rank == 0:
+                    print(f"Validating batch {i+1}/{nb}")
                 if self.params.predict_delta:
                     if self.params.has_diagnostic:
                         val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_target_surface_delta, val_target_upper_air_delta,\
@@ -1433,13 +1349,30 @@ class Trainer():
                             lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
 
 
+                if self.params.num_ensemble_members > 1:
+            
+                    if self.params.has_diagnostic:
+                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                        [val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, 
+                                        val_target_diagnostic, val_varying_boundary_data]]
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, \
+                        val_target_diagnostic, val_varying_boundary_data = ensemble_batches
+                
+                    else:
+                        ensemble_batches = [to_ensemble_batch(temp_batch, params.num_ensemble_members) for temp_batch in 
+                                        [val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, 
+                                        val_varying_boundary_data]]
+                        val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, \
+                        val_varying_boundary_data = ensemble_batches
+        
+       
+
                 # get the correct start times for each sample
                 start_times = []
                 for i in range(times.shape[0]):  # Iterate over all samples in the batch
+                    
                     start_time = self.valid_dataset.datetime_class(times[i,0].item(), times[i,1].item(), times[i,2].item(), hour=times[i,3].item())
                     start_times.append(start_time)
-
-
                 
                 max_lead_time = max(lead_times_steps)
 
@@ -1456,6 +1389,11 @@ class Trainer():
                                                     val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
                                                     val_target_diagnostic.shape[4]), dtype=np.float32)
                 
+                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
+                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
+                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
+
+
                 # Tensor for specific lead times (power spectrum and GIF)
                 val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
                                        val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
@@ -1464,23 +1402,15 @@ class Trainer():
                                          val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                          val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
                                         dtype=np.float32)
-                if self.params.has_diagnostic:
-                    val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
-                                                        val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
-
-                with precision_context:
-
-                     # Autoregressive prediction
-                    # val_output_surface, val_output_upper_air = val_input_surface, val_input_upper_air
+                with precision_context:                        
                     step_idx = 0
                     for step in range(max_lead_time):
                         if self.params.has_diagnostic:
-                            val_output_surface, val_output_upper_air, val_output_diagnostic = self.model(
+                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _  = self.model(
                                 val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         else:
-                            val_output_surface, val_output_upper_air = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                                  val_varying_boundary_data[:, step], val_input_upper_air)
+                            val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
+                                                                                    val_varying_boundary_data[:, step], val_input_upper_air)
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
                             # target_index = lead_times_steps.index(step + 1)
@@ -1497,6 +1427,7 @@ class Trainer():
                             else:
                                 loss = (loss_sfc * 0.25 + loss_pl)
                             multi_step_losses[f"valid_loss_{step+1}step"] += loss
+
                             if step == 0:
                                 valid_loss += loss
                                 valid_loss_sfc += loss_sfc
@@ -1511,15 +1442,11 @@ class Trainer():
                         val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                         val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
                         if self.params.has_diagnostic:
-                            #print(f'val_output_diagnostic_acc[:,step].shape: {val_output_diagnostic_acc[:, step].shape}')
-                            #print(f'val_output_diagnostic.cpu().shape: {val_output_diagnostic.cpu().shape}')
-                            #print(f'self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape: {self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy().shape}')
                             val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
 
-                      
+                    
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
-
                             # Calculate RMSE
                             rmse_sfc = weighted_rmse_torch_channels(val_output_surface, val_target_surface[:,target_index], latitudes)
                             rmse_pl = weighted_rmse_torch_3D(val_output_upper_air, val_target_upper_air[:,target_index], latitudes)
@@ -1537,7 +1464,7 @@ class Trainer():
 
                             val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
                             val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
-                           
+                            
                             if step + 1 == max_lead_time:
 
                                 # Prepare datasets for ACC (all time steps)
@@ -1595,14 +1522,23 @@ class Trainer():
                                     all_ground_truths.append(gt_combined_dataset)
 
                             step_idx += 1
+                        
                         val_input_surface, val_input_upper_air = val_output_surface, val_output_upper_air
+                        del val_output_surface, val_output_upper_air
+                    
+                del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
+                torch.cuda.empty_cache()
                 valid_steps += 1.
+                
+            print("Finished batch validation.")
         
 
         # After the loop, combine all predictions and ground truthsacc_combined_predictions.to_netcdf(os.path.join(val_data_dir, 'predictions.nc'))
         if self.params.diagnostic_spectra:
             combined_predictions = xr.concat(all_predictions, dim='time')
             combined_ground_truths = xr.concat(all_ground_truths, dim='time')
+        print("\nFinished combining predictions and ground truths.")
+           
 
         if self.params.diagnostic_acc or self.params.diagnostic_gif:
             acc_combined_predictions = xr.concat(acc_predictions, dim='time')
@@ -1622,7 +1558,7 @@ class Trainer():
                     truth_out['lead_time'] = [start_time + timedelta(hours = int(elem)) for elem in truth_out.lead_time.values]
                     truth_out = truth_out.rename({'lead_time': 'time'})
                     truth_out.to_netcdf(os.path.join(val_data_dir, f'ground_truth_{start_time.strftime("%Y-%m-%d_%H")}.nc'))
-        
+        print("\nFinished combining ACC predictions and ground truths.")
 
         max_lead_time = max(self.params.forecast_lead_times)
         acc_times_hours = [(lt + 1) * self.params.timedelta_hours for lt in range(max_lead_time)]
@@ -1647,12 +1583,12 @@ class Trainer():
             fig, axs = plot_acc_over_lead_time(acc, acc_times_hours, var_dict=self.params.diagnostic_acc_var_dict)
 
         if self.params.diagnostic_spectra:
+            print("\nCalculating power spectrum...")
             k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_predictions, time_avg=True) 
             k_x_gt, power_spectrum_avg_gt = zonal_averaged_power_spectrum(combined_ground_truths, time_avg= True)
-
-
             preds_times = combined_predictions.time.values
             preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
+            print("\nFinished calculating power spectrum.")
         
         # Save the plot
         if self.world_rank == 0:
@@ -1663,33 +1599,16 @@ class Trainer():
                 print("\nFinished ACC..")
 
             if self.params.diagnostic_gif:
-                print("\nMaking GIFs...")
-                
-                gif_filenames = []
-                for variable in self.params.diagnostic_gif_var_dict.keys():
-                    clim_in = None
-                    if variable in ['zg', 'tas', 'geopotential', '2m_temperature', 'ta', 'temperature']:
-                        clim_in = self.climatology
-                    if len(self.params.diagnostic_gif_var_dict[variable]) > 0:
-                        if variable == 'zg':
-                            level_coord_name = 'plev'
-                        else:
-                            level_coord_name = self.params.lev
-                        for level in self.params.diagnostic_gif_var_dict[variable]:
-                            gif_filenames.append(os.path.join(self.diagnostics_dir, f"{variable}_{level}_animation_epoch_{self.epoch}.gif"))
-                            make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", variable, gif_filenames[-1], 
-                                    climatology=clim_in, level_coord_name=level_coord_name, plev=level)
-                            print(f"\nFinished creating {variable} {level} GIF animation.")
-                    else:
-                        gif_filenames.append(os.path.join(self.diagnostics_dir, f"{variable}_animation_epoch_{self.epoch}.gif"))
-                        make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast", variable, gif_filenames[-1], 
-                                climatology=clim_in, level_coord_name=None, plev=None)
-                        print(f"\nFinished creating {variable} GIF animation.")
-                        
+                print("\nMaking GIF...")
+
+                gif_filename = os.path.join(self.diagnostics_dir, f"geopotential_height_animation_epoch_{self.epoch}.gif")
+                make_gif(acc_combined_predictions, acc_combined_ground_truths, "Model Forecast",
+                    list(set(['geopotential', 'zg']) & set(self.params.upper_air_variables))[0],
+                    gif_filename, climatology=self.climatology, plev=50000)
+                print("\nFinished creating GIF animation.")
 
             if self.params.diagnostic_spectra:
                 print("\nMaking Power Spectrum...")
-
                 # Calculate zonal averaged power spectrum. 
 
                 # k_x_pred, power_spectrum_avg_pred = zonal_averaged_power_spectrum(combined_dataset, time_avg=True) 
@@ -1697,18 +1616,9 @@ class Trainer():
                 # preds_times = combined_dataset.time.values
 
                 path_filename = os.path.join(self.spectra_dir, f"power_spectrum_epoch_{self.epoch}.png")
-
-            
-
                 preds_times = preds_times.cpu().numpy() if isinstance(preds_times, torch.Tensor) else preds_times
-
                 self.plot_in_separate_process(power_spectrum_avg_pred, power_spectrum_avg_gt,preds_times, path_filename)
-
                 print("\nFinished Power Spectrum...")
-
-
-
-
 
         if dist.is_initialized():
             dist.all_reduce(valid_buff)
@@ -1729,13 +1639,12 @@ class Trainer():
 
         valid_buff_cpu = valid_buff.detach()
 
-        if self.params.diagnostic_logs:
-            diagnostic_logs['epoch'] = self.epoch
-            diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
-            diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
-            diagnostic_logs['valid_loss_upper_air'] = valid_buff_cpu[2]
-            if self.params.has_diagnostic:
-                diagnostic_logs['valid_loss_diag'] = valid_buff_cpu[3]
+        diagnostic_logs['epoch'] = self.epoch
+        diagnostic_logs['valid_loss'] = valid_buff_cpu[0]
+        diagnostic_logs['valid_loss_sfc'] = valid_buff_cpu[1]
+        diagnostic_logs['valid_loss_upper_air'] = valid_buff_cpu[2]
+        if self.params.has_diagnostic:
+            diagnostic_logs['valid_loss_diag'] = valid_buff_cpu[3]
 
             #mean_norm_lwrmse = torch.mean(torch.cat((valid_surface_lwrmse, valid_upper_air_lwrmse.flatten()), dim = -1))
             #diagnostic_logs['valid_mean_norm_lwrmse'] = mean_norm_lwrmse
@@ -1772,78 +1681,245 @@ class Trainer():
             #        dist.all_reduce(diagnostic_logs[key].detach())
             #        diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
 
-            # Add multi-day losses to diagnostic logs
-            for key, value in multi_step_losses.items():
-                diagnostic_logs[key] = value.item()
+        # Add multi-day losses to diagnostic logs
+        for key, value in multi_step_losses.items():
+            diagnostic_logs[key] = value.item()
 
-            if self.params.log_to_wandb:
-                wandb.log(diagnostic_logs)
-                if self.params.diagnostic_acc:
+        if self.params.log_to_wandb:
+            wandb.log(diagnostic_logs)
+            if self.params.diagnostic_acc:
+                wandb.log({
+                    "ACC_plot": wandb.Image(plot_filename),
+                    "epoch": self.epoch
+                })
+            if self.params.diagnostic_gif:
+                if gif_filename:
                     wandb.log({
-                        "ACC_plot": wandb.Image(plot_filename),
+                        "Evolution_GIF": wandb.Video(gif_filename),
                         "epoch": self.epoch
                     })
-                if self.params.diagnostic_gif:
-                    if gif_filenames:
-                        for gif_filename in gif_filenames:
-                            wandb.log({
-                                '_'.join(os.path.basename(gif_filename).split('_')[:2]): wandb.Video(gif_filename),
-                                "epoch": self.epoch
-                            })
-                if self.params.diagnostic_spectra:
-                    wandb.log({
-                        "power_spectrum_plot": wandb.Image(path_filename),
-                        "epoch": self.epoch,
-                    })
-            
-            valid_time = time.time() - valid_start
+            if self.params.diagnostic_spectra:
+                wandb.log({
+                    "power_spectrum_plot": wandb.Image(path_filename),
+                    "epoch": self.epoch,
+                })
+        
+        valid_time = time.time() - valid_start
+       
+        return valid_time, diagnostic_logs
 
-            return valid_time, diagnostic_logs
+
+
+
+    def prepare_preds(self, preds, acc = False):
+        preds = preds.rename({'time': 'lead_time'})
+        # If bug, change this back to values[0]
+        preds['time'] = preds.lead_time.values[0:1]
+        preds = preds.set_coords('time')
+        if acc:
+        # For ACC, use all time steps
+            # lead_times = range(len(preds.lead_time))
+            lead_times = range(1, len(preds.lead_time) + 1)  # Start from 1 to match forecast lead times
         else:
-            try:
-                if self.params.has_diagnostic:
-                    logs = {'valid_loss': valid_buff_cpu[0], 
-                            'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
-                            'valid_loss_diag': valid_buff_cpu[3],
-                            'epoch': self.epoch}
-                else:
-                    logs = {'valid_loss': valid_buff_cpu[0], 
-                            'valid_loss_sfc': valid_buff_cpu[1], 'valid_loss_upper_air': valid_buff_cpu[2],
-                            'epoch': self.epoch}
-                # Add multi-day losses to logs
-                for key, value in multi_step_losses.items():
-                    logs[key] = value.item()
+        # For non-ACC, use forecast lead times
+            lead_times = self.params['forecast_lead_times']
 
-            except:
-                pass
-
-            if self.params.log_to_wandb:
-                wandb.log(logs)
-
-                    # Log ACC plot
-                if self.params.diagnostic_acc:
-                    wandb.log({
-                        "ACC_plot": wandb.Image(plot_filename),
-                        "epoch": self.epoch
-                    })
-                if gif_filenames and self.params.diagnostic_gif:
-                    for gif_filename in gif_filenames:
-                        wandb.log({
-                            '_'.join(os.path.basename(gif_filename).split('_')[:2]): wandb.Video(gif_filename),
-                            "epoch": self.epoch
-                        })
-                if self.params.diagnostic_spectra:
-                    wandb.log({
-                        "power_spectrum_plot": wandb.Image(path_filename),
-                        "epoch": self.epoch,
-                    })
-
-            valid_time = time.time() - valid_start
-
-            return valid_time, logs
-
+        preds['lead_time'] = [lt * self.params['timedelta_hours'] for lt in lead_times]
+        return preds
     
-    def save_checkpoint(self, checkpoint_path, epoch, model=None):
+
+    def convert_to_xarray(self, surface_prediction, upper_air_prediction, start_times, params, valid_dataset, acc = True, diagnostic_prediction = None):
+        batch_size, time_steps, num_surface_vars, lat, lon = surface_prediction.shape
+        # print(f"TIME STEPS ARE: {time_steps}")
+        datasets = []
+
+        for sample in range(batch_size):
+            # time_range = xr.cftime_range(
+            #     start_time + timedelta(hours=params['timedelta_hours'] * sample * time_steps),
+            #     periods=time_steps,
+            #     freq=f"{params['timedelta_hours']}h"
+            # )
+            # time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            # time_range = [start_time + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+            if acc:
+            # For ACC, create time_range for all time steps
+                # time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(time_steps)]
+                time_range = [start_times[sample] + timedelta(hours=step * params['timedelta_hours']) for step in range(1, time_steps + 1)]
+                # print(time_range)
+            else:
+            # For specific lead times, use forecast_lead_times
+                time_range = [start_times[sample] + timedelta(hours=lt * params['timedelta_hours']) for lt in params['forecast_lead_times']]
+                # print(time_range)
+            
+
+            # Determine the level coordinate name based on params.lev
+            level_coord_name = 'lev' if params.lev == 'lev' else 'plev'
+
+            coordinates = {
+                'time': time_range,
+                level_coord_name: valid_dataset.levels,
+                'lat': self.params.lat,
+                'lon': self.params.lon
+            }
+
+            dataset = xr.Dataset(
+                coords=coordinates,
+                attrs=dict(description=f"Prediction from {params.nettype} model run, sample {sample}")
+            )
+
+            for idx, var in enumerate(valid_dataset.surface_variables):
+                da = xr.DataArray(
+                    data=surface_prediction[sample, :, idx],
+                    dims=["time", "lat", "lon"],
+                    coords={'time': time_range,
+                            'lat': dataset.lat.values,
+                            'lon': dataset.lon.values}
+                )
+                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                dataset[var] = da
+
+            if type(diagnostic_prediction) is not type(None):
+                for idx, var in enumerate(valid_dataset.diagnostic_variables):
+                    da = xr.DataArray(
+                        data=diagnostic_prediction[sample, :, idx],
+                        dims=["time", "lat", "lon"],
+                        coords={'time': time_range,
+                                'lat': dataset.lat.values,
+                                'lon': dataset.lon.values}
+                    )
+                    #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                    dataset[var] = da
+
+            for idx, var in enumerate(valid_dataset.upper_air_variables):
+                da = xr.DataArray(
+                    data=upper_air_prediction[sample, :, idx],
+                    dims=["time", level_coord_name, "lat", "lon"],
+                    coords=coordinates
+                )
+                #da = da.assign_attrs(valid_dataset.data_dss[0][var].attrs)
+                dataset[var] = da
+
+            datasets.append(dataset)
+        return datasets
+    
+    def combine_datasets(self, datasets):
+        return xr.concat(datasets, dim='time')
+
+
+    def plot_in_separate_process(self, avg_preds, avg_gt, preds_times, filename):
+        # convert lead times to hours
+        lead_times_hours = [step * self.params.timedelta_hours for step in self.params.forecast_lead_times]
+                
+        if len(preds_times) > 0:
+            # Get variable dictionary from params 
+            var_dict = self.params.diagnostic_spectrum_var_dict if hasattr(self.params, 'diagnostic_spectrum_var_dict') else None
+
+            p = Process(target=plot_power_spectrum, args=(avg_preds, avg_gt, preds_times, filename, lead_times_hours, self.params.use_sigma_levels, var_dict))
+        else:
+            if hasattr(self.params, 'diagnostic_bias_var_dict'):
+                var_dict = self.params.diagnostic_bias_var_dict
+            elif 'mrso' in self.params.land_variables:
+                vars = ["tas", "mrso", "zg", "ua", "hus"]
+                levels = [None, None, 50000, 25000, 85000]
+                var_dict = {var: [level] if level is not None else [] for var, level in zip(vars, levels)}
+            else:
+                # basic fallback
+                var_dict = {"tas": [], "zg": [50000], "ua": [0.4368000030517578]}
+                
+            p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, var_dict))
+            # if 'mrso' in self.params.land_variables:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename, ["tas", "mrso", "zg", "ua", "hus"], [None, None, 50000, 25000, 85000]))
+            # else:
+            #     p = Process(target=plot_bias, args=(avg_preds, avg_gt, filename))
+        p.start()
+        p.join()
+
+    def log_all_plots_to_wandb(self):
+        if self.params.log_to_wandb:
+            output_dir = self.spectra_dir
+            # # Create the directory if it doesn't exist
+            # os.makedirs(output_dir, exist_ok=True)
+            # print(f"Created directory: {output_dir}")
+            plot_files = sorted([f for f in os.listdir(output_dir) if f.startswith("power_spectrum_epoch_")])
+            
+            print(f"Found plot files: {plot_files}")
+            
+            for plot_file in plot_files:
+                # Extract epoch number from filename
+                try:
+                    epoch = int(plot_file.split("_")[-1].split(".")[0])
+                    print(f"Processing file: {plot_file}, extracted epoch: {epoch}")
+                except ValueError as e:
+                    print(f"Error parsing epoch from filename {plot_file}: {e}")
+                    continue
+                
+                # Log plot to wandb
+                try:
+                    wandb.log({
+                        "power_spectrum_plot": wandb.Image(os.path.join(output_dir, plot_file)),
+                        "custom_step": epoch,
+                    })
+                    print(f"Logged file: {plot_file} with epoch: {epoch}")
+                except Exception as e:
+                    print(f"Error logging file {plot_file} to wandb: {e}")
+            
+            print(f"Logged {len(plot_files)} power spectrum plots to wandb")
+
+            # Delete the directory after logging
+            shutil.rmtree(output_dir)
+            print(f"Deleted directory: {output_dir}")
+
+    def print_acc(self, acc):
+        print("\nACC Results:")
+        
+        # Define the variables and pressure levels you're interested in
+        variables = ["2m_temperature", "temperature", "geopotential", "u_component_of_wind"]
+        pressure_levels = [None, 850, 500, 250]  # in hPa, None for surface variables
+        
+        # Convert pressure levels to Pa for selection
+        pressure_levels_pa = [p * 100 if p is not None else None for p in pressure_levels]
+        
+        for var, plev, plev_pa in zip(variables, pressure_levels, pressure_levels_pa):
+            print(f"\nVariable: {var}" + (f" at {plev} hPa" if plev else " (Surface)"))
+            
+            if isinstance(acc['Pangu'], xr.DataArray):
+                data = acc['Pangu'][var]
+                if plev_pa and 'plev' in data.dims:
+                    data = data.sel(plev=plev_pa, method='nearest')
+                
+                for lt in self.params.forecast_lead_times:
+                    hours = lt * self.params.timedelta_hours
+                    acc_value = data.sel(lead_time=lt).values
+                    print(f"  Lead time {hours:2d}h (Step {lt:2d}): {acc_value:.4f}")
+            else:
+                print("  Unexpected data type for ACC score. Please check the output of evaluate_iterative_forecast.")
+    
+
+    def cleanup_acc_plots(self):
+        output_dir = os.path.join(os.getcwd(), "acc_plots", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted ACC plots directory: {output_dir}")
+
+    def cleanup_power_spectrum_plots(self):
+        output_dir = os.path.join(os.getcwd(), "spectra_out", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted Power Spectrum plots directory: {output_dir}")
+
+    def cleanup_gifs(self):
+        output_dir = os.path.join(os.getcwd(), "gif_out", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted GIF directory: {output_dir}")
+    
+    def cleanup_bias(self):
+        output_dir = os.path.join(os.getcwd(), "bias_out", self.run_uuid)
+        if os.path.exists(output_dir):
+            shutil.rmtree(output_dir)
+            print(f"Deleted Bias plots directory: {output_dir}")
+
+    def save_checkpoint(self, checkpoint_path, epoch=-1, model=None):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
 
@@ -1883,38 +1959,45 @@ class Trainer():
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 
 
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
     parser.add_argument("--run_num", default='0514', type=str)
     parser.add_argument("--yaml_config", default='/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0514.yaml', type=str)
-    parser.add_argument("--config", default='PLASIM', type=str)
-    parser.add_argument("--enable_amp", default=True, action='store_true')
+    parser.add_argument("--config", default='PLASIM', type=str) 
     parser.add_argument("--epsilon_factor", default=0, type=float)
     parser.add_argument("--epochs", default=0, type=int)
     parser.add_argument("--run_iter", default=1, type=int)
     parser.add_argument("--debug", default=False, action='store_true')
+    parser.add_argument("--no_amp", default=False, action='store_true')
+    parser.add_argument("--vae_loss", default=False, action='store_true')
+    parser.add_argument("--mode", default='train', type=str, choices=['train', 'test'])
+    parser.add_argument("--test_iterations", default=30, type=int)
+    # parser.add_argument("--num_inferences", type = int)
+    # parser.add_argument("--window_size", default = '2,2,2', type = str)
+
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
     parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
-    parser.add_argument("--finetune_run_num", default=None, type=str, help="Run number of the finetuning model")
-    parser.add_argument("--finetune_epochs", default=0, type=int, help="Number of epochs to finetune")
-    parser.add_argument("--finetune_lr", default=0, type=int, help="Finetuning learning rate")
-    parser.add_argument("--train_data_sets_json", default=None, type=str, help="JSON file containing train data ditectories and date ranges")
-    parser.add_argument("--validation_data_sets_json", default=None, type=str, help="JSON file containing validation data directories and date ranges")
-    parser.add_argument("--checkpoint_num", default=None, type=int, help="Checkpoint number to load")
+    parser.add_argument("--use_legacy_model", default=False, action='store_true', help="Use legacy model")
 
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
-
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
+    print("This is the starting point f")
+    params['enable_amp'] = not args.no_amp
+    params['vae_loss'] = args.vae_loss
+    params['mode'] = args.mode
+    params['test_iterations'] = args.test_iterations
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
     #params['epsilon_factor'] = args.epsilon_factor
     params['run_iter'] = args.run_iter
+    params['use_legacy_model'] = args.use_legacy_model
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
             params['has_diagnostic'] = True
@@ -1922,6 +2005,7 @@ if __name__ == '__main__':
             params['has_diagnostic'] = False
     else:
         params['has_diagnostic'] = False
+
     print(f'Has diagnostic: {params.has_diagnostic}')
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
@@ -1963,26 +2047,41 @@ if __name__ == '__main__':
         else:
             params['world_size'] = torch.cuda.device_count()
             print(params['world_size'])
+    if hasattr(params, "wandb_offline"):
+        if params.wandb_offline:
+            os.environ['WANDB_MODE'] = 'offline'
 
+    print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
+    print('World size from Cuda: %d' % torch.cuda.device_count())
+
+
+    ##Check GPU memory 
+    print(torch.cuda.get_device_name(0))
+    print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
+    print(f"Memory Cached: {torch.cuda.memory_reserved(0)/1024**2:.2f} MB")
 
     #params['world_size'] = 1
+    '''if torch.cuda.device_count() == 1:
+        world_rank = 0
+        local_rank = 0
+        params['batch_size'] = params['batch_size']//4'''
     
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        
         if 'derecho' in str(Path(__file__)):
             local_rank = args.local_rank
         else:
             local_rank = int(os.environ["LOCAL_RANK"])
 
         args.gpu = local_rank
-        world_rank = dist.get_rank()
+        
         # print("##########WORLD RANK: TESTING ", world_rank)
-
         params['global_batch_size'] = params.batch_size
         params['batch_size'] = int(params.batch_size//params['world_size'])
     else:
         world_rank = 0
         local_rank = 0
+
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
@@ -2013,6 +2112,7 @@ if __name__ == '__main__':
         params['resuming'] = False
         if checkpoint_exists and world_rank == 0:
             logging.info("Fresh start requested. Ignoring existing checkpoint.")
+
     elif checkpoint_exists:
         params['resuming'] = True
         if world_rank == 0:
@@ -2024,7 +2124,6 @@ if __name__ == '__main__':
 
 
     params['local_rank'] = local_rank
-    params['enable_amp'] = False if params['enable_fp8'] else args.enable_amp
 
     # Add indicator for precision method and engine
     if params['use_transformer_engine']:
@@ -2032,18 +2131,6 @@ if __name__ == '__main__':
     else:
         print("Using PyTorch native")
 
-    if params['enable_fp8']:
-        print("with FP8 precision")
-    elif params['enable_amp']:
-        print("with Automatic Mixed Precision (AMP)")
-    else:
-        print("with full precision")
-
-    # this will be the wandb name
-    # params['name'] = args.config + '_' + str(args.run_num)
-    # params['group'] = "Pangu_plasim_" + args.config  
-    # params['project'] = "Pangu-PLASIM"  
-    #params['entity'] = "proj-ai-weather"
     if world_rank == 0:
         log_file = 'out.log'
         logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(save_expDir, log_file))
@@ -2062,13 +2149,9 @@ if __name__ == '__main__':
             yaml.dump(hparams,  hpfile)
 
     trainer = Trainer(params, world_rank)
-    
     if params.diagnostic_gif:
         if not hasattr(params, "diagnostic_gif_var_dict"):
             params['diagnostic_gif_var_dict'] = {'zg': [50000]}
-            
-            
-            
     
     if hasattr(params, 'use_sigma_levels'):
         if params.use_sigma_levels:
@@ -2077,7 +2160,8 @@ if __name__ == '__main__':
             params['diagnostic_spectra'] = False
             params['diagnostic_gif'] = False
 
-    
+    trainer.setup_model()
+
     if not params.just_validate:
         trainer.train()
     else:
@@ -2090,5 +2174,4 @@ if __name__ == '__main__':
                 trainer.restore_checkpoint(ckpt_path)
                 trainer.epoch = trainer.startEpoch
                 trainer.validate_one_epoch()
-                
     logging.info('DONE ---- rank %d' % world_rank)

@@ -36,14 +36,15 @@ base_config: &BASE
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: /pscratch/sd/a/awikner/PLASIM/data/h5/sigma_data 
+  data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/plev_data
+  bias_data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
   diagnostic_variables: ["pr_6h"] 
   land_variables: [] 
   ocean_variables: []
   mask_output: False
-  constant_boundary_variables: ["alb", "dlai", "glac", "lsm", "mrfc",  "sg", "vegc", "vegf", "z0" ] 
+  constant_boundary_variables: ["lsm", "sg", "z0" ] 
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
   train_year_start: 12
   train_year_end: 112
@@ -51,7 +52,7 @@ PLASIM: &PLASIM
   val_year_end: 12
   long_validation: False
   long_val_year_start: 11
-  long_rollout_years: 5
+  long_rollout_years: 10
   epochs_per_long_validation: 1
   #, 'snow_depth', 'sea_ice_cover']
   #mask_fill: {'volumetric_soil_water_layer_1': 0.,
@@ -61,23 +62,23 @@ PLASIM: &PLASIM
   #            'sea_ice_cover': 0.,
   #            'snow_depth': 0.}
   data_timedelta_hours: 6
-  surface_mean: data_12-111_sigma_mean.nc 
-  surface_std: data_12-111_sigma_std.nc 
-  surface_ff_std: data_12-111_sigma_std.nc 
-  upper_air_mean: data_12-111_sigma_mean.nc 
-  upper_air_std: data_12-111_sigma_std.nc 
-  upper_air_ff_std: data_12-111_sigma_std.nc 
-  boundary_mean: data_12-111_sigma_mean.nc 
-  boundary_std: data_12-111_sigma_std.nc 
-  diagnostic_mean: data_12-111_sigma_mean.nc 
-  diagnostic_std: data_12-111_sigma_std.nc 
+  surface_mean: data_12-132_sigma_mean.nc 
+  surface_std: data_12-132_sigma_std.nc 
+  surface_ff_std: data_12-132_sigma_std.nc 
+  upper_air_mean: data_12-132_sigma_mean.nc 
+  upper_air_std: data_12-132_sigma_std.nc 
+  upper_air_ff_std: data_12-132_sigma_std.nc 
+  boundary_mean: data_12-132_sigma_mean.nc 
+  boundary_std: data_12-132_sigma_std.nc 
+  diagnostic_mean: data_12-132_sigma_mean.nc 
+  diagnostic_std: data_12-132_sigma_std.nc 
   #surface_delta_std: 'data_12-111_surface_delta_std.nc'
   #upper_air_delta_std: 'data_12-111_delta_std_Z.nc'
-  climatology_file: mean_daymean_climatology_sigma.nc 
+  climatology_file: climatology.nc 
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6 
-  batch_size: 64 
-  max_epochs: 100
+  batch_size: 32 
+  max_epochs: 50
 
   has_year_zero: True
 
@@ -110,7 +111,7 @@ PLASIM: &PLASIM
   forecast_lead_times: [1, 12, 20, 40, 60]
 
   lev: 'lev'
-  num_inferences: 100
+  num_inferences: 128
 
   use_reentrant: False
   checkpointing: 2 

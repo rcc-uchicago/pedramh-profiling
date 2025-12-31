@@ -129,7 +129,6 @@ class GetDataset(Dataset):
         self.surface_inv_transform = self._create_surface_inv_transform()
         self.upper_air_inv_transform = self._create_upper_air_inv_transform()
         # self.channel_seq = self.surface_variables + self.upper_air_variables
-
         self.boundary_dss = self._load_boundary_data()
         self.dates = self._get_dates(hour_step=params.timedelta_hours)
         self.data_dss = self._load_data()

@@ -54,9 +54,9 @@ export OMP_NUM_THREADS=1
 
 
 if [[ "$DEBUG" == "1" ]]; then
-	CMD="python train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug"
+	CMD="python train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug"
 else
-	CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM}"
+	CMD="torchrun --nproc_per_node=4 --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM}"
 fi
 if [[ -z "$JOBID" ]]; then
 	CMD+=" --fresh_start"
