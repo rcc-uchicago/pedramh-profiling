@@ -14,7 +14,7 @@ import pandas as pd
 import matplotlib.animation as animation
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
-import seaborn as sns
+# import seaborn as sns
 from collections import OrderedDict
 from itertools import product
 # sns.set_style('darkgrid')

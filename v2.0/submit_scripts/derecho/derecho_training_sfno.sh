@@ -4,12 +4,16 @@
 #PBS -q main
 #PBS -l walltime=12:00:00
 #PBS -A UCHI0014
-#PBS -e logs/
-#PBS -o logs/
+#PBS -e ./logs/SFNO_derecho_training_err.log
+#PBS -o ./logs/SFNO_derecho_training_out.log
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
 #echo $SLURM_LOCALID  # LOCAL_RANK
+
+pwd 
+mkdir -p logs
+
 export MPICH_GPU_SUPPORT_ENABLED=1
 export MPICH_GPU_MANAGED_MEMORY_SUPPORT_ENABLED=1
 export HDF5_USE_FILE_LOCKING=FALSE
@@ -17,7 +21,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 
 #./home/awikner/miniconda3/bin/conda init; bash
 module load conda
-conda activate aires_panguplasim
+conda activate /glade/work/awikner/conda-envs/aires_panguplasim
 #export cuda_version=12.1
 #export CUDA_HOME=/usr/local/cuda-${cuda_version}
 #export LD_LIBRARY_PATH=$CUDA_HOME/lib64:$LD_LIBRARY_PATH
@@ -28,7 +32,11 @@ conda activate aires_panguplasim
 
 
 # Change to working directory
-cd /glade/work/awikner/PanguWeather+SFNO/v2.0/
+cd /glade/work/marchakitus/PLASIM/PanguWeather/v2.0/
+
+pwd 
+mkdir -p logs
+
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
@@ -56,7 +64,7 @@ export OMP_NUM_THREADS=1
 if [[ "$DEBUG" == "1" ]]; then
 	CMD="python train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug --config=SFNO"
 else
-	CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO"
+	CMD="python -m torch.distributed.run --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO"
 fi
 if [[ -z "$JOBID" ]]; then
 	CMD+=" --fresh_start"

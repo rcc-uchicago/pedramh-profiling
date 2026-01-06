@@ -558,7 +558,7 @@ class Trainer():
         """
         mask_bool = []
         land_mask = []
-        if self.params.nettype == 'pangu_plasim':
+        if self.params.nettype == 'pangu_plasim' or self.params.nettype == 'sfno_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
@@ -2056,6 +2056,7 @@ if __name__ == '__main__':
             local_rank = int(os.environ["LOCAL_RANK"])
 
         args.gpu = local_rank
+        world_rank = dist.get_rank()
         
         # print("##########WORLD RANK: TESTING ", world_rank)
         params['global_batch_size'] = params.batch_size
