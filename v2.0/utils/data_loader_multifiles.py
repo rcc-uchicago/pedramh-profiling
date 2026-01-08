@@ -632,7 +632,6 @@ class GetDataset(Dataset):
             if out:
                 raw_data = get_data_given_path(data_file_path, self.variable_list_out)
             else:
-                print(f'DEBUGGG: Getting data for variables: {self.variable_list_in}')
                 raw_data = get_data_given_path(data_file_path, self.variable_list_in)
         return raw_data
     

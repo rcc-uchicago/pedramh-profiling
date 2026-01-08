@@ -605,7 +605,7 @@ class Trainer():
             print(f'\n\nRunning SFNO model\n\n')
             self.model = SFNO(params, self.train_datasets[0]).to(self.device)
             if params.sync_norm:
-                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+                self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model) # TEST THIS WHEN CODE RUNS
             if self.params.predict_delta:
                 self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
                                                surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
@@ -1042,8 +1042,7 @@ class Trainer():
         with autocast(device_type="cuda"):
             if self.params.has_diagnostic:
                 output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air, 
-                                                                    target_surface, target_upper_air,train = True)
+                                                                    varying_boundary_data, input_upper_air, train = True)
                 loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                 
             else: 
@@ -1108,6 +1107,8 @@ class Trainer():
                     dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
                     diagnostic_logs[key] = torch.max(grad_max_tensor)
                 else:
+                    if type(diagnostic_logs[key]) in [int, float]:
+                        diagnostic_logs[key] = torch.tensor([diagnostic_logs[key]]).to(self.device)
                     dist.all_reduce(diagnostic_logs[key].detach())
                     diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
 
@@ -1240,7 +1241,7 @@ class Trainer():
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     if self.params.has_diagnostic:
-                        val_output_surface, val_output_upper_air, val_output_diagnostic, _, _ = self.model(
+                        val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _ = self.model(
                             val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
                     else:
                         val_output_surface, val_output_upper_air, _, _ = self.model(val_input_surface, self.constant_boundary_data[[0]], 
@@ -1406,7 +1407,7 @@ class Trainer():
                     step_idx = 0
                     for step in range(max_lead_time):
                         if self.params.has_diagnostic:
-                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _  = self.model(
+                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _  = self.model(
                                 val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         else:
                             val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 

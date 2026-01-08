@@ -40,7 +40,7 @@ mkdir -p logs
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
-export WANDB_MODE=offline
+# export WANDB_MODE=offline
 
 nvidia-smi
 
