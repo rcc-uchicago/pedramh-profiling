@@ -120,8 +120,8 @@ def combine_A_ensemble(save_basenames, regions):
 class Stepper():
     def count_parameters(self):
         if self.use_6h_24h_model:
-            return sum(p.numel() for p in self.model_6.parameters() if p.requires_grad) + \
-                sum(p.numel() for p in self.model_24.parameters() if p.requires_grad)
+            return sum(p.numel() for p in self.model.parameters() if p.requires_grad) + \
+                sum(p.numel() for p in self.model_24h.parameters() if p.requires_grad)
         else:
             return sum(p.numel() for p in self.model.parameters() if p.requires_grad)
 
@@ -351,18 +351,44 @@ class Stepper():
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
-        try:
-            model.load_state_dict(checkpoint['model_state'])
-        except:
+        
+        # Prefer EMA state for inference (typically better), fall back to model_state
+        if 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
+            state_dict = checkpoint['ema_state']
+            logging.info(f"Using EMA state from checkpoint (preferred for inference)")
+        else:
+            state_dict = checkpoint['model_state']
+            logging.info(f"No EMA state found, using model_state")
+        
+        # Detect if model expects 'module.' prefix (DDP-wrapped)
+        model_keys = list(model.state_dict().keys())
+        model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
+        
+        # Detect if checkpoint has 'module.' prefix
+        ckpt_keys = list(state_dict.keys())
+        ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
+        
+        # Adjust keys if there's a mismatch
+        if model_has_module_prefix and not ckpt_has_module_prefix:
+            # Model is DDP, checkpoint is not -> ADD 'module.' prefix
+            logging.info("Adding 'module.' prefix to checkpoint keys for DDP model")
             new_state_dict = OrderedDict()
-            for key, val in checkpoint['model_state'].items():
-                name = key[7:]
-                new_state_dict[name] = val
-            model.load_state_dict(new_state_dict)
-        #self.model = torch.compile(self.model)
+            for key, val in state_dict.items():
+                new_state_dict['module.' + key] = val
+            state_dict = new_state_dict
+        elif not model_has_module_prefix and ckpt_has_module_prefix:
+            # Model is not DDP, checkpoint is -> REMOVE 'module.' prefix
+            logging.info("Removing 'module.' prefix from checkpoint keys")
+            new_state_dict = OrderedDict()
+            for key, val in state_dict.items():
+                new_state_dict[key[7:]] = val
+            state_dict = new_state_dict
+        
+        model.load_state_dict(state_dict)
+        
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
-        print('START EPOCH:', self.startEpoch)
+        logging.info(f'Restored from epoch {self.startEpoch}, iteration {self.iters}')
             
     def predict(self, obs_function = None, obs_args = None):
         if self.params.log_to_screen:
@@ -711,8 +737,13 @@ class Stepper():
                 coords=coordinates,
                 attrs=dict(description=f"Prediction from {self.params.nettype} model run, particle {particle_idx}")
             )
+            # Get save_var_dict for filtering (None means save all)
+            save_var_dict = getattr(self.params, 'save_var_dict', None)
 
             for idx, var in enumerate(self.dataset.surface_variables):
+                # Skip if save_var_dict exists and var not in it
+                if save_var_dict is not None and var not in save_var_dict:
+                    continue
                 da = xr.DataArray(
                     data=surface_prediction[sample, :, :, idx],
                     dims=["ensemble_idx", "time", "lat", "lon"],
@@ -721,11 +752,25 @@ class Stepper():
                             'lat': self.params.lat,
                             'lon': self.params.lon}
                 )
-                #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
                 dataset[var] = da
+
+            # for idx, var in enumerate(self.dataset.surface_variables):
+            #     da = xr.DataArray(
+            #         data=surface_prediction[sample, :, :, idx],
+            #         dims=["ensemble_idx", "time", "lat", "lon"],
+            #         coords={'ensemble_idx': ensemble_idxs,
+            #                 'time': time_range,
+            #                 'lat': self.params.lat,
+            #                 'lon': self.params.lon}
+            #     )
+            #     #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
+            #     dataset[var] = da
 
             if type(diagnostic_prediction) is not type(None):
                 for idx, var in enumerate(self.dataset.diagnostic_variables):
+                    # Skip if save_var_dict exists and var not in it
+                    if save_var_dict is not None and var not in save_var_dict:
+                        continue
                     da = xr.DataArray(
                         data=diagnostic_prediction[sample, :, :, idx],
                         dims=["ensemble_idx", "time", "lat", "lon"],
@@ -734,42 +779,125 @@ class Stepper():
                                 'lat': self.params.lat,
                                 'lon': self.params.lon}
                     )
-                    #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
                     dataset[var] = da
 
+            # if type(diagnostic_prediction) is not type(None):
+            #     for idx, var in enumerate(self.dataset.diagnostic_variables):
+            #         da = xr.DataArray(
+            #             data=diagnostic_prediction[sample, :, :, idx],
+            #             dims=["ensemble_idx", "time", "lat", "lon"],
+            #             coords={'ensemble_idx': ensemble_idxs,
+            #                     'time': time_range,
+            #                     'lat': self.params.lat,
+            #                     'lon': self.params.lon}
+            #         )
+            #         #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
+            #         dataset[var] = da
+
+            print(f"upper_air_prediction shape: {upper_air_prediction.shape}")
             for idx, var in enumerate(self.dataset.upper_air_variables):
+                # Skip if save_var_dict exists and var not in it
+                if save_var_dict is not None and var not in save_var_dict:
+                    continue
+                
+                # Get target levels for this variable
+                target_levels = save_var_dict.get(var, []) if save_var_dict else []
+                
+                # Determine which levels array to use
                 if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
-                    da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, :, idx],
-                        dims=["ensemble_idx", "time", "plev", "lat", "lon"],
-                        coords = {
-                            'ensemble_idx': ensemble_idxs,
-                            'time': time_range,
-                            'plev': self.dataset.plev.values,
-                            'lat': self.params.lat,
-                            'lon': self.params.lon
-                        }
-                    )
+                    all_levels = self.dataset.plev.values
                 elif self.params.lev == 'lev':
-                    da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, :, idx],
-                        dims=["ensemble_idx", "time", self.params.lev, "lat", "lon"],
-                        coords = {
-                            'ensemble_idx': ensemble_idxs,
-                            'time': time_range,
-                            self.params.lev: dataset.lev.values,
-                            'lat': self.params.lat,
-                            'lon': self.params.lon
-                        }
-                    )
+                    all_levels = levels
                 else:
-                    da = xr.DataArray(
-                        data=upper_air_prediction[sample, :, :, idx],
-                        dims=["ensemble_idx", "time", level_coord_name, "lat", "lon"],
-                        coords=coordinates
-                    )
-                #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
-                dataset[var] = da
+                    all_levels = self.dataset.levels if hasattr(self.dataset, 'levels') else levels
+                
+                # If target_levels specified, save as 2D variables with level suffix
+                if save_var_dict is not None and len(target_levels) > 0:
+                    for target_lev in target_levels:
+                        # Find nearest level index
+                        lev_idx = np.argmin(np.abs(np.array(all_levels) - target_lev))
+                        actual_lev = all_levels[lev_idx]
+                        
+                        # Create 2D variable with level suffix (e.g., zg_50000)
+                        var_name = f"{var}_{int(actual_lev)}"
+                        da = xr.DataArray(
+                            data=upper_air_prediction[sample, :, :, idx, lev_idx],
+                            dims=["ensemble_idx", "time", "lat", "lon"],
+                            coords={
+                                'ensemble_idx': ensemble_idxs,
+                                'time': time_range,
+                                'lat': self.params.lat,
+                                'lon': self.params.lon
+                            }
+                        )
+                        dataset[var_name] = da
+                else:
+                    # No filtering - save full 3D variable (original behavior)
+                    if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
+                        da = xr.DataArray(
+                            data=upper_air_prediction[sample, :, :, idx],
+                            dims=["ensemble_idx", "time", "plev", "lat", "lon"],
+                            coords={
+                                'ensemble_idx': ensemble_idxs,
+                                'time': time_range,
+                                'plev': self.dataset.plev.values,
+                                'lat': self.params.lat,
+                                'lon': self.params.lon
+                            }
+                        )
+                    elif self.params.lev == 'lev':
+                        da = xr.DataArray(
+                            data=upper_air_prediction[sample, :, :, idx],
+                            dims=["ensemble_idx", "time", self.params.lev, "lat", "lon"],
+                            coords={
+                                'ensemble_idx': ensemble_idxs,
+                                'time': time_range,
+                                self.params.lev: levels,
+                                'lat': self.params.lat,
+                                'lon': self.params.lon
+                            }
+                        )
+                    else:
+                        da = xr.DataArray(
+                            data=upper_air_prediction[sample, :, :, idx],
+                            dims=["ensemble_idx", "time", level_coord_name, "lat", "lon"],
+                            coords=coordinates
+                        )
+                    dataset[var] = da
+
+            # for idx, var in enumerate(self.dataset.upper_air_variables):
+            #     if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
+            #         da = xr.DataArray(
+            #             data=upper_air_prediction[sample, :, :, idx],
+            #             dims=["ensemble_idx", "time", "plev", "lat", "lon"],
+            #             coords = {
+            #                 'ensemble_idx': ensemble_idxs,
+            #                 'time': time_range,
+            #                 'plev': self.dataset.plev.values,
+            #                 'lat': self.params.lat,
+            #                 'lon': self.params.lon
+            #             }
+            #         )
+            #     elif self.params.lev == 'lev':
+            #         da = xr.DataArray(
+            #             data=upper_air_prediction[sample, :, :, idx],
+            #             dims=["ensemble_idx", "time", self.params.lev, "lat", "lon"],
+            #             coords = {
+            #                 'ensemble_idx': ensemble_idxs,
+            #                 'time': time_range,
+            #                 self.params.lev: dataset.lev.values,
+            #                 'lat': self.params.lat,
+            #                 'lon': self.params.lon
+            #             }
+            #         )
+            #     else:
+            #         da = xr.DataArray(
+            #             data=upper_air_prediction[sample, :, :, idx],
+            #             dims=["ensemble_idx", "time", level_coord_name, "lat", "lon"],
+            #             coords=coordinates
+            #         )
+            #     #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
+            #     dataset[var] = da
 
             datasets.append(dataset)
                 
@@ -813,6 +941,8 @@ if __name__ == '__main__':
     parser.add_argument("--num_ensemble_members", default=0, type=int)
     parser.add_argument("--ensemble_members_per_pred", default=0, type=int)
     parser.add_argument("--batch_size", default=0, type=int)
+    parser.add_argument("--seed", default=0, type=int, help="Random seed used during training (for checkpoint path)")
+    parser.add_argument("--seed_24h", default=None, type=int, help="Random seed for 24h model (for 6h_24h mode)")
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -907,20 +1037,48 @@ if __name__ == '__main__':
     torch.backends.cudnn.benchmark = True
 
     # Set up directories
-    for params, run_num in zip(params_list, run_nums):
+    # Set up directories
+    # Determine seeds for each model (6h uses args.seed, 24h uses args.seed_24h or falls back to args.seed)
+    if args.use_6h_24h_model:
+        seeds = [args.seed, args.seed_24h if args.seed_24h is not None else args.seed]
+    else:
+        seeds = [args.seed]
+    
+    for params, run_num, seed in zip(params_list, run_nums, seeds):
         expDir = os.path.join(params.exp_dir, args.config, str(run_num))
-        if world_rank == 0:
-            if not os.path.isdir(expDir):
-                os.makedirs(expDir)
-                os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
 
         params['experiment_dir'] = os.path.abspath(expDir)
-        ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
-        best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-        params['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
-        params['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+        # Construct checkpoint path following train.py convention.
+        # params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints', f'seed-{seed}')
+        params['checkpoint_dir'] = os.path.join(expDir, 'train_checkpoints') # cutomized for Pangu legacy
+        params['best_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'best_ckpt.tar')
+        params['latest_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'ckpt_latest.tar')
+        params['checkpoint_path_globstr'] = os.path.join(params['checkpoint_dir'], 'ckpt_epoch_*.tar')
 
-        checkpoint_exists = os.path.isfile(params.best_checkpoint_path)
+        # Check for checkpoints with priority: best > latest > numbered
+        if os.path.isfile(params.best_checkpoint_path):
+            checkpoint_path = params.best_checkpoint_path
+            checkpoint_exists = True
+        elif os.path.isfile(params.latest_checkpoint_path):
+            checkpoint_path = params.latest_checkpoint_path
+            checkpoint_exists = True
+        else:
+            checkpoint_paths = natsorted([
+                f for f in glob.glob(params.checkpoint_path_globstr) if os.path.isfile(f)
+            ])
+            if len(checkpoint_paths) > 0:
+                checkpoint_path = checkpoint_paths[-1]  # Use most recent
+                checkpoint_exists = True
+            else:
+                checkpoint_exists = False
+        
+        if checkpoint_exists:
+            params['best_checkpoint_path'] = checkpoint_path  # Update to actual path found
+        else:
+            raise FileNotFoundError(
+                f"No checkpoint found for seed {args.seed}.\n"
+                f"Searched: {params.best_checkpoint_path}, {params.latest_checkpoint_path}, {params.checkpoint_path_globstr}"
+            )
 
         # Determine whether to resume or start fresh
         params['resuming'] = True
@@ -1029,6 +1187,20 @@ if __name__ == '__main__':
     #    print(f'Save basenames: {params["save_basenames"]}')
 
     params_list[0] = params
+    # === ADD THIS BLOCK ===
+    # For 6h_24h mode, copy shared parameters to the 24h model params
+    if args.use_6h_24h_model and len(params_list) > 1:
+        shared_keys = [
+            'init_datetime', 'init_datetimes', 'init_nc_filepaths',
+            'save_basenames', 'output_dirs', 'region_file',
+            'ensemble_timedelta_hours', 'num_ensemble_members',
+            'ensemble_members_per_pred', 'batch_size', 'world_size',
+            'has_diagnostic', 'use_legacy_model', 'run_iter'
+        ]
+        for key in shared_keys:
+            if hasattr(params_list[0], key):
+                params_list[1][key] = getattr(params_list[0], key)
+    # === END OF BLOCK ===
 
     # if output_dirs dosen't exist, create it #Added by Amaury on 12/22/2025
     # print("DEBUG: output_dirs: ", params['output_dirs'])
