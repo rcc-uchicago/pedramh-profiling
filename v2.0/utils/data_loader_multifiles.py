@@ -69,6 +69,7 @@ import xarray as xr
 import warnings
 from tqdm import tqdm
 import netCDF4 as nc
+import warnings
 
 def get_data_given_path(path, variables):
     with h5py.File(path, 'r') as f:
@@ -122,6 +123,52 @@ def get_out_path(root_dir, year, inp_file_idx):
     out_path = os.path.join(root_dir, f'{year}_{inp_file_idx:04}.h5')
     return out_path
 
+def datetime_class_from_calendar(calendar):
+        datetime_class_dict = {'standard': cftime.DatetimeGregorian,
+                               'Gregorian:': cftime.DatetimeGregorian,
+                               'noleap': cftime.DatetimeNoLeap,
+                               '365_day': cftime.DatetimeNoLeap,
+                               'proleptic_gregorian': cftime.DatetimeProlepticGregorian,
+                               'all_leap': cftime.DatetimeAllLeap,
+                               '366_day': cftime.DatetimeAllLeap,
+                               '360_day': cftime.Datetime360Day,
+                               'julian': cftime.DatetimeJulian}
+        return datetime_class_dict[calendar]
+
+def get_date_range(data_dirs, date_ranges, hour_step,
+                   calendar, has_year_zero, datetime_class, get_size = False):
+    start_dates, end_dates = [], []
+    for data_dir, (start_date_str_i, end_date_str_i) in date_ranges.items():
+        data_dirs.append(data_dir)
+        start_date_i = cftime.datetime.strptime(start_date_str_i, "%Y-%m-%d %H:%M:%S",
+                                                has_year_zero = has_year_zero,
+                                                calendar = calendar)
+        start_dates.append(datetime_class(start_date_i.year,
+                                                start_date_i.month,
+                                                start_date_i.day,
+                                                hour = start_date_i.hour,
+                                                has_year_zero = has_year_zero))
+        end_date_i = cftime.datetime.strptime(end_date_str_i, "%Y-%m-%d %H:%M:%S",
+                                                has_year_zero = has_year_zero,
+                                                calendar = calendar)
+        end_dates.append(datetime_class(end_date_i.year,
+                        end_date_i.month,
+                        end_date_i.day,
+                        hour = end_date_i.hour,
+                        has_year_zero = has_year_zero))
+    start_date = min(start_dates)
+    end_date = max(end_dates)
+    date_range, data_dirs_idxs = np.array([]), np.array([], dtype = int)
+    num_dates = []
+    for i, (start_date_i, end_date_i) in enumerate(zip(start_dates, end_dates)):
+        date_range_i = np.arange((start_date_i - start_date).total_seconds() // 3600, (end_date_i - start_date).total_seconds() // 3600, hour_step)
+        num_dates.append(len(date_range_i))
+        data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), i+1))
+        date_range = np.append(date_range, date_range_i)
+    if get_size:
+        return num_dates
+    else:
+        return data_dirs, date_range, start_date, end_date, data_dirs_idxs, np.array(num_dates)
 
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
@@ -226,7 +273,7 @@ class GetDataset(Dataset):
         self.calendar = params.calendar
         self.timedelta_hours = params.timedelta_hours
         self.data_timedelta_hours = params.data_timedelta_hours
-        self.datetime_class  = self.datetime_class_from_calendar(self.calendar)
+        self.datetime_class  = datetime_class_from_calendar(self.calendar)
         # for timedelta_hours > 24
         days, hours = divmod(self.timedelta_hours, 24)
         self.timedelta = self.datetime_class(1, 1, 1 + days, hour=hours) - self.datetime_class(1, 1, 1, hour=0)
@@ -266,27 +313,38 @@ class GetDataset(Dataset):
 
         # self.boundary_dss = self._load_boundary_data()
         if self.single_ic:
-            self.dates, self.start_date, self.end_date, self.data_dirs_idxs = self._get_dates(hour_step=params.timedelta_hours)
+            self.dates, self.start_date, self.end_date, self.data_dirs_idxs, self.date_range_sizes = self._get_dates(hour_step=params.timedelta_hours)
         elif self.ensemble:
             self.ensemble_inference_steps = self.params.ensemble_inference_hours // self.params.timedelta_hours
-            self.dates, self.start_date, self.end_date, self.data_dirs_idxs = self._get_dates()
+            self.dates, self.start_date, self.end_date, self.data_dirs_idxs, self.date_range_sizes = self._get_dates()
             print(f'Num dates: {len(self.dates)}')
         else:
-            self.dates, self.start_date, self.end_date, self.data_dirs_idxs = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
+            self.dates, self.start_date, self.end_date, self.data_dirs_idxs, self.date_range_sizes = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
+            self.all_dates, self.all_data_dirs_idxs = self.dates, self.data_dirs_idxs
+        
+        if self.single_ic or self.ensemble:
+            self.inference_idxs = np.arange(0, len(self.dates))
+        else:
+            if len(self.date_range_sizes) == 1:
+                max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
+                if self.num_inferences > 0:
+                    self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
+                else:
+                    self.inference_idxs = np.arange(0, max_inference_idx)
+            elif self.train:
+                self.inference_idxs = np.arange(0, len(self.dates))
+            else:
+                if len(self.date_range_sizes) != len(self.num_inferences):
+                    raise Warning('Number of date range sizes and number of inferences are not the same. Using all inferences.')
+                    self.num_inferences = len(self.date_range_sizes)
+                lead_time_offset = max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
+                self.inference_idxs = np.cumsum(self.date_range_sizes) - lead_time_offset - 1
 
         self.constant_boundary_data, self.land_mask = self._load_constant_boundary_data()
         if torch.any(torch.isnan(self.constant_boundary_data)):
             print('Constant boundary has nan')
             sys.exit(2)
-        
-        if self.single_ic or self.ensemble:
-            self.inference_idxs = np.arange(0, len(self.dates))
-        else:
-            max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
-            if self.num_inferences > 0:
-                self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
-            else:
-                self.inference_idxs = np.arange(0, max_inference_idx)
+
         print(f'Len(inference_idxs): {len(self.inference_idxs)}')
         #print('Inference idxs:')
         #print(self.inference_idxs)
@@ -361,9 +419,6 @@ class GetDataset(Dataset):
         #self.upper_air_transform = self._create_upper_air_transform()
         #self.surface_inv_transform = self._create_surface_inv_transform()
         #self.upper_air_inv_transform = self._create_upper_air_inv_transform()
-
-        if self.epsilon_factor > 0.:
-            torch.manual_seed(0)
             
         if self.ensemble and len(self.init_datetimes) == 1:
             self.varying_boundary_data = self._load_varying_boundary_data()
@@ -510,18 +565,6 @@ class GetDataset(Dataset):
                     data[i] = data[i].masked_fill(nans, self.mask_fill[var])
         return data
 
-    def datetime_class_from_calendar(self, calendar):
-        datetime_class_dict = {'standard': cftime.DatetimeGregorian,
-                               'Gregorian:': cftime.DatetimeGregorian,
-                               'noleap': cftime.DatetimeNoLeap,
-                               '365_day': cftime.DatetimeNoLeap,
-                               'proleptic_gregorian': cftime.DatetimeProlepticGregorian,
-                               'all_leap': cftime.DatetimeAllLeap,
-                               '366_day': cftime.DatetimeAllLeap,
-                               '360_day': cftime.Datetime360Day,
-                               'julian': cftime.DatetimeJulian}
-        return datetime_class_dict[calendar]
-
     def _load_constant_boundary_data(self):
         constant_boundary_date = self.datetime_class(self.params.val_year_start, 1, 1, 0, has_year_zero = self.params.has_year_zero)
         constant_boundary_data = torch.from_numpy(self._get_data(constant_boundary_date, 
@@ -594,7 +637,7 @@ class GetDataset(Dataset):
         return data / self.upper_air_delta_std.reshape(len(self.upper_air_variables), -1, 1, 1)
 
     # Modification for the autoregressive parameter
-    def _get_dates(self, hour_step=6.):
+    def _get_dates(self, hour_step=6., curriculum_learning_fraction = None):
         if self.single_ic:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero) + timedelta(hours=self.single_ic_offset)
             print(f'Start date: {start_date.strftime("%Y-%m-%d_%H:%M:%S")}')
@@ -615,35 +658,12 @@ class GetDataset(Dataset):
                 date_range = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
             return date_range, start_date, end_date, np.zeros(len(date_range))
         elif (self.train and hasattr(self.params, 'train_data_sets')) or (self.validate and hasattr(self.params, 'validation_data_sets')):
-            start_dates, end_dates = [], []
-            date_ranges = self.params.train_data_sets if self.train else self.params.validation_data_sets
-            for data_dir, (start_date_str_i, end_date_str_i) in date_ranges.items():
-                self.data_dirs.append(data_dir)
-                start_date_i = cftime.datetime.strptime(start_date_str_i, "%Y-%m-%d %H:%M:%S",
-                                                        has_year_zero = self.params.has_year_zero,
-                                                        calendar = self.params.calendar)
-                start_dates.append(self.datetime_class(start_date_i.year,
-                                                        start_date_i.month,
-                                                        start_date_i.day,
-                                                        hour = start_date_i.hour,
-                                                        has_year_zero = self.params.has_year_zero))
-                end_date_i = cftime.datetime.strptime(end_date_str_i, "%Y-%m-%d %H:%M:%S",
-                                                      has_year_zero = self.params.has_year_zero,
-                                                      calendar = self.params.calendar)
-                end_dates.append(self.datetime_class(end_date_i.year,
-                                end_date_i.month,
-                                end_date_i.day,
-                                hour = end_date_i.hour,
-                                has_year_zero = self.params.has_year_zero))
-            start_date = min(start_dates)
-            end_date = max(end_dates)
-            date_range, data_dirs_idxs = np.array([]), np.array([], dtype = int)
-            for i, (start_date_i, end_date_i) in enumerate(zip(start_dates, end_dates)):
-                date_range_i = np.arange((start_date_i - start_date).total_seconds() // 3600, (end_date_i - start_date).total_seconds() // 3600, hour_step)
-                data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), i+1))
-                date_range = np.append(date_range, date_range_i)
+            self.data_dirs, date_range, start_date, end_date, data_dirs_idxs, num_dates = \
+                get_date_range(self.data_dirs, self.params.train_data_sets if self.train else self.params.validation_data_sets,
+                               self.params.data_timedelta_hours, self.calendar, self.has_year_zero, 
+                               self.datetime_class, get_size = False)
 
-            return date_range, start_date, end_date, data_dirs_idxs   
+            return date_range, start_date, end_date, data_dirs_idxs, num_dates
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
@@ -653,7 +673,19 @@ class GetDataset(Dataset):
         date_range = np.arange(0., hours, hour_step)
         print(f'Hours: {hours}')
         print(f'End data hour: {date_range[-1]}')
-        return date_range, start_date, end_date, np.zeros(len(date_range))
+        return date_range, start_date, end_date, np.zeros(len(date_range)), np.array([len(date_range)])
+
+    def _shuffle_training_dates(self, shuffled_date_idxs, curriculum_learning_fraction, data_sizes):
+        base_date_len = data_sizes[0]
+        if curriculum_learning_fraction == 0.:
+            self.dates, self.data_dir_idxs = self.all_dates[base_date_len:], self.all_data_dir_idxs[base_date_len:]
+        else:
+            class_1_date_size = int((np.sum(data_sizes) - base_date_len) * curriculum_learning_fraction / (1 - curriculum_learning_fraction))
+            class_1_dates, class_1_data_dirs_idxs = self.all_dates[shuffled_date_idxs][:class_1_date_size], self.all_data_dirs_idxs[:class_1_date_size]
+            class_2_dates, class_2_data_dirs_idxs = self.all_dates[class_1_date_size:], self.all_data_dirs_idxs[class_1_date_size:]
+            self.dates, self.data_dirs_idxs = np.concatenate([class_1_dates, class_2_dates]), np.concatenate([class_1_data_dirs_idxs, class_2_data_dirs_idxs])
+        self.inference_idxs = np.arange(0, len(self.dates))
+        return self.dates, self.data_dirs_idxs
         
 
     def _get_data(self, data_datetime, out = False, variable_list = None, data_dir_idx = 0):

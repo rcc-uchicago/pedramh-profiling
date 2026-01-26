@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import wandb
-from utils.data_loader_multifiles import get_data_loader
+from utils.data_loader_multifiles import get_data_loader, get_date_range, datetime_class_from_calendar
 from utils.YParams import YParams
 import os, glob
 import time
@@ -320,9 +320,27 @@ class Trainer():
         if self.params.enable_amp == True:
             self.scaler = GradScaler()
         if self.params.resuming:
-            checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
-            self.restore_checkpoint(checkpoint_path)
+            if hasattr(self.params, 'start_epoch'):
+                checkpoint_path = [file for file in glob.glob(self.params.checkpoint_path_globstr_load) \
+                    if os.path.isfile(file) and f'_{params.start_epoch}.tar' in file][0]
+            else:
+                checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr_load) if os.path.isfile(file)])[-1]
+            self.restore_checkpoint(checkpoint_path, finetune=False)
             logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
+            if self.params.debug:
+                self.params.max_epochs = self.startEpoch + 1
+        elif hasattr(self.params, 'finetuning') and self.params.finetuning:
+            # Finetuning mode: load checkpoint but don't load optimizer state
+            if hasattr(self.params, 'start_epoch'):
+                checkpoint_paths = [file for file in glob.glob(self.params.checkpoint_path_globstr_load) if os.path.isfile(file)]
+                print(checkpoint_paths)
+                print(f'_{self.params.start_epoch}.tar')
+                checkpoint_path = [file for file in glob.glob(self.params.checkpoint_path_globstr_load) \
+                    if os.path.isfile(file) and f'_{self.params.start_epoch}.tar' in file][0]
+            else:
+                checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr_load) if os.path.isfile(file)])[-1]
+            self.restore_checkpoint(checkpoint_path, finetune=True)
+            logging.info("Finetuning: Loaded checkpoint from %s (optimizer state not loaded)", checkpoint_path)
             if self.params.debug:
                 self.params.max_epochs = self.startEpoch + 1
         else:
@@ -408,6 +426,13 @@ class Trainer():
         setup data loader
         """
         logging.info('rank %d, begin data loader init' % self.world_rank)
+        if self.world_rank == 0:
+            self.generator = np.random.default_rng(seed = 0)
+        if hasattr(self.params, 'train_data_sets') and self.params.curriculum_learning:
+            self.data_sizes = get_date_range([], self.params.train_data_sets, self.params.data_timedelta_hours,
+                                            self.params.calendar, self.params.has_year_zero, 
+                                            datetime_class_from_calendar(self.params.calendar), get_size = True)
+                
         if self.params.train_year_to_year:
             self.train_data_loaders = []
             self.train_datasets = []
@@ -779,6 +804,24 @@ class Trainer():
                 for sampler in self.train_samplers:
                     sampler.set_epoch(epoch)
 
+            if self.params.curriculum_learning:
+                # Generate shuffled indices on rank 0
+                if self.world_rank == 0:
+                    shuffled_date_idxs = torch.tensor(self.generator.permutation(self.data_sizes[0]), device=self.device)
+                
+                # Broadcast to all ranks if using distributed training
+                if dist.is_initialized():
+                    dist.barrier()
+                    if self.world_rank != 0:
+                        # Initialize tensor on non-root ranks before broadcast
+                        shuffled_date_idxs = torch.zeros(self.data_sizes[0], dtype=torch.long, device=self.device)
+                    dist.broadcast(shuffled_date_idxs, src = 0)
+                
+                shuffled_date_idxs = shuffled_date_idxs.tolist()
+                logging.info(f"Shuffling training dates with curriculum learning fraction {self.params.curriculum_learning_fraction:.2f} for epoch {epoch + 1}")
+                self.train_datasets[0]._shuffle_training_dates(shuffled_date_idxs, self.params.curriculum_learning_fraction, self.data_sizes)
+                logging.info(f"Shuffled training data len: {self.train_datasets[0].num_inferences}")
+
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
@@ -805,9 +848,9 @@ class Trainer():
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
-                    self.save_checkpoint(self.params.checkpoint_path_globstr, self.epoch)
+                    self.save_checkpoint(self.params.checkpoint_path_globstr_save, self.epoch)
                     if valid_logs['valid_loss'] <= best_valid_loss:
-                        self.save_checkpoint(self.params.best_checkpoint_path)
+                        self.save_checkpoint(self.params.best_checkpoint_path_save)
             if self.params.log_to_wandb and self.world_rank == 0:
                 self.log_wandb_epoch(epoch)
                 self.log_screen_epoch(epoch, start, train_logs, valid_logs, early_stopping_counter)
@@ -1953,6 +1996,7 @@ class Trainer():
         self.startEpoch = checkpoint['epoch']
         if finetune:
             self.finetune_startEpoch = self.startEpoch
+            self.params.max_epochs = self.startEpoch + self.params.finetune_num_epochs
         print('START EPOCH:', self.startEpoch)
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
@@ -1961,84 +2005,132 @@ class Trainer():
 
 
 if __name__ == '__main__':
+    """
+    Main training script entry point.
+    This script handles argument parsing, configuration loading, distributed training setup,
+    checkpoint management, and initiates the training or validation process.
+    """
+    
+    # ============================================================================
+    # SECTION 1: Parse command-line arguments
+    # ============================================================================
+    # Define all command-line arguments that control training behavior
     parser = argparse.ArgumentParser()
     
-    parser.add_argument("--run_num", default='0514', type=str)
-    parser.add_argument("--yaml_config", default='/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0514.yaml', type=str)
-    parser.add_argument("--config", default='PLASIM', type=str) 
-    parser.add_argument("--epsilon_factor", default=0, type=float)
-    parser.add_argument("--epochs", default=0, type=int)
-    parser.add_argument("--run_iter", default=1, type=int)
-    parser.add_argument("--debug", default=False, action='store_true')
-    parser.add_argument("--no_amp", default=False, action='store_true')
-    parser.add_argument("--vae_loss", default=False, action='store_true')
-    parser.add_argument("--mode", default='train', type=str, choices=['train', 'test'])
-    parser.add_argument("--test_iterations", default=30, type=int)
-    # parser.add_argument("--num_inferences", type = int)
-    # parser.add_argument("--window_size", default = '2,2,2', type = str)
-
+    # Core configuration arguments
+    parser.add_argument("--run_num", default='0514', type=str, help="Unique identifier for this training run")
+    parser.add_argument("--yaml_config", default='/project/pedramh/awikner/PanguWeather/v2.0/config/PANGU_PLASIM_H5_MIDWAY_0514.yaml', type=str, help="Path to YAML configuration file")
+    parser.add_argument("--config", default='PLASIM', type=str, help="Configuration section name in YAML file")
+    
+    # Training control arguments
+    parser.add_argument("--epsilon_factor", default=0, type=float, help="Epsilon factor for training")
+    parser.add_argument("--epochs", default=0, type=int, help="Override max_epochs from config (0 means use config value)")
+    parser.add_argument("--run_iter", default=1, type=int, help="Iteration number for this run")
+    parser.add_argument("--debug", default=False, action='store_true', help="Enable debug mode (reduces data, disables wandb)")
+    parser.add_argument("--no_amp", default=False, action='store_true', help="Disable automatic mixed precision training")
+    parser.add_argument("--vae_loss", default=False, action='store_true', help="Use VAE loss function")
+    parser.add_argument("--mode", default='train', type=str, choices=['train', 'test'], help="Execution mode: train or test")
+    parser.add_argument("--test_iterations", default=30, type=int, help="Number of test iterations to run")
+    
+    # Checkpoint and validation arguments
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
     parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
-    parser.add_argument("--use_legacy_model", default=False, action='store_true', help="Use legacy model")
-
+    
+    # Model selection arguments
+    parser.add_argument("--use_legacy_model", default=False, action='store_true', help="Use legacy model architecture")
+    
+    # Finetuning arguments
+    parser.add_argument("--finetune_num_epochs", default=0, type=int, help="Number of epochs to finetune")
+    parser.add_argument("--finetune_run_num", default=None, type=str, help="Run number to finetune from")
+    parser.add_argument("--finetune_lr", default=0, type=float, help="Learning rate to finetune at")
+    
+    parser.add_argument("--train_data_sets_json", default=None, type=str, help="JSON file containing train data sets")
+    parser.add_argument("--validation_data_sets_json", default=None, type=str, help="JSON file containing validation data sets")
+    parser.add_argument("--start_epoch", default=None, type=int, help="Starting epoch to resume training from")
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
     #######
     args = parser.parse_args()
     params = YParams(os.path.abspath(args.yaml_config), args.config)
-    print("This is the starting point f")
-    params['enable_amp'] = not args.no_amp
-    params['vae_loss'] = args.vae_loss
-    params['mode'] = args.mode
-    params['test_iterations'] = args.test_iterations
+    
+    # ============================================================================
+    # SECTION 3: Update parameters from command-line arguments
+    # ============================================================================
+    # Override or set parameters based on command-line arguments
+    
+    # Training precision and loss settings
+    params['enable_amp'] = not args.no_amp  # Enable/disable automatic mixed precision
+    params['vae_loss'] = args.vae_loss  # Use VAE loss if specified
+    params['mode'] = args.mode  # Set execution mode (train/test)
+    params['test_iterations'] = args.test_iterations  # Number of test iterations
+    
+    # Override max epochs if specified via command line
     if args.epochs > 0:
         params['max_epochs'] = args.epochs
-    #params['epsilon_factor'] = args.epsilon_factor
-    params['run_iter'] = args.run_iter
-    params['use_legacy_model'] = args.use_legacy_model
+    
+    # Model and run settings
+    params['run_iter'] = args.run_iter  # Run iteration number
+    params['use_legacy_model'] = args.use_legacy_model  # Use legacy model architecture
+    
+    # Check if diagnostic variables are configured
     if hasattr(params, 'diagnostic_variables'):
-        if len(params.diagnostic_variables) > 0:
-            params['has_diagnostic'] = True
-        else:
-            params['has_diagnostic'] = False
+        params['has_diagnostic'] = len(params.diagnostic_variables) > 0
     else:
         params['has_diagnostic'] = False
-
+    
     print(f'Has diagnostic: {params.has_diagnostic}')
+    
+    # Set default number of ensemble members if not specified
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
-    params['just_validate'] = args.just_validate
+    
+    # Validation settings
+    params['just_validate'] = args.just_validate  # Only validate, don't train
     if params.just_validate:
-        os.environ["WANDB_MODE"] = "offline"
+        os.environ["WANDB_MODE"] = "offline"  # Disable wandb for validation-only runs
+    # Parse validation epochs from comma-separated string
     params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
-    params['finetune_epochs'] = args.finetune_epochs
+    
+    # Finetuning configuration
+    if args.finetune_num_epochs > 0:
+        params['finetune_num_epochs'] = args.finetune_num_epochs
     if args.finetune_run_num is not None:
         params['finetune_run_num'] = args.finetune_run_num
-    if params.finetune_epochs > 0 and args.finetune_run_num is None:
+    # Validate finetuning arguments
+    if params.finetune_num_epochs > 0 and params.finetune_run_num is None:
         raise ValueError("Finetuning epochs specified but finetuning run number is not specified")
     if args.finetune_lr > 0:
-        params['lr'] = args.finetune_lr
+        params['lr'] = args.finetune_lr  # Override learning rate for finetuning
+    
+    # Load data set configurations from JSON files if provided
     if args.train_data_sets_json is not None:
         with open(args.train_data_sets_json, 'r') as f:
             params['train_data_sets'] = json.load(f)
     if args.validation_data_sets_json is not None:
         with open(args.validation_data_sets_json, 'r') as f:
             params['validation_data_sets'] = json.load(f)
-    if args.checkpoint_num is not None:
-        params['checkpoint_num'] = args.checkpoint_num
+    
+    # Checkpoint selection
+    if args.start_epoch is not None:
+        params['start_epoch'] = args.start_epoch
+    
+    # ============================================================================
+    # SECTION 4: Debug mode configuration
+    # ============================================================================
+    # Configure debug mode settings (reduces data size, disables wandb, etc.)
     params['debug'] = False
     if args.debug:
         params['debug'] = True
-        params['world_size'] = 1
-        os.environ['WANDB_MODE'] = 'offline'
-        params['train_year_start'] = params['train_year_end'] - 1
-        params['batch_size'] = params['num_data_workers']
-        #params['long_rollout_years'] = 2
-        params['epochs_per_long_validation'] = 1
-        params['num_inferences'] = params['num_data_workers']
+        params['world_size'] = 1  # Single GPU for debugging
+        os.environ['WANDB_MODE'] = 'offline'  # Disable wandb logging
+        params['train_year_start'] = params['train_year_end'] - 1  # Reduce training data
+        params['batch_size'] = params['num_data_workers']  # Match batch size to workers
+        params['epochs_per_long_validation'] = 1  # Reduce validation frequency
+        params['num_inferences'] = params['num_data_workers']  # Reduce inference count
     else:
+        # Normal mode: determine world size from environment or available GPUs
         print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
         print('World size from Cuda: %d' % torch.cuda.device_count())
         if 'WORLD_SIZE' in os.environ:
@@ -2047,99 +2139,167 @@ if __name__ == '__main__':
         else:
             params['world_size'] = torch.cuda.device_count()
             print(params['world_size'])
+    
+    # Force wandb offline mode if configured
     if hasattr(params, "wandb_offline"):
         if params.wandb_offline:
             os.environ['WANDB_MODE'] = 'offline'
 
+    # ============================================================================
+    # SECTION 5: Display GPU information and memory status
+    # ============================================================================
+    # Print GPU device information and current memory usage
     print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
     print('World size from Cuda: %d' % torch.cuda.device_count())
-
-
-    ##Check GPU memory 
+    
+    # Check and display GPU memory status
     print(torch.cuda.get_device_name(0))
     print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
     print(f"Memory Cached: {torch.cuda.memory_reserved(0)/1024**2:.2f} MB")
-
-    #params['world_size'] = 1
-    '''if torch.cuda.device_count() == 1:
-        world_rank = 0
-        local_rank = 0
-        params['batch_size'] = params['batch_size']//4'''
     
+    # ============================================================================
+    # SECTION 6: Setup distributed training (DDP)
+    # ============================================================================
+    # Configure distributed data parallel (DDP) settings for multi-GPU training
     if params['world_size'] > 1:
-        
+        # Multi-GPU training: determine local rank and world rank based on system
         if 'derecho' in str(Path(__file__)):
+            # Derecho system uses command-line argument for local rank
             local_rank = args.local_rank
         else:
+            # Other systems use environment variable
             local_rank = int(os.environ["LOCAL_RANK"])
-
+        
+        # Get world rank from distributed process group
+        world_rank = dist.get_rank() if dist.is_initialized() else 0
+        
         args.gpu = local_rank
         
-        # print("##########WORLD RANK: TESTING ", world_rank)
+        # Adjust batch size for distributed training
+        # Global batch size is the total across all GPUs
         params['global_batch_size'] = params.batch_size
+        # Per-GPU batch size is divided by number of GPUs
         params['batch_size'] = int(params.batch_size//params['world_size'])
     else:
+        # Single GPU training
         world_rank = 0
         local_rank = 0
-
+    
+    # ============================================================================
+    # SECTION 7: Set random seeds and CUDA device
+    # ============================================================================
+    # Set random seed for reproducibility (seed based on world rank for different seeds per process)
     torch.manual_seed(world_rank)
+    # Set the CUDA device for this process
     torch.cuda.set_device(local_rank)
+    # Enable cuDNN benchmarking for faster training (optimizes for consistent input sizes)
     torch.backends.cudnn.benchmark = True
 
-    # Set up directory
-    if args.finetune_run_num is not None:
-        save_expDir = os.path.join(params.exp_dir, args.config, str(args.finetune_run_num))
+    # ============================================================================
+    # SECTION 8: Setup experiment directories
+    # ============================================================================
+    # Determine save and load directories based on whether finetuning or normal training
+    if hasattr(params, 'finetune_run_num'):
+        # Finetuning mode: save to finetune_run_num directory, load from original run_num
+        save_expDir = os.path.join(params.exp_dir, args.config, str(params.finetune_run_num))
         load_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
     else:
+        # Normal training: save and load from same directory
         save_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
         load_expDir = save_expDir
+    
+    # Create experiment directory structure (only on rank 0 to avoid race conditions)
     if world_rank == 0:
         if not os.path.isdir(save_expDir):
             os.makedirs(save_expDir)
             os.makedirs(os.path.join(save_expDir, 'training_checkpoints/'))
-
+    
+    # Store experiment directory in params
     params['experiment_dir'] = os.path.abspath(save_expDir)
-    ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
-    best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-    params['checkpoint_path_globstr'] = os.path.join(load_expDir, ckpt_path_globstr)
+    
+    # ============================================================================
+    # SECTION 9: Setup checkpoint paths
+    # ============================================================================
+    # Define checkpoint file patterns and paths
+    ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'  # Pattern for numbered checkpoints
+    best_ckpt_path = 'training_checkpoints/best_ckpt.tar'  # Path for best checkpoint
+    
+    # Set checkpoint paths for loading (from load_expDir) and saving (to save_expDir)
+    params['checkpoint_path_globstr_load'] = os.path.join(load_expDir, ckpt_path_globstr)
+    params['checkpoint_path_globstr_save'] = os.path.join(save_expDir, ckpt_path_globstr)
     params['best_checkpoint_path'] = os.path.join(load_expDir, best_ckpt_path)
-
-    checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr) if os.path.isfile(file)]
+    
+    # ============================================================================
+    # SECTION 10: Check for existing checkpoints and determine resume status
+    # ============================================================================
+    # Search for existing checkpoint files in the load directory
+    checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr_load) if os.path.isfile(file)]
     checkpoint_exists = len(checkpoint_paths) > 0
-
-    # Determine whether to resume or start fresh
-    if params.fresh_start or args.fresh_start:
+    
+    # Determine whether to resume from checkpoint or start fresh
+    # Note: If finetuning is enabled, fresh_start is ignored (finetuning always requires loading a checkpoint)
+    is_finetuning = hasattr(params, 'finetune_run_num')
+    
+    if is_finetuning:
+        # Finetuning mode: always try to load checkpoint from original run (fresh_start is ignored)
+        # Note: resuming is set to False for finetuning so optimizer state is not loaded
+        if checkpoint_exists:
+            params['resuming'] = False  # Don't load optimizer state for finetuning
+            params['finetuning'] = True  # Flag to indicate finetuning mode
+            if world_rank == 0:
+                logging.info("Finetuning mode: Loading checkpoint from original run (fresh_start ignored, optimizer state will not be loaded).")
+        else:
+            params['resuming'] = False
+            params['finetuning'] = False
+            if world_rank == 0:
+                logging.warning("Finetuning mode: No checkpoint found in original run directory. Starting fresh.")
+    elif params.fresh_start or args.fresh_start:
+        # Fresh start: ignore existing checkpoints
         params['resuming'] = False
+        params['finetuning'] = False
         if checkpoint_exists and world_rank == 0:
             logging.info("Fresh start requested. Ignoring existing checkpoint.")
-
     elif checkpoint_exists:
+        # Resume: checkpoint found, will resume training
         params['resuming'] = True
+        params['finetuning'] = False
         if world_rank == 0:
             logging.info("Resuming from existing checkpoint.")
     else:
+        # No checkpoint: start fresh training
         params['resuming'] = False
+        params['finetuning'] = False
         if world_rank == 0:
             logging.info("No checkpoint found. Starting fresh training run.")
 
 
+    # ============================================================================
+    # SECTION 11: Final parameter setup
+    # ============================================================================
+    # Store local rank in params for use in Trainer
     params['local_rank'] = local_rank
-
-    # Add indicator for precision method and engine
+    
+    # Display which precision engine is being used
     if params['use_transformer_engine']:
         print("Using Transformer Engine")
     else:
         print("Using PyTorch native")
-
+    
+    # ============================================================================
+    # SECTION 12: Setup logging and save hyperparameters
+    # ============================================================================
+    # Setup file logging (only on rank 0 to avoid duplicate logs)
     if world_rank == 0:
         log_file = 'out.log'
         logging_utils.log_to_file(logger_name=None, log_filename=os.path.join(save_expDir, log_file))
-        logging_utils.log_versions()
-        params.log()
-
+        logging_utils.log_versions()  # Log versions of key libraries
+        params.log()  # Log all parameters
+    
+    # Configure logging flags (only rank 0 logs to wandb and screen)
     params['log_to_wandb'] = (world_rank == 0) and params['log_to_wandb']
     params['log_to_screen'] = (world_rank == 0) and params['log_to_screen']
-
+    
+    # Save hyperparameters to YAML file for reproducibility (only on rank 0)
     if world_rank == 0:
         hparams = ruamelDict()
         yaml = YAML()
@@ -2147,31 +2307,53 @@ if __name__ == '__main__':
             hparams[str(key)] = str(value)
         with open(os.path.join(save_expDir, 'hyperparams.yaml'), 'w') as hpfile:
             yaml.dump(hparams,  hpfile)
-
+    
+    # ============================================================================
+    # SECTION 13: Initialize Trainer and configure diagnostics
+    # ============================================================================
+    # Create Trainer instance (this loads datasets, initializes model, etc.)
     trainer = Trainer(params, world_rank)
+    
+    # Configure diagnostic GIF settings if enabled
     if params.diagnostic_gif:
         if not hasattr(params, "diagnostic_gif_var_dict"):
+            # Default diagnostic variable for GIF: geopotential height at 500 hPa
             params['diagnostic_gif_var_dict'] = {'zg': [50000]}
     
+    # Disable certain diagnostics for sigma-level training
     if hasattr(params, 'use_sigma_levels'):
         if params.use_sigma_levels:
             print('For sigma level training, disabling diagnostic ACC and diagnostic spectra')
             params['diagnostic_acc'] = False
             params['diagnostic_spectra'] = False
             params['diagnostic_gif'] = False
-
+    
+    # ============================================================================
+    # SECTION 14: Setup model and start training/validation
+    # ============================================================================
+    # Initialize the model (load weights, setup optimizer, etc.)
     trainer.setup_model()
-
+    
+    # Execute training or validation based on mode
     if not params.just_validate:
+        # Normal training mode: run full training loop
         trainer.train()
     else:
+        # Validation-only mode: run validation without training
         if len(params.validation_epochs) == 0:
+            # No specific epochs specified: validate best checkpoint
             trainer.validate_one_epoch()
         else:
+            # Validate specific epochs: load each checkpoint and validate
             for ckpt_i in params.validation_epochs:
                 print(f'Validating epoch {ckpt_i}...')
+                # Construct checkpoint path by replacing wildcard with epoch number
                 ckpt_path = params.checkpoint_path_globstr.replace('*', str(ckpt_i))
+                # Restore checkpoint state
                 trainer.restore_checkpoint(ckpt_path)
                 trainer.epoch = trainer.startEpoch
+                # Run validation for this checkpoint
                 trainer.validate_one_epoch()
+    
+    # Training/validation complete
     logging.info('DONE ---- rank %d' % world_rank)

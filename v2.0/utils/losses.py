@@ -101,6 +101,41 @@ class Latitude_weighted_masked_MSELoss(_Loss):
         elem_loss =  weighted_mse(input, target, self.latitudes, reduction = 'none')
         masked_loss = torch.where(self.mask, elem_loss, torch.nan)
         return torch.nanmean(masked_loss)
+
+class CRPSLoss(_Loss):
+    def __init__(self, num_ensemble_members, mask=None) -> None:
+        super().__init__()
+        self.num_ensemble_members = num_ensemble_members
+        self.mask = mask
+    
+    def forward(self, input: Tensor, target: Tensor) -> Tensor:
+        B = input.shape[0] // self.num_ensemble_members
+        reshaped_input = input.view(B, self.num_ensemble_members, *input.shape[1:])
+        reshaped_target = target.view(B, self.num_ensemble_members, *target.shape[1:])
+        total_loss = []
+        for i in range(B):
+            loss = self.CRPSSkill(reshaped_input[i], reshaped_target[i]) - \
+                0.5 * self.CRPSSpread(reshaped_input[i], reshaped_input[i])
+            if self.mask:
+                loss = torch.where(self.mask, loss, torch.nan)
+                
+            total_loss.append(torch.nanmean(loss))
+
+        return torch.mean(torch.stack(total_loss))
+    
+    def CRPSSkill(self, input: Tensor, target: Tensor) -> Tensor:
+        return torch.abs(input - target).mean(dim=0)
+    
+    def CRPSSpread(self, input: Tensor, target: Tensor) -> Tensor:
+        # compute (1/(M-1)) * mean(x_i - x_j) summed over all i,j
+        # only compute for i<j since sum is symmetric
+        spread = torch.zeros_like(input[0])
+        for i in range(input.shape[0]):
+            for j in range(i+1, input.shape[0]):
+                spread += 2 * torch.abs(input[i] - target[j])
+        prefactor = 1 / (self.num_ensemble_members * (self.num_ensemble_members - 1))
+        spread = prefactor * spread
+        return spread
     
 class Latitude_weighted_CRPSLoss(_Loss):
     def __init__(self, latitudes, num_ensemble_members, mask=None) -> None:
