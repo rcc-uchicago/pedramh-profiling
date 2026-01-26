@@ -3,7 +3,7 @@ import os, subprocess, sys
 if __name__ == "__main__":
     args = sys.argv[1:]
     num_gpus = 4 # Either 4 or 8
-    num_training_runs = 3 # Total number of 12 hour trainings runs expected to reach the final epoch
+    num_training_runs = 1 # Total number of 12 hour trainings runs expected to reach the final epoch
     config = "SFNO"
 
     if config == "SFNO":

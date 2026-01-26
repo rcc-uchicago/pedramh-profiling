@@ -53,3 +53,4 @@ wandb/
 gif_out/
 acc_plots/
 spectra_out/
+bias_out/

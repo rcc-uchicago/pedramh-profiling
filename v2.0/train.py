@@ -322,7 +322,7 @@ class Trainer():
         if self.params.resuming:
             checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr) if os.path.isfile(file)])[-1]
             self.restore_checkpoint(checkpoint_path)
-            logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
+            logging.info("Resuming from checkpoint: %s", checkpoint_path)
             if self.params.debug:
                 self.params.max_epochs = self.startEpoch + 1
         else:
@@ -1929,6 +1929,8 @@ class Trainer():
 
         if epoch >= 0:
             checkpoint_path_out = '_'.join(checkpoint_path.split('_')[:-1]) + f'_{epoch}.tar'
+            if os.path.exists(checkpoint_path_out):
+                raise ValueError(f'Checkpoint {checkpoint_path_out} already exists!')
             torch.save({'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
                         'optimizer_state_dict': self.optimizer.state_dict()}, checkpoint_path_out)
         else:
@@ -1939,6 +1941,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
+        logging.info(f'Restoring from checkpoint: {checkpoint_path}')
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         try:
             self.model.load_state_dict(checkpoint['model_state'])
@@ -1950,6 +1953,7 @@ class Trainer():
             self.model.load_state_dict(new_state_dict)
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
+        self.epoch = checkpoint['epoch']
         print('START EPOCH:', self.startEpoch)
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
@@ -2007,9 +2011,11 @@ if __name__ == '__main__':
     if not hasattr(params, 'num_ensemble_members'):
         params['num_ensemble_members'] = 1
     params['just_validate'] = args.just_validate
-    if params.just_validate:
-        os.environ["WANDB_MODE"] = "offline"
-    params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
+    # if params.just_validate:
+    #     os.environ["WANDB_MODE"] = "offline"
+    print("validation epochs arg:", args.validation_epochs)
+    params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split('_')]) if len(args.validation_epochs) > 0 else []
+        
     
     params['debug'] = False
     if args.debug:
@@ -2069,6 +2075,10 @@ if __name__ == '__main__':
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
+
+    if params['validation_epochs']:
+        if world_rank == 0:
+            print(f"Validation epochs specified: {params['validation_epochs']}")
 
     # Set up directory
     expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
