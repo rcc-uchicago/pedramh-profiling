@@ -904,12 +904,26 @@ class Stepper():
 
         return datasets
     
+    # def save_prediction(self, datasets, particle_idxs, ensemble_start, ensemble_end):
+    #     savedirs = [self.params.output_dirs[particle_idx] for particle_idx in particle_idxs]
+    #     save_basenames = [self.params.save_basenames[particle_idx] for particle_idx in particle_idxs]
+    #     for savedir in savedirs:
+    #         os.makedirs(savedir, exist_ok = True)
+    #     for i, (dataset, save_basename) in enumerate(zip(datasets, save_basenames)):
+    #         print(f'Saving prediction {particle_idxs[i]} members {ensemble_start}-{ensemble_end}...')
+    #         dataset = dataset.chunk({'ensemble_idx': 1, 'time': 1, self.params.lev: 1})
+    #         if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
+    #             dataset = dataset.chunk({'plev': 1})
+    #         #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
+    #         filename = save_basename + f'_run.{ensemble_start:04d}-{ensemble_end:04d}_output.nc'
+    #         dataset.to_netcdf(os.path.join(savedir, filename))
+
     def save_prediction(self, datasets, particle_idxs, ensemble_start, ensemble_end):
         savedirs = [self.params.output_dirs[particle_idx] for particle_idx in particle_idxs]
         save_basenames = [self.params.save_basenames[particle_idx] for particle_idx in particle_idxs]
         for savedir in savedirs:
             os.makedirs(savedir, exist_ok = True)
-        for i, (dataset, save_basename) in enumerate(zip(datasets, save_basenames)):
+        for i, (dataset, save_basename, savedir) in enumerate(zip(datasets, save_basenames, savedirs)):
             print(f'Saving prediction {particle_idxs[i]} members {ensemble_start}-{ensemble_end}...')
             dataset = dataset.chunk({'ensemble_idx': 1, 'time': 1, self.params.lev: 1})
             if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
@@ -917,7 +931,6 @@ class Stepper():
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             filename = save_basename + f'_run.{ensemble_start:04d}-{ensemble_end:04d}_output.nc'
             dataset.to_netcdf(os.path.join(savedir, filename))
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
