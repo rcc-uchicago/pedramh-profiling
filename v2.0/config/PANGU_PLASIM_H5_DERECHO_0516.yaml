@@ -1,16 +1,16 @@
 ### base config ###
 base_config: &BASE
-  loss: 'weightedl1'
-  lr: 0.0001
+  loss: 'l1'
+  loglr: -13
   weight_decay: 3e-6
   scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
-  num_data_workers: 8
+  num_data_workers: 16
   oc_pct_start: 0.1
   oc_div_factor: 1e5
   oc_final_div_factor: 0.00025
   
   log_to_screen: !!bool True
-  log_to_wandb: !!bool False
+  log_to_wandb: !!bool True
   save_checkpoint: !!bool True
 
   optimizer_type: 'AdamW' #'Adam' #'FusedAdam'
@@ -20,7 +20,7 @@ base_config: &BASE
   nettype: 'pangu_plasim'
   group: 'plasim'
 
-  exp_dir: 'results'
+  exp_dir: '/glade/derecho/scratch/plyu/results'
 
   enable_fp8: False
   fresh_start: False
@@ -30,25 +30,29 @@ base_config: &BASE
 
   entity: 'awikner-University of Chicago'
   project: 'Pangu-PLASIM'
-  name: Pangu-PLASIM-0508 
-
+  name: Pangu-PLASIM-0516 
 
 
 PLASIM: &PLASIM
   <<: *BASE
-  data_dir: /net/scratch2/awikner/PLASIM/data/sigma_data
+  data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/plev_data
+  bias_data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
-  diagnostic_variables: ['pr_6h']
-  land_variables: []
+  diagnostic_variables: ['pr_6h', 'evap']
+  land_variables: ['ts', 'mrso']
   ocean_variables: []
   mask_output: False
-  constant_boundary_variables: ['lsm', 'z0', 'sg']
+  constant_boundary_variables: ['lsm', 'z0', 'sg', 'mrfc', 'glac']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
-  train_year_start: 14
-  train_year_end: 15
-  val_year_start: 11
-  val_year_end: 12
+  train_year_start: 12
+  train_year_end: 112
+  val_year_start: 122
+  val_year_end: 125
+  long_validation: True 
+  long_val_year_start: 115
+  long_rollout_years: 5
+  epochs_per_long_validation: 10
   #, 'snow_depth', 'sea_ice_cover']
   #mask_fill: {'volumetric_soil_water_layer_1': 0.,
   #            'soil_temperature_level_1': 270.,
@@ -57,30 +61,30 @@ PLASIM: &PLASIM
   #            'sea_ice_cover': 0.,
   #            'snow_depth': 0.}
   data_timedelta_hours: 6
-  surface_mean: 'data_12-111_sigma_mean.nc'
-  surface_std: 'data_12-111_sigma_std.nc'
-  surface_ff_std: 'data_12-111_sigma_std.nc'
-  upper_air_mean: 'data_12-111_sigma_mean.nc'
-  upper_air_std: 'data_12-111_sigma_std.nc'
-  upper_air_ff_std: 'data_12-111_sigma_std.nc'
-  boundary_mean: 'data_12-111_sigma_mean.nc'
-  boundary_std: 'data_12-111_sigma_std.nc'
-  diagnostic_mean: 'data_12-111_sigma_mean.nc'
-  diagnostic_std: 'data_12-111_sigma_std.nc'
+  surface_mean: data_12-132_mean.nc 
+  surface_std: data_12-132_std.nc 
+  surface_ff_std: data_12-132_std.nc 
+  upper_air_mean: data_12-132_mean.nc 
+  upper_air_std: data_12-132_std.nc 
+  upper_air_ff_std: data_12-132_std.nc 
+  boundary_mean: data_12-132_mean.nc 
+  boundary_std: data_12-132_std.nc 
+  diagnostic_mean: data_12-132_mean.nc 
+  diagnostic_std: data_12-132_std.nc 
   #surface_delta_std: 'data_12-111_surface_delta_std.nc'
   #upper_air_delta_std: 'data_12-111_delta_std_Z.nc'
-  climatology_file: "mean_daymean_climatology_sigma.nc"
+  climatology_file: climatology.nc
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 64
+  batch_size: 16
   max_epochs: 100
 
   has_year_zero: True
 
-  num_levels: 10
+  num_levels: 13 
   #num_levels: 10
-  use_sigma_levels: True 
-  levels: [20000, 25000, 30000, 40000, 50000, 60000, 70000, 85000, 92500, 100000]
+  use_sigma_levels: False 
+  levels: [5000, 10000, 15000, 20000, 25000, 30000, 40000, 50000, 60000, 70000, 85000, 92500, 100000] 
   sigma_levels: [0.03830000013113022, 0.11910000443458557, 0.21085000783205032, 0.3168500065803528, 0.4368000030517578, 0.5668000280857086, 0.6993500888347626, 0.8233500719070435, 0.9240999817848206, 0.983299970626831]
   horizontal_resolution: [64, 128]
   depths: [2, 6, 6, 2]
@@ -88,7 +92,7 @@ PLASIM: &PLASIM
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
   window_size: [2, 2, 4]
-  epsilon_factor: 0.05 
+  epsilon_factor: 0.1
   upper_air_boundary: False
   subpixel_deconv: True
   recovery_head: True
@@ -99,23 +103,17 @@ PLASIM: &PLASIM
   grid_has_poles: False
 
   diagnostic_logs: True
-  diagnostic_acc: True
+  diagnostic_acc: True 
   diagnostic_gif: True
-  diagnostic_gif_var_dict: {'zg': [20000, 50000, 100000],
-                            'ua': [0.03830000013113022, 0.4368000030517578, 0.983299970626831],
-                            'tas': []}
-  diagnostic_spectra: False
+  diagnostic_spectra: True
+  diagnostic_acc_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
+  diagnostic_gif_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": []}
+  diagnostic_spectrum_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
+  diagnostic_bias_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
   forecast_lead_times: [1, 12, 20, 40, 60]
-  diagnostic_acc_var_dict: {'zg': [50000, 100000],
-                          'ua': [0.03830000013113022, 0.4368000030517578, 0.983299970626831],
-                          'tas': []}
-  
-  diagnostic_spectrum_var_dict: {'zg': [50000, 100000],
-                          'ua': [0.03830000013113022, 0.4368000030517578, 0.983299970626831],
-                          'tas': []}
 
-  lev: 'lev'
-  num_inferences: 100
+  lev: 'plev'
+  num_inferences: 128
 
   use_reentrant: False
   checkpointing: 0
@@ -158,7 +156,7 @@ PLASIM: &PLASIM
 modified_1: &MODIFIED
   <<: *BASE
   lr: 5E-4
-  batch_size: 16 
+  batch_size: 66 
   max_epochs: 80 
   scheduler: 'CosineAnnealingLR'
   optimizer_type: 'FusedAdam'
