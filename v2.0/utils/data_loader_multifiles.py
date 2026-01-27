@@ -172,7 +172,7 @@ def get_date_range(data_dirs, date_ranges, hour_step,
 
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
-                    ensemble = False, init_from_nc = False):
+                    ensemble = False, init_from_nc = False, drop_last = True):
     if train:
         try:
             assert not single_ic
@@ -197,8 +197,8 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
                                 num_workers=params.num_data_workers,
                                 shuffle=False,  # (sampler is None),
                                 sampler=sampler,# if train else None,
-                                drop_last=True if not ensemble else False,
-                                pin_memory=torch.cuda.is_available())
+                                pin_memory=torch.cuda.is_available(),
+                                drop_last=drop_last if not ensemble else False)
 
     if train:
         return dataloader, dataset, sampler
@@ -224,6 +224,10 @@ class GetDataset(Dataset):
             self.validate = False
         self.ensemble = ensemble
         self.init_from_nc = init_from_nc
+        if hasattr(params, 'no_leap_year'):
+            self.no_leap_year = self.params.no_leap_year
+        if hasattr(params, 'leap_year'):
+            self.leap_year = self.params.leap_year
         if self.ensemble:
             if hasattr(self.params, 'init_datetimes'):
                 self.init_datetimes = self.params.init_datetimes
@@ -243,10 +247,6 @@ class GetDataset(Dataset):
             self.nc_bc_offset       = 0
             if hasattr(params, 'long_rollout_years'):
                 self.long_rollout_years = self.params.long_rollout_years
-            if hasattr(params, 'no_leap_year'):
-                self.no_leap_year = self.params.no_leap_year
-            if hasattr(params, 'leap_year'):
-                self.leap_year = self.params.leap_year
             if hasattr(params, 'single_ic_offset'):
                 self.single_ic_offset = self.params.single_ic_offset
             if hasattr(params, 'nc_bc_offset'):
@@ -673,7 +673,7 @@ class GetDataset(Dataset):
         date_range = np.arange(0., hours, hour_step)
         print(f'Hours: {hours}')
         print(f'End data hour: {date_range[-1]}')
-        return date_range, start_date, end_date, np.zeros(len(date_range)), np.array([len(date_range)])
+        return date_range, start_date, end_date, np.zeros(len(date_range), dtype = int), np.array([len(date_range)], dtype = int)
 
     def _shuffle_training_dates(self, shuffled_date_idxs, curriculum_learning_fraction, data_sizes):
         base_date_len = data_sizes[0]
@@ -682,7 +682,7 @@ class GetDataset(Dataset):
         else:
             class_1_date_size = int((np.sum(data_sizes) - base_date_len) * curriculum_learning_fraction / (1 - curriculum_learning_fraction))
             class_1_dates, class_1_data_dirs_idxs = self.all_dates[shuffled_date_idxs][:class_1_date_size], self.all_data_dirs_idxs[:class_1_date_size]
-            class_2_dates, class_2_data_dirs_idxs = self.all_dates[class_1_date_size:], self.all_data_dirs_idxs[class_1_date_size:]
+            class_2_dates, class_2_data_dirs_idxs = self.all_dates[base_date_len:], self.all_data_dirs_idxs[base_date_len:]
             self.dates, self.data_dirs_idxs = np.concatenate([class_1_dates, class_2_dates]), np.concatenate([class_1_data_dirs_idxs, class_2_data_dirs_idxs])
         self.inference_idxs = np.arange(0, len(self.dates))
         return self.dates, self.data_dirs_idxs
@@ -858,8 +858,7 @@ class GetDataset(Dataset):
             boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
-            varying_boundary_data.extend([self._fill_mask(\
-                torch.from_numpy(self._get_boundary_data(boundary_time)).to(torch.float32), self.varying_boundary_variables) \
+            varying_boundary_data.extend([self._fill_mask(self._get_boundary_data(boundary_time), self.varying_boundary_variables) \
                      for boundary_time in boundary_times])
             varying_boundary_data = torch.stack([self.boundary_transform(varying_boundary_data_i) for varying_boundary_data_i in varying_boundary_data], dim=0)
 

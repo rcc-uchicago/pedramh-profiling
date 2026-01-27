@@ -39,7 +39,6 @@ from utils.lr_scheduler_sfno import LinearWarmupCosineAnnealingLR
 logging_utils.config_logger()
 #from apex import optimizers
 from pathlib import Path
-import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -287,6 +286,9 @@ class Trainer():
         self.device = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
         ###Setup the initia epochs and iteration #######
         self.iters = 0
+        self.wandb_step = 0  # Track wandb step to ensure monotonicity
+        if world_rank == 0:
+            logging.info(f"Initialized wandb_step: {self.wandb_step}")
         self.startEpoch = 0
         self.epoch = self.startEpoch
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
@@ -445,7 +447,8 @@ class Trainer():
                     dist.is_initialized(), 
                     year_start=year_start, 
                     year_end=year_end, 
-                    train=True
+                    train=True,
+                    drop_last=False if self.params.curriculum_learning else True
                 )
                 self.train_data_loaders.append(train_data_loader)
                 self.train_datasets.append(train_dataset)
@@ -457,7 +460,8 @@ class Trainer():
                     dist.is_initialized(), 
                     year_start=params.train_year_start, 
                     year_end=params.train_year_end, 
-                    train=True
+                    train=True, 
+                    drop_last=False if self.params.curriculum_learning else True
                 )
             self.train_data_loaders = [train_data_loader]
             self.train_datasets = [train_dataset]
@@ -888,7 +892,7 @@ class Trainer():
         if self.params.log_to_wandb:
             for pg in self.optimizer.param_groups:
                 lr = pg['lr']
-            wandb.log({'lr': lr, 'epoch': self.epoch})
+            wandb.log({'lr': lr, 'epoch': self.epoch}, step=self.wandb_step)
     
 
     def log_screen_epoch(self, epoch:int, start, train_logs, valid_logs, early_stopping_counter, **kwargs) ->None:
@@ -1002,7 +1006,9 @@ class Trainer():
                     ##########################################################
                         if self.world_rank == 0:
                             #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
-                            wandb.log(diagnostic_logs, step= self.iters)
+                            # Use wandb_step to ensure monotonicity, then increment it
+                            wandb.log(diagnostic_logs, step=self.wandb_step)
+                            self.wandb_step += 1
 
                     torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
@@ -1170,7 +1176,7 @@ class Trainer():
                     diagnostic_logs['train_loss'] = float(diagnostic_logs['train_loss']/dist.get_world_size())
                 logs = {'train_loss': diagnostic_logs['train_loss'], 'epoch': self.epoch}
                 if self.params.log_to_wandb:
-                    wandb.log(logs)
+                    wandb.log(logs, step=self.wandb_step)
                 return diagnostic_logs
         else:
             with torch.no_grad():
@@ -1184,7 +1190,7 @@ class Trainer():
                     logs[key] = float(logs[key]/dist.get_world_size())
 
             if self.params.log_to_wandb:
-                wandb.log(logs)
+                wandb.log(logs, step=self.wandb_step)
             return logs
 
 
@@ -1368,7 +1374,7 @@ class Trainer():
                         wandb.log({
                             "bias_plot": wandb.Image(bias_filename),
                             "epoch": self.epoch
-                        })
+                        }, step=self.wandb_step)
                     
                 
                 
@@ -1449,10 +1455,10 @@ class Trainer():
                     step_idx = 0
                     for step in range(max_lead_time):
                         if self.params.has_diagnostic:
-                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _  = self.model(
+                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _  = self.model(
                                 val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         else:
-                            val_output_surface, val_output_upper_air,  _, _ = self.model(val_input_surface, self.constant_boundary_data, 
+                            val_output_surface, val_output_upper_air,  _, _, _, _ = self.model(val_input_surface, self.constant_boundary_data, 
                                                                                     val_varying_boundary_data[:, step], val_input_upper_air)
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
@@ -1729,23 +1735,23 @@ class Trainer():
             diagnostic_logs[key] = value.item()
 
         if self.params.log_to_wandb:
-            wandb.log(diagnostic_logs)
+            wandb.log(diagnostic_logs, step=self.wandb_step)
             if self.params.diagnostic_acc:
                 wandb.log({
                     "ACC_plot": wandb.Image(plot_filename),
                     "epoch": self.epoch
-                })
+                }, step=self.wandb_step)
             if self.params.diagnostic_gif:
                 if gif_filename:
                     wandb.log({
                         "Evolution_GIF": wandb.Video(gif_filename),
                         "epoch": self.epoch
-                    })
+                    }, step=self.wandb_step)
             if self.params.diagnostic_spectra:
                 wandb.log({
                     "power_spectrum_plot": wandb.Image(path_filename),
                     "epoch": self.epoch,
-                })
+                }, step=self.wandb_step)
         
         valid_time = time.time() - valid_start
        
@@ -1901,7 +1907,7 @@ class Trainer():
                     wandb.log({
                         "power_spectrum_plot": wandb.Image(os.path.join(output_dir, plot_file)),
                         "custom_step": epoch,
-                    })
+                    }, step=self.wandb_step)
                     print(f"Logged file: {plot_file} with epoch: {epoch}")
                 except Exception as e:
                     print(f"Error logging file {plot_file} to wandb: {e}")
@@ -1974,7 +1980,7 @@ class Trainer():
         else:
             checkpoint_path_out = checkpoint_path
         save_dict = {'iters': self.iters, 'epoch': self.epoch, 'model_state': model.state_dict(),
-                        'optimizer_state_dict': self.optimizer.state_dict()}
+                        'optimizer_state_dict': self.optimizer.state_dict(), 'wandb_step': self.wandb_step}
         if hasattr(self, 'finetune_startEpoch'):
             save_dict['finetune_startEpoch'] = self.finetune_startEpoch
         torch.save(save_dict, checkpoint_path_out)
@@ -1994,6 +2000,75 @@ class Trainer():
             self.model.load_state_dict(new_state_dict)
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
+        # Restore wandb_step from checkpoint if available, otherwise use iters
+        if 'wandb_step' in checkpoint:
+            self.wandb_step = checkpoint['wandb_step']
+            if self.world_rank == 0:
+                logging.info(f"Restored wandb_step from checkpoint: {self.wandb_step} (iters: {self.iters})")
+        else:
+            self.wandb_step = self.iters
+            if self.world_rank == 0:
+                logging.info(f"Initialized wandb_step from iters (checkpoint had no wandb_step): {self.wandb_step}")
+        
+        # During fine-tuning, ensure wandb_step is at least as large as wandb's current step
+        # to prevent monotonicity violations. This is critical because wandb might continue
+        # from a previous run even with resume="never" if the run name is the same.
+        if finetune and self.params.log_to_wandb:
+            try:
+                # Get wandb's current step if available
+                if wandb.run is not None:
+                    current_wandb_step = None
+                    try:
+                        # Try multiple methods to get wandb's current step
+                        # Method 1: wandb.run.step (most direct)
+                        if hasattr(wandb.run, 'step') and wandb.run.step is not None:
+                            current_wandb_step = wandb.run.step
+                        # Method 2: Try to get from summary (last logged step)
+                        elif hasattr(wandb.run, 'summary') and '_step' in wandb.run.summary:
+                            current_wandb_step = wandb.run.summary.get('_step', None)
+                        # Method 3: Try to get from config
+                        elif hasattr(wandb.run, 'config') and '_step' in wandb.run.config:
+                            current_wandb_step = wandb.run.config.get('_step', None)
+                    except Exception as e:
+                        # If we can't get wandb's step, log a warning but continue
+                        if self.world_rank == 0:
+                            logging.warning(f"Could not determine wandb current step: {e}")
+                    
+                    # If we got a current step, ensure our wandb_step is larger
+                    if current_wandb_step is not None:
+                        if self.wandb_step <= current_wandb_step:
+                            if self.world_rank == 0:
+                                logging.info(f"Adjusting wandb_step from {self.wandb_step} to {current_wandb_step + 1} to maintain monotonicity")
+                            self.wandb_step = current_wandb_step + 1
+                    else:
+                        # If we couldn't get wandb's step directly, try to query history
+                        # This is a fallback for cases where wandb continues from a previous run
+                        try:
+                            if hasattr(wandb.run, 'history') and callable(wandb.run.history):
+                                history_df = wandb.run.history()
+                                if history_df is not None and not history_df.empty and '_step' in history_df.columns:
+                                    max_step = int(history_df['_step'].max())
+                                    if self.wandb_step <= max_step:
+                                        if self.world_rank == 0:
+                                            logging.info(f"Adjusting wandb_step from {self.wandb_step} to {max_step + 1} based on history")
+                                        self.wandb_step = max_step + 1
+                        except Exception as e:
+                            # If history query fails, use a safety margin
+                            if self.world_rank == 0:
+                                logging.warning(f"Could not query wandb history: {e}. Using safety margin.")
+                            if self.wandb_step < self.iters:
+                                self.wandb_step = self.iters
+            except Exception as e:
+                # If we can't access wandb, ensure wandb_step is at least iters
+                if self.world_rank == 0:
+                    logging.warning(f"Error accessing wandb during checkpoint restoration: {e}")
+                if self.wandb_step < self.iters:
+                    self.wandb_step = self.iters
+        
+        # Print final wandb_step after all adjustments
+        if self.world_rank == 0:
+            logging.info(f"Final wandb_step after checkpoint restoration: {self.wandb_step} (finetune={finetune})")
+        
         if finetune:
             self.finetune_startEpoch = self.startEpoch
             self.params.max_epochs = self.startEpoch + self.params.finetune_num_epochs
@@ -2131,15 +2206,16 @@ if __name__ == '__main__':
         params['num_inferences'] = params['num_data_workers']  # Reduce inference count
     else:
         # Normal mode: determine world size from environment or available GPUs
-        print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
-        print('World size from Cuda: %d' % torch.cuda.device_count())
+        
+        
         if 'WORLD_SIZE' in os.environ:
+            print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
             params['world_size'] = int(os.environ['WORLD_SIZE'])
             print(params['world_size'])
-        else:
+        else: 
             params['world_size'] = torch.cuda.device_count()
             print(params['world_size'])
-    
+        print('World size from Cuda: %d' % torch.cuda.device_count())
     # Force wandb offline mode if configured
     if hasattr(params, "wandb_offline"):
         if params.wandb_offline:
@@ -2222,12 +2298,12 @@ if __name__ == '__main__':
     # ============================================================================
     # Define checkpoint file patterns and paths
     ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'  # Pattern for numbered checkpoints
-    best_ckpt_path = 'training_checkpoints/best_ckpt.tar'  # Path for best checkpoint
+    best_ckpt_path_save = 'training_checkpoints/best_ckpt.tar'  # Path for best checkpoint to save
     
     # Set checkpoint paths for loading (from load_expDir) and saving (to save_expDir)
     params['checkpoint_path_globstr_load'] = os.path.join(load_expDir, ckpt_path_globstr)
     params['checkpoint_path_globstr_save'] = os.path.join(save_expDir, ckpt_path_globstr)
-    params['best_checkpoint_path'] = os.path.join(load_expDir, best_ckpt_path)
+    params['best_checkpoint_path_save'] = os.path.join(save_expDir, best_ckpt_path_save)
     
     # ============================================================================
     # SECTION 10: Check for existing checkpoints and determine resume status

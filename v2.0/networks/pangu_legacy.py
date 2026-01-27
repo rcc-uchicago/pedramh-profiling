@@ -386,7 +386,8 @@ class PanguModel_Plasim(nn.Module):
             self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
 
-    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, train = False):
+    def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in,
+                target_surface=None, target_upper_air=None, train = False):
         """
         Args:
             surface (torch.Tensor): 2D n_lat=721, n_lon=1440, chans=4.
@@ -402,7 +403,7 @@ class PanguModel_Plasim(nn.Module):
             surface_varying_boundary = varying_boundary[:,self.idx_surface_var_bound, :, :]
             # print(surface_varying_boundary.size())
 
-            surface = torch.cat([surface_in, constant_boundary, surface_varying_boundary], dim=1)
+            surface = torch.cat([surface_in, constant_boundary[:surface_in.shape[0]], surface_varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
             #print(f'Shape after 2D patch embedding:{surface.shape}')
             #print(surface[0,0,:,0])
@@ -427,7 +428,7 @@ class PanguModel_Plasim(nn.Module):
 
 
         else:
-            surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1)
+            surface = torch.concat([surface_in, constant_boundary[:surface_in.shape[0]], varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air_in)
 
@@ -583,9 +584,9 @@ class PanguModel_Plasim(nn.Module):
         if self.num_diagnostic_vars > 0:
             output_diagnostic = output_2D[:, self.num_surface_vars:self.num_surface_vars + self.num_diagnostic_vars].reshape(
                 output_surface.shape[0], -1, output_surface.shape[-2], output_surface.shape[-1])
-            return output_surface, output_upper_air, output_diagnostic, torch.tensor(0.), torch.tensor(0.)
+            return output_surface, output_upper_air, output_diagnostic, torch.tensor(0.), torch.tensor(0.), torch.tensor(0.), torch.tensor(0.)
         else:
-            return output_surface, output_upper_air, torch.tensor(0.), torch.tensor(0.)
+            return output_surface, output_upper_air, torch.tensor(0.), torch.tensor(0.), torch.tensor(0.), torch.tensor(0.)
         
 """
         

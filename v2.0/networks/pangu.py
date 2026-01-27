@@ -451,7 +451,7 @@ class PanguModel_Plasim(nn.Module):
         if self.upper_air_boundary:
             upper_air_varying_boundary = varying_boundary[:,self.idx_upper_air_var_bound, :, :].unsqueeze(1)
             surface_varying_boundary = varying_boundary[:,self.idx_surface_var_bound, :, :]
-            surface = torch.cat([surface_in, constant_boundary, surface_varying_boundary], dim=1)
+            surface = torch.cat([surface_in, constant_boundary[:surface_in.shape[0]], surface_varying_boundary], dim=1)
             surface = self.patchembed2d(surface)
             upper_air_varying_boundary = self.patchembed2d_upper_air_boundary(upper_air_varying_boundary)
             upper_air = self.patchembed3d(upper_air_in)
@@ -460,7 +460,7 @@ class PanguModel_Plasim(nn.Module):
             # print("surface_in shape is ", surface_in.shape) #1, 9, 180, 360
             # print("constant_boundary shape is ", constant_boundary.shape) # 4, 2, 180, 360
             # print("varying_boundary shape is ", varying_boundary.shape) #1, 1, 180, 360
-            surface = torch.concat([surface_in, constant_boundary, varying_boundary], dim=1) 
+            surface = torch.concat([surface_in, constant_boundary[:surface_in.shape[0]], varying_boundary], dim=1) 
             surface = self.patchembed2d(surface)
             upper_air = self.patchembed3d(upper_air_in)
             x = torch.concat([upper_air, surface.unsqueeze(2)], dim=2)

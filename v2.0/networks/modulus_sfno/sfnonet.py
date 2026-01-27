@@ -804,7 +804,7 @@ class SphericalFourierNeuralOperatorNet_v2(SphericalFourierNeuralOperatorNet):
         # Reshape input to [b, c, x, y]
         upper_air = upper_air.view(b, upper_air_vars * upper_air_levels, nlat, nlon)
         #print(f'upper_air reshaped into: {upper_air.shape}')
-        x = torch.cat((surface, c_boundary, v_boundary, upper_air), dim=1)
+        x = torch.cat((surface, c_boundary[:surface.shape[0]], v_boundary, upper_air), dim=1)
         #print(f'input shape into base SFNO: {x.shape}')
 
         x = super(SphericalFourierNeuralOperatorNet_v2, self).forward(x)
