@@ -73,6 +73,7 @@ def compute_A_ensemble(args):
     """
     # Open the dataset for existing paths
     ds_list, particle_idxs_list, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
+    # print("DEBUG: particle_idxs_list: ", particle_idxs_list)
     # ds = xr.open_dataset(path, decode_times=True, use_cftime=True)
     # Load region boundaries from a JSON file
     # print("DEBUG: ds_list: ", ds_list)
@@ -930,7 +931,13 @@ class Stepper():
                 dataset = dataset.chunk({'plev': 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             filename = save_basename + f'_run.{ensemble_start:04d}-{ensemble_end:04d}_output.nc'
-            dataset.to_netcdf(os.path.join(savedir, filename))
+            
+            # dataset.to_netcdf(os.path.join(savedir, filename))
+            filepath = os.path.join(savedir, filename)
+            # FIX 1: specify mode='w', compute=True ensure immediate close
+            dataset.to_netcdf(filepath, mode='w', compute=True)
+            # FIX 2: close every time we saved.
+            dataset.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
