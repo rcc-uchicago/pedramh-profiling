@@ -1069,8 +1069,7 @@ if __name__ == '__main__':
 
         params['experiment_dir'] = os.path.abspath(expDir)
         # Construct checkpoint path following train.py convention.
-        # params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints', f'seed-{seed}')
-        params['checkpoint_dir'] = os.path.join(expDir, 'train_checkpoints') # cutomized for Pangu legacy
+        params['checkpoint_dir'] = os.path.join(expDir, 'training_checkpoints') # cutomized for Pangu legacy
         params['best_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'best_ckpt.tar')
         params['latest_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'ckpt_latest.tar')
         params['checkpoint_path_globstr'] = os.path.join(params['checkpoint_dir'], 'ckpt_epoch_*.tar')
@@ -1096,7 +1095,7 @@ if __name__ == '__main__':
             params['best_checkpoint_path'] = checkpoint_path  # Update to actual path found
         else:
             raise FileNotFoundError(
-                f"No checkpoint found for seed {args.seed}.\n"
+                f"No checkpoint found.\n"
                 f"Searched: {params.best_checkpoint_path}, {params.latest_checkpoint_path}, {params.checkpoint_path_globstr}"
             )
 
@@ -1213,7 +1212,7 @@ if __name__ == '__main__':
         shared_keys = [
             'init_datetime', 'init_datetimes', 'init_nc_filepaths',
             'save_basenames', 'output_dirs', 'region_file',
-            'ensemble_timedelta_hours', 'num_ensemble_members',
+            'ensemble_inference_hours', 'num_ensemble_members',
             'ensemble_members_per_pred', 'batch_size', 'world_size',
             'has_diagnostic', 'use_legacy_model', 'run_iter'
         ]
@@ -1236,7 +1235,7 @@ if __name__ == '__main__':
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
             target_duration = 7
-            lead_time = params.ensemble_timedelta_hours // 24 - target_duration
+            lead_time = params.ensemble_inference_hours // 24 - target_duration
             print("DEBUG: lead_time: ", lead_time)
             print("DEBUG: target_duration: ", target_duration)
             var = "tas"
