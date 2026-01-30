@@ -818,10 +818,6 @@ def plot_acc_over_lead_time(acc, lead_times_hours, var_dict=None, colors=None, f
     plt.tight_layout()
     return fig, axs
 
-
-
-
-
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import cartopy.crs as ccrs

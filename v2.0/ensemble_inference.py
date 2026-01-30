@@ -32,7 +32,6 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
 logging_utils.config_logger()
 #from apex import optimizers
 from pathlib import Path
-import dask
 from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
@@ -189,11 +188,12 @@ class Stepper():
         # Set up model
         self.mask_bool, self.land_mask = self.get_land_mask_bool() #Bing: need to double check if the return is static values.
         self.model, self.model_24h = self.get_model()
-        self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
-        logging.info("Loading model from checkpoint: %s", self.params.best_checkpoint_path)
-        if self.use_6h_24h_model:
-            self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
-            logging.info("Loading 24h model from checkpoint: %s", self.params_24h.best_checkpoint_path)
+        if hasattr(self.params, 'best_checkpoint_path'):
+            self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
+            logging.info("Loading model from checkpoint: %s", self.params.best_checkpoint_path)
+            if self.use_6h_24h_model:
+                self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
+                logging.info("Loading 24h model from checkpoint: %s", self.params_24h.best_checkpoint_path)
 
     def get_land_mask_bool(self) -> torch.Tensor:
         """
@@ -491,16 +491,19 @@ class Stepper():
                     #output_upper_air[:,0] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                     
 
-                    for time_step in tqdm(range(self.dataset.ensemble_inference_steps),
-                                          desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
+                    # Only show progress bar on rank 0 to avoid jumping output in DDP
+                    time_step_iter = tqdm(range(self.dataset.ensemble_inference_steps),
+                                         desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
+                                         disable=(self.world_rank != 0))
+                    for time_step in time_step_iter:
                         inference_start = time.time()
                         if self.params.has_diagnostic:
-                            out_surface, out_upper_air, out_diagnostic, _, _ = self.model(input_surface, 
+                            out_surface, out_upper_air, out_diagnostic, _, _, _, _ = self.model(input_surface, 
                                                                                     constant_boundary_data, 
                                                                                     varying_boundary_data[:,time_step],
                                                                                     input_upper_air)
                         else:
-                            out_surface, out_upper_air, _, _ = self.model(input_surface, constant_boundary_data, 
+                            out_surface, out_upper_air, _, _, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                     varying_boundary_data[:,time_step], input_upper_air)
                         if self.params.predict_delta:
                             input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
@@ -618,16 +621,19 @@ class Stepper():
                     #output_upper_air[:,0] = self.dataset.upper_air_inv_transform(input_upper_air.to('cpu')).numpy()
                     
 
-                    for time_step in tqdm(range(self.dataset.ensemble_inference_steps),
-                                          desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}'):
+                    # Only show progress bar on rank 0 to avoid jumping output in DDP
+                    time_step_iter = tqdm(range(self.dataset.ensemble_inference_steps),
+                                         desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
+                                         disable=(self.world_rank != 0))
+                    for time_step in time_step_iter:
                         if self.params.has_diagnostic:
-                            out_surface, out_upper_air, out_diagnostic, _, _ = self.model(input_surface, 
+                            out_surface, out_upper_air, out_diagnostic, _, _, _, _ = self.model(input_surface, 
                                                                                     constant_boundary_data, 
                                                                                     varying_boundary_data[:,time_step],
                                                                                     input_upper_air)
                             output_diagnostic[:, time_step] = self.dataset.diagnostic_transform(out_diagnostic.to('cpu')).numpy()
                         else:
-                            out_surface, out_upper_air, _, _ = self.model(input_surface, constant_boundary_data, 
+                            out_surface, out_upper_air, _, _, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                     varying_boundary_data[:,time_step], input_upper_air)
                         if self.params.predict_delta:
                             input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)

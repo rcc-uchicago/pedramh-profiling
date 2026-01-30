@@ -184,26 +184,30 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
         except:
             raise ValueError('Set validate to False when using single_ic = True.')
     dataset = GetDataset(params, files_pattern, year_start, year_end, train, num_inferences, validate, single_ic, ensemble, init_from_nc)
+    dataloader, sampler = create_dataloader(dataset, int(params.batch_size), params.num_data_workers, distributed, single_ic, train, ensemble, drop_last)
+
+    if train:
+        return dataloader, dataset, sampler
+    else:
+        return dataloader, dataset
+
+def create_dataloader(dataset, batch_size, num_workers, distributed, single_ic, train, ensemble, drop_last):
     if single_ic:
         dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
     else:
         sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
         if train and not distributed:
             sampler = torch.utils.data.RandomSampler(dataset)
+        dataloader = DataLoader(
+            dataset, 
+            batch_size=batch_size, 
+            num_workers=num_workers, 
+            shuffle=False, 
+            sampler=sampler, 
+            pin_memory=torch.cuda.is_available(), 
+            drop_last=drop_last if not ensemble else False)
+    return dataloader, sampler
 
-
-        dataloader = DataLoader(dataset,
-                                batch_size=int(params.batch_size),
-                                num_workers=params.num_data_workers,
-                                shuffle=False,  # (sampler is None),
-                                sampler=sampler,# if train else None,
-                                pin_memory=torch.cuda.is_available(),
-                                drop_last=drop_last if not ensemble else False)
-
-    if train:
-        return dataloader, dataset, sampler
-    else:
-        return dataloader, dataset
 
 
 class GetDataset(Dataset):
@@ -240,7 +244,11 @@ class GetDataset(Dataset):
             self.params['forecast_lead_times'] = [1]
         if self.single_ic or self.ensemble:
             self.no_leap_year       = 51
-            self.leap_year          = 52
+            self.leap_year = 52
+            if hasattr(params, 'no_leap_year'):
+                self.no_leap_year = self.params.no_leap_year
+            if hasattr(params, 'leap_year'):
+                self.leap_year = self.params.leap_year                
         if self.single_ic:
             self.single_ic_offset   = 0
             self.long_rollout_years = 1
@@ -448,7 +456,12 @@ class GetDataset(Dataset):
                                                         self.params.horizontal_resolution[0],
                                                         self.params.horizontal_resolution[1]),
                                                         dtype = torch.float32)
-        for i, data_datetime in tqdm(enumerate(datetimes), total = len(datetimes), desc = 'Loading boundary data'):
+        # Only show progress bar on rank 0 to avoid jumping output in DDP
+        disable_progress = False
+        if torch.distributed.is_initialized():
+            disable_progress = (torch.distributed.get_rank() != 0)
+        
+        for i, data_datetime in tqdm(enumerate(datetimes), total = len(datetimes), desc = 'Loading boundary data', disable=disable_progress):
             varying_boundary_data_i = self._get_boundary_data(data_datetime)
             varying_boundary_data_i = self._fill_mask(varying_boundary_data_i, self.varying_boundary_variables)
             varying_boundary_data_i = self.boundary_transform(varying_boundary_data_i)
@@ -656,7 +669,7 @@ class GetDataset(Dataset):
                 start_date = min(self.init_datetimes)
                 end_date = max(self.init_datetimes) + timedelta(hours=self.params.ensemble_inference_hours)
                 date_range = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
-            return date_range, start_date, end_date, np.zeros(len(date_range))
+            return date_range, start_date, end_date, np.zeros(len(date_range), dtype=int), np.array([len(date_range)], dtype=int)
         elif (self.train and hasattr(self.params, 'train_data_sets')) or (self.validate and hasattr(self.params, 'validation_data_sets')):
             self.data_dirs, date_range, start_date, end_date, data_dirs_idxs, num_dates = \
                 get_date_range(self.data_dirs, self.params.train_data_sets if self.train else self.params.validation_data_sets,
@@ -684,7 +697,8 @@ class GetDataset(Dataset):
             class_1_dates, class_1_data_dirs_idxs = self.all_dates[shuffled_date_idxs][:class_1_date_size], self.all_data_dirs_idxs[:class_1_date_size]
             class_2_dates, class_2_data_dirs_idxs = self.all_dates[base_date_len:], self.all_data_dirs_idxs[base_date_len:]
             self.dates, self.data_dirs_idxs = np.concatenate([class_1_dates, class_2_dates]), np.concatenate([class_1_data_dirs_idxs, class_2_data_dirs_idxs])
-        self.inference_idxs = np.arange(0, len(self.dates))
+        self.inference_idxs = np.arange(0, len(self.dates), dtype = int)
+        self.num_inferences = len(self.inference_idxs)
         return self.dates, self.data_dirs_idxs
         
 

@@ -10,7 +10,7 @@ from ruamel.yaml import YAML
 from collections import OrderedDict
 import matplotlib.pyplot as plt
 import wandb
-from utils.data_loader_multifiles import get_data_loader, get_date_range, datetime_class_from_calendar
+from utils.data_loader_multifiles import get_data_loader, get_date_range, datetime_class_from_calendar, create_dataloader
 from utils.YParams import YParams
 import os, glob
 import time
@@ -54,6 +54,9 @@ import uuid
 from utils.integrate import Integrator, forward_euler
 import copy
 import json
+from ensemble_inference import Stepper
+import cftime
+import warnings
 
 #dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -290,7 +293,6 @@ class Trainer():
         if world_rank == 0:
             logging.info(f"Initialized wandb_step: {self.wandb_step}")
         self.startEpoch = 0
-        self.epoch = self.startEpoch
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         #################################################
         self.run_uuid = str(uuid.uuid4())
@@ -310,62 +312,77 @@ class Trainer():
         
         if self.params.enable_amp == True:
             self.scaler = GradScaler()
-        if self.params.resuming:
+        if self.params.resuming or self.params.finetuning:
             checkpoint_path = None
-            finetune = False
+            finetune = self.params.finetuning
+            
+            # Priority 1: If start_epoch is assigned, load from that epoch's checkpoint file
             if hasattr(self.params, 'start_epoch'):
-                checkpoint_path = [file for file in glob.glob(self.params.checkpoint_path_globstr_load) \
-                    if os.path.isfile(file) and f'_{params.start_epoch}.tar' in file][0]
-            elif hasattr(self.params, 'finetuning'):
-                if self.params.finetuning:
-                    # Finetuning mode: load checkpoint but don't load optimizer state
-                    finetune = True
-                    if hasattr(self.params, 'start_epoch'):
-                        checkpoint_paths = [file for file in glob.glob(self.params.checkpoint_path_globstr_load) if os.path.isfile(file)]
-                        print(checkpoint_paths)
-                        print(f'_{self.params.start_epoch}.tar')
-                        checkpoint_path = [file for file in checkpoint_paths if f'_{self.params.start_epoch}.tar' in file][0]
-                    else:
-                        checkpoint_path = natsorted([file for file in glob.glob(self.params.checkpoint_path_globstr_load) if os.path.isfile(file)])[-1]
-            else:
-                # For validation without specific epochs, prefer best checkpoint
-                if self.params.just_validate and len(self.params.validation_epochs) == 0:
-                    if os.path.isfile(self.params.best_checkpoint_path_load):
-                        checkpoint_path = self.params.best_checkpoint_path_load
-                        logging.info("Validation mode: using best checkpoint")
-                # For training resume: priority is latest > numbered > best
-                if checkpoint_path is None:
-                    load_latest = False
-                    if hasattr(self.params, 'latest_checkpoint_path_load'):
-                        if os.path.isfile(self.params.latest_checkpoint_path_load):
-                            checkpoint_path = self.params.latest_checkpoint_path_load
-                            load_latest = True
-                    if not load_latest:
-                        checkpoint_paths = natsorted([
-                            file for file in glob.glob(self.params.checkpoint_path_globstr_load) 
-                            if os.path.isfile(file)
-                        ])
-                        if len(checkpoint_paths) > 0:
-                            checkpoint_path = checkpoint_paths[-1]
-                        elif os.path.isfile(self.params.best_checkpoint_path):
-                            checkpoint_path = self.params.best_checkpoint_path
+                epoch_checkpoint_pattern = os.path.join(
+                    self.params.checkpoint_dir_load,
+                    f'ckpt_epoch_{self.params.start_epoch}.tar'
+                )
+                if os.path.isfile(epoch_checkpoint_pattern):
+                    checkpoint_path = epoch_checkpoint_pattern
+                    if self.world_rank == 0:
+                        logging.info(f"Loading checkpoint from specified epoch {self.params.start_epoch}: {checkpoint_path}")
+            
+            # Priority 2: If just_validate and no epochs are set, load from best_checkpoint_path_load
+            if checkpoint_path is None:
+                if hasattr(self.params, 'just_validate') and self.params.just_validate:
+                    validation_epochs = getattr(self.params, 'validation_epochs', '')
+                    if validation_epochs == '' or (isinstance(validation_epochs, (list, str)) and len(validation_epochs) == 0):
+                        if os.path.isfile(self.params.best_checkpoint_path_load):
+                            checkpoint_path = self.params.best_checkpoint_path_load
+                            if self.world_rank == 0:
+                                logging.info(f"Validation mode: using best checkpoint: {checkpoint_path}")
+            
+            # Priority 3: Load from latest_checkpoint_path_load
+            if checkpoint_path is None:
+                if hasattr(self.params, 'latest_checkpoint_path_load') and os.path.isfile(self.params.latest_checkpoint_path_load):
+                    checkpoint_path = self.params.latest_checkpoint_path_load
+                    if self.world_rank == 0:
+                        logging.info(f"Loading latest checkpoint: {checkpoint_path}")
+            
+            # Priority 4: Use checkpoint_path_globstr_load to search for the latest epoch checkpoint path
+            if checkpoint_path is None:
+                checkpoint_paths = natsorted([
+                    file for file in glob.glob(self.params.checkpoint_path_globstr_load) 
+                    if os.path.isfile(file)
+                ])
+                if len(checkpoint_paths) > 0:
+                    checkpoint_path = checkpoint_paths[-1]
+                    if self.world_rank == 0:
+                        logging.info(f"Loading latest epoch checkpoint: {checkpoint_path}")
+            
+            # Priority 5: If no epoch checkpoint paths found, use best_checkpoint_path_load
+            if checkpoint_path is None:
+                if os.path.isfile(self.params.best_checkpoint_path_load):
+                    checkpoint_path = self.params.best_checkpoint_path_load
+                    if self.world_rank == 0:
+                        logging.info(f"Loading best checkpoint: {checkpoint_path}")
+            
+            # Raise error if no checkpoint found
             if checkpoint_path is None:
                 raise FileNotFoundError(
                     f"No checkpoint files found for resuming.\n"
-                    f"Searched: {self.params.checkpoint_path_globstr}, "
-                    f"{self.params.latest_checkpoint_path}, {self.params.best_checkpoint_path}"
+                    f"Searched: start_epoch={getattr(self.params, 'start_epoch', None)}, "
+                    f"best_checkpoint_path_load={self.params.best_checkpoint_path_load}, "
+                    f"latest_checkpoint_path_load={getattr(self.params, 'latest_checkpoint_path_load', 'N/A')}, "
+                    f"checkpoint_path_globstr_load={self.params.checkpoint_path_globstr_load}"
                 )
-            self.restore_checkpoint(checkpoint_path, finetune = finetune)
+            
+            self.restore_checkpoint(checkpoint_path, finetune=finetune)
             if finetune:
                 logging.info("Finetuning: Loaded checkpoint from %s (optimizer state not loaded)", checkpoint_path)
             else:
-                logging.info("Resuming from checkpoint: %s", params.checkpoint_path)
+                logging.info("Resuming from checkpoint: %s", checkpoint_path)
             if self.params.debug:
                 self.params.max_epochs = self.startEpoch + 1
         else:
             logging.info("Starting fresh training run")
-        if self.params.debug:
-            self.params.max_epochs = self.startEpoch + 1
+            if self.params.debug:
+                self.params.max_epochs = self.startEpoch + 1
         
         if dist.is_initialized():
             self.model = DistributedDataParallel(self.model,
@@ -380,6 +397,7 @@ class Trainer():
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
         
+        self.epoch = self.startEpoch
         self.optimizer = self.get_optimizer()
         self.setup_scheduler()
         self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
@@ -410,9 +428,6 @@ class Trainer():
         if hasattr(params, 'long_validation'):
             self.long_validation = params.long_validation
             
-        self.ensemble_validation = False
-        if hasattr(params, 'ensemble_validation'):
-            self.ensemble_validation = params.ensemble_validation
         if self.long_validation:
             if not hasattr(params, 'bias_data_dir'):
                 params['bias_data_dir'] = os.path.join(os.path.dirname(params.data_dir), 'bias')
@@ -497,7 +512,7 @@ class Trainer():
             self.long_valid_data_loader, self.long_valid_dataset = get_data_loader(params, params.data_dir, dist.is_initialized(), 
                                                                                 year_start=params.long_val_year_start,
                                                                                 year_end=params.long_val_year_start + params.long_rollout_years,
-                                                                                train=False, single_ic=True, ensemble=self.ensemble_validation)
+                                                                                train=False, single_ic=True, ensemble=False)
             self.epochs_per_long_validation = 1
             if hasattr(params, "epochs_per_long_validation"):
                 self.epochs_per_long_validation = params.epochs_per_long_validation
@@ -586,7 +601,7 @@ class Trainer():
                         else:
                             for k, level in enumerate(self.valid_dataset.levels):
                                 epoch_metrics.append(f'valid_{var}_level{level:.3f}_{steps}step_lwrmse')
-                if self.long_validation and not self.ensemble_validation:
+                if self.long_validation:
                     wandb.define_metric("bias_plot", step_metric="epoch")
                     for j, var in enumerate(self.valid_dataset.surface_variables):
                         epoch_metrics.append(f'valid_{var}_bias_lwrmse')
@@ -678,13 +693,16 @@ class Trainer():
 
 
     def get_optimizer(self):
-        self.lr = (2 ** params.loglr) * params["global_batch_size"] / 16.0
-        if params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=params.weight_decay, fused=True)
-        elif params.optimizer_type == 'AdamW':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=params.weight_decay, fused=True)
+        if hasattr(self.params, 'loglr'):
+            self.lr = (2 ** self.params.loglr) * self.params["global_batch_size"] / 16.0
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=params.weight_decay)
+            self.lr = self.params.lr
+        if self.params.optimizer_type == 'FusedAdam':
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
+        elif self.params.optimizer_type == 'AdamW':
+            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
+        else:
+            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay)
 
         return self.optimizer
 
@@ -836,13 +854,25 @@ class Trainer():
                 shuffled_date_idxs = shuffled_date_idxs.tolist()
                 logging.info(f"Shuffling training dates with curriculum learning fraction {self.params.curriculum_learning_fraction:.2f} for epoch {epoch + 1}")
                 self.train_datasets[0]._shuffle_training_dates(shuffled_date_idxs, self.params.curriculum_learning_fraction, self.data_sizes)
-                logging.info(f"Shuffled training data len: {self.train_datasets[0].num_inferences}")
+                self.train_data_loaders[0], self.train_samplers[0] = \
+                    create_dataloader(self.train_datasets[0], 
+                                      int(params.batch_size), 
+                                      params.num_data_workers, 
+                                      dist.is_initialized(), 
+                                      False, True, False, False)
+                logging.info(f"Shuffled training data len: {len(self.train_datasets[0])}")
 
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
+            # Run ensemble forecast validation if enabled
+            ensemble_val_time = 0.0
+            if hasattr(self.params, 'ensemble_validation') and self.params.ensemble_validation:
+                ensemble_val_time = self.validate_ensemble_forecast()
+                logging.info(f"Epoch {epoch + 1} ensemble validation time: {ensemble_val_time:.2f} seconds")
             valid_time, valid_logs = self.validate_one_epoch()
             logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
+            
             torch.cuda.empty_cache()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
@@ -1271,7 +1301,7 @@ class Trainer():
 
         diagnostic_logs = {}
 
-        sample_idx = np.random.randint(len(self.valid_data_loader))
+        #sample_idx = np.random.randint(len(self.valid_data_loader))
 
         all_predictions = []
         all_ground_truths = []
@@ -1290,10 +1320,6 @@ class Trainer():
                 print('Performing long validation...')
                 cnt = 0
                 no_nans = True
-                if self.ensemble_validation:
-                    val_data_dir = self.params.validation_data_dir
-                    print(val_data_dir)
-                    os.makedirs(val_data_dir, exist_ok=True)
                 if self.world_rank == 0:
                     pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
                 else:
@@ -1319,27 +1345,6 @@ class Trainer():
                         print(f'Long emulation diverged after {i} steps')
                         no_nans = False
                         break
-                    if self.ensemble_validation:
-                        val_surface_numpy = val_output_surface.cpu().numpy()
-                        np.save(os.path.join(val_data_dir, f'surface_{int(year.item())}_{i:04}.npy'), val_surface_numpy)
-                        val_upper_air_numpy = val_output_upper_air.cpu().numpy()
-                        np.save(os.path.join(val_data_dir, f'upper_air_{int(year.item())}_{i:04}.npy'), val_upper_air_numpy)
-                        if self.params.has_diagnostic:
-                            val_diagnostic_numpy = val_output_diagnostic.cpu().numpy()
-                            np.save(os.path.join(val_data_dir, f'diagnostic_{int(year.item())}_{i:04}.npy'), val_diagnostic_numpy)
-                    else:
-                        if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
-                            if cnt == 0:
-                                val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
-                                if self.params.has_diagnostic:
-                                    val_diagnostic_bias = val_output_diagnostic
-                            else:
-                                val_surface_bias = val_surface_bias * (cnt / (cnt + 1)) + val_output_surface / (cnt + 1)
-                                val_upper_air_bias = val_upper_air_bias * (cnt / (cnt + 1)) + val_output_upper_air / (cnt + 1)
-                                if self.params.has_diagnostic:
-                                    val_diagnostic_bias = val_diagnostic_bias * (cnt / (cnt + 1)) + val_output_diagnostic / (cnt + 1)
-                            cnt += 1
-                if no_nans and not self.ensemble_validation:
                     if int(year.item()) >= self.params.long_val_year_start + self.long_validation_spinup_years:
                         if cnt == 0:
                             val_surface_bias, val_upper_air_bias = val_output_surface, val_output_upper_air
@@ -1774,6 +1779,531 @@ class Trainer():
        
         return valid_time, diagnostic_logs
 
+    def validate_ensemble_forecast(self):
+        """
+        Run ensemble forecast validation using Stepper from ensemble_inference.
+        This function makes ensemble predictions and computes observables without saving predictions.
+        
+        Returns:
+            float: Total time taken for ensemble validation in seconds
+        """
+        if not hasattr(self.params, 'ensemble_validation') or not self.params.ensemble_validation:
+            return 0.0
+        
+        ensemble_val_start = time.time()
+        
+        if self.world_rank == 0:
+            logging.info("Starting ensemble forecast validation...")
+        
+        try:
+            # Create a copy of params for ensemble inference
+            ensemble_params = copy.deepcopy(self.params)
+            
+            # Initialize event_type_mapping (maps file index to event_type)
+            event_type_mapping = {}
+            init_data = {}
+            
+            # Set up ensemble inference parameters
+            # Store mapping from filepath to (event_type, final_datetime) for datetime extraction
+            filepath_to_datetime_info = {}
+            
+            if hasattr(self.params, 'init_nc_filepath_files') and len(self.params.init_nc_filepath_files) > 0:
+                with open(self.params.init_nc_filepath_files, 'r') as f:
+                    init_data = json.load(f)
+                ensemble_params['init_nc_filepaths'] = []
+                ensemble_params['save_basenames'] = []
+                ensemble_params['output_dirs'] = []
+                
+                # Extract file paths from JSON structure (hierarchical: event_type -> {filepath: [first_datetime, final_datetime]})
+                # Create mapping from file index to event_type (particle_idx maps to file index)
+                file_idx = 0
+                for event_type, event_data in init_data.items():
+                    if isinstance(event_data, dict):
+                        # The JSON structure has filepaths as keys, and [first_datetime, final_datetime] as values
+                        for filepath, datetime_list in event_data.items():
+                            if isinstance(datetime_list, list) and len(datetime_list) >= 2:
+                                # Extract final datetime (second element)
+                                final_datetime_str = datetime_list[1]
+                                ensemble_params['init_nc_filepaths'].append(filepath)
+                                event_type_mapping[file_idx] = event_type
+                                # Store mapping for later use in computing init_datetimes
+                                filepath_to_datetime_info[filepath] = {
+                                    'event_type': event_type,
+                                    'final_datetime_str': final_datetime_str
+                                }
+                                file_idx += 1
+                                
+                                # Create deterministic output location for ensemble validation artifacts
+                                # (observables + combined netCDF + error metrics)
+                                base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation')
+                                os.makedirs(base_dir, exist_ok=True)
+                                temp_dir = os.path.join(base_dir, 'tmp')
+                                os.makedirs(temp_dir, exist_ok=True)
+
+                                # Stepper expects lists for these fields; our observation functions use a single save_basename.
+                                # We'll still populate Stepper fields for compatibility.
+                                basename = os.path.join(temp_dir, f"ensemble_val_{event_type}_epoch{self.epoch:04d}")
+                                ensemble_params['save_basenames'].append(basename)
+                                ensemble_params['output_dirs'].append(temp_dir)
+            
+            # Parse ensemble_inference_hours (comma-separated list)
+            if hasattr(self.params, 'ensemble_inference_hours') and len(self.params.ensemble_inference_hours) > 0:
+                if isinstance(self.params.ensemble_inference_hours, str):
+                    inference_hours_list = [int(h.strip()) for h in self.params.ensemble_inference_hours.split(',')]
+                elif isinstance(self.params.ensemble_inference_hours, (list, tuple)):
+                    inference_hours_list = [int(h) for h in self.params.ensemble_inference_hours]
+                else:
+                    inference_hours_list = [int(self.params.ensemble_inference_hours)]
+            else:
+                inference_hours_list = []
+                logging.warning("No ensemble_inference_hours specified. Skipping ensemble validation.")
+                ensemble_val_time = time.time() - ensemble_val_start
+                return ensemble_val_time
+            
+            # Get has_year_zero from params (default to False if not present)
+            has_year_zero = getattr(self.params, 'has_year_zero', False)
+            
+            # Extract final datetimes and compute init_datetimes for each inference_hours value
+            # For each filepath, we have the final_datetime_str from the JSON
+            # For each inference_hours, compute init_datetime = final_datetime - inference_hours
+            init_datetimes_by_lead_time = {}  # Maps inference_hours -> list of init_datetimes
+            
+            for inference_hours in inference_hours_list:
+                init_datetimes_for_lead = []
+                
+                for filepath in ensemble_params['init_nc_filepaths']:
+                    if filepath in filepath_to_datetime_info:
+                        final_datetime_str = filepath_to_datetime_info[filepath]['final_datetime_str']
+                        try:
+                            # Parse the datetime string (format: "YYYY-MM-DD HH:MM:SS")
+                            final_datetime = cftime.datetime.strptime(
+                                final_datetime_str,
+                                "%Y-%m-%d %H:%M:%S",
+                                has_year_zero=has_year_zero,
+                                calendar='proleptic_gregorian'
+                            )
+                            
+                            # Convert to DatetimeProlepticGregorian format expected by Stepper
+                            final_datetime_dt = cftime.DatetimeProlepticGregorian(
+                                final_datetime.year,
+                                final_datetime.month,
+                                final_datetime.day,
+                                hour=final_datetime.hour,
+                                has_year_zero=has_year_zero
+                            )
+                            
+                            # Compute init_datetime by subtracting inference_hours
+                            init_datetime = final_datetime_dt - timedelta(hours=int(inference_hours))
+                            
+                            init_datetimes_for_lead.append(init_datetime)
+                            
+                        except Exception as e:
+                            logging.error(f"Error parsing datetime '{final_datetime_str}' for filepath {filepath}: {e}")
+                            import traceback
+                            logging.error(traceback.format_exc())
+                            # Fallback: use a default datetime if parsing fails
+                            default_dt = cftime.DatetimeProlepticGregorian(1, 1, 1, 0, has_year_zero=has_year_zero)
+                            init_datetimes_for_lead.append(default_dt)
+                    else:
+                        logging.warning(f"Filepath {filepath} not found in datetime info mapping. Using default datetime.")
+                        default_dt = cftime.DatetimeProlepticGregorian(1, 1, 1, 0, has_year_zero=has_year_zero)
+                        init_datetimes_for_lead.append(default_dt)
+                
+                init_datetimes_by_lead_time[inference_hours] = init_datetimes_for_lead
+                
+                if self.world_rank == 0:
+                    logging.info(f"Computed init_datetimes for inference_hours={inference_hours}: {[str(dt) for dt in init_datetimes_for_lead]}")
+            
+            # Disable saving forecasts
+            ensemble_params['save_forecasts'] = False
+            
+            # Set up data directory for ensemble inference
+            if not hasattr(ensemble_params, 'data_dir'):
+                ensemble_params['data_dir'] = self.params.data_dir
+            
+            # Set ensemble batch size (compute local batch size for distributed training)
+            if hasattr(self.params, 'ensemble_batch_size'):
+                ensemble_batch_size = self.params.ensemble_batch_size
+            else:
+                ensemble_batch_size = self.params.batch_size
+
+            # Set ensemble epsilon factor
+            if hasattr(self.params, 'ensemble_epsilon_factor'):
+                ensemble_params['epsilon_factor'] = self.params.ensemble_epsilon_factor
+            else:
+                ensemble_params['epsilon_factor'] = self.params.epsilon_factor
+
+            # Set number of validation ensemble members
+            if hasattr(self.params, 'num_validation_ensemble_members'):
+                ensemble_params['num_ensemble_members'] = self.params.num_validation_ensemble_members
+            else:
+                ensemble_params['num_ensemble_members'] = self.params.num_ensemble_members
+
+            # Set number of validation ensemble members
+            if hasattr(self.params, 'validation_ensemble_members_per_pred'):
+                ensemble_params['ensemble_members_per_pred'] = self.params.validation_ensemble_members_per_pred
+            else:
+                ensemble_params['ensemble_members_per_pred'] = self.params.ensemble_members_per_pred
+            
+            # Compute local batch size for distributed training (same logic as training batch_size)
+            if dist.is_initialized():
+                ensemble_params['global_batch_size'] = ensemble_batch_size
+                ensemble_params['batch_size'] = int(ensemble_batch_size // dist.get_world_size())
+            else:
+                ensemble_params['global_batch_size'] = ensemble_batch_size
+                ensemble_params['batch_size'] = ensemble_batch_size
+            
+            # Ensure required ensemble parameters are set
+            if not hasattr(ensemble_params, 'num_ensemble_members'):
+                ensemble_params['num_ensemble_members'] = 1
+            if not hasattr(ensemble_params, 'ensemble_members_per_pred'):
+                ensemble_params['ensemble_members_per_pred'] = ensemble_params['num_ensemble_members']
+            
+            # Parse error metrics to compute (optional)
+            error_metrics_list = []
+            if hasattr(self.params, 'error_metrics') and isinstance(self.params.error_metrics, str) and len(self.params.error_metrics) > 0:
+                error_metrics_list = [m.strip() for m in self.params.error_metrics.split(',') if len(m.strip()) > 0]
+
+            # Set up observable functions (same for all inference hours)
+            obs_functions = []
+            obs_args_list = []
+            obs_function_names = []
+            
+            if hasattr(self.params, 'obs_functions') and len(self.params.obs_functions) > 0:
+                obs_function_names = [f.strip() for f in self.params.obs_functions.split(',')]
+                
+                # Use obs_args_dict if provided (already parsed as dictionary in __main__)
+                # If it doesn't exist, default to empty dict
+                obs_args_dict = {}
+                if hasattr(self.params, 'obs_args_dict') and isinstance(self.params.obs_args_dict, dict):
+                    obs_args_dict = self.params.obs_args_dict
+                
+                # Import and set up observable functions
+                for obs_func_name in obs_function_names:
+                    try:
+                        # Import from v2.0/utils/observations.py
+                        from utils import observations as obs_mod
+                        if not hasattr(obs_mod, obs_func_name):
+                            logging.warning(f"Unknown observable function: {obs_func_name}. Skipping.")
+                            continue
+                        obs_func = getattr(obs_mod, obs_func_name)
+                        obs_functions.append(obs_func)
+
+                        # For observations.py functions, obs_args_dict[func] should be a list containing
+                        # the function-specific args *excluding* save_basename.
+                        # Handle two formats:
+                        # 1. Function-name keyed: {"unweighted_nday_mean": [target_duration, var, regions, region_file_path]}
+                        # 2. Flat dictionary: {"target_duration": 7, "var": "tas", "regions": [...], "region_file_path": "..."}
+                        if obs_func_name in obs_args_dict:
+                            # Format 1: function name is a key with list value
+                            obs_args_list.append(obs_args_dict[obs_func_name])
+                        elif isinstance(obs_args_dict, dict) and len(obs_args_dict) > 0:
+                            # Format 2: flat dictionary - convert to list based on function requirements
+                            if obs_func_name == 'unweighted_nday_mean':
+                                # Expected order: [target_duration, var, regions, region_file_path]
+                                required_keys = ['target_duration', 'var', 'regions', 'region_file_path']
+                                if all(key in obs_args_dict for key in required_keys):
+                                    obs_args_list.append([
+                                        obs_args_dict['target_duration'],
+                                        obs_args_dict['var'],
+                                        obs_args_dict['regions'],
+                                        obs_args_dict['region_file_path']
+                                    ])
+                                else:
+                                    missing_keys = [key for key in required_keys if key not in obs_args_dict]
+                                    logging.warning(f"Missing required keys for {obs_func_name}: {missing_keys}. Using empty args.")
+                                    obs_args_list.append([])
+                            else:
+                                # For other functions, try to use as-is or log warning
+                                logging.warning(f"Unknown function {obs_func_name} with flat dict format. Using empty args.")
+                                obs_args_list.append([])
+                        else:
+                            obs_args_list.append([])
+                    except Exception as e:
+                        logging.warning(f"Could not import observable function {obs_func_name}: {e}")
+            
+            # Helper: build a deterministic save_basename (single path) for observables
+            base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation')
+            os.makedirs(base_dir, exist_ok=True)
+            tmp_dir = os.path.join(base_dir, 'tmp')
+            os.makedirs(tmp_dir, exist_ok=True)
+            save_basename_forecast = os.path.join(tmp_dir, f"ensemble_forecast_epoch{self.epoch:04d}")
+            save_basename_truth = os.path.join(tmp_dir, "ensemble_truth")
+
+            # Helper: check if truth combined files exist already
+            def truth_combined_exists() -> bool:
+                truth_glob = os.path.join(os.path.dirname(save_basename_truth), f"{os.path.basename(save_basename_truth)}_*_truth_combined.nc")
+                return len(glob.glob(truth_glob)) > 0
+
+            # If truth observables are missing, compute them once on rank 0.
+            # If error metrics are requested, ensure truth observables are computed (even if they exist, 
+            # we may need to recompute them to ensure they're up to date)
+            truth_exists = truth_combined_exists()
+            needs_truth_for_metrics = len(error_metrics_list) > 0
+            
+            if self.world_rank == 0 and len(obs_functions) > 0 and (not truth_exists or needs_truth_for_metrics):
+                try:
+                    from utils import observations as obs_mod
+                    if not truth_exists:
+                        logging.info("Truth observables not found; computing truth observables on world_rank=0...")
+                    elif needs_truth_for_metrics:
+                        logging.info("Error metrics requested; ensuring truth observables are computed on world_rank=0...")
+
+                    # Compute truth observables by loading the event datasets directly and creating
+                    # a pseudo-ensemble with a single member.
+                    # The event_data structure is: {filepath: [first_datetime, final_datetime]}
+                    # Use the same file_idx mapping as forecast processing to ensure particle_idx matches
+                    file_idx = 0
+                    for event_type, event_data in init_data.items():
+                        if not isinstance(event_data, dict):
+                            continue
+                        # Iterate through filepaths (keys) in event_data, same as forecast processing
+                        for data_path, datetime_list in event_data.items():
+                            if not isinstance(datetime_list, list) or len(datetime_list) < 2:
+                                continue
+                            try:
+                                with warnings.catch_warnings():
+                                    warnings.filterwarnings('ignore', category=DeprecationWarning, message='.*use_cftime.*')
+                                    ds_truth = xr.open_dataset(data_path, use_cftime=True)
+                            except Exception as e:
+                                logging.warning(f"Could not open truth dataset for {event_type} at {data_path}: {e}")
+                                file_idx += 1  # Still increment to keep alignment
+                                continue
+
+                            # Ensure an ensemble dimension exists (single member)
+                            # We mimic Stepper output where ensemble dimension is named 'ensemble_idx'
+                            if 'ensemble_idx' not in ds_truth.dims:
+                                ds_truth = ds_truth.expand_dims({'ensemble_idx': [0]})
+
+                            # Use file_idx as particle_idx to match forecast processing
+                            # This ensures particle indices are consistent between forecast and truth
+                            particle_idxs = [file_idx]
+
+                            # Compute truth observables for each forecast horizon by slicing truth time dimension.
+                            # IMPORTANT: do NOT pass lead_time_hours into observation functions for truth.
+                            for inference_hours in inference_hours_list:
+                                time_steps = int(inference_hours // self.params.timedelta_hours)
+                                ds_truth_h = ds_truth
+                                if 'time' in ds_truth.dims and ds_truth.sizes.get('time', 0) > 0 and time_steps > 0:
+                                    ds_truth_h = ds_truth.isel(time=slice(0, min(time_steps, ds_truth.sizes['time'])))
+
+                                for obs_func, obs_func_name, obs_args in zip(obs_functions, obs_function_names, obs_args_list):
+                                    # observations.py standard order (truth mode):
+                                    # [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, ...func_args..., save_basename]
+                                    func_args = [[ds_truth_h], particle_idxs, 0, 1, event_type] + list(obs_args) + [save_basename_truth]
+                                    try:
+                                        obs_func(tuple(func_args))
+                                    except Exception as e:
+                                        logging.warning(f"Error computing truth observable {obs_func_name} at inference_hours={inference_hours}: {e}")
+
+                            ds_truth.close()
+                            file_idx += 1  # Increment file index to match forecast processing
+
+                    # Combine truth observables (truth files omit lead/ens labels) into *_truth_combined.nc
+                    obs_mod.combine_observation_truth(
+                        save_basename_truth,
+                        obs_function_names,
+                        output_dir=os.path.dirname(save_basename_truth),
+                        data_dict=init_data
+                    )
+
+                    logging.info("Finished computing truth observables.")
+                except Exception as e:
+                    logging.error(f"Error computing truth observables: {e}")
+
+            if dist.is_initialized():
+                dist.barrier()
+
+            # Core wrapper for observation functions.
+            # Stepper calls obs_function([ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + obs_args)
+            # We inject lead_time_hours ONLY as a label for forecast files (optional), plus save_basename.
+            def combined_obs_function_core(args, lead_time_hours_label: int):
+                """Wrapper that calls all observable functions with their respective args."""
+                # args format: [ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + additional_args
+                if len(args) < 4:
+                    logging.error(f"Invalid args for observable function: expected at least 4 args, got {len(args)}")
+                    return
+                
+                ensemble_datasets, particle_idxs, ensemble_start, ensemble_end = args[0], args[1], args[2], args[3]
+                
+                # Extract event_type from particle_idx (particle_idx maps to file index in init_nc_filepaths)
+                # Handle both single particle_idx and list of particle_idxs
+                if isinstance(particle_idxs, (list, np.ndarray)) and len(particle_idxs) > 0:
+                    particle_idx = int(particle_idxs[0])
+                else:
+                    particle_idx = int(particle_idxs)
+                
+                # Map particle_idx to event_type (particle_idx corresponds to file index)
+                event_type = event_type_mapping.get(particle_idx, 'unknown')
+                
+                for obs_func, obs_args, obs_name in zip(obs_functions, obs_args_list, obs_function_names):
+                    try:
+                        # observations.py expects:
+                        # (datasets, particle_idxs, ensemble_start, ensemble_end, event_type, [lead_time_hours label], *func_specific_args, save_basename)
+                        func_args = [ensemble_datasets, particle_idxs, ensemble_start, ensemble_end, event_type, int(lead_time_hours_label)] + list(obs_args) + [save_basename_forecast]
+                        obs_func(tuple(func_args))
+                    except Exception as e:
+                        logging.error(f"Error in observable function {obs_func.__name__}: {e}")
+                        import traceback
+                        logging.error(traceback.format_exc())
+            
+            # Loop through each ensemble_inference_hours value
+            for inference_hours in inference_hours_list:
+                if self.world_rank == 0:
+                    logging.info(f"Running ensemble validation for {inference_hours} hours...")
+                
+                # Create a copy of ensemble_params for this specific inference hours value
+                current_ensemble_params = copy.deepcopy(ensemble_params)
+                current_ensemble_params['ensemble_inference_hours'] = inference_hours
+                current_ensemble_params['ensemble_inference_steps'] = inference_hours // self.params.timedelta_hours
+                
+                # Set init_datetimes for this lead time
+                if inference_hours in init_datetimes_by_lead_time:
+                    current_ensemble_params['init_datetimes'] = init_datetimes_by_lead_time[inference_hours]
+                    if self.world_rank == 0:
+                        logging.info(f"Using init_datetimes for inference_hours={inference_hours}: {[str(dt) for dt in current_ensemble_params['init_datetimes']]}")
+                else:
+                    if self.world_rank == 0:
+                        logging.warning(f"No init_datetimes computed for inference_hours={inference_hours}. Stepper may fail if init_datetime/init_datetimes are required.")
+                
+                # Create Stepper instance for this inference hours value
+                stepper = Stepper([current_ensemble_params], self.world_rank, use_6h_24h_model=False, async_save=False)
+                
+                # Replace Stepper's model with the current training model to use the latest weights
+                # This ensures we use the model from the current epoch, not from checkpoint
+                # Get state dict from training model (handle DDP wrapping)
+                if hasattr(self.model, 'module'):
+                    # DDP wrapped model
+                    training_state_dict = self.model.module.state_dict()
+                else:
+                    training_state_dict = self.model.state_dict()
+                
+                # Load into stepper model (handle DDP wrapping if present)
+                if hasattr(stepper.model, 'module'):
+                    # Stepper model is also DDP wrapped
+                    stepper.model.module.load_state_dict(training_state_dict)
+                else:
+                    stepper.model.load_state_dict(training_state_dict)
+                
+                # Also copy integrator if it exists
+                if hasattr(self, 'integrator') and hasattr(stepper, 'integrator'):
+                    stepper.integrator = self.integrator
+                
+                # Run ensemble prediction with observables for this inference hours value
+                try:
+                    if len(obs_functions) > 0:
+                        # Bind the lead_time_hours label for this run into the callable
+                        def _obs_fn(bound_args, _lead=int(inference_hours)):
+                            return combined_obs_function_core(bound_args, lead_time_hours_label=_lead)
+                        stepper.predict(obs_function=_obs_fn, obs_args=[])
+                    else:
+                        logging.warning("No observable functions loaded. Running ensemble prediction without observables.")
+                        stepper.predict()
+                    
+                    if self.world_rank == 0:
+                        logging.info(f"Completed ensemble validation for {inference_hours} hours.")
+                except Exception as e:
+                    logging.error(f"Error running ensemble validation for {inference_hours} hours: {e}")
+                    import traceback
+                    logging.error(traceback.format_exc())
+            
+            if dist.is_initialized():
+                dist.barrier()
+
+            if self.world_rank == 0:
+                logging.info("Ensemble forecast validation completed for all inference hours.")
+
+                # Combine forecast observables and compute error metrics (if requested)
+                error_metrics_results = {}
+                try:
+                    from utils import observations as obs_mod
+                    obs_mod.combine_observations(save_basename_forecast, obs_function_names, output_dir=os.path.dirname(save_basename_forecast), data_dict=init_data)
+                    if len(error_metrics_list) > 0:
+                        # Ensure truth observables exist before computing error metrics
+                        if not truth_combined_exists():
+                            logging.warning("Truth observables not found when computing error metrics. Attempting to compute them now...")
+                            # Truth observables should have been computed earlier, but if they're missing, 
+                            # we can't compute error metrics. Log error and skip.
+                            logging.error("Cannot compute error metrics: truth observables are missing. Please ensure truth observables are computed first.")
+                        else:
+                            error_metrics_results = obs_mod.compute_error_metrics(
+                                save_basename=save_basename_forecast,
+                                save_basename_truth=save_basename_truth,
+                                obs_function_names=obs_function_names,
+                                error_metrics=error_metrics_list,
+                                output_dir=os.path.dirname(save_basename_forecast),
+                            )
+                        
+                        # Log error metrics to wandb if enabled
+                        if self.params.log_to_wandb and len(error_metrics_results) > 0:
+                            wandb_error_logs = {}
+                            metrics_to_define = set()  # Track which metrics need to be defined
+                            
+                            # First pass: collect all metric names that will be logged
+                            # Structure: error_metrics_results[event_type][obs_function_name][function_specific_string]
+                            for event_type, obs_func_dict in error_metrics_results.items():
+                                for obs_function_name, func_specific_dict in obs_func_dict.items():
+                                    for function_specific_string, metrics_dict in func_specific_dict.items():
+                                        if 'lead_times' not in metrics_dict:
+                                            continue
+                                        
+                                        lead_times = metrics_dict['lead_times']
+                                        
+                                        # For each error metric
+                                        for error_metric in error_metrics_list:
+                                            if error_metric not in metrics_dict:
+                                                continue
+                                            
+                                            errors_by_lead_time = metrics_dict[error_metric]
+                                            
+                                            # Create wandb log entry for each lead_time
+                                            for lead_time_hours, error_value in zip(lead_times, errors_by_lead_time):
+                                                # Only process finite values
+                                                if not np.isfinite(error_value):
+                                                    continue
+                                                
+                                                # Create metric name: event_type_obs_function_func_specific_lead_time_error_metric
+                                                # Sanitize function_specific_string for wandb (replace problematic chars)
+                                                func_specific_safe = function_specific_string.replace('/', '_').replace('\\', '_')
+                                                metric_name = f"{event_type}_{obs_function_name}_{func_specific_safe}_{int(lead_time_hours)}h_{error_metric}"
+                                                
+                                                metrics_to_define.add(metric_name)
+                                                wandb_error_logs[metric_name] = float(error_value)
+                            
+                            # Check and define metrics that haven't been created yet
+                            if len(metrics_to_define) > 0:
+                                # Initialize set of defined metrics if it doesn't exist
+                                if not hasattr(self, '_defined_wandb_metrics'):
+                                    self._defined_wandb_metrics = set()
+                                
+                                # Define any metrics that haven't been defined yet
+                                for metric_name in metrics_to_define:
+                                    if metric_name not in self._defined_wandb_metrics:
+                                        try:
+                                            wandb.define_metric(metric_name, step_metric="epoch")
+                                            self._defined_wandb_metrics.add(metric_name)
+                                        except Exception as e:
+                                            # If metric definition fails, log warning but continue
+                                            logging.warning(f"Could not define wandb metric {metric_name}: {e}")
+                            
+                            # Log all error metrics to wandb at once
+                            if len(wandb_error_logs) > 0:
+                                wandb.log(wandb_error_logs, step=self.wandb_step)
+                                logging.info(f"Logged {len(wandb_error_logs)} ensemble validation error metrics to wandb.")
+                                
+                except Exception as e:
+                    logging.warning(f"Error combining observables / computing error metrics: {e}")
+                    import traceback
+                    logging.warning(traceback.format_exc())
+                
+        except Exception as e:
+            logging.error(f"Error in ensemble forecast validation: {e}")
+            import traceback
+            logging.error(traceback.format_exc())
+        
+        ensemble_val_time = time.time() - ensemble_val_start
+        return ensemble_val_time
+
     def prepare_preds(self, preds, acc = False):
         preds = preds.rename({'time': 'lead_time'})
         # If bug, change this back to values[0]
@@ -2000,8 +2530,8 @@ class Trainer():
             checkpoint_data['finetune_startEpoch'] = self.finetune_startEpoch
 
         # Always save latest checkpoint
-        torch.save(checkpoint_data, self.params.latest_checkpoint_path)
-        logging.info(f"Saved latest checkpoint: {self.params.latest_checkpoint_path}")
+        torch.save(checkpoint_data, self.params.latest_checkpoint_path_save)
+        logging.info(f"Saved latest checkpoint: {self.params.latest_checkpoint_path_save}")
 
         checkpoint_save_interval = 1
         if hasattr(self.params, 'checkpoint_save_interval'):
@@ -2010,7 +2540,7 @@ class Trainer():
         # Save numbered checkpoint at intervals
         if epoch >= 0 and (epoch + 1) % checkpoint_save_interval == 0:
             numbered_path = os.path.join(
-                self.params.checkpoint_dir, 
+                self.params.checkpoint_dir_save, 
                 f'ckpt_epoch_{epoch}.tar'
             )
             torch.save(checkpoint_data, numbered_path)
@@ -2020,7 +2550,7 @@ class Trainer():
             self._cleanup_old_checkpoints()
 
         # Save best checkpoint (called separately from train loop)
-        if checkpoint_path == self.params.best_checkpoint_path:
+        if checkpoint_path == self.params.best_checkpoint_path_save:
             torch.save(checkpoint_data, checkpoint_path)
             logging.info(f"Saved best checkpoint: {checkpoint_path}")
     
@@ -2203,6 +2733,15 @@ if __name__ == '__main__':
     parser.add_argument("--train_data_sets_json", default=None, type=str, help="JSON file containing train data sets")
     parser.add_argument("--validation_data_sets_json", default=None, type=str, help="JSON file containing validation data sets")
     parser.add_argument("--start_epoch", default=None, type=int, help="Starting epoch to resume training from")
+    
+    # Ensemble forecast validation arguments
+    parser.add_argument("--ensemble_validation", default=False, action='store_true', help="Enable ensemble forecast validation")
+    parser.add_argument("--init_nc_filepath_files", default="", type=str, help="Path to JSON file containing input/target data info (event_type, data_path, start/end datetimes)")
+    parser.add_argument("--ensemble_inference_hours", default="", type=str, help="Comma-separated list of total duration of ensemble predictions in hours")
+    parser.add_argument("--obs_functions", default="", type=str, help="Comma-separated list of observable function names to use")
+    parser.add_argument("--obs_args", default="", type=str, help="JSON string with additional arguments for each obs_function (e.g., target_duration, variable, region, path to regions file)")
+    parser.add_argument("--error_metrics", default="", type=str, help="Comma-separated list of error metrics to compute for ensemble validation (e.g., rmse, lat_weighted_rmse, fair_crps, pearson_correlation)")
+    parser.add_argument("--ensemble_batch_size", default=0, type=int, help="Batch size for ensemble validation (0 means use training batch_size)")
 
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -2271,6 +2810,68 @@ if __name__ == '__main__':
     if args.start_epoch is not None:
         params['start_epoch'] = args.start_epoch
     
+    # Ensemble forecast validation configuration
+    if not hasattr(params, 'ensemble_validation') or args.ensemble_validation:
+        params['ensemble_validation'] = args.ensemble_validation
+    if params.ensemble_validation:
+        # Check for required parameters - can come from YAML or command line
+        # Command line arguments override YAML values if provided
+        
+        # init_nc_filepath_files
+        if len(args.init_nc_filepath_files) > 0:
+            params['init_nc_filepath_files'] = args.init_nc_filepath_files
+        elif not hasattr(params, 'init_nc_filepath_files') or (isinstance(params.init_nc_filepath_files, str) and len(params.init_nc_filepath_files) == 0):
+            raise ValueError("ensemble_validation requires init_nc_filepath_files to be specified (either in YAML or via --init_nc_filepath_files)")
+        # If not set from args, keep the YAML value (already in params)
+        
+        # ensemble_inference_hours
+        if len(args.ensemble_inference_hours) > 0:
+            params['ensemble_inference_hours'] = [int(h.strip()) for h in args.ensemble_inference_hours.split(',')]
+        elif not hasattr(params, 'ensemble_inference_hours') or (isinstance(params.ensemble_inference_hours, str) and len(params.ensemble_inference_hours) == 0):
+            raise ValueError("ensemble_validation requires ensemble_inference_hours to be specified (either in YAML or via --ensemble_inference_hours)")
+        # If not set from args, keep the YAML value (already in params)
+        
+        # obs_functions
+        if len(args.obs_functions) > 0:
+            params['obs_functions'] = args.obs_functions
+        elif not hasattr(params, 'obs_functions') or (isinstance(params.obs_functions, str) and len(params.obs_functions) == 0):
+            raise ValueError("ensemble_validation requires obs_functions to be specified (either in YAML or via --obs_functions)")
+        # If not set from args, keep the YAML value (already in params)
+        
+        # obs_args (optional - can be empty)
+        # Parse obs_args as JSON string and store as obs_args_dict
+        # If params already has obs_args_dict, assume it's correctly formatted as a dictionary
+        if hasattr(params, 'obs_args_dict') and isinstance(params.obs_args_dict, dict):
+            # Already correctly formatted as dictionary, use as-is
+            pass
+        else:
+            obs_args_dict = {}
+            if len(args.obs_args) > 0:
+                # Parse from command line argument (JSON string)
+                try:
+                    obs_args_dict = json.loads(args.obs_args)
+                except json.JSONDecodeError as e:
+                    logging.warning(f"Could not parse obs_args JSON from command line: {e}")
+            elif hasattr(params, 'obs_args') and isinstance(params.obs_args, str) and len(params.obs_args) > 0:
+                # Parse from YAML config (JSON string) - for backward compatibility
+                try:
+                    obs_args_dict = json.loads(params.obs_args)
+                except json.JSONDecodeError as e:
+                    logging.warning(f"Could not parse obs_args JSON from config: {e}")
+            params['obs_args_dict'] = obs_args_dict
+
+        # error_metrics (optional - can be empty; command line overrides YAML)
+        if hasattr(args, 'error_metrics') and len(args.error_metrics) > 0:
+            params['error_metrics'] = args.error_metrics
+        elif not hasattr(params, 'error_metrics'):
+            params['error_metrics'] = ""
+        
+        # Set ensemble_batch_size (0 means use training batch_size)
+        if args.ensemble_batch_size > 0:
+            params['ensemble_batch_size'] = args.ensemble_batch_size
+        elif not hasattr(params, 'ensemble_batch_size'):
+            params['ensemble_batch_size'] = params['batch_size']
+    
     # ============================================================================
     # SECTION 4: Debug mode configuration
     # ============================================================================
@@ -2314,7 +2915,7 @@ if __name__ == '__main__':
     print(torch.cuda.get_device_name(0))
     print(f"Memory Allocated: {torch.cuda.memory_allocated(0)/1024**2:.2f} MB")
     print(f"Memory Cached: {torch.cuda.memory_reserved(0)/1024**2:.2f} MB")
-
+    
     # Set up directory structure
     if hasattr(params, 'finetune_run_num'):
         # Finetuning mode: save to finetune_run_num directory, load from original run_num
@@ -2367,17 +2968,19 @@ if __name__ == '__main__':
 
     checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr_load) if os.path.isfile(file)]
     best_checkpoint_exists = os.path.isfile(params['best_checkpoint_path_load'])
+    latest_checkpoint_exists = False
     if hasattr(params, 'latest_checkpoint_path'):
         latest_checkpoint_exists = os.path.isfile(params['latest_checkpoint_path'])
         if latest_checkpoint_exists:
             params['latest_checkpoint_path_load'] = params['latest_checkpoint_path']
+    params['latest_checkpoint_path_save'] = os.path.join(params['checkpoint_dir_save'], 'ckpt_latest.tar')
     checkpoint_exists = len(checkpoint_paths) > 0 or best_checkpoint_exists or latest_checkpoint_exists
-
+    
     # Determine whether to resume from checkpoint or start fresh
     # Note: If finetuning is enabled, fresh_start is ignored (finetuning always requires loading a checkpoint)
-    is_finetuning = hasattr(params, 'finetune_run_num')
-
-    if is_finetuning:
+    params.finetuning = hasattr(params, 'finetune_run_num')
+    
+    if params.finetuning:
         # Finetuning mode: always try to load checkpoint from original run (fresh_start is ignored)
         # Note: resuming is set to False for finetuning so optimizer state is not loaded
         if checkpoint_exists:
@@ -2492,6 +3095,10 @@ if __name__ == '__main__':
         if len(params.validation_epochs) == 0:
             # No specific epochs specified: validate best checkpoint
             trainer.validate_one_epoch()
+            # Run ensemble validation if enabled
+            if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
+                ensemble_val_time = trainer.validate_ensemble_forecast()
+                logging.info(f"Ensemble validation time: {ensemble_val_time:.2f} seconds")
         else:
             # Validate specific epochs: load each checkpoint and validate
             for ckpt_i in params.validation_epochs:
@@ -2505,6 +3112,10 @@ if __name__ == '__main__':
                 trainer.epoch = trainer.startEpoch
                 # Run validation for this checkpoint
                 trainer.validate_one_epoch()
+                # Run ensemble validation if enabled (for each epoch)
+                if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
+                    ensemble_val_time = trainer.validate_ensemble_forecast()
+                    logging.info(f"Epoch {ckpt_i} ensemble validation time: {ensemble_val_time:.2f} seconds")
     
     # Training/validation complete
     logging.info('DONE ---- rank %d' % world_rank)
