@@ -1,0 +1,1439 @@
+"""
+Observation functions for ensemble forecast validation.
+
+All observation functions follow a standard signature:
+- First 5 arguments (required):
+  1. datasets: list of xarray.Dataset objects containing forecast for each ensemble member
+  2. particle_idxs: list of particle indices corresponding to initial condition indices
+  3. ensemble_start: index of the first ensemble member in the forecast
+  4. ensemble_end: index of the last ensemble member in the forecast (exclusive)
+  5. event_type: event type identifier (str) used for file organization and metric grouping
+  
+- Additional arguments (function-specific) can follow
+- All observation functions require save_basename as an additional argument (single file path)
+
+All arguments are passed as a single tuple for multiprocessing compatibility.
+"""
+
+import numpy as np
+import xarray as xr
+import json
+import os
+import glob
+import re
+from typing import List, Tuple, Union, Dict, Optional
+from natsort import natsorted
+
+
+def get_observation_filepath(save_basename: str, obs_function_name: str, particle_idx: int, 
+                             event_type: str,
+                             ensemble_start: Optional[int] = None, ensemble_end: Optional[int] = None,
+                             lead_time_hours: Optional[int] = None,
+                             function_specific_string: str = "") -> str:
+    """
+    Construct the file path for saving observation data.
+    
+    Args:
+        save_basename: Base file path to append information to
+        obs_function_name: Name of the observation function
+        particle_idx: Particle index (initial condition index)
+        event_type: Event type identifier (str) used for file organization
+        ensemble_start: Index of first ensemble member (optional; omitted for truth files)
+        ensemble_end: Index of last ensemble member (exclusive; optional; omitted for truth files)
+        lead_time_hours: Lead time of the forecast in hours (optional; used for forecast labeling only)
+        function_specific_string: Additional string specific to the observation function (e.g., region name, variable name)
+    
+    Returns:
+        Complete file path for saving the observation data
+    """
+    # Extract directory and base filename from save_basename
+    dir_path = os.path.dirname(save_basename) if os.path.dirname(save_basename) else ""
+    base_name = os.path.basename(save_basename) if os.path.basename(save_basename) else save_basename
+    
+    # Construct the filename components
+    # event_type is always first after base_name for easy grouping
+    components = [base_name, event_type, f"particle_{particle_idx:04d}"]
+    if ensemble_start is not None and ensemble_end is not None:
+        components.append(f"ens_{int(ensemble_start):04d}-{int(ensemble_end):04d}")
+    if lead_time_hours is not None:
+        components.append(f"lead{int(lead_time_hours):04d}h")
+    components.append(obs_function_name)
+    
+    # Add function-specific string if provided
+    if function_specific_string:
+        components.append(function_specific_string)
+    
+    # Join components with underscores
+    filename = "_".join(components) + ".nc"
+    
+    # Combine with directory path if it exists
+    if dir_path:
+        filepath = os.path.join(dir_path, filename)
+    else:
+        filepath = filename
+    
+    return filepath
+
+
+def _select_region_from_dataset(ds: xr.Dataset, lon_region: list, lat_region: list) -> xr.Dataset:
+    """
+    Select a spatial region from an xarray dataset, handling various coordinate edge cases.
+    
+    This function handles:
+    - Longitude ranges from -180 to 180 or 0 to 360
+    - Longitude coordinates in descending order (highest to lowest)
+    - Latitude ranges spanning negative to positive values
+    - Latitude coordinates in descending order (highest to lowest)
+    
+    Args:
+        ds: xarray Dataset with 'lon' and 'lat' coordinates
+        lon_region: List of two longitude values [min, max] or [max, min] defining the region
+        lat_region: List of two latitude values [min, max] or [max, min] defining the region
+    
+    Returns:
+        xarray Dataset with selected region
+    
+    Raises:
+        ValueError: If required coordinates are not found in the dataset
+    """
+    if 'lon' not in ds.coords and 'lon' not in ds.dims:
+        raise ValueError("Dataset must have 'lon' coordinate")
+    if 'lat' not in ds.coords and 'lat' not in ds.dims:
+        raise ValueError("Dataset must have 'lat' coordinate")
+    
+    # Get coordinate arrays
+    lon_coords = ds.coords['lon'].values if 'lon' in ds.coords else ds['lon'].values
+    lat_coords = ds.coords['lat'].values if 'lat' in ds.coords else ds['lat'].values
+    
+    # Determine coordinate ordering
+    lon_is_descending = len(lon_coords) > 1 and lon_coords[0] > lon_coords[-1]
+    lat_is_descending = len(lat_coords) > 1 and lat_coords[0] > lat_coords[-1]
+    
+    # Get min and max for region
+    lon_min_region = min(lon_region)
+    lon_max_region = max(lon_region)
+    lat_min_region = min(lat_region)
+    lat_max_region = max(lat_region)
+    
+    # Handle longitude: check if we need to handle wrap-around (0-360 vs -180 to 180)
+    lon_data_min = lon_coords.min()
+    lon_data_max = lon_coords.max()
+    
+    # Normalize longitude region to match data coordinate system
+    # If data is 0-360 and region is -180 to 180, convert region to 0-360
+    if lon_data_min >= 0 and lon_data_max <= 360:
+        # Data is in 0-360 range
+        if lon_min_region < 0:
+            lon_min_region += 360
+        if lon_max_region < 0:
+            lon_max_region += 360
+    elif lon_data_min >= -180 and lon_data_max <= 180:
+        # Data is in -180 to 180 range
+        if lon_min_region > 180:
+            lon_min_region -= 360
+        if lon_max_region > 180:
+            lon_max_region -= 360
+    
+    # Handle longitude wrap-around case (e.g., region spans 350 to 10 degrees)
+    if lon_min_region > lon_max_region:
+        # Region wraps around (e.g., 350 to 10 degrees)
+        # We need to select two ranges: [lon_min_region, max] and [min, lon_max_region]
+        # Selection is value-based regardless of coordinate ordering
+        mask_lon = (lon_coords >= lon_min_region) | (lon_coords <= lon_max_region)
+    else:
+        # Normal case: region is within a continuous range
+        # Selection is always value-based: we want lon_min_region <= lon <= lon_max_region
+        # This works regardless of whether coordinates are ascending or descending
+        mask_lon = (lon_coords >= lon_min_region) & (lon_coords <= lon_max_region)
+    
+    # Handle latitude: selection is always value-based regardless of coordinate ordering
+    # We want all values where lat_min_region <= lat <= lat_max_region
+    mask_lat = (lat_coords >= lat_min_region) & (lat_coords <= lat_max_region)
+    
+    # Apply selection using isel with boolean indexing (more robust than slice for complex cases)
+    # Get indices where masks are True
+    lat_indices = np.where(mask_lat)[0]
+    lon_indices = np.where(mask_lon)[0]
+    
+    if len(lat_indices) == 0 or len(lon_indices) == 0:
+        raise ValueError(f"No data points found in the specified region (lon: {lon_region}, lat: {lat_region})")
+    
+    # Use isel to select by indices
+    ds_selected = ds.isel(lat=lat_indices, lon=lon_indices)
+    
+    return ds_selected
+
+
+def _get_variable_with_level(ds_region: xr.Dataset, var_name: str) -> xr.DataArray:
+    """
+    Get a variable from a dataset, handling level selection if specified in the variable name.
+    
+    Args:
+        ds_region: xarray Dataset with region selected
+        var_name: Variable name, optionally with level specification (e.g., "ta_50000" or "ta")
+    
+    Returns:
+        xarray DataArray with the variable data (and level selected if specified)
+    
+    Raises:
+        ValueError: If variable not found or level coordinate not found
+    """
+    # Check if variable name contains "_" and first part is not "pr"
+    if "_" in var_name:
+        var_parts = var_name.split("_", 1)
+        base_var = var_parts[0]
+        level_str = var_parts[1]
+        
+        # If first part is "pr", treat as single variable name
+        if base_var == "pr":
+            if var_name not in ds_region.data_vars:
+                raise ValueError(f"Variable '{var_name}' not found in dataset")
+            return ds_region[var_name]
+        
+        # Otherwise, treat second part as level coordinate
+        try:
+            level_value = float(level_str)
+        except ValueError:
+            raise ValueError(f"Invalid level specification '{level_str}' in variable name '{var_name}'. Expected numeric value.")
+        
+        # Check if base variable exists
+        if base_var not in ds_region.data_vars:
+            raise ValueError(f"Variable '{base_var}' not found in dataset")
+        
+        var_data = ds_region[base_var]
+        
+        # Try to select level using "plev" coordinate first
+        if 'plev' in var_data.coords or 'plev' in var_data.dims:
+            try:
+                var_data = var_data.sel(plev=level_value, method='nearest')
+                return var_data
+            except (KeyError, ValueError):
+                pass
+        
+        # Then try "lev" coordinate
+        if 'lev' in var_data.coords or 'lev' in var_data.dims:
+            try:
+                var_data = var_data.sel(lev=level_value, method='nearest')
+                return var_data
+            except (KeyError, ValueError):
+                pass
+        
+        # If neither coordinate worked, raise error
+        raise ValueError(f"Could not find level coordinate ('plev' or 'lev') for variable '{base_var}' with level '{level_value}'")
+    else:
+        # No level specification, just return the variable
+        if var_name not in ds_region.data_vars:
+            raise ValueError(f"Variable '{var_name}' not found in dataset")
+        return ds_region[var_name]
+
+
+def unweighted_nday_mean(args: Tuple):
+    """
+    Compute unweighted N-day mean observable for ensemble forecasts.
+    
+    This function computes the mean value of a specified variable over a target duration
+    at the end of the forecast, averaged over specified regions.
+    
+    Arguments (passed as a tuple):
+    1. datasets: List of xarray.Dataset objects (Stepper output: typically one dataset per particle)
+    2. particle_idxs: List of particle indices (initial condition indices)
+    3. ensemble_start: Index of first ensemble member
+    4. ensemble_end: Index of last ensemble member (exclusive)
+    5. event_type: Event type identifier (str) used for file organization
+    6. lead_time_hours (optional): used ONLY for labeling forecast files; NOT used in calculations
+    7. target_duration: Number of days to average over (int)
+    8. var: Variable name(s) to compute observable for (str or list of str). 
+           If variable name contains "_" and first part is not "pr", 
+           the second part is treated as a level coordinate (e.g., "ta_50000" selects ta at 50000 Pa).
+    9. regions: List of region names to compute observable for (list of str)
+    10. region_file_path: Path to JSON file containing region boundaries (str)
+    11. save_basename: Base file path for saving results (str, required)
+    
+    Returns:
+        None (saves results to files)
+    """
+    # Unpack required arguments
+    datasets = args[0]
+    particle_idxs = args[1]
+    ensemble_start = args[2]
+    ensemble_end = args[3]
+    event_type = args[4]  # Required: event type identifier
+    
+    # lead_time_hours is optional and is only used for labeling forecast output files.
+    # It is not used in any calculations; observables are computed at the end of the forecast.
+    lead_time_hours: Optional[int] = None
+
+    # Accept both:
+    # - truth mode (no lead_time):  [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, target_duration, var, regions, region_file_path, save_basename] (10 args)
+    # - forecast mode (with lead_time label): [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, lead_time_hours, target_duration, var, regions, region_file_path, save_basename] (11 args)
+    if len(args) == 10:
+        # Truth mode: no lead_time_hours
+        target_duration = args[5]
+        var = args[6]
+        regions = args[7]
+        region_file_path = args[8]
+        save_basename = args[9]
+    elif len(args) >= 11:
+        # Forecast mode: with lead_time_hours label
+        lead_time_hours = int(args[5]) if args[5] is not None else None
+        target_duration = args[6]
+        var = args[7]
+        regions = args[8]
+        region_file_path = args[9]
+        save_basename = args[10]
+    else:
+        raise ValueError(f"unweighted_nday_mean requires at least 10 arguments (truth mode) or 11 (forecast mode), got {len(args)}")
+    
+    if save_basename is None or len(save_basename) == 0:
+        raise ValueError("save_basename is required for unweighted_nday_mean")
+    
+    # Convert var to list if it's a string
+    if isinstance(var, str):
+        var_list = [var]
+    elif isinstance(var, list):
+        var_list = var
+    else:
+        raise ValueError(f"var must be a string or list of strings, got {type(var)}")
+    
+    # Load region boundaries from JSON file
+    with open(region_file_path, 'r') as f:
+        all_regions = json.load(f)
+    
+    # Process each dataset and particle index
+    # Note: Stepper returns `datasets` as a list of per-particle datasets, and each dataset
+    # contains an `ensemble_idx` dimension for members.
+    
+    # Handle particle_idxs - it might be a single value or a list
+    if isinstance(particle_idxs, (list, np.ndarray)):
+        if len(particle_idxs) > 0:
+            particle_idx = int(particle_idxs[0])  # Use first particle index
+        else:
+            raise ValueError("particle_idxs list is empty")
+    else:
+        particle_idx = int(particle_idxs)
+    
+    # Get the dataset for this particle (typically first element)
+    if len(datasets) == 0:
+        raise ValueError("datasets list is empty")
+    ds = datasets[0]  # Use first dataset (Stepper obs functions assume batch_size=1)
+    
+    for region in regions:
+        if region not in all_regions:
+            raise ValueError(f"Region '{region}' not found in region file {region_file_path}")
+        
+        lon_region = all_regions[region]['xvals']
+        lat_region = all_regions[region]['yvals']
+        
+        # Select all lat and lon values within the region range using the robust selection function
+        ds_region = _select_region_from_dataset(ds, lon_region, lat_region)
+        
+        # Process each variable
+        for var_name in var_list:
+            # Get variable data, handling level selection if needed
+            var_data = _get_variable_with_level(ds_region, var_name)
+            
+            # Get additional dimensions info (beyond ensemble_idx, time, lat, lon)
+            additional_dims_info = {}
+            for dim in var_data.dims:
+                if dim not in ['ensemble_idx', 'time', 'lat', 'lon']:
+                    additional_dims_info[dim] = {
+                        'values': var_data[dim].values,
+                        'coords': var_data.coords[dim]
+                    }
+            
+            # Compute the mean over spatial dimensions (lon, lat)
+            A = var_data.mean(dim=['lon', 'lat'])
+            
+            # Convert temperature from Kelvin to Celsius if needed
+            # Check base variable name (before any level specification)
+            base_var = var_name.split("_")[0] if "_" in var_name and var_name.split("_")[0] != "pr" else var_name
+            if base_var in ['tas', 'ta']:
+                A = A - 273.15
+            
+            # Resample to daily mean
+            A = A.resample(time='1D').mean()
+
+            # Compute at the end of the forecast: average the last `target_duration` days.
+            if A.sizes.get('time', 0) < int(target_duration):
+                raise ValueError(
+                    f"Not enough daily samples to compute {target_duration}-day mean at end of forecast "
+                    f"(have {A.sizes.get('time', 0)} daily samples)."
+                )
+            A = A.isel(time=slice(-int(target_duration), None)).mean(dim='time')
+            
+            # Now A has dimensions: ensemble_idx, [additional_dims]
+            # Filter ensemble_idx to only include members in the range [ensemble_start, ensemble_end)
+            ensemble_indices = A['ensemble_idx'].values
+            valid_mask = (ensemble_indices >= ensemble_start) & (ensemble_indices < ensemble_end)
+            A_filtered = A.isel(ensemble_idx=valid_mask)
+            
+            # Extract values - A_filtered should have ensemble_idx and possibly additional dims
+            ensemble_values = A_filtered.values  # Shape: (num_ensemble_members, [additional_dims])
+            
+            # Get ensemble member indices from filtered data
+            ensemble_member_indices = A_filtered['ensemble_idx'].values.tolist()
+            
+            # Construct filepath using the helper function
+            # Function-specific string includes variable and region
+            function_specific = f"{target_duration}day_{var_name}_{region}"
+            # Forecast files include lead_time + ensemble info; truth files omit them.
+            filepath = get_observation_filepath(
+                save_basename=save_basename,
+                obs_function_name=f"unweighted_nday_mean",
+                particle_idx=particle_idx,
+                event_type=event_type,
+                ensemble_start=ensemble_start if lead_time_hours is not None else None,
+                ensemble_end=ensemble_end if lead_time_hours is not None else None,
+                lead_time_hours=lead_time_hours,
+                function_specific_string=function_specific
+            )
+            
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+            
+            # Determine structure based on whether we have additional dimensions
+            if additional_dims_info and len(additional_dims_info) > 0:
+                # Multi-dimensional observable
+                # ensemble_values already has shape (num_ensemble_members, [additional_dims])
+                
+                # Build coordinates
+                coords = {
+                    'ensemble_member': ensemble_member_indices,
+                    **{dim: info['values'] for dim, info in additional_dims_info.items()}
+                }
+                
+                # Build dimension list
+                dims = ['ensemble_member'] + list(additional_dims_info.keys())
+                
+                # Build attributes - only include lead_time_hours if it's not None (for netCDF compatibility)
+                attrs = {
+                    'obs_function_name': 'unweighted_nday_mean',
+                    'description': f'Unweighted {target_duration}-day mean of {var_name} over {region}',
+                    'particle_idx': particle_idx,
+                    'variable': var_name,
+                    'region': region,
+                    'target_duration_days': target_duration
+                }
+                if lead_time_hours is not None:
+                    attrs['lead_time_hours'] = lead_time_hours
+                
+                observation_data = xr.DataArray(
+                    data=ensemble_values,
+                    dims=dims,
+                    coords=coords,
+                    attrs=attrs
+                )
+            else:
+                # Scalar observable - ensemble_values is 1D array
+                # Build attributes - only include lead_time_hours if it's not None (for netCDF compatibility)
+                attrs = {
+                    'obs_function_name': 'unweighted_nday_mean',
+                    'description': f'Unweighted {target_duration}-day mean of {var_name} over {region}',
+                    'particle_idx': particle_idx,
+                    'variable': var_name,
+                    'region': region,
+                    'target_duration_days': target_duration
+                }
+                if lead_time_hours is not None:
+                    attrs['lead_time_hours'] = lead_time_hours
+                
+                observation_data = xr.DataArray(
+                    data=ensemble_values,
+                    dims=['ensemble_member'],
+                    coords={
+                        'ensemble_member': ensemble_member_indices
+                    },
+                    attrs=attrs
+                )
+            
+            # Create Dataset and save as netCDF
+            observation_ds = xr.Dataset({'observation': observation_data})
+            observation_ds.to_netcdf(filepath)
+
+
+def combine_observations(save_basename: str, obs_function_names: List[str], 
+                        output_dir: str = None, data_dict: Dict = None) -> None:
+    """
+    Load and combine observation .nc files into xarray datasets.
+    
+    This function:
+    1. Finds all .nc files matching the pattern for specified observation functions
+    2. Groups files by their function-specific strings
+    3. Combines each group into an xarray dataset with dimensions:
+       - lead_time: Lead time in hours
+       - particle: Particle index (initial condition index)
+       - ensemble_member: Ensemble member index
+       - Additional dimensions as stored in the .nc files
+    4. Saves each dataset as a netCDF file
+    5. Deletes the original .nc files
+    
+    Args:
+        save_basename: Base file path used when creating observation files
+        obs_function_names: List of observation function names to combine
+        output_dir: Directory to save combined datasets (defaults to directory of save_basename)
+        data_dict: Dictionary containing event data (event_type -> data_path, start/end datetimes)
+                   Used for reference but not required for file matching
+    
+    Returns:
+        None
+    """
+    # Extract directory and base filename from save_basename
+    dir_path = os.path.dirname(save_basename) if os.path.dirname(save_basename) else "."
+    base_name = os.path.basename(save_basename) if os.path.basename(save_basename) else save_basename
+    
+    if output_dir is None:
+        output_dir = dir_path
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Pattern to match observation files
+    # Format: {base_name}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_lead{lead_time_hours:04d}h_{obs_function_name}_{function_specific_string}.nc
+    pattern_base = os.path.join(dir_path, f"{base_name}_*_particle_*_ens_*_lead*h_*.nc")
+    
+    # Find all matching files
+    all_files = glob.glob(pattern_base)
+    
+    if len(all_files) == 0:
+        print(f"No observation files found matching pattern: {pattern_base}")
+        return
+    
+    # Parse filenames and group by event_type, observation function and function-specific string
+    file_groups = {}
+    
+    for filepath in all_files:
+        filename = os.path.basename(filepath)
+        
+        # Parse filename components
+        # Pattern: {base_name}_{event_type}_particle_{particle_idx}_ens_{ensemble_start}-{ensemble_end}_lead{lead_time_hours}h_{obs_function_name}_{function_specific_string}.nc
+        pattern = rf"{re.escape(base_name)}_([^_]+)_particle_(\d+)_ens_(\d+)-(\d+)_lead(\d+)h_([^_]+(?:_[^_]+)*)\.nc"
+        match = re.match(pattern, filename)
+        
+        if not match:
+            print(f"Warning: Could not parse filename {filename}, skipping")
+            continue
+        
+        event_type = match.group(1)
+        particle_idx = int(match.group(2))
+        ensemble_start = int(match.group(3))
+        ensemble_end = int(match.group(4))
+        lead_time_hours = int(match.group(5))
+        remaining = match.group(6)
+        
+        # Split remaining into obs_function_name and function_specific_string
+        # The obs_function_name should be one of the specified function names
+        obs_function_name = None
+        function_specific_string = ""
+        
+        for func_name in obs_function_names:
+            if remaining.startswith(func_name):
+                obs_function_name = func_name
+                # Extract function-specific string (everything after obs_function_name + "_")
+                if len(remaining) > len(func_name):
+                    function_specific_string = remaining[len(func_name) + 1:]  # +1 for underscore
+                break
+        
+        if obs_function_name is None:
+            print(f"Warning: Could not identify observation function in {filename}, skipping")
+            continue
+        
+        # Create group key: (event_type, obs_function_name, function_specific_string)
+        # Only combine files with the same event_type
+        group_key = (event_type, obs_function_name, function_specific_string)
+        
+        if group_key not in file_groups:
+            file_groups[group_key] = []
+        
+        file_groups[group_key].append({
+            'filepath': filepath,
+            'particle_idx': particle_idx,
+            'ensemble_start': ensemble_start,
+            'ensemble_end': ensemble_end,
+            'lead_time_hours': lead_time_hours
+        })
+    
+    # Process each group (grouped by event_type, obs_function_name, function_specific_string)
+    for (event_type, obs_function_name, function_specific_string), files in file_groups.items():
+        print(f"Processing event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
+        print(f"  Found {len(files)} files")
+        
+        # Collect unique values for dimensions
+        lead_times = sorted(set(f['lead_time_hours'] for f in files))
+        particles = sorted(set(f['particle_idx'] for f in files))
+        
+        # Determine ensemble member range
+        all_ensemble_starts = [f['ensemble_start'] for f in files]
+        all_ensemble_ends = [f['ensemble_end'] for f in files]
+        min_ensemble_start = min(all_ensemble_starts)
+        max_ensemble_end = max(all_ensemble_ends)
+        ensemble_members = list(range(min_ensemble_start, max_ensemble_end))
+        
+        # Load one file to determine structure and additional dimensions
+        sample_file = files[0]
+        try:
+            sample_ds = xr.open_dataset(sample_file['filepath'])
+            if 'observation' not in sample_ds.data_vars:
+                print(f"Warning: 'observation' variable not found in {os.path.basename(sample_file['filepath'])}")
+                sample_ds.close()
+                continue
+            
+            sample_obs = sample_ds['observation']
+            sample_ds.close()
+            
+            # Get additional dimensions (beyond ensemble_member)
+            additional_dims = [dim for dim in sample_obs.dims if dim != 'ensemble_member']
+            additional_coords = {dim: sample_obs.coords[dim].values for dim in additional_dims}
+            additional_shape = tuple(sample_obs.sizes[dim] for dim in additional_dims)
+        except Exception as e:
+            print(f"Warning: Error loading sample file {os.path.basename(sample_file['filepath'])}: {e}")
+            continue
+        
+        # Initialize data array
+        all_dims = ['lead_time', 'particle', 'ensemble_member'] + additional_dims
+        data_shape_full = (len(lead_times), len(particles), len(ensemble_members)) + additional_shape
+        combined_data = np.full(data_shape_full, np.nan, dtype=np.float32)
+        
+        # Load and combine data
+        for file_info in files:
+            try:
+                file_ds = xr.open_dataset(file_info['filepath'])
+                if 'observation' not in file_ds.data_vars:
+                    print(f"Warning: 'observation' variable not found in {os.path.basename(file_info['filepath'])}")
+                    file_ds.close()
+                    continue
+                
+                obs_data = file_ds['observation']
+                
+                # Find indices
+                lead_time_idx = lead_times.index(file_info['lead_time_hours'])
+                particle_idx = particles.index(file_info['particle_idx'])
+                ensemble_start_idx = ensemble_members.index(file_info['ensemble_start'])
+                # Note: ensemble_end is exclusive (like Python slicing), so it's not in ensemble_members list
+                # We don't need ensemble_end_idx since we iterate through file_ensemble_members directly
+                
+                # Expected number of ensemble members in this file
+                expected_ensemble_count = file_info['ensemble_end'] - file_info['ensemble_start']
+                
+                # Get ensemble member indices from the file
+                file_ensemble_members = obs_data['ensemble_member'].values
+                
+                # Verify ensemble member count
+                if len(file_ensemble_members) != expected_ensemble_count:
+                    print(f"Warning: Ensemble member count mismatch in {os.path.basename(file_info['filepath'])}")
+                    print(f"  Expected {expected_ensemble_count} members, got {len(file_ensemble_members)}")
+                    file_ds.close()
+                    continue
+                
+                # Verify additional dimensions match
+                file_additional_dims = [dim for dim in obs_data.dims if dim != 'ensemble_member']
+                if file_additional_dims != additional_dims:
+                    print(f"Warning: Additional dimensions mismatch in {os.path.basename(file_info['filepath'])}")
+                    print(f"  Expected {additional_dims}, got {file_additional_dims}")
+                    file_ds.close()
+                    continue
+                
+                # Extract data values
+                data_values = obs_data.values
+                
+                # Assign data to combined array
+                for i, ens_member in enumerate(file_ensemble_members):
+                    if ens_member in ensemble_members:
+                        ens_idx = ensemble_members.index(ens_member)
+                        if len(additional_shape) == 0:
+                            combined_data[lead_time_idx, particle_idx, ens_idx] = data_values[i]
+                        else:
+                            # Use ellipsis to assign all additional dimensions
+                            combined_data[(lead_time_idx, particle_idx, ens_idx) + (...,)] = data_values[i, ...]
+                
+                file_ds.close()
+            except Exception as e:
+                print(f"Warning: Error processing file {os.path.basename(file_info['filepath'])}: {e}")
+                continue
+        
+        # Create coordinates (use stored coordinates from sample file if available)
+        coords = {
+            'lead_time': lead_times,
+            'particle': particles,
+            'ensemble_member': ensemble_members
+        }
+        # Add additional dimension coordinates
+        for dim in additional_dims:
+            if dim in additional_coords:
+                coords[dim] = additional_coords[dim]
+        
+        # Create DataArray
+        data_array = xr.DataArray(
+            data=combined_data,
+            dims=all_dims,
+            coords=coords,
+            name='observation'
+        )
+        
+        # Create Dataset
+        dataset = xr.Dataset({'observation': data_array})
+        
+        # Add event_type to dataset attributes
+        dataset.attrs['event_type'] = event_type
+        
+        # Add data_dict as JSON string in attributes if provided
+        if data_dict is not None:
+            try:
+                dataset.attrs['data_dict'] = json.dumps(data_dict)
+                dataset.attrs['data_dict_description'] = 'Event data dictionary (event_type -> data_path, start/end datetimes) in JSON format'
+            except (TypeError, ValueError) as e:
+                print(f"  Warning: Could not serialize data_dict to JSON: {e}")
+        
+        # Construct output filename (include event_type)
+        if function_specific_string:
+            output_filename = f"{base_name}_{event_type}_{obs_function_name}_{function_specific_string}_combined.nc"
+        else:
+            output_filename = f"{base_name}_{event_type}_{obs_function_name}_combined.nc"
+        
+        output_path = os.path.join(output_dir, output_filename)
+        
+        # Save dataset
+        print(f"  Saving combined dataset to {output_path}")
+        dataset.to_netcdf(output_path)
+        
+        # Delete original .nc files
+        print(f"  Deleting {len(files)} original .nc files")
+        for file_info in files:
+            try:
+                os.remove(file_info['filepath'])
+            except OSError as e:
+                print(f"  Warning: Could not delete {file_info['filepath']}: {e}")
+        
+        print(f"  Completed processing {obs_function_name} with function-specific string: {function_specific_string}")
+    
+    print("Finished combining all observations")
+
+
+def combine_observation_truth(save_basename: str, obs_function_names: List[str], 
+                              output_dir: str = None, data_dict: Dict = None) -> None:
+    """
+    Load and combine truth observation .nc files into xarray datasets.
+    
+    This function:
+    1. Finds all .nc files matching the pattern for specified observation functions (truth data)
+    2. Groups files by their function-specific strings
+    3. Combines each group into an xarray dataset with dimensions:
+       - particle: Particle index (initial condition index)
+       - Additional dimensions as stored in the .nc files
+       Note: No lead_time or ensemble_member dimensions for truth data
+    4. Saves each dataset as a netCDF file
+    5. Deletes the original .nc files
+    
+    Args:
+        save_basename: Base file path used when creating observation files
+        obs_function_names: List of observation function names to combine
+        output_dir: Directory to save combined datasets (defaults to directory of save_basename)
+        data_dict: Dictionary containing event data (event_type -> data_path, start/end datetimes)
+                   Used for reference but not required for file matching
+    
+    Returns:
+        None
+    """
+    # Extract directory and base filename from save_basename
+    dir_path = os.path.dirname(save_basename) if os.path.dirname(save_basename) else "."
+    base_name = os.path.basename(save_basename) if os.path.basename(save_basename) else save_basename
+    
+    if output_dir is None:
+        output_dir = dir_path
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Pattern to match truth observation files (no ensemble or lead_time info)
+    # Format: {base_name}_{event_type}_particle_{particle_idx:04d}_{obs_function_name}_{function_specific_string}.nc
+    pattern_base = os.path.join(dir_path, f"{base_name}_*_particle_*.nc")
+    
+    # Find all matching files
+    all_files = glob.glob(pattern_base)
+    
+    # Filter to only include files that don't have ensemble or lead_time patterns
+    # (these would be forecast files, not truth files)
+    filtered_files = []
+    for f in all_files:
+        filename = os.path.basename(f)
+        # Exclude files with ensemble or lead_time patterns
+        if '_ens_' not in filename and '_lead' not in filename:
+            filtered_files.append(f)
+    all_files = filtered_files
+    
+    if len(all_files) == 0:
+        print(f"No truth observation files found matching pattern: {pattern_base}")
+        return
+    
+    # Parse filenames and group by event_type, observation function and function-specific string
+    file_groups = {}
+    
+    for filepath in all_files:
+        filename = os.path.basename(filepath)
+        
+        # Parse filename components
+        # Pattern: {base_name}_{event_type}_particle_{particle_idx}_{obs_function_name}_{function_specific_string}.nc
+        pattern = rf"{re.escape(base_name)}_([^_]+)_particle_(\d+)_([^_]+(?:_[^_]+)*)\.nc"
+        
+        match = re.match(pattern, filename)
+        
+        if not match:
+            print(f"Warning: Could not parse filename {filename}, skipping")
+            continue
+        
+        event_type = match.group(1)
+        particle_idx = int(match.group(2))
+        remaining = match.group(3)
+        
+        # Split remaining into obs_function_name and function_specific_string
+        # The obs_function_name should be one of the specified function names
+        obs_function_name = None
+        function_specific_string = ""
+        
+        for func_name in obs_function_names:
+            if remaining.startswith(func_name):
+                obs_function_name = func_name
+                # Extract function-specific string (everything after obs_function_name + "_")
+                if len(remaining) > len(func_name):
+                    function_specific_string = remaining[len(func_name) + 1:]  # +1 for underscore
+                break
+        
+        if obs_function_name is None:
+            print(f"Warning: Could not identify observation function in {filename}, skipping")
+            continue
+        
+        # Create group key: (event_type, obs_function_name, function_specific_string)
+        # Only combine files with the same event_type
+        group_key = (event_type, obs_function_name, function_specific_string)
+        
+        if group_key not in file_groups:
+            file_groups[group_key] = []
+        
+        file_groups[group_key].append({
+            'filepath': filepath,
+            'particle_idx': particle_idx
+        })
+    
+    # Process each group (grouped by event_type, obs_function_name, function_specific_string)
+    for (event_type, obs_function_name, function_specific_string), files in file_groups.items():
+        print(f"Processing truth event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
+        print(f"  Found {len(files)} files")
+        
+        # Collect unique values for dimensions
+        particles = sorted(set(f['particle_idx'] for f in files))
+        
+        # Load one file to determine structure and additional dimensions
+        sample_file = files[0]
+        try:
+            sample_ds = xr.open_dataset(sample_file['filepath'])
+            if 'observation' not in sample_ds.data_vars:
+                print(f"Warning: 'observation' variable not found in {os.path.basename(sample_file['filepath'])}")
+                sample_ds.close()
+                continue
+            
+            sample_obs = sample_ds['observation']
+            sample_ds.close()
+            
+            # Get additional dimensions (truth data has no ensemble_member dimension)
+            additional_dims = list(sample_obs.dims)
+            additional_coords = {dim: sample_obs.coords[dim].values for dim in additional_dims}
+            additional_shape = tuple(sample_obs.sizes[dim] for dim in additional_dims)
+        except Exception as e:
+            print(f"Warning: Error loading sample file {os.path.basename(sample_file['filepath'])}: {e}")
+            continue
+        
+        # Initialize data array (no lead_time or ensemble_member dimensions)
+        all_dims = ['particle'] + additional_dims
+        data_shape_full = (len(particles),) + additional_shape
+        combined_data = np.full(data_shape_full, np.nan, dtype=np.float32)
+        
+        # Load and combine data
+        for file_info in files:
+            try:
+                file_ds = xr.open_dataset(file_info['filepath'])
+                if 'observation' not in file_ds.data_vars:
+                    print(f"Warning: 'observation' variable not found in {os.path.basename(file_info['filepath'])}")
+                    file_ds.close()
+                    continue
+                
+                obs_data = file_ds['observation']
+                
+                # Find particle index
+                particle_idx = particles.index(file_info['particle_idx'])
+                
+                # Verify dimensions match
+                file_dims = list(obs_data.dims)
+                if file_dims != additional_dims:
+                    print(f"Warning: Dimensions mismatch in {os.path.basename(file_info['filepath'])}")
+                    print(f"  Expected {additional_dims}, got {file_dims}")
+                    file_ds.close()
+                    continue
+                
+                # Extract data values
+                data_values = obs_data.values
+                
+                # Assign data (no ensemble dimension for truth data)
+                if len(additional_shape) == 0:
+                    # Scalar output
+                    combined_data[particle_idx] = data_values.item() if hasattr(data_values, 'item') else float(data_values)
+                else:
+                    # Multi-dimensional output
+                    if data_values.shape != additional_shape:
+                        print(f"Warning: Shape mismatch in {os.path.basename(file_info['filepath'])}")
+                        print(f"  Expected {additional_shape}, got {data_values.shape}")
+                        file_ds.close()
+                        continue
+                    # Assign data
+                    combined_data[(particle_idx,) + (...,)] = data_values[...]
+                
+                file_ds.close()
+            except Exception as e:
+                print(f"Warning: Error processing file {os.path.basename(file_info['filepath'])}: {e}")
+                continue
+        
+        # Create coordinates (use stored coordinates from sample file if available)
+        coords = {
+            'particle': particles
+        }
+        # Add additional dimension coordinates
+        for dim in additional_dims:
+            if dim in additional_coords:
+                coords[dim] = additional_coords[dim]
+        
+        # Create DataArray
+        data_array = xr.DataArray(
+            data=combined_data,
+            dims=all_dims,
+            coords=coords,
+            name='observation_truth'
+        )
+        
+        # Create Dataset
+        dataset = xr.Dataset({'observation_truth': data_array})
+        
+        # Add event_type to dataset attributes
+        dataset.attrs['event_type'] = event_type
+        
+        # Add data_dict as JSON string in attributes if provided
+        if data_dict is not None:
+            try:
+                dataset.attrs['data_dict'] = json.dumps(data_dict)
+                dataset.attrs['data_dict_description'] = 'Event data dictionary (event_type -> data_path, start/end datetimes) in JSON format'
+            except (TypeError, ValueError) as e:
+                print(f"  Warning: Could not serialize data_dict to JSON: {e}")
+        
+        # Construct output filename (include event_type)
+        if function_specific_string:
+            output_filename = f"{base_name}_{event_type}_{obs_function_name}_{function_specific_string}_truth_combined.nc"
+        else:
+            output_filename = f"{base_name}_{event_type}_{obs_function_name}_truth_combined.nc"
+        
+        output_path = os.path.join(output_dir, output_filename)
+        
+        # Save dataset
+        print(f"  Saving combined truth dataset to {output_path}")
+        dataset.to_netcdf(output_path)
+        
+        # Delete original .nc files
+        print(f"  Deleting {len(files)} original .nc files")
+        for file_info in files:
+            try:
+                os.remove(file_info['filepath'])
+            except OSError as e:
+                print(f"  Warning: Could not delete {file_info['filepath']}: {e}")
+        
+        print(f"  Completed processing truth {obs_function_name} with function-specific string: {function_specific_string}")
+    
+    print("Finished combining all truth observations")
+
+
+def _latitude_weighting_factor(latitudes: np.ndarray) -> np.ndarray:
+    """
+    Compute latitude weighting factors for area-weighted metrics.
+    
+    Args:
+        latitudes: Array of latitude values in degrees
+    
+    Returns:
+        Array of weighting factors (normalized so sum equals number of latitudes)
+    """
+    lat_weights_unweighted = np.cos(np.pi / 180.0 * latitudes)
+    n_lat = len(latitudes)
+    return n_lat * lat_weights_unweighted / np.sum(lat_weights_unweighted)
+
+
+def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str, 
+                   forecast_full: xr.DataArray = None) -> float:
+    """
+    Compute a single error metric between forecast and truth DataArrays.
+    
+    Args:
+        forecast: Forecast values (typically ensemble mean, xarray DataArray)
+        truth: Truth values (xarray DataArray)
+        metric: Name of the metric to compute. Supported metrics:
+            - 'mse': Mean squared error
+            - 'mae': Mean absolute error
+            - 'rmse': Root mean squared error
+            - 'bias': Mean bias
+            - 'correlation': Pearson correlation
+            - 'lat_weighted_rmse': Latitude-weighted RMSE
+            - 'lat_weighted_mae': Latitude-weighted MAE
+            - 'lat_weighted_fair_crps': Latitude-weighted fair CRPS (requires forecast_full with ensemble_member)
+            - 'fair_crps': Unweighted fair CRPS (requires forecast_full with ensemble_member)
+            - 'pearson_correlation': Pearson correlation over particle dimension
+            - 'spearman_correlation': Spearman correlation over particle dimension
+            - 'kendall_tau': Kendall's tau over particle dimension
+        forecast_full: Full forecast DataArray with ensemble_member dimension (required for CRPS metrics)
+    
+    Returns:
+        Computed metric value
+    """
+    from scipy.stats import spearmanr, kendalltau
+    
+    metric_lower = metric.lower()
+    
+    # Handle correlation metrics that operate over particle dimension
+    if metric_lower in ['pearson_correlation', 'spearman_correlation', 'kendall_tau']:
+        # These metrics compute correlation over the particle dimension
+        # Both forecast and truth should have 'particle' dimension
+        if 'particle' not in forecast.dims or 'particle' not in truth.dims:
+            return np.nan
+        
+        # Align particles
+        common_particles = sorted(set(forecast['particle'].values) & set(truth['particle'].values))
+        if len(common_particles) < 2:
+            return np.nan
+        
+        forecast_particle = forecast.sel(particle=common_particles)
+        truth_particle = truth.sel(particle=common_particles)
+        
+        # Aggregate over all non-particle dimensions to get one value per particle
+        # This gives us a scalar value for each particle
+        forecast_agg = forecast_particle.mean(dim=[d for d in forecast_particle.dims if d != 'particle'])
+        truth_agg = truth_particle.mean(dim=[d for d in truth_particle.dims if d != 'particle'])
+        
+        # Get values as arrays (one per particle)
+        forecast_vals = forecast_agg.values
+        truth_vals = truth_agg.values
+        
+        # Remove NaN values
+        valid_mask = ~(np.isnan(forecast_vals) | np.isnan(truth_vals))
+        if not np.any(valid_mask) or np.sum(valid_mask) < 2:
+            return np.nan
+        
+        forecast_valid = forecast_vals[valid_mask]
+        truth_valid = truth_vals[valid_mask]
+        
+        if metric_lower == 'pearson_correlation':
+            return float(np.corrcoef(forecast_valid, truth_valid)[0, 1])
+        elif metric_lower == 'spearman_correlation':
+            corr, _ = spearmanr(forecast_valid, truth_valid)
+            return float(corr)
+        elif metric_lower == 'kendall_tau':
+            tau, _ = kendalltau(forecast_valid, truth_valid)
+            return float(tau)
+    
+    # Handle CRPS metrics (require ensemble dimension)
+    if metric_lower in ['lat_weighted_fair_crps', 'fair_crps']:
+        if forecast_full is None or 'ensemble_member' not in forecast_full.dims:
+            return np.nan
+        
+        # Align particles and other dimensions
+        common_particles = sorted(set(forecast_full['particle'].values) & set(truth['particle'].values))
+        if len(common_particles) == 0:
+            return np.nan
+        
+        forecast_ens = forecast_full.sel(particle=common_particles)
+        truth_ens = truth.sel(particle=common_particles)
+        
+        # Get ensemble member count
+        ensemble_members = forecast_ens['ensemble_member'].values
+        M = len(ensemble_members)
+        if M < 2:
+            return np.nan
+        
+        # Compute CRPS components
+        # CRPS = mean(|x_i - y|) - 0.5 * mean(|x_i - x_j|) for all i, j
+        # where x_i are ensemble members, y is truth
+        
+        # Compute CRPSSkill: mean(|x_i - y|) over ensemble members
+        # Compute CRPSSpread: mean(|x_i - x_j|) over all i, j pairs
+        
+        # Flatten spatial dimensions for computation
+        forecast_flat = forecast_ens.values  # Shape: (particles, ensemble_members, [spatial_dims])
+        truth_flat = truth_ens.values  # Shape: (particles, [spatial_dims])
+        
+        # Reshape to (particles, ensemble_members, n_spatial)
+        original_shape = forecast_flat.shape
+        n_particles = original_shape[0]
+        n_spatial = int(np.prod(original_shape[2:])) if len(original_shape) > 2 else 1
+        
+        forecast_reshaped = forecast_flat.reshape(n_particles, M, n_spatial)
+        truth_reshaped = truth_flat.reshape(n_particles, n_spatial)
+        
+        # Compute CRPSSkill: mean(|x_i - y|) over ensemble members
+        crps_skill = np.mean(np.abs(forecast_reshaped - truth_reshaped[:, np.newaxis, :]), axis=1)  # (particles, n_spatial)
+        
+        # Compute CRPSSpread: mean(|x_i - x_j|) over all i, j pairs
+        crps_spread = np.zeros((n_particles, n_spatial))
+        for i in range(M):
+            for j in range(i + 1, M):
+                crps_spread += np.abs(forecast_reshaped[:, i, :] - forecast_reshaped[:, j, :])
+        crps_spread = crps_spread * 2 / (M * (M - 1))  # Normalize by number of pairs
+        
+        # Compute CRPS = CRPSSkill - 0.5 * CRPSSpread
+        crps = crps_skill - 0.5 * crps_spread  # (particles, n_spatial)
+        
+        # Apply latitude weighting if requested
+        if metric_lower == 'lat_weighted_fair_crps':
+            if 'lat' in forecast_ens.dims:
+                # Get latitude coordinates
+                lat_coords = forecast_ens['lat'].values
+                lat_weights = _latitude_weighting_factor(lat_coords)
+                
+                # Find lat dimension in spatial dims
+                spatial_dims = list(forecast_ens.dims[2:])  # Skip particle and ensemble_member
+                if 'lat' in spatial_dims:
+                    lat_dim_idx = spatial_dims.index('lat')
+                    # Reshape crps to have lat as a dimension
+                    crps_reshaped = crps.reshape(n_particles, *[original_shape[i] for i in range(2, len(original_shape))])
+                    # Apply weights along lat dimension
+                    # Create weight array with shape matching lat dimension
+                    weight_shape = [1] * len(spatial_dims)
+                    weight_shape[lat_dim_idx] = len(lat_weights)
+                    lat_weights_reshaped = lat_weights.reshape(tuple(weight_shape))
+                    # Apply weights and average over all spatial dimensions
+                    crps_weighted = np.mean(crps_reshaped * lat_weights_reshaped, axis=tuple(range(1, len(crps_reshaped.shape))))
+                    return float(np.nanmean(crps_weighted))
+            
+            # If no lat dimension, return unweighted
+            return float(np.nanmean(crps))
+        else:  # fair_crps
+            return float(np.nanmean(crps))
+    
+    # Handle latitude-weighted metrics
+    if metric_lower in ['lat_weighted_rmse', 'lat_weighted_mae']:
+        # Check if lat dimension exists
+        if 'lat' not in forecast.dims or 'lat' not in truth.dims:
+            # Fall back to unweighted version
+            if metric_lower == 'lat_weighted_rmse':
+                metric_lower = 'rmse'
+            else:
+                metric_lower = 'mae'
+        else:
+            # Get latitude coordinates
+            lat_coords = forecast['lat'].values
+            lat_weights = _latitude_weighting_factor(lat_coords)
+            
+            # Align dimensions
+            common_dims = set(forecast.dims) & set(truth.dims)
+            for dim in common_dims:
+                if dim != 'lat':
+                    common_vals = sorted(set(forecast[dim].values) & set(truth[dim].values))
+                    if len(common_vals) > 0:
+                        forecast = forecast.sel({dim: common_vals})
+                        truth = truth.sel({dim: common_vals})
+            
+            # Compute weighted metric
+            diff = forecast - truth
+            
+            # Apply latitude weights
+            # Reshape weights to match diff dimensions
+            weight_shape = [1] * len(diff.dims)
+            if 'lat' in diff.dims:
+                lat_idx = diff.dims.index('lat')
+                weight_shape[lat_idx] = len(lat_weights)
+                lat_weights_reshaped = lat_weights.reshape(tuple(weight_shape))
+                
+                if metric_lower == 'lat_weighted_rmse':
+                    weighted_squared_diff = lat_weights_reshaped * (diff ** 2)
+                    return float(np.sqrt(np.nanmean(weighted_squared_diff.values)))
+                else:  # lat_weighted_mae
+                    weighted_abs_diff = lat_weights_reshaped * np.abs(diff)
+                    return float(np.nanmean(weighted_abs_diff.values))
+    
+    # Standard metrics (flatten and compute)
+    forecast_flat = forecast.values.flatten()
+    truth_flat = truth.values.flatten()
+    
+    # Remove NaN values
+    valid_mask = ~(np.isnan(forecast_flat) | np.isnan(truth_flat))
+    if not np.any(valid_mask):
+        return np.nan
+    
+    forecast_valid = forecast_flat[valid_mask]
+    truth_valid = truth_flat[valid_mask]
+    
+    if metric_lower == 'mse':
+        return float(np.mean((forecast_valid - truth_valid) ** 2))
+    elif metric_lower == 'mae':
+        return float(np.mean(np.abs(forecast_valid - truth_valid)))
+    elif metric_lower == 'rmse':
+        return float(np.sqrt(np.mean((forecast_valid - truth_valid) ** 2)))
+    elif metric_lower == 'bias':
+        return float(np.mean(forecast_valid - truth_valid))
+    elif metric_lower == 'correlation':
+        if len(forecast_valid) < 2:
+            return np.nan
+        return float(np.corrcoef(forecast_valid, truth_valid)[0, 1])
+    else:
+        supported = ['mse', 'mae', 'rmse', 'bias', 'correlation', 'lat_weighted_rmse', 
+                     'lat_weighted_mae', 'lat_weighted_fair_crps', 'fair_crps',
+                     'pearson_correlation', 'spearman_correlation', 'kendall_tau']
+        raise ValueError(f"Unknown error metric: {metric}. Supported metrics: {', '.join(supported)}")
+
+
+def compute_error_metrics(save_basename: str, save_basename_truth: str, 
+                          obs_function_names: List[str], error_metrics: List[str],
+                          output_dir: str = None) -> Dict:
+    """
+    Compute error metrics between ensemble observable forecasts and their true values.
+    
+    This function:
+    1. Loads combined forecast and truth datasets
+    2. Matches them by observable function and function-specific string
+    3. Computes error metrics as a function of lead time
+    4. Organizes results in a nested dictionary structure
+    5. Saves results to a JSON file
+    
+    Args:
+        save_basename: Base file path used for forecast observation files
+        save_basename_truth: Base file path used for truth observation files
+        obs_function_names: List of observation function names to process
+        error_metrics: List of error metric names to compute (e.g., 'mse', 'mae', 'rmse', 'bias', 'correlation')
+        output_dir: Directory to save error metrics JSON file (defaults to directory of save_basename)
+    
+    Returns:
+        Dictionary organized as: {event_type: {observable_function: {function_specific_string: {error_metric: [errors_by_lead_time]}}}}
+    """
+    # Extract directory and base filename
+    dir_path = os.path.dirname(save_basename) if os.path.dirname(save_basename) else "."
+    base_name = os.path.basename(save_basename) if os.path.basename(save_basename) else save_basename
+    
+    dir_path_truth = os.path.dirname(save_basename_truth) if os.path.dirname(save_basename_truth) else "."
+    base_name_truth = os.path.basename(save_basename_truth) if os.path.basename(save_basename_truth) else save_basename_truth
+    
+    if output_dir is None:
+        output_dir = dir_path
+    
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Find combined forecast datasets
+    forecast_pattern = os.path.join(dir_path, f"{base_name}_*_*_combined.nc")
+    forecast_files = glob.glob(forecast_pattern)
+    
+    # Find combined truth datasets
+    truth_pattern = os.path.join(dir_path_truth, f"{base_name_truth}_*_*_truth_combined.nc")
+    truth_files = glob.glob(truth_pattern)
+    
+    if len(forecast_files) == 0:
+        print(f"No forecast observation files found matching pattern: {forecast_pattern}")
+        return {}
+    
+    if len(truth_files) == 0:
+        print(f"No truth observation files found matching pattern: {truth_pattern}")
+        return {}
+    
+    # Parse filenames to extract event_type, observable function and function-specific string
+    forecast_info = {}
+    for filepath in forecast_files:
+        filename = os.path.basename(filepath)
+        # Pattern: {base_name}_{event_type}_{obs_function_name}_{function_specific_string}_combined.nc
+        pattern = rf"{re.escape(base_name)}_([^_]+)_([^_]+(?:_[^_]+)*)_combined\.nc"
+        match = re.match(pattern, filename)
+        if match:
+            event_type = match.group(1)
+            remaining = match.group(2)
+            # Try to identify observable function
+            obs_function_name = None
+            function_specific_string = ""
+            
+            for func_name in obs_function_names:
+                if remaining.startswith(func_name):
+                    obs_function_name = func_name
+                    if len(remaining) > len(func_name):
+                        function_specific_string = remaining[len(func_name) + 1:]  # +1 for underscore
+                    break
+            
+            if obs_function_name:
+                key = (event_type, obs_function_name, function_specific_string)
+                forecast_info[key] = filepath
+    
+    truth_info = {}
+    for filepath in truth_files:
+        filename = os.path.basename(filepath)
+        # Pattern: {base_name_truth}_{event_type}_{obs_function_name}_{function_specific_string}_truth_combined.nc
+        pattern = rf"{re.escape(base_name_truth)}_([^_]+)_([^_]+(?:_[^_]+)*)_truth_combined\.nc"
+        match = re.match(pattern, filename)
+        if match:
+            event_type = match.group(1)
+            remaining = match.group(2)
+            # Try to identify observable function
+            obs_function_name = None
+            function_specific_string = ""
+            
+            for func_name in obs_function_names:
+                if remaining.startswith(func_name):
+                    obs_function_name = func_name
+                    if len(remaining) > len(func_name):
+                        function_specific_string = remaining[len(func_name) + 1:]  # +1 for underscore
+                    break
+            
+            if obs_function_name:
+                key = (event_type, obs_function_name, function_specific_string)
+                truth_info[key] = filepath
+    
+    # Initialize results dictionary (event_type is top-level key)
+    results = {}
+    
+    # Process each matched pair of forecast and truth datasets
+    for (event_type, obs_function_name, function_specific_string), forecast_path in forecast_info.items():
+        if (event_type, obs_function_name, function_specific_string) not in truth_info:
+            print(f"Warning: No truth dataset found for event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
+            continue
+        
+        truth_path = truth_info[(event_type, obs_function_name, function_specific_string)]
+        
+        print(f"Processing event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
+        print(f"  Forecast: {os.path.basename(forecast_path)}")
+        print(f"  Truth: {os.path.basename(truth_path)}")
+        
+        # Load datasets
+        try:
+            forecast_ds = xr.open_dataset(forecast_path)
+            truth_ds = xr.open_dataset(truth_path)
+        except Exception as e:
+            print(f"  Error loading datasets: {e}")
+            continue
+        
+        # Get observation data
+        if 'observation' not in forecast_ds.data_vars:
+            print(f"  Warning: 'observation' variable not found in forecast dataset")
+            continue
+        
+        if 'observation_truth' not in truth_ds.data_vars:
+            print(f"  Warning: 'observation_truth' variable not found in truth dataset")
+            continue
+        
+        forecast_data = forecast_ds['observation']
+        truth_data = truth_ds['observation_truth']
+        
+        # Check dimensions
+        # Forecast should have: lead_time, particle, ensemble_member, [additional_dims]
+        # Truth should have: particle, [additional_dims]
+        
+        # Get lead times from forecast
+        if 'lead_time' not in forecast_data.dims:
+            print(f"  Warning: 'lead_time' dimension not found in forecast dataset")
+            continue
+        
+        lead_times = sorted(forecast_data['lead_time'].values)
+        
+        # Get particles (should match between forecast and truth)
+        if 'particle' not in forecast_data.dims or 'particle' not in truth_data.dims:
+            print(f"  Warning: 'particle' dimension not found in datasets")
+            continue
+        
+        forecast_particles = sorted(forecast_data['particle'].values)
+        truth_particles = sorted(truth_data['particle'].values)
+        
+        # Find common particles
+        common_particles = sorted(set(forecast_particles) & set(truth_particles))
+        if len(common_particles) == 0:
+            print(f"  Warning: No common particles between forecast and truth datasets")
+            continue
+        
+        # Initialize results for this event_type and observable
+        # Structure: results[event_type][obs_function_name][function_specific_string]
+        if event_type not in results:
+            results[event_type] = {}
+        
+        if obs_function_name not in results[event_type]:
+            results[event_type][obs_function_name] = {}
+        
+        if function_specific_string not in results[event_type][obs_function_name]:
+            results[event_type][obs_function_name][function_specific_string] = {
+                'lead_times': [float(lt) for lt in lead_times]  # Store lead times for reference
+            }
+        
+        # Compute ensemble mean forecast (average over ensemble_member dimension)
+        if 'ensemble_member' in forecast_data.dims:
+            forecast_mean = forecast_data.mean(dim='ensemble_member')
+        else:
+            forecast_mean = forecast_data
+        
+        # Compute error metrics for each lead time
+        for metric in error_metrics:
+            if metric not in results[event_type][obs_function_name][function_specific_string]:
+                results[event_type][obs_function_name][function_specific_string][metric] = []
+            
+            errors_by_lead_time = []
+            
+            # Check if metric requires full ensemble data
+            metric_lower = metric.lower()
+            requires_full_ensemble = metric_lower in ['lat_weighted_fair_crps', 'fair_crps']
+            
+            for lead_time in lead_times:
+                # Select data for this lead time
+                if requires_full_ensemble:
+                    # Use full forecast data (with ensemble_member dimension)
+                    forecast_lt = forecast_data.sel(lead_time=lead_time)
+                else:
+                    # Use ensemble mean
+                    forecast_lt = forecast_mean.sel(lead_time=lead_time)
+                
+                # Align particles between forecast and truth
+                forecast_lt_aligned = forecast_lt.sel(particle=common_particles)
+                truth_aligned = truth_data.sel(particle=common_particles)
+                
+                # Compute metric
+                try:
+                    if requires_full_ensemble:
+                        error_value = _compute_metric(forecast_mean.sel(lead_time=lead_time).sel(particle=common_particles),
+                                                     truth_aligned, metric, 
+                                                     forecast_full=forecast_lt_aligned)
+                    else:
+                        error_value = _compute_metric(forecast_lt_aligned, truth_aligned, metric)
+                    errors_by_lead_time.append(float(error_value))
+                except Exception as e:
+                    print(f"  Warning: Error computing {metric} at lead_time {lead_time}: {e}")
+                    import traceback
+                    print(traceback.format_exc())
+                    errors_by_lead_time.append(np.nan)
+            
+            results[event_type][obs_function_name][function_specific_string][metric] = errors_by_lead_time
+        
+        # Close datasets
+        forecast_ds.close()
+        truth_ds.close()
+        
+        print(f"  Completed processing event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
+    
+    # Save results to JSON file
+    output_filename = f"{base_name}_error_metrics.json"
+    output_path = os.path.join(output_dir, output_filename)
+    
+    # Convert numpy types to native Python types for JSON serialization
+    def convert_to_serializable(obj):
+        if isinstance(obj, dict):
+            return {k: convert_to_serializable(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [convert_to_serializable(item) for item in obj]
+        elif isinstance(obj, (np.integer, np.floating)):
+            return float(obj) if np.isnan(obj) or np.isfinite(obj) else None
+        elif isinstance(obj, np.ndarray):
+            return [convert_to_serializable(item) for item in obj]
+        elif isinstance(obj, (int, float)):
+            return float(obj) if np.isnan(obj) or np.isfinite(obj) else None
+        else:
+            return obj
+    
+    serializable_results = convert_to_serializable(results)
+    
+    with open(output_path, 'w') as f:
+        json.dump(serializable_results, f, indent=2)
+    
+    print(f"Saved error metrics to {output_path}")
+    
+    return results
+        
