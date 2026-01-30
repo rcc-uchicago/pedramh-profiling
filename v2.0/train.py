@@ -458,7 +458,7 @@ class Trainer():
                 self.long_validation_spinup_years = params.long_validation_spinup_years
             
             if len(self.params.diagnostic_variables) > 0:
-                self.clim_surface_bias, self.clim_upper_air_bias, self.clim_diagnostic_bias = self.long_valid_dataset.long_valid_dataset()
+                self.clim_surface_bias, self.clim_upper_air_bias, self.clim_diagnostic_bias = self.long_valid_dataset._load_bias()
             else:
                 self.clim_surface_bias, self.clim_upper_air_bias = self.long_valid_dataset._load_bias()
             self.climatology_bias = self.convert_to_xarray(self.clim_surface_bias.unsqueeze(0).unsqueeze(0).numpy(),
