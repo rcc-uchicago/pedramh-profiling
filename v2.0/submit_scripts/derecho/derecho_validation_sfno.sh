@@ -64,10 +64,10 @@ export OMP_NUM_THREADS=1
 if [[ "$DEBUG" == "1" ]]; then
 	CMD="python train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug --config=SFNO"
 else
-	CMD="python -m torch.distributed.run --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO"
+	CMD="python -m torch.distributed.run --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO --just_validate --validation_epochs=${VAL_EPOCHS}"
 fi
-if [[ -z "$JOBID" ]]; then
-	CMD+=" --fresh_start"
-fi
+# if [[ -z "$JOBID" ]]; then
+# 	CMD+=" --fresh_start"
+# fi
 # Launch your script using torch.distributed.launch
 eval "$CMD"

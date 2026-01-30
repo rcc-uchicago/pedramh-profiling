@@ -367,15 +367,15 @@ def plot_bias(bias_pred, bias_gt, filename, var_level_dict):
                 level_value = levels[0] 
 
                 # Consistent with plot_acc_over_lead_time heuristic
-                threshold = 10.0 
-                if 0 < level_value < threshold: # Assumed sigma
-                     level_coord_name = 'lev'
-                     level_label = f"{level_value:.4f} σ"
-                elif level_value >= threshold: # Assumed pressure (Pa)
-                     level_coord_name = 'plev'
-                     level_label = f"{level_value/100:.0f} hPa"
-                else:
-                    raise ValueError(f"Invalid level value {level_value} for non-surface variable {var}")
+                # threshold = 10.0 
+                # if 0 < level_value < threshold: # Assumed sigma
+                #      level_coord_name = 'lev'
+                #      level_label = f"{level_value:.4f} σ"
+                # elif level_value >= threshold: # Assumed pressure (Pa)
+                #      level_coord_name = 'plev'
+                #      level_label = f"{level_value/100:.0f} hPa"
+                # else:
+                #     raise ValueError(f"Invalid level value {level_value} for non-surface variable {var}")
 
                 # Check if the determined coordinate exists before selecting
                 if level_coord_name not in bias_pred.coords or level_coord_name not in bias_gt.coords:
