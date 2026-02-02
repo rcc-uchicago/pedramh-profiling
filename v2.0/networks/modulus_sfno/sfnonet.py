@@ -819,6 +819,6 @@ class SphericalFourierNeuralOperatorNet_v2(SphericalFourierNeuralOperatorNet):
         if self.has_diagnostic:
             diagnostic = x[:, (surface_vars+upper_air_vars*upper_air_levels):, :, :]
 
-            return surface, upper_air, diagnostic
+            return surface, upper_air, diagnostic, torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
 
-        return surface, upper_air
+        return surface, upper_air, torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)

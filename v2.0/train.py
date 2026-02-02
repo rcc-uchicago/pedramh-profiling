@@ -626,7 +626,7 @@ class Trainer():
         """
         mask_bool = []
         land_mask = []
-        if self.params.nettype == 'pangu_plasim':
+        if self.params.nettype == 'pangu_plasim' or self.params.nettype == 'sfno_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
                 land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
@@ -1138,8 +1138,7 @@ class Trainer():
         with autocast(device_type="cuda"):
             if self.params.has_diagnostic:
                 output_surface, output_upper_air, output_diagnostic, mu, sigma , mu2, sigma2 = self.model(input_surface, constant_boundary_data, 
-                                                                    varying_boundary_data, input_upper_air, 
-                                                                    target_surface, target_upper_air,train = True)
+                                                                    varying_boundary_data, input_upper_air, train = True)
                 loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
                 
             else: 
@@ -1204,6 +1203,8 @@ class Trainer():
                     dist.all_gather_into_tensor(grad_max_tensor, diagnostic_logs[key])
                     diagnostic_logs[key] = torch.max(grad_max_tensor)
                 else:
+                    if type(diagnostic_logs[key]) in [int, float]:
+                        diagnostic_logs[key] = torch.tensor([diagnostic_logs[key]]).to(self.device)
                     dist.all_reduce(diagnostic_logs[key].detach())
                     diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
 
@@ -1332,7 +1333,7 @@ class Trainer():
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
                     if self.params.has_diagnostic:
-                        val_output_surface, val_output_upper_air, val_output_diagnostic, _, _ = self.model(
+                        val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _ = self.model(
                             val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
                     else:
                         val_output_surface, val_output_upper_air, _, _ = self.model(val_input_surface, self.constant_boundary_data[[0]], 
@@ -2572,6 +2573,7 @@ class Trainer():
     def restore_checkpoint(self, checkpoint_path, finetune=False):
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
+        logging.info(f'Restoring from checkpoint: {checkpoint_path}')
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
         try:
             self.model.load_state_dict(checkpoint['model_state'])
@@ -2583,6 +2585,7 @@ class Trainer():
             self.model.load_state_dict(new_state_dict)
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
+        self.epoch = checkpoint['epoch']
         # Restore wandb_step from checkpoint if available, otherwise use iters
         if 'wandb_step' in checkpoint:
             self.wandb_step = checkpoint['wandb_step']
@@ -2785,6 +2788,7 @@ if __name__ == '__main__':
     if params.just_validate:
         os.environ["WANDB_MODE"] = "offline"  # Disable wandb for validation-only runs
     # Parse validation epochs from comma-separated string
+    print("validation epochs arg:", args.validation_epochs)
     params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
     
     # Finetuning configuration
@@ -2955,6 +2959,10 @@ if __name__ == '__main__':
     torch.manual_seed(world_rank)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
+
+    if params['validation_epochs']:
+        if world_rank == 0:
+            print(f"Validation epochs specified: {params['validation_epochs']}")
 
     if world_rank == 0:
         os.makedirs(params['experiment_dir'], exist_ok=True)
