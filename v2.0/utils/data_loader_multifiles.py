@@ -194,6 +194,7 @@ def get_data_loader(params, files_pattern, distributed, year_start, year_end, tr
 def create_dataloader(dataset, batch_size, num_workers, distributed, single_ic, train, ensemble, drop_last):
     if single_ic:
         dataloader = DataLoader(dataset, batch_size = 1, num_workers = 1, shuffle = False, pin_memory=torch.cuda.is_available())
+        sampler = None
     else:
         sampler = DistributedSampler(dataset, shuffle=train) if distributed else None
         if train and not distributed:

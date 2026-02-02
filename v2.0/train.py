@@ -57,6 +57,7 @@ import json
 from ensemble_inference import Stepper
 import cftime
 import warnings
+import pickle
 
 #dask.config.set(scheduler='synchronous')
 torch._dynamo.config.optimize_ddp = False
@@ -641,7 +642,6 @@ class Trainer():
                 mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
-        
         else:
             raise Exception("not implemented")
         return mask_bool, land_mask
@@ -2128,10 +2128,19 @@ class Trainer():
                 ensemble_datasets, particle_idxs, ensemble_start, ensemble_end = args[0], args[1], args[2], args[3]
                 
                 # Extract event_type from particle_idx (particle_idx maps to file index in init_nc_filepaths)
-                # Handle both single particle_idx and list of particle_idxs
-                if isinstance(particle_idxs, (list, np.ndarray)) and len(particle_idxs) > 0:
-                    particle_idx = int(particle_idxs[0])
+                # Handle particle_idxs which can be: single value, list, numpy array, or torch tensor
+                # With batch_size > 1, particle_idxs will have multiple elements - use first one for event_type mapping
+                if isinstance(particle_idxs, torch.Tensor):
+                    # Convert tensor to numpy and get first element
+                    particle_idxs = particle_idxs.cpu().numpy()
+                
+                if isinstance(particle_idxs, (list, np.ndarray)):
+                    if len(particle_idxs) > 0:
+                        particle_idx = int(particle_idxs[0])
+                    else:
+                        raise ValueError("particle_idxs is empty")
                 else:
+                    # Single scalar value
                     particle_idx = int(particle_idxs)
                 
                 # Map particle_idx to event_type (particle_idx corresponds to file index)
@@ -2168,6 +2177,9 @@ class Trainer():
                         logging.warning(f"No init_datetimes computed for inference_hours={inference_hours}. Stepper may fail if init_datetime/init_datetimes are required.")
                 
                 # Create Stepper instance for this inference hours value
+                # Stepper will create its model using a training-style dataset to ensure same architecture
+                with open(f'params_ensemble_{args.run_num}.pkl', 'wb') as f:
+                    pickle.dump(current_ensemble_params, f)
                 stepper = Stepper([current_ensemble_params], self.world_rank, use_6h_24h_model=False, async_save=False)
                 
                 # Replace Stepper's model with the current training model to use the latest weights
@@ -2724,6 +2736,7 @@ if __name__ == '__main__':
     parser.add_argument("--fresh_start", default = False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
     parser.add_argument("--just_validate", default = False, action="store_true", help="Only run single epoch of validation")
     parser.add_argument("--validation_epochs", default="", type = str, help="List of epoch to validate when using just_validate. Comma separated list. If empty, validate best_ckpt.")
+    parser.add_argument("--validate_before_train", default = False, action="store_true", help="Run validation before training when resuming from checkpoint or finetuning")
     
     # Model selection arguments
     parser.add_argument("--use_legacy_model", default=False, action='store_true', help="Use legacy model architecture")
@@ -2790,6 +2803,7 @@ if __name__ == '__main__':
     # Parse validation epochs from comma-separated string
     print("validation epochs arg:", args.validation_epochs)
     params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
+    params['validate_before_train'] = args.validate_before_train  # Validate before training when resuming/finetuning
     
     # Finetuning configuration
     if args.finetune_num_epochs > 0:
@@ -3006,7 +3020,7 @@ if __name__ == '__main__':
         if not checkpoint_exists:
             raise FileNotFoundError(
                 "just_validate=True but no checkpoint found. "
-                f"Searched: {params.checkpoint_path_globstr}, {params.best_checkpoint_path}"
+                f"Searched: {params.checkpoint_path_globstr_load}, {params.best_checkpoint_path_load}"
             )
         params['resuming'] = True
         params['finetuning'] = False
@@ -3093,6 +3107,21 @@ if __name__ == '__main__':
     # ============================================================================
     # Initialize the model (load weights, setup optimizer, etc.)
     trainer.setup_model()
+
+    with open(f'params_train_{args.run_num}.pkl', 'wb') as f:
+        pickle.dump(params, f)
+    
+    # Run validation before training if requested and resuming/finetuning
+    if not params.just_validate and params.validate_before_train:
+        if params.resuming or params.finetuning:
+            if world_rank == 0:
+                logging.info("Running validation before training (resuming/finetuning mode)...")
+            trainer.validate_one_epoch()
+            # Run ensemble validation if enabled
+            if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
+                ensemble_val_time = trainer.validate_ensemble_forecast()
+                if world_rank == 0:
+                    logging.info(f"Pre-training ensemble validation time: {ensemble_val_time:.2f} seconds")
     
     # Execute training or validation based on mode
     if not params.just_validate:
@@ -3112,7 +3141,7 @@ if __name__ == '__main__':
             for ckpt_i in params.validation_epochs:
                 print(f'Validating epoch {ckpt_i}...')
                 # Construct checkpoint path by replacing wildcard with epoch number
-                ckpt_path = params.checkpoint_path_globstr.replace('*', str(ckpt_i))
+                ckpt_path = params.checkpoint_path_globstr_load.replace('*', str(ckpt_i))
                 if not os.path.isfile(ckpt_path):
                     logging.warning(f"Checkpoint not found: {ckpt_path}, skipping epoch {ckpt_i}")
                     continue

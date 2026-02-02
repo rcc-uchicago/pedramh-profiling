@@ -28,8 +28,8 @@ base_config: &BASE
 PLASIM: &PLASIM
   <<: *BASE
   # Data paths from PANGU file
-  data_dir: /scratch/midway3/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/plev_data
-  bias_data_dir: /scratch/midway3/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
+  data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/sigma_data
+  bias_data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
   diagnostic_variables: ["pr_6h"] 
@@ -51,20 +51,20 @@ PLASIM: &PLASIM
   epochs_per_long_validation: 1
   data_timedelta_hours: 6
   # Data paths from PANGU file - using plev_data mean/std files
-  surface_mean: data_12-132_mean.nc
-  surface_std: data_12-132_std.nc
-  surface_ff_std: data_12-132_std.nc
-  upper_air_mean: data_12-132_mean.nc
-  upper_air_std: data_12-132_std.nc
-  upper_air_ff_std: data_12-132_std.nc
-  boundary_mean: data_12-132_mean.nc
-  boundary_std: data_12-132_std.nc
-  diagnostic_mean: data_12-132_mean.nc
-  diagnostic_std: data_12-132_std.nc
-  climatology_file: climatology.nc
+  surface_mean: data_12-132_mean_sigma.nc
+  surface_std: data_12-132_std_sigma.nc
+  surface_ff_std: data_12-132_std_sigma.nc
+  upper_air_mean: data_12-132_mean_sigma.nc
+  upper_air_std: data_12-132_std_sigma.nc
+  upper_air_ff_std: data_12-132_std_sigma.nc
+  boundary_mean: data_12-132_mean_sigma.nc
+  boundary_std: data_12-132_std_sigma.nc
+  diagnostic_mean: data_12-132_mean_sigma.nc
+  diagnostic_std: data_12-132_std_sigma.nc
+  climatology_file: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/sigma_data/climatology.nc
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6 
-  batch_size: 32 
+  batch_size: 8 
   max_epochs: 50
 
   has_year_zero: True
@@ -89,7 +89,7 @@ PLASIM: &PLASIM
   forecast_lead_times: [1, 12, 20, 40, 60]
 
   lev: 'lev'
-  num_inferences: 32
+  num_inferences: 128
 
   use_reentrant: False
   checkpointing: 2 
@@ -130,10 +130,10 @@ PLASIM: &PLASIM
 
   # Training data sets from PANGU file
   train_data_sets:
-    /scratch/midway3/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/plev_data/:
+    /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/sigma_data/:
     - '0012-01-01 00:00:00'
     - '0012-12-31 18:00:00'
-    ? /scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_83/h5/
+    ? /glade/derecho/scratch/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_83/h5/
     : - '0029-07-27 00:00:00'
       - '0029-08-07 18:00:00'
 
@@ -150,9 +150,9 @@ PLASIM: &PLASIM
   ensemble_validation: true
   perturbation_type: 'gaussian_noise'
   ensemble_epsilon_factor: 0.1
-  num_validation_ensemble_members: 4
-  validation_ensemble_members_per_pred: 4
-  init_nc_filepath_files: /project/pedramh/awikner/PanguWeather/v2.0/events/ensemble_validation_test.json
+  num_validation_ensemble_members: 100
+  validation_ensemble_members_per_pred: 20
+  init_nc_filepath_files: /glade/work/awikner/PanguWeather/v2.0/events/ensemble_validation_002.json
   ensemble_inference_hours: [402, 282, 162]
   obs_functions: unweighted_nday_mean
   obs_args_dict:
@@ -160,10 +160,11 @@ PLASIM: &PLASIM
     var: tas
     regions:
     - Chicago
-    region_file_path: /project/pedramh/awikner/PanguWeather/v2.0/events/regions.json
-    save_basename: Chicago_heatwaves_test
+    - France
+    region_file_path: /glade/work/awikner/PanguWeather/v2.0/events/regions.json
+    save_basename: Chicago_France_heatwaves_test
   error_metrics: rmse, lat_weighted_rmse, fair_crps, pearson_correlation, spearman_correlation, kendall_tau
-  ensemble_batch_size: 2
+  ensemble_batch_size: 4
 
 SFNO: &SFNO
   <<: *PLASIM

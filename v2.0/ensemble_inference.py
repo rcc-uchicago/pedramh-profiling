@@ -52,6 +52,7 @@ from copy import deepcopy
 import json
 from natsort import natsorted
 import glob
+import pickle
 
 def cleanup():
     if dist.is_initialized():
@@ -201,9 +202,9 @@ class Stepper():
         """
         mask_bool = []
         land_mask = []
-        if self.params.nettype == 'pangu_plasim':
+        if self.params.nettype == 'pangu_plasim' or self.params.nettype == 'sfno_plasim':
             if (self.has_land or self.has_ocean) and self.mask_output:
-                land_mask = torch.clone(self.train_datasets[0].land_mask.detach()).to(self.device)
+                land_mask = torch.clone(self.dataset.land_mask.detach()).to(self.device)
                 print(f'Land Mask shape: {land_mask.shape}')
                 mask_bool = []
                 for var in self.params.surface_variables:
@@ -216,7 +217,6 @@ class Stepper():
                 mask_bool = torch.stack(mask_bool)
             else:
                 land_mask = None
-        
         else:
             raise Exception("not implemented")
         return mask_bool, land_mask
@@ -282,14 +282,33 @@ class Stepper():
             #self.model = torch.compile(self.model, mode = 'default')
         elif self.params.nettype == 'sfno_plasim':
             print(f'\n\nRunning SFNO model\n\n')
-            self.model = SFNO(self.params, self.dataset).to(self.device)
+            # For SFNO, the dataset determines in_chans/out_chans from variable lists
+            # To ensure same architecture as Trainer, create a training-style dataset for model initialization
+            # This ensures variable_list_in/out match Trainer's configuration
+            try:
+                # Create a temporary training-style dataset for model initialization
+                # This ensures the same variable lists as used during training
+                # Note: get_data_loader returns (dataloader, dataset, sampler) when train=True
+                _, model_init_dataset, _ = get_data_loader(
+                    self.params, self.params.data_dir, dist.is_initialized(),
+                    year_start=self.params.train_year_start if hasattr(self.params, 'train_year_start') else self.params.val_year_start,
+                    year_end=self.params.train_year_end if hasattr(self.params, 'train_year_end') else self.params.val_year_end,
+                    train=True,  # Use train=True to match Trainer's dataset configuration
+                    ensemble=False, init_from_nc=False
+                )
+                self.model = SFNO(self.params, model_init_dataset).to(self.device)
+            except Exception as e:
+                # Fallback: use inference dataset if training dataset creation fails
+                logging.warning(f"Could not create training-style dataset for model initialization: {e}. Using inference dataset.")
+                self.model = SFNO(self.params, self.dataset).to(self.device)
             if self.params.sync_norm:
                 self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
-                self.integrator = Integrator(self.params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
-                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
-                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
-                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
+                # Use dataset for integrator stds
+                self.integrator = Integrator(self.params, surface_ff_std=self.dataset.surface_std.detach().to(self.device),
+                                               surface_delta_std=self.dataset.surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.dataset.upper_air_ff_std.detach().to(self.device),
+                                               upper_air_delta_std=self.dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
         else:
             raise Exception("not implemented")
 
@@ -354,40 +373,57 @@ class Stepper():
         
         # Prefer EMA state for inference (typically better), fall back to model_state
         if 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
-            state_dict = checkpoint['ema_state']
+            state_str = 'ema_state'
             logging.info(f"Using EMA state from checkpoint (preferred for inference)")
         else:
-            state_dict = checkpoint['model_state']
+            state_str = 'model_state'
             logging.info(f"No EMA state found, using model_state")
         
-        # Detect if model expects 'module.' prefix (DDP-wrapped)
-        model_keys = list(model.state_dict().keys())
-        model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
-        
-        # Detect if checkpoint has 'module.' prefix
-        ckpt_keys = list(state_dict.keys())
-        ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
-        
-        # Adjust keys if there's a mismatch
-        if model_has_module_prefix and not ckpt_has_module_prefix:
-            # Model is DDP, checkpoint is not -> ADD 'module.' prefix
-            logging.info("Adding 'module.' prefix to checkpoint keys for DDP model")
-            new_state_dict = OrderedDict()
-            for key, val in state_dict.items():
-                new_state_dict['module.' + key] = val
-            state_dict = new_state_dict
-        elif not model_has_module_prefix and ckpt_has_module_prefix:
-            # Model is not DDP, checkpoint is -> REMOVE 'module.' prefix
-            logging.info("Removing 'module.' prefix from checkpoint keys")
-            new_state_dict = OrderedDict()
-            for key, val in state_dict.items():
-                new_state_dict[key[7:]] = val
-            state_dict = new_state_dict
-        
-        model.load_state_dict(state_dict)
+        if self.params.nettype == 'pangu_plasim':
+            state_dict = checkpoint[state_str]
+            # Detect if model expects 'module.' prefix (DDP-wrapped)
+            model_keys = list(model.state_dict().keys())
+            model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
+            
+            # Detect if checkpoint has 'module.' prefix
+            ckpt_keys = list(state_dict.keys())
+            ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
+
+
+            
+            # Adjust keys if there's a mismatch
+            if model_has_module_prefix and not ckpt_has_module_prefix:
+                # Model is DDP, checkpoint is not -> ADD 'module.' prefix
+                logging.info("Adding 'module.' prefix to checkpoint keys for DDP model")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict['module.' + key] = val
+                state_dict = new_state_dict
+            elif not model_has_module_prefix and ckpt_has_module_prefix:
+                # Model is not DDP, checkpoint is -> REMOVE 'module.' prefix
+                logging.info("Removing 'module.' prefix from checkpoint keys")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict[key[7:]] = val
+                state_dict = new_state_dict
+            
+            model.load_state_dict(state_dict)
+        elif self.params.nettype == 'sfno_plasim':
+            state_dict = checkpoint[state_str]
+            try:
+                self.model.load_state_dict(state_dict)
+            except:
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    name = key[7:]
+                    new_state_dict[name] = val
+                self.model.load_state_dict(new_state_dict)
+        else:
+            raise Exception("not implemented")
         
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
+        self.epoch = checkpoint['epoch']
         logging.info(f'Restored from epoch {self.startEpoch}, iteration {self.iters}')
             
     def predict(self, obs_function = None, obs_args = None):
@@ -811,7 +847,7 @@ class Stepper():
                 
                 # Determine which levels array to use
                 if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
-                    all_levels = self.dataset.plev.values
+                    all_levels = self.dataset.levels
                 elif self.params.lev == 'lev':
                     all_levels = levels
                 else:
@@ -846,7 +882,7 @@ class Stepper():
                             coords={
                                 'ensemble_idx': ensemble_idxs,
                                 'time': time_range,
-                                'plev': self.dataset.plev.values,
+                                'plev': self.dataset.levels,
                                 'lat': self.params.lat,
                                 'lon': self.params.lon
                             }

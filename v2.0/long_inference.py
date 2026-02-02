@@ -192,15 +192,14 @@ class Stepper():
         self.data_loader, self.dataset = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
                                                          year_start=self.params.val_year_start, 
                                                          year_end=self.params.val_year_end, train=False,
-                                                         ensemble = True, init_from_nc = True,
-                                                         load_all_bcs = False)
+                                                         ensemble = True, init_from_nc = True)
         print(f'Len(data_loader): {len(self.data_loader)}')
         self.params['single_ic_offset'] = int((self.params.init_datetime - \
             self.dataset.datetime_class(self.params.init_datetime.year, 1, 1, 0, has_year_zero = self.params.has_year_zero)).total_seconds() // 3600)
         self.data_loader_bcs, self.dataset_bcs = get_data_loader(self.params, self.params.data_dir, dist.is_initialized(), 
                                                          year_start=self.params.init_datetime.year, 
                                                          year_end=self.params.final_datetime.year, train=False,
-                                                         single_ic = True, load_all_bcs = False)
+                                                         single_ic = True)
         
         if self.params.epsilon_factor > 0.:
             self.perturber = Perturber(self.params, self.dataset, device = self.device,
@@ -308,16 +307,43 @@ class Stepper():
             #self.model = torch.compile(self.model, mode = 'default')
         elif params.nettype == 'sfno_plasim':
             print(f'\n\nRunning SFNO model\n\n')
-            self.model = SFNO(params, self.dataset).to(self.device)
+            # For SFNO, the dataset determines in_chans/out_chans from variable lists
+            # To ensure same architecture as Trainer, create a training-style dataset for model initialization
+            # This ensures variable_list_in/out match Trainer's configuration
+            try:
+                # Create a temporary training-style dataset for model initialization
+                # This ensures the same variable lists as used during training
+                # Note: get_data_loader returns (dataloader, dataset, sampler) when train=True
+                _, model_init_dataset, _ = get_data_loader(
+                    self.params, self.params.data_dir, dist.is_initialized(),
+                    year_start=self.params.train_year_start if hasattr(self.params, 'train_year_start') else self.params.val_year_start,
+                    year_end=self.params.train_year_end if hasattr(self.params, 'train_year_end') else self.params.val_year_end,
+                    train=True,  # Use train=True to match Trainer's dataset configuration
+                    ensemble=False, init_from_nc=False
+                )
+                self.model = SFNO(params, model_init_dataset).to(self.device)
+            except Exception as e:
+                # Fallback: use inference dataset if training dataset creation fails
+                logging.warning(f"Could not create training-style dataset for model initialization: {e}. Using inference dataset.")
+                self.model = SFNO(params, self.dataset).to(self.device)
             if params.sync_norm:
-                model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+                self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
-                self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
-                                               surface_delta_std=self.train_datasets[0].surface_delta_std.detach().to(self.device),
-                                               upper_air_ff_std=self.train_datasets[0].upper_air_std.detach().to(self.device),
-                                               upper_air_delta_std=self.train_datasets[0].upper_air_delta_std.detach().to(self.device)).to(self.device)
+                # Use dataset for integrator stds
+                self.integrator = Integrator(params, surface_ff_std=self.dataset.surface_std.detach().to(self.device),
+                                               surface_delta_std=self.dataset.surface_delta_std.detach().to(self.device),
+                                               upper_air_ff_std=self.dataset.upper_air_std.detach().to(self.device),
+                                               upper_air_delta_std=self.dataset.upper_air_delta_std.detach().to(self.device)).to(self.device)
         else:
             raise Exception("not implemented")
+
+        self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
+        if self.use_6h_24h_model:
+            self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
+            if 'pr_6h' in self.params.diagnostic_variables:
+                assert 'pr_24h' in self.params_24h.diagnostic_variables
+                self.pr_6h_idx = self.params.diagnostic_variables.index('pr_6h')
+                assert self.pr_6h_idx == self.params_24h.diagnostic_variables.index('pr_24h')
 
         if dist.is_initialized():
             self.model = DistributedDataParallel(self.model,
@@ -329,13 +355,6 @@ class Stepper():
                                                  device_ids=[
                                                      params.local_rank],
                                                  output_device=[params.local_rank], find_unused_parameters=True)
-        self.restore_checkpoint(self.model, self.params.best_checkpoint_path)
-        if self.use_6h_24h_model:
-            self.restore_checkpoint(self.model_24h, self.params_24h.best_checkpoint_path)
-            if 'pr_6h' in self.params.diagnostic_variables:
-                assert 'pr_24h' in self.params_24h.diagnostic_variables
-                self.pr_6h_idx = self.params.diagnostic_variables.index('pr_6h')
-                assert self.pr_6h_idx == self.params_24h.diagnostic_variables.index('pr_24h')
         
         if params.log_to_screen:
             logging.info("Number of trainable model parameters: {}".format(self.count_parameters()))
@@ -353,21 +372,90 @@ class Stepper():
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
-        try:
-            model.load_state_dict(checkpoint['model_state'])
-        except:
-            new_state_dict = OrderedDict()
-            for key, val in checkpoint['model_state'].items():
-                name = key[7:]
-                new_state_dict[name] = val
-            model.load_state_dict(new_state_dict)
-        #self.model = torch.compile(self.model)
+        
+        # Prefer EMA state for inference (typically better), fall back to model_state
+        if 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
+            state_str = 'ema_state'
+            logging.info(f"Using EMA state from checkpoint (preferred for inference)")
+        else:
+            state_str = 'model_state'
+            logging.info(f"No EMA state found, using model_state")
+        
+        if self.params.nettype == 'pangu_plasim':
+            state_dict = checkpoint[state_str]
+            # Detect if model expects 'module.' prefix (DDP-wrapped)
+            model_keys = list(model.state_dict().keys())
+            model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
+            
+            # Detect if checkpoint has 'module.' prefix
+            ckpt_keys = list(state_dict.keys())
+            ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
+
+
+            
+            # Adjust keys if there's a mismatch
+            if model_has_module_prefix and not ckpt_has_module_prefix:
+                # Model is DDP, checkpoint is not -> ADD 'module.' prefix
+                logging.info("Adding 'module.' prefix to checkpoint keys for DDP model")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict['module.' + key] = val
+                state_dict = new_state_dict
+            elif not model_has_module_prefix and ckpt_has_module_prefix:
+                # Model is not DDP, checkpoint is -> REMOVE 'module.' prefix
+                logging.info("Removing 'module.' prefix from checkpoint keys")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict[key[7:]] = val
+                state_dict = new_state_dict
+            
+            model.load_state_dict(state_dict)
+        elif self.params.nettype == 'sfno_plasim':
+            state_dict = checkpoint[state_str]
+            # Detect if model expects 'module.' prefix (DDP-wrapped)
+            model_keys = list(model.state_dict().keys())
+            model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
+            
+            # Detect if checkpoint has 'module.' prefix
+            ckpt_keys = list(state_dict.keys())
+            ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
+            
+            # Adjust keys if there's a mismatch
+            if model_has_module_prefix and not ckpt_has_module_prefix:
+                # Model is DDP, checkpoint is not -> ADD 'module.' prefix
+                logging.info("Adding 'module.' prefix to checkpoint keys for DDP model")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict['module.' + key] = val
+                state_dict = new_state_dict
+            elif not model_has_module_prefix and ckpt_has_module_prefix:
+                # Model is not DDP, checkpoint is -> REMOVE 'module.' prefix
+                logging.info("Removing 'module.' prefix from checkpoint keys")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict[key[7:]] = val
+                state_dict = new_state_dict
+            
+            try:
+                model.load_state_dict(state_dict)
+            except Exception as e:
+                # Fallback: try removing 'module.' prefix if still failing
+                logging.warning(f"Failed to load state dict: {e}. Trying alternative key format.")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    if key.startswith('module.'):
+                        name = key[7:]
+                    else:
+                        name = key
+                    new_state_dict[name] = val
+                model.load_state_dict(new_state_dict)
+        else:
+            raise Exception("not implemented")
+        
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
-        print('START EPOCH:', self.startEpoch)
-        # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
-        #if self.params.resuming:
-        #    self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        self.epoch = checkpoint['epoch']
+        logging.info(f'Restored from epoch {self.startEpoch}, iteration {self.iters}')
             
     def predict(self, obs_function = None, obs_args = None):
         if self.params.log_to_screen:
@@ -434,7 +522,7 @@ class Stepper():
             for i, data in enumerate(self.data_loader, 0):
                 # Load ith set of initial conditions from .nc files
                 data_start = time.time()
-                input_surface_in, input_upper_air_in = map(
+                input_surface_in, input_upper_air_in, _ = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
                 print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
@@ -510,22 +598,22 @@ class Stepper():
                             # Predict to next 0z with 24h model
                             inference_start = time.time()
                             if self.params_24h.has_diagnostic:
-                                out_surface_24h, out_upper_air_24h, out_diagnostic_24h = self.model_24h(input_surface_24h, 
+                                out_surface_24h, out_upper_air_24h, out_diagnostic_24h, _, _, _, _ = self.model_24h(input_surface_24h, 
                                                                                         constant_boundary_data, 
                                                                                         varying_boundary_data,
                                                                                         input_upper_air_24h)
                             else:
-                                out_surface_24h, out_upper_air_24h = self.model_24h(input_surface_24h, constant_boundary_data, 
+                                out_surface_24h, out_upper_air_24h , _, _, _, _ = self.model_24h(input_surface_24h, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air_24h)
                             #print(f'Output 24 at step {i}:', out_surface_24h[0,1,16,1])
                             # Predict to next 6z with 6h model
                             if self.params.has_diagnostic:
-                                out_surface, out_upper_air, out_diagnostic = self.model(input_surface_24h, 
+                                out_surface, out_upper_air, out_diagnostic , _, _, _, _ = self.model(input_surface_24h, 
                                                                                         constant_boundary_data, 
                                                                                         varying_boundary_data,
                                                                                         input_upper_air_24h)
                             else:
-                                out_surface, out_upper_air = self.model(input_surface_24h, constant_boundary_data, 
+                                out_surface, out_upper_air , _, _, _, _ = self.model(input_surface_24h, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air_24h)
                             #print(f'Output 6 at step {i}:', out_surface[0,1,16,1])
                             # If needed, integrate tendency predictions
@@ -559,12 +647,12 @@ class Stepper():
                             # Predict with base model
                             inference_start = time.time()
                             if self.params.has_diagnostic:
-                                out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                                out_surface, out_upper_air, out_diagnostic , _, _, _, _ = self.model(input_surface, 
                                                                                         constant_boundary_data, 
                                                                                         varying_boundary_data,
                                                                                         input_upper_air)
                             else:
-                                out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                                out_surface, out_upper_air , _, _, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air)
                             #print(f'Output {self.params.timdelta_hours} at step {i}:', out_surface[0,1,16,1])
                             # If needed, integrate tendency predictions
@@ -708,7 +796,7 @@ class Stepper():
             for i, data in enumerate(self.data_loader, 0):
                 # Load ith set of initial conditions from .nc files
                 data_start = time.time()
-                input_surface_in, input_upper_air_in = map(
+                input_surface_in, input_upper_air_in, _ = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
                 print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
@@ -784,22 +872,22 @@ class Stepper():
                             # Predict to next 0z with 24h model
                             inference_start = time.time()
                             if self.params_24h.has_diagnostic:
-                                out_surface_24h, out_upper_air_24h, out_diagnostic_24h = self.model_24h(input_surface_24h, 
+                                out_surface_24h, out_upper_air_24h, out_diagnostic_24h , _, _, _, _ = self.model_24h(input_surface_24h, 
                                                                                         constant_boundary_data, 
                                                                                         varying_boundary_data,
                                                                                         input_upper_air_24h)
                             else:
-                                out_surface_24h, out_upper_air_24h = self.model_24h(input_surface_24h, constant_boundary_data, 
+                                out_surface_24h, out_upper_air_24h , _, _, _, _ = self.model_24h(input_surface_24h, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air_24h)
                             #print(f'Output 24 at step {i}:', out_surface_24h[0,1,16,1])
                             # Predict to next 6z with 6h model
                             if self.params.has_diagnostic:
-                                out_surface, out_upper_air, out_diagnostic = self.model(input_surface_24h, 
+                                out_surface, out_upper_air, out_diagnostic , _, _, _, _ = self.model(input_surface_24h, 
                                                                                         constant_boundary_data, 
                                                                                         varying_boundary_data,
                                                                                         input_upper_air_24h)
                             else:
-                                out_surface, out_upper_air = self.model(input_surface_24h, constant_boundary_data, 
+                                out_surface, out_upper_air , _, _, _, _ = self.model(input_surface_24h, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air_24h)
                             #print(f'Output 6 at step {i}:', out_surface[0,1,16,1])
                             # If needed, integrate tendency predictions
@@ -833,12 +921,12 @@ class Stepper():
                             # Predict with base model
                             inference_start = time.time()
                             if self.params.has_diagnostic:
-                                out_surface, out_upper_air, out_diagnostic = self.model(input_surface, 
+                                out_surface, out_upper_air, out_diagnostic , _, _, _, _ = self.model(input_surface, 
                                                                                         constant_boundary_data, 
                                                                                         varying_boundary_data,
                                                                                         input_upper_air)
                             else:
-                                out_surface, out_upper_air = self.model(input_surface, constant_boundary_data, 
+                                out_surface, out_upper_air , _, _, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                         varying_boundary_data, input_upper_air)
                             #print(f'Output {self.params.timdelta_hours} at step {i}:', out_surface[0,1,16,1])
                             # If needed, integrate tendency predictions
