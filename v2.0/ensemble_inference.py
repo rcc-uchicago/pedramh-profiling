@@ -1,3 +1,5 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from networks.pangu import PanguModel_Plasim
 from networks.pangu_legacy import PanguModel_Plasim as PanguModel_Plasim_Legacy
 from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
@@ -8,7 +10,6 @@ from collections import OrderedDict
 import matplotlib.pyplot as plt
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
-import os
 import time
 import numpy as np
 import argparse

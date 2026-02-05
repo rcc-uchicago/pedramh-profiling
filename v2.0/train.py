@@ -1,3 +1,5 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from networks.pangu import PanguModel_Plasim
 from networks.pangu_legacy import PanguModel_Plasim as PanguModel_Plasim_Legacy
 from networks.modulus_sfno.sfnonet import SphericalFourierNeuralOperatorNet_v2 as SFNO
@@ -12,7 +14,7 @@ import matplotlib.pyplot as plt
 import wandb
 from utils.data_loader_multifiles import get_data_loader, get_date_range, datetime_class_from_calendar, create_dataloader
 from utils.YParams import YParams
-import os, glob
+import glob
 import time
 from natsort import natsorted
 import numpy as np
@@ -1403,8 +1405,8 @@ class Trainer():
                 
                                 
             for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1):
-                if world_rank == 0:
-                    print(f"Validating batch {i+1}/{nb}")
+                #if world_rank == 0:
+                #    print(f"Validating batch {i+1}/{nb}")
                 if self.params.predict_delta:
                     if self.params.has_diagnostic:
                         val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air, val_target_diagnostic, val_target_surface_delta, val_target_upper_air_delta,\
@@ -2052,23 +2054,23 @@ class Trainer():
 
                     # Compute truth observables by loading the event datasets directly and creating
                     # a pseudo-ensemble with a single member.
-                    # The event_data structure is: {filepath: [first_datetime, final_datetime]}
-                    # Use the same file_idx mapping as forecast processing to ensure particle_idx matches
-                    file_idx = 0
-                    for event_type, event_data in init_data.items():
-                        if not isinstance(event_data, dict):
-                            continue
-                        # Iterate through filepaths (keys) in event_data, same as forecast processing
-                        for data_path, datetime_list in event_data.items():
-                            if not isinstance(datetime_list, list) or len(datetime_list) < 2:
-                                continue
+                    # Use the same init_nc_filepaths list as forecast processing to ensure particle_idx matches exactly
+                    # This ensures that particle indices correspond to the same files in both forecast and truth
+                    if 'init_nc_filepaths' in ensemble_params and len(ensemble_params['init_nc_filepaths']) > 0:
+                        logging.info(f"Computing truth observables for {len(ensemble_params['init_nc_filepaths'])} files")
+                        for file_idx, data_path in enumerate(ensemble_params['init_nc_filepaths']):
+                            # Get event_type from mapping (created during forecast processing setup)
+                            event_type = event_type_mapping.get(file_idx, 'unknown')
+                            logging.info(f"Processing truth file {file_idx}: {data_path} (event_type: {event_type})")
+                            
                             try:
                                 with warnings.catch_warnings():
                                     warnings.filterwarnings('ignore', category=DeprecationWarning, message='.*use_cftime.*')
                                     ds_truth = xr.open_dataset(data_path, use_cftime=True)
                             except Exception as e:
                                 logging.warning(f"Could not open truth dataset for {event_type} at {data_path}: {e}")
-                                file_idx += 1  # Still increment to keep alignment
+                                # Skip this file - don't create truth observables for it
+                                # This matches forecast behavior where failed files are skipped
                                 continue
 
                             # Ensure an ensemble dimension exists (single member)
@@ -2077,8 +2079,10 @@ class Trainer():
                                 ds_truth = ds_truth.expand_dims({'ensemble_idx': [0]})
 
                             # Use file_idx as particle_idx to match forecast processing
-                            # This ensures particle indices are consistent between forecast and truth
+                            # file_idx corresponds to the index in init_nc_filepaths, which matches forecast particle_idx
+                            # The data loader in ensemble mode uses the index in init_nc_filepaths as the particle index
                             particle_idxs = [file_idx]
+                            logging.info(f"  Using particle_idx={file_idx} for truth observable computation")
 
                             # Compute truth observables for each forecast horizon by slicing truth time dimension.
                             # IMPORTANT: do NOT pass lead_time_hours into observation functions for truth.
@@ -2094,11 +2098,19 @@ class Trainer():
                                     func_args = [[ds_truth_h], particle_idxs, 0, 1, event_type] + list(obs_args) + [save_basename_truth]
                                     try:
                                         obs_func(tuple(func_args))
+                                        logging.debug(f"  Successfully computed truth observable {obs_func_name} for particle_idx={file_idx}, inference_hours={inference_hours}")
                                     except Exception as e:
                                         logging.warning(f"Error computing truth observable {obs_func_name} at inference_hours={inference_hours}: {e}")
+                                        import traceback
+                                        logging.debug(traceback.format_exc())
 
                             ds_truth.close()
-                            file_idx += 1  # Increment file index to match forecast processing
+                    else:
+                        logging.warning("No init_nc_filepaths found in ensemble_params. Cannot compute truth observables.")
+                        if hasattr(self.params, 'init_nc_filepath_files'):
+                            logging.warning(f"  init_nc_filepath_files is set to: {self.params.init_nc_filepath_files}")
+                        else:
+                            logging.warning("  init_nc_filepath_files is not set in params")
 
                     # Combine truth observables (truth files omit lead/ens labels) into *_truth_combined.nc
                     obs_mod.combine_observation_truth(

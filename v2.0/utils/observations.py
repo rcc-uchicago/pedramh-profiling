@@ -1337,11 +1337,19 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
         forecast_particles = sorted(forecast_data['particle'].values)
         truth_particles = sorted(truth_data['particle'].values)
         
+        # Debug output
+        print(f"  Forecast particles: {forecast_particles}")
+        print(f"  Truth particles: {truth_particles}")
+        
         # Find common particles
         common_particles = sorted(set(forecast_particles) & set(truth_particles))
         if len(common_particles) == 0:
             print(f"  Warning: No common particles between forecast and truth datasets")
+            print(f"    Forecast has particles: {forecast_particles}")
+            print(f"    Truth has particles: {truth_particles}")
             continue
+        
+        print(f"  Common particles: {common_particles}")
         
         # Initialize results for this event_type and observable
         # Structure: results[event_type][obs_function_name][function_specific_string]
@@ -1386,6 +1394,13 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
                 forecast_lt_aligned = forecast_lt.sel(particle=common_particles)
                 truth_aligned = truth_data.sel(particle=common_particles)
                 
+                # Debug: Check for NaN values and data shapes
+                forecast_nan_count = np.isnan(forecast_lt_aligned.values).sum()
+                truth_nan_count = np.isnan(truth_aligned.values).sum()
+                forecast_total = forecast_lt_aligned.size
+                truth_total = truth_aligned.size
+                print(f"    Lead time {lead_time}: forecast shape={forecast_lt_aligned.shape}, NaNs={forecast_nan_count}/{forecast_total}, truth shape={truth_aligned.shape}, NaNs={truth_nan_count}/{truth_total}")
+                
                 # Compute metric
                 try:
                     if requires_full_ensemble:
@@ -1394,6 +1409,7 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
                                                      forecast_full=forecast_lt_aligned)
                     else:
                         error_value = _compute_metric(forecast_lt_aligned, truth_aligned, metric)
+                    print(f"    Computed {metric} = {error_value}")
                     errors_by_lead_time.append(float(error_value))
                 except Exception as e:
                     print(f"  Warning: Error computing {metric} at lead_time {lead_time}: {e}")

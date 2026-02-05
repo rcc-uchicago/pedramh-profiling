@@ -4,7 +4,8 @@
 #PBS -q main
 #PBS -l walltime=01:00:00
 #PBS -A UCHI0014
-#PBS -j oe
+#PBS -e logs/
+#PBS -o logs/
 
 #echo $SLURM_NTASKS   # WORLD_SIZE
 #echo $SLURM_PROCID   # WORLD_RANK
@@ -13,11 +14,15 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 export MPICH_GPU_MANAGED_MEMORY_SUPPORT_ENABLED=1
 export HDF5_USE_FILE_LOCKING=FALSE
 
+# Set default values for variables that can be passed via qsub
+DEBUG=${DEBUG:-0}
+CONFIG=${CONFIG:-PLASIM}
+
 module load conda
 conda activate aires_panguplasim
 
 # Change to working directory
-cd /glade/u/home/plyu/PanguWeather/v2.0/
+cd /glade/work/awikner/PanguWeather/v2.0
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
@@ -43,12 +48,16 @@ export OMP_NUM_THREADS=1
 
 
 if [[ "$DEBUG" == "1" ]]; then
-	CMD="python train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug --just_validate"
+	CMD="python train.py --config=${CONFIG} --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug --just_validate"
 else
-	CMD="torchrun --nproc_per_node=4 --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --config=PLASIM --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --just_validate"
+	CMD="torchrun --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --config=${CONFIG} --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --just_validate"
 fi
 if [[ -z "$JOBID" ]]; then
 	CMD+=" --fresh_start"
+fi
+# Add validation_epochs argument if VALIDATION_EPOCHS is set
+if [[ -n "$VALIDATION_EPOCHS" ]]; then
+	CMD+=" --validation_epochs=${VALIDATION_EPOCHS}"
 fi
 # Launch your script using torch.distributed.launch
 eval "$CMD"

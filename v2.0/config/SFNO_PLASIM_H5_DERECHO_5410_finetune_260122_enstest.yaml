@@ -89,7 +89,7 @@ PLASIM: &PLASIM
   forecast_lead_times: [1, 12, 20, 40, 60]
 
   lev: 'lev'
-  num_inferences: 128
+  num_inferences: 8
 
   use_reentrant: False
   checkpointing: 2 
@@ -150,9 +150,9 @@ PLASIM: &PLASIM
   ensemble_validation: true
   perturbation_type: 'gaussian_noise'
   ensemble_epsilon_factor: 0.1
-  num_validation_ensemble_members: 100
-  validation_ensemble_members_per_pred: 20
-  init_nc_filepath_files: /glade/work/awikner/PanguWeather/v2.0/events/ensemble_validation_002.json
+  num_validation_ensemble_members: 2
+  validation_ensemble_members_per_pred: 2
+  init_nc_filepath_files: /glade/work/awikner/PanguWeather/v2.0/events/ensemble_validation_test_derecho.json
   ensemble_inference_hours: [402, 282, 162]
   obs_functions: unweighted_nday_mean
   obs_args_dict:
@@ -164,7 +164,7 @@ PLASIM: &PLASIM
     region_file_path: /glade/work/awikner/PanguWeather/v2.0/events/regions.json
     save_basename: Chicago_France_heatwaves_test
   error_metrics: rmse, lat_weighted_rmse, fair_crps, pearson_correlation, spearman_correlation, kendall_tau
-  ensemble_batch_size: 4
+  ensemble_batch_size: 1
 
 SFNO: &SFNO
   <<: *PLASIM
