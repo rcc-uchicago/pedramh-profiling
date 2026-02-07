@@ -36,6 +36,7 @@ from datetime import timedelta
 # import transformer_engine.pytorch as te
 # from transformer_engine.common import recipe
 # from transformer_engine.pytorch import fp8_autocast
+from torch.amp import autocast
 from torch.profiler import profile, record_function, ProfilerActivity
 from itertools import product
 import time 
@@ -487,7 +488,7 @@ class Stepper():
             obs_queue = asyncio.Queue()
             obs_task = asyncio.create_task(self.obs_results(obs_queue))
 
-        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+        with torch.inference_mode(), autocast(enabled=self.params.enable_amp, device_type="cuda"):
             for i, data in enumerate(self.data_loader, 0):
                 data_start = time.time()
                 input_surface_in, input_upper_air_in, varying_boundary_data_in = map(
@@ -506,7 +507,13 @@ class Stepper():
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
                     
                     input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
-                    
+                    # Clamp perturbed values to float16 representable range to prevent
+                    # overflow when Conv2d casts inputs to float16 under AMP autocast.
+                    # The perturbation noise scale (epsilon_factor * ff_std / std) can
+                    # produce extreme outliers that exceed float16 max (~65504).
+                    #_fp16_max = torch.finfo(torch.float16).max
+                    #input_surface = input_surface.clamp(-_fp16_max, _fp16_max)
+                    #input_upper_air = input_upper_air.clamp(-_fp16_max, _fp16_max)
                     
                     
 
@@ -636,7 +643,13 @@ class Stepper():
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
                     
                     input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
-                    
+                    # Clamp perturbed values to float16 representable range to prevent
+                    # overflow when Conv2d casts inputs to float16 under AMP autocast.
+                    # The perturbation noise scale (epsilon_factor * ff_std / std) can
+                    # produce extreme outliers that exceed float16 max (~65504).
+                    #_fp16_max = torch.finfo(torch.float16).max
+                    #input_surface = input_surface.clamp(-_fp16_max, _fp16_max)
+                    #input_upper_air = input_upper_air.clamp(-_fp16_max, _fp16_max)
                     
                     
 

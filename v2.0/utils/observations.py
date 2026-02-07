@@ -962,7 +962,7 @@ def _latitude_weighting_factor(latitudes: np.ndarray) -> np.ndarray:
 
 
 def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str, 
-                   forecast_full: xr.DataArray = None) -> float:
+                   forecast_full: xr.DataArray = None) -> Tuple[float, Optional[List[float]]]:
     """
     Compute a single error metric between forecast and truth DataArrays.
     
@@ -985,7 +985,11 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
         forecast_full: Full forecast DataArray with ensemble_member dimension (required for CRPS metrics)
     
     Returns:
-        Computed metric value
+        Tuple of (mean_error, per_particle_errors):
+        - mean_error: Mean error over all particles (float)
+        - per_particle_errors: List of per-particle errors (List[float] or None)
+          For correlation metrics (pearson_correlation, spearman_correlation, kendall_tau),
+          per_particle_errors is None since these metrics operate over the particle dimension.
     """
     from scipy.stats import spearmanr, kendalltau
     
@@ -996,12 +1000,12 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
         # These metrics compute correlation over the particle dimension
         # Both forecast and truth should have 'particle' dimension
         if 'particle' not in forecast.dims or 'particle' not in truth.dims:
-            return np.nan
+            return (np.nan, None)
         
         # Align particles
         common_particles = sorted(set(forecast['particle'].values) & set(truth['particle'].values))
         if len(common_particles) < 2:
-            return np.nan
+            return (np.nan, None)
         
         forecast_particle = forecast.sel(particle=common_particles)
         truth_particle = truth.sel(particle=common_particles)
@@ -1018,29 +1022,29 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
         # Remove NaN values
         valid_mask = ~(np.isnan(forecast_vals) | np.isnan(truth_vals))
         if not np.any(valid_mask) or np.sum(valid_mask) < 2:
-            return np.nan
+            return (np.nan, None)
         
         forecast_valid = forecast_vals[valid_mask]
         truth_valid = truth_vals[valid_mask]
         
         if metric_lower == 'pearson_correlation':
-            return float(np.corrcoef(forecast_valid, truth_valid)[0, 1])
+            return (float(np.corrcoef(forecast_valid, truth_valid)[0, 1]), None)
         elif metric_lower == 'spearman_correlation':
             corr, _ = spearmanr(forecast_valid, truth_valid)
-            return float(corr)
+            return (float(corr), None)
         elif metric_lower == 'kendall_tau':
             tau, _ = kendalltau(forecast_valid, truth_valid)
-            return float(tau)
+            return (float(tau), None)
     
     # Handle CRPS metrics (require ensemble dimension)
     if metric_lower in ['lat_weighted_fair_crps', 'fair_crps']:
         if forecast_full is None or 'ensemble_member' not in forecast_full.dims:
-            return np.nan
+            return (np.nan, None)
         
         # Align particles and other dimensions
         common_particles = sorted(set(forecast_full['particle'].values) & set(truth['particle'].values))
         if len(common_particles) == 0:
-            return np.nan
+            return (np.nan, None)
         
         forecast_ens = forecast_full.sel(particle=common_particles)
         truth_ens = truth.sel(particle=common_particles)
@@ -1049,7 +1053,7 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
         ensemble_members = forecast_ens['ensemble_member'].values
         M = len(ensemble_members)
         if M < 2:
-            return np.nan
+            return (np.nan, None)
         
         # Compute CRPS components
         # CRPS = mean(|x_i - y|) - 0.5 * mean(|x_i - x_j|) for all i, j
@@ -1103,12 +1107,20 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
                     lat_weights_reshaped = lat_weights.reshape(tuple(weight_shape))
                     # Apply weights and average over all spatial dimensions
                     crps_weighted = np.mean(crps_reshaped * lat_weights_reshaped, axis=tuple(range(1, len(crps_reshaped.shape))))
-                    return float(np.nanmean(crps_weighted))
+                    # Return mean and per-particle errors
+                    per_particle_errors = [float(x) for x in crps_weighted]
+                    return (float(np.nanmean(crps_weighted)), per_particle_errors)
             
             # If no lat dimension, return unweighted
-            return float(np.nanmean(crps))
+            # Average over spatial dimensions to get per-particle CRPS
+            crps_per_particle = np.nanmean(crps, axis=1)  # (particles,)
+            per_particle_errors = [float(x) for x in crps_per_particle]
+            return (float(np.nanmean(crps)), per_particle_errors)
         else:  # fair_crps
-            return float(np.nanmean(crps))
+            # Average over spatial dimensions to get per-particle CRPS
+            crps_per_particle = np.nanmean(crps, axis=1)  # (particles,)
+            per_particle_errors = [float(x) for x in crps_per_particle]
+            return (float(np.nanmean(crps)), per_particle_errors)
     
     # Handle latitude-weighted metrics
     if metric_lower in ['lat_weighted_rmse', 'lat_weighted_mae']:
@@ -1133,11 +1145,43 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
                         forecast = forecast.sel({dim: common_vals})
                         truth = truth.sel({dim: common_vals})
             
-            # Compute weighted metric
+            # Compute weighted metric per particle if particle dimension exists
+            if 'particle' in forecast.dims and 'particle' in truth.dims:
+                # Align particles
+                common_particles = sorted(set(forecast['particle'].values) & set(truth['particle'].values))
+                if len(common_particles) == 0:
+                    return (np.nan, None)
+                
+                forecast_particle = forecast.sel(particle=common_particles)
+                truth_particle = truth.sel(particle=common_particles)
+                
+                # Compute metric per particle
+                diff = forecast_particle - truth_particle
+                
+                # Apply latitude weights
+                weight_shape = [1] * len(diff.dims)
+                if 'lat' in diff.dims:
+                    lat_idx = diff.dims.index('lat')
+                    weight_shape[lat_idx] = len(lat_weights)
+                    lat_weights_reshaped = lat_weights.reshape(tuple(weight_shape))
+                    
+                    if metric_lower == 'lat_weighted_rmse':
+                        weighted_squared_diff = lat_weights_reshaped * (diff ** 2)
+                        # Average over non-particle dimensions to get per-particle RMSE
+                        per_particle_errors = np.sqrt(np.nanmean(weighted_squared_diff.values, axis=tuple(range(1, len(weighted_squared_diff.dims)))))
+                        per_particle_errors = [float(x) for x in per_particle_errors]
+                        return (float(np.nanmean(per_particle_errors)), per_particle_errors)
+                    else:  # lat_weighted_mae
+                        weighted_abs_diff = lat_weights_reshaped * np.abs(diff)
+                        # Average over non-particle dimensions to get per-particle MAE
+                        per_particle_errors = np.nanmean(weighted_abs_diff.values, axis=tuple(range(1, len(weighted_abs_diff.dims))))
+                        per_particle_errors = [float(x) for x in per_particle_errors]
+                        return (float(np.nanmean(per_particle_errors)), per_particle_errors)
+            
+            # No particle dimension - compute over all data
             diff = forecast - truth
             
             # Apply latitude weights
-            # Reshape weights to match diff dimensions
             weight_shape = [1] * len(diff.dims)
             if 'lat' in diff.dims:
                 lat_idx = diff.dims.index('lat')
@@ -1146,35 +1190,87 @@ def _compute_metric(forecast: xr.DataArray, truth: xr.DataArray, metric: str,
                 
                 if metric_lower == 'lat_weighted_rmse':
                     weighted_squared_diff = lat_weights_reshaped * (diff ** 2)
-                    return float(np.sqrt(np.nanmean(weighted_squared_diff.values)))
+                    return (float(np.sqrt(np.nanmean(weighted_squared_diff.values))), None)
                 else:  # lat_weighted_mae
                     weighted_abs_diff = lat_weights_reshaped * np.abs(diff)
-                    return float(np.nanmean(weighted_abs_diff.values))
+                    return (float(np.nanmean(weighted_abs_diff.values)), None)
     
-    # Standard metrics (flatten and compute)
+    # Standard metrics (compute per-particle if particle dimension exists)
+    if 'particle' in forecast.dims and 'particle' in truth.dims:
+        # Align particles
+        common_particles = sorted(set(forecast['particle'].values) & set(truth['particle'].values))
+        if len(common_particles) == 0:
+            return (np.nan, None)
+        
+        forecast_particle = forecast.sel(particle=common_particles)
+        truth_particle = truth.sel(particle=common_particles)
+        
+        # Compute metric per particle
+        per_particle_errors = []
+        for particle in common_particles:
+            forecast_p = forecast_particle.sel(particle=particle)
+            truth_p = truth_particle.sel(particle=particle)
+            
+            # Flatten spatial dimensions
+            forecast_flat = forecast_p.values.flatten()
+            truth_flat = truth_p.values.flatten()
+            
+            # Remove NaN values
+            valid_mask = ~(np.isnan(forecast_flat) | np.isnan(truth_flat))
+            if not np.any(valid_mask):
+                per_particle_errors.append(np.nan)
+                continue
+            
+            forecast_valid = forecast_flat[valid_mask]
+            truth_valid = truth_flat[valid_mask]
+            
+            if metric_lower == 'mse':
+                per_particle_errors.append(float(np.mean((forecast_valid - truth_valid) ** 2)))
+            elif metric_lower == 'mae':
+                per_particle_errors.append(float(np.mean(np.abs(forecast_valid - truth_valid))))
+            elif metric_lower == 'rmse':
+                per_particle_errors.append(float(np.sqrt(np.mean((forecast_valid - truth_valid) ** 2))))
+            elif metric_lower == 'bias':
+                per_particle_errors.append(float(np.mean(forecast_valid - truth_valid)))
+            elif metric_lower == 'correlation':
+                if len(forecast_valid) < 2:
+                    per_particle_errors.append(np.nan)
+                else:
+                    per_particle_errors.append(float(np.corrcoef(forecast_valid, truth_valid)[0, 1]))
+            else:
+                supported = ['mse', 'mae', 'rmse', 'bias', 'correlation', 'lat_weighted_rmse', 
+                             'lat_weighted_mae', 'lat_weighted_fair_crps', 'fair_crps',
+                             'pearson_correlation', 'spearman_correlation', 'kendall_tau']
+                raise ValueError(f"Unknown error metric: {metric}. Supported metrics: {', '.join(supported)}")
+        
+        # Compute mean error
+        mean_error = float(np.nanmean(per_particle_errors))
+        return (mean_error, per_particle_errors)
+    
+    # No particle dimension - compute over all data
     forecast_flat = forecast.values.flatten()
     truth_flat = truth.values.flatten()
     
     # Remove NaN values
     valid_mask = ~(np.isnan(forecast_flat) | np.isnan(truth_flat))
     if not np.any(valid_mask):
-        return np.nan
+        return (np.nan, None)
     
     forecast_valid = forecast_flat[valid_mask]
     truth_valid = truth_flat[valid_mask]
     
     if metric_lower == 'mse':
-        return float(np.mean((forecast_valid - truth_valid) ** 2))
+        return (float(np.mean((forecast_valid - truth_valid) ** 2)), None)
     elif metric_lower == 'mae':
-        return float(np.mean(np.abs(forecast_valid - truth_valid)))
+        return (float(np.mean(np.abs(forecast_valid - truth_valid))), None)
     elif metric_lower == 'rmse':
-        return float(np.sqrt(np.mean((forecast_valid - truth_valid) ** 2)))
+        return (float(np.sqrt(np.mean((forecast_valid - truth_valid) ** 2))), None)
     elif metric_lower == 'bias':
-        return float(np.mean(forecast_valid - truth_valid))
+        return (float(np.mean(forecast_valid - truth_valid)), None)
     elif metric_lower == 'correlation':
         if len(forecast_valid) < 2:
-            return np.nan
-        return float(np.corrcoef(forecast_valid, truth_valid)[0, 1])
+            return (np.nan, None)
+        return (float(np.corrcoef(forecast_valid, truth_valid)[0, 1]), None)
     else:
         supported = ['mse', 'mae', 'rmse', 'bias', 'correlation', 'lat_weighted_rmse', 
                      'lat_weighted_mae', 'lat_weighted_fair_crps', 'fair_crps',
@@ -1367,7 +1463,13 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
             if metric not in results[event_type][obs_function_name][function_specific_string]:
                 results[event_type][obs_function_name][function_specific_string][metric] = []
             
+            # Store per-particle errors separately
+            metric_per_particle_key = f"{metric}_per_particle"
+            if metric_per_particle_key not in results[event_type][obs_function_name][function_specific_string]:
+                results[event_type][obs_function_name][function_specific_string][metric_per_particle_key] = []
+            
             errors_by_lead_time = []
+            per_particle_errors_by_lead_time = []
             
             # Check if metric requires full ensemble data
             metric_lower = metric.lower()
@@ -1389,19 +1491,33 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
                 # Compute metric
                 try:
                     if requires_full_ensemble:
-                        error_value = _compute_metric(forecast_mean.sel(lead_time=lead_time).sel(particle=common_particles),
-                                                     truth_aligned, metric, 
-                                                     forecast_full=forecast_lt_aligned)
+                        error_value, per_particle_errors = _compute_metric(
+                            forecast_mean.sel(lead_time=lead_time).sel(particle=common_particles),
+                            truth_aligned, metric, 
+                            forecast_full=forecast_lt_aligned)
                     else:
-                        error_value = _compute_metric(forecast_lt_aligned, truth_aligned, metric)
+                        error_value, per_particle_errors = _compute_metric(forecast_lt_aligned, truth_aligned, metric)
+                    
+                    # Store mean error
                     errors_by_lead_time.append(float(error_value))
+                    
+                    # Store per-particle errors (as list of lists: [lead_time][particle])
+                    if per_particle_errors is not None:
+                        per_particle_errors_by_lead_time.append([float(x) for x in per_particle_errors])
+                    else:
+                        per_particle_errors_by_lead_time.append(None)
                 except Exception as e:
                     print(f"  Warning: Error computing {metric} at lead_time {lead_time}: {e}")
                     import traceback
                     print(traceback.format_exc())
                     errors_by_lead_time.append(np.nan)
+                    per_particle_errors_by_lead_time.append(None)
             
+            # Store mean errors (for backward compatibility and return value)
             results[event_type][obs_function_name][function_specific_string][metric] = errors_by_lead_time
+            
+            # Store per-particle errors
+            results[event_type][obs_function_name][function_specific_string][metric_per_particle_key] = per_particle_errors_by_lead_time
         
         # Close datasets
         forecast_ds.close()
@@ -1436,4 +1552,3 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
     print(f"Saved error metrics to {output_path}")
     
     return results
-        

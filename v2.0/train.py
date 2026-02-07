@@ -1311,7 +1311,7 @@ class Trainer():
 
         # with torch.inference_mode():
 
-        with torch.no_grad():
+        with torch.inference_mode():
             
             precision_context = fp8_autocast(enabled=True, fp8_recipe=self.fp8_recipe) if self.params.enable_fp8 else \
                 autocast(enabled=self.params.enable_amp, device_type="cuda")
@@ -2194,9 +2194,9 @@ class Trainer():
                 # Load into stepper model (handle DDP wrapping if present)
                 if hasattr(stepper.model, 'module'):
                     # Stepper model is also DDP wrapped
-                    stepper.model.module.load_state_dict(training_state_dict)
+                    stepper.model.module.load_state_dict(training_state_dict, strict=True)
                 else:
-                    stepper.model.load_state_dict(training_state_dict)
+                    stepper.model.load_state_dict(training_state_dict, strict=True)
                 
                 # Also copy integrator if it exists
                 if hasattr(self, 'integrator') and hasattr(stepper, 'integrator'):
@@ -3116,12 +3116,12 @@ if __name__ == '__main__':
         if params.resuming or params.finetuning:
             if world_rank == 0:
                 logging.info("Running validation before training (resuming/finetuning mode)...")
-            trainer.validate_one_epoch()
-            # Run ensemble validation if enabled
+            # Run ensemble validation first if enabled
             if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
                 ensemble_val_time = trainer.validate_ensemble_forecast()
                 if world_rank == 0:
                     logging.info(f"Pre-training ensemble validation time: {ensemble_val_time:.2f} seconds")
+            trainer.validate_one_epoch()
     
     # Execute training or validation based on mode
     if not params.just_validate:
@@ -3131,11 +3131,11 @@ if __name__ == '__main__':
         # Validation-only mode: run validation without training
         if len(params.validation_epochs) == 0:
             # No specific epochs specified: validate best checkpoint
-            trainer.validate_one_epoch()
-            # Run ensemble validation if enabled
+            # Run ensemble validation first if enabled
             if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
                 ensemble_val_time = trainer.validate_ensemble_forecast()
                 logging.info(f"Ensemble validation time: {ensemble_val_time:.2f} seconds")
+            trainer.validate_one_epoch()
         else:
             # Validate specific epochs: load each checkpoint and validate
             for ckpt_i in params.validation_epochs:
@@ -3147,12 +3147,12 @@ if __name__ == '__main__':
                     continue
                 trainer.restore_checkpoint(ckpt_path)
                 trainer.epoch = trainer.startEpoch
-                # Run validation for this checkpoint
-                trainer.validate_one_epoch()
-                # Run ensemble validation if enabled (for each epoch)
+                # Run ensemble validation first if enabled (for each epoch)
                 if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
                     ensemble_val_time = trainer.validate_ensemble_forecast()
                     logging.info(f"Epoch {ckpt_i} ensemble validation time: {ensemble_val_time:.2f} seconds")
+                # Run validation for this checkpoint
+                trainer.validate_one_epoch()
     
     # Training/validation complete
     logging.info('DONE ---- rank %d' % world_rank)
