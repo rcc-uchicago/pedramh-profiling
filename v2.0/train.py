@@ -1053,7 +1053,7 @@ class Trainer():
                                                                         # train_batch_loss_vae = loss_vae,
                                                                         train_mean_norm_lwrmse = mean_norm_lwrmse)
                     ##########################################################
-                        if self.world_rank == 0:
+                        if self.world_rank == 0 and self.params.log_to_wandb:
                             #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
                             # Use wandb_step to ensure monotonicity, then increment it
                             wandb.log(diagnostic_logs, step=self.wandb_step)
