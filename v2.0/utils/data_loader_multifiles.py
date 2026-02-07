@@ -81,7 +81,23 @@ def get_data_given_path(path, variables):
     x = [data['input'][v] for v in variables]
     return np.stack(x, axis=0)
 
-def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = None):
+def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = None,
+                           levels_per_var=None, level_delta=1e-4):
+    """Load data from a netCDF file.
+    
+    Args:
+        path: Path to the netCDF file.
+        variables_3D: List of 3D variable names (upper-air variables with a level dimension).
+        variables_2D: List of 2D variable names (surface variables).
+        init_datetime: Datetime to select from the time dimension (None = last timestep).
+        levels_per_var: Optional list (one entry per 3D variable) of desired level arrays.
+            When provided, for each 3D variable the function identifies its level
+            coordinate in the file, selects only the levels that match (within
+            level_delta tolerance), and reorders them to match the requested order.
+            This ensures consistency with the h5 loading path where each
+            variable-level combination is loaded by name.
+        level_delta: Tolerance for matching levels (default 1e-4).
+    """
     x = []
     print(f'Loading data from {path}')
     print(f'Init datetime: {init_datetime}')
@@ -102,11 +118,38 @@ def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = Non
             timestep_offset = -1
         print(f'Timestep offset: {timestep_offset}')
         if variables_3D:
-            for variable in variables_3D:
+            for i_var, variable in enumerate(variables_3D):
                 if len(f.variables[variable].shape) == 4:
-                    x.append(f.variables[variable][timestep_offset,:])
+                    var_data = f.variables[variable][timestep_offset,:]
                 else:
-                    x.append(f.variables[variable][:])
+                    var_data = f.variables[variable][:]
+                # Select and reorder levels to match the expected ordering
+                if levels_per_var is not None and i_var < len(levels_per_var):
+                    desired_levels = levels_per_var[i_var]
+                    # Find the level dimension for this variable
+                    var_obj = f.variables[variable]
+                    level_dim_name = None
+                    for dim_name in var_obj.dimensions:
+                        if dim_name != 'time' and dim_name in f.variables:
+                            dim_var = f.variables[dim_name]
+                            if len(dim_var.shape) == 1 and dim_var.shape[0] == var_data.shape[0]:
+                                level_dim_name = dim_name
+                                break
+                    if level_dim_name is not None:
+                        file_levels = np.array(f.variables[level_dim_name][:])
+                        # For each desired level, find the closest matching index in the file
+                        indices = []
+                        for lev in desired_levels:
+                            diffs = np.abs(file_levels - lev)
+                            best_idx = np.argmin(diffs)
+                            if diffs[best_idx] > level_delta:
+                                raise ValueError(
+                                    f"Level {lev} for variable '{variable}' not found in file "
+                                    f"(closest: {file_levels[best_idx]}, diff: {diffs[best_idx]:.6f}). "
+                                    f"File levels: {file_levels.tolist()}")
+                            indices.append(best_idx)
+                        var_data = var_data[indices]
+                x.append(var_data)
         if variables_2D:
             for variable in variables_2D:
                 if len(f.variables[variable].shape) == 3:
@@ -717,18 +760,41 @@ class GetDataset(Dataset):
                 raw_data = get_data_given_path(data_file_path, self.variable_list_in)
         return raw_data
     
+    def _get_levels_per_var(self):
+        """Build per-variable level arrays matching the order used by load_mean_std / h5 loading.
+        
+        When use_sigma_levels is True, most upper-air variables use sigma_levels
+        while geopotential height ('zg'/'geopotential_height') uses pressure levels.
+        When use_sigma_levels is False, all variables use pressure levels.
+        
+        Returns a list of numpy arrays, one per upper-air variable.
+        """
+        levels_per_var = []
+        for var in self.upper_air_variables:
+            if self.use_sigma_levels and var not in ('zg', 'geopotential_height'):
+                levels_per_var.append(np.array(self.sigma_levels))
+            else:
+                levels_per_var.append(np.array(self.levels))
+        return levels_per_var
+
     def _get_data_nc(self, index, out = False, variable_list_3D = None, variable_list_2D = None):
         data_file_path = self.params.init_nc_filepaths[index]
+        init_dt = self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0]
+        # Build per-variable level arrays so that get_data_given_path_nc selects
+        # and reorders levels to match the h5 / mean-std ordering.
+        levels_per_var = self._get_levels_per_var()
         if variable_list_3D or variable_list_2D:
             raw_data = get_data_given_path_nc(data_file_path, variable_list_3D, variable_list_2D,
-                                              self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0])
+                                              init_dt, levels_per_var=levels_per_var)
         else:
             if out:
-                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables + self.diagnostic_variables,
-                                                  self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0])
+                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables,
+                                                  self.surface_variables + self.diagnostic_variables,
+                                                  init_dt, levels_per_var=levels_per_var)
             else:
-                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables, self.surface_variables,
-                                                  self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0])
+                raw_data = get_data_given_path_nc(data_file_path, self.upper_air_variables,
+                                                  self.surface_variables,
+                                                  init_dt, levels_per_var=levels_per_var)
         return raw_data
     
     def _get_boundary_data(self, data_datetime):

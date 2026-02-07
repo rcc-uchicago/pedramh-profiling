@@ -1,22 +1,22 @@
 {
     "typical" : {
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_0/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_0/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
         ["0007-07-17 00:00:00", "0007-08-07 18:00:00"],
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_1/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_1/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
         ["0007-07-17 00:00:00", "0007-08-07 18:00:00"],
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_2/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_2/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
         ["0007-07-17 00:00:00", "0007-08-07 18:00:00"],
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_3/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/typical/T2m_3x3_7daymean/particle_3/plasim_output_postproc_0007-07-17_00:00:00_0007-08-07_18:00:00.nc":
         ["0007-07-17 00:00:00", "0007-08-07 18:00:00"]
     },
     "extreme" : {
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_0/plasim_output_postproc_0009-07-17_00:00:00_0009-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_0/plasim_output_postproc_0009-07-17_00:00:00_0009-08-07_18:00:00.nc":
         ["0009-07-17 00:00:00", "0009-08-07 18:00:00"],
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_1/plasim_output_postproc_0011-07-17_00:00:00_0011-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_1/plasim_output_postproc_0011-07-17_00:00:00_0011-08-07_18:00:00.nc":
         ["0011-07-17 00:00:00", "0011-08-07 18:00:00"],
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_2/plasim_output_postproc_0013-07-17_00:00:00_0013-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_2/plasim_output_postproc_0013-07-17_00:00:00_0013-08-07_18:00:00.nc":
         ["0013-07-17 00:00:00", "0013-08-07 18:00:00"],
-        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_3/plasim_output_postproc_0021-07-17_00:00:00_0021-08-07_18:00:00.nc":
+        "/scratch/midway3/awikner/PLASIM/data/evaluate_fcst_extremes_sigma/heatwaves/Chicago/extremes/T2m_3x3_7daymean/particle_3/plasim_output_postproc_0021-07-17_00:00:00_0021-08-07_18:00:00.nc":
         ["0021-07-17 00:00:00", "0021-08-07 18:00:00"]
     }
 }

@@ -215,7 +215,9 @@ class FourierNeuralOperatorBlock(nn.Module):
             self.outer_skip_conv = nn.Conv2d(2 * embed_dim, embed_dim, 1, bias=False)
 
     def forward(self, x):
-        x_norm = torch.zeros_like(x)
+        # Use float32 for zero tensor to avoid implicit float16 downcast from norm layers
+        # (norm layers return float32 under AMP autocast; assigning into float16 can overflow)
+        x_norm = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
         x_norm[..., : self.input_shape_loc[0], : self.input_shape_loc[1]] = self.norm0(
             x[..., : self.input_shape_loc[0], : self.input_shape_loc[1]]
         )
@@ -231,7 +233,7 @@ class FourierNeuralOperatorBlock(nn.Module):
         if hasattr(self, "act_layer"):
             x = self.act_layer(x)
 
-        x_norm = torch.zeros_like(x)
+        x_norm = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
         x_norm[
             ..., : self.output_shape_loc[0], : self.output_shape_loc[1]
         ] = self.norm1(x[..., : self.output_shape_loc[0], : self.output_shape_loc[1]])
@@ -496,10 +498,10 @@ class SphericalFourierNeuralOperatorNet(torch.nn.Module):
             ifft_handle = th.InverseRealFFT2
 
             # effective image size:
-            self.img_shape_eff = [
+            self.img_shape_eff = (
                 self.img_shape[0] + self.padding[0],
                 self.img_shape[1] + self.padding[1],
-            ]
+            )
             self.img_shape_loc = (
                 self.img_shape_eff[0],
                 self.img_shape_eff[1],
@@ -522,7 +524,7 @@ class SphericalFourierNeuralOperatorNet(torch.nn.Module):
 
         # use the SHT/FFT to compute the local, downscaled grid dimensions
         self.img_shape_loc = (self.trans_down.nlat, self.trans_down.nlon)
-        self.img_shape_eff = [self.trans_down.nlat, self.trans_down.nlon]
+        self.img_shape_eff = (self.trans_down.nlat, self.trans_down.nlon)
         self.h_loc = self.itrans.nlat
         self.w_loc = self.itrans.nlon
 
@@ -694,16 +696,17 @@ class SphericalFourierNeuralOperatorNet(torch.nn.Module):
             x = self.encoder(x)
 
         if hasattr(self, "pos_embed"):
-            # old way of treating unequally shaped weights
-            if self.img_shape_loc != self.img_shape_eff:
-                xp = torch.zeros_like(x)
+            if self.img_shape_loc == self.img_shape_eff:
+                # Shapes match: simple addition in float32
+                x = x + self.pos_embed
+            else:
+                # Shapes differ: zero-pad and add in float32 to prevent overflow
+                xp = torch.zeros(x.shape, dtype=torch.float32, device=x.device)
                 xp[..., : self.img_shape_loc[0], : self.img_shape_loc[1]] = (
-                    x[..., : self.img_shape_loc[0], : self.img_shape_loc[1]]
+                    x[..., : self.img_shape_loc[0], : self.img_shape_loc[1]].float()
                     + self.pos_embed
                 )
                 x = xp
-            else:
-                x = x + self.pos_embed
 
         # maybe clean the padding just in case
 
