@@ -209,7 +209,8 @@ def create_curriculum_config(
     num_epochs,
     old_run_num,
     new_run_num,
-    finetune=False
+    finetune=False,
+    config_section='PLASIM'
 ):
     """Create a new config file with curriculum learning settings."""
     
@@ -217,58 +218,58 @@ def create_curriculum_config(
     with open(original_config_path, 'r') as f:
         config_data = yaml.safe_load(f)
     
-    # Modify the PLASIM section
-    if 'PLASIM' not in config_data:
-        raise ValueError(f"PLASIM section not found in config file: {original_config_path}")
+    # Modify the specified config section
+    if config_section not in config_data:
+        raise ValueError(f"{config_section} section not found in config file: {original_config_path}")
     
-    plasim_config = config_data['PLASIM']
+    section_config = config_data[config_section]
     
-    # Ensure PLASIM inherits properties from base_config
-    # Merge base_config into PLASIM (PLASIM values take precedence)
+    # Ensure config section inherits properties from base_config
+    # Merge base_config into config section (section values take precedence)
     if 'base_config' in config_data and isinstance(config_data['base_config'], dict):
-        # Merge: start with base_config, then override with existing PLASIM values
-        # This ensures PLASIM has all base_config properties, with PLASIM overrides taking precedence
+        # Merge: start with base_config, then override with existing section values
+        # This ensures section has all base_config properties, with section overrides taking precedence
         base_config_copy = config_data['base_config'].copy()
-        merged_config = {**base_config_copy, **plasim_config}
-        # Update PLASIM section with merged values (plasim_config is a reference, so this updates config_data['PLASIM'])
-        config_data['PLASIM'] = merged_config
-        plasim_config = config_data['PLASIM']
+        merged_config = {**base_config_copy, **section_config}
+        # Update config section with merged values (section_config is a reference, so this updates config_data[config_section])
+        config_data[config_section] = merged_config
+        section_config = config_data[config_section]
     
     if finetune:
         # Finetune mode: keep original run_num, add finetune_run_num
         # Don't modify BASE section name
-        plasim_config['finetune_run_num'] = new_run_num
+        section_config['finetune_run_num'] = new_run_num
         
         # Set finetune-specific fields
-        plasim_config['lr'] = learning_rate
-        plasim_config['finetune_num_epochs'] = num_epochs
+        section_config['lr'] = learning_rate
+        section_config['finetune_num_epochs'] = num_epochs
     else:
         # Normal mode: update run_num and name
         # Modify the BASE section name if it exists
         if 'base_config' in config_data and isinstance(config_data['base_config'], dict):
             if 'name' in config_data['base_config']:
-                config_data['base_config']['name'] = f'Pangu-PLASIM-{new_run_num}'
+                config_data['base_config']['name'] = f'Pangu-{config_section}-{new_run_num}'
         
-        # Update name in PLASIM (inherited from BASE, but we override it)
-        plasim_config['name'] = f'Pangu-PLASIM-{new_run_num}'
+        # Update name in config section (inherited from BASE, but we override it)
+        section_config['name'] = f'Pangu-{config_section}-{new_run_num}'
         
         # Update learning rate
-        plasim_config['lr'] = learning_rate
+        section_config['lr'] = learning_rate
         
         # Update max_epochs
-        plasim_config['max_epochs'] = start_epoch + num_epochs
+        section_config['max_epochs'] = start_epoch + num_epochs
     
     # Common settings for both modes
     # Update scheduler
-    plasim_config['scheduler'] = None
+    section_config['scheduler'] = None
     
     # Add train_data_sets entry (consistent with data_loader_multifiles.py)
-    plasim_config['train_data_sets'] = events_json_data
+    section_config['train_data_sets'] = events_json_data
     
     # Add curriculum learning settings
-    plasim_config['curriculum_learning'] = True
-    plasim_config['curriculum_learning_fraction'] = curriculum_fraction
-    plasim_config['start_epoch'] = start_epoch
+    section_config['curriculum_learning'] = True
+    section_config['curriculum_learning_fraction'] = curriculum_fraction
+    section_config['start_epoch'] = start_epoch
     
     # Write the modified config back to file
     # Use a custom representer to preserve None as 'None' string if needed, or just use None
@@ -276,10 +277,10 @@ def create_curriculum_config(
         yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
-def copy_checkpoint(old_run_num, new_run_num, start_epoch, exp_dir='results', config='PLASIM'):
+def copy_checkpoint(old_run_num, new_run_num, start_epoch, exp_dir='results', config_section='PLASIM'):
     """Copy the checkpoint from the starting epoch to the new run directory."""
-    old_checkpoint_dir = Path(exp_dir) / config / old_run_num / 'training_checkpoints'
-    new_checkpoint_dir = Path(exp_dir) / config / new_run_num / 'training_checkpoints'
+    old_checkpoint_dir = Path(exp_dir) / config_section / old_run_num / 'training_checkpoints'
+    new_checkpoint_dir = Path(exp_dir) / config_section / new_run_num / 'training_checkpoints'
     
     # Find the checkpoint file for the starting epoch
     checkpoint_pattern = f'ckpt_{start_epoch}.tar'
@@ -305,7 +306,7 @@ def copy_checkpoint(old_run_num, new_run_num, start_epoch, exp_dir='results', co
     print(f"Copied checkpoint as initial: {old_checkpoint} -> {initial_checkpoint}")
 
 
-def generate_interactive_command(submit_script_path, run_num, config_path, use_legacy_model=False):
+def generate_interactive_command(submit_script_path, run_num, config_path, config_section='PLASIM', use_legacy_model=False):
     """
     Generate the command to run the training job interactively on a compute node.
     
@@ -360,7 +361,7 @@ def generate_interactive_command(submit_script_path, run_num, config_path, use_l
     if debug:
         # Debug mode: use single-process python command
         if is_pbs:
-            training_cmd = f'python train.py --config=PLASIM --yaml_config={config_path} --run_num={run_num}'
+            training_cmd = f'python train.py --config={config_section} --yaml_config={config_path} --run_num={run_num}'
         else:
             training_cmd = f'python train.py --yaml_config={config_path} --run_num={run_num}'
     else:
@@ -380,7 +381,7 @@ def generate_interactive_command(submit_script_path, run_num, config_path, use_l
                     if nproc_match:
                         num_gpus = int(nproc_match.group(1))
                     # Build command with actual values
-                    training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --config=PLASIM --yaml_config={config_path} --run_num={run_num}'
+                    training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --config={config_section} --yaml_config={config_path} --run_num={run_num}'
                     break
                 elif 'torch.distributed.launch' in line and 'train.py' in line:
                     # Extract nproc_per_node if present (look for numeric value)
@@ -388,7 +389,7 @@ def generate_interactive_command(submit_script_path, run_num, config_path, use_l
                     if nproc_match:
                         num_gpus = int(nproc_match.group(1))
                     # Convert torch.distributed.launch to torchrun
-                    training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --config=PLASIM --yaml_config={config_path} --run_num={run_num}'
+                    training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --config={config_section} --yaml_config={config_path} --run_num={run_num}'
                     break
         elif is_slurm:
             # Check SLURM directives for gpus-per-node
@@ -417,7 +418,7 @@ def generate_interactive_command(submit_script_path, run_num, config_path, use_l
         # If we couldn't find a specific command, use a generic one
         if training_cmd is None:
             if is_pbs:
-                training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --config=PLASIM --yaml_config={config_path} --run_num={run_num}'
+                training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --config={config_section} --yaml_config={config_path} --run_num={run_num}'
             else:
                 training_cmd = f'torchrun --nproc_per_node={num_gpus} train.py --yaml_config={config_path} --run_num={run_num}'
     
@@ -447,7 +448,7 @@ def generate_interactive_command(submit_script_path, run_num, config_path, use_l
     return ' && '.join(commands)
 
 
-def submit_training_job(submit_script_path, run_num, config_path, scheduler_args=None, use_legacy_model=False):
+def submit_training_job(submit_script_path, run_num, config_path, config_section='PLASIM', scheduler_args=None, use_legacy_model=False):
     """
     Submit the training job using the submission script.
     
@@ -529,6 +530,13 @@ def main():
         type=str,
         required=True,
         help='Path to the original .yaml config file'
+    )
+    
+    parser.add_argument(
+        '--config_section',
+        type=str,
+        default='PLASIM',
+        help='Name of the config section to read from the YAML file and pass to train.py (default: PLASIM)'
     )
     
     parser.add_argument(
@@ -684,12 +692,12 @@ def main():
     try:
         with open(original_config_path, 'r') as f:
             config_data_temp = yaml.safe_load(f)
-            if 'PLASIM' in config_data_temp and isinstance(config_data_temp['PLASIM'], dict):
-                plasim_config = config_data_temp['PLASIM']
-                if 'calendar' in plasim_config:
-                    calendar = plasim_config['calendar']
-                if 'has_year_zero' in plasim_config:
-                    has_year_zero = plasim_config['has_year_zero']
+            if args.config_section in config_data_temp and isinstance(config_data_temp[args.config_section], dict):
+                section_config = config_data_temp[args.config_section]
+                if 'calendar' in section_config:
+                    calendar = section_config['calendar']
+                if 'has_year_zero' in section_config:
+                    has_year_zero = section_config['has_year_zero']
     except Exception as e:
         print(f"Warning: Could not read calendar from config, using defaults: {e}")
     
@@ -745,7 +753,7 @@ def main():
             print(f"    - curriculum_learning_fraction: {args.curriculum_fraction}")
             print(f"    - start_epoch: {args.start_epoch}")
         else:
-            print(f"    - name: Pangu-PLASIM-{new_run_num}")
+            print(f"    - name: Pangu-{args.config_section}-{new_run_num}")
             print(f"    - scheduler: None")
             print(f"    - lr: {args.learning_rate}")
             print(f"    - max_epochs: {args.start_epoch + args.num_epochs}")
@@ -764,25 +772,25 @@ def main():
             args.num_epochs,
             old_run_num,
             new_run_num,
-            finetune=args.finetune
+            finetune=args.finetune,
+            config_section=args.config_section
         )
         print(f"Created new config file: {new_config_path}")
     
     # Copy checkpoint
     # Read exp_dir from config if available, otherwise use default
     exp_dir = 'results'
-    config_name = 'PLASIM'
     try:
         with open(original_config_path, 'r') as f:
             config_data_temp = yaml.safe_load(f)
-            if 'PLASIM' in config_data_temp and isinstance(config_data_temp['PLASIM'], dict):
-                if 'exp_dir' in config_data_temp['PLASIM']:
-                    exp_dir = config_data_temp['PLASIM']['exp_dir']
+            if args.config_section in config_data_temp and isinstance(config_data_temp[args.config_section], dict):
+                if 'exp_dir' in config_data_temp[args.config_section]:
+                    exp_dir = config_data_temp[args.config_section]['exp_dir']
     except Exception:
         pass  # Use defaults if we can't read it
     
-    old_checkpoint_dir = Path(exp_dir) / config_name / old_run_num / 'training_checkpoints'
-    new_checkpoint_dir = Path(exp_dir) / config_name / new_run_num / 'training_checkpoints'
+    old_checkpoint_dir = Path(exp_dir) / args.config_section / old_run_num / 'training_checkpoints'
+    new_checkpoint_dir = Path(exp_dir) / args.config_section / new_run_num / 'training_checkpoints'
     checkpoint_pattern = f'ckpt_{args.start_epoch}.tar'
     old_checkpoint = old_checkpoint_dir / checkpoint_pattern
     
@@ -814,7 +822,7 @@ def main():
                 else:
                     print(f"    Directory does not exist: {old_checkpoint_dir}")
         else:
-            copy_checkpoint(old_run_num, new_run_num, args.start_epoch, exp_dir=exp_dir, config=config_name)
+            copy_checkpoint(old_run_num, new_run_num, args.start_epoch, exp_dir=exp_dir, config_section=args.config_section)
             print("Checkpoint copied successfully")
     
     # Submit training job
@@ -834,7 +842,7 @@ def main():
         if not os.path.exists(submit_script_path):
             raise FileNotFoundError(f"Submit script not found: {submit_script_path}")
         
-        submit_training_job(submit_script_path, job_run_num, new_config_path, scheduler_args=args.scheduler_args, use_legacy_model=args.use_legacy_model)
+        submit_training_job(submit_script_path, job_run_num, new_config_path, config_section=args.config_section, scheduler_args=args.scheduler_args, use_legacy_model=args.use_legacy_model)
     else:
         print("Skipping job submission (--no_submit flag set)")
         submit_script_path = os.path.abspath(args.submit_script)
@@ -842,7 +850,7 @@ def main():
             print(f"Warning: Submit script not found: {submit_script_path}")
             print("Cannot generate interactive command.")
         else:
-            interactive_cmd = generate_interactive_command(submit_script_path, job_run_num, new_config_path, use_legacy_model=args.use_legacy_model)
+            interactive_cmd = generate_interactive_command(submit_script_path, job_run_num, new_config_path, config_section=args.config_section, use_legacy_model=args.use_legacy_model)
             print(f"\nTo run interactively on a compute node, use:")
             print(f"  {interactive_cmd}")
     

@@ -15,8 +15,8 @@ export MPICH_GPU_MANAGED_MEMORY_SUPPORT_ENABLED=1
 export HDF5_USE_FILE_LOCKING=FALSE
 
 # Set default values for variables that can be passed via qsub
-DEBUG=${DEBUG:-0}
 CONFIG=${CONFIG:-PLASIM}
+DEBUG=${DEBUG:-0}
 
 module load conda
 conda activate aires_panguplasim
@@ -60,4 +60,5 @@ if [[ -n "$VALIDATION_EPOCHS" ]]; then
 	CMD+=" --validation_epochs=${VALIDATION_EPOCHS}"
 fi
 # Launch your script using torch.distributed.launch
+echo "CMD: $CMD"
 eval "$CMD"

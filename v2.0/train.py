@@ -307,6 +307,8 @@ class Trainer():
         # Initial wandb
         self.init_wandb(self.params)
         logging.info('Params' % params)
+        # Track if this is the first call to validate_ensemble_forecast in this run
+        self._first_ensemble_validation = True
         
     def setup_model(self):
         # Set up model
@@ -2036,21 +2038,49 @@ class Trainer():
             # Helper: check if truth combined files exist already
             def truth_combined_exists() -> bool:
                 truth_glob = os.path.join(os.path.dirname(save_basename_truth), f"{os.path.basename(save_basename_truth)}_*_truth_combined.nc")
-                return len(glob.glob(truth_glob)) > 0
+                truth_files = glob.glob(truth_glob)
+                if len(truth_files) > 0:
+                    if self.world_rank == 0:
+                        logging.info(f"Found {len(truth_files)} existing truth combined file(s):")
+                        for tf in truth_files:
+                            logging.info(f"  - {os.path.basename(tf)}")
+                    return True
+                return False
 
-            # If truth observables are missing, compute them once on rank 0.
-            # If error metrics are requested, ensure truth observables are computed (even if they exist, 
-            # we may need to recompute them to ensure they're up to date)
+            # Compute truth observables only once if they don't exist.
+            # Truth observables are independent of the model/epoch, so they only need to be computed once
+            # per validation configuration (same init_nc_filepaths, same obs_functions, same inference_hours).
+            # However, if this is the first call to validate_ensemble_forecast in this run, recompute even if files exist.
             truth_exists = truth_combined_exists()
-            needs_truth_for_metrics = len(error_metrics_list) > 0
+            should_recompute = self._first_ensemble_validation or not truth_exists
             
-            if self.world_rank == 0 and len(obs_functions) > 0 and (not truth_exists or needs_truth_for_metrics):
+            if self.world_rank == 0:
+                if truth_exists and not self._first_ensemble_validation:
+                    logging.info("Truth observables already exist. Skipping truth observable computation.")
+                    logging.info("Truth observables are reused across epochs since they are independent of the model state.")
+                elif self._first_ensemble_validation and truth_exists:
+                    logging.info("First call to validate_ensemble_forecast in this run. Recomputing truth observables even though files exist.")
+                elif len(obs_functions) > 0:
+                    logging.info("Truth observables not found. Will compute truth observables on world_rank=0...")
+                    logging.info("Note: Truth observables are computed only once per validation configuration and will be reused for subsequent validations.")
+            
+            if self.world_rank == 0 and len(obs_functions) > 0 and should_recompute:
                 try:
                     from utils import observations as obs_mod
-                    if not truth_exists:
+                    if self._first_ensemble_validation and truth_exists:
+                        logging.info("First call to validate_ensemble_forecast: recomputing truth observables (existing files will be overwritten).")
+                        # Delete existing combined truth files to ensure clean recomputation
+                        truth_glob = os.path.join(os.path.dirname(save_basename_truth), f"{os.path.basename(save_basename_truth)}_*_truth_combined.nc")
+                        existing_files = glob.glob(truth_glob)
+                        for tf in existing_files:
+                            try:
+                                os.remove(tf)
+                                logging.info(f"  Deleted existing truth combined file: {os.path.basename(tf)}")
+                            except OSError as e:
+                                logging.warning(f"  Warning: Could not delete {os.path.basename(tf)}: {e}")
+                    else:
                         logging.info("Truth observables not found; computing truth observables on world_rank=0...")
-                    elif needs_truth_for_metrics:
-                        logging.info("Error metrics requested; ensuring truth observables are computed on world_rank=0...")
+                    logging.info("Note: Truth observables are computed only once per validation configuration and will be reused for subsequent validations.")
 
                     # Compute truth observables by loading the event datasets directly and creating
                     # a pseudo-ensemble with a single member.
@@ -2121,8 +2151,28 @@ class Trainer():
                     )
 
                     logging.info("Finished computing truth observables.")
+                    
+                    # Verify that combined files were created
+                    if truth_combined_exists():
+                        logging.info("Successfully verified truth combined files exist after computation.")
+                    else:
+                        logging.warning("Warning: Truth combined files not found after computation. This may indicate an error.")
                 except Exception as e:
                     logging.error(f"Error computing truth observables: {e}")
+                    import traceback
+                    logging.error(traceback.format_exc())
+            elif self.world_rank == 0 and len(obs_functions) > 0 and truth_exists and not self._first_ensemble_validation:
+                # Truth files exist and this is not the first call, so we should verify they're still there and log
+                if truth_combined_exists():
+                    logging.info("Using existing truth observables (no recomputation needed).")
+                else:
+                    logging.warning("Warning: Truth combined files were found earlier but are now missing. This should not happen.")
+            
+            # Mark that we've completed the first ensemble validation
+            if self._first_ensemble_validation:
+                self._first_ensemble_validation = False
+                if self.world_rank == 0:
+                    logging.info("First ensemble validation completed. Subsequent validations will reuse truth observables if they exist.")
 
             if dist.is_initialized():
                 dist.barrier()
@@ -2190,8 +2240,6 @@ class Trainer():
                 
                 # Create Stepper instance for this inference hours value
                 # Stepper will create its model using a training-style dataset to ensure same architecture
-                with open(f'params_ensemble_{args.run_num}.pkl', 'wb') as f:
-                    pickle.dump(current_ensemble_params, f)
                 stepper = Stepper([current_ensemble_params], self.world_rank, use_6h_24h_model=False, async_save=False)
                 
                 # Replace Stepper's model with the current training model to use the latest weights
@@ -2245,11 +2293,11 @@ class Trainer():
                     obs_mod.combine_observations(save_basename_forecast, obs_function_names, output_dir=os.path.dirname(save_basename_forecast), data_dict=init_data)
                     if len(error_metrics_list) > 0:
                         # Ensure truth observables exist before computing error metrics
+                        # Truth observables are computed only once at the beginning of ensemble validation
                         if not truth_combined_exists():
-                            logging.warning("Truth observables not found when computing error metrics. Attempting to compute them now...")
-                            # Truth observables should have been computed earlier, but if they're missing, 
-                            # we can't compute error metrics. Log error and skip.
-                            logging.error("Cannot compute error metrics: truth observables are missing. Please ensure truth observables are computed first.")
+                            logging.error("Cannot compute error metrics: truth observables are missing.")
+                            logging.error("Truth observables should have been computed earlier. Please check that truth observable computation completed successfully.")
+                            error_metrics_results = {}
                         else:
                             error_metrics_results = obs_mod.compute_error_metrics(
                                 save_basename=save_basename_forecast,
@@ -2599,14 +2647,58 @@ class Trainer():
             in order to allow Ray Tune to use this function """
         logging.info(f'Restoring from checkpoint: {checkpoint_path}')
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        
+        # Get model state dict keys (accounting for DDP wrapper)
+        model_state_dict = self.model.state_dict()
+        checkpoint_state_dict = checkpoint['model_state']
+        
+        # Check if checkpoint keys have "module." prefix
+        checkpoint_has_module = any(key.startswith('module.') for key in checkpoint_state_dict.keys())
+        # Check if model keys have "module." prefix
+        model_has_module = any(key.startswith('module.') for key in model_state_dict.keys())
+        
+        # Try loading directly first
         try:
-            self.model.load_state_dict(checkpoint['model_state'])
-        except:
+            self.model.load_state_dict(checkpoint_state_dict, strict=False)
+            logging.info('Successfully loaded checkpoint state dict')
+        except Exception as e:
+            logging.warning(f'Direct load failed: {e}. Attempting to fix "module." prefix mismatch...')
+            
+            # Handle "module." prefix mismatch
             new_state_dict = OrderedDict()
-            for key, val in checkpoint['model_state'].items():
-                name = key[7:]
-                new_state_dict[name] = val
-            self.model.load_state_dict(new_state_dict)
+            
+            if checkpoint_has_module and not model_has_module:
+                # Checkpoint has "module." prefix but model doesn't - remove it
+                for key, val in checkpoint_state_dict.items():
+                    if key.startswith('module.'):
+                        new_key = key[7:]  # Remove "module." prefix
+                        new_state_dict[new_key] = val
+                    else:
+                        new_state_dict[key] = val
+                logging.info('Removed "module." prefix from checkpoint keys')
+            elif not checkpoint_has_module and model_has_module:
+                # Checkpoint doesn't have "module." prefix but model does - add it
+                for key, val in checkpoint_state_dict.items():
+                    new_key = 'module.' + key
+                    new_state_dict[new_key] = val
+                logging.info('Added "module." prefix to checkpoint keys')
+            else:
+                # Both have or both don't have - try removing anyway as fallback
+                for key, val in checkpoint_state_dict.items():
+                    if key.startswith('module.'):
+                        new_key = key[7:]
+                        new_state_dict[new_key] = val
+                    else:
+                        new_state_dict[key] = val
+                logging.info('Attempting to remove "module." prefix as fallback')
+            
+            # Try loading the modified state dict
+            try:
+                self.model.load_state_dict(new_state_dict, strict=False)
+                logging.info('Successfully loaded checkpoint after fixing "module." prefix')
+            except Exception as e2:
+                logging.error(f'Failed to load checkpoint even after fixing "module." prefix: {e2}')
+                raise e2
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         self.epoch = checkpoint['epoch']
@@ -3119,9 +3211,6 @@ if __name__ == '__main__':
     # ============================================================================
     # Initialize the model (load weights, setup optimizer, etc.)
     trainer.setup_model()
-
-    with open(f'params_train_{args.run_num}.pkl', 'wb') as f:
-        pickle.dump(params, f)
     
     # Run validation before training if requested and resuming/finetuning
     if not params.just_validate and params.validate_before_train:

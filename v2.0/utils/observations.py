@@ -506,7 +506,8 @@ def combine_observations(save_basename: str, obs_function_names: List[str],
         
         # Parse filename components
         # Pattern: {base_name}_{event_type}_particle_{particle_idx}_ens_{ensemble_start}-{ensemble_end}_lead{lead_time_hours}h_{obs_function_name}_{function_specific_string}.nc
-        pattern = rf"{re.escape(base_name)}_([^_]+)_particle_(\d+)_ens_(\d+)-(\d+)_lead(\d+)h_([^_]+(?:_[^_]+)*)\.nc"
+        # Note: event_type can contain underscores, so we match everything until _particle_
+        pattern = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_ens_(\d+)-(\d+)_lead(\d+)h_(.+)\.nc"
         match = re.match(pattern, filename)
         
         if not match:
@@ -772,7 +773,8 @@ def combine_observation_truth(save_basename: str, obs_function_names: List[str],
         
         # Parse filename components
         # Pattern: {base_name}_{event_type}_particle_{particle_idx}_{obs_function_name}_{function_specific_string}.nc
-        pattern = rf"{re.escape(base_name)}_([^_]+)_particle_(\d+)_([^_]+(?:_[^_]+)*)\.nc"
+        # Note: event_type can contain underscores, so we match everything until _particle_
+        pattern = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_(.+)\.nc"
         
         match = re.match(pattern, filename)
         
@@ -1335,52 +1337,116 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
     for filepath in forecast_files:
         filename = os.path.basename(filepath)
         # Pattern: {base_name}_{event_type}_{obs_function_name}_{function_specific_string}_combined.nc
-        pattern = rf"{re.escape(base_name)}_([^_]+)_([^_]+(?:_[^_]+)*)_combined\.nc"
-        match = re.match(pattern, filename)
-        if match:
-            event_type = match.group(1)
-            remaining = match.group(2)
-            # Try to identify observable function
-            obs_function_name = None
-            function_specific_string = ""
+        # Note: event_type can contain underscores, so we match everything until we find the obs_function_name
+        # We need to try matching with each possible obs_function_name to find where event_type ends
+        matched = False
+        for func_name in obs_function_names:
+            # Try pattern: {base_name}_{event_type}_{func_name}_{function_specific_string}_combined.nc
+            # or: {base_name}_{event_type}_{func_name}_combined.nc
+            pattern1 = rf"{re.escape(base_name)}_(.+?)_{re.escape(func_name)}_(.+?)_combined\.nc"
+            pattern2 = rf"{re.escape(base_name)}_(.+?)_{re.escape(func_name)}_combined\.nc"
             
-            for func_name in obs_function_names:
-                if remaining.startswith(func_name):
-                    obs_function_name = func_name
-                    if len(remaining) > len(func_name):
-                        function_specific_string = remaining[len(func_name) + 1:]  # +1 for underscore
-                    break
+            match1 = re.match(pattern1, filename)
+            match2 = re.match(pattern2, filename)
             
-            if obs_function_name:
+            if match1:
+                event_type = match1.group(1)
+                function_specific_string = match1.group(2)
+                obs_function_name = func_name
                 key = (event_type, obs_function_name, function_specific_string)
                 forecast_info[key] = filepath
+                matched = True
+                break
+            elif match2:
+                event_type = match2.group(1)
+                function_specific_string = ""
+                obs_function_name = func_name
+                key = (event_type, obs_function_name, function_specific_string)
+                forecast_info[key] = filepath
+                matched = True
+                break
+        
+        if not matched:
+            print(f"Warning: Could not parse forecast filename {filename}, skipping. Expected pattern: {base_name}_<event_type>_<obs_function>_<function_specific>_combined.nc")
     
     truth_info = {}
     for filepath in truth_files:
         filename = os.path.basename(filepath)
         # Pattern: {base_name_truth}_{event_type}_{obs_function_name}_{function_specific_string}_truth_combined.nc
-        pattern = rf"{re.escape(base_name_truth)}_([^_]+)_([^_]+(?:_[^_]+)*)_truth_combined\.nc"
-        match = re.match(pattern, filename)
-        if match:
-            event_type = match.group(1)
-            remaining = match.group(2)
-            # Try to identify observable function
-            obs_function_name = None
-            function_specific_string = ""
+        # Note: event_type can contain underscores, so we match everything until we find the obs_function_name
+        # We need to try matching with each possible obs_function_name to find where event_type ends
+        matched = False
+        for func_name in obs_function_names:
+            # Try pattern: {base_name_truth}_{event_type}_{func_name}_{function_specific_string}_truth_combined.nc
+            # or: {base_name_truth}_{event_type}_{func_name}_truth_combined.nc
+            pattern1 = rf"{re.escape(base_name_truth)}_(.+?)_{re.escape(func_name)}_(.+?)_truth_combined\.nc"
+            pattern2 = rf"{re.escape(base_name_truth)}_(.+?)_{re.escape(func_name)}_truth_combined\.nc"
             
-            for func_name in obs_function_names:
-                if remaining.startswith(func_name):
-                    obs_function_name = func_name
-                    if len(remaining) > len(func_name):
-                        function_specific_string = remaining[len(func_name) + 1:]  # +1 for underscore
-                    break
+            match1 = re.match(pattern1, filename)
+            match2 = re.match(pattern2, filename)
             
-            if obs_function_name:
+            if match1:
+                event_type = match1.group(1)
+                function_specific_string = match1.group(2)
+                obs_function_name = func_name
                 key = (event_type, obs_function_name, function_specific_string)
                 truth_info[key] = filepath
+                matched = True
+                break
+            elif match2:
+                event_type = match2.group(1)
+                function_specific_string = ""
+                obs_function_name = func_name
+                key = (event_type, obs_function_name, function_specific_string)
+                truth_info[key] = filepath
+                matched = True
+                break
+        
+        if not matched:
+            print(f"Warning: Could not parse truth filename {filename}, skipping. Expected pattern: {base_name_truth}_<event_type>_<obs_function>_<function_specific>_truth_combined.nc")
+    
+    # Diagnostic output
+    print(f"Found {len(forecast_info)} forecast file(s) and {len(truth_info)} truth file(s) after parsing")
+    if len(forecast_info) == 0:
+        print(f"Error: No forecast files could be parsed. Found {len(forecast_files)} files matching pattern, but none matched expected format.")
+        print(f"  Pattern searched: {forecast_pattern}")
+        print(f"  Sample filenames found:")
+        for f in forecast_files[:5]:  # Show first 5
+            print(f"    {os.path.basename(f)}")
+        return {}
+    
+    if len(truth_info) == 0:
+        print(f"Error: No truth files could be parsed. Found {len(truth_files)} files matching pattern, but none matched expected format.")
+        print(f"  Pattern searched: {truth_pattern}")
+        print(f"  Sample filenames found:")
+        for f in truth_files[:5]:  # Show first 5
+            print(f"    {os.path.basename(f)}")
+        return {}
+    
+    # Show what was successfully parsed
+    print(f"Successfully parsed forecast files:")
+    for key, path in forecast_info.items():
+        print(f"  {key}: {os.path.basename(path)}")
+    print(f"Successfully parsed truth files:")
+    for key, path in truth_info.items():
+        print(f"  {key}: {os.path.basename(path)}")
     
     # Initialize results dictionary (event_type is top-level key)
     results = {}
+    
+    # Check if we have any matching pairs
+    matching_pairs = []
+    for key in forecast_info.keys():
+        if key in truth_info:
+            matching_pairs.append(key)
+    
+    if len(matching_pairs) == 0:
+        print(f"Error: No matching forecast-truth pairs found!")
+        print(f"  Forecast keys: {list(forecast_info.keys())}")
+        print(f"  Truth keys: {list(truth_info.keys())}")
+        return {}
+    
+    print(f"Found {len(matching_pairs)} matching forecast-truth pair(s) to process")
     
     # Process each matched pair of forecast and truth datasets
     for (event_type, obs_function_name, function_specific_string), forecast_path in forecast_info.items():
@@ -1400,6 +1466,8 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
             truth_ds = xr.open_dataset(truth_path)
         except Exception as e:
             print(f"  Error loading datasets: {e}")
+            import traceback
+            print(traceback.format_exc())
             continue
         
         # Get observation data
@@ -1539,6 +1607,17 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
         truth_ds.close()
         
         print(f"  Completed processing event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
+    
+    # Check if we have any results
+    if len(results) == 0:
+        print(f"Error: No error metrics were computed! Results dictionary is empty.")
+        print(f"  This could be due to:")
+        print(f"    - No matching forecast-truth pairs found")
+        print(f"    - Errors during dataset loading or processing")
+        print(f"    - Missing required dimensions or variables in datasets")
+        return {}
+    
+    print(f"Successfully computed error metrics for {len(results)} event type(s)")
     
     # Save results to JSON file
     output_filename = f"{base_name}_error_metrics.json"
