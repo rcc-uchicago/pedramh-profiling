@@ -658,7 +658,8 @@ class Stepper():
                     constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
                     
-                    input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
+                    if self.params.epsilon_factor > 0.:
+                        input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
                     # Clamp perturbed values to float16 representable range to prevent
                     # overflow when Conv2d casts inputs to float16 under AMP autocast.
                     # The perturbation noise scale (epsilon_factor * ff_std / std) can
