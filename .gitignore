@@ -54,3 +54,4 @@ gif_out/
 acc_plots/
 spectra_out/
 pangu_train*
+pangu_run*

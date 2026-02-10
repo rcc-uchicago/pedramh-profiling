@@ -3,11 +3,15 @@ base_config: &BASE
   loss: 'l1'
   loglr: -13
   weight_decay: 3e-6
-  scheduler: 'OneCycleLR' #'ReduceLROnPlateau'
+  scheduler: 'LinearWarmupCosineAnnealingLR' 
   num_data_workers: 16
-  oc_pct_start: 0.1
-  oc_div_factor: 1e5
-  oc_final_div_factor: 0.00025
+  num_warmup_epochs: 5
+  batch_size: 16
+  max_epochs: 100
+  warmup_start_lr: 1e-6
+  eta_min: 1e-5
+  use_ema: True
+  ema_decay: 0.999
   
   log_to_screen: !!bool True
   log_to_wandb: !!bool True
@@ -48,11 +52,11 @@ PLASIM: &PLASIM
   train_year_start: 12
   train_year_end: 112
   val_year_start: 122
-  val_year_end: 125
-  long_validation: True 
-  long_val_year_start: 115
-  long_rollout_years: 5
-  epochs_per_long_validation: 10
+  val_year_end: 132
+  long_validation: False 
+  long_val_year_start: 112
+  long_rollout_years: 20
+  epochs_per_long_validation: 1
   #, 'snow_depth', 'sea_ice_cover']
   #mask_fill: {'volumetric_soil_water_layer_1': 0.,
   #            'soil_temperature_level_1': 270.,
@@ -76,8 +80,6 @@ PLASIM: &PLASIM
   climatology_file: climatology.nc
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-  batch_size: 16
-  max_epochs: 100
 
   has_year_zero: True
 
@@ -106,8 +108,8 @@ PLASIM: &PLASIM
   diagnostic_acc: True 
   diagnostic_gif: True
   diagnostic_spectra: True
-  diagnostic_acc_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
-  diagnostic_gif_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": []}
+  diagnostic_acc_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": [], "ts": []}
+  diagnostic_gif_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": [], "ts": []}
   diagnostic_spectrum_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
   diagnostic_bias_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
   forecast_lead_times: [1, 12, 20, 40, 60]
