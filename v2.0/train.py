@@ -676,7 +676,7 @@ class Trainer():
         elif params.nettype == 'sfno_plasim':
             print(f'\n\nRunning SFNO model\n\n')
             self.model = SFNO(params, self.train_datasets[0]).to(self.device)
-            if params.sync_norm:
+            if params.sync_norm and dist.is_initialized():
                 self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
                 self.integrator = Integrator(params, surface_ff_std=self.train_datasets[0].surface_std.detach().to(self.device),
@@ -1481,12 +1481,34 @@ class Trainer():
                 with precision_context:                        
                     step_idx = 0
                     for step in range(max_lead_time):
+                        # DIAGNOSTIC: Log first forward pass inputs/outputs in validate_one_epoch
+                        if i == 0 and step == 0 and self.world_rank == 0:
+                            logging.info("===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====")
+                            logging.info(f"val_input_surface shape: {val_input_surface.shape}, dtype: {val_input_surface.dtype}")
+                            logging.info(f"val_input_surface[:1,:,0,0]: {val_input_surface[:1,:,0,0]}")
+                            logging.info(f"val_input_surface stats: min={val_input_surface.min().item():.6f}, max={val_input_surface.max().item():.6f}, mean={val_input_surface.mean().item():.6f}")
+                            logging.info(f"constant_boundary_data shape: {self.constant_boundary_data.shape}")
+                            logging.info(f"constant_boundary_data[:1,:,0,0]: {self.constant_boundary_data[:1,:,0,0]}")
+                            logging.info(f"val_varying_boundary_data[:,{step}] shape: {val_varying_boundary_data[:, step].shape}")
+                            logging.info(f"val_varying_boundary_data[:1,{step},:,0,0]: {val_varying_boundary_data[:1,step,:,0,0]}")
+                            logging.info(f"val_input_upper_air shape: {val_input_upper_air.shape}")
+                            logging.info(f"val_input_upper_air[:1,:,:,0,0]: {val_input_upper_air[:1,:,:,0,0]}")
+                            logging.info(f"Model training mode: {self.model.training}")
+                        
                         if self.params.has_diagnostic:
                             val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _  = self.model(
                                 val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         else:
                             val_output_surface, val_output_upper_air,  _, _, _, _ = self.model(val_input_surface, self.constant_boundary_data, 
                                                                                     val_varying_boundary_data[:, step], val_input_upper_air)
+                        
+                        # DIAGNOSTIC: Log first forward pass output in validate_one_epoch
+                        if i == 0 and step == 0 and self.world_rank == 0:
+                            logging.info(f"val_output_surface shape: {val_output_surface.shape}, dtype: {val_output_surface.dtype}")
+                            logging.info(f"val_output_surface[:1,:,0,0]: {val_output_surface[:1,:,0,0]}")
+                            logging.info(f"val_output_surface stats: min={val_output_surface.min().item():.6f}, max={val_output_surface.max().item():.6f}, mean={val_output_surface.mean().item():.6f}")
+                            logging.info(f"val_output_upper_air[:1,:,:,0,0]: {val_output_upper_air[:1,:,:,0,0]}")
+                            logging.info("===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====")
                         # Calculate losses for different lead times
                         if (step + 1) in lead_times_steps:
                             # target_index = lead_times_steps.index(step + 1)
@@ -1761,6 +1783,7 @@ class Trainer():
         for key, value in multi_step_losses.items():
             diagnostic_logs[key] = value.item()
 
+        print(f"diagnostic_logs: {diagnostic_logs}")
         if self.params.log_to_wandb:
             wandb.log(diagnostic_logs, step=self.wandb_step)
             if self.params.diagnostic_acc:
@@ -2240,6 +2263,12 @@ class Trainer():
                 
                 # Create Stepper instance for this inference hours value
                 # Stepper will create its model using a training-style dataset to ensure same architecture
+                # Remove best_checkpoint_path to prevent Stepper from loading a stale/mismatched
+                # checkpoint during setup_model — we will overwrite the weights below anyway.
+                if 'best_checkpoint_path' in current_ensemble_params:
+                    del current_ensemble_params.params['best_checkpoint_path']
+                    if hasattr(current_ensemble_params, 'best_checkpoint_path'):
+                        delattr(current_ensemble_params, 'best_checkpoint_path')
                 stepper = Stepper([current_ensemble_params], self.world_rank, use_6h_24h_model=False, async_save=False)
                 
                 # Replace Stepper's model with the current training model to use the latest weights
@@ -2261,6 +2290,140 @@ class Trainer():
                 # Also copy integrator if it exists
                 if hasattr(self, 'integrator') and hasattr(stepper, 'integrator'):
                     stepper.integrator = self.integrator
+                
+                # ===== DIAGNOSTIC: Compare model states and forward passes =====
+                if self.world_rank == 0:
+                    logging.info("===== BEGIN MODEL COMPARISON DIAGNOSTIC =====")
+                    # 1) Compare state dicts
+                    trainer_model = self.model.module if hasattr(self.model, 'module') else self.model
+                    stepper_model = stepper.model.module if hasattr(stepper.model, 'module') else stepper.model
+                    
+                    trainer_sd = trainer_model.state_dict()
+                    stepper_sd = stepper_model.state_dict()
+                    
+                    logging.info(f"Trainer state dict keys count: {len(trainer_sd)}")
+                    logging.info(f"Stepper state dict keys count: {len(stepper_sd)}")
+                    
+                    # Check key model attributes
+                    logging.info(f"Trainer model has_diagnostic: {trainer_model.has_diagnostic}")
+                    logging.info(f"Stepper model has_diagnostic: {stepper_model.has_diagnostic}")
+                    logging.info(f"Trainer model in_chans: {trainer_model.in_chans}, out_chans: {trainer_model.out_chans}")
+                    logging.info(f"Stepper model in_chans: {stepper_model.in_chans}, out_chans: {stepper_model.out_chans}")
+                    logging.info(f"Trainer model training: {trainer_model.training}")
+                    logging.info(f"Stepper model training: {stepper_model.training}")
+                    logging.info(f"Trainer params enable_amp: {self.params.enable_amp}")
+                    logging.info(f"Stepper params enable_amp: {stepper.params.enable_amp}")
+                    logging.info(f"Trainer params checkpointing: {self.params.checkpointing}")
+                    logging.info(f"Stepper params checkpointing: {stepper.params.checkpointing}")
+                    
+                    missing_in_stepper = set(trainer_sd.keys()) - set(stepper_sd.keys())
+                    missing_in_trainer = set(stepper_sd.keys()) - set(trainer_sd.keys())
+                    if missing_in_stepper:
+                        logging.error(f"Keys in Trainer but NOT in Stepper: {missing_in_stepper}")
+                    if missing_in_trainer:
+                        logging.error(f"Keys in Stepper but NOT in Trainer: {missing_in_trainer}")
+                    
+                    max_diff = 0
+                    diff_keys = []
+                    for key in trainer_sd:
+                        if key in stepper_sd:
+                            diff = (trainer_sd[key].float() - stepper_sd[key].float()).abs().max().item()
+                            if diff > 0:
+                                diff_keys.append((key, diff))
+                            max_diff = max(max_diff, diff)
+                    logging.info(f"Max weight difference across all keys: {max_diff}")
+                    if diff_keys:
+                        logging.warning(f"Keys with nonzero differences ({len(diff_keys)} total):")
+                        for k, d in diff_keys[:10]:
+                            logging.warning(f"  {k}: max_diff={d}")
+                    
+                    # 2) Compare non-persistent buffers (SHT transforms)
+                    logging.info("--- Non-persistent buffers (SHT transforms) ---")
+                    for name, buf in trainer_model.named_buffers():
+                        stepper_buf = dict(stepper_model.named_buffers()).get(name)
+                        if stepper_buf is not None:
+                            buf_diff = (buf.float() - stepper_buf.float()).abs().max().item()
+                            if buf_diff > 0:
+                                logging.warning(f"  Buffer '{name}': max_diff={buf_diff}, shape={buf.shape}")
+                        else:
+                            logging.warning(f"  Buffer '{name}' NOT found in stepper model!")
+                    
+                    # 3) Compare constant_boundary_data
+                    trainer_cbd = self.constant_boundary_data
+                    stepper_cbd = stepper.constant_boundary_data
+                    logging.info(f"Trainer constant_boundary_data shape: {trainer_cbd.shape}, dtype: {trainer_cbd.dtype}")
+                    logging.info(f"Stepper constant_boundary_data shape: {stepper_cbd.shape}, dtype: {stepper_cbd.dtype}")
+                    # Compare first sample
+                    cbd_min_batch = min(trainer_cbd.shape[0], stepper_cbd.shape[0])
+                    cbd_diff = (trainer_cbd[:cbd_min_batch].float() - stepper_cbd[:cbd_min_batch].float()).abs().max().item()
+                    logging.info(f"constant_boundary_data max diff (first {cbd_min_batch} samples): {cbd_diff}")
+                    
+                    # 4) Side-by-side forward pass with Stepper's first batch data
+                    logging.info("--- Side-by-side forward pass comparison ---")
+                    try:
+                        self.model.eval()
+                        stepper.model.eval()
+                        test_data_iter = iter(stepper.data_loader)
+                        test_data = next(test_data_iter)
+                        test_sfc, test_ua, test_vbd = [x.to(self.device, dtype=torch.float32) for x in test_data[:-1]]
+                        test_cbd = stepper.constant_boundary_data[:test_sfc.shape[0]]
+                        
+                        logging.info(f"Test input shapes: surface={test_sfc.shape}, upper_air={test_ua.shape}, "
+                                   f"varying_boundary={test_vbd.shape}, const_boundary={test_cbd.shape}")
+                        logging.info(f"Test surface[:2,:,0,0]: {test_sfc[:2,:,0,0]}")
+                        logging.info(f"Test const_boundary[:2,:,0,0]: {test_cbd[:2,:,0,0]}")
+                        
+                        with torch.inference_mode(), torch.amp.autocast(enabled=self.params.enable_amp, device_type="cuda"):
+                            # Run Trainer's model
+                            trainer_out = self.model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
+                            # Run Stepper's model
+                            stepper_out = stepper.model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
+                        
+                        logging.info(f"Trainer output surface shape: {trainer_out[0].shape}")
+                        logging.info(f"Stepper output surface shape: {stepper_out[0].shape}")
+                        
+                        sfc_diff = (trainer_out[0].float() - stepper_out[0].float()).abs()
+                        ua_diff = (trainer_out[1].float() - stepper_out[1].float()).abs()
+                        logging.info(f"Surface output max diff: {sfc_diff.max().item()}, mean diff: {sfc_diff.mean().item()}")
+                        logging.info(f"Upper air output max diff: {ua_diff.max().item()}, mean diff: {ua_diff.mean().item()}")
+                        
+                        if sfc_diff.max().item() > 1e-3:
+                            logging.error("SIGNIFICANT DIFFERENCE detected between Trainer and Stepper model outputs!")
+                            logging.error(f"Trainer surface output[:2,:,0,0]: {trainer_out[0][:2,:,0,0]}")
+                            logging.error(f"Stepper surface output[:2,:,0,0]: {stepper_out[0][:2,:,0,0]}")
+                            
+                            # Also try running the raw models (unwrapped from DDP)
+                            logging.info("--- Testing unwrapped models directly ---")
+                            with torch.inference_mode(), torch.amp.autocast(enabled=self.params.enable_amp, device_type="cuda"):
+                                trainer_raw_out = trainer_model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
+                                stepper_raw_out = stepper_model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
+                            raw_sfc_diff = (trainer_raw_out[0].float() - stepper_raw_out[0].float()).abs()
+                            logging.info(f"Raw (unwrapped) surface output max diff: {raw_sfc_diff.max().item()}")
+                            
+                            if raw_sfc_diff.max().item() < 1e-3:
+                                logging.error("DDP wrapping is causing the difference! Raw models match.")
+                            else:
+                                logging.error("Raw models ALSO differ. Investigating further...")
+                                # Check if both models are in eval mode
+                                logging.info(f"Trainer model training mode: {trainer_model.training}")
+                                logging.info(f"Stepper model training mode: {stepper_model.training}")
+                                
+                                # Print a few weight values for spot-check
+                                for i, (name, param) in enumerate(trainer_model.named_parameters()):
+                                    if i < 3:
+                                        s_param = dict(stepper_model.named_parameters())[name]
+                                        logging.info(f"  Param '{name}': trainer[:3]={param.data.flatten()[:3]}, stepper[:3]={s_param.data.flatten()[:3]}")
+                        else:
+                            logging.info("Models produce IDENTICAL outputs (diff < 1e-3). Issue may be in data loading or post-processing.")
+                    except Exception as e:
+                        logging.error(f"Error during diagnostic comparison: {e}")
+                        import traceback
+                        logging.error(traceback.format_exc())
+                    
+                    logging.info("===== END MODEL COMPARISON DIAGNOSTIC =====")
+                
+                if dist.is_initialized():
+                    dist.barrier()
                 
                 # Run ensemble prediction with observables for this inference hours value
                 try:
@@ -2790,7 +2953,13 @@ def seed_torch(seed=0):
     torch.backends.cudnn.enabled = True
 
 def setup_distributed(params: YParams, args: argparse.Namespace) -> tuple[int, int]:
-    """Return (world_rank, local_rank)."""
+    """Return (world_rank, local_rank).
+    
+    Always initializes the distributed process group, even for single-GPU
+    execution. This ensures that DDP wrapping, SyncBatchNorm, and all
+    dist-dependent code paths behave identically regardless of whether the
+    script is launched with ``torchrun`` or plain ``python``.
+    """
     if params['world_size'] > 1:
         dist.init_process_group(backend='nccl', init_method='env://')
         rank = dist.get_rank()
@@ -2798,10 +2967,24 @@ def setup_distributed(params: YParams, args: argparse.Namespace) -> tuple[int, i
         seed = args.global_seed * dist.get_world_size() + rank
         params['global_batch_size'] = params['batch_size'] * params['world_size']
     else:
+        # Single-GPU mode: still initialize a (trivial) process group so that
+        # dist.is_initialized() returns True and all downstream code (DDP
+        # wrapping, SyncBatchNorm conversion, all_reduce calls, etc.) follows
+        # the same path as multi-GPU execution.
         rank = 0
         device = 0
         seed = args.global_seed
         params['global_batch_size'] = params['batch_size']
+        
+        # Ensure required environment variables are set for the process group
+        os.environ.setdefault('MASTER_ADDR', 'localhost')
+        os.environ.setdefault('MASTER_PORT', '29500')
+        os.environ.setdefault('RANK', '0')
+        os.environ.setdefault('WORLD_SIZE', '1')
+        dist.init_process_group(backend='nccl', init_method='env://',
+                                world_size=1, rank=0)
+        logging.info("Initialized single-GPU process group (nccl) so that "
+                      "DDP and dist-dependent code paths are consistent.")
     
     seed_torch(seed)
     torch.cuda.set_device(device)

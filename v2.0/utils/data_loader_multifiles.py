@@ -779,6 +779,7 @@ class GetDataset(Dataset):
 
     def _get_data_nc(self, index, out = False, variable_list_3D = None, variable_list_2D = None):
         data_file_path = self.params.init_nc_filepaths[index]
+        print(f'Loading data from index {index} with path {data_file_path}')
         init_dt = self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0]
         # Build per-variable level arrays so that get_data_given_path_nc selects
         # and reorders levels to match the h5 / mean-std ordering.

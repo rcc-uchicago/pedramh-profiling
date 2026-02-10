@@ -303,7 +303,7 @@ class Stepper():
                 # Fallback: use inference dataset if training dataset creation fails
                 logging.warning(f"Could not create training-style dataset for model initialization: {e}. Using inference dataset.")
                 self.model = SFNO(self.params, self.dataset).to(self.device)
-            if self.params.sync_norm:
+            if self.params.sync_norm and dist.is_initialized():
                 self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             if self.params.predict_delta:
                 # Use dataset for integrator stds
@@ -412,14 +412,29 @@ class Stepper():
             model.load_state_dict(state_dict)
         elif self.params.nettype == 'sfno_plasim':
             state_dict = checkpoint[state_str]
-            try:
-                self.model.load_state_dict(state_dict)
-            except:
+            # Detect if model expects 'module.' prefix (DDP-wrapped)
+            model_keys = list(self.model.state_dict().keys())
+            model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
+            
+            # Detect if checkpoint has 'module.' prefix
+            ckpt_keys = list(state_dict.keys())
+            ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
+            
+            # Adjust keys if there's a mismatch
+            if model_has_module_prefix and not ckpt_has_module_prefix:
+                logging.info("SFNO: Adding 'module.' prefix to checkpoint keys for DDP model")
                 new_state_dict = OrderedDict()
                 for key, val in state_dict.items():
-                    name = key[7:]
-                    new_state_dict[name] = val
-                self.model.load_state_dict(new_state_dict)
+                    new_state_dict['module.' + key] = val
+                state_dict = new_state_dict
+            elif not model_has_module_prefix and ckpt_has_module_prefix:
+                logging.info("SFNO: Removing 'module.' prefix from checkpoint keys")
+                new_state_dict = OrderedDict()
+                for key, val in state_dict.items():
+                    new_state_dict[key[7:]] = val
+                state_dict = new_state_dict
+            
+            self.model.load_state_dict(state_dict)
         else:
             raise Exception("not implemented")
         
@@ -676,6 +691,22 @@ class Stepper():
                                          desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
                                          disable=(self.world_rank != 0))
                     for time_step in time_step_iter:
+                        # DIAGNOSTIC: Log first forward pass inputs/outputs
+                        if i == 0 and ensemble_start == 0 and time_step == 0 and self.world_rank == 0:
+                            logging.info("===== STEPPER predict_sync: FIRST FORWARD PASS DIAGNOSTIC =====")
+                            logging.info(f"input_surface shape: {input_surface.shape}, dtype: {input_surface.dtype}")
+                            logging.info(f"input_surface[:1,:,0,0]: {input_surface[:1,:,0,0]}")
+                            logging.info(f"input_surface stats: min={input_surface.min().item():.6f}, max={input_surface.max().item():.6f}, mean={input_surface.mean().item():.6f}")
+                            logging.info(f"constant_boundary_data shape: {constant_boundary_data.shape}")
+                            logging.info(f"constant_boundary_data[:1,:,0,0]: {constant_boundary_data[:1,:,0,0]}")
+                            logging.info(f"varying_boundary_data[:,{time_step}] shape: {varying_boundary_data[:,time_step].shape}")
+                            logging.info(f"varying_boundary_data[:1,{time_step},:,0,0]: {varying_boundary_data[:1,time_step,:,0,0]}")
+                            logging.info(f"input_upper_air shape: {input_upper_air.shape}")
+                            logging.info(f"input_upper_air[:1,:,:,0,0]: {input_upper_air[:1,:,:,0,0]}")
+                            logging.info(f"Model training mode: {self.model.training}")
+                            raw_model = self.model.module if hasattr(self.model, 'module') else self.model
+                            logging.info(f"Raw model training mode: {raw_model.training}")
+                        
                         if self.params.has_diagnostic:
                             out_surface, out_upper_air, out_diagnostic, _, _, _, _ = self.model(input_surface, 
                                                                                     constant_boundary_data, 
@@ -685,6 +716,15 @@ class Stepper():
                         else:
                             out_surface, out_upper_air, _, _, _, _ = self.model(input_surface, constant_boundary_data, 
                                                                     varying_boundary_data[:,time_step], input_upper_air)
+                        
+                        # DIAGNOSTIC: Log first forward pass output
+                        if i == 0 and ensemble_start == 0 and time_step == 0 and self.world_rank == 0:
+                            logging.info(f"out_surface shape: {out_surface.shape}, dtype: {out_surface.dtype}")
+                            logging.info(f"out_surface[:1,:,0,0]: {out_surface[:1,:,0,0]}")
+                            logging.info(f"out_surface stats: min={out_surface.min().item():.6f}, max={out_surface.max().item():.6f}, mean={out_surface.mean().item():.6f}")
+                            logging.info(f"out_upper_air[:1,:,:,0,0]: {out_upper_air[:1,:,:,0,0]}")
+                            logging.info("===== END STEPPER FIRST FORWARD PASS DIAGNOSTIC =====")
+                        
                         if self.params.predict_delta:
                             input_surface, input_upper_air = self.integrator(input_surface, input_upper_air, out_surface, out_upper_air)
                         else:
@@ -709,6 +749,59 @@ class Stepper():
                             particle_idxs, np.arange(ensemble_start, ensemble_end))
                     #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
                     conversion_time += time.time() - conversion_start
+
+                    print(f'Comparing to particle {particle_idxs[0]}')
+
+                    chicago_tas = ensemble_datasets[0]['tas'].sel(lat=41.8781, lon=-87.6298, method='nearest')
+                    
+                    # Get input tas value for Chicago location
+                    # Find nearest lat/lon indices for Chicago
+                    lat_idx = np.argmin(np.abs(np.array(self.params.lat) - 41.8781))
+                    lon_idx = np.argmin(np.abs(np.array(self.params.lon) - (-87.6298)))
+                    
+                    # Get input tas value from input_surface_in (before perturbation)
+                    # input_surface_in shape: (batch_size, num_vars, lat, lon)
+                    # tas is at variable index 1
+                    input_tas_value = input_surface_in[0, 1, lat_idx, lon_idx].cpu().numpy()
+                    
+                    # Unstandardize: value * std + mean
+                    input_tas_unstandardized = input_tas_value * self.dataset.surface_std[1].cpu().numpy() + self.dataset.surface_mean[1].cpu().numpy()
+                    
+                    # Get init_datetime for this particle
+                    init_datetime = self.params.init_datetime if not hasattr(self.params, 'init_datetimes') else self.params.init_datetimes[particle_idxs[0]]
+                    
+                    # Create input time point (6 hours before first prediction)
+                    input_time = init_datetime
+                    
+                    # Append input value to chicago_tas
+                    # Create a new DataArray for the input time point with same structure as chicago_tas
+                    input_tas_data = np.full((len(chicago_tas.ensemble_idx), 1), input_tas_unstandardized)
+                    input_tas_da = xr.DataArray(
+                        data=input_tas_data,
+                        dims=['ensemble_idx', 'time'],
+                        coords={
+                            'ensemble_idx': chicago_tas.ensemble_idx,
+                            'time': [input_time]
+                        }
+                    )
+                    # Concatenate along time dimension
+                    chicago_tas = xr.concat([input_tas_da, chicago_tas], dim='time')
+                    
+                    true_data = xr.open_dataset(self.dataset.params.init_nc_filepaths[particle_idxs[0]])
+                    true_tas = true_data['tas'].sel(lat=41.8781, lon=-87.6298, method='nearest')
+                    
+                    # Adjust true data time range to include input time (timedelta_hours before first prediction)
+                    true_tas_time_start = input_time
+                    true_tas_time_end = chicago_tas.time.values[-1]
+                    true_tas_selected = true_tas.sel(time=(true_tas.time >= true_tas_time_start) & (true_tas.time <= true_tas_time_end))
+
+                    fig = plt.figure()
+                    for idx in chicago_tas.ensemble_idx:
+                        (chicago_tas.sel(ensemble_idx=idx) - true_tas_selected).plot()
+                    plt.savefig(os.path.join(self.params.plots_dir, f'chicago_tas_comparison_particle_{particle_idxs[0]}_ensemble_{ensemble_start}_{ensemble_end}.png'))
+                    plt.close()
+
+                    true_data.close()
 
 
 

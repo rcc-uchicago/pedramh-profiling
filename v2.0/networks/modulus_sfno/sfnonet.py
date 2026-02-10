@@ -747,7 +747,8 @@ class SphericalFourierNeuralOperatorNet_v2(SphericalFourierNeuralOperatorNet):
         img_shape = (len(params_trainer['lat']), len(params_trainer['lon']))
 
         # Calculate in_chans and out_chans
-        vars_in = dataset.variable_list_in
+        # Use a copy to avoid mutating the dataset's variable_list_in
+        vars_in = list(dataset.variable_list_in)
         vars_in.extend(dataset.constant_boundary_variables)
         vars_out = dataset.variable_list_out
         in_chans, out_chans = len(vars_in), len(vars_out)
