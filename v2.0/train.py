@@ -1829,6 +1829,8 @@ class Trainer():
             
             # Initialize event_type_mapping (maps file index to event_type)
             event_type_mapping = {}
+            # Track particle index within each event type (for basename generation)
+            particle_idx_within_event = {}  # Maps file_idx -> particle_idx within event_type
             init_data = {}
             
             # Set up ensemble inference parameters
@@ -1839,14 +1841,16 @@ class Trainer():
                 with open(self.params.init_nc_filepath_files, 'r') as f:
                     init_data = json.load(f)
                 ensemble_params['init_nc_filepaths'] = []
-                ensemble_params['save_basenames'] = []
-                ensemble_params['output_dirs'] = []
+                ensemble_params['save_basenames_obs'] = []
+                ensemble_params['output_dirs_obs'] = []
                 
                 # Extract file paths from JSON structure (hierarchical: event_type -> {filepath: [first_datetime, final_datetime]})
                 # Create mapping from file index to event_type (particle_idx maps to file index)
                 file_idx = 0
                 for event_type, event_data in init_data.items():
                     if isinstance(event_data, dict):
+                        # Track particle index within this event type
+                        particle_idx_in_event = 0
                         # The JSON structure has filepaths as keys, and [first_datetime, final_datetime] as values
                         for filepath, datetime_list in event_data.items():
                             if isinstance(datetime_list, list) and len(datetime_list) >= 2:
@@ -1854,25 +1858,28 @@ class Trainer():
                                 final_datetime_str = datetime_list[1]
                                 ensemble_params['init_nc_filepaths'].append(filepath)
                                 event_type_mapping[file_idx] = event_type
+                                particle_idx_within_event[file_idx] = particle_idx_in_event
                                 # Store mapping for later use in computing init_datetimes
                                 filepath_to_datetime_info[filepath] = {
                                     'event_type': event_type,
                                     'final_datetime_str': final_datetime_str
                                 }
-                                file_idx += 1
                                 
-                                # Create deterministic output location for ensemble validation artifacts
-                                # (observables + combined netCDF + error metrics)
+                                # Create deterministic output location for observation files
+                                # These will be organized by lead time later
                                 base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation')
                                 os.makedirs(base_dir, exist_ok=True)
-                                temp_dir = os.path.join(base_dir, 'tmp')
-                                os.makedirs(temp_dir, exist_ok=True)
+                                obs_temp_dir = os.path.join(base_dir, 'observations')
+                                os.makedirs(obs_temp_dir, exist_ok=True)
 
-                                # Stepper expects lists for these fields; our observation functions use a single save_basename.
-                                # We'll still populate Stepper fields for compatibility.
-                                basename = os.path.join(temp_dir, f"ensemble_val_{event_type}_epoch{self.epoch:04d}")
-                                ensemble_params['save_basenames'].append(basename)
-                                ensemble_params['output_dirs'].append(temp_dir)
+                                # Create observation basename with event_type and particle index
+                                # The lead time will be added when we process each inference_hours
+                                obs_basename = os.path.join(obs_temp_dir, f"obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{self.epoch:04d}")
+                                ensemble_params['save_basenames_obs'].append(obs_basename)
+                                ensemble_params['output_dirs_obs'].append(obs_temp_dir)
+                                
+                                file_idx += 1
+                                particle_idx_in_event += 1
             
             # Parse ensemble_inference_hours (comma-separated list)
             if hasattr(self.params, 'ensemble_inference_hours') and len(self.params.ensemble_inference_hours) > 0:
@@ -1942,8 +1949,9 @@ class Trainer():
                 if self.world_rank == 0:
                     logging.info(f"Computed init_datetimes for inference_hours={inference_hours}: {[str(dt) for dt in init_datetimes_for_lead]}")
             
-            # Disable saving forecasts
-            ensemble_params['save_forecasts'] = False
+            # Set save_forecasts flag (default to False if not specified)
+            if not hasattr(ensemble_params, 'save_forecasts'):
+                ensemble_params['save_forecasts'] = getattr(self.params, 'save_forecasts', False)
             
             # Set up data directory for ensemble inference
             if not hasattr(ensemble_params, 'data_dir'):
@@ -2050,13 +2058,14 @@ class Trainer():
                     except Exception as e:
                         logging.warning(f"Could not import observable function {obs_func_name}: {e}")
             
-            # Helper: build a deterministic save_basename (single path) for observables
+            # Helper: build save_basenames for observables organized by lead time
+            # These will be set per inference_hours in the loop below
+            # For now, create the base directory structure
             base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation')
             os.makedirs(base_dir, exist_ok=True)
-            tmp_dir = os.path.join(base_dir, 'tmp')
-            os.makedirs(tmp_dir, exist_ok=True)
-            save_basename_forecast = os.path.join(tmp_dir, f"ensemble_forecast_epoch{self.epoch:04d}")
-            save_basename_truth = os.path.join(tmp_dir, "ensemble_truth")
+            obs_base_dir = os.path.join(base_dir, 'observations')
+            os.makedirs(obs_base_dir, exist_ok=True)
+            save_basename_truth = os.path.join(obs_base_dir, "ensemble_truth")
 
             # Helper: check if truth combined files exist already
             def truth_combined_exists() -> bool:
@@ -2139,11 +2148,14 @@ class Trainer():
 
                             # Compute truth observables for each forecast horizon by slicing truth time dimension.
                             # IMPORTANT: do NOT pass lead_time_hours into observation functions for truth.
+                            # Select data from the END of the truth dataset to match how forecasts compute the last N days.
                             for inference_hours in inference_hours_list:
                                 time_steps = int(inference_hours // self.params.timedelta_hours)
                                 ds_truth_h = ds_truth
                                 if 'time' in ds_truth.dims and ds_truth.sizes.get('time', 0) > 0 and time_steps > 0:
-                                    ds_truth_h = ds_truth.isel(time=slice(0, min(time_steps, ds_truth.sizes['time'])))
+                                    # Select the last time_steps from the truth dataset (matching forecast computation)
+                                    max_steps = min(time_steps, ds_truth.sizes['time'])
+                                    ds_truth_h = ds_truth.isel(time=slice(-max_steps, None))
 
                                 for obs_func, obs_func_name, obs_args in zip(obs_functions, obs_function_names, obs_args_list):
                                     # observations.py standard order (truth mode):
@@ -2203,7 +2215,7 @@ class Trainer():
             # Core wrapper for observation functions.
             # Stepper calls obs_function([ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + obs_args)
             # We inject lead_time_hours ONLY as a label for forecast files (optional), plus save_basename.
-            def combined_obs_function_core(args, lead_time_hours_label: int):
+            def combined_obs_function_core(args, lead_time_hours_label: int, save_basenames_obs_by_lead_time: dict):
                 """Wrapper that calls all observable functions with their respective args."""
                 # args format: [ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + additional_args
                 if len(args) < 4:
@@ -2231,11 +2243,23 @@ class Trainer():
                 # Map particle_idx to event_type (particle_idx corresponds to file index)
                 event_type = event_type_mapping.get(particle_idx, 'unknown')
                 
+                # Get the observation save_basename for this particle and lead time
+                if lead_time_hours_label in save_basenames_obs_by_lead_time and particle_idx < len(save_basenames_obs_by_lead_time[lead_time_hours_label]):
+                    save_basename_obs = save_basenames_obs_by_lead_time[lead_time_hours_label][particle_idx]
+                else:
+                    # Fallback: create a default basename
+                    obs_base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation', 'observations', f"{lead_time_hours_label}h")
+                    os.makedirs(obs_base_dir, exist_ok=True)
+                    particle_idx_in_event = particle_idx_within_event.get(particle_idx, particle_idx)
+                    save_basename_obs = os.path.join(obs_base_dir, f"obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{self.epoch:04d}")
+                    logging.warning(f"Using fallback save_basename_obs for particle_idx={particle_idx}, lead_time={lead_time_hours_label}")
+                
                 for obs_func, obs_args, obs_name in zip(obs_functions, obs_args_list, obs_function_names):
                     try:
                         # observations.py expects:
-                        # (datasets, particle_idxs, ensemble_start, ensemble_end, event_type, [lead_time_hours label], *func_specific_args, save_basename)
-                        func_args = [ensemble_datasets, particle_idxs, ensemble_start, ensemble_end, event_type, int(lead_time_hours_label)] + list(obs_args) + [save_basename_forecast]
+                        # (datasets, particle_idxs, ensemble_start, ensemble_end, event_type, *func_specific_args, save_basename)
+                        # Note: lead_time is now in the directory path (save_basename), not passed as a separate argument
+                        func_args = [ensemble_datasets, particle_idxs, ensemble_start, ensemble_end, event_type] + list(obs_args) + [save_basename_obs]
                         obs_func(tuple(func_args))
                     except Exception as e:
                         logging.error(f"Error in observable function {obs_func.__name__}: {e}")
@@ -2247,10 +2271,59 @@ class Trainer():
                 if self.world_rank == 0:
                     logging.info(f"Running ensemble validation for {inference_hours} hours...")
                 
+                # Create observation save_basenames organized by lead time
+                # Each particle gets its own basename with event_type and particle index
+                save_basenames_obs_for_lead = []
+                output_dirs_obs_for_lead = []
+                obs_lead_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation', 'observations', f"{inference_hours}h")
+                os.makedirs(obs_lead_dir, exist_ok=True)
+                
+                for file_idx in range(len(ensemble_params['init_nc_filepaths'])):
+                    event_type = event_type_mapping.get(file_idx, 'unknown')
+                    particle_idx_in_event = particle_idx_within_event.get(file_idx, file_idx)
+                    obs_basename = os.path.join(obs_lead_dir, f"obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{self.epoch:04d}")
+                    save_basenames_obs_for_lead.append(obs_basename)
+                    output_dirs_obs_for_lead.append(obs_lead_dir)
+                
+                # Create full forecast paths if save_forecasts is True
+                if getattr(ensemble_params, 'save_forecasts', False):
+                    # Get output_dir from params (singular field)
+                    if hasattr(self.params, 'output_dir'):
+                        forecast_base_dir = self.params.output_dir
+                    else:
+                        forecast_base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation', 'forecasts')
+                    
+                    # Create subdirectory for this lead time
+                    forecast_lead_dir = os.path.join(forecast_base_dir, f"{inference_hours}h")
+                    os.makedirs(forecast_lead_dir, exist_ok=True)
+                    
+                    # Create save_basenames and output_dirs for full forecasts
+                    save_basenames_forecast = []
+                    output_dirs_forecast = []
+                    
+                    for file_idx in range(len(ensemble_params['init_nc_filepaths'])):
+                        event_type = event_type_mapping.get(file_idx, 'unknown')
+                        particle_idx_in_event = particle_idx_within_event.get(file_idx, file_idx)
+                        forecast_basename = os.path.join(forecast_lead_dir, f"forecast_{event_type}_particle{particle_idx_in_event:03d}_epoch{self.epoch:04d}")
+                        save_basenames_forecast.append(forecast_basename)
+                        output_dirs_forecast.append(forecast_lead_dir)
+                    
+                    # Set in current_ensemble_params (will be created below)
+                    ensemble_params['save_basenames'] = save_basenames_forecast
+                    ensemble_params['output_dirs'] = output_dirs_forecast
+                else:
+                    # If not saving forecasts, set empty lists
+                    ensemble_params['save_basenames'] = []
+                    ensemble_params['output_dirs'] = []
+                
                 # Create a copy of ensemble_params for this specific inference hours value
                 current_ensemble_params = copy.deepcopy(ensemble_params)
                 current_ensemble_params['ensemble_inference_hours'] = inference_hours
                 current_ensemble_params['ensemble_inference_steps'] = inference_hours // self.params.timedelta_hours
+                
+                # Set observation paths for this lead time
+                current_ensemble_params['save_basenames_obs'] = save_basenames_obs_for_lead
+                current_ensemble_params['output_dirs_obs'] = output_dirs_obs_for_lead
                 
                 # Set init_datetimes for this lead time
                 if inference_hours in init_datetimes_by_lead_time:
@@ -2291,146 +2364,18 @@ class Trainer():
                 if hasattr(self, 'integrator') and hasattr(stepper, 'integrator'):
                     stepper.integrator = self.integrator
                 
-                # ===== DIAGNOSTIC: Compare model states and forward passes =====
-                if self.world_rank == 0:
-                    logging.info("===== BEGIN MODEL COMPARISON DIAGNOSTIC =====")
-                    # 1) Compare state dicts
-                    trainer_model = self.model.module if hasattr(self.model, 'module') else self.model
-                    stepper_model = stepper.model.module if hasattr(stepper.model, 'module') else stepper.model
-                    
-                    trainer_sd = trainer_model.state_dict()
-                    stepper_sd = stepper_model.state_dict()
-                    
-                    logging.info(f"Trainer state dict keys count: {len(trainer_sd)}")
-                    logging.info(f"Stepper state dict keys count: {len(stepper_sd)}")
-                    
-                    # Check key model attributes
-                    logging.info(f"Trainer model has_diagnostic: {trainer_model.has_diagnostic}")
-                    logging.info(f"Stepper model has_diagnostic: {stepper_model.has_diagnostic}")
-                    logging.info(f"Trainer model in_chans: {trainer_model.in_chans}, out_chans: {trainer_model.out_chans}")
-                    logging.info(f"Stepper model in_chans: {stepper_model.in_chans}, out_chans: {stepper_model.out_chans}")
-                    logging.info(f"Trainer model training: {trainer_model.training}")
-                    logging.info(f"Stepper model training: {stepper_model.training}")
-                    logging.info(f"Trainer params enable_amp: {self.params.enable_amp}")
-                    logging.info(f"Stepper params enable_amp: {stepper.params.enable_amp}")
-                    logging.info(f"Trainer params checkpointing: {self.params.checkpointing}")
-                    logging.info(f"Stepper params checkpointing: {stepper.params.checkpointing}")
-                    
-                    missing_in_stepper = set(trainer_sd.keys()) - set(stepper_sd.keys())
-                    missing_in_trainer = set(stepper_sd.keys()) - set(trainer_sd.keys())
-                    if missing_in_stepper:
-                        logging.error(f"Keys in Trainer but NOT in Stepper: {missing_in_stepper}")
-                    if missing_in_trainer:
-                        logging.error(f"Keys in Stepper but NOT in Trainer: {missing_in_trainer}")
-                    
-                    max_diff = 0
-                    diff_keys = []
-                    for key in trainer_sd:
-                        if key in stepper_sd:
-                            diff = (trainer_sd[key].float() - stepper_sd[key].float()).abs().max().item()
-                            if diff > 0:
-                                diff_keys.append((key, diff))
-                            max_diff = max(max_diff, diff)
-                    logging.info(f"Max weight difference across all keys: {max_diff}")
-                    if diff_keys:
-                        logging.warning(f"Keys with nonzero differences ({len(diff_keys)} total):")
-                        for k, d in diff_keys[:10]:
-                            logging.warning(f"  {k}: max_diff={d}")
-                    
-                    # 2) Compare non-persistent buffers (SHT transforms)
-                    logging.info("--- Non-persistent buffers (SHT transforms) ---")
-                    for name, buf in trainer_model.named_buffers():
-                        stepper_buf = dict(stepper_model.named_buffers()).get(name)
-                        if stepper_buf is not None:
-                            buf_diff = (buf.float() - stepper_buf.float()).abs().max().item()
-                            if buf_diff > 0:
-                                logging.warning(f"  Buffer '{name}': max_diff={buf_diff}, shape={buf.shape}")
-                        else:
-                            logging.warning(f"  Buffer '{name}' NOT found in stepper model!")
-                    
-                    # 3) Compare constant_boundary_data
-                    trainer_cbd = self.constant_boundary_data
-                    stepper_cbd = stepper.constant_boundary_data
-                    logging.info(f"Trainer constant_boundary_data shape: {trainer_cbd.shape}, dtype: {trainer_cbd.dtype}")
-                    logging.info(f"Stepper constant_boundary_data shape: {stepper_cbd.shape}, dtype: {stepper_cbd.dtype}")
-                    # Compare first sample
-                    cbd_min_batch = min(trainer_cbd.shape[0], stepper_cbd.shape[0])
-                    cbd_diff = (trainer_cbd[:cbd_min_batch].float() - stepper_cbd[:cbd_min_batch].float()).abs().max().item()
-                    logging.info(f"constant_boundary_data max diff (first {cbd_min_batch} samples): {cbd_diff}")
-                    
-                    # 4) Side-by-side forward pass with Stepper's first batch data
-                    logging.info("--- Side-by-side forward pass comparison ---")
-                    try:
-                        self.model.eval()
-                        stepper.model.eval()
-                        test_data_iter = iter(stepper.data_loader)
-                        test_data = next(test_data_iter)
-                        test_sfc, test_ua, test_vbd = [x.to(self.device, dtype=torch.float32) for x in test_data[:-1]]
-                        test_cbd = stepper.constant_boundary_data[:test_sfc.shape[0]]
-                        
-                        logging.info(f"Test input shapes: surface={test_sfc.shape}, upper_air={test_ua.shape}, "
-                                   f"varying_boundary={test_vbd.shape}, const_boundary={test_cbd.shape}")
-                        logging.info(f"Test surface[:2,:,0,0]: {test_sfc[:2,:,0,0]}")
-                        logging.info(f"Test const_boundary[:2,:,0,0]: {test_cbd[:2,:,0,0]}")
-                        
-                        with torch.inference_mode(), torch.amp.autocast(enabled=self.params.enable_amp, device_type="cuda"):
-                            # Run Trainer's model
-                            trainer_out = self.model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
-                            # Run Stepper's model
-                            stepper_out = stepper.model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
-                        
-                        logging.info(f"Trainer output surface shape: {trainer_out[0].shape}")
-                        logging.info(f"Stepper output surface shape: {stepper_out[0].shape}")
-                        
-                        sfc_diff = (trainer_out[0].float() - stepper_out[0].float()).abs()
-                        ua_diff = (trainer_out[1].float() - stepper_out[1].float()).abs()
-                        logging.info(f"Surface output max diff: {sfc_diff.max().item()}, mean diff: {sfc_diff.mean().item()}")
-                        logging.info(f"Upper air output max diff: {ua_diff.max().item()}, mean diff: {ua_diff.mean().item()}")
-                        
-                        if sfc_diff.max().item() > 1e-3:
-                            logging.error("SIGNIFICANT DIFFERENCE detected between Trainer and Stepper model outputs!")
-                            logging.error(f"Trainer surface output[:2,:,0,0]: {trainer_out[0][:2,:,0,0]}")
-                            logging.error(f"Stepper surface output[:2,:,0,0]: {stepper_out[0][:2,:,0,0]}")
-                            
-                            # Also try running the raw models (unwrapped from DDP)
-                            logging.info("--- Testing unwrapped models directly ---")
-                            with torch.inference_mode(), torch.amp.autocast(enabled=self.params.enable_amp, device_type="cuda"):
-                                trainer_raw_out = trainer_model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
-                                stepper_raw_out = stepper_model(test_sfc, test_cbd, test_vbd[:,0], test_ua)
-                            raw_sfc_diff = (trainer_raw_out[0].float() - stepper_raw_out[0].float()).abs()
-                            logging.info(f"Raw (unwrapped) surface output max diff: {raw_sfc_diff.max().item()}")
-                            
-                            if raw_sfc_diff.max().item() < 1e-3:
-                                logging.error("DDP wrapping is causing the difference! Raw models match.")
-                            else:
-                                logging.error("Raw models ALSO differ. Investigating further...")
-                                # Check if both models are in eval mode
-                                logging.info(f"Trainer model training mode: {trainer_model.training}")
-                                logging.info(f"Stepper model training mode: {stepper_model.training}")
-                                
-                                # Print a few weight values for spot-check
-                                for i, (name, param) in enumerate(trainer_model.named_parameters()):
-                                    if i < 3:
-                                        s_param = dict(stepper_model.named_parameters())[name]
-                                        logging.info(f"  Param '{name}': trainer[:3]={param.data.flatten()[:3]}, stepper[:3]={s_param.data.flatten()[:3]}")
-                        else:
-                            logging.info("Models produce IDENTICAL outputs (diff < 1e-3). Issue may be in data loading or post-processing.")
-                    except Exception as e:
-                        logging.error(f"Error during diagnostic comparison: {e}")
-                        import traceback
-                        logging.error(traceback.format_exc())
-                    
-                    logging.info("===== END MODEL COMPARISON DIAGNOSTIC =====")
-                
                 if dist.is_initialized():
                     dist.barrier()
+                
+                # Store save_basenames_obs by lead time for use in observation function
+                save_basenames_obs_by_lead_time = {inference_hours: save_basenames_obs_for_lead}
                 
                 # Run ensemble prediction with observables for this inference hours value
                 try:
                     if len(obs_functions) > 0:
-                        # Bind the lead_time_hours label for this run into the callable
-                        def _obs_fn(bound_args, _lead=int(inference_hours)):
-                            return combined_obs_function_core(bound_args, lead_time_hours_label=_lead)
+                        # Bind the lead_time_hours label and save_basenames_obs for this run into the callable
+                        def _obs_fn(bound_args, _lead=int(inference_hours), _save_basenames=save_basenames_obs_by_lead_time):
+                            return combined_obs_function_core(bound_args, lead_time_hours_label=_lead, save_basenames_obs_by_lead_time=_save_basenames)
                         stepper.predict(obs_function=_obs_fn, obs_args=[])
                     else:
                         logging.warning("No observable functions loaded. Running ensemble prediction without observables.")
@@ -2453,7 +2398,17 @@ class Trainer():
                 error_metrics_results = {}
                 try:
                     from utils import observations as obs_mod
-                    obs_mod.combine_observations(save_basename_forecast, obs_function_names, output_dir=os.path.dirname(save_basename_forecast), data_dict=init_data)
+                    # Combine observations for each lead time separately
+                    # Use the base observation directory for combining
+                    obs_base_dir = os.path.join(self.params.experiment_dir, 'ensemble_validation', 'observations')
+                    for inference_hours in inference_hours_list:
+                        obs_lead_dir = os.path.join(obs_base_dir, f"{inference_hours}h")
+                        # Use a common basename that will match all observation files for this lead time
+                        # The combine_observations function constructs a pattern from the basename
+                        # Format: obs_{event_type}_particle{particle_idx:03d}_epoch{epoch:04d}
+                        # So we use a basename that matches the prefix
+                        save_basename_for_combine = os.path.join(obs_lead_dir, f"obs_epoch{self.epoch:04d}")
+                        obs_mod.combine_observations(save_basename_for_combine, obs_function_names, output_dir=obs_lead_dir, data_dict=init_data)
                     if len(error_metrics_list) > 0:
                         # Ensure truth observables exist before computing error metrics
                         # Truth observables are computed only once at the beginning of ensemble validation
@@ -2462,13 +2417,27 @@ class Trainer():
                             logging.error("Truth observables should have been computed earlier. Please check that truth observable computation completed successfully.")
                             error_metrics_results = {}
                         else:
-                            error_metrics_results = obs_mod.compute_error_metrics(
-                                save_basename=save_basename_forecast,
-                                save_basename_truth=save_basename_truth,
-                                obs_function_names=obs_function_names,
-                                error_metrics=error_metrics_list,
-                                output_dir=os.path.dirname(save_basename_forecast),
-                            )
+                            # Compute error metrics for each lead time
+                            for inference_hours in inference_hours_list:
+                                obs_lead_dir = os.path.join(obs_base_dir, f"{inference_hours}h")
+                                save_basename_for_combine = os.path.join(obs_lead_dir, f"obs_epoch{self.epoch:04d}")
+                                lead_time_results = obs_mod.compute_error_metrics(
+                                    save_basename=save_basename_for_combine,
+                                    save_basename_truth=save_basename_truth,
+                                    obs_function_names=obs_function_names,
+                                    error_metrics=error_metrics_list,
+                                    output_dir=obs_lead_dir,
+                                )
+                                # Merge results by lead time
+                                if inference_hours not in error_metrics_results:
+                                    error_metrics_results[inference_hours] = lead_time_results
+                                else:
+                                    # Merge dictionaries if needed
+                                    for event_type, obs_dict in lead_time_results.items():
+                                        if event_type not in error_metrics_results[inference_hours]:
+                                            error_metrics_results[inference_hours][event_type] = obs_dict
+                                        else:
+                                            error_metrics_results[inference_hours][event_type].update(obs_dict)
                         
                         # Log error metrics to wandb if enabled
                         if self.params.log_to_wandb and len(error_metrics_results) > 0:
@@ -2476,35 +2445,36 @@ class Trainer():
                             metrics_to_define = set()  # Track which metrics need to be defined
                             
                             # First pass: collect all metric names that will be logged
-                            # Structure: error_metrics_results[event_type][obs_function_name][function_specific_string]
-                            for event_type, obs_func_dict in error_metrics_results.items():
-                                for obs_function_name, func_specific_dict in obs_func_dict.items():
-                                    for function_specific_string, metrics_dict in func_specific_dict.items():
-                                        if 'lead_times' not in metrics_dict:
-                                            continue
-                                        
-                                        lead_times = metrics_dict['lead_times']
-                                        
-                                        # For each error metric
-                                        for error_metric in error_metrics_list:
-                                            if error_metric not in metrics_dict:
+                            # Structure: error_metrics_results[inference_hours][event_type][obs_function_name][function_specific_string]
+                            for inference_hours, lead_time_results in error_metrics_results.items():
+                                for event_type, obs_func_dict in lead_time_results.items():
+                                    for obs_function_name, func_specific_dict in obs_func_dict.items():
+                                        for function_specific_string, metrics_dict in func_specific_dict.items():
+                                            if 'lead_times' not in metrics_dict:
                                                 continue
                                             
-                                            errors_by_lead_time = metrics_dict[error_metric]
+                                            lead_times = metrics_dict['lead_times']
                                             
-                                            # Create wandb log entry for each lead_time
-                                            for lead_time_hours, error_value in zip(lead_times, errors_by_lead_time):
-                                                # Only process finite values
-                                                if not np.isfinite(error_value):
+                                            # For each error metric
+                                            for error_metric in error_metrics_list:
+                                                if error_metric not in metrics_dict:
                                                     continue
                                                 
-                                                # Create metric name: event_type_obs_function_func_specific_lead_time_error_metric
-                                                # Sanitize function_specific_string for wandb (replace problematic chars)
-                                                func_specific_safe = function_specific_string.replace('/', '_').replace('\\', '_')
-                                                metric_name = f"{event_type}_{obs_function_name}_{func_specific_safe}_{int(lead_time_hours)}h_{error_metric}"
+                                                errors_by_lead_time = metrics_dict[error_metric]
                                                 
-                                                metrics_to_define.add(metric_name)
-                                                wandb_error_logs[metric_name] = float(error_value)
+                                                # Create wandb log entry for each lead_time
+                                                for lead_time_hours, error_value in zip(lead_times, errors_by_lead_time):
+                                                    # Only process finite values
+                                                    if not np.isfinite(error_value):
+                                                        continue
+                                                    
+                                                    # Create metric name: event_type_obs_function_func_specific_lead_time_error_metric
+                                                    # Sanitize function_specific_string for wandb (replace problematic chars)
+                                                    func_specific_safe = function_specific_string.replace('/', '_').replace('\\', '_')
+                                                    metric_name = f"{event_type}_{obs_function_name}_{func_specific_safe}_{int(lead_time_hours)}h_{error_metric}"
+                                                    
+                                                    metrics_to_define.add(metric_name)
+                                                    wandb_error_logs[metric_name] = float(error_value)
                             
                             # Check and define metrics that haven't been created yet
                             if len(metrics_to_define) > 0:

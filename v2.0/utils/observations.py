@@ -11,6 +11,8 @@ All observation functions follow a standard signature:
   
 - Additional arguments (function-specific) can follow
 - All observation functions require save_basename as an additional argument (single file path)
+  Note: Lead time is now specified in the directory path (e.g., {base_dir}/observations/{lead_time}h/),
+  so it should already be included in save_basename and is not passed as a separate argument.
 
 All arguments are passed as a single tuple for multiprocessing compatibility.
 """
@@ -28,19 +30,20 @@ from natsort import natsorted
 def get_observation_filepath(save_basename: str, obs_function_name: str, particle_idx: int, 
                              event_type: str,
                              ensemble_start: Optional[int] = None, ensemble_end: Optional[int] = None,
-                             lead_time_hours: Optional[int] = None,
                              function_specific_string: str = "") -> str:
     """
     Construct the file path for saving observation data.
     
+    Note: Lead time is now specified in the directory path (e.g., {base_dir}/observations/{lead_time}h/),
+    so it is no longer included in the filename.
+    
     Args:
-        save_basename: Base file path to append information to
+        save_basename: Base file path to append information to (should already include lead time in directory path)
         obs_function_name: Name of the observation function
         particle_idx: Particle index (initial condition index)
         event_type: Event type identifier (str) used for file organization
         ensemble_start: Index of first ensemble member (optional; omitted for truth files)
         ensemble_end: Index of last ensemble member (exclusive; optional; omitted for truth files)
-        lead_time_hours: Lead time of the forecast in hours (optional; used for forecast labeling only)
         function_specific_string: Additional string specific to the observation function (e.g., region name, variable name)
     
     Returns:
@@ -55,8 +58,6 @@ def get_observation_filepath(save_basename: str, obs_function_name: str, particl
     components = [base_name, event_type, f"particle_{particle_idx:04d}"]
     if ensemble_start is not None and ensemble_end is not None:
         components.append(f"ens_{int(ensemble_start):04d}-{int(ensemble_end):04d}")
-    if lead_time_hours is not None:
-        components.append(f"lead{int(lead_time_hours):04d}h")
     components.append(obs_function_name)
     
     # Add function-specific string if provided
@@ -240,14 +241,15 @@ def unweighted_nday_mean(args: Tuple):
     3. ensemble_start: Index of first ensemble member
     4. ensemble_end: Index of last ensemble member (exclusive)
     5. event_type: Event type identifier (str) used for file organization
-    6. lead_time_hours (optional): used ONLY for labeling forecast files; NOT used in calculations
-    7. target_duration: Number of days to average over (int)
-    8. var: Variable name(s) to compute observable for (str or list of str). 
+    6. target_duration: Number of days to average over (int)
+    7. var: Variable name(s) to compute observable for (str or list of str). 
            If variable name contains "_" and first part is not "pr", 
            the second part is treated as a level coordinate (e.g., "ta_50000" selects ta at 50000 Pa).
-    9. regions: List of region names to compute observable for (list of str)
-    10. region_file_path: Path to JSON file containing region boundaries (str)
-    11. save_basename: Base file path for saving results (str, required)
+    8. regions: List of region names to compute observable for (list of str)
+    9. region_file_path: Path to JSON file containing region boundaries (str)
+    10. save_basename: Base file path for saving results (str, required)
+           Note: Lead time is now specified in the directory path (e.g., {base_dir}/observations/{lead_time}h/),
+           so it should already be included in save_basename.
     
     Returns:
         None (saves results to files)
@@ -258,14 +260,11 @@ def unweighted_nday_mean(args: Tuple):
     ensemble_start = args[2]
     ensemble_end = args[3]
     event_type = args[4]  # Required: event type identifier
-    
-    # lead_time_hours is optional and is only used for labeling forecast output files.
-    # It is not used in any calculations; observables are computed at the end of the forecast.
-    lead_time_hours: Optional[int] = None
 
     # Accept both:
-    # - truth mode (no lead_time):  [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, target_duration, var, regions, region_file_path, save_basename] (10 args)
-    # - forecast mode (with lead_time label): [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, lead_time_hours, target_duration, var, regions, region_file_path, save_basename] (11 args)
+    # - truth mode: [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, target_duration, var, regions, region_file_path, save_basename] (10 args)
+    # - forecast mode: [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, lead_time_hours, target_duration, var, regions, region_file_path, save_basename] (11 args)
+    #   Note: lead_time_hours is still accepted for backward compatibility but is ignored (lead time is in directory path)
     if len(args) == 10:
         # Truth mode: no lead_time_hours
         target_duration = args[5]
@@ -274,8 +273,8 @@ def unweighted_nday_mean(args: Tuple):
         region_file_path = args[8]
         save_basename = args[9]
     elif len(args) >= 11:
-        # Forecast mode: with lead_time_hours label
-        lead_time_hours = int(args[5]) if args[5] is not None else None
+        # Forecast mode: lead_time_hours may be present for backward compatibility but is ignored
+        # Lead time is now extracted from directory path if needed
         target_duration = args[6]
         var = args[7]
         regions = args[8]
@@ -376,15 +375,15 @@ def unweighted_nday_mean(args: Tuple):
             # Construct filepath using the helper function
             # Function-specific string includes variable and region
             function_specific = f"{target_duration}day_{var_name}_{region}"
-            # Forecast files include lead_time + ensemble info; truth files omit them.
+            # Forecast files include ensemble info; truth files omit them.
+            # Lead time is now in the directory path, not the filename
             filepath = get_observation_filepath(
                 save_basename=save_basename,
                 obs_function_name=f"unweighted_nday_mean",
                 particle_idx=particle_idx,
                 event_type=event_type,
-                ensemble_start=ensemble_start if lead_time_hours is not None else None,
-                ensemble_end=ensemble_end if lead_time_hours is not None else None,
-                lead_time_hours=lead_time_hours,
+                ensemble_start=ensemble_start,
+                ensemble_end=ensemble_end,
                 function_specific_string=function_specific
             )
             
@@ -405,7 +404,7 @@ def unweighted_nday_mean(args: Tuple):
                 # Build dimension list
                 dims = ['ensemble_member'] + list(additional_dims_info.keys())
                 
-                # Build attributes - only include lead_time_hours if it's not None (for netCDF compatibility)
+                # Build attributes
                 attrs = {
                     'obs_function_name': 'unweighted_nday_mean',
                     'description': f'Unweighted {target_duration}-day mean of {var_name} over {region}',
@@ -414,8 +413,6 @@ def unweighted_nday_mean(args: Tuple):
                     'region': region,
                     'target_duration_days': target_duration
                 }
-                if lead_time_hours is not None:
-                    attrs['lead_time_hours'] = lead_time_hours
                 
                 observation_data = xr.DataArray(
                     data=ensemble_values,
@@ -425,7 +422,7 @@ def unweighted_nday_mean(args: Tuple):
                 )
             else:
                 # Scalar observable - ensemble_values is 1D array
-                # Build attributes - only include lead_time_hours if it's not None (for netCDF compatibility)
+                # Build attributes
                 attrs = {
                     'obs_function_name': 'unweighted_nday_mean',
                     'description': f'Unweighted {target_duration}-day mean of {var_name} over {region}',
@@ -434,8 +431,6 @@ def unweighted_nday_mean(args: Tuple):
                     'region': region,
                     'target_duration_days': target_duration
                 }
-                if lead_time_hours is not None:
-                    attrs['lead_time_hours'] = lead_time_hours
                 
                 observation_data = xr.DataArray(
                     data=ensemble_values,
@@ -488,26 +483,58 @@ def combine_observations(save_basename: str, obs_function_names: List[str],
     os.makedirs(output_dir, exist_ok=True)
     
     # Pattern to match observation files
-    # Format: {base_name}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_lead{lead_time_hours:04d}h_{obs_function_name}_{function_specific_string}.nc
-    pattern_base = os.path.join(dir_path, f"{base_name}_*_particle_*_ens_*_lead*h_*.nc")
+    # Actual format: obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{epoch:04d}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_{obs_function_name}_{function_specific_string}.nc
+    # Note: Lead time is now in the directory path (e.g., {base_dir}/observations/{lead_time}h/), not in the filename
+    # Files are saved directly in the lead-time directory, not in subdirectories
+    # The base_name passed to combine_observations is like "obs_epoch{epoch:04d}", so we need to match files that contain this pattern
+    # Extract epoch from base_name if it follows the pattern "obs_epoch{epoch:04d}"
+    epoch_match = re.search(r'obs_epoch(\d{4})', base_name)
+    if epoch_match:
+        epoch_str = epoch_match.group(1)
+        # Match files that contain _epoch{epoch}_ anywhere in the filename (before the function name)
+        # Pattern: obs_*_epoch{epoch}_*_particle_*_ens_*_*.nc
+        pattern_base = os.path.join(dir_path, f"obs_*_epoch{epoch_str}_*_particle_*_ens_*_*.nc")
+    else:
+        # Fallback: use the original pattern
+        pattern_base = os.path.join(dir_path, f"{base_name}_*_particle_*_ens_*_*.nc")
     
-    # Find all matching files
+    # Find all matching files (files are directly in dir_path, not in subdirectories)
     all_files = glob.glob(pattern_base)
     
     if len(all_files) == 0:
         print(f"No observation files found matching pattern: {pattern_base}")
         return
     
-    # Parse filenames and group by event_type, observation function and function-specific string
+    # Parse filenames and group by event_type, observation function, function-specific string, and lead_time
     file_groups = {}
     
     for filepath in all_files:
         filename = os.path.basename(filepath)
+        file_dir = os.path.dirname(filepath)
+        
+        # Extract lead_time from directory path (e.g., "observations/24h" -> 24)
+        lead_time_hours = None
+        # Look for pattern like "{number}h" in the directory path
+        lead_time_match = re.search(r'(\d+)h', file_dir)
+        if lead_time_match:
+            lead_time_hours = int(lead_time_match.group(1))
+        else:
+            print(f"Warning: Could not extract lead_time from directory path {file_dir}, skipping {filename}")
+            continue
         
         # Parse filename components
-        # Pattern: {base_name}_{event_type}_particle_{particle_idx}_ens_{ensemble_start}-{ensemble_end}_lead{lead_time_hours}h_{obs_function_name}_{function_specific_string}.nc
-        # Note: event_type can contain underscores, so we match everything until _particle_
-        pattern = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_ens_(\d+)-(\d+)_lead(\d+)h_(.+)\.nc"
+        # Actual format: obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{epoch:04d}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_{obs_function_name}_{function_specific_string}.nc
+        # Extract epoch from base_name if available
+        epoch_match = re.search(r'obs_epoch(\d{4})', base_name)
+        if epoch_match:
+            epoch_str = epoch_match.group(1)
+            # Pattern: obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{epoch:04d}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_{obs_function_name}_{function_specific_string}.nc
+            # Match: obs_(.+?)_particle\d{3}_epoch{epoch}_[^_]+_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc
+            # Note: The second event_type is redundant, so we skip it with [^_]+
+            pattern = rf"obs_(.+?)_particle\d{{3}}_epoch{epoch_str}_[^_]+_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc"
+        else:
+            # Fallback: original pattern
+            pattern = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc"
         match = re.match(pattern, filename)
         
         if not match:
@@ -518,8 +545,7 @@ def combine_observations(save_basename: str, obs_function_names: List[str],
         particle_idx = int(match.group(2))
         ensemble_start = int(match.group(3))
         ensemble_end = int(match.group(4))
-        lead_time_hours = int(match.group(5))
-        remaining = match.group(6)
+        remaining = match.group(5)
         
         # Split remaining into obs_function_name and function_specific_string
         # The obs_function_name should be one of the specified function names
@@ -554,11 +580,12 @@ def combine_observations(save_basename: str, obs_function_names: List[str],
         })
     
     # Process each group (grouped by event_type, obs_function_name, function_specific_string)
+    # Files from different lead_time directories are combined into a single dataset with lead_time dimension
     for (event_type, obs_function_name, function_specific_string), files in file_groups.items():
         print(f"Processing event_type={event_type}, {obs_function_name} with function-specific string: {function_specific_string}")
         print(f"  Found {len(files)} files")
         
-        # Collect unique values for dimensions
+        # Collect unique values for dimensions (including lead_times from different directories)
         lead_times = sorted(set(f['lead_time_hours'] for f in files))
         particles = sorted(set(f['particle_idx'] for f in files))
         
@@ -744,21 +771,30 @@ def combine_observation_truth(save_basename: str, obs_function_names: List[str],
     # Ensure output directory exists
     os.makedirs(output_dir, exist_ok=True)
     
-    # Pattern to match truth observation files (no ensemble or lead_time info)
-    # Format: {base_name}_{event_type}_particle_{particle_idx:04d}_{obs_function_name}_{function_specific_string}.nc
+    # Pattern to match truth observation files
+    # Actual format: {base_name}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_{obs_function_name}_{function_specific_string}.nc
+    # Note: Truth files may have ensemble info (ens_0000-0001) but are still truth files
+    # Truth files are saved directly in the observations directory (not in lead-time subdirectories)
+    # Match files with or without ensemble info
     pattern_base = os.path.join(dir_path, f"{base_name}_*_particle_*.nc")
     
-    # Find all matching files
+    # Find all matching files (search in dir_path only, not recursively, since truth files are in the base directory)
     all_files = glob.glob(pattern_base)
     
-    # Filter to only include files that don't have ensemble or lead_time patterns
-    # (these would be forecast files, not truth files)
+    # Filter to exclude files in lead-time subdirectories (e.g., "24h/", "48h/")
+    # Truth files should be directly in dir_path, not in subdirectories
+    # Note: Truth files may have _ens_ in the filename, so we don't filter by that
     filtered_files = []
     for f in all_files:
         filename = os.path.basename(f)
-        # Exclude files with ensemble or lead_time patterns
-        if '_ens_' not in filename and '_lead' not in filename:
-            filtered_files.append(f)
+        file_dir = os.path.dirname(f)
+        # Check if file is in a lead-time subdirectory (e.g., "24h/", "48h/")
+        # Truth files should be directly in dir_path, not in subdirectories
+        rel_path = os.path.relpath(f, dir_path) if os.path.commonpath([f, dir_path]) == dir_path else f
+        if not re.search(r'/\d+h/', rel_path) and not re.search(r'\\\d+h\\', rel_path):
+            # Exclude files with _lead in filename (these are forecast files, not truth)
+            if '_lead' not in filename:
+                filtered_files.append(f)
     all_files = filtered_files
     
     if len(all_files) == 0:
@@ -772,11 +808,18 @@ def combine_observation_truth(save_basename: str, obs_function_names: List[str],
         filename = os.path.basename(filepath)
         
         # Parse filename components
-        # Pattern: {base_name}_{event_type}_particle_{particle_idx}_{obs_function_name}_{function_specific_string}.nc
+        # Actual format: {base_name}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_{obs_function_name}_{function_specific_string}.nc
+        # Note: Truth files may have ensemble info (ens_0000-0001) but are still truth files
+        # Pattern matches with or without ensemble info
         # Note: event_type can contain underscores, so we match everything until _particle_
-        pattern = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_(.+)\.nc"
+        # Pattern with ensemble: {base_name}_{event_type}_particle_{particle_idx}_ens_{ensemble_start}-{ensemble_end}_{obs_function_name}_{function_specific_string}.nc
+        # Pattern without ensemble: {base_name}_{event_type}_particle_{particle_idx}_{obs_function_name}_{function_specific_string}.nc
+        pattern_with_ens = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_ens_\d+-\d+_(.+)\.nc"
+        pattern_without_ens = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_(.+)\.nc"
         
-        match = re.match(pattern, filename)
+        match = re.match(pattern_with_ens, filename)
+        if not match:
+            match = re.match(pattern_without_ens, filename)
         
         if not match:
             print(f"Warning: Could not parse filename {filename}, skipping")
@@ -1317,12 +1360,27 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
     os.makedirs(output_dir, exist_ok=True)
     
     # Find combined forecast datasets
+    # Note: compute_error_metrics is called per lead-time directory
+    # Forecast files should be in dir_path (which is already a lead-time subdirectory like {obs_base_dir}/24h/)
+    # Pattern: {base_name}_{event_type}_{obs_function_name}_{function_specific_string}_combined.nc
     forecast_pattern = os.path.join(dir_path, f"{base_name}_*_*_combined.nc")
     forecast_files = glob.glob(forecast_pattern)
     
     # Find combined truth datasets
+    # Truth files are saved directly in the observations directory (not in lead-time subdirectories)
+    # Pattern: {base_name_truth}_{event_type}_{obs_function_name}_{function_specific_string}_truth_combined.nc
+    # Note: Truth files should be in dir_path_truth (observations directory), not in subdirectories
     truth_pattern = os.path.join(dir_path_truth, f"{base_name_truth}_*_*_truth_combined.nc")
     truth_files = glob.glob(truth_pattern)
+    
+    # Also search for truth files that might be in the same directory as forecast files (for backward compatibility)
+    # But exclude lead-time subdirectories
+    if len(truth_files) == 0:
+        # Try searching in parent directory if dir_path_truth is a lead-time subdirectory
+        parent_dir = os.path.dirname(dir_path_truth)
+        if parent_dir and parent_dir != dir_path_truth:
+            truth_pattern_parent = os.path.join(parent_dir, f"{base_name_truth}_*_*_truth_combined.nc")
+            truth_files = glob.glob(truth_pattern_parent)
     
     if len(forecast_files) == 0:
         print(f"No forecast observation files found matching pattern: {forecast_pattern}")

@@ -805,7 +805,6 @@ class Stepper():
                     true_data.close()
 
 
-
                     if self.save_forecasts:
                         save_start = time.time()
                         self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
@@ -1075,9 +1074,13 @@ class Stepper():
             os.makedirs(savedir, exist_ok = True)
         for i, (dataset, save_basename, savedir) in enumerate(zip(datasets, save_basenames, savedirs)):
             print(f'Saving prediction {particle_idxs[i]} members {ensemble_start}-{ensemble_end}...')
-            dataset = dataset.chunk({'ensemble_idx': 1, 'time': 1, self.params.lev: 1})
-            if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
-                dataset = dataset.chunk({'plev': 1})
+            # Check if dask is imported and available before chunking
+            #dask_is_available = "dask" in globals() or "dask" in locals()
+            #if dask_is_available:
+            #    # If dask is available, proceed to chunk as normal
+            #    dataset = dataset.chunk({'ensemble_idx': 1, 'time': 1, self.params.lev: 1})
+            #    if self.params.use_sigma_levels and ('zg' in self.params.upper_air_variables or 'geopotential' in self.params.upper_air_variables):
+            #        dataset = dataset.chunk({'plev': 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             filename = save_basename + f'_run.{ensemble_start:04d}-{ensemble_end:04d}_output.nc'
             dataset.to_netcdf(os.path.join(savedir, filename))

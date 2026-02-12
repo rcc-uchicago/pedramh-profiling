@@ -193,6 +193,13 @@ class PanguModel_Plasim(nn.Module):
             self.diagnostic_vars = params.diagnostic_variables
             self.num_diagnostic_vars = len(self.diagnostic_vars)
         #print(f'Num diagnostic vars: {self.num_diagnostic_vars}')
+        
+        # Set has_diagnostic attribute (similar to SFNO model)
+        if hasattr(params, 'has_diagnostic'):
+            self.has_diagnostic = params.has_diagnostic
+        else:
+            self.has_diagnostic = self.num_diagnostic_vars > 0
+        
         if hasattr(params, "drop_rate"):
             if params.drop_rate > 0.:
                 drop_path = np.zeros(np.sum(params.depths)).tolist()
@@ -268,6 +275,15 @@ class PanguModel_Plasim(nn.Module):
             patch_size=params.patch_size,
             in_chans=self.num_atmo_vars,
             embed_dim=embed_dim)
+        
+        # Set in_chans and out_chans for diagnostics compatibility
+        # Input channels: 2D input + 3D input + upper_air_boundary channel (if applicable)
+        self.in_chans = (self.num_surface_vars + self.num_land_vars + self.num_ocean_vars + 
+                        self.num_boundary_vars - 1*self.upper_air_boundary + 
+                        self.num_atmo_vars + (1 if self.upper_air_boundary else 0))
+        # Output channels: 2D output (surface + diagnostic + land + ocean) + 3D output (atmo)
+        self.out_chans = (self.num_surface_vars + self.num_diagnostic_vars + 
+                         self.num_land_vars + self.num_ocean_vars + self.num_atmo_vars)
         
         EST_input_resolution = (self.patchembed3d.output_size[0]+1+1*self.upper_air_boundary, self.patchembed3d.output_size[1], self.patchembed3d.output_size[2])
 
