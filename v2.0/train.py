@@ -322,7 +322,7 @@ class Trainer():
             finetune = self.params.finetuning
             
             # Priority 1: If start_epoch is assigned, load from that epoch's checkpoint file
-            if hasattr(self.params, 'start_epoch'):
+            if hasattr(self.params, 'start_epoch') and self.params.start_epoch is not None:
                 epoch_checkpoint_pattern = os.path.join(
                     self.params.checkpoint_dir_load,
                     f'ckpt_epoch_{self.params.start_epoch}.tar'
@@ -331,6 +331,15 @@ class Trainer():
                     checkpoint_path = epoch_checkpoint_pattern
                     if self.world_rank == 0:
                         logging.info(f"Loading checkpoint from specified epoch {self.params.start_epoch}: {checkpoint_path}")
+                else:
+                    # Do not fall back to other checkpoints when start_epoch is explicit (e.g. validate_before_train).
+                    # Load dir is from run_num; use the run that actually contains this epoch (e.g. base run for finetuning).
+                    raise FileNotFoundError(
+                        f"Checkpoint for start_epoch={self.params.start_epoch} not found at {epoch_checkpoint_pattern}. "
+                        f"checkpoint_dir_load is set from the run directory. For validate_before_train or finetuning, "
+                        f"pass --run_num to the run that contains the checkpoint (e.g. the base run 260207), not the "
+                        f"finetune run number."
+                    )
             
             # Priority 2: If just_validate and no epochs are set, load from best_checkpoint_path_load
             if checkpoint_path is None:
@@ -2785,6 +2794,9 @@ class Trainer():
         model_state_dict = self.model.state_dict()
         checkpoint_state_dict = checkpoint['model_state']
         
+        # When start_epoch is set, require strict match so config/model mismatch fails clearly (e.g. validate_before_train).
+        strict_load = getattr(self.params, 'start_epoch', None) is not None
+        
         # Check if checkpoint keys have "module." prefix
         checkpoint_has_module = any(key.startswith('module.') for key in checkpoint_state_dict.keys())
         # Check if model keys have "module." prefix
@@ -2792,8 +2804,16 @@ class Trainer():
         
         # Try loading directly first
         try:
-            self.model.load_state_dict(checkpoint_state_dict, strict=False)
-            logging.info('Successfully loaded checkpoint state dict')
+            result = self.model.load_state_dict(checkpoint_state_dict, strict=strict_load)
+            if not strict_load and (getattr(result, 'missing_keys', None) or getattr(result, 'unexpected_keys', None)):
+                mk, uk = getattr(result, 'missing_keys', []), getattr(result, 'unexpected_keys', [])
+                if self.world_rank == 0:
+                    logging.warning(
+                        "Partial load: checkpoint does not match model (missing_keys=%s, unexpected_keys=%s). "
+                        "For validate_before_train use the same config as the checkpoint run.",
+                        len(mk), len(uk))
+            else:
+                logging.info('Successfully loaded checkpoint state dict')
         except Exception as e:
             logging.warning(f'Direct load failed: {e}. Attempting to fix "module." prefix mismatch...')
             
@@ -2827,7 +2847,7 @@ class Trainer():
             
             # Try loading the modified state dict
             try:
-                self.model.load_state_dict(new_state_dict, strict=False)
+                self.model.load_state_dict(new_state_dict, strict=strict_load)
                 logging.info('Successfully loaded checkpoint after fixing "module." prefix')
             except Exception as e2:
                 logging.error(f'Failed to load checkpoint even after fixing "module." prefix: {e2}')
@@ -3369,7 +3389,11 @@ if __name__ == '__main__':
     if not params.just_validate and params.validate_before_train:
         if params.resuming or params.finetuning:
             if world_rank == 0:
-                logging.info("Running validation before training (resuming/finetuning mode)...")
+                logging.info(
+                    "Running validation before training (resuming/finetuning mode)... "
+                    "Using checkpoint loaded in setup_model (epoch=%s).",
+                    getattr(trainer, 'epoch', getattr(trainer, 'startEpoch', '?')),
+                )
             # Run ensemble validation first if enabled
             if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
                 ensemble_val_time = trainer.validate_ensemble_forecast()
@@ -3393,6 +3417,24 @@ if __name__ == '__main__':
         else:
             # Validate specific epochs: load each checkpoint and validate
             for ckpt_i in params.validation_epochs:
+                print(f'Validating epoch {ckpt_i}...')
+                # Construct checkpoint path by replacing wildcard with epoch number
+                ckpt_path = params.checkpoint_path_globstr_load.replace('*', str(ckpt_i))
+                if not os.path.isfile(ckpt_path):
+                    logging.warning(f"Checkpoint not found: {ckpt_path}, skipping epoch {ckpt_i}")
+                    continue
+                trainer.restore_checkpoint(ckpt_path)
+                trainer.epoch = trainer.startEpoch
+                # Run ensemble validation first if enabled (for each epoch)
+                if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
+                    ensemble_val_time = trainer.validate_ensemble_forecast()
+                    logging.info(f"Epoch {ckpt_i} ensemble validation time: {ensemble_val_time:.2f} seconds")
+                # Run validation for this checkpoint
+                trainer.validate_one_epoch()
+    
+    # Training/validation complete
+    logging.info('DONE ---- rank %d' % world_rank)
+    for ckpt_i in params.validation_epochs:
                 print(f'Validating epoch {ckpt_i}...')
                 # Construct checkpoint path by replacing wildcard with epoch number
                 ckpt_path = params.checkpoint_path_globstr_load.replace('*', str(ckpt_i))

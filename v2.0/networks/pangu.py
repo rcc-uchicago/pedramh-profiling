@@ -594,12 +594,12 @@ class PanguModel_Plasim(nn.Module):
             if train:
                 return output_surface, output_upper_air, output_diagnostic, mu, sigma, mu_e2, sigma_e2
             else:
-                return output_surface, output_upper_air, output_diagnostic, mu, sigma
+                return output_surface, output_upper_air, output_diagnostic, mu, sigma, torch.tensor(0.), torch.tensor(0.)
         else:
             if train:
                 return output_surface, output_upper_air, mu, sigma, mu_e2, sigma_e2
             else:
-                return output_surface, output_upper_air, mu, sigma
+                return output_surface, output_upper_air, mu, sigma, torch.tensor(0.), torch.tensor(0.)
             
         
 """

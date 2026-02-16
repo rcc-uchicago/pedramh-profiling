@@ -529,9 +529,10 @@ def combine_observations(save_basename: str, obs_function_names: List[str],
         if epoch_match:
             epoch_str = epoch_match.group(1)
             # Pattern: obs_{event_type}_particle{particle_idx_in_event:03d}_epoch{epoch:04d}_{event_type}_particle_{particle_idx:04d}_ens_{ensemble_start:04d}-{ensemble_end:04d}_{obs_function_name}_{function_specific_string}.nc
-            # Match: obs_(.+?)_particle\d{3}_epoch{epoch}_[^_]+_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc
-            # Note: The second event_type is redundant, so we skip it with [^_]+
-            pattern = rf"obs_(.+?)_particle\d{{3}}_epoch{epoch_str}_[^_]+_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc"
+            # Match: obs_(.+?)_particle\d{3}_epoch{epoch}_(?:.+?)_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc
+            # Note: The second event_type is redundant, so we skip it with (?:.+?) which matches until _particle_ (non-capturing group)
+            # This allows event_type to contain underscores (e.g., "chicago_typical")
+            pattern = rf"obs_(.+?)_particle\d{{3}}_epoch{epoch_str}_(?:.+?)_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc"
         else:
             # Fallback: original pattern
             pattern = rf"{re.escape(base_name)}_(.+?)_particle_(\d+)_ens_(\d+)-(\d+)_(.+)\.nc"

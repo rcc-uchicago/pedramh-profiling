@@ -17,6 +17,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 # Set default values for variables that can be passed via qsub
 DEBUG=${DEBUG:-0}
 CONFIG=${CONFIG:-PLASIM}
+VALIDATE_BEFORE_TRAIN=${VALIDATE_BEFORE_TRAIN:-0}
 
 module load conda
 conda activate aires_panguplasim
@@ -51,6 +52,9 @@ if [[ "$DEBUG" == "1" ]]; then
 	CMD="python train.py --config=${CONFIG} --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug"
 else
 	CMD="torchrun --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --config=${CONFIG} --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM}"
+fi
+if [[ "$VALIDATE_BEFORE_TRAIN" == "1" ]]; then
+	CMD+=" --validate_before_train"
 fi
 # if [[ -z "$JOBID" ]]; then
 # 	CMD+=" --fresh_start"

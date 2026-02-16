@@ -20,7 +20,7 @@ import tensorly as tl
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.cuda import amp
+from torch.amp import autocast
 
 tl.set_backend("pytorch")
 import torch_harmonics as th
@@ -167,7 +167,7 @@ class SpectralConvS2(nn.Module):
         x = x.float()
         B, C, H, W = x.shape
 
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False):
             x = self.forward_transform(x)
             if self.scale_residual:
                 x = x.contiguous()
@@ -188,7 +188,7 @@ class SpectralConvS2(nn.Module):
         # x = self._contract(x, self.weight, separable=self.separable, operator_type=self.operator_type)
         # x = x.contiguous()
 
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.inverse_transform(x)
 
         if hasattr(self, "bias"):
@@ -256,7 +256,7 @@ class LocalConvS2(nn.Module):
         x = x.float()
         B, C, H, W = x.shape
 
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             f = torch.zeros(
                 (self.in_channels, self.out_channels, H, 1),
                 dtype=x.dtype,
@@ -275,7 +275,7 @@ class LocalConvS2(nn.Module):
 
         x = torch.view_as_complex(x)
 
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.inverse_transform(x)
 
         if hasattr(self, "bias"):
@@ -440,7 +440,7 @@ class SpectralAttentionS2(nn.Module):
         x = x.to(torch.float32)
 
         # FWD transform
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.forward_transform(x)
             if self.scale_residual:
                 x = x.contiguous()
@@ -452,7 +452,7 @@ class SpectralAttentionS2(nn.Module):
 
         # BWD transform
         x = x.contiguous()
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.inverse_transform(x)
 
         # cast back to initial precision
@@ -562,14 +562,14 @@ class RealSpectralAttentionS2(nn.Module):
         x = x.to(torch.float32)
 
         # FWD transform
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.forward_transform(x)
 
         # MLP
         x = self.forward_mlp(x)
 
         # BWD transform
-        with amp.autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.inverse_transform(x)
 
         # cast back to initial precision
