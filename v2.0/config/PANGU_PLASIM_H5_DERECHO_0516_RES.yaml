@@ -108,11 +108,13 @@ PLASIM: &PLASIM
   diagnostic_acc: True 
   diagnostic_gif: True
   diagnostic_spectra: True
-  diagnostic_acc_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": [], "ts": []}
-  diagnostic_gif_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": [], "ts": []}
-  diagnostic_spectrum_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
-  diagnostic_bias_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
+  save_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": [], "ts": [], "mrso": [], "pr_6h": []}
   forecast_lead_times: [1, 12, 20, 40, 60]
+
+  num_ensemble_members: 10
+  ensemble_members_per_pred: 10
+  perturbation_type: gaussian_noise
+  save_forecasts: True
 
   lev: 'plev'
   num_inferences: 128

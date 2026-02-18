@@ -10,14 +10,13 @@ base_config: &BASE
   max_epochs: 100
   warmup_start_lr: 1e-6
   eta_min: 1e-5
+  optimizer_type: 'AdamW'     #'Adam' #'FusedAdam'
   use_ema: True
   ema_decay: 0.999
   
   log_to_screen: !!bool True
   log_to_wandb: !!bool True
   save_checkpoint: !!bool True
-
-  optimizer_type: 'AdamW' #'Adam' #'FusedAdam'
 
   plot_animations: !!bool False
 
@@ -34,7 +33,7 @@ base_config: &BASE
 
   entity: 'awikner-University of Chicago'
   project: 'Pangu-PLASIM'
-  name: Pangu-PLASIM-0516 
+  name: Pangu-PLASIM-0515 
 
 
 PLASIM: &PLASIM
@@ -43,17 +42,17 @@ PLASIM: &PLASIM
   bias_data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
-  diagnostic_variables: ['pr_6h', 'evap']
-  land_variables: ['ts', 'mrso']
+  diagnostic_variables: ['pr_6h']
+  land_variables: []
   ocean_variables: []
   mask_output: False
-  constant_boundary_variables: ['lsm', 'z0', 'sg', 'mrfc', 'glac']
+  constant_boundary_variables: ['lsm', 'z0', 'sg']
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
   train_year_start: 12
   train_year_end: 112
   val_year_start: 122
   val_year_end: 132
-  long_validation: False 
+  long_validation: True 
   long_val_year_start: 112
   long_rollout_years: 20
   epochs_per_long_validation: 1
@@ -80,11 +79,9 @@ PLASIM: &PLASIM
   climatology_file: climatology.nc
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6
-
   has_year_zero: True
 
   num_levels: 13 
-  #num_levels: 10
   use_sigma_levels: False 
   levels: [5000, 10000, 15000, 20000, 25000, 30000, 40000, 50000, 60000, 70000, 85000, 92500, 100000] 
   sigma_levels: [0.03830000013113022, 0.11910000443458557, 0.21085000783205032, 0.3168500065803528, 0.4368000030517578, 0.5668000280857086, 0.6993500888347626, 0.8233500719070435, 0.9240999817848206, 0.983299970626831]
@@ -108,14 +105,16 @@ PLASIM: &PLASIM
   diagnostic_acc: True 
   diagnostic_gif: True
   diagnostic_spectra: True
-  diagnostic_acc_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": [], "ts": []}
-  diagnostic_gif_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": [], "ts": []}
-  diagnostic_spectrum_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
-  diagnostic_bias_var_dict: {"zg": [50000], "ua": [25000], "ta":[85000], "tas": []}
+  save_var_dict: {"zg": [50000], "ua": [5000, 25000], "ta":[85000], "tas": [], "pr_6h": []}
   forecast_lead_times: [1, 12, 20, 40, 60]
 
   lev: 'plev'
   num_inferences: 128
+
+  num_ensemble_members: 10
+  ensemble_members_per_pred: 10
+  perturbation_type: gaussian_noise
+  save_forecasts: True
 
   use_reentrant: False
   checkpointing: 0

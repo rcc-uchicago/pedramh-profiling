@@ -55,3 +55,4 @@ acc_plots/
 spectra_out/
 pangu_train*
 bias_out/
+pangu_run*

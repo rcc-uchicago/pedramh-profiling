@@ -73,6 +73,7 @@ def compute_A_ensemble(args):
     """
     # Open the dataset for existing paths
     ds_list, particle_idxs_list, ensemble_start, ensemble_end, save_basenames, target_duration, lead_time, var, regions, PATH_REGIONS = args
+    # print("DEBUG: particle_idxs_list: ", particle_idxs_list)
     # ds = xr.open_dataset(path, decode_times=True, use_cftime=True)
     # Load region boundaries from a JSON file
     # print("DEBUG: ds_list: ", ds_list)
@@ -1071,7 +1072,13 @@ class Stepper():
             #        dataset = dataset.chunk({'plev': 1})
             #filename = f'{self.params.nettype}_{self.params.run_num}_{self.params['timedelta_hours']}h_{self.params['inference_steps']}step_{self.params.val_start_year}_{batch_idx * self.params.batch_size + sample}.nc'
             filename = save_basename + f'_run.{ensemble_start:04d}-{ensemble_end:04d}_output.nc'
-            dataset.to_netcdf(os.path.join(savedir, filename))
+            
+            # dataset.to_netcdf(os.path.join(savedir, filename))
+            filepath = os.path.join(savedir, filename)
+            # FIX 1: specify mode='w', compute=True ensure immediate close
+            dataset.to_netcdf(filepath, mode='w', compute=True)
+            # FIX 2: close every time we saved.
+            dataset.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -1203,8 +1210,8 @@ if __name__ == '__main__':
 
         params['experiment_dir'] = os.path.abspath(expDir)
         # Construct checkpoint path following train.py convention.
-        # params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints', f'seed-{seed}')
-        params['checkpoint_dir'] = os.path.join(expDir, 'train_checkpoints') # cutomized for Pangu legacy
+        params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints', f'seed-{seed}')
+        # params['checkpoint_dir'] = os.path.join(expDir, 'training_checkpoints') # cutomized for Pangu legacy
         params['best_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'best_ckpt.tar')
         params['latest_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'ckpt_latest.tar')
         params['checkpoint_path_globstr'] = os.path.join(params['checkpoint_dir'], 'ckpt_epoch_*.tar')
@@ -1230,7 +1237,7 @@ if __name__ == '__main__':
             params['best_checkpoint_path'] = checkpoint_path  # Update to actual path found
         else:
             raise FileNotFoundError(
-                f"No checkpoint found for seed {args.seed}.\n"
+                f"No checkpoint found.\n"
                 f"Searched: {params.best_checkpoint_path}, {params.latest_checkpoint_path}, {params.checkpoint_path_globstr}"
             )
 
@@ -1347,7 +1354,7 @@ if __name__ == '__main__':
         shared_keys = [
             'init_datetime', 'init_datetimes', 'init_nc_filepaths',
             'save_basenames', 'output_dirs', 'region_file',
-            'ensemble_timedelta_hours', 'num_ensemble_members',
+            'ensemble_inference_hours', 'num_ensemble_members',
             'ensemble_members_per_pred', 'batch_size', 'world_size',
             'has_diagnostic', 'use_legacy_model', 'run_iter'
         ]
@@ -1370,7 +1377,7 @@ if __name__ == '__main__':
     if hasattr(params, 'use_default_obs'):
         if params.use_default_obs:
             target_duration = 7
-            lead_time = params.ensemble_timedelta_hours // 24 - target_duration
+            lead_time = params.ensemble_inference_hours // 24 - target_duration
             print("DEBUG: lead_time: ", lead_time)
             print("DEBUG: target_duration: ", target_duration)
             var = "tas"
