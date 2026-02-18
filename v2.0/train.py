@@ -281,8 +281,14 @@ def compute_weighted_acc(da_fc, da_true, clim=None, weighted=True, mean_dims=xr.
     return acc
 
 def to_ensemble_batch(data, ens_members):
-    """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
-    return (data.unsqueeze(1) * torch.ones(1, ens_members, *data.shape[1:]).to(data.device)).flatten(0, 1)
+    """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...).
+
+    Each input sample is repeated consecutively ens_members times, so the output
+    ordering is [s0, s0, ..., s1, s1, ...] matching the original flatten(0,1) behaviour.
+    Uses repeat_interleave to keep all work on the GPU with no auxiliary tensor creation
+    or CPU/GPU data transfers.
+    """
+    return data.repeat_interleave(ens_members, dim=0)
 
 
 class Trainer():
@@ -3417,24 +3423,6 @@ if __name__ == '__main__':
         else:
             # Validate specific epochs: load each checkpoint and validate
             for ckpt_i in params.validation_epochs:
-                print(f'Validating epoch {ckpt_i}...')
-                # Construct checkpoint path by replacing wildcard with epoch number
-                ckpt_path = params.checkpoint_path_globstr_load.replace('*', str(ckpt_i))
-                if not os.path.isfile(ckpt_path):
-                    logging.warning(f"Checkpoint not found: {ckpt_path}, skipping epoch {ckpt_i}")
-                    continue
-                trainer.restore_checkpoint(ckpt_path)
-                trainer.epoch = trainer.startEpoch
-                # Run ensemble validation first if enabled (for each epoch)
-                if hasattr(params, 'ensemble_validation') and params.ensemble_validation:
-                    ensemble_val_time = trainer.validate_ensemble_forecast()
-                    logging.info(f"Epoch {ckpt_i} ensemble validation time: {ensemble_val_time:.2f} seconds")
-                # Run validation for this checkpoint
-                trainer.validate_one_epoch()
-    
-    # Training/validation complete
-    logging.info('DONE ---- rank %d' % world_rank)
-    for ckpt_i in params.validation_epochs:
                 print(f'Validating epoch {ckpt_i}...')
                 # Construct checkpoint path by replacing wildcard with epoch number
                 ckpt_path = params.checkpoint_path_globstr_load.replace('*', str(ckpt_i))

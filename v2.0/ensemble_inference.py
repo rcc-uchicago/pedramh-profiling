@@ -54,7 +54,7 @@ from copy import deepcopy
 import json
 from natsort import natsorted
 import glob
-import pickle
+import warnings
 
 def cleanup():
     if dist.is_initialized():
@@ -65,9 +65,7 @@ atexit.register(cleanup)
 
 def to_ensemble_batch(data, ens_members):
     """Convert batch of M samples (M, ...) to a batch of (M*ens_members, ...)."""
-    mult_shape = [1] * (len(data.shape) + 1)
-    mult_shape[1] = ens_members
-    return (data.unsqueeze(1)*torch.ones(mult_shape, device = data.device)).flatten(0, 1)
+    return data.repeat_interleave(ens_members, dim=0)
 
 def compute_A_ensemble(args):
     """
@@ -372,7 +370,7 @@ class Stepper():
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
-        
+
         # Prefer EMA state for inference (typically better), fall back to model_state
         if 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
             state_str = 'ema_state'
@@ -380,64 +378,52 @@ class Stepper():
         else:
             state_str = 'model_state'
             logging.info(f"No EMA state found, using model_state")
-        
-        if self.params.nettype == 'pangu_plasim':
-            state_dict = checkpoint[state_str]
-            # Detect if model expects 'module.' prefix (DDP-wrapped)
-            model_keys = list(model.state_dict().keys())
-            model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
-            
-            # Detect if checkpoint has 'module.' prefix
-            ckpt_keys = list(state_dict.keys())
-            ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
 
+        checkpoint_state_dict = checkpoint[state_str]
 
-            
-            # Adjust keys if there's a mismatch
-            if model_has_module_prefix and not ckpt_has_module_prefix:
-                # Model is DDP, checkpoint is not -> ADD 'module.' prefix
-                logging.info("Adding 'module.' prefix to checkpoint keys for DDP model")
-                new_state_dict = OrderedDict()
-                for key, val in state_dict.items():
+        # Check if checkpoint keys have "module." prefix (check all keys, not just first)
+        checkpoint_has_module = any(key.startswith('module.') for key in checkpoint_state_dict.keys())
+        # Check if model keys have "module." prefix
+        model_has_module = any(key.startswith('module.') for key in model.state_dict().keys())
+
+        # Try loading directly first
+        try:
+            model.load_state_dict(checkpoint_state_dict)
+            logging.info('Successfully loaded checkpoint state dict')
+        except Exception as e:
+            logging.warning(f'Direct load failed: {e}. Attempting to fix "module." prefix mismatch...')
+
+            new_state_dict = OrderedDict()
+
+            if checkpoint_has_module and not model_has_module:
+                # Checkpoint has "module." prefix but model doesn't - remove it
+                for key, val in checkpoint_state_dict.items():
+                    if key.startswith('module.'):
+                        new_state_dict[key[7:]] = val
+                    else:
+                        new_state_dict[key] = val
+                logging.info('Removed "module." prefix from checkpoint keys')
+            elif not checkpoint_has_module and model_has_module:
+                # Checkpoint doesn't have "module." prefix but model does - add it
+                for key, val in checkpoint_state_dict.items():
                     new_state_dict['module.' + key] = val
-                state_dict = new_state_dict
-            elif not model_has_module_prefix and ckpt_has_module_prefix:
-                # Model is not DDP, checkpoint is -> REMOVE 'module.' prefix
-                logging.info("Removing 'module.' prefix from checkpoint keys")
-                new_state_dict = OrderedDict()
-                for key, val in state_dict.items():
-                    new_state_dict[key[7:]] = val
-                state_dict = new_state_dict
-            
-            model.load_state_dict(state_dict)
-        elif self.params.nettype == 'sfno_plasim':
-            state_dict = checkpoint[state_str]
-            # Detect if model expects 'module.' prefix (DDP-wrapped)
-            model_keys = list(self.model.state_dict().keys())
-            model_has_module_prefix = len(model_keys) > 0 and model_keys[0].startswith('module.')
-            
-            # Detect if checkpoint has 'module.' prefix
-            ckpt_keys = list(state_dict.keys())
-            ckpt_has_module_prefix = len(ckpt_keys) > 0 and ckpt_keys[0].startswith('module.')
-            
-            # Adjust keys if there's a mismatch
-            if model_has_module_prefix and not ckpt_has_module_prefix:
-                logging.info("SFNO: Adding 'module.' prefix to checkpoint keys for DDP model")
-                new_state_dict = OrderedDict()
-                for key, val in state_dict.items():
-                    new_state_dict['module.' + key] = val
-                state_dict = new_state_dict
-            elif not model_has_module_prefix and ckpt_has_module_prefix:
-                logging.info("SFNO: Removing 'module.' prefix from checkpoint keys")
-                new_state_dict = OrderedDict()
-                for key, val in state_dict.items():
-                    new_state_dict[key[7:]] = val
-                state_dict = new_state_dict
-            
-            self.model.load_state_dict(state_dict)
-        else:
-            raise Exception("not implemented")
-        
+                logging.info('Added "module." prefix to checkpoint keys')
+            else:
+                # Both have or both don't have - try removing anyway as fallback
+                for key, val in checkpoint_state_dict.items():
+                    if key.startswith('module.'):
+                        new_state_dict[key[7:]] = val
+                    else:
+                        new_state_dict[key] = val
+                logging.info('Attempting to remove "module." prefix as fallback')
+
+            try:
+                model.load_state_dict(new_state_dict)
+                logging.info('Successfully loaded checkpoint after fixing "module." prefix')
+            except Exception as e2:
+                logging.error(f'Failed to load checkpoint even after fixing "module." prefix: {e2}')
+                raise e2
+
         self.iters = checkpoint['iters']
         self.startEpoch = checkpoint['epoch']
         self.epoch = checkpoint['epoch']
@@ -788,7 +774,9 @@ class Stepper():
                     # Concatenate along time dimension
                     chicago_tas = xr.concat([input_tas_da, chicago_tas], dim='time')
                     
-                    true_data = xr.open_dataset(self.dataset.params.init_nc_filepaths[particle_idxs[0]])
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        true_data = xr.open_dataset(self.dataset.params.init_nc_filepaths[particle_idxs[0]])
                     true_tas = true_data['tas'].sel(lat=41.8781, lon=-87.6298, method='nearest')
                     
                     # Adjust true data time range to include input time (timedelta_hours before first prediction)

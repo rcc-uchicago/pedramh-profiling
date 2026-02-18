@@ -167,7 +167,7 @@ class SpectralConvS2(nn.Module):
         x = x.float()
         B, C, H, W = x.shape
 
-        with autocast(enabled=False):
+        with autocast(enabled=False, device_type="cuda"):
             x = self.forward_transform(x)
             if self.scale_residual:
                 x = x.contiguous()

@@ -734,8 +734,12 @@ class GetDataset(Dataset):
 
     def _shuffle_training_dates(self, shuffled_date_idxs, curriculum_learning_fraction, data_sizes):
         base_date_len = data_sizes[0]
-        if curriculum_learning_fraction == 0.:
+        if curriculum_learning_fraction <= 0.:
             self.dates, self.data_dirs_idxs = self.all_dates[base_date_len:], self.all_data_dirs_idxs[base_date_len:]
+        elif curriculum_learning_fraction >= 1.:
+            self.dates, self.data_dirs_idxs = self.all_dates[:base_date_len], self.all_data_dirs_idxs[:base_date_len]
+            if hasattr(self.params, 'curriculum_bulk_size'):
+                self.dates, self.data_dirs_idxs = self.dates[shuffled_date_idxs][:self.params.curriculum_bulk_size], self.data_dirs_idxs[shuffled_date_idxs][:self.params.curriculum_bulk_size]
         else:
             class_1_date_size = int((np.sum(data_sizes) - base_date_len) * curriculum_learning_fraction / (1 - curriculum_learning_fraction))
             class_1_dates, class_1_data_dirs_idxs = self.all_dates[shuffled_date_idxs][:class_1_date_size], self.all_data_dirs_idxs[:class_1_date_size]
