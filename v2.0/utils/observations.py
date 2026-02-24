@@ -1938,3 +1938,1124 @@ def truth_file_worker(file_idx, data_path, final_datetime_dt, event_type,
 
     ds_truth.close()
     return file_idx, True, None, results
+
+
+# ---------------------------------------------------------------------------
+# New time-series observable infrastructure
+# ---------------------------------------------------------------------------
+
+def _compute_rolling_ts(values: np.ndarray, window: int, func: str = 'mean') -> np.ndarray:
+    """Compute a rolling N-step mean, max, or min along the time axis (axis 0).
+
+    For time index *d* (0-based), the result is the mean/max/min of
+    ``values[max(0, d-window+1) : d+1]``.  Steps where the window is
+    incomplete (d < window-1), or where any element in the window is NaN,
+    are set to NaN.
+
+    Works for any array shape:
+
+    * ``(n_time,)``            — scalar observable (one value per step)
+    * ``(n_time, n_spatial)`` — flattened spatial field (processed in parallel)
+
+    The time axis is always **axis 0**; trailing dimensions are treated as
+    independent spatial coordinates.
+
+    Args:
+        values: Array with time along axis 0.
+        window: Rolling window size in steps (>= 1).
+        func:   ``'mean'``, ``'max'``, or ``'min'``.
+
+    Returns:
+        Array of the same shape as *values*.
+    """
+    n = values.shape[0]
+    result = np.full(values.shape, np.nan, dtype=np.float64)
+    for d in range(window - 1, n):
+        segment = values[d - window + 1: d + 1]      # (window, ...) or (window,)
+        nan_mask = np.any(np.isnan(segment), axis=0)  # (...) or scalar bool
+        if func == 'mean':
+            agg = np.mean(segment, axis=0)
+        elif func == 'max':
+            agg = np.max(segment, axis=0)
+        else:
+            agg = np.min(segment, axis=0)
+        result[d] = np.where(nan_mask, np.nan, agg)
+    return result
+
+
+def make_ts_qualifier(var_name: str, region: str,
+                      func: str = None, target_duration: int = None,
+                      spatial_mean: bool = True) -> str:
+    """Build a canonical qualifier string for time-series observables.
+
+    The qualifier encodes what was spatially aggregated, how it was
+    aggregated in time, and whether a spatial mean was applied:
+
+    * **Spatially averaged, per-timestep** (``func=None`` or
+      ``target_duration=None``, ``spatial_mean=True``):
+      → ``"timestep_{var}_{region}"``
+
+    * **Spatially averaged, N-day rolling** (``spatial_mean=True``):
+      → ``"{N}day_{func}_{var}_{region}"``
+
+    * **Spatial field** (``spatial_mean=False``):
+      The prefix ``"field_"`` is prepended to any of the above, e.g.
+      → ``"field_timestep_{var}_{region}"``
+      → ``"field_{N}day_{func}_{var}_{region}"``
+
+    Args:
+        var_name:        Variable name (e.g. ``"tas"``, ``"zg_500"``).
+        region:          Region name (e.g. ``"chicago"``).
+        func:            Temporal aggregation: ``'mean'``, ``'max'``, or
+                         ``'min'``.  Pass ``None`` for per-timestep.
+        target_duration: Rolling window in days.  Pass ``None`` for
+                         per-timestep.
+        spatial_mean:    ``True`` (default) for a spatially averaged scalar;
+                         ``False`` for a full spatial field (no mean applied).
+
+    Returns:
+        Qualifier string.
+    """
+    if func is None or target_duration is None:
+        tag = f"timestep_{var_name}_{region}"
+    else:
+        tag = f"{int(target_duration)}day_{func}_{var_name}_{region}"
+    return tag if spatial_mean else f"field_{tag}"
+
+
+class ObservationAccumulator:
+    """Accumulate observable time series for ensemble forecasts and truth.
+
+    Internal layout::
+
+        forecast_obs[qualifier][event_type][particle_idx][ens_member]
+            -> np.ndarray(n_lead_days)
+        truth_obs[qualifier][event_type][particle_idx]
+            -> np.ndarray(n_lead_days)
+
+    *qualifier* is a compact string describing the specific observable
+    configuration, e.g. ``"7day_tas_chicago"``.  *n_lead_days* is the
+    number of daily lead-time steps stored.
+    """
+
+    def __init__(self):
+        self.forecast_obs: Dict = {}   # qualifier -> event_type -> particle_idx -> ens_member -> ndarray
+        self.truth_obs: Dict = {}      # qualifier -> event_type -> particle_idx -> ndarray
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _fc_entry(self, qualifier, event_type, particle_idx, ens_member):
+        """Return the dict path, creating missing levels."""
+        d = self.forecast_obs
+        for key in (qualifier, event_type, particle_idx):
+            d = d.setdefault(key, {})
+        return d, ens_member
+
+    def _tr_entry(self, qualifier, event_type):
+        """Return the particle-level dict, creating missing levels."""
+        d = self.truth_obs
+        for key in (qualifier, event_type):
+            d = d.setdefault(key, {})
+        return d
+
+    # ------------------------------------------------------------------
+    # Public add methods
+    # ------------------------------------------------------------------
+
+    def add_forecast(self, qualifier: str, event_type: str,
+                     particle_idx: int, ens_member: int,
+                     values: np.ndarray) -> None:
+        """Store a forecast time series.
+
+        Args:
+            qualifier:    Observable identifier (e.g. ``"7day_tas_chicago"``).
+            event_type:   Event type string.
+            particle_idx: Integer particle index.
+            ens_member:   Integer ensemble-member index.
+            values:       1-D array of shape ``(n_lead_days,)``.
+        """
+        store, key = self._fc_entry(qualifier, event_type, particle_idx, ens_member)
+        store[key] = np.asarray(values, dtype=np.float32)
+
+    def add_truth(self, qualifier: str, event_type: str,
+                  particle_idx: int, values: np.ndarray) -> None:
+        """Store a truth time series.
+
+        Args:
+            qualifier:    Observable identifier.
+            event_type:   Event type string.
+            particle_idx: Integer particle index.
+            values:       1-D array of shape ``(n_lead_days,)``.
+        """
+        store = self._tr_entry(qualifier, event_type)
+        store[particle_idx] = np.asarray(values, dtype=np.float32)
+
+    def add_truth_from_dict(self, result_dict: Dict) -> None:
+        """Bulk-insert truth from a worker result dict.
+
+        Args:
+            result_dict: ``{qualifier: {particle_idx: np.ndarray}}``
+                as returned by :func:`truth_file_worker_ts` together with the
+                event_type stored at the call site.
+        """
+        raise RuntimeError(
+            "Use add_truth_from_worker_result(result_dict, event_type) instead."
+        )
+
+    def add_truth_from_worker_result(self, result_dict: Dict,
+                                      event_type: str) -> None:
+        """Insert truth data returned by :func:`truth_file_worker_ts`.
+
+        Args:
+            result_dict: ``{qualifier: {particle_idx: np.ndarray}}``.
+            event_type:  Event type string for all entries.
+        """
+        for qualifier, particle_dict in result_dict.items():
+            for particle_idx, values in particle_dict.items():
+                self.add_truth(qualifier, event_type, int(particle_idx), values)
+
+    # ------------------------------------------------------------------
+    # Introspection
+    # ------------------------------------------------------------------
+
+    def qualifiers(self) -> List[str]:
+        """Return all qualifier strings present in the accumulator."""
+        return sorted(set(list(self.forecast_obs.keys()) + list(self.truth_obs.keys())))
+
+    def _n_lead_days(self, qualifier: str) -> int:
+        """Return the number of stored lead-time steps for *qualifier*."""
+        if qualifier in self.forecast_obs:
+            for et_dict in self.forecast_obs[qualifier].values():
+                for pi_dict in et_dict.values():
+                    for ts in pi_dict.values():
+                        return int(len(ts))
+        if qualifier in self.truth_obs:
+            for et_dict in self.truth_obs[qualifier].values():
+                for ts in et_dict.values():
+                    return int(len(ts))
+        return 0
+
+    # ------------------------------------------------------------------
+    # Error metrics
+    # ------------------------------------------------------------------
+
+    def compute_errors(self, error_metrics: List[str]) -> Dict:
+        """Compute per-lead-step error metrics between ensemble mean and truth.
+
+        Works for both **scalar** observables (stored as 1-D arrays of shape
+        ``(n_time,)``) and **spatial-field** observables (stored as 2-D arrays
+        of shape ``(n_time, n_spatial)``).  For field observables, metrics are
+        averaged over the spatial dimension so each metric value is still a
+        scalar per lead step.
+
+        Correlation metrics (``'correlation'``, ``'spearman_correlation'``,
+        ``'kendall_tau'``) treat every ``(particle, spatial_point)`` pair as
+        an independent sample and are computed on the flattened arrays.
+
+        Returns:
+            Nested dict::
+
+                {qualifier: {event_type: {metric: np.ndarray(n_lead_steps)}}}
+
+            Unmatched qualifiers or event types are omitted.
+        """
+        from scipy.stats import spearmanr, kendalltau  # local import – optional dep
+
+        results: Dict = {}
+        for qualifier in self.qualifiers():
+            fc_q = self.forecast_obs.get(qualifier, {})
+            tr_q = self.truth_obs.get(qualifier, {})
+            event_types = sorted(set(list(fc_q.keys()) + list(tr_q.keys())))
+            for event_type in event_types:
+                fc_et = fc_q.get(event_type, {})
+                tr_et = tr_q.get(event_type, {})
+                common_p = sorted(set(fc_et.keys()) & set(tr_et.keys()))
+                if not common_p:
+                    continue
+                n_lead = self._n_lead_days(qualifier)
+                if n_lead == 0:
+                    continue
+
+                results.setdefault(qualifier, {})[event_type] = {}
+                for metric in error_metrics:
+                    ml = metric.lower()
+                    errors = np.full(n_lead, np.nan, dtype=np.float32)
+                    for d in range(n_lead):
+                        ens_means, truths = [], []
+                        all_ens_vals = []  # needed for CRPS
+
+                        for p in common_p:
+                            t_ts = tr_et[p]
+                            if d >= len(t_ts):
+                                continue
+                            # t_ts[d]: scalar (1-D stored) or array (field stored)
+                            truth_val = t_ts[d]
+                            if np.any(np.isnan(truth_val)):
+                                continue
+
+                            ens_dict = fc_et.get(p, {})
+                            # Collect per-member values at lead step d
+                            e_vals = [
+                                ts[d] for ts in ens_dict.values()
+                                if d < len(ts) and not np.any(np.isnan(ts[d]))
+                            ]
+                            if not e_vals:
+                                continue
+
+                            # Ensemble mean: mean over members (axis 0 of stacked list)
+                            ens_means.append(np.mean(np.array(e_vals, dtype=np.float64),
+                                                     axis=0))
+                            truths.append(np.asarray(truth_val, dtype=np.float64))
+                            all_ens_vals.append(
+                                [np.asarray(v, dtype=np.float64) for v in e_vals])
+
+                        if not ens_means:
+                            continue
+
+                        # fm, tr: (n_particles,) for scalar obs
+                        #         (n_particles, n_spatial) for field obs
+                        fm = np.array(ens_means, dtype=np.float64)
+                        tr = np.array(truths, dtype=np.float64)
+                        try:
+                            if ml == 'mse':
+                                # mean over particles [and spatial for field]
+                                errors[d] = float(np.mean((fm - tr) ** 2))
+                            elif ml in ('mae', 'mean_absolute_error'):
+                                errors[d] = float(np.mean(np.abs(fm - tr)))
+                            elif ml == 'rmse':
+                                errors[d] = float(np.sqrt(np.mean((fm - tr) ** 2)))
+                            elif ml == 'bias':
+                                errors[d] = float(np.mean(fm - tr))
+                            elif ml in ('correlation', 'pearson_correlation'):
+                                # flatten so (n_particles × n_spatial,) for field obs
+                                fm_f = fm.ravel()
+                                tr_f = tr.ravel()
+                                if len(fm_f) >= 2:
+                                    errors[d] = float(np.corrcoef(fm_f, tr_f)[0, 1])
+                            elif ml == 'spearman_correlation':
+                                fm_f = fm.ravel()
+                                tr_f = tr.ravel()
+                                if len(fm_f) >= 2:
+                                    corr, _ = spearmanr(fm_f, tr_f)
+                                    errors[d] = float(corr)
+                            elif ml == 'kendall_tau':
+                                fm_f = fm.ravel()
+                                tr_f = tr.ravel()
+                                if len(fm_f) >= 2:
+                                    tau, _ = kendalltau(fm_f, tr_f)
+                                    errors[d] = float(tau)
+                            elif ml == 'fair_crps':
+                                # fair CRPS = mean|x_i - y| - 0.5 * mean|x_i - x_j|
+                                # For field obs, mean is taken over spatial points too.
+                                crps_vals = []
+                                for e_vals_p, t_val in zip(all_ens_vals, truths):
+                                    ev = np.array(e_vals_p, dtype=np.float64)
+                                    M = len(ev)
+                                    # ev shape: (M,) scalar or (M, n_spatial) field
+                                    skill = float(np.mean(np.abs(ev - t_val)))
+                                    if M > 1:
+                                        # pairwise spread
+                                        spread = float(np.mean(
+                                            np.abs(ev[:, None] - ev[None, :])))
+                                    else:
+                                        spread = 0.0
+                                    crps_vals.append(skill - 0.5 * spread)
+                                errors[d] = float(np.mean(crps_vals))
+                        except Exception:
+                            pass
+                    results[qualifier][event_type][metric] = errors
+        return results
+
+    # ------------------------------------------------------------------
+    # Export
+    # ------------------------------------------------------------------
+
+    def _spatial_shape(self, qualifier: str) -> tuple:
+        """Return the trailing spatial shape of stored arrays for *qualifier*.
+
+        For scalar observables the shape is ``()``; for field observables it
+        is ``(n_spatial,)``.  Determined by inspecting the first stored array.
+        """
+        for src in (self.forecast_obs, self.truth_obs):
+            q_dict = src.get(qualifier, {})
+            for et_dict in q_dict.values():
+                for pi_or_ens in et_dict.values():
+                    # forecast: pi_or_ens is {ens_member: array}
+                    # truth:    pi_or_ens is array
+                    if isinstance(pi_or_ens, np.ndarray):
+                        return pi_or_ens.shape[1:]
+                    for ts in pi_or_ens.values():
+                        if isinstance(ts, np.ndarray):
+                            return ts.shape[1:]
+        return ()
+
+    def to_dataset(self, timedelta_hours_per_day: int = 24) -> 'xr.Dataset':
+        """Convert to ``xr.Dataset``.
+
+        For **scalar** observables (stored shape ``(n_time,)``), dataset
+        variables have dimensions:
+
+        * truth:    ``(event_type, particle, lead_time)``
+        * forecast: ``(event_type, particle, ensemble_member, lead_time)``
+
+        For **field** observables (stored shape ``(n_time, n_spatial)``), a
+        ``spatial`` dimension is appended:
+
+        * truth:    ``(event_type, particle, lead_time, spatial)``
+        * forecast: ``(event_type, particle, ensemble_member, lead_time, spatial)``
+
+        Lead times are expressed in hours.
+        """
+        import xarray as xr
+        data_vars = {}
+        for qualifier in self.qualifiers():
+            n_lead = self._n_lead_days(qualifier)
+            lead_hours = [d * timedelta_hours_per_day for d in range(n_lead)]
+            sp_shape = self._spatial_shape(qualifier)   # () or (n_spatial,)
+            is_field = len(sp_shape) > 0
+            n_spatial = sp_shape[0] if is_field else None
+
+            # Collect dimension values
+            all_event_types: List[str] = sorted(
+                set(list(self.forecast_obs.get(qualifier, {}).keys()) +
+                    list(self.truth_obs.get(qualifier, {}).keys()))
+            )
+            all_particles: List[int] = sorted(
+                set(
+                    list(p for et in self.forecast_obs.get(qualifier, {}).values()
+                         for p in et.keys()) +
+                    list(p for et in self.truth_obs.get(qualifier, {}).values()
+                         for p in et.keys())
+                )
+            )
+            all_ens: List[int] = sorted(
+                set(m for et in self.forecast_obs.get(qualifier, {}).values()
+                    for pi in et.values()
+                    for m in pi.keys())
+            )
+
+            # --- Forecast array ---
+            if all_ens and qualifier in self.forecast_obs:
+                fc_shape = (len(all_event_types), len(all_particles),
+                            len(all_ens), n_lead)
+                if is_field:
+                    fc_shape = fc_shape + (n_spatial,)
+                fc_arr = np.full(fc_shape, np.nan, dtype=np.float32)
+
+                for ei, et in enumerate(all_event_types):
+                    et_dict = self.forecast_obs[qualifier].get(et, {})
+                    for pi, p in enumerate(all_particles):
+                        pi_dict = et_dict.get(p, {})
+                        for mi, m in enumerate(all_ens):
+                            ts = pi_dict.get(m)
+                            if ts is not None:
+                                n_f = min(n_lead, len(ts))
+                                if is_field:
+                                    fc_arr[ei, pi, mi, :n_f, :] = ts[:n_f]
+                                else:
+                                    fc_arr[ei, pi, mi, :n_f] = ts[:n_f]
+
+                fc_dims = ['event_type', 'particle', 'ensemble_member', 'lead_time']
+                fc_coords = {
+                    'event_type': all_event_types,
+                    'particle': all_particles,
+                    'ensemble_member': all_ens,
+                    'lead_time': lead_hours,
+                }
+                if is_field:
+                    fc_dims.append('spatial')
+                    fc_coords['spatial'] = list(range(n_spatial))
+                data_vars[f'forecast_{qualifier}'] = xr.DataArray(
+                    fc_arr, dims=fc_dims, coords=fc_coords)
+
+            # --- Truth array ---
+            if qualifier in self.truth_obs:
+                tr_shape = (len(all_event_types), len(all_particles), n_lead)
+                if is_field:
+                    tr_shape = tr_shape + (n_spatial,)
+                tr_arr = np.full(tr_shape, np.nan, dtype=np.float32)
+
+                for ei, et in enumerate(all_event_types):
+                    et_dict = self.truth_obs[qualifier].get(et, {})
+                    for pi, p in enumerate(all_particles):
+                        ts = et_dict.get(p)
+                        if ts is not None:
+                            n_f = min(n_lead, len(ts))
+                            if is_field:
+                                tr_arr[ei, pi, :n_f, :] = ts[:n_f]
+                            else:
+                                tr_arr[ei, pi, :n_f] = ts[:n_f]
+
+                tr_dims = ['event_type', 'particle', 'lead_time']
+                tr_coords = {
+                    'event_type': all_event_types,
+                    'particle': all_particles,
+                    'lead_time': lead_hours,
+                }
+                if is_field:
+                    tr_dims.append('spatial')
+                    tr_coords['spatial'] = list(range(n_spatial))
+                data_vars[f'truth_{qualifier}'] = xr.DataArray(
+                    tr_arr, dims=tr_dims, coords=tr_coords)
+
+        return xr.Dataset(data_vars)
+
+    def save(self, path: str, timedelta_hours_per_day: int = 24) -> None:
+        """Save accumulator contents to a netCDF file at *path*."""
+        os.makedirs(os.path.dirname(path) if os.path.dirname(path) else '.', exist_ok=True)
+        self.to_dataset(timedelta_hours_per_day=timedelta_hours_per_day).to_netcdf(path)
+
+
+# ---------------------------------------------------------------------------
+# Time-series observable functions (accumulator-based)
+# ---------------------------------------------------------------------------
+
+def _unit_convert(A, var_name: str):
+    """Convert units for known variables (e.g. K → °C for temperature)."""
+    base_var = (var_name.split("_")[0]
+                if "_" in var_name and var_name.split("_")[0] != "pr"
+                else var_name)
+    if base_var in ['tas', 'ta', 'ts']:
+        A = A - 273.15
+    return A
+
+
+def _normalise_pids(particle_idxs) -> List[int]:
+    """Return particle indices as a plain list of ints."""
+    if isinstance(particle_idxs, (list, np.ndarray)):
+        return [int(p) for p in particle_idxs]
+    return [int(particle_idxs)]
+
+
+def _ts_obs_core(datasets, particle_idxs, ensemble_start, ensemble_end,
+                 event_type, target_duration, var, regions, region_file_path,
+                 accumulator, func: str):
+    """Shared implementation for unweighted_nday_{mean,max,min}_ts.
+
+    Spatial mean → daily mean → rolling N-day ``func`` → accumulator.
+    """
+    var_list = [var] if isinstance(var, str) else list(var)
+
+    with open(region_file_path, 'r') as f:
+        all_regions = json.load(f)
+
+    batch_pids = _normalise_pids(particle_idxs)
+
+    for ds, p_idx in zip(datasets, batch_pids):
+        for region in regions:
+            if region not in all_regions:
+                raise ValueError(f"Region '{region}' not found in {region_file_path}")
+            lon_region = all_regions[region]['xvals']
+            lat_region = all_regions[region]['yvals']
+            ds_region = _select_region_from_dataset(ds, lon_region, lat_region)
+
+            for var_name in var_list:
+                var_data = _get_variable_with_level(ds_region, var_name)
+                qualifier = make_ts_qualifier(var_name, region,
+                                              func=func,
+                                              target_duration=target_duration)
+
+                # Spatial mean → unit convert → daily mean → rolling window
+                A = var_data.mean(dim=['lon', 'lat'])
+                A = _unit_convert(A, var_name)
+                A = A.resample(time='1D').mean()
+
+                # Filter ensemble members
+                ens_indices = A['ensemble_idx'].values
+                valid_mask = (ens_indices >= ensemble_start) & (ens_indices < ensemble_end)
+                A_filt = A.isel(ensemble_idx=valid_mask)
+
+                for ei in range(A_filt.sizes.get('ensemble_idx', 0)):
+                    ens_member = int(A_filt['ensemble_idx'].values[ei])
+                    daily = A_filt.isel(ensemble_idx=ei).values.astype(np.float64)
+                    rolling = _compute_rolling_ts(daily, int(target_duration), func=func)
+                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                                             ens_member, rolling)
+
+
+def _spatial_mean_ts_core(datasets, particle_idxs, ensemble_start, ensemble_end,
+                           event_type, var, regions, region_file_path, accumulator):
+    """Shared implementation for unweighted_spatial_mean_ts.
+
+    Spatial mean only — no daily resampling, no rolling window.  One value
+    is stored per model timestep.
+    """
+    var_list = [var] if isinstance(var, str) else list(var)
+
+    with open(region_file_path, 'r') as f:
+        all_regions = json.load(f)
+
+    batch_pids = _normalise_pids(particle_idxs)
+
+    for ds, p_idx in zip(datasets, batch_pids):
+        for region in regions:
+            if region not in all_regions:
+                raise ValueError(f"Region '{region}' not found in {region_file_path}")
+            lon_region = all_regions[region]['xvals']
+            lat_region = all_regions[region]['yvals']
+            ds_region = _select_region_from_dataset(ds, lon_region, lat_region)
+
+            for var_name in var_list:
+                var_data = _get_variable_with_level(ds_region, var_name)
+                qualifier = make_ts_qualifier(var_name, region)  # per-timestep
+
+                # Spatial mean → unit convert (no temporal resampling)
+                A = var_data.mean(dim=['lon', 'lat'])
+                A = _unit_convert(A, var_name)
+
+                # Filter ensemble members
+                ens_indices = A['ensemble_idx'].values
+                valid_mask = (ens_indices >= ensemble_start) & (ens_indices < ensemble_end)
+                A_filt = A.isel(ensemble_idx=valid_mask)
+
+                for ei in range(A_filt.sizes.get('ensemble_idx', 0)):
+                    ens_member = int(A_filt['ensemble_idx'].values[ei])
+                    ts = A_filt.isel(ensemble_idx=ei).values.astype(np.float64)
+                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                                             ens_member, ts)
+
+
+def _extract_time_first(da) -> np.ndarray:
+    """Return *da* as a float64 numpy array with time as axis 0.
+
+    xarray may return DataArrays with time in a non-leading position
+    depending on the source dataset.  This helper transposes as needed.
+    """
+    if 'time' in da.dims and da.dims[0] != 'time':
+        other = [d for d in da.dims if d != 'time']
+        da = da.transpose('time', *other)
+    return da.values.astype(np.float64)
+
+
+def _ts_field_core(datasets, particle_idxs, ensemble_start, ensemble_end,
+                   event_type, target_duration, var, regions, region_file_path,
+                   accumulator, func: str):
+    """Shared implementation for unweighted_nday_{mean,max,min}_field_ts.
+
+    No spatial mean — the full region field is retained.  Pipeline:
+    unit convert → daily mean per grid point → rolling N-day *func*.
+
+    Stored arrays have shape ``(n_lead_days, n_spatial)`` where
+    ``n_spatial = n_lat * n_lon`` (spatial dims flattened).
+    """
+    var_list = [var] if isinstance(var, str) else list(var)
+
+    with open(region_file_path, 'r') as f:
+        all_regions = json.load(f)
+
+    batch_pids = _normalise_pids(particle_idxs)
+
+    for ds, p_idx in zip(datasets, batch_pids):
+        for region in regions:
+            if region not in all_regions:
+                raise ValueError(f"Region '{region}' not found in {region_file_path}")
+            lon_region = all_regions[region]['xvals']
+            lat_region = all_regions[region]['yvals']
+            ds_region = _select_region_from_dataset(ds, lon_region, lat_region)
+
+            for var_name in var_list:
+                var_data = _get_variable_with_level(ds_region, var_name)
+                qualifier = make_ts_qualifier(var_name, region,
+                                              func=func,
+                                              target_duration=target_duration,
+                                              spatial_mean=False)
+
+                # Unit convert (no spatial mean — retain lat/lon dims)
+                A = _unit_convert(var_data, var_name)
+                # Daily resampling per grid point
+                A = A.resample(time='1D').mean()
+
+                # Filter ensemble members
+                ens_indices = A['ensemble_idx'].values
+                valid_mask = (ens_indices >= ensemble_start) & (ens_indices < ensemble_end)
+                A_filt = A.isel(ensemble_idx=valid_mask)
+
+                for ei in range(A_filt.sizes.get('ensemble_idx', 0)):
+                    ens_member = int(A_filt['ensemble_idx'].values[ei])
+                    # arr shape: (n_days, n_lat, n_lon) — time-first guaranteed
+                    arr = _extract_time_first(A_filt.isel(ensemble_idx=ei))
+                    n_days = arr.shape[0]
+                    arr_flat = arr.reshape(n_days, -1)   # (n_days, n_spatial)
+                    rolling = _compute_rolling_ts(arr_flat, int(target_duration), func=func)
+                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                                             ens_member, rolling)
+
+
+def _spatial_field_ts_core(datasets, particle_idxs, ensemble_start, ensemble_end,
+                            event_type, var, regions, region_file_path, accumulator):
+    """Shared implementation for unweighted_spatial_field_ts.
+
+    No spatial mean, no daily resampling, no rolling window — the raw
+    spatial field at every model timestep is stored.
+
+    Stored arrays have shape ``(n_time, n_spatial)`` where
+    ``n_spatial = n_lat * n_lon``.
+    """
+    var_list = [var] if isinstance(var, str) else list(var)
+
+    with open(region_file_path, 'r') as f:
+        all_regions = json.load(f)
+
+    batch_pids = _normalise_pids(particle_idxs)
+
+    for ds, p_idx in zip(datasets, batch_pids):
+        for region in regions:
+            if region not in all_regions:
+                raise ValueError(f"Region '{region}' not found in {region_file_path}")
+            lon_region = all_regions[region]['xvals']
+            lat_region = all_regions[region]['yvals']
+            ds_region = _select_region_from_dataset(ds, lon_region, lat_region)
+
+            for var_name in var_list:
+                var_data = _get_variable_with_level(ds_region, var_name)
+                qualifier = make_ts_qualifier(var_name, region,
+                                              spatial_mean=False)  # per-timestep field
+
+                # Unit convert (no spatial mean, no resampling)
+                A = _unit_convert(var_data, var_name)
+
+                # Filter ensemble members
+                ens_indices = A['ensemble_idx'].values
+                valid_mask = (ens_indices >= ensemble_start) & (ens_indices < ensemble_end)
+                A_filt = A.isel(ensemble_idx=valid_mask)
+
+                for ei in range(A_filt.sizes.get('ensemble_idx', 0)):
+                    ens_member = int(A_filt['ensemble_idx'].values[ei])
+                    arr = _extract_time_first(A_filt.isel(ensemble_idx=ei))
+                    n_time = arr.shape[0]
+                    arr_flat = arr.reshape(n_time, -1)   # (n_time, n_spatial)
+                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                                             ens_member, arr_flat)
+
+
+def unweighted_nday_mean_ts(args: Tuple) -> None:
+    """Compute rolling N-day mean time series and store in *accumulator*.
+
+    Identical spatial processing to :func:`unweighted_nday_mean` but stores
+    a full time series (one value per daily step) rather than a single
+    end-of-forecast scalar.
+
+    Arguments (passed as a tuple):
+
+    0. datasets:          List of ``xr.Dataset`` objects (one per particle).
+    1. particle_idxs:    List of particle indices.
+    2. ensemble_start:   First ensemble-member index.
+    3. ensemble_end:     Last ensemble-member index (exclusive).
+    4. event_type:       Event-type string.
+    5. target_duration:  Rolling window in days (int).
+    6. var:              Variable name or list of variable names.
+    7. regions:          List of region names.
+    8. region_file_path: Path to region boundaries JSON.
+    9. accumulator:      :class:`ObservationAccumulator` instance.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    target_duration, var, regions, region_file_path, accumulator = (
+        args[5], args[6], args[7], args[8], args[9])
+    _ts_obs_core(datasets, particle_idxs, ens_start, ens_end,
+                 event_type, target_duration, var, regions, region_file_path,
+                 accumulator, func='mean')
+
+
+def unweighted_nday_max_ts(args: Tuple) -> None:
+    """Compute rolling N-day max time series and store in *accumulator*.
+
+    Identical to :func:`unweighted_nday_mean_ts` but uses rolling maximum
+    instead of rolling mean.
+
+    Arguments (passed as a tuple): same layout as
+    :func:`unweighted_nday_mean_ts`.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    target_duration, var, regions, region_file_path, accumulator = (
+        args[5], args[6], args[7], args[8], args[9])
+    _ts_obs_core(datasets, particle_idxs, ens_start, ens_end,
+                 event_type, target_duration, var, regions, region_file_path,
+                 accumulator, func='max')
+
+
+def unweighted_nday_min_ts(args: Tuple) -> None:
+    """Compute rolling N-day min time series and store in *accumulator*.
+
+    Identical to :func:`unweighted_nday_mean_ts` but uses rolling minimum
+    instead of rolling mean.
+
+    Arguments (passed as a tuple): same layout as
+    :func:`unweighted_nday_mean_ts`.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    target_duration, var, regions, region_file_path, accumulator = (
+        args[5], args[6], args[7], args[8], args[9])
+    _ts_obs_core(datasets, particle_idxs, ens_start, ens_end,
+                 event_type, target_duration, var, regions, region_file_path,
+                 accumulator, func='min')
+
+
+def unweighted_spatial_mean_ts(args: Tuple) -> None:
+    """Compute per-timestep spatial mean and store in *accumulator*.
+
+    No daily resampling or rolling-window aggregation is applied; each model
+    timestep contributes one value.  The qualifier is
+    ``"timestep_{var}_{region}"`` (see :func:`make_ts_qualifier`).
+
+    Arguments (passed as a tuple):
+
+    0. datasets:          List of ``xr.Dataset`` objects (one per particle).
+    1. particle_idxs:    List of particle indices.
+    2. ensemble_start:   First ensemble-member index.
+    3. ensemble_end:     Last ensemble-member index (exclusive).
+    4. event_type:       Event-type string.
+    5. var:              Variable name or list of variable names.
+    6. regions:          List of region names.
+    7. region_file_path: Path to region boundaries JSON.
+    8. accumulator:      :class:`ObservationAccumulator` instance.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    var, regions, region_file_path, accumulator = args[5], args[6], args[7], args[8]
+    _spatial_mean_ts_core(datasets, particle_idxs, ens_start, ens_end,
+                           event_type, var, regions, region_file_path, accumulator)
+
+
+# ---------------------------------------------------------------------------
+# Field (non-spatially-averaged) observable functions
+# ---------------------------------------------------------------------------
+
+def unweighted_nday_mean_field_ts(args: Tuple) -> None:
+    """Rolling N-day mean of the spatial field; stores ``(n_lead_days, n_spatial)``.
+
+    Identical to :func:`unweighted_nday_mean_ts` except the spatial mean is
+    **not** applied — the full region field (flattened to one spatial axis) is
+    retained.  Qualifier: ``"field_{N}day_mean_{var}_{region}"``.
+
+    Arguments (passed as a tuple): same layout as
+    :func:`unweighted_nday_mean_ts`.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    target_duration, var, regions, region_file_path, accumulator = (
+        args[5], args[6], args[7], args[8], args[9])
+    _ts_field_core(datasets, particle_idxs, ens_start, ens_end,
+                   event_type, target_duration, var, regions, region_file_path,
+                   accumulator, func='mean')
+
+
+def unweighted_nday_max_field_ts(args: Tuple) -> None:
+    """Rolling N-day max of the spatial field; stores ``(n_lead_days, n_spatial)``.
+
+    Like :func:`unweighted_nday_mean_field_ts` but uses rolling maximum.
+    Qualifier: ``"field_{N}day_max_{var}_{region}"``.
+
+    Arguments (passed as a tuple): same layout as
+    :func:`unweighted_nday_mean_ts`.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    target_duration, var, regions, region_file_path, accumulator = (
+        args[5], args[6], args[7], args[8], args[9])
+    _ts_field_core(datasets, particle_idxs, ens_start, ens_end,
+                   event_type, target_duration, var, regions, region_file_path,
+                   accumulator, func='max')
+
+
+def unweighted_nday_min_field_ts(args: Tuple) -> None:
+    """Rolling N-day min of the spatial field; stores ``(n_lead_days, n_spatial)``.
+
+    Like :func:`unweighted_nday_mean_field_ts` but uses rolling minimum.
+    Qualifier: ``"field_{N}day_min_{var}_{region}"``.
+
+    Arguments (passed as a tuple): same layout as
+    :func:`unweighted_nday_mean_ts`.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    target_duration, var, regions, region_file_path, accumulator = (
+        args[5], args[6], args[7], args[8], args[9])
+    _ts_field_core(datasets, particle_idxs, ens_start, ens_end,
+                   event_type, target_duration, var, regions, region_file_path,
+                   accumulator, func='min')
+
+
+def unweighted_spatial_field_ts(args: Tuple) -> None:
+    """Per-timestep spatial field; stores ``(n_time, n_spatial)``.
+
+    No spatial mean, no daily resampling, no rolling window.  Each model
+    timestep contributes one full field (flattened spatial).
+    Qualifier: ``"field_timestep_{var}_{region}"``.
+
+    Arguments (passed as a tuple):
+
+    0. datasets:          List of ``xr.Dataset`` objects (one per particle).
+    1. particle_idxs:    List of particle indices.
+    2. ensemble_start:   First ensemble-member index.
+    3. ensemble_end:     Last ensemble-member index (exclusive).
+    4. event_type:       Event-type string.
+    5. var:              Variable name or list of variable names.
+    6. regions:          List of region names.
+    7. region_file_path: Path to region boundaries JSON.
+    8. accumulator:      :class:`ObservationAccumulator` instance.
+    """
+    datasets, particle_idxs, ens_start, ens_end = args[0], args[1], args[2], args[3]
+    event_type = args[4]
+    var, regions, region_file_path, accumulator = args[5], args[6], args[7], args[8]
+    _spatial_field_ts_core(datasets, particle_idxs, ens_start, ens_end,
+                            event_type, var, regions, region_file_path, accumulator)
+
+
+def truth_file_worker_ts(file_idx: int, data_path: str,
+                         init_datetime_dt,
+                         event_type: str, particle_idx: int,
+                         max_forecast_steps: int, timedelta_hours: int,
+                         obs_function_names: List[str],
+                         obs_args_list: List):
+    """Compute truth observable time series for one (file, init_datetime) pair.
+
+    Designed for use with ``concurrent.futures.ProcessPoolExecutor`` using a
+    ``'spawn'`` mp_context (safe in torchrun workers: no inherited CUDA
+    context).
+
+    ``event_type`` and ``timedelta_hours`` are accepted for API symmetry with
+    the caller but are not used inside this function; event_type is applied by
+    the caller via :meth:`ObservationAccumulator.add_truth_from_worker_result`.
+
+    Returns
+    -------
+    file_idx : int
+    success : bool
+    open_error : str or None
+    result_dict : dict
+        ``{qualifier: {particle_idx: np.ndarray}}``
+        for all successfully computed observables.  Empty on failure.
+    """
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                    message='.*use_cftime.*')
+            ds_truth = xr.open_dataset(data_path, use_cftime=True)
+    except Exception as e:
+        return file_idx, False, str(e), {}
+
+    # Select time range starting from init_datetime_dt
+    try:
+        if 'time' in ds_truth.dims and ds_truth.sizes.get('time', 0) > 0:
+            ds_from_init = ds_truth.sel(time=ds_truth.time >= init_datetime_dt)
+            if max_forecast_steps > 0:
+                n_avail = ds_from_init.sizes.get('time', 0)
+                ds_from_init = ds_from_init.isel(
+                    time=slice(0, min(max_forecast_steps, n_avail)))
+        else:
+            ds_from_init = ds_truth
+    except Exception as e:
+        ds_truth.close()
+        return file_idx, False, f"Error selecting time range: {e}", {}
+
+    if 'ensemble_idx' not in ds_from_init.dims:
+        ds_from_init = ds_from_init.expand_dims({'ensemble_idx': [0]})
+
+    result_dict: Dict = {}
+
+    for obs_func_name, obs_args in zip(obs_function_names, obs_args_list):
+
+        # --- N-day rolling mean / max / min (spatially averaged) ---
+        if obs_func_name in ('unweighted_nday_mean_ts',
+                             'unweighted_nday_max_ts',
+                             'unweighted_nday_min_ts'):
+            if len(obs_args) < 4:
+                continue
+            target_duration = int(obs_args[0])
+            var = obs_args[1]
+            regions = obs_args[2]
+            region_file_path = obs_args[3]
+            if obs_func_name.endswith('_mean_ts'):
+                func = 'mean'
+            elif obs_func_name.endswith('_max_ts'):
+                func = 'max'
+            else:
+                func = 'min'
+
+            var_list = [var] if isinstance(var, str) else list(var)
+            try:
+                with open(region_file_path, 'r') as f:
+                    all_regions_data = json.load(f)
+            except Exception:
+                continue
+
+            for region in regions:
+                if region not in all_regions_data:
+                    continue
+                lon_region = all_regions_data[region]['xvals']
+                lat_region = all_regions_data[region]['yvals']
+                try:
+                    ds_region = _select_region_from_dataset(
+                        ds_from_init, lon_region, lat_region)
+                except Exception:
+                    continue
+
+                for var_name in var_list:
+                    qualifier = make_ts_qualifier(var_name, region,
+                                                  func=func,
+                                                  target_duration=target_duration)
+                    try:
+                        var_data = _get_variable_with_level(ds_region, var_name)
+                        A = var_data.mean(dim=['lon', 'lat'])
+                        A = _unit_convert(A, var_name)
+                        A = A.resample(time='1D').mean()
+                        # Truth has no real ensemble dimension; use first member
+                        if 'ensemble_idx' in A.dims:
+                            A_truth = A.isel(ensemble_idx=0).values.astype(np.float64)
+                        else:
+                            A_truth = A.values.astype(np.float64)
+                        rolling = _compute_rolling_ts(A_truth, target_duration, func=func)
+                        result_dict.setdefault(qualifier, {})[particle_idx] = rolling
+                    except Exception:
+                        continue
+
+        # --- Per-timestep spatial mean ---
+        elif obs_func_name == 'unweighted_spatial_mean_ts':
+            if len(obs_args) < 3:
+                continue
+            var = obs_args[0]
+            regions = obs_args[1]
+            region_file_path = obs_args[2]
+
+            var_list = [var] if isinstance(var, str) else list(var)
+            try:
+                with open(region_file_path, 'r') as f:
+                    all_regions_data = json.load(f)
+            except Exception:
+                continue
+
+            for region in regions:
+                if region not in all_regions_data:
+                    continue
+                lon_region = all_regions_data[region]['xvals']
+                lat_region = all_regions_data[region]['yvals']
+                try:
+                    ds_region = _select_region_from_dataset(
+                        ds_from_init, lon_region, lat_region)
+                except Exception:
+                    continue
+
+                for var_name in var_list:
+                    qualifier = make_ts_qualifier(var_name, region)  # per-timestep
+                    try:
+                        var_data = _get_variable_with_level(ds_region, var_name)
+                        A = var_data.mean(dim=['lon', 'lat'])
+                        A = _unit_convert(A, var_name)
+                        # Truth has no real ensemble dimension; use first member
+                        if 'ensemble_idx' in A.dims:
+                            A_truth = A.isel(ensemble_idx=0).values.astype(np.float64)
+                        else:
+                            A_truth = A.values.astype(np.float64)
+                        result_dict.setdefault(qualifier, {})[particle_idx] = A_truth
+                    except Exception:
+                        continue
+
+        # --- N-day rolling mean / max / min (spatial field, no spatial mean) ---
+        elif obs_func_name in ('unweighted_nday_mean_field_ts',
+                               'unweighted_nday_max_field_ts',
+                               'unweighted_nday_min_field_ts'):
+            if len(obs_args) < 4:
+                continue
+            target_duration = int(obs_args[0])
+            var = obs_args[1]
+            regions = obs_args[2]
+            region_file_path = obs_args[3]
+            if obs_func_name.endswith('_mean_field_ts'):
+                func = 'mean'
+            elif obs_func_name.endswith('_max_field_ts'):
+                func = 'max'
+            else:
+                func = 'min'
+
+            var_list = [var] if isinstance(var, str) else list(var)
+            try:
+                with open(region_file_path, 'r') as f:
+                    all_regions_data = json.load(f)
+            except Exception:
+                continue
+
+            for region in regions:
+                if region not in all_regions_data:
+                    continue
+                lon_region = all_regions_data[region]['xvals']
+                lat_region = all_regions_data[region]['yvals']
+                try:
+                    ds_region = _select_region_from_dataset(
+                        ds_from_init, lon_region, lat_region)
+                except Exception:
+                    continue
+
+                for var_name in var_list:
+                    qualifier = make_ts_qualifier(var_name, region,
+                                                  func=func,
+                                                  target_duration=target_duration,
+                                                  spatial_mean=False)
+                    try:
+                        var_data = _get_variable_with_level(ds_region, var_name)
+                        A = _unit_convert(var_data, var_name)
+                        A = A.resample(time='1D').mean()
+                        # Truth: select first ensemble member, then ensure time-first
+                        if 'ensemble_idx' in A.dims:
+                            A_sel = A.isel(ensemble_idx=0)
+                        else:
+                            A_sel = A
+                        arr = _extract_time_first(A_sel)   # (n_days, n_lat, n_lon)
+                        n_days = arr.shape[0]
+                        arr_flat = arr.reshape(n_days, -1)  # (n_days, n_spatial)
+                        rolling = _compute_rolling_ts(arr_flat, target_duration,
+                                                      func=func)
+                        result_dict.setdefault(qualifier, {})[particle_idx] = rolling
+                    except Exception:
+                        continue
+
+        # --- Per-timestep spatial field (no spatial mean, no resampling) ---
+        elif obs_func_name == 'unweighted_spatial_field_ts':
+            if len(obs_args) < 3:
+                continue
+            var = obs_args[0]
+            regions = obs_args[1]
+            region_file_path = obs_args[2]
+
+            var_list = [var] if isinstance(var, str) else list(var)
+            try:
+                with open(region_file_path, 'r') as f:
+                    all_regions_data = json.load(f)
+            except Exception:
+                continue
+
+            for region in regions:
+                if region not in all_regions_data:
+                    continue
+                lon_region = all_regions_data[region]['xvals']
+                lat_region = all_regions_data[region]['yvals']
+                try:
+                    ds_region = _select_region_from_dataset(
+                        ds_from_init, lon_region, lat_region)
+                except Exception:
+                    continue
+
+                for var_name in var_list:
+                    qualifier = make_ts_qualifier(var_name, region,
+                                                  spatial_mean=False)  # field, per-timestep
+                    try:
+                        var_data = _get_variable_with_level(ds_region, var_name)
+                        A = _unit_convert(var_data, var_name)
+                        # Truth: select first ensemble member, then ensure time-first
+                        if 'ensemble_idx' in A.dims:
+                            A_sel = A.isel(ensemble_idx=0)
+                        else:
+                            A_sel = A
+                        arr = _extract_time_first(A_sel)   # (n_time, n_lat, n_lon)
+                        n_time = arr.shape[0]
+                        arr_flat = arr.reshape(n_time, -1)  # (n_time, n_spatial)
+                        result_dict.setdefault(qualifier, {})[particle_idx] = arr_flat
+                    except Exception:
+                        continue
+
+    ds_truth.close()
+    return file_idx, True, None, result_dict
