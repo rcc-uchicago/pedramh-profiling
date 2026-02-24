@@ -23,6 +23,8 @@ import json
 import os
 import glob
 import re
+import traceback
+import warnings
 from typing import List, Tuple, Union, Dict, Optional
 from natsort import natsorted
 
@@ -442,6 +444,175 @@ def unweighted_nday_mean(args: Tuple):
                 )
             
             # Create Dataset and save as netCDF
+            observation_ds = xr.Dataset({'observation': observation_data})
+            observation_ds.to_netcdf(filepath)
+
+
+def unweighted_nday_max(args: Tuple):
+    """
+    Compute unweighted N-day maximum observable for ensemble forecasts.
+
+    Identical to unweighted_nday_mean except the reduction over the final
+    `target_duration` daily-mean values is a max rather than a mean.  That is:
+    1. Spatially average the variable over the region at each time step.
+    2. Resample to daily means.
+    3. Take the maximum of the last `target_duration` daily values.
+
+    Arguments (passed as a tuple) — same layout as unweighted_nday_mean:
+    1. datasets: List of xarray.Dataset objects
+    2. particle_idxs: List of particle indices
+    3. ensemble_start: Index of first ensemble member
+    4. ensemble_end: Index of last ensemble member (exclusive)
+    5. event_type: Event type identifier (str)
+    6. target_duration: Number of days to consider (int)
+    7. var: Variable name(s) (str or list of str)
+    8. regions: List of region names (list of str)
+    9. region_file_path: Path to JSON file containing region boundaries (str)
+    10. save_basename: Base file path for saving results (str, required)
+
+    Returns:
+        None (saves results to files)
+    """
+    # Unpack required arguments — same layout as unweighted_nday_mean
+    datasets = args[0]
+    particle_idxs = args[1]
+    ensemble_start = args[2]
+    ensemble_end = args[3]
+    event_type = args[4]
+
+    if len(args) == 10:
+        target_duration = args[5]
+        var = args[6]
+        regions = args[7]
+        region_file_path = args[8]
+        save_basename = args[9]
+    elif len(args) >= 11:
+        target_duration = args[6]
+        var = args[7]
+        regions = args[8]
+        region_file_path = args[9]
+        save_basename = args[10]
+    else:
+        raise ValueError(f"unweighted_nday_max requires at least 10 arguments (truth mode) or 11 (forecast mode), got {len(args)}")
+
+    if save_basename is None or len(save_basename) == 0:
+        raise ValueError("save_basename is required for unweighted_nday_max")
+
+    if isinstance(var, str):
+        var_list = [var]
+    elif isinstance(var, list):
+        var_list = var
+    else:
+        raise ValueError(f"var must be a string or list of strings, got {type(var)}")
+
+    with open(region_file_path, 'r') as f:
+        all_regions = json.load(f)
+
+    if isinstance(particle_idxs, (list, np.ndarray)):
+        if len(particle_idxs) > 0:
+            particle_idx = int(particle_idxs[0])
+        else:
+            raise ValueError("particle_idxs list is empty")
+    else:
+        particle_idx = int(particle_idxs)
+
+    if len(datasets) == 0:
+        raise ValueError("datasets list is empty")
+    ds = datasets[0]
+
+    for region in regions:
+        if region not in all_regions:
+            raise ValueError(f"Region '{region}' not found in region file {region_file_path}")
+
+        lon_region = all_regions[region]['xvals']
+        lat_region = all_regions[region]['yvals']
+
+        ds_region = _select_region_from_dataset(ds, lon_region, lat_region)
+
+        for var_name in var_list:
+            var_data = _get_variable_with_level(ds_region, var_name)
+
+            additional_dims_info = {}
+            for dim in var_data.dims:
+                if dim not in ['ensemble_idx', 'time', 'lat', 'lon']:
+                    additional_dims_info[dim] = {
+                        'values': var_data[dim].values,
+                        'coords': var_data.coords[dim]
+                    }
+
+            # Spatial mean over region
+            A = var_data.mean(dim=['lon', 'lat'])
+
+            base_var = var_name.split("_")[0] if "_" in var_name and var_name.split("_")[0] != "pr" else var_name
+            if base_var in ['tas', 'ta']:
+                A = A - 273.15
+
+            # Resample to daily means, then take the max over the last target_duration days
+            A = A.resample(time='1D').mean()
+
+            if A.sizes.get('time', 0) < int(target_duration):
+                raise ValueError(
+                    f"Not enough daily samples to compute {target_duration}-day max at end of forecast "
+                    f"(have {A.sizes.get('time', 0)} daily samples)."
+                )
+            A = A.isel(time=slice(-int(target_duration), None)).max(dim='time')
+
+            ensemble_indices = A['ensemble_idx'].values
+            valid_mask = (ensemble_indices >= ensemble_start) & (ensemble_indices < ensemble_end)
+            A_filtered = A.isel(ensemble_idx=valid_mask)
+
+            ensemble_values = A_filtered.values
+            ensemble_member_indices = A_filtered['ensemble_idx'].values.tolist()
+
+            function_specific = f"{target_duration}day_{var_name}_{region}"
+            filepath = get_observation_filepath(
+                save_basename=save_basename,
+                obs_function_name='unweighted_nday_max',
+                particle_idx=particle_idx,
+                event_type=event_type,
+                ensemble_start=ensemble_start,
+                ensemble_end=ensemble_end,
+                function_specific_string=function_specific
+            )
+
+            os.makedirs(os.path.dirname(filepath) if os.path.dirname(filepath) else ".", exist_ok=True)
+
+            if additional_dims_info and len(additional_dims_info) > 0:
+                coords = {
+                    'ensemble_member': ensemble_member_indices,
+                    **{dim: info['values'] for dim, info in additional_dims_info.items()}
+                }
+                dims = ['ensemble_member'] + list(additional_dims_info.keys())
+                attrs = {
+                    'obs_function_name': 'unweighted_nday_max',
+                    'description': f'Unweighted {target_duration}-day max of {var_name} over {region}',
+                    'particle_idx': particle_idx,
+                    'variable': var_name,
+                    'region': region,
+                    'target_duration_days': target_duration
+                }
+                observation_data = xr.DataArray(
+                    data=ensemble_values,
+                    dims=dims,
+                    coords=coords,
+                    attrs=attrs
+                )
+            else:
+                attrs = {
+                    'obs_function_name': 'unweighted_nday_max',
+                    'description': f'Unweighted {target_duration}-day max of {var_name} over {region}',
+                    'particle_idx': particle_idx,
+                    'variable': var_name,
+                    'region': region,
+                    'target_duration_days': target_duration
+                }
+                observation_data = xr.DataArray(
+                    data=ensemble_values,
+                    dims=['ensemble_member'],
+                    coords={'ensemble_member': ensemble_member_indices},
+                    attrs=attrs
+                )
+
             observation_ds = xr.Dataset({'observation': observation_data})
             observation_ds.to_netcdf(filepath)
 
@@ -1703,5 +1874,67 @@ def compute_error_metrics(save_basename: str, save_basename_truth: str,
         json.dump(serializable_results, f, indent=2)
     
     print(f"Saved error metrics to {output_path}")
-    
+
     return results
+
+
+def truth_file_worker(file_idx, data_path, final_datetime_dt, event_type,
+                      inference_hours_list, timedelta_hours,
+                      obs_functions, obs_function_names, obs_args_list,
+                      save_basename_truth):
+    """Compute truth observables for a single initialisation file.
+
+    Designed to be called from ``concurrent.futures.ProcessPoolExecutor`` with a
+    ``spawn`` mp_context.  Spawned processes start with a fresh Python interpreter
+    so there is no inherited CUDA context — this is safe when the parent was
+    launched by ``torchrun`` regardless of ``nprocs_per_node``.
+
+    Living in ``utils/observations.py`` (no CUDA imports) means the spawned
+    worker only needs to import this lightweight module rather than all of
+    ``train.py``, which avoids any CUDA initialisation side-effects in the
+    worker process.
+
+    Returns
+    -------
+    file_idx : int
+    success : bool
+        False when the source dataset could not be opened.
+    open_error : str or None
+        Error message when ``success`` is False, else None.
+    results : list of (inference_hours, obs_func_name, ok, error_msg)
+    """
+    try:
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                    message='.*use_cftime.*')
+            ds_truth = xr.open_dataset(data_path, use_cftime=True)
+    except Exception as e:
+        return file_idx, False, (
+            f"Could not open truth dataset for {event_type} at {data_path}: {e}"
+        ), []
+
+    if 'ensemble_idx' not in ds_truth.dims:
+        ds_truth = ds_truth.expand_dims({'ensemble_idx': [0]})
+
+    particle_idxs = [file_idx]
+    results = []
+
+    for inference_hours in inference_hours_list:
+        time_steps = int(inference_hours // timedelta_hours)
+        ds_truth_h = ds_truth.sel(time=ds_truth.time <= final_datetime_dt)
+        if 'time' in ds_truth.dims and ds_truth.sizes.get('time', 0) > 0 and time_steps > 0:
+            max_steps = min(time_steps, ds_truth.sizes['time'])
+            ds_truth_h = ds_truth.isel(time=slice(-max_steps, None))
+
+        for obs_func, obs_func_name, obs_args in zip(obs_functions, obs_function_names, obs_args_list):
+            func_args = ([[ds_truth_h], particle_idxs, 0, 1, event_type]
+                         + list(obs_args) + [save_basename_truth])
+            try:
+                obs_func(tuple(func_args))
+                results.append((inference_hours, obs_func_name, True, None))
+            except Exception as e:
+                results.append((inference_hours, obs_func_name, False,
+                                str(e) + '\n' + traceback.format_exc()))
+
+    ds_truth.close()
+    return file_idx, True, None, results

@@ -31,6 +31,7 @@ from pathlib import Path
 
 import cftime
 import yaml
+from ruamel.yaml import YAML as RuamelYAML
 
 
 def extract_run_num_from_config(config_path):
@@ -47,11 +48,19 @@ def extract_run_num_from_config(config_path):
     raise ValueError(f"Could not extract run_num from config filename: {config_path}")
 
 
-def generate_new_run_num(config_dir):
-    """Generate a new unique 4-digit run_num based on existing configs."""
+def generate_new_run_num(config_dir, extra_exclude=None):
+    """Generate a new unique 4-digit run_num based on existing configs.
+
+    Args:
+        config_dir: Directory containing YAML config files.
+        extra_exclude: Optional set of integer run_nums to exclude in addition
+            to those found on disk.  Pass a shared mutable set across calls to
+            reserve numbers in-session without requiring files to be written
+            (e.g. during a dry run or a grid search).
+    """
     # Get all config files in the directory
     config_files = list(Path(config_dir).glob('*.yaml'))
-    
+
     # Extract all existing run_nums
     existing_nums = set()
     for config_file in config_files:
@@ -60,12 +69,19 @@ def generate_new_run_num(config_dir):
             existing_nums.add(int(run_num))
         except ValueError:
             continue
-    
+
+    if extra_exclude:
+        existing_nums.update(extra_exclude)
+
     # Find the next available number starting from current date
     # Use last two digits of year + month + day as base, or start from 1000
     now = datetime.now()
     base_num = int(f"{now.year % 100:02d}{now.month:02d}{now.day:02d}")
-    
+    # Clamp to valid 4-digit range before searching; dates in 2100+ produce
+    # base_num > 9999 which would bypass the wrap-around inside the while loop.
+    if base_num > 9999:
+        base_num = 1000
+
     # If base is already taken, increment until we find an available one
     new_num = base_num
     while new_num in existing_nums:
@@ -73,7 +89,7 @@ def generate_new_run_num(config_dir):
         # Wrap around if we exceed 9999
         if new_num > 9999:
             new_num = 1000
-    
+
     return f"{new_num:04d}"
 
 
@@ -210,100 +226,165 @@ def create_curriculum_config(
     old_run_num,
     new_run_num,
     finetune=False,
-    config_section='PLASIM'
+    config_section='PLASIM',
+    ensemble_params=None,
+    curriculum_bulk_size=None,
+    exp_dir=None,
 ):
     """Create a new config file with curriculum learning settings."""
-    
-    # Read the original config using yaml
+
+    # Use ruamel.yaml round-trip loader to preserve YAML anchors and merge keys
+    # (<<: *BASE etc.) so the output config stays concise and inheritance works.
+    yaml_rt = RuamelYAML()
+    yaml_rt.preserve_quotes = True
+    yaml_rt.default_flow_style = False
+    yaml_rt.width = 4096  # prevent line wrapping of long values
+
     with open(original_config_path, 'r') as f:
-        config_data = yaml.safe_load(f)
-    
-    # Modify the specified config section
+        config_data = yaml_rt.load(f)
+
     if config_section not in config_data:
         raise ValueError(f"{config_section} section not found in config file: {original_config_path}")
-    
+
     section_config = config_data[config_section]
-    
-    # Ensure config section inherits properties from base_config
-    # Merge base_config into config section (section values take precedence)
-    if 'base_config' in config_data and isinstance(config_data['base_config'], dict):
-        # Merge: start with base_config, then override with existing section values
-        # This ensures section has all base_config properties, with section overrides taking precedence
-        base_config_copy = config_data['base_config'].copy()
-        merged_config = {**base_config_copy, **section_config}
-        # Update config section with merged values (section_config is a reference, so this updates config_data[config_section])
-        config_data[config_section] = merged_config
-        section_config = config_data[config_section]
-    
+
+    # Collect the set of keys explicitly written by this script so they are
+    # never filtered out during the deduplication step below.
+    explicitly_set_keys = set()
+
     if finetune:
-        # Finetune mode: keep original run_num, add finetune_run_num
-        # Don't modify BASE section name
         section_config['finetune_run_num'] = new_run_num
-        
-        # Set finetune-specific fields
         section_config['lr'] = learning_rate
         section_config['finetune_num_epochs'] = num_epochs
+        explicitly_set_keys.update({'finetune_run_num', 'lr', 'finetune_num_epochs'})
     else:
-        # Normal mode: update run_num and name
-        # Modify the BASE section name if it exists
-        if 'base_config' in config_data and isinstance(config_data['base_config'], dict):
-            if 'name' in config_data['base_config']:
-                config_data['base_config']['name'] = f'Pangu-{config_section}-{new_run_num}'
-        
-        # Update name in config section (inherited from BASE, but we override it)
+        # Update name in base_config anchor if present
+        if 'base_config' in config_data and config_data['base_config'] and \
+                'name' in config_data['base_config']:
+            config_data['base_config']['name'] = f'Pangu-{config_section}-{new_run_num}'
         section_config['name'] = f'Pangu-{config_section}-{new_run_num}'
-        
-        # Update learning rate
         section_config['lr'] = learning_rate
-        
-        # Update max_epochs
         section_config['max_epochs'] = start_epoch + num_epochs
-    
-    # Common settings for both modes
-    # Update scheduler
+        explicitly_set_keys.update({'name', 'lr', 'max_epochs'})
+
+    # ------------------------------------------------------------------ #
+    # Build train_data_sets with the full bulk training data as the      #
+    # first entry, followed by the event-specific entries.               #
+    # The bulk entry uses data_dir from the base config and date strings #
+    # derived from train_year_start, train_year_end, data_timedelta_hours.
+    # ------------------------------------------------------------------ #
+    with open(original_config_path, 'r') as _f:
+        _resolved = yaml.safe_load(_f)
+    _sec = _resolved.get(config_section, {})
+
+    _data_dir = _sec.get('data_dir')
+    _train_year_start = _sec.get('train_year_start')
+    _train_year_end = _sec.get('train_year_end')
+    _timedelta_hours = _sec.get('data_timedelta_hours', 6)
+
+    if _data_dir is None:
+        raise ValueError(
+            f"'data_dir' not found in '{config_section}' section of "
+            f"{original_config_path}"
+        )
+    if _train_year_start is None:
+        raise ValueError(
+            f"'train_year_start' not found in '{config_section}' section of "
+            f"{original_config_path}"
+        )
+    if _train_year_end is None:
+        raise ValueError(
+            f"'train_year_end' not found in '{config_section}' section of "
+            f"{original_config_path}"
+        )
+
+    _bulk_start = f"{int(_train_year_start):04d}-01-01 00:00:00"
+    _last_hour = (24 - int(_timedelta_hours)) % 24
+    _bulk_end = f"{int(_train_year_end) - 1:04d}-12-31 {_last_hour:02d}:00:00"
+
+    train_data_sets = {_data_dir: [_bulk_start, _bulk_end]}
+    train_data_sets.update(events_json_data)
+
     section_config['scheduler'] = None
-    
-    # Add train_data_sets entry (consistent with data_loader_multifiles.py)
-    section_config['train_data_sets'] = events_json_data
-    
-    # Add curriculum learning settings
+    section_config['train_data_sets'] = train_data_sets
     section_config['curriculum_learning'] = True
     section_config['curriculum_learning_fraction'] = curriculum_fraction
     section_config['start_epoch'] = start_epoch
-    
-    # Write the modified config back to file
-    # Use a custom representer to preserve None as 'None' string if needed, or just use None
+    explicitly_set_keys.update({
+        'scheduler', 'train_data_sets', 'curriculum_learning',
+        'curriculum_learning_fraction', 'start_epoch',
+    })
+
+    # Write ensemble validation parameters if provided.
+    if ensemble_params:
+        for key, value in ensemble_params.items():
+            section_config[key] = value
+            explicitly_set_keys.add(key)
+
+    # Write curriculum_bulk_size if provided (used when curriculum_fraction >= 1.0).
+    if curriculum_bulk_size is not None:
+        section_config['curriculum_bulk_size'] = curriculum_bulk_size
+        explicitly_set_keys.add('curriculum_bulk_size')
+
+    # Override exp_dir so train.py saves to the correct absolute path instead
+    # of inheriting the default 'results' value from the base config anchor.
+    if exp_dir is not None:
+        section_config['exp_dir'] = exp_dir
+        explicitly_set_keys.add('exp_dir')
+
+    # ------------------------------------------------------------------ #
+    # Deduplication: remove entries from section_config that are already  #
+    # provided by a lower-priority section (base_config) with the same    #
+    # value.  This keeps the output file concise.                         #
+    #                                                                      #
+    # With anchor-based configs (<<: *BASE) ruamel.yaml only writes the   #
+    # explicitly set keys in the section, so the merge key provides the   #
+    # base values automatically. For flat configs (no anchors) we compare #
+    # against base_config and remove identical entries.                   #
+    # ------------------------------------------------------------------ #
+    base_config = config_data.get('base_config') or {}
+
+    # Keys that come from YAML merge references inside section_config
+    # (these live in section_config.merge, not in the explicit dict, so
+    # deleting them via __delitem__ would raise KeyError).
+    merged_keys: set = set()
+    merge_refs = getattr(section_config, 'merge', None)
+    if merge_refs:
+        for _priority, merge_map in merge_refs:
+            merged_keys.update(merge_map)
+
+    for key in list(section_config.keys()):
+        if key in explicitly_set_keys or key in merged_keys:
+            continue
+        if key in base_config and section_config[key] == base_config[key]:
+            del section_config[key]
+
     with open(new_config_path, 'w') as f:
-        yaml.dump(config_data, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+        yaml_rt.dump(config_data, f)
 
 
 def copy_checkpoint(old_run_num, new_run_num, start_epoch, exp_dir='results', config_section='PLASIM'):
     """Copy the checkpoint from the starting epoch to the new run directory."""
-    old_checkpoint_dir = Path(exp_dir) / config_section / old_run_num / 'training_checkpoints'
-    new_checkpoint_dir = Path(exp_dir) / config_section / new_run_num / 'training_checkpoints'
-    
-    # Find the checkpoint file for the starting epoch
-    checkpoint_pattern = f'ckpt_{start_epoch}.tar'
-    old_checkpoint = old_checkpoint_dir / checkpoint_pattern
-    
+    old_checkpoint_dir = Path(exp_dir) / config_section / old_run_num / 'checkpoints'
+    new_checkpoint_dir = Path(exp_dir) / config_section / new_run_num / 'checkpoints'
+
+    # Filename convention used by train.py: ckpt_epoch_{N}.tar
+    checkpoint_filename = f'ckpt_epoch_{start_epoch}.tar'
+    old_checkpoint = old_checkpoint_dir / checkpoint_filename
+
     if not old_checkpoint.exists():
         raise FileNotFoundError(
             f"Checkpoint not found: {old_checkpoint}\n"
-            f"Available checkpoints: {list(old_checkpoint_dir.glob('ckpt_*.tar'))}"
+            f"Available checkpoints: {list(old_checkpoint_dir.glob('ckpt_epoch_*.tar'))}"
         )
-    
+
     # Create new checkpoint directory
     new_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Copy the checkpoint
-    new_checkpoint = new_checkpoint_dir / checkpoint_pattern
+
+    # Copy the epoch checkpoint
+    new_checkpoint = new_checkpoint_dir / checkpoint_filename
     shutil.copy2(old_checkpoint, new_checkpoint)
     print(f"Copied checkpoint: {old_checkpoint} -> {new_checkpoint}")
-    
-    # Also copy as ckpt.tar (initial checkpoint name)
-    initial_checkpoint = new_checkpoint_dir / 'ckpt.tar'
-    shutil.copy2(old_checkpoint, initial_checkpoint)
-    print(f"Copied checkpoint as initial: {old_checkpoint} -> {initial_checkpoint}")
 
 
 def generate_interactive_command(submit_script_path, run_num, config_path, config_section='PLASIM', use_legacy_model=False):
@@ -473,16 +554,30 @@ def submit_training_job(submit_script_path, run_num, config_path, config_section
     with open(submit_script_path, 'r') as f:
         script_content = f.read()
     
+    # Capture working directory before any chdir so it can be used for log
+    # paths and exported to the job environment.
+    original_dir = os.getcwd()
+    log_dir = os.path.join(original_dir, 'logs')
+    os.makedirs(log_dir, exist_ok=True)
+
     if '#PBS' in script_content or 'qsub' in script_content.lower():
         # PBS/Torque system
         script_full_path = os.path.join(submit_script_dir, submit_script_name) if submit_script_dir else submit_script_name
-        env_vars = f'RUN_NUM={run_num},YAML_CONFIG={config_path},DEBUG=0,JOBID={run_num}'
+        os.environ['RUN_NUM'] = run_num
+        os.environ['YAML_CONFIG'] = config_path
+        os.environ['DEBUG'] = '0'
+        os.environ['JOBID'] = run_num
+        os.environ['WORKDIR'] = original_dir
+        os.environ['CONFIG'] = config_section
         if use_legacy_model:
-            env_vars += ',USE_LEGACY_MODEL=1'
+            os.environ['USE_LEGACY_MODEL'] = '1'
         cmd = [
             'qsub',
-            '-v',
-            env_vars,
+            '-V',
+            # Override the script-header -e/-o with absolute paths so logs
+            # always land in v2.0/logs/ regardless of submission directory.
+            '-e', log_dir,
+            '-o', log_dir,
         ]
         # Add additional scheduler arguments if provided
         if scheduler_args:
@@ -503,17 +598,19 @@ def submit_training_job(submit_script_path, run_num, config_path, config_section
         cmd.extend([script_full_path, run_num, config_path])
     else:
         raise ValueError(f"Could not determine job scheduler from submit script: {submit_script_path}")
-    
+
     print(f"Submitting training job with command: {' '.join(cmd)}")
     print(f"Working directory: {submit_script_dir}")
-    
-    # Change to submit script directory and run
-    original_dir = os.getcwd()
     try:
         os.chdir(submit_script_dir)
         output = subprocess.check_output(cmd, stderr=subprocess.STDOUT).decode()
         print(f"Job submitted successfully:\n{output}")
         return output
+    except subprocess.CalledProcessError as e:
+        qsub_output = e.output.decode() if e.output else "(no output)"
+        raise RuntimeError(
+            f"qsub failed with exit code {e.returncode}:\n{qsub_output}"
+        ) from None
     finally:
         os.chdir(original_dir)
 
@@ -789,34 +886,31 @@ def main():
     except Exception:
         pass  # Use defaults if we can't read it
     
-    old_checkpoint_dir = Path(exp_dir) / args.config_section / old_run_num / 'training_checkpoints'
-    new_checkpoint_dir = Path(exp_dir) / args.config_section / new_run_num / 'training_checkpoints'
-    checkpoint_pattern = f'ckpt_{args.start_epoch}.tar'
-    old_checkpoint = old_checkpoint_dir / checkpoint_pattern
-    
+    old_checkpoint_dir = Path(exp_dir) / args.config_section / old_run_num / 'checkpoints'
+    new_checkpoint_dir = Path(exp_dir) / args.config_section / new_run_num / 'checkpoints'
+    checkpoint_filename = f'ckpt_epoch_{args.start_epoch}.tar'
+    old_checkpoint = old_checkpoint_dir / checkpoint_filename
+
     if args.finetune:
-        # In finetune mode, create directory but don't copy checkpoint
-        print(f"\nCreating finetune directory for run_num {new_run_num}...")
+        # In finetune mode train.py loads from the original run directory and
+        # creates its own output directories, so nothing needs to be done here.
         if args.dry_run:
-            print(f"  [DRY RUN] Would create directory: {new_checkpoint_dir}")
-            print(f"  [DRY RUN] Would NOT copy checkpoint (finetune mode)")
+            print(f"\n  [DRY RUN] Finetune mode: train.py will load from {old_checkpoint_dir}")
+            print(f"  [DRY RUN] Would NOT copy checkpoint or create directories (train.py handles this)")
         else:
-            # Create the directory structure
-            new_checkpoint_dir.mkdir(parents=True, exist_ok=True)
-            print(f"Created finetune directory: {new_checkpoint_dir}")
-            print("Checkpoint not copied (finetune mode)")
+            print("\nFinetune mode: train.py will create output directories and load the "
+                  f"checkpoint from the original run directory ({old_checkpoint_dir}).")
     else:
-        # Normal mode: copy checkpoint
+        # Normal mode: copy checkpoint so the new run can resume from start_epoch
         print(f"\nCopying checkpoint from epoch {args.start_epoch}...")
         if args.dry_run:
             if old_checkpoint.exists():
                 print(f"  [DRY RUN] Would copy checkpoint:")
                 print(f"    From: {old_checkpoint}")
-                print(f"    To: {new_checkpoint_dir / checkpoint_pattern}")
-                print(f"    And: {new_checkpoint_dir / 'ckpt.tar'}")
+                print(f"    To:   {new_checkpoint_dir / checkpoint_filename}")
             else:
                 print(f"  [DRY RUN] WARNING: Checkpoint not found at {old_checkpoint}")
-                available = list(old_checkpoint_dir.glob('ckpt_*.tar')) if old_checkpoint_dir.exists() else []
+                available = list(old_checkpoint_dir.glob('ckpt_epoch_*.tar')) if old_checkpoint_dir.exists() else []
                 if available:
                     print(f"    Available checkpoints: {available}")
                 else:

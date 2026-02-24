@@ -10,7 +10,9 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap as ruamelDict
 from collections import OrderedDict
 from copy import deepcopy
+import multiprocessing
 from multiprocessing import Process
+import concurrent.futures
 from itertools import product
 import matplotlib.pyplot as plt
 
@@ -133,6 +135,7 @@ def to_ensemble_batch(data, ens_members):
     """
     return data.repeat_interleave(ens_members, dim=0)
 
+
 class Trainer():
     def __init__(self, params, world_rank):
         self.params = params
@@ -204,10 +207,23 @@ class Trainer():
         self.loss_obj_pl,self.loss_obj_sfc, self.loss_obj_diagnostic = self.setup_loss_fun()
         self.latitudes = torch.from_numpy(np.array(self.params.lat)).to(self.device, non_blocking=True)
 
-        if self.params.resuming or self.params.finetuning:
+        # When just_validate with specific validation_epochs, skip initial checkpoint load.
+        # The validation loop (lines below) calls restore_checkpoint for each epoch directly.
+        _just_validate_specific_epochs = (
+            getattr(self.params, 'just_validate', False)
+            and len(getattr(self.params, 'validation_epochs', [])) > 0
+        )
+
+        if _just_validate_specific_epochs:
+            if self.world_rank == 0:
+                logging.info(
+                    "just_validate with specific validation_epochs: skipping initial checkpoint load; "
+                    "each epoch's checkpoint will be loaded in the validation loop."
+                )
+        elif self.params.resuming or self.params.finetuning:
             checkpoint_path = None
             finetune = self.params.finetuning
-            
+
             # Priority 1: If start_epoch is assigned, load from that epoch's checkpoint file
             if hasattr(self.params, 'start_epoch') and self.params.start_epoch is not None:
                 epoch_checkpoint_pattern = os.path.join(
@@ -723,7 +739,7 @@ class Trainer():
                 
                 # Broadcast to all ranks if using distributed training
                 if dist.is_initialized():
-                    dist.barrier()
+                    dist.barrier(device_ids=[self.device])
                     if self.world_rank != 0:
                         # Initialize tensor on non-root ranks before broadcast
                         shuffled_date_idxs = torch.zeros(self.data_sizes[0], dtype=torch.long, device=self.device)
@@ -1008,16 +1024,16 @@ class Trainer():
                     - loss: Computed total loss value.
         """
         # Initialize outputs
-        output_surface = 0 
-        output_upper_air = 0 
-        output_diagnostic = 0 
-        loss = 0 
-        loss_diagnostic = 0
-        loss_pl = 0 
-        loss_sfc = 0
-        loss_vae = 0
+        output_surface = torch.zeros(1, device=self.device) 
+        output_upper_air = torch.zeros(1, device=self.device) 
+        output_diagnostic = torch.zeros(1, device=self.device) 
+        loss = torch.zeros(1, device=self.device) 
+        loss_diagnostic = torch.zeros(1, device=self.device)
+        loss_pl = torch.zeros(1, device=self.device) 
+        loss_sfc = torch.zeros(1, device=self.device)
+        loss_vae = torch.zeros(1, device=self.device)
         
-        with autocast(device_type="cuda"):
+        with autocast(enabled = self.params.enable_amp, device_type="cuda"):
             # Branch based on model type (legacy vs non-legacy)
             if self.params.use_legacy_model:
                 # Legacy model: doesn't accept target_surface/target_upper_air
@@ -1035,19 +1051,17 @@ class Trainer():
                 # Legacy model doesn't have second encoder for VAE
                 mu2, sigma2 = None, None
             else:
-                # Non-legacy model: accepts targets for VAE dual encoder architecture
+                # Non-legacy model
                 # Returns: (output_surface, output_upper_air, [output_diagnostic,] mu, sigma, mu2, sigma2)
                 if self.params.has_diagnostic:
                     output_surface, output_upper_air, output_diagnostic, mu, sigma, mu2, sigma2 = self.model(
-                        input_surface, constant_boundary_data, 
-                        varying_boundary_data, input_upper_air, 
-                        target_surface, target_upper_air, train=True)
+                        input_surface, constant_boundary_data,
+                        varying_boundary_data, input_upper_air, train=True)
                     loss_diagnostic = self.loss_obj_diagnostic(output_diagnostic, target_diagnostic)
-                else: 
+                else:
                     output_surface, output_upper_air, mu, sigma, mu2, sigma2 = self.model(
-                        input_surface, constant_boundary_data, 
-                        varying_boundary_data, input_upper_air, 
-                        target_surface, target_upper_air, train=True)
+                        input_surface, constant_boundary_data,
+                        varying_boundary_data, input_upper_air, train=True)
                 
             # Compute losses (same for both model types)
             loss_sfc = self.loss_obj_sfc(output_surface, target_surface)
@@ -1091,7 +1105,7 @@ class Trainer():
         """
 
         # ADD THIS: Log current learning rate
-        current_lr = self.optimizer.param_groups[0]['lr']
+        current_lr = torch.tensor(self.optimizer.param_groups[0]['lr'], device = self.device)
         diagnostic_logs['lr_step'] = current_lr
 
         diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
@@ -1120,7 +1134,10 @@ class Trainer():
                 else:
                     if type(diagnostic_logs[key]) in [int, float]:
                         diagnostic_logs[key] = torch.tensor([diagnostic_logs[key]]).to(self.device)
-                    dist.all_reduce(diagnostic_logs[key].detach())
+                    try:
+                        dist.all_reduce(diagnostic_logs[key].detach())
+                    except:
+                        raise ValueError(f'Diagnostic log {key} is type {type(diagnostic_logs[key])} and cannot be reduced.')
                     diagnostic_logs[key] = float(diagnostic_logs[key]/dist.get_world_size())
 
         return diagnostic_logs
@@ -1508,7 +1525,7 @@ class Trainer():
                     if self.world_rank == 0:
                         os.makedirs(val_data_dir, exist_ok=True)
                     if dist.is_initialized():
-                        dist.barrier()
+                        dist.barrier(device_ids=[self.device])
                     print(val_data_dir)
                     os.makedirs(val_data_dir, exist_ok=True)
                 if self.world_rank == 0:
@@ -1522,12 +1539,20 @@ class Trainer():
                         val_input_surface, val_input_upper_air = self.perturber(val_input_surface, val_input_upper_air)
                     else:
                         val_varying_boundary_data, year = map(lambda x: x.to(self.device, dtype=torch.float32, non_blocking=True), data)
-                    if self.params.has_diagnostic:
-                        val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _ = self.model(
-                            val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
+                    if self.params.use_legacy_model:
+                        if self.params.has_diagnostic:
+                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _ = model_to_eval(
+                                val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
+                        else:
+                            val_output_surface, val_output_upper_air, _, _ = model_to_eval(
+                                val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
                     else:
-                        val_output_surface, val_output_upper_air, _, _ = model_to_eval(val_input_surface, self.constant_boundary_data[[0]], 
-                                                                            val_varying_boundary_data, val_input_upper_air)
+                        if self.params.has_diagnostic:
+                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _ = model_to_eval(
+                                val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
+                        else:
+                            val_output_surface, val_output_upper_air, _, _, _, _ = model_to_eval(
+                                val_input_surface, self.constant_boundary_data[[0]], val_varying_boundary_data, val_input_upper_air)
                     if self.params.predict_delta:
                         val_output_surface, val_output_upper_air = self.integrator(val_input_surface, val_input_upper_air, val_output_surface,
                                                                                         val_output_upper_air)
@@ -1678,12 +1703,20 @@ class Trainer():
                             logging.info(f"val_input_upper_air[:1,:,:,0,0]: {val_input_upper_air[:1,:,:,0,0]}")
                             logging.info(f"Model training mode: {self.model.training}")
                         
-                        if self.params.has_diagnostic:
-                            val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _  = self.model(
-                                val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
+                        if self.params.use_legacy_model:
+                            if self.params.has_diagnostic:
+                                val_output_surface, val_output_upper_air, val_output_diagnostic, _, _ = model_to_eval(
+                                    val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
+                            else:
+                                val_output_surface, val_output_upper_air, _, _ = model_to_eval(
+                                    val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         else:
-                            val_output_surface, val_output_upper_air,  _, _, _, _ = self.model(val_input_surface, self.constant_boundary_data, 
-                                                                                    val_varying_boundary_data[:, step], val_input_upper_air)
+                            if self.params.has_diagnostic:
+                                val_output_surface, val_output_upper_air, val_output_diagnostic, _, _, _, _ = model_to_eval(
+                                    val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
+                            else:
+                                val_output_surface, val_output_upper_air, _, _, _, _ = model_to_eval(
+                                    val_input_surface, self.constant_boundary_data, val_varying_boundary_data[:, step], val_input_upper_air)
                         
                         # DIAGNOSTIC: Log first forward pass output in validate_one_epoch
                         if i == 0 and step == 0 and self.world_rank == 0:
@@ -2252,7 +2285,11 @@ class Trainer():
         obs_function_names = []
 
         if hasattr(self.params, 'obs_functions') and len(self.params.obs_functions) > 0:
-            obs_function_names = [f.strip() for f in self.params.obs_functions.split(',')]
+            raw_obs = self.params.obs_functions
+            if isinstance(raw_obs, str):
+                obs_function_names = [f.strip() for f in raw_obs.split(',')]
+            else:
+                obs_function_names = [str(f).strip() for f in raw_obs]
 
             # Use obs_args_dict if provided (already parsed as dictionary in __main__)
             # If it doesn't exist, default to empty dict
@@ -2281,7 +2318,7 @@ class Trainer():
                         obs_args_list.append(obs_args_dict[obs_func_name])
                     elif isinstance(obs_args_dict, dict) and len(obs_args_dict) > 0:
                         # Format 2: flat dictionary - convert to list based on function requirements
-                        if obs_func_name == 'unweighted_nday_mean':
+                        if obs_func_name in ('unweighted_nday_mean', 'unweighted_nday_max'):
                             # Expected order: [target_duration, var, regions, region_file_path]
                             required_keys = ['target_duration', 'var', 'regions', 'region_file_path']
                             if all(key in obs_args_dict for key in required_keys):
@@ -2370,57 +2407,75 @@ class Trainer():
                 # Use the same init_nc_filepaths list as forecast processing to ensure particle_idx matches exactly
                 # This ensures that particle indices correspond to the same files in both forecast and truth
                 if 'init_nc_filepaths' in ensemble_params and len(ensemble_params['init_nc_filepaths']) > 0:
-                    logging.info(f"Computing truth observables for {len(ensemble_params['init_nc_filepaths'])} files")
-                    for file_idx, (data_path, final_datetime_dt) in enumerate(zip(ensemble_params['init_nc_filepaths'], final_datetimes)):
-                        # Get event_type from mapping (created during forecast processing setup)
-                        event_type = event_type_mapping.get(file_idx, 'unknown')
-                        logging.info(f"Processing truth file {file_idx}: {data_path} (event_type: {event_type})")
+                    n_files = len(ensemble_params['init_nc_filepaths'])
+                    # ProcessPoolExecutor with 'spawn' is used so this is safe when called from
+                    # a torchrun worker: spawned processes start with a fresh Python interpreter
+                    # and no inherited CUDA context, so there is no CUDA fork hazard.
+                    # The worker function lives in utils/observations.py (no CUDA imports), so
+                    # spawned processes avoid any CUDA initialisation side-effects.
+                    # True process-level parallelism sidesteps the netCDF4/HDF5 C-library locks
+                    # that serialise threads even when the GIL is released.
+                    #
+                    # Worker count budget: torchrun already occupies nprocs_per_node processes,
+                    # each holding GPU memory and a Python interpreter.  Each spawned worker
+                    # also starts a fresh interpreter (numpy + xarray ≈ 200–500 MB each).
+                    # Dividing by LOCAL_WORLD_SIZE gives this rank's fair share of CPUs, then
+                    # we hard-cap at 16 so that worst-case memory use stays tractable even on
+                    # nodes with many cores (e.g. 128-core nodes would otherwise spawn 32
+                    # workers, risking OOM when combined with the training process footprint).
+                    local_world_size = int(os.environ.get('LOCAL_WORLD_SIZE', 1))
+                    n_workers = min(
+                        max((os.cpu_count() or 1) // max(local_world_size, 1), 1),
+                        n_files,
+                        16,
+                    )
+                    logging.info(f"Computing truth observables for {n_files} files "
+                                 f"using {n_workers} parallel worker processes "
+                                 f"(LOCAL_WORLD_SIZE={local_world_size}, "
+                                 f"cpu_count={os.cpu_count()})")
 
-                        try:
-                            with warnings.catch_warnings():
-                                warnings.filterwarnings('ignore', category=DeprecationWarning, message='.*use_cftime.*')
-                                ds_truth = xr.open_dataset(data_path, use_cftime=True)
-                        except Exception as e:
-                            logging.warning(f"Could not open truth dataset for {event_type} at {data_path}: {e}")
-                            # Skip this file - don't create truth observables for it
-                            # This matches forecast behavior where failed files are skipped
-                            continue
+                    _spawn_ctx = multiprocessing.get_context('spawn')
+                    futures_map = {}
+                    with concurrent.futures.ProcessPoolExecutor(
+                            max_workers=n_workers, mp_context=_spawn_ctx) as executor:
+                        for file_idx, (data_path, final_datetime_dt) in enumerate(
+                                zip(ensemble_params['init_nc_filepaths'], final_datetimes)):
+                            event_type = event_type_mapping.get(file_idx, 'unknown')
+                            future = executor.submit(
+                                obs_mod.truth_file_worker,
+                                file_idx, data_path, final_datetime_dt, event_type,
+                                inference_hours_list, self.params.timedelta_hours,
+                                obs_functions, obs_function_names, obs_args_list,
+                                save_basename_truth,
+                            )
+                            futures_map[future] = file_idx
 
-                        # Ensure an ensemble dimension exists (single member)
-                        # We mimic Stepper output where ensemble dimension is named 'ensemble_idx'
-                        if 'ensemble_idx' not in ds_truth.dims:
-                            ds_truth = ds_truth.expand_dims({'ensemble_idx': [0]})
+                        for future in concurrent.futures.as_completed(futures_map):
+                            file_idx = futures_map[future]
+                            data_path = ensemble_params['init_nc_filepaths'][file_idx]
+                            event_type = event_type_mapping.get(file_idx, 'unknown')
+                            try:
+                                _, success, open_error, results = future.result()
+                            except Exception as e:
+                                import traceback
+                                logging.error(f"Unexpected error processing truth file {file_idx} "
+                                              f"({data_path}): {e}\n{traceback.format_exc()}")
+                                continue
 
-                        # Use file_idx as particle_idx to match forecast processing
-                        # file_idx corresponds to the index in init_nc_filepaths, which matches forecast particle_idx
-                        # The data loader in ensemble mode uses the index in init_nc_filepaths as the particle index
-                        particle_idxs = [file_idx]
-                        logging.info(f"  Using particle_idx={file_idx} for truth observable computation")
+                            if not success:
+                                logging.warning(open_error)
+                                continue
 
-                        # Compute truth observables for each forecast horizon by slicing truth time dimension.
-                        # IMPORTANT: do NOT pass lead_time_hours into observation functions for truth.
-                        # Select data from the END of the truth dataset to match how forecasts compute the last N days.
-                        for inference_hours in inference_hours_list:
-                            time_steps = int(inference_hours // self.params.timedelta_hours)
-                            ds_truth_h = ds_truth.sel(time = ds_truth.time <= final_datetime_dt)
-                            if 'time' in ds_truth.dims and ds_truth.sizes.get('time', 0) > 0 and time_steps > 0:
-                                # Select the last time_steps from the truth dataset (matching forecast computation)
-                                max_steps = min(time_steps, ds_truth.sizes['time'])
-                                ds_truth_h = ds_truth.isel(time=slice(-max_steps, None))
-
-                            for obs_func, obs_func_name, obs_args in zip(obs_functions, obs_function_names, obs_args_list):
-                                # observations.py standard order (truth mode):
-                                # [datasets, particle_idxs, ensemble_start, ensemble_end, event_type, ...func_args..., save_basename]
-                                func_args = [[ds_truth_h], particle_idxs, 0, 1, event_type] + list(obs_args) + [save_basename_truth]
-                                try:
-                                    obs_func(tuple(func_args))
-                                    logging.debug(f"  Successfully computed truth observable {obs_func_name} for particle_idx={file_idx}, inference_hours={inference_hours}")
-                                except Exception as e:
-                                    logging.warning(f"Error computing truth observable {obs_func_name} at inference_hours={inference_hours}: {e}")
-                                    import traceback
-                                    logging.debug(traceback.format_exc())
-
-                        ds_truth.close()
+                            logging.info(f"Finished truth file {file_idx}: {data_path} "
+                                         f"(event_type: {event_type}, particle_idx={file_idx})")
+                            for inference_hours, obs_func_name, ok, err in results:
+                                if ok:
+                                    logging.debug(f"  Successfully computed truth observable "
+                                                  f"{obs_func_name} for particle_idx={file_idx}, "
+                                                  f"inference_hours={inference_hours}")
+                                else:
+                                    logging.warning(f"Error computing truth observable {obs_func_name} "
+                                                    f"at inference_hours={inference_hours}: {err}")
                 else:
                     logging.warning("No init_nc_filepaths found in ensemble_params. Cannot compute truth observables.")
                     if hasattr(self.params, 'init_nc_filepath_files'):
@@ -2461,7 +2516,7 @@ class Trainer():
                 logging.info("First ensemble validation completed. Subsequent validations will reuse truth observables if they exist.")
 
         if dist.is_initialized():
-            dist.barrier()
+            dist.barrier(device_ids=[self.device])
 
     def _make_ensemble_obs_function(self, inference_hours, event_type_mapping, particle_idx_within_event,
                                     save_basenames_obs_by_lead_time, obs_functions, obs_args_list,
@@ -2636,7 +2691,7 @@ class Trainer():
             stepper.integrator = self.integrator
 
         if dist.is_initialized():
-            dist.barrier()
+            dist.barrier(device_ids=[self.device])
 
         # Store save_basenames_obs by lead time for use in observation function
         save_basenames_obs_by_lead_time = {inference_hours: save_basenames_obs_for_lead}
@@ -2821,7 +2876,7 @@ class Trainer():
                     obs_functions, obs_args_list, obs_function_names)
 
             if dist.is_initialized():
-                dist.barrier()
+                dist.barrier(device_ids=[self.device])
 
             if self.world_rank == 0:
                 logging.info("Ensemble forecast validation completed for all inference hours.")
@@ -3156,9 +3211,8 @@ class Trainer():
         if self.ema is not None and 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
             self.ema.load_state_dict(checkpoint['ema_state'])
             logging.info("Restored EMA state")
-        
-        else:
-            # Old checkpoint without EMA state: sync EMA from loaded model weights
+        elif self.ema is not None:
+            # Checkpoint has no EMA state but EMA is enabled: initialise from model weights
             logging.warning("No EMA state in checkpoint. Initializing EMA from loaded model weights.")
             update_ema(self.ema, self.model, decay=0)  # decay=0 means direct copy
             
@@ -3446,7 +3500,7 @@ if __name__ == '__main__':
         # obs_functions
         if len(args.obs_functions) > 0:
             params['obs_functions'] = args.obs_functions
-        elif not hasattr(params, 'obs_functions') or (isinstance(params.obs_functions, str) and len(params.obs_functions) == 0):
+        elif not hasattr(params, 'obs_functions') or len(params.obs_functions) == 0:
             raise ValueError("ensemble_validation requires obs_functions to be specified (either in YAML or via --obs_functions)")
         # If not set from args, keep the YAML value (already in params)
         
@@ -3591,7 +3645,7 @@ if __name__ == '__main__':
     
     # Synchronize all ranks after directory creation
     if dist.is_initialized():
-        dist.barrier()
+        dist.barrier(device_ids=[local_rank])
 
     checkpoint_paths = [file for file in glob.glob(params.checkpoint_path_globstr_load) if os.path.isfile(file)]
     best_checkpoint_exists = os.path.isfile(params['best_checkpoint_path_load'])

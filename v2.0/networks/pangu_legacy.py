@@ -64,7 +64,7 @@ from utils.earth_position_index import get_earth_position_index
 from utils.pad import get_pad3d
 from utils.shift_window_mask import get_shift_window_mask, window_partition, window_reverse
 from utils.crop import crop3d
-from timm.models.layers import trunc_normal_, DropPath
+from timm.layers import trunc_normal_, DropPath
 from utils.integrate import Integrator, forward_euler
 import os
 import xarray as xr

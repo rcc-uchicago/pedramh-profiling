@@ -497,7 +497,7 @@ class Stepper():
                 input_surface_in, input_upper_air_in, varying_boundary_data_in = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
-                print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
+                #print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
                 
                 ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
                                                    self.params.ensemble_members_per_pred)
@@ -738,6 +738,7 @@ class Stepper():
                     #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
                     conversion_time += time.time() - conversion_start
 
+                    """
                     print(f'Comparing to particle {particle_idxs[0]}')
 
                     chicago_tas = ensemble_datasets[0]['tas'].sel(lat=41.8781, lon=-87.6298, method='nearest')
@@ -792,6 +793,7 @@ class Stepper():
                     plt.close()
 
                     true_data.close()
+                    """
 
 
                     if self.save_forecasts:

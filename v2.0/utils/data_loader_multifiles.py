@@ -99,8 +99,8 @@ def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = Non
         level_delta: Tolerance for matching levels (default 1e-4).
     """
     x = []
-    print(f'Loading data from {path}')
-    print(f'Init datetime: {init_datetime}')
+    #print(f'Loading data from {path}')
+    #print(f'Init datetime: {init_datetime}')
     with nc.Dataset(path, 'r') as f:
         if init_datetime is not None:
             # Read the time variable from the netCDF dataset
@@ -694,7 +694,7 @@ class GetDataset(Dataset):
         return data / self.upper_air_delta_std.reshape(len(self.upper_air_variables), -1, 1, 1)
 
     # Modification for the autoregressive parameter
-    def _get_dates(self, hour_step=6., curriculum_learning_fraction = None):
+    def _get_dates(self, hour_step=6.):
         if self.single_ic:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero) + timedelta(hours=self.single_ic_offset)
             print(f'Start date: {start_date.strftime("%Y-%m-%d_%H:%M:%S")}')
@@ -783,7 +783,7 @@ class GetDataset(Dataset):
 
     def _get_data_nc(self, index, out = False, variable_list_3D = None, variable_list_2D = None):
         data_file_path = self.params.init_nc_filepaths[index]
-        print(f'Loading data from index {index} with path {data_file_path}')
+        #print(f'Loading data from index {index} with path {data_file_path}')
         init_dt = self.init_datetimes[index] if len(self.init_datetimes) > 1 else self.init_datetimes[0]
         # Build per-variable level arrays so that get_data_given_path_nc selects
         # and reorders levels to match the h5 / mean-std ordering.

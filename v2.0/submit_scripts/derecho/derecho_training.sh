@@ -22,8 +22,8 @@ VALIDATE_BEFORE_TRAIN=${VALIDATE_BEFORE_TRAIN:-0}
 module load conda
 conda activate aires_panguplasim
 
-# Change to working directory
-cd /glade/work/awikner/PanguWeather/v2.0
+# Change to working directory (WORKDIR exported by start_curriculum_learning.py via -V)
+cd "${WORKDIR:-/glade/work/awikner/PanguWeather/v2.0}"
 #source export_DDP_vars.sh
 which conda
 #python test_torch.py
@@ -31,8 +31,8 @@ export WANDB_MODE=online
 
 nvidia-smi
 
-# MPI and OpenMP settings
-NNODES=`wc -l < $SLURM_JOB_NODELIST`
+# MPI and OpenMP settings — use PBS_NODEFILE (not SLURM_JOB_NODELIST)
+NNODES=$(sort -u "$PBS_NODEFILE" | wc -l)
 #Follwing will be the number of GPUs on each node, so 4 in our case as each node has 4 GPUs
 export NUM_TASKS_PER_NODE=$(nvidia-smi -L | wc -l)
 #NUM_TASKS_PER_NODE=2
@@ -44,7 +44,6 @@ echo "NUM_OF_NODES= ${NNODES} NUM_TASKS_PER_NODE= ${NUM_TASKS_PER_NODE} WORLD_SI
 export MASTER_ADDR=$(hostname)
 export MASTER_PORT=12345
 export WORLD_SIZE
-export RANK=$SLURM_ARRAY_TASK_ID
 export OMP_NUM_THREADS=1
 
 
