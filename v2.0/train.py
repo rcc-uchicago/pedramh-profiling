@@ -1,4 +1,4 @@
-import sys, os
+import sys, os, threading
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from networks.pangu import PanguModel_Plasim
 from networks.pangu_legacy import PanguModel_Plasim as PanguModel_Plasim_Legacy
@@ -25,6 +25,7 @@ import uuid
 import copy
 import json
 import shutil
+import traceback
 import cftime
 import warnings
 
@@ -45,7 +46,9 @@ from utils.power_spectrum import (
     plot_power_spectrum,
     make_gif
 )
-from utils.data_loader_multifiles import get_data_loader, get_date_range, datetime_class_from_calendar, create_dataloader
+from utils.data_loader_multifiles import get_data_loader,\
+    get_date_range, datetime_class_from_calendar, create_dataloader, \
+    shuffle_balanced_dates
 from utils.YParams import YParams
 from utils.metrics import create_metrics_aggregator_new
 from utils.perturbation import Perturber
@@ -370,9 +373,11 @@ class Trainer():
         if self.world_rank == 0:
             self.generator = np.random.default_rng(seed = 0)
         if hasattr(self.params, 'train_data_sets') and self.params.curriculum_learning:
+            _partition_date_ranges = getattr(self.params, 'train_date_range', None)
             self.data_sizes = get_date_range([], self.params.train_data_sets, self.params.data_timedelta_hours,
-                                            self.params.calendar, self.params.has_year_zero, 
-                                            datetime_class_from_calendar(self.params.calendar), get_size = True)
+                                            self.params.calendar, self.params.has_year_zero,
+                                            datetime_class_from_calendar(self.params.calendar), get_size = True,
+                                            partition_date_ranges = _partition_date_ranges)
                 
         if self.params.train_year_to_year:
             self.train_data_loaders = []
@@ -735,14 +740,31 @@ class Trainer():
             if self.params.curriculum_learning:
                 # Generate shuffled indices on rank 0
                 if self.world_rank == 0:
-                    shuffled_date_idxs = torch.tensor(self.generator.permutation(self.data_sizes[0]), device=self.device)
+                    if self.params.balanced_learning:
+                        shuffled_date_idxs = torch.tensor(
+                            shuffle_balanced_dates(self.params,
+                                                   self.generator,
+                                                   self.train_datasets[0].all_dates,
+                                                   self.data_sizes,
+                                                   self.train_datasets[0].start_date,
+                                                   self.train_datasets[0].has_year_zero,
+                                                   self.train_datasets[0].datetime_class),
+                            device = self.device)
+                    else:
+                        shuffled_date_idxs = torch.tensor(self.generator.permutation(self.data_sizes[0]), device=self.device)
                 
                 # Broadcast to all ranks if using distributed training
                 if dist.is_initialized():
                     dist.barrier(device_ids=[self.device])
                     if self.world_rank != 0:
-                        # Initialize tensor on non-root ranks before broadcast
-                        shuffled_date_idxs = torch.zeros(self.data_sizes[0], dtype=torch.long, device=self.device)
+                        # Initialize tensor on non-root ranks before broadcast.
+                        # balanced_learning returns sum(data_sizes[1:]) indices;
+                        # standard curriculum returns data_sizes[0] indices.
+                        if getattr(self.params, 'balanced_learning', False):
+                            shuffled_size = sum(self.data_sizes[1:])
+                        else:
+                            shuffled_size = self.data_sizes[0]
+                        shuffled_date_idxs = torch.zeros(shuffled_size, dtype=torch.long, device=self.device)
                     dist.broadcast(shuffled_date_idxs, src = 0)
                 
                 shuffled_date_idxs = shuffled_date_idxs.tolist()
@@ -759,11 +781,14 @@ class Trainer():
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             logging.info(f"Epoch {epoch + 1} training time: {tr_time:.2f} seconds, data loading time: {data_time:.2f} seconds")
-            # Run ensemble forecast validation if enabled
+            # Run ensemble forecast validation if enabled, subject to frequency gate.
             ensemble_val_time = 0.0
             if hasattr(self.params, 'ensemble_validation') and self.params.ensemble_validation:
-                ensemble_val_time = self.validate_ensemble_forecast()
-                logging.info(f"Epoch {epoch + 1} ensemble validation time: {ensemble_val_time:.2f} seconds")
+                _ens_freq = getattr(self.params, 'ensemble_validation_frequency', 1)
+                _epochs_since_start = epoch - self.startEpoch + 1
+                if _epochs_since_start % _ens_freq == 0:
+                    ensemble_val_time = self.validate_ensemble_forecast()
+                    logging.info(f"Epoch {epoch + 1} ensemble validation time: {ensemble_val_time:.2f} seconds")
             valid_time, valid_logs = self.validate_one_epoch()
             logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
             
@@ -856,7 +881,9 @@ class Trainer():
 
         self.model.train()
 
-        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}')
+        pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}',
+                    dynamic_ncols=True, file=logging_utils.tqdm_stream,
+                    disable=(self.world_rank != 0))
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
@@ -1234,35 +1261,54 @@ class Trainer():
         model.eval()
         return model
 
-    def _create_metrics_logs(self, results: dict) -> dict:
+    def _create_metrics_logs(self, results: dict, lead_times_steps: list = None) -> dict:
         """
         Create wandb-ready log entries from MetricsAggregator results.
-        
+
         Only logs metrics for variables/levels specified in diagnostic_acc_var_dict.
-        
+
         Args:
             results: Dictionary from MetricsAggregator.compute()
-            
+            lead_times_steps: The full list of lead-time steps that was passed to the
+                MetricsAggregator (e.g. [1,2,...,60] in just_validate mode, or
+                forecast_lead_times in training mode).  Used to map each step in
+                forecast_lead_times to the correct index in the results tensors.
+                If None, falls back to using forecast_lead_times directly (training mode
+                behaviour, where the two lists are identical).
+
         Returns:
             Dictionary of metric name -> value for wandb logging
         """
         logs = {}
         var_dict = getattr(self.params, 'diagnostic_acc_var_dict', {})
         lead_times = self.params.forecast_lead_times
-        
+
+        # Build a mapping from step number → result-tensor index.
+        # In just_validate mode lead_times_steps = [1,2,...,max] while
+        # lead_times = forecast_lead_times = [1,12,20,40,60].  Using step_i
+        # (position in lead_times) as the index into results is wrong in that
+        # case because step_i=1 would give the 2-step result, not the 12-step.
+        if lead_times_steps is not None:
+            step_to_idx = {step: idx for idx, step in enumerate(lead_times_steps)}
+        else:
+            step_to_idx = {step: idx for idx, step in enumerate(lead_times)}
+
         # Get variable lists
         surface_vars = list(self.valid_dataset.surface_variables)
         upper_air_vars = list(self.valid_dataset.upper_air_variables)
         levels = list(self.valid_dataset.levels)
-        
-        for step_i, step in enumerate(lead_times):
+
+        for step in lead_times:
+            if step not in step_to_idx:
+                continue
+            result_idx = step_to_idx[step]
             for var, var_levels in var_dict.items():
                 if not var_levels:
                     # Surface variable
                     if var in surface_vars:
                         var_idx = surface_vars.index(var)
-                        acc_val = results['acc_surface'][step_i, var_idx].item()
-                        rmse_val = results['rmse_surface'][step_i, var_idx].item()
+                        acc_val = results['acc_surface'][result_idx, var_idx].item()
+                        rmse_val = results['rmse_surface'][result_idx, var_idx].item()
                         logs[f'valid_{var}_{step}step_acc'] = acc_val
                         logs[f'valid_{var}_{step}step_rmse'] = rmse_val
                 else:
@@ -1277,11 +1323,11 @@ class Trainer():
                                     level_idx = li
                                     break
                             if level_idx is not None:
-                                acc_val = results['acc_upper_air'][step_i, var_idx, level_idx].item()
-                                rmse_val = results['rmse_upper_air'][step_i, var_idx, level_idx].item()
+                                acc_val = results['acc_upper_air'][result_idx, var_idx, level_idx].item()
+                                rmse_val = results['rmse_upper_air'][result_idx, var_idx, level_idx].item()
                                 logs[f'valid_{var}_{int(level)}_{step}step_acc'] = acc_val
                                 logs[f'valid_{var}_{int(level)}_{step}step_rmse'] = rmse_val
-        
+
         return logs
 
     def _should_save_plots(self, epoch: int) -> bool:
@@ -1520,7 +1566,7 @@ class Trainer():
                 val_upper_air_bias = None
                 if self.params.has_diagnostic:
                     val_diagnostic_bias = None
-                if self.ensemble_validation:
+                if self.params.ensemble_validation:
                     val_data_dir = self.params.validation_data_dir
                     if self.world_rank == 0:
                         os.makedirs(val_data_dir, exist_ok=True)
@@ -1528,10 +1574,10 @@ class Trainer():
                         dist.barrier(device_ids=[self.device])
                     print(val_data_dir)
                     os.makedirs(val_data_dir, exist_ok=True)
-                if self.world_rank == 0:
-                    pbar = tqdm(enumerate(self.long_valid_data_loader, 0), total=len(self.long_valid_data_loader), miniters=1)
-                else:
-                    pbar = enumerate(self.long_valid_data_loader, 0)
+                pbar = tqdm(enumerate(self.long_valid_data_loader, 0),
+                            total=len(self.long_valid_data_loader), miniters=1,
+                            dynamic_ncols=True, file=logging_utils.tqdm_stream,
+                            disable=(self.world_rank != 0))
                 plt.ion()
                 for i, data in pbar:
                     if i == 0:
@@ -1617,7 +1663,10 @@ class Trainer():
                 
                 
                                 
-            for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb, bar_format='{l_bar}{bar:30}{r_bar}{bar:-10b}', miniters=1):
+            for i, data in tqdm(enumerate(self.valid_data_loader, 0), total=nb,
+                                bar_format='{l_bar}{bar:30}{r_bar}', miniters=1,
+                                dynamic_ncols=True, file=logging_utils.tqdm_stream,
+                                disable=(self.world_rank != 0)):
                 if world_rank == 0:
                     print(f"Validating batch {i+1}/{nb}")
                 
@@ -1762,9 +1811,20 @@ class Trainer():
                         
                         # At forecast_lead_times: update metrics and store for spectra
                         if (step + 1) in lead_times_steps:
-                            # Get timestamps for this step
+                            # Get TARGET timestamps for this step (initial time + lead time).
+                            # The climatology lookup in MetricsAggregator must use the
+                            # day-of-year of the TARGET, not the initial condition.
+                            advance_hours = int((step + 1) * self.params.timedelta_hours)
                             timestamps = times.clone()
-                            
+                            for _j in range(times.shape[0]):
+                                _y = int(times[_j, 0]); _m = int(times[_j, 1])
+                                _d = int(times[_j, 2]); _h = int(times[_j, 3])
+                                _tgt = datetime(_y, _m, _d, _h) + timedelta(hours=advance_hours)
+                                timestamps[_j, 0] = _tgt.year
+                                timestamps[_j, 1] = _tgt.month
+                                timestamps[_j, 2] = _tgt.day
+                                timestamps[_j, 3] = _tgt.hour
+
                             # Update MetricsAggregator (uses denormalized values internally)
                             if self.params.has_diagnostic:
                                 metrics.update(
@@ -2035,7 +2095,7 @@ class Trainer():
             diagnostic_logs[key] = value.item()
 
         # Add ACC/RMSE metrics from MetricsAggregator (only for diagnostic_acc_var_dict vars)
-        acc_rmse_logs = self._create_metrics_logs(metrics_results)
+        acc_rmse_logs = self._create_metrics_logs(metrics_results, lead_times_steps)
         diagnostic_logs.update(acc_rmse_logs)
 
         # Add bias RMSE logs (if long validation)
@@ -2057,15 +2117,15 @@ class Trainer():
         print(f"diagnostic_logs: {diagnostic_logs}")
         if self.params.log_to_wandb:
             wandb_log_dict = dict(diagnostic_logs)
-            
+
             if save_plots_this_epoch:
                 if self.params.diagnostic_gif and gif_filename:
                     wandb_log_dict["Evolution_GIF"] = wandb.Video(gif_filename)
-            
+
                 if self.params.diagnostic_spectra and spectra_filename:
                     wandb_log_dict["power_spectrum_plot"] = wandb.Image(spectra_filename)
-            
-            wandb.log(wandb_log_dict)
+
+            wandb.log(wandb_log_dict, step=self.wandb_step)
         
         valid_time = time.time() - valid_start
         self.model.eval()
@@ -2262,10 +2322,29 @@ class Trainer():
                 obs_args_dict = self.params.obs_args_dict
 
             # Import and set up observable functions
+            # Mapping from old file-saving function names to their accumulator-based
+            # _ts equivalents.  The old functions expect save_basename as the last
+            # positional argument; the new pipeline passes an ObservationAccumulator
+            # instead.  Redirect transparently so existing configs keep working.
+            _ts_redirect = {
+                'unweighted_nday_mean': 'unweighted_nday_mean_ts',
+                'unweighted_nday_max':  'unweighted_nday_max_ts',
+            }
+
             for obs_func_name in obs_function_names:
                 try:
                     # Import from v2.0/utils/observations.py
                     from utils import observations as obs_mod
+
+                    # Redirect legacy function names to their _ts counterparts.
+                    redirected_name = _ts_redirect.get(obs_func_name)
+                    if redirected_name is not None:
+                        logging.info(
+                            f"obs_function '{obs_func_name}' redirected to "
+                            f"'{redirected_name}' for accumulator-based pipeline."
+                        )
+                        obs_func_name = redirected_name
+
                     if not hasattr(obs_mod, obs_func_name):
                         logging.warning(f"Unknown observable function: {obs_func_name}. Skipping.")
                         continue
@@ -2457,15 +2536,15 @@ class Trainer():
             if not pids:
                 return
 
-            # All particles in a batch share the same event_type (Stepper batches
-            # particles from the same file together).
-            event_type = event_type_mapping.get(pids[0], 'unknown')
+            # Compute per-particle event types (particles in a batch may span
+            # multiple event types at the boundary between event groups).
+            event_types = [event_type_mapping.get(pid, 'unknown') for pid in pids]
 
             for obs_func, obs_args, obs_name in zip(
                     obs_functions, obs_args_list, obs_function_names):
                 try:
                     func_args = (
-                        [ensemble_datasets, pids, ensemble_start, ensemble_end, event_type]
+                        [ensemble_datasets, pids, ensemble_start, ensemble_end, event_types]
                         + list(obs_args)
                         + [accumulator]
                     )
@@ -2528,10 +2607,16 @@ class Trainer():
             [current_ensemble_params], self.world_rank,
             use_6h_24h_model=False, async_save=False)
 
-        # Copy current training weights into stepper
-        training_sd = (self.model.module.state_dict()
-                       if hasattr(self.model, 'module')
-                       else self.model.state_dict())
+        # Copy current training weights into stepper.
+        # Prefer EMA weights for inference (consistent with _get_model_for_eval).
+        if self.ema is not None:
+            training_sd = self.ema.state_dict()
+            if self.world_rank == 0:
+                logging.info("Using EMA model weights for ensemble inference.")
+        else:
+            training_sd = (self.model.module.state_dict()
+                           if hasattr(self.model, 'module')
+                           else self.model.state_dict())
         if hasattr(stepper.model, 'module'):
             stepper.model.module.load_state_dict(training_sd, strict=True)
         else:
@@ -2631,6 +2716,14 @@ class Trainer():
         if not getattr(self.params, 'ensemble_validation', False):
             return 0.0
 
+        # Join any metrics-computation thread left over from the previous call
+        # before touching shared logging / wandb state again.
+        if self.world_rank == 0:
+            prev_thread = getattr(self, '_metrics_thread', None)
+            if prev_thread is not None and prev_thread.is_alive():
+                logging.info("Waiting for previous metrics thread to finish...")
+                prev_thread.join()
+
         ensemble_val_start = time.time()
         if self.world_rank == 0:
             logging.info(
@@ -2682,21 +2775,62 @@ class Trainer():
                 event_type_mapping, obs_functions, obs_args_list,
                 obs_function_names, accumulator)
 
+            # Gather forecast observations from all DDP ranks to rank 0.
+            # Each rank only processes a subset of particles (via DistributedSampler),
+            # so we must collect all subsets before saving.
+            if dist.is_initialized() and dist.get_world_size() > 1:
+                world_size = dist.get_world_size()
+                if self.world_rank == 0:
+                    all_forecast_obs = [None] * world_size
+                else:
+                    all_forecast_obs = None
+                dist.gather_object(
+                    accumulator.forecast_obs, all_forecast_obs, dst=0)
+                if self.world_rank == 0:
+                    for rank_fc_obs in all_forecast_obs[1:]:
+                        for qualifier, et_dict in rank_fc_obs.items():
+                            for event_type, pid_dict in et_dict.items():
+                                for particle_idx, ens_dict in pid_dict.items():
+                                    for ens_member, values in ens_dict.items():
+                                        accumulator.add_forecast(
+                                            qualifier, event_type,
+                                            int(particle_idx), ens_member,
+                                            values)
+                    logging.info(
+                        f"Gathered forecast obs from {world_size} DDP ranks.")
+
             if dist.is_initialized():
                 dist.barrier(device_ids=[self.device])
 
-            # Step 3: metrics + save (rank-0 only)
+            # Step 3: metrics + save (rank-0 only).
+            # _combine_and_log_ensemble_metrics can take many minutes (much
+            # longer than the NCCL watchdog timeout of 600 s).  Running it
+            # inline while other ranks wait at a barrier would cause an NCCL
+            # timeout.  Instead we launch it in a daemon thread so rank 0
+            # reaches the barrier immediately and all ranks exit this function
+            # together.  The thread is joined at the next entry to this
+            # function (see above) before any shared state is touched again.
             if self.world_rank == 0:
-                logging.info("Computing error metrics and saving results...")
+                logging.info("Computing error metrics and saving results "
+                             "(background thread)...")
                 ens_val_dir = os.path.join(
                     self.params.experiment_dir, 'ensemble_validation')
                 os.makedirs(ens_val_dir, exist_ok=True)
                 output_nc_path = os.path.join(
                     ens_val_dir,
                     f"ensemble_validation_epoch{self.epoch:04d}.nc")
-                self._combine_and_log_ensemble_metrics(
-                    accumulator, error_metrics_list, output_nc_path)
-                logging.info("Ensemble forecast validation complete.")
+                self._metrics_thread = threading.Thread(
+                    target=self._combine_and_log_ensemble_metrics,
+                    args=(accumulator, error_metrics_list, output_nc_path),
+                    daemon=True,
+                )
+                self._metrics_thread.start()
+
+            # All ranks (including rank 0 which just started the thread) sync
+            # here.  The barrier completes in milliseconds, well within the
+            # NCCL watchdog timeout.
+            if dist.is_initialized():
+                dist.barrier(device_ids=[self.device])
 
         except Exception as exc:
             logging.error(f"Error in ensemble forecast validation: {exc}")
@@ -3028,7 +3162,8 @@ class Trainer():
         elif self.ema is not None:
             # Checkpoint has no EMA state but EMA is enabled: initialise from model weights
             logging.warning("No EMA state in checkpoint. Initializing EMA from loaded model weights.")
-            update_ema(self.ema, self.model, decay=0)  # decay=0 means direct copy
+            model_for_ema = self.model.module if hasattr(self.model, 'module') else self.model
+            update_ema(self.ema, model_for_ema, decay=0)  # decay=0 means direct copy
             
         # Restore optimizer and scheduler state only when resuming training (not finetuning)
         self.epoch = checkpoint['epoch']
@@ -3273,10 +3408,20 @@ if __name__ == '__main__':
     if args.finetune_run_num is not None:
         params['finetune_run_num'] = args.finetune_run_num
     # Validate finetuning arguments
-    if params.finetune_num_epochs > 0 and params.finetune_run_num is None:
-        raise ValueError("Finetuning epochs specified but finetuning run number is not specified")
+    if hasattr(params, "finetune_num_epochs"):
+        if params.finetune_num_epochs > 0 and params.finetune_run_num is None:
+            raise ValueError("Finetuning epochs specified but finetuning run number is not specified")
     if args.finetune_lr > 0:
         params['lr'] = args.finetune_lr  # Override learning rate for finetuning
+
+    # Curriculum learning configuration
+    if hasattr(params, "curriculum_learning"):
+        if params.curriculum_learning:
+            if hasattr(params, "balanced_learning"):
+                if params.balanced_learning:
+                    print('Using balanced learning, setting curriculum_learning_fraction to 0.5 and train_date_range = None')
+                    params['curriculum_learning_fraction'] = 0.5
+                    params['train_date_range'] = None
     
     # Load data set configurations from JSON files if provided
     if args.train_data_sets_json is not None:
@@ -3367,8 +3512,6 @@ if __name__ == '__main__':
         params['num_inferences'] = params['num_data_workers']  # Reduce inference count
     else:
         # Normal mode: determine world size from environment or available GPUs
-        
-        
         if 'WORLD_SIZE' in os.environ:
             print('World size from OS: %d' % int(os.environ['WORLD_SIZE']))
             params['world_size'] = int(os.environ['WORLD_SIZE'])
@@ -3398,9 +3541,13 @@ if __name__ == '__main__':
     
     # Set up directory structure
     if hasattr(params, 'finetune_run_num'):
-        # Finetuning mode: save to finetune_run_num directory, load from original run_num
+        # Finetuning mode: save to finetune_run_num directory, load from original run_num.
+        # load_exp_dir can be set independently when the original checkpoint lives under
+        # a different base directory than the finetuned model (e.g. exp_dir is the
+        # finetuning output dir but the source checkpoint is in 'results/').
         save_expDir = os.path.join(params.exp_dir, args.config, str(params.finetune_run_num))
-        load_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
+        load_base = params.load_exp_dir if hasattr(params, 'load_exp_dir') else params.exp_dir
+        load_expDir = os.path.join(load_base, args.config, str(args.run_num))
     else:
         # Normal training: save and load from same directory
         save_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
@@ -3628,8 +3775,17 @@ if __name__ == '__main__':
                 # Run validation for this checkpoint
                 trainer.validate_one_epoch()
     
-    # Training/validation complete
+    # Training/validation complete.
+    # Join any pending background metrics-saving thread before exiting so that
+    # the ensemble validation nc file is fully written (daemon threads are killed
+    # on process exit, which silently drops in-progress saves).
+    if world_rank == 0:
+        final_thread = getattr(trainer, '_metrics_thread', None)
+        if final_thread is not None and final_thread.is_alive():
+            logging.info("Waiting for metrics thread to finish saving ensemble validation results...")
+            final_thread.join()
+
     logging.info('DONE ---- rank %d' % world_rank)
-    
+
     if dist.is_initialized():
         dist.destroy_process_group()  # cleanup.

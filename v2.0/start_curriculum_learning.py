@@ -230,6 +230,12 @@ def create_curriculum_config(
     ensemble_params=None,
     curriculum_bulk_size=None,
     exp_dir=None,
+    load_exp_dir=None,
+    use_ema=None,
+    ema_decay=None,
+    train_date_range=None,
+    ensemble_validation_frequency=None,
+    balanced_learning=None,
 ):
     """Create a new config file with curriculum learning settings."""
 
@@ -331,6 +337,30 @@ def create_curriculum_config(
     if exp_dir is not None:
         section_config['exp_dir'] = exp_dir
         explicitly_set_keys.add('exp_dir')
+
+    if load_exp_dir is not None:
+        section_config['load_exp_dir'] = load_exp_dir
+        explicitly_set_keys.add('load_exp_dir')
+
+    if use_ema is not None:
+        section_config['use_ema'] = use_ema
+        explicitly_set_keys.add('use_ema')
+
+    if ema_decay is not None:
+        section_config['ema_decay'] = ema_decay
+        explicitly_set_keys.add('ema_decay')
+
+    if train_date_range is not None:
+        section_config['train_date_range'] = train_date_range
+        explicitly_set_keys.add('train_date_range')
+
+    if ensemble_validation_frequency is not None:
+        section_config['ensemble_validation_frequency'] = ensemble_validation_frequency
+        explicitly_set_keys.add('ensemble_validation_frequency')
+
+    if balanced_learning:
+        section_config['balanced_learning'] = True
+        explicitly_set_keys.add('balanced_learning')
 
     # ------------------------------------------------------------------ #
     # Deduplication: remove entries from section_config that are already  #

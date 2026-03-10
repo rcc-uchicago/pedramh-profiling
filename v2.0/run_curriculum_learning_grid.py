@@ -65,8 +65,11 @@ Example YAML config (grid_config.yaml):
     use_legacy_model: false
     random_seed: null        # integer seed for reproducible random selection
     exp_dir: null            # if null, read from base config or default to 'results'
+    load_exp_dir: null       # if null, read from base config or default to 'results'
     event_data_len: null     # required when any curriculum_fraction >= 1.0;
                              # curriculum_bulk_size = sum(num_events) * event_data_len
+    balanced_learning: false # if true, only fraction=0.5 runs are generated and
+                             # balanced_learning: true is written to the new config
 
 Usage:
     python run_curriculum_learning_grid.py grid_config.yaml
@@ -109,6 +112,7 @@ _REQUIRED_KEYS = {
 _DEFAULTS = {
     'config_section': 'PLASIM',
     'selection_criteria': 'first',
+    'particle_indices': None,
     'start_day_offset': 0,
     'submit_script': 'submit_scripts/derecho/derecho_training.sh',
     'no_submit': False,
@@ -119,8 +123,14 @@ _DEFAULTS = {
     'use_legacy_model': False,
     'random_seed': None,
     'exp_dir': None,
+    'load_exp_dir': None,
     'ensemble_validation_params': None,
+    'ensemble_validation_frequency': None,
     'event_data_len': None,
+    'use_ema': False,
+    'ema_decay': None,
+    'train_date_ranges': None,
+    'balanced_learning': None,
 }
 
 
@@ -157,6 +167,7 @@ def select_events_for_type(
     n: int,
     criteria: str,
     rng: Optional[random.Random] = None,
+    particle_indices: Optional[List[int]] = None,
 ) -> Dict[str, list]:
     """Select *n* events from a single event-type dict.
 
@@ -165,14 +176,22 @@ def select_events_for_type(
         n: Number of events to select. 0 means select all.
         criteria: "first", "last", or "random"
         rng: Random instance used when criteria == "random"
+        particle_indices: Optional list of integer indices used to reorder (and
+            optionally filter) the particles before applying the selection
+            criteria.  Each value is an index into the natural ordering of
+            ``events_dict``.  Out-of-range indices are silently skipped.
+            If ``None`` the natural ordering is kept.
 
     Returns:
         Sub-dict with the selected entries (insertion order preserved).
     """
-    if n == 0 or n >= len(events_dict):
-        return dict(events_dict)
-
     items = list(events_dict.items())
+
+    if particle_indices is not None:
+        items = [items[i] for i in particle_indices if 0 <= i < len(items)]
+
+    if n == 0 or n >= len(items):
+        return dict(items)
 
     if criteria == 'first':
         selected = items[:n]
@@ -196,16 +215,30 @@ def build_flat_events_dict(
     counts_per_type: List[int],
     criteria_per_type: List[str],
     rng: Optional[random.Random],
+    particle_indices_per_type: Optional[List[Optional[List[int]]]] = None,
 ) -> Dict[str, list]:
     """Build the flat {h5_dir: [start_dt, end_dt]} dict expected by train.py.
 
     For each event type the selected particle nc paths are mapped to their
     h5 subdirectories and merged into a single dict.
+
+    Args:
+        particle_indices_per_type: Optional list (one entry per event type) of
+            integer index lists used to reorder particles before selection.
+            Pass ``None`` for the whole argument or ``None`` for an individual
+            entry to use the natural ordering for that type.
     """
     flat: Dict[str, list] = {}
-    for event_type, n, criteria in zip(event_types, counts_per_type, criteria_per_type):
+    for i, (event_type, n, criteria) in enumerate(
+        zip(event_types, counts_per_type, criteria_per_type)
+    ):
         events = events_json.get(event_type, {})
-        selected = select_events_for_type(events, n, criteria, rng)
+        pidxs = (
+            particle_indices_per_type[i]
+            if particle_indices_per_type is not None
+            else None
+        )
+        selected = select_events_for_type(events, n, criteria, rng, pidxs)
         for nc_path, date_range in selected.items():
             h5_dir = particle_nc_to_h5_dir(nc_path)
             flat[h5_dir] = date_range
@@ -334,6 +367,11 @@ def run_one_combination(
     ensemble_params: Optional[dict] = None,
     curriculum_bulk_size: Optional[int] = None,
     reserved_run_nums: Optional[set] = None,
+    use_ema: bool = False,
+    ema_decay: Optional[float] = None,
+    train_date_ranges: Optional[list] = None,
+    ensemble_validation_frequency: Optional[int] = None,
+    balanced_learning: Optional[bool] = None,
 ) -> Tuple[bool, Optional[str], Optional[str]]:
     """Run the curriculum learning setup for one grid combination.
 
@@ -351,6 +389,8 @@ def run_one_combination(
     dry_run = cfg['dry_run']
     no_submit = cfg['no_submit']
     exp_dir = cfg['exp_dir'] or 'results'
+    load_exp_dir = cfg['load_exp_dir'] or 'results'
+
 
     try:
         # Adjust dates with offset
@@ -401,6 +441,12 @@ def run_one_combination(
                 ensemble_params=ensemble_params,
                 curriculum_bulk_size=curriculum_bulk_size,
                 exp_dir=exp_dir,
+                load_exp_dir=load_exp_dir,
+                use_ema=use_ema,
+                ema_decay=ema_decay,
+                train_date_range=train_date_ranges,
+                ensemble_validation_frequency=ensemble_validation_frequency,
+                balanced_learning=balanced_learning,
             )
 
             # Copy / skip checkpoint
@@ -409,7 +455,7 @@ def run_one_combination(
             else:
                 copy_checkpoint(
                     old_run_num, new_run_num, cfg['start_epoch'],
-                    exp_dir=exp_dir, config_section=config_section
+                    exp_dir=load_exp_dir, config_section=config_section
                 )
 
         # Submit or print interactive command
@@ -510,12 +556,47 @@ def main():
         if c not in ('first', 'last', 'random'):
             raise ValueError(f"selection_criteria must be 'first', 'last', or 'random', got '{c}'")
 
+    pi_raw = cfg['particle_indices']
+    if pi_raw is None:
+        particle_indices_per_type: Optional[List[Optional[List[int]]]] = None
+    elif isinstance(pi_raw[0], (int, type(None))):
+        # Single list of ints (or None entries) → broadcast to all event types
+        particle_indices_per_type = [list(pi_raw) if pi_raw is not None else None] * n_types
+    else:
+        # List of per-type lists
+        particle_indices_per_type = [
+            list(entry) if entry is not None else None for entry in pi_raw
+        ]
+        if len(particle_indices_per_type) != n_types:
+            raise ValueError(
+                f"particle_indices has {len(particle_indices_per_type)} entries "
+                f"but there are {n_types} event types"
+            )
+
     curriculum_fractions: List[float] = list(cfg['curriculum_fractions'])
     learning_rates: List[float] = list(cfg['learning_rates'])
 
     for cf in curriculum_fractions:
         if cf < 0:
             raise ValueError(f"curriculum_fraction must be >= 0, got {cf}")
+
+    # ---- balanced_learning: filter fractions to 0.5 only -----------
+    balanced_learning = bool(cfg['balanced_learning'])
+    if balanced_learning:
+        if paired_mode:
+            paired = [(cf, ne_lists) for cf, ne_lists in
+                      zip(curriculum_fractions, num_events_normalized) if cf == 0.5]
+            if not paired:
+                raise ValueError(
+                    "balanced_learning is True but curriculum_fractions contains no value of 0.5"
+                )
+            curriculum_fractions, num_events_normalized = map(list, zip(*paired))
+        else:
+            curriculum_fractions = [cf for cf in curriculum_fractions if cf == 0.5]
+            if not curriculum_fractions:
+                raise ValueError(
+                    "balanced_learning is True but curriculum_fractions contains no value of 0.5"
+                )
 
     # ---- read calendar from base config -----------------------------
     calendar = 'proleptic_gregorian'
@@ -546,24 +627,53 @@ def main():
         if cfg['exp_dir'] is None:
             cfg['exp_dir'] = 'results'
 
+    # ---- read exp_dir to load_exp_dir from base config if not set in grid config ----
+    if cfg['load_exp_dir'] is None:
+        try:
+            with open(original_config_path, 'r') as f:
+                base_cfg_tmp = yaml.safe_load(f)
+            section = base_cfg_tmp.get(cfg['config_section'], {})
+            if isinstance(section, dict) and 'exp_dir' in section:
+                cfg['load_exp_dir'] = section['exp_dir']
+        except Exception:
+            pass
+        if cfg['load_exp_dir'] is None:
+            cfg['load_exp_dir'] = 'results'
+
     # ---- RNG --------------------------------------------------------
     rng = random.Random(cfg['random_seed'])
+
+    # ---- EMA decay grid values --------------------------------------
+    # When use_ema is True and ema_decay is set, normalise it to a list so
+    # it becomes its own grid axis (like learning_rates).  When use_ema is
+    # False or ema_decay is not set, carry a single None through every
+    # combination so the tuple arity stays consistent.
+    if cfg['use_ema'] and cfg['ema_decay'] is not None:
+        raw_ema = cfg['ema_decay']
+        ema_decay_values: List[Optional[float]] = (
+            [float(v) for v in raw_ema] if isinstance(raw_ema, list) else [float(raw_ema)]
+        )
+    else:
+        ema_decay_values = [None]
 
     # ---- build combinations -----------------------------------------
     if paired_mode:
         # num_events_normalized[i] is a List[List[int]] of per-type count lists
-        # paired with curriculum_fractions[i].  Grid over each list and learning_rates.
+        # paired with curriculum_fractions[i].  Grid over each list,
+        # learning_rates, and ema_decay_values.
         combinations = [
-            (ne, curriculum_fractions[i], lr)
+            (ne, curriculum_fractions[i], lr, ed)
             for i, ne_lists in enumerate(num_events_normalized)
             for ne in ne_lists
             for lr in learning_rates
+            for ed in ema_decay_values
         ]
         num_events_mode = 'paired with curriculum_fractions'
     else:
-        # Grid over all combinations of num_events × curriculum_fractions × learning_rates.
+        # Grid over all combinations of num_events × curriculum_fractions ×
+        # learning_rates × ema_decay_values.
         combinations = list(itertools.product(
-            num_events_normalized, curriculum_fractions, learning_rates
+            num_events_normalized, curriculum_fractions, learning_rates, ema_decay_values
         ))
         num_events_mode = 'grid axis'
     total = len(combinations)
@@ -583,6 +693,8 @@ def main():
     print(f"  events JSON:          {events_json_path}")
     print(f"  event_types:          {event_types}")
     print(f"  selection_criteria:   {criteria_per_type}")
+    if particle_indices_per_type is not None:
+        print(f"  particle_indices:     {dict(zip(event_types, particle_indices_per_type))}")
     print(f"  num_events ({num_events_mode}):")
     if paired_mode:
         for cf, ne_lists in zip(curriculum_fractions, num_events_normalized):
@@ -596,10 +708,14 @@ def main():
         print(f"  event_data_len:       {cfg['event_data_len']}  "
               f"(curriculum_bulk_size = sum(num_events) × event_data_len when fraction ≥ 1.0)")
     print(f"  learning_rates:       {learning_rates}")
+    if cfg['use_ema'] and ema_decay_values != [None]:
+        print(f"  ema_decay_values:     {ema_decay_values}")
     print(f"  calendar:             {calendar}  (has_year_zero={has_year_zero})")
     print(f"  start_epoch:          {cfg['start_epoch']}")
     print(f"  num_epochs:           {cfg['num_epochs']}")
     print(f"  finetune:             {cfg['finetune']}")
+    if balanced_learning:
+        print(f"  balanced_learning:    True  (only fraction=0.5 runs)")
     print(f"\n  Total combinations:   {total}")
     print(f"{'='*80}\n")
 
@@ -616,11 +732,13 @@ def main():
     # written to disk between iterations).
     reserved_run_nums: set = set()
 
-    for i, (counts_per_type, curriculum_fraction, learning_rate) in enumerate(combinations, 1):
+    for i, (counts_per_type, curriculum_fraction, learning_rate, ema_decay) in enumerate(combinations, 1):
         print(f"\n[{i}/{total}] Combination:")
         print(f"  num_events (per type): {dict(zip(event_types, counts_per_type))}")
         print(f"  curriculum_fraction:   {curriculum_fraction}")
         print(f"  learning_rate:         {learning_rate}")
+        if ema_decay is not None:
+            print(f"  ema_decay:             {ema_decay}")
 
         # When curriculum_fraction >= 1.0 switch to bulk-size mode:
         #   - select ALL available events (counts → 0)
@@ -635,7 +753,8 @@ def main():
             event_counts = counts_per_type
 
         flat_events = build_flat_events_dict(
-            events_json, event_types, event_counts, criteria_per_type, rng
+            events_json, event_types, event_counts, criteria_per_type, rng,
+            particle_indices_per_type,
         )
 
         success, new_run_num, error = run_one_combination(
@@ -649,6 +768,11 @@ def main():
             ensemble_params=cfg['ensemble_validation_params'],
             curriculum_bulk_size=curriculum_bulk_size,
             reserved_run_nums=reserved_run_nums,
+            use_ema=cfg['use_ema'],
+            ema_decay=ema_decay,
+            train_date_ranges=cfg['train_date_ranges'],
+            ensemble_validation_frequency=cfg['ensemble_validation_frequency'],
+            balanced_learning=balanced_learning if balanced_learning else None,
         )
 
         if success:
@@ -660,6 +784,7 @@ def main():
                 'counts_per_type': counts_per_type,
                 'curriculum_fraction': curriculum_fraction,
                 'learning_rate': learning_rate,
+                'ema_decay': ema_decay,
                 'error': error,
             })
             if cfg['stop_on_error']:
@@ -677,9 +802,10 @@ def main():
         print("\n  Failed combinations:")
         for c in failed_combos:
             counts = dict(zip(event_types, c['counts_per_type']))
+            ema_str = f", ema_decay={c['ema_decay']}" if c.get('ema_decay') is not None else ""
             print(f"    num_events={counts}, "
                   f"curriculum_fraction={c['curriculum_fraction']}, "
-                  f"learning_rate={c['learning_rate']}")
+                  f"learning_rate={c['learning_rate']}{ema_str}")
     print(f"{'='*80}\n")
 
 

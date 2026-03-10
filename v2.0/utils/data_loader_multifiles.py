@@ -66,10 +66,9 @@ from os.path import join
 import cftime
 from datetime import timedelta
 import xarray as xr
-import warnings
 from tqdm import tqdm
+from utils import logging_utils
 import netCDF4 as nc
-import warnings
 
 def get_data_given_path(path, variables):
     with h5py.File(path, 'r') as f:
@@ -116,7 +115,7 @@ def get_data_given_path_nc(path, variables_3D, variables_2D, init_datetime = Non
             timestep_offset = matching_indices[0]
         else:
             timestep_offset = -1
-        print(f'Timestep offset: {timestep_offset}')
+        #print(f'Timestep offset: {timestep_offset}')
         if variables_3D:
             for i_var, variable in enumerate(variables_3D):
                 if len(f.variables[variable].shape) == 4:
@@ -179,7 +178,8 @@ def datetime_class_from_calendar(calendar):
         return datetime_class_dict[calendar]
 
 def get_date_range(data_dirs, date_ranges, hour_step,
-                   calendar, has_year_zero, datetime_class, get_size = False):
+                   calendar, has_year_zero, datetime_class, get_size = False,
+                   partition_date_ranges = None):
     start_dates, end_dates = [], []
     for data_dir, (start_date_str_i, end_date_str_i) in date_ranges.items():
         data_dirs.append(data_dir)
@@ -203,8 +203,10 @@ def get_date_range(data_dirs, date_ranges, hour_step,
     end_date = max(end_dates)
     date_range, data_dirs_idxs = np.array([]), np.array([], dtype = int)
     num_dates = []
-    for i, (start_date_i, end_date_i) in enumerate(zip(start_dates, end_dates)):
-        date_range_i = np.arange((start_date_i - start_date).total_seconds() // 3600, (end_date_i - start_date).total_seconds() // 3600, hour_step)
+    for i, (start_date_i, end_date_i) in enumerate(zip(start_dates, end_dates)):        
+        date_range_i = partition_date_range(start_date, start_date_i, end_date_i,
+                                            partition_date_ranges if i == 0 else None, hour_step,
+                                            calendar, has_year_zero, datetime_class)
         num_dates.append(len(date_range_i))
         data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), i+1))
         date_range = np.append(date_range, date_range_i)
@@ -213,6 +215,95 @@ def get_date_range(data_dirs, date_ranges, hour_step,
     else:
         return data_dirs, date_range, start_date, end_date, data_dirs_idxs, np.array(num_dates)
 
+def partition_date_range(start_date, start_date_i, end_date_i, date_ranges,
+                         hour_step, calendar, has_year_zero, datetime_class):
+    if isinstance(date_ranges, type(None)):
+        return np.arange((start_date_i - start_date).total_seconds() // 3600,
+                         (end_date_i - start_date).total_seconds() // 3600, hour_step)
+    is_datetime = is_date = is_day = False
+    try:
+        init_datetime = cftime.datetime.strptime(date_ranges[0][0], "%Y-%m-%d %H:%M:%S",
+                                                 calendar = calendar, has_year_zero = has_year_zero)
+        is_datetime = True
+    except:
+        pass
+    try:
+        init_datetime = cftime.datetime.strptime(date_ranges[0][0], "%Y-%m-%d", calendar = calendar,
+                                                 has_year_zero = has_year_zero)
+        is_date = True
+    except:
+        pass
+    try:
+        init_day = [int(i) for i in date_ranges[0][0].split('-')]
+        assert len(init_day) == 2
+        is_day = True
+    except:
+        pass
+    if not any([is_datetime, is_date, is_day]):
+        raise ValueError(f'Could not detect date range type. \"{date_ranges[0][0]}\" is not recognized.')
+    hour_range = np.array([])
+    if is_day:
+        for year in range(start_date_i.year, end_date_i.year+1):
+            for range_start, range_end in date_ranges:
+                range_start_month, range_start_day = [int(i) for i in range_start.split('-')]
+                range_end_month, range_end_day = [int(i) for i in range_end.split('-')]
+                range_start_datetime = datetime_class(year, range_start_month, range_start_day,
+                                                      has_year_zero = has_year_zero)
+                range_end_datetime = datetime_class(year, range_end_month, range_end_day,
+                                                      has_year_zero = has_year_zero) + timedelta(days=1)
+                if start_date_i > range_end_datetime or range_start_datetime > end_date_i:
+                    continue
+                year_start_datetime = range_start_datetime if range_start_datetime > start_date_i else start_date_i
+                year_end_datetime = range_end_datetime if range_end_datetime < end_date_i else end_date_i
+                hour_range_i = np.arange((year_start_datetime - start_date).total_seconds() // 3600,
+                                         (year_end_datetime - start_date).total_seconds() // 3600, hour_step)
+                hour_range = np.append(hour_range, hour_range_i)
+    else:
+        for range_start, range_end in date_ranges:
+            if is_datetime:
+                range_start_datetime = cftime.datetime.strptime(range_start, "%Y-%m-%d %H:%M:%S",
+                                                 calendar = calendar, has_year_zero = has_year_zero)
+                range_end_datetime = cftime.datetime.strptime(range_end, "%Y-%m-%d %H:%M:%S",
+                                                 calendar = calendar, has_year_zero = has_year_zero)
+            else:
+                range_start_datetime = cftime.datetime.strptime(range_start, "%Y-%m-%d",
+                                                 calendar = calendar, has_year_zero = has_year_zero)
+                range_end_datetime = cftime.datetime.strptime(range_end, "%Y-%m-%d",
+                                                 calendar = calendar, has_year_zero = has_year_zero)
+            range_start_datetime = datetime_class(range_start_datetime.year, range_start_datetime.month,
+                                                  range_start_datetime.day, hour = range_start_datetime.hour,
+                                                  has_year_zero = has_year_zero)
+            range_end_datetime = datetime_class(range_end_datetime.year, range_end_datetime.month,
+                                                  range_end_datetime.day, hour = range_end_datetime.hour,
+                                                  has_year_zero = has_year_zero)
+            if start_date_i > range_end_datetime or range_start_datetime > end_date_i:
+                continue
+            year_start_datetime = range_start_datetime if range_start_datetime > start_date_i else start_date_i
+            year_end_datetime = range_end_datetime if range_end_datetime < end_date_i else end_date_i
+            hour_range_i = np.arange((year_start_datetime - start_date).total_seconds() // 3600,
+                                        (year_end_datetime - start_date).total_seconds() // 3600, hour_step)
+            hour_range = np.append(hour_range, hour_range_i)
+    return hour_range
+
+def shuffle_balanced_dates(params, generator, date_range, num_dates, start_date, has_year_zero, datetime_class):
+    train_start_datetime = start_date + timedelta(hours = date_range[0])
+    train_end_datetime = start_date + timedelta(hours = date_range[num_dates[0] - 1])
+    hours_per_half_year = (datetime_class(2, 1, 1) - datetime_class(1, 1, 1)).total_seconds() // 3600 // 2
+    num_new_samples = sum(num_dates[1:])
+    new_sample_counter = 0
+    new_sample_idxs = []
+    #with tqdm(total = num_new_samples, desc = 'Getting balanced samples') as pbar:
+    while new_sample_counter < num_new_samples:
+        sample_year = generator.integers(params.train_year_start, high = params.train_year_end, size = 1)
+        new_sample_date_raw = start_date + timedelta(hours = date_range[num_dates[0] + new_sample_counter] + hours_per_half_year)
+        new_sample_date = datetime_class(sample_year, new_sample_date_raw.month, new_sample_date_raw.day, new_sample_date_raw.hour, has_year_zero = has_year_zero)
+        if new_sample_date <= train_end_datetime:
+            sample_idx = (new_sample_date - train_start_datetime).total_seconds() // 3600 // params.data_timedelta_hours
+            new_sample_idxs.append(sample_idx)
+            new_sample_counter += 1
+            #pbar.update(1)
+    return np.array(new_sample_idxs, dtype = np.int64)
+    
 
 def get_data_loader(params, files_pattern, distributed, year_start, year_end, train, num_inferences = 0, validate = False, single_ic = False,
                     ensemble = False, init_from_nc = False, drop_last = True):
@@ -505,7 +596,9 @@ class GetDataset(Dataset):
         if torch.distributed.is_initialized():
             disable_progress = (torch.distributed.get_rank() != 0)
         
-        for i, data_datetime in tqdm(enumerate(datetimes), total = len(datetimes), desc = 'Loading boundary data', disable=disable_progress):
+        for i, data_datetime in tqdm(enumerate(datetimes), total=len(datetimes),
+                                     desc='Loading boundary data', dynamic_ncols=True,
+                                     file=logging_utils.tqdm_stream, disable=disable_progress):
             varying_boundary_data_i = self._get_boundary_data(data_datetime)
             varying_boundary_data_i = self._fill_mask(varying_boundary_data_i, self.varying_boundary_variables)
             varying_boundary_data_i = self.boundary_transform(varying_boundary_data_i)
@@ -695,6 +788,11 @@ class GetDataset(Dataset):
 
     # Modification for the autoregressive parameter
     def _get_dates(self, hour_step=6.):
+        partition_date_ranges = None
+        if self.train and hasattr(self.params, 'train_date_range'):
+            partition_date_ranges = self.params.train_date_range
+        elif self.validate and hasattr(self.params, 'validation_date_range'):
+            partition_date_ranges = self.params.validation_date_range
         if self.single_ic:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero) + timedelta(hours=self.single_ic_offset)
             print(f'Start date: {start_date.strftime("%Y-%m-%d_%H:%M:%S")}')
@@ -718,17 +816,18 @@ class GetDataset(Dataset):
             self.data_dirs, date_range, start_date, end_date, data_dirs_idxs, num_dates = \
                 get_date_range(self.data_dirs, self.params.train_data_sets if self.train else self.params.validation_data_sets,
                                self.params.data_timedelta_hours, self.calendar, self.has_year_zero, 
-                               self.datetime_class, get_size = False)
+                               self.datetime_class, get_size = False, partition_date_ranges = partition_date_ranges)
 
             return date_range, start_date, end_date, data_dirs_idxs, num_dates
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
-            
-        hours = (end_date - start_date).total_seconds() // 3600
-        
-        date_range = np.arange(0., hours, hour_step)
-        print(f'Hours: {hours}')
+
+        date_range = partition_date_range(start_date, start_date, end_date, partition_date_ranges,
+                                          self.params.data_timedelta_hours, self.calendar, self.has_year_zero, 
+                                          self.datetime_class)
+
+        print(f'Hours: {date_range[-1] - date_range[0]}')
         print(f'End data hour: {date_range[-1]}')
         return date_range, start_date, end_date, np.zeros(len(date_range), dtype = int), np.array([len(date_range)], dtype = int)
 

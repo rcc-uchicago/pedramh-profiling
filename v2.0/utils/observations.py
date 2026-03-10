@@ -2214,35 +2214,48 @@ class ObservationAccumulator:
                         if not ens_means:
                             continue
 
-                        # fm, tr: (n_particles,) for scalar obs
-                        #         (n_particles, n_spatial) for field obs
-                        fm = np.array(ens_means, dtype=np.float64)
-                        tr = np.array(truths, dtype=np.float64)
+                        # Process per-particle to handle field observables where
+                        # different particles may have different n_spatial.
+                        # ens_means[i]: scalar or (n_spatial_i,) array
+                        # truths[i]:    scalar or (n_spatial_i,) array
                         try:
                             if ml == 'mse':
-                                # mean over particles [and spatial for field]
-                                errors[d] = float(np.mean((fm - tr) ** 2))
+                                errors[d] = float(np.mean(
+                                    [np.mean((fm_p - tr_p) ** 2)
+                                     for fm_p, tr_p in zip(ens_means, truths)]))
                             elif ml in ('mae', 'mean_absolute_error'):
-                                errors[d] = float(np.mean(np.abs(fm - tr)))
+                                errors[d] = float(np.mean(
+                                    [np.mean(np.abs(fm_p - tr_p))
+                                     for fm_p, tr_p in zip(ens_means, truths)]))
                             elif ml == 'rmse':
-                                errors[d] = float(np.sqrt(np.mean((fm - tr) ** 2)))
+                                errors[d] = float(np.sqrt(np.mean(
+                                    [np.mean((fm_p - tr_p) ** 2)
+                                     for fm_p, tr_p in zip(ens_means, truths)])))
                             elif ml == 'bias':
-                                errors[d] = float(np.mean(fm - tr))
+                                errors[d] = float(np.mean(
+                                    [np.mean(fm_p - tr_p)
+                                     for fm_p, tr_p in zip(ens_means, truths)]))
                             elif ml in ('correlation', 'pearson_correlation'):
-                                # flatten so (n_particles × n_spatial,) for field obs
-                                fm_f = fm.ravel()
-                                tr_f = tr.ravel()
+                                # Concatenate across particles and spatial points
+                                fm_f = np.concatenate(
+                                    [np.asarray(fm_p).ravel() for fm_p in ens_means])
+                                tr_f = np.concatenate(
+                                    [np.asarray(tr_p).ravel() for tr_p in truths])
                                 if len(fm_f) >= 2:
                                     errors[d] = float(np.corrcoef(fm_f, tr_f)[0, 1])
                             elif ml == 'spearman_correlation':
-                                fm_f = fm.ravel()
-                                tr_f = tr.ravel()
+                                fm_f = np.concatenate(
+                                    [np.asarray(fm_p).ravel() for fm_p in ens_means])
+                                tr_f = np.concatenate(
+                                    [np.asarray(tr_p).ravel() for tr_p in truths])
                                 if len(fm_f) >= 2:
                                     corr, _ = spearmanr(fm_f, tr_f)
                                     errors[d] = float(corr)
                             elif ml == 'kendall_tau':
-                                fm_f = fm.ravel()
-                                tr_f = tr.ravel()
+                                fm_f = np.concatenate(
+                                    [np.asarray(fm_p).ravel() for fm_p in ens_means])
+                                tr_f = np.concatenate(
+                                    [np.asarray(tr_p).ravel() for tr_p in truths])
                                 if len(fm_f) >= 2:
                                     tau, _ = kendalltau(fm_f, tr_f)
                                     errors[d] = float(tau)
@@ -2276,8 +2289,11 @@ class ObservationAccumulator:
         """Return the trailing spatial shape of stored arrays for *qualifier*.
 
         For scalar observables the shape is ``()``; for field observables it
-        is ``(n_spatial,)``.  Determined by inspecting the first stored array.
+        is ``(n_spatial,)``.  Returns the *maximum* spatial shape found across
+        all stored arrays, so that callers can allocate an array large enough
+        to hold all particles (shorter particles are padded with NaN).
         """
+        max_shape: tuple = ()
         for src in (self.forecast_obs, self.truth_obs):
             q_dict = src.get(qualifier, {})
             for et_dict in q_dict.values():
@@ -2285,11 +2301,16 @@ class ObservationAccumulator:
                     # forecast: pi_or_ens is {ens_member: array}
                     # truth:    pi_or_ens is array
                     if isinstance(pi_or_ens, np.ndarray):
-                        return pi_or_ens.shape[1:]
-                    for ts in pi_or_ens.values():
-                        if isinstance(ts, np.ndarray):
-                            return ts.shape[1:]
-        return ()
+                        sp = pi_or_ens.shape[1:]
+                        if len(sp) > len(max_shape) or sp > max_shape:
+                            max_shape = sp
+                    else:
+                        for ts in pi_or_ens.values():
+                            if isinstance(ts, np.ndarray):
+                                sp = ts.shape[1:]
+                                if len(sp) > len(max_shape) or sp > max_shape:
+                                    max_shape = sp
+        return max_shape
 
     def to_dataset(self, timedelta_hours_per_day: int = 24) -> 'xr.Dataset':
         """Convert to ``xr.Dataset``.
@@ -2353,7 +2374,9 @@ class ObservationAccumulator:
                             if ts is not None:
                                 n_f = min(n_lead, len(ts))
                                 if is_field:
-                                    fc_arr[ei, pi, mi, :n_f, :] = ts[:n_f]
+                                    # ts may have fewer spatial points than n_spatial
+                                    n_s = ts.shape[1] if ts.ndim > 1 else n_spatial
+                                    fc_arr[ei, pi, mi, :n_f, :n_s] = ts[:n_f]
                                 else:
                                     fc_arr[ei, pi, mi, :n_f] = ts[:n_f]
 
@@ -2384,7 +2407,9 @@ class ObservationAccumulator:
                         if ts is not None:
                             n_f = min(n_lead, len(ts))
                             if is_field:
-                                tr_arr[ei, pi, :n_f, :] = ts[:n_f]
+                                # ts may have fewer spatial points than n_spatial
+                                n_s = ts.shape[1] if ts.ndim > 1 else n_spatial
+                                tr_arr[ei, pi, :n_f, :n_s] = ts[:n_f]
                             else:
                                 tr_arr[ei, pi, :n_f] = ts[:n_f]
 
@@ -2443,7 +2468,8 @@ def _ts_obs_core(datasets, particle_idxs, ensemble_start, ensemble_end,
 
     batch_pids = _normalise_pids(particle_idxs)
 
-    for ds, p_idx in zip(datasets, batch_pids):
+    for i, (ds, p_idx) in enumerate(zip(datasets, batch_pids)):
+        et = event_type[i] if isinstance(event_type, list) else event_type
         for region in regions:
             if region not in all_regions:
                 raise ValueError(f"Region '{region}' not found in {region_file_path}")
@@ -2471,7 +2497,7 @@ def _ts_obs_core(datasets, particle_idxs, ensemble_start, ensemble_end,
                     ens_member = int(A_filt['ensemble_idx'].values[ei])
                     daily = A_filt.isel(ensemble_idx=ei).values.astype(np.float64)
                     rolling = _compute_rolling_ts(daily, int(target_duration), func=func)
-                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                    accumulator.add_forecast(qualifier, et, p_idx,
                                              ens_member, rolling)
 
 
@@ -2489,7 +2515,8 @@ def _spatial_mean_ts_core(datasets, particle_idxs, ensemble_start, ensemble_end,
 
     batch_pids = _normalise_pids(particle_idxs)
 
-    for ds, p_idx in zip(datasets, batch_pids):
+    for i, (ds, p_idx) in enumerate(zip(datasets, batch_pids)):
+        et = event_type[i] if isinstance(event_type, list) else event_type
         for region in regions:
             if region not in all_regions:
                 raise ValueError(f"Region '{region}' not found in {region_file_path}")
@@ -2513,7 +2540,7 @@ def _spatial_mean_ts_core(datasets, particle_idxs, ensemble_start, ensemble_end,
                 for ei in range(A_filt.sizes.get('ensemble_idx', 0)):
                     ens_member = int(A_filt['ensemble_idx'].values[ei])
                     ts = A_filt.isel(ensemble_idx=ei).values.astype(np.float64)
-                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                    accumulator.add_forecast(qualifier, et, p_idx,
                                              ens_member, ts)
 
 
@@ -2547,7 +2574,8 @@ def _ts_field_core(datasets, particle_idxs, ensemble_start, ensemble_end,
 
     batch_pids = _normalise_pids(particle_idxs)
 
-    for ds, p_idx in zip(datasets, batch_pids):
+    for i, (ds, p_idx) in enumerate(zip(datasets, batch_pids)):
+        et = event_type[i] if isinstance(event_type, list) else event_type
         for region in regions:
             if region not in all_regions:
                 raise ValueError(f"Region '{region}' not found in {region_file_path}")
@@ -2579,7 +2607,7 @@ def _ts_field_core(datasets, particle_idxs, ensemble_start, ensemble_end,
                     n_days = arr.shape[0]
                     arr_flat = arr.reshape(n_days, -1)   # (n_days, n_spatial)
                     rolling = _compute_rolling_ts(arr_flat, int(target_duration), func=func)
-                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                    accumulator.add_forecast(qualifier, et, p_idx,
                                              ens_member, rolling)
 
 
@@ -2600,7 +2628,8 @@ def _spatial_field_ts_core(datasets, particle_idxs, ensemble_start, ensemble_end
 
     batch_pids = _normalise_pids(particle_idxs)
 
-    for ds, p_idx in zip(datasets, batch_pids):
+    for i, (ds, p_idx) in enumerate(zip(datasets, batch_pids)):
+        et = event_type[i] if isinstance(event_type, list) else event_type
         for region in regions:
             if region not in all_regions:
                 raise ValueError(f"Region '{region}' not found in {region_file_path}")
@@ -2626,7 +2655,7 @@ def _spatial_field_ts_core(datasets, particle_idxs, ensemble_start, ensemble_end
                     arr = _extract_time_first(A_filt.isel(ensemble_idx=ei))
                     n_time = arr.shape[0]
                     arr_flat = arr.reshape(n_time, -1)   # (n_time, n_spatial)
-                    accumulator.add_forecast(qualifier, event_type, p_idx,
+                    accumulator.add_forecast(qualifier, et, p_idx,
                                              ens_member, arr_flat)
 
 
@@ -2818,9 +2847,11 @@ def truth_file_worker_ts(file_idx: int, data_path: str,
     ``'spawn'`` mp_context (safe in torchrun workers: no inherited CUDA
     context).
 
-    ``event_type`` and ``timedelta_hours`` are accepted for API symmetry with
-    the caller but are not used inside this function; event_type is applied by
-    the caller via :meth:`ObservationAccumulator.add_truth_from_worker_result`.
+    ``event_type`` and ``timedelta_hours`` are not used inside this function;
+    ``event_type`` is applied by the caller via
+    :meth:`ObservationAccumulator.add_truth_from_worker_result`, and
+    ``timedelta_hours`` is accepted for API symmetry.  The initial condition
+    is excluded by selecting ``time > init_datetime_dt`` (strict inequality).
 
     Returns
     -------
@@ -2839,10 +2870,13 @@ def truth_file_worker_ts(file_idx: int, data_path: str,
     except Exception as e:
         return file_idx, False, str(e), {}
 
-    # Select time range starting from init_datetime_dt
+    # Select time range covering the forecast lead times.
+    # The model outputs states at init_dt+1*Δt, …, init_dt+max_steps*Δt, so truth
+    # must start at init_dt+Δt (exclusive of init_dt) to stay aligned.
+    # Use strict > to exclude the initial condition without needing a timedelta import.
     try:
         if 'time' in ds_truth.dims and ds_truth.sizes.get('time', 0) > 0:
-            ds_from_init = ds_truth.sel(time=ds_truth.time >= init_datetime_dt)
+            ds_from_init = ds_truth.sel(time=ds_truth.time > init_datetime_dt)
             if max_forecast_steps > 0:
                 n_avail = ds_from_init.sizes.get('time', 0)
                 ds_from_init = ds_from_init.isel(

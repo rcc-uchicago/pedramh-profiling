@@ -105,9 +105,10 @@ def compute_A_ensemble(args):
             np.save(filepath, A.values.flatten())
         
 def combine_A_ensemble(save_basenames, regions):
-    for save_basename, region in tqdm(product(save_basename, region), 
-                                      total = len(save_basenames)*len(regions),
-                                      desc = "Combining obs files..."):
+    for save_basename, region in tqdm(product(save_basenames, regions),
+                                      total=len(save_basenames)*len(regions),
+                                      desc="Combining obs files...",
+                                      dynamic_ncols=True, file=logging_utils.tqdm_stream):
         files = natsorted(glob.glob(save_basename + f'_**-**_A_{region}.npy'))
         data = []
         for file in files:
@@ -177,7 +178,7 @@ class Stepper():
         
         if self.params.epsilon_factor > 0.:
             self.perturber = Perturber(self.params, self.dataset, device = self.device,
-                                    device_idx = self.world_rank)
+                                    device_idx = self.world_rank, seed = 1)
         
         
         self.constant_boundary_data = self.dataset.constant_boundary_data.unsqueeze(0) * torch.ones(self.params.batch_size, 1, 1, 1)
@@ -499,6 +500,9 @@ class Stepper():
                 particle_idxs = data[-1]
                 #print(f'Particle idxs:{particle_idxs}, world rank {self.world_rank}')
                 
+                actual_batch = input_surface_in.shape[0]
+                if actual_batch == 0:
+                    continue
                 ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
                                                    self.params.ensemble_members_per_pred)
                 for ensemble_start, ensemble_end in zip(ensemble_member_splits[:-1], ensemble_member_splits[1:]):
@@ -506,9 +510,12 @@ class Stepper():
                     input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
                     varying_boundary_data = to_ensemble_batch(varying_boundary_data_in, ensemble_end - ensemble_start)
-                    constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
+                    # Slice to actual batch size so partial last batches work when
+                    # n_particles is not divisible by the (global) batch size.
+                    constant_boundary_data = to_ensemble_batch(
+                        self.constant_boundary_data[:actual_batch], ensemble_end - ensemble_start)
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
-                    
+
                     input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
                     # Clamp perturbed values to float16 representable range to prevent
                     # overflow when Conv2d casts inputs to float16 under AMP autocast.
@@ -539,7 +546,8 @@ class Stepper():
 
                     # Only show progress bar on rank 0 to avoid jumping output in DDP
                     time_step_iter = tqdm(range(self.dataset.ensemble_inference_steps),
-                                         desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
+                                         desc=f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
+                                         dynamic_ncols=True, file=logging_utils.tqdm_stream,
                                          disable=(self.world_rank != 0))
                     for time_step in time_step_iter:
                         inference_start = time.time()
@@ -633,8 +641,11 @@ class Stepper():
                 input_surface_in, input_upper_air_in, varying_boundary_data_in = map(
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
-                print(f'Particle idxs:{particle_idxs}')
+                #print(f'Particle idxs:{particle_idxs}')
                 
+                actual_batch = input_surface_in.shape[0]
+                if actual_batch == 0:
+                    continue
                 ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
                                                    self.params.ensemble_members_per_pred)
                 for ensemble_start, ensemble_end in zip(ensemble_member_splits[:-1], ensemble_member_splits[1:]):
@@ -642,9 +653,12 @@ class Stepper():
                     input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
                     input_upper_air = to_ensemble_batch(input_upper_air_in, ensemble_end - ensemble_start)
                     varying_boundary_data = to_ensemble_batch(varying_boundary_data_in, ensemble_end - ensemble_start)
-                    constant_boundary_data = to_ensemble_batch(self.constant_boundary_data, ensemble_end - ensemble_start)
+                    # Slice to actual batch size so partial last batches work when
+                    # n_particles is not divisible by the (global) batch size.
+                    constant_boundary_data = to_ensemble_batch(
+                        self.constant_boundary_data[:actual_batch], ensemble_end - ensemble_start)
                     #varying_boundary_data_init = to_ensemble_batch(varying_boundary_data_init_in, ensemble_end - ensemble_start)
-                    
+
                     if self.params.epsilon_factor > 0.:
                         input_surface, input_upper_air = self.perturber(input_surface, input_upper_air)
                     # Clamp perturbed values to float16 representable range to prevent
@@ -676,7 +690,8 @@ class Stepper():
 
                     # Only show progress bar on rank 0 to avoid jumping output in DDP
                     time_step_iter = tqdm(range(self.dataset.ensemble_inference_steps),
-                                         desc = f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
+                                         desc=f'Ensemble forecast {i}, members {ensemble_start}-{ensemble_end}',
+                                         dynamic_ncols=True, file=logging_utils.tqdm_stream,
                                          disable=(self.world_rank != 0))
                     for time_step in time_step_iter:
                         # DIAGNOSTIC: Log first forward pass inputs/outputs
@@ -934,7 +949,7 @@ class Stepper():
             #         #da = da.assign_attrs(self.dataset.data_dss[0][var].attrs)
             #         dataset[var] = da
 
-            print(f"upper_air_prediction shape: {upper_air_prediction.shape}")
+            # print(f"upper_air_prediction shape: {upper_air_prediction.shape}")
             for idx, var in enumerate(self.dataset.upper_air_variables):
                 # Skip if save_var_dict exists and var not in it
                 if save_var_dict is not None and var not in save_var_dict:

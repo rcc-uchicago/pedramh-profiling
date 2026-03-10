@@ -212,37 +212,29 @@ class MetricsAggregator:
     
     def _init_acc_accumulators(self, shape) -> Dict[str, torch.Tensor]:
         """Initialize accumulator tensors for ACC computation.
-        
-        Uses float64 for numerical stability with small values (e.g., humidity at upper levels).
-        
-        For numerically stable variance computation, we use a two-phase approach:
-        Phase 1 (first batch): Compute shift values (approximate means)
-        Phase 2 (all batches): Accumulate shifted statistics
-        
-        This avoids catastrophic cancellation in the variance formula E[x²] - E[x]².
+
+        Uses float64 throughout for numerical stability.  Raw (unshifted) weighted
+        sums are stored so that DDP all_reduce is exact — the previous shifted
+        approach required each rank to use the *same* shift constant, which was not
+        guaranteed after averaging shifted values across ranks.
         """
         if isinstance(shape, int):
             full_shape = (self.num_steps, shape)
         else:
             full_shape = (self.num_steps,) + tuple(shape)
-        
-        # Use float64 to avoid precision loss with very small values
+
         return {
-            # Weighted sums (for weighted correlation)
-            'w_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
+            # Weighted sums for correlation
+            'w_sum':   torch.zeros(full_shape, device=self.device, dtype=torch.float64),
             'wfa_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
-            'wa_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
+            'wa_sum':  torch.zeros(full_shape, device=self.device, dtype=torch.float64),
             'wfaa_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
             'wfa2_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
-            'wa2_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
-            # Unweighted sums (for unweighted mean, matching xarray behavior)
+            'wa2_sum':  torch.zeros(full_shape, device=self.device, dtype=torch.float64),
+            # Unweighted sums for the unweighted mean used in centering
             'fa_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
-            'a_sum': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
-            'count': torch.zeros(full_shape, device=self.device, dtype=torch.float64),
-            # Shift values for numerical stability (set from first batch)
-            'shift_fa': None,  # Will be tensor of shape [num_vars] or [num_vars, num_levels]
-            'shift_a': None,
-            'initialized': False,
+            'a_sum':  torch.zeros(full_shape, device=self.device, dtype=torch.float64),
+            'count':  torch.zeros(full_shape, device=self.device, dtype=torch.float64),
         }
     
     def _get_climatology_indices(self, timestamps: torch.Tensor) -> torch.Tensor:
@@ -382,73 +374,22 @@ class MetricsAggregator:
         step_idx: int,
         reduce_dims: Tuple[int, ...],
     ):
-        """
-        Accumulate statistics needed for Pearson correlation.
-        
-        Uses shifted values for numerical stability. The shift is set from the 
-        first batch's mean, which greatly reduces catastrophic cancellation in
-        the variance formula when values are very small (e.g., upper-level humidity).
-        
-        Mathematical identity:
-            var(x) = E[(x-K)²] - (E[x-K])² for any constant K
-            
-        By choosing K ≈ mean(x), both terms are small and similar in magnitude,
-        avoiding catastrophic cancellation.
-        """
-        # Cast to float64 for numerical stability
+        """Accumulate raw float64 weighted sums for Pearson correlation."""
         fa = fa.double()
         a = a.double()
         w = w.double()
-        
-        # Expand weights to match tensor shape
+
         w_expanded = w.expand_as(fa)
-        
-        # Determine the shape for shift values (exclude batch, lat, lon dims)
-        # For surface: fa is [batch, vars, lat, lon], shift is [vars]
-        # For upper air: fa is [batch, vars, levels, lat, lon], shift is [vars, levels]
-        non_reduce_dims = [d for d in range(fa.dim()) if d not in reduce_dims]
-        shift_shape = [fa.shape[d] for d in non_reduce_dims]
-        
-        # Initialize shift values from first batch (for numerical stability)
-        if not acc_dict['initialized']:
-            # Compute mean of first batch as shift value
-            # This dramatically improves numerical stability
-            acc_dict['shift_fa'] = fa.mean(dim=reduce_dims).clone()
-            acc_dict['shift_a'] = a.mean(dim=reduce_dims).clone()
-            acc_dict['initialized'] = True
-        
-        # Shift the values for numerical stability
-        # Reshape shift to broadcast correctly
-        shift_fa = acc_dict['shift_fa']
-        shift_a = acc_dict['shift_a']
-        
-        # Add dimensions back for broadcasting
-        for dim in sorted(reduce_dims):
-            shift_fa = shift_fa.unsqueeze(dim)
-            shift_a = shift_a.unsqueeze(dim)
-        
-        fa_shifted = fa - shift_fa
-        a_shifted = a - shift_a
-        
-        # Accumulate statistics using shifted values
-        # Note: We store both raw and shifted sums to compute both mean and variance correctly
+
         acc_dict['w_sum'][step_idx] += w_expanded.sum(dim=reduce_dims)
-        
-        # Raw sums (for computing unshifted mean)
         acc_dict['wfa_sum'][step_idx] += (w_expanded * fa).sum(dim=reduce_dims)
         acc_dict['wa_sum'][step_idx] += (w_expanded * a).sum(dim=reduce_dims)
+        acc_dict['wfaa_sum'][step_idx] += (w_expanded * fa * a).sum(dim=reduce_dims)
+        acc_dict['wfa2_sum'][step_idx] += (w_expanded * fa * fa).sum(dim=reduce_dims)
+        acc_dict['wa2_sum'][step_idx] += (w_expanded * a * a).sum(dim=reduce_dims)
         acc_dict['fa_sum'][step_idx] += fa.sum(dim=reduce_dims)
         acc_dict['a_sum'][step_idx] += a.sum(dim=reduce_dims)
-        
-        # Shifted sums (for numerically stable variance)
-        # wfaa = sum(w * fa * a) = sum(w * (fa_s + K_fa) * (a_s + K_a))
-        #      = sum(w * fa_s * a_s) + K_fa * sum(w * a_s) + K_a * sum(w * fa_s) + K_fa * K_a * sum(w)
-        # We store the shifted cross-products and reconstruct later
-        acc_dict['wfaa_sum'][step_idx] += (w_expanded * fa_shifted * a_shifted).sum(dim=reduce_dims)
-        acc_dict['wfa2_sum'][step_idx] += (w_expanded * fa_shifted * fa_shifted).sum(dim=reduce_dims)
-        acc_dict['wa2_sum'][step_idx] += (w_expanded * a_shifted * a_shifted).sum(dim=reduce_dims)
-        
-        # Count for unweighted mean
+
         num_elements = 1
         for d in reduce_dims:
             num_elements *= fa.shape[d]
@@ -477,22 +418,6 @@ class MetricsAggregator:
             if self.has_diagnostic:
                 dist.all_reduce(self.acc_diag[key])
         
-        # For shift values, average across ranks (they should be similar)
-        for acc_dict in [self.acc_sfc, self.acc_ua]:
-            if acc_dict['shift_fa'] is not None:
-                dist.all_reduce(acc_dict['shift_fa'], op=dist.ReduceOp.SUM)
-                acc_dict['shift_fa'] /= dist.get_world_size()
-            if acc_dict['shift_a'] is not None:
-                dist.all_reduce(acc_dict['shift_a'], op=dist.ReduceOp.SUM)
-                acc_dict['shift_a'] /= dist.get_world_size()
-        
-        if self.has_diagnostic:
-            if self.acc_diag['shift_fa'] is not None:
-                dist.all_reduce(self.acc_diag['shift_fa'], op=dist.ReduceOp.SUM)
-                self.acc_diag['shift_fa'] /= dist.get_world_size()
-            if self.acc_diag['shift_a'] is not None:
-                dist.all_reduce(self.acc_diag['shift_a'], op=dist.ReduceOp.SUM)
-                self.acc_diag['shift_a'] /= dist.get_world_size()
     
     def compute(self) -> Dict[str, torch.Tensor]:
         """
@@ -535,104 +460,41 @@ class MetricsAggregator:
     
     def _compute_acc(self, acc_dict: Dict[str, torch.Tensor]) -> torch.Tensor:
         """
-        Compute ACC from accumulated statistics.
-        
-        The original xarray implementation uses UNWEIGHTED mean for centering:
-            fa' = fa - mean(fa)  # UNWEIGHTED mean over all samples
-            a' = a - mean(a)
-            ACC = sum(w * fa' * a') / sqrt(sum(w * fa'²) * sum(w * a'²))
-        
-        We use shifted accumulators for numerical stability. The accumulator stores:
-            wfaa_sum = sum(w * (fa - K_fa) * (a - K_a))  [shifted]
-            wfa2_sum = sum(w * (fa - K_fa)²)             [shifted]
-            wa2_sum = sum(w * (a - K_a)²)                [shifted]
-            wfa_sum = sum(w * fa)                         [raw]
-            wa_sum = sum(w * a)                           [raw]
-        
-        To compute ACC with unweighted mean centering:
-            mean_fa = fa_sum / count  (unweighted)
-            mean_a = a_sum / count
-            
-        For variance with shift K and mean μ:
-            var(fa) = E_w[(fa - μ)²]
-                    = E_w[((fa - K) + (K - μ))²]
-                    = E_w[(fa - K)²] + 2*(K - μ)*E_w[fa - K] + (K - μ)²
-                    = (wfa2_sum/w_sum) + 2*(K - μ)*(wfa_sum/w_sum - K) + (K - μ)²
-                    
-        Simplified: Let d = K - μ (shift minus mean)
-            var(fa) = E_w[(fa-K)²] + 2*d*E_w[fa-K] + d²
-                    = E_w[(fa-K)²] + 2*d*(E_w[fa] - K) + d²
-                    = E_w[(fa-K)²] - 2*d*d + d²  (since d = K - μ = K - E[fa], and E_w[fa] ≈ E[fa])
-                    = E_w[(fa-K)²] - d²
-        
-        Actually, the cleanest approach: since we store raw wfa_sum and wa_sum,
-        we can compute E_w[fa] and E_w[a], then use the identity:
-            var(fa - μ) = E_w[(fa - μ)²] = E_w[fa²] - 2*μ*E_w[fa] + μ²
-        
-        But we stored (fa-K)² not fa². We can recover:
-            E_w[fa²] = E_w[(fa-K+K)²] = E_w[(fa-K)²] + 2*K*E_w[fa-K] + K²
-                     = wfa2_sum/w_sum + 2*K*(wfa_sum/w_sum - K) + K²
-                     = wfa2_sum/w_sum + 2*K*wfa_sum/w_sum - 2*K² + K²
-                     = wfa2_sum/w_sum + 2*K*wfa_sum/w_sum - K²
+        Compute ACC from raw accumulated float64 sums.
+
+        ACC uses unweighted mean for centering (matching xarray convention):
+            fa' = fa - mean(fa),  a' = a - mean(a)   (unweighted means)
+            ACC = E_w[fa' * a'] / sqrt(E_w[fa'²] * E_w[a'²])
+
+        Using raw moments:
+            E_w[fa' * a'] = E_w[fa*a] - μ_fa*E_w[a] - μ_a*E_w[fa] + μ_fa*μ_a
+            E_w[fa'²]     = E_w[fa²]  - 2*μ_fa*E_w[fa] + μ_fa²
         """
         w_sum = acc_dict['w_sum']
         count = acc_dict['count']
-        
-        # Get shift values (K_fa, K_a)
-        K_fa = acc_dict['shift_fa']  # Shape: [vars] or [vars, levels]
-        K_a = acc_dict['shift_a']
-        
-        # Handle case where shift wasn't initialized (shouldn't happen in practice)
-        if K_fa is None or K_a is None:
-            # Fall back to zero shift
-            K_fa = torch.zeros_like(acc_dict['wfa_sum'][0])
-            K_a = torch.zeros_like(acc_dict['wa_sum'][0])
-        
-        # Unweighted means (matching xarray's fa.mean())
-        mean_fa = acc_dict['fa_sum'] / count  # μ_fa
-        mean_a = acc_dict['a_sum'] / count    # μ_a
-        
-        # Weighted expectations of raw (unshifted) values
-        E_w_fa = acc_dict['wfa_sum'] / w_sum    # E_w[fa]
-        E_w_a = acc_dict['wa_sum'] / w_sum      # E_w[a]
-        
-        # Weighted expectations of shifted squared values
-        E_w_fa_s2 = acc_dict['wfa2_sum'] / w_sum   # E_w[(fa - K_fa)²]
-        E_w_a_s2 = acc_dict['wa2_sum'] / w_sum     # E_w[(a - K_a)²]
-        E_w_fa_s_a_s = acc_dict['wfaa_sum'] / w_sum  # E_w[(fa - K_fa)(a - K_a)]
-        
-        # Recover E_w[fa²] from shifted:
-        # E_w[fa²] = E_w[(fa-K)²] + 2*K*E_w[fa] - K²
-        E_w_fa2 = E_w_fa_s2 + 2 * K_fa * E_w_fa - K_fa ** 2
-        E_w_a2 = E_w_a_s2 + 2 * K_a * E_w_a - K_a ** 2
-        
-        # Recover E_w[fa*a] from shifted:
-        # fa*a = (fa-K_fa+K_fa)(a-K_a+K_a) = (fa-K_fa)(a-K_a) + K_fa*(a-K_a) + K_a*(fa-K_fa) + K_fa*K_a
-        # E_w[fa*a] = E_w[(fa-K_fa)(a-K_a)] + K_fa*E_w[a-K_a] + K_a*E_w[fa-K_fa] + K_fa*K_a
-        #           = E_w[(fa-K_fa)(a-K_a)] + K_fa*(E_w[a] - K_a) + K_a*(E_w[fa] - K_fa) + K_fa*K_a
-        E_w_faa = E_w_fa_s_a_s + K_fa * (E_w_a - K_a) + K_a * (E_w_fa - K_fa) + K_fa * K_a
-        
-        # Now compute covariance and variance using unweighted mean for centering:
-        # cov = E_w[(fa - μ)(a - ν)] = E_w[fa*a] - μ*E_w[a] - ν*E_w[fa] + μ*ν
+
+        # Unweighted means for centering (matches xarray fa.mean())
+        mean_fa = acc_dict['fa_sum'] / count
+        mean_a = acc_dict['a_sum'] / count
+
+        # Weighted expectations
+        E_w_fa = acc_dict['wfa_sum'] / w_sum
+        E_w_a = acc_dict['wa_sum'] / w_sum
+        E_w_fa2 = acc_dict['wfa2_sum'] / w_sum
+        E_w_a2 = acc_dict['wa2_sum'] / w_sum
+        E_w_faa = acc_dict['wfaa_sum'] / w_sum
+
+        # Covariance and variance with unweighted-mean centering
         cov = E_w_faa - mean_fa * E_w_a - mean_a * E_w_fa + mean_fa * mean_a
-        
-        # var_fa = E_w[(fa - μ)²] = E_w[fa²] - 2*μ*E_w[fa] + μ²
         var_fa = E_w_fa2 - 2 * mean_fa * E_w_fa + mean_fa ** 2
         var_a = E_w_a2 - 2 * mean_a * E_w_a + mean_a ** 2
-        
-        # ACC with numerical stability
+
         var_product = var_fa * var_a
-        
-        # Handle near-zero variance (undefined correlation)
         valid_mask = var_product > 1e-60
-        
+
         acc = torch.zeros_like(cov)
         acc[valid_mask] = cov[valid_mask] / torch.sqrt(var_product[valid_mask])
-        
-        # Clamp to valid correlation range [-1, 1]
         acc = torch.clamp(acc, -1.0, 1.0)
-        
-        # Return as float32 for compatibility with rest of code
         return acc.float()
     
     def format_logs(self, epoch: int) -> Dict[str, float]:

@@ -363,27 +363,27 @@ def plot_bias(bias_pred, bias_gt, filename, var_level_dict):
 
         try:
             if not is_surface:
-                # one level per panel? 
-                level_value = levels[0] 
+                # one level per panel?
+                level_value = levels[0]
 
-                # Consistent with plot_acc_over_lead_time heuristic
-                # threshold = 10.0 
-                # if 0 < level_value < threshold: # Assumed sigma
-                #      level_coord_name = 'lev'
-                #      level_label = f"{level_value:.4f} σ"
-                # elif level_value >= threshold: # Assumed pressure (Pa)
-                #      level_coord_name = 'plev'
-                #      level_label = f"{level_value/100:.0f} hPa"
-                # else:
-                #     raise ValueError(f"Invalid level value {level_value} for non-surface variable {var}")
+                # Determine level coordinate name from what is actually in the dataset.
+                # Models with sigma levels use 'lev'; models with pressure levels use 'plev'.
+                for candidate in ('lev', 'plev'):
+                    if candidate in bias_pred.coords and candidate in bias_gt.coords:
+                        level_coord_name = candidate
+                        break
 
-                # Check if the determined coordinate exists before selecting
-                if level_coord_name not in bias_pred.coords or level_coord_name not in bias_gt.coords:
-                     print(f"Warning: Determined coordinate '{level_coord_name}' not found for variable '{var}'. Skipping plot.")
-                     ax.set_title(f"{var} ({level_label})\nCoord Missing")
-                     ax.set_axis_off()
-                     plot_idx += 1
-                     continue
+                if level_coord_name is None:
+                    print(f"Warning: No level coordinate ('lev' or 'plev') found for variable '{var}'. Skipping plot.")
+                    ax.set_title(f"{var}\nCoord Missing")
+                    ax.set_axis_off()
+                    plot_idx += 1
+                    continue
+
+                if level_coord_name == 'lev':
+                    level_label = f"{level_value:.4f} σ"
+                else:
+                    level_label = f"{level_value/100:.0f} hPa"
 
                 # Select data using the determined coordinate
                 var_bias_pred = bias_pred[var].sel(**{level_coord_name: level_value}, method='nearest')
