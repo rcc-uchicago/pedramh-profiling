@@ -1227,8 +1227,7 @@ if __name__ == '__main__':
 
         params['experiment_dir'] = os.path.abspath(expDir)
         # Construct checkpoint path following train.py convention.
-        params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints', f'seed-{seed}')
-        # params['checkpoint_dir'] = os.path.join(expDir, 'training_checkpoints') # cutomized for Pangu legacy
+        params['checkpoint_dir'] = os.path.join(expDir, 'checkpoints')
         params['best_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'best_ckpt.tar')
         params['latest_checkpoint_path'] = os.path.join(params['checkpoint_dir'], 'ckpt_latest.tar')
         params['checkpoint_path_globstr'] = os.path.join(params['checkpoint_dir'], 'ckpt_epoch_*.tar')
