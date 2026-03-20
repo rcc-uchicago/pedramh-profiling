@@ -227,8 +227,12 @@ class Trainer():
             checkpoint_path = None
             finetune = self.params.finetuning
 
-            # Priority 1: If start_epoch is assigned, load from that epoch's checkpoint file
-            if hasattr(self.params, 'start_epoch') and self.params.start_epoch is not None:
+            # Priority 1: If start_epoch is assigned, load from that epoch's checkpoint file.
+            # Skipped for just_validate: the per-epoch loop or the best-checkpoint path
+            # handles checkpoint selection; start_epoch is a curriculum/finetune config
+            # field and should not redirect validation to a specific epoch.
+            if hasattr(self.params, 'start_epoch') and self.params.start_epoch is not None \
+                    and not getattr(self.params, 'just_validate', False):
                 epoch_checkpoint_pattern = os.path.join(
                     self.params.checkpoint_dir_load,
                     f'ckpt_epoch_{self.params.start_epoch}.tar'
@@ -734,8 +738,15 @@ class Trainer():
             start = time.time()
 
             self.model.train()
-            if self.ema:
+            if self._ema_active():
                 self.ema.eval()
+            elif self.ema is not None:
+                # First epoch where EMA becomes active: sync EMA weights from model
+                warmup = getattr(self.params, 'ema_warmup_epochs', 0)
+                if self.epoch == warmup:
+                    model_for_ema = self.model.module if hasattr(self.model, 'module') else self.model
+                    update_ema(self.ema, model_for_ema, decay=0)
+                    logging.info(f"EMA warmup complete at epoch {self.epoch}. Synced EMA from model weights.")
 
             if self.params.curriculum_learning:
                 # Generate shuffled indices on rank 0
@@ -924,15 +935,15 @@ class Trainer():
                         # Unscale gradients before clipping
                         self.scaler.unscale_(self.optimizer)
                         # Clip gradients to prevent explosion
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
+                        #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
                     else:
                         loss.backward()
                         # Clip gradients to prevent explosion
-                        torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
+                        #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
                         self.optimizer.step()
-                    if self.ema:
+                    if self._ema_active():
                         if dist.is_initialized():
                             update_ema(self.ema, self.model.module, decay=self.params.ema_decay)
                         else:
@@ -1249,9 +1260,21 @@ class Trainer():
                 valid_steps, valid_surface_lwrmse, valid_upper_air_lwrmse, 
                 valid_diagnostic_lwrmse, multi_step_losses, multi_step_rmse)
     
+    def _ema_active(self) -> bool:
+        """Return True when EMA should be used this epoch.
+
+        EMA is suppressed for the first ``ema_warmup_epochs`` epochs (1-indexed).
+        With the default of 0 warmup epochs the behaviour is identical to always
+        using EMA (fully backwards-compatible).
+        """
+        if self.ema is None:
+            return False
+        warmup = getattr(self.params, 'ema_warmup_epochs', 0)
+        return self.epoch >= warmup
+
     def _get_model_for_eval(self) -> torch.nn.Module:
-        """Select and prepare model for validation (EMA if available)."""
-        if self.ema is not None:
+        """Select and prepare model for validation (EMA if available and active)."""
+        if self._ema_active():
             model = self.ema
             if self.params.log_to_screen:
                 logging.info('Using EMA model for validation')
@@ -2609,7 +2632,7 @@ class Trainer():
 
         # Copy current training weights into stepper.
         # Prefer EMA weights for inference (consistent with _get_model_for_eval).
-        if self.ema is not None:
+        if self._ema_active():
             training_sd = self.ema.state_dict()
             if self.world_rank == 0:
                 logging.info("Using EMA model weights for ensemble inference.")
@@ -3107,11 +3130,12 @@ class Trainer():
             result = self.model.load_state_dict(checkpoint_state_dict, strict=strict_load)
             if not strict_load and (getattr(result, 'missing_keys', None) or getattr(result, 'unexpected_keys', None)):
                 mk, uk = getattr(result, 'missing_keys', []), getattr(result, 'unexpected_keys', [])
-                if self.world_rank == 0:
-                    logging.warning(
-                        "Partial load: checkpoint does not match model (missing_keys=%s, unexpected_keys=%s). "
-                        "For validate_before_train use the same config as the checkpoint run.",
-                        len(mk), len(uk))
+                # Do not silently accept a partial load — mismatched keys almost always indicate
+                # a "module." DDP prefix mismatch.  Raise so the prefix-fix fallback runs.
+                raise RuntimeError(
+                    f"Partial load: {len(mk)} missing keys and {len(uk)} unexpected keys. "
+                    "Attempting 'module.' prefix fix."
+                )
             else:
                 logging.info('Successfully loaded checkpoint state dict')
         except Exception as e:
@@ -3156,9 +3180,15 @@ class Trainer():
         self.startEpoch = checkpoint['epoch']
         logging.info(f'Restoring from epoch {self.startEpoch}, iteration {self.iters}')
 
-        if self.ema is not None and 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
+        ema_warmup = getattr(self.params, 'ema_warmup_epochs', 0)
+        ema_was_active_at_checkpoint = (self.ema is not None) and (self.startEpoch >= ema_warmup)
+        if ema_was_active_at_checkpoint and 'ema_state' in checkpoint and checkpoint['ema_state'] is not None:
             self.ema.load_state_dict(checkpoint['ema_state'])
             logging.info("Restored EMA state")
+        elif self.ema is not None and not ema_was_active_at_checkpoint:
+            # EMA warmup not yet complete; EMA weights will be synced from model at warmup boundary
+            logging.info(f"EMA warmup not complete at checkpoint epoch {self.startEpoch} "
+                         f"(ema_warmup_epochs={ema_warmup}). EMA state not loaded.")
         elif self.ema is not None:
             # Checkpoint has no EMA state but EMA is enabled: initialise from model weights
             logging.warning("No EMA state in checkpoint. Initializing EMA from loaded model weights.")
@@ -3395,8 +3425,8 @@ if __name__ == '__main__':
     
     # Validation settings
     params['just_validate'] = args.just_validate  # Only validate, don't train
-    if params.just_validate:
-        os.environ["WANDB_MODE"] = "offline"  # Disable wandb for validation-only runs
+    #if params.just_validate:
+    #    os.environ["WANDB_MODE"] = "offline"  # Disable wandb for validation-only runs
     # Parse validation epochs from comma-separated string
     print("validation epochs arg:", args.validation_epochs)
     params['validation_epochs'] = sorted([int(i) for i in args.validation_epochs.split(',')]) if len(args.validation_epochs) > 0 else []
@@ -3413,6 +3443,9 @@ if __name__ == '__main__':
             raise ValueError("Finetuning epochs specified but finetuning run number is not specified")
     if args.finetune_lr > 0:
         params['lr'] = args.finetune_lr  # Override learning rate for finetuning
+    params['curriculum_learning'] = params['curriculum_learning'] if hasattr(params, 'curriculum_learning') else False
+    params['balanced_learning'] = params['balanced_learning'] if hasattr(params, 'balanced_learning') else False
+
 
     # Curriculum learning configuration
     if hasattr(params, "curriculum_learning"):

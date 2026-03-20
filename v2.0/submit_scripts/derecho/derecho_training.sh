@@ -2,7 +2,7 @@
 #PBS -N pangu_train
 #PBS -l select=1:ncpus=64:ngpus=4
 #PBS -q main
-#PBS -l walltime=01:00:00
+#PBS -l walltime=12:00:00
 #PBS -A UCHI0014
 #PBS -e logs/
 #PBS -o logs/
