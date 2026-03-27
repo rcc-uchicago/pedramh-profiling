@@ -1839,10 +1839,11 @@ class Trainer():
                             # day-of-year of the TARGET, not the initial condition.
                             advance_hours = int((step + 1) * self.params.timedelta_hours)
                             timestamps = times.clone()
+                            _calendar = getattr(self.params, 'calendar', 'proleptic_gregorian')
                             for _j in range(times.shape[0]):
                                 _y = int(times[_j, 0]); _m = int(times[_j, 1])
                                 _d = int(times[_j, 2]); _h = int(times[_j, 3])
-                                _tgt = datetime(_y, _m, _d, _h) + timedelta(hours=advance_hours)
+                                _tgt = cftime.datetime(_y, _m, _d, _h, calendar=_calendar) + timedelta(hours=advance_hours)
                                 timestamps[_j, 0] = _tgt.year
                                 timestamps[_j, 1] = _tgt.month
                                 timestamps[_j, 2] = _tgt.day
@@ -2614,6 +2615,26 @@ class Trainer():
         else:
             current_ensemble_params['save_basenames'] = []
             current_ensemble_params['output_dirs'] = []
+
+        if getattr(self.params, 'save_ensemble_nc', False):
+            if hasattr(self.params, 'output_dir'):
+                ens_nc_base_dir = self.params.output_dir
+            else:
+                ens_nc_base_dir = os.path.join(
+                    self.params.experiment_dir, 'ensemble_validation', 'forecasts')
+            ens_nc_dir = os.path.join(ens_nc_base_dir, f"{max_forecast_hours}h")
+            os.makedirs(ens_nc_dir, exist_ok=True)
+            current_ensemble_params['ensemble_nc_basenames'] = [
+                os.path.join(
+                    ens_nc_dir,
+                    f"forecast_{event_type_mapping.get(i, 'unknown')}_particle{i:04d}_epoch{self.epoch:04d}"
+                )
+                for i in range(len(init_datetimes))
+            ]
+            current_ensemble_params['ensemble_nc_dirs'] = [ens_nc_dir] * len(init_datetimes)
+        else:
+            current_ensemble_params['ensemble_nc_basenames'] = []
+            current_ensemble_params['ensemble_nc_dirs'] = []
 
         # Prevent Stepper from loading a stale checkpoint (weights will be overwritten)
         for attr in ('best_checkpoint_path',):
@@ -3582,9 +3603,10 @@ if __name__ == '__main__':
         load_base = params.load_exp_dir if hasattr(params, 'load_exp_dir') else params.exp_dir
         load_expDir = os.path.join(load_base, args.config, str(args.run_num))
     else:
-        # Normal training: save and load from same directory
+        # Normal training/validation: save to exp_dir, load from load_exp_dir if set.
         save_expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))
-        load_expDir = save_expDir
+        load_base = params.load_exp_dir if hasattr(params, 'load_exp_dir') else params.exp_dir
+        load_expDir = os.path.join(load_base, args.config, str(args.run_num))
     params['experiment_dir'] = os.path.abspath(save_expDir)
     
     # Define subdirectories

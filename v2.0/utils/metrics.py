@@ -127,7 +127,10 @@ class MetricsAggregator:
         - Surface variables: (dayofyear, lat, lon)
         - Upper air variables: (dayofyear, lev/plev, lat, lon)
         """
-        # Surface climatology: [366, num_vars, lat, lon]
+        # Determine the number of days in this climatology (365 or 366)
+        n_clim_days = climatology.dims.get('dayofyear', 366)
+
+        # Surface climatology: [n_clim_days, num_vars, lat, lon]
         clim_surface_list = []
         for var in self.surface_variables:
             if var in climatology:
@@ -135,7 +138,7 @@ class MetricsAggregator:
                 clim_surface_list.append(torch.from_numpy(data).float())
             else:
                 # If variable not in climatology, use zeros (e.g., for precipitation)
-                shape = (366, climatology.dims['lat'], climatology.dims['lon'])
+                shape = (n_clim_days, climatology.dims['lat'], climatology.dims['lon'])
                 clim_surface_list.append(torch.zeros(shape, dtype=torch.float32))
         
         if clim_surface_list:
@@ -159,7 +162,7 @@ class MetricsAggregator:
                     data = data[:, level_indices, :, :]
                 clim_upper_air_list.append(torch.from_numpy(data).float())
             else:
-                shape = (366, len(self.levels), climatology.dims['lat'], climatology.dims['lon'])
+                shape = (n_clim_days, len(self.levels), climatology.dims['lat'], climatology.dims['lon'])
                 clim_upper_air_list.append(torch.zeros(shape, dtype=torch.float32))
         
         if clim_upper_air_list:
@@ -176,7 +179,7 @@ class MetricsAggregator:
                     data = climatology[var].values
                     clim_diag_list.append(torch.from_numpy(data).float())
                 else:
-                    shape = (366, climatology.dims['lat'], climatology.dims['lon'])
+                    shape = (n_clim_days, climatology.dims['lat'], climatology.dims['lon'])
                     clim_diag_list.append(torch.zeros(shape, dtype=torch.float32))
             self.clim_diagnostic = torch.stack(clim_diag_list, dim=1).to(self.device)
         else:
@@ -239,39 +242,55 @@ class MetricsAggregator:
     
     def _get_climatology_indices(self, timestamps: torch.Tensor) -> torch.Tensor:
         """
-        Convert timestamps [batch, 4] (year, month, day, hour) to climatology indices (0-365).
-        
-        Handles leap year adjustment: for non-leap years after Feb 28, skip Feb 29 in climatology.
-        This matches the logic in get_climatology_index() in train.py.
+        Convert timestamps [batch, 4] (year, month, day, hour) to climatology indices.
+
+        For a 366-day climatology (proleptic_gregorian / standard): Feb 29 occupies index 59;
+        non-leap years skip that slot, so all post-Feb-28 dates are offset by +1.
+        For a 365-day climatology (no-leap calendar): there is no Feb 29 slot and no offset;
+        day-of-year maps directly to 0-based index.
+
+        The actual size is inferred from the stored climatology tensor so no calendar string
+        needs to be threaded through the API.
         """
         year = timestamps[:, 0].long()
         month = timestamps[:, 1].long()
         day = timestamps[:, 2].long()
-        
+
         # Days before each month (non-leap year)
         days_before_month = torch.tensor(
             [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334],
             device=self.device, dtype=torch.long
         )
-        
-        # Day of year (1-indexed)
+
+        # Day of year (1-indexed), computed with non-leap-year month table
         day_of_year = days_before_month[month - 1] + day
-        
-        # Leap year check
-        is_leap = ((year % 4 == 0) & (year % 100 != 0)) | (year % 400 == 0)
-        after_feb = month > 2
-        
-        # Add 1 for leap years after Feb
-        day_of_year = day_of_year + (is_leap & after_feb).long()
-        
-        # Convert to 0-indexed climatology index
-        clim_idx = day_of_year - 1
-        
-        # For non-leap years after Feb 28, skip Feb 29 (index 59) in climatology
-        non_leap_after_feb28 = (~is_leap) & (day_of_year > 59)
-        clim_idx = clim_idx + non_leap_after_feb28.long()
-        
-        return torch.clamp(clim_idx, 0, 365)
+
+        # Infer climatology size from the stored tensor
+        if self.clim_surface is not None:
+            n_clim_days = self.clim_surface.shape[0]
+        elif self.clim_upper_air is not None:
+            n_clim_days = self.clim_upper_air.shape[0]
+        else:
+            n_clim_days = 366
+
+        if n_clim_days == 366:
+            # 366-day climatology: Feb 29 is at index 59; adjust for leap/non-leap years.
+            is_leap = ((year % 4 == 0) & (year % 100 != 0)) | (year % 400 == 0)
+            after_feb = month > 2
+
+            # Shift day_of_year forward by 1 for leap years after Feb so Feb 29 → index 59
+            day_of_year = day_of_year + (is_leap & after_feb).long()
+
+            clim_idx = day_of_year - 1
+
+            # Non-leap years: skip the Feb 29 slot (index 59)
+            non_leap_after_feb28 = (~is_leap) & (day_of_year > 59)
+            clim_idx = clim_idx + non_leap_after_feb28.long()
+        else:
+            # 365-day (no-leap) climatology: no Feb 29 slot, direct day-of-year mapping
+            clim_idx = day_of_year - 1
+
+        return torch.clamp(clim_idx, 0, n_clim_days - 1)
     
     def update(
         self,

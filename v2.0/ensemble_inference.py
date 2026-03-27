@@ -144,6 +144,7 @@ class Stepper():
         self.save_forecasts = False
         if hasattr(self.params, 'save_forecasts'):
             self.save_forecasts = self.params.save_forecasts
+        self.save_ensemble_nc = getattr(self.params, 'save_ensemble_nc', False)
 
 
         self.enable_amp = self.params.enable_amp
@@ -642,12 +643,14 @@ class Stepper():
                     lambda x: x.to(self.device, dtype=torch.float32), data[:-1])
                 particle_idxs = data[-1]
                 #print(f'Particle idxs:{particle_idxs}')
-                
+
                 actual_batch = input_surface_in.shape[0]
                 if actual_batch == 0:
                     continue
                 ensemble_member_splits = np.arange(0, self.params.num_ensemble_members+self.params.ensemble_members_per_pred,
                                                    self.params.ensemble_members_per_pred)
+                if self.save_ensemble_nc:
+                    particle_datasets_buf = {}  # pid -> xr.Dataset accumulated across ensemble splits
                 for ensemble_start, ensemble_end in zip(ensemble_member_splits[:-1], ensemble_member_splits[1:]):
                     ensemble_end = min(ensemble_end, self.params.num_ensemble_members)
                     input_surface = to_ensemble_batch(input_surface_in, ensemble_end - ensemble_start)
@@ -753,6 +756,16 @@ class Stepper():
                     #print(f'Ensemble dataset len: {len(ensemble_datasets)}')
                     conversion_time += time.time() - conversion_start
 
+                    if self.save_ensemble_nc:
+                        for j, pid in enumerate(particle_idxs):
+                            pid_int = int(pid)
+                            if pid_int not in particle_datasets_buf:
+                                particle_datasets_buf[pid_int] = ensemble_datasets[j]
+                            else:
+                                particle_datasets_buf[pid_int] = xr.concat(
+                                    [particle_datasets_buf[pid_int], ensemble_datasets[j]],
+                                    dim='ensemble_idx')
+
                     """
                     print(f'Comparing to particle {particle_idxs[0]}')
 
@@ -821,7 +834,11 @@ class Stepper():
                         # print("DEBUG: particle_idxs from ensemble_inference.py", particle_idxs)
                         self.obs_function([ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + self.obs_args)
                         obs_time += time.time() - obs_start
-                        
+
+                if self.save_ensemble_nc:
+                    save_start = time.time()
+                    self._save_ensemble_nc_files(particle_datasets_buf, particle_idxs)
+                    save_time += time.time() - save_start
 
         total_time = time.time() - total_start
 
@@ -1096,6 +1113,26 @@ class Stepper():
             dataset.to_netcdf(filepath, mode='w', compute=True)
             # FIX 2: close every time we saved.
             dataset.close()
+
+    def _save_ensemble_nc_files(self, particle_datasets_buf, particle_idxs):
+        """Save one .nc file per particle containing all ensemble members.
+
+        *particle_datasets_buf* maps global particle-id (int) to a merged
+        xr.Dataset whose ``ensemble_idx`` dimension spans all members.
+        Paths come from ``self.params.ensemble_nc_basenames`` and
+        ``self.params.ensemble_nc_dirs``.
+        """
+        for pid in particle_idxs:
+            pid_int = int(pid)
+            if pid_int not in particle_datasets_buf:
+                continue
+            savedir = self.params.ensemble_nc_dirs[pid_int]
+            os.makedirs(savedir, exist_ok=True)
+            save_basename = self.params.ensemble_nc_basenames[pid_int]
+            filepath = save_basename + '_all_members_output.nc'
+            ds = particle_datasets_buf[pid_int]
+            ds.to_netcdf(filepath, mode='w', compute=True)
+            ds.close()
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
