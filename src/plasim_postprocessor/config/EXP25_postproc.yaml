@@ -1,0 +1,44 @@
+# EXP25_postproc.yaml
+# Post-processing config for EXP25_AIRES (Pangu-Plasim, 24h emulator).
+# Use with postprocessor_version: "3.0" in the experiment JSON.
+#
+# This config produces:
+#   - plasim_out.step_K.particle_I.nc   (T42, sigma-level + Z500 at pressure levels)
+#   - panguplasim_in.step_K.particle_I.nc  (Pangu grid, selected vars)
+
+postprocessing:
+
+  # --- Variables for sigma-level burn7 extraction ---
+  # Matches the PLASIM.upper_air_variables / surface_variables in the Pangu YAML
+  # (PATH_YAML_CONFIG). Note: 'zg' excluded here; added via burn7 VTYPE=P below.
+  upper_air_variables: ["ta", "ua", "va", "hus"]
+  surface_variables: ["pl", "tas"]
+  land_variables: []
+  ocean_variables: []
+
+  # --- Z500 computation ---
+  zg_source: "burn7"
+  pressure_levels: [50, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+
+  # --- Precipitation accumulation ---
+  # pr_6h sentinel in surface_variables triggers this
+  accumulate_precip: true
+  precip_accumulation_hours: [6]
+
+  # --- Output targets ---
+  outputs:
+    plasim:
+      enabled: true
+    pangu:
+      enabled: true       # Regrid to Pangu grid for GPU inference
+      grid_file: "/glade/work/alancelin/PanguWeather-ens/v2.0/results/PLASIM/0515/grid.txt"
+      variables: ["ta", "ua", "va", "hus", "zg", "tas", "pl", "pr_6h"]
+
+  # --- burn7 environment ---
+  burn7_wrapper: "/glade/u/home/zhil/project/AI-RES/Blocking/AI-RES/RES/postprocessor/burn7_wrappers/derecho.sh"
+
+  # --- Other tool paths ---
+  cdo_path: "cdo"
+  ncap2_path: "ncap2"
+  sg_filepath: ""
+  ncl_script_path: ""
