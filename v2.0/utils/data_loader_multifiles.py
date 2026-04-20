@@ -180,36 +180,58 @@ def datetime_class_from_calendar(calendar):
 def get_date_range(data_dirs, date_ranges, hour_step,
                    calendar, has_year_zero, datetime_class, get_size = False,
                    partition_date_ranges = None):
-    start_dates, end_dates = [], []
-    for data_dir, (start_date_str_i, end_date_str_i) in date_ranges.items():
-        data_dirs.append(data_dir)
-        start_date_i = cftime.datetime.strptime(start_date_str_i, "%Y-%m-%d %H:%M:%S",
+    # First pass: parse all datetimes and collect per-source pair lists.
+    # Each value in date_ranges may be either:
+    #   - a single pair  : ["YYYY-MM-DD HH:MM:SS", "YYYY-MM-DD HH:MM:SS"]
+    #   - multiple pairs : [["start1","end1"], ["start2","end2"], ...]
+    parsed = []   # list of (data_dir, [(start_dt, end_dt), ...]) — one entry per source
+    all_start_dates, all_end_dates = [], []
+    for data_dir, start_end_list in date_ranges.items():
+        # Normalise to a list of [start, end] string pairs
+        if isinstance(start_end_list[0], str):
+            pairs_raw = [start_end_list]       # single pair wrapped in a list
+        else:
+            pairs_raw = start_end_list         # already a list of pairs
+        source_dts = []
+        for start_str, end_str in pairs_raw:
+            start_dt = cftime.datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S",
                                                 has_year_zero = has_year_zero,
                                                 calendar = calendar)
-        start_dates.append(datetime_class(start_date_i.year,
-                                                start_date_i.month,
-                                                start_date_i.day,
-                                                hour = start_date_i.hour,
-                                                has_year_zero = has_year_zero))
-        end_date_i = cftime.datetime.strptime(end_date_str_i, "%Y-%m-%d %H:%M:%S",
-                                                has_year_zero = has_year_zero,
-                                                calendar = calendar)
-        end_dates.append(datetime_class(end_date_i.year,
-                        end_date_i.month,
-                        end_date_i.day,
-                        hour = end_date_i.hour,
-                        has_year_zero = has_year_zero))
-    start_date = min(start_dates)
-    end_date = max(end_dates)
+            start_dt = datetime_class(start_dt.year, start_dt.month, start_dt.day,
+                                      hour = start_dt.hour, has_year_zero = has_year_zero)
+            end_dt = cftime.datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S",
+                                              has_year_zero = has_year_zero,
+                                              calendar = calendar)
+            end_dt = datetime_class(end_dt.year, end_dt.month, end_dt.day,
+                                    hour = end_dt.hour, has_year_zero = has_year_zero)
+            source_dts.append((start_dt, end_dt))
+            all_start_dates.append(start_dt)
+            all_end_dates.append(end_dt)
+        parsed.append((data_dir, source_dts))
+
+    start_date = min(all_start_dates)
+    end_date   = max(all_end_dates)
+
+    # Second pass: build date_range and data_dirs_idxs.
+    # Each source (dict key) gets one entry in num_dates and one index in data_dirs,
+    # regardless of how many discontinuous pairs it has.  This preserves the
+    # num_dates[0] == total-first-source-count invariant that curriculum learning
+    # relies on.
     date_range, data_dirs_idxs = np.array([]), np.array([], dtype = int)
     num_dates = []
-    for i, (start_date_i, end_date_i) in enumerate(zip(start_dates, end_dates)):        
-        date_range_i = partition_date_range(start_date, start_date_i, end_date_i,
-                                            partition_date_ranges if i == 0 else None, hour_step,
-                                            calendar, has_year_zero, datetime_class)
-        num_dates.append(len(date_range_i))
-        data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), i+1))
-        date_range = np.append(date_range, date_range_i)
+    for source_idx, (data_dir, pairs) in enumerate(parsed, start = 1):
+        data_dirs.append(data_dir)
+        source_count = 0
+        for pair_idx, (start_dt, end_dt) in enumerate(pairs):
+            # partition_date_ranges applies only to the first pair of the first source
+            pdr = partition_date_ranges if (source_idx == 1 and pair_idx == 0) else None
+            date_range_i = partition_date_range(start_date, start_dt, end_dt, pdr,
+                                                hour_step, calendar, has_year_zero, datetime_class)
+            source_count += len(date_range_i)
+            data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), source_idx))
+            date_range = np.append(date_range, date_range_i)
+        num_dates.append(source_count)
+
     if get_size:
         return num_dates
     else:
@@ -250,7 +272,7 @@ def partition_date_range(start_date, start_date_i, end_date_i, date_ranges,
                 range_start_datetime = datetime_class(year, range_start_month, range_start_day,
                                                       has_year_zero = has_year_zero)
                 range_end_datetime = datetime_class(year, range_end_month, range_end_day,
-                                                      has_year_zero = has_year_zero) + timedelta(days=1)
+                                                      has_year_zero = has_year_zero) + timedelta(hours=24 - hour_step)
                 if start_date_i > range_end_datetime or range_start_datetime > end_date_i:
                     continue
                 year_start_datetime = range_start_datetime if range_start_datetime > start_date_i else start_date_i
