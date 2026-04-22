@@ -4647,9 +4647,14 @@ void PumaProcess(void)
       Geopotential->hgp = Orography;
    }
 
-   // This section is implemented for pressure level fields only
+   // This section computes pressure-level diagnostics (FullPress, HalfPress,
+   // ThetaF, GeopotHeight, Omega, w_wind, Rhumidity, SLP). It runs for
+   // VerType=='p' (historical), when Omega is needed (Omega triggers SigLevs
+   // diagnostics), and when GeopotHeight is needed on sigma (the sigma-zg
+   // branch inside relies on presh() + MakeGeopotHeight + HalfPress).
+   // Inner blocks are gated by their own ->needed flags.
 
-   if (VerType == 'p' || Omega->needed)
+   if (VerType == 'p' || Omega->needed || GeopotHeight->needed)
    {
       FullPress->SetHGrid(SigLevs  ,OutLevs,FALSE);
       HalfPress->SetHGrid(SigLevs+1,OutLevs,FALSE);
@@ -4669,6 +4674,38 @@ void PumaProcess(void)
          memcpy(&GeopotHeight->hgp[Dim3GP],&Orography[0],DimGP * sizeof(double));
          MakeGeopotHeight(&GeopotHeight->hgp[0],&Temperature->hgp[0],
                           &Humidity->hgp[0],&HalfPress->hgp[0],DimGP,SigLevs);
+
+         if (VerType != 'p')
+         {
+            // Sigma output: replace half-level zg with midpoint zg via direct
+            // hydrostatic integration from each layer's bottom half-level up to
+            // p_mid = 0.5*(ph[k] + ph[k+1]) -- matches burn7's sigma midpoints
+            // at Outlev and co-locates zg with ta/ua/va/hus. Same virtual-
+            // temperature formula as MakeGeopotHeight; RETV == (RV/RD - 1).
+            // In-place safe: step k reads z[(k+1)*DimGP+ig] (still intact from
+            // MakeGeopotHeight) and writes z[k*DimGP+ig]. Surface slot
+            // z[SigLevs*DimGP+ig] = Orography, untouched.
+            const double zrg = 1.0 / Grav;
+            double *T  = &Temperature->hgp[0];
+            double *Q  = &Humidity->hgp[0];
+            double *ph = &HalfPress->hgp[0];
+            double *z  = &GeopotHeight->hgp[0];
+            for (int k = 0; k < SigLevs; ++k) {
+               for (int ig = 0; ig < DimGP; ++ig) {
+                  int i_layer   = k * DimGP + ig;
+                  int i_halfbot = (k + 1) * DimGP + ig;
+                  double p_bot  = ph[i_halfbot];
+                  double p_top  = ph[i_layer];
+                  double p_mid  = 0.5 * (p_bot + p_top);
+                  double virt   = 1.0 + RETV * Q[i_layer];
+                  double dz     = RD * T[i_layer] * virt * log(p_bot / p_mid) * zrg;
+                  z[i_layer]    = z[i_halfbot] + dz;
+               }
+            }
+            GeopotHeight->hlev = SigLevs;
+            GeopotHeight->plev = SigLevs;
+         }
+
          Humidity->needed = Humidity->selected;
       }
    
@@ -6249,13 +6286,11 @@ int main(int argc, char *argv[])
 
    // Check correct vertical coordinate
 
-   if (GeopotHeight->selected && VerType != 'p')
-   {
-      printf("\n ****************** E R R O R ************************\n");
-      printf(" * Geopotential height (156) requires pressure level *\n");
-      printf(" *****************************************************\n");
-      exit(1);
-   }
+   // GeopotHeight (156) on sigma is supported: after MakeGeopotHeight fills
+   // half-level zg, a sigma-mode branch inside the hydrostatic block replaces
+   // those half-level values with midpoint values via direct hydrostatic
+   // integration to p_mid = 0.5*(ph[k] + ph[k+1]) — co-locating zg with
+   // ta/ua/va/hus on the same sigma midpoints at Outlev.
 
    Geopotential->needed |= OutRep >= PRE_GRID
                         || SLP->needed || GeopotHeight->needed;
