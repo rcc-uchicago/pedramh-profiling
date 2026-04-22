@@ -24,6 +24,12 @@ sst — sea surface temperature (K)
         sst = ts                        where ocean & ~icy
         sst = FREEZING_SEAWATER_K       where ocean &  icy
         sst = NaN                       elsewhere
+    After the above, apply a floor at FREEZING_SEAWATER_K over ocean: no
+    ocean cell may have SST below the seawater freezing point. Matches
+    ERA5 / CMIP reanalysis convention (water under/near ice is at the
+    freezing point, not the cold ice-skin temperature); without it,
+    PlaSim's binary-sic lag during polar-night cooling passes ~3 % of
+    ocean cell-timesteps through as non-physical sub-freezing "SST".
 
 rsdt — TOA incoming shortwave flux (W m-2)
     Two methods (select with --rsdt-method):
@@ -78,10 +84,15 @@ def compute_sst(ds: xr.Dataset) -> xr.DataArray:
 
     ocean = ds["lsm"] < LAND_EPSILON
     icy = ds["sic"] > SIC_THRESHOLD
-    sst = xr.where(
-        ocean & ~icy, ds["ts"],
-        xr.where(ocean & icy, FREEZING_SEAWATER_K, np.nan),
-    )
+    # Over ocean: use ts where ice-free, FREEZING_SEAWATER_K where ice-covered,
+    # then apply the freezing floor universally. PlaSim emits sic as a hard
+    # binary (0/1); during polar-night cooling ~3 % of ocean cell-timesteps
+    # reach ts < 271.35 K before sic flips to 1. Passing those values through
+    # as "SST" is non-physical (water under/near ice is at the freezing point,
+    # not the cold ice-skin temperature). The universal floor matches ERA5 /
+    # CMIP reanalysis convention for SST over sea ice.
+    sst_ocean = xr.where(icy, FREEZING_SEAWATER_K, ds["ts"]).clip(min=FREEZING_SEAWATER_K)
+    sst = xr.where(ocean, sst_ocean, np.nan)
     sst.attrs = {
         "units": "K",
         "long_name": "sea_surface_temperature",
