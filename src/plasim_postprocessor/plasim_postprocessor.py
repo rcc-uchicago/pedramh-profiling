@@ -46,6 +46,7 @@ export LD_LIBRARY_PATH=/opt/apps/intel24/netcdf/4.9.2/x86_64/lib:/home1/09979/aw
 
 import argparse
 import logging
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -184,7 +185,10 @@ def process_one(sim: int, year: int, opts) -> None:
             _run_cdo(["merge", str(current), str(pr_renamed), str(next_merged)])
             current = next_merged
 
-        current.replace(output_path)
+        # shutil.move handles the common cross-device case on Stampede3
+        # (tempfile lives on compute-node /tmp, output-root is Lustre scratch);
+        # Path.replace -> os.replace raises EXDEV in that case.
+        shutil.move(str(current), str(output_path))
 
     logger.info("[sim%s/%04d] wrote %s", sim, year, output_path)
 
