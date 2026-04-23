@@ -58,8 +58,11 @@ def generate_new_run_num(config_dir, extra_exclude=None):
             reserve numbers in-session without requiring files to be written
             (e.g. during a dry run or a grid search).
     """
-    # Get all config files in the directory
+    # Get all config files in the directory and finetune/ subdirectory
     config_files = list(Path(config_dir).glob('*.yaml'))
+    finetune_subdir = Path(config_dir) / 'finetune'
+    if finetune_subdir.is_dir():
+        config_files.extend(finetune_subdir.glob('*.yaml'))
 
     # Extract all existing run_nums
     existing_nums = set()
