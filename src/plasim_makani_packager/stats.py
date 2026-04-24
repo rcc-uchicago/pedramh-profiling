@@ -39,12 +39,18 @@ logger = logging.getLogger("plasim_makani_packager.stats")
 
 MIN_STD_EPSILON: float = 1e-6
 
-# Three forcing channels that are constant along the time axis (their
-# time_means equal the per-cell value in any file). Used by validate.py to
-# confirm the invariance; NOT used to exempt these channels from the
-# MIN_STD_EPSILON hard-fail — global std is taken over (T, H, W), so real
-# PlaSim lsm/sg/z0 have non-zero spatial std.
-STATIC_FORCING_NAMES: frozenset[str] = frozenset({"lsm", "sg", "z0"})
+# Forcing channels that are constant along the time axis (time_means equal the
+# per-cell value in any file). Used by validate.py to confirm the invariance;
+# NOT used to exempt these channels from the MIN_STD_EPSILON hard-fail —
+# global std is taken over (T, H, W), so real PlaSim lsm/sg still have
+# non-zero spatial std.
+#
+# z0 is intentionally excluded. Diagnostic (sim52, 98 train years) shows z0 is
+# land-static but ocean-dynamic: pure land cells are bit-identical within and
+# across years, while ocean cells vary 1.5e-5 → 1e-3 m consistent with
+# Charnock/sea-state roughness. Top-1% highest-variability cells are 100%
+# ocean. z0 is therefore classified as a time-varying prescribed forcing.
+STATIC_FORCING_NAMES: frozenset[str] = frozenset({"lsm", "sg"})
 
 
 # ---------------------------------------------------------------------------

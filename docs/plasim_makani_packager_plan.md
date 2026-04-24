@@ -141,7 +141,7 @@ This is a **downstream packager** standalone at `src/plasim_makani_packager/`. I
 ```
  0  lsm       (static, per-step repeated)
  1  sg        (static)
- 2  z0        (static)
+ 2  z0        (varying — land-static, ocean-dynamic; Charnock/sea-state roughness 1.5e-5..1e-3 m)
  3  sst       (varying, land-filled 271.35 K)
  4  rsdt      (varying, astronomical method)
  5  sic       (varying, [0,1])
@@ -1098,7 +1098,7 @@ validate.py --output-root … --mode {structural, makani_smoke, full} [-v]
 6. **sim52 boundary output doesn't exist yet.** Phase 0 blocks Phase 1.
 7. **Disk footprint.** ~230 GB uncompressed across 128 years.
 8. **Year 0002 warmup skipped.**
-9. **Static-channel storage overhead.** `lsm, sg, z0` repeated across time (~5% disk); kept for contract uniformity.
+9. **Static-channel storage overhead.** `lsm, sg` repeated across time (~3% disk); kept for contract uniformity. `z0` also in /forcing but carries real time variation over ocean (Charnock).
 10. **Stock Makani metadata parser tolerance.** Ignores unknown keys (`diagnostic_*`, `forcing_*`). Pin the Makani revision validated against.
 11. **ERA5-style default Makani metrics off.** PlaSim-specific metric names future work.
 12. **`add_zenith` off.** `rsdt` in `/forcing` covers insolation.

@@ -114,7 +114,9 @@ def _stack_forcing(
 ) -> tuple[np.ndarray, float]:
     """Stack 6 forcing channels into (T, 6, H, W).
 
-    lsm, sg, z0 : from MOST (static, per-step repeated by the postprocessor).
+    lsm, sg     : from MOST. Globally static (same value every time step, every year).
+    z0          : from MOST. Time-varying prescribed forcing — land-static,
+                  ocean-dynamic (Charnock/sea-state roughness, 1.5e-5..1e-3 m).
     sst         : from boundary adaptor, NaN-over-land filled with sst_land_fill_k.
     rsdt        : from boundary adaptor.
     sic         : from boundary adaptor (already clipped to [0, 1]).
@@ -225,6 +227,24 @@ def _assert_rsdt_method(boundary_ds: xr.Dataset) -> None:
 # ---------------------------------------------------------------------------
 # Timestamp synthesis (plan v9: dataset-globally monotonic seconds)
 # ---------------------------------------------------------------------------
+_T_CACHE: dict[tuple[str, int, int], int] = {}
+
+
+def _get_T_for_year(postproc_root: Path, sim: int, year: int) -> int:
+    # Key includes postproc_root to avoid cross-test contamination when
+    # tests invoke the packager against different synthetic roots.
+    key = (str(postproc_root.resolve()), sim, year)
+    if key not in _T_CACHE:
+        most_path = postproc_root / f"sim{sim}" / f"MOST.{year:04d}.nc"
+        if not most_path.exists():
+            raise RuntimeError(
+                f"cannot read T for sim{sim} year {year:04d}: missing {most_path}"
+            )
+        with xr.open_dataset(most_path, decode_times=False) as ds:
+            _T_CACHE[key] = int(ds.sizes["time"])
+    return _T_CACHE[key]
+
+
 def _compute_split_offset(
     year: int,
     split: str,
@@ -242,8 +262,8 @@ def _compute_split_offset(
     Makani's MultifilesDataset enforces uniform dT across file boundaries
     (data_loader_multifiles.py:216-221). Offsetting per-year by
     sum_{y < year, y in split} T_y * STEP_SECONDS is the simplest scheme
-    that satisfies it. Reading T from each prior MOST file is cheap (only
-    the `time` coord length is needed).
+    that satisfies it. Per-year T is cached in _T_CACHE so repeated calls
+    across (year_i) amortize down to one read per year.
     """
     ranges = {"train": train_years, "valid": valid_years, "test": test_years}
     if split not in ranges:
@@ -253,16 +273,7 @@ def _compute_split_offset(
 
     offset_steps = 0
     for y_prior in range(prior_lo, year):
-        most_path = (
-            postproc_root / f"sim{sim}" / f"MOST.{y_prior:04d}.nc"
-        )
-        if not most_path.exists():
-            raise RuntimeError(
-                f"cannot compute timestamp offset for {split}/{year:04d}: "
-                f"prior file missing: {most_path}"
-            )
-        with xr.open_dataset(most_path, decode_times=False) as ds:
-            offset_steps += ds.sizes["time"]
+        offset_steps += _get_T_for_year(postproc_root, sim, y_prior)
     return int(offset_steps) * STEP_SECONDS
 
 
@@ -589,6 +600,17 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="0-based index into the (sim, year) task list (for SLURM arrays).",
     )
+    p.add_argument(
+        "--year-slice",
+        type=int,
+        nargs=2,
+        default=None,
+        metavar=("START", "END"),
+        help="Restrict processing to (sim, year) pairs with year in [START, END] "
+        "(inclusive). Classification into train/valid/test still uses the full "
+        "--{train,valid,test}-years ranges, so the timestamp offset scheme is "
+        "unaffected. Use to shard a single logical run across parallel workers.",
+    )
     p.add_argument("--count-tasks", action="store_true")
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--dry-run", action="store_true")
@@ -627,6 +649,10 @@ def main() -> None:
         sys.exit(
             f"error: {', '.join(missing)} required unless --count-tasks is set"
         )
+
+    if args.year_slice is not None:
+        ys_lo, ys_hi = args.year_slice
+        tasks = [(s, y) for (s, y) in tasks if ys_lo <= y <= ys_hi]
 
     if args.task_index is not None:
         if not (0 <= args.task_index < len(tasks)):

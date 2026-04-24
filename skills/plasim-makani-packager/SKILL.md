@@ -42,7 +42,7 @@ Ancillary: `/timestamp` (int64, per-split monotonic seconds, step 21600), `/time
 /forcing (6)
  0  lsm     -- static, from MOST
  1  sg      -- static, from MOST
- 2  z0      -- static, from MOST
+ 2  z0      -- varying, from MOST. Land-static, ocean-dynamic (Charnock)
  3  sst     -- varying, from boundary adaptor (NaN-over-land filled with 271.35 K)
  4  rsdt    -- varying, from boundary adaptor (rsdt_method=astronomical)
  5  sic     -- varying, from boundary adaptor (clipped to [0,1])
@@ -93,7 +93,7 @@ Writes `{output-root}/stats/`:
 - `forcing_time_means.npy` — `(1, 6, 64, 128)` float32.
 - `sst_land_sentinel_notes.txt` — documents the 271.35 K sentinel's effect on sst stats.
 
-Hard-fails on any channel whose global std (over `T × H × W`) is `< epsilon`. No per-channel exemption: the static forcing channels (lsm, sg, z0) have non-zero spatial std, so they pass on real data.
+Hard-fails on any channel whose global std (over `T × H × W`) is `< epsilon`. No per-channel exemption: the static forcing channels (lsm, sg) have non-zero spatial std, so they pass on real data. z0 also passes — it carries real spatial + temporal variation (Charnock over ocean).
 
 ### `metadata.py` — Makani metadata + YAML render
 

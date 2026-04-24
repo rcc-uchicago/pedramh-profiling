@@ -214,30 +214,43 @@ def _validate_file(path: Path, year: int) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Cross-file monotonicity
+# Cross-file monotonicity (within each split independently)
 # ---------------------------------------------------------------------------
 def _assert_cross_file_monotonic(files_in_order: list[Path]) -> None:
+    """Check that /timestamp is monotonic + uniform-dT within the given file
+    sequence. Makani's MultifilesDataset expects this per `files_pattern`
+    (i.e. per split directory), NOT across splits; train/valid/test are
+    independent datasets from Makani's perspective, so each starts fresh."""
     last = None
     for path in files_in_order:
         with h5py.File(path, "r") as f:
             first = int(f["timestamp"][0])
             final = int(f["timestamp"][-1])
-        if last is not None and first <= last:
-            raise ValidationError(
-                f"cross-file monotonicity broken at {path.name}: first={first} "
-                f"<= previous_last={last}"
-            )
+        if last is not None:
+            if first <= last:
+                raise ValidationError(
+                    f"monotonicity broken at {path.name}: first={first} "
+                    f"<= previous_last={last}"
+                )
+            if first - last != STEP_SECONDS:
+                raise ValidationError(
+                    f"uniform-dT broken at {path.name}: first - previous_last "
+                    f"= {first - last} != {STEP_SECONDS}"
+                )
         last = final
 
 
-def _files_in_year_order(output_root: Path) -> list[Path]:
-    pairs: list[tuple[int, Path]] = []
+def _split_files_in_year_order(output_root: Path) -> dict[str, list[Path]]:
+    """{split -> [files in year order]} for each of train/valid/test."""
+    out: dict[str, list[Path]] = {}
     for split in SPLITS:
+        pairs: list[tuple[int, Path]] = []
         for p in (output_root / split).glob("MOST.*.h5"):
             year = int(p.stem.split(".")[1])
             pairs.append((year, p))
-    pairs.sort(key=lambda p: p[0])
-    return [p for _, p in pairs]
+        pairs.sort(key=lambda p: p[0])
+        out[split] = [p for _, p in pairs]
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -308,17 +321,23 @@ def _validate_stats(output_root: Path, epsilon: float) -> None:
 # Entry points
 # ---------------------------------------------------------------------------
 def run_structural(output_root: Path, epsilon: float) -> None:
-    ordered = _files_in_year_order(output_root)
-    if not ordered:
+    split_files = _split_files_in_year_order(output_root)
+    total = sum(len(v) for v in split_files.values())
+    if total == 0:
         raise ValidationError(f"no MOST.*.h5 files under {output_root}/{{train,valid,test}}")
 
-    for path in ordered:
-        year = int(path.stem.split(".")[1])
-        T = _validate_file(path, year)
-        logger.info("  ok  %s  (T=%d)", path, T)
-
-    _assert_cross_file_monotonic(ordered)
-    logger.info("cross-file timestamps strictly increasing ✓")
+    for split, files in split_files.items():
+        for path in files:
+            year = int(path.stem.split(".")[1])
+            T = _validate_file(path, year)
+            logger.info("  ok  %s  (T=%d)", path, T)
+        if files:
+            _assert_cross_file_monotonic(files)
+            logger.info(
+                "%s: %d files, uniform-dT across file boundaries ✓",
+                split,
+                len(files),
+            )
 
     _validate_stats(output_root, epsilon)
     logger.info("stats ok ✓")

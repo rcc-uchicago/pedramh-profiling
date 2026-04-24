@@ -68,7 +68,7 @@ def test_shapes_dtypes_and_epsilon_passes(tmp_path: Path):
 
     # Global std is taken over (T, H, W). Static forcing has spatial
     # variation (per-cell pattern repeated along T), so its global std is
-    # non-zero — real lsm/sg/z0 satisfies this; the plan (v9) does not
+    # non-zero — real lsm/sg satisfies this; the plan (v9) does not
     # grant a per-channel exemption.
     frc_std = np.load(stats / "forcing_global_stds.npy").ravel()
     assert np.all(frc_std >= 1e-6)
