@@ -3484,6 +3484,12 @@ if __name__ == '__main__':
     if args.validation_data_sets_json is not None:
         with open(args.validation_data_sets_json, 'r') as f:
             params['validation_data_sets'] = json.load(f)
+    # Allow train_data_sets / validation_data_sets in the YAML to be a path to a .json file
+    for _key in ('train_data_sets', 'validation_data_sets'):
+        _val = getattr(params, _key, None)
+        if isinstance(_val, str) and _val.endswith('.json'):
+            with open(_val, 'r') as f:
+                params[_key] = json.load(f)
     
     # Checkpoint selection
     if args.start_epoch is not None:

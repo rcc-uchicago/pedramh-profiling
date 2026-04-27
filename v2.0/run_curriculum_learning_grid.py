@@ -409,6 +409,9 @@ def run_one_combination(
         if finetune:
             name, ext = os.path.splitext(config_basename)
             new_config_basename = f"{name}_finetune_{new_run_num}{ext}"
+            finetune_subdir = os.path.join(config_dir, 'finetune')
+            os.makedirs(finetune_subdir, exist_ok=True)
+            new_config_path = os.path.join(finetune_subdir, new_config_basename)
         else:
             new_config_basename = re.sub(
                 r'_\d{4}(\.yaml)$', f'_{new_run_num}\\1', config_basename
@@ -416,7 +419,7 @@ def run_one_combination(
             if new_config_basename == config_basename:
                 name, ext = os.path.splitext(config_basename)
                 new_config_basename = f"{name}_{new_run_num}{ext}"
-        new_config_path = os.path.join(config_dir, new_config_basename)
+            new_config_path = os.path.join(config_dir, new_config_basename)
 
         print(f"  new_run_num:          {new_run_num}")
         print(f"  new_config_path:      {new_config_path}")
