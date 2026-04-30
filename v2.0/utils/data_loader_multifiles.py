@@ -1052,17 +1052,20 @@ class GetDataset(Dataset):
         # Condition for autoregression
         elif lead_times:
 
-            start_time = self.start_date + timedelta(hours=self.dates[self.inference_idxs[index]])
+            inference_idx = self.inference_idxs[index]
+            data_dir_idx = self.data_dirs_idxs[inference_idx]
+            start_time = self.start_date + timedelta(hours=self.dates[inference_idx])
 
             # Load initial conditions
-            data_in = self._get_data(start_time, out = False, data_dir_idx = self.data_dirs_idxs[index])
+            data_in = self._get_data(start_time, out = False, data_dir_idx = data_dir_idx)
             if len(self.varying_boundary_variables) > 0:
                 upper_air_t, surface_t, varying_boundary_data_t = self._reshape_and_mask_variables(data_in, out = False)
             else:
                 upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out = False)
 
             max_lead_time = lead_times[-1]
-            boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time) for lead_time in range(max_lead_time)]
+            boundary_times = [start_time + timedelta(hours=self.timedelta_hours * lead_time)
+                              for lead_time in range(1, max_lead_time)]            
             start_time_tensor = torch.tensor([start_time.year, start_time.month, start_time.day, start_time.hour])
             varying_boundary_data = [varying_boundary_data_t]
             varying_boundary_data.extend([self._fill_mask(self._get_boundary_data(boundary_time), self.varying_boundary_variables) \
@@ -1085,7 +1088,7 @@ class GetDataset(Dataset):
 
                 for step in range(1, max_lead_time + 1):
                     target_time = start_time + timedelta(hours = self.timedelta_hours * step)
-                    raw_target_data = self._get_data(target_time, out = True)
+                    raw_target_data = self._get_data(target_time, out = True, data_dir_idx = data_dir_idx)
 
                     if len(self.diagnostic_variables) > 0:
                         upper_air_target, surface_target, diagnostic_target = self._reshape_and_mask_variables(raw_target_data, out = True)
@@ -1129,12 +1132,12 @@ class GetDataset(Dataset):
 
         else:
             start_time = self.start_date + timedelta(hours=self.dates[self.inference_idxs[index]])
-            data_in = self._get_data(start_time, out = False)
+            data_in = self._get_data(start_time, out = False, data_dir_idx=self.data_dirs_idxs[self.inference_idxs[index]])
             if len(self.varying_boundary_variables) > 0:
-                surface_t, upper_air_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False)
+                upper_air_t, surface_t, varying_boundary_data = self._reshape_and_mask_variables(data_in, out=False)                
                 varying_boundary_data = self.boundary_transform(varying_boundary_data).unsqueeze(0)
             else:
-                surface_t, upper_air_t = self._reshape_and_mask_variables(data_in, out=False)
+                upper_air_t, surface_t = self._reshape_and_mask_variables(data_in, out=False)
             surface_t = self.surface_transform(surface_t)
             upper_air_t = self.upper_air_transform(upper_air_t)
         if torch.any(torch.isnan(varying_boundary_data)):
