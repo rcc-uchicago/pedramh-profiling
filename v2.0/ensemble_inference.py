@@ -8,7 +8,7 @@ from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
 from collections import OrderedDict
 import matplotlib.pyplot as plt
-from utils.data_loader_multifiles import get_data_loader
+from utils.data_loader_multifiles import get_data_loader, datetime_class_from_calendar
 from utils.YParams import YParams
 import time
 import numpy as np
@@ -1203,6 +1203,13 @@ if __name__ == '__main__':
     if args.batch_size > 0:
         params['batch_size'] = args.batch_size
     
+    # Allow train_data_sets / validation_data_sets in the YAML to be a path to a .json file
+    for _key in ('train_data_sets', 'validation_data_sets'):
+        _val = getattr(params, _key, None)
+        if isinstance(_val, str) and _val.endswith('.json'):
+            with open(_val, 'r') as f:
+                params[_key] = json.load(f)
+
     params['run_iter'] = 1
     if hasattr(params, 'diagnostic_variables'):
         if len(params.diagnostic_variables) > 0:
@@ -1342,51 +1349,52 @@ if __name__ == '__main__':
                 yaml.dump(hparams,  hpfile)
 
     params = params_list[0]
+    _dt_cls = datetime_class_from_calendar(params.calendar)
     if len(args.init_datetime) == 0:
         if hasattr(params, "init_datetime"):
             params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d %H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian')
+                                                                            calendar = params.calendar)
         else:
             params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
-                                                            calendar = 'proleptic_gregorian')
-        params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
-                                                                params.init_datetime.month,
-                                                                params.init_datetime.day,
-                                                                hour = params.init_datetime.hour,
-                                                                has_year_zero = params.has_year_zero)
+                                                            calendar = params.calendar)
+        params['init_datetime'] = _dt_cls(params.init_datetime.year,
+                                          params.init_datetime.month,
+                                          params.init_datetime.day,
+                                          hour = params.init_datetime.hour,
+                                          has_year_zero = params.has_year_zero)
     else:
         params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d %H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian')
-        params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
-                                                                    params.init_datetime.month,
-                                                                    params.init_datetime.day,
-                                                                    hour = params.init_datetime.hour,
-                                                                    has_year_zero = params.has_year_zero)
+                                                                            calendar = params.calendar)
+        params['init_datetime'] = _dt_cls(params.init_datetime.year,
+                                          params.init_datetime.month,
+                                          params.init_datetime.day,
+                                          hour = params.init_datetime.hour,
+                                          has_year_zero = params.has_year_zero)
     if len(args.init_datetimes) == 0 and len(args.init_datetime) == 0:
         if hasattr(params, "init_datetimes"):
             params['init_datetimes'] = [cftime.datetime.strptime(datetime, "%Y-%m-%d %H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian') for \
+                                                                            calendar = params.calendar) for \
                                                                                 datetime in params.init_datetimes]
-            params['init_datetimes'] = [cftime.DatetimeProlepticGregorian(init_datetime.year,
-                                                                    init_datetime.month,
-                                                                    init_datetime.day,
-                                                                    hour = init_datetime.hour,
-                                                                    has_year_zero = params.has_year_zero) for \
-                                                                    init_datetime in params.init_datetimes]
+            params['init_datetimes'] = [_dt_cls(init_datetime.year,
+                                                init_datetime.month,
+                                                init_datetime.day,
+                                                hour = init_datetime.hour,
+                                                has_year_zero = params.has_year_zero) for \
+                                                init_datetime in params.init_datetimes]
     else:
         params['init_datetimes'] = [cftime.datetime.strptime(datetime, "%Y-%m-%d %H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian') for \
+                                                                            calendar = params.calendar) for \
                                                                                 datetime in args.init_datetimes.split(',')]
-        params['init_datetimes'] = [cftime.DatetimeProlepticGregorian(init_datetime.year,
-                                                                    init_datetime.month,
-                                                                    init_datetime.day,
-                                                                    hour = init_datetime.hour,
-                                                                    has_year_zero = params.has_year_zero) for \
-                                                                    init_datetime in params.init_datetimes]
+        params['init_datetimes'] = [_dt_cls(init_datetime.year,
+                                            init_datetime.month,
+                                            init_datetime.day,
+                                            hour = init_datetime.hour,
+                                            has_year_zero = params.has_year_zero) for \
+                                            init_datetime in params.init_datetimes]
 
 
     # # @Amaury ADD a condition to generate the output_dirs and save_basenames if they are not provided (consistent with the total number of particles)
