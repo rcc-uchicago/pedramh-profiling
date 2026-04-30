@@ -35,6 +35,7 @@ CLI
 packager.py --postproc-root ... --boundary-root ... --output-root ...
             --sims 52 --train-years 3 100 --valid-years 101 120
             --test-years 121 128 --sst-land-fill-k 271.35
+            [--postprocessor-git-sha SHA]
             [--task-index N] [--count-tasks] [--overwrite] [--dry-run] [-v]
 
 With --count-tasks only, the script prints len(tasks) and exits.
@@ -58,7 +59,17 @@ from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
     FORCING_CHANNELS,
     STATE_CHANNELS,
+    ZG_PLEV_HPA,
 )
+
+# v10 contract: zg lives in postproc as `zg_plev` on `lev_2` (pressure
+# coordinate, hPa). The state stack reads exactly the levels in
+# ZG_PLEV_HPA (channels.py) by *value*, not by slice index, so the
+# postprocessor is free to add / reorder / extend lev_2 without breaking
+# the contract — missing values raise loudly. See
+# docs/plasim_zg_plev_migration_plan.md §3.2.
+ZG_SOURCE_VAR: str = "zg_plev"
+ZG_LEV_DIM: str = "lev_2"
 
 logger = logging.getLogger("plasim_makani_packager")
 
@@ -78,8 +89,11 @@ WARMUP_YEARS: frozenset[int] = frozenset({1, 2})
 def _stack_fields_state(ds: xr.Dataset) -> np.ndarray:
     """Stack 52 state channels into (T, 52, H, W) float32.
 
-    Order: [pl, tas, ta1..ta10, ua1..ua10, va1..va10, hus1..hus10, zg1..zg10]
+    Order (v10): [pl, tas, ta1..10, ua1..10, va1..10, hus1..10,
+                  zg{P} for P in ZG_PLEV_HPA]
     Sigma ordering: lev[0] (TOA) → ta1, lev[9] (surface) → ta10.
+    Pressure-level zg: looked up by value against ds[ZG_LEV_DIM] (hPa);
+    a missing value raises loudly. See plan §3.2.
     """
     T = ds.sizes["time"]
     H = ds.sizes["lat"]
@@ -88,12 +102,43 @@ def _stack_fields_state(ds: xr.Dataset) -> np.ndarray:
     out[:, 0] = ds["pl"].values
     out[:, 1] = ds["tas"].values
     col = 2
-    for var in ("ta", "ua", "va", "hus", "zg"):
+    for var in ("ta", "ua", "va", "hus"):
         arr = ds[var].values  # (T, 10, H, W)
         if arr.shape != (T, 10, H, W):
             raise RuntimeError(f"{var} has shape {arr.shape}, expected {(T, 10, H, W)}")
         out[:, col : col + 10] = arr
         col += 10
+
+    if ZG_SOURCE_VAR not in ds:
+        raise RuntimeError(
+            f"postproc dataset missing required variable {ZG_SOURCE_VAR!r}; "
+            f"v10 contract reads zg from {ZG_SOURCE_VAR} on coord {ZG_LEV_DIM}."
+        )
+    zgp = ds[ZG_SOURCE_VAR]
+    if ZG_LEV_DIM not in zgp.coords:
+        raise RuntimeError(
+            f"{ZG_SOURCE_VAR} is missing coord {ZG_LEV_DIM!r}; "
+            f"got coords {list(zgp.coords)}."
+        )
+    lev2 = zgp.coords[ZG_LEV_DIM].values.astype(int).tolist()
+    try:
+        idx = [lev2.index(int(p)) for p in ZG_PLEV_HPA]
+    except ValueError as e:
+        missing = [int(p) for p in ZG_PLEV_HPA if int(p) not in lev2]
+        raise RuntimeError(
+            f"{ZG_SOURCE_VAR} {ZG_LEV_DIM} {lev2} is missing required pressure "
+            f"level(s) {missing} hPa (full target: {list(ZG_PLEV_HPA)})."
+        ) from e
+    zgp_arr = zgp.values  # (T, len(lev_2), H, W)
+    expected_lev = zgp.sizes[ZG_LEV_DIM]
+    if zgp_arr.shape != (T, expected_lev, H, W):
+        raise RuntimeError(
+            f"{ZG_SOURCE_VAR} has shape {zgp_arr.shape}, "
+            f"expected {(T, expected_lev, H, W)}"
+        )
+    out[:, col : col + 10] = zgp_arr[:, idx]
+    col += 10
+
     assert col == 52
     return out
 
@@ -510,6 +555,9 @@ def process_one(sim: int, year: int, opts: argparse.Namespace) -> None:
             "source_postproc": str(most_path.resolve()),
             "source_boundary": str(boundary_path.resolve()),
             "packager_git_sha": _resolve_git_sha(Path(__file__).resolve().parent),
+            "postprocessor_git_sha": str(opts.postprocessor_git_sha or "unknown"),
+            "zg_source_var": ZG_SOURCE_VAR,
+            "zg_pressure_levels_hpa": np.array(ZG_PLEV_HPA, dtype=np.int32),
             "sst_land_fill_K": float(opts.sst_land_fill_k),
             "sst_land_fill_fraction": sst_land_fill_fraction,
             "plasim_time_units": plasim_time_units,
@@ -593,6 +641,15 @@ def _parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_SST_LAND_FILL_K,
         help="Scalar K used to fill NaN (land) in adaptor sst.",
+    )
+    p.add_argument(
+        "--postprocessor-git-sha",
+        type=str,
+        default=None,
+        help="Postprocessor git SHA (per L7c) to record in file_attrs. "
+        "Resolve in submit.slurm via `git -C $POSTPROC_SOURCE_DIR rev-parse HEAD`. "
+        "Defaults to 'unknown' if omitted; downstream validate --mode files "
+        "treats 'unknown' as a failure in production.",
     )
     p.add_argument(
         "--task-index",

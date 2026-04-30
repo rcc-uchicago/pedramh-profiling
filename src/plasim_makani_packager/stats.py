@@ -39,6 +39,36 @@ logger = logging.getLogger("plasim_makani_packager.stats")
 
 MIN_STD_EPSILON: float = 1e-6
 
+# v10 audit gate (L7d): the global mean of `zg500` over the training split
+# must lie within this band. Outside it, abort before any .npy is written.
+# Range from docs/plasim_postprocessor_audit.md:193 (sim30 yr12, fldmean).
+ZG500_AUDIT_RANGE_M: tuple[float, float] = (5400.0, 5700.0)
+
+
+def _audit_zg500_inline(mean_tgt: np.ndarray) -> None:
+    """Hard-fail if mean_tgt[zg500] is outside ZG500_AUDIT_RANGE_M.
+
+    Runs before any .npy is written so a bad pack never produces stats
+    artifacts. ``mean_tgt`` is the C=53 per-channel running mean from
+    the Welford pass, indexed by ``TARGET_CHANNELS``. See plan §3.6.
+    """
+    try:
+        idx = TARGET_CHANNELS.index("zg500")
+    except ValueError as e:
+        raise RuntimeError(
+            "TARGET_CHANNELS does not contain 'zg500'; this build is not "
+            "the v10 contract. Did you forget to update channels.py?"
+        ) from e
+    val = float(mean_tgt[idx])
+    lo, hi = ZG500_AUDIT_RANGE_M
+    if not (lo <= val <= hi):
+        raise RuntimeError(
+            f"zg500 audit (L7d) failed: mean_tgt[zg500] = {val:.2f} m is "
+            f"outside [{lo:.0f}, {hi:.0f}] m. Likely cause: wrong lev_2 "
+            f"value lookup, mis-ordered ZG_PLEV_HPA, or a postproc-side "
+            f"unit change. Aborting before any .npy is written."
+        )
+
 # Forcing channels that are constant along the time axis (time_means equal the
 # per-cell value in any file). Used by validate.py to confirm the invariance;
 # NOT used to exempt these channels from the MIN_STD_EPSILON hard-fail —
@@ -181,6 +211,10 @@ def compute_stats(
         raise RuntimeError(
             f"std < {epsilon:.1e} on {len(errs)} channel(s):\n" + "\n".join(errs)
         )
+
+    # v10 inline audit (§3.6, L7d): zg500 global mean must be within
+    # the audit band before any stats .npy is written.
+    _audit_zg500_inline(mean_tgt)
 
     # Write .npy in the shapes the loss + dataloader expect.
     def _save(name: str, arr: np.ndarray) -> None:
