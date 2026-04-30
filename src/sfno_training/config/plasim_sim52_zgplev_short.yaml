@@ -1,0 +1,143 @@
+### PlaSim -> Makani SFNO short config - medium SFNO, 5 train files, 2 valid files.
+###
+### Goal (docs/sfno_tiny_short_training_plan.md Part B): gate run before
+### scaling to the full dataset. Uses train MOST.0003-MOST.0007 and valid
+### MOST.0101-MOST.0102 via the sim52_short symlink subset.
+###
+### Subset built by scripts/build_subset_dataset.py:
+###   train: MOST.0003.h5 ... MOST.0007.h5  (5 files)
+###   valid: MOST.0101.h5 ... MOST.0102.h5  (2 files)
+### Stats / metadata / config symlinked from full sim52_astro_64x128.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders - substituted by submit_short.slurm.
+
+### v10 zg sigma → zg_plev migration. Pressure-level zg150..zg925 in
+### channel_names; literal zg500 at index 47 enables Z500 / blocking
+### skill. See docs/plasim_zg_plev_migration_plan.md (v7).
+###
+
+plasim_sim52_zgplev_short:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time ---
+    img_shape_x: 64
+    img_shape_y: 128
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids ---
+    model_grid_type: "legendre-gauss"
+    data_grid_type:  "legendre-gauss"
+    sht_grid_type:   "legendre-gauss"
+
+    # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg150","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","pr_6h"]
+
+    # --- PlaSim plumbing ---
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization (zscore against full-dataset stats; subset shares these) ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- Medium SFNO ---
+    nettype: "SFNO"
+    filter_type: "linear"
+    scale_factor: 3
+    embed_dim: 128
+    num_layers: 4
+    complex_activation: "real"
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    use_mlp: !!bool True
+    mlp_mode: "serial"
+    mlp_ratio: 2
+    separable: !!bool False
+    operator_type: "dhconv"
+    activation_function: "gelu"
+    pos_embed: "none"
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Short training (8 epochs, 5 files train + 2 files valid, batch_size=4) ---
+    lr: 1.0E-3
+    n_eval_samples: 1024
+    n_train_samples_per_epoch: 4096
+    max_epochs: 8
+    batch_size: 4
+    weight_decay: 0.0
+    n_history: 0
+    n_future: 0
+    # valid_autoreg_steps=3 -> 4 predictions at lead times 6, 12, 18, 24 h.
+    valid_autoreg_steps: 3
+    prediction_type: "iterative"
+
+    scheduler: "ReduceLROnPlateau"
+    scheduler_T_max: 8
+    scheduler_factor: 0.5
+    scheduler_patience: 3
+    scheduler_step_size: 1
+    scheduler_gamma: 0.5
+    lr_warmup_steps: 0
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9
+    optimizer_beta2: 0.95
+    optimizer_max_grad_norm: 32
+
+    num_data_workers: 2
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    target: "tendency"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"
