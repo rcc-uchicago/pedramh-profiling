@@ -17,7 +17,7 @@ import pytest
 
 xr = pytest.importorskip("xarray")
 
-from conftest import LEV_2_HPA, _make_synthetic_zg_plev
+from synthetic_helpers import LEV_2_HPA, _make_synthetic_zg_plev
 from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
     FORCING_CHANNELS,
