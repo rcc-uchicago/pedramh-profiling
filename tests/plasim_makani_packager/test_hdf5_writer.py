@@ -17,13 +17,15 @@ import pytest
 
 xr = pytest.importorskip("xarray")
 
+from conftest import LEV_2_HPA, _make_synthetic_zg_plev
 from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
     FORCING_CHANNELS,
     STATE_CHANNELS,
+    ZG_PLEV_HPA,
 )
 from plasim_makani_packager.packager import process_one, STEP_SECONDS
-from plasim_makani_packager.validate import _validate_file
+from plasim_makani_packager.validate import _validate_file, _validate_v10_attrs
 
 
 # ---------------------------------------------------------------------------
@@ -56,13 +58,25 @@ def _make_most_file(path: Path, T: int, H: int = 64, W: int = 128) -> None:
         "z0": (("time", "lat", "lon"), np.broadcast_to(z0_static, (T, H, W)).copy()),
         "sic": (("time", "lat", "lon"), np.clip(rng.random((T, H, W)).astype(np.float32), 0.0, 1.0)),
     }
-    for v in ("ta", "ua", "va", "hus", "zg"):
+    for v in ("ta", "ua", "va", "hus"):
         d[v] = (
             ("time", "lev", "lat", "lon"),
             rng.standard_normal((T, 10, H, W)).astype(np.float32),
         )
+    # v10: zg lives in postproc as zg_plev(time, lev_2, lat, lon).
+    d["zg_plev"] = (
+        ("time", "lev_2", "lat", "lon"),
+        _make_synthetic_zg_plev(T, H, W, rng=rng),
+    )
     ds = xr.Dataset(
-        d, coords={"time": time, "lev": lev, "lat": lat, "lon": lon}
+        d,
+        coords={
+            "time": time,
+            "lev": lev,
+            "lev_2": np.array(LEV_2_HPA, dtype=np.int32),
+            "lat": lat,
+            "lon": lon,
+        },
     )
     ds["time"].attrs = {
         "units": "days since 0006-08-25 00:00:00",
@@ -127,6 +141,7 @@ def test_process_one_writes_valid_h5(tmp_path: Path):
         boundary_root=boundary_root,
         output_root=output_root,
         sst_land_fill_k=271.35,
+        postprocessor_git_sha="testsha0123456789abcdef",
         task_index=None,
         count_tasks=False,
         overwrite=False,
@@ -141,6 +156,8 @@ def test_process_one_writes_valid_h5(tmp_path: Path):
 
     # structural validator passes
     assert _validate_file(out_path, year) == T
+    # v10 attrs (zg_source_var, zg_pressure_levels_hpa, postprocessor_git_sha)
+    _validate_v10_attrs(out_path)
 
     # Spot-check datasets + dim scales attached correctly
     with h5py.File(out_path, "r") as f:
@@ -183,6 +200,7 @@ def test_process_one_skips_warmup_year(tmp_path: Path):
         boundary_root=tmp_path / "boundary",
         output_root=tmp_path / "out",
         sst_land_fill_k=271.35,
+        postprocessor_git_sha="testsha0123456789abcdef",
         task_index=None,
         count_tasks=False,
         overwrite=False,

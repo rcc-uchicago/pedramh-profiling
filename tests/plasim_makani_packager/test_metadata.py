@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import h5py
 import numpy as np
+import pytest
 
 from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
@@ -16,7 +18,9 @@ from plasim_makani_packager.channels import (
 )
 from plasim_makani_packager.metadata import (
     DEFAULT_CONFIG_NAME,
+    V9_FREEZE_TAG,
     build_metadata,
+    main as metadata_main,
     render_yaml,
     write_outputs,
 )
@@ -78,9 +82,36 @@ def test_build_metadata_content(tmp_path: Path):
     assert md["coords"]["channel_diagnostic"] == list(DIAGNOSTIC_CHANNELS)
     assert md["coords"]["channel_forcing"] == list(FORCING_CHANNELS)
 
+    # v10 contract: zg500 is a literal pressure-level channel at index 47
+    assert "zg500" in md["coords"]["channel"]
+    assert md["coords"]["channel"][47] == "zg500"
+    assert md["coords"]["channel_state"][42] == "zg150"
+    assert md["coords"]["channel_state"][51] == "zg925"
+
     assert md["attrs"]["rsdt_method"] == "astronomical"
     assert md["attrs"]["requires_patched_makani"] is True
     assert md["attrs"]["train_years"] == [3, 100]
+
+
+def test_variant_astro64x128_raises_with_v9_tag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """v9 variant is no longer supported on this codebase; metadata.main must
+    raise SystemExit with a message pointing at the v9 freeze tag (per L8)."""
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "metadata.py",
+            "--output-root", str(tmp_path),
+            "--variant", "astro64x128",
+        ],
+    )
+    with pytest.raises(SystemExit) as exc_info:
+        metadata_main()
+    msg = str(exc_info.value)
+    assert "astro64x128" in msg
+    assert V9_FREEZE_TAG in msg
 
 
 def test_render_yaml_substitutes_output_root_and_exp_dir(tmp_path: Path):

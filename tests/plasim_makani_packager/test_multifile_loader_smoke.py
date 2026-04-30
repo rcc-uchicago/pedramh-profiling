@@ -74,6 +74,7 @@ def packaged_dataset(tmp_path_factory) -> Path:
         boundary_root=boundary_root,
         output_root=output_root,
         sst_land_fill_k=271.35,
+        postprocessor_git_sha="testsha0123456789abcdef",
         task_index=None,
         count_tasks=False,
         overwrite=False,
@@ -85,10 +86,14 @@ def packaged_dataset(tmp_path_factory) -> Path:
 
     compute_stats(output_root, train_years=(3, 5))
 
-    tpl = Path(meta_module.__file__).resolve().parent / "templates" / "plasim_64x128.yaml"
+    tpl = (
+        Path(meta_module.__file__).resolve().parent
+        / "templates"
+        / "plasim_64x128_zgplev.yaml"
+    )
     md = meta_module.build_metadata(
         output_root,
-        dataset_name="plasim-sim52-astro-64x128",
+        dataset_name="plasim-sim52-astro-64x128-zgplev",
         train_years=(3, 5),
         valid_years=(101, 120),
         test_years=(121, 128),
@@ -100,20 +105,20 @@ def packaged_dataset(tmp_path_factory) -> Path:
         tpl,
         output_root=output_root,
         exp_dir=root / "runs",
-        config_name="plasim_sim52_astro_64x128",
+        config_name="plasim_sim52_astro_64x128_zgplev",
     )
     meta_module.write_outputs(
         output_root,
         metadata=md,
         rendered_yaml=rendered,
-        config_name="plasim_sim52_astro_64x128",
+        config_name="plasim_sim52_astro_64x128_zgplev",
     )
     return output_root
 
 
 def _load_params(output_root: Path) -> YParams:
-    cfg = output_root / "config" / "plasim_sim52_astro_64x128.yaml"
-    params = YParams(str(cfg), "plasim_sim52_astro_64x128", print_params=False)
+    cfg = output_root / "config" / "plasim_sim52_astro_64x128_zgplev.yaml"
+    params = YParams(str(cfg), "plasim_sim52_astro_64x128_zgplev", print_params=False)
     parse_dataset_metadata(params.metadata_json_path, params=params)
     # Preprocessor2D-required shape fields (normally set by driver._set_data_shapes)
     params.img_shape_x_resampled = params.img_shape_x

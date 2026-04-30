@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 
+from conftest import LEV_2_HPA, _make_synthetic_zg_plev
 from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
     FORCING_CHANNELS,
     STATE_CHANNELS,
     TARGET_CHANNELS,
+    ZG_PLEV_HPA,
 )
 from plasim_makani_packager.packager import (
     _stack_fields_diagnostic,
@@ -30,8 +32,11 @@ def test_state_order():
     assert STATE_CHANNELS[31] == "va10"
     assert STATE_CHANNELS[32] == "hus1"
     assert STATE_CHANNELS[41] == "hus10"
-    assert STATE_CHANNELS[42] == "zg1"
-    assert STATE_CHANNELS[51] == "zg10"
+    # v10: zg pressure levels TOA → surface
+    assert STATE_CHANNELS[42] == "zg150"
+    assert STATE_CHANNELS[47] == "zg500"
+    assert STATE_CHANNELS[51] == "zg925"
+    assert ZG_PLEV_HPA == (150, 200, 250, 300, 400, 500, 600, 700, 850, 925)
 
 
 def test_diagnostic():
@@ -68,14 +73,25 @@ def _fake_most(T: int = 3, H: int = 4, W: int = 8):
         "z0": (("time", "lat", "lon"), rng.standard_normal((T, H, W), dtype=np.float32)),
         "sic": (("time", "lat", "lon"), np.clip(rng.random((T, H, W), dtype=np.float32), 0, 1)),
     }
-    for v in ("ta", "ua", "va", "hus", "zg"):
+    for v in ("ta", "ua", "va", "hus"):
         data_vars[v] = (
             ("time", "lev", "lat", "lon"),
             rng.standard_normal((T, 10, H, W), dtype=np.float32),
         )
+    # v10: zg lives in the postproc as zg_plev(time, lev_2, lat, lon).
+    # lev_2 carries the 13 standard hPa values; the packager looks up
+    # ZG_PLEV_HPA by value, not slice index.
+    data_vars["zg_plev"] = (
+        ("time", "lev_2", "lat", "lon"),
+        _make_synthetic_zg_plev(T, H, W, rng=rng),
+    )
     return xr.Dataset(
         data_vars,
-        coords={"time": time, "lev": lev, "lat": lat, "lon": lon},
+        coords={
+            "time": time, "lev": lev,
+            "lev_2": np.array(LEV_2_HPA, dtype=np.int32),
+            "lat": lat, "lon": lon,
+        },
     )
 
 
@@ -111,8 +127,12 @@ def test_stack_fields_state_shape_and_order():
     np.testing.assert_array_equal(arr[:, 2], ds["ta"].values[:, 0])
     # ta10 at index 11 == lev[9] (surface)
     np.testing.assert_array_equal(arr[:, 11], ds["ta"].values[:, 9])
-    # zg1 at index 42 == zg lev[0]
-    np.testing.assert_array_equal(arr[:, 42], ds["zg"].values[:, 0])
+    # v10: zg150 at index 42 == zg_plev row whose lev_2 value is 150 hPa
+    # (LEV_2_HPA[2] == 150).
+    np.testing.assert_array_equal(arr[:, 42], ds["zg_plev"].values[:, 2])
+    # zg500 at index 47 == zg_plev row whose lev_2 value is 500 hPa
+    # (LEV_2_HPA[7] == 500).
+    np.testing.assert_array_equal(arr[:, 47], ds["zg_plev"].values[:, 7])
 
 
 def test_stack_fields_diagnostic():
