@@ -4,15 +4,27 @@
 Reads lat/lon and time-spacing from a sample training file and writes:
 
     {output-root}/metadata/data.json
-    {output-root}/config/{config-name}.yaml       -- templates/plasim_64x128.yaml,
-                                                     {OUTPUT_ROOT} substituted
+    {output-root}/config/{config-name}.yaml       -- packager template,
+                                                     {{OUTPUT_ROOT}} / {{EXP_DIR}}
+                                                     substituted
+
+By default this renders only the v10 (zgplev) baseline config — the four
+other trainer-side configs (smoke/tiny/short/full) are hand-curated and
+live at ``src/sfno_training/config/plasim_sim52_zgplev_*.yaml`` (per
+plan §3.4). The packager-side template only differs from those in the
+top-level config-name key, so ``metadata.py`` cannot semantically
+generate them; it just renders the baseline.
+
+For v9 (sigma-level zg) regeneration, check out the
+``plasim-makani-packager-v9-final`` git tag and run from there.
 
 CLI
 ---
 metadata.py --output-root {root}
-            [--dataset-name plasim-sim52-astro-64x128]
-            [--config-name plasim_sim52_astro_64x128]
-            [--exp-dir /scratch/.../runs/sim52_astro_64x128]
+            [--variant {zgplev,astro64x128}]
+            [--dataset-name plasim-sim52-astro-64x128-zgplev]
+            [--config-name plasim_sim52_zgplev_baseline]
+            [--exp-dir /scratch/.../runs/sim52_astro_64x128_zgplev]
             [--rsdt-method astronomical]
             [--sst-land-fill-k 271.35]
             [--train-years 3 100 --valid-years 101 120 --test-years 121 128]
@@ -38,12 +50,22 @@ from plasim_makani_packager.channels import (
 
 logger = logging.getLogger("plasim_makani_packager.metadata")
 
-DEFAULT_DATASET_NAME: str = "plasim-sim52-astro-64x128"
-DEFAULT_CONFIG_NAME: str = "plasim_sim52_astro_64x128"
-DEFAULT_TEMPLATE_NAME: str = "plasim_64x128.yaml"
+# v10 defaults (zgplev variant) — codebase is v10-only post-merge per L8.
+DEFAULT_VARIANT: str = "zgplev"
+DEFAULT_DATASET_NAME: str = "plasim-sim52-astro-64x128-zgplev"
+DEFAULT_CONFIG_NAME: str = "plasim_sim52_zgplev_baseline"
+DEFAULT_TEMPLATE_NAME: str = "plasim_64x128_zgplev.yaml"
+# Top-level key inside the packager template, used as the default for
+# the renamed config-name substitution. Must match the template file.
+DEFAULT_TEMPLATE_TOP_KEY: str = "plasim_sim52_astro_64x128_zgplev"
+DEFAULT_PACKAGER_VERSION: str = "sim52_astro_64x128_zgplev"
+DEFAULT_EXP_DIR: Path = Path(
+    "/scratch/11114/zhixingliu/AI-RES/runs/sim52_astro_64x128_zgplev"
+)
 TRAINER_PATCH_CONTRACT_URL: str = (
     "docs/plasim_makani_packager_plan.md#trainer-patch-contract"
 )
+V9_FREEZE_TAG: str = "plasim-makani-packager-v9-final"
 
 
 def _pick_sample_file(output_root: Path) -> Path:
@@ -112,7 +134,7 @@ def render_yaml(
     output_root: Path,
     exp_dir: Path,
     config_name: str,
-    default_config_name: str = DEFAULT_CONFIG_NAME,
+    default_config_name: str = DEFAULT_TEMPLATE_TOP_KEY,
 ) -> str:
     text = template_path.read_text()
     text = text.replace("{{OUTPUT_ROOT}}", str(output_root.resolve()))
@@ -152,12 +174,19 @@ def write_outputs(
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--output-root", required=True, type=Path)
+    p.add_argument(
+        "--variant",
+        choices=("zgplev", "astro64x128"),
+        default=DEFAULT_VARIANT,
+        help="Channel-list variant. 'zgplev' is the v10 default; "
+        "'astro64x128' (v9) raises with a pointer to the freeze tag.",
+    )
     p.add_argument("--dataset-name", default=DEFAULT_DATASET_NAME)
     p.add_argument("--config-name", default=DEFAULT_CONFIG_NAME)
     p.add_argument(
         "--exp-dir",
         type=Path,
-        default=Path("/scratch/11114/zhixingliu/AI-RES/runs/sim52_astro_64x128"),
+        default=DEFAULT_EXP_DIR,
     )
     p.add_argument("--rsdt-method", default="astronomical")
     p.add_argument("--sst-land-fill-k", type=float, default=271.35)
@@ -172,7 +201,7 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--packager-version",
-        default="sim52_astro_64x128",
+        default=DEFAULT_PACKAGER_VERSION,
         help="Free-form tag written into metadata.attrs.packager_version",
     )
     p.add_argument(
@@ -191,6 +220,15 @@ def main() -> None:
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(levelname)s: %(message)s",
     )
+
+    if args.variant == "astro64x128":
+        sys.exit(
+            "error: --variant astro64x128 is no longer supported by this "
+            f"codebase. The codebase is v10-only after the zg sigma → zg_plev "
+            f"migration (see docs/plasim_zg_plev_migration_plan.md L8). "
+            f"To regenerate v9 artifacts, check out the "
+            f"`{V9_FREEZE_TAG}` git tag and run from there."
+        )
 
     template = args.template or (
         Path(__file__).resolve().parent / "templates" / DEFAULT_TEMPLATE_NAME

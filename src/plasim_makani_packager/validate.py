@@ -1,27 +1,41 @@
 #!/usr/bin/env python3
-"""validate.py — Phase 4a (structural) + 4b (Makani smoke) validation.
+"""validate.py — five-mode validation for the v10 packager output.
 
-Phase 4a runs in this script directly: inspects every HDF5 under
-{output-root}/{split}/MOST.*.h5, checks shapes, finiteness, timestamp
-monotonicity (within + across files), dim scales, channel lists, and
-required file attributes. Stats files are also checked for shape /
-nonzero stds.
+Modes (per docs/plasim_zg_plev_migration_plan.md v7 §3.7):
 
-Phase 4b is the full YParams → PlasimPreprocessor → PlasimSingleStepWrapper
-smoke test. It depends on makani + torch and is implemented as a pytest
-module under tests/plasim_makani_packager/test_multifile_loader_smoke.py.
-`--mode makani_smoke` and `--mode full` invoke it via pytest.
+* ``files``       — per-file structural checks + cross-file monotonicity
+                    + v10-specific attrs (zg_source_var, zg_pressure_levels_hpa,
+                    postprocessor_git_sha). Does *not* require ``stats/``.
+* ``stats``       — checks the six .npy shapes / dtypes / std-epsilon and the
+                    saved zg500 mean (defense-in-depth vs the inline
+                    ``_audit_zg500_inline`` in ``stats.py``).
+* ``smoke``       — synthetic-fixture pytest (CI-runnable).
+* ``smoke-live``  — live-data preflight against the actual ``--output-root``.
+                    Loads ``metadata/data.json`` + the rendered yaml, instantiates
+                    the patched Makani loader, runs a 3-step rollout. Compute-node only.
+* ``full``        — files → stats → smoke → smoke-live, in order.
+
+Legacy ``structural`` and ``makani_smoke`` modes remain as
+deprecation-warned aliases for ``full`` and ``smoke`` respectively.
 
 CLI
 ---
-validate.py --output-root {root} --mode {structural,makani_smoke,full} [-v]
+validate.py --output-root {root}
+            --mode {files,stats,smoke,smoke-live,full}
+            [--config-name plasim_sim52_zgplev_baseline]
+            [--yaml-config PATH]
+            [--epsilon 1e-6]
+            [--allow-unknown-postproc-sha]
+            [-v]
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
+import warnings
 from pathlib import Path
 
 import h5py
@@ -32,11 +46,13 @@ from plasim_makani_packager.channels import (
     FORCING_CHANNELS,
     STATE_CHANNELS,
     TARGET_CHANNELS,
+    ZG_PLEV_HPA,
 )
-from plasim_makani_packager.packager import STEP_SECONDS
+from plasim_makani_packager.packager import STEP_SECONDS, ZG_SOURCE_VAR
 from plasim_makani_packager.stats import (
     MIN_STD_EPSILON,
     STATIC_FORCING_NAMES,
+    ZG500_AUDIT_RANGE_M,
 )
 
 logger = logging.getLogger("plasim_makani_packager.validate")
@@ -46,6 +62,13 @@ REQUIRED_FILE_ATTRS: tuple[str, ...] = (
     "plasim_calendar",
     "rsdt_method",
     "sst_land_fill_K",
+)
+# v10 file_attrs added by §3.3 — checked separately by _validate_v10_attrs
+# so the legacy required-attr loop stays focused on the v9-locked attrs.
+V10_REQUIRED_ATTRS: tuple[str, ...] = (
+    "zg_source_var",
+    "zg_pressure_levels_hpa",
+    "postprocessor_git_sha",
 )
 REQUIRED_DATASETS: tuple[str, ...] = (
     "fields_state",
@@ -60,6 +83,10 @@ REQUIRED_DATASETS: tuple[str, ...] = (
     "lon",
 )
 SPLITS: tuple[str, ...] = ("train", "valid", "test")
+
+DEFAULT_CONFIG_NAME: str = "plasim_sim52_zgplev_baseline"
+
+_PLACEHOLDER_RE = re.compile(r"\{\{[^}]+\}\}")
 
 
 class ValidationError(RuntimeError):
@@ -213,6 +240,50 @@ def _validate_file(path: Path, year: int) -> int:
         return int(T)
 
 
+def _validate_v10_attrs(path: Path, *, allow_unknown_postproc_sha: bool = False) -> None:
+    """v10 file_attrs check (§3.7 _validate_v10_attrs):
+
+    - ``zg_source_var`` == ``"zg_plev"``
+    - ``zg_pressure_levels_hpa`` == ``ZG_PLEV_HPA``
+    - ``postprocessor_git_sha`` non-empty string; in production ≠ ``"unknown"``
+      unless ``allow_unknown_postproc_sha`` is set.
+    """
+    with h5py.File(path, "r") as f:
+        for attr in V10_REQUIRED_ATTRS:
+            if attr not in f.attrs:
+                raise ValidationError(
+                    f"{path.name}: missing v10 file attr '{attr}'"
+                )
+
+        zsv = f.attrs["zg_source_var"]
+        if isinstance(zsv, bytes):
+            zsv = zsv.decode()
+        if str(zsv) != ZG_SOURCE_VAR:
+            raise ValidationError(
+                f"{path.name}: zg_source_var='{zsv}', expected '{ZG_SOURCE_VAR}'"
+            )
+
+        zpl = np.array(f.attrs["zg_pressure_levels_hpa"]).astype(int).tolist()
+        if zpl != list(ZG_PLEV_HPA):
+            raise ValidationError(
+                f"{path.name}: zg_pressure_levels_hpa={zpl}, expected {list(ZG_PLEV_HPA)}"
+            )
+
+        sha = f.attrs["postprocessor_git_sha"]
+        if isinstance(sha, bytes):
+            sha = sha.decode()
+        sha = str(sha)
+        if not sha:
+            raise ValidationError(
+                f"{path.name}: postprocessor_git_sha is empty"
+            )
+        if sha == "unknown" and not allow_unknown_postproc_sha:
+            raise ValidationError(
+                f"{path.name}: postprocessor_git_sha='unknown' (production gate). "
+                f"Pass --allow-unknown-postproc-sha to relax for tests / dry runs."
+            )
+
+
 # ---------------------------------------------------------------------------
 # Cross-file monotonicity (within each split independently)
 # ---------------------------------------------------------------------------
@@ -317,19 +388,76 @@ def _validate_stats(output_root: Path, epsilon: float) -> None:
             )
 
 
+def _validate_zg500_saved_mean(output_root: Path) -> None:
+    """Defense-in-depth re-check of the saved zg500 mean (§3.7).
+
+    ``stats.py``'s ``_audit_zg500_inline`` runs against ``mean_tgt`` before
+    any .npy is written. This re-runs the same range check against the
+    file on disk, in case the .npy was edited or arrived from elsewhere.
+    """
+    means_path = output_root / "stats" / "global_means.npy"
+    if not means_path.exists():
+        raise ValidationError(f"missing {means_path}")
+    arr = np.load(means_path).reshape(-1)
+    try:
+        idx = TARGET_CHANNELS.index("zg500")
+    except ValueError as e:
+        raise ValidationError(
+            "TARGET_CHANNELS does not contain 'zg500' — this build is not v10."
+        ) from e
+    val = float(arr[idx])
+    lo, hi = ZG500_AUDIT_RANGE_M
+    if not (lo <= val <= hi):
+        raise ValidationError(
+            f"saved global_means[zg500]={val:.2f} m outside "
+            f"audit band [{lo:.0f}, {hi:.0f}] m. "
+            f"(stats.py inline audit should have caught this — "
+            f"the saved .npy may have been hand-edited.)"
+        )
+
+
 # ---------------------------------------------------------------------------
-# Entry points
+# YAML placeholder check (used by smoke-live)
 # ---------------------------------------------------------------------------
-def run_structural(output_root: Path, epsilon: float) -> None:
+def _assert_no_yaml_placeholders(yaml_path: Path) -> None:
+    """Fail fast if a yaml passed to smoke-live still has ``{{...}}`` markers.
+
+    Mirrors ``scripts/preflight.py:311-326``. Catches the case where an
+    operator passes an unrendered trainer-side template via
+    ``--yaml-config`` — which would otherwise surface deep inside the
+    dataloader as a FileNotFoundError on a path like
+    ``{{OUTPUT_ROOT}}/train`` (Codex v6 high finding).
+    """
+    text = yaml_path.read_text()
+    leftover = sorted(set(_PLACEHOLDER_RE.findall(text)))
+    if leftover:
+        raise ValidationError(
+            f"yaml {yaml_path} still contains placeholder(s) {leftover[:5]}; "
+            f"render with `sed -e 's|{{{{OUTPUT_ROOT}}}}|...|g' "
+            f"-e 's|{{{{EXP_DIR}}}}|...|g'` (see "
+            f"src/sfno_training/submit_full.slurm:60-62) before passing to "
+            f"--yaml-config."
+        )
+
+
+# ---------------------------------------------------------------------------
+# Mode entry points
+# ---------------------------------------------------------------------------
+def run_files(output_root: Path, *, allow_unknown_postproc_sha: bool = False) -> None:
     split_files = _split_files_in_year_order(output_root)
     total = sum(len(v) for v in split_files.values())
     if total == 0:
-        raise ValidationError(f"no MOST.*.h5 files under {output_root}/{{train,valid,test}}")
+        raise ValidationError(
+            f"no MOST.*.h5 files under {output_root}/{{train,valid,test}}"
+        )
 
     for split, files in split_files.items():
         for path in files:
             year = int(path.stem.split(".")[1])
             T = _validate_file(path, year)
+            _validate_v10_attrs(
+                path, allow_unknown_postproc_sha=allow_unknown_postproc_sha
+            )
             logger.info("  ok  %s  (T=%d)", path, T)
         if files:
             _assert_cross_file_monotonic(files)
@@ -339,33 +467,170 @@ def run_structural(output_root: Path, epsilon: float) -> None:
                 len(files),
             )
 
+
+def run_stats(output_root: Path, epsilon: float) -> None:
     _validate_stats(output_root, epsilon)
+    _validate_zg500_saved_mean(output_root)
     logger.info("stats ok ✓")
 
 
-def run_makani_smoke() -> int:
-    """Launch pytest on the smoke-test module."""
+def run_smoke_synthetic() -> int:
+    """Synthetic-fixture pytest (Phase 4b regression).
+
+    Independent of ``--output-root``; exercises the patched Makani loader
+    + preprocessor + wrappers on a synthetic fixture to catch wrapper-patch
+    regressions. CI-runnable.
+    """
     import pytest  # imported lazily: structural mode doesn't need pytest / torch
 
     repo_root = Path(__file__).resolve().parents[2]
-    test_path = repo_root / "tests" / "plasim_makani_packager" / "test_multifile_loader_smoke.py"
+    test_path = (
+        repo_root
+        / "tests"
+        / "plasim_makani_packager"
+        / "test_multifile_loader_smoke.py"
+    )
     if not test_path.exists():
         raise ValidationError(f"smoke test module not found: {test_path}")
     return pytest.main(["-x", "-q", str(test_path)])
 
 
+def run_smoke_live(
+    output_root: Path,
+    config_name: str,
+    n_steps: int = 3,
+    *,
+    yaml_config_override: Path | None = None,
+) -> None:
+    """Live-data preflight: actually load the new dataset and roll forward.
+
+    Distinct from ``run_smoke_synthetic`` (the pytest synthetic-fixture
+    regression). This is the real gate for "the new dataset will train" —
+    it touches the real ``metadata/data.json``, the real yaml, and the
+    real H5 files, and exercises the full PlasimForcingDataset →
+    PlasimSingleStepWrapper path against them.
+
+    Path resolution (per plan §3.7):
+
+      1. If ``yaml_config_override`` is set, use it directly. The override
+         must already be a *rendered* yaml (placeholders substituted) —
+         enforced by ``_assert_no_yaml_placeholders``. P4 only renders the
+         baseline yaml from the packager-side template; trainer-side
+         templates (smoke / tiny / short / full) live in
+         ``src/sfno_training/config/`` with ``{{OUTPUT_ROOT}}`` /
+         ``{{EXP_DIR}}`` placeholders and must be rendered by the caller
+         (e.g. via the ``sed`` invocation
+         ``submit_full.slurm:60-62`` uses) before being passed here
+         (Codex v6 high finding).
+      2. Else default to ``{output_root}/config/{config_name}.yaml`` —
+         the packager-rendered baseline; concrete paths already
+         substituted.
+    """
+    cfg_path = yaml_config_override or (
+        output_root / "config" / f"{config_name}.yaml"
+    )
+    meta_path = output_root / "metadata" / "data.json"
+    if not cfg_path.exists() or not meta_path.exists():
+        raise ValidationError(
+            f"smoke-live requires {cfg_path} and {meta_path} to exist; "
+            f"run --mode files / stats first, plus metadata.py rendering "
+            f"the baseline yaml into {output_root}/config/ (P4 in plan §5)."
+        )
+    _assert_no_yaml_placeholders(cfg_path)
+
+    # Lazy imports — heavy deps (torch, makani) only loaded for this mode.
+    import yaml
+
+    from sfno_training.trainer.params import YParams  # type: ignore[import-not-found]
+    from sfno_training.trainer.plasim_trainer import (  # type: ignore[import-not-found]
+        PlasimForcingDataset,
+        PlasimSingleStepWrapper,
+    )
+
+    with cfg_path.open() as fh:
+        raw = yaml.safe_load(fh)
+    if config_name not in raw:
+        raise ValidationError(
+            f"yaml {cfg_path} does not contain top-level config '{config_name}'; "
+            f"keys present: {list(raw)}"
+        )
+
+    params = YParams(str(cfg_path), config_name, print_params=False)
+    dataset = PlasimForcingDataset(params, train=True)
+    wrapper = PlasimSingleStepWrapper(dataset, params)
+
+    for step in range(n_steps):
+        sample = wrapper[step]
+        for label, tensor in (
+            ("inputs", sample["inputs"]),
+            ("targets", sample["targets"]),
+        ):
+            if not bool(np.isfinite(np.asarray(tensor.detach().cpu())).all()):
+                raise ValidationError(
+                    f"smoke-live step {step}: non-finite {label} from wrapper"
+                )
+        logger.info(
+            "  smoke-live step %d ok  inputs=%s targets=%s",
+            step,
+            tuple(sample["inputs"].shape),
+            tuple(sample["targets"].shape),
+        )
+
+
+def run_full(
+    output_root: Path,
+    epsilon: float,
+    config_name: str,
+    *,
+    yaml_config_override: Path | None = None,
+    allow_unknown_postproc_sha: bool = False,
+) -> int:
+    run_files(output_root, allow_unknown_postproc_sha=allow_unknown_postproc_sha)
+    run_stats(output_root, epsilon)
+    rc = run_smoke_synthetic()
+    if rc != 0:
+        return rc
+    run_smoke_live(
+        output_root, config_name, yaml_config_override=yaml_config_override
+    )
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+_VALID_MODES = ("files", "stats", "smoke", "smoke-live", "full")
+_LEGACY_MODES = {"structural": "full", "makani_smoke": "smoke"}
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--output-root", required=True, type=Path)
     p.add_argument(
         "--mode",
-        choices=("structural", "makani_smoke", "full"),
-        default="structural",
+        choices=(*_VALID_MODES, *_LEGACY_MODES),
+        default="full",
+    )
+    p.add_argument(
+        "--config-name",
+        type=str,
+        default=DEFAULT_CONFIG_NAME,
+        help="YAML top-level config key (used by smoke-live / full).",
+    )
+    p.add_argument(
+        "--yaml-config",
+        type=Path,
+        default=None,
+        help="Path to a rendered (no {{...}} placeholders) yaml. Overrides "
+        "the default {output-root}/config/{config-name}.yaml convention.",
     )
     p.add_argument("--epsilon", type=float, default=MIN_STD_EPSILON)
+    p.add_argument(
+        "--allow-unknown-postproc-sha",
+        action="store_true",
+        help="Relax the postprocessor_git_sha != 'unknown' production gate; "
+        "use only for test / dry-run packaging.",
+    )
     p.add_argument("-v", "--verbose", action="store_true")
     return p.parse_args()
 
@@ -377,15 +642,48 @@ def main() -> None:
         format="%(levelname)s: %(message)s",
     )
 
-    if args.mode in ("structural", "full"):
-        try:
-            run_structural(args.output_root, args.epsilon)
-        except ValidationError as e:
-            sys.exit(f"structural validation failed: {e}")
-    if args.mode in ("makani_smoke", "full"):
-        rc = run_makani_smoke()
-        if rc != 0:
-            sys.exit(f"pytest smoke returned {rc}")
+    mode = args.mode
+    if mode in _LEGACY_MODES:
+        new_mode = _LEGACY_MODES[mode]
+        warnings.warn(
+            f"--mode {mode} is deprecated; use --mode {new_mode} instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        mode = new_mode
+
+    try:
+        if mode == "files":
+            run_files(
+                args.output_root,
+                allow_unknown_postproc_sha=args.allow_unknown_postproc_sha,
+            )
+        elif mode == "stats":
+            run_stats(args.output_root, args.epsilon)
+        elif mode == "smoke":
+            rc = run_smoke_synthetic()
+            if rc != 0:
+                sys.exit(f"pytest smoke returned {rc}")
+        elif mode == "smoke-live":
+            run_smoke_live(
+                args.output_root,
+                args.config_name,
+                yaml_config_override=args.yaml_config,
+            )
+        elif mode == "full":
+            rc = run_full(
+                args.output_root,
+                args.epsilon,
+                args.config_name,
+                yaml_config_override=args.yaml_config,
+                allow_unknown_postproc_sha=args.allow_unknown_postproc_sha,
+            )
+            if rc != 0:
+                sys.exit(f"pytest smoke returned {rc}")
+        else:  # pragma: no cover — argparse choices already constrain this
+            sys.exit(f"unknown mode: {mode}")
+    except ValidationError as e:
+        sys.exit(f"validation failed: {e}")
 
 
 if __name__ == "__main__":
