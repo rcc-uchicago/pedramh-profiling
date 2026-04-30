@@ -14,7 +14,9 @@
 SIMS=""                 # e.g. "52"
 POSTPROC_ROOT=          # postprocess output root, e.g. $SCRATCH/AI-RES/data/postproc
 BOUNDARY_ROOT=          # boundary output root,    e.g. $SCRATCH/AI-RES/data/boundary_astro
-OUTPUT_ROOT=            # packager output root,    e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128
+OUTPUT_ROOT=            # packager output root,    e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev (v10 / zgplev)
+POSTPROC_SOURCE_DIR=    # local clone used to resolve the postprocessor git SHA (L7c)
+                        # default: $HOME/AI-RES/src/plasim_postprocessor
 
 # Optional — split ranges. Defaults match the v9 plan: train 3-100, valid
 # 101-120, test 121-128 (warmup years 1-2 are always skipped).
@@ -70,11 +72,18 @@ if [[ -n "$TEST_YEARS"  ]]; then YEAR_RANGE_FLAGS+=(--test-years  $TEST_YEARS); 
 SST_FLAG=()
 if [[ -n "$SST_LAND_FILL_K" ]]; then SST_FLAG=(--sst-land-fill-k "$SST_LAND_FILL_K"); fi
 
+# Resolve postprocessor git SHA (L7c). Defaults to a checkout under $HOME so
+# the v10 file_attrs always carry a traceable postproc version. validate.py
+# --mode files rejects 'unknown' in production.
+POSTPROC_SOURCE_DIR="${POSTPROC_SOURCE_DIR:-$HOME/AI-RES/src/plasim_postprocessor}"
+POSTPROC_SHA=$(git -C "$POSTPROC_SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
+
 python3 -m plasim_makani_packager.packager \
     --sims $SIMS \
     --postproc-root "$POSTPROC_ROOT" \
     --boundary-root "$BOUNDARY_ROOT" \
     --output-root "$OUTPUT_ROOT" \
+    --postprocessor-git-sha "$POSTPROC_SHA" \
     "${YEAR_RANGE_FLAGS[@]}" \
     "${SST_FLAG[@]}" \
     --task-index "$SLURM_ARRAY_TASK_ID"
