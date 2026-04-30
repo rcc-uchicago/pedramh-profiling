@@ -15,11 +15,18 @@ The sanity gate (§D.6) is enforced at the end; non-zero exit code if any
 of the three conditions fail::
 
   - Emulator RMSE on `tas` at 6 h <  persistence RMSE on `tas` at 6 h
-  - Emulator ACC  on `zg5` at 24 h >  0.6
+  - Emulator ACC  on Z500 at 24 h >  0.6  (channel resolved from the
+    inference NetCDFs: literal ``zg500`` for v10, sigma ``zg5`` for v9)
   - Emulator RMSE finite (no NaN/Inf) for all (channel, lead_time) pairs
 
 Persistence is computed only for the 52 state channels; pr_6h
 persistence is reported as NaN per §C.1.
+
+Channel-adaptive scoring: the Z500-proxy channel id is detected from
+the first inference NetCDF's ``channel`` coord (per
+docs/plasim_zg_plev_migration_plan.md §3.10). All NetCDFs in the same
+eval root must agree — mixing v9 (zg5) and v10 (zg500) inference
+outputs is a hard error.
 """
 from __future__ import annotations
 
@@ -34,12 +41,17 @@ import numpy as np
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _eval_utils import (  # noqa: E402 -- after sys.path adjustment
+    bias_channels,
+    detect_z500_channel,
+    resolve_channel_names,
+)
 
 
 # Lead times to score (§D.4); h = lead_time in hours, k = step index
 _SCORED_LEADS_H = (6, 24, 72, 120, 240, 336)
-# Bias-map channels (§D.3)
-_BIAS_CHANNELS = ("tas", "pr_6h", "zg5", "ua5", "ta5")
 
 
 def _parse_args() -> argparse.Namespace:
@@ -54,6 +66,13 @@ def _parse_args() -> argparse.Namespace:
                    help="Climatology NetCDF (output of compute_climatology.py)")
     p.add_argument("--scorecard-out", type=Path, default=None,
                    help="Override scores/nwp_scorecard.csv path")
+    p.add_argument(
+        "--metadata-json",
+        type=Path,
+        default=None,
+        help="Optional override: read channel_names from this metadata.json "
+        "instead of from the inference NetCDFs. Normally not needed.",
+    )
     return p.parse_args()
 
 
@@ -93,6 +112,7 @@ def _compute_metrics_for_one_ic(
     lat_weights: np.ndarray,
     rows: list[dict],
     bias_accumulators: dict,
+    bias_channel_list: tuple[str, ...],
 ):
     """Append RMSE/ACC rows and update bias accumulators for one NetCDF."""
     import xarray as xr
@@ -119,7 +139,11 @@ def _compute_metrics_for_one_ic(
     ic_year = ic_file.replace("MOST.", "").replace(".h5", "")
 
     # Derive channel indices we care about for the bias accumulators.
-    bias_chan_idx = {c: chan_names.index(c) for c in _BIAS_CHANNELS if c in chan_names}
+    bias_chan_idx = {
+        c: chan_names.index(c)
+        for c in bias_channel_list
+        if c in chan_names
+    }
 
     for h in _SCORED_LEADS_H:
         if h not in lead_time:
@@ -190,8 +214,13 @@ def _summarize(rows: list[dict], summary_path: Path):
             w.writerow([model, ch, lead, metric, float(arr.mean()), float(arr.std()), len(arr)])
 
 
-def _enforce_sanity_gate(rows: list[dict]) -> int:
-    """Apply §D.6 gate. Return 0 on pass, 1 on fail."""
+def _enforce_sanity_gate(rows: list[dict], z500_id: str, z500_label: str) -> int:
+    """Apply §D.6 gate. Return 0 on pass, 1 on fail.
+
+    The Z500 channel id is supplied by the caller (resolved from the
+    inference NetCDFs) so this gate works on both v9 (sigma ``zg5``)
+    and v10 (literal ``zg500``) outputs.
+    """
     import collections
     rc = 0
 
@@ -206,19 +235,24 @@ def _enforce_sanity_gate(rows: list[dict]) -> int:
 
     em_tas_6h = _mean(("emulator", "tas", 6, "rmse"))
     pers_tas_6h = _mean(("persistence", "tas", 6, "rmse"))
-    em_zg5_24h_acc = _mean(("emulator", "zg5", 24, "acc"))
+    em_z500_24h_acc = _mean(("emulator", z500_id, 24, "acc"))
 
     print(f"[gate] emulator RMSE tas 6h = {em_tas_6h:.4f}")
     print(f"[gate] persistence RMSE tas 6h = {pers_tas_6h:.4f}")
-    print(f"[gate] emulator ACC zg5 24h = {em_zg5_24h_acc:.4f}")
+    print(
+        f"[gate] emulator ACC {z500_label} ({z500_id}) 24h = {em_z500_24h_acc:.4f}"
+    )
 
     if not (em_tas_6h < pers_tas_6h):
         print(f"[gate] FAIL: emulator RMSE tas 6h ({em_tas_6h:.4f}) "
               f">= persistence ({pers_tas_6h:.4f})", file=sys.stderr)
         rc = 1
-    if not (em_zg5_24h_acc > 0.6):
-        print(f"[gate] FAIL: emulator ACC zg5 24h ({em_zg5_24h_acc:.4f}) <= 0.6",
-              file=sys.stderr)
+    if not (em_z500_24h_acc > 0.6):
+        print(
+            f"[gate] FAIL: emulator ACC {z500_label} 24h "
+            f"({em_z500_24h_acc:.4f}) <= 0.6",
+            file=sys.stderr,
+        )
         rc = 1
 
     # Finite-everywhere check.
@@ -248,6 +282,18 @@ def main() -> int:
         raise SystemExit(f"no NWP NetCDFs found under {nc_dir}")
     logger.info("scoring %d NWP NetCDFs", len(nc_files))
 
+    # Resolve channel-name list once, from the inference NetCDFs (per
+    # plan §3.10). Detect the Z500-proxy channel (zg500 for v10, zg5 for v9).
+    channel_names = resolve_channel_names(
+        nc_dir / "*.nc", metadata_json_override=args.metadata_json
+    )
+    z500_id, z500_label = detect_z500_channel(channel_names)
+    bias_channel_list = bias_channels(channel_names)
+    logger.info(
+        "resolved Z500 channel: %s (%s); bias channels: %s",
+        z500_id, z500_label, bias_channel_list,
+    )
+
     clim_mean, clim_n, _, _, _ = _load_clim_for_lookup(args.clim_nc)
 
     # Lat weights — read once.
@@ -265,6 +311,7 @@ def main() -> int:
             lat_weights=lat_weights,
             rows=rows,
             bias_accumulators=bias_accumulators,
+            bias_channel_list=bias_channel_list,
         )
 
     scores_dir = args.out_root / "scores"
@@ -290,7 +337,7 @@ def main() -> int:
         np.save(out_path, arr)
     logger.info("wrote %d bias maps", len(bias_accumulators))
 
-    return _enforce_sanity_gate(rows)
+    return _enforce_sanity_gate(rows, z500_id=z500_id, z500_label=z500_label)
 
 
 if __name__ == "__main__":

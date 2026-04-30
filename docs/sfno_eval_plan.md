@@ -1,5 +1,18 @@
 # SFNO PlaSim emulator accuracy evaluation plan **v2.8** — implementation-ready (locked)
 
+> **Migration note (2026-04-30).** The v10 dataset contract
+> (docs/plasim_zg_plev_migration_plan.md) replaces sigma-level
+> `zg1..zg10` in the 52-channel state with pressure-level
+> `zg150..zg925`. The primary observable change in this plan is
+> §D.6: the Z500 ACC gate now references the literal `zg500`
+> channel rather than the v9 sigma proxy `zg5`. The scoring scripts
+> (`scripts/score_nwp.py`, `scripts/render_eval_report.py`) detect
+> the Z500-proxy channel from the inference NetCDFs at run time, so
+> v9 (`zg5`) and v10 (`zg500`) checkpoints are both scorable
+> against the same gate threshold; see
+> `docs/plasim_zg_plev_migration_plan.md` §3.10 for the resolver
+> contract.
+>
 > **Plan v2.8** (2026-04-29). Addresses Codex round-8 cleanup of v2.7.
 > Four cleanup items: (1) deleted stale "torch_harmonics API plausible but not verified" note in §B.5 (already resolved at §J Q3); (2) refreshed §I device-mismatch risk row to describe the v2.7 safe type+index comparison instead of the old exact-equality test; (3) defined `out_bias` / `out_scale` explicitly from the run-dir stats at the top of §B.2 pseudocode; (4) added §A.4 pinning the **12 NWP ICs/year, monthly stride, no cross-file rollout** rule with a `s + K < n_samples` assertion. **Codex round-8 verdict: implementation-ready.**
 > **Author:** Zhixing Liu (with Claude Code)
@@ -189,7 +202,7 @@ Channel order (52 state + 1 diagnostic, **immutable** for the rollout invariant)
 12..21  ua1..ua10
 22..31  va1..va10
 32..41  hus1..hus10
-42..51  zg1..zg10
+42..51  zg150..zg925   ← v10 contract: pressure-level zg, TOA→surface; zg500 at index 47
 52      pr_6h     ← diagnostic; output-only, never feeds back
 ```
 
@@ -755,7 +768,7 @@ def acc(pred, truth, clim_mean, lat_weights):
 ```
 
 ### D.3 Bias maps (mean error fields).
-For each `(channel, lead_time)`: `bias[c, lat, lon] = mean over IC of (pred - truth)`. Saved as `.npy` per `(channel, lead_time)` pair, only for the 5 key channels: `tas, pr_6h, zg5, ua5, ta5`.
+For each `(channel, lead_time)`: `bias[c, lat, lon] = mean over IC of (pred - truth)`. Saved as `.npy` per `(channel, lead_time)` pair, only for the 5 key channels: `tas, pr_6h, zg500, ua5, ta5` (the v10 contract; v9 inference outputs containing `zg5` are scored against the same set with `zg500` resolved to `zg5` by `scripts/_eval_utils.detect_z500_channel`, per docs/plasim_zg_plev_migration_plan.md §3.10).
 
 ### D.4 Lead times scored.
 {6 h (k=1), 24 h (k=4), 72 h (k=12), 120 h (k=20), 240 h (k=40), 336 h (k=56)} from each NWP-mode rollout.
@@ -766,10 +779,12 @@ Aggregations (one extra view): `scores/nwp_scorecard_summary.csv` — averaged o
 
 ### D.6 **Sanity gate** before declaring scorecard valid.
 - Emulator RMSE on `tas` at 6 h **<** persistence RMSE on `tas` at 6 h.
-- Emulator ACC on `zg500` (channel `zg5`) at 24 h **>** 0.6.
+- Emulator ACC on `zg500` at 24 h **>** 0.6 (channel literally `zg500`, not the v9 sigma proxy). Resolution: now that the gate measures literal Z500, the 0.6 threshold can be re-evaluated against PlaSim's simpler atmosphere; left at 0.6 for the first run, revisit after the first emulator scoring on `…_zgplev`.
 - Emulator RMSE finite (no NaN/Inf) for all (channel, lead_time) pairs.
 
 If any fail: STOP, escalate to v3 plan with diagnostics. Do not proceed to Phase 2.
+
+For v9-trained checkpoints whose inference outputs carry sigma `zg5` (no `zg500` channel), `scripts/_eval_utils.detect_z500_channel` falls back to `zg5` and the printed gate label reads "Z500 (sigma proxy, v9)" — the threshold meaning is different but the same numeric is retained for continuity (see docs/plasim_zg_plev_migration_plan.md §3.10).
 
 ---
 

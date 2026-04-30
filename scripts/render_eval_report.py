@@ -24,7 +24,15 @@ from pathlib import Path
 from typing import Iterable
 
 
-_KEY_CHANNELS = ("tas", "pr_6h", "zg5", "ua5", "ta5")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from _eval_utils import (  # noqa: E402 -- after sys.path adjustment
+    bias_channels,
+    detect_z500_channel,
+    resolve_channel_names,
+)
+
+
 _SCORED_LEADS_H = (6, 24, 72, 120, 240, 336)
 
 
@@ -43,6 +51,13 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--ckpt-path", required=True, type=str)
     p.add_argument("--report-out", type=Path, default=None,
                    help="Override report.md path")
+    p.add_argument(
+        "--metadata-json",
+        type=Path,
+        default=None,
+        help="Optional override: read channel_names from this metadata.json "
+        "instead of from the inference NetCDFs. Normally not needed.",
+    )
     return p.parse_args()
 
 
@@ -67,7 +82,7 @@ def _format_value(v: float) -> str:
     return f"{v:.4f}"
 
 
-def _render_table(summary: dict) -> str:
+def _render_table(summary: dict, key_channels: tuple[str, ...]) -> str:
     """Render the §F NWP scorecard table for the 5 key channels."""
     lines = [
         "## NWP Scorecard (mean ± std over ICs)",
@@ -82,7 +97,7 @@ def _render_table(summary: dict) -> str:
         header = ["channel", "model"] + [f"{h}h" for h in _SCORED_LEADS_H]
         lines.append("| " + " | ".join(header) + " |")
         lines.append("|" + "|".join("---" for _ in header) + "|")
-        for ch in _KEY_CHANNELS:
+        for ch in key_channels:
             for model in ("emulator", "persistence"):
                 if metric == "acc" and model == "persistence":
                     continue  # ACC for persistence not reported
@@ -99,14 +114,20 @@ def _render_table(summary: dict) -> str:
     return "\n".join(lines)
 
 
-def _render_gate(summary: dict) -> str:
-    """Re-derive the gate verdict from the summary CSV."""
+def _render_gate(summary: dict, z500_id: str, z500_label: str) -> str:
+    """Re-derive the gate verdict from the summary CSV.
+
+    The Z500 channel id (``z500_id``) and human-readable label
+    (``z500_label`` — "Z500 (literal)" for v10, "Z500 (sigma proxy, v9)"
+    for v9) come from the channel-adaptive resolver; this matches what
+    score_nwp.py prints to stderr.
+    """
     em_tas_6h = summary.get(("emulator", "tas", 6, "rmse"), (float("nan"),))[0]
     pers_tas_6h = summary.get(("persistence", "tas", 6, "rmse"), (float("nan"),))[0]
-    em_zg5_24h = summary.get(("emulator", "zg5", 24, "acc"), (float("nan"),))[0]
+    em_z500_24h = summary.get(("emulator", z500_id, 24, "acc"), (float("nan"),))[0]
 
     pass1 = em_tas_6h < pers_tas_6h if (em_tas_6h == em_tas_6h) else False
-    pass2 = em_zg5_24h > 0.6 if (em_zg5_24h == em_zg5_24h) else False
+    pass2 = em_z500_24h > 0.6 if (em_z500_24h == em_z500_24h) else False
     overall = "PASS" if (pass1 and pass2) else "FAIL"
 
     return (
@@ -114,8 +135,9 @@ def _render_gate(summary: dict) -> str:
         f"- Emulator RMSE on `tas` at 6 h = `{_format_value(em_tas_6h)}` "
         f"vs persistence `{_format_value(pers_tas_6h)}` → "
         f"**{'PASS' if pass1 else 'FAIL'}**\n"
-        f"- Emulator ACC on `zg5` at 24 h = `{_format_value(em_zg5_24h)}` "
-        f"vs threshold `0.6` → **{'PASS' if pass2 else 'FAIL'}**\n\n"
+        f"- Emulator ACC on `{z500_id}` ({z500_label}) at 24 h = "
+        f"`{_format_value(em_z500_24h)}` vs threshold `0.6` → "
+        f"**{'PASS' if pass2 else 'FAIL'}**\n\n"
         f"**Overall: {overall}**\n"
     )
 
@@ -190,10 +212,20 @@ def main() -> int:
 
     summary = _read_summary(summary_path)
 
+    # Resolve channel-name list once, from inference NetCDFs (per plan
+    # §3.10), then derive the Z500 channel id and the 5-key-channel list
+    # for the scorecard table.
+    nc_dir = args.out_root / "inference" / "nwp"
+    channel_names = resolve_channel_names(
+        nc_dir / "*.nc", metadata_json_override=args.metadata_json
+    )
+    z500_id, z500_label = detect_z500_channel(channel_names)
+    key_channels = bias_channels(channel_names)
+
     parts = [
         _render_header(args),
-        _render_table(summary),
-        _render_gate(summary),
+        _render_table(summary, key_channels),
+        _render_gate(summary, z500_id, z500_label),
         _render_bias_maps(scores_dir),
         _render_climate(args.out_root),
         _render_provenance(args),
