@@ -1,0 +1,152 @@
+### PlaSim → Makani SFNO full-emulator config (docs/sfno_full_training_plan.md v1.1).
+###
+### Goal: full-scale SFNO emulator on sim52 at 64×128 using the group convention
+### architecture + schedule (PanguWeather/v2.0 SFNO_PLASIM_H5_DERECHO_5410.yaml),
+### **translated** into Makani's supported vocabulary. Year ranges follow the
+### group convention (half-open, end-exclusive):
+###   train: [12, 112)  → years 12–111 inclusive (100 yrs)
+###   valid: [11, 12)   → year 11 only
+### No test split (matches group convention).
+###
+### Subset built by scripts/build_subset_dataset.py:
+###     --train-years 12-111  --valid-years 11
+### Stats / metadata / config symlinked from full sim52_astro_64x128.
+### Stats coverage gap on years 101–111 acknowledged (plan §F.1).
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substituted by submit_full.slurm.
+
+plasim_sim52_full:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time ---
+    img_shape_x: 64
+    img_shape_y: 128
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids ---
+    model_grid_type: "legendre-gauss"
+    data_grid_type:  "legendre-gauss"
+    sht_grid_type:   "legendre-gauss"
+
+    # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg1","zg2","zg3","zg4","zg5","zg6","zg7","zg8","zg9","zg10","pr_6h"]
+
+    # --- PlaSim plumbing ---
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization (zscore against full-dataset stats; subset shares these) ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- SFNO architecture (Makani-supported subset of group convention) ---
+    nettype: "SFNO"                       # makani's class (NOT group's "sfno_plasim")
+    spectral_transform: "sht"
+    filter_type: "linear"
+    operator_type: "dhconv"
+    scale_factor: 1                       # native res
+    embed_dim: 256
+    num_layers: 12
+    encoder_layers: 1
+    mlp_ratio: 2.0
+    use_mlp: !!bool True
+    activation_function: "gelu"
+    pos_embed: "direct"                   # learned; group's `True` translates here
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    big_skip: !!bool True
+    rank: 1.0
+    separable: !!bool False
+    complex_activation: "real"
+    spectral_layers: 3
+    # Group fields removed — silently swallowed by Makani SFNO **kwargs (sfnonet.py:258-292):
+    #   num_blocks, sparsity_threshold, use_complex_kernels,
+    #   factorization, complex_network, sync_norm, mlp_mode,
+    #   drop_rate, drop_path_rate (real names: pos_drop_rate, path_drop_rate; defaults 0.0).
+    # Activation checkpointing (group's `checkpointing: 2`) controlled via
+    # CLI --checkpointing_level 2 (train_plasim.py:123 overrides params).
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss (group's "raw_l2" → Makani's "l2" with parameters.squared) ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Training schedule (group convention, Makani-translated) ---
+    lr: 1.0E-4
+    weight_decay: 3.0E-6
+    max_epochs: 50
+    batch_size: 4                          # start at 4 (memory probe); ramp later
+    n_history: 0
+    n_future: 0
+    valid_autoreg_steps: 3                 # 24h rollout signal at validation
+    prediction_type: "iterative"
+
+    # Scheduler — CosineAnnealingLR + LinearLR warmup auto-wrap.
+    # driver.py:701-706: lr_warmup_steps>0 wraps the chosen scheduler in
+    # SequentialLR(LinearLR(start_factor=lr_start), CosineAnnealingLR).
+    scheduler: "CosineAnnealingLR"
+    scheduler_T_max: 45                    # max_epochs (50) - lr_warmup_steps (5)
+    scheduler_min_lr: 1.0E-8               # eta_min
+    lr_warmup_steps: 5                     # epochs of LinearLR warmup
+    lr_start: 1.0E-4                       # LinearLR start_factor; PyTorch rejects 0.0;
+                                           # 1e-4 = group's warmup_start_lr/lr = 1e-8/1e-4
+
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9
+    optimizer_beta2: 0.95
+    optimizer_max_grad_norm: 32
+
+    num_data_workers: 4
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    target: "tendency"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False            # OFF for first launch; flip on after sane curve
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"

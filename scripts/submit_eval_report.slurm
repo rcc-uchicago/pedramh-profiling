@@ -6,6 +6,8 @@
 #SBATCH -t 00:30:00
 #SBATCH -o logs/sfno_eval_report_%j.out
 #SBATCH -e logs/sfno_eval_report_%j.err
+#SBATCH --mail-user=zhixingliu@uchicago.edu
+#SBATCH --mail-type=BEGIN,END,FAIL
 
 # ============================================================================
 # SFNO emulator report rendering (docs/sfno_eval_plan.md §G.2 row 3).

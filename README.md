@@ -1,6 +1,7 @@
 # AI-RES
 
 AI + Rare Event Sampling experiments on climate / weather models, on Stampede3.
+Codex/Claude Code: use `.venv` in the repo root for Earth2Studio + SFNO work.
 
 ## Layout
 

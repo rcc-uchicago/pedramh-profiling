@@ -1152,3 +1152,57 @@ Proposed commit chunks:
    - `pt.params.N_in_channels == 58` after `_set_data_shapes`.
    - `train(n_iters=1)` completes without exception and writes a valid checkpoint.
 8. **Follow-up follow-up PR in `src/sfno_inference/`** (separate plan): `PlasimInferencer(Inferencer)` with a full `_inference_indexlist` override that adds a forcing-unpack branch; or upstream a prescribed-forcing token-unpack hook into Makani core.
+
+---
+
+## v10 footnote (2026-04-24)
+
+The trainer-patch contract (chunk 7 above) has been implemented in
+`src/sfno_training/` and split across two PRs per the spec at
+`docs/sfno_training_implementation_plan.md`:
+
+- **PR-A (data side)**: `compat.py`, `data/plasim_forcing_dataset.py`,
+  `models/preprocessor.py`, `models/stepper.py`, plus the
+  `tests/sfno_training/` data-loader / preprocessor / wrappers tests
+  with `RecordingDummyModel` content sentinels.
+  `tests/plasim_makani_packager/stub_forcing_loader.py` is now a thin
+  re-export of the production classes (zero changes to the Phase 4b
+  smoke).
+- **PR-B (trainer side)**: `trainer/plasim_trainer.py` (with
+  `_plasim_get_dataloader` and `_install_plasim_patches`),
+  `train_plasim.py`, `config/plasim_sim52_{baseline,smoke}.yaml`,
+  `submit_{train,smoke}.slurm`, the trainer-CI / validation-rollout /
+  CPU-SFNO smoke tests, plus `skills/sfno-training/SKILL.md` and
+  `src/sfno_training/README.md`.
+
+The integration test at `tests/sfno_training/test_trainer_ci.py` runs
+`PlasimTrainer(params, 0, device="cpu").train_one_epoch()` to
+completion with the four `isinstance` assertions plus an
+optimizer-step contract (via `RecordingDummyModel.dummy_param`'s grad
+path) and a content sentinel that every captured model input has 58
+channels. `tests/sfno_training/test_validation_rollout.py` covers the
+`deterministic_trainer.py:661` validation-rollout call site (the bug
+site for diagnostic-channel leakage in eval mode).
+
+The GPU sbatch smoke at `src/sfno_training/submit_smoke.slurm` remains
+the hard gate before any production training run.
+
+Inference is still **out of scope** — gated at three layers
+(`_plasim_get_dataloader` `assert mode != "inference"`,
+`src/sfno_training/README.md`, `skills/sfno-training/SKILL.md`).
+A separate `src/sfno_inference/` PR is owed.
+
+### Makani version pin
+
+The environment is pinned to the upstream `main` branch of NVIDIA/makani
+(commit `c970430`) via an **editable install** of a clone at
+`makani-src/` (originally checked out as `makani/` and renamed to avoid
+cwd-shadowing the namespace package — see commit log for the
+diagnosis). Released `makani 0.2.0` on PyPI/wheel mirrors does NOT
+contain the `cache_unpredicted_features` clone fix
+(`self.unpredicted_inp_train = xz.clone() if xz is not None else None`)
+— that fix is on `main` only. Without the pin, the in-place
+`.copy_(utar)` inside `append_history` mutates the caller's `xz`
+tensor; the wrapper test in `tests/sfno_training/test_wrappers.py`
+keeps a defensive snapshot in case the environment drifts back to a
+wheel that does not have the fix.

@@ -22,6 +22,7 @@ build/
 dist/
 *.egg-info/
 .venv/
+.venv
 venv/
 env/
 .ipynb_checkpoints/
@@ -44,3 +45,4 @@ core.*
 
 # Claude Code local state
 .claude/settings.local.json
+.claude/scheduled_tasks.lock

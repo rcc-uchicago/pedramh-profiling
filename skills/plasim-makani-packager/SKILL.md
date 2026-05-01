@@ -172,19 +172,27 @@ Tests cover:
 
 If the Makani-dependent tests fail because `ModuleNotFoundError: No module named 'makani'`, you're on the login node — rerun on a compute node (or in the venv) with the full Makani stack.
 
-## Trainer-patch contract (owed to `src/sfno_training/` follow-up PR)
+## Trainer-patch contract — implemented in `src/sfno_training/`
 
-The packager writes a deliberately non-stock layout: `h5_path=fields_state` (52 channels) with 53 `coords.channel` names. Stock Makani dataloaders crash on channel-count mismatch. The follow-up PR must ship:
+The packager writes a deliberately non-stock layout: `h5_path=fields_state` (52 channels) with 53 `coords.channel` names. Stock Makani dataloaders crash on channel-count mismatch.
 
-1. `PlasimForcingDataset` — returns `(inp_state, tar, inp_forcing, tar_forcing)` with `(n_history+1, C, H, W)` / `(n_future+1, C, H, W)`.
-2. `PlasimPreprocessor` — subclass of `Preprocessor2D`; `append_history` auto-slices `pred[:, :52]` to strip diagnostic before feedback. Hard-asserts `x2.shape[1] in {52, 53}`.
-3. `PlasimSingleStepWrapper` / `PlasimMultiStepWrapper` — subclasses that install `PlasimPreprocessor`.
-4. `PlasimTrainer(Trainer)` — monkey-patches `model_registry.{SingleStepWrapper, MultiStepWrapper}` and `deterministic_trainer.get_dataloader` *before* `super().__init__`. Also overrides `_set_data_shapes` to set `N_in_channels = 58` (with a hard `assert params.n_history == 0`).
-5. `train_plasim.py::main` mirroring `makani/train.py::main` for the runtime-injected params (`experiment_dir`, `checkpoint_path`, `resuming`, `amp_mode`, …).
+The follow-up PRs (PR-A: data side, PR-B: trainer side; spec: `docs/sfno_training_implementation_plan.md`) ship under `src/sfno_training/`:
 
-**Hard gate (plan v9):** the follow-up PR must include an integration test that runs `PlasimTrainer(params, world_rank).train(n_iters=1)` to completion with four `isinstance` assertions (dataset / wrapper / preprocessor / `params.N_in_channels == 58`). No GPU-hours before that test passes in CI.
+| File | Role |
+|---|---|
+| `src/sfno_training/data/plasim_forcing_dataset.py` | `PlasimForcingDataset(MultifilesDataset)` — returns `(inp_state, tar, inp_forcing, tar_forcing)` with `(n_history+1, C, H, W)` / `(n_future+1, C, H, W)`. |
+| `src/sfno_training/models/preprocessor.py` | `PlasimPreprocessor(Preprocessor2D)` — `append_history` strips `pred[:, :52]` before feedback. Hard-asserts `x2.shape[1] in {n_state_channels, n_full_out_channels}`. |
+| `src/sfno_training/models/stepper.py` | `PlasimSingleStepWrapper` / `PlasimMultiStepWrapper` — install `PlasimPreprocessor` after the stock super-init. |
+| `src/sfno_training/compat.py` | Python 3.12 `get_timedelta_from_timestamp` shim for the int64 `/timestamp`. Imported as a side effect by `sfno_training.data`. |
+| `src/sfno_training/trainer/plasim_trainer.py` (PR-B) | `PlasimTrainer(Trainer)` — monkey-patches `model_registry.{SingleStepWrapper, MultiStepWrapper}` and `deterministic_trainer.get_dataloader` BEFORE `super().__init__`. Overrides `_set_data_shapes` to set `N_in_channels = 58` and hard-asserts `n_history == 0`, `history_normalization_mode == "none"`, and all aux-feature flags off. |
+| `src/sfno_training/train_plasim.py` (PR-B) | CLI mirroring `makani/train.py::main`. |
+| `tests/sfno_training/` | PR-A unit tests (data loader, preprocessor, wrappers with `RecordingDummyModel` content sentinels). PR-B trainer-CI + validation-rollout + CPU SFNO smoke. |
 
-Inference is **out of scope** of the packager plan — stock `Inferencer._inference_indexlist` (`inferencer.py:554-589`) has no slot for our 6 forcing channels when `add_zenith=False`. A separate `src/sfno_inference/` plan is owed.
+The Phase 4b smoke at `tests/plasim_makani_packager/test_multifile_loader_smoke.py` continues to import from `tests/plasim_makani_packager/stub_forcing_loader.py`, which is now a thin re-export of the production classes from `src/sfno_training/`. Single source of truth.
+
+**Hard gate (plan v9):** PR-B includes a trainer-CI integration test that runs `PlasimTrainer(params, 0).train_one_epoch()` to completion with `isinstance` assertions (dataset / wrapper / preprocessor / `N_in_channels == 58`). A GPU sbatch smoke (`src/sfno_training/submit_smoke.slurm`) is the hard gate before any production training run.
+
+Inference is **out of scope** in PR-A and PR-B — stock `Inferencer._inference_indexlist` has no slot for our 6 forcing channels when `add_zenith=False`. `_plasim_get_dataloader` raises on `mode == "inference"`. A separate `src/sfno_inference/` plan is owed.
 
 ## What NOT to do
 
