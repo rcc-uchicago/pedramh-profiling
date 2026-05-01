@@ -31,10 +31,12 @@
 #   EXP_DIR     — experiment output dir.
 #                 Default: $SCRATCH/AI-RES/runs/sfno_zgplev_full
 #
-# Build the subset (one-time) before launching:
+# Build the subset (one-time) before launching. --src is the v10 zgplev
+# packaged root produced by plasim_makani_packager (NOT the v9 sigma-level
+# sim52_astro_64x128/, which was the previous example here):
 #
 #   scripts/build_subset_dataset.py \
-#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
+#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev \
 #       --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_full \
 #       --train-years 12-111 \
 #       --valid-years 11

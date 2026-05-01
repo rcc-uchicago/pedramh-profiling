@@ -8,24 +8,27 @@
 #SBATCH -o logs/packager_%A_%a.out
 
 # ============================================================================
-# REQUIRED — fill these in for your run. No defaults: an unedited submission
-# fails fast on the checks below.
+# REQUIRED — provide via the environment (e.g. `sbatch --export=ALL,SIMS=52,
+# POSTPROC_ROOT=...,BOUNDARY_ROOT=...,OUTPUT_ROOT=... submit.slurm`) or by
+# editing the defaults below. The `${VAR:-}` form is intentional: it leaves
+# any caller-exported value untouched so `sbatch --export=...` actually wins.
+# An empty value still trips the fail-fast checks below.
 # ============================================================================
-SIMS=""                 # e.g. "52"
-POSTPROC_ROOT=          # postprocess output root, e.g. $SCRATCH/AI-RES/data/postproc
-BOUNDARY_ROOT=          # boundary output root,    e.g. $SCRATCH/AI-RES/data/boundary_astro
-OUTPUT_ROOT=            # packager output root,    e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev (v10 / zgplev)
-POSTPROC_SOURCE_DIR=    # local clone used to resolve the postprocessor git SHA (L7c)
-                        # default: $HOME/AI-RES/src/plasim_postprocessor
+SIMS="${SIMS:-}"                                # e.g. "52"
+POSTPROC_ROOT="${POSTPROC_ROOT:-}"              # postprocess output root, e.g. $SCRATCH/AI-RES/data/postproc
+BOUNDARY_ROOT="${BOUNDARY_ROOT:-}"              # boundary output root,    e.g. $SCRATCH/AI-RES/data/boundary_astro
+OUTPUT_ROOT="${OUTPUT_ROOT:-}"                  # packager output root,    e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev (v10 / zgplev)
+POSTPROC_SOURCE_DIR="${POSTPROC_SOURCE_DIR:-}"  # local clone used to resolve the postprocessor git SHA (L7c)
+                                                # default: $HOME/AI-RES/src/plasim_postprocessor
 
 # Optional — split ranges. Defaults match the v9 plan: train 3-100, valid
 # 101-120, test 121-128 (warmup years 1-2 are always skipped).
-TRAIN_YEARS=            # "3 100"
-VALID_YEARS=            # "101 120"
-TEST_YEARS=             # "121 128"
+TRAIN_YEARS="${TRAIN_YEARS:-}"                  # "3 100"
+VALID_YEARS="${VALID_YEARS:-}"                  # "101 120"
+TEST_YEARS="${TEST_YEARS:-}"                    # "121 128"
 
 # Optional — sentinel used to fill NaN over land in adaptor sst.
-SST_LAND_FILL_K=        # "271.35"
+SST_LAND_FILL_K="${SST_LAND_FILL_K:-}"          # "271.35"
 
 # ============================================================================
 # SIZING THE ARRAY
