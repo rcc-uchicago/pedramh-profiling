@@ -38,6 +38,14 @@ from plasim_makani_packager.channels import (
 logger = logging.getLogger("plasim_makani_packager.stats")
 
 MIN_STD_EPSILON: float = 1e-6
+# Known PlaSim quirk (v9 + v10): pr_6h global std over the training split is
+# ~2.8e-7 because precipitation is mostly zero in the simulation. v9 stats
+# (sim52_astro_64x128/stats/global_stds.npy) and v10 stats (full + proto)
+# all show this value to within rounding. v9 trained successfully against
+# these stats, so the value is data-faithful — not a regression. Operators
+# running stats.py against the v10 zgplev pack should pass `--epsilon 1e-8`
+# to let the inline G-z500 audit run; the channel itself is already in the
+# v9-validated z-score range during training.
 
 # v10 audit gate (L7d): the global mean of `zg500` over the training split
 # must lie within this band. Outside it, abort before any .npy is written.

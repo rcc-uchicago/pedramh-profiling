@@ -3,10 +3,10 @@
 # v10 zg sigma → zg_plev migration. v9 sibling stays in place for the
 # frozen contract; see docs/plasim_zg_plev_migration_plan.md (v7).
 #SBATCH -J sfno_zgplev_tiny
-#SBATCH -p amd-rtx                  # Stampede3 AMD+RTX GPU partition
+#SBATCH -p h100                     # Stampede3 H100 partition
 #SBATCH -N 1
 #SBATCH -n 1
-# Stampede3 GPU partitions do not advertise GPU GRES; -p amd-rtx selects GPU nodes.
+# Stampede3's h100 partition does not advertise GPU GRES; -p h100 selects GPU nodes.
 #SBATCH -t 00:30:00
 #SBATCH -o logs/sfno_zgplev_tiny_%j.out
 #SBATCH -e logs/sfno_zgplev_tiny_%j.err
@@ -23,26 +23,37 @@
 #   4. print resolved sizes (len(dataset), len(dataloader), max_epochs, ...)
 #   5. YAML diff vs unrendered template (no leftover {{...}})
 #
-# Required env vars (defaults match the planned subset layout):
+# Required env vars (defaults match the proto subset layout — the v10
+# zgplev packager only has years 3-10 today, so this run targets the
+# proto subset built off `sim52_astro_64x128_zgplev_proto`. Once the
+# full v10 zgplev dataset is packaged, point OUTPUT_ROOT at
+# `sim52_zgplev_tiny` built from the full root with the original
+# `--train-years 3 --valid-years 101` invocation):
 #   OUTPUT_ROOT — packager-output root (or symlink subset root). Default:
-#                 $SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny
+#                 $SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny_proto
 #   EXP_DIR     — experiment output dir. Default:
-#                 $SCRATCH/AI-RES/runs/sfno_zgplev_tiny
+#                 $SCRATCH/AI-RES/runs/sfno_zgplev_tiny_proto
 #
-# Build the subset (one-time) before launching:
+# Build the proto subset (one-time) before launching:
 #
 #   scripts/build_subset_dataset.py \
-#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-#       --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny \
-#       --train-years 3 --valid-years 101
+#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto \
+#       --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny_proto \
+#       --train-years 3 --valid-years 9
+#
+# Note on valid year: the proto packager output only has years 3-10
+# (train: 3-8, valid: 9, test: 10). The original v9 tiny convention
+# was --valid-years 101; year 101 is not available in proto. Year 9 is
+# substituted as the only valid-marked year present. This is a proto
+# tradeoff and will revert to 101 once the full v10 dataset is packaged.
 # ============================================================================
 
 set -euo pipefail
 
 REPO_ROOT="$HOME/AI-RES"
 SFNO_JOB_NAME="sfno_zgplev_tiny"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_zgplev_tiny}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny_proto}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_zgplev_tiny_proto}"
 MAIL_TO="${MAIL_TO:-zhixingliu@uchicago.edu}"
 source "$REPO_ROOT/src/sfno_training/slurm_helpers.sh"
 sfno_install_status_trap

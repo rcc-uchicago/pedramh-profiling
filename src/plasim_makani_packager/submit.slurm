@@ -27,6 +27,11 @@ TRAIN_YEARS="${TRAIN_YEARS:-}"                  # "3 100"
 VALID_YEARS="${VALID_YEARS:-}"                  # "101 120"
 TEST_YEARS="${TEST_YEARS:-}"                    # "121 128"
 
+# Optional — restrict iteration to (sim, year) pairs with year in
+# [YS_LO YS_HI]. Used to shard a 109-task pack across two SLURM arrays
+# when MaxArraySize<109 (Stampede3 caps at 100).
+YEAR_SLICE="${YEAR_SLICE:-}"                    # "111 128"
+
 # Optional — sentinel used to fill NaN over land in adaptor sst.
 SST_LAND_FILL_K="${SST_LAND_FILL_K:-}"          # "271.35"
 
@@ -64,13 +69,24 @@ source "$HOME/AI-RES/.venv/bin/activate"
 # ============================================================================
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 REPO_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
-export PYTHONPATH="$REPO_ROOT/src:$PYTHONPATH"
+# SLURM stages submit scripts to a temp dir, so BASH_SOURCE-derived REPO_ROOT
+# can land outside the source tree. Fall back to SLURM_SUBMIT_DIR (the dir
+# sbatch was invoked from) when the resolved REPO_ROOT doesn't contain the
+# package; final fallback is $HOME/AI-RES (consistent with the .venv activate
+# line above, which is already hardcoded to that path).
+if [[ ! -d "$REPO_ROOT/src/plasim_makani_packager" ]]; then
+    REPO_ROOT="${SLURM_SUBMIT_DIR:-$HOME/AI-RES}"
+fi
+export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 mkdir -p logs
 
 YEAR_RANGE_FLAGS=()
 if [[ -n "$TRAIN_YEARS" ]]; then YEAR_RANGE_FLAGS+=(--train-years $TRAIN_YEARS); fi
 if [[ -n "$VALID_YEARS" ]]; then YEAR_RANGE_FLAGS+=(--valid-years $VALID_YEARS); fi
 if [[ -n "$TEST_YEARS"  ]]; then YEAR_RANGE_FLAGS+=(--test-years  $TEST_YEARS);  fi
+
+YEAR_SLICE_FLAG=()
+if [[ -n "$YEAR_SLICE" ]]; then YEAR_SLICE_FLAG+=(--year-slice $YEAR_SLICE); fi
 
 SST_FLAG=()
 if [[ -n "$SST_LAND_FILL_K" ]]; then SST_FLAG=(--sst-land-fill-k "$SST_LAND_FILL_K"); fi
@@ -88,5 +104,6 @@ python3 -m plasim_makani_packager.packager \
     --output-root "$OUTPUT_ROOT" \
     --postprocessor-git-sha "$POSTPROC_SHA" \
     "${YEAR_RANGE_FLAGS[@]}" \
+    "${YEAR_SLICE_FLAG[@]}" \
     "${SST_FLAG[@]}" \
     --task-index "$SLURM_ARRAY_TASK_ID"

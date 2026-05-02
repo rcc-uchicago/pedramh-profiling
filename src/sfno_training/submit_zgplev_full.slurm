@@ -16,6 +16,15 @@
 # ============================================================================
 # Full SFNO emulator training (docs/sfno_full_training_plan.md v1.1).
 #
+# !! DO NOT SUBMIT until the full v10 zgplev packager output exists with
+# !! the year ranges below — i.e. $SCRATCH/AI-RES/data/makani/
+# !! sim52_astro_64x128_zgplev/ contains MOST.0011.h5 plus 0012-0111.
+# !! The v10 packaging today only produces a `…_zgplev_proto` root with
+# !! years 3-10; running this script against fewer than the planned 100
+# !! train years would burn H100 hours on a model that cannot reach the
+# !! intended generalization. Tiny / short / smoke runs on proto are the
+# !! correct prototype-validation path (see submit_zgplev_tiny.slurm).
+#
 # Year ranges (group convention, half-open):
 #   train: 12-111  (100 yrs)
 #   valid: 11      (1 yr)

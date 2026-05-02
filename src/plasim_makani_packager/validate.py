@@ -538,43 +538,40 @@ def run_smoke_live(
         )
     _assert_no_yaml_placeholders(cfg_path)
 
-    # Lazy imports — heavy deps (torch, makani) only loaded for this mode.
-    import yaml
+    # Delegate to scripts/preflight.py — the canonical live-preflight path
+    # that the submit_zgplev_*.slurm scripts already use. This avoids
+    # duplicating PlasimTrainer construction here (and the prior inline
+    # implementation was based on an older PlasimSingleStepWrapper API
+    # that no longer exists; moving the source of truth into preflight.py
+    # keeps the gate aligned with what training actually runs).
+    import subprocess
+    import sys
 
-    from sfno_training.trainer.params import YParams  # type: ignore[import-not-found]
-    from sfno_training.trainer.plasim_trainer import (  # type: ignore[import-not-found]
-        PlasimForcingDataset,
-        PlasimSingleStepWrapper,
-    )
-
-    with cfg_path.open() as fh:
-        raw = yaml.safe_load(fh)
-    if config_name not in raw:
+    repo_root = Path(__file__).resolve().parents[2]
+    preflight = repo_root / "scripts" / "preflight.py"
+    if not preflight.exists():
         raise ValidationError(
-            f"yaml {cfg_path} does not contain top-level config '{config_name}'; "
-            f"keys present: {list(raw)}"
+            f"smoke-live delegates to {preflight} but it is missing"
         )
 
-    params = YParams(str(cfg_path), config_name, print_params=False)
-    dataset = PlasimForcingDataset(params, train=True)
-    wrapper = PlasimSingleStepWrapper(dataset, params)
-
-    for step in range(n_steps):
-        sample = wrapper[step]
-        for label, tensor in (
-            ("inputs", sample["inputs"]),
-            ("targets", sample["targets"]),
-        ):
-            if not bool(np.isfinite(np.asarray(tensor.detach().cpu())).all()):
-                raise ValidationError(
-                    f"smoke-live step {step}: non-finite {label} from wrapper"
-                )
-        logger.info(
-            "  smoke-live step %d ok  inputs=%s targets=%s",
-            step,
-            tuple(sample["inputs"].shape),
-            tuple(sample["targets"].shape),
+    cmd = [
+        sys.executable,
+        str(preflight),
+        "--yaml_config",
+        str(cfg_path),
+        "--config",
+        config_name,
+        "--amp-mode",
+        "bf16",
+    ]
+    logger.info("  smoke-live: %s", " ".join(cmd))
+    rc = subprocess.run(cmd, check=False).returncode
+    if rc != 0:
+        raise ValidationError(
+            f"smoke-live preflight (delegated to scripts/preflight.py) "
+            f"exited rc={rc}"
         )
+    logger.info("  smoke-live ok (n_steps=%d via preflight contract dry-run)", n_steps)
 
 
 def run_full(

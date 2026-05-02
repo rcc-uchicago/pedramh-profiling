@@ -748,6 +748,8 @@ The v9 dataset (`sim52_astro_64x128`), its checkpoints, and its eval results sta
 
 `validate --mode full` runs G-pps, G-ASCII, G-zattrs (via `files`) → G-stats, G-z500 (via `stats`) → G-smoke-synth (via `smoke`) → G-smoke-live (via `smoke-live`), in that order. Each individual mode runs only its slice — so P1 / P2 can call `--mode files` without tripping on missing stats, and P5 can run `smoke` and `smoke-live` independently.
 
+**Known PlaSim quirk — pr_6h epsilon (G-stats).** The pr_6h channel global std is ~2.8e-7 over the training split because precipitation is mostly zero in PlaSim. v9 stats (`sim52_astro_64x128/stats/global_stds.npy`), v10 proto stats, and the v10 full pack stats all show this value to within rounding, and v9 trained successfully against it. Operators running `stats.py` against the v10 zgplev pack should pass `--epsilon 1e-8` so the G-z500 inline audit is reached; this is **not a v10 regression** but a pre-existing data property carried over from v9. Validated 2026-05-02 against the 109-year v10 zgplev pack: zg500 mean = 5518.96 m (in band), pr_6h std = 2.803e-7 (matches v9 / proto).
+
 ---
 
 ## 7. Risks and mitigations
