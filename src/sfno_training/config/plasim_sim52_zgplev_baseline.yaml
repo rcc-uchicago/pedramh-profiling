@@ -141,3 +141,16 @@ plasim_sim52_zgplev_baseline:
 
     wireup_info: "mpi"
     wireup_store: "tcp"
+
+    # --- EMA (Exponential Moving Average) of model weights ---
+    # Karras-style warmup: decay_t = min(decay, (1+t)/(10+t)).
+    # See docs/2026-05-02_ema_implementation_plan.md for full spec.
+    # Scoped to legacy save AND legacy load (PlasimTrainer hard-errors at
+    # __init__ if save_checkpoint or load_checkpoint == "flexible").
+    ema:
+        enabled: !!bool True
+        decay: 0.999
+        warmup: !!bool True
+        # Set to True only when intentionally changing decay/warmup
+        # mid-run; otherwise mismatched ema_config on resume is rejected.
+        allow_config_change: !!bool False
