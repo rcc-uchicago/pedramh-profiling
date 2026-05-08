@@ -6,12 +6,20 @@
 #SBATCH -p h100                     # Stampede3 H100 partition
 #SBATCH -N 1
 #SBATCH -n 1
+#SBATCH --cpus-per-task=64          # tune to actual cores/node on h100
 # Stampede3's h100 partition does not advertise GPU GRES; -p h100 selects GPU nodes.
-#SBATCH -t 47:30:00
+# 6h covers the ~7 epochs left after job 3084458 (epoch ~38min × 7 ≈ 4h25m
+# + preflight + checkpoint load, with ~90min buffer). Restore to 47:30:00
+# for any from-scratch full run.
+#SBATCH -t 06:00:00
 #SBATCH -o logs/sfno_zgplev_full_%j.out
 #SBATCH -e logs/sfno_zgplev_full_%j.err
 #SBATCH --mail-user=zhixingliu@uchicago.edu
 #SBATCH --mail-type=BEGIN,END,FAIL
+# Exclude c561-004 after job 3084458 hung on a 2-elem ALLREDUCE there
+# (epoch 44 end-of-epoch loss reduce, NCCL watchdog SIGABRT after 600s).
+# Drop this line once we have evidence the node is healthy again.
+#SBATCH --exclude=c561-004
 
 # ============================================================================
 # Full SFNO emulator training (docs/sfno_full_training_plan.md v1.1).
@@ -30,9 +38,12 @@
 #   valid: 11      (1 yr)
 #   no test split
 #
-# Resubmitting picks up from the latest checkpoint
-# (train_plasim.py:110-115 detects a checkpoint via load_checkpoint=legacy
-#  default at argument_parser.py:61).
+# Resubmitting picks up from the latest checkpoint automatically:
+# train_plasim.py:171-176 sets params["resuming"]=True iff
+# {EXP_DIR}/{config}/{run_num}/training_checkpoints/ckpt_mp0_v0.tar exists,
+# and deterministic_trainer.py:266-285 then loads the freshest v* by mtime
+# (checkpoint_helpers.get_latest_checkpoint_version). This script logs the
+# detected resume state before launching torchrun so it's visible in *.out.
 #
 # Required env vars (defaults match the planned subset layout):
 #   OUTPUT_ROOT — packager-output (or symlink subset) root.
@@ -64,6 +75,9 @@ sfno_install_status_trap
 # Activate the project venv (must include torch + makani + physicsnemo).
 source "$REPO_ROOT/.venv/bin/activate"
 
+# NCCL diagnostics + behavioural async-error abort (P5).
+source "$REPO_ROOT/src/sfno_training/env_nccl.sh"
+
 : "${OUTPUT_ROOT:?Set OUTPUT_ROOT to the dataset (subset) root}"
 : "${EXP_DIR:?Set EXP_DIR to the experiment output dir}"
 
@@ -83,6 +97,8 @@ sfno_send_status_mail "BEGIN" 0 || true
 set -x
 
 export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+# Cap thread fan-out per rank so 4 ranks don't oversubscribe the node.
+export OMP_NUM_THREADS=$(( ${SLURM_CPUS_PER_TASK:-64} / 4 ))
 python -c "import sfno_training; print('sfno_training import:', sfno_training.__file__)"
 
 # 1) Preflight — same bf16 + checkpointing_level=2 as training so the
@@ -96,17 +112,32 @@ python scripts/preflight.py \
     --checkpointing-level 2 \
     --log "$EXP_DIR/preflight_log.txt"
 
-# 2) Train. --checkpointing_level 2 enables activation checkpointing
+# 2) Train. Multi-GPU DDP via torchrun (one process per visible GPU).
+#    Global batch comes from the YAML (batch_size: 32 → per-rank=8 at
+#    4-GPU DDP via train_plasim._resolve_batch_sizes). The CLI no longer
+#    overrides --batch_size — the YAML is the single source of truth so
+#    the I0 launch summary, the YAML, and the runtime all agree. To
+#    sweep batch sizes, override via env (e.g. GB=16 microbench script)
+#    rather than re-introducing a hard-coded CLI flag here.
+#    --checkpointing_level 2 enables activation checkpointing
 #    (default 0 in argument_parser.py:41; group convention is 2).
-python -m sfno_training.train_plasim \
+RESUME_CKPT_DIR="$EXP_DIR/plasim_sim52_zgplev_full/0/training_checkpoints"
+RESUME_SENTINEL="$RESUME_CKPT_DIR/ckpt_mp0_v0.tar"
+if [ -f "$RESUME_SENTINEL" ]; then
+    LATEST_CKPT="$(ls -t "$RESUME_CKPT_DIR"/ckpt_mp0_v*.tar 2>/dev/null | head -1)"
+    echo "INFO resume: ckpt_mp0_v0.tar present — trainer will resume from latest by mtime: $LATEST_CKPT"
+    ls -lt "$RESUME_CKPT_DIR"/ckpt_mp0_v*.tar
+else
+    echo "INFO resume: no ckpt_mp0_v0.tar at $RESUME_CKPT_DIR — starting from scratch"
+fi
+torchrun --standalone --nnodes=1 --nproc_per_node=4 \
+    -m sfno_training.train_plasim \
     --yaml_config "$FULL_YAML" \
     --config plasim_sim52_zgplev_full \
     --run_num 0 \
-    --batch_size 4 \
     --multistep_count 1 \
     --amp_mode bf16 \
-    --checkpointing_level 2 \
-    --disable_ddp
+    --checkpointing_level 2
 
 # 3) Post-training NaN/Inf scan (chunk 2 deliverable; harmless if missing).
 if [ -f scripts/scan_for_nans.py ]; then

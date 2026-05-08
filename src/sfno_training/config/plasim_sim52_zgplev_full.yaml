@@ -105,10 +105,16 @@ plasim_sim52_zgplev_full:
             squared: !!bool True
 
     # --- Training schedule (group convention, Makani-translated) ---
-    lr: 1.0E-4
+    # batch_size is the GLOBAL batch (train_plasim._resolve_batch_sizes
+    # divides by data_parallel_size before the DataLoader sees it). At
+    # 4-GPU DDP that means per-rank=8. lr scaled by sqrt(32/4)=2.83 from
+    # the prior global-4 baseline. I2 microbench (gb32 production-arch):
+    # 95.6 ms/step, 335 samples/sec, 14.4 GB peak — 50 GB headroom on H100.
+    # See docs/2026-05-05_ddp_throughput_fix_plan.md §I2/§I3.
+    lr: 2.83E-4
     weight_decay: 3.0E-6
     max_epochs: 50
-    batch_size: 4                          # start at 4 (memory probe); ramp later
+    batch_size: 32                         # GLOBAL batch (per-rank=8 at 4-GPU DDP)
     n_history: 0
     n_future: 0
     valid_autoreg_steps: 3                 # 24h rollout signal at validation
