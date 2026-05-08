@@ -559,6 +559,44 @@ class PlasimTrainer(Trainer):
 
         return valid_time + ema_t, viz_time, valid_logs
 
+    def log_epoch(self, train_logs, valid_logs, timing_logs):
+        """Inject ``samples/sec`` into both timing/train logs before deferring.
+
+        ``samples/sec = per_rank_batch * world_size / (training step time / 1000)``.
+        Writing the key into ``timing_logs`` makes Makani's screen logger emit
+        it — its loop iterates ``timing_logs.keys()`` dynamically at
+        ``deterministic_trainer.py:712-713``. Writing the same key into
+        ``train_logs`` puts it on wandb via Makani's
+        ``wandb.log(train_logs, step=self.epoch)`` at ``:733`` (which fires
+        before the ``commit=True`` at ``:738``), so no extra ``wandb.log``
+        call is needed from this override. See
+        docs/2026-05-05_ddp_throughput_fix_plan.md §I0.
+
+        Backfill keys: when ``--skip_validation`` is set, the upstream
+        training loop (deterministic_trainer.py:374-376) initializes
+        ``valid_logs = {"base": {}, "metrics": {}}``, but
+        ``log_epoch`` reads ``valid_logs["base"]["validation steps"]``
+        (line 709) and ``["validation loss"]`` (line 724) unconditionally
+        on the rank-0 screen path. Without backfill, rank 0 raises
+        ``KeyError`` mid-print and the other ranks block on the next
+        AllReduce until NCCL times out (10 min). Insert sentinel values
+        so the upstream printer remains a pure formatting path.
+        """
+        step_time_ms = float(timing_logs.get("training step time [ms]", 0.0) or 0.0)
+        if step_time_ms > 0.0:
+            per_rank_bs = int(self.params.batch_size)
+            world_size = int(self.params.get("world_size", comm.get_world_size()))
+            samples_per_sec = per_rank_bs * world_size / (step_time_ms / 1000.0)
+        else:
+            samples_per_sec = 0.0
+        timing_logs["samples/sec"] = samples_per_sec
+        train_logs["samples/sec"] = samples_per_sec
+        base = valid_logs.setdefault("base", {})
+        base.setdefault("validation steps", 0)
+        base.setdefault("validation loss", float("nan"))
+        valid_logs.setdefault("metrics", {})
+        return super().log_epoch(train_logs, valid_logs, timing_logs)
+
     def _save_best_ema_checkpoint(self, epoch: int, ema_loss: float) -> None:
         """Emit ``best_ckpt_ema_mp{mp_rank}.tar`` (plan §7.2(e)).
 

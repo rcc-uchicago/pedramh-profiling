@@ -31,6 +31,72 @@ from makani.utils.YParams import YParams
 from sfno_training.trainer import PlasimTrainer
 
 
+logger = logging.getLogger(__name__)
+
+
+def _resolve_batch_sizes(params, data_parallel_size: int) -> int:
+    """Resolve per-rank batch from a *global* ``params.batch_size``.
+
+    Reads ``params.batch_size`` (already overwritten by an
+    ``args.batch_size > 0`` CLI override at the call site) as the global
+    batch, asserts divisibility by ``data_parallel_size``, stores both
+    ``params['global_batch_size']`` and the per-rank ``params['batch_size']``,
+    and returns the per-rank value. Behaviour-equivalent to the inline block
+    that lived at this site before; lifted out so the divisibility contract
+    is unit-testable without exercising the full CLI / ``comm.init`` path
+    (docs/2026-05-05_ddp_throughput_fix_plan.md §I0).
+    """
+    global_batch = int(params.batch_size)
+    assert global_batch % data_parallel_size == 0, (
+        f"global_batch_size={global_batch} must be divisible "
+        f"by data parallel size {data_parallel_size}"
+    )
+    params["global_batch_size"] = global_batch
+    per_rank = global_batch // data_parallel_size
+    params["batch_size"] = per_rank
+    return per_rank
+
+
+def _log_ddp_launch_summary(
+    params,
+    *,
+    world_size: int,
+    data_parallel_size: int,
+) -> None:
+    """Emit a single labelled block summarizing DDP / batch / dataloader config.
+
+    Called once on rank 0 right after the file logger is configured so the
+    output lands in both stdout and the per-experiment ``out.log``. Surfaces
+    the inputs that drive A/B comparisons across the I1 sweep and the I2
+    microbench (docs/2026-05-05_ddp_throughput_fix_plan.md §I0). All values
+    come from ``params`` plus the ``world_size`` / ``data_parallel_size``
+    that the caller derives from ``comm`` — nothing is hard-coded.
+    """
+    ema_cfg = params.get("ema", {}) or {}
+    global_bs = int(params.get("global_batch_size", int(params.batch_size) * data_parallel_size))
+    per_rank_bs = int(params.batch_size)
+    lines = [
+        "===== DDP launch summary =====",
+        f"world_size                = {world_size}",
+        f"data_parallel_size        = {data_parallel_size}",
+        f"global_batch_size         = {global_bs}",
+        f"per_rank_batch_size       = {per_rank_bs}",
+        f"expected_train_steps_per_epoch  = floor(len(train) / {global_bs})",
+        f"num_data_workers          = {params.get('num_data_workers', 0)}",
+        f"prefetch_factor           = {params.get('prefetch_factor', None)}",
+        f"persistent_workers        = {params.get('persistent_workers', None)}",
+        f"multistep_count           = {params.get('multistep_count', 1)}",
+        f"valid_autoreg_steps       = {params.get('valid_autoreg_steps', None)}",
+        f"ema.enabled               = {bool(ema_cfg.get('enabled', False))}",
+        f"ema_validation_period     = {params.get('ema_validation_period', 1)}",
+        f"amp_mode                  = {params.get('amp_mode', 'none')}",
+        f"checkpointing_level       = {params.get('checkpointing_level', 0)}",
+        "==============================",
+    ]
+    for line in lines:
+        logger.info(line)
+
+
 def _world_size_from_env(names: tuple[str, ...], default: int = 1) -> int:
     """Return the largest positive world-size hint found in the environment."""
     world_size = default
@@ -132,12 +198,7 @@ def main() -> None:
     params["world_size"] = comm.get_world_size()
     if args.batch_size > 0:
         params.batch_size = args.batch_size
-    params["global_batch_size"] = params.batch_size
-    assert params["global_batch_size"] % comm.get_size("data") == 0, (
-        f"global_batch_size={params['global_batch_size']} must be divisible "
-        f"by data parallel size {comm.get_size('data')}"
-    )
-    params["batch_size"] = int(params["global_batch_size"] // comm.get_size("data"))
+    _resolve_batch_sizes(params, comm.get_size("data"))
 
     if "optimizer_max_grad_norm" not in params:
         params["optimizer_max_grad_norm"] = 1.0
@@ -200,6 +261,11 @@ def main() -> None:
         )
         logging_utils.log_versions()
         params.log(logging.getLogger())
+        _log_ddp_launch_summary(
+            params,
+            world_size=comm.get_world_size(),
+            data_parallel_size=comm.get_size("data"),
+        )
 
     params["log_to_wandb"] = (world_rank == 0) and params["log_to_wandb"]
     params["log_to_screen"] = (world_rank == 0) and params["log_to_screen"]
