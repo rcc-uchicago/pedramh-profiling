@@ -90,14 +90,35 @@ def main() -> int:
 
     out_dict = build_climatology(files, n_chan=args.n_chan, H=args.H, W=args.W)
 
-    # Channel names (optional).
+    # Channel names: authoritative source is the first h5's channel_state ‖
+    # channel_diagnostic attributes. The post-contamination guard in
+    # score_nwp.py refuses to run if these don't exactly match the inference
+    # NetCDFs, so we want them present and correct on every climatology build.
+    # The optional --channel-names JSON overrides the h5-derived list (kept
+    # for tests with synthetic h5 fixtures).
     channel_names: list[str] | None = None
     if args.channel_names is not None and args.channel_names.is_file():
         channel_names = json.loads(args.channel_names.read_text())
-        if len(channel_names) != args.n_chan:
-            raise SystemExit(
-                f"--channel-names has {len(channel_names)} entries, expected {args.n_chan}"
-            )
+    else:
+        import h5py
+        with h5py.File(files[0], "r") as f:
+            cs = [c.decode() if isinstance(c, bytes) else str(c)
+                  for c in f["channel_state"][:]]
+            if "channel_diagnostic" in f:
+                cd = [c.decode() if isinstance(c, bytes) else str(c)
+                      for c in f["channel_diagnostic"][:]]
+            else:
+                cd = []
+        channel_names = cs + cd
+        logger.info(
+            "derived channel names from %s: %d state + %d diagnostic = %d total",
+            files[0].name, len(cs), len(cd), len(channel_names),
+        )
+
+    if len(channel_names) != args.n_chan:
+        raise SystemExit(
+            f"channel_names has {len(channel_names)} entries, expected n_chan={args.n_chan}"
+        )
 
     # Build xarray Dataset.
     ds = xr.Dataset(
@@ -109,7 +130,7 @@ def main() -> int:
         coords=dict(
             doy=("doy", np.arange(366, dtype=np.int32)),
             hour_quarter=("hour_quarter", np.array([0, 6, 12, 18], dtype=np.int32)),
-            channel=("channel", channel_names if channel_names else np.arange(args.n_chan)),
+            channel=("channel", channel_names),
             lat=("lat", np.arange(args.H)),
             lon=("lon", np.arange(args.W)),
         ),

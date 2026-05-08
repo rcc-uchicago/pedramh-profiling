@@ -294,7 +294,32 @@ def main() -> int:
         z500_id, z500_label, bias_channel_list,
     )
 
-    clim_mean, clim_n, _, _, _ = _load_clim_for_lookup(args.clim_nc)
+    clim_mean, clim_n, _, _, clim_channels = _load_clim_for_lookup(args.clim_nc)
+
+    # HARD-FAIL channel-name assertion (post-contamination guard).
+    # The v10.0 → v10.1 migration silently shifted the zg* positions and
+    # produced ACC ≈ 1 because the climatology and inference NetCDFs were
+    # built from different layouts. Lock this down: positional channel
+    # names from the climatology must exactly match the inference NetCDFs.
+    clim_channels_str = [str(c) for c in clim_channels]
+    inf_channels_str = [str(c) for c in channel_names]
+    if clim_channels_str != inf_channels_str:
+        n = max(len(clim_channels_str), len(inf_channels_str))
+        diff_lines = []
+        for i in range(n):
+            cc = clim_channels_str[i] if i < len(clim_channels_str) else "<missing>"
+            ic = inf_channels_str[i] if i < len(inf_channels_str) else "<missing>"
+            mark = "" if cc == ic else "  <-- MISMATCH"
+            diff_lines.append(f"  [{i:>2}] clim={cc!r:<12} inf={ic!r:<12}{mark}")
+        raise SystemExit(
+            "channel-name mismatch between climatology and inference NetCDFs.\n"
+            f"  climatology : {args.clim_nc}\n"
+            f"  inference   : {nc_dir}/*.nc\n"
+            "Per-position diff:\n" + "\n".join(diff_lines) + "\n"
+            "Refusing to score. Rebuild the climatology against the same data "
+            "layout used for inference, or rerun inference against the current "
+            "data layout. See incident notes in docs/."
+        )
 
     # Lat weights — read once.
     H = clim_mean.shape[-2]

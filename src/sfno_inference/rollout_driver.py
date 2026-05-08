@@ -86,13 +86,18 @@ def _load_run_norm_stats(eval_params, device, *, n_out: int = 53):
     """
     out_bias_np = np.load(eval_params.global_means_path).astype(np.float32)
     out_scale_np = np.load(eval_params.global_stds_path).astype(np.float32)
-    if out_bias_np.shape != (n_out,):
+    # The stats files on disk are saved as (1, n_out, 1, 1) by the data
+    # packager (verified for plasim_sim52_full: both run-dir and dataset-stats
+    # copies are (1, 53, 1, 1)). The plan §B.2 documented (53,) but reality
+    # is broadcast-shaped — accept either and reshape canonically.
+    accepted = ((n_out,), (1, n_out, 1, 1))
+    if out_bias_np.shape not in accepted:
         raise RuntimeError(
-            f"unexpected global_means shape {out_bias_np.shape}; expected ({n_out},)"
+            f"unexpected global_means shape {out_bias_np.shape}; expected one of {accepted}"
         )
-    if out_scale_np.shape != (n_out,):
+    if out_scale_np.shape not in accepted:
         raise RuntimeError(
-            f"unexpected global_stds shape {out_scale_np.shape}; expected ({n_out},)"
+            f"unexpected global_stds shape {out_scale_np.shape}; expected one of {accepted}"
         )
     out_bias = torch.from_numpy(out_bias_np).to(device).reshape(1, n_out, 1, 1)
     out_scale = torch.from_numpy(out_scale_np).to(device).reshape(1, n_out, 1, 1)

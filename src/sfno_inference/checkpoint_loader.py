@@ -209,7 +209,24 @@ def build_wrapper_from_checkpoint(eval_params, ckpt_path, device):
     #       optimizer=None, scheduler=None, counters=None,
     #       checkpoint_mode='legacy', strict=True)
     # @staticmethod, model passed second.
-    Driver.restore_from_checkpoint(str(ckpt_path), wrapper, checkpoint_mode="legacy")
+    #
+    # Why call the private _restore_checkpoint_legacy directly with
+    # validate_comms=False: the public wrapper hardcodes validate_comms=True,
+    # which compares the current comm table's model_comm_names against
+    # the checkpoint's saved comm_grid. The 1-rank checkpoint at
+    # plasim_sim52_full/0/best_ckpt_mp0.tar was saved with comm_grid=
+    # OrderedDict() (empty), but our eval-time comm.init creates
+    # ['model', 'spatial', 'matmul', 'h', 'w', 'fin', 'fout'] — so the
+    # validator raises. For a 1-rank single-process restore there is no
+    # parallelism to validate, so skipping the check is safe.
+    import gc as _gc
+    with torch.no_grad():
+        Driver._restore_checkpoint_legacy(
+            str(ckpt_path), wrapper,
+            loss=None, optimizer=None, scheduler=None, counters=None,
+            strict=True, validate_comms=False,
+        )
+    _gc.collect()
     wrapper.eval()
 
     # Post-build assertions on the actual SFNO module. SFNO uses
@@ -264,4 +281,28 @@ def _ensure_comm_initialized(eval_params) -> None:
 
     sizes = list(getattr(eval_params, "model_parallel_sizes", [1, 1, 1, 1]))
     names = list(getattr(eval_params, "model_parallel_names", ["h", "w", "fin", "fout"]))
-    comm.init(model_parallel_sizes=sizes, model_parallel_names=names, verbose=False)
+
+    # CPU compatibility: physicsnemo's DistributedManager.setup() unconditionally
+    # passes device_id=cpu_device to torch.distributed.init_process_group(), which
+    # torch >= 2.x strict-rejects ("device_id parameter must be an accelerator
+    # with an index"). On CPU-only runs (smoke tests on skx-dev), strip the
+    # offending kwarg for the duration of the comm init.
+    # Why: the v2.7 plan §B.2 made the rollout loop CPU-safe (autocast falls
+    # back to fp32), but the comm-init path was never exercised on CPU until now.
+    if not torch.cuda.is_available():
+        import torch.distributed as _dist
+        _orig_ipg = _dist.init_process_group
+
+        def _ipg_no_device_id(*args, **kwargs):
+            dev = kwargs.get("device_id", None)
+            if dev is not None and getattr(dev, "type", None) == "cpu":
+                kwargs.pop("device_id")
+            return _orig_ipg(*args, **kwargs)
+
+        _dist.init_process_group = _ipg_no_device_id
+        try:
+            comm.init(model_parallel_sizes=sizes, model_parallel_names=names, verbose=False)
+        finally:
+            _dist.init_process_group = _orig_ipg
+    else:
+        comm.init(model_parallel_sizes=sizes, model_parallel_names=names, verbose=False)

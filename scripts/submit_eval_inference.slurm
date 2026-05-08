@@ -15,28 +15,31 @@
 # Estimated runtime ~1.5 h on one H100; 6 h wallclock leaves ample margin.
 #
 # Required env vars:
-#   RUN_DIR     — training run directory.
-#                  Default: $SCRATCH/AI-RES/runs/sfno_full/plasim_sim52_full/0
-#   CKPT        — checkpoint path.
-#                  Default: $RUN_DIR/training_checkpoints/best_ckpt_mp0.tar
-#   TEST_HOLDOUT — directory of test h5 files.
-#                  Default: $SCRATCH/AI-RES/data/makani/sim52_full/test_holdout
-#   OUT_ROOT    — eval output root.
-#                  Default: $WORK2/AI-RES/results/sfno_eval/$RUN_TAG
-#   RUN_TAG     — required; format
-#                 ``YYYYMMDD_eval-{eval}_data-{data}_train-{train}_ckpt-{name}``
+#   RUN_DIR           — training run directory.
+#                        Default (v10): $SCRATCH/AI-RES/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0
+#   CKPT              — checkpoint path.
+#                        Default: $RUN_DIR/training_checkpoints/best_ckpt_mp0.tar
+#   TEST_HOLDOUT      — directory of test h5 files.
+#                        Default (v10): $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/test_holdout
+#   PACKAGER_TEST_SRC — auto-build src for TEST_HOLDOUT (only if missing).
+#                        Default (v10): $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/test
+#   OUT_ROOT          — eval output root.
+#                        Default: $WORK2/AI-RES/results/sfno_eval/$RUN_TAG
+#   RUN_TAG           — required; format
+#                       ``YYYYMMDD_eval-{eval}_data-{data}_train-{train}_ckpt-{name}``
 #   EVAL_SHA7, DATA_SHA7, TRAIN_SHA7 — provenance, baked into NetCDF attrs.
-#   MODE        — 'nwp' (default) or 'climate'
+#   MODE              — 'nwp' (default) or 'climate'
 # ============================================================================
 
 set -euo pipefail
 
 REPO_ROOT="$HOME/AI-RES"
 
-# ---- defaults -----------------------------------------------------------
-: "${RUN_DIR:=$SCRATCH/AI-RES/runs/sfno_full/plasim_sim52_full/0}"
+# ---- defaults (v10 zgplev) ---------------------------------------------
+: "${RUN_DIR:=$SCRATCH/AI-RES/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0}"
 : "${CKPT:=$RUN_DIR/training_checkpoints/best_ckpt_mp0.tar}"
-: "${TEST_HOLDOUT:=$SCRATCH/AI-RES/data/makani/sim52_full/test_holdout}"
+: "${TEST_HOLDOUT:=$SCRATCH/AI-RES/data/makani/sim52_zgplev_full/test_holdout}"
+: "${PACKAGER_TEST_SRC:=$SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/test}"
 : "${MODE:=nwp}"
 
 if [[ -z "${RUN_TAG:-}" ]]; then
@@ -49,6 +52,7 @@ if [[ -z "${EVAL_SHA7:-}" || -z "${DATA_SHA7:-}" || -z "${TRAIN_SHA7:-}" ]]; the
 fi
 
 : "${OUT_ROOT:=$WORK2/AI-RES/results/sfno_eval/$RUN_TAG}"
+mkdir -p "$OUT_ROOT/diagnostics"
 
 # ---- venv + dist env ----------------------------------------------------
 source "$REPO_ROOT/.venv/bin/activate"
@@ -70,11 +74,13 @@ python -c "import sfno_inference; print('sfno_inference import:', sfno_inference
 set -x
 
 # Build the test-holdout directory (idempotent symlink farm) if missing.
+# PACKAGER_TEST_SRC defaults to the v10 zgplev test partition; override
+# to point at the v9 sigma packager (sim52_astro_64x128/test) if needed.
 if [ ! -d "$TEST_HOLDOUT" ] || [ -z "$(ls -A "$TEST_HOLDOUT")" ]; then
     python scripts/build_test_split.py \
-        --src "$SCRATCH/AI-RES/data/makani/sim52_astro_64x128/test" \
+        --src "$PACKAGER_TEST_SRC" \
         --dst "$TEST_HOLDOUT" \
-        --years 0121-0128
+        --years 0121,0122,0123,0124,0125,0126,0127,0128
 fi
 
 # Optional 15-second sanity check (§3 P-4).

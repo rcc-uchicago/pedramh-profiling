@@ -79,6 +79,13 @@ def _read_summary(scorecard_summary_path: Path) -> dict:
 def _format_value(v: float) -> str:
     if v != v:
         return "NaN"
+    # Use scientific notation for values that would round to 0.0000 with %.4f.
+    # Why: pr_6h is stored in m/s (mean ~1.7e-7, std ~2.8e-7), so RMSE lands
+    # in the 1e-7 to 1e-6 range — fixed-point %.4f rendered every entry as
+    # "0.0000" and made it look like a bug. Threshold 5e-5 is the round-half-up
+    # boundary for %.4f. The CSV scorecard always carries full precision.
+    if v != 0.0 and abs(v) < 5e-5:
+        return f"{v:.3e}"
     return f"{v:.4f}"
 
 

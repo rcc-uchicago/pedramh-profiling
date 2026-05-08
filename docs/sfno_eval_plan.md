@@ -1,9 +1,12 @@
 # SFNO PlaSim emulator accuracy evaluation plan **v2.8** — implementation-ready (locked)
 
-> **Migration note (2026-04-30).** The v10 dataset contract
-> (docs/plasim_zg_plev_migration_plan.md) replaces sigma-level
-> `zg1..zg10` in the 52-channel state with pressure-level
-> `zg150..zg925`. The primary observable change in this plan is
+> **Sibling plan (2026-05-06).** Evaluation of the **group's SFNO-5410 emulator** lives in a separate, dated plan: `docs/2026-05-06_group_sfno_5410_eval_plan.md`. That plan reuses this plan's metric stack (`src/sfno_eval/`, Gauss–Legendre lat-weights, time-of-year-proleptic climatology schema, NWP scorecard CSV layout, sanity-gate thresholds) but has its own inference engine (upstream PanguWeather/v2.0 path-overridden), input data tree (`data/derecho_glade/sim52/...`), checkpoint (`ckpt_epoch_50.tar`), output tree (`results/sfno_eval_5410/<run_tag>/`), and an external climatology built from group post-processing (`docs/2026-05-06_group_sfno_5410_climatology_prompt_for_derecho.md`). The cross-emulator combined report is rendered by a third script described in that plan's §F.
+>
+> **Migration note (2026-04-30, updated 2026-05-04).** The v10 dataset
+> contract (docs/plasim_zg_plev_migration_plan.md) replaced sigma-level
+> `zg1..zg10` with pressure-level `zg150..zg925`; the v10.1 follow-up
+> (docs/2026-05-04_zg1000hpa_migration_plan.md) shifted the subset to
+> `zg200..zg1000` for ACE parity. The primary observable change in this plan is
 > §D.6: the Z500 ACC gate now references the literal `zg500`
 > channel rather than the v9 sigma proxy `zg5`. The scoring scripts
 > (`scripts/score_nwp.py`, `scripts/render_eval_report.py`) detect
@@ -202,7 +205,7 @@ Channel order (52 state + 1 diagnostic, **immutable** for the rollout invariant)
 12..21  ua1..ua10
 22..31  va1..va10
 32..41  hus1..hus10
-42..51  zg150..zg925   ← v10 contract: pressure-level zg, TOA→surface; zg500 at index 47
+42..51  zg200..zg1000  ← v10.1 contract: pressure-level zg, TOA→surface; zg500 at index 46
 52      pr_6h     ← diagnostic; output-only, never feeds back
 ```
 

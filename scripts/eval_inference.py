@@ -138,6 +138,71 @@ def _read_lat_lon_from_run(run_dir: Path) -> tuple[list[float], list[float]]:
     return list(lat), list(lon)
 
 
+def _channel_names_from_h5(h5_path: Path) -> list[str]:
+    """Read ``channel_state ‖ channel_diagnostic`` from an h5 file.
+
+    The h5 file written by the packager carries the authoritative
+    per-position channel labels in these two attributes. Using them
+    directly removes any chance of drift between (a) the training
+    config's ``channel_names``, (b) the climatology's ``channel`` coord,
+    and (c) the actual data layout — which is exactly what produced the
+    v10.0/v10.1 contamination incident.
+    """
+    import h5py
+    with h5py.File(h5_path, "r") as f:
+        cs = [c.decode() if isinstance(c, bytes) else str(c)
+              for c in f["channel_state"][:]]
+        if "channel_diagnostic" in f:
+            cd = [c.decode() if isinstance(c, bytes) else str(c)
+                  for c in f["channel_diagnostic"][:]]
+        else:
+            cd = []
+    return cs + cd
+
+
+def _resolve_and_check_channel_names(
+    run_dir: Path,
+    h5_path: Path,
+) -> list[str]:
+    """Return h5-derived channel names; hard-fail if they disagree with config.
+
+    The h5 attributes are authoritative for what's *in* the data tensor.
+    The training config's ``channel_names`` records what the model was
+    *trained against*. They must match, position by position. Any drift
+    means the model and the data are talking past each other — score_nwp
+    would silently produce nonsense (the v10.0/v10.1 incident).
+    """
+    h5_names = _channel_names_from_h5(h5_path)
+    cfg = json.loads((run_dir / "config.json").read_text())
+    cfg_names = cfg.get("channel_names")
+    if cfg_names is None:
+        logger.warning(
+            "run_dir/config.json has no channel_names; trusting h5 layout for %s.",
+            h5_path.name,
+        )
+        return h5_names
+    cfg_names = [str(c) for c in cfg_names]
+    h5_names = [str(c) for c in h5_names]
+    if cfg_names != h5_names:
+        n = max(len(cfg_names), len(h5_names))
+        diff_lines = []
+        for i in range(n):
+            cc = cfg_names[i] if i < len(cfg_names) else "<missing>"
+            hh = h5_names[i] if i < len(h5_names) else "<missing>"
+            mark = "" if cc == hh else "  <-- MISMATCH"
+            diff_lines.append(f"  [{i:>2}] cfg={cc!r:<12} h5={hh!r:<12}{mark}")
+        raise SystemExit(
+            "channel-name mismatch between training config and test data h5.\n"
+            f"  config       : {run_dir}/config.json\n"
+            f"  h5 reference : {h5_path}\n"
+            "Per-position diff:\n" + "\n".join(diff_lines) + "\n"
+            "Refusing to run inference. The model was trained on a different "
+            "channel layout than the data tensor it would be fed. Re-pack the "
+            "data, or re-train, so that the two layouts agree."
+        )
+    return h5_names
+
+
 # ---------------------------------------------------------------------------
 # Per-mode runners
 # ---------------------------------------------------------------------------
@@ -166,9 +231,9 @@ def run_nwp(args: argparse.Namespace) -> int:
     wrapper = build_wrapper_from_checkpoint(eval_params, args.ckpt, device=device)
     out_bias, out_scale = _load_run_norm_stats(eval_params, device)
 
-    # Read channel names + lat/lon (one-time, applies to every output NetCDF).
-    cfg = json.loads(Path(args.run_dir / "config.json").read_text())
-    channel_names = cfg["channel_names"]
+    # Channel names: derive from the first test h5's authoritative
+    # channel_state ‖ channel_diagnostic; cross-check against training config.
+    channel_names = _resolve_and_check_channel_names(args.run_dir, test_files[0])
     lat, lon = _read_lat_lon_from_run(args.run_dir)
 
     out_dir = args.out_root / "inference" / "nwp"
@@ -248,8 +313,7 @@ def run_climate(args: argparse.Namespace) -> int:
     if args.limit_files:
         test_files = test_files[: args.limit_files]
 
-    cfg = json.loads(Path(args.run_dir / "config.json").read_text())
-    channel_names = cfg["channel_names"]
+    channel_names = _resolve_and_check_channel_names(args.run_dir, test_files[0])
     lat, lon = _read_lat_lon_from_run(args.run_dir)
 
     out_dir = args.out_root / "inference" / "climate"
