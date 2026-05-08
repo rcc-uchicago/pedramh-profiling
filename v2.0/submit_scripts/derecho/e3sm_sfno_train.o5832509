@@ -1,0 +1,139 @@
+/glade/u/apps/opt/miniforge/25.11/condabin/conda
+Thu Apr 16 12:12:48 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.65.06              Driver Version: 580.65.06      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:03:00.0 Off |                    0 |
+| N/A   28C    P0             51W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   27C    P0             52W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA A100-SXM4-40GB          On  |   00000000:82:00.0 Off |                    0 |
+| N/A   28C    P0             51W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA A100-SXM4-40GB          On  |   00000000:C1:00.0 Off |                    0 |
+| N/A   27C    P0             55W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py:208: FutureWarning: The module torch.distributed.launch is deprecated
+and will be removed in future. Use torchrun.
+Note that --use-env is set by default in torchrun.
+If your script expects `--local-rank` argument to be set, please
+change it to read from `os.environ['LOCAL_RANK']` instead. See 
+https://pytorch.org/docs/stable/distributed.html#launch-utility for 
+further instructions
+
+  main()
+2026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu1242026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu1242026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu1242026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu124
+
+
+
+2026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu1242026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-16 12:14:08,907 - root - INFO - Torch version: 2.6.0+cu124
+
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py", line 3417, in <module>
+  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py", line 3417, in <module>
+Traceback (most recent call last):
+Traceback (most recent call last):
+  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py", line 3417, in <module>
+  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py", line 3417, in <module>
+    params = YParams(os.path.abspath(args.yaml_config), args.config)
+       params = YParams(os.path.abspath(args.yaml_config), args.config)     
+params = YParams(os.path.abspath(args.yaml_config), args.config) 
+      params = YParams(os.path.abspath(args.yaml_config), args.config)  
+                   ^   ^   ^   ^   ^   ^   ^  ^^  ^^^ ^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/YParams.py", line 16, in __init__
+^^^^^^^^^^^^^^
+^^
+^  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/YParams.py", line 16, in __init__
+^  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/YParams.py", line 16, in __init__
+
+  File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/YParams.py", line 16, in __init__
+    with open(yaml_filename) as _file:        
+with open(yaml_filename) as _file:with open(yaml_filename) as _file:    
+
+with open(yaml_filename) as _file: 
+                              ^   ^ ^^^ ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^
+
+IsADirectoryError^: 
+IsADirectoryErrorIsADirectoryError[Errno 21] Is a directory: '/glade/work/jesswan/UChicago/PanguWeather/v2.0': : 
+IsADirectoryError[Errno 21] Is a directory: '/glade/work/jesswan/UChicago/PanguWeather/v2.0'[Errno 21] Is a directory: '/glade/work/jesswan/UChicago/PanguWeather/v2.0': 
+
+[Errno 21] Is a directory: '/glade/work/jesswan/UChicago/PanguWeather/v2.0'
+E0416 12:14:10.114000 127510 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 0 (pid: 2820) of binary: /glade/work/jesswan/conda-envs/sfno_pangu/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 208, in <module>
+    main()
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/typing_extensions.py", line 2853, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 204, in main
+    launch(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 189, in launch
+    run(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+train.py FAILED
+------------------------------------------------------------
+Failures:
+[1]:
+  time      : 2026-04-16_12:14:10
+  host      : deg0033.hsn.de.hpc.ucar.edu
+  rank      : 1 (local_rank: 1)
+  exitcode  : 1 (pid: 2821)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[2]:
+  time      : 2026-04-16_12:14:10
+  host      : deg0033.hsn.de.hpc.ucar.edu
+  rank      : 2 (local_rank: 2)
+  exitcode  : 1 (pid: 2823)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+[3]:
+  time      : 2026-04-16_12:14:10
+  host      : deg0033.hsn.de.hpc.ucar.edu
+  rank      : 3 (local_rank: 3)
+  exitcode  : 1 (pid: 2824)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-04-16_12:14:10
+  host      : deg0033.hsn.de.hpc.ucar.edu
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 2820)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

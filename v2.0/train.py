@@ -800,9 +800,10 @@ class Trainer():
                 if _epochs_since_start % _ens_freq == 0:
                     ensemble_val_time = self.validate_ensemble_forecast()
                     logging.info(f"Epoch {epoch + 1} ensemble validation time: {ensemble_val_time:.2f} seconds")
+            ## ADD IF STATEMENT FOR EVERY 2 EPOCHS ##
+            #if (epoch + 1) % 2 == 0:
             valid_time, valid_logs = self.validate_one_epoch()
-            logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")    
-            
+            logging.info(f"Epoch {epoch + 1} validation time: {valid_time:.2f} seconds")     
             torch.cuda.empty_cache()
 
             if self.params.scheduler == 'ReduceLROnPlateau':
@@ -954,43 +955,45 @@ class Trainer():
                     if self.params.scheduler in ['OneCycleLR', 'LinearWarmupCosineAnnealingLR']:
                         self.scheduler.step()
 
-                    with torch.no_grad():
+                    ## ADD IF STATEMENT FOR EVERY 200 STEPS ##
+                    if self.params.mode == "test" or self.iters % 200 == 0:
+                        with torch.no_grad():
 
-                        if self.params.predict_delta:
-                            output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
-                            target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+                            if self.params.predict_delta:
+                                output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                                target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
 
-                        surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
-                        upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
+                            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
+                            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
 
-                        if self.params.has_diagnostic:
-                            diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        else:
-                            diagnostic_lwrmse  = 0
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            if self.params.has_diagnostic:
+                                diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            else:
+                                diagnostic_lwrmse  = 0
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
-                        ######diagnoistic logging per iteration ###################
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
-                                                                        train_batch_loss = loss, 
-                                                                        train_batch_loss_sfc = loss_sfc, 
-                                                                        train_batch_loss_upper_air = loss_pl,
-                                                                        train_batch_loss_diagnostic =loss_diagnostic,
-                                                                        train_batch_loss_vae = loss_vae,
-                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
-                    ##########################################################
-                        if self.world_rank == 0 and self.params.log_to_wandb:
-                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
-                            # Use wandb_step to ensure monotonicity, then increment it
-                            wandb.log(diagnostic_logs, step=self.wandb_step)
-                            self.wandb_step += 1
+                            ######diagnoistic logging per iteration ###################
+                            diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                            train_batch_loss = loss, 
+                                                                            train_batch_loss_sfc = loss_sfc, 
+                                                                            train_batch_loss_upper_air = loss_pl,
+                                                                            train_batch_loss_diagnostic =loss_diagnostic,
+                                                                            train_batch_loss_vae = loss_vae,
+                                                                            train_mean_norm_lwrmse = mean_norm_lwrmse)
+                        ##########################################################
+                            if self.world_rank == 0 and self.params.log_to_wandb:
+                                #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                                # Use wandb_step to ensure monotonicity, then increment it
+                                wandb.log(diagnostic_logs, step=self.wandb_step)
+                                self.wandb_step += 1
 
-                    # torch.cuda.empty_cache()
-                    tr_time += time.time() - tr_start
-                
-                    pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                    # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                    pbar.update(1)
+                        # torch.cuda.empty_cache()
+                        tr_time += time.time() - tr_start
+                    
+                        pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                        # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                        pbar.update(1)
         pbar.close()
 
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
@@ -1319,7 +1322,7 @@ class Trainer():
         # Get variable lists
         surface_vars = list(self.valid_dataset.surface_variables)
         upper_air_vars = list(self.valid_dataset.upper_air_variables)
-        levels = list(self.valid_dataset.levels)
+        levels = list(self.valid_dataset.sigma_levels if self.valid_dataset.use_sigma_levels else self.valid_dataset.levels)
 
         for step in lead_times:
             if step not in step_to_idx:
@@ -1412,7 +1415,7 @@ class Trainer():
         surface_vars = list(self.valid_dataset.surface_variables)
         upper_air_vars = list(self.valid_dataset.upper_air_variables)
         diag_vars = list(self.valid_dataset.diagnostic_variables) if hasattr(self.valid_dataset, 'diagnostic_variables') else []
-        levels = list(self.valid_dataset.levels)
+        levels = list(self.valid_dataset.sigma_levels if self.valid_dataset.use_sigma_levels else self.valid_dataset.levels)
         
         for var, var_levels in var_dict.items():
             if not var_levels:

@@ -1,0 +1,1472 @@
+/glade/u/apps/opt/miniforge/25.11/condabin/conda
+Tue Apr 14 21:05:13 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.65.06              Driver Version: 580.65.06      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:03:00.0 Off |                    0 |
+| N/A   27C    P0             51W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   26C    P0             50W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA A100-SXM4-40GB          On  |   00000000:82:00.0 Off |                    0 |
+| N/A   27C    P0             51W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA A100-SXM4-40GB          On  |   00000000:C1:00.0 Off |                    0 |
+| N/A   27C    P0             51W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py:208: FutureWarning: The module torch.distributed.launch is deprecated
+and will be removed in future. Use torchrun.
+Note that --use-env is set by default in torchrun.
+If your script expects `--local-rank` argument to be set, please
+change it to read from `os.environ['LOCAL_RANK']` instead. See 
+https://pytorch.org/docs/stable/distributed.html#launch-utility for 
+further instructions
+
+  main()
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu1242026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+2026-04-14 21:06:30,844 - root - INFO - Torch version: 2.6.0+cu124
+Has diagnostic: True
+validation epochs arg: 
+Has diagnostic: TrueWorld size from OS: 4Has diagnostic: True
+
+
+validation epochs arg:4validation epochs arg: 
+ Has diagnostic: True
+
+
+validation epochs arg:World size from OS: 4 World size from OS: 4
+
+
+44
+
+World size from OS: 4
+4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA A100-SXM4-40GB
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA A100-SXM4-40GB
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA A100-SXM4-40GB
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA A100-SXM4-40GB
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+Using PyTorch nativeUsing PyTorch nativeUsing PyTorch native
+
+
+2026-04-14 21:06:33,897 - root - INFO - No checkpoint found. Starting fresh training run.
+2026-04-14 21:06:33,897 - root - INFO - No checkpoint found. Starting fresh training run.
+Using PyTorch native
+2026-04-14 21:06:33,897 - root - INFO - rank 3, begin data loader init2026-04-14 21:06:33,897 - root - INFO - rank 1, begin data loader init2026-04-14 21:06:33,897 - root - INFO - rank 2, begin data loader init
+
+
+2026-04-14 21:06:33,897 - root - INFO - rank 3, begin data loader init2026-04-14 21:06:33,897 - root - INFO - rank 1, begin data loader init
+2026-04-14 21:06:33,897 - root - INFO - rank 2, begin data loader init
+
+Hours: 218994.0Hours: 218994.0Hours: 218994.0
+
+
+End data hour: 218994.0End data hour: 218994.0End data hour: 218994.0
+
+
+2026-04-14 21:06:33,898 - root - INFO - --------------- Versions ---------------
+2026-04-14 21:06:33,898 - root - INFO - --------------- Versions ---------------
+2026-04-14 21:06:33,912 - root - INFO - Torch: 2.6.0+cu124
+2026-04-14 21:06:33,912 - root - INFO - Torch: 2.6.0+cu124
+2026-04-14 21:06:33,913 - root - INFO - ----------------------------------------
+2026-04-14 21:06:33,913 - root - INFO - ----------------------------------------
+2026-04-14 21:06:33,913 - root - INFO - ------------------ Configuration ------------------
+2026-04-14 21:06:33,913 - root - INFO - ------------------ Configuration ------------------
+2026-04-14 21:06:33,913 - root - INFO - Configuration file: /glade/work/jesswan/UChicago/PanguWeather/v2.0/config/E3SM_SFNO_H5_DERECHO_jsw.yaml
+2026-04-14 21:06:33,913 - root - INFO - Configuration file: /glade/work/jesswan/UChicago/PanguWeather/v2.0/config/E3SM_SFNO_H5_DERECHO_jsw.yaml
+2026-04-14 21:06:33,913 - root - INFO - Configuration name: SFNO
+2026-04-14 21:06:33,913 - root - INFO - Configuration name: SFNO
+2026-04-14 21:06:33,913 - root - INFO - nettype sfno_plasim
+2026-04-14 21:06:33,913 - root - INFO - nettype sfno_plasim
+2026-04-14 21:06:33,913 - root - INFO - scheduler LinearWarmupCosineAnnealingLR
+2026-04-14 21:06:33,913 - root - INFO - scheduler LinearWarmupCosineAnnealingLR
+2026-04-14 21:06:33,913 - root - INFO - num_warmup_epochs 5
+2026-04-14 21:06:33,913 - root - INFO - num_warmup_epochs 5
+2026-04-14 21:06:33,914 - root - INFO - warmup_start_lr 1e-08
+2026-04-14 21:06:33,914 - root - INFO - warmup_start_lr 1e-08
+2026-04-14 21:06:33,914 - root - INFO - eta_min 1e-08
+2026-04-14 21:06:33,914 - root - INFO - eta_min 1e-08
+2026-04-14 21:06:33,914 - root - INFO - loss raw_l2
+2026-04-14 21:06:33,914 - root - INFO - loss raw_l2
+2026-04-14 21:06:33,914 - root - INFO - lr 0.0001
+2026-04-14 21:06:33,914 - root - INFO - lr 0.0001
+2026-04-14 21:06:33,914 - root - INFO - checkpoint_save_interval 1
+2026-04-14 21:06:33,914 - root - INFO - checkpoint_save_interval 1
+2026-04-14 21:06:33,914 - root - INFO - max_checkpoints_to_keep 1000
+2026-04-14 21:06:33,914 - root - INFO - max_checkpoints_to_keep 1000
+2026-04-14 21:06:33,914 - root - INFO - use_ema True
+2026-04-14 21:06:33,914 - root - INFO - use_ema True
+2026-04-14 21:06:33,914 - root - INFO - ema_decay 0.999
+2026-04-14 21:06:33,914 - root - INFO - ema_decay 0.999
+2026-04-14 21:06:33,914 - root - INFO - ema_warmup_epochs 6
+2026-04-14 21:06:33,914 - root - INFO - ema_warmup_epochs 6
+2026-04-14 21:06:33,914 - root - INFO - curriculum_learning False
+2026-04-14 21:06:33,914 - root - INFO - curriculum_learning False
+2026-04-14 21:06:33,915 - root - INFO - ensemble_validation False
+2026-04-14 21:06:33,915 - root - INFO - ensemble_validation False
+2026-04-14 21:06:33,915 - root - INFO - balanced_learning False
+2026-04-14 21:06:33,915 - root - INFO - balanced_learning False
+2026-04-14 21:06:33,915 - root - INFO - spectral_transform sht
+2026-04-14 21:06:33,915 - root - INFO - spectral_transform sht
+2026-04-14 21:06:33,915 - root - INFO - filter_type linear
+2026-04-14 21:06:33,915 - root - INFO - filter_type linear
+2026-04-14 21:06:33,915 - root - INFO - operator_type dhconv
+2026-04-14 21:06:33,915 - root - INFO - operator_type dhconv
+2026-04-14 21:06:33,915 - root - INFO - scale_factor 1
+2026-04-14 21:06:33,915 - root - INFO - scale_factor 1
+2026-04-14 21:06:33,915 - root - INFO - embed_dim 256
+2026-04-14 21:06:33,915 - root - INFO - embed_dim 256
+2026-04-14 21:06:33,915 - root - INFO - num_layers 12
+2026-04-14 21:06:33,915 - root - INFO - num_layers 12
+2026-04-14 21:06:33,915 - root - INFO - use_mlp True
+2026-04-14 21:06:33,915 - root - INFO - use_mlp True
+2026-04-14 21:06:33,915 - root - INFO - mlp_ratio 2.0
+2026-04-14 21:06:33,915 - root - INFO - mlp_ratio 2.0
+2026-04-14 21:06:33,916 - root - INFO - activation_function gelu
+2026-04-14 21:06:33,916 - root - INFO - activation_function gelu
+2026-04-14 21:06:33,916 - root - INFO - encoder_layers 1
+2026-04-14 21:06:33,916 - root - INFO - encoder_layers 1
+2026-04-14 21:06:33,916 - root - INFO - pos_embed True
+2026-04-14 21:06:33,916 - root - INFO - pos_embed True
+2026-04-14 21:06:33,916 - root - INFO - drop_rate 0.0
+2026-04-14 21:06:33,916 - root - INFO - drop_rate 0.0
+2026-04-14 21:06:33,916 - root - INFO - drop_path_rate 0.0
+2026-04-14 21:06:33,916 - root - INFO - drop_path_rate 0.0
+2026-04-14 21:06:33,916 - root - INFO - num_blocks 16
+2026-04-14 21:06:33,916 - root - INFO - num_blocks 16
+2026-04-14 21:06:33,916 - root - INFO - sparsity_threshold 0.0
+2026-04-14 21:06:33,916 - root - INFO - sparsity_threshold 0.0
+2026-04-14 21:06:33,916 - root - INFO - normalization_layer instance_norm
+2026-04-14 21:06:33,916 - root - INFO - normalization_layer instance_norm
+2026-04-14 21:06:33,916 - root - INFO - hard_thresholding_fraction 1.0
+2026-04-14 21:06:33,916 - root - INFO - hard_thresholding_fraction 1.0
+2026-04-14 21:06:33,916 - root - INFO - use_complex_kernels True
+2026-04-14 21:06:33,916 - root - INFO - use_complex_kernels True
+2026-04-14 21:06:33,917 - root - INFO - big_skip True
+2026-04-14 21:06:33,917 - root - INFO - big_skip True
+2026-04-14 21:06:33,917 - root - INFO - rank 1.0
+2026-04-14 21:06:33,917 - root - INFO - rank 1.0
+2026-04-14 21:06:33,917 - root - INFO - factorization None
+2026-04-14 21:06:33,917 - root - INFO - factorization None
+2026-04-14 21:06:33,917 - root - INFO - separable False
+2026-04-14 21:06:33,917 - root - INFO - separable False
+2026-04-14 21:06:33,917 - root - INFO - complex_network True
+2026-04-14 21:06:33,917 - root - INFO - complex_network True
+2026-04-14 21:06:33,917 - root - INFO - complex_activation real
+2026-04-14 21:06:33,917 - root - INFO - complex_activation real
+2026-04-14 21:06:33,917 - root - INFO - spectral_layers 3
+2026-04-14 21:06:33,917 - root - INFO - spectral_layers 3
+2026-04-14 21:06:33,917 - root - INFO - checkpointing 2
+2026-04-14 21:06:33,917 - root - INFO - checkpointing 2
+2026-04-14 21:06:33,917 - root - INFO - sync_norm True
+2026-04-14 21:06:33,917 - root - INFO - sync_norm True
+2026-04-14 21:06:33,917 - root - INFO - data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0101_REST0101/h5/sigma_data
+2026-04-14 21:06:33,917 - root - INFO - data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0101_REST0101/h5/sigma_data
+2026-04-14 21:06:33,917 - root - INFO - upper_air_variables ['T', 'U', 'V', 'Z3', 'RELHUM']
+2026-04-14 21:06:33,917 - root - INFO - upper_air_variables ['T', 'U', 'V', 'Z3', 'RELHUM']
+2026-04-14 21:06:33,918 - root - INFO - surface_variables ['TREFHT', 'U10', 'RHREFHT', 'PS', 'PSL', 'TMQ']
+2026-04-14 21:06:33,918 - root - INFO - surface_variables ['TREFHT', 'U10', 'RHREFHT', 'PS', 'PSL', 'TMQ']
+2026-04-14 21:06:33,918 - root - INFO - diagnostic_variables ['FSNTOA', 'FSNT', 'PRECT']
+2026-04-14 21:06:33,918 - root - INFO - diagnostic_variables ['FSNTOA', 'FSNT', 'PRECT']
+2026-04-14 21:06:33,921 - root - INFO - land_variables ['SOILWATER_10CM', 'TSOI_10CM']
+2026-04-14 21:06:33,921 - root - INFO - land_variables ['SOILWATER_10CM', 'TSOI_10CM']
+2026-04-14 21:06:33,921 - root - INFO - ocean_variables []
+2026-04-14 21:06:33,921 - root - INFO - ocean_variables []
+2026-04-14 21:06:33,921 - root - INFO - mask_output False
+2026-04-14 21:06:33,921 - root - INFO - mask_output False
+2026-04-14 21:06:33,922 - root - INFO - constant_boundary_variables ['PCT_GLACIER', 'PFTDATA_MASK', 'PCT_NATVEG', 'TOPO']
+2026-04-14 21:06:33,922 - root - INFO - constant_boundary_variables ['PCT_GLACIER', 'PFTDATA_MASK', 'PCT_NATVEG', 'TOPO']
+2026-04-14 21:06:33,922 - root - INFO - varying_boundary_variables ['SST', 'ICE', 'sol_in']
+2026-04-14 21:06:33,922 - root - INFO - varying_boundary_variables ['SST', 'ICE', 'sol_in']
+2026-04-14 21:06:33,922 - root - INFO - train_year_start 2015
+2026-04-14 21:06:33,922 - root - INFO - train_year_start 2015
+2026-04-14 21:06:33,922 - root - INFO - train_year_end 2040
+2026-04-14 21:06:33,922 - root - INFO - train_year_end 2040
+2026-04-14 21:06:33,922 - root - INFO - val_year_start 2045
+2026-04-14 21:06:33,922 - root - INFO - val_year_start 2045
+2026-04-14 21:06:33,922 - root - INFO - val_year_end 2050
+2026-04-14 21:06:33,922 - root - INFO - val_year_end 2050
+2026-04-14 21:06:33,922 - root - INFO - long_validation False
+2026-04-14 21:06:33,922 - root - INFO - long_validation False
+2026-04-14 21:06:33,922 - root - INFO - mask_fill {'SOILWATER_10CM': 0.0, 'TSOI_10CM': 270.0, 'PCT_GLACIER': 0.0, 'PFTDATA_MASK': 0.0, 'PCT_NATVEG': 0.0, 'TOPO': 0.0, 'SST': 270.0, 'ICE': 0.0}
+2026-04-14 21:06:33,922 - root - INFO - mask_fill {'SOILWATER_10CM': 0.0, 'TSOI_10CM': 270.0, 'PCT_GLACIER': 0.0, 'PFTDATA_MASK': 0.0, 'PCT_NATVEG': 0.0, 'TOPO': 0.0, 'SST': 270.0, 'ICE': 0.0}
+2026-04-14 21:06:33,922 - root - INFO - data_timedelta_hours 6
+2026-04-14 21:06:33,922 - root - INFO - data_timedelta_hours 6
+2026-04-14 21:06:33,922 - root - INFO - surface_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,922 - root - INFO - surface_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - surface_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - surface_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - surface_ff_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - surface_ff_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - upper_air_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - upper_air_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - upper_air_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - upper_air_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - upper_air_ff_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - upper_air_ff_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - boundary_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - boundary_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - boundary_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - boundary_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - diagnostic_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - diagnostic_mean data_2015-2050_mean.nc
+2026-04-14 21:06:33,923 - root - INFO - diagnostic_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - diagnostic_std data_2015-2050_std_corr.nc
+2026-04-14 21:06:33,923 - root - INFO - climatology_file climatology.nc
+2026-04-14 21:06:33,923 - root - INFO - climatology_file climatology.nc
+2026-04-14 21:06:33,923 - root - INFO - calendar 365_day
+2026-04-14 21:06:33,923 - root - INFO - calendar 365_day
+2026-04-14 21:06:33,924 - root - INFO - timedelta_hours 6
+2026-04-14 21:06:33,924 - root - INFO - timedelta_hours 6
+2026-04-14 21:06:33,924 - root - INFO - has_year_zero True
+2026-04-14 21:06:33,924 - root - INFO - has_year_zero True
+2026-04-14 21:06:33,924 - root - INFO - num_levels 18
+2026-04-14 21:06:33,924 - root - INFO - num_levels 18
+2026-04-14 21:06:33,924 - root - INFO - use_sigma_levels True
+2026-04-14 21:06:33,924 - root - INFO - use_sigma_levels True
+2026-04-14 21:06:33,924 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-04-14 21:06:33,924 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-04-14 21:06:33,924 - root - INFO - sigma_levels [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 925.5197481473349, 998.4964394917621]
+2026-04-14 21:06:33,924 - root - INFO - sigma_levels [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 925.5197481473349, 998.4964394917621]
+2026-04-14 21:06:33,924 - root - INFO - horizontal_resolution [180, 360]
+2026-04-14 21:06:33,924 - root - INFO - horizontal_resolution [180, 360]
+2026-04-14 21:06:33,924 - root - INFO - depths [2, 6, 6, 2]
+2026-04-14 21:06:33,924 - root - INFO - depths [2, 6, 6, 2]
+2026-04-14 21:06:33,924 - root - INFO - predict_delta False
+2026-04-14 21:06:33,924 - root - INFO - predict_delta False
+2026-04-14 21:06:33,924 - root - INFO - patch_size [2, 2, 2]
+2026-04-14 21:06:33,924 - root - INFO - patch_size [2, 2, 2]
+2026-04-14 21:06:33,925 - root - INFO - updown_scale_factor 2
+2026-04-14 21:06:33,925 - root - INFO - updown_scale_factor 2
+2026-04-14 21:06:33,925 - root - INFO - window_size [2, 2, 4]
+2026-04-14 21:06:33,925 - root - INFO - window_size [2, 2, 4]
+2026-04-14 21:06:33,925 - root - INFO - epsilon_factor 0.1
+2026-04-14 21:06:33,925 - root - INFO - epsilon_factor 0.1
+2026-04-14 21:06:33,925 - root - INFO - upper_air_boundary False
+2026-04-14 21:06:33,925 - root - INFO - upper_air_boundary False
+2026-04-14 21:06:33,925 - root - INFO - subpixel_deconv True
+2026-04-14 21:06:33,925 - root - INFO - subpixel_deconv True
+2026-04-14 21:06:33,925 - root - INFO - recovery_head True
+2026-04-14 21:06:33,925 - root - INFO - recovery_head True
+2026-04-14 21:06:33,925 - root - INFO - diagnostic_head False
+2026-04-14 21:06:33,925 - root - INFO - diagnostic_head False
+2026-04-14 21:06:33,925 - root - INFO - vertical_windowing False
+2026-04-14 21:06:33,925 - root - INFO - vertical_windowing False
+2026-04-14 21:06:33,925 - root - INFO - train_year_to_year False
+2026-04-14 21:06:33,925 - root - INFO - train_year_to_year False
+2026-04-14 21:06:33,925 - root - INFO - polar_pad False
+2026-04-14 21:06:33,925 - root - INFO - polar_pad False
+2026-04-14 21:06:33,925 - root - INFO - grid_has_poles False
+2026-04-14 21:06:33,925 - root - INFO - grid_has_poles False
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_logs True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_logs True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_acc True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_acc True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_gif True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_gif True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_spectra True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_spectra True
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_acc_var_dict {'Z3': [492.468574022528], 'U': [256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_acc_var_dict {'Z3': [492.468574022528], 'U': [256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_gif_var_dict {'Z3': [492.468574022528], 'U': [492.468574022528, 256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,926 - root - INFO - diagnostic_gif_var_dict {'Z3': [492.468574022528], 'U': [492.468574022528, 256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,929 - root - INFO - diagnostic_spectrum_var_dict {'Z3': [492.468574022528], 'U': [256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,929 - root - INFO - diagnostic_spectrum_var_dict {'Z3': [492.468574022528], 'U': [256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,929 - root - INFO - diagnostic_bias_var_dict {'Z3': [492.468574022528], 'U': [256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,929 - root - INFO - diagnostic_bias_var_dict {'Z3': [492.468574022528], 'U': [256.723685905259], 'T': [849.661249110595], 'TREFHT': []}
+2026-04-14 21:06:33,929 - root - INFO - forecast_lead_times [1, 12, 20, 40, 60]
+2026-04-14 21:06:33,929 - root - INFO - forecast_lead_times [1, 12, 20, 40, 60]
+2026-04-14 21:06:33,929 - root - INFO - lev lev
+2026-04-14 21:06:33,929 - root - INFO - lev lev
+2026-04-14 21:06:33,929 - root - INFO - num_inferences 128
+2026-04-14 21:06:33,929 - root - INFO - num_inferences 128
+2026-04-14 21:06:33,929 - root - INFO - use_reentrant False
+2026-04-14 21:06:33,929 - root - INFO - use_reentrant False
+2026-04-14 21:06:33,930 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-04-14 21:06:33,930 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-04-14 21:06:33,930 - root - INFO - lon [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 358.5, 359.5]
+2026-04-14 21:06:33,930 - root - INFO - lon [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 358.5, 359.5]
+2026-04-14 21:06:33,938 - root - INFO - loglr -13
+2026-04-14 21:06:33,938 - root - INFO - loglr -13
+2026-04-14 21:06:33,938 - root - INFO - weight_decay 3e-06
+2026-04-14 21:06:33,938 - root - INFO - weight_decay 3e-06
+2026-04-14 21:06:33,938 - root - INFO - num_data_workers 4
+2026-04-14 21:06:33,938 - root - INFO - num_data_workers 4
+2026-04-14 21:06:33,938 - root - INFO - batch_size 4
+2026-04-14 21:06:33,938 - root - INFO - batch_size 4
+2026-04-14 21:06:33,938 - root - INFO - max_epochs 100
+2026-04-14 21:06:33,938 - root - INFO - max_epochs 100
+2026-04-14 21:06:33,938 - root - INFO - no_leap_year 2020
+2026-04-14 21:06:33,938 - root - INFO - no_leap_year 2020
+2026-04-14 21:06:33,938 - root - INFO - leap_year 2020
+2026-04-14 21:06:33,938 - root - INFO - leap_year 2020
+2026-04-14 21:06:33,938 - root - INFO - log_to_screen True
+2026-04-14 21:06:33,938 - root - INFO - log_to_screen True
+2026-04-14 21:06:33,938 - root - INFO - log_to_wandb True
+2026-04-14 21:06:33,938 - root - INFO - log_to_wandb True
+2026-04-14 21:06:33,938 - root - INFO - save_checkpoint True
+2026-04-14 21:06:33,938 - root - INFO - save_checkpoint True
+2026-04-14 21:06:33,939 - root - INFO - optimizer_type AdamW
+2026-04-14 21:06:33,939 - root - INFO - optimizer_type AdamW
+2026-04-14 21:06:33,939 - root - INFO - plot_animations False
+2026-04-14 21:06:33,939 - root - INFO - plot_animations False
+2026-04-14 21:06:33,939 - root - INFO - group plasim
+2026-04-14 21:06:33,939 - root - INFO - group plasim
+2026-04-14 21:06:33,939 - root - INFO - exp_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results
+2026-04-14 21:06:33,939 - root - INFO - exp_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results
+2026-04-14 21:06:33,939 - root - INFO - enable_fp8 False
+2026-04-14 21:06:33,939 - root - INFO - enable_fp8 False
+2026-04-14 21:06:33,939 - root - INFO - fresh_start False
+2026-04-14 21:06:33,939 - root - INFO - fresh_start False
+2026-04-14 21:06:33,939 - root - INFO - use_transformer_engine False
+2026-04-14 21:06:33,939 - root - INFO - use_transformer_engine False
+2026-04-14 21:06:33,939 - root - INFO - early_stopping False
+2026-04-14 21:06:33,939 - root - INFO - early_stopping False
+2026-04-14 21:06:33,939 - root - INFO - entity jesswan-university-of-chicago
+2026-04-14 21:06:33,939 - root - INFO - entity jesswan-university-of-chicago
+2026-04-14 21:06:33,939 - root - INFO - project E3SM-SRM-SFNO
+2026-04-14 21:06:33,939 - root - INFO - project E3SM-SRM-SFNO
+2026-04-14 21:06:33,939 - root - INFO - name E3SM-SRM-SFNO-CTL_SST0101_REST0101-0008
+2026-04-14 21:06:33,939 - root - INFO - name E3SM-SRM-SFNO-CTL_SST0101_REST0101-0008
+2026-04-14 21:06:33,940 - root - INFO - enable_amp True
+2026-04-14 21:06:33,940 - root - INFO - enable_amp True
+2026-04-14 21:06:33,940 - root - INFO - vae_loss False
+2026-04-14 21:06:33,940 - root - INFO - vae_loss False
+2026-04-14 21:06:33,940 - root - INFO - mode train
+2026-04-14 21:06:33,940 - root - INFO - mode train
+2026-04-14 21:06:33,940 - root - INFO - test_iterations 30
+2026-04-14 21:06:33,940 - root - INFO - test_iterations 30
+2026-04-14 21:06:33,940 - root - INFO - run_iter 1
+2026-04-14 21:06:33,940 - root - INFO - run_iter 1
+2026-04-14 21:06:33,940 - root - INFO - use_legacy_model False
+2026-04-14 21:06:33,940 - root - INFO - use_legacy_model False
+2026-04-14 21:06:33,940 - root - INFO - has_diagnostic True
+2026-04-14 21:06:33,940 - root - INFO - has_diagnostic True
+2026-04-14 21:06:33,940 - root - INFO - num_ensemble_members 1
+2026-04-14 21:06:33,940 - root - INFO - num_ensemble_members 1
+2026-04-14 21:06:33,940 - root - INFO - just_validate False
+2026-04-14 21:06:33,940 - root - INFO - just_validate False
+2026-04-14 21:06:33,940 - root - INFO - validation_epochs []
+2026-04-14 21:06:33,940 - root - INFO - validation_epochs []
+2026-04-14 21:06:33,941 - root - INFO - validate_before_train False
+2026-04-14 21:06:33,941 - root - INFO - validate_before_train False
+2026-04-14 21:06:33,941 - root - INFO - debug False
+2026-04-14 21:06:33,941 - root - INFO - debug False
+2026-04-14 21:06:33,941 - root - INFO - world_size 4
+2026-04-14 21:06:33,941 - root - INFO - world_size 4
+2026-04-14 21:06:33,941 - root - INFO - global_batch_size 16
+2026-04-14 21:06:33,941 - root - INFO - global_batch_size 16
+2026-04-14 21:06:33,941 - root - INFO - seed 0
+2026-04-14 21:06:33,941 - root - INFO - seed 0
+2026-04-14 21:06:33,941 - root - INFO - experiment_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008
+2026-04-14 21:06:33,941 - root - INFO - experiment_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008
+2026-04-14 21:06:33,941 - root - INFO - checkpoint_dir_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints
+2026-04-14 21:06:33,941 - root - INFO - checkpoint_dir_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints
+2026-04-14 21:06:33,941 - root - INFO - checkpoint_dir_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints
+2026-04-14 21:06:33,941 - root - INFO - checkpoint_dir_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints
+2026-04-14 21:06:33,941 - root - INFO - plots_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots
+2026-04-14 21:06:33,941 - root - INFO - plots_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots
+2026-04-14 21:06:33,941 - root - INFO - spectra_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/spectra
+2026-04-14 21:06:33,941 - root - INFO - spectra_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/spectra
+2026-04-14 21:06:33,941 - root - INFO - acc_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/acc
+2026-04-14 21:06:33,941 - root - INFO - acc_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/acc
+2026-04-14 21:06:33,942 - root - INFO - gif_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/gif
+2026-04-14 21:06:33,942 - root - INFO - gif_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/gif
+2026-04-14 21:06:33,942 - root - INFO - bias_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/bias
+2026-04-14 21:06:33,942 - root - INFO - bias_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/bias
+2026-04-14 21:06:33,942 - root - INFO - validation_data_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/validation_data
+2026-04-14 21:06:33,942 - root - INFO - validation_data_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/validation_data
+2026-04-14 21:06:33,942 - root - INFO - checkpoint_path_globstr_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_*.tar
+2026-04-14 21:06:33,942 - root - INFO - checkpoint_path_globstr_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_*.tar
+2026-04-14 21:06:33,942 - root - INFO - checkpoint_path_globstr_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_*.tar
+2026-04-14 21:06:33,942 - root - INFO - checkpoint_path_globstr_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_*.tar
+2026-04-14 21:06:33,942 - root - INFO - best_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 21:06:33,942 - root - INFO - best_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 21:06:33,942 - root - INFO - best_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 21:06:33,942 - root - INFO - best_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 21:06:33,946 - root - INFO - latest_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 21:06:33,946 - root - INFO - latest_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 21:06:33,946 - root - INFO - latest_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 21:06:33,946 - root - INFO - latest_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 21:06:33,946 - root - INFO - plot_save_interval 10
+2026-04-14 21:06:33,946 - root - INFO - plot_save_interval 10
+2026-04-14 21:06:33,946 - root - INFO - max_plots_to_keep 5
+2026-04-14 21:06:33,946 - root - INFO - max_plots_to_keep 5
+2026-04-14 21:06:33,946 - root - INFO - resuming False
+2026-04-14 21:06:33,946 - root - INFO - resuming False
+2026-04-14 21:06:33,946 - root - INFO - finetuning False
+2026-04-14 21:06:33,946 - root - INFO - finetuning False
+2026-04-14 21:06:33,946 - root - INFO - local_rank 0
+2026-04-14 21:06:33,946 - root - INFO - local_rank 0
+2026-04-14 21:06:33,946 - root - INFO - ---------------------------------------------------
+2026-04-14 21:06:33,946 - root - INFO - ---------------------------------------------------
+2026-04-14 21:06:33,966 - root - INFO - Initialized wandb_step: 0
+2026-04-14 21:06:33,966 - root - INFO - Initialized wandb_step: 0
+2026-04-14 21:06:33,966 - root - INFO - rank 0, begin data loader init
+2026-04-14 21:06:33,966 - root - INFO - rank 0, begin data loader init
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36440
+Len(inference_idxs): 36440Len(inference_idxs): 36440Len(inference_idxs): 36440
+
+
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+2026-04-14 21:07:40,007 - root - INFO - Params
+2026-04-14 21:07:40,007 - root - INFO - Params
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x150ca49dabd0>
+2026-04-14 21:07:40,007 - root - INFO - Params
+2026-04-14 21:07:40,007 - root - INFO - rank 0, data loader initialized2026-04-14 21:07:40,007 - root - INFO - Params
+
+For sigma level training, disabling diagnostic ACC and diagnostic spectra2026-04-14 21:07:40,007 - root - INFO - rank 0, data loader initialized
+
+
+
+Running SFNO model
+
+
+2026-04-14 21:07:40,007 - root - INFO - Output directories under: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008
+2026-04-14 21:07:40,007 - root - INFO - Output directories under: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008
+data_grid legendre-gauss2026-04-14 21:07:40,007 - root - INFO -   Spectra: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/spectra
+
+params 2026-04-14 21:07:40,007 - root - INFO -   Spectra: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/spectra<networks.modulus_sfno.sfnonet.Params object at 0x153612cb6610>
+
+2026-04-14 21:07:40,007 - root - INFO -   GIFs: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/gif
+2026-04-14 21:07:40,007 - root - INFO -   GIFs: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/gif
+2026-04-14 21:07:40,008 - root - INFO -   ACC plots: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/acc
+2026-04-14 21:07:40,008 - root - INFO -   ACC plots: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/plots/acc
+2026-04-14 21:07:40,008 - root - INFO - WandB resume mode: never
+2026-04-14 21:07:40,008 - root - INFO - WandB resume mode: never
+2026-04-14 21:07:40,008 - root - INFO - Params
+2026-04-14 21:07:40,008 - root - INFO - Params
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x148185b5e3d0>
+wandb: Currently logged in as: jesswan (jesswan-university-of-chicago) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Using wandb-core as the SDK backend.  Please refer to https://wandb.me/wandb-core for more information.
+wandb: Tracking run with wandb version 0.19.6
+wandb: Run data is saved locally in /glade/work/jesswan/UChicago/PanguWeather/v2.0/wandb/run-20260414_210740-qik64ga3
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run E3SM-SRM-SFNO-CTL_SST0101_REST0101-0008-1
+wandb: ⭐️ View project at https://wandb.ai/jesswan-university-of-chicago/E3SM-SRM-SFNO
+wandb: 🚀 View run at https://wandb.ai/jesswan-university-of-chicago/E3SM-SRM-SFNO/runs/qik64ga3
+2026-04-14 21:07:42,363 - root - INFO - Rank 1 Loaded EMA with decay = 0.999
+2026-04-14 21:07:42,363 - root - INFO - Rank 1 Loaded EMA with decay = 0.999
+2026-04-14 21:07:42,376 - root - INFO - Rank 3 Loaded EMA with decay = 0.999
+2026-04-14 21:07:42,376 - root - INFO - Rank 3 Loaded EMA with decay = 0.999
+2026-04-14 21:07:42,395 - root - INFO - Rank 2 Loaded EMA with decay = 0.999
+2026-04-14 21:07:42,395 - root - INFO - Rank 2 Loaded EMA with decay = 0.999
+2026-04-14 21:07:43,897 - root - INFO - WandB initialized with config: <utils.YParams.YParams object at 0x1470849b1610>
+2026-04-14 21:07:43,897 - root - INFO - WandB initialized with config: <utils.YParams.YParams object at 0x1470849b1610>
+2026-04-14 21:07:43,906 - root - INFO - Params
+2026-04-14 21:07:43,906 - root - INFO - Params
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x147086721890>
+2026-04-14 21:07:46,110 - root - INFO - Rank 0 Loaded EMA with decay = 0.999
+2026-04-14 21:07:46,110 - root - INFO - Rank 0 Loaded EMA with decay = 0.999
+2026-04-14 21:07:46,217 - root - INFO - Losses is setup
+2026-04-14 21:07:46,217 - root - INFO - Losses is setup2026-04-14 21:07:46,217 - root - INFO - Losses is setup
+2026-04-14 21:07:46,217 - root - INFO - Losses is setup
+
+2026-04-14 21:07:46,217 - root - INFO - Losses is setup2026-04-14 21:07:46,217 - root - INFO - Losses is setup2026-04-14 21:07:46,217 - root - INFO - Losses is setup
+
+
+2026-04-14 21:07:46,217 - root - INFO - Losses is setup
+2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run
+2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run
+2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run
+
+2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run
+2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run2026-04-14 21:07:46,218 - root - INFO - Starting fresh training run
+
+
+2026-04-14 21:07:46,218 - root - INFO - Expected total batches: 2277
+2026-04-14 21:07:46,218 - root - INFO - Expected total batches: 22772026-04-14 21:07:46,218 - root - INFO - Expected total batches: 2277
+2026-04-14 21:07:46,218 - root - INFO - Expected total batches: 2277
+2026-04-14 21:07:46,218 - root - INFO - Number of trainable model parameters: 303875328
+2026-04-14 21:07:46,218 - root - INFO - Expected total batches: 2277
+2026-04-14 21:07:46,218 - root - INFO - Expected total batches: 2277
+
+2026-04-14 21:07:46,218 - root - INFO - Number of trainable model parameters: 303875328
+2026-04-14 21:07:46,219 - root - INFO - Starting Training Loop...
+2026-04-14 21:07:46,219 - root - INFO - Starting Training Loop...
+2026-04-14 21:07:46,219 - root - INFO - Starting epoch 1/100
+2026-04-14 21:07:46,219 - root - INFO - Starting epoch 1/100
+2026-04-14 21:07:46,220 - root - INFO - Expected total batches: 2277
+2026-04-14 21:07:46,220 - root - INFO - Expected total batches: 2277
+  0%|                              | 0/2277 [00:00<?, ?it/s][rank1]:[W414 21:07:56.507768553 reducer.cpp:1400] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank0]:[W414 21:07:56.507894044 reducer.cpp:1400] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank3]:[W414 21:07:56.508279176 reducer.cpp:1400] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+[rank2]:[W414 21:07:56.508542022 reducer.cpp:1400] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+Epoch [1/100], Year 2015, Loss: 1.0297:   0%|                              | 0/2277 [04:40<?, ?it/s]Epoch [1/100], Year 2015, Loss: 1.0297:   0%|                              | 1/2277 [04:40<177:06:18, 280.13s/it]Epoch [1/100], Year 2015, Loss: 0.8206:   0%|                              | 1/2277 [09:03<177:06:18, 280.13s/it]Epoch [1/100], Year 2015, Loss: 0.8206:   0%|                              | 2/2277 [09:03<170:51:33, 270.37s/it]Epoch [1/100], Year 2015, Loss: 0.5577:   0%|                              | 2/2277 [13:27<170:51:33, 270.37s/it]Epoch [1/100], Year 2015, Loss: 0.5577:   0%|                              | 3/2277 [13:27<168:48:10, 267.23s/it]Epoch [1/100], Year 2015, Loss: 0.4104:   0%|                              | 3/2277 [17:48<168:48:10, 267.23s/it]Epoch [1/100], Year 2015, Loss: 0.4104:   0%|                              | 4/2277 [17:48<167:11:42, 264.81s/it]Epoch [1/100], Year 2015, Loss: 0.3017:   0%|                              | 4/2277 [22:14<167:11:42, 264.81s/it]Epoch [1/100], Year 2015, Loss: 0.3017:   0%|                              | 5/2277 [22:14<167:24:13, 265.25s/it]Epoch [1/100], Year 2015, Loss: 0.1977:   0%|                              | 5/2277 [26:30<167:24:13, 265.25s/it]Epoch [1/100], Year 2015, Loss: 0.1977:   0%|                              | 6/2277 [26:30<165:21:51, 262.14s/it]Epoch [1/100], Year 2015, Loss: 0.1507:   0%|                              | 6/2277 [30:52<165:21:51, 262.14s/it]Epoch [1/100], Year 2015, Loss: 0.1507:   0%|                              | 7/2277 [30:52<165:18:37, 262.17s/it]Epoch [1/100], Year 2015, Loss: 0.1111:   0%|                              | 7/2277 [35:11<165:18:37, 262.17s/it]Epoch [1/100], Year 2015, Loss: 0.1111:   0%|1                             | 8/2277 [35:11<164:32:05, 261.05s/it]Epoch [1/100], Year 2015, Loss: 0.0857:   0%|1                             | 8/2277 [39:35<164:32:05, 261.05s/it]Epoch [1/100], Year 2015, Loss: 0.0857:   0%|1                             | 9/2277 [39:35<165:00:00, 261.90s/it]Epoch [1/100], Year 2015, Loss: 0.0730:   0%|1                             | 9/2277 [44:08<165:00:00, 261.90s/it]Epoch [1/100], Year 2015, Loss: 0.0730:   0%|1                             | 10/2277 [44:08<167:04:54, 265.33s/it]Epoch [1/100], Year 2015, Loss: 0.0685:   0%|1                             | 10/2277 [48:30<167:04:54, 265.33s/it]Epoch [1/100], Year 2015, Loss: 0.0685:   0%|1                             | 11/2277 [48:30<166:28:44, 264.49s/it]/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py:1195: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
+Epoch [1/100], Year 2015, Loss: 0.0685:   0%|1                             | 11/2277 [50:09<172:13:23, 273.61s/it]
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py:1195: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py:1195: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/train.py:1195: UserWarning: To copy construct from a tensor, it is recommended to use sourceTensor.clone().detach() or sourceTensor.clone().detach().requires_grad_(True), rather than torch.tensor(sourceTensor).
+  dist.all_reduce(torch.tensor(diagnostic_logs['train_loss']).to(self.device))
+2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 32.41 seconds, data loading time: 0.30 seconds
+2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 33.73 seconds, data loading time: 0.30 seconds2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 32.41 seconds, data loading time: 0.30 seconds
+
+2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 33.73 seconds, data loading time: 0.30 seconds
+2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 25.43 seconds, data loading time: 0.30 seconds2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 40.26 seconds, data loading time: 0.29 seconds
+
+2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 25.43 seconds, data loading time: 0.30 seconds
+2026-04-14 21:57:56,188 - root - INFO - Epoch 1 training time: 40.26 seconds, data loading time: 0.29 seconds
+Validating...
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/metrics.py:131: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+  n_clim_days = climatology.dims.get('dayofyear', 366)
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/metrics.py:131: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+  n_clim_days = climatology.dims.get('dayofyear', 366)
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/metrics.py:131: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+  n_clim_days = climatology.dims.get('dayofyear', 366)
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/metrics.py:131: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+  n_clim_days = climatology.dims.get('dayofyear', 366)
+<frozen _collections_abc>:774: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+<frozen _collections_abc>:774: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+<frozen _collections_abc>:774: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+<frozen _collections_abc>:774: FutureWarning: The return type of `Dataset.dims` will be changed to return a set of dimension names in future, in order to be more consistent with `DataArray.dims`. To access a mapping from dimension names to lengths, please use `Dataset.sizes`.
+  0%|                              | 0/8 [00:00<?, ?it/s]Validating batch 1/8
+2026-04-14 22:01:44,087 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-14 22:01:44,087 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-14 22:01:44,088 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-14 22:01:44,088 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-14 22:01:44,519 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-14 22:01:44,519 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-14 22:01:44,520 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-14 22:01:44,520 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-14 22:01:44,520 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-14 22:01:44,520 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-14 22:01:44,522 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-14 22:01:44,522 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-14 22:01:44,522 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-14 22:01:44,522 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-14 22:01:44,523 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-14 22:01:44,523 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-14 22:01:44,523 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-14 22:01:44,523 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-14 22:01:44,526 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-14 22:01:44,526 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-14 22:01:44,542 - root - INFO - Model training mode: True
+2026-04-14 22:01:44,542 - root - INFO - Model training mode: True
+2026-04-14 22:01:44,576 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-14 22:01:44,576 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-14 22:01:44,849 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.5566, -0.8213,  0.9268, -3.0391, -0.3906, -1.1514, -0.4604,  0.9766]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-14 22:01:44,849 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.5566, -0.8213,  0.9268, -3.0391, -0.3906, -1.1514, -0.4604,  0.9766]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-14 22:01:44,851 - root - INFO - val_output_surface stats: min=-5.167969, max=6.214844, mean=0.156494
+2026-04-14 22:01:44,851 - root - INFO - val_output_surface stats: min=-5.167969, max=6.214844, mean=0.156494
+2026-04-14 22:01:44,853 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.1934,  1.5400,  1.9248,  2.3027,  2.6914,  2.0938,  1.7695,
+           1.6719,  1.3809,  0.2478, -0.4048, -1.2061, -1.5244, -1.5859,
+          -1.6357, -1.5107, -1.6758, -1.6182],
+         [-0.3572, -0.4150, -0.4929, -0.5410, -0.7051, -0.7617, -1.1104,
+          -1.1357, -1.0303, -0.9238, -0.8496, -0.6943, -0.6309, -0.5347,
+          -0.3840, -0.2413, -0.2067, -0.2651],
+         [-0.2279, -0.1970, -0.2196, -0.1234, -0.1150, -0.1313, -0.1475,
+          -0.0251,  0.0428, -0.0194,  0.0224, -0.0049, -0.0666, -0.0671,
+          -0.2751, -0.4270, -0.4941, -0.6143],
+         [ 1.5010,  1.5020,  1.3291,  1.0527,  0.7427,  0.2690, -0.2323,
+          -0.5864, -0.4346,  0.4055,  0.9702,  1.9980,  2.7246,  2.9336,
+           3.0684,  3.1152,  3.0820,  3.0645],
+         [-0.4321, -0.4592, -0.3438, -0.3250, -0.4480, -0.7446, -0.7148,
+          -0.7935, -1.0088, -1.4814, -1.3184, -0.3171, -0.1451, -0.2236,
+          -0.1969, -0.4722, -0.2788,  0.9839]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-14 22:01:44,853 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.1934,  1.5400,  1.9248,  2.3027,  2.6914,  2.0938,  1.7695,
+           1.6719,  1.3809,  0.2478, -0.4048, -1.2061, -1.5244, -1.5859,
+          -1.6357, -1.5107, -1.6758, -1.6182],
+         [-0.3572, -0.4150, -0.4929, -0.5410, -0.7051, -0.7617, -1.1104,
+          -1.1357, -1.0303, -0.9238, -0.8496, -0.6943, -0.6309, -0.5347,
+          -0.3840, -0.2413, -0.2067, -0.2651],
+         [-0.2279, -0.1970, -0.2196, -0.1234, -0.1150, -0.1313, -0.1475,
+          -0.0251,  0.0428, -0.0194,  0.0224, -0.0049, -0.0666, -0.0671,
+          -0.2751, -0.4270, -0.4941, -0.6143],
+         [ 1.5010,  1.5020,  1.3291,  1.0527,  0.7427,  0.2690, -0.2323,
+          -0.5864, -0.4346,  0.4055,  0.9702,  1.9980,  2.7246,  2.9336,
+           3.0684,  3.1152,  3.0820,  3.0645],
+         [-0.4321, -0.4592, -0.3438, -0.3250, -0.4480, -0.7446, -0.7148,
+          -0.7935, -1.0088, -1.4814, -1.3184, -0.3171, -0.1451, -0.2236,
+          -0.1969, -0.4722, -0.2788,  0.9839]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-14 22:01:44,854 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-14 22:01:44,854 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+ 12%|###7                          | 1/8 [04:01<28:10, 241.57s/it]Validating batch 2/8
+ 25%|#######5                      | 2/8 [04:18<10:56, 109.49s/it]Validating batch 3/8
+ 38%|###########2                  | 3/8 [04:53<06:17, 75.41s/it] Validating batch 4/8
+ 50%|###############               | 4/8 [05:10<03:29, 52.36s/it]Validating batch 5/8
+ 62%|##################7           | 5/8 [07:35<04:16, 85.59s/it]Validating batch 6/8
+ 75%|######################5       | 6/8 [08:02<02:11, 65.85s/it]Validating batch 7/8
+ 88%|##########################2   | 7/8 [08:21<00:50, 50.38s/it]Validating batch 8/8
+100%|##############################| 8/8 [08:38<00:00, 39.76s/it]100%|##############################| 8/8 [08:38<00:00, 64.77s/it]
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.1185, device='cuda:0'), 'valid_loss_sfc': tensor(0.0376, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0631, device='cuda:0'), 'valid_loss_diag': tensor(0.1838, device='cuda:0'), 'valid_loss_1step': 0.1184609979391098, 'valid_loss_12step': 0.9238142967224121, 'valid_loss_20step': 1.2134958505630493, 'valid_loss_40step': 1.7210768461227417, 'valid_loss_60step': 1.9518980979919434, 'valid_TREFHT_1step_acc': 0.7017083764076233, 'valid_TREFHT_1step_rmse': 2.3573098182678223, 'valid_TREFHT_12step_acc': 0.1364394873380661, 'valid_TREFHT_12step_rmse': 4.998203277587891, 'valid_TREFHT_20step_acc': 0.01747465692460537, 'valid_TREFHT_20step_rmse': 8.34570598602295, 'valid_TREFHT_40step_acc': -0.02236669324338436, 'valid_TREFHT_40step_rmse': 14.319841384887695, 'valid_TREFHT_60step_acc': -0.024113547056913376, 'valid_TREFHT_60step_rmse': 15.931253433227539}
+2026-04-14 22:07:02,051 - root - INFO - Epoch 1 validation time: 545.86 seconds
+2026-04-14 22:07:02,051 - root - INFO - Epoch 1 validation time: 545.86 seconds
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.1185, device='cuda:1'), 'valid_loss_sfc': tensor(0.0376, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0631, device='cuda:1'), 'valid_loss_diag': tensor(0.1838, device='cuda:1'), 'valid_loss_1step': 0.1184609979391098, 'valid_loss_12step': 0.9238142967224121, 'valid_loss_20step': 1.2134958505630493, 'valid_loss_40step': 1.7210768461227417, 'valid_loss_60step': 1.9518980979919434, 'valid_TREFHT_1step_acc': 0.7017083764076233, 'valid_TREFHT_1step_rmse': 2.3573098182678223, 'valid_TREFHT_12step_acc': 0.1364394873380661, 'valid_TREFHT_12step_rmse': 4.998203277587891, 'valid_TREFHT_20step_acc': 0.01747465692460537, 'valid_TREFHT_20step_rmse': 8.34570598602295, 'valid_TREFHT_40step_acc': -0.02236669324338436, 'valid_TREFHT_40step_rmse': 14.319841384887695, 'valid_TREFHT_60step_acc': -0.024113547056913376, 'valid_TREFHT_60step_rmse': 15.931253433227539}
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.1185, device='cuda:3'), 'valid_loss_sfc': tensor(0.0376, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0631, device='cuda:3'), 'valid_loss_diag': tensor(0.1838, device='cuda:3'), 'valid_loss_1step': 0.1184609979391098, 'valid_loss_12step': 0.9238142967224121, 'valid_loss_20step': 1.2134958505630493, 'valid_loss_40step': 1.7210768461227417, 'valid_loss_60step': 1.9518980979919434, 'valid_TREFHT_1step_acc': 0.7017083764076233, 'valid_TREFHT_1step_rmse': 2.3573098182678223, 'valid_TREFHT_12step_acc': 0.1364394873380661, 'valid_TREFHT_12step_rmse': 4.998203277587891, 'valid_TREFHT_20step_acc': 0.01747465692460537, 'valid_TREFHT_20step_rmse': 8.34570598602295, 'valid_TREFHT_40step_acc': -0.02236669324338436, 'valid_TREFHT_40step_rmse': 14.319841384887695, 'valid_TREFHT_60step_acc': -0.024113547056913376, 'valid_TREFHT_60step_rmse': 15.931253433227539}
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.1185, device='cuda:2'), 'valid_loss_sfc': tensor(0.0376, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0631, device='cuda:2'), 'valid_loss_diag': tensor(0.1838, device='cuda:2'), 'valid_loss_1step': 0.1184609979391098, 'valid_loss_12step': 0.9238142967224121, 'valid_loss_20step': 1.2134958505630493, 'valid_loss_40step': 1.7210768461227417, 'valid_loss_60step': 1.9518980979919434, 'valid_TREFHT_1step_acc': 0.7017083764076233, 'valid_TREFHT_1step_rmse': 2.3573098182678223, 'valid_TREFHT_12step_acc': 0.1364394873380661, 'valid_TREFHT_12step_rmse': 4.998203277587891, 'valid_TREFHT_20step_acc': 0.01747465692460537, 'valid_TREFHT_20step_rmse': 8.34570598602295, 'valid_TREFHT_40step_acc': -0.02236669324338436, 'valid_TREFHT_40step_rmse': 14.319841384887695, 'valid_TREFHT_60step_acc': -0.024113547056913376, 'valid_TREFHT_60step_rmse': 15.931253433227539}
+2026-04-14 22:07:02,099 - root - INFO - Epoch 1 validation time: 545.91 seconds
+2026-04-14 22:07:02,099 - root - INFO - Epoch 1 validation time: 545.91 seconds
+2026-04-14 22:07:02,100 - root - INFO - Epoch 1 validation time: 545.91 seconds
+2026-04-14 22:07:02,100 - root - INFO - Epoch 1 validation time: 545.91 seconds
+2026-04-14 22:07:02,100 - root - INFO - Epoch 1 validation time: 545.91 seconds
+2026-04-14 22:07:02,100 - root - INFO - Epoch 1 validation time: 545.91 seconds
+2026-04-14 22:07:02,121 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:02,121 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:02,128 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:02,128 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:02,133 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:02,133 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:08,135 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 22:07:08,135 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 22:07:11,563 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_1.tar
+2026-04-14 22:07:11,563 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_1.tar
+2026-04-14 22:07:17,614 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 22:07:17,614 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 22:07:20,920 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 22:07:20,920 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 22:07:20,921 - root - INFO - Find best checkpoint at 0.
+2026-04-14 22:07:20,921 - root - INFO - Find best checkpoint at 0.
+2026-04-14 22:07:20,922 - root - INFO - Time taken for epoch 1 is 3574.7018587589264 sec
+2026-04-14 22:07:20,922 - root - INFO - Time taken for epoch 1 is 3574.7018587589264 sec
+2026-04-14 22:07:20,922 - root - INFO - Train loss: 0.016206473112106323. Validation loss: 0.1184609979391098. Surface Val loss: 0.037561193108558655. Upper Air Val loss: 0.0631316602230072
+2026-04-14 22:07:20,922 - root - INFO - Train loss: 0.016206473112106323. Validation loss: 0.1184609979391098. Surface Val loss: 0.037561193108558655. Upper Air Val loss: 0.0631316602230072
+2026-04-14 22:07:20,922 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.1184609979391098. 12-step Val loss: 0.9238142967224121. 20-step Val loss: 1.2134958505630493. 40-step Val loss: 1.7210768461227417. 60-step Val loss: 1.9518980979919434
+2026-04-14 22:07:20,922 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.1184609979391098. 12-step Val loss: 0.9238142967224121. 20-step Val loss: 1.2134958505630493. 40-step Val loss: 1.7210768461227417. 60-step Val loss: 1.9518980979919434
+2026-04-14 22:07:20,923 - root - INFO - Starting epoch 2/100
+2026-04-14 22:07:20,923 - root - INFO - Starting epoch 2/100
+2026-04-14 22:07:20,924 - root - INFO - Expected total batches: 2277
+2026-04-14 22:07:20,924 - root - INFO - Expected total batches: 2277
+  0%|                              | 0/2277 [00:00<?, ?it/s]Epoch [2/100], Year 2015, Loss: 0.0593:   0%|                              | 0/2277 [02:56<?, ?it/s]Epoch [2/100], Year 2015, Loss: 0.0593:   0%|                              | 1/2277 [02:56<111:20:40, 176.12s/it]Epoch [2/100], Year 2015, Loss: 0.0518:   0%|                              | 1/2277 [07:39<111:20:40, 176.12s/it]Epoch [2/100], Year 2015, Loss: 0.0518:   0%|                              | 2/2277 [07:39<151:06:10, 239.11s/it]Epoch [2/100], Year 2015, Loss: 0.0506:   0%|                              | 2/2277 [12:20<151:06:10, 239.11s/it]Epoch [2/100], Year 2015, Loss: 0.0506:   0%|                              | 3/2277 [12:20<163:07:27, 258.24s/it]Epoch [2/100], Year 2015, Loss: 0.0480:   0%|                              | 3/2277 [17:12<163:07:27, 258.24s/it]Epoch [2/100], Year 2015, Loss: 0.0480:   0%|                              | 4/2277 [17:12<171:31:09, 271.65s/it]Epoch [2/100], Year 2015, Loss: 0.0447:   0%|                              | 4/2277 [21:49<171:31:09, 271.65s/it]Epoch [2/100], Year 2015, Loss: 0.0447:   0%|                              | 5/2277 [21:49<172:41:09, 273.62s/it]Epoch [2/100], Year 2015, Loss: 0.0434:   0%|                              | 5/2277 [26:42<172:41:09, 273.62s/it]Epoch [2/100], Year 2015, Loss: 0.0434:   0%|                              | 6/2277 [26:42<176:47:47, 280.26s/it]Epoch [2/100], Year 2015, Loss: 0.0432:   0%|                              | 6/2277 [31:44<176:47:47, 280.26s/it]Epoch [2/100], Year 2015, Loss: 0.0432:   0%|                              | 7/2277 [31:44<181:03:08, 287.13s/it]Epoch [2/100], Year 2015, Loss: 0.0421:   0%|                              | 7/2277 [37:02<181:03:08, 287.13s/it]Epoch [2/100], Year 2015, Loss: 0.0421:   0%|1                             | 8/2277 [37:02<187:19:17, 297.20s/it]Epoch [2/100], Year 2015, Loss: 0.0394:   0%|1                             | 8/2277 [42:15<187:19:17, 297.20s/it]Epoch [2/100], Year 2015, Loss: 0.0394:   0%|1                             | 9/2277 [42:15<190:18:25, 302.07s/it]Epoch [2/100], Year 2015, Loss: 0.0383:   0%|1                             | 9/2277 [47:11<190:18:25, 302.07s/it]Epoch [2/100], Year 2015, Loss: 0.0383:   0%|1                             | 10/2277 [47:11<188:55:18, 300.01s/it]Epoch [2/100], Year 2015, Loss: 0.0372:   0%|1                             | 10/2277 [52:02<188:55:18, 300.01s/it]Epoch [2/100], Year 2015, Loss: 0.0372:   0%|1                             | 11/2277 [52:02<187:13:57, 297.46s/it]Epoch [2/100], Year 2015, Loss: 0.0372:   0%|1                             | 11/2277 [55:47<191:31:34, 304.28s/it]
+2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 34.89 seconds, data loading time: 0.30 seconds
+2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 38.52 seconds, data loading time: 0.33 seconds2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 34.89 seconds, data loading time: 0.30 seconds2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 31.15 seconds, data loading time: 0.31 seconds
+
+2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 42.04 seconds, data loading time: 0.33 seconds
+2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 38.52 seconds, data loading time: 0.33 seconds
+2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 31.15 seconds, data loading time: 0.31 seconds
+
+2026-04-14 23:03:08,763 - root - INFO - Epoch 2 training time: 42.04 seconds, data loading time: 0.33 seconds
+Validating...
+  0%|                              | 0/8 [00:00<?, ?it/s]Validating batch 1/8
+2026-04-14 23:07:27,985 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-14 23:07:27,985 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-14 23:07:28,001 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-14 23:07:28,001 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-14 23:07:28,003 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-14 23:07:28,003 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-14 23:07:28,004 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-14 23:07:28,004 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-14 23:07:28,004 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-14 23:07:28,004 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-14 23:07:28,005 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-14 23:07:28,005 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-14 23:07:28,005 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-14 23:07:28,005 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-14 23:07:28,006 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-14 23:07:28,006 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-14 23:07:28,007 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-14 23:07:28,007 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-14 23:07:28,009 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-14 23:07:28,009 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-14 23:07:28,009 - root - INFO - Model training mode: True
+2026-04-14 23:07:28,009 - root - INFO - Model training mode: True
+2026-04-14 23:07:28,300 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-14 23:07:28,300 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-14 23:07:28,544 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.4766, -0.6919,  0.7705, -2.9434, -0.2316, -1.0488, -0.4675,  0.9097]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-14 23:07:28,544 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.4766, -0.6919,  0.7705, -2.9434, -0.2316, -1.0488, -0.4675,  0.9097]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-14 23:07:28,544 - root - INFO - val_output_surface stats: min=-4.949219, max=7.007812, mean=0.157593
+2026-04-14 23:07:28,544 - root - INFO - val_output_surface stats: min=-4.949219, max=7.007812, mean=0.157593
+2026-04-14 23:07:28,547 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.5078,  1.6572,  1.9404,  2.3125,  2.6816,  2.1406,  1.7979,
+           1.7832,  1.5137,  0.5713, -0.1902, -1.3096, -1.6963, -1.7764,
+          -1.8008, -1.7100, -1.6777, -1.4727],
+         [-0.4041, -0.4197, -0.3979, -0.4578, -0.6484, -0.8135, -1.1133,
+          -1.1533, -1.1084, -1.0371, -0.9526, -0.7207, -0.6162, -0.5527,
+          -0.4463, -0.3645, -0.3164, -0.2949],
+         [-0.1052, -0.0872, -0.1311, -0.1329, -0.1023, -0.0806, -0.0728,
+           0.0794,  0.0672,  0.0750,  0.0285,  0.0830,  0.0320, -0.0376,
+          -0.1957, -0.3379, -0.3503, -0.6670],
+         [ 1.5781,  1.4619,  1.3193,  1.0830,  0.6694,  0.2225, -0.2183,
+          -0.6025, -0.4673,  0.3052,  0.8774,  1.8223,  2.5078,  2.8223,
+           2.9902,  3.0352,  3.0215,  2.9980],
+         [-0.3418, -0.3423, -0.3914, -0.3691, -0.3640, -0.6309, -0.7217,
+          -0.7856, -1.0049, -1.3096, -1.5811, -0.3606, -0.0333, -0.1810,
+          -0.2386, -0.5342, -0.3423,  0.9033]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-14 23:07:28,547 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.5078,  1.6572,  1.9404,  2.3125,  2.6816,  2.1406,  1.7979,
+           1.7832,  1.5137,  0.5713, -0.1902, -1.3096, -1.6963, -1.7764,
+          -1.8008, -1.7100, -1.6777, -1.4727],
+         [-0.4041, -0.4197, -0.3979, -0.4578, -0.6484, -0.8135, -1.1133,
+          -1.1533, -1.1084, -1.0371, -0.9526, -0.7207, -0.6162, -0.5527,
+          -0.4463, -0.3645, -0.3164, -0.2949],
+         [-0.1052, -0.0872, -0.1311, -0.1329, -0.1023, -0.0806, -0.0728,
+           0.0794,  0.0672,  0.0750,  0.0285,  0.0830,  0.0320, -0.0376,
+          -0.1957, -0.3379, -0.3503, -0.6670],
+         [ 1.5781,  1.4619,  1.3193,  1.0830,  0.6694,  0.2225, -0.2183,
+          -0.6025, -0.4673,  0.3052,  0.8774,  1.8223,  2.5078,  2.8223,
+           2.9902,  3.0352,  3.0215,  2.9980],
+         [-0.3418, -0.3423, -0.3914, -0.3691, -0.3640, -0.6309, -0.7217,
+          -0.7856, -1.0049, -1.3096, -1.5811, -0.3606, -0.0333, -0.1810,
+          -0.2386, -0.5342, -0.3423,  0.9033]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-14 23:07:28,559 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-14 23:07:28,559 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+ 12%|###7                          | 1/8 [04:31<31:39, 271.43s/it]Validating batch 2/8
+ 25%|#######5                      | 2/8 [04:52<12:24, 124.02s/it]Validating batch 3/8
+ 38%|###########2                  | 3/8 [05:09<06:15, 75.17s/it] Validating batch 4/8
+ 50%|###############               | 4/8 [05:26<03:28, 52.21s/it]Validating batch 5/8
+ 62%|##################7           | 5/8 [07:39<04:03, 81.26s/it]Validating batch 6/8
+ 75%|######################5       | 6/8 [08:27<02:20, 70.22s/it]Validating batch 7/8
+ 88%|##########################2   | 7/8 [08:44<00:52, 52.83s/it]Validating batch 8/8
+100%|##############################| 8/8 [09:01<00:00, 41.43s/it]100%|##############################| 8/8 [09:02<00:00, 67.75s/it]
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0734, device='cuda:0'), 'valid_loss_sfc': tensor(0.0200, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0359, device='cuda:0'), 'valid_loss_diag': tensor(0.1300, device='cuda:0'), 'valid_loss_1step': 0.0733596682548523, 'valid_loss_12step': 0.8484272956848145, 'valid_loss_20step': 1.119484543800354, 'valid_loss_40step': 1.5638866424560547, 'valid_loss_60step': 1.7249568700790405, 'valid_TREFHT_1step_acc': 0.8839338421821594, 'valid_TREFHT_1step_rmse': 1.4146239757537842, 'valid_TREFHT_12step_acc': 0.28485018014907837, 'valid_TREFHT_12step_rmse': 3.744011163711548, 'valid_TREFHT_20step_acc': 0.11527828872203827, 'valid_TREFHT_20step_rmse': 4.502313613891602, 'valid_TREFHT_40step_acc': -0.002678621094673872, 'valid_TREFHT_40step_rmse': 5.77495813369751, 'valid_TREFHT_60step_acc': -0.037123844027519226, 'valid_TREFHT_60step_rmse': 6.3695831298828125}diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0734, device='cuda:2'), 'valid_loss_sfc': tensor(0.0200, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0359, device='cuda:2'), 'valid_loss_diag': tensor(0.1300, device='cuda:2'), 'valid_loss_1step': 0.0733596682548523, 'valid_loss_12step': 0.8484272956848145, 'valid_loss_20step': 1.119484543800354, 'valid_loss_40step': 1.5638866424560547, 'valid_loss_60step': 1.7249568700790405, 'valid_TREFHT_1step_acc': 0.8839338421821594, 'valid_TREFHT_1step_rmse': 1.4146239757537842, 'valid_TREFHT_12step_acc': 0.28485018014907837, 'valid_TREFHT_12step_rmse': 3.744011163711548, 'valid_TREFHT_20step_acc': 0.11527828872203827, 'valid_TREFHT_20step_rmse': 4.502313613891602, 'valid_TREFHT_40step_acc': -0.002678621094673872, 'valid_TREFHT_40step_rmse': 5.77495813369751, 'valid_TREFHT_60step_acc': -0.037123844027519226, 'valid_TREFHT_60step_rmse': 6.3695831298828125}
+
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0734, device='cuda:1'), 'valid_loss_sfc': tensor(0.0200, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0359, device='cuda:1'), 'valid_loss_diag': tensor(0.1300, device='cuda:1'), 'valid_loss_1step': 0.0733596682548523, 'valid_loss_12step': 0.8484272956848145, 'valid_loss_20step': 1.119484543800354, 'valid_loss_40step': 1.5638866424560547, 'valid_loss_60step': 1.7249568700790405, 'valid_TREFHT_1step_acc': 0.8839338421821594, 'valid_TREFHT_1step_rmse': 1.4146239757537842, 'valid_TREFHT_12step_acc': 0.28485018014907837, 'valid_TREFHT_12step_rmse': 3.744011163711548, 'valid_TREFHT_20step_acc': 0.11527828872203827, 'valid_TREFHT_20step_rmse': 4.502313613891602, 'valid_TREFHT_40step_acc': -0.002678621094673872, 'valid_TREFHT_40step_rmse': 5.77495813369751, 'valid_TREFHT_60step_acc': -0.037123844027519226, 'valid_TREFHT_60step_rmse': 6.3695831298828125}
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0734, device='cuda:3'), 'valid_loss_sfc': tensor(0.0200, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0359, device='cuda:3'), 'valid_loss_diag': tensor(0.1300, device='cuda:3'), 'valid_loss_1step': 0.0733596682548523, 'valid_loss_12step': 0.8484272956848145, 'valid_loss_20step': 1.119484543800354, 'valid_loss_40step': 1.5638866424560547, 'valid_loss_60step': 1.7249568700790405, 'valid_TREFHT_1step_acc': 0.8839338421821594, 'valid_TREFHT_1step_rmse': 1.4146239757537842, 'valid_TREFHT_12step_acc': 0.28485018014907837, 'valid_TREFHT_12step_rmse': 3.744011163711548, 'valid_TREFHT_20step_acc': 0.11527828872203827, 'valid_TREFHT_20step_rmse': 4.502313613891602, 'valid_TREFHT_40step_acc': -0.002678621094673872, 'valid_TREFHT_40step_rmse': 5.77495813369751, 'valid_TREFHT_60step_acc': -0.037123844027519226, 'valid_TREFHT_60step_rmse': 6.3695831298828125}
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+2026-04-14 23:13:02,910 - root - INFO - Epoch 2 validation time: 594.14 seconds
+2026-04-14 23:13:02,957 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:02,957 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:02,957 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:02,957 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:02,958 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:02,958 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:07,035 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 23:13:07,035 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 23:13:12,324 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_2.tar
+2026-04-14 23:13:12,324 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_2.tar
+2026-04-14 23:13:15,991 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 23:13:15,991 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-14 23:13:20,391 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 23:13:20,391 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-14 23:13:20,392 - root - INFO - Find best checkpoint at 1.
+2026-04-14 23:13:20,392 - root - INFO - Find best checkpoint at 1.
+2026-04-14 23:13:20,392 - root - INFO - Time taken for epoch 2 is 3959.4685983657837 sec
+2026-04-14 23:13:20,392 - root - INFO - Time taken for epoch 2 is 3959.4685983657837 sec
+2026-04-14 23:13:20,393 - root - INFO - Train loss: 0.009448377415537834. Validation loss: 0.0733596682548523. Surface Val loss: 0.020012684166431427. Upper Air Val loss: 0.03585602343082428
+2026-04-14 23:13:20,393 - root - INFO - Train loss: 0.009448377415537834. Validation loss: 0.0733596682548523. Surface Val loss: 0.020012684166431427. Upper Air Val loss: 0.03585602343082428
+2026-04-14 23:13:20,393 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.0733596682548523. 12-step Val loss: 0.8484272956848145. 20-step Val loss: 1.119484543800354. 40-step Val loss: 1.5638866424560547. 60-step Val loss: 1.7249568700790405
+2026-04-14 23:13:20,393 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.0733596682548523. 12-step Val loss: 0.8484272956848145. 20-step Val loss: 1.119484543800354. 40-step Val loss: 1.5638866424560547. 60-step Val loss: 1.7249568700790405
+2026-04-14 23:13:20,393 - root - INFO - Starting epoch 3/100
+2026-04-14 23:13:20,393 - root - INFO - Starting epoch 3/100
+2026-04-14 23:13:20,394 - root - INFO - Expected total batches: 2277
+2026-04-14 23:13:20,394 - root - INFO - Expected total batches: 2277
+  0%|                              | 0/2277 [00:00<?, ?it/s]Epoch [3/100], Year 2015, Loss: 0.0370:   0%|                              | 0/2277 [01:05<?, ?it/s]Epoch [3/100], Year 2015, Loss: 0.0370:   0%|                              | 1/2277 [01:05<41:40:45, 65.93s/it]Epoch [3/100], Year 2015, Loss: 0.0347:   0%|                              | 1/2277 [05:41<41:40:45, 65.93s/it]Epoch [3/100], Year 2015, Loss: 0.0347:   0%|                              | 2/2277 [05:41<119:37:13, 189.29s/it]Epoch [3/100], Year 2015, Loss: 0.0360:   0%|                              | 2/2277 [10:34<119:37:13, 189.29s/it]Epoch [3/100], Year 2015, Loss: 0.0360:   0%|                              | 3/2277 [10:34<149:33:20, 236.76s/it]Epoch [3/100], Year 2015, Loss: 0.0352:   0%|                              | 3/2277 [15:09<149:33:20, 236.76s/it]Epoch [3/100], Year 2015, Loss: 0.0352:   0%|                              | 4/2277 [15:09<158:58:59, 251.80s/it]Epoch [3/100], Year 2015, Loss: 0.0344:   0%|                              | 4/2277 [19:50<158:58:59, 251.80s/it]Epoch [3/100], Year 2015, Loss: 0.0344:   0%|                              | 5/2277 [19:50<165:27:54, 262.18s/it]Epoch [3/100], Year 2015, Loss: 0.0336:   0%|                              | 5/2277 [24:40<165:27:54, 262.18s/it]Epoch [3/100], Year 2015, Loss: 0.0336:   0%|                              | 6/2277 [24:40<171:22:12, 271.66s/it]Epoch [3/100], Year 2015, Loss: 0.0335:   0%|                              | 6/2277 [29:38<171:22:12, 271.66s/it]Epoch [3/100], Year 2015, Loss: 0.0335:   0%|                              | 7/2277 [29:38<176:43:13, 280.26s/it]Epoch [3/100], Year 2015, Loss: 0.0320:   0%|                              | 7/2277 [34:50<176:43:13, 280.26s/it]Epoch [3/100], Year 2015, Loss: 0.0320:   0%|1                             | 8/2277 [34:50<183:08:50, 290.58s/it]Epoch [3/100], Year 2015, Loss: 0.0318:   0%|1                             | 8/2277 [39:39<183:08:50, 290.58s/it]Epoch [3/100], Year 2015, Loss: 0.0318:   0%|1                             | 9/2277 [39:39<182:42:57, 290.03s/it]Epoch [3/100], Year 2015, Loss: 0.0322:   0%|1                             | 9/2277 [44:17<182:42:57, 290.03s/it]Epoch [3/100], Year 2015, Loss: 0.0322:   0%|1                             | 10/2277 [44:17<180:12:41, 286.18s/it]Epoch [3/100], Year 2015, Loss: 0.0305:   0%|1                             | 10/2277 [49:01<180:12:41, 286.18s/it]Epoch [3/100], Year 2015, Loss: 0.0305:   0%|1                             | 11/2277 [49:01<179:49:49, 285.70s/it]Epoch [3/100], Year 2015, Loss: 0.0308:   0%|1                             | 11/2277 [53:59<179:49:49, 285.70s/it]Epoch [3/100], Year 2015, Loss: 0.0308:   1%|1                             | 12/2277 [53:59<181:55:42, 289.16s/it]Epoch [3/100], Year 2015, Loss: 0.0308:   1%|1                             | 12/2277 [54:42<172:05:06, 273.51s/it]
+2026-04-15 00:08:02,779 - root - INFO - Epoch 3 training time: 35.80 seconds, data loading time: 0.31 seconds
+2026-04-15 00:08:02,779 - root - INFO - Epoch 3 training time: 44.28 seconds, data loading time: 0.36 seconds2026-04-15 00:08:02,779 - root - INFO - Epoch 3 training time: 35.80 seconds, data loading time: 0.31 seconds
+2026-04-15 00:08:02,779 - root - INFO - Epoch 3 training time: 35.19 seconds, data loading time: 0.33 seconds
+
+2026-04-15 00:08:02,779 - root - INFO - Epoch 3 training time: 35.19 seconds, data loading time: 0.33 seconds
+2026-04-15 00:08:02,779 - root - INFO - Epoch 3 training time: 44.28 seconds, data loading time: 0.36 seconds2026-04-15 00:08:02,780 - root - INFO - Epoch 3 training time: 34.78 seconds, data loading time: 0.30 seconds
+
+2026-04-15 00:08:02,780 - root - INFO - Epoch 3 training time: 34.78 seconds, data loading time: 0.30 seconds
+Validating...
+  0%|                              | 0/8 [00:00<?, ?it/s]Validating batch 1/8
+2026-04-15 00:12:46,917 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 00:12:46,917 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 00:12:46,918 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-15 00:12:46,918 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-15 00:12:46,920 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-15 00:12:46,920 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-15 00:12:46,921 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-15 00:12:46,921 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-15 00:12:46,921 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-15 00:12:46,921 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-15 00:12:46,922 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-15 00:12:46,922 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-15 00:12:46,923 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-15 00:12:46,923 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-15 00:12:46,924 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-15 00:12:46,924 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-15 00:12:46,924 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-15 00:12:46,924 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-15 00:12:46,926 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-15 00:12:46,926 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-15 00:12:46,943 - root - INFO - Model training mode: True
+2026-04-15 00:12:46,943 - root - INFO - Model training mode: True
+2026-04-15 00:12:46,980 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-15 00:12:46,980 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-15 00:12:47,225 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.4062, -0.7485,  0.8428, -2.9844, -0.2908, -1.1162, -0.5376,  0.9507]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-15 00:12:47,225 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.4062, -0.7485,  0.8428, -2.9844, -0.2908, -1.1162, -0.5376,  0.9507]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-15 00:12:47,225 - root - INFO - val_output_surface stats: min=-4.847656, max=7.113281, mean=0.152344
+2026-04-15 00:12:47,225 - root - INFO - val_output_surface stats: min=-4.847656, max=7.113281, mean=0.152344
+2026-04-15 00:12:47,228 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.5684e+00,  1.6846e+00,  1.8457e+00,  2.1836e+00,  2.5977e+00,
+           2.1211e+00,  1.8037e+00,  1.7471e+00,  1.3662e+00,  4.4482e-01,
+          -2.6855e-01, -1.3057e+00, -1.6885e+00, -1.7666e+00, -1.7812e+00,
+          -1.6865e+00, -1.6260e+00, -1.4307e+00],
+         [-3.3887e-01, -3.4619e-01, -2.8052e-01, -3.8794e-01, -5.8545e-01,
+          -7.9443e-01, -1.0537e+00, -1.0918e+00, -1.0225e+00, -1.0029e+00,
+          -9.3799e-01, -7.2266e-01, -5.6201e-01, -4.9268e-01, -4.0259e-01,
+          -3.7476e-01, -3.0225e-01, -3.0518e-01],
+         [-1.8494e-01, -1.4893e-01, -8.6060e-02, -8.8989e-02, -1.6028e-01,
+          -1.2000e-01, -9.5093e-02, -2.9816e-02, -3.4943e-02,  8.5735e-04,
+           2.6588e-03,  7.6294e-02, -1.9379e-02, -1.6760e-01, -3.7671e-01,
+          -5.3662e-01, -5.2539e-01, -7.1484e-01],
+         [ 1.5596e+00,  1.3965e+00,  1.2539e+00,  1.0508e+00,  6.0303e-01,
+           1.9922e-01, -2.5830e-01, -6.1768e-01, -4.8730e-01,  3.1934e-01,
+           9.1064e-01,  1.8682e+00,  2.5664e+00,  2.9043e+00,  3.0000e+00,
+           3.0527e+00,  3.0742e+00,  3.0488e+00],
+         [-2.3682e-01, -2.1143e-01, -2.2046e-01, -2.1509e-01, -3.0859e-01,
+          -6.2598e-01, -7.3828e-01, -7.7051e-01, -9.6045e-01, -1.2695e+00,
+          -1.4443e+00, -1.9531e-01,  1.0376e-02, -1.7444e-01, -2.8101e-01,
+          -4.7681e-01, -3.0347e-01,  9.7705e-01]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-15 00:12:47,228 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.5684e+00,  1.6846e+00,  1.8457e+00,  2.1836e+00,  2.5977e+00,
+           2.1211e+00,  1.8037e+00,  1.7471e+00,  1.3662e+00,  4.4482e-01,
+          -2.6855e-01, -1.3057e+00, -1.6885e+00, -1.7666e+00, -1.7812e+00,
+          -1.6865e+00, -1.6260e+00, -1.4307e+00],
+         [-3.3887e-01, -3.4619e-01, -2.8052e-01, -3.8794e-01, -5.8545e-01,
+          -7.9443e-01, -1.0537e+00, -1.0918e+00, -1.0225e+00, -1.0029e+00,
+          -9.3799e-01, -7.2266e-01, -5.6201e-01, -4.9268e-01, -4.0259e-01,
+          -3.7476e-01, -3.0225e-01, -3.0518e-01],
+         [-1.8494e-01, -1.4893e-01, -8.6060e-02, -8.8989e-02, -1.6028e-01,
+          -1.2000e-01, -9.5093e-02, -2.9816e-02, -3.4943e-02,  8.5735e-04,
+           2.6588e-03,  7.6294e-02, -1.9379e-02, -1.6760e-01, -3.7671e-01,
+          -5.3662e-01, -5.2539e-01, -7.1484e-01],
+         [ 1.5596e+00,  1.3965e+00,  1.2539e+00,  1.0508e+00,  6.0303e-01,
+           1.9922e-01, -2.5830e-01, -6.1768e-01, -4.8730e-01,  3.1934e-01,
+           9.1064e-01,  1.8682e+00,  2.5664e+00,  2.9043e+00,  3.0000e+00,
+           3.0527e+00,  3.0742e+00,  3.0488e+00],
+         [-2.3682e-01, -2.1143e-01, -2.2046e-01, -2.1509e-01, -3.0859e-01,
+          -6.2598e-01, -7.3828e-01, -7.7051e-01, -9.6045e-01, -1.2695e+00,
+          -1.4443e+00, -1.9531e-01,  1.0376e-02, -1.7444e-01, -2.8101e-01,
+          -4.7681e-01, -3.0347e-01,  9.7705e-01]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-15 00:12:47,229 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 00:12:47,229 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+ 12%|###7                          | 1/8 [04:56<34:34, 296.37s/it]Validating batch 2/8
+ 25%|#######5                      | 2/8 [05:13<13:12, 132.06s/it]Validating batch 3/8
+ 38%|###########2                  | 3/8 [05:30<06:37, 79.53s/it] Validating batch 4/8
+ 50%|###############               | 4/8 [05:47<03:39, 54.85s/it]Validating batch 5/8
+ 62%|##################7           | 5/8 [09:12<05:26, 108.88s/it]Validating batch 6/8
+ 75%|######################5       | 6/8 [09:29<02:35, 77.64s/it] Validating batch 7/8
+ 88%|##########################2   | 7/8 [09:46<00:57, 57.82s/it]Validating batch 8/8
+100%|##############################| 8/8 [10:03<00:00, 44.83s/it]100%|##############################| 8/8 [10:03<00:00, 75.43s/it]
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0615, device='cuda:0'), 'valid_loss_sfc': tensor(0.0155, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0296, device='cuda:0'), 'valid_loss_diag': tensor(0.1123, device='cuda:0'), 'valid_loss_1step': 0.06150512769818306, 'valid_loss_12step': 0.8115116357803345, 'valid_loss_20step': 1.0788400173187256, 'valid_loss_40step': 1.4372563362121582, 'valid_loss_60step': 1.5833261013031006, 'valid_TREFHT_1step_acc': 0.9182448983192444, 'valid_TREFHT_1step_rmse': 1.193785548210144, 'valid_TREFHT_12step_acc': 0.32933610677719116, 'valid_TREFHT_12step_rmse': 3.5709710121154785, 'valid_TREFHT_20step_acc': 0.16112416982650757, 'valid_TREFHT_20step_rmse': 4.104785919189453, 'valid_TREFHT_40step_acc': 0.008778952062129974, 'valid_TREFHT_40step_rmse': 4.9260149002075195, 'valid_TREFHT_60step_acc': -0.018791386857628822, 'valid_TREFHT_60step_rmse': 5.187355041503906}diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0615, device='cuda:3'), 'valid_loss_sfc': tensor(0.0155, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0296, device='cuda:3'), 'valid_loss_diag': tensor(0.1123, device='cuda:3'), 'valid_loss_1step': 0.06150512769818306, 'valid_loss_12step': 0.8115116357803345, 'valid_loss_20step': 1.0788400173187256, 'valid_loss_40step': 1.4372563362121582, 'valid_loss_60step': 1.5833261013031006, 'valid_TREFHT_1step_acc': 0.9182448983192444, 'valid_TREFHT_1step_rmse': 1.193785548210144, 'valid_TREFHT_12step_acc': 0.32933610677719116, 'valid_TREFHT_12step_rmse': 3.5709710121154785, 'valid_TREFHT_20step_acc': 0.16112416982650757, 'valid_TREFHT_20step_rmse': 4.104785919189453, 'valid_TREFHT_40step_acc': 0.008778952062129974, 'valid_TREFHT_40step_rmse': 4.9260149002075195, 'valid_TREFHT_60step_acc': -0.018791386857628822, 'valid_TREFHT_60step_rmse': 5.187355041503906}diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0615, device='cuda:1'), 'valid_loss_sfc': tensor(0.0155, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0296, device='cuda:1'), 'valid_loss_diag': tensor(0.1123, device='cuda:1'), 'valid_loss_1step': 0.06150512769818306, 'valid_loss_12step': 0.8115116357803345, 'valid_loss_20step': 1.0788400173187256, 'valid_loss_40step': 1.4372563362121582, 'valid_loss_60step': 1.5833261013031006, 'valid_TREFHT_1step_acc': 0.9182448983192444, 'valid_TREFHT_1step_rmse': 1.193785548210144, 'valid_TREFHT_12step_acc': 0.32933610677719116, 'valid_TREFHT_12step_rmse': 3.5709710121154785, 'valid_TREFHT_20step_acc': 0.16112416982650757, 'valid_TREFHT_20step_rmse': 4.104785919189453, 'valid_TREFHT_40step_acc': 0.008778952062129974, 'valid_TREFHT_40step_rmse': 4.9260149002075195, 'valid_TREFHT_60step_acc': -0.018791386857628822, 'valid_TREFHT_60step_rmse': 5.187355041503906}
+
+
+2026-04-15 00:18:59,600 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,600 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,600 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,600 - root - INFO - Epoch 3 validation time: 656.82 seconds
+diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0615, device='cuda:2'), 'valid_loss_sfc': tensor(0.0155, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0296, device='cuda:2'), 'valid_loss_diag': tensor(0.1123, device='cuda:2'), 'valid_loss_1step': 0.06150512769818306, 'valid_loss_12step': 0.8115116357803345, 'valid_loss_20step': 1.0788400173187256, 'valid_loss_40step': 1.4372563362121582, 'valid_loss_60step': 1.5833261013031006, 'valid_TREFHT_1step_acc': 0.9182448983192444, 'valid_TREFHT_1step_rmse': 1.193785548210144, 'valid_TREFHT_12step_acc': 0.32933610677719116, 'valid_TREFHT_12step_rmse': 3.5709710121154785, 'valid_TREFHT_20step_acc': 0.16112416982650757, 'valid_TREFHT_20step_rmse': 4.104785919189453, 'valid_TREFHT_40step_acc': 0.008778952062129974, 'valid_TREFHT_40step_rmse': 4.9260149002075195, 'valid_TREFHT_60step_acc': -0.018791386857628822, 'valid_TREFHT_60step_rmse': 5.187355041503906}
+2026-04-15 00:18:59,600 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,600 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,601 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,601 - root - INFO - Epoch 3 validation time: 656.82 seconds
+2026-04-15 00:18:59,632 - root - INFO - Expected total batches: 2277
+2026-04-15 00:18:59,632 - root - INFO - Expected total batches: 2277
+2026-04-15 00:18:59,638 - root - INFO - Expected total batches: 2277
+2026-04-15 00:18:59,638 - root - INFO - Expected total batches: 2277
+2026-04-15 00:18:59,644 - root - INFO - Expected total batches: 2277
+2026-04-15 00:18:59,644 - root - INFO - Expected total batches: 2277
+2026-04-15 00:19:05,179 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 00:19:05,179 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 00:19:11,210 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_3.tar
+2026-04-15 00:19:11,210 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_3.tar
+2026-04-15 00:19:15,039 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 00:19:15,039 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 00:19:20,564 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-15 00:19:20,564 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-15 00:19:20,565 - root - INFO - Find best checkpoint at 2.
+2026-04-15 00:19:20,565 - root - INFO - Find best checkpoint at 2.
+2026-04-15 00:19:20,566 - root - INFO - Time taken for epoch 3 is 3960.1714737415314 sec
+2026-04-15 00:19:20,566 - root - INFO - Time taken for epoch 3 is 3960.1714737415314 sec
+2026-04-15 00:19:20,566 - root - INFO - Train loss: 0.008120517246425152. Validation loss: 0.06150512769818306. Surface Val loss: 0.015464773401618004. Upper Air Val loss: 0.029573263600468636
+2026-04-15 00:19:20,566 - root - INFO - Train loss: 0.008120517246425152. Validation loss: 0.06150512769818306. Surface Val loss: 0.015464773401618004. Upper Air Val loss: 0.029573263600468636
+2026-04-15 00:19:20,566 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.06150512769818306. 12-step Val loss: 0.8115116357803345. 20-step Val loss: 1.0788400173187256. 40-step Val loss: 1.4372563362121582. 60-step Val loss: 1.5833261013031006
+2026-04-15 00:19:20,566 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.06150512769818306. 12-step Val loss: 0.8115116357803345. 20-step Val loss: 1.0788400173187256. 40-step Val loss: 1.4372563362121582. 60-step Val loss: 1.5833261013031006
+2026-04-15 00:19:20,567 - root - INFO - Starting epoch 4/100
+2026-04-15 00:19:20,567 - root - INFO - Starting epoch 4/100
+2026-04-15 00:19:20,568 - root - INFO - Expected total batches: 2277
+2026-04-15 00:19:20,568 - root - INFO - Expected total batches: 2277
+  0%|                              | 0/2277 [00:00<?, ?it/s]Epoch [4/100], Year 2015, Loss: 0.0294:   0%|                              | 0/2277 [04:02<?, ?it/s]Epoch [4/100], Year 2015, Loss: 0.0294:   0%|                              | 1/2277 [04:02<153:13:00, 242.35s/it]Epoch [4/100], Year 2015, Loss: 0.0289:   0%|                              | 1/2277 [08:36<153:13:00, 242.35s/it]Epoch [4/100], Year 2015, Loss: 0.0289:   0%|                              | 2/2277 [08:36<165:01:26, 261.14s/it]Epoch [4/100], Year 2015, Loss: 0.0296:   0%|                              | 2/2277 [13:31<165:01:26, 261.14s/it]Epoch [4/100], Year 2015, Loss: 0.0296:   0%|                              | 3/2277 [13:31<174:39:36, 276.51s/it]Epoch [4/100], Year 2015, Loss: 0.0293:   0%|                              | 3/2277 [18:26<174:39:36, 276.51s/it]Epoch [4/100], Year 2015, Loss: 0.0293:   0%|                              | 4/2277 [18:26<179:10:02, 283.77s/it]Epoch [4/100], Year 2015, Loss: 0.0291:   0%|                              | 4/2277 [23:42<179:10:02, 283.77s/it]Epoch [4/100], Year 2015, Loss: 0.0291:   0%|                              | 5/2277 [23:42<186:21:25, 295.28s/it]Epoch [4/100], Year 2015, Loss: 0.0293:   0%|                              | 5/2277 [28:42<186:21:25, 295.28s/it]Epoch [4/100], Year 2015, Loss: 0.0293:   0%|                              | 6/2277 [28:42<187:27:44, 297.17s/it]Epoch [4/100], Year 2015, Loss: 0.0284:   0%|                              | 6/2277 [33:34<187:27:44, 297.17s/it]Epoch [4/100], Year 2015, Loss: 0.0284:   0%|                              | 7/2277 [33:34<186:14:27, 295.36s/it]Epoch [4/100], Year 2015, Loss: 0.0284:   0%|                              | 7/2277 [38:30<186:14:27, 295.36s/it]Epoch [4/100], Year 2015, Loss: 0.0284:   0%|1                             | 8/2277 [38:30<186:22:40, 295.71s/it]Epoch [4/100], Year 2015, Loss: 0.0278:   0%|1                             | 8/2277 [43:21<186:22:40, 295.71s/it]Epoch [4/100], Year 2015, Loss: 0.0278:   0%|1                             | 9/2277 [43:21<185:16:54, 294.10s/it]Epoch [4/100], Year 2015, Loss: 0.0271:   0%|1                             | 9/2277 [48:10<185:16:54, 294.10s/it]Epoch [4/100], Year 2015, Loss: 0.0271:   0%|1                             | 10/2277 [48:10<184:08:23, 292.41s/it]Epoch [4/100], Year 2015, Loss: 0.0275:   0%|1                             | 10/2277 [53:08<184:08:23, 292.41s/it]Epoch [4/100], Year 2015, Loss: 0.0275:   0%|1                             | 11/2277 [53:08<185:11:03, 294.20s/it]Epoch [4/100], Year 2015, Loss: 0.0275:   0%|1                             | 11/2277 [55:37<190:57:53, 303.39s/it]
+2026-04-15 01:14:58,019 - root - INFO - Epoch 4 training time: 37.62 seconds, data loading time: 0.34 seconds
+2026-04-15 01:14:58,019 - root - INFO - Epoch 4 training time: 37.62 seconds, data loading time: 0.34 seconds
+2026-04-15 01:14:58,020 - root - INFO - Epoch 4 training time: 38.09 seconds, data loading time: 0.31 seconds2026-04-15 01:14:58,019 - root - INFO - Epoch 4 training time: 30.86 seconds, data loading time: 0.32 seconds
+2026-04-15 01:14:58,020 - root - INFO - Epoch 4 training time: 43.60 seconds, data loading time: 0.32 seconds
+2026-04-15 01:14:58,020 - root - INFO - Epoch 4 training time: 38.09 seconds, data loading time: 0.31 seconds
+2026-04-15 01:14:58,019 - root - INFO - Epoch 4 training time: 30.86 seconds, data loading time: 0.32 seconds
+
+2026-04-15 01:14:58,020 - root - INFO - Epoch 4 training time: 43.60 seconds, data loading time: 0.32 seconds
+Validating...
+  0%|                              | 0/8 [00:00<?, ?it/s]Validating batch 1/8
+2026-04-15 01:19:49,464 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 01:19:49,464 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 01:19:49,465 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-15 01:19:49,465 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-15 01:19:49,467 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-15 01:19:49,467 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-15 01:19:49,478 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-15 01:19:49,478 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-15 01:19:49,478 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-15 01:19:49,478 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-15 01:19:49,479 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-15 01:19:49,479 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-15 01:19:49,479 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-15 01:19:49,479 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-15 01:19:49,480 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-15 01:19:49,480 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-15 01:19:49,481 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-15 01:19:49,481 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-15 01:19:49,483 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-15 01:19:49,483 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-15 01:19:49,484 - root - INFO - Model training mode: True
+2026-04-15 01:19:49,484 - root - INFO - Model training mode: True
+2026-04-15 01:19:49,519 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-15 01:19:49,519 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-15 01:19:49,766 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.3906, -0.7686,  0.8564, -2.9238, -0.2839, -1.0625, -0.5117,  0.9253]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-15 01:19:49,766 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.3906, -0.7686,  0.8564, -2.9238, -0.2839, -1.0625, -0.5117,  0.9253]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-15 01:19:49,766 - root - INFO - val_output_surface stats: min=-4.777344, max=7.113281, mean=0.156860
+2026-04-15 01:19:49,766 - root - INFO - val_output_surface stats: min=-4.777344, max=7.113281, mean=0.156860
+2026-04-15 01:19:49,769 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.4268,  1.5098,  1.7656,  2.1387,  2.5898,  2.1348,  1.7842,
+           1.7891,  1.4902,  0.5918, -0.1102, -1.2432, -1.6514, -1.7461,
+          -1.7236, -1.6670, -1.5957, -1.4424],
+         [-0.4167, -0.3787, -0.3677, -0.4609, -0.6318, -0.8320, -1.0938,
+          -1.1309, -1.0400, -1.0576, -0.9312, -0.6968, -0.4993, -0.4407,
+          -0.3608, -0.3113, -0.2732, -0.2363],
+         [-0.4243, -0.3113, -0.2240, -0.1980, -0.2140, -0.2771, -0.1672,
+          -0.0132, -0.0461,  0.0839,  0.0836,  0.1309,  0.0450, -0.0547,
+          -0.2328, -0.4365, -0.4688, -0.6196],
+         [ 1.5225,  1.4023,  1.3018,  1.1084,  0.6680,  0.2544, -0.1729,
+          -0.5522, -0.3987,  0.3508,  0.9150,  1.8301,  2.5273,  2.8438,
+           2.9238,  2.9980,  3.0215,  3.0156],
+         [-0.4133, -0.4111, -0.4570, -0.3970, -0.4668, -0.7065, -0.6870,
+          -0.7310, -0.9731, -1.3643, -1.6162, -0.2588,  0.0911, -0.0465,
+          -0.1943, -0.4744, -0.3823,  0.9702]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-15 01:19:49,769 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.4268,  1.5098,  1.7656,  2.1387,  2.5898,  2.1348,  1.7842,
+           1.7891,  1.4902,  0.5918, -0.1102, -1.2432, -1.6514, -1.7461,
+          -1.7236, -1.6670, -1.5957, -1.4424],
+         [-0.4167, -0.3787, -0.3677, -0.4609, -0.6318, -0.8320, -1.0938,
+          -1.1309, -1.0400, -1.0576, -0.9312, -0.6968, -0.4993, -0.4407,
+          -0.3608, -0.3113, -0.2732, -0.2363],
+         [-0.4243, -0.3113, -0.2240, -0.1980, -0.2140, -0.2771, -0.1672,
+          -0.0132, -0.0461,  0.0839,  0.0836,  0.1309,  0.0450, -0.0547,
+          -0.2328, -0.4365, -0.4688, -0.6196],
+         [ 1.5225,  1.4023,  1.3018,  1.1084,  0.6680,  0.2544, -0.1729,
+          -0.5522, -0.3987,  0.3508,  0.9150,  1.8301,  2.5273,  2.8438,
+           2.9238,  2.9980,  3.0215,  3.0156],
+         [-0.4133, -0.4111, -0.4570, -0.3970, -0.4668, -0.7065, -0.6870,
+          -0.7310, -0.9731, -1.3643, -1.6162, -0.2588,  0.0911, -0.0465,
+          -0.1943, -0.4744, -0.3823,  0.9702]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-15 01:19:49,769 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 01:19:49,769 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+ 12%|###7                          | 1/8 [05:04<35:31, 304.45s/it]Validating batch 2/8
+ 25%|#######5                      | 2/8 [05:21<13:32, 135.37s/it]Validating batch 3/8
+ 38%|###########2                  | 3/8 [05:38<06:46, 81.32s/it] Validating batch 4/8
+ 50%|###############               | 4/8 [05:55<03:43, 55.94s/it]Validating batch 5/8
+ 62%|##################7           | 5/8 [08:57<05:04, 101.39s/it]Validating batch 6/8
+ 75%|######################5       | 6/8 [09:14<02:25, 72.70s/it] Validating batch 7/8
+ 88%|##########################2   | 7/8 [09:31<00:54, 54.49s/it]Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+100%|##############################| 8/8 [09:48<00:00, 42.56s/it]100%|##############################| 8/8 [09:48<00:00, 73.57s/it]
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0543, device='cuda:1'), 'valid_loss_sfc': tensor(0.0132, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0256, device='cuda:1'), 'valid_loss_diag': tensor(0.1015, device='cuda:1'), 'valid_loss_1step': 0.05426940694451332, 'valid_loss_12step': 0.7417267560958862, 'valid_loss_20step': 0.9609268307685852, 'valid_loss_40step': 1.2965404987335205, 'valid_loss_60step': 1.4206331968307495, 'valid_TREFHT_1step_acc': 0.9354287385940552, 'valid_TREFHT_1step_rmse': 1.0647436380386353, 'valid_TREFHT_12step_acc': 0.35031089186668396, 'valid_TREFHT_12step_rmse': 3.451549530029297, 'valid_TREFHT_20step_acc': 0.2077535092830658, 'valid_TREFHT_20step_rmse': 3.926833152770996, 'valid_TREFHT_40step_acc': 0.014734439551830292, 'valid_TREFHT_40step_rmse': 4.595512866973877, 'valid_TREFHT_60step_acc': -0.029740842059254646, 'valid_TREFHT_60step_rmse': 4.816201210021973}
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0543, device='cuda:3'), 'valid_loss_sfc': tensor(0.0132, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0256, device='cuda:3'), 'valid_loss_diag': tensor(0.1015, device='cuda:3'), 'valid_loss_1step': 0.05426940694451332, 'valid_loss_12step': 0.7417267560958862, 'valid_loss_20step': 0.9609268307685852, 'valid_loss_40step': 1.2965404987335205, 'valid_loss_60step': 1.4206331968307495, 'valid_TREFHT_1step_acc': 0.9354287385940552, 'valid_TREFHT_1step_rmse': 1.0647436380386353, 'valid_TREFHT_12step_acc': 0.35031089186668396, 'valid_TREFHT_12step_rmse': 3.451549530029297, 'valid_TREFHT_20step_acc': 0.2077535092830658, 'valid_TREFHT_20step_rmse': 3.926833152770996, 'valid_TREFHT_40step_acc': 0.014734439551830292, 'valid_TREFHT_40step_rmse': 4.595512866973877, 'valid_TREFHT_60step_acc': -0.029740842059254646, 'valid_TREFHT_60step_rmse': 4.816201210021973}
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0543, device='cuda:2'), 'valid_loss_sfc': tensor(0.0132, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0256, device='cuda:2'), 'valid_loss_diag': tensor(0.1015, device='cuda:2'), 'valid_loss_1step': 0.05426940694451332, 'valid_loss_12step': 0.7417267560958862, 'valid_loss_20step': 0.9609268307685852, 'valid_loss_40step': 1.2965404987335205, 'valid_loss_60step': 1.4206331968307495, 'valid_TREFHT_1step_acc': 0.9354287385940552, 'valid_TREFHT_1step_rmse': 1.0647436380386353, 'valid_TREFHT_12step_acc': 0.35031089186668396, 'valid_TREFHT_12step_rmse': 3.451549530029297, 'valid_TREFHT_20step_acc': 0.2077535092830658, 'valid_TREFHT_20step_rmse': 3.926833152770996, 'valid_TREFHT_40step_acc': 0.014734439551830292, 'valid_TREFHT_40step_rmse': 4.595512866973877, 'valid_TREFHT_60step_acc': -0.029740842059254646, 'valid_TREFHT_60step_rmse': 4.816201210021973}
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0543, device='cuda:0'), 'valid_loss_sfc': tensor(0.0132, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0256, device='cuda:0'), 'valid_loss_diag': tensor(0.1015, device='cuda:0'), 'valid_loss_1step': 0.05426940694451332, 'valid_loss_12step': 0.7417267560958862, 'valid_loss_20step': 0.9609268307685852, 'valid_loss_40step': 1.2965404987335205, 'valid_loss_60step': 1.4206331968307495, 'valid_TREFHT_1step_acc': 0.9354287385940552, 'valid_TREFHT_1step_rmse': 1.0647436380386353, 'valid_TREFHT_12step_acc': 0.35031089186668396, 'valid_TREFHT_12step_rmse': 3.451549530029297, 'valid_TREFHT_20step_acc': 0.2077535092830658, 'valid_TREFHT_20step_rmse': 3.926833152770996, 'valid_TREFHT_40step_acc': 0.014734439551830292, 'valid_TREFHT_40step_rmse': 4.595512866973877, 'valid_TREFHT_60step_acc': -0.029740842059254646, 'valid_TREFHT_60step_rmse': 4.816201210021973}
+2026-04-15 01:25:19,705 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,705 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,705 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,705 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,705 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,705 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,706 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,706 - root - INFO - Epoch 4 validation time: 621.68 seconds
+2026-04-15 01:25:19,737 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:19,737 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:19,750 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:19,750 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:19,750 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:19,750 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:23,498 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 01:25:23,498 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 01:25:26,971 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_4.tar
+2026-04-15 01:25:26,971 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_4.tar
+2026-04-15 01:25:31,015 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 01:25:31,015 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 01:25:35,053 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-15 01:25:35,053 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-15 01:25:35,054 - root - INFO - Find best checkpoint at 3.
+2026-04-15 01:25:35,054 - root - INFO - Find best checkpoint at 3.
+2026-04-15 01:25:35,054 - root - INFO - Time taken for epoch 4 is 3974.4865007400513 sec
+2026-04-15 01:25:35,054 - root - INFO - Time taken for epoch 4 is 3974.4865007400513 sec
+2026-04-15 01:25:35,054 - root - INFO - Train loss: 0.006575872655957937. Validation loss: 0.05426940694451332. Surface Val loss: 0.013204329647123814. Upper Air Val loss: 0.025584332644939423
+2026-04-15 01:25:35,054 - root - INFO - Train loss: 0.006575872655957937. Validation loss: 0.05426940694451332. Surface Val loss: 0.013204329647123814. Upper Air Val loss: 0.025584332644939423
+2026-04-15 01:25:35,055 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.05426940694451332. 12-step Val loss: 0.7417267560958862. 20-step Val loss: 0.9609268307685852. 40-step Val loss: 1.2965404987335205. 60-step Val loss: 1.4206331968307495
+2026-04-15 01:25:35,055 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.05426940694451332. 12-step Val loss: 0.7417267560958862. 20-step Val loss: 0.9609268307685852. 40-step Val loss: 1.2965404987335205. 60-step Val loss: 1.4206331968307495
+2026-04-15 01:25:35,055 - root - INFO - Starting epoch 5/100
+2026-04-15 01:25:35,055 - root - INFO - Starting epoch 5/100
+2026-04-15 01:25:35,056 - root - INFO - Expected total batches: 2277
+2026-04-15 01:25:35,056 - root - INFO - Expected total batches: 2277
+  0%|                              | 0/2277 [00:00<?, ?it/s]Epoch [5/100], Year 2015, Loss: 0.0263:   0%|                              | 0/2277 [02:11<?, ?it/s]Epoch [5/100], Year 2015, Loss: 0.0263:   0%|                              | 1/2277 [02:11<83:04:43, 131.41s/it]Epoch [5/100], Year 2015, Loss: 0.0257:   0%|                              | 1/2277 [07:02<83:04:43, 131.41s/it]Epoch [5/100], Year 2015, Loss: 0.0257:   0%|                              | 2/2277 [07:02<142:14:14, 225.08s/it]Epoch [5/100], Year 2015, Loss: 0.0262:   0%|                              | 2/2277 [11:55<142:14:14, 225.08s/it]Epoch [5/100], Year 2015, Loss: 0.0262:   0%|                              | 3/2277 [11:55<161:51:11, 256.23s/it]Epoch [5/100], Year 2015, Loss: 0.0255:   0%|                              | 3/2277 [16:42<161:51:11, 256.23s/it]Epoch [5/100], Year 2015, Loss: 0.0255:   0%|                              | 4/2277 [16:42<169:22:33, 268.26s/it]Epoch [5/100], Year 2015, Loss: 0.0254:   0%|                              | 4/2277 [21:41<169:22:33, 268.26s/it]Epoch [5/100], Year 2015, Loss: 0.0254:   0%|                              | 5/2277 [21:41<176:17:34, 279.34s/it]Epoch [5/100], Year 2015, Loss: 0.0254:   0%|                              | 5/2277 [26:35<176:17:34, 279.34s/it]Epoch [5/100], Year 2015, Loss: 0.0254:   0%|                              | 6/2277 [26:35<179:29:02, 284.52s/it]Epoch [5/100], Year 2015, Loss: 0.0245:   0%|                              | 6/2277 [31:57<179:29:02, 284.52s/it]Epoch [5/100], Year 2015, Loss: 0.0245:   0%|                              | 7/2277 [31:57<187:00:33, 296.58s/it]Epoch [5/100], Year 2015, Loss: 0.0252:   0%|                              | 7/2277 [37:19<187:00:33, 296.58s/it]Epoch [5/100], Year 2015, Loss: 0.0252:   0%|1                             | 8/2277 [37:19<192:09:42, 304.88s/it]Epoch [5/100], Year 2015, Loss: 0.0242:   0%|1                             | 8/2277 [42:52<192:09:42, 304.88s/it]Epoch [5/100], Year 2015, Loss: 0.0242:   0%|1                             | 9/2277 [42:52<197:36:36, 313.67s/it]Epoch [5/100], Year 2015, Loss: 0.0242:   0%|1                             | 9/2277 [48:25<197:36:36, 313.67s/it]Epoch [5/100], Year 2015, Loss: 0.0242:   0%|1                             | 10/2277 [48:25<201:16:09, 319.62s/it]Epoch [5/100], Year 2015, Loss: 0.0239:   0%|1                             | 10/2277 [53:45<201:16:09, 319.62s/it]Epoch [5/100], Year 2015, Loss: 0.0239:   0%|1                             | 11/2277 [53:45<201:09:54, 319.59s/it]Epoch [5/100], Year 2015, Loss: 0.0239:   0%|1                             | 11/2277 [58:45<201:43:03, 320.47s/it]
+2026-04-15 02:24:20,933 - root - INFO - Epoch 5 training time: 31.63 seconds, data loading time: 0.31 seconds
+2026-04-15 02:24:20,933 - root - INFO - Epoch 5 training time: 31.63 seconds, data loading time: 0.31 seconds2026-04-15 02:24:20,933 - root - INFO - Epoch 5 training time: 33.06 seconds, data loading time: 0.32 seconds
+2026-04-15 02:24:20,933 - root - INFO - Epoch 5 training time: 33.16 seconds, data loading time: 0.29 seconds
+
+2026-04-15 02:24:20,934 - root - INFO - Epoch 5 training time: 29.78 seconds, data loading time: 0.33 seconds2026-04-15 02:24:20,933 - root - INFO - Epoch 5 training time: 33.06 seconds, data loading time: 0.32 seconds2026-04-15 02:24:20,933 - root - INFO - Epoch 5 training time: 33.16 seconds, data loading time: 0.29 seconds
+
+
+2026-04-15 02:24:20,934 - root - INFO - Epoch 5 training time: 29.78 seconds, data loading time: 0.33 seconds
+Validating...
+  0%|                              | 0/8 [00:00<?, ?it/s]Validating batch 1/8
+2026-04-15 02:29:27,385 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 02:29:27,385 - root - INFO - ===== TRAINER validate_one_epoch: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 02:29:27,386 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-15 02:29:27,386 - root - INFO - val_input_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float32
+2026-04-15 02:29:27,388 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-15 02:29:27,388 - root - INFO - val_input_surface[:1,:,0,0]: tensor([[-1.4015, -0.7304,  0.8602, -2.9522, -0.2300, -1.1224, -0.5369,  0.9754]],
+       device='cuda:0')
+2026-04-15 02:29:27,388 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-15 02:29:27,388 - root - INFO - val_input_surface stats: min=-4.675646, max=7.236167, mean=0.155133
+2026-04-15 02:29:27,389 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-15 02:29:27,389 - root - INFO - constant_boundary_data shape: torch.Size([4, 4, 180, 360])
+2026-04-15 02:29:27,390 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-15 02:29:27,390 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-04-15 02:29:27,390 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-15 02:29:27,390 - root - INFO - val_varying_boundary_data[:,0] shape: torch.Size([4, 3, 180, 360])
+2026-04-15 02:29:27,391 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-15 02:29:27,391 - root - INFO - val_varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-04-15 02:29:27,391 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-15 02:29:27,391 - root - INFO - val_input_upper_air shape: torch.Size([4, 5, 18, 180, 360])
+2026-04-15 02:29:27,394 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-15 02:29:27,394 - root - INFO - val_input_upper_air[:1,:,:,0,0]: tensor([[[ 1.4624e+00,  1.5216e+00,  1.8216e+00,  2.1512e+00,  2.5381e+00,
+           2.1522e+00,  1.8571e+00,  1.8607e+00,  1.5744e+00,  6.4475e-01,
+          -2.7216e-03, -1.3091e+00, -1.6983e+00, -1.7713e+00, -1.7254e+00,
+          -1.6063e+00, -1.5359e+00, -1.4126e+00],
+         [-3.8428e-01, -4.8112e-01, -3.5626e-01, -3.6882e-01, -5.9383e-01,
+          -7.9731e-01, -1.0879e+00, -1.1137e+00, -1.0788e+00, -9.8423e-01,
+          -8.9280e-01, -6.1886e-01, -4.8622e-01, -4.6073e-01, -4.7090e-01,
+          -4.2162e-01, -3.9339e-01, -4.4852e-01],
+         [-8.0404e-02, -1.1659e-02, -5.4801e-02,  4.1580e-04, -1.3879e-01,
+          -1.6234e-01, -3.4921e-02, -4.3091e-02,  4.4210e-03,  4.1743e-02,
+           9.7905e-02,  1.8845e-01,  1.6736e-01,  1.8229e-02, -1.7802e-01,
+          -4.3259e-01, -4.4049e-01, -5.6779e-01],
+         [ 1.5379e+00,  1.4376e+00,  1.3031e+00,  1.1332e+00,  7.0758e-01,
+           2.9732e-01, -1.5377e-01, -5.5515e-01, -4.1808e-01,  3.7821e-01,
+           9.5548e-01,  1.8786e+00,  2.5985e+00,  2.9161e+00,  3.0252e+00,
+           3.0723e+00,  3.0766e+00,  3.0680e+00],
+         [-3.7172e-01, -3.4750e-01, -3.2331e-01, -3.1712e-01, -4.5931e-01,
+          -6.8605e-01, -6.8019e-01, -7.2983e-01, -9.6213e-01, -1.3454e+00,
+          -1.5289e+00, -2.5805e-01, -1.1713e-01, -2.5406e-01, -2.1317e-01,
+          -5.6125e-01, -3.9002e-01,  8.5025e-01]]], device='cuda:0')
+2026-04-15 02:29:27,394 - root - INFO - Model training mode: True
+2026-04-15 02:29:27,394 - root - INFO - Model training mode: True
+2026-04-15 02:29:27,428 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-15 02:29:27,428 - root - INFO - val_output_surface shape: torch.Size([4, 8, 180, 360]), dtype: torch.float16
+2026-04-15 02:29:27,675 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.3682, -0.8296,  0.9233, -2.9453, -0.3047, -1.1143, -0.5693,  0.9502]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-15 02:29:27,675 - root - INFO - val_output_surface[:1,:,0,0]: tensor([[-1.3682, -0.8296,  0.9233, -2.9453, -0.3047, -1.1143, -0.5693,  0.9502]],
+       device='cuda:0', dtype=torch.float16)
+2026-04-15 02:29:27,688 - root - INFO - val_output_surface stats: min=-4.808594, max=7.050781, mean=0.153076
+2026-04-15 02:29:27,688 - root - INFO - val_output_surface stats: min=-4.808594, max=7.050781, mean=0.153076
+2026-04-15 02:29:27,690 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.4180,  1.5693,  1.8242,  2.2070,  2.6016,  2.1426,  1.7607,
+           1.7295,  1.4668,  0.5688, -0.1267, -1.2500, -1.6309, -1.7451,
+          -1.6973, -1.6250, -1.5449, -1.3994],
+         [-0.3535, -0.3257, -0.3521, -0.3682, -0.6045, -0.8735, -1.1367,
+          -1.0908, -1.0107, -1.0098, -0.8984, -0.6299, -0.4548, -0.4016,
+          -0.3506, -0.2913, -0.2479, -0.2886],
+         [-0.5239, -0.1783, -0.0883, -0.0488, -0.1003, -0.2280, -0.1516,
+          -0.0093, -0.0428,  0.0268,  0.0901,  0.1334,  0.0277, -0.0405,
+          -0.1532, -0.3552, -0.3950, -0.6064],
+         [ 1.5693,  1.4121,  1.3164,  1.0977,  0.6616,  0.2556, -0.1896,
+          -0.5386, -0.3994,  0.3682,  0.9512,  1.8594,  2.5625,  2.8691,
+           2.9590,  3.0273,  3.0508,  3.0371],
+         [-0.3774, -0.3389, -0.3591, -0.3909, -0.4419, -0.6987, -0.6860,
+          -0.7422, -0.9639, -1.3701, -1.5586, -0.1865,  0.0550, -0.1340,
+          -0.1522, -0.3623, -0.3025,  1.0020]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-15 02:29:27,690 - root - INFO - val_output_upper_air[:1,:,:,0,0]: tensor([[[ 1.4180,  1.5693,  1.8242,  2.2070,  2.6016,  2.1426,  1.7607,
+           1.7295,  1.4668,  0.5688, -0.1267, -1.2500, -1.6309, -1.7451,
+          -1.6973, -1.6250, -1.5449, -1.3994],
+         [-0.3535, -0.3257, -0.3521, -0.3682, -0.6045, -0.8735, -1.1367,
+          -1.0908, -1.0107, -1.0098, -0.8984, -0.6299, -0.4548, -0.4016,
+          -0.3506, -0.2913, -0.2479, -0.2886],
+         [-0.5239, -0.1783, -0.0883, -0.0488, -0.1003, -0.2280, -0.1516,
+          -0.0093, -0.0428,  0.0268,  0.0901,  0.1334,  0.0277, -0.0405,
+          -0.1532, -0.3552, -0.3950, -0.6064],
+         [ 1.5693,  1.4121,  1.3164,  1.0977,  0.6616,  0.2556, -0.1896,
+          -0.5386, -0.3994,  0.3682,  0.9512,  1.8594,  2.5625,  2.8691,
+           2.9590,  3.0273,  3.0508,  3.0371],
+         [-0.3774, -0.3389, -0.3591, -0.3909, -0.4419, -0.6987, -0.6860,
+          -0.7422, -0.9639, -1.3701, -1.5586, -0.1865,  0.0550, -0.1340,
+          -0.1522, -0.3623, -0.3025,  1.0020]]], device='cuda:0',
+       dtype=torch.float16)
+2026-04-15 02:29:27,691 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+2026-04-15 02:29:27,691 - root - INFO - ===== END TRAINER FIRST FORWARD PASS DIAGNOSTIC =====
+ 12%|###7                          | 1/8 [05:18<37:11, 318.85s/it]Validating batch 2/8
+ 25%|#######5                      | 2/8 [05:53<15:10, 151.71s/it]Validating batch 3/8
+ 38%|###########2                  | 3/8 [06:10<07:31, 90.23s/it] Validating batch 4/8
+ 50%|###############               | 4/8 [06:27<04:05, 61.32s/it]Validating batch 5/8
+ 62%|##################7           | 5/8 [09:40<05:26, 108.67s/it]Validating batch 6/8
+ 75%|######################5       | 6/8 [10:01<02:37, 78.92s/it] Validating batch 7/8
+ 88%|##########################2   | 7/8 [10:18<00:58, 58.68s/it]Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+100%|##############################| 8/8 [10:35<00:00, 45.41s/it]100%|##############################| 8/8 [10:35<00:00, 79.47s/it]
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0500, device='cuda:1'), 'valid_loss_sfc': tensor(0.0118, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0232, device='cuda:1'), 'valid_loss_diag': tensor(0.0953, device='cuda:1'), 'valid_loss_1step': 0.04997219890356064, 'valid_loss_12step': 0.7624254822731018, 'valid_loss_20step': 1.0179990530014038, 'valid_loss_40step': 1.3655872344970703, 'valid_loss_60step': 1.4737414121627808, 'valid_TREFHT_1step_acc': 0.9434691071510315, 'valid_TREFHT_1step_rmse': 0.9855486750602722, 'valid_TREFHT_12step_acc': 0.39480429887771606, 'valid_TREFHT_12step_rmse': 3.4322383403778076, 'valid_TREFHT_20step_acc': 0.22557944059371948, 'valid_TREFHT_20step_rmse': 3.978405237197876, 'valid_TREFHT_40step_acc': 0.033281534910202026, 'valid_TREFHT_40step_rmse': 4.658880710601807, 'valid_TREFHT_60step_acc': -0.006913573946803808, 'valid_TREFHT_60step_rmse': 4.893489837646484}
+diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0500, device='cuda:2'), 'valid_loss_sfc': tensor(0.0118, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0232, device='cuda:2'), 'valid_loss_diag': tensor(0.0953, device='cuda:2'), 'valid_loss_1step': 0.04997219890356064, 'valid_loss_12step': 0.7624254822731018, 'valid_loss_20step': 1.0179990530014038, 'valid_loss_40step': 1.3655872344970703, 'valid_loss_60step': 1.4737414121627808, 'valid_TREFHT_1step_acc': 0.9434691071510315, 'valid_TREFHT_1step_rmse': 0.9855486750602722, 'valid_TREFHT_12step_acc': 0.39480429887771606, 'valid_TREFHT_12step_rmse': 3.4322383403778076, 'valid_TREFHT_20step_acc': 0.22557944059371948, 'valid_TREFHT_20step_rmse': 3.978405237197876, 'valid_TREFHT_40step_acc': 0.033281534910202026, 'valid_TREFHT_40step_rmse': 4.658880710601807, 'valid_TREFHT_60step_acc': -0.006913573946803808, 'valid_TREFHT_60step_rmse': 4.893489837646484}
+diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0500, device='cuda:0'), 'valid_loss_sfc': tensor(0.0118, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0232, device='cuda:0'), 'valid_loss_diag': tensor(0.0953, device='cuda:0'), 'valid_loss_1step': 0.04997219890356064, 'valid_loss_12step': 0.7624254822731018, 'valid_loss_20step': 1.0179990530014038, 'valid_loss_40step': 1.3655872344970703, 'valid_loss_60step': 1.4737414121627808, 'valid_TREFHT_1step_acc': 0.9434691071510315, 'valid_TREFHT_1step_rmse': 0.9855486750602722, 'valid_TREFHT_12step_acc': 0.39480429887771606, 'valid_TREFHT_12step_rmse': 3.4322383403778076, 'valid_TREFHT_20step_acc': 0.22557944059371948, 'valid_TREFHT_20step_rmse': 3.978405237197876, 'valid_TREFHT_40step_acc': 0.033281534910202026, 'valid_TREFHT_40step_rmse': 4.658880710601807, 'valid_TREFHT_60step_acc': -0.006913573946803808, 'valid_TREFHT_60step_rmse': 4.893489837646484}diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0500, device='cuda:3'), 'valid_loss_sfc': tensor(0.0118, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0232, device='cuda:3'), 'valid_loss_diag': tensor(0.0953, device='cuda:3'), 'valid_loss_1step': 0.04997219890356064, 'valid_loss_12step': 0.7624254822731018, 'valid_loss_20step': 1.0179990530014038, 'valid_loss_40step': 1.3655872344970703, 'valid_loss_60step': 1.4737414121627808, 'valid_TREFHT_1step_acc': 0.9434691071510315, 'valid_TREFHT_1step_rmse': 0.9855486750602722, 'valid_TREFHT_12step_acc': 0.39480429887771606, 'valid_TREFHT_12step_rmse': 3.4322383403778076, 'valid_TREFHT_20step_acc': 0.22557944059371948, 'valid_TREFHT_20step_rmse': 3.978405237197876, 'valid_TREFHT_40step_acc': 0.033281534910202026, 'valid_TREFHT_40step_rmse': 4.658880710601807, 'valid_TREFHT_60step_acc': -0.006913573946803808, 'valid_TREFHT_60step_rmse': 4.893489837646484}
+
+2026-04-15 02:35:21,257 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,257 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,257 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,257 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,258 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,258 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,258 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,258 - root - INFO - Epoch 5 validation time: 660.32 seconds
+2026-04-15 02:35:21,287 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:21,287 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:21,294 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:21,294 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:21,301 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:21,301 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:24,913 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 02:35:24,913 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 02:35:30,425 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_5.tar
+2026-04-15 02:35:30,425 - root - INFO - Saved numbered checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_5.tar
+2026-04-15 02:35:36,298 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 02:35:36,298 - root - INFO - Saved latest checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-04-15 02:35:43,439 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-15 02:35:43,439 - root - INFO - Saved best checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-04-15 02:35:43,440 - root - INFO - Find best checkpoint at 4.
+2026-04-15 02:35:43,440 - root - INFO - Find best checkpoint at 4.
+2026-04-15 02:35:43,441 - root - INFO - Time taken for epoch 5 is 4208.384868860245 sec
+2026-04-15 02:35:43,441 - root - INFO - Time taken for epoch 5 is 4208.384868860245 sec
+2026-04-15 02:35:43,441 - root - INFO - Train loss: 0.006273660343140364. Validation loss: 0.04997219890356064. Surface Val loss: 0.011774717830121517. Upper Air Val loss: 0.02319124899804592
+2026-04-15 02:35:43,441 - root - INFO - Train loss: 0.006273660343140364. Validation loss: 0.04997219890356064. Surface Val loss: 0.011774717830121517. Upper Air Val loss: 0.02319124899804592
+2026-04-15 02:35:43,441 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.04997219890356064. 12-step Val loss: 0.7624254822731018. 20-step Val loss: 1.0179990530014038. 40-step Val loss: 1.3655872344970703. 60-step Val loss: 1.4737414121627808
+2026-04-15 02:35:43,441 - root - INFO - Multi-step validation losses: 1-step Val loss: 0.04997219890356064. 12-step Val loss: 0.7624254822731018. 20-step Val loss: 1.0179990530014038. 40-step Val loss: 1.3655872344970703. 60-step Val loss: 1.4737414121627808
+2026-04-15 02:35:43,442 - root - INFO - Starting epoch 6/100
+2026-04-15 02:35:43,442 - root - INFO - Starting epoch 6/100
+2026-04-15 02:35:43,443 - root - INFO - Expected total batches: 2277
+2026-04-15 02:35:43,443 - root - INFO - Expected total batches: 2277
+  0%|                              | 0/2277 [00:00<?, ?it/s]Epoch [6/100], Year 2015, Loss: 0.0234:   0%|                              | 0/2277 [00:23<?, ?it/s]Epoch [6/100], Year 2015, Loss: 0.0234:   0%|                              | 1/2277 [00:23<14:56:05, 23.62s/it]Epoch [6/100], Year 2015, Loss: 0.0233:   0%|                              | 1/2277 [05:37<14:56:05, 23.62s/it]Epoch [6/100], Year 2015, Loss: 0.0233:   0%|                              | 2/2277 [05:37<122:39:20, 194.09s/it]Epoch [6/100], Year 2015, Loss: 0.0233:   0%|                              | 2/2277 [10:52<122:39:20, 194.09s/it]Epoch [6/100], Year 2015, Loss: 0.0233:   0%|                              | 3/2277 [10:52<157:42:03, 249.66s/it]Epoch [6/100], Year 2015, Loss: 0.0235:   0%|                              | 3/2277 [16:14<157:42:03, 249.66s/it]Epoch [6/100], Year 2015, Loss: 0.0235:   0%|                              | 4/2277 [16:14<175:39:05, 278.20s/it]Epoch [6/100], Year 2015, Loss: 0.0232:   0%|                              | 4/2277 [21:27<175:39:05, 278.20s/it]Epoch [6/100], Year 2015, Loss: 0.0232:   0%|                              | 5/2277 [21:27<183:20:52, 290.52s/it]Epoch [6/100], Year 2015, Loss: 0.0229:   0%|                              | 5/2277 [26:59<183:20:52, 290.52s/it]Epoch [6/100], Year 2015, Loss: 0.0229:   0%|                              | 6/2277 [26:59<192:08:13, 304.58s/it]=>> PBS: job killed: walltime 21609 exceeded limit 21600
+W0415 03:05:18.765000 55370 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received 15 death signal, shutting down workers
+W0415 03:05:18.769000 55370 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 60188 closing signal SIGTERM
+W0415 03:05:18.769000 55370 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 60190 closing signal SIGTERM
+W0415 03:05:18.770000 55370 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 60192 closing signal SIGTERM
+W0415 03:05:18.770000 55370 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 60193 closing signal SIGTERM
