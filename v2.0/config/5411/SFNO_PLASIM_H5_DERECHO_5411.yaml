@@ -22,8 +22,8 @@ base_config: &BASE
 PLASIM: &PLASIM
   <<: *BASE
   # Data paths from PANGU file
-  data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/sigma_data
-  bias_data_dir: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
+  data_dir: /work/nvme/bdiu/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/sigma_data
+  bias_data_dir: /work/nvme/bdiu/awikner/PLASIM/data/2100_year_sims_rerun/sim52/bias
   upper_air_variables: ['ta', 'ua', 'va', 'hus', 'zg']
   surface_variables: ['pl', 'tas']
   diagnostic_variables: ["pr_6h"] 
@@ -34,14 +34,14 @@ PLASIM: &PLASIM
   varying_boundary_variables: ['sst', 'rsdt', 'sic']
   train_year_to_year: false
   train_year_start: 12
-  train_year_end: 112
+  train_year_end: 13
   val_year_start: 11
   val_year_end: 12
   leap_year: 12
   no_leap_year: 11
   long_validation: True
   long_val_year_start: 11
-  long_rollout_years: 11
+  long_rollout_years: 2
   epochs_per_long_validation: 1
   data_timedelta_hours: 6
   # Data paths from PANGU file - using plev_data mean/std files
@@ -55,7 +55,7 @@ PLASIM: &PLASIM
   boundary_std: data_12-132_std_sigma.nc
   diagnostic_mean: data_12-132_mean_sigma.nc
   diagnostic_std: data_12-132_std_sigma.nc
-  climatology_file: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/sigma_data/climatology.nc
+  climatology_file: /work/nvme/bdiu/awikner/PLASIM/data/2100_year_sims_rerun/sim52/sigma_data/climatology.nc
   calendar: 'proleptic_gregorian'
   timedelta_hours: 6 
   batch_size: 8 
@@ -130,13 +130,13 @@ PLASIM: &PLASIM
   curriculum_learning: False
   ensemble_validation: True
   balanced_learning: False
-  finetune_run_num: 5411
+  #finetune_run_num: 5411
 
   perturbation_type: gaussian_noise_n_minus_1
   ensemble_epsilon_factor: 0.1
-  num_validation_ensemble_members: 48
-  validation_ensemble_members_per_pred: 16
-  init_nc_filepath_files: /glade/work/awikner/PanguWeather/v2.0/events/long_run_heatwaves_chicago_validation_sigma_003.json
+  num_validation_ensemble_members: 2
+  validation_ensemble_members_per_pred: 2
+  init_nc_filepath_files: /work/nvme/bdiu/awikner/PanguWeather/v2.0/events/long_run_heatwaves_chicago_validation_sigma_003.json
   ensemble_inference_hours:
   - 24
   - 120
@@ -149,12 +149,12 @@ PLASIM: &PLASIM
     regions:
     - Chicago
     - France
-    region_file_path: /glade/work/awikner/PanguWeather/v2.0/events/regions.json
+    region_file_path: /work/nvme/bdiu/awikner/PanguWeather/v2.0/events/regions.json
     save_basename: Chicago_France_summer_aires_001
   error_metrics: rmse, lat_weighted_rmse, fair_crps, pearson_correlation, spearman_correlation, kendall_tau
   ensemble_batch_size: 4
-  load_exp_dir: /glade/work/awikner/PanguWeather/v2.0/results
-  ensemble_validation_frequency: 2
+  load_exp_dir: /work/nvme/bdiu/awikner/PanguWeather/v2.0/results
+  ensemble_validation_frequency: 1
 
 
 SFNO: &SFNO

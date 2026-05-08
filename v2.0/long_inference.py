@@ -5,7 +5,7 @@ from ruamel.yaml.comments import CommentedMap as ruamelDict
 from ruamel.yaml import YAML
 from collections import OrderedDict
 import matplotlib.pyplot as plt
-from utils.data_loader_multifiles import get_data_loader
+from utils.data_loader_multifiles import get_data_loader, datetime_class_from_calendar
 from utils.YParams import YParams
 import os
 import time
@@ -1310,23 +1310,24 @@ if __name__ == '__main__':
     if world_rank == 0:
         logging.info("Resuming from existing checkpoint.")
         
+    _dt_cls = datetime_class_from_calendar(params.calendar)
     if len(args.init_datetime) == 0:
         if hasattr(params, "init_datetime"):
             params['init_datetime'] = cftime.datetime.strptime(params.init_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian')
+                                                                            calendar = params.calendar)
         else:
             params['init_datetime'] = cftime.datetime(params.val_year_start, 1, 1, 0, has_year_zero = params.has_year_zero,
-                                                            calendar = 'proleptic_gregorian')
+                                                            calendar = params.calendar)
     else:
         params['init_datetime'] = cftime.datetime.strptime(args.init_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian')
-    params['init_datetime'] = cftime.DatetimeProlepticGregorian(params.init_datetime.year,
-                                                                params.init_datetime.month,
-                                                                params.init_datetime.day,
-                                                                hour = params.init_datetime.hour,
-                                                                has_year_zero = params.has_year_zero)
+                                                                            calendar = params.calendar)
+    params['init_datetime'] = _dt_cls(params.init_datetime.year,
+                                      params.init_datetime.month,
+                                      params.init_datetime.day,
+                                      hour = params.init_datetime.hour,
+                                      has_year_zero = params.has_year_zero)
     
     params['init_nc_timestep_offset'] = []
     for file in params.init_nc_filepaths:
@@ -1342,19 +1343,19 @@ if __name__ == '__main__':
         if hasattr(params, "final_datetime"):
             params['final_datetime'] = cftime.datetime.strptime(params.final_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian')
+                                                                            calendar = params.calendar)
         else:
             params['final_datetime'] = cftime.datetime(params.val_year_end, 1, 1, 0, has_year_zero = params.has_year_zero,
-                                                            calendar = 'proleptic_gregorian')
+                                                            calendar = params.calendar)
     else:
         params['final_datetime'] = cftime.datetime.strptime(args.final_datetime, "%Y-%m-%d_%H:%M:%S",
                                                                             has_year_zero = params.has_year_zero,
-                                                                            calendar = 'proleptic_gregorian')
-    params['final_datetime'] = cftime.DatetimeProlepticGregorian(params.final_datetime.year,
-                                                                params.final_datetime.month,
-                                                                params.final_datetime.day,
-                                                                hour = params.final_datetime.hour,
-                                                                has_year_zero = params.has_year_zero)
+                                                                            calendar = params.calendar)
+    params['final_datetime'] = _dt_cls(params.final_datetime.year,
+                                       params.final_datetime.month,
+                                       params.final_datetime.day,
+                                       hour = params.final_datetime.hour,
+                                       has_year_zero = params.has_year_zero)
     print('Init datetime:')
     print(params.init_datetime)
     print('Final datetime:')
@@ -1386,15 +1387,33 @@ if __name__ == '__main__':
         if world_rank == 0:
             if not os.path.isdir(expDir):
                 os.makedirs(expDir)
-                os.makedirs(os.path.join(expDir, 'training_checkpoints/'))
 
         params_i['experiment_dir'] = os.path.abspath(expDir)
-        ckpt_path_globstr = 'training_checkpoints/ckpt_*.tar'
-        best_ckpt_path = 'training_checkpoints/best_ckpt.tar'
-        params_i['checkpoint_path_globstr'] = os.path.join(expDir, ckpt_path_globstr)
-        params_i['best_checkpoint_path'] = os.path.join(expDir, best_ckpt_path)
+        # Construct checkpoint path following train.py convention.
+        params_i['checkpoint_dir'] = os.path.join(expDir, 'checkpoints')
+        params_i['best_checkpoint_path'] = os.path.join(params_i['checkpoint_dir'], 'best_ckpt.tar')
+        params_i['latest_checkpoint_path'] = os.path.join(params_i['checkpoint_dir'], 'ckpt_latest.tar')
+        params_i['checkpoint_path_globstr'] = os.path.join(params_i['checkpoint_dir'], 'ckpt_epoch_*.tar')
 
-        checkpoint_exists = os.path.isfile(params_i.best_checkpoint_path)
+        # Check for checkpoints with priority: best > latest > numbered
+        if os.path.isfile(params_i.best_checkpoint_path):
+            checkpoint_path = params_i.best_checkpoint_path
+            checkpoint_exists = True
+        elif os.path.isfile(params_i.latest_checkpoint_path):
+            checkpoint_path = params_i.latest_checkpoint_path
+            checkpoint_exists = True
+        else:
+            checkpoint_paths = natsorted([
+                f for f in glob.glob(params_i.checkpoint_path_globstr) if os.path.isfile(f)
+            ])
+            if len(checkpoint_paths) > 0:
+                checkpoint_path = checkpoint_paths[-1]
+                checkpoint_exists = True
+            else:
+                checkpoint_exists = False
+
+        if checkpoint_exists:
+            params_i['best_checkpoint_path'] = checkpoint_path
 
         # Determine whether to resume or start fresh
         params_i['resuming'] = True
