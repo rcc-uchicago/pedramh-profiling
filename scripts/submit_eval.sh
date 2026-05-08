@@ -167,6 +167,10 @@ echo "[submit_eval] scoring     job: $JOB_SCO  (afterok:$JOB_INF)"
 JOB_REP="$(submit_sbatch --parsable --dependency=afterok:$JOB_SCO scripts/submit_eval_report.slurm)"
 echo "[submit_eval] report      job: $JOB_REP  (afterok:$JOB_SCO)"
 
+JOB_FIG="$(submit_sbatch --parsable --dependency=afterok:$JOB_REP scripts/submit_eval_figures.slurm)"
+echo "[submit_eval] figures     job: $JOB_FIG  (afterok:$JOB_REP)"
+
 echo
-echo "Final report path on success:"
+echo "Final artifacts on success:"
 echo "  $OUT_ROOT/report.md"
+echo "  $OUT_ROOT/figures/"
