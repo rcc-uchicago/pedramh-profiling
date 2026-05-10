@@ -79,6 +79,34 @@ def _sample_limit(params, mode: str) -> Optional[int]:
 
 
 # ---------------------------------------------------------------------------
+# Sampler factory (factored out for unit-testability — P1 §"Tests")
+# ---------------------------------------------------------------------------
+def _make_train_eval_sampler(
+    loader_dataset,
+    mode: str,
+    num_replicas: int,
+    rank: int,
+) -> Optional[DistributedSampler]:
+    """Construct the DistributedSampler for train/eval, or ``None`` for the
+    single-rank fast path.
+
+    ``drop_last=True`` is set explicitly so the sampler trims the tail to a
+    multiple of ``num_replicas`` instead of padding-by-duplicating. The
+    DataLoader's ``drop_last=True`` is then a no-op except on the genuine
+    final partial batch — symmetric across both ends.
+    """
+    if num_replicas <= 1:
+        return None
+    return DistributedSampler(
+        loader_dataset,
+        shuffle=(mode == "train"),
+        num_replicas=num_replicas,
+        rank=rank,
+        drop_last=True,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Custom dataloader
 # ---------------------------------------------------------------------------
 def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
@@ -153,18 +181,15 @@ def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
         loader_dataset = (
             Subset(dataset, range(min(limit, len(dataset)))) if limit is not None else dataset
         )
-        sampler = (
-            DistributedSampler(
-                loader_dataset,
-                shuffle=(mode == "train"),
-                num_replicas=params.data_num_shards,
-                rank=params.data_shard_id,
-            )
-            if (params.data_num_shards > 1)
-            else None
-        )
-        dataloader = DataLoader(
+        sampler = _make_train_eval_sampler(
             loader_dataset,
+            mode=mode,
+            num_replicas=params.data_num_shards,
+            rank=params.data_shard_id,
+        )
+        # Phase-1 P2 DataLoader knobs (default-on; both kwargs require
+        # num_workers > 0, so guard the workerless path).
+        loader_kwargs = dict(
             batch_size=int(params.batch_size),
             num_workers=params.num_data_workers,
             shuffle=((sampler is None) and (mode == "train")),
@@ -172,6 +197,12 @@ def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
             drop_last=True,
             pin_memory=torch.cuda.is_available(),
         )
+        if params.num_data_workers > 0:
+            loader_kwargs["persistent_workers"] = bool(
+                params.get("persistent_workers", True)
+            )
+            loader_kwargs["prefetch_factor"] = int(params.get("prefetch_factor", 4))
+        dataloader = DataLoader(loader_dataset, **loader_kwargs)
     else:
         sampler = None
         dataloader = types.SimpleNamespace()
@@ -240,6 +271,16 @@ class PlasimTrainer(Trainer):
         self.ema: Optional[EMAModel] = None
         self.best_ema_loss: float = float("inf")
 
+        # Validate the EMA-period knob at init time so a misconfig surfaces
+        # before the first epoch starts. period == 1 is the default and
+        # reproduces pre-P4 behaviour.
+        ema_validation_period = int(self.params.get("ema_validation_period", 1))
+        assert ema_validation_period >= 1, (
+            "ema_validation_period must be >= 1 "
+            f"(got {ema_validation_period})"
+        )
+        self._ema_validation_period: int = ema_validation_period
+
         if self.ema_enabled:
             # Goal #7: legacy save AND legacy load only. Flexible save lacks
             # gather/scatter for EMA shadows, and flexible load leaves
@@ -301,10 +342,20 @@ class PlasimTrainer(Trainer):
             "PlasimTrainer requires add_zenith=False — solar insolation is "
             "already in /forcing[rsdt]"
         )
-        assert params.get("input_noise") is None, (
-            "PlasimTrainer requires input_noise to be unset — "
-            "concatenate-mode noise injects extra input channels"
-        )
+        # input_noise: only concatenate-mode breaks the 58-channel contract
+        # (driver.py:194-198 adds n_channels to N_dynamic_channels). perturb-
+        # mode adds noise in place via preprocessor._append_channels (line
+        # 255-258) and leaves n_noise_chan=0, so the channel-count math
+        # stays correct. Used by group-recipe clones that match upstream's
+        # epsilon_factor=0.05 input perturbation.
+        _input_noise = params.get("input_noise")
+        if _input_noise is not None:
+            assert _input_noise.get("mode") == "perturb", (
+                "PlasimTrainer requires input_noise.mode == 'perturb' when "
+                "set — concatenate-mode injects extra input channels and "
+                f"breaks the locked 58-channel contract; got mode="
+                f"{_input_noise.get('mode')!r}"
+            )
         assert not params.get("add_grid", False), (
             "PlasimTrainer requires add_grid=False — would inject 2+ static channels"
         )
@@ -510,6 +561,25 @@ class PlasimTrainer(Trainer):
         ckpt["ema_best_loss"] = float(self.best_ema_loss)
         torch.save(ckpt, checkpoint_fname)
 
+    def _should_run_ema_validation(self, epoch: int) -> bool:
+        """Decide whether the EMA validation pass runs this epoch.
+
+        Always runs when ``ema_validation_period == 1`` (default;
+        behaviour-equivalent to pre-P4). With period K > 1, runs on
+        epochs satisfying ``epoch % K == 0`` and unconditionally on the
+        final epoch (``max_epochs - 1``) so the post-training EMA-best
+        checkpoint never lags by more than K-1 epochs.
+        """
+        if not self.ema_enabled:
+            return False
+        period = self._ema_validation_period
+        if period == 1:
+            return True
+        if (epoch % period) == 0:
+            return True
+        max_epochs = int(self.params.max_epochs)
+        return epoch == (max_epochs - 1)
+
     def validate_one_epoch(self, epoch, profiler=None):
         """Two-pass validation: raw weights + EMA weights.
 
@@ -517,11 +587,21 @@ class PlasimTrainer(Trainer):
         ``dist.barrier`` and metric all-reduces; subset-rank execution
         would deadlock. Visualization is suppressed on the EMA pass by
         stashing ``params.log_video=0`` (restored in ``finally``).
+
+        With ``ema_validation_period > 1`` the EMA pass is skipped on
+        non-EMA epochs: the raw validation tuple is returned unchanged,
+        ``params.log_video`` is not touched, the best-EMA checkpoint
+        path is bypassed, and the four EMA metric keys
+        (``validation loss ema``, ``ema decay effective``, ``ema step``,
+        ``ema best loss``) are absent from ``valid_logs["metrics"]`` for
+        that epoch. Makani's screen logger and wandb upload at
+        ``deterministic_trainer.py:709,731`` iterate the metrics dict
+        dynamically, so missing keys are tolerated downstream.
         """
         raw = super().validate_one_epoch(epoch, profiler=profiler)
         valid_time, viz_time, valid_logs = raw
 
-        if not self.ema_enabled:
+        if not self._should_run_ema_validation(epoch):
             return valid_time, viz_time, valid_logs
 
         ema_t0 = time.perf_counter()
