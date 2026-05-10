@@ -133,8 +133,15 @@ cat <<EOF
   OUT_ROOT          = $OUT_ROOT
 EOF
 
+# BENCHMARK_5410_OUT_ROOT — group SFNO-5410 results to overlay in the report
+# scorecard table and figures. Defaults to the H100 + packed-env settled valid
+# 96-IC run; set to empty to disable the overlay entirely (figures and report
+# render own-only with a loud warning when missing).
+: "${BENCHMARK_5410_OUT_ROOT:=/work2/11114/zhixingliu/stampede3/AI-RES/results/sfno_eval_5410/20260509_blocking_96ic_h100_packed_derecho_env_valid}"
+
 export RUN_DIR CKPT MODE TEST_HOLDOUT TRAIN_DIR PACKAGER_TEST_SRC \
-       EVAL_SHA7 DATA_SHA7 TRAIN_SHA7 RUN_TAG OUT_ROOT
+       EVAL_SHA7 DATA_SHA7 TRAIN_SHA7 RUN_TAG OUT_ROOT \
+       BENCHMARK_5410_OUT_ROOT
 
 submit_sbatch() {
     local output job_id

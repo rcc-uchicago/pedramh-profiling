@@ -27,6 +27,7 @@ fi
 
 : "${OUT_ROOT:=$WORK2/AI-RES/results/sfno_eval/$RUN_TAG}"
 : "${CKPT:=$RUN_DIR/training_checkpoints/best_ckpt_mp0.tar}"
+: "${BENCHMARK_5410_OUT_ROOT:=/work2/11114/zhixingliu/stampede3/AI-RES/results/sfno_eval_5410/20260509_blocking_96ic_h100_packed_derecho_env_valid}"
 
 source "$REPO_ROOT/.venv/bin/activate"
 
@@ -35,11 +36,19 @@ mkdir -p logs
 
 export PYTHONPATH="$REPO_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
 
-set -x
-python scripts/render_eval_report.py \
-    --out-root "$OUT_ROOT" \
-    --run-tag "$RUN_TAG" \
-    --eval-sha7 "$EVAL_SHA7" \
-    --data-sha7 "$DATA_SHA7" \
-    --train-sha7 "$TRAIN_SHA7" \
+REPORT_ARGS=(
+    --out-root "$OUT_ROOT"
+    --run-tag "$RUN_TAG"
+    --eval-sha7 "$EVAL_SHA7"
+    --data-sha7 "$DATA_SHA7"
+    --train-sha7 "$TRAIN_SHA7"
     --ckpt-path "$CKPT"
+)
+# Empty BENCHMARK_5410_OUT_ROOT disables the overlay entirely; default
+# above points at the H100 + packed-env settled valid 5410 run.
+if [[ -n "${BENCHMARK_5410_OUT_ROOT:-}" ]]; then
+    REPORT_ARGS+=( --benchmark-5410-out-root "$BENCHMARK_5410_OUT_ROOT" )
+fi
+
+set -x
+python scripts/render_eval_report.py "${REPORT_ARGS[@]}"

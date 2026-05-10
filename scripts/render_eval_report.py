@@ -58,6 +58,19 @@ def _parse_args() -> argparse.Namespace:
         help="Optional override: read channel_names from this metadata.json "
         "instead of from the inference NetCDFs. Normally not needed.",
     )
+    p.add_argument(
+        "--benchmark-5410-out-root",
+        type=Path,
+        default=None,
+        help=(
+            "Optional 5410 benchmark OUT_ROOT. When set and "
+            "<root>/scores/nwp_scorecard_summary.csv exists, the scorecard "
+            "table gains a '5410 benchmark' model row per channel and the "
+            "report header records the benchmark path. When the file is "
+            "absent or empty, a loud warning is added at the top of the "
+            "report and the table renders without the benchmark row."
+        ),
+    )
     return p.parse_args()
 
 
@@ -89,15 +102,33 @@ def _format_value(v: float) -> str:
     return f"{v:.4f}"
 
 
-def _render_table(summary: dict, key_channels: tuple[str, ...]) -> str:
-    """Render the §F NWP scorecard table for the 5 key channels."""
+def _render_table(
+    summary: dict,
+    key_channels: tuple[str, ...],
+    *,
+    benchmark_summary: dict | None = None,
+) -> str:
+    """Render the §F NWP scorecard table for the 5 key channels.
+
+    When benchmark_summary is non-None, each channel gets a "5410 benchmark"
+    model row (the 5410 emulator's mean ± std for that channel/lead/metric)
+    next to the own emulator + persistence rows. Cells fall back to "—" when
+    the benchmark lacks the (channel, lead, metric) key (e.g. channel not
+    present in the 5410 channel set).
+    """
     lines = [
         "## NWP Scorecard (mean ± std over ICs)",
         "",
         "RMSE (lower is better) and ACC (higher is better) per channel × lead × baseline.",
         "Persistence on `pr_6h` is undefined (no IC value, see §C.1) and reported as `NaN`.",
-        "",
     ]
+    if benchmark_summary is not None:
+        lines.append(
+            "5410 benchmark values are in the group's native units (no unit "
+            "conversion); for `pr_6h` this is `kg m^-2` per 6h, so the 5410 "
+            "row is not directly comparable to own-track `pr_6h` (m s^-1)."
+        )
+    lines.append("")
     for metric in ("rmse", "acc"):
         lines.append(f"### {metric.upper()}")
         lines.append("")
@@ -105,12 +136,15 @@ def _render_table(summary: dict, key_channels: tuple[str, ...]) -> str:
         lines.append("| " + " | ".join(header) + " |")
         lines.append("|" + "|".join("---" for _ in header) + "|")
         for ch in key_channels:
-            for model in ("emulator", "persistence"):
-                if metric == "acc" and model == "persistence":
-                    continue  # ACC for persistence not reported
-                cells = [ch, model]
+            row_specs = [("emulator", "emulator", summary)]
+            if metric == "rmse":
+                row_specs.append(("persistence", "persistence", summary))
+            if benchmark_summary is not None:
+                row_specs.append(("emulator", "5410 benchmark", benchmark_summary))
+            for model_key, model_label, src in row_specs:
+                cells = [ch, model_label]
                 for h in _SCORED_LEADS_H:
-                    rec = summary.get((model, ch, h, metric))
+                    rec = src.get((model_key, ch, h, metric))
                     if rec is None:
                         cells.append("—")
                     else:
@@ -208,6 +242,42 @@ def _render_provenance(args: argparse.Namespace) -> str:
     return "\n".join(lines)
 
 
+def _load_benchmark(bench_root: Path | None) -> tuple[dict | None, str]:
+    """Load 5410 benchmark summary if available.
+
+    Returns (summary_or_None, banner_text). banner_text is a markdown
+    fragment to insert near the top of the report — empty string when no
+    benchmark was requested, a status line when one was loaded, or a loud
+    warning when the benchmark was requested but unavailable.
+    """
+    if bench_root is None:
+        return None, ""
+    sc = bench_root / "scores" / "nwp_scorecard_summary.csv"
+    if not sc.is_file():
+        msg = (
+            f"⚠️ **5410 benchmark unavailable.** Requested benchmark "
+            f"`{bench_root}` has no `scores/nwp_scorecard_summary.csv`. "
+            f"Report rendered own-only.\n"
+        )
+        logging.warning("benchmark scorecard missing at %s — rendering own-only", sc)
+        return None, msg
+    summary = _read_summary(sc)
+    if not summary:
+        msg = (
+            f"⚠️ **5410 benchmark scorecard is empty.** "
+            f"`{sc}` has no rows. Report rendered own-only.\n"
+        )
+        logging.warning("benchmark scorecard at %s is empty — rendering own-only", sc)
+        return None, msg
+    banner = (
+        f"**5410 benchmark:** `{bench_root}` "
+        f"(scorecard: `{sc.relative_to(bench_root)}`). Side-by-side rows "
+        f"appear in the scorecard table; line plots and bias maps overlay "
+        f"the benchmark in the figures job.\n"
+    )
+    return summary, banner
+
+
 def main() -> int:
     args = _parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -218,6 +288,7 @@ def main() -> int:
         raise SystemExit(f"missing {summary_path}; run score_nwp.py first")
 
     summary = _read_summary(summary_path)
+    benchmark_summary, benchmark_banner = _load_benchmark(args.benchmark_5410_out_root)
 
     # Resolve channel-name list once, from inference NetCDFs (per plan
     # §3.10), then derive the Z500 channel id and the 5-key-channel list
@@ -231,7 +302,8 @@ def main() -> int:
 
     parts = [
         _render_header(args),
-        _render_table(summary, key_channels),
+        benchmark_banner,
+        _render_table(summary, key_channels, benchmark_summary=benchmark_summary),
         _render_gate(summary, z500_id, z500_label),
         _render_bias_maps(scores_dir),
         _render_climate(args.out_root),
