@@ -1,0 +1,38 @@
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+/glade/work/jesswan/conda-envs/sfno_pangu/bin/python
+Has diagnostic: True
+Has diagnostic: TrueWorld size from OS: 4
+
+World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+World size from Cuda: 4
+4
+World size from Cuda: 4
+4
+World size from Cuda: 4
+4
+World size from Cuda: 4
+4
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Len(inference_idxs): 1
+Len(inference_idxs): 1Len(inference_idxs): 1
+
+Len(inference_idxs): 1
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+Varying boundary data shape: torch.Size([56, 3, 180, 360])

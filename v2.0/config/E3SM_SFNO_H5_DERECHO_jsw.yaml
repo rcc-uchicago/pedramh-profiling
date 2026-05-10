@@ -19,6 +19,7 @@ base_config: &BASE
   log_to_screen: !!bool True
   log_to_wandb: !!bool True
   save_checkpoint: !!bool True
+  save_forecasts: !!bool True
 
   optimizer_type: 'AdamW' #'Adam' #'FusedAdam'
 
@@ -104,6 +105,7 @@ PLASIM: &PLASIM
   updown_scale_factor: 2
   window_size: [2, 2, 4]
   epsilon_factor: 0.1
+  perturbation_type: gaussian_noise
   upper_air_boundary: False
   subpixel_deconv: True
   recovery_head: True

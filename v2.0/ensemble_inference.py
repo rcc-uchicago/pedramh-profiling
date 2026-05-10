@@ -976,7 +976,7 @@ class Stepper():
                 target_levels = save_var_dict.get(var, []) if save_var_dict else []
                 
                 # Determine which levels array to use
-                if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
+                if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential' or var == 'Z3'):
                     all_levels = self.dataset.levels
                 elif self.params.lev == 'lev':
                     all_levels = levels
@@ -1005,7 +1005,7 @@ class Stepper():
                         dataset[var_name] = da
                 else:
                     # No filtering - save full 3D variable (original behavior)
-                    if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential'):
+                    if self.params.lev == 'lev' and (var == 'zg' or var == 'geopotential' or var == 'Z3'):
                         da = xr.DataArray(
                             data=upper_air_prediction[sample, :, :, idx],
                             dims=["ensemble_idx", "time", "plev", "lat", "lon"],
@@ -1110,7 +1110,7 @@ class Stepper():
             # dataset.to_netcdf(os.path.join(savedir, filename))
             filepath = os.path.join(savedir, filename)
             # FIX 1: specify mode='w', compute=True ensure immediate close
-            dataset.to_netcdf(filepath, mode='w', compute=True)
+            dataset.to_netcdf(filepath, mode='w', compute=True, format="NETCDF4")
             # FIX 2: close every time we saved.
             dataset.close()
 
