@@ -216,9 +216,12 @@ def get_date_range(data_dirs, date_ranges, hour_step,
     # Each source (dict key) gets one entry in num_dates and one index in data_dirs,
     # regardless of how many discontinuous pairs it has.  This preserves the
     # num_dates[0] == total-first-source-count invariant that curriculum learning
-    # relies on.
+    # relies on.  per_range_counts tracks the length of every individual
+    # (start, end) pair so the loader can exclude the final sample of each
+    # contiguous range during training.
     date_range, data_dirs_idxs = np.array([]), np.array([], dtype = int)
     num_dates = []
+    per_range_counts = []
     for source_idx, (data_dir, pairs) in enumerate(parsed, start = 1):
         data_dirs.append(data_dir)
         source_count = 0
@@ -230,12 +233,14 @@ def get_date_range(data_dirs, date_ranges, hour_step,
             source_count += len(date_range_i)
             data_dirs_idxs = np.append(data_dirs_idxs, np.full(len(date_range_i), source_idx))
             date_range = np.append(date_range, date_range_i)
+            per_range_counts.append(len(date_range_i))
         num_dates.append(source_count)
 
     if get_size:
         return num_dates
     else:
-        return data_dirs, date_range, start_date, end_date, data_dirs_idxs, np.array(num_dates)
+        return (data_dirs, date_range, start_date, end_date, data_dirs_idxs,
+                np.array(num_dates), np.array(per_range_counts, dtype=int))
 
 def partition_date_range(start_date, start_date_i, end_date_i, date_ranges,
                          hour_step, calendar, has_year_zero, datetime_class):
@@ -400,8 +405,8 @@ class GetDataset(Dataset):
         if not self.train and not self.params.forecast_lead_times:
             self.params['forecast_lead_times'] = [1]
         if self.single_ic or self.ensemble:
-            self.no_leap_year       = 51
-            self.leap_year = 52
+            self.no_leap_year  = 51
+            self.leap_year     = 52
             if hasattr(params, 'no_leap_year'):
                 self.no_leap_year = self.params.no_leap_year
             if hasattr(params, 'leap_year'):
@@ -478,17 +483,23 @@ class GetDataset(Dataset):
 
         # self.boundary_dss = self._load_boundary_data()
         if self.single_ic:
-            self.dates, self.start_date, self.end_date, self.data_dirs_idxs, self.date_range_sizes = self._get_dates(hour_step=params.timedelta_hours)
+            (self.dates, self.start_date, self.end_date, self.data_dirs_idxs,
+             self.date_range_sizes, self.per_range_counts) = self._get_dates(hour_step=params.timedelta_hours)
         elif self.ensemble:
             self.ensemble_inference_steps = self.params.ensemble_inference_hours // self.params.timedelta_hours
-            self.dates, self.start_date, self.end_date, self.data_dirs_idxs, self.date_range_sizes = self._get_dates()
+            (self.dates, self.start_date, self.end_date, self.data_dirs_idxs,
+             self.date_range_sizes, self.per_range_counts) = self._get_dates()
             print(f'Num dates: {len(self.dates)}')
         else:
-            self.dates, self.start_date, self.end_date, self.data_dirs_idxs, self.date_range_sizes = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
+            (self.dates, self.start_date, self.end_date, self.data_dirs_idxs,
+             self.date_range_sizes, self.per_range_counts) = self._get_dates(hour_step=params.data_timedelta_hours) #(hour_step=params.timedelta_hours)
             self.all_dates, self.all_data_dirs_idxs = self.dates, self.data_dirs_idxs
-        
+            self.all_per_range_counts = self.per_range_counts
+
         if self.single_ic or self.ensemble:
             self.inference_idxs = np.arange(0, len(self.dates))
+        elif self.train:
+            self.inference_idxs = self._compute_train_inference_idxs(self.per_range_counts)
         else:
             if len(self.date_range_sizes) == 1:
                 max_inference_idx = len(self.dates) - max(self.params.forecast_lead_times) * self.timedelta_hours // self.data_timedelta_hours
@@ -496,8 +507,6 @@ class GetDataset(Dataset):
                     self.inference_idxs = np.linspace(0, max_inference_idx, num = num_inferences + 1, dtype = int)
                 else:
                     self.inference_idxs = np.arange(0, max_inference_idx)
-            elif self.train:
-                self.inference_idxs = np.arange(0, len(self.dates))
             else:
                 if len(self.date_range_sizes) != len(self.num_inferences):
                     raise Warning('Number of date range sizes and number of inferences are not the same. Using all inferences.')
@@ -833,25 +842,52 @@ class GetDataset(Dataset):
                 start_date = min(self.init_datetimes)
                 end_date = max(self.init_datetimes) + timedelta(hours=self.params.ensemble_inference_hours)
                 date_range = np.array([(init_datetime - start_date).total_seconds() // 3600 for init_datetime in self.init_datetimes])
-            return date_range, start_date, end_date, np.zeros(len(date_range), dtype=int), np.array([len(date_range)], dtype=int)
+            per_range_counts = np.array([len(date_range)], dtype=int)
+            return (date_range, start_date, end_date,
+                    np.zeros(len(date_range), dtype=int),
+                    np.array([len(date_range)], dtype=int),
+                    per_range_counts)
         elif (self.train and hasattr(self.params, 'train_data_sets')) or (self.validate and hasattr(self.params, 'validation_data_sets')):
-            self.data_dirs, date_range, start_date, end_date, data_dirs_idxs, num_dates = \
+            (self.data_dirs, date_range, start_date, end_date, data_dirs_idxs,
+             num_dates, per_range_counts) = \
                 get_date_range(self.data_dirs, self.params.train_data_sets if self.train else self.params.validation_data_sets,
-                               self.params.data_timedelta_hours, self.calendar, self.has_year_zero, 
+                               self.params.data_timedelta_hours, self.calendar, self.has_year_zero,
                                self.datetime_class, get_size = False, partition_date_ranges = partition_date_ranges)
 
-            return date_range, start_date, end_date, data_dirs_idxs, num_dates
+            return date_range, start_date, end_date, data_dirs_idxs, num_dates, per_range_counts
         else:
             start_date = self.datetime_class(self.year_start, 1, 1, has_year_zero = self.has_year_zero)
             end_date = self.datetime_class(self.year_end, 1, 1, has_year_zero = self.has_year_zero)
 
         date_range = partition_date_range(start_date, start_date, end_date, partition_date_ranges,
-                                          self.params.data_timedelta_hours, self.calendar, self.has_year_zero, 
+                                          self.params.data_timedelta_hours, self.calendar, self.has_year_zero,
                                           self.datetime_class)
 
         print(f'Hours: {date_range[-1] - date_range[0]}')
         print(f'End data hour: {date_range[-1]}')
-        return date_range, start_date, end_date, np.zeros(len(date_range), dtype = int), np.array([len(date_range)], dtype = int)
+        per_range_counts = np.array([len(date_range)], dtype=int)
+        return (date_range, start_date, end_date,
+                np.zeros(len(date_range), dtype = int),
+                np.array([len(date_range)], dtype = int),
+                per_range_counts)
+
+    def _compute_train_inference_idxs(self, per_range_counts):
+        """Indices into self.dates valid as training inputs.
+
+        Excludes the final ``timedelta_hours / data_timedelta_hours`` samples of
+        every contiguous range so that ``dates[idx + lead]`` always lives in the
+        same range as ``dates[idx]``.
+        """
+        if per_range_counts is None or len(per_range_counts) == 0:
+            return np.array([], dtype=int)
+        lead = self.timedelta_hours // self.data_timedelta_hours
+        range_end = np.cumsum(per_range_counts)
+        range_start = np.concatenate(([0], range_end[:-1])).astype(int)
+        pieces = [np.arange(s, max(s, e - lead), dtype=int)
+                  for s, e in zip(range_start, range_end)]
+        if not pieces:
+            return np.array([], dtype=int)
+        return np.concatenate(pieces)
 
     def _shuffle_training_dates(self, shuffled_date_idxs, curriculum_learning_fraction, data_sizes):
         base_date_len = data_sizes[0]
@@ -866,7 +902,11 @@ class GetDataset(Dataset):
             class_1_dates, class_1_data_dirs_idxs = self.all_dates[shuffled_date_idxs][:class_1_date_size], self.all_data_dirs_idxs[:class_1_date_size]
             class_2_dates, class_2_data_dirs_idxs = self.all_dates[base_date_len:], self.all_data_dirs_idxs[base_date_len:]
             self.dates, self.data_dirs_idxs = np.concatenate([class_1_dates, class_2_dates]), np.concatenate([class_1_data_dirs_idxs, class_2_data_dirs_idxs])
-        self.inference_idxs = np.arange(0, len(self.dates), dtype = int)
+        # Curriculum reshuffle scrambles temporal order; treat the result as a
+        # single range and apply the per-range tail exclusion so the final
+        # sample (which has no in-range target) is dropped.
+        self.per_range_counts = np.array([len(self.dates)], dtype=int)
+        self.inference_idxs = self._compute_train_inference_idxs(self.per_range_counts)
         self.num_inferences = len(self.inference_idxs)
         return self.dates, self.data_dirs_idxs
         
