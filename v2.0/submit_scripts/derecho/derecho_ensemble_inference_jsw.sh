@@ -1,8 +1,8 @@
 #!/bin/bash -l
 #PBS -N sfno_e3sm_inf
-#PBS -l select=1:ncpus=64:ngpus=4
+#PBS -l select=1:ncpus=32:ngpus=1
 #PBS -q develop
-#PBS -l walltime=02:00:00
+#PBS -l walltime=01:00:00
 #PBS -A UCHI0018
 
 
@@ -35,5 +35,5 @@ python -m torch.distributed.launch --nproc_per_node=$NUM_TASKS_PER_NODE /glade/w
     --init_nc_filepaths=/glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/sigma_data/2045_Combined_EAM_ELM.nc \
     --ensemble_inference_hours=336 --num_ensemble_members=1  --epsilon_factor=0.0 \
     --output_dir=/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008 \
-    --save_basenames=/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001 
+    --save_basenames=/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_002 
 

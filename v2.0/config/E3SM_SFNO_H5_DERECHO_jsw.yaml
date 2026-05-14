@@ -4,9 +4,9 @@ base_config: &BASE
   loglr: -13
   weight_decay: 3e-6
   scheduler: 'LinearWarmupCosineAnnealingLR' 
-  num_data_workers: 4 #16
+  num_data_workers: 1 #4
   num_warmup_epochs: 5
-  batch_size: 4 #16
+  batch_size: 1 #4
   max_epochs: 100
   warmup_start_lr: 1e-6
   eta_min: 1e-5
@@ -38,7 +38,7 @@ base_config: &BASE
 
   entity: 'jesswan-university-of-chicago'
   project: 'E3SM-SRM-SFNO'
-  name: E3SM-SRM-SFNO-CTL_SST0051_REST0101-0008
+  name: E3SM-SRM-SFNO-CTL_SST0051_REST0101-0009
 
 
 PLASIM: &PLASIM
@@ -206,7 +206,7 @@ SFNO: &SFNO
   filter_type: 'linear'
   operator_type: 'dhconv'
   scale_factor: 1
-  embed_dim: 256 #increase to 384
+  embed_dim: 512 #default 256
   num_layers: 12
   use_mlp: True
   mlp_ratio: 2.0
