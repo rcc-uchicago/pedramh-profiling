@@ -7,7 +7,9 @@
 #   RUN_DIR      (default: v10 zgplev — $SCRATCH/AI-RES/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0)
 #                For v9 sigma evals, override:
 #                  RUN_DIR=$SCRATCH/AI-RES/runs/sfno_full/plasim_sim52_full/0
-#   CKPT         (default: $RUN_DIR/training_checkpoints/best_ckpt_mp0.tar)
+#   CKPT         (default: $RUN_DIR/training_checkpoints/best_ckpt_ema_mp0.tar
+#                 when present, else best_ckpt_mp0.tar. EMA-best is canonical
+#                 for EMA-enabled runs — see the eval-sfno-own skill.)
 #   MODE         ('nwp' (default) or 'climate' — passed to inference job)
 #   TEST_HOLDOUT (default: v10 — $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/test_holdout)
 #   TRAIN_DIR    (default: v10 — $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/train)
@@ -39,7 +41,15 @@ REPO_ROOT="$HOME/AI-RES"
 cd "$REPO_ROOT"
 
 : "${RUN_DIR:=$SCRATCH/AI-RES/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0}"
-: "${CKPT:=$RUN_DIR/training_checkpoints/best_ckpt_mp0.tar}"
+# Prefer EMA-best (canonical for EMA-enabled runs); fall back to raw-best
+# when EMA isn't available (legacy / EMA-disabled runs).
+if [ -z "${CKPT:-}" ]; then
+    if [ -s "$RUN_DIR/training_checkpoints/best_ckpt_ema_mp0.tar" ]; then
+        CKPT="$RUN_DIR/training_checkpoints/best_ckpt_ema_mp0.tar"
+    else
+        CKPT="$RUN_DIR/training_checkpoints/best_ckpt_mp0.tar"
+    fi
+fi
 : "${MODE:=nwp}"
 : "${TEST_HOLDOUT:=$SCRATCH/AI-RES/data/makani/sim52_zgplev_full/test_holdout}"
 : "${TRAIN_DIR:=$SCRATCH/AI-RES/data/makani/sim52_zgplev_full/train}"
@@ -79,16 +89,29 @@ else
 fi
 
 # --- RUN_TAG ---
+# Auto-derive the training-run family name from RUN_DIR so two evals against
+# different training runs at the same EVAL_SHA + DATA_SHA on the same day land
+# in distinct OUT_ROOTs. The family name is the second-from-top directory under
+# $SCRATCH/AI-RES/runs/, e.g.:
+#   $SCRATCH/AI-RES/runs/sfno_zgplev_group_clone_v11/plasim_sim52_..._v11/0
+#                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ family
+TRAIN_FAMILY="$(basename "$(dirname "$(dirname "$RUN_DIR")")")"
 DATE_STR="$(date +%Y%m%d)"
 CKPT_BASENAME="$(basename "$CKPT" .tar)"
 if [ "${FULL_RUN_TAG:-0}" = "1" ]; then
-    : "${RUN_TAG:=${DATE_STR}_eval-${EVAL_SHA7}_data-${DATA_SHA7}_train-${TRAIN_SHA7}_ckpt-${CKPT_BASENAME}}"
+    : "${RUN_TAG:=${DATE_STR}_eval-${EVAL_SHA7}_data-${DATA_SHA7}_train-${TRAIN_SHA7}_family-${TRAIN_FAMILY}_ckpt-${CKPT_BASENAME}}"
 else
-    # Collapse redundant fields. Full SHAs are still recorded in provenance.txt below.
+    # Collapse redundant SHA fields, but ALWAYS include the train family so
+    # two training runs (e.g. group_clone_v11 vs gbhpo40_gb16) at the same
+    # eval/data/train SHA never share a RUN_TAG. The 2026-05-12 v11 ↔ gbhpo40
+    # collision motivated this — see docs/2026-05-02_ema_implementation_plan.md
+    # rollout notes and the eval-sfno-own skill §RUN_TAG-collision-guard.
+    # Full SHAs are still recorded in provenance.txt below.
     _RT="${DATE_STR}_eval-${EVAL_SHA7}_data-${DATA_SHA7}"
     if [ "$TRAIN_SHA7" != "$EVAL_SHA7" ]; then
         _RT="${_RT}_train-${TRAIN_SHA7}"
     fi
+    _RT="${_RT}_family-${TRAIN_FAMILY}"
     if [ "$CKPT_BASENAME" != "best_ckpt_mp0" ]; then
         _RT="${_RT}_ckpt-${CKPT_BASENAME}"
     fi
@@ -99,6 +122,34 @@ fi
 # --- OUT_ROOT ---
 : "${OUT_ROOT:=$WORK2/AI-RES/results/sfno_eval/$RUN_TAG}"
 
+# Collision guard: if $OUT_ROOT/provenance.txt already exists and records a
+# different CKPT than the one we're about to evaluate, abort with a loud
+# message and require the user to pass an explicit RUN_TAG override (or
+# clear/move the existing dir). This prevents the failure mode where two
+# chained eval submissions race to the same OUT_ROOT and the second job's
+# scoring stage reads stale inference NCs from the first — exactly what
+# happened on 2026-05-12 between the v11 EMA chain and the gbhpo40 chain.
+if [ -f "$OUT_ROOT/provenance.txt" ]; then
+    existing_ckpt="$(grep -m1 '^CKPT=' "$OUT_ROOT/provenance.txt" | cut -d= -f2-)"
+    if [ -n "$existing_ckpt" ] && [ "$existing_ckpt" != "$CKPT" ]; then
+        cat >&2 <<EOF
+[submit_eval] FATAL: $OUT_ROOT/provenance.txt already records a different CKPT.
+  existing : $existing_ckpt
+  requested: $CKPT
+
+This RUN_TAG is reserved by a prior eval chain for a different checkpoint.
+To proceed, either:
+  - Pass RUN_TAG=<unique-name> on the command line, OR
+  - Move/remove the existing $OUT_ROOT directory.
+
+(This guard exists because the 2026-05-12 v11 EMA / gbhpo40 chain collision
+silently mixed inference + scorecard data across runs. See the eval-sfno-own
+skill §RUN_TAG-collision-guard.)
+EOF
+        exit 3
+    fi
+fi
+
 mkdir -p "$OUT_ROOT" logs
 
 # --- Provenance sidecar (always full, regardless of RUN_TAG form) ---
@@ -107,6 +158,7 @@ RUN_TAG=$RUN_TAG
 EVAL_SHA7=$EVAL_SHA7
 DATA_SHA7=$DATA_SHA7
 TRAIN_SHA7=$TRAIN_SHA7
+TRAIN_FAMILY=$TRAIN_FAMILY
 CKPT=$CKPT
 CKPT_BASENAME=$CKPT_BASENAME
 RUN_DIR=$RUN_DIR
@@ -129,6 +181,7 @@ cat <<EOF
   EVAL_SHA7         = $EVAL_SHA7
   DATA_SHA7         = $DATA_SHA7
   TRAIN_SHA7        = $TRAIN_SHA7
+  TRAIN_FAMILY      = $TRAIN_FAMILY
   RUN_TAG           = $RUN_TAG
   OUT_ROOT          = $OUT_ROOT
 EOF

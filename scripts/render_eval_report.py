@@ -71,6 +71,18 @@ def _parse_args() -> argparse.Namespace:
             "report and the table renders without the benchmark row."
         ),
     )
+    p.add_argument(
+        "--run-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Optional path to the training EXP_DIR/run_num/ directory for "
+            "this run. When set and <run-dir>/warmstart_provenance.txt "
+            "exists, its key=value lines are embedded in a "
+            "'### Warm-start provenance' subsection of the report. Silent "
+            "no-op when --run-dir is unset or the sidecar is absent."
+        ),
+    )
     return p.parse_args()
 
 
@@ -152,6 +164,55 @@ def _render_table(
                         cells.append(f"{_format_value(mean)} ± {_format_value(std)} (n={n})")
                 lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
+    return "\n".join(lines)
+
+
+def _render_masked_tas(
+    summary: dict,
+    *,
+    benchmark_summary: dict | None = None,
+) -> str:
+    """Render the sea-ice-masked tas section.
+
+    Mask convention: drops cells where truth sic >= 0.15; land + open
+    ocean stay. Soft-skip if no `tas_no_ice` rows are in the summary.
+    """
+    if not any(k[1] == "tas_no_ice" for k in summary):
+        return ""
+
+    lines = [
+        "## Sea-ice-masked tas (`tas_no_ice`, sic < 0.15)",
+        "",
+        "Lat-weighted RMSE/ACC restricted to land + open-ocean cells "
+        "(sea-ice cells dropped per the truth `sic` field at each lead).",
+        "",
+    ]
+    leads = (6, 24, 120, 240)
+    for metric in ("rmse", "acc"):
+        lines.append(f"### {metric.upper()}")
+        lines.append("")
+        header = ["model"] + [f"{h}h" for h in leads]
+        lines.append("| " + " | ".join(header) + " |")
+        lines.append("|" + "|".join("---" for _ in header) + "|")
+        row_specs = [("emulator", "emulator", summary)]
+        if metric == "rmse":
+            row_specs.append(("persistence", "persistence", summary))
+        if benchmark_summary is not None:
+            row_specs.append(("emulator", "5410 benchmark", benchmark_summary))
+        for model_key, model_label, src in row_specs:
+            cells = [model_label]
+            for h in leads:
+                rec = src.get((model_key, "tas_no_ice", h, metric))
+                if rec is None:
+                    cells.append("—")
+                else:
+                    mean, std, n = rec
+                    cells.append(f"{_format_value(mean)} ± {_format_value(std)} (n={n})")
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+    lines.append("Figures: `figures/rmse_vs_lead_tas_no_ice.png`, "
+                 "`figures/acc_vs_lead_tas_no_ice.png`.")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -239,6 +300,42 @@ def _render_provenance(args: argparse.Namespace) -> str:
     else:
         lines.append(f"- ✅ `train_sha7` recovered: `{args.train_sha7}`.")
     lines.append("")
+
+    warmstart_block = _render_warmstart_provenance(getattr(args, "run_dir", None))
+    if warmstart_block:
+        lines.append(warmstart_block)
+    return "\n".join(lines)
+
+
+def _render_warmstart_provenance(run_dir: Path | None) -> str:
+    """Render the warm-start provenance subsection from a sidecar, if any.
+
+    The sidecar (``$RUN_DIR/warmstart_provenance.txt``) is written by
+    ``train_plasim.py`` for warm-started runs. Non-warmstart runs simply
+    omit the file; this function returns "" in that case.
+    """
+    if run_dir is None:
+        return ""
+    sidecar = run_dir / "warmstart_provenance.txt"
+    if not sidecar.is_file():
+        return ""
+    pairs: list[tuple[str, str]] = []
+    for raw in sidecar.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        pairs.append((key.strip(), value.strip()))
+    if not pairs:
+        return ""
+    lines = ["### Warm-start provenance", "",
+             f"Source sidecar: `{sidecar}`", "",
+             "| key | value |", "|---|---|"]
+    for key, value in pairs:
+        lines.append(f"| `{key}` | `{value}` |")
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -304,6 +401,7 @@ def main() -> int:
         _render_header(args),
         benchmark_banner,
         _render_table(summary, key_channels, benchmark_summary=benchmark_summary),
+        _render_masked_tas(summary, benchmark_summary=benchmark_summary),
         _render_gate(summary, z500_id, z500_label),
         _render_bias_maps(scores_dir),
         _render_climate(args.out_root),

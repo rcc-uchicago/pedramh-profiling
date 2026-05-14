@@ -1,6 +1,8 @@
 #!/bin/bash
 #SBATCH -J sfno_eval_report
-#SBATCH -p h100
+# CPU-only job (render_eval_report.py reads CSVs, writes markdown).
+# skx-dev: 30 min ceiling is plenty; this job is text-formatting work.
+#SBATCH -p skx-dev
 #SBATCH -N 1
 #SBATCH -n 1
 #SBATCH -t 00:30:00
@@ -48,6 +50,12 @@ REPORT_ARGS=(
 # above points at the H100 + packed-env settled valid 5410 run.
 if [[ -n "${BENCHMARK_5410_OUT_ROOT:-}" ]]; then
     REPORT_ARGS+=( --benchmark-5410-out-root "$BENCHMARK_5410_OUT_ROOT" )
+fi
+# Pass the training run dir so the renderer can pick up the optional
+# warmstart_provenance.txt sidecar for warm-started runs. Non-warmstart
+# runs simply lack the file; the renderer is a silent no-op in that case.
+if [[ -n "${RUN_DIR:-}" ]]; then
+    REPORT_ARGS+=( --run-dir "$RUN_DIR" )
 fi
 
 set -x

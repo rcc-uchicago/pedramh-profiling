@@ -16,9 +16,11 @@ Usage::
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 from argparse import Namespace
+from functools import partial
 from math import prod
 
 import torch
@@ -91,10 +93,81 @@ def _log_ddp_launch_summary(
         f"ema_validation_period     = {params.get('ema_validation_period', 1)}",
         f"amp_mode                  = {params.get('amp_mode', 'none')}",
         f"checkpointing_level       = {params.get('checkpointing_level', 0)}",
+        f"pretrained_checkpoint_path = {params.get('pretrained_checkpoint_path', None)}",
+        f"resuming                  = {params.get('resuming', False)}",
         "==============================",
     ]
     for line in lines:
         logger.info(line)
+
+
+def _write_warmstart_provenance(params, exp_dir: str) -> None:
+    """Write warmstart_provenance.txt for a warm-started run.
+
+    Documents the loaded source ckpt + the recipe knobs at launch time so
+    eval-report rendering and post-hoc audits don't need to re-read SLURM
+    logs. See docs/2026-05-14_v11_clip_warmstart_continuation_plan.md §6.1.
+    """
+    ckpt_path = params.get("pretrained_checkpoint_path")
+    if not ckpt_path:
+        return
+    out_path = os.path.join(exp_dir, "warmstart_provenance.txt")
+
+    flavor = "unknown"
+    base = os.path.basename(str(ckpt_path))
+    if "best_ckpt_ema" in base:
+        flavor = "best_ckpt_ema_mp0 (ema)"
+    elif "best_ckpt" in base:
+        flavor = "best_ckpt_mp0 (raw)"
+    elif "ckpt_mp" in base:
+        flavor = base
+
+    size_bytes: object = "missing"
+    sha256_hex: object = "missing"
+    try:
+        st = os.stat(ckpt_path)
+        size_bytes = int(st.st_size)
+        h = hashlib.sha256()
+        with open(ckpt_path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        sha256_hex = h.hexdigest()[:16]
+    except OSError as exc:
+        size_bytes = f"stat-failed: {exc}"
+        sha256_hex = "n/a"
+
+    input_noise = params.get("input_noise") or {}
+    losses = params.get("losses") or []
+    channel_weights = (losses[0].get("channel_weights") if losses else None)
+
+    ema_cfg = params.get("ema", {}) or {}
+    lines = [
+        f"pretrained_checkpoint_path = {ckpt_path}",
+        f"pretrained_checkpoint_flavor = {flavor}",
+        f"pretrained_checkpoint_size_bytes = {size_bytes}",
+        f"pretrained_checkpoint_sha256 = {sha256_hex}",
+        "warmstart_load_order = after super().__init__, before EMAModel construction",
+        f"lr_peak = {params.get('lr', None)}",
+        (
+            "lr_schedule = "
+            f"{params.get('scheduler', None)}"
+            f"(warmup={params.get('lr_warmup_steps', None)} epoch, "
+            f"min={params.get('scheduler_min_lr', None)}, "
+            f"T_max={params.get('scheduler_T_max', None)})"
+        ),
+        f"max_epochs = {params.get('max_epochs', None)}",
+        f"batch_size_global = {params.get('global_batch_size', None)}",
+        f"ema_decay = {ema_cfg.get('decay', None)}",
+        f"optimizer_max_grad_norm = {params.get('optimizer_max_grad_norm', None)}",
+        f"input_noise_sigma = {input_noise.get('sigma', None)}",
+        f"channel_weights = {channel_weights}",
+        f"n_history = {params.get('n_history', None)}",
+        f"n_future = {params.get('n_future', None)}",
+        f"multistep_count = {params.get('multistep_count', None)}",
+    ]
+    with open(out_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    logger.info("wrote warmstart provenance sidecar: %s", out_path)
 
 
 def _world_size_from_env(names: tuple[str, ...], default: int = 1) -> int:
@@ -152,6 +225,18 @@ def main() -> None:
         type=str,
         choices=["train", "test"],
         help="Run training or perform a test.",
+    )
+    parser.add_argument(
+        "--pretrained_checkpoint_path",
+        default=None,
+        type=str,
+        help=(
+            "Optional absolute path to a legacy makani checkpoint to warm-start "
+            "model weights from (plan: 2026-05-14_v11_clip_warmstart_continuation). "
+            "Single source of truth for the warm-start source — not a YAML field. "
+            "Loads model_state ONLY; optimizer/scheduler/counters are kept fresh. "
+            "Ignored when resuming from this run's own EXP_DIR."
+        ),
     )
     args = parser.parse_args()
 
@@ -249,6 +334,8 @@ def main() -> None:
     params["n_future"] = args.multistep_count - 1
     params["disable_ddp"] = args.disable_ddp
     params["enable_grad_anomaly_detection"] = args.enable_grad_anomaly_detection
+    if args.pretrained_checkpoint_path:
+        params["pretrained_checkpoint_path"] = args.pretrained_checkpoint_path
 
     if not hasattr(params, "wandb_dir") or params["wandb_dir"] is None:
         params["wandb_dir"] = expDir
@@ -278,9 +365,64 @@ def main() -> None:
             "(produced by plasim_makani_packager.metadata.write_outputs)."
         )
 
+    if world_rank == 0:
+        _write_warmstart_provenance(params, expDir)
+
     trainer = PlasimTrainer(params, world_rank)
 
-    if not params.get("skip_training", False):
+    # torch.profiler / CUPTI capture branch ported from
+    # makani-src/makani/train.py:147-169. Default behaviour
+    # (no --capture_ranks) is identical to a bare trainer.train() call.
+    if args.capture_prefix is not None:
+        out_dir = os.path.dirname(args.capture_prefix)
+        if out_dir:
+            os.makedirs(out_dir, exist_ok=True)
+
+    if params.get("skip_training", False):
+        pass
+    elif world_rank in args.capture_ranks:
+        if args.capture_type == "torch":
+            capture_prefix = (
+                f"{args.capture_prefix}_rank{world_rank}"
+                if args.capture_prefix is not None
+                else None
+            )
+            trace_handler = partial(
+                profiling.trace_handler,
+                print_stats=True,
+                export_trace_prefix=capture_prefix,
+            )
+            with torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA,
+                ],
+                schedule=torch.profiler.schedule(
+                    wait=args.capture_range_start - 1,
+                    warmup=1,
+                    active=args.capture_range_stop - args.capture_range_start,
+                    repeat=1,
+                ),
+                on_trace_ready=trace_handler,
+            ) as profiler_ctx:
+                if args.capture_mode == "training":
+                    trainer.train(training_profiler=profiler_ctx)
+                elif args.capture_mode == "validation":
+                    trainer.train(validation_profiler=profiler_ctx)
+        elif args.capture_type == "cupti":
+            with profiling.CUDAProfiler(
+                capture_range_start=args.capture_range_start,
+                capture_range_stop=args.capture_range_stop,
+                enabled=True,
+            ) as profiler_ctx:
+                with torch.autograd.profiler.emit_nvtx(
+                    enabled=True, record_shapes=False
+                ):
+                    if args.capture_mode == "training":
+                        trainer.train(training_profiler=profiler_ctx)
+                    elif args.capture_mode == "validation":
+                        trainer.train(validation_profiler=profiler_ctx)
+    else:
         trainer.train()
 
     if distributed_initialized:

@@ -265,6 +265,40 @@ class PlasimTrainer(Trainer):
         _install_plasim_patches()
         super().__init__(params, world_rank, device)
 
+        # ---- Warm-start load (plan: 2026-05-14_v11_clip_warmstart_continuation_plan §4.1) ----
+        # Must run AFTER super().__init__ (so self.model exists with the
+        # fresh-random init that the stock path produced because
+        # params.pretrained=False) and BEFORE EMAModel(...) is constructed
+        # below — so the EMA shadow seeds from the loaded weights, not
+        # from random init. Explicit optimizer=None / scheduler=None /
+        # counters=None bypasses the stock pretrained branch which would
+        # restore them by default (driver.py:137,
+        # deterministic_trainer.py:237). Resume takes precedence; the
+        # `params.resuming` flag is the authority (set in
+        # src/sfno_training/train_plasim.py:232-237).
+        pretrained_ckpt = (
+            self.params.get("pretrained_checkpoint_path")
+            if self.params is not None
+            else None
+        )
+        if (not self.params.resuming) and pretrained_ckpt:
+            Driver.restore_from_checkpoint(
+                checkpoint_path=str(pretrained_ckpt),
+                model=self.model,
+                loss=None,
+                optimizer=None,
+                scheduler=None,
+                counters=None,
+                checkpoint_mode="legacy",
+                strict=True,
+            )
+            if getattr(self, "log_to_screen", False):
+                logger.info(
+                    "warm-start: loaded weights from %s, "
+                    "optimizer/scheduler/counters NOT restored",
+                    pretrained_ckpt,
+                )
+
         # ---- EMA setup (plan §7.2(a)) ----
         ema_cfg = self.params.get("ema", {}) or {} if self.params is not None else {}
         self.ema_enabled = bool(ema_cfg.get("enabled", False))
