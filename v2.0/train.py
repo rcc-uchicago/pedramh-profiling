@@ -636,14 +636,67 @@ class Trainer():
             self.lr = (2 ** self.params.loglr) * self.params["global_batch_size"] / 16.0
         else:
             self.lr = self.params.lr
+        # Determine optimizer class + per-instance kwargs (lr/weight_decay are
+        # always supplied; `fused=True` is only safe on torch.optim.Adam /
+        # AdamW, not on the ZeroRedundancyOptimizer wrapper).
         if self.params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
+            opt_cls = torch.optim.Adam
+            opt_kwargs = dict(lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
         elif self.params.optimizer_type == 'AdamW':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
+            opt_cls = torch.optim.AdamW
+            opt_kwargs = dict(lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay)
+            opt_cls = torch.optim.Adam
+            opt_kwargs = dict(lr=self.lr, weight_decay=self.params.weight_decay)
+
+        # Optional: shard optimizer state across data-parallel ranks (ZeRO
+        # Stage 1).  Only meaningful under DDP; falls back to the plain
+        # optimizer when not initialized as distributed.
+        use_zero = bool(getattr(self.params, 'use_zero_optimizer', False))
+        self.use_zero_optimizer = use_zero and dist.is_initialized()
+        if use_zero and not dist.is_initialized() and self.world_rank == 0:
+            logging.warning(
+                "use_zero_optimizer=True but torch.distributed is not initialized; "
+                "falling back to the unsharded optimizer.")
+
+        if self.use_zero_optimizer:
+            from torch.distributed.optim import ZeroRedundancyOptimizer
+            self.optimizer = ZeroRedundancyOptimizer(
+                self.model.parameters(),
+                optimizer_class=opt_cls,
+                **opt_kwargs,
+            )
+            if self.world_rank == 0:
+                logging.info(
+                    f"Using ZeroRedundancyOptimizer (Stage 1) wrapping "
+                    f"{opt_cls.__name__} across {dist.get_world_size()} ranks.")
+        else:
+            self.optimizer = opt_cls(self.model.parameters(), **opt_kwargs)
 
         return self.optimizer
+
+    def _migrate_optimizer_state_to_device(self):
+        """Move optimizer state tensors to the same device as their parameters.
+
+        Required after `optimizer.load_state_dict(...)` when using fused
+        AdamW/Adam — particularly under `ZeroRedundancyOptimizer`, which can
+        leave `state['step']` (and other state tensors) on CPU after the load
+        even though the parameters live on GPU.  The fused CUDA kernel raises
+        `Expected all tensors to be on the same device` in that situation.
+        Idempotent and safe to call on the plain (non-ZeRO) optimizer.
+        """
+        # `ZeroRedundancyOptimizer` keeps its local-shard optimizer at
+        # `self.optim`; plain torch optimizers carry state on themselves.
+        inner = getattr(self.optimizer, 'optim', self.optimizer)
+        for group in inner.param_groups:
+            for p in group['params']:
+                state = inner.state.get(p, None)
+                if not state:
+                    continue
+                target_device = p.device
+                for k, v in list(state.items()):
+                    if isinstance(v, torch.Tensor) and v.device != target_device:
+                        state[k] = v.to(target_device, non_blocking=True)
 
     def setup_scheduler(self):
 
@@ -863,7 +916,12 @@ class Trainer():
                 early_stopping_counter += 1  # Increment the counter
 
             self.model.eval() # important! This disables randomized embedding dropout
-            
+
+            # ZeroRedundancyOptimizer shards optimizer state across ranks; all
+            # ranks must consolidate to rank 0 before the rank-0 save below.
+            if getattr(self, 'use_zero_optimizer', False) and self.params.save_checkpoint:
+                self.optimizer.consolidate_state_dict(to=0)
+
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
@@ -3353,6 +3411,10 @@ class Trainer():
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            # Fused AdamW (incl. the one ZeroRedundancyOptimizer wraps) needs
+            # state['step'] on the same CUDA device as the parameters; loaded
+            # checkpoints can land it on CPU and trip the fused kernel.
+            self._migrate_optimizer_state_to_device()
             logging.info("Restored optimizer state")
             
             # Load scheduler state if available
@@ -3437,6 +3499,11 @@ if __name__ == '__main__':
     parser.add_argument("--amp_dtype", default=None, type=str, choices=['float16', 'bfloat16', 'fp16', 'bf16', 'half'],
                         help="AMP precision dtype. Defaults to the YAML config's amp_dtype (or float16 if unset). "
                              "Use 'bfloat16' for SFNO to avoid loss-scaling and fp16 underflow.")
+    parser.add_argument("--use_zero_optimizer", default=None, type=lambda s: str(s).lower() in ('1', 'true', 'yes', 'y'),
+                        help="Shard AdamW/Adam optimizer state across ranks via "
+                             "torch.distributed.optim.ZeroRedundancyOptimizer (ZeRO Stage 1). "
+                             "Overrides the YAML key of the same name. Defaults to the YAML value, "
+                             "or False if unset. No-op when not running under torch.distributed.")
     parser.add_argument("--vae_loss", default=False, action='store_true', help="Use VAE loss function")
     parser.add_argument("--mode", default='train', type=str, choices=['train', 'test'], help="Execution mode: train or test")
     parser.add_argument("--test_iterations", default=30, type=int, help="Number of test iterations to run")
@@ -3484,6 +3551,8 @@ if __name__ == '__main__':
     params['enable_amp'] = not args.no_amp  # Enable/disable automatic mixed precision
     if args.amp_dtype is not None:
         params['amp_dtype'] = args.amp_dtype  # CLI override of YAML amp_dtype
+    if args.use_zero_optimizer is not None:
+        params['use_zero_optimizer'] = args.use_zero_optimizer  # CLI override of YAML use_zero_optimizer
     params['vae_loss'] = args.vae_loss  # Use VAE loss if specified
     params['mode'] = args.mode  # Set execution mode (train/test)
     params['test_iterations'] = args.test_iterations  # Number of test iterations
