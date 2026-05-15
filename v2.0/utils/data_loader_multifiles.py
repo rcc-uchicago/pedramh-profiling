@@ -801,15 +801,37 @@ class GetDataset(Dataset):
         return (data - self.upper_air_mean.reshape(len(self.upper_air_variables), -1, 1, 1))/ \
             self.upper_air_std.reshape(len(self.upper_air_variables), -1, 1, 1)
     
+    def _inv_mean_std(self, mean_attr, std_attr, device):
+        """Return cached (mean, std) tensors on the requested device.
+
+        Forward transforms in __getitem__ keep using the CPU tensors stored on
+        the dataset (h5py loads CPU data, workers stay off-GPU).  Inverse
+        transforms during validation are often called with GPU tensors; caching
+        a per-device copy here avoids repeated host→device transfers without
+        touching the forward-transform path.
+        """
+        cache_key = (mean_attr, std_attr, device.type, getattr(device, 'index', None))
+        if not hasattr(self, '_inv_param_cache'):
+            self._inv_param_cache = {}
+        cached = self._inv_param_cache.get(cache_key)
+        if cached is None:
+            cached = (getattr(self, mean_attr).to(device),
+                      getattr(self, std_attr).to(device))
+            self._inv_param_cache[cache_key] = cached
+        return cached
+
     def surface_inv_transform(self, data):
-        return data * self.surface_std.reshape(1, -1, 1, 1) + self.surface_mean.reshape(1, -1, 1, 1)
-    
+        mean, std = self._inv_mean_std('surface_mean', 'surface_std', data.device)
+        return data * std.reshape(1, -1, 1, 1) + mean.reshape(1, -1, 1, 1)
+
     def upper_air_inv_transform(self, data):
-        return data * self.upper_air_std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
-            self.upper_air_mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
-    
+        mean, std = self._inv_mean_std('upper_air_mean', 'upper_air_std', data.device)
+        return data * std.reshape(1, len(self.upper_air_variables), -1, 1, 1) + \
+            mean.reshape(1, len(self.upper_air_variables), -1, 1, 1)
+
     def diagnostic_inv_transform(self, data):
-        return data * self.diagnostic_std.reshape(1, -1, 1, 1) + self.diagnostic_mean.reshape(1, -1, 1, 1)
+        mean, std = self._inv_mean_std('diagnostic_mean', 'diagnostic_std', data.device)
+        return data * std.reshape(1, -1, 1, 1) + mean.reshape(1, -1, 1, 1)
 
     def surface_delta_transform(self, data):
         return data / self.surface_delta_std.reshape(-1, 1, 1)

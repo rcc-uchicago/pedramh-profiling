@@ -68,6 +68,7 @@ class SpectralConvS2(nn.Module):
         decomposition_kwargs=dict(),
         bias=False,
         use_tensorly=True,
+        spectral_contraction_fp16=False,
     ):  # pragma: no cover
         super(SpectralConvS2, self).__init__()
 
@@ -76,6 +77,7 @@ class SpectralConvS2(nn.Module):
 
         self.forward_transform = forward_transform
         self.inverse_transform = inverse_transform
+        self.spectral_contraction_fp16 = bool(spectral_contraction_fp16)
 
         self.modes_lat = self.inverse_transform.lmax
         self.modes_lon = self.inverse_transform.mmax
@@ -161,38 +163,58 @@ class SpectralConvS2(nn.Module):
         if bias:
             self.bias = nn.Parameter(scale * torch.zeros(1, out_channels, 1, 1))
 
+    def _contract_autocast(self):
+        """Context manager wrapping the spectral weight contraction.
+
+        Returns autocast(fp16) when self.spectral_contraction_fp16 is True
+        (fp16 tensor-core throughput for the contraction matmuls), otherwise
+        autocast(enabled=False) so the contraction stays in fp32.
+        """
+        if self.spectral_contraction_fp16:
+            return autocast(enabled=True, device_type="cuda", dtype=torch.float16)
+        return autocast(enabled=False, device_type="cuda")
+
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
         residual = x
-        x = x.float()
-        B, C, H, W = x.shape
 
+        # SHT in fp32 — cuFFT restricts bf16/fp16 transforms to power-of-two
+        # sizes, so the transforms must execute on explicit fp32 inputs.
         with autocast(enabled=False, device_type="cuda"):
+            x = x.float()
+            B, C, H, W = x.shape
+
             x = self.forward_transform(x)
             if self.scale_residual:
                 x = x.contiguous()
                 residual = self.inverse_transform(x)
                 residual = residual.to(dtype)
 
-        # approach with unpadded weights
-        xp = torch.zeros_like(x)
-        xp[..., : self.modes_lat_local, : self.modes_lon_local] = self._contract(
-            x[..., : self.modes_lat_local, : self.modes_lon_local],
-            self.weight,
-            separable=self.separable,
-            operator_type=self.operator_type,
-        )
-        x = xp.contiguous()
+        # Spectral weight contraction — fp32 by default; fp16 when explicitly
+        # opted in via spectral_contraction_fp16=True.
+        with self._contract_autocast():
+            xp = torch.zeros_like(x)
+            xp[..., : self.modes_lat_local, : self.modes_lon_local] = self._contract(
+                x[..., : self.modes_lat_local, : self.modes_lon_local],
+                self.weight,
+                separable=self.separable,
+                operator_type=self.operator_type,
+            )
+            x = xp.contiguous()
 
-        # # approach with padded weights
-        # x = self._contract(x, self.weight, separable=self.separable, operator_type=self.operator_type)
-        # x = x.contiguous()
+            # # approach with padded weights
+            # x = self._contract(x, self.weight, separable=self.separable, operator_type=self.operator_type)
+            # x = x.contiguous()
 
+        # iSHT back in fp32. Coerce to complex64 — autocast may have lowered
+        # the contraction output to complex32 (when fp16 is enabled), which
+        # cuFFT cannot iSHT for arbitrary sizes.
         with autocast(enabled=False, device_type="cuda"):
+            x = x.to(torch.complex64)
             x = self.inverse_transform(x)
 
-        if hasattr(self, "bias"):
-            x = x + self.bias
+            if hasattr(self, "bias"):
+                x = x + self.bias
 
         x = x.type(dtype)
 
@@ -253,10 +275,14 @@ class LocalConvS2(nn.Module):
 
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
-        x = x.float()
-        B, C, H, W = x.shape
 
+        # Full spectral path in fp32. LocalConvS2 isn't on the SFNO config's
+        # hot path, so we keep the conservative default and don't expose a
+        # spectral_contraction_fp16 flag here.
         with autocast(enabled=False, device_type="cuda"):
+            x = x.float()
+            B, C, H, W = x.shape
+
             f = torch.zeros(
                 (self.in_channels, self.out_channels, H, 1),
                 dtype=x.dtype,
@@ -267,19 +293,17 @@ class LocalConvS2(nn.Module):
             x = self.forward_transform(x)
             f = self.zonal_transform(f)[..., :, 0]
 
-            x = torch.view_as_real(x)
-            f = torch.view_as_real(f)
+            x_real = torch.view_as_real(x)
+            f_real = torch.view_as_real(f)
 
-        x = self._contract(x, f)
-        x = x.contiguous()
+            x_real = self._contract(x_real, f_real)
+            x_real = x_real.contiguous()
 
-        x = torch.view_as_complex(x)
-
-        with autocast(enabled=False, device_type="cuda"):
+            x = torch.view_as_complex(x_real).contiguous()
             x = self.inverse_transform(x)
 
-        if hasattr(self, "bias"):
-            x = x + self.bias
+            if hasattr(self, "bias"):
+                x = x + self.bias
 
         x = x.type(dtype)
 
@@ -304,6 +328,7 @@ class SpectralAttentionS2(nn.Module):
         bias=False,
         spectral_layers=1,
         drop_rate=0.0,
+        spectral_contraction_fp16=False,
     ):  # pragma: no cover
         super(SpectralAttentionS2, self).__init__()
 
@@ -311,6 +336,7 @@ class SpectralAttentionS2(nn.Module):
         self.sparsity_threshold = sparsity_threshold
         self.operator_type = operator_type
         self.spectral_layers = spectral_layers
+        self.spectral_contraction_fp16 = bool(spectral_contraction_fp16)
 
         if scale == "auto":
             self.scale = 1 / (embed_dim * embed_dim)
@@ -434,25 +460,32 @@ class SpectralAttentionS2(nn.Module):
 
         return x
 
+    def _contract_autocast(self):
+        if self.spectral_contraction_fp16:
+            return autocast(enabled=True, device_type="cuda", dtype=torch.float16)
+        return autocast(enabled=False, device_type="cuda")
+
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
         residual = x
-        x = x.to(torch.float32)
 
-        # FWD transform
+        # SHT in fp32.
         with autocast(enabled=False, device_type="cuda"):
+            x = x.to(torch.float32)
             x = self.forward_transform(x)
             if self.scale_residual:
                 x = x.contiguous()
                 residual = self.inverse_transform(x)
                 residual = residual.to(dtype)
 
-        # MLP
-        x = self.forward_mlp(x)
+        # Spectral MLP — fp32 by default; fp16 when explicitly enabled.
+        with self._contract_autocast():
+            x = self.forward_mlp(x)
 
-        # BWD transform
-        x = x.contiguous()
+        # iSHT back in fp32 (promote in case the MLP lowered to complex32).
         with autocast(enabled=False, device_type="cuda"):
+            x = x.to(torch.complex64)
+            x = x.contiguous()
             x = self.inverse_transform(x)
 
         # cast back to initial precision
@@ -559,17 +592,14 @@ class RealSpectralAttentionS2(nn.Module):
 
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
-        x = x.to(torch.float32)
 
-        # FWD transform
+        # Full spectral path in fp32. RealSpectralAttentionS2 isn't on the
+        # SFNO config's hot path, so we leave the conservative default in
+        # place rather than plumb a spectral_contraction_fp16 flag through.
         with autocast(enabled=False, device_type="cuda"):
+            x = x.to(torch.float32)
             x = self.forward_transform(x)
-
-        # MLP
-        x = self.forward_mlp(x)
-
-        # BWD transform
-        with autocast(enabled=False, device_type="cuda"):
+            x = self.forward_mlp(x)
             x = self.inverse_transform(x)
 
         # cast back to initial precision

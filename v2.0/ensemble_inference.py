@@ -149,7 +149,22 @@ class Stepper():
 
         self.enable_amp = self.params.enable_amp
         self.enable_fp8 = self.params.enable_fp8
-        
+
+        # Resolve AMP dtype (fp16 default, bfloat16 supported).
+        amp_dtype_str = getattr(self.params, 'amp_dtype', 'float16')
+        if isinstance(amp_dtype_str, torch.dtype):
+            self.amp_dtype = amp_dtype_str
+        else:
+            _dtype_map = {'float16': torch.float16, 'fp16': torch.float16,
+                          'half': torch.float16,
+                          'bfloat16': torch.bfloat16, 'bf16': torch.bfloat16}
+            key = str(amp_dtype_str).lower()
+            if key not in _dtype_map:
+                raise ValueError(
+                    f"Unsupported amp_dtype {amp_dtype_str!r}; "
+                    f"expected one of {sorted(_dtype_map)}.")
+            self.amp_dtype = _dtype_map[key]
+
         if self.enable_fp8:
             global te, recipe, fp8_autocast
             import transformer_engine.pytorch as te
@@ -493,7 +508,7 @@ class Stepper():
             obs_queue = asyncio.Queue()
             obs_task = asyncio.create_task(self.obs_results(obs_queue))
 
-        with torch.inference_mode(), autocast(enabled=self.params.enable_amp, device_type="cuda"):
+        with torch.inference_mode(), autocast(enabled=self.params.enable_amp, device_type="cuda", dtype=self.amp_dtype):
             for i, data in enumerate(self.data_loader, 0):
                 data_start = time.time()
                 input_surface_in, input_upper_air_in, varying_boundary_data_in = map(
@@ -635,7 +650,7 @@ class Stepper():
         obs_time = 0
         save_time = 0
 
-        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+        with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp, dtype=self.amp_dtype):
             for i, data in enumerate(self.data_loader, 0):
                 data_start = time.time()
                 #particle_idxs = np.arange(self.params.batch_size*i, self.params.batch_size*(i+1))
