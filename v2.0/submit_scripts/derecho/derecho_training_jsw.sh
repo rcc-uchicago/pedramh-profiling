@@ -1,7 +1,7 @@
 #!/bin/bash -l
 #PBS -N e3sm_sfno_train
-#PBS -l select=4:ncpus=64:ngpus=4:mem=480G
-#PBS -q main
+#PBS -l select=1:ncpus=64:ngpus=1:mem=480G
+#PBS -q develop
 #PBS -l walltime=01:00:00
 #PBS -A UCHI0018
 #PBS -j oe
@@ -47,7 +47,7 @@ export MASTER_ADDR=$(hostname)
 export MASTER_PORT=12345
 export WORLD_SIZE
 export RANK=$SLURM_ARRAY_TASK_ID
-export OMP_NUM_THREADS=16 #OMP_NUM_THREADS=(cpus/gpu)/batch_size
+export OMP_NUM_THREADS=1 #OMP_NUM_THREADS=(cpus/gpu)/batch_size
 # export OMP_NUM_THREADS=2 #OMP_NUM_THREADS=(cpus/gpu)/batch_size
 
 if [[ "$DEBUG" == "1" ]]; then

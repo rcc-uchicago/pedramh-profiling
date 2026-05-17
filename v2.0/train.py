@@ -482,7 +482,7 @@ class Trainer():
                     resume=resume_mode,
                     settings=wandb.Settings(
                             init_timeout=300,
-                            _disable_stats=True,
+                            _disable_stats=False,
                         )
                     )
             logging.info("WandB initialized with config: %s", params)
