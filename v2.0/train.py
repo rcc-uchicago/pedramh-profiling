@@ -105,22 +105,38 @@ def weighted_rmse_torch_3D(pred, target, latitudes):
     return result
 
 def grad_norm(model):
-    total_norm = 0
-    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
-    for p in parameters:
-        param_norm = p.grad.detach().data.norm(2)
-        total_norm += param_norm.item() ** 2
-    total_norm = total_norm ** 0.5
-    return total_norm
+    """Total L2 norm across all parameter gradients.
+
+    Returns a 0-d GPU tensor — keeping the result on-device avoids the per-
+    parameter `.item()` synchronizations that the previous implementation
+    issued on every training step.
+    """
+    total_norm_sq = None
+    for p in model.parameters():
+        if p.grad is None or not p.requires_grad:
+            continue
+        norm_sq = p.grad.detach().pow(2).sum()
+        total_norm_sq = norm_sq if total_norm_sq is None else total_norm_sq + norm_sq
+    if total_norm_sq is None:
+        return torch.tensor(0.0)
+    return total_norm_sq.sqrt()
 
 def grad_max(model):
-    max_grad = 0
-    parameters = [p for p in model.parameters() if p.grad is not None and p.requires_grad]
-    for p in parameters:
-        param_max = torch.max(torch.abs(p.grad.detach().data))
-        if max_grad < param_max.item():
-            max_grad = param_max.item()
-    return param_max
+    """Maximum absolute gradient value across all parameters.
+
+    Returns a 0-d GPU tensor.  The previous version also returned a tensor
+    (the last-parameter's max, due to a stale `return` line), but issued one
+    `.item()` per parameter; this version accumulates entirely on device.
+    """
+    max_grad = None
+    for p in model.parameters():
+        if p.grad is None or not p.requires_grad:
+            continue
+        param_max = p.grad.detach().abs().max()
+        max_grad = param_max if max_grad is None else torch.maximum(max_grad, param_max)
+    if max_grad is None:
+        return torch.tensor(0.0)
+    return max_grad
 
 def make_grad_contiguous_hook(grad):
     """Hook to ensure gradients are contiguous for DDP."""
@@ -183,9 +199,32 @@ class Trainer():
             logging.warning("Legacy model does not support VAE dual encoder architecture. "
                             "VAE loss will be ignored during training. "
                             "Set --vae_loss=False or use non-legacy model.")
-        
-        if self.params.enable_amp == True:
+
+        # Resolve AMP dtype. Default is float16 for backward compatibility.
+        # bfloat16 is preferred for SFNO because it has fp32 range (no loss-
+        # scaling needed) and the cuFFT bf16 power-of-two restriction is
+        # avoided by the explicit autocast(enabled=False) blocks around the
+        # SHT/iSHT operations in s2convolutions.py / layers.py.
+        amp_dtype_str = getattr(self.params, 'amp_dtype', 'bfloat16')
+        if isinstance(amp_dtype_str, torch.dtype):
+            self.amp_dtype = amp_dtype_str
+        else:
+            _dtype_map = {'float16': torch.float16, 'fp16': torch.float16,
+                          'half': torch.float16,
+                          'bfloat16': torch.bfloat16, 'bf16': torch.bfloat16}
+            key = str(amp_dtype_str).lower()
+            if key not in _dtype_map:
+                raise ValueError(
+                    f"Unsupported amp_dtype {amp_dtype_str!r}; "
+                    f"expected one of {sorted(_dtype_map)}.")
+            self.amp_dtype = _dtype_map[key]
+
+        # GradScaler is only needed for fp16; bfloat16 has the same exponent
+        # range as fp32 and does not require loss scaling.
+        if self.params.enable_amp and self.amp_dtype == torch.float16:
             self.scaler = GradScaler()
+        else:
+            self.scaler = None
         
         if dist.is_initialized():
             # Make all parameters contiguous to avoid stride warnings
@@ -597,14 +636,67 @@ class Trainer():
             self.lr = (2 ** self.params.loglr) * self.params["global_batch_size"] / 16.0
         else:
             self.lr = self.params.lr
+        # Determine optimizer class + per-instance kwargs (lr/weight_decay are
+        # always supplied; `fused=True` is only safe on torch.optim.Adam /
+        # AdamW, not on the ZeroRedundancyOptimizer wrapper).
         if self.params.optimizer_type == 'FusedAdam':
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
+            opt_cls = torch.optim.Adam
+            opt_kwargs = dict(lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
         elif self.params.optimizer_type == 'AdamW':
-            self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
+            opt_cls = torch.optim.AdamW
+            opt_kwargs = dict(lr=self.lr, weight_decay=self.params.weight_decay, fused=True)
         else:
-            self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr, weight_decay=self.params.weight_decay)
+            opt_cls = torch.optim.Adam
+            opt_kwargs = dict(lr=self.lr, weight_decay=self.params.weight_decay)
+
+        # Optional: shard optimizer state across data-parallel ranks (ZeRO
+        # Stage 1).  Only meaningful under DDP; falls back to the plain
+        # optimizer when not initialized as distributed.
+        use_zero = bool(getattr(self.params, 'use_zero_optimizer', False))
+        self.use_zero_optimizer = use_zero and dist.is_initialized()
+        if use_zero and not dist.is_initialized() and self.world_rank == 0:
+            logging.warning(
+                "use_zero_optimizer=True but torch.distributed is not initialized; "
+                "falling back to the unsharded optimizer.")
+
+        if self.use_zero_optimizer:
+            from torch.distributed.optim import ZeroRedundancyOptimizer
+            self.optimizer = ZeroRedundancyOptimizer(
+                self.model.parameters(),
+                optimizer_class=opt_cls,
+                **opt_kwargs,
+            )
+            if self.world_rank == 0:
+                logging.info(
+                    f"Using ZeroRedundancyOptimizer (Stage 1) wrapping "
+                    f"{opt_cls.__name__} across {dist.get_world_size()} ranks.")
+        else:
+            self.optimizer = opt_cls(self.model.parameters(), **opt_kwargs)
 
         return self.optimizer
+
+    def _migrate_optimizer_state_to_device(self):
+        """Move optimizer state tensors to the same device as their parameters.
+
+        Required after `optimizer.load_state_dict(...)` when using fused
+        AdamW/Adam — particularly under `ZeroRedundancyOptimizer`, which can
+        leave `state['step']` (and other state tensors) on CPU after the load
+        even though the parameters live on GPU.  The fused CUDA kernel raises
+        `Expected all tensors to be on the same device` in that situation.
+        Idempotent and safe to call on the plain (non-ZeRO) optimizer.
+        """
+        # `ZeroRedundancyOptimizer` keeps its local-shard optimizer at
+        # `self.optim`; plain torch optimizers carry state on themselves.
+        inner = getattr(self.optimizer, 'optim', self.optimizer)
+        for group in inner.param_groups:
+            for p in group['params']:
+                state = inner.state.get(p, None)
+                if not state:
+                    continue
+                target_device = p.device
+                for k, v in list(state.items()):
+                    if isinstance(v, torch.Tensor) and v.device != target_device:
+                        state[k] = v.to(target_device, non_blocking=True)
 
     def setup_scheduler(self):
 
@@ -825,7 +917,12 @@ class Trainer():
                 early_stopping_counter += 1  # Increment the counter
 
             self.model.eval() # important! This disables randomized embedding dropout
-            
+
+            # ZeroRedundancyOptimizer shards optimizer state across ranks; all
+            # ranks must consolidate to rank 0 before the rank-0 save below.
+            if getattr(self, 'use_zero_optimizer', False) and self.params.save_checkpoint:
+                self.optimizer.consolidate_state_dict(to=0)
+
             if self.world_rank == 0:
                 if self.params.save_checkpoint:
                     # checkpoint at the end of every epoch
@@ -931,7 +1028,8 @@ class Trainer():
                     )
                     
                     
-                    if self.params.enable_amp:
+                    if self.scaler is not None:
+                        # fp16 path — GradScaler is required to avoid underflow.
                         self.scaler.scale(loss).backward()
                         # Unscale gradients before clipping
                         self.scaler.unscale_(self.optimizer)
@@ -940,6 +1038,7 @@ class Trainer():
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
                     else:
+                        # bfloat16 (full range, no scaling) or AMP disabled.
                         loss.backward()
                         # Clip gradients to prevent explosion
                         #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
@@ -1074,7 +1173,7 @@ class Trainer():
         loss_sfc = torch.zeros(1, device=self.device)
         loss_vae = torch.zeros(1, device=self.device)
         
-        with autocast(enabled = self.params.enable_amp, device_type="cuda"):
+        with autocast(enabled = self.params.enable_amp, device_type="cuda", dtype=self.amp_dtype):
             # Branch based on model type (legacy vs non-legacy)
             if self.params.use_legacy_model:
                 # Legacy model: doesn't accept target_surface/target_upper_air
@@ -1149,8 +1248,10 @@ class Trainer():
         current_lr = torch.tensor(self.optimizer.param_groups[0]['lr'], device = self.device)
         diagnostic_logs['lr_step'] = current_lr
 
-        diagnostic_logs['batch_grad_norm'] = torch.tensor([grad_norm(self.model)]).to(self.device)
-        diagnostic_logs['batch_grad_max'] = torch.tensor([grad_max(self.model)]).to(self.device)
+        # Grad norm/max are 0-d GPU tensors; reshape to 1-d for downstream
+        # all-reduce / all-gather without forcing a host transfer.
+        diagnostic_logs['batch_grad_norm'] = grad_norm(self.model).detach().to(self.device).reshape(1)
+        diagnostic_logs['batch_grad_max'] = grad_max(self.model).detach().to(self.device).reshape(1)
         
         for key, value in kwargs.items():
             diagnostic_logs[key] = value
@@ -1579,7 +1680,7 @@ class Trainer():
         with torch.no_grad():
             if self.params.enable_fp8:
                 logging.warning("FP8 is not fully configured for validation. Falling back to AMP.")
-            precision_context = autocast(enabled=self.params.enable_amp, device_type="cuda")
+            precision_context = autocast(enabled=self.params.enable_amp, device_type="cuda", dtype=self.amp_dtype)
             
             no_nans = True
             
@@ -1659,20 +1760,22 @@ class Trainer():
                     no_nans = False
                 
                 if no_nans and self.world_rank == 0:
-                    val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias.cpu())
-                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.cpu(), self.latitudes.cpu()).squeeze(0)
-                    val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias.cpu())
-                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.cpu(), self.latitudes.cpu()).squeeze(0)
+                    # Inverse transforms and RMSE on GPU; single D2H transfer
+                    # at convert_to_xarray time.
+                    val_surface_bias = self.long_valid_dataset.surface_inv_transform(val_surface_bias)
+                    val_surface_bias_lwrmse = weighted_rmse_torch_channels(val_surface_bias, self.clim_surface_bias.to(val_surface_bias.device), self.latitudes.to(val_surface_bias.device)).squeeze(0)
+                    val_upper_air_bias = self.long_valid_dataset.upper_air_inv_transform(val_upper_air_bias)
+                    val_upper_air_bias_lwrmse = weighted_rmse_torch_3D(val_upper_air_bias, self.clim_upper_air_bias.to(val_upper_air_bias.device), self.latitudes.to(val_upper_air_bias.device)).squeeze(0)
                     if self.params.has_diagnostic:
-                        val_diagnostic_bias = self.long_valid_dataset.diagnostic_inv_transform(val_diagnostic_bias.cpu())
-                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.cpu(), self.latitudes.cpu()).squeeze(0)
+                        val_diagnostic_bias = self.long_valid_dataset.diagnostic_inv_transform(val_diagnostic_bias)
+                        val_diagnostic_bias_lwrmse = weighted_rmse_torch_channels(val_diagnostic_bias, self.clim_diagnostic_bias.to(val_diagnostic_bias.device), self.latitudes.to(val_diagnostic_bias.device)).squeeze(0)
                     start_times = [self.long_valid_dataset.datetime_class(self.params.long_val_year_start + self.long_validation_spinup_years,
                                                                         1, 1, has_year_zero = self.long_valid_dataset.has_year_zero) - \
                                                                             timedelta(hours=self.params.timedelta_hours)]
-                    bias_datasets = self.convert_to_xarray(np.expand_dims(val_surface_bias.numpy(), axis = 1),
-                                                        np.expand_dims(val_upper_air_bias.numpy(), axis = 1),
+                    bias_datasets = self.convert_to_xarray(np.expand_dims(val_surface_bias.cpu().numpy(), axis = 1),
+                                                        np.expand_dims(val_upper_air_bias.cpu().numpy(), axis = 1),
                                                         start_times, self.params, self.long_valid_dataset, acc = True,
-                                                        diagnostic_prediction = None if not self.params.has_diagnostic else np.expand_dims(val_diagnostic_bias.numpy(), axis=1))
+                                                        diagnostic_prediction = None if not self.params.has_diagnostic else np.expand_dims(val_diagnostic_bias.cpu().numpy(), axis=1))
                         
                     print('Plotting Bias')
                     bias_filename = os.path.join(self.bias_dir, f"bias_epoch_{self.epoch}.png")                    
@@ -1734,32 +1837,36 @@ class Trainer():
                 
                 max_lead_time = max(lead_times_steps)
                 
-                # Storage for GIF/spectra (xarray-based, only if needed)
+                # Storage for GIF/spectra: allocate on the GPU so per-step
+                # inverse transforms stay on device.  Converted to numpy once
+                # per batch right before convert_to_xarray.
                 if self.params.diagnostic_gif:
-                    val_output_surface_acc = np.zeros((val_input_surface.shape[0], max_lead_time,
+                    val_output_surface_acc = torch.zeros((val_input_surface.shape[0], max_lead_time,
                                                 val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                                dtype=np.float32)
-                    val_output_upper_air_acc = np.zeros((val_input_upper_air.shape[0], max_lead_time,
+                                                dtype=torch.float32, device=self.device)
+                    val_output_upper_air_acc = torch.zeros((val_input_upper_air.shape[0], max_lead_time,
                                                     val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                                     val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                                    dtype=np.float32)
+                                                    dtype=torch.float32, device=self.device)
                     if self.params.has_diagnostic:
-                        val_output_diagnostic_acc = np.zeros((val_target_diagnostic.shape[0], max_lead_time,
+                        val_output_diagnostic_acc = torch.zeros((val_target_diagnostic.shape[0], max_lead_time,
                                                         val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                        val_target_diagnostic.shape[4]), dtype=np.float32)
-                
+                                                        val_target_diagnostic.shape[4]),
+                                                        dtype=torch.float32, device=self.device)
+
                 if self.params.diagnostic_spectra:
-                    val_output_surface_t = np.zeros((val_input_surface.shape[0], len(lead_times_steps),
+                    val_output_surface_t = torch.zeros((val_input_surface.shape[0], len(lead_times_steps),
                                         val_input_surface.shape[1], val_input_surface.shape[2], val_input_surface.shape[3]),
-                                        dtype=np.float32)
-                    val_output_upper_air_t = np.zeros((val_input_upper_air.shape[0], len(lead_times_steps),
+                                        dtype=torch.float32, device=self.device)
+                    val_output_upper_air_t = torch.zeros((val_input_upper_air.shape[0], len(lead_times_steps),
                                             val_input_upper_air.shape[1], val_input_upper_air.shape[2],
                                             val_input_upper_air.shape[3], val_input_upper_air.shape[4]),
-                                            dtype=np.float32)
+                                            dtype=torch.float32, device=self.device)
                     if self.params.has_diagnostic:
-                        val_output_diagnostic_t = np.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
+                        val_output_diagnostic_t = torch.zeros((val_target_diagnostic.shape[0], len(lead_times_steps),
                                                             val_target_diagnostic.shape[2], val_target_diagnostic.shape[3],
-                                                            val_target_diagnostic.shape[4]), dtype=np.float32)
+                                                            val_target_diagnostic.shape[4]),
+                                                            dtype=torch.float32, device=self.device)
                 
                 with precision_context:
                     step_idx = 0
@@ -1828,12 +1935,12 @@ class Trainer():
                             val_output_surface, val_output_upper_air = self.integrator(
                                 val_input_surface, val_input_upper_air, val_output_surface, val_output_upper_air)
                         
-                        # Store for GIF (all steps)
+                        # Store for GIF (all steps) — stays on GPU until end of batch.
                         if self.params.diagnostic_gif:
-                            val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                            val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
+                            val_output_surface_acc[:, step] = self.valid_dataset.surface_inv_transform(val_output_surface)
+                            val_output_upper_air_acc[:, step] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air)
                             if self.params.has_diagnostic:
-                                val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
+                                val_output_diagnostic_acc[:, step] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic)
                         
                         # At forecast_lead_times: update metrics and store for spectra
                         if (step + 1) in lead_times_steps:
@@ -1887,29 +1994,34 @@ class Trainer():
                             valid_surface_lwrmse[step_idx] += torch.mean(rmse_sfc, dim = 0)
                             valid_upper_air_lwrmse[step_idx] += torch.mean(rmse_pl, dim=0)
                             
-                            # Store for spectra
+                            # Store for spectra — stays on GPU until end of batch.
                             if self.params.diagnostic_spectra:
-                                val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface.cpu()).numpy()
-                                val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air.cpu()).numpy()
+                                val_output_surface_t[:, step_idx] = self.valid_dataset.surface_inv_transform(val_output_surface)
+                                val_output_upper_air_t[:, step_idx] = self.valid_dataset.upper_air_inv_transform(val_output_upper_air)
                                 if self.params.has_diagnostic:
-                                    val_output_diagnostic_t[:, step_idx] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic.cpu()).numpy()
+                                    val_output_diagnostic_t[:, step_idx] = self.valid_dataset.diagnostic_inv_transform(val_output_diagnostic)
                             
                             # At max lead time, prepare xarray datasets for GIF and spectra
                             if step + 1 == max_lead_time:
                                 if self.params.diagnostic_gif:
+                                    # Single D2H transfer per batch instead of per step.
+                                    acc_surface_np = val_output_surface_acc.cpu().numpy()
+                                    acc_upper_air_np = val_output_upper_air_acc.cpu().numpy()
                                     if self.params.has_diagnostic:
-                                        acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc=True,
-                                                                            diagnostic_prediction=val_output_diagnostic_acc)
+                                        acc_diagnostic_np = val_output_diagnostic_acc.cpu().numpy()
+                                        acc_datasets = self.convert_to_xarray(acc_surface_np, acc_upper_air_np, start_times, self.params, self.valid_dataset, acc=True,
+                                                                            diagnostic_prediction=acc_diagnostic_np)
                                     else:
-                                        acc_datasets = self.convert_to_xarray(val_output_surface_acc, val_output_upper_air_acc, start_times, self.params, self.valid_dataset, acc=True)
+                                        acc_datasets = self.convert_to_xarray(acc_surface_np, acc_upper_air_np, start_times, self.params, self.valid_dataset, acc=True)
                                     acc_prepared_datasets = [self.prepare_preds(ds, acc=True) for ds in acc_datasets]
                                     acc_combined_dataset = self.combine_datasets(acc_prepared_datasets)
                                     acc_predictions.append(acc_combined_dataset)
 
-                                    acc_gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface.cpu()).numpy()
-                                    acc_gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air.cpu()).numpy()
+                                    # Ground-truth inverse transforms run on GPU; single D2H transfer here.
+                                    acc_gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface).cpu().numpy()
+                                    acc_gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air).cpu().numpy()
                                     if self.params.has_diagnostic:
-                                        acc_gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic.cpu()).numpy()
+                                        acc_gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic).cpu().numpy()
                                         acc_gt_datasets = self.convert_to_xarray(acc_gt_surface, acc_gt_upper_air, start_times, self.params, self.valid_dataset, acc=True,
                                                                                 diagnostic_prediction=acc_gt_diagnostic)
                                     else:
@@ -1921,19 +2033,22 @@ class Trainer():
                                 if self.params.diagnostic_spectra:
                                     # lead_time_indices = [lt - 1 for lt in self.params.forecast_lead_times]
                                     lead_time_indices = [lt - 1 for lt in lead_times_steps]
+                                    spec_surface_np = val_output_surface_t.cpu().numpy()
+                                    spec_upper_air_np = val_output_upper_air_t.cpu().numpy()
                                     if self.params.has_diagnostic:
-                                        datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc=False,
-                                                                        diagnostic_prediction=val_output_diagnostic_t, lead_times=lead_times_steps)
+                                        spec_diagnostic_np = val_output_diagnostic_t.cpu().numpy()
+                                        datasets = self.convert_to_xarray(spec_surface_np, spec_upper_air_np, start_times, self.params, self.valid_dataset, acc=False,
+                                                                        diagnostic_prediction=spec_diagnostic_np, lead_times=lead_times_steps)
                                     else:
-                                        datasets = self.convert_to_xarray(val_output_surface_t, val_output_upper_air_t, start_times, self.params, self.valid_dataset, acc=False,
+                                        datasets = self.convert_to_xarray(spec_surface_np, spec_upper_air_np, start_times, self.params, self.valid_dataset, acc=False,
                                                                           lead_times=lead_times_steps)
                                     prepared_datasets = [self.prepare_preds(ds, acc=False, lead_times=lead_times_steps) for ds in datasets]
                                     combined_dataset = self.combine_datasets(prepared_datasets)
 
-                                    gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices].cpu()).numpy()
-                                    gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices].cpu()).numpy()
+                                    gt_surface = self.valid_dataset.surface_inv_transform(val_target_surface[:, lead_time_indices]).cpu().numpy()
+                                    gt_upper_air = self.valid_dataset.upper_air_inv_transform(val_target_upper_air[:, lead_time_indices]).cpu().numpy()
                                     if self.params.has_diagnostic:
-                                        gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic[:, lead_time_indices].cpu()).numpy()
+                                        gt_diagnostic = self.valid_dataset.diagnostic_inv_transform(val_target_diagnostic[:, lead_time_indices]).cpu().numpy()
                                         gt_datasets = self.convert_to_xarray(gt_surface, gt_upper_air, start_times, self.params, self.valid_dataset, acc=False,
                                                                             diagnostic_prediction=gt_diagnostic, lead_times=lead_times_steps)
                                     else:
@@ -1951,9 +2066,11 @@ class Trainer():
                         del val_output_surface, val_output_upper_air
                     
                 del val_input_surface, val_input_upper_air, val_target_surface, val_target_upper_air
-                torch.cuda.empty_cache()
                 valid_steps += 1.
-                
+
+            # Move empty_cache out of the per-batch loop — it forces a GPU
+            # synchronization, so doing it once after the loop is enough.
+            torch.cuda.empty_cache()
             print("Finished batch validation.")
         
         # Combine xarray datasets for GIF/spectra
@@ -3297,6 +3414,10 @@ class Trainer():
         # restore checkpoint is used for finetuning as well as resuming. If finetuning (i.e., not resuming), restore checkpoint does not load optimizer state, instead uses config specified lr.
         if self.params.resuming:
             self.optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            # Fused AdamW (incl. the one ZeroRedundancyOptimizer wraps) needs
+            # state['step'] on the same CUDA device as the parameters; loaded
+            # checkpoints can land it on CPU and trip the fused kernel.
+            self._migrate_optimizer_state_to_device()
             logging.info("Restored optimizer state")
             
             # Load scheduler state if available
@@ -3378,6 +3499,14 @@ if __name__ == '__main__':
     parser.add_argument("--run_iter", default=1, type=int, help="Iteration number for this run")
     parser.add_argument("--debug", default=False, action='store_true', help="Enable debug mode (reduces data, disables wandb)")
     parser.add_argument("--no_amp", default=False, action='store_true', help="Disable automatic mixed precision training")
+    parser.add_argument("--amp_dtype", default=None, type=str, choices=['float16', 'bfloat16', 'fp16', 'bf16', 'half'],
+                        help="AMP precision dtype. Defaults to the YAML config's amp_dtype (or float16 if unset). "
+                             "Use 'bfloat16' for SFNO to avoid loss-scaling and fp16 underflow.")
+    parser.add_argument("--use_zero_optimizer", default=None, type=lambda s: str(s).lower() in ('1', 'true', 'yes', 'y'),
+                        help="Shard AdamW/Adam optimizer state across ranks via "
+                             "torch.distributed.optim.ZeroRedundancyOptimizer (ZeRO Stage 1). "
+                             "Overrides the YAML key of the same name. Defaults to the YAML value, "
+                             "or False if unset. No-op when not running under torch.distributed.")
     parser.add_argument("--vae_loss", default=False, action='store_true', help="Use VAE loss function")
     parser.add_argument("--mode", default='train', type=str, choices=['train', 'test'], help="Execution mode: train or test")
     parser.add_argument("--test_iterations", default=30, type=int, help="Number of test iterations to run")
@@ -3423,6 +3552,10 @@ if __name__ == '__main__':
     
     # Training precision and loss settings
     params['enable_amp'] = not args.no_amp  # Enable/disable automatic mixed precision
+    if args.amp_dtype is not None:
+        params['amp_dtype'] = args.amp_dtype  # CLI override of YAML amp_dtype
+    if args.use_zero_optimizer is not None:
+        params['use_zero_optimizer'] = args.use_zero_optimizer  # CLI override of YAML use_zero_optimizer
     params['vae_loss'] = args.vae_loss  # Use VAE loss if specified
     params['mode'] = args.mode  # Set execution mode (train/test)
     params['test_iterations'] = args.test_iterations  # Number of test iterations

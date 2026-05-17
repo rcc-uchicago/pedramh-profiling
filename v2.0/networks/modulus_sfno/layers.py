@@ -251,35 +251,25 @@ class SpectralConv2d(nn.Module):
 
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
-        # x = x.float()
         B, C, H, W = x.shape
 
+        # Full spectral path in fp32. This class is not on the SFNO config's
+        # hot path, so we don't plumb the spectral_contraction_fp16 flag here.
         with amp.autocast(enabled=False):
             x = x.to(torch.float32)
             x = self.forward_transform(x)
-            x = torch.view_as_real(x)
-            x = x.to(dtype)
+            x_real = torch.view_as_real(x)
 
-        # do spectral conv
-        modes = torch.zeros(x.shape, device=x.device)
+            modes = self.contract_handle(x_real, self.w)
+            x_real = F.softshrink(modes, lambd=self.sparsity_threshold)
 
-        # modes[:, :, :self.modes_lat,  :self.modes_lon, :] = self.contract_handle(x[:, :, :self.modes_lat,  :self.modes_lon, :], self.wh)
-        # modes[:, :, -self.modes_lat:, :self.modes_lon, :] = self.contract_handle(x[:, :, -self.modes_lat:, :self.modes_lon, :], self.wl)
-        modes = self.contract_handle(x, self.w)
-
-        # finalize
-        x = F.softshrink(modes, lambd=self.sparsity_threshold)
-        x = torch.view_as_complex(x)
-
-        with amp.autocast(enabled=False):
-            x = x.to(torch.float32)
-            x = torch.view_as_complex(x)
-            x = x.contiguous()
+            x = torch.view_as_complex(x_real).contiguous()
             x = self.inverse_transform(x)
-            x = x.to(dtype)
 
-        if hasattr(self, "b"):
-            x = x + self.b
+            if hasattr(self, "b"):
+                x = x + self.b
+
+        x = x.to(dtype)
 
         return x
 
@@ -348,33 +338,27 @@ class SpectralConvS2(nn.Module):
 
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
-        # x = x.float()
         B, C, H, W = x.shape
 
+        # Full spectral path in fp32. layers.py SpectralConvS2 is not on the
+        # SFNO config's hot path, so we keep the conservative default.
         with amp.autocast(enabled=False):
             x = x.to(torch.float32)
             x = x.contiguous()
             x = self.forward_transform(x)
-            x = torch.view_as_real(x)
-            x = x.to(dtype)
-
-        # do spectral conv
-        modes = torch.zeros(x.shape, device=x.device)
-        modes[:, :, self.ii, self.jj, :] = self.contract_handle(
-            x[:, :, self.ii, self.jj, :], self.w
-        )
-
-        # finalize
-        x = F.softshrink(modes, lambd=self.sparsity_threshold)
-
-        with amp.autocast(enabled=False):
-            x = x.to(torch.float32)
-            x = torch.view_as_complex(x)
+            x_real = torch.view_as_real(x)
+            modes = torch.zeros(x_real.shape, device=x_real.device, dtype=x_real.dtype)
+            modes[:, :, self.ii, self.jj, :] = self.contract_handle(
+                x_real[:, :, self.ii, self.jj, :], self.w
+            )
+            x_real = F.softshrink(modes, lambd=self.sparsity_threshold)
+            x = torch.view_as_complex(x_real)
             x = self.inverse_transform(x)
-            x = x.to(dtype)
 
-        if hasattr(self, "b"):
-            x = x + self.b
+            if hasattr(self, "b"):
+                x = x + self.b
+
+        x = x.to(dtype)
 
         return x
 
@@ -466,24 +450,20 @@ class SpectralAttention2d(nn.Module):
 
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
-        # x = x.to(torch.float32)
 
-        # FWD transform
+        # Full spectral path in fp32. SpectralAttention2d isn't on the SFNO
+        # config's hot path, so we keep the conservative default.
         with amp.autocast(enabled=False):
             x = x.to(torch.float32)
             x = x.contiguous()
             x = self.forward_transform(x)
-            x = torch.view_as_real(x)
-
-        # MLP
-        x = self.forward_mlp(x)
-
-        # BWD transform
-        with amp.autocast(enabled=False):
-            x = torch.view_as_complex(x)
+            x_real = torch.view_as_real(x)
+            x_real = self.forward_mlp(x_real)
+            x = torch.view_as_complex(x_real)
             x = x.contiguous()
             x = self.inverse_transform(x)
-            x = x.to(dtype)
+
+        x = x.to(dtype)
 
         return x
 
@@ -577,24 +557,20 @@ class SpectralAttentionS2(nn.Module):
 
     def forward(self, x):  # pragma: no cover
         dtype = x.dtype
-        # x = x.to(torch.float32)
 
-        # FWD transform
+        # Full spectral path in fp32. layers.py SpectralAttentionS2 isn't on
+        # the SFNO config's hot path, so we keep the conservative default.
         with amp.autocast(enabled=False):
             x = x.to(torch.float32)
             x = x.contiguous()
             x = self.forward_transform(x)
-            x = torch.view_as_real(x)
-
-        # MLP
-        x = self.forward_mlp(x)
-
-        # BWD transform
-        with amp.autocast(enabled=False):
-            x = torch.view_as_complex(x)
+            x_real = torch.view_as_real(x)
+            x_real = self.forward_mlp(x_real)
+            x = torch.view_as_complex(x_real)
             x = x.contiguous()
             x = self.inverse_transform(x)
-            x = x.to(dtype)
+
+        x = x.to(dtype)
 
         return x
 

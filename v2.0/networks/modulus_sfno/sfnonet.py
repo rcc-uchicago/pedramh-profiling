@@ -62,6 +62,7 @@ class SpectralFilterLayer(nn.Module):
         complex_activation="real",
         spectral_layers=1,
         drop_rate=0.0,
+        spectral_contraction_fp16=False,
     ):
         super(SpectralFilterLayer, self).__init__()
 
@@ -80,6 +81,7 @@ class SpectralFilterLayer(nn.Module):
                 spectral_layers=spectral_layers,
                 drop_rate=drop_rate,
                 bias=False,
+                spectral_contraction_fp16=spectral_contraction_fp16,
             )
 
         elif filter_type == "non-linear" and (isinstance(forward_transform, RealFFT2)):
@@ -111,6 +113,7 @@ class SpectralFilterLayer(nn.Module):
                 separable=separable,
                 bias=True,
                 use_tensorly=False if factorization is None else True,
+                spectral_contraction_fp16=spectral_contraction_fp16,
             )
 
         else:
@@ -148,6 +151,7 @@ class FourierNeuralOperatorBlock(nn.Module):
         complex_activation="real",
         spectral_layers=1,
         checkpointing=0,
+        spectral_contraction_fp16=False,
     ):
         super(FourierNeuralOperatorBlock, self).__init__()
 
@@ -174,6 +178,7 @@ class FourierNeuralOperatorBlock(nn.Module):
             complex_activation=complex_activation,
             spectral_layers=spectral_layers,
             drop_rate=drop_rate,
+            spectral_contraction_fp16=spectral_contraction_fp16,
         )
 
         if inner_skip == "linear":
@@ -456,6 +461,11 @@ class SphericalFourierNeuralOperatorNet(torch.nn.Module):
         self.checkpointing = (
             params.checkpointing if hasattr(params, "checkpointing") else checkpointing
         )
+        # When True the spectral weight contraction runs under
+        # autocast(dtype=fp16); when False it runs under autocast(enabled=False)
+        # so the contraction stays in fp32.  Defaults to False; the SHT/iSHT
+        # always run in fp32 regardless of this flag.
+        self.spectral_contraction_fp16 = bool(getattr(params, "spectral_contraction_fp16", False))
         data_grid = params.data_grid if hasattr(params, "data_grid") else "equiangular"
         
         print('data_grid',data_grid)
@@ -628,6 +638,7 @@ class SphericalFourierNeuralOperatorNet(torch.nn.Module):
                 complex_activation=self.complex_activation,
                 spectral_layers=self.spectral_layers,
                 checkpointing=self.checkpointing,
+                spectral_contraction_fp16=self.spectral_contraction_fp16,
             )
 
             self.blocks.append(block)
