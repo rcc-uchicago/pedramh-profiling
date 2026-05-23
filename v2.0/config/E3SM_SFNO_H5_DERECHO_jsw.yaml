@@ -38,7 +38,7 @@ base_config: &BASE
 
   entity: 'jesswan-university-of-chicago'
   project: 'E3SM-SRM-SFNO'
-  name: E3SM-SRM-SFNO-CTL_SST0051_REST0101-0009
+  name: E3SM-SRM-SFNO-CTL_SST0051_REST0101-0010
 
 
 PLASIM: &PLASIM
@@ -227,7 +227,7 @@ SFNO: &SFNO
   complex_network: True
   complex_activation: 'real'
   spectral_layers: 3
-  checkpointing: 2
+  checkpointing: 3 #2
   sync_norm: True
 
 modified_1: &MODIFIED

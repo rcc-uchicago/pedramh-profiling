@@ -53,7 +53,8 @@ export OMP_NUM_THREADS=1 #OMP_NUM_THREADS=(cpus/gpu)/batch_size
 if [[ "$DEBUG" == "1" ]]; then
 	CMD="python train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --debug --config=SFNO"
 else
-	CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO"
+	# CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO"
+    CMD="python -m torch.distributed.launch --nproc_per_node=${NUM_TASKS_PER_NODE} train.py --yaml_config=${YAML_CONFIG} --run_num=${RUN_NUM} --config=SFNO --amp_dtype=bfloat16 --use_zero_optimizer='true'"
 fi
 # if [[ -z "$JOBID" ]]; then
 # 	CMD+=" --fresh_start"

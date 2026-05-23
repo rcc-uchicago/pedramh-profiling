@@ -1,0 +1,500 @@
+/glade/u/apps/opt/miniforge/25.11/condabin/conda
+Sun May 17 17:32:41 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.65.06              Driver Version: 580.65.06      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   26C    P0             50W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 1 WORLD_SIZE= 1
+/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py:208: FutureWarning: The module torch.distributed.launch is deprecated
+and will be removed in future. Use torchrun.
+Note that --use-env is set by default in torchrun.
+If your script expects `--local-rank` argument to be set, please
+change it to read from `os.environ['LOCAL_RANK']` instead. See 
+https://pytorch.org/docs/stable/distributed.html#launch-utility for 
+further instructions
+
+  main()
+2026-05-17 17:33:55,230 - root - INFO - Torch version: 2.6.0+cu124
+2026-05-17 17:33:55,230 - root - INFO - Torch version: 2.6.0+cu124
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 1
+1
+World size from Cuda: 1
+2026-05-17 17:33:55,438 - root - INFO - Initialized single-GPU process group (nccl) so that DDP and dist-dependent code paths are consistent.
+2026-05-17 17:33:55,438 - root - INFO - Initialized single-GPU process group (nccl) so that DDP and dist-dependent code paths are consistent.
+World size from OS: 1
+World size from Cuda: 1
+NVIDIA A100-SXM4-40GB
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+2026-05-17 17:33:56,418 - root - INFO - No checkpoint found. Starting fresh training run.
+2026-05-17 17:33:56,418 - root - INFO - No checkpoint found. Starting fresh training run.
+Using PyTorch native
+2026-05-17 17:33:56,418 - root - INFO - --------------- Versions ---------------
+2026-05-17 17:33:56,418 - root - INFO - --------------- Versions ---------------
+2026-05-17 17:33:56,418 - root - INFO - Torch: 2.6.0+cu124
+2026-05-17 17:33:56,418 - root - INFO - Torch: 2.6.0+cu124
+2026-05-17 17:33:56,419 - root - INFO - ----------------------------------------
+2026-05-17 17:33:56,419 - root - INFO - ----------------------------------------
+2026-05-17 17:33:56,419 - root - INFO - ------------------ Configuration ------------------
+2026-05-17 17:33:56,419 - root - INFO - ------------------ Configuration ------------------
+2026-05-17 17:33:56,419 - root - INFO - Configuration file: /glade/work/jesswan/UChicago/PanguWeather/v2.0/config/E3SM_SFNO_H5_DERECHO_jsw.yaml
+2026-05-17 17:33:56,419 - root - INFO - Configuration file: /glade/work/jesswan/UChicago/PanguWeather/v2.0/config/E3SM_SFNO_H5_DERECHO_jsw.yaml
+2026-05-17 17:33:56,419 - root - INFO - Configuration name: SFNO
+2026-05-17 17:33:56,419 - root - INFO - Configuration name: SFNO
+2026-05-17 17:33:56,419 - root - INFO - nettype sfno_plasim
+2026-05-17 17:33:56,419 - root - INFO - nettype sfno_plasim
+2026-05-17 17:33:56,420 - root - INFO - scheduler LinearWarmupCosineAnnealingLR
+2026-05-17 17:33:56,420 - root - INFO - scheduler LinearWarmupCosineAnnealingLR
+2026-05-17 17:33:56,420 - root - INFO - num_warmup_epochs 5
+2026-05-17 17:33:56,420 - root - INFO - num_warmup_epochs 5
+2026-05-17 17:33:56,420 - root - INFO - warmup_start_lr 1e-08
+2026-05-17 17:33:56,420 - root - INFO - warmup_start_lr 1e-08
+2026-05-17 17:33:56,420 - root - INFO - eta_min 1e-08
+2026-05-17 17:33:56,420 - root - INFO - eta_min 1e-08
+2026-05-17 17:33:56,420 - root - INFO - loss raw_l2
+2026-05-17 17:33:56,420 - root - INFO - loss raw_l2
+2026-05-17 17:33:56,420 - root - INFO - lr 0.0001
+2026-05-17 17:33:56,420 - root - INFO - lr 0.0001
+2026-05-17 17:33:56,420 - root - INFO - checkpoint_save_interval 1
+2026-05-17 17:33:56,420 - root - INFO - checkpoint_save_interval 1
+2026-05-17 17:33:56,420 - root - INFO - max_checkpoints_to_keep 1000
+2026-05-17 17:33:56,420 - root - INFO - max_checkpoints_to_keep 1000
+2026-05-17 17:33:56,420 - root - INFO - use_ema True
+2026-05-17 17:33:56,420 - root - INFO - use_ema True
+2026-05-17 17:33:56,421 - root - INFO - ema_decay 0.999
+2026-05-17 17:33:56,421 - root - INFO - ema_decay 0.999
+2026-05-17 17:33:56,421 - root - INFO - ema_warmup_epochs 6
+2026-05-17 17:33:56,421 - root - INFO - ema_warmup_epochs 6
+2026-05-17 17:33:56,421 - root - INFO - curriculum_learning False
+2026-05-17 17:33:56,421 - root - INFO - curriculum_learning False
+2026-05-17 17:33:56,421 - root - INFO - ensemble_validation False
+2026-05-17 17:33:56,421 - root - INFO - ensemble_validation False
+2026-05-17 17:33:56,421 - root - INFO - balanced_learning False
+2026-05-17 17:33:56,421 - root - INFO - balanced_learning False
+2026-05-17 17:33:56,421 - root - INFO - spectral_transform sht
+2026-05-17 17:33:56,421 - root - INFO - spectral_transform sht
+2026-05-17 17:33:56,421 - root - INFO - filter_type linear
+2026-05-17 17:33:56,421 - root - INFO - filter_type linear
+2026-05-17 17:33:56,421 - root - INFO - operator_type dhconv
+2026-05-17 17:33:56,421 - root - INFO - operator_type dhconv
+2026-05-17 17:33:56,421 - root - INFO - scale_factor 1
+2026-05-17 17:33:56,421 - root - INFO - scale_factor 1
+2026-05-17 17:33:56,421 - root - INFO - embed_dim 512
+2026-05-17 17:33:56,421 - root - INFO - embed_dim 512
+2026-05-17 17:33:56,422 - root - INFO - num_layers 12
+2026-05-17 17:33:56,422 - root - INFO - num_layers 12
+2026-05-17 17:33:56,422 - root - INFO - use_mlp True
+2026-05-17 17:33:56,422 - root - INFO - use_mlp True
+2026-05-17 17:33:56,422 - root - INFO - mlp_ratio 2.0
+2026-05-17 17:33:56,422 - root - INFO - mlp_ratio 2.0
+2026-05-17 17:33:56,422 - root - INFO - activation_function gelu
+2026-05-17 17:33:56,422 - root - INFO - activation_function gelu
+2026-05-17 17:33:56,422 - root - INFO - encoder_layers 1
+2026-05-17 17:33:56,422 - root - INFO - encoder_layers 1
+2026-05-17 17:33:56,422 - root - INFO - pos_embed True
+2026-05-17 17:33:56,422 - root - INFO - pos_embed True
+2026-05-17 17:33:56,422 - root - INFO - drop_rate 0.0
+2026-05-17 17:33:56,422 - root - INFO - drop_rate 0.0
+2026-05-17 17:33:56,422 - root - INFO - drop_path_rate 0.0
+2026-05-17 17:33:56,422 - root - INFO - drop_path_rate 0.0
+2026-05-17 17:33:56,422 - root - INFO - num_blocks 16
+2026-05-17 17:33:56,422 - root - INFO - num_blocks 16
+2026-05-17 17:33:56,422 - root - INFO - sparsity_threshold 0.0
+2026-05-17 17:33:56,422 - root - INFO - sparsity_threshold 0.0
+2026-05-17 17:33:56,423 - root - INFO - normalization_layer instance_norm
+2026-05-17 17:33:56,423 - root - INFO - normalization_layer instance_norm
+2026-05-17 17:33:56,423 - root - INFO - hard_thresholding_fraction 1.0
+2026-05-17 17:33:56,423 - root - INFO - hard_thresholding_fraction 1.0
+2026-05-17 17:33:56,423 - root - INFO - use_complex_kernels True
+2026-05-17 17:33:56,423 - root - INFO - use_complex_kernels True
+2026-05-17 17:33:56,423 - root - INFO - big_skip True
+2026-05-17 17:33:56,423 - root - INFO - big_skip True
+2026-05-17 17:33:56,423 - root - INFO - rank 1.0
+2026-05-17 17:33:56,423 - root - INFO - rank 1.0
+2026-05-17 17:33:56,423 - root - INFO - factorization None
+2026-05-17 17:33:56,423 - root - INFO - factorization None
+2026-05-17 17:33:56,423 - root - INFO - separable False
+2026-05-17 17:33:56,423 - root - INFO - separable False
+2026-05-17 17:33:56,423 - root - INFO - complex_network True
+2026-05-17 17:33:56,423 - root - INFO - complex_network True
+2026-05-17 17:33:56,423 - root - INFO - complex_activation real
+2026-05-17 17:33:56,423 - root - INFO - complex_activation real
+2026-05-17 17:33:56,423 - root - INFO - spectral_layers 3
+2026-05-17 17:33:56,423 - root - INFO - spectral_layers 3
+2026-05-17 17:33:56,424 - root - INFO - checkpointing 3
+2026-05-17 17:33:56,424 - root - INFO - checkpointing 3
+2026-05-17 17:33:56,424 - root - INFO - sync_norm True
+2026-05-17 17:33:56,424 - root - INFO - sync_norm True
+2026-05-17 17:33:56,424 - root - INFO - data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/sigma_data
+2026-05-17 17:33:56,424 - root - INFO - data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/sigma_data
+2026-05-17 17:33:56,424 - root - INFO - bias_data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/bias
+2026-05-17 17:33:56,424 - root - INFO - bias_data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/bias
+2026-05-17 17:33:56,424 - root - INFO - upper_air_variables ['T', 'U', 'V', 'Z3', 'RELHUM']
+2026-05-17 17:33:56,424 - root - INFO - upper_air_variables ['T', 'U', 'V', 'Z3', 'RELHUM']
+2026-05-17 17:33:56,424 - root - INFO - surface_variables ['TREFHT', 'U10', 'RHREFHT', 'PS', 'PSL', 'TMQ']
+2026-05-17 17:33:56,424 - root - INFO - surface_variables ['TREFHT', 'U10', 'RHREFHT', 'PS', 'PSL', 'TMQ']
+2026-05-17 17:33:56,424 - root - INFO - diagnostic_variables ['FSNTOA', 'FSNT', 'PRECT']
+2026-05-17 17:33:56,424 - root - INFO - diagnostic_variables ['FSNTOA', 'FSNT', 'PRECT']
+2026-05-17 17:33:56,424 - root - INFO - land_variables ['SOILWATER_10CM', 'TSOI_10CM']
+2026-05-17 17:33:56,424 - root - INFO - land_variables ['SOILWATER_10CM', 'TSOI_10CM']
+2026-05-17 17:33:56,424 - root - INFO - ocean_variables []
+2026-05-17 17:33:56,424 - root - INFO - ocean_variables []
+2026-05-17 17:33:56,425 - root - INFO - mask_output False
+2026-05-17 17:33:56,425 - root - INFO - mask_output False
+2026-05-17 17:33:56,425 - root - INFO - constant_boundary_variables ['PCT_GLACIER', 'PFTDATA_MASK', 'PCT_NATVEG', 'TOPO']
+2026-05-17 17:33:56,425 - root - INFO - constant_boundary_variables ['PCT_GLACIER', 'PFTDATA_MASK', 'PCT_NATVEG', 'TOPO']
+2026-05-17 17:33:56,425 - root - INFO - varying_boundary_variables ['SST', 'ICE', 'sol_in']
+2026-05-17 17:33:56,425 - root - INFO - varying_boundary_variables ['SST', 'ICE', 'sol_in']
+2026-05-17 17:33:56,426 - root - INFO - train_year_start 2015
+2026-05-17 17:33:56,426 - root - INFO - train_year_start 2015
+2026-05-17 17:33:56,426 - root - INFO - train_year_end 2040
+2026-05-17 17:33:56,426 - root - INFO - train_year_end 2040
+2026-05-17 17:33:56,426 - root - INFO - val_year_start 2045
+2026-05-17 17:33:56,426 - root - INFO - val_year_start 2045
+2026-05-17 17:33:56,426 - root - INFO - val_year_end 2050
+2026-05-17 17:33:56,426 - root - INFO - val_year_end 2050
+2026-05-17 17:33:56,427 - root - INFO - long_validation True
+2026-05-17 17:33:56,427 - root - INFO - long_validation True
+2026-05-17 17:33:56,427 - root - INFO - long_val_year_start 2045
+2026-05-17 17:33:56,427 - root - INFO - long_val_year_start 2045
+2026-05-17 17:33:56,427 - root - INFO - long_rollout_years 5
+2026-05-17 17:33:56,427 - root - INFO - long_rollout_years 5
+2026-05-17 17:33:56,427 - root - INFO - epochs_per_long_validation 1
+2026-05-17 17:33:56,427 - root - INFO - epochs_per_long_validation 1
+2026-05-17 17:33:56,427 - root - INFO - mask_fill {'SOILWATER_10CM': 0.0, 'TSOI_10CM': 270.0, 'PCT_GLACIER': 0.0, 'PFTDATA_MASK': 0.0, 'PCT_NATVEG': 0.0, 'TOPO': 0.0, 'SST': 270.0, 'ICE': 0.0}
+2026-05-17 17:33:56,427 - root - INFO - mask_fill {'SOILWATER_10CM': 0.0, 'TSOI_10CM': 270.0, 'PCT_GLACIER': 0.0, 'PFTDATA_MASK': 0.0, 'PCT_NATVEG': 0.0, 'TOPO': 0.0, 'SST': 270.0, 'ICE': 0.0}
+2026-05-17 17:33:56,427 - root - INFO - data_timedelta_hours 6
+2026-05-17 17:33:56,427 - root - INFO - data_timedelta_hours 6
+2026-05-17 17:33:56,427 - root - INFO - surface_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,427 - root - INFO - surface_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,427 - root - INFO - surface_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,427 - root - INFO - surface_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,427 - root - INFO - surface_ff_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,427 - root - INFO - surface_ff_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - upper_air_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,428 - root - INFO - upper_air_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,428 - root - INFO - upper_air_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - upper_air_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - upper_air_ff_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - upper_air_ff_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - boundary_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,428 - root - INFO - boundary_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,428 - root - INFO - boundary_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - boundary_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - diagnostic_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,428 - root - INFO - diagnostic_mean data_2015-2050_mean.nc
+2026-05-17 17:33:56,428 - root - INFO - diagnostic_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - diagnostic_std data_2015-2050_std_corr.nc
+2026-05-17 17:33:56,428 - root - INFO - climatology_file climatology.nc
+2026-05-17 17:33:56,428 - root - INFO - climatology_file climatology.nc
+2026-05-17 17:33:56,428 - root - INFO - calendar 365_day
+2026-05-17 17:33:56,428 - root - INFO - calendar 365_day
+2026-05-17 17:33:56,428 - root - INFO - timedelta_hours 6
+2026-05-17 17:33:56,428 - root - INFO - timedelta_hours 6
+2026-05-17 17:33:56,429 - root - INFO - has_year_zero True
+2026-05-17 17:33:56,429 - root - INFO - has_year_zero True
+2026-05-17 17:33:56,429 - root - INFO - num_levels 18
+2026-05-17 17:33:56,429 - root - INFO - num_levels 18
+2026-05-17 17:33:56,429 - root - INFO - use_sigma_levels True
+2026-05-17 17:33:56,429 - root - INFO - use_sigma_levels True
+2026-05-17 17:33:56,429 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-05-17 17:33:56,429 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-05-17 17:33:56,429 - root - INFO - sigma_levels [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 925.5197481473349, 998.4964394917621]
+2026-05-17 17:33:56,429 - root - INFO - sigma_levels [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 925.5197481473349, 998.4964394917621]
+2026-05-17 17:33:56,429 - root - INFO - horizontal_resolution [180, 360]
+2026-05-17 17:33:56,429 - root - INFO - horizontal_resolution [180, 360]
+2026-05-17 17:33:56,429 - root - INFO - depths [2, 6, 6, 2]
+2026-05-17 17:33:56,429 - root - INFO - depths [2, 6, 6, 2]
+2026-05-17 17:33:56,429 - root - INFO - predict_delta False
+2026-05-17 17:33:56,429 - root - INFO - predict_delta False
+2026-05-17 17:33:56,429 - root - INFO - patch_size [2, 2, 2]
+2026-05-17 17:33:56,429 - root - INFO - patch_size [2, 2, 2]
+2026-05-17 17:33:56,429 - root - INFO - updown_scale_factor 2
+2026-05-17 17:33:56,429 - root - INFO - updown_scale_factor 2
+2026-05-17 17:33:56,430 - root - INFO - window_size [2, 2, 4]
+2026-05-17 17:33:56,430 - root - INFO - window_size [2, 2, 4]
+2026-05-17 17:33:56,430 - root - INFO - epsilon_factor 0.1
+2026-05-17 17:33:56,430 - root - INFO - epsilon_factor 0.1
+2026-05-17 17:33:56,430 - root - INFO - perturbation_type gaussian_noise
+2026-05-17 17:33:56,430 - root - INFO - perturbation_type gaussian_noise
+2026-05-17 17:33:56,430 - root - INFO - upper_air_boundary False
+2026-05-17 17:33:56,430 - root - INFO - upper_air_boundary False
+2026-05-17 17:33:56,430 - root - INFO - subpixel_deconv True
+2026-05-17 17:33:56,430 - root - INFO - subpixel_deconv True
+2026-05-17 17:33:56,430 - root - INFO - recovery_head True
+2026-05-17 17:33:56,430 - root - INFO - recovery_head True
+2026-05-17 17:33:56,430 - root - INFO - diagnostic_head False
+2026-05-17 17:33:56,430 - root - INFO - diagnostic_head False
+2026-05-17 17:33:56,430 - root - INFO - vertical_windowing False
+2026-05-17 17:33:56,430 - root - INFO - vertical_windowing False
+2026-05-17 17:33:56,430 - root - INFO - train_year_to_year False
+2026-05-17 17:33:56,430 - root - INFO - train_year_to_year False
+2026-05-17 17:33:56,430 - root - INFO - polar_pad False
+2026-05-17 17:33:56,430 - root - INFO - polar_pad False
+2026-05-17 17:33:56,431 - root - INFO - grid_has_poles False
+2026-05-17 17:33:56,431 - root - INFO - grid_has_poles False
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_logs True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_logs True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_acc True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_acc True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_gif True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_gif True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_spectra True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_spectra True
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_acc_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_acc_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_gif_var_dict {'Z3': [492.46857402252755], 'U': [492.46857402252755, 256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_gif_var_dict {'Z3': [492.46857402252755], 'U': [492.46857402252755, 256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_spectrum_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_spectrum_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_bias_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - diagnostic_bias_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-17 17:33:56,431 - root - INFO - forecast_lead_times [1, 12, 20, 40, 60]
+2026-05-17 17:33:56,431 - root - INFO - forecast_lead_times [1, 12, 20, 40, 60]
+2026-05-17 17:33:56,432 - root - INFO - lev lev
+2026-05-17 17:33:56,432 - root - INFO - lev lev
+2026-05-17 17:33:56,432 - root - INFO - num_inferences 128
+2026-05-17 17:33:56,432 - root - INFO - num_inferences 128
+2026-05-17 17:33:56,432 - root - INFO - use_reentrant False
+2026-05-17 17:33:56,432 - root - INFO - use_reentrant False
+2026-05-17 17:33:56,432 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-05-17 17:33:56,432 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-05-17 17:33:56,432 - root - INFO - lon [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 358.5, 359.5]
+2026-05-17 17:33:56,432 - root - INFO - lon [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 358.5, 359.5]
+2026-05-17 17:33:56,432 - root - INFO - loglr -13
+2026-05-17 17:33:56,432 - root - INFO - loglr -13
+2026-05-17 17:33:56,432 - root - INFO - weight_decay 3e-06
+2026-05-17 17:33:56,432 - root - INFO - weight_decay 3e-06
+2026-05-17 17:33:56,432 - root - INFO - num_data_workers 1
+2026-05-17 17:33:56,432 - root - INFO - num_data_workers 1
+2026-05-17 17:33:56,432 - root - INFO - batch_size 1
+2026-05-17 17:33:56,432 - root - INFO - batch_size 1
+2026-05-17 17:33:56,433 - root - INFO - max_epochs 100
+2026-05-17 17:33:56,433 - root - INFO - max_epochs 100
+2026-05-17 17:33:56,433 - root - INFO - no_leap_year 2020
+2026-05-17 17:33:56,433 - root - INFO - no_leap_year 2020
+2026-05-17 17:33:56,433 - root - INFO - leap_year 2020
+2026-05-17 17:33:56,433 - root - INFO - leap_year 2020
+2026-05-17 17:33:56,433 - root - INFO - log_to_screen True
+2026-05-17 17:33:56,433 - root - INFO - log_to_screen True
+2026-05-17 17:33:56,433 - root - INFO - log_to_wandb True
+2026-05-17 17:33:56,433 - root - INFO - log_to_wandb True
+2026-05-17 17:33:56,433 - root - INFO - save_checkpoint True
+2026-05-17 17:33:56,433 - root - INFO - save_checkpoint True
+2026-05-17 17:33:56,433 - root - INFO - save_forecasts True
+2026-05-17 17:33:56,433 - root - INFO - save_forecasts True
+2026-05-17 17:33:56,433 - root - INFO - optimizer_type AdamW
+2026-05-17 17:33:56,433 - root - INFO - optimizer_type AdamW
+2026-05-17 17:33:56,433 - root - INFO - plot_animations False
+2026-05-17 17:33:56,433 - root - INFO - plot_animations False
+2026-05-17 17:33:56,433 - root - INFO - group plasim
+2026-05-17 17:33:56,433 - root - INFO - group plasim
+2026-05-17 17:33:56,434 - root - INFO - exp_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results
+2026-05-17 17:33:56,434 - root - INFO - exp_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results
+2026-05-17 17:33:56,434 - root - INFO - enable_fp8 False
+2026-05-17 17:33:56,434 - root - INFO - enable_fp8 False
+2026-05-17 17:33:56,434 - root - INFO - fresh_start False
+2026-05-17 17:33:56,434 - root - INFO - fresh_start False
+2026-05-17 17:33:56,434 - root - INFO - use_transformer_engine False
+2026-05-17 17:33:56,434 - root - INFO - use_transformer_engine False
+2026-05-17 17:33:56,434 - root - INFO - early_stopping False
+2026-05-17 17:33:56,434 - root - INFO - early_stopping False
+2026-05-17 17:33:56,434 - root - INFO - entity jesswan-university-of-chicago
+2026-05-17 17:33:56,434 - root - INFO - entity jesswan-university-of-chicago
+2026-05-17 17:33:56,434 - root - INFO - project E3SM-SRM-SFNO
+2026-05-17 17:33:56,434 - root - INFO - project E3SM-SRM-SFNO
+2026-05-17 17:33:56,434 - root - INFO - name E3SM-SRM-SFNO-CTL_SST0051_REST0101-0010
+2026-05-17 17:33:56,434 - root - INFO - name E3SM-SRM-SFNO-CTL_SST0051_REST0101-0010
+2026-05-17 17:33:56,434 - root - INFO - enable_amp True
+2026-05-17 17:33:56,434 - root - INFO - enable_amp True
+2026-05-17 17:33:56,434 - root - INFO - amp_dtype bfloat16
+2026-05-17 17:33:56,434 - root - INFO - amp_dtype bfloat16
+2026-05-17 17:33:56,435 - root - INFO - use_zero_optimizer True
+2026-05-17 17:33:56,435 - root - INFO - use_zero_optimizer True
+2026-05-17 17:33:56,435 - root - INFO - vae_loss False
+2026-05-17 17:33:56,435 - root - INFO - vae_loss False
+2026-05-17 17:33:56,435 - root - INFO - mode train
+2026-05-17 17:33:56,435 - root - INFO - mode train
+2026-05-17 17:33:56,435 - root - INFO - test_iterations 30
+2026-05-17 17:33:56,435 - root - INFO - test_iterations 30
+2026-05-17 17:33:56,435 - root - INFO - run_iter 1
+2026-05-17 17:33:56,435 - root - INFO - run_iter 1
+2026-05-17 17:33:56,435 - root - INFO - use_legacy_model False
+2026-05-17 17:33:56,435 - root - INFO - use_legacy_model False
+2026-05-17 17:33:56,435 - root - INFO - has_diagnostic True
+2026-05-17 17:33:56,435 - root - INFO - has_diagnostic True
+2026-05-17 17:33:56,435 - root - INFO - num_ensemble_members 1
+2026-05-17 17:33:56,435 - root - INFO - num_ensemble_members 1
+2026-05-17 17:33:56,435 - root - INFO - just_validate False
+2026-05-17 17:33:56,435 - root - INFO - just_validate False
+2026-05-17 17:33:56,435 - root - INFO - validation_epochs []
+2026-05-17 17:33:56,435 - root - INFO - validation_epochs []
+2026-05-17 17:33:56,436 - root - INFO - validate_before_train False
+2026-05-17 17:33:56,436 - root - INFO - validate_before_train False
+2026-05-17 17:33:56,436 - root - INFO - debug False
+2026-05-17 17:33:56,436 - root - INFO - debug False
+2026-05-17 17:33:56,436 - root - INFO - world_size 1
+2026-05-17 17:33:56,436 - root - INFO - world_size 1
+2026-05-17 17:33:56,436 - root - INFO - global_batch_size 1
+2026-05-17 17:33:56,436 - root - INFO - global_batch_size 1
+2026-05-17 17:33:56,436 - root - INFO - seed 0
+2026-05-17 17:33:56,436 - root - INFO - seed 0
+2026-05-17 17:33:56,436 - root - INFO - experiment_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010
+2026-05-17 17:33:56,436 - root - INFO - experiment_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010
+2026-05-17 17:33:56,436 - root - INFO - checkpoint_dir_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints
+2026-05-17 17:33:56,436 - root - INFO - checkpoint_dir_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints
+2026-05-17 17:33:56,436 - root - INFO - checkpoint_dir_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints
+2026-05-17 17:33:56,436 - root - INFO - checkpoint_dir_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints
+2026-05-17 17:33:56,436 - root - INFO - plots_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots
+2026-05-17 17:33:56,436 - root - INFO - plots_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots
+2026-05-17 17:33:56,436 - root - INFO - spectra_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/spectra
+2026-05-17 17:33:56,436 - root - INFO - spectra_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/spectra
+2026-05-17 17:33:56,437 - root - INFO - acc_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/acc
+2026-05-17 17:33:56,437 - root - INFO - acc_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/acc
+2026-05-17 17:33:56,437 - root - INFO - gif_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/gif
+2026-05-17 17:33:56,437 - root - INFO - gif_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/gif
+2026-05-17 17:33:56,437 - root - INFO - bias_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/bias
+2026-05-17 17:33:56,437 - root - INFO - bias_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/bias
+2026-05-17 17:33:56,437 - root - INFO - validation_data_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/validation_data
+2026-05-17 17:33:56,437 - root - INFO - validation_data_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/validation_data
+2026-05-17 17:33:56,437 - root - INFO - checkpoint_path_globstr_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_epoch_*.tar
+2026-05-17 17:33:56,437 - root - INFO - checkpoint_path_globstr_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_epoch_*.tar
+2026-05-17 17:33:56,437 - root - INFO - checkpoint_path_globstr_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_epoch_*.tar
+2026-05-17 17:33:56,437 - root - INFO - checkpoint_path_globstr_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_epoch_*.tar
+2026-05-17 17:33:56,437 - root - INFO - best_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/best_ckpt.tar
+2026-05-17 17:33:56,437 - root - INFO - best_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/best_ckpt.tar
+2026-05-17 17:33:56,437 - root - INFO - best_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/best_ckpt.tar
+2026-05-17 17:33:56,437 - root - INFO - best_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/best_ckpt.tar
+2026-05-17 17:33:56,437 - root - INFO - latest_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_latest.tar
+2026-05-17 17:33:56,437 - root - INFO - latest_checkpoint_path_save /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_latest.tar
+2026-05-17 17:33:56,437 - root - INFO - latest_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_latest.tar
+2026-05-17 17:33:56,437 - root - INFO - latest_checkpoint_path_load /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/checkpoints/ckpt_latest.tar
+2026-05-17 17:33:56,437 - root - INFO - plot_save_interval 10
+2026-05-17 17:33:56,437 - root - INFO - plot_save_interval 10
+2026-05-17 17:33:56,438 - root - INFO - max_plots_to_keep 5
+2026-05-17 17:33:56,438 - root - INFO - max_plots_to_keep 5
+2026-05-17 17:33:56,438 - root - INFO - resuming False
+2026-05-17 17:33:56,438 - root - INFO - resuming False
+2026-05-17 17:33:56,438 - root - INFO - finetuning False
+2026-05-17 17:33:56,438 - root - INFO - finetuning False
+2026-05-17 17:33:56,438 - root - INFO - local_rank 0
+2026-05-17 17:33:56,438 - root - INFO - local_rank 0
+2026-05-17 17:33:56,438 - root - INFO - ---------------------------------------------------
+2026-05-17 17:33:56,438 - root - INFO - ---------------------------------------------------
+2026-05-17 17:33:56,455 - root - INFO - Initialized wandb_step: 0
+2026-05-17 17:33:56,455 - root - INFO - Initialized wandb_step: 0
+2026-05-17 17:33:56,456 - root - INFO - rank 0, begin data loader init
+2026-05-17 17:33:56,456 - root - INFO - rank 0, begin data loader init
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36499
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 129
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 7300
+2026-05-17 17:36:27,591 - root - INFO - rank 0, data loader initialized
+2026-05-17 17:36:27,591 - root - INFO - rank 0, data loader initialized
+2026-05-17 17:36:27,591 - root - INFO - Output directories under: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010
+2026-05-17 17:36:27,591 - root - INFO - Output directories under: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010
+2026-05-17 17:36:27,591 - root - INFO -   Spectra: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/spectra
+2026-05-17 17:36:27,591 - root - INFO -   Spectra: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/spectra
+2026-05-17 17:36:27,591 - root - INFO -   GIFs: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/gif
+2026-05-17 17:36:27,591 - root - INFO -   GIFs: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/gif
+2026-05-17 17:36:27,592 - root - INFO -   ACC plots: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/acc
+2026-05-17 17:36:27,592 - root - INFO -   ACC plots: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/acc
+2026-05-17 17:36:27,592 - root - INFO -   Bias plots: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/bias
+2026-05-17 17:36:27,592 - root - INFO -   Bias plots: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0010/plots/bias
+2026-05-17 17:36:27,592 - root - INFO - WandB resume mode: never
+2026-05-17 17:36:27,592 - root - INFO - WandB resume mode: never
+wandb: Currently logged in as: jesswan (jesswan-university-of-chicago) to https://api.wandb.ai. Use `wandb login --relogin` to force relogin
+wandb: Using wandb-core as the SDK backend.  Please refer to https://wandb.me/wandb-core for more information.
+wandb: Tracking run with wandb version 0.19.6
+wandb: Run data is saved locally in /glade/work/jesswan/UChicago/PanguWeather/v2.0/wandb/run-20260517_173627-vl9yprbm
+wandb: Run `wandb offline` to turn off syncing.
+wandb: Syncing run E3SM-SRM-SFNO-CTL_SST0051_REST0101-0010-1
+wandb: ⭐️ View project at https://wandb.ai/jesswan-university-of-chicago/E3SM-SRM-SFNO
+wandb: 🚀 View run at https://wandb.ai/jesswan-university-of-chicago/E3SM-SRM-SFNO/runs/vl9yprbm
+2026-05-17 17:36:31,537 - root - INFO - WandB initialized with config: <utils.YParams.YParams object at 0x153000c04f10>
+2026-05-17 17:36:31,537 - root - INFO - WandB initialized with config: <utils.YParams.YParams object at 0x153000c04f10>
+2026-05-17 17:36:31,548 - root - INFO - Params
+2026-05-17 17:36:31,548 - root - INFO - Params
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x152fa8a2ba10>
+2026-05-17 17:36:38,755 - root - INFO - Rank 0 Loaded EMA with decay = 0.999
+2026-05-17 17:36:38,755 - root - INFO - Rank 0 Loaded EMA with decay = 0.999
+2026-05-17 17:36:39,898 - root - INFO - Using ZeroRedundancyOptimizer (Stage 1) wrapping AdamW across 1 ranks.
+2026-05-17 17:36:39,898 - root - INFO - Using ZeroRedundancyOptimizer (Stage 1) wrapping AdamW across 1 ranks.
+2026-05-17 17:36:39,898 - root - INFO - Losses is setup
+2026-05-17 17:36:39,898 - root - INFO - Losses is setup
+2026-05-17 17:36:39,899 - root - INFO - Starting fresh training run
+2026-05-17 17:36:39,899 - root - INFO - Starting fresh training run
+2026-05-17 17:36:39,900 - root - INFO - Number of trainable model parameters: 1182108160
+2026-05-17 17:36:39,900 - root - INFO - Number of trainable model parameters: 1182108160
+2026-05-17 17:36:39,900 - root - INFO - Starting Training Loop...
+2026-05-17 17:36:39,900 - root - INFO - Starting Training Loop...
+2026-05-17 17:36:39,900 - root - INFO - Starting epoch 1/100
+2026-05-17 17:36:39,900 - root - INFO - Starting epoch 1/100
+2026-05-17 17:36:39,901 - root - INFO - Expected total batches: 36499
+2026-05-17 17:36:39,901 - root - INFO - Expected total batches: 36499
+  0%|                              | 0/36499 [00:00<?, ?it/s][rank0]:[W517 17:36:43.799062598 reducer.cpp:1400] Warning: find_unused_parameters=True was specified in DDP constructor, but did not find any unused parameters in the forward pass. This flag results in an extra traversal of the autograd graph every iteration,  which can adversely affect performance. If your model indeed never has any unused parameters in the forward pass, consider turning this flag off. Note that this warning may be a false positive if your model has flow control causing later iterations to have unused parameters. (function operator())
+Epoch [1/100], Year 2015, Loss: 0.9314:   0%|                              | 0/36499 [02:53<?, ?it/s]Epoch [1/100], Year 2015, Loss: 0.9314:   0%|                              | 1/36499 [02:53<1760:51:55, 173.68s/it]Epoch [1/100], Year 2015, Loss: 0.8106:   0%|                              | 1/36499 [05:42<1760:51:55, 173.68s/it]Epoch [1/100], Year 2015, Loss: 0.8106:   0%|                              | 2/36499 [05:42<1734:08:16, 171.05s/it]Epoch [1/100], Year 2015, Loss: 0.9207:   0%|                              | 2/36499 [08:31<1734:08:16, 171.05s/it]Epoch [1/100], Year 2015, Loss: 0.9207:   0%|                              | 3/36499 [08:31<1723:05:59, 169.97s/it]Epoch [1/100], Year 2015, Loss: 1.0161:   0%|                              | 3/36499 [11:15<1723:05:59, 169.97s/it]Epoch [1/100], Year 2015, Loss: 1.0161:   0%|                              | 4/36499 [11:15<1697:42:16, 167.47s/it]Epoch [1/100], Year 2015, Loss: 1.2467:   0%|                              | 4/36499 [14:26<1697:42:16, 167.47s/it]Epoch [1/100], Year 2015, Loss: 1.2467:   0%|                              | 5/36499 [14:26<1784:15:11, 176.01s/it]Epoch [1/100], Year 2015, Loss: 0.9097:   0%|                              | 5/36499 [17:08<1784:15:11, 176.01s/it]Epoch [1/100], Year 2015, Loss: 0.9097:   0%|                              | 6/36499 [17:08<1736:32:42, 171.31s/it]Epoch [1/100], Year 2015, Loss: 1.3081:   0%|                              | 6/36499 [19:49<1736:32:42, 171.31s/it]Epoch [1/100], Year 2015, Loss: 1.3081:   0%|                              | 7/36499 [19:49<1702:34:17, 167.96s/it]Epoch [1/100], Year 2015, Loss: 0.9154:   0%|                              | 7/36499 [22:33<1702:34:17, 167.96s/it]Epoch [1/100], Year 2015, Loss: 0.9154:   0%|                              | 8/36499 [22:33<1688:48:36, 166.61s/it]Epoch [1/100], Year 2015, Loss: 0.8908:   0%|                              | 8/36499 [25:15<1688:48:36, 166.61s/it]Epoch [1/100], Year 2015, Loss: 0.8908:   0%|                              | 9/36499 [25:15<1674:04:09, 165.16s/it]Epoch [1/100], Year 2015, Loss: 0.8134:   0%|                              | 9/36499 [28:22<1674:04:09, 165.16s/it]Epoch [1/100], Year 2015, Loss: 0.8134:   0%|                              | 10/36499 [28:22<1744:01:40, 172.07s/it]Epoch [1/100], Year 2015, Loss: 0.9696:   0%|                              | 10/36499 [31:05<1744:01:40, 172.07s/it]Epoch [1/100], Year 2015, Loss: 0.9696:   0%|                              | 11/36499 [31:05<1714:29:35, 169.16s/it]Epoch [1/100], Year 2015, Loss: 0.7314:   0%|                              | 11/36499 [33:46<1714:29:35, 169.16s/it]Epoch [1/100], Year 2015, Loss: 0.7314:   0%|                              | 12/36499 [33:46<1690:46:12, 166.82s/it]Epoch [1/100], Year 2015, Loss: 0.7677:   0%|                              | 12/36499 [36:25<1690:46:12, 166.82s/it]Epoch [1/100], Year 2015, Loss: 0.7677:   0%|                              | 13/36499 [36:25<1664:52:10, 164.27s/it]Epoch [1/100], Year 2015, Loss: 0.7648:   0%|                              | 13/36499 [38:59<1664:52:10, 164.27s/it]Epoch [1/100], Year 2015, Loss: 0.7648:   0%|                              | 14/36499 [38:59<1634:39:35, 161.29s/it]Epoch [1/100], Year 2015, Loss: 0.8054:   0%|                              | 14/36499 [41:58<1634:39:35, 161.29s/it]Epoch [1/100], Year 2015, Loss: 0.8054:   0%|                              | 15/36499 [41:58<1688:33:30, 166.62s/it]Epoch [1/100], Year 2015, Loss: 1.1283:   0%|                              | 15/36499 [44:32<1688:33:30, 166.62s/it]Epoch [1/100], Year 2015, Loss: 1.1283:   0%|                              | 16/36499 [44:32<1648:11:27, 162.64s/it]Epoch [1/100], Year 2015, Loss: 0.6809:   0%|                              | 16/36499 [47:04<1648:11:27, 162.64s/it]Epoch [1/100], Year 2015, Loss: 0.6809:   0%|                              | 17/36499 [47:04<1615:44:13, 159.44s/it]Epoch [1/100], Year 2015, Loss: 0.7120:   0%|                              | 17/36499 [49:42<1615:44:13, 159.44s/it]Epoch [1/100], Year 2015, Loss: 0.7120:   0%|                              | 18/36499 [49:42<1614:00:38, 159.27s/it]Epoch [1/100], Year 2015, Loss: 0.7927:   0%|                              | 18/36499 [52:18<1614:00:38, 159.27s/it]Epoch [1/100], Year 2015, Loss: 0.7927:   0%|                              | 19/36499 [52:18<1601:14:31, 158.02s/it]Epoch [1/100], Year 2015, Loss: 0.7691:   0%|                              | 19/36499 [55:21<1601:14:31, 158.02s/it]Epoch [1/100], Year 2015, Loss: 0.7691:   0%|                              | 20/36499 [55:21<1677:30:39, 165.55s/it]=>> PBS: job killed: walltime 3622 exceeded limit 3600
+W0517 18:33:00.143000 19830 site-packages/torch/distributed/elastic/agent/server/api.py:719] Received 15 death signal, shutting down workers
+W0517 18:33:00.143000 19830 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 24032 closing signal SIGTERM
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 208, in <module>
+    main()
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/typing_extensions.py", line 2853, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 204, in main
+    launch(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 189, in launch
+    run(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 260, in launch_agent
+    result = agent.run()
+             ^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/elastic/metrics/api.py", line 137, in wrapper
+    result = f(*args, **kwargs)
+             ^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/elastic/agent/server/api.py", line 711, in run
+    result = self._invoke_run(role)
+             ^^^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/elastic/agent/server/api.py", line 870, in _invoke_run
+    time.sleep(monitor_interval)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/elastic/multiprocessing/api.py", line 84, in _terminate_process_handler
+    raise SignalException(f"Process {os.getpid()} got signal: {sigval}", sigval=sigval)
+torch.distributed.elastic.multiprocessing.api.SignalException: Process 19830 got signal: 15
