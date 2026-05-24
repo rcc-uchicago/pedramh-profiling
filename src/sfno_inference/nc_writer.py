@@ -110,21 +110,29 @@ def write_rollout_nc(
     # Channel-IC coord: states only (drops the 53rd diagnostic name).
     channel_ic = list(channel_names[:n_chan_ic])
 
-    ds = xr.Dataset(
-        data_vars=dict(
-            prediction=(
-                ("init_time", "lead_time", "channel", "lat", "lon"),
-                pred[np.newaxis, ...],   # add init_time axis of length 1
-            ),
-            truth=(
-                ("init_time", "lead_time", "channel", "lat", "lon"),
-                truth[np.newaxis, ...],
-            ),
-            init_state=(
-                ("init_time", "channel_ic", "lat", "lon"),
-                init_state[np.newaxis, ...],
-            ),
+    data_vars = {
+        "prediction": (
+            ("init_time", "lead_time", "channel", "lat", "lon"),
+            pred[np.newaxis, ...],   # add init_time axis of length 1
         ),
+        "truth": (
+            ("init_time", "lead_time", "channel", "lat", "lon"),
+            truth[np.newaxis, ...],
+        ),
+        "init_state": (
+            ("init_time", "channel_ic", "lat", "lon"),
+            init_state[np.newaxis, ...],
+        ),
+    }
+    if result.truth_sic is not None:
+        truth_sic = result.truth_sic.numpy().astype(np.float32, copy=False)
+        data_vars["truth_sic"] = (
+            ("init_time", "lead_time", "lat", "lon"),
+            truth_sic[np.newaxis, ...],
+        )
+
+    ds = xr.Dataset(
+        data_vars=data_vars,
         coords=dict(
             init_time=("init_time", np.array([init_time])),
             lead_time=("lead_time", lead_time),
@@ -163,14 +171,20 @@ def write_rollout_nc(
     ds["prediction"].attrs["units"] = "physical (de-z-scored)"
     ds["truth"].attrs["units"] = "physical (de-z-scored)"
     ds["init_state"].attrs["units"] = "physical (de-z-scored)"
+    if "truth_sic" in ds.variables:
+        ds["truth_sic"].attrs["units"] = "fraction"
+        ds["truth_sic"].attrs["description"] = (
+            "Truth sea-ice fraction at each lead; NaN over land. "
+            "Downstream tas_no_ice mask uses sic >= 0.15 to drop sea-ice cells."
+        )
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     # zlib compression keeps each NetCDF roughly the size advertised in
     # §4 layout (~92 MB per NWP IC; ~2.36 GB per climate IC).
-    encoding = {
-        v: {"zlib": True, "complevel": 4} for v in ("prediction", "truth", "init_state")
-    }
+    base_vars = ("prediction", "truth", "init_state")
+    encoded_vars = base_vars + (("truth_sic",) if "truth_sic" in ds.variables else ())
+    encoding = {v: {"zlib": True, "complevel": 4} for v in encoded_vars}
     ds.to_netcdf(out_path, encoding=encoding, format="NETCDF4")
     return out_path

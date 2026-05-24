@@ -552,6 +552,7 @@ def process_one(sim: int, year: int, opts: argparse.Namespace) -> None:
 
         file_attrs = {
             "rsdt_method": "astronomical",
+            "sst_mode": str(boundary_ds.attrs.get("sst_mode", "ocean_era5")),
             "source_postproc": str(most_path.resolve()),
             "source_boundary": str(boundary_path.resolve()),
             "packager_git_sha": _resolve_git_sha(Path(__file__).resolve().parent),

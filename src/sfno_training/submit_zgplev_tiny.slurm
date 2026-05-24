@@ -30,15 +30,15 @@
 # `sim52_zgplev_tiny` built from the full root with the original
 # `--train-years 3 --valid-years 101` invocation):
 #   OUTPUT_ROOT — packager-output root (or symlink subset root). Default:
-#                 $SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny_proto
+#                 $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_tiny_proto
 #   EXP_DIR     — experiment output dir. Default:
-#                 $SCRATCH/AI-RES/runs/sfno_zgplev_tiny_proto
+#                 $SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_tiny_proto
 #
 # Build the proto subset (one-time) before launching:
 #
 #   scripts/build_subset_dataset.py \
-#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto \
-#       --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny_proto \
+#       --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_proto \
+#       --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_tiny_proto \
 #       --train-years 3 --valid-years 9
 #
 # Note on valid year: the proto packager output only has years 3-10
@@ -50,10 +50,10 @@
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 SFNO_JOB_NAME="sfno_zgplev_tiny"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny_proto}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_zgplev_tiny_proto}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_tiny_proto}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_tiny_proto}"
 MAIL_TO="${MAIL_TO:-zhixingliu@uchicago.edu}"
 source "$REPO_ROOT/src/sfno_training/slurm_helpers.sh"
 sfno_install_status_trap

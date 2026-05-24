@@ -12,11 +12,11 @@
 #   scripts/run_zgplev_short_ddp_sweep.sh "4 16"         # explicit subset
 #
 # Env overrides (optional):
-#   REPO_ROOT     — default $HOME/AI-RES
+#   REPO_ROOT     — default $HOME/projects/SFNO_Climate_Emulator
 #   OUTPUT_ROOT   — packaged short subset; default
-#                   $SCRATCH/AI-RES/data/makani/sim52_zgplev_short
+#                   $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_short
 #   SWEEP_ROOT    — parent dir for per-GB EXP_DIRs; default
-#                   $SCRATCH/AI-RES/runs/sfno_zgplev_short_ddp_sweep
+#                   $SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_short_ddp_sweep
 #   SLURM_SCRIPT  — path to submit_zgplev_short_ddp.slurm
 #
 # Each point is launched as an independent SLURM job; they queue and run
@@ -25,9 +25,9 @@
 
 set -euo pipefail
 
-REPO_ROOT="${REPO_ROOT:-$HOME/AI-RES}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_zgplev_short}"
-SWEEP_ROOT="${SWEEP_ROOT:-$SCRATCH/AI-RES/runs/sfno_zgplev_short_ddp_sweep}"
+REPO_ROOT="${REPO_ROOT:-$HOME/projects/SFNO_Climate_Emulator}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_short}"
+SWEEP_ROOT="${SWEEP_ROOT:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_short_ddp_sweep}"
 SLURM_SCRIPT="${SLURM_SCRIPT:-$REPO_ROOT/src/sfno_training/submit_zgplev_short_ddp.slurm}"
 
 GB_LIST="${1:-4 8 16 32}"

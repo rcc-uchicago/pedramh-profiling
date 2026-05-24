@@ -16,7 +16,7 @@ SIMS=""                # e.g. "30 31 32 33 34 35 36"
 YEAR_START=            # e.g. 1
 YEAR_END=              # e.g. 100
 INPUT_ROOT=            # e.g. /scratch/10000/amarchakitus/PLASIM/data
-OUTPUT_ROOT=           # e.g. $SCRATCH/AI-RES/data/postproc
+OUTPUT_ROOT=           # e.g. $SCRATCH/SFNO_Climate_Emulator/data/postproc
 
 # Set WITH_SEA_ICE=1 only if the source sims were run with sea ice enabled.
 # Leave empty (the default) otherwise — burn7 will fail if sic is requested on

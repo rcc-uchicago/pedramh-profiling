@@ -20,7 +20,7 @@
 > Four cleanup items: (1) deleted stale "torch_harmonics API plausible but not verified" note in §B.5 (already resolved at §J Q3); (2) refreshed §I device-mismatch risk row to describe the v2.7 safe type+index comparison instead of the old exact-equality test; (3) defined `out_bias` / `out_scale` explicitly from the run-dir stats at the top of §B.2 pseudocode; (4) added §A.4 pinning the **12 NWP ICs/year, monthly stride, no cross-file rollout** rule with a `s + K < n_samples` assertion. **Codex round-8 verdict: implementation-ready.**
 > **Author:** Zhixing Liu (with Claude Code)
 > **Depends on:**
-> - `docs/sfno_full_training_plan.md` v1.1 — training shipped; best checkpoint at `/scratch/11114/zhixingliu/AI-RES/runs/sfno_full/plasim_sim52_full/0/training_checkpoints/best_ckpt_mp0.tar`.
+> - `docs/sfno_full_training_plan.md` v1.1 — training shipped; best checkpoint at `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0/training_checkpoints/best_ckpt_mp0.tar`.
 > - `docs/sfno_training_implementation_plan.md` (the **"Hard gate on full emulator rollout (v2)"** section) — declares stock `Inferencer` out of scope and reserves `src/sfno_inference/` as the named deliverable.
 > - `docs/plasim_makani_packager_plan.md` v9 — dataset contract.
 > **Codebase deps:**
@@ -142,7 +142,7 @@
 
 **v2.1 — filesystem-verified resolutions (no Codex round needed):**
 
-1. **P-1 resolved.** Test files `MOST.0121.h5..MOST.0128.h5` confirmed present at `/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/test/` (verified 2026-04-29). v2 mistakenly only listed `train/` subdir; the canonical packager layout splits years by `split` attr into `train/` (years 12–100), `validation/` (diagnostic JSONs only — not data), and `test/` (years 121–128). §3 P-1 now records ✅ RESOLVED.
+1. **P-1 resolved.** Test files `MOST.0121.h5..MOST.0128.h5` confirmed present at `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/test/` (verified 2026-04-29). v2 mistakenly only listed `train/` subdir; the canonical packager layout splits years by `split` attr into `train/` (years 12–100), `validation/` (diagnostic JSONs only — not data), and `test/` (years 121–128). §3 P-1 now records ✅ RESOLVED.
 2. **Codex check 1 answered.** All 8 test files have `packager_git_sha = 58413cb11e41`, `rsdt_method = 'astronomical'`, `plasim_calendar = 'proleptic_gregorian'`, `(1455, 52, 64, 128)` — identical to the training pool. Confirmed by direct h5 attr read.
 3. **Codex check 2 answered.** Packager **does** write a `split` attribute. Training files: `split = 'train'`; test files: `split = 'test'`. §A.1 sanity check stays as-written.
 4. **Codex check 4 answered (option b).** `plasim_time_units` of consecutive files: `0016-08-01`, `0017-08-01`, `0018-08-01`, ..., `0126-08-01`, ..., `0133-08-01`. Each file's anchor restarts on **Aug 1** of a new PlaSim year, with the year tag advancing by exactly 1 per file. This is option (b) from v2 §C.2: each file independently spans one PlaSim year. **Sample-of-year indexing is correct.** v2.1 sets `clim_index_mode = 'sample_of_year'` as the locked default; `time_of_year_proleptic` retained as a fallback flag for future-proofing only.
@@ -189,7 +189,7 @@ To avoid the v1 trap of stacking too much in one run, v2 splits delivery in two 
 
 Trained checkpoint:
 ```
-/scratch/11114/zhixingliu/AI-RES/runs/sfno_full/plasim_sim52_full/0/
+/scratch/11114/zhixingliu/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0/
 ├── config.json                       # frozen Makani params used at training time
 ├── metadata.json                     # entrypoint = makani.models.model_package:load_time_loop (NOT used; see v1 §B.5 explanation)
 ├── global_means.npy / global_stds.npy
@@ -242,7 +242,7 @@ lsm, sg, z0, sst, rsdt, sic
 
 ### P-1 (✅ RESOLVED 2026-04-29). Test files exist at `sim52_astro_64x128/test/`.
 
-Verified via `ls /scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/test/`: all 8 files `MOST.0121.h5..MOST.0128.h5` present. The packager writes years to subdirs by `split` attribute — v2 only listed `train/` and missed this. Per-file h5 attrs confirmed identical processing pipeline to training pool:
+Verified via `ls /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/test/`: all 8 files `MOST.0121.h5..MOST.0128.h5` present. The packager writes years to subdirs by `split` attribute — v2 only listed `train/` and missed this. Per-file h5 attrs confirmed identical processing pipeline to training pool:
 
 | File | split | year | anchor | shape (state) | packager_sha | rsdt_method |
 |---|---|---|---|---|---|---|
@@ -263,8 +263,8 @@ Verified via `ls /scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128
 §A.1 invocation:
 ```
 python scripts/build_test_split.py \
-  --src /scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/test/ \
-  --dst /scratch/11114/zhixingliu/AI-RES/data/makani/sim52_full/test_holdout/ \
+  --src /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/test/ \
+  --dst /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_full/test_holdout/ \
   --years 0121,0122,0123,0124,0125,0126,0127,0128
 ```
 
@@ -414,7 +414,7 @@ from makani.models import model_registry
 from makani.utils.driver import Driver
 from sfno_training.trainer.plasim_trainer import _install_plasim_patches
 
-RUN_DIR = "/scratch/11114/zhixingliu/AI-RES/runs/sfno_full/plasim_sim52_full/0"
+RUN_DIR = "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0"
 
 def load_eval_params(run_dir: str = RUN_DIR, *, K: int) -> ParamsBase:
     cfg = json.load(open(f"{run_dir}/config.json"))
@@ -698,7 +698,7 @@ For state channel `c ∈ {0..51}` and IC at sample `s`, persistence prediction a
 
 ### C.2 Climatology — built from training pool, indexed by time-of-year proleptic.
 
-**Source:** `/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_full/train/` — exactly the directory the model trained on. **100 files** spanning years 12–111, no gaps. Filesystem-verified breakdown: **76 × 1455 + 24 × 1459**. Symlinks: years 12–100 → `sim52_astro_64x128/train/`, years 101–111 → `sim52_astro_64x128/valid/`.
+**Source:** `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_full/train/` — exactly the directory the model trained on. **100 files** spanning years 12–111, no gaps. Filesystem-verified breakdown: **76 × 1455 + 24 × 1459**. Symlinks: years 12–100 → `sim52_astro_64x128/train/`, years 101–111 → `sim52_astro_64x128/valid/`.
 
 `MOST.0094.h5` is non-leap (1455 samples) — its candidate leap year (anchor year + 1 = 100) hits the proleptic-gregorian centennial exception (`100 % 100 == 0` and `100 % 400 ≠ 0`).
 

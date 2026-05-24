@@ -23,9 +23,9 @@ manual intervention.
 
 Usage::
 
-    scripts/trace_calendar_anchors.py --src $SCRATCH/AI-RES/data/makani/sim52_full/train \\
+    scripts/trace_calendar_anchors.py --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full/train \\
         --files MOST.0014.h5,MOST.0094.h5
-    scripts/trace_calendar_anchors.py --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128/test \\
+    scripts/trace_calendar_anchors.py --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/test \\
         --files MOST.0122.h5,MOST.0128.h5
 """
 from __future__ import annotations

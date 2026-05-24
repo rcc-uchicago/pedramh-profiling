@@ -55,6 +55,10 @@ def _minimal_packaged_file(path: Path) -> None:
         f.create_dataset(
             "channel_forcing", data=np.array(FORCING_CHANNELS, dtype="S16")
         )
+        # Provenance attrs the packager stamps in production; metadata.py
+        # self-consistency check reads these.
+        f.attrs["rsdt_method"] = "astronomical"
+        f.attrs["sst_mode"] = "ocean_era5"
 
 
 def test_parser_sees_53_channels(tmp_path: Path):

@@ -40,7 +40,7 @@
 
 ## Scope
 
-The packager has produced a structurally-validated dataset at `$SCRATCH/AI-RES/data/makani/sim52_astro_64x128/` (98 train + 20 valid + 8 test, ~331 GB). The trainer wrapper at `src/sfno_training/` is in place and gated by `submit_smoke.slurm` (1 file, 1 epoch, tiny SFNO).
+The packager has produced a structurally-validated dataset at `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/` (98 train + 20 valid + 8 test, ~331 GB). The trainer wrapper at `src/sfno_training/` is in place and gated by `submit_smoke.slurm` (1 file, 1 epoch, tiny SFNO).
 
 This plan covers the **next three** runs only:
 
@@ -98,13 +98,13 @@ Used by `one_step_eval.py`, `rollout_eval.py`, and the visualizer.
 
 ### A.1 Subset choice
 
-- **Train**: `$SCRATCH/AI-RES/data/makani/sim52_astro_64x128/train/MOST.0003.h5` (1 file, T ≈ 1460 timesteps).
-- **Valid**: `$SCRATCH/AI-RES/data/makani/sim52_astro_64x128/valid/MOST.0101.h5` (1 file, T ≈ 1460 timesteps).
+- **Train**: `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/train/MOST.0003.h5` (1 file, T ≈ 1460 timesteps).
+- **Valid**: `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/valid/MOST.0101.h5` (1 file, T ≈ 1460 timesteps).
 
 `PlasimForcingDataset(MultifilesDataset)` loads every `.h5` under `train_data_path` / `valid_data_path`, so the subset must live in a separate directory. `scripts/build_subset_dataset.py` builds:
 
 ```
-$SCRATCH/AI-RES/data/makani/sim52_tiny/
+$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny/
 ├── train/MOST.0003.h5    # symlink → ../sim52_astro_64x128/train/MOST.0003.h5
 ├── valid/MOST.0101.h5    # symlink → ../sim52_astro_64x128/valid/MOST.0101.h5
 ├── test/                 # empty (tiny does not exercise test split)
@@ -156,7 +156,7 @@ Compute upper bound order-of-magnitude: ~3 epochs × ~1500 batches × ~100 ms �
 
 ### A.5 Output artifacts
 
-Saved under `$SCRATCH/AI-RES/runs/sfno_tiny/plasim_sim52_tiny/0/`:
+Saved under `$SCRATCH/SFNO_Climate_Emulator/runs/sfno_tiny/plasim_sim52_tiny/0/`:
 
 - `training_checkpoints/ckpt_mp0_v*.tar`, `training_checkpoints/best_ckpt_mp0.tar`.
 - `loss_curves.png` — train + valid total loss by epoch (single panel; state vs `pr_6h` decomposition is post-hoc, not in this PNG).
@@ -189,7 +189,7 @@ The earlier "z-RMSE < 1.5" absolute threshold is dropped (Codex round 1 finding 
 - **Train** (5 files = 5 simulated years, ~7300 samples, ~13.5 GB raw): `MOST.0003.h5` … `MOST.0007.h5`.
 - **Valid** (2 files): `MOST.0101.h5`, `MOST.0102.h5`.
 
-Symlink-farm at `$SCRATCH/AI-RES/data/makani/sim52_short/` built by the same `scripts/build_subset_dataset.py`. Stats / metadata / config symlinked from the full dataset.
+Symlink-farm at `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short/` built by the same `scripts/build_subset_dataset.py`. Stats / metadata / config symlinked from the full dataset.
 
 ### B.2 Architecture (medium SFNO)
 
@@ -243,7 +243,7 @@ The throughput-derivation step is part of the post-tiny review — it's not done
 
 ### B.5 Metrics / artifacts
 
-Saved under `$SCRATCH/AI-RES/runs/sfno_short/plasim_sim52_short/0/`:
+Saved under `$SCRATCH/SFNO_Climate_Emulator/runs/sfno_short/plasim_sim52_short/0/`:
 
 - `training_checkpoints/ckpt_mp0_v*.tar`, `training_checkpoints/best_ckpt_mp0.tar`.
 - `loss_curves.png` — train + valid total loss by epoch (single panel). State vs `pr_6h` decomposition lives in `loss_decomposition.json` (post-hoc, see §C.1).
@@ -465,13 +465,13 @@ Then triage:
 1. **Implement** symlink builder + preflight + tiny YAML + tiny SLURM + their tests; commit (chunk 1).
 2. **Implement** `one_step_eval.py` + `rollout_eval.py` + `loss_decompose.py` + `plot_loss_curves.py` + tests; commit (chunk 2).
 3. **Re-run smoke** (`submit_smoke.slurm`) as the existing hard-gate regression. Must pass before tiny.
-4. **Build** `$SCRATCH/AI-RES/data/makani/sim52_tiny/` via the symlink builder.
+4. **Build** `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny/` via the symlink builder.
 5. **Launch tiny** on `amd-rtx`, 30 min. Slurm runs preflight first; training only starts after preflight passes.
 6. **Run §C scripts** on the tiny output: `plot_loss_curves`, `one_step_eval`, `loss_decompose`. (No `rollout_eval` for tiny — `valid_autoreg_steps=0`, single-step only.)
 7. **Review tiny artifacts with the user**, including measured ms/batch. If success criteria pass → continue. If not → §C.5 triage.
 8. **Calibrate short `max_epochs`** from tiny throughput; user signs off on the resolved number (default 8).
 9. **Implement** short YAML + short SLURM; commit (chunk 3).
-10. **Build** `$SCRATCH/AI-RES/data/makani/sim52_short/`.
+10. **Build** `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short/`.
 11. **Launch short** on `amd-rtx`, 6 h. Same preflight-then-train pattern.
 12. **Run §C scripts** on the short output: `plot_loss_curves`, `one_step_eval`, `rollout_eval`, `loss_decompose`.
 13. **Gate decision**: if all four §B.6 gates pass → user approves a full 98-file run (separate plan). If not → §C.5 triage.

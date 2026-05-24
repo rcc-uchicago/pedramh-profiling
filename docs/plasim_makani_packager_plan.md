@@ -90,7 +90,7 @@ This is a **downstream packager** standalone at `src/plasim_makani_packager/`. I
 | `sic` source | emulator_adaptor |
 | Sigma ordering | `ta1 = TOA`, `ta10 = surface` |
 | Train / valid / test | 3–100 / 101–120 / 121–128 |
-| Output root | `/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/` |
+| Output root | `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/` |
 | Timestamp | Synthetic monotonic int64 seconds; `/time_plasim` sibling carries original PlaSim days-since; file attrs carry original `time:units` + `calendar` |
 | CLI | Standalone (`src/plasim_makani_packager/packager.py`) |
 
@@ -183,11 +183,11 @@ inpt       = preprocessor.append_history(inpt, pred, step)        # (52,)
 
 ### Postprocess (MOST) — already staged
 
-`/scratch/11114/zhixingliu/AI-RES/data/postproc/sim52/MOST.{YYYY:04d}.nc` for `YYYY ∈ 0001..0128`, 6-hourly proleptic Gregorian, 64 Gauss-Legendre lats × 128 lons. Each file has its own `time:units = "days since YYYY-MM-DD HH:MM:SS"` (verified: year 0001 = "0006-08-25", year 0002 = "0007-08-01"). All emulator-contract state vars present; `sst`/`rsdt` absent (come from adaptor).
+`/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/postproc/sim52/MOST.{YYYY:04d}.nc` for `YYYY ∈ 0001..0128`, 6-hourly proleptic Gregorian, 64 Gauss-Legendre lats × 128 lons. Each file has its own `time:units = "days since YYYY-MM-DD HH:MM:SS"` (verified: year 0001 = "0006-08-25", year 0002 = "0007-08-01"). All emulator-contract state vars present; `sst`/`rsdt` absent (come from adaptor).
 
 ### Boundary (adaptor) — to be produced (Phase 0)
 
-`/scratch/11114/zhixingliu/AI-RES/data/boundary_astro/sim52/boundary.{YYYY:04d}.nc` via `src/emulator_adaptor/adaptor.py --rsdt-method astronomical`.
+`/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/boundary_astro/sim52/boundary.{YYYY:04d}.nc` via `src/emulator_adaptor/adaptor.py --rsdt-method astronomical`.
 
 ---
 
@@ -204,8 +204,8 @@ sbatch --array=0-127 src/emulator_adaptor/submit.slurm
 python3 src/emulator_adaptor/adaptor.py \
     --sims 52 --years 1 128 \
     --rsdt-method astronomical \
-    --input-root  /scratch/11114/zhixingliu/AI-RES/data/postproc \
-    --output-root /scratch/11114/zhixingliu/AI-RES/data/boundary_astro \
+    --input-root  /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/postproc \
+    --output-root /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/boundary_astro \
     --task-index $SLURM_ARRAY_TASK_ID
 ```
 
@@ -292,8 +292,8 @@ Single-pass Welford across training years 3–100 only. Hard-fail on any channel
   },
   "attrs": {
     "description": "PlaSim sim52 postproc 64x128, astronomical rsdt, three-dataset layout for patched Makani",
-    "source_postproc_root": "/scratch/11114/zhixingliu/AI-RES/data/postproc/sim52",
-    "source_boundary_root": "/scratch/11114/zhixingliu/AI-RES/data/boundary_astro/sim52",
+    "source_postproc_root": "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/postproc/sim52",
+    "source_boundary_root": "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/boundary_astro/sim52",
     "rsdt_method": "astronomical",
     "sst_land_fill_K": 271.35,
     "train_years": [3, 100],
@@ -312,11 +312,11 @@ Single-pass Welford across training years 3–100 only. Hard-fail on any channel
 plasim_sim52_astro_64x128:
 
     # --- Dataset paths ---
-    metadata_json_path: "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/metadata/data.json"
-    train_data_path:   "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/train"
-    valid_data_path:   "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/valid"
-    inf_data_path:     "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/test"
-    exp_dir:           "/scratch/11114/zhixingliu/AI-RES/runs/sim52_astro_64x128"
+    metadata_json_path: "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/metadata/data.json"
+    train_data_path:   "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/train"
+    valid_data_path:   "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/valid"
+    inf_data_path:     "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/test"
+    exp_dir:           "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/runs/sim52_astro_64x128"
 
     # --- Image / time ---
     img_shape_x: 64
@@ -340,15 +340,15 @@ plasim_sim52_astro_64x128:
     forcing_h5_path: "forcing"
     n_forcing_channels: 6
     forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
-    forcing_global_means_path: "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/stats/forcing_global_means.npy"
-    forcing_global_stds_path:  "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/stats/forcing_global_stds.npy"
-    forcing_time_means_path:   "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/stats/forcing_time_means.npy"
+    forcing_global_means_path: "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/stats/forcing_time_means.npy"
 
     # --- Normalization stats (53-wide; sliced by out_channels inside LossHandler) ---
     normalization: "zscore"
-    global_means_path: "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/stats/global_means.npy"
-    global_stds_path:  "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/stats/global_stds.npy"
-    time_means_path:   "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/stats/time_means.npy"
+    global_means_path: "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/stats/global_means.npy"
+    global_stds_path:  "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/stats/global_stds.npy"
+    time_means_path:   "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/stats/time_means.npy"
 
     # --- Architecture (stock SFNO keys; would otherwise come from BASE_CONFIG) ---
     nettype: "SFNO"
@@ -467,7 +467,7 @@ from tests.plasim_makani_packager.stub_forcing_loader import (
 
 # 1. Load YAML → full attribute-access params object
 params = YParams(
-    "/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/config/plasim_sim52_astro_64x128.yaml",
+    "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/config/plasim_sim52_astro_64x128.yaml",
     "plasim_sim52_astro_64x128",
 )
 
@@ -1044,7 +1044,7 @@ skills/plasim-makani-packager/
 Output data layout:
 
 ```
-/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/
+/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/
 ├── train/                             # years 3-100 (98 files)
 │   └── MOST.{0003..0100}.h5
 ├── valid/                             # years 101-120 (20 files)

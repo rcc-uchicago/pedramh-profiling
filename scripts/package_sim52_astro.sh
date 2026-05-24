@@ -10,10 +10,10 @@
 
 set -euo pipefail
 
-POSTPROC_ROOT="${POSTPROC_ROOT:-$SCRATCH/AI-RES/data/postproc}"
-BOUNDARY_ROOT="${BOUNDARY_ROOT:-$SCRATCH/AI-RES/data/boundary_astro}"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_astro_64x128}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sim52_astro_64x128}"
+POSTPROC_ROOT="${POSTPROC_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/postproc}"
+BOUNDARY_ROOT="${BOUNDARY_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/boundary_astro}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128}"
 SIMS="${SIMS:-52}"
 REPO_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." && pwd )"
 

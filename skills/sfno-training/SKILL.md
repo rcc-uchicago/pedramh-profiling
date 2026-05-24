@@ -1,24 +1,27 @@
 ---
 name: sfno-training
-description: Use when the user wants to train or validate an SFNO emulator on the PlaSim → Makani packaged dataset (produced by src/plasim_makani_packager/). Covers PlasimForcingDataset, PlasimPreprocessor, PlasimSingleStepWrapper, PlasimMultiStepWrapper, PlasimTrainer, the two monkey-patches on stock Makani, the 58-channel input contract (52 state + 6 forcing), the 53-channel target contract (52 state + 1 diagnostic pr_6h), the GPU-smoke hard gate, and the inference block (out of scope until src/sfno_inference/ ships). Invoke for any task touching src/sfno_training/* or tests/sfno_training/*.
+description: Use for the **architecture, patch surface, and channel contract** of the SFNO trainer that consumes the PlaSim → Makani packaged dataset. Covers PlasimForcingDataset, PlasimPreprocessor, PlasimSingleStepWrapper, PlasimMultiStepWrapper, PlasimTrainer, the two module-attribute monkey-patches on stock Makani, the 58-channel input contract (52 state + 6 forcing), the 53-channel target contract (52 state + 1 diagnostic pr_6h), the `_set_data_shapes` hard-asserts, the Makani version pin, the Python 3.12 timedelta shim, and the GPU-smoke hard gate. Invoke for any task touching `src/sfno_training/*` modules / wrappers / patches or `tests/sfno_training/*`. **For HPO / global batch / LR / microbench / sweep workflow → see sibling skill `train-sfno-hpo`.** For inference / scoring → `eval-sfno-own` or `eval-sfno-5410`. For dataset packaging → `plasim-makani-packager`.
 ---
 
-# sfno_training — PlaSim → Makani SFNO trainer wrapper
+# sfno_training — PlaSim → Makani SFNO trainer wrapper (architecture & contract)
 
 `src/sfno_training/` consumes the three-dataset HDF5 contract emitted by `src/plasim_makani_packager/` and trains an SFNO emulator without editing Makani core. Two module-attribute rebindings + one `_set_data_shapes` override are the entire patch surface.
+
+> **Operator workflow** — choosing GB / LR, running the I1 short-config sweep, the I2 production microbench, validating a launch, recording deviations — lives in the sibling skill `skills/train-sfno-hpo/SKILL.md`. This skill covers the architecture and patch surface only.
 
 ## When to use this skill
 
 - Running the GPU smoke (`sbatch src/sfno_training/submit_smoke.slurm`).
 - Running tiny or short training (`submit_tiny.slurm`, `submit_short.slurm`).
-- Running production training (`sbatch src/sfno_training/submit_train.slurm`).
-- Modifying any file under `src/sfno_training/` or `tests/sfno_training/`.
+- Running production training (`sbatch src/sfno_training/submit_zgplev_full.slurm`).
+- Modifying any file under `src/sfno_training/` (modules, wrappers, patches) or `tests/sfno_training/`.
 - Debugging the trainer-CI integration test or the validation-rollout content sentinels.
-- Updating the smoke, tiny, short, or production YAML.
-- Triaging Python 3.12 timedelta shim issues.
+- Updating the smoke, tiny, short, or production YAML for **non-HPO** reasons (channel contract, paths, scheduler shape, aux-feature flags).
+- Triaging Python 3.12 timedelta shim issues or a Makani-version-pin drift.
 
 ## When NOT to use this skill
 
+- **HPO / GB / LR / microbench / sweep workflow** — use `skills/train-sfno-hpo/SKILL.md`. This includes any change to `batch_size`, `lr`, `lr_warmup_steps`, `scheduler_T_max`, `weight_decay`, or `optimizer_max_grad_norm` in the production YAML.
 - **Inference / scoring / long-rollout evaluation**. This is **out of scope** in PR-A and PR-B. Stock `makani.utils.inference.inferencer.Inferencer` has no slot for the 6 forcing channels when `add_zenith=False` and would silently produce physically wrong predictions. `_plasim_get_dataloader` hard-fails on `mode == "inference"`. A separate `src/sfno_inference/` plan is owed.
 - **Editing `makani/` core**. The patch strategy is "subclass + monkey-patch only" — escalate if a Makani API forces a core edit.
 
@@ -102,21 +105,21 @@ Then sets `params.N_in_channels = n_state + n_forcing = 58`.
 .venv/bin/python -m pytest tests/plasim_makani_packager/test_multifile_loader_smoke.py -v
 
 # GPU smoke — HARD GATE before any production run
-OUTPUT_ROOT=$SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-EXP_DIR=$SCRATCH/AI-RES/runs/sfno_smoke \
+OUTPUT_ROOT=$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+EXP_DIR=$SCRATCH/SFNO_Climate_Emulator/runs/sfno_smoke \
 sbatch src/sfno_training/submit_smoke.slurm
 
 # Tiny subset and launch
 scripts/build_subset_dataset.py \
-    --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-    --dst $SCRATCH/AI-RES/data/makani/sim52_tiny \
+    --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+    --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny \
     --train-years 3 --valid-years 101
 sbatch src/sfno_training/submit_tiny.slurm
 
 # Short subset and launch
 scripts/build_subset_dataset.py \
-    --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-    --dst $SCRATCH/AI-RES/data/makani/sim52_short \
+    --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+    --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short \
     --train-years 3-7 --valid-years 101-102
 sbatch src/sfno_training/submit_short.slurm
 ```
@@ -138,6 +141,7 @@ sbatch src/sfno_training/submit_short.slurm
 - **Source**: `src/sfno_training/` — modules above.
 - **Tests**: `tests/sfno_training/` — content-sentinel test stack.
 - **Dataset contract**: `docs/plasim_makani_packager_plan.md` (v9) and `skills/plasim-makani-packager/SKILL.md`.
+- **HPO / GB / LR sibling skill**: `skills/train-sfno-hpo/SKILL.md` — owns the I1 sweep, I2 microbench, GB=32 default, sqrt LR rule, and deviation-recording convention.
 - **Stock Makani entry points** (do not edit):
   - `makani/models/model_registry.py:30, 186-188` (wrapper bindings + dispatch).
   - `makani/utils/training/deterministic_trainer.py:38, 109, 661` (dataloader import, _set_data_shapes call, validation rollout).
@@ -148,7 +152,7 @@ The environment is pinned to **upstream `main` of NVIDIA/makani (commit `c970430
 
 Reinstall after a clone update:
 ```bash
-.venv/bin/pip install --no-deps -e /home1/11114/zhixingliu/AI-RES/makani-src
+.venv/bin/pip install --no-deps -e /home1/11114/zhixingliu/projects/SFNO_Climate_Emulator/makani-src
 ```
 
 Note: the clone directory must NOT be named `makani` at the repo root, because Python's cwd-on-sys.path treats `./makani/` (no top-level `__init__.py`) as a namespace package and shadows the editable finder's mapping.

@@ -59,8 +59,12 @@ DEFAULT_TEMPLATE_NAME: str = "plasim_64x128_zgplev.yaml"
 # the renamed config-name substitution. Must match the template file.
 DEFAULT_TEMPLATE_TOP_KEY: str = "plasim_sim52_astro_64x128_zgplev"
 DEFAULT_PACKAGER_VERSION: str = "sim52_astro_64x128_zgplev"
+DEFAULT_SOURCE_BOUNDARY_ROOT: str = (
+    "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/boundary_astro/sim52"
+)
+DEFAULT_SST_MODE: str = "ocean_era5"  # back-compat with v10 H5 files that lack the attr
 DEFAULT_EXP_DIR: Path = Path(
-    "/scratch/11114/zhixingliu/AI-RES/runs/sim52_astro_64x128_zgplev"
+    "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/runs/sim52_astro_64x128_zgplev"
 )
 TRAINER_PATCH_CONTRACT_URL: str = (
     "docs/plasim_makani_packager_plan.md#trainer-patch-contract"
@@ -77,6 +81,54 @@ def _pick_sample_file(output_root: Path) -> Path:
     )
 
 
+def _decode_h5_attr(value) -> str:
+    """h5py returns string attrs as bytes under some encodings; normalize."""
+    if isinstance(value, bytes):
+        return value.decode("utf-8")
+    return str(value)
+
+
+def _assert_h5_provenance(
+    sample_path: Path,
+    *,
+    expected_sst_mode: str,
+    expected_rsdt_method: str,
+) -> None:
+    """Open one packaged H5 and verify provenance attrs match CLI args.
+
+    Uses `.get(..., default)` for sst_mode so v10 H5 files (which lack the
+    attr) remain readable under --sst-mode ocean_era5. rsdt_method has been
+    hardcoded by the packager since the zgplev migration so we read directly.
+    """
+    with h5py.File(sample_path, "r") as f:
+        actual_sst_mode = _decode_h5_attr(f.attrs.get("sst_mode", "ocean_era5"))
+        if "rsdt_method" not in f.attrs:
+            raise RuntimeError(
+                f"metadata self-consistency: sample H5 {sample_path} has no "
+                f"'rsdt_method' attr — packager output is malformed."
+            )
+        actual_rsdt = _decode_h5_attr(f.attrs["rsdt_method"])
+
+    if actual_sst_mode != expected_sst_mode:
+        raise RuntimeError(
+            f"metadata self-consistency FAILED: --sst-mode={expected_sst_mode!r} "
+            f"but sample H5 ({sample_path}) attrs.sst_mode={actual_sst_mode!r}. "
+            f"Top-level metadata would lie about the dataset; aborting."
+        )
+    if actual_rsdt != expected_rsdt_method:
+        raise RuntimeError(
+            f"metadata self-consistency FAILED: --rsdt-method={expected_rsdt_method!r} "
+            f"but sample H5 ({sample_path}) attrs.rsdt_method={actual_rsdt!r}. "
+            f"Top-level metadata would lie about the dataset; aborting."
+        )
+    logger.info(
+        "  self-consistency OK: sample H5 attrs match CLI "
+        "(sst_mode=%s, rsdt_method=%s)",
+        actual_sst_mode,
+        actual_rsdt,
+    )
+
+
 def build_metadata(
     output_root: Path,
     *,
@@ -87,8 +139,15 @@ def build_metadata(
     sst_land_fill_k: float,
     rsdt_method: str,
     packager_version: str,
+    sst_mode: str = DEFAULT_SST_MODE,
+    source_boundary_root: str = DEFAULT_SOURCE_BOUNDARY_ROOT,
 ) -> dict:
     sample_path = _pick_sample_file(output_root)
+    _assert_h5_provenance(
+        sample_path,
+        expected_sst_mode=sst_mode,
+        expected_rsdt_method=rsdt_method,
+    )
     with h5py.File(sample_path, "r") as f:
         lat = f["lat"][...].tolist()
         lon = f["lon"][...].tolist()
@@ -114,9 +173,10 @@ def build_metadata(
                 "PlaSim sim52 postproc 64x128, astronomical rsdt, "
                 "three-dataset layout for patched Makani"
             ),
-            "source_postproc_root": "/scratch/11114/zhixingliu/AI-RES/data/postproc/sim52",
-            "source_boundary_root": "/scratch/11114/zhixingliu/AI-RES/data/boundary_astro/sim52",
+            "source_postproc_root": "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/postproc/sim52",
+            "source_boundary_root": source_boundary_root,
             "rsdt_method": rsdt_method,
+            "sst_mode": sst_mode,
             "sst_land_fill_K": float(sst_land_fill_k),
             "train_years": list(train_years),
             "valid_years": list(valid_years),
@@ -191,6 +251,19 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--rsdt-method", default="astronomical")
     p.add_argument("--sst-land-fill-k", type=float, default=271.35)
     p.add_argument(
+        "--sst-mode",
+        default=DEFAULT_SST_MODE,
+        choices=("surface", "ocean_era5"),
+        help="surface = PlaSim-faithful (v11); ocean_era5 = legacy clamp (v10). "
+        "metadata.py opens a sample H5 and asserts attrs.sst_mode matches.",
+    )
+    p.add_argument(
+        "--source-boundary-root",
+        default=DEFAULT_SOURCE_BOUNDARY_ROOT,
+        help="Boundary-root path stamped into metadata.attrs.source_boundary_root. "
+        "Use the v11 path when packaging v11 (e.g. .../boundary_astro_v11/sim52).",
+    )
+    p.add_argument(
         "--train-years", type=int, nargs=2, default=[3, 100], metavar=("S", "E")
     )
     p.add_argument(
@@ -245,6 +318,8 @@ def main() -> None:
         sst_land_fill_k=args.sst_land_fill_k,
         rsdt_method=args.rsdt_method,
         packager_version=args.packager_version,
+        sst_mode=args.sst_mode,
+        source_boundary_root=args.source_boundary_root,
     )
     rendered = render_yaml(
         template,

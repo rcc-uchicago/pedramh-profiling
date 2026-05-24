@@ -15,10 +15,10 @@ Outputs NetCDF per (file, IC) under
 Usage::
 
     scripts/eval_inference.py \\
-        --run-dir $SCRATCH/AI-RES/runs/sfno_full/plasim_sim52_full/0 \\
-        --ckpt   $SCRATCH/AI-RES/runs/sfno_full/plasim_sim52_full/0/training_checkpoints/best_ckpt_mp0.tar \\
-        --test-holdout $SCRATCH/AI-RES/data/makani/sim52_full/test_holdout \\
-        --out-root $WORK2/AI-RES/results/sfno_eval/$RUN_TAG \\
+        --run-dir $SCRATCH/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0 \\
+        --ckpt   $SCRATCH/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0/training_checkpoints/best_ckpt_mp0.tar \\
+        --test-holdout $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full/test_holdout \\
+        --out-root $WORK2/SFNO_Climate_Emulator/results/sfno_eval/$RUN_TAG \\
         --mode nwp \\
         --eval-sha7 abc1234 \\
         --data-sha7 58413cb \\

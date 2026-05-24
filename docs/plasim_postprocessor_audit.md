@@ -87,7 +87,7 @@ This module set replaces the original `gcc netcdf` line in `burn7_wrappers/stamp
 ## Reproducing the audit
 
 ```bash
-cd ~/AI-RES
+cd ~/projects/SFNO_Climate_Emulator
 module purge
 module load intel/24.0 cdo netcdf python/3.12.11
 export LD_LIBRARY_PATH=/opt/apps/intel24/netcdf/4.9.2/x86_64/lib:/home1/09979/awikner/netcdf-4.2/lib:${LD_LIBRARY_PATH}
@@ -178,7 +178,7 @@ Captured in support of commits `7fc8a7c` (burn7 patch), `789caf8` (postprocessor
 - **Driver**: `src/plasim_postprocessor/plasim_postprocessor.py` run with `--sims 30 --years 12 12 --with-sea-ice`.
 - **Module-load stanza**: unchanged from the prior audit — `intel/24.0 cdo netcdf python/3.12.11` plus the two `LD_LIBRARY_PATH` entries for burn7's C++ runtime linkage.
 - **Snapshots locked**: `docs/audit_snapshots/manifest.txt` (default run, 30 vars) and `docs/audit_snapshots/manifest_with_sea_ice.txt` (31 vars, adds `sic`).
-- **Audit run**: SLURM job 3048472 on `c476-003`, elapsed 01:48. Full log at `/scratch/11114/zhixingliu/AI-RES/audit/commit4/audit_3048472.out`.
+- **Audit run**: SLURM job 3048472 on `c476-003`, elapsed 01:48. Full log at `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/audit_3048472.out`.
 
 ### Breaking changes vs the prior per-profile contracts
 

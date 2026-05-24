@@ -23,8 +23,8 @@ check the script exits non-zero before any symlinks are written.
 Usage::
 
     scripts/build_test_split.py \\
-        --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128/test \\
-        --dst $SCRATCH/AI-RES/data/makani/sim52_full/test_holdout \\
+        --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/test \\
+        --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full/test_holdout \\
         --years 0121,0122,0123,0124,0125,0126,0127,0128
 """
 from __future__ import annotations

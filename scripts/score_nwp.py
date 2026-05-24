@@ -131,6 +131,10 @@ def _compute_metrics_for_one_ic(
         ic_sample_idx = int(ds.attrs["ic_sample_idx"])
         file_anchor = ds.attrs["file_anchor"]
         time_plasim_at_ic = float(ds.attrs["time_plasim_at_ic"])
+        truth_sic = (
+            torch.from_numpy(ds["truth_sic"].values[0]).float()  # (K, H, W)
+            if "truth_sic" in ds.variables else None
+        )
     finally:
         ds.close()
 
@@ -144,6 +148,8 @@ def _compute_metrics_for_one_ic(
         for c in bias_channel_list
         if c in chan_names
     }
+
+    c_tas = chan_names.index("tas") if (truth_sic is not None and "tas" in chan_names) else None
 
     for h in _SCORED_LEADS_H:
         if h not in lead_time:
@@ -194,6 +200,39 @@ def _compute_metrics_for_one_ic(
             key = (name, int(h))
             err = (pred[k, c] - truth[k, c]).numpy()
             bias_accumulators.setdefault(key, []).append(err)
+
+        # === tas_no_ice rows (sea-ice-masked tas) ===
+        # Mask: True = keep (land + open ocean). `~(sic >= 0.15)` keeps
+        # NaN cells (land per packager.py:226); strict-< would drop them.
+        if c_tas is not None:
+            mask = ~(truth_sic[k] >= 0.15)
+            if bool(mask.any()):
+                rmse_em = float(M.rmse_lat_weighted_masked(
+                    pred[k, c_tas], truth[k, c_tas], lat_w, mask,
+                ))
+                rmse_p = float(M.rmse_lat_weighted_masked(
+                    init_state[c_tas], truth[k, c_tas], lat_w, mask,
+                ))
+                rows.append(dict(
+                    model="emulator", channel="tas_no_ice", lead_hours=int(h),
+                    ic_year=ic_year, ic_sample_idx=ic_sample_idx,
+                    metric="rmse", value=rmse_em,
+                ))
+                rows.append(dict(
+                    model="persistence", channel="tas_no_ice", lead_hours=int(h),
+                    ic_year=ic_year, ic_sample_idx=ic_sample_idx,
+                    metric="rmse", value=rmse_p,
+                ))
+                if clim_n[doy_idx, hq_idx] > 0:
+                    cm_tas = torch.from_numpy(clim_mean[doy_idx, hq_idx, c_tas]).float()
+                    acc_em = float(M.acc_masked(
+                        pred[k, c_tas], truth[k, c_tas], cm_tas, lat_w, mask,
+                    ))
+                    rows.append(dict(
+                        model="emulator", channel="tas_no_ice", lead_hours=int(h),
+                        ic_year=ic_year, ic_sample_idx=ic_sample_idx,
+                        metric="acc", value=acc_em,
+                    ))
 
 
 def _summarize(rows: list[dict], summary_path: Path):

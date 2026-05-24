@@ -6,11 +6,11 @@
 ### can be loaded standalone via
 ### `YParams(path, "plasim_sim52_astro_64x128_zgplev")`.
 ###
-### v10 contract (docs/plasim_zg_plev_migration_plan.md): zg sigma channels
-### zg1..zg10 are replaced by ten pressure-level channels zg150..zg925
-### (TOA→surface, integer hPa); zg500 is now a literal 500 hPa geopotential
-### channel for blocking / Z500 skill. The trainer contract (52 in / 53 out)
-### is unchanged.
+### v10.1 contract (docs/2026-05-04_zg1000hpa_migration_plan.md): zg sigma
+### channels zg1..zg10 are replaced by ten pressure-level channels
+### zg200..zg1000 (TOA→surface, integer hPa); zg500 is at STATE_CHANNELS[46]
+### (literal 500 hPa geopotential, blocking / Z500 skill). The trainer
+### contract (52 in / 53 out) is unchanged.
 ###
 ### DO NOT use this YAML with stock Makani directly — `h5_path=fields_state`
 ### (52 channels) + 53 `channel_names` is deliberately non-stock. The patched
@@ -38,7 +38,7 @@ plasim_sim52_astro_64x128_zgplev:
     sht_grid_type:   "legendre-gauss"
 
     # --- Channel names (53 loss-target names; state 52 + diagnostic 1) ---
-    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg150","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","pr_6h"]
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000","pr_6h"]
 
     # --- PlaSim-specific plumbing (consumed by PlasimForcingDataset / PlasimPreprocessor) ---
     diagnostic_h5_path: "fields_diagnostic"

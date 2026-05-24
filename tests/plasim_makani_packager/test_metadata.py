@@ -26,7 +26,8 @@ from plasim_makani_packager.metadata import (
 )
 
 
-def _minimal_packaged_file(path: Path, *, H: int = 64, W: int = 128) -> None:
+def _minimal_packaged_file(path: Path, *, H: int = 64, W: int = 128,
+                            sst_mode: str = "ocean_era5") -> None:
     with h5py.File(path, "w") as f:
         f.create_dataset(
             "fields_state", data=np.zeros((1, 52, H, W), dtype=np.float32)
@@ -54,6 +55,10 @@ def _minimal_packaged_file(path: Path, *, H: int = 64, W: int = 128) -> None:
         f.create_dataset(
             "channel_forcing", data=np.array(FORCING_CHANNELS, dtype="S16")
         )
+        # Provenance attrs the packager stamps in production; metadata.py
+        # self-consistency check reads these.
+        f.attrs["rsdt_method"] = "astronomical"
+        f.attrs["sst_mode"] = sst_mode
 
 
 def test_build_metadata_content(tmp_path: Path):
@@ -82,11 +87,11 @@ def test_build_metadata_content(tmp_path: Path):
     assert md["coords"]["channel_diagnostic"] == list(DIAGNOSTIC_CHANNELS)
     assert md["coords"]["channel_forcing"] == list(FORCING_CHANNELS)
 
-    # v10 contract: zg500 is a literal pressure-level channel at index 47
+    # v10.1 contract: zg200..zg1000; zg500 is a literal pressure-level channel at index 46
     assert "zg500" in md["coords"]["channel"]
-    assert md["coords"]["channel"][47] == "zg500"
-    assert md["coords"]["channel_state"][42] == "zg150"
-    assert md["coords"]["channel_state"][51] == "zg925"
+    assert md["coords"]["channel"][46] == "zg500"
+    assert md["coords"]["channel_state"][42] == "zg200"
+    assert md["coords"]["channel_state"][51] == "zg1000"
 
     assert md["attrs"]["rsdt_method"] == "astronomical"
     assert md["attrs"]["requires_patched_makani"] is True

@@ -453,7 +453,7 @@ sanity-check on direction and a pre-flight for I2.
   unique `EXP_DIR` *or* a unique `--run_num` so that no point
   auto-resumes off another point's checkpoint. Recommended
   implementation: parameterize `EXP_DIR` per sweep point, e.g.
-  `EXP_DIR=$SCRATCH/AI-RES/runs/sfno_zgplev_short_ddp_sweep/gb${GB}`.
+  `EXP_DIR=$SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_short_ddp_sweep/gb${GB}`.
   The sweep harness (a small wrapper script under
   `scripts/`, name TBD) iterates over GB values and submits one slurm
   job per value with `EXP_DIR` and `--batch_size` exported. The

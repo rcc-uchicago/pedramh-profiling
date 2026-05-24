@@ -11,9 +11,9 @@ All paths are dataset-scoped under `<sim_tag> = sim30_astro` (PlaSim run "sim30"
 ## Chosen `<sim_tag>/<profile>`
 
 - `<sim_tag>`: `sim30_astro`
-- Source postprocess output: `/scratch/11114/zhixingliu/AI-RES/audit/commit4/postproc/sim30/MOST.{YYYY:04d}.nc`
-- Source boundary output: `/scratch/11114/zhixingliu/AI-RES/audit/commit4/boundary_astro/sim30/boundary.{YYYY:04d}.nc`
-- Dataset-scoped root (target): `/scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/`
+- Source postprocess output: `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/postproc/sim30/MOST.{YYYY:04d}.nc`
+- Source boundary output: `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/boundary_astro/sim30/boundary.{YYYY:04d}.nc`
+- Dataset-scoped root (target): `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/`
 
 Only year **0012** is currently staged. The source SFNO config uses years 12–112 for training and 11–12 for validation. **The AI-RES staging is nowhere near that range yet.** Phase 0 records this rather than blocking on it; full-scale training data staging is a separate project workstream.
 
@@ -21,7 +21,7 @@ Only year **0012** is currently staged. The source SFNO config uses years 12–1
 
 **Status:** PASS (with one caveat about constant-boundary handling).
 
-Inspected: `/scratch/11114/zhixingliu/AI-RES/audit/commit4/postproc/sim30/MOST.0012.nc` — 1459 timesteps at 6h cadence on a 64×128 grid.
+Inspected: `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/postproc/sim30/MOST.0012.nc` — 1459 timesteps at 6h cadence on a 64×128 grid.
 
 | Contract group | Required | Present in MOST.0012.nc |
 |---|---|---|
@@ -46,8 +46,8 @@ Demo run — processed the single staged year (0012):
 ```
 .venv/bin/python scripts/build_boundary_dir.py \
   --sims 30 --years 12 12 \
-  --input-root /scratch/11114/zhixingliu/AI-RES/audit/commit4/boundary_astro \
-  --output-dir /scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/boundaries
+  --input-root /scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/boundary_astro \
+  --output-dir /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/boundaries
 ```
 
 Output:
@@ -71,7 +71,7 @@ The source SFNO config (`SFNO_PLASIM_H5_DERECHO_5310.yaml`) references `data_12-
 A near-match pair exists on Stampede3 and was copied into the dataset-scoped `norm/` dir:
 
 ```
-/scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/norm/
+/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/norm/
 ├── data_12-111_sigma_mean.nc    (from awikner@stampede3/PlaSim-emulator-diagnosis/Pangu-PlaSim-postprocessor/)
 └── data_12-111_sigma_std.nc
 ```
@@ -96,7 +96,7 @@ These cover all four variable groups (surface, constant_boundary, varying_bounda
 ## Dataset-scoped layout (locked by this preflight)
 
 ```
-/scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/
+/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/
 ├── postproc/                  ← (future) copy of MOST.{YYYY:04d}.nc staged here, or symlinked from audit/commit4/
 ├── boundaries/                ← Gate 0b output (populated)
 │   ├── sst_masked_6h.nc
@@ -108,10 +108,10 @@ These cover all four variable groups (surface, constant_boundary, varying_bounda
 ```
 
 The Pass 2 YAML config fields:
-- `data_dir: /scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/postproc/`
+- `data_dir: /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/postproc/`
   (or wherever the training NetCDFs end up being staged under `sim30_astro/`)
-- `boundary_dir: /scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/boundaries/`
-- `normalization_dir: /scratch/11114/zhixingliu/AI-RES/data/plasim_postprocess/sim30_astro/norm/`
+- `boundary_dir: /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/boundaries/`
+- `normalization_dir: /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/plasim_postprocess/sim30_astro/norm/`
 - `surface_mean: data_12-111_sigma_mean.nc` (and equivalent for the other three group × {mean,std} fields)
 - `surface_std: data_12-111_sigma_std.nc`
 

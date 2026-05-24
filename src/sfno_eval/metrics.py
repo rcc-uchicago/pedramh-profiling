@@ -97,6 +97,46 @@ def rmse_lat_weighted(
     return err2_w.sqrt()
 
 
+def rmse_lat_weighted_masked(
+    pred: torch.Tensor,
+    truth: torch.Tensor,
+    lat_weights: torch.Tensor,
+    mask: torch.Tensor,
+) -> torch.Tensor:
+    """Latitude-weighted RMSE over unmasked cells.
+
+    Parameters
+    ----------
+    pred, truth : torch.Tensor
+        ``(..., lat, lon)`` in physical units.
+    lat_weights : torch.Tensor
+        ``(lat,)``.
+    mask : torch.Tensor
+        ``(..., lat, lon)`` bool. True = keep, False = drop.
+
+    Returns
+    -------
+    torch.Tensor
+        ``(...,)``. NaN where every cell is masked out.
+    """
+    if pred.shape != truth.shape:
+        raise ValueError(f"shape mismatch: {tuple(pred.shape)} vs {tuple(truth.shape)}")
+    if mask.shape != pred.shape:
+        raise ValueError(
+            f"mask shape {tuple(mask.shape)} != pred shape {tuple(pred.shape)}"
+        )
+    lat_w = lat_weights.to(pred.dtype).to(pred.device).unsqueeze(-1)  # (lat, 1)
+    w = lat_w * mask.to(pred.dtype)                                   # (..., lat, lon)
+    w_sum = w.sum(dim=(-2, -1))
+    err2 = (pred - truth) ** 2
+    num = (err2 * w).sum(dim=(-2, -1))
+    return torch.where(
+        w_sum > 0,
+        (num / w_sum).sqrt(),
+        torch.full_like(w_sum, float("nan")),
+    )
+
+
 # ---------------------------------------------------------------------------
 # ACC — anomaly correlation coefficient
 # ---------------------------------------------------------------------------
@@ -134,6 +174,39 @@ def acc(
     den_p = ((pred_anom ** 2) * w).sum(dim=(-2, -1)).sqrt()
     den_t = ((truth_anom ** 2) * w).sum(dim=(-2, -1)).sqrt()
     return num / (den_p * den_t + eps)
+
+
+def acc_masked(
+    pred: torch.Tensor,
+    truth: torch.Tensor,
+    clim_mean: torch.Tensor,
+    lat_weights: torch.Tensor,
+    mask: torch.Tensor,
+    eps: float = 1e-12,
+) -> torch.Tensor:
+    """Anomaly correlation coefficient over unmasked cells, lat-weighted.
+
+    Same masking rule as ``rmse_lat_weighted_masked``: cells where
+    ``mask`` is False are excluded from numerator, both denominators,
+    and the weight sum. Returns NaN where every cell is masked out.
+    """
+    if mask.shape != pred.shape:
+        raise ValueError(
+            f"mask shape {tuple(mask.shape)} != pred shape {tuple(pred.shape)}"
+        )
+    pred_anom = pred - clim_mean
+    truth_anom = truth - clim_mean
+    lat_w = lat_weights.to(pred.dtype).to(pred.device).unsqueeze(-1)  # (lat, 1)
+    w = lat_w * mask.to(pred.dtype)                                   # (..., lat, lon)
+    w_sum = w.sum(dim=(-2, -1))
+    num = (pred_anom * truth_anom * w).sum(dim=(-2, -1))
+    den_p = ((pred_anom ** 2) * w).sum(dim=(-2, -1)).sqrt()
+    den_t = ((truth_anom ** 2) * w).sum(dim=(-2, -1)).sqrt()
+    return torch.where(
+        w_sum > 0,
+        num / (den_p * den_t + eps),
+        torch.full_like(w_sum, float("nan")),
+    )
 
 
 # ---------------------------------------------------------------------------

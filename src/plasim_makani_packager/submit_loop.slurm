@@ -16,8 +16,8 @@
 
 set -euo pipefail
 
-REPO_ROOT="${SLURM_SUBMIT_DIR:-$HOME/AI-RES}"
-[[ -d "$REPO_ROOT/src/plasim_makani_packager" ]] || REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="${SLURM_SUBMIT_DIR:-$HOME/projects/SFNO_Climate_Emulator}"
+[[ -d "$REPO_ROOT/src/plasim_makani_packager" ]] || REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 
 source "$REPO_ROOT/.venv/bin/activate"
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
@@ -38,6 +38,13 @@ YEAR_FLAGS=()
 [[ -n "${TEST_YEARS:-}"  ]] && YEAR_FLAGS+=(--test-years  $TEST_YEARS)
 [[ -n "${SST_LAND_FILL_K:-}" ]] && YEAR_FLAGS+=(--sst-land-fill-k "$SST_LAND_FILL_K")
 
+# Opt-in destructive overwrite: re-runs that need to replace existing H5
+# outputs (e.g. ZG_PLEV_HPA subset migrations) set OVERWRITE=1 in the env.
+# Default behavior stays non-destructive: packager.py:493 skips existing
+# outputs, so a routine resubmit is idempotent.
+OVERWRITE_FLAG=()
+[[ "${OVERWRITE:-}" == "1" ]] && OVERWRITE_FLAG=(--overwrite)
+
 cd "$REPO_ROOT"
 mkdir -p logs
 
@@ -56,6 +63,7 @@ for ((idx=0; idx<N_TASKS; idx++)); do
             --output-root "$OUTPUT_ROOT" \
             --postprocessor-git-sha "$POSTPROC_SHA" \
             "${YEAR_FLAGS[@]}" \
+            "${OVERWRITE_FLAG[@]}" \
             --task-index "$idx" 2>&1 | sed "s|^|[task=$idx] |"
     ) &
     running=$((running + 1))

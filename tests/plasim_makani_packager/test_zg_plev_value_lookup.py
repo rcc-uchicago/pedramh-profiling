@@ -95,14 +95,14 @@ def test_shuffled_lev_2_still_packs_by_value():
     shuffled = (1000, 500, 50, 925, 100, 850, 700, 600, 400, 300, 250, 200, 150)
     ds = _make_postproc_ds(lev_2_values=shuffled)
     arr = _stack_fields_state(ds)
-    # ZG_PLEV_HPA[5] == 500 → channel at index 47 must equal 500
-    assert ZG_PLEV_HPA[5] == 500
+    # v10.1: ZG_PLEV_HPA[4] == 500 → channel at index 46 must equal 500
+    assert ZG_PLEV_HPA[4] == 500
     np.testing.assert_array_equal(
-        arr[:, 47], np.full(arr[:, 47].shape, 500.0, dtype=np.float32)
+        arr[:, 46], np.full(arr[:, 46].shape, 500.0, dtype=np.float32)
     )
-    # And at index 42 (zg150) must equal 150
+    # And at index 42 (zg200) must equal 200
     np.testing.assert_array_equal(
-        arr[:, 42], np.full(arr[:, 42].shape, 150.0, dtype=np.float32)
+        arr[:, 42], np.full(arr[:, 42].shape, 200.0, dtype=np.float32)
     )
 
 

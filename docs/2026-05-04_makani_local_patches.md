@@ -162,7 +162,7 @@ this patch the K limit is enforced only by adapter-side slicing,
 which costs ~5–6× compute per IC.
 
 This file lives **outside the AI-RES repo**, at
-`/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py`.
+`/work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py`.
 It is the actual entry point invoked by `scripts/eval_inference_5410.py`
 (see `_UPSTREAM_LONG_INFERENCE` at the top of that script).
 
@@ -214,15 +214,15 @@ compare datetimes instead of years):
 
 ```bash
 ALLOC=$(grep -c 'min(next_year_jan1, self.params.final_datetime)' \
-    /work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py)
+    /work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py)
 CONT=$(grep -c 'current_datetime < self.params.final_datetime' \
-    /work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py)
+    /work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py)
 [[ "$ALLOC" -eq 4 && "$CONT" -eq 2 ]] || \
     echo "patch incomplete: allocators=$ALLOC (expect 4) continuations=$CONT (expect 2)"
 
 # And no stragglers from the pre-patch year-only continuation:
 grep -c 'current_year < self.params.final_datetime.year' \
-    /work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py
+    /work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py
 # expected: 0
 ```
 
@@ -237,7 +237,7 @@ orchestrator (`scripts/eval_inference_5410.py`'s `main()` calls
 
 Pre-patch byte-identical copy at:
 ```
-/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py.bak.20260508_pre_K_patch
+/work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py.bak.20260508_pre_K_patch
 ```
 
 ### Re-application after upstream resync
@@ -292,7 +292,7 @@ canonical reference.
 
 ```bash
 N=$(grep -c 'def reconfigure_for_ic' \
-    /work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py)
+    /work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/artifacts/derecho_glade/PanguWeather/v2.0/long_inference.py)
 [[ "$N" -eq 1 ]] || echo "patch count $N != 1"
 ```
 

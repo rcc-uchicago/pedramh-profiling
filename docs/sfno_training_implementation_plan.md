@@ -31,7 +31,7 @@
 
 ## Context
 
-The PlaSim → Makani packager (v9, `docs/plasim_makani_packager_plan.md`) has produced a structurally-validated sim52 Makani dataset at `/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128/` (98 train + 20 valid + 8 test files; commit `106d19d`). The dataset contract is asymmetric:
+The PlaSim → Makani packager (v9, `docs/plasim_makani_packager_plan.md`) has produced a structurally-validated sim52 Makani dataset at `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/` (98 train + 20 valid + 8 test files; commit `106d19d`). The dataset contract is asymmetric:
 
 - **Input (58):** 52 state feedback (`/fields_state`) + 6 prescribed forcing (`/forcing`).
 - **Output (53):** 52 state + 1 diagnostic `pr_6h` (`/fields_diagnostic`).

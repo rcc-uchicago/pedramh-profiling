@@ -22,24 +22,24 @@
 #
 # Required env vars (defaults match the planned subset layout):
 #   OUTPUT_ROOT — packager-output root (or symlink subset root). Default:
-#                 $SCRATCH/AI-RES/data/makani/sim52_tiny
+#                 $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny
 #   EXP_DIR     — experiment output dir. Default:
-#                 $SCRATCH/AI-RES/runs/sfno_tiny
+#                 $SCRATCH/SFNO_Climate_Emulator/runs/sfno_tiny
 #
 # Build the subset (one-time) before launching:
 #
 #   scripts/build_subset_dataset.py \
-#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-#       --dst $SCRATCH/AI-RES/data/makani/sim52_tiny \
+#       --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+#       --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny \
 #       --train-years 3 --valid-years 101
 # ============================================================================
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 SFNO_JOB_NAME="sfno_tiny"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_tiny}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_tiny}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_tiny}"
 MAIL_TO="${MAIL_TO:-zhixingliu@uchicago.edu}"
 source "$REPO_ROOT/src/sfno_training/slurm_helpers.sh"
 sfno_install_status_trap

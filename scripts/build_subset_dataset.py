@@ -37,20 +37,20 @@ empty directory is sufficient (no test rollout in tiny / short / full).
 Usage::
 
     scripts/build_subset_dataset.py \\
-        --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \\
-        --dst $SCRATCH/AI-RES/data/makani/sim52_tiny \\
+        --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \\
+        --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny \\
         --train-years 3 \\
         --valid-years 101
 
     scripts/build_subset_dataset.py \\
-        --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \\
-        --dst $SCRATCH/AI-RES/data/makani/sim52_short \\
+        --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \\
+        --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short \\
         --train-years 3-7 \\
         --valid-years 101-102
 
     scripts/build_subset_dataset.py \\
-        --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \\
-        --dst $SCRATCH/AI-RES/data/makani/sim52_full \\
+        --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \\
+        --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full \\
         --train-years 12-111 \\
         --valid-years 11
 """

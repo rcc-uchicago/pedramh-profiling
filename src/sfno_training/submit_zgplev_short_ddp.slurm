@@ -35,10 +35,10 @@
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 SFNO_JOB_NAME="sfno_zgplev_short_ddp"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_zgplev_short}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_zgplev_short_ddp}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_short}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_short_ddp}"
 MAIL_TO="${MAIL_TO:-zhixingliu@uchicago.edu}"
 GB="${GB:-4}"                       # global batch (sweep override; default reproduces prior behaviour)
 source "$REPO_ROOT/src/sfno_training/slurm_helpers.sh"

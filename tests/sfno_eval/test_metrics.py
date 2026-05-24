@@ -178,3 +178,115 @@ class TestCacheLatWeights:
         metrics.cache_lat_weights(path, nlat=32)
         metrics.cache_lat_weights(path, nlat=32)  # second run overwrites cleanly
         assert path.is_file()
+
+
+# ---------------------------------------------------------------------------
+# rmse_lat_weighted_masked
+# ---------------------------------------------------------------------------
+
+class TestRmseLatWeightedMasked:
+    def test_identity_mask_matches_unmasked(self):
+        rng = np.random.default_rng(10)
+        H, W = 8, 16
+        pred = torch.from_numpy(rng.standard_normal((H, W), dtype=np.float32))
+        truth = torch.from_numpy(rng.standard_normal((H, W), dtype=np.float32))
+        w = torch.from_numpy(np.ones(H, dtype=np.float32) / H)
+        mask = torch.ones(H, W, dtype=torch.bool)
+        got = metrics.rmse_lat_weighted_masked(pred, truth, w, mask)
+        want = metrics.rmse_lat_weighted(pred, truth, w)
+        assert torch.allclose(got, want, atol=1e-6, rtol=1e-6)
+
+    def test_hand_3x4_case(self):
+        # Construct a tiny case where the masked answer is computable by hand.
+        # Use err = pred - truth = 1 everywhere; w_lat uniform 1/H => masked
+        # RMSE = sqrt(sum_masked w_ij * 1) / sqrt(sum_masked w_ij) = 1.
+        H, W = 3, 4
+        pred = torch.zeros(H, W)
+        truth = -torch.ones(H, W)            # err == 1 everywhere
+        w = torch.ones(H) / H
+        mask = torch.zeros(H, W, dtype=torch.bool)
+        mask[0, :] = True                     # one full row kept
+        mask[1, 2] = True                     # one extra cell kept
+        got = metrics.rmse_lat_weighted_masked(pred, truth, w, mask)
+        assert torch.allclose(got, torch.tensor(1.0), atol=1e-6)
+
+    def test_all_false_returns_nan(self):
+        H, W = 4, 8
+        pred = torch.ones(H, W)
+        truth = torch.zeros(H, W)
+        w = torch.ones(H) / H
+        mask = torch.zeros(H, W, dtype=torch.bool)
+        out = metrics.rmse_lat_weighted_masked(pred, truth, w, mask)
+        assert torch.isnan(out)
+
+    def test_per_row_mask_renormalises(self):
+        # Two rows: row 0 fully masked out, row 1 fully kept. err = 2 in row 1.
+        # Expected RMSE = sqrt( (1*0 + 1*4) / (0 + 1) ) but renormalising by
+        # the remaining lat-weight: only row 1's weight contributes.
+        H, W = 2, 4
+        pred = torch.zeros(H, W)
+        truth = torch.zeros(H, W)
+        truth[1, :] = -2.0                    # err = 2 in row 1
+        w = torch.tensor([0.5, 0.5])
+        mask = torch.zeros(H, W, dtype=torch.bool)
+        mask[1, :] = True
+        out = metrics.rmse_lat_weighted_masked(pred, truth, w, mask)
+        assert torch.allclose(out, torch.tensor(2.0), atol=1e-6)
+
+    def test_rejects_mask_shape_mismatch(self):
+        with pytest.raises(ValueError, match="mask"):
+            metrics.rmse_lat_weighted_masked(
+                torch.zeros(4, 8), torch.zeros(4, 8),
+                torch.ones(4) / 4, torch.ones(5, 8, dtype=torch.bool),
+            )
+
+
+# ---------------------------------------------------------------------------
+# acc_masked
+# ---------------------------------------------------------------------------
+
+class TestAccMasked:
+    def test_identity_mask_matches_unmasked(self):
+        rng = np.random.default_rng(20)
+        H, W = 8, 16
+        pred = torch.from_numpy(rng.standard_normal((H, W), dtype=np.float32))
+        truth = torch.from_numpy(rng.standard_normal((H, W), dtype=np.float32))
+        clim = torch.from_numpy(rng.standard_normal((H, W), dtype=np.float32))
+        w = torch.from_numpy(np.ones(H, dtype=np.float32) / H)
+        mask = torch.ones(H, W, dtype=torch.bool)
+        got = metrics.acc_masked(pred, truth, clim, w, mask)
+        want = metrics.acc(pred, truth, clim, w)
+        assert torch.allclose(got, want, atol=1e-6, rtol=1e-6)
+
+    def test_masked_region_invariance(self):
+        # Flipping sign of pred/truth anomalies inside the masked-OUT region
+        # must not change ACC over the kept region.
+        rng = np.random.default_rng(21)
+        H, W = 6, 12
+        clim = torch.zeros(H, W)
+        truth = torch.from_numpy(rng.standard_normal((H, W), dtype=np.float32))
+        pred = truth + 0.1 * torch.from_numpy(
+            rng.standard_normal((H, W), dtype=np.float32)
+        )
+        w = torch.ones(H) / H
+        # Keep the top half, mask out the bottom half.
+        mask = torch.zeros(H, W, dtype=torch.bool)
+        mask[: H // 2] = True
+        base = metrics.acc_masked(pred, truth, clim, w, mask)
+        # Garbage in the masked-out half: should leave acc unchanged.
+        pred_pert = pred.clone()
+        truth_pert = truth.clone()
+        pred_pert[H // 2 :] = -100.0
+        truth_pert[H // 2 :] = 100.0
+        perturbed = metrics.acc_masked(pred_pert, truth_pert, clim, w, mask)
+        assert torch.allclose(base, perturbed, atol=1e-6, rtol=1e-6)
+
+    def test_all_false_returns_nan(self):
+        H, W = 4, 8
+        pred = torch.ones(H, W)
+        truth = torch.zeros(H, W)
+        clim = torch.zeros(H, W)
+        w = torch.ones(H) / H
+        mask = torch.zeros(H, W, dtype=torch.bool)
+        out = metrics.acc_masked(pred, truth, clim, w, mask)
+        assert torch.isnan(out)

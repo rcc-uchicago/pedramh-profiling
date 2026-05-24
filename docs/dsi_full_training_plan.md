@@ -54,7 +54,7 @@ Workflow:
 # Step 1: in the existing checkout, create the bootstrap branch and
 # commit the WIP snapshot per smoke-plan §2.1–§2.4. Use a commit
 # message that flags it as a WIP snapshot, not curated work.
-cd /home1/11114/zhixingliu/AI-RES
+cd /home1/11114/zhixingliu/projects/SFNO_Climate_Emulator
 # (smoke-plan §2 commands here — branch from zgplev-migration, edit
 #  .gitignore, capture pip freeze, git add the WIP, commit with
 #  "WIP-SNAPSHOT: …", push.)
@@ -121,8 +121,8 @@ The packager consumes:
 
 | Input                                    | Path on Stampede3                                    | Size   |
 |------------------------------------------|-------------------------------------------------------|--------|
-| Postprocessed PlaSim NetCDF              | `/scratch/11114/zhixingliu/AI-RES/data/postproc/sim52/` | 472 GB |
-| Boundary forcings (sst, rsdt, sic, …)    | `/scratch/11114/zhixingliu/AI-RES/data/boundary_astro/sim52/` | 18 GB  |
+| Postprocessed PlaSim NetCDF              | `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/postproc/sim52/` | 472 GB |
+| Boundary forcings (sst, rsdt, sic, …)    | `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/boundary_astro/sim52/` | 18 GB  |
 
 (Verified by `du -sh` in phase 1 inventory.)
 
@@ -170,9 +170,9 @@ Stampede3, transfer the much smaller packaged output.
 ```bash
 # Lines 14-17 today:
 SIMS=""                 # e.g. "52"
-POSTPROC_ROOT=          # postprocess output root, e.g. $SCRATCH/AI-RES/data/postproc
-BOUNDARY_ROOT=          # boundary output root,    e.g. $SCRATCH/AI-RES/data/boundary_astro
-OUTPUT_ROOT=            # packager output root,    e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev
+POSTPROC_ROOT=          # postprocess output root, e.g. $SCRATCH/SFNO_Climate_Emulator/data/postproc
+BOUNDARY_ROOT=          # boundary output root,    e.g. $SCRATCH/SFNO_Climate_Emulator/data/boundary_astro
+OUTPUT_ROOT=            # packager output root,    e.g. $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev
 ```
 
 These unconditional assignments clobber any `--export` from `sbatch`.
@@ -247,7 +247,7 @@ so all three stages must run before the subset is buildable.
 > your shell session to whichever tree has the fix:
 >
 > ```bash
-> REPO=/home1/11114/zhixingliu/AI-RES-dsi-bootstrap   # or $HOME/AI-RES if cherry-picked
+> REPO=/home1/11114/zhixingliu/projects/SFNO_Climate_Emulator-dsi-bootstrap   # or $HOME/AI-RES if cherry-picked
 > ```
 >
 > Then every `cd "$REPO"` below operates on the right tree. This
@@ -275,9 +275,9 @@ export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"   # required for `-m pl
 for IDX in 0 1 2; do
     python3 -m plasim_makani_packager.packager \
         --sims 52 \
-        --postproc-root $SCRATCH/AI-RES/data/postproc \
-        --boundary-root $SCRATCH/AI-RES/data/boundary_astro \
-        --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_test \
+        --postproc-root $SCRATCH/SFNO_Climate_Emulator/data/postproc \
+        --boundary-root $SCRATCH/SFNO_Climate_Emulator/data/boundary_astro \
+        --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_test \
         --train-years 11 11 \
         --valid-years 101 101 \
         --test-years 121 121 \
@@ -288,12 +288,12 @@ done
 # Stage B — stats (only scans output_root/train per stats.py:128, so
 # the train range here must match what's in train/):
 python3 -m plasim_makani_packager.stats \
-    --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_test \
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_test \
     --train-years 11 11
 
 # Stage C — metadata + config:
 python3 -m plasim_makani_packager.metadata \
-    --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_test \
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_test \
     --variant zgplev \
     --train-years 11 11 \
     --valid-years 101 101 \
@@ -302,7 +302,7 @@ python3 -m plasim_makani_packager.metadata \
 # Stage D — full validation (checks files + stats + metadata + smoke-load):
 python3 -m plasim_makani_packager.validate \
     --mode full \
-    --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_test
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_test
 ```
 
 `validate --mode full` rejects `unknown` postprocessor SHAs in
@@ -330,9 +330,9 @@ sbatch \
     --array=0-$((N-1)) \
     --export=ALL,\
 SIMS=52,\
-POSTPROC_ROOT=$SCRATCH/AI-RES/data/postproc,\
-BOUNDARY_ROOT=$SCRATCH/AI-RES/data/boundary_astro,\
-OUTPUT_ROOT=$SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev,\
+POSTPROC_ROOT=$SCRATCH/SFNO_Climate_Emulator/data/postproc,\
+BOUNDARY_ROOT=$SCRATCH/SFNO_Climate_Emulator/data/boundary_astro,\
+OUTPUT_ROOT=$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev,\
 TRAIN_YEARS="3 100",\
 VALID_YEARS="101 120",\
 TEST_YEARS="121 128" \
@@ -359,12 +359,12 @@ export PYTHONPATH="$REPO/src${PYTHONPATH:+:$PYTHONPATH}"
 
 # Stats from train-only years per group convention (3-100):
 python3 -m plasim_makani_packager.stats \
-    --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev \
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev \
     --train-years 3 100
 
 # Metadata + config:
 python3 -m plasim_makani_packager.metadata \
-    --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev \
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev \
     --variant zgplev \
     --train-years 3 100 \
     --valid-years 101 120 \
@@ -373,19 +373,19 @@ python3 -m plasim_makani_packager.metadata \
 # Final validation:
 python3 -m plasim_makani_packager.validate \
     --mode full \
-    --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev
 ```
 
 Verify file counts before declaring done:
 
 ```bash
-ls $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/train/ | wc -l   # 98 (years 3-100)
-ls $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/valid/ | wc -l   # 20 (years 101-120)
-ls $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/test/  | wc -l   # 8  (years 121-128)
-ls $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/stats/           # global_means/stds/time_means + forcing_*
-ls $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/metadata/        # data.json
-ls $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/config/          # *.yaml
-du -sh $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/             # ~340 GB
+ls $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/train/ | wc -l   # 98 (years 3-100)
+ls $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/valid/ | wc -l   # 20 (years 101-120)
+ls $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/test/  | wc -l   # 8  (years 121-128)
+ls $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/stats/           # global_means/stds/time_means + forcing_*
+ls $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/metadata/        # data.json
+ls $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/config/          # *.yaml
+du -sh $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/             # ~340 GB
 ```
 
 ### 3.5 Stale comment in `submit_zgplev_full.slurm`
@@ -394,8 +394,8 @@ du -sh $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/             # ~340
 
 ```
 scripts/build_subset_dataset.py \
-    --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-    --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_full \
+    --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+    --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full \
     --train-years 12-111 \
     --valid-years 11
 ```
@@ -433,26 +433,26 @@ be normalized using out-of-distribution stats.
   ```bash
   # 1. Build the subset on Stampede3 first (years 12-111 land in subset's train/):
   scripts/build_subset_dataset.py \
-      --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev \
-      --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_full \
+      --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev \
+      --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full \
       --train-years 12-111 --valid-years 11
 
   # 2. The subset's stats/ is a symlink to the FULL root's stats/.
   #    Replace it with a real directory before running stats — otherwise
   #    we'd corrupt the shared full-root stats.
-  rm $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/stats
-  mkdir $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/stats
+  rm $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full/stats
+  mkdir $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full/stats
 
   # 3. Now stats.py sees train/ with years 12-111 inside the SUBSET:
   python3 -m plasim_makani_packager.stats \
-      --output-root $SCRATCH/AI-RES/data/makani/sim52_zgplev_full \
+      --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full \
       --train-years 12 111
 
   # 4. Update subset metadata.json. The subset's test/ is empty
   #    (build_subset_dataset.py creates it as an empty placeholder), so
   #    pass a zero-width range so metadata reflects the actual layout:
   python3 -m plasim_makani_packager.metadata \
-      --output-root $SCRATCH/AI-RES/data/makani/sim52_zgplev_full \
+      --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full \
       --variant zgplev \
       --train-years 12 111 --valid-years 11 11 --test-years 0 0
   ```
@@ -498,15 +498,15 @@ Cons:
 ```bash
 # On Stampede3:
 scripts/build_subset_dataset.py \
-    --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev \
-    --dst $SCRATCH/AI-RES/data/makani/sim52_zgplev_full \
+    --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev \
+    --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full \
     --train-years 12-111 --valid-years 11
 
 # Materialize for transfer (symlink farm → real-file copy):
-mkdir -p $SCRATCH/AI-RES/data/makani/sim52_zgplev_full_materialized
+mkdir -p $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full_materialized
 rsync -aLh --info=progress2 \
-    $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/ \
-    $SCRATCH/AI-RES/data/makani/sim52_zgplev_full_materialized/
+    $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full/ \
+    $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full_materialized/
 ```
 
 Then transfer `sim52_zgplev_full_materialized/` to DSI (~280 GB:

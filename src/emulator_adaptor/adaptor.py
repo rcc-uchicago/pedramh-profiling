@@ -17,19 +17,29 @@ Variables emitted
 -----------------
 
 sst — sea surface temperature (K)
-    Ocean-masked surface temperature with a freezing-seawater clamp over
-    ice-covered ocean:
-        ocean = (lsm < 1e-6)                          strict land-mask zero
-        icy   = (sic > SIC_THRESHOLD)                 majority-ice (ERA5/CMIP convention)
-        sst = ts                        where ocean & ~icy
-        sst = FREEZING_SEAWATER_K       where ocean &  icy
-        sst = NaN                       elsewhere
-    After the above, apply a floor at FREEZING_SEAWATER_K over ocean: no
-    ocean cell may have SST below the seawater freezing point. Matches
-    ERA5 / CMIP reanalysis convention (water under/near ice is at the
-    freezing point, not the cold ice-skin temperature); without it,
-    PlaSim's binary-sic lag during polar-night cooling passes ~3 % of
-    ocean cell-timesteps through as non-physical sub-freezing "SST".
+    Two modes (select with --sst-mode):
+      surface (default, PlaSim-faithful):
+          ocean = (lsm < LAND_EPSILON)
+          sst = ts    where ocean
+          sst = NaN   elsewhere
+        PlaSim's `ts` is the surface skin temperature — water temperature
+        over open ocean and ice-surface temperature (typically 209-273 K)
+        over sea-ice cells. For an atmospheric emulator the coupling is
+        to this skin temperature regardless of phase, so we pass it
+        through unchanged over all non-land cells. PlaSim's binary-sic
+        lag during polar-night cooling does produce a small (~3 %) tail
+        of sub-freezing "open-ocean" cell-timesteps; that lag is part of
+        PlaSim's behaviour and the emulator should learn it.
+      ocean_era5 (legacy):
+          ocean = (lsm < LAND_EPSILON)
+          icy   = (sic > SIC_THRESHOLD)
+          sst = ts                        where ocean & ~icy
+          sst = FREEZING_SEAWATER_K       where ocean &  icy
+          sst = NaN                       elsewhere
+        Then a universal floor at FREEZING_SEAWATER_K over ocean. Matches
+        ERA5 / CMIP reanalysis convention (water under/near ice clamped
+        to the freezing point, not the cold ice-skin temperature). Kept
+        for backwards-compatibility with v10 datasets.
 
 rsdt — TOA incoming shortwave flux (W m-2)
     Two methods (select with --rsdt-method):
@@ -64,7 +74,11 @@ DEFAULT_ECCENTRICITY: float = 0.0167
 DEFAULT_OBLIQUITY_DEG: float = 23.441
 DEFAULT_WINDOW_HOURS: float = 6.0
 
-SST_MIN_K: float = FREEZING_SEAWATER_K - 0.01
+# SST validator floor (widened from FREEZING_SEAWATER_K - 0.01 in v10).
+# The new `surface` mode passes PlaSim's ice-surface temperature through, which
+# has been observed as low as ~209 K. 170 K is generous (still 30 K below
+# observed minimum) but tight enough to catch genuine corruption.
+SST_MIN_K: float = 170.0
 SST_MAX_K: float = 310.0
 RSDT_GLOBAL_MEAN_TOLERANCE_ARITH: float = 0.01   # ±1 %
 RSDT_GLOBAL_MEAN_TOLERANCE_ASTRO: float = 0.005  # ±0.5 %
@@ -73,8 +87,15 @@ RSDT_GLOBAL_MEAN_TOLERANCE_ASTRO: float = 0.005  # ±0.5 %
 # ---------------------------------------------------------------------------
 # sst construction
 # ---------------------------------------------------------------------------
-def compute_sst(ds: xr.Dataset) -> xr.DataArray:
-    for req in ("ts", "lsm", "sic"):
+def compute_sst(ds: xr.Dataset, sst_mode: str = "surface") -> xr.DataArray:
+    if sst_mode not in ("surface", "ocean_era5"):
+        raise RuntimeError(
+            f"compute_sst: unknown sst_mode {sst_mode!r}; "
+            f"expected 'surface' or 'ocean_era5'."
+        )
+
+    required = ("ts", "lsm") if sst_mode == "surface" else ("ts", "lsm", "sic")
+    for req in required:
         if req not in ds.data_vars:
             raise RuntimeError(
                 f"adaptor requires '{req}' in postprocess output; rerun the "
@@ -83,19 +104,26 @@ def compute_sst(ds: xr.Dataset) -> xr.DataArray:
             )
 
     ocean = ds["lsm"] < LAND_EPSILON
-    icy = ds["sic"] > SIC_THRESHOLD
-    # Over ocean: use ts where ice-free, FREEZING_SEAWATER_K where ice-covered,
-    # then apply the freezing floor universally. PlaSim emits sic as a hard
-    # binary (0/1); during polar-night cooling ~3 % of ocean cell-timesteps
-    # reach ts < 271.35 K before sic flips to 1. Passing those values through
-    # as "SST" is non-physical (water under/near ice is at the freezing point,
-    # not the cold ice-skin temperature). The universal floor matches ERA5 /
-    # CMIP reanalysis convention for SST over sea ice.
-    sst_ocean = xr.where(icy, FREEZING_SEAWATER_K, ds["ts"]).clip(min=FREEZING_SEAWATER_K)
-    sst = xr.where(ocean, sst_ocean, np.nan)
+    if sst_mode == "surface":
+        # PlaSim-faithful: pass `ts` through over every non-land cell. Over
+        # open ocean `ts` is the water temperature; over sea ice it is the
+        # ice-skin temperature (~209-273 K). Cold-ice signal is preserved.
+        sst = xr.where(ocean, ds["ts"], np.nan)
+        long_name = "surface_temperature_over_non_land"
+    else:  # ocean_era5
+        # Legacy ERA5/CMIP convention: clamp ice-covered ocean to the
+        # seawater freezing point and floor all open ocean to the same
+        # value. PlaSim emits sic as a hard binary; ~3 % of ocean
+        # cell-timesteps reach ts < 271.35 K before sic flips to 1 and
+        # the floor catches those as well.
+        icy = ds["sic"] > SIC_THRESHOLD
+        sst_ocean = xr.where(icy, FREEZING_SEAWATER_K, ds["ts"]).clip(min=FREEZING_SEAWATER_K)
+        sst = xr.where(ocean, sst_ocean, np.nan)
+        long_name = "sea_surface_temperature_era5_convention"
+
     sst.attrs = {
         "units": "K",
-        "long_name": "sea_surface_temperature",
+        "long_name": long_name,
         "standard_name": "sea_surface_temperature",
     }
     return sst
@@ -271,8 +299,8 @@ def _validate(out: xr.Dataset, lsm: xr.DataArray, opts) -> None:
         raise RuntimeError("sst validation: no finite values present (all NaN).")
     smin = float(np.nanmin(sst_vals))
     smax = float(np.nanmax(sst_vals))
-    logger.info("  sst range over ocean: [%.2f, %.2f] K (bounds [%.2f, %.2f])",
-                smin, smax, SST_MIN_K, SST_MAX_K)
+    logger.info("  sst range over non-land (mode=%s): [%.2f, %.2f] K (bounds [%.2f, %.2f])",
+                opts.sst_mode, smin, smax, SST_MIN_K, SST_MAX_K)
     if smin < SST_MIN_K:
         raise RuntimeError(f"sst min {smin:.3f} K < {SST_MIN_K}")
     if smax > SST_MAX_K:
@@ -348,7 +376,7 @@ def process_one(sim: int, year: int, opts) -> None:
 
     logger.info("[sim%s/%04d] reading %s", sim, year, input_path)
     with xr.open_dataset(input_path) as ds:
-        sst = compute_sst(ds)
+        sst = compute_sst(ds, opts.sst_mode)
         if opts.rsdt_method == "arithmetic":
             rsdt = compute_rsdt_arithmetic(ds)
         else:
@@ -364,6 +392,7 @@ def process_one(sim: int, year: int, opts) -> None:
                           "rsdt": rsdt.astype(np.float32),
                           "sic": sic_out})
         out.attrs["rsdt_method"] = opts.rsdt_method
+        out.attrs["sst_mode"] = opts.sst_mode
         if opts.rsdt_method == "astronomical":
             out.attrs["solar_constant_W_m2"] = float(opts.solar_constant)
             out.attrs["eccentricity"] = float(opts.eccentricity)
@@ -413,6 +442,15 @@ def _parse_args() -> argparse.Namespace:
                    help="Axial tilt in degrees (astronomical only).")
     p.add_argument("--window-hours", type=float, default=DEFAULT_WINDOW_HOURS,
                    help="Output cadence in hours (astronomical only).")
+    p.add_argument("--sst-mode", choices=("surface", "ocean_era5"),
+                   default="surface",
+                   help="surface (default, PlaSim-faithful): pass `ts` through over "
+                        "every non-land cell (water OR ice); NaN only over land. "
+                        "Preserves the 30-40 K cold-ice signal PlaSim emits. "
+                        "ocean_era5 (legacy): clamp ice-covered ocean to "
+                        "FREEZING_SEAWATER_K (271.35) and floor open ocean to the "
+                        "same value (ERA5/CMIP convention). Use for v10 "
+                        "back-compat regeneration only.")
     p.add_argument("--task-index", type=int, default=None,
                    help="0-based index into the (sim, year) task list (for SLURM array dispatch).")
     p.add_argument("--count-tasks", action="store_true")

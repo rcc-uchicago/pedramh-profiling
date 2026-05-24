@@ -1,6 +1,6 @@
-# AI-RES
+# SFNO Climate Emulator
 
-AI + Rare Event Sampling experiments on climate / weather models, on Stampede3.
+SFNO (Spherical Fourier Neural Operator) emulators of PlaSim simple-climate-model outputs, on Stampede3. Two parallel tracks: own-track v10 zgplev training/eval and group SFNO-5410 (blocking emulator) evaluation. Originally codenamed AI-RES (AI + Rare Event Sampling).
 Codex/Claude Code: use `.venv` in the repo root for Earth2Studio + SFNO work.
 
 ## Layout
@@ -17,9 +17,9 @@ Code and lightweight files live under `$HOME`. Heavy artifacts live on `$SCRATCH
 | `tests/`       | `$HOME`                                    | Unit / integration tests              |
 | `docs/`        | `$HOME`                                    | Documentation                         |
 | `logs/`        | `$HOME`                                    | Job logs (small)                      |
-| `data/`        | → `$SCRATCH/AI-RES/data`                   | Raw & intermediate simulation data    |
-| `checkpoints/` | → `$SCRATCH/AI-RES/checkpoints`            | Model checkpoints / training state    |
-| `results/`     | → `$WORK/AI-RES/results`                   | Curated results for medium-term keep  |
+| `data/`        | → `$SCRATCH/SFNO_Climate_Emulator/data`                   | Raw & intermediate simulation data    |
+| `checkpoints/` | → `$SCRATCH/SFNO_Climate_Emulator/checkpoints`            | Model checkpoints / training state    |
+| `results/`     | → `$WORK/SFNO_Climate_Emulator/results`                   | Curated results for medium-term keep  |
 
 ## Stampede3 paths
 

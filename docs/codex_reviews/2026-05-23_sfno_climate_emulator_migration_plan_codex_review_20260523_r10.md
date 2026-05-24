@@ -1,0 +1,21 @@
+**Strengths**
+- User intent is explicit and respected: DSI naming, no venv rebuild, generated run-artifact rewrite, transitional symlinks, and GitHub rename are all marked as user-approved scope.
+- R9-F3 is correctly resolved: the plan now validates the four actual `submit_eval.sh` job log lines, matching [scripts/submit_eval.sh](/home1/11114/zhixingliu/AI-RES/scripts/submit_eval.sh:65).
+- R9-F4 is resolved: Phase 6 now classifies historical bare-name `AI-RES` prose as preserved rather than a migration miss.
+
+**Issues**
+- **P1 - R9-F1 is not fully resolved: Phase 4c misses packed-env stale path files that its own verification will catch.**  
+  The Phase 4c sed only covers `bin`, `conda-meta`, `etc`, `lib/pkgconfig`, `lib/cmake`, `_sysconfigdata`, and `.pth`, but the actual packed env has old-prefix text in other locations. Examples: [include/H5pubconf.h](/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_runtime/aires_env_20260509/unpacked/include/H5pubconf.h:11), [include/magics/magics_config.h](/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_runtime/aires_env_20260509/unpacked/include/magics/magics_config.h:83), [lib/libhdf5.settings](/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_runtime/aires_env_20260509/unpacked/lib/libhdf5.settings:12), [lib/esmf.mk](/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_runtime/aires_env_20260509/unpacked/lib/esmf.mk:28), [lib/preload.sh](/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_runtime/aires_env_20260509/unpacked/lib/preload.sh:3), and [share/pkgconfig/poppler-data.pc](/work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_runtime/aires_env_20260509/unpacked/share/pkgconfig/poppler-data.pc:1). I counted 114 old-prefix files outside the current Phase 4c mutation roots, so `grep -rIl '/AI-RES/' "$PENV"` will still fail.
+
+- **P1 - R9-F2b is still incomplete: Phase 11 does not explicitly add the untracked inline eval bodies that tracked wrappers source.**  
+  The tracked wrappers source untracked bodies: [scripts/submit_eval_inference.slurm](/home1/11114/zhixingliu/AI-RES/scripts/submit_eval_inference.slurm:22), [scripts/submit_eval_score.slurm](/home1/11114/zhixingliu/AI-RES/scripts/submit_eval_score.slurm:17), [scripts/submit_eval_report.slurm](/home1/11114/zhixingliu/AI-RES/scripts/submit_eval_report.slurm:15), and [scripts/submit_eval_figures.slurm](/home1/11114/zhixingliu/AI-RES/scripts/submit_eval_figures.slurm:14). Those inline files contain old path defaults that Phase 5 will rewrite, e.g. [scripts/eval_run_inference_inline.sh](/home1/11114/zhixingliu/AI-RES/scripts/eval_run_inference_inline.sh:12), [scripts/eval_run_score_inline.sh](/home1/11114/zhixingliu/AI-RES/scripts/eval_run_score_inline.sh:7), [scripts/eval_run_report_inline.sh](/home1/11114/zhixingliu/AI-RES/scripts/eval_run_report_inline.sh:7), and [scripts/eval_run_figures_inline.sh](/home1/11114/zhixingliu/AI-RES/scripts/eval_run_figures_inline.sh:7). If Phase 11 stages the wrappers with `git add -u` but omits these new files, the migration PR can reference missing eval bodies.
+
+- **P2 - Fixed Phase 10b `RUN_TAG` is only collision-free once.**  
+  The plan uses one fixed postrename tag, but the prelude refuses any existing `OUT_ROOT` unless `ALLOW_RERUN=1`, per [scripts/submit_eval_prelude.sh](/home1/11114/zhixingliu/AI-RES/scripts/submit_eval_prelude.sh:153). A retry after a partial or failed smoke will abort unless the operator manually removes/renames the output dir.
+
+**Suggested Edits**
+- Replace Phase 4c’s targeted sed list with a content-driven text-file pass over the packed env, or add the missing roots/patterns: `include/`, `share/pkgconfig/`, `share/hdf5_examples/`, `share/doc/`, `share/man/`, `lib/*.settings`, `lib/*.mk`, `lib/*Config.sh`, `lib/preload.sh`, and relevant `libexec` text scripts. Keep binary filtering.
+- Add the four inline eval bodies to Phase 11’s explicit `git add` list and include them in Phase 10a `bash -n`.
+- Make Phase 10b retry-safe by suffixing `RUN_TAG` with a timestamp or adding a pre-submit `test ! -e "$OUT_ROOT"` with instructions to choose a new tag.
+
+verdict: CHANGES_REQUESTED

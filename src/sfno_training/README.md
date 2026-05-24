@@ -39,19 +39,19 @@ integration test.**
 
 ```bash
 # 1. GPU smoke (HARD GATE)
-OUTPUT_ROOT=$SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-EXP_DIR=$SCRATCH/AI-RES/runs/sfno_smoke \
+OUTPUT_ROOT=$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+EXP_DIR=$SCRATCH/SFNO_Climate_Emulator/runs/sfno_smoke \
 sbatch src/sfno_training/submit_smoke.slurm
 
 # 2. Build tiny/short subsets when needed.
 scripts/build_subset_dataset.py \
-    --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-    --dst $SCRATCH/AI-RES/data/makani/sim52_tiny \
+    --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+    --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_tiny \
     --train-years 3 --valid-years 101
 
 scripts/build_subset_dataset.py \
-    --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-    --dst $SCRATCH/AI-RES/data/makani/sim52_short \
+    --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+    --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short \
     --train-years 3-7 --valid-years 101-102
 
 # 3. Launch tiny, then short after review.
@@ -96,7 +96,7 @@ Plus:
 Pinned to upstream `main` of `NVIDIA/makani` at commit `c970430` via editable install of `makani-src/`:
 
 ```bash
-.venv/bin/pip install --no-deps -e /home1/11114/zhixingliu/AI-RES/makani-src
+.venv/bin/pip install --no-deps -e /home1/11114/zhixingliu/projects/SFNO_Climate_Emulator/makani-src
 ```
 
 Released `makani 0.2.0` (wheel) lacks the `cache_unpredicted_features` clone fix that's on main; without the pin, the in-place `.copy_(utar)` inside `append_history` mutates the caller's xz tensor. The wrapper test keeps a defensive snapshot in case the env drifts back to an unfixed wheel.

@@ -22,7 +22,7 @@ from plasim_makani_packager.stats import STATIC_FORCING_NAMES, compute_stats
 _ZG_PLEV_REFERENCE_M: dict[int, float] = {
     150: 13500.0, 200: 11700.0, 250: 10300.0, 300: 9100.0,
     400:  7100.0, 500:  5550.0, 600:  4200.0, 700: 3000.0,
-    850:  1450.0, 925:   750.0,
+    850:  1450.0, 925:   750.0, 1000:  110.0,
 }
 
 

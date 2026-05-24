@@ -11,7 +11,7 @@ sfno_job_name() {
 }
 
 sfno_log_dir() {
-    printf '%s\n' "${SFNO_LOG_DIR:-${REPO_ROOT:-$HOME/AI-RES}/logs}"
+    printf '%s\n' "${SFNO_LOG_DIR:-${REPO_ROOT:-$HOME/projects/SFNO_Climate_Emulator}/logs}"
 }
 
 sfno_mail_log() {
@@ -50,10 +50,24 @@ sfno_send_status_mail() {
         printf 'Exit code: %s\n' "$rc"
         printf 'Host: %s\n' "$(hostname -f 2>/dev/null || hostname)"
         printf 'Workdir: %s\n' "$(pwd)"
-        printf 'Output: %s/logs/%s_%s.out\n' "${REPO_ROOT:-$HOME/AI-RES}" "$job_name" "$job_id"
-        printf 'Error: %s/logs/%s_%s.err\n' "${REPO_ROOT:-$HOME/AI-RES}" "$job_name" "$job_id"
+        printf 'Output: %s/logs/%s_%s.out\n' "${REPO_ROOT:-$HOME/projects/SFNO_Climate_Emulator}" "$job_name" "$job_id"
+        printf 'Error: %s/logs/%s_%s.err\n' "${REPO_ROOT:-$HOME/projects/SFNO_Climate_Emulator}" "$job_name" "$job_id"
         printf 'Mail log: %s\n' "$mail_log"
         printf 'Time: %s\n' "$(date -Is)"
+        # Bundled-eval status (see docs/2026-05-20_bundled_training_eval_plan.md §4.6).
+        # The training step's rc is the SLURM exit code (shown above); the
+        # bundled-eval block sets BUNDLED_EVAL_STATUS separately so eval
+        # failures are visible even when SLURM reports success.
+        if [[ -n "${BUNDLED_EVAL_STATUS:-}" ]]; then
+            local _train_verdict="OK"
+            if [[ "$rc" -ne 0 ]]; then _train_verdict="FAIL_rc$rc"; fi
+            printf 'TRAIN=%s EVAL=%s\n' "$_train_verdict" "$BUNDLED_EVAL_STATUS"
+            if [[ -n "${OUT_ROOT:-}" && -f "$OUT_ROOT/bundled_eval_status.txt" ]]; then
+                printf 'Bundled-eval status file: %s/bundled_eval_status.txt\n' "$OUT_ROOT"
+            fi
+            printf 'Bundled-eval fallback log: %s/logs/bundled_eval_status_%s.txt\n' \
+                "${REPO_ROOT:-$HOME/projects/SFNO_Climate_Emulator}" "$job_id"
+        fi
     } > "$body_file"
 
     {

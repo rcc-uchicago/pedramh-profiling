@@ -5,7 +5,7 @@
 ### clobbering the original v10 group_clone artifacts.
 ###
 ### Source ckpt (loaded at trainer construction; optimizer/scheduler/counters
-### remain fresh): $SCRATCH/AI-RES/runs/sfno_zgplev_group_clone/
+### remain fresh): $SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_group_clone/
 ###     plasim_sim52_zgplev_group_clone/0/training_checkpoints/best_ckpt_mp0.tar
 ### (raw-best, 1.71 GB, epoch=50, iters=909950, initial_lr=1e-4, current_lr=1e-8).
 ###

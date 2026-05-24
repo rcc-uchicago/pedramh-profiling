@@ -21,12 +21,17 @@
 # Required — fill in for your run. Either point at the packager-rendered
 # YAML directly, or render src/sfno_training/config/plasim_sim52_zgplev_baseline.yaml
 # via envsubst-style substitution before this script runs.
-OUTPUT_ROOT=            # e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev
-EXP_DIR=                # e.g. $SCRATCH/AI-RES/runs/sfno_zgplev_baseline
+OUTPUT_ROOT=            # e.g. $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev
+EXP_DIR=                # e.g. $SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_baseline
 CONFIG_NAME="plasim_sim52_zgplev_baseline"
 
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
+
 # Activate the project venv (torch + makani + physicsnemo).
-source "$HOME/AI-RES/.venv/bin/activate"
+source "$REPO_ROOT/.venv/bin/activate"
+
+# NCCL diagnostics + behavioural async-error abort (P5).
+source "$REPO_ROOT/src/sfno_training/env_nccl.sh"
 
 : "${OUTPUT_ROOT:?Set OUTPUT_ROOT to the packager output dir}"
 : "${EXP_DIR:?Set EXP_DIR to the experiment output dir}"
@@ -37,7 +42,7 @@ PACKAGER_RENDERED="$OUTPUT_ROOT/config/${CONFIG_NAME}.yaml"
 if [[ -f "$PACKAGER_RENDERED" ]]; then
     YAML_CONFIG="$PACKAGER_RENDERED"
 else
-    BASELINE_TPL="$HOME/AI-RES/src/sfno_training/config/plasim_sim52_zgplev_baseline.yaml"
+    BASELINE_TPL="$HOME/projects/SFNO_Climate_Emulator/src/sfno_training/config/plasim_sim52_zgplev_baseline.yaml"
     YAML_CONFIG="$EXP_DIR/${CONFIG_NAME}.rendered.yaml"
     mkdir -p "$EXP_DIR"
     sed -e "s|{{OUTPUT_ROOT}}|$OUTPUT_ROOT|g" \
@@ -45,7 +50,7 @@ else
         "$BASELINE_TPL" > "$YAML_CONFIG"
 fi
 
-cd "$HOME/AI-RES"
+cd "$HOME/projects/SFNO_Climate_Emulator"
 mkdir -p logs
 
 set -euo pipefail

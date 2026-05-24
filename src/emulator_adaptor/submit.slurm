@@ -8,18 +8,26 @@
 #SBATCH -o logs/adaptor_%A_%a.out
 
 # ============================================================================
-# REQUIRED — fill these in for your run. No defaults: an unedited submission
-# fails fast on the checks below.
+# REQUIRED — provide via the environment (e.g. `sbatch --export=ALL,SIMS=52,
+# YEAR_START=1,YEAR_END=100,INPUT_ROOT=...,OUTPUT_ROOT=... submit.slurm`) or by
+# editing the defaults below. The `${VAR:-}` form is intentional: it leaves any
+# caller-exported value untouched so `sbatch --export=...` actually wins. An
+# empty value still trips the fail-fast checks below.
 # ============================================================================
-SIMS=""                # e.g. "30 31 32 33 34 35 36"
-YEAR_START=            # e.g. 1
-YEAR_END=              # e.g. 100
-INPUT_ROOT=            # postprocess output root, e.g. $SCRATCH/AI-RES/data/postproc
-OUTPUT_ROOT=           # boundary output root,    e.g. $SCRATCH/AI-RES/data/boundary
+SIMS="${SIMS:-}"                # e.g. "30 31 32 33 34 35 36"
+YEAR_START="${YEAR_START:-}"    # e.g. 1
+YEAR_END="${YEAR_END:-}"        # e.g. 100
+INPUT_ROOT="${INPUT_ROOT:-}"    # postprocess output root, e.g. $SCRATCH/SFNO_Climate_Emulator/data/postproc
+OUTPUT_ROOT="${OUTPUT_ROOT:-}"  # boundary output root,    e.g. $SCRATCH/SFNO_Climate_Emulator/data/boundary
 
 # Optional — default is "arithmetic" (rsdt = rst - rsut from PlaSim).
 # Set to "astronomical" to use the analytic 6h-mean integral path instead.
-RSDT_METHOD=
+RSDT_METHOD="${RSDT_METHOD:-}"
+
+# Optional — default is "surface" (PlaSim-faithful: ts over all non-land cells,
+# preserves cold-ice signal). Set to "ocean_era5" for v10 back-compat regen
+# (ERA5/CMIP convention: ice-covered ocean clamped to FREEZING_SEAWATER_K).
+SST_MODE="${SST_MODE:-}"
 
 # ============================================================================
 # SIZING THE ARRAY
@@ -41,6 +49,10 @@ module purge
 module load intel/24.0 cdo netcdf python/3.12.11
 export LD_LIBRARY_PATH=/opt/apps/intel24/netcdf/4.9.2/x86_64/lib:/home1/09979/awikner/netcdf-4.2/lib:${LD_LIBRARY_PATH}
 
+# The adaptor needs python + xarray + numpy + pandas + netCDF4. Activate the
+# project venv (same pattern as the packager submit script).
+source "$HOME/projects/SFNO_Climate_Emulator/.venv/bin/activate"
+
 # ============================================================================
 # FAIL FAST IF UNSET
 # ============================================================================
@@ -53,12 +65,28 @@ export LD_LIBRARY_PATH=/opt/apps/intel24/netcdf/4.9.2/x86_64/lib:/home1/09979/aw
 # ============================================================================
 # DISPATCH
 # ============================================================================
+# SLURM stages submit scripts into /var/spool/slurmd/jobXXX/ before execution,
+# so the BASH_SOURCE-derived path lands outside the source tree. Match the
+# packager's submit pattern: try BASH_SOURCE first, then SLURM_SUBMIT_DIR,
+# then fall back to $HOME/projects/SFNO_Climate_Emulator/src/emulator_adaptor.
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+if [[ ! -f "$SCRIPT_DIR/adaptor.py" ]]; then
+    if [[ -f "${SLURM_SUBMIT_DIR:-}/src/emulator_adaptor/adaptor.py" ]]; then
+        SCRIPT_DIR="$SLURM_SUBMIT_DIR/src/emulator_adaptor"
+    else
+        SCRIPT_DIR="$HOME/projects/SFNO_Climate_Emulator/src/emulator_adaptor"
+    fi
+fi
 mkdir -p logs
 
 RSDT_METHOD_FLAG=()
 if [[ -n "$RSDT_METHOD" ]]; then
     RSDT_METHOD_FLAG=(--rsdt-method "$RSDT_METHOD")
+fi
+
+SST_MODE_FLAG=()
+if [[ -n "$SST_MODE" ]]; then
+    SST_MODE_FLAG=(--sst-mode "$SST_MODE")
 fi
 
 python3 "$SCRIPT_DIR/adaptor.py" \
@@ -67,4 +95,5 @@ python3 "$SCRIPT_DIR/adaptor.py" \
     --input-root "$INPUT_ROOT" \
     --output-root "$OUTPUT_ROOT" \
     "${RSDT_METHOD_FLAG[@]}" \
+    "${SST_MODE_FLAG[@]}" \
     --task-index "$SLURM_ARRAY_TASK_ID"

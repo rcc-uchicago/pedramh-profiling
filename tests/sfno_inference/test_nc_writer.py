@@ -196,3 +196,47 @@ class TestGuards:
                 lon=np.linspace(0, 360, 8, endpoint=False),
                 ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
             )
+
+    def test_truth_sic_absent_when_result_field_none(self, tmp_path):
+        K, H, W = 3, 4, 8
+        result = _make_result(K=K, H=H, W=W)
+        assert result.truth_sic is None
+        out = tmp_path / "no_sic.nc"
+        write_rollout_nc(
+            out, result=result, channel_names=_CHANNELS,
+            lat=np.linspace(-90, 90, H),
+            lon=np.linspace(0, 360, W, endpoint=False),
+            ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
+        )
+        ds = xr.open_dataset(out)
+        try:
+            assert "truth_sic" not in ds.variables
+        finally:
+            ds.close()
+
+    def test_truth_sic_round_trip(self, tmp_path):
+        K, H, W = 3, 4, 8
+        # Hand-built sic: NaN over half (synthetic land), zeros over rest.
+        sic = torch.zeros(K, H, W, dtype=torch.float32)
+        sic[:, :H // 2, :] = float("nan")
+        result = _make_result(K=K, H=H, W=W)
+        result.truth_sic = sic
+        out = tmp_path / "with_sic.nc"
+        write_rollout_nc(
+            out, result=result, channel_names=_CHANNELS,
+            lat=np.linspace(-90, 90, H),
+            lon=np.linspace(0, 360, W, endpoint=False),
+            ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
+        )
+        ds = xr.open_dataset(out)
+        try:
+            assert "truth_sic" in ds.variables
+            arr = ds["truth_sic"].values
+            assert arr.shape == (1, K, H, W)
+            assert arr.dtype == np.float32
+            # Land NaNs survive round-trip.
+            assert np.all(np.isnan(arr[0, :, : H // 2, :]))
+            assert np.all(arr[0, :, H // 2 :, :] == 0.0)
+            assert ds["truth_sic"].attrs["units"] == "fraction"
+        finally:
+            ds.close()

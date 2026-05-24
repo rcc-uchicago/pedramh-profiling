@@ -39,7 +39,7 @@ from sfno_inference import checkpoint_loader as cl  # noqa: E402
 
 
 _RUN_DIR_REAL = Path(
-    "/scratch/11114/zhixingliu/AI-RES/runs/sfno_full/plasim_sim52_full/0"
+    "/scratch/11114/zhixingliu/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0"
 )
 
 

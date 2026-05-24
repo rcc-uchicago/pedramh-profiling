@@ -17,9 +17,9 @@
 #   GB           — global batch size to test (e.g. 32, 16, or 8).
 # Optional env:
 #   OUTPUT_ROOT  — packaged dataset root.
-#                  Default: $SCRATCH/AI-RES/data/makani/sim52_zgplev_full
+#                  Default: $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full
 #   EXP_DIR      — fresh per-point experiment dir.
-#                  Default: $SCRATCH/AI-RES/runs/sfno_zgplev_full_microbench/gb${GB}
+#                  Default: $SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_full_microbench/gb${GB}
 #   TARGET_STEPS — steady-state training steps per epoch.
 #                  Default: 1500
 #   MAX_EPOCHS   — number of epochs to run (1 warmup + 1 measured).
@@ -50,11 +50,11 @@
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 SFNO_JOB_NAME="sfno_zgplev_full_microbench"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_zgplev_full}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full}"
 GB="${GB:?Set GB to the global batch size to microbench (e.g. 32, 16, 8)}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_zgplev_full_microbench/gb${GB}}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_full_microbench/gb${GB}}"
 TARGET_STEPS="${TARGET_STEPS:-1500}"
 MAX_EPOCHS="${MAX_EPOCHS:-2}"
 N_TRAIN_SAMPLES=$(( GB * TARGET_STEPS ))

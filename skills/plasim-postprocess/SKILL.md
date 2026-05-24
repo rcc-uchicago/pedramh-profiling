@@ -80,24 +80,24 @@ Conditional-required: `--input-root` and `--output-root` are needed for any proc
 ### 1. Single-shot interactive run (one sim-year)
 
 ```bash
-cd ~/AI-RES
+cd ~/projects/SFNO_Climate_Emulator
 module purge && module load intel/24.0 cdo netcdf python/3.12.11
 export LD_LIBRARY_PATH=/opt/apps/intel24/netcdf/4.9.2/x86_64/lib:/home1/09979/awikner/netcdf-4.2/lib:$LD_LIBRARY_PATH
 
 python3 src/plasim_postprocessor/plasim_postprocessor.py \
     --profile exp15 --sims 30 --years 12 12 \
     --input-root /scratch/10000/amarchakitus/PLASIM/data \
-    --output-root $SCRATCH/AI-RES/data/postproc
+    --output-root $SCRATCH/SFNO_Climate_Emulator/data/postproc
 ```
 
-Output: `$SCRATCH/AI-RES/data/postproc/sim30/MOST.0012.nc`.
+Output: `$SCRATCH/SFNO_Climate_Emulator/data/postproc/sim30/MOST.0012.nc`.
 
 ### 2. SLURM array job (recommended for any non-trivial run)
 
 The template at `src/plasim_postprocessor/submit.slurm` has placeholders for `PROFILE`, `SIMS`, `YEAR_START`, `YEAR_END`, `INPUT_ROOT`, `OUTPUT_ROOT`. Edit them, then:
 
 ```bash
-cd ~/AI-RES
+cd ~/projects/SFNO_Climate_Emulator
 
 # Step 1: compute task count (no --input/output-root needed)
 N=$(python3 src/plasim_postprocessor/plasim_postprocessor.py \

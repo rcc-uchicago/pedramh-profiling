@@ -55,7 +55,7 @@ In addition: extra non-translatable group fields (PanguWeather-only) were alread
 ## Source dataset state (verified 2026-04-25)
 
 ```
-$SCRATCH/AI-RES/data/makani/sim52_astro_64x128/
+$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/
 ├── train/   MOST.0003.h5 .. MOST.0100.h5     (98 files; years 3–100)
 ├── valid/   MOST.0101.h5 .. MOST.0120.h5     (20 files; years 101–120)
 ├── stats/   global_means.npy, global_stds.npy, time_means.npy,
@@ -309,34 +309,34 @@ Three differences from v0: pass `--checkpointing_level 2`, run preflight with ma
 #
 # Required env vars:
 #   OUTPUT_ROOT — packager-output (or symlink subset) root.
-#                 Default: $SCRATCH/AI-RES/data/makani/sim52_full
+#                 Default: $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full
 #   EXP_DIR     — experiment output dir.
-#                 Default: $SCRATCH/AI-RES/runs/sfno_full
+#                 Default: $SCRATCH/SFNO_Climate_Emulator/runs/sfno_full
 #
 # Build the subset (one-time) before launching:
 #   scripts/build_subset_dataset.py \
-#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-#       --dst $SCRATCH/AI-RES/data/makani/sim52_full \
+#       --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+#       --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full \
 #       --train-years 12-111 \
 #       --valid-years 11
 # ============================================================================
 
 set -euo pipefail
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_full}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_full}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_full}"
 
-source "$HOME/AI-RES/.venv/bin/activate"
+source "$HOME/projects/SFNO_Climate_Emulator/.venv/bin/activate"
 : "${OUTPUT_ROOT:?Set OUTPUT_ROOT to the dataset (subset) root}"
 : "${EXP_DIR:?Set EXP_DIR to the experiment output dir}"
 
-FULL_TPL="$HOME/AI-RES/src/sfno_training/config/plasim_sim52_full.yaml"
+FULL_TPL="$HOME/projects/SFNO_Climate_Emulator/src/sfno_training/config/plasim_sim52_full.yaml"
 FULL_YAML="$EXP_DIR/plasim_sim52_full.rendered.yaml"
 mkdir -p "$EXP_DIR" "$EXP_DIR/training_checkpoints"
 sed -e "s|{{OUTPUT_ROOT}}|$OUTPUT_ROOT|g" \
     -e "s|{{EXP_DIR}}|$EXP_DIR|g" \
     "$FULL_TPL" > "$FULL_YAML"
 
-cd "$HOME/AI-RES"
+cd "$HOME/projects/SFNO_Climate_Emulator"
 mkdir -p logs
 set -x
 
@@ -410,7 +410,7 @@ Existing tests pass without change (defaults `none`/`0`).
 
 1. Code changes (§A.1, §A.2, §B, §C, §D.1, §D.2). Single commit.
 2. Run unit tests: `pytest tests/sfno_training/test_build_subset_dataset.py tests/sfno_training/test_preflight.py -q`.
-3. Build the symlink farm: `scripts/build_subset_dataset.py --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 --dst $SCRATCH/AI-RES/data/makani/sim52_full --train-years 12-111 --valid-years 11`. Spot-check counts: train=100, valid=1.
+3. Build the symlink farm: `scripts/build_subset_dataset.py --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full --train-years 12-111 --valid-years 11`. Spot-check counts: train=100, valid=1.
 4. **Gate:** confirm tiny SFNO smoke + tiny training are green. If tiny gate hasn't passed, full launch is premature.
 5. **Real memory probe** — submit a 1-job 5-min interactive (or 0:30:00 batch) test that runs preflight with `--amp-mode bf16 --checkpointing-level 2` and one train step at `batch_size 4`. Confirm no OOM. Output committed to `logs/sfno_full_memprobe_*.out`.
 6. Submit full: `! sbatch src/sfno_training/submit_full.slurm`. Email on BEGIN/END/FAIL.

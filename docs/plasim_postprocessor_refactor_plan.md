@@ -204,7 +204,7 @@ SIMS=""                # e.g. "30 31 32 33 34 35 36"
 YEAR_START=            # e.g. 1
 YEAR_END=              # e.g. 100
 INPUT_ROOT=            # e.g. /scratch/10000/amarchakitus/PLASIM/data
-OUTPUT_ROOT=           # e.g. $SCRATCH/AI-RES/data/postproc
+OUTPUT_ROOT=           # e.g. $SCRATCH/SFNO_Climate_Emulator/data/postproc
 
 # === SIZING THE ARRAY ===
 # 1. Compute task count (no --input-root/--output-root needed for this):
@@ -300,7 +300,7 @@ End-to-end after Step 2/3 are in place — every check is machine-checkable agai
 ```bash
 module load gcc netcdf cdo
 export LD_LIBRARY_PATH=/opt/apps/intel24/netcdf/4.9.2/x86_64/lib:/home1/09979/awikner/netcdf-4.2/lib:$LD_LIBRARY_PATH
-cd ~/AI-RES
+cd ~/projects/SFNO_Climate_Emulator
 
 # Same manifest function used by the audit
 manifest() {

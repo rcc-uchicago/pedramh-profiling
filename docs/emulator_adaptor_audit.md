@@ -10,9 +10,9 @@ Supports commits:
 
 ## Method
 
-- **Sample input**: postprocess NetCDF for sim30/MOST.0012 produced by the patched burn7 binary (commit `7fc8a7c`) and single-purpose driver (commit `789caf8`), run with `--with-sea-ice`. File: `/scratch/11114/zhixingliu/AI-RES/audit/commit4/postproc/sim30/MOST.0012.nc`, 3.97 GB, 1459 timesteps.
+- **Sample input**: postprocess NetCDF for sim30/MOST.0012 produced by the patched burn7 binary (commit `7fc8a7c`) and single-purpose driver (commit `789caf8`), run with `--with-sea-ice`. File: `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/postproc/sim30/MOST.0012.nc`, 3.97 GB, 1459 timesteps.
 - **Adaptor runs**: two back-to-back invocations of `src/emulator_adaptor/adaptor.py --sims 30 --years 12 12`, once with `--rsdt-method arithmetic` (default) and once with `--rsdt-method astronomical`. Outputs at `boundary_arith/sim30/boundary.0012.nc` and `boundary_astro/sim30/boundary.0012.nc`.
-- **SLURM job**: 3048472 on `c476-003`, elapsed 01:48. Full log: `/scratch/11114/zhixingliu/AI-RES/audit/commit4/audit_3048472.out`.
+- **SLURM job**: 3048472 on `c476-003`, elapsed 01:48. Full log: `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/audit_3048472.out`.
 - **Module-load stanza**: identical to the postprocessor's — `intel/24.0 cdo netcdf python/3.12.11`. `LD_LIBRARY_PATH` entries are kept for uniformity (not actually needed by the adaptor, which is pure Python).
 
 ## Step 0 — convention probes
@@ -160,7 +160,7 @@ Max absolute zonal difference: 5.07 W/m² at +71.16°. The pattern (+N skews hig
 
 ## Reproduction
 
-Driver files (kept in `/scratch/11114/zhixingliu/AI-RES/audit/commit4/`, not checked in):
+Driver files (kept in `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4/`, not checked in):
 
 - `audit.slurm` — SLURM driver for the end-to-end run
 - `probe.py` — Step 0 probes (lsm + sic distributions)
@@ -170,7 +170,7 @@ Driver files (kept in `/scratch/11114/zhixingliu/AI-RES/audit/commit4/`, not che
 To re-run:
 
 ```bash
-cd /scratch/11114/zhixingliu/AI-RES/audit/commit4
+cd /scratch/11114/zhixingliu/SFNO_Climate_Emulator/audit/commit4
 sbatch audit.slurm
 # After completion:
 cat audit_<jobid>.out

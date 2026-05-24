@@ -36,6 +36,40 @@ from _eval_utils import (  # noqa: E402 -- after sys.path adjustment
 _SCORED_LEADS_H = (6, 24, 72, 120, 240, 336)
 
 
+# Rationale for the default-on `pr_6h` benchmark-row suppression
+# (`--pr6h-unit-align suppress`, own-track only). Two compounding reasons
+# make the on-disk 5410 `pr_6h` row non-comparable to own-track `pr_6h`:
+#
+# (a) Prediction-side anomaly. The upstream 5410 inference scripts call the
+#     *forward* z-score transform on the diagnostic channel at
+#       scripts/infer_sfno5410_blocking_h100_packed.py:348-349 (packed path)
+#       scripts/infer_sfno5410_byo_ic.py:425-432 (BYO path)
+#     asymmetric with the surface/upper-air paths at :343/:346 that use the
+#     inverse. The on-disk 5410 `pr_6h` prediction is therefore in a
+#     transformed space; RMSE/ACC against the physical-units truth and
+#     climatology is not scalar-recoverable.
+#
+# (b) Truth-side unit convention. 5410 truth follows the group's "6-hour
+#     precip proxy" convention `instantaneous_pr_rate(t) × 6h`
+#     (docs/2026-05-06_group_sfno_5410_eval_plan.md:127, which explicitly
+#     warns *not* to describe it as "accumulated precipitation"); own truth
+#     keeps the instantaneous rate (m/s). The nominal factor is 21,600 s/6h
+#     but the empirically observed truth-stats ratio is ~3,600-4,400× per
+#     docs/2026-05-14_pr_6h_units_mismatch_ticket.md — a ~5× unexplained gap
+#     on top of the unit factor.
+#
+# See docs/2026-05-23_pr6h_unit_alignment_plan.md.
+_PR6H_SUPPRESSION_RATIONALE = (
+    "5410 benchmark `pr_6h` row suppressed by default (own-track only) due "
+    "to (a) upstream forward-z-score transform anomaly at "
+    "`infer_sfno5410_blocking_h100_packed.py:348-349` (also "
+    "`infer_sfno5410_byo_ic.py:425-432`) and (b) own-vs-5410 truth-unit "
+    "convention mismatch (own m/s vs 5410 6-hour proxy, observed truth-stats "
+    "ratio ~3,600-4,400× — not the clean 21,600 the unit factor would imply). "
+    "Pass `--pr6h-unit-align none` to restore the row."
+)
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Render the Phase 1 markdown report.",
@@ -66,9 +100,12 @@ def _parse_args() -> argparse.Namespace:
             "Optional 5410 benchmark OUT_ROOT. When set and "
             "<root>/scores/nwp_scorecard_summary.csv exists, the scorecard "
             "table gains a '5410 benchmark' model row per channel and the "
-            "report header records the benchmark path. When the file is "
-            "absent or empty, a loud warning is added at the top of the "
-            "report and the table renders without the benchmark row."
+            "report header records the benchmark path. (Note: with "
+            "`--track own` the 5410 `pr_6h` row is suppressed by default "
+            "per `--pr6h-unit-align suppress`; pass `none` to restore.) "
+            "When the file is absent or empty, a loud warning is added at "
+            "the top of the report and the table renders without the "
+            "benchmark row."
         ),
     )
     p.add_argument(
@@ -81,6 +118,30 @@ def _parse_args() -> argparse.Namespace:
             "exists, its key=value lines are embedded in a "
             "'### Warm-start provenance' subsection of the report. Silent "
             "no-op when --run-dir is unset or the sidecar is absent."
+        ),
+    )
+    p.add_argument(
+        "--track", choices=("own", "5410"), default="own",
+        help=(
+            "Emulator track for unit-aware caption text. Default 'own' "
+            "treats pr_6h as m s^-1 in the scorecard table notes. '5410' "
+            "treats pr_6h as kg m^-2 (6h accum.) in the group's native "
+            "convention — used for group_clone runs and for direct 5410 "
+            "evals. Does NOT alter scorecard values (scoring is in native "
+            "units regardless)."
+        ),
+    )
+    p.add_argument(
+        "--pr6h-unit-align", choices=("suppress", "none"), default="suppress",
+        help=(
+            "How to handle the cross-track `pr_6h` row when a 5410 benchmark "
+            "overlay is present and `--track own`. Default 'suppress' drops "
+            "the 5410-benchmark `pr_6h` row from the RMSE and ACC scorecard "
+            "tables and emits a banner citing the upstream forward-z-score "
+            "anomaly and truth-side unit-convention mismatch. 'none' "
+            "preserves the prior behavior (5410 `pr_6h` row present, with "
+            "the older partial disclaimer). Has no effect under `--track "
+            "5410` (which is already in matching group-native units)."
         ),
     )
     return p.parse_args()
@@ -119,6 +180,8 @@ def _render_table(
     key_channels: tuple[str, ...],
     *,
     benchmark_summary: dict | None = None,
+    track: str = "own",
+    pr6h_unit_align: str = "suppress",
 ) -> str:
     """Render the §F NWP scorecard table for the 5 key channels.
 
@@ -135,11 +198,47 @@ def _render_table(
         "Persistence on `pr_6h` is undefined (no IC value, see §C.1) and reported as `NaN`.",
     ]
     if benchmark_summary is not None:
-        lines.append(
-            "5410 benchmark values are in the group's native units (no unit "
-            "conversion); for `pr_6h` this is `kg m^-2` per 6h, so the 5410 "
-            "row is not directly comparable to own-track `pr_6h` (m s^-1)."
-        )
+        if track == "5410":
+            lines.append(
+                "All values (this run + 5410 benchmark) are in the group's "
+                "native units (no unit conversion); for `pr_6h` this is "
+                "`kg m^-2` per 6h. Rows are directly comparable."
+            )
+        elif pr6h_unit_align == "suppress":
+            lines.append(
+                "**Note on `pr_6h` cross-track comparison.** The 5410 "
+                "benchmark row is suppressed for `pr_6h` for two compounding "
+                "reasons: (a) **Prediction-side anomaly** — the upstream 5410 "
+                "inference scripts apply the *forward* z-score transform to "
+                "the diagnostic channel at "
+                "`infer_sfno5410_blocking_h100_packed.py:348-349` (packed "
+                "benchmark path, which is what this report's overlay "
+                "consumes) and equivalently at "
+                "`infer_sfno5410_byo_ic.py:425-432` (BYO path), asymmetric "
+                "with the surface (`:343`) and upper-air (`:346`) paths that "
+                "use the inverse. The on-disk 5410 `pr_6h` prediction is "
+                "therefore in a transformed space and RMSE/ACC against the "
+                "physical-units truth and climatology is not "
+                "scalar-recoverable. (b) **Truth-side unit convention** — "
+                "5410 truth uses the group's \"6-hour precip proxy\" "
+                "`instantaneous_rate × 6h` "
+                "(`docs/2026-05-06_group_sfno_5410_eval_plan.md:127`), while "
+                "own keeps the instantaneous rate (m/s); the nominal factor "
+                "would be 21,600 s/6h but the empirically observed "
+                "truth-stats ratio is ~3,600-4,400× "
+                "(`docs/2026-05-14_pr_6h_units_mismatch_ticket.md`) — a ~5× "
+                "unexplained gap on top, so even fixing (a) would still "
+                "leave an unaudited scalar between own and 5410 `pr_6h`. "
+                "Own-track `pr_6h` rows remain in their native m/s. See "
+                "`docs/2026-05-23_pr6h_unit_alignment_plan.md`. Pass "
+                "`--pr6h-unit-align none` to restore the suppressed row."
+            )
+        else:
+            lines.append(
+                "5410 benchmark values are in the group's native units (no unit "
+                "conversion); for `pr_6h` this is `kg m^-2` per 6h, so the 5410 "
+                "row is not directly comparable to own-track `pr_6h` (m s^-1)."
+            )
     lines.append("")
     for metric in ("rmse", "acc"):
         lines.append(f"### {metric.upper()}")
@@ -151,7 +250,11 @@ def _render_table(
             row_specs = [("emulator", "emulator", summary)]
             if metric == "rmse":
                 row_specs.append(("persistence", "persistence", summary))
-            if benchmark_summary is not None:
+            if benchmark_summary is not None and not (
+                pr6h_unit_align == "suppress"
+                and track == "own"
+                and ch == "pr_6h"
+            ):
                 row_specs.append(("emulator", "5410 benchmark", benchmark_summary))
             for model_key, model_label, src in row_specs:
                 cells = [ch, model_label]
@@ -210,8 +313,11 @@ def _render_masked_tas(
                     cells.append(f"{_format_value(mean)} ± {_format_value(std)} (n={n})")
             lines.append("| " + " | ".join(cells) + " |")
         lines.append("")
-    lines.append("Figures: `figures/rmse_vs_lead_tas_no_ice.png`, "
-                 "`figures/acc_vs_lead_tas_no_ice.png`.")
+    lines.append("Figures: `tas` is one of the four panels in "
+                 "`figures/rmse_vs_lead.png` and `figures/acc_vs_lead.png` "
+                 "(the sea-ice-masked `tas_no_ice` single-panel companions are "
+                 "`figures/rmse_vs_lead_tas_no_ice.png` and "
+                 "`figures/acc_vs_lead_tas_no_ice.png`).")
     lines.append("")
     return "\n".join(lines)
 
@@ -339,7 +445,12 @@ def _render_warmstart_provenance(run_dir: Path | None) -> str:
     return "\n".join(lines)
 
 
-def _load_benchmark(bench_root: Path | None) -> tuple[dict | None, str]:
+def _load_benchmark(
+    bench_root: Path | None,
+    *,
+    track: str = "own",
+    pr6h_unit_align: str = "suppress",
+) -> tuple[dict | None, str]:
     """Load 5410 benchmark summary if available.
 
     Returns (summary_or_None, banner_text). banner_text is a markdown
@@ -366,12 +477,22 @@ def _load_benchmark(bench_root: Path | None) -> tuple[dict | None, str]:
         )
         logging.warning("benchmark scorecard at %s is empty — rendering own-only", sc)
         return None, msg
-    banner = (
-        f"**5410 benchmark:** `{bench_root}` "
-        f"(scorecard: `{sc.relative_to(bench_root)}`). Side-by-side rows "
-        f"appear in the scorecard table; line plots and bias maps overlay "
-        f"the benchmark in the figures job.\n"
-    )
+    if track == "own" and pr6h_unit_align == "suppress":
+        banner = (
+            f"**5410 benchmark:** `{bench_root}` "
+            f"(scorecard: `{sc.relative_to(bench_root)}`). Side-by-side rows "
+            f"appear in the scorecard table (**5410 benchmark `pr_6h` row "
+            f"suppressed by default** — see the note above the table; "
+            f"own-track `pr_6h` rows remain in native m/s); bias maps "
+            f"overlay the benchmark in the figures job.\n"
+        )
+    else:
+        banner = (
+            f"**5410 benchmark:** `{bench_root}` "
+            f"(scorecard: `{sc.relative_to(bench_root)}`). Side-by-side rows "
+            f"appear in the scorecard table; line plots and bias maps overlay "
+            f"the benchmark in the figures job.\n"
+        )
     return summary, banner
 
 
@@ -385,7 +506,11 @@ def main() -> int:
         raise SystemExit(f"missing {summary_path}; run score_nwp.py first")
 
     summary = _read_summary(summary_path)
-    benchmark_summary, benchmark_banner = _load_benchmark(args.benchmark_5410_out_root)
+    benchmark_summary, benchmark_banner = _load_benchmark(
+        args.benchmark_5410_out_root,
+        track=args.track,
+        pr6h_unit_align=args.pr6h_unit_align,
+    )
 
     # Resolve channel-name list once, from inference NetCDFs (per plan
     # §3.10), then derive the Z500 channel id and the 5-key-channel list
@@ -400,7 +525,13 @@ def main() -> int:
     parts = [
         _render_header(args),
         benchmark_banner,
-        _render_table(summary, key_channels, benchmark_summary=benchmark_summary),
+        _render_table(
+            summary,
+            key_channels,
+            benchmark_summary=benchmark_summary,
+            track=args.track,
+            pr6h_unit_align=args.pr6h_unit_align,
+        ),
         _render_masked_tas(summary, benchmark_summary=benchmark_summary),
         _render_gate(summary, z500_id, z500_label),
         _render_bias_maps(scores_dir),

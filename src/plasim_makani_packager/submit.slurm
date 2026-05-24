@@ -15,11 +15,11 @@
 # An empty value still trips the fail-fast checks below.
 # ============================================================================
 SIMS="${SIMS:-}"                                # e.g. "52"
-POSTPROC_ROOT="${POSTPROC_ROOT:-}"              # postprocess output root, e.g. $SCRATCH/AI-RES/data/postproc
-BOUNDARY_ROOT="${BOUNDARY_ROOT:-}"              # boundary output root,    e.g. $SCRATCH/AI-RES/data/boundary_astro
-OUTPUT_ROOT="${OUTPUT_ROOT:-}"                  # packager output root,    e.g. $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev (v10 / zgplev)
+POSTPROC_ROOT="${POSTPROC_ROOT:-}"              # postprocess output root, e.g. $SCRATCH/SFNO_Climate_Emulator/data/postproc
+BOUNDARY_ROOT="${BOUNDARY_ROOT:-}"              # boundary output root,    e.g. $SCRATCH/SFNO_Climate_Emulator/data/boundary_astro
+OUTPUT_ROOT="${OUTPUT_ROOT:-}"                  # packager output root,    e.g. $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev (v10 / zgplev)
 POSTPROC_SOURCE_DIR="${POSTPROC_SOURCE_DIR:-}"  # local clone used to resolve the postprocessor git SHA (L7c)
-                                                # default: $HOME/AI-RES/src/plasim_postprocessor
+                                                # default: $HOME/projects/SFNO_Climate_Emulator/src/plasim_postprocessor
 
 # Optional — split ranges. Defaults match the v9 plan: train 3-100, valid
 # 101-120, test 121-128 (warmup years 1-2 are always skipped).
@@ -54,7 +54,7 @@ SST_LAND_FILL_K="${SST_LAND_FILL_K:-}"          # "271.35"
 # The packager needs python + xarray + h5py + netCDF4. Activate the project
 # venv (which also provides makani for the Phase 4b smoke) before dispatch.
 # ============================================================================
-source "$HOME/AI-RES/.venv/bin/activate"
+source "$HOME/projects/SFNO_Climate_Emulator/.venv/bin/activate"
 
 # ============================================================================
 # FAIL FAST IF UNSET
@@ -72,10 +72,10 @@ REPO_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # SLURM stages submit scripts to a temp dir, so BASH_SOURCE-derived REPO_ROOT
 # can land outside the source tree. Fall back to SLURM_SUBMIT_DIR (the dir
 # sbatch was invoked from) when the resolved REPO_ROOT doesn't contain the
-# package; final fallback is $HOME/AI-RES (consistent with the .venv activate
+# package; final fallback is $HOME/projects/SFNO_Climate_Emulator (consistent with the .venv activate
 # line above, which is already hardcoded to that path).
 if [[ ! -d "$REPO_ROOT/src/plasim_makani_packager" ]]; then
-    REPO_ROOT="${SLURM_SUBMIT_DIR:-$HOME/AI-RES}"
+    REPO_ROOT="${SLURM_SUBMIT_DIR:-$HOME/projects/SFNO_Climate_Emulator}"
 fi
 export PYTHONPATH="$REPO_ROOT/src:${PYTHONPATH:-}"
 mkdir -p logs
@@ -91,10 +91,17 @@ if [[ -n "$YEAR_SLICE" ]]; then YEAR_SLICE_FLAG+=(--year-slice $YEAR_SLICE); fi
 SST_FLAG=()
 if [[ -n "$SST_LAND_FILL_K" ]]; then SST_FLAG=(--sst-land-fill-k "$SST_LAND_FILL_K"); fi
 
+# Opt-in destructive overwrite: re-runs that need to replace existing H5
+# outputs (e.g. ZG_PLEV_HPA subset migrations) set OVERWRITE=1 in the env.
+# Default behavior stays non-destructive: packager.py:493 skips existing
+# outputs, so a routine resubmit is idempotent.
+OVERWRITE_FLAG=()
+if [[ "${OVERWRITE:-}" == "1" ]]; then OVERWRITE_FLAG=(--overwrite); fi
+
 # Resolve postprocessor git SHA (L7c). Defaults to a checkout under $HOME so
 # the v10 file_attrs always carry a traceable postproc version. validate.py
 # --mode files rejects 'unknown' in production.
-POSTPROC_SOURCE_DIR="${POSTPROC_SOURCE_DIR:-$HOME/AI-RES/src/plasim_postprocessor}"
+POSTPROC_SOURCE_DIR="${POSTPROC_SOURCE_DIR:-$HOME/projects/SFNO_Climate_Emulator/src/plasim_postprocessor}"
 POSTPROC_SHA=$(git -C "$POSTPROC_SOURCE_DIR" rev-parse HEAD 2>/dev/null || echo unknown)
 
 python3 -m plasim_makani_packager.packager \
@@ -106,4 +113,5 @@ python3 -m plasim_makani_packager.packager \
     "${YEAR_RANGE_FLAGS[@]}" \
     "${YEAR_SLICE_FLAG[@]}" \
     "${SST_FLAG[@]}" \
+    "${OVERWRITE_FLAG[@]}" \
     --task-index "$SLURM_ARRAY_TASK_ID"

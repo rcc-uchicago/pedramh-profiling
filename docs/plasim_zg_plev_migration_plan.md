@@ -57,7 +57,7 @@ These are answered, not open. Each item has a one-line *why* so future readers d
 | L2 | Channel naming: `zg{P}` where P is the integer hPa value. State channels [42:52] become `zg150, zg200, zg250, zg300, zg400, zg500, zg600, zg700, zg850, zg925`. Order: TOA → surface (150 → 925). | Self-documenting; eliminates the `zg5 ≠ Z500` foot-gun the v9 contract carried into the eval scripts. Order matches v9's sigma convention (lev[0] = TOA). |
 | L3 | Sigma `zg` is ignored by the packager. Postprocessor is **not** modified; sigma `zg` continues to live in the postproc NetCDF. | Audit snapshot stays valid; no need to re-run postprocessor on 100+ years; preserves diagnostic optionality. |
 | L4 | This plan is a new sibling doc, not an in-place revision of v9. | Keeps v9 frozen as the historical contract for the existing `sim52_astro_64x128` dataset and any checkpoints trained against it. |
-| L5 | Output dataset is a parallel directory: `$SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev`, with paired `$SCRATCH/AI-RES/runs/sim52_astro_64x128_zgplev`. The v9 dataset and runs are untouched. | Both contracts coexist for A/B comparison; no destructive overwrite of existing checkpoints. |
+| L5 | Output dataset is a parallel directory: `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev`, with paired `$SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128_zgplev`. The v9 dataset and runs are untouched. | Both contracts coexist for A/B comparison; no destructive overwrite of existing checkpoints. |
 | L6 | Eval-side updates (scripts/score_nwp.py, scripts/render_eval_report.py, docs/sfno_eval_plan.md) ship in the same plan / PR. | The `zg5 → zg500` rename is mechanical and the gate threshold meaning changes (it now refers to literal Z500), so coupling them avoids a transient broken-eval window. |
 | L7 | Hard constraints: (a) `stats.py` must rerun on the new HDF5 dir before any retrain; (b) Phase 4b Makani smoke must pass before any retrain; (c) the postprocessor's git SHA must be pinned into each new HDF5 file's `file_attrs` (in addition to the existing packager SHA); (d) audit gate — `zg500` global mean over the training split must lie in [5400, 5700] m, matching the audit-snapshot finding. | (a, b) standard v9 gates re-applied to the new contract; (c, d) new gates specific to the contract change. |
 | L8 | After this PR merges, the **codebase is v10-only**. The packager / stats / validate / metadata modules read `STATE_CHANNELS` as a single global list and that list becomes the v10 list. The v9 dataset on disk (`sim52_astro_64x128`) keeps working for any *trainer-side* run, because `PlasimTrainer` reads channel names from its yaml, not from `channels.py`. But v9 cannot be **regenerated** from this codebase: re-running `packager.py` / `stats.py` / `metadata.py` / `validate.py` against v9 inputs would now produce v10-named outputs that don't match the v9 H5 files on disk. v9 regeneration requires `git checkout plasim-makani-packager-v9-final` (a tag this PR creates pointing at the last v9-supporting commit). | Variant-aware code (a `get_state_channels(variant)` indirection threaded through every consumer) was considered and rejected as too much surface area for a one-shot contract change. The freeze tag is sufficient because v9 artifacts on disk are immutable and don't need regeneration in normal operation. |
@@ -438,7 +438,7 @@ python3 -m plasim_makani_packager.packager \
     ... rest of v9 args ...
 ```
 
-`POSTPROC_SOURCE_DIR` defaults to `$HOME/AI-RES/src/plasim_postprocessor`.
+`POSTPROC_SOURCE_DIR` defaults to `$HOME/projects/SFNO_Climate_Emulator/src/plasim_postprocessor`.
 
 ### 3.9 `tests/plasim_makani_packager/`
 
@@ -596,9 +596,9 @@ What is required is the matching subset-build invocations and yaml updates:
 
 | New subset | Built by |
 |---|---|
-| `$SCRATCH/AI-RES/data/makani/sim52_zgplev_tiny`  | `build_subset_dataset.py --src …_zgplev --dst …_zgplev_tiny  --train-years 3   --valid-years 101` |
-| `$SCRATCH/AI-RES/data/makani/sim52_zgplev_short` | `build_subset_dataset.py --src …_zgplev --dst …_zgplev_short --train-years 3-7 --valid-years 101-102` |
-| `$SCRATCH/AI-RES/data/makani/sim52_zgplev_full`  | `build_subset_dataset.py --src …_zgplev --dst …_zgplev_full  --train-years 12-111 --valid-years 11` |
+| `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_tiny`  | `build_subset_dataset.py --src …_zgplev --dst …_zgplev_tiny  --train-years 3   --valid-years 101` |
+| `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_short` | `build_subset_dataset.py --src …_zgplev --dst …_zgplev_short --train-years 3-7 --valid-years 101-102` |
+| `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full`  | `build_subset_dataset.py --src …_zgplev --dst …_zgplev_full  --train-years 12-111 --valid-years 11` |
 
 Yaml updates (per §3.4): the new `plasim_sim52_zgplev_{tiny,short,full}.yaml` files set `train_data_path: …/sim52_zgplev_{tiny,short,full}` (subset roots), not `…/sim52_astro_64x128_zgplev` (packager root). `plasim_sim52_zgplev_{smoke,baseline}.yaml` keep pointing at the packager root, matching the v9 convention for those configs.
 
@@ -638,14 +638,14 @@ A future cleanup PR can deduplicate via env-var-parameterized launchers (`CONFIG
 
 | Path | v9 (frozen) | v10 (new) |
 |---|---|---|
-| Postproc NetCDF | `$SCRATCH/AI-RES/data/postproc/sim52/MOST.{YYYY}.nc` | unchanged (same files) |
-| Boundary NetCDF | `$SCRATCH/AI-RES/data/boundary_astro/sim52/boundary.{YYYY}.nc` | unchanged |
-| Packaged HDF5 | `$SCRATCH/AI-RES/data/makani/sim52_astro_64x128/{train,valid,test}/MOST.{YYYY}.h5` | `$SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/{train,valid,test}/MOST.{YYYY}.h5` |
+| Postproc NetCDF | `$SCRATCH/SFNO_Climate_Emulator/data/postproc/sim52/MOST.{YYYY}.nc` | unchanged (same files) |
+| Boundary NetCDF | `$SCRATCH/SFNO_Climate_Emulator/data/boundary_astro/sim52/boundary.{YYYY}.nc` | unchanged |
+| Packaged HDF5 | `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128/{train,valid,test}/MOST.{YYYY}.h5` | `$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev/{train,valid,test}/MOST.{YYYY}.h5` |
 | Stats | `…_64x128/stats/*.npy` | `…_zgplev/stats/*.npy` |
 | Metadata | `…_64x128/metadata/data.json` | `…_zgplev/metadata/data.json` |
 | Trainer YAML | `src/sfno_training/config/plasim_sim52_*.yaml` | `src/sfno_training/config/plasim_sim52_zgplev_*.yaml` |
-| Run dir | `$SCRATCH/AI-RES/runs/sim52_astro_64x128/` | `$SCRATCH/AI-RES/runs/sim52_astro_64x128_zgplev/` |
-| Eval results | `$SCRATCH/AI-RES/results/sim52_astro_64x128/…` | `$SCRATCH/AI-RES/results/sim52_astro_64x128_zgplev/…` |
+| Run dir | `$SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128/` | `$SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128_zgplev/` |
+| Eval results | `$SCRATCH/SFNO_Climate_Emulator/results/sim52_astro_64x128/…` | `$SCRATCH/SFNO_Climate_Emulator/results/sim52_astro_64x128_zgplev/…` |
 
 Disk-space note: 126 packaged years × 1460 6-hourly samples/year (4/day × 365) × 64 × 128 × 53 channels at f32 ≈ 50 GB per dataset; both contracts coexisting costs ~100 GB on `$SCRATCH`. Acceptable.
 
@@ -667,8 +667,8 @@ Phase boundaries are gates: do not start phase N+1 if phase N's verification ste
 
 3. **P1 — Packaging dry run (1 sim-year).**
     - Pick `sim52, year=3` (first non-warmup year).
-    - `python -m plasim_makani_packager.packager --sims 52 --task-index 0 --postproc-root … --boundary-root … --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev --postprocessor-git-sha $(git -C $HOME/AI-RES/src/plasim_postprocessor rev-parse HEAD)`.
-    - `python -m plasim_makani_packager.validate --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev --mode files`.
+    - `python -m plasim_makani_packager.packager --sims 52 --task-index 0 --postproc-root … --boundary-root … --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev --postprocessor-git-sha $(git -C $HOME/projects/SFNO_Climate_Emulator/src/plasim_postprocessor rev-parse HEAD)`.
+    - `python -m plasim_makani_packager.validate --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev --mode files`.
     - **Gate:** `--mode files` passes on the single file (G-pps + G-ASCII + G-zattrs). Stats are not yet present and `--mode stats` is **not** run here — that's the v1 bug Codex caught.
 
 4. **P2 — Full packaging SLURM (sim52, all 126 non-warmup years).**
@@ -679,12 +679,12 @@ Phase boundaries are gates: do not start phase N+1 if phase N's verification ste
     - **Gate:** all 126 jobs succeed; `--mode files` passes over the full output root.
 
 5. **P3 — Stats + audit (L7a, L7d).**
-    - `python -m plasim_makani_packager.stats --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev` (inline `_audit_zg500_inline` from §3.6 raises before any `.npy` is written if `mean_tgt[zg500]` is out of range).
+    - `python -m plasim_makani_packager.stats --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev` (inline `_audit_zg500_inline` from §3.6 raises before any `.npy` is written if `mean_tgt[zg500]` is out of range).
     - `python -m plasim_makani_packager.validate --output-root … --mode stats` (defense-in-depth: re-checks the saved `global_means.npy` per §3.7 `_validate_zg500_saved_mean`).
     - **Gate:** stats files present + std epsilon clean + zg500 audit passes.
 
 6. **P4 — Metadata + baseline config render.**
-    - `python -m plasim_makani_packager.metadata --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev --variant zgplev --exp-dir $SCRATCH/AI-RES/runs/sim52_astro_64x128_zgplev --config-name plasim_sim52_zgplev_baseline` (variant defaults to `zgplev` per §3.5; `astro64x128` errors pointing at the v9 freeze tag).
+    - `python -m plasim_makani_packager.metadata --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev --variant zgplev --exp-dir $SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128_zgplev --config-name plasim_sim52_zgplev_baseline` (variant defaults to `zgplev` per §3.5; `astro64x128` errors pointing at the v9 freeze tag).
     - Writes `{output_root}/metadata/data.json` and `{output_root}/config/plasim_sim52_zgplev_baseline.yaml`. Only the *baseline* yaml is rendered from the packager template — `metadata.py` reads one template, substitutes `{{OUTPUT_ROOT}}` / `{{EXP_DIR}}`, and only renames the top-level key, so it cannot semantically differentiate smoke / tiny / short / full configs. **The other four configs already exist as hand-curated trainer-side files at `src/sfno_training/config/plasim_sim52_zgplev_{smoke,tiny,short,full}.yaml` (per §3.4); they do not get re-rendered here.**
     - **Gate:** `data.json` exists with `zg500` in `coords.channel`; `config/plasim_sim52_zgplev_baseline.yaml` exists and passes `yaml.safe_load` round-trip; the yaml's `channel_names[47] == "zg500"`.
 
@@ -695,11 +695,11 @@ Phase boundaries are gates: do not start phase N+1 if phase N's verification ste
 
 8. **P5 — Live Makani preflight + synthetic regression (L7b).**
     - Synthetic regression: `python -m plasim_makani_packager.validate --output-root … --mode smoke` (CI-runnable; exercises the patched-Makani plumbing on synthetic fixtures only — does not touch `--output-root`).
-    - **Live preflight (baseline yaml, packager root):** `python -m plasim_makani_packager.validate --output-root $SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev --mode smoke-live --config-name plasim_sim52_zgplev_baseline` — exercises the rendered baseline yaml against the full packager root.
+    - **Live preflight (baseline yaml, packager root):** `python -m plasim_makani_packager.validate --output-root $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev --mode smoke-live --config-name plasim_sim52_zgplev_baseline` — exercises the rendered baseline yaml against the full packager root.
     - **Live preflight (full yaml, full subset) — uses `--yaml-config` override per §3.7.** The trainer-side template `plasim_sim52_zgplev_full.yaml` contains `{{OUTPUT_ROOT}}` / `{{EXP_DIR}}` placeholders (same convention as v9), so it must be rendered first (Codex v6 high finding). Mirror what `submit_full.slurm:60-62` already does:
         ```bash
-        FULL_OUTPUT_ROOT=$SCRATCH/AI-RES/data/makani/sim52_zgplev_full
-        FULL_EXP_DIR=$SCRATCH/AI-RES/runs/sim52_astro_64x128_zgplev_full
+        FULL_OUTPUT_ROOT=$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full
+        FULL_EXP_DIR=$SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128_zgplev_full
         FULL_TPL=$REPO_ROOT/src/sfno_training/config/plasim_sim52_zgplev_full.yaml
         FULL_RENDERED=$FULL_EXP_DIR/plasim_sim52_zgplev_full.rendered.yaml
         mkdir -p "$FULL_EXP_DIR"

@@ -1,200 +1,44 @@
 #!/bin/bash
-# submit_eval.sh — chain the three eval SLURM jobs with afterok dependencies.
+# submit_eval.sh — chain the four eval SLURM jobs with afterok dependencies.
 #
 # Per docs/sfno_eval_plan.md §G.3.
+# Env-resolution + collision-guard logic lives in scripts/submit_eval_prelude.sh
+# as the function `submit_eval_compute_env` (see plan §4.2). This script
+# sources that prelude, calls it, and on success proceeds with the existing
+# 4-job sbatch chain.
 #
 # Required env vars:
-#   RUN_DIR      (default: v10 zgplev — $SCRATCH/AI-RES/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0)
+#   RUN_DIR      (default: v10 zgplev — $SCRATCH/SFNO_Climate_Emulator/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0)
 #                For v9 sigma evals, override:
-#                  RUN_DIR=$SCRATCH/AI-RES/runs/sfno_full/plasim_sim52_full/0
+#                  RUN_DIR=$SCRATCH/SFNO_Climate_Emulator/runs/sfno_full/plasim_sim52_full/0
 #   CKPT         (default: $RUN_DIR/training_checkpoints/best_ckpt_ema_mp0.tar
-#                 when present, else best_ckpt_mp0.tar. EMA-best is canonical
-#                 for EMA-enabled runs — see the eval-sfno-own skill.)
-#   MODE         ('nwp' (default) or 'climate' — passed to inference job)
-#   TEST_HOLDOUT (default: v10 — $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/test_holdout)
-#   TRAIN_DIR    (default: v10 — $SCRATCH/AI-RES/data/makani/sim52_zgplev_full/train)
-#   PACKAGER_TEST_SRC (default: v10 — $SCRATCH/.../sim52_astro_64x128_zgplev/test;
-#                used to read DATA_SHA7 and as auto-build src for TEST_HOLDOUT)
-#
-# Auto-derived:
-#   EVAL_SHA7   — git SHA of AI-RES at submit time (--short=7).
-#   DATA_SHA7   — read from any test h5 file's packager_git_sha attr.
-#   TRAIN_SHA7  — preferred: $RUN_DIR/train_code_sha.txt (§G.5);
-#                  fallback: grep "git hash:" $RUN_DIR/out.log;
-#                  fallback: literal "unknown".
-#   RUN_TAG     — composed from the SHAs and ckpt basename. Default template
-#                 collapses redundant fields:
-#                   - drops `_train-<sha>` when TRAIN_SHA7 == EVAL_SHA7
-#                   - drops `_ckpt-<name>` when CKPT_BASENAME == "best_ckpt_mp0"
-#                 Set FULL_RUN_TAG=1 to force the legacy 4-SHA + ckpt template.
-#                 The full provenance is always written to
-#                 $OUT_ROOT/provenance.txt regardless of which form is used.
-#   OUT_ROOT    — $WORK2/AI-RES/results/sfno_eval/$RUN_TAG.
+#                 when present, else best_ckpt_mp0.tar)
+#   MODE         ('nwp' (default) or 'climate')
+#   TEST_HOLDOUT (default: v10 — $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full/test_holdout)
+#   TRAIN_DIR    (default: v10 — $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_zgplev_full/train)
+#   PACKAGER_TEST_SRC (default: v10 — $SCRATCH/.../sim52_astro_64x128_zgplev/test)
+#   ALLOW_RERUN  (set to 1 to reuse an existing $OUT_ROOT; default 0)
+#                **Behaviour change (2026-05-20):** any existing $OUT_ROOT now
+#                requires ALLOW_RERUN=1, not just CKPT-path mismatch.
+#                See docs/2026-05-20_bundled_training_eval_plan.md §4.7.
 #
 # Usage:
 #   scripts/submit_eval.sh
 #   MODE=climate scripts/submit_eval.sh
+#   ALLOW_RERUN=1 RUN_TAG=<existing> scripts/submit_eval.sh   # re-eval into existing dir
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="${REPO_ROOT:-$HOME/projects/SFNO_Climate_Emulator}"
 cd "$REPO_ROOT"
 
-: "${RUN_DIR:=$SCRATCH/AI-RES/runs/sfno_zgplev_full/plasim_sim52_zgplev_full/0}"
-# Prefer EMA-best (canonical for EMA-enabled runs); fall back to raw-best
-# when EMA isn't available (legacy / EMA-disabled runs).
-if [ -z "${CKPT:-}" ]; then
-    if [ -s "$RUN_DIR/training_checkpoints/best_ckpt_ema_mp0.tar" ]; then
-        CKPT="$RUN_DIR/training_checkpoints/best_ckpt_ema_mp0.tar"
-    else
-        CKPT="$RUN_DIR/training_checkpoints/best_ckpt_mp0.tar"
-    fi
+# Resolve env (RUN_DIR, CKPT, RUN_TAG, OUT_ROOT, SHAs, provenance.txt, ...).
+source "$REPO_ROOT/scripts/submit_eval_prelude.sh"
+if ! submit_eval_compute_env; then
+    rc=$?
+    echo "[submit_eval] submit_eval_compute_env returned $rc — aborting" >&2
+    exit "$rc"
 fi
-: "${MODE:=nwp}"
-: "${TEST_HOLDOUT:=$SCRATCH/AI-RES/data/makani/sim52_zgplev_full/test_holdout}"
-: "${TRAIN_DIR:=$SCRATCH/AI-RES/data/makani/sim52_zgplev_full/train}"
-: "${PACKAGER_TEST_SRC:=$SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev/test}"
-
-# --- EVAL_SHA7 ---
-if ! command -v git >/dev/null 2>&1; then
-    echo "ERROR: git is required" >&2
-    exit 2
-fi
-EVAL_SHA7="$(git rev-parse --short=7 HEAD)"
-
-# --- DATA_SHA7 ---
-TEST_FILE_FOR_SHA="$PACKAGER_TEST_SRC/MOST.0121.h5"
-if [ ! -f "$TEST_FILE_FOR_SHA" ]; then
-    echo "WARNING: $TEST_FILE_FOR_SHA not found; setting DATA_SHA7=unknown" >&2
-    DATA_SHA7="unknown"
-else
-    DATA_SHA7="$(.venv/bin/python -c "
-import h5py, sys
-with h5py.File(sys.argv[1], 'r') as f:
-    sha = f.attrs.get('packager_git_sha', b'unknown')
-    if isinstance(sha, bytes):
-        sha = sha.decode('utf-8')
-    print(sha[:7])
-" "$TEST_FILE_FOR_SHA")"
-fi
-
-# --- TRAIN_SHA7 ---
-if [ -f "$RUN_DIR/train_code_sha.txt" ]; then
-    TRAIN_SHA7="$(head -c 7 "$RUN_DIR/train_code_sha.txt")"
-elif [ -f "$RUN_DIR/out.log" ]; then
-    TRAIN_SHA7="$(grep -m1 "git hash:" "$RUN_DIR/out.log" | sed -E "s/.*git hash: b?'?([0-9a-f]{7}).*/\1/")"
-    [ -z "$TRAIN_SHA7" ] && TRAIN_SHA7="unknown"
-else
-    TRAIN_SHA7="unknown"
-fi
-
-# --- RUN_TAG ---
-# Auto-derive the training-run family name from RUN_DIR so two evals against
-# different training runs at the same EVAL_SHA + DATA_SHA on the same day land
-# in distinct OUT_ROOTs. The family name is the second-from-top directory under
-# $SCRATCH/AI-RES/runs/, e.g.:
-#   $SCRATCH/AI-RES/runs/sfno_zgplev_group_clone_v11/plasim_sim52_..._v11/0
-#                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ family
-TRAIN_FAMILY="$(basename "$(dirname "$(dirname "$RUN_DIR")")")"
-DATE_STR="$(date +%Y%m%d)"
-CKPT_BASENAME="$(basename "$CKPT" .tar)"
-if [ "${FULL_RUN_TAG:-0}" = "1" ]; then
-    : "${RUN_TAG:=${DATE_STR}_eval-${EVAL_SHA7}_data-${DATA_SHA7}_train-${TRAIN_SHA7}_family-${TRAIN_FAMILY}_ckpt-${CKPT_BASENAME}}"
-else
-    # Collapse redundant SHA fields, but ALWAYS include the train family so
-    # two training runs (e.g. group_clone_v11 vs gbhpo40_gb16) at the same
-    # eval/data/train SHA never share a RUN_TAG. The 2026-05-12 v11 ↔ gbhpo40
-    # collision motivated this — see docs/2026-05-02_ema_implementation_plan.md
-    # rollout notes and the eval-sfno-own skill §RUN_TAG-collision-guard.
-    # Full SHAs are still recorded in provenance.txt below.
-    _RT="${DATE_STR}_eval-${EVAL_SHA7}_data-${DATA_SHA7}"
-    if [ "$TRAIN_SHA7" != "$EVAL_SHA7" ]; then
-        _RT="${_RT}_train-${TRAIN_SHA7}"
-    fi
-    _RT="${_RT}_family-${TRAIN_FAMILY}"
-    if [ "$CKPT_BASENAME" != "best_ckpt_mp0" ]; then
-        _RT="${_RT}_ckpt-${CKPT_BASENAME}"
-    fi
-    : "${RUN_TAG:=${_RT}}"
-    unset _RT
-fi
-
-# --- OUT_ROOT ---
-: "${OUT_ROOT:=$WORK2/AI-RES/results/sfno_eval/$RUN_TAG}"
-
-# Collision guard: if $OUT_ROOT/provenance.txt already exists and records a
-# different CKPT than the one we're about to evaluate, abort with a loud
-# message and require the user to pass an explicit RUN_TAG override (or
-# clear/move the existing dir). This prevents the failure mode where two
-# chained eval submissions race to the same OUT_ROOT and the second job's
-# scoring stage reads stale inference NCs from the first — exactly what
-# happened on 2026-05-12 between the v11 EMA chain and the gbhpo40 chain.
-if [ -f "$OUT_ROOT/provenance.txt" ]; then
-    existing_ckpt="$(grep -m1 '^CKPT=' "$OUT_ROOT/provenance.txt" | cut -d= -f2-)"
-    if [ -n "$existing_ckpt" ] && [ "$existing_ckpt" != "$CKPT" ]; then
-        cat >&2 <<EOF
-[submit_eval] FATAL: $OUT_ROOT/provenance.txt already records a different CKPT.
-  existing : $existing_ckpt
-  requested: $CKPT
-
-This RUN_TAG is reserved by a prior eval chain for a different checkpoint.
-To proceed, either:
-  - Pass RUN_TAG=<unique-name> on the command line, OR
-  - Move/remove the existing $OUT_ROOT directory.
-
-(This guard exists because the 2026-05-12 v11 EMA / gbhpo40 chain collision
-silently mixed inference + scorecard data across runs. See the eval-sfno-own
-skill §RUN_TAG-collision-guard.)
-EOF
-        exit 3
-    fi
-fi
-
-mkdir -p "$OUT_ROOT" logs
-
-# --- Provenance sidecar (always full, regardless of RUN_TAG form) ---
-cat > "$OUT_ROOT/provenance.txt" <<EOF
-RUN_TAG=$RUN_TAG
-EVAL_SHA7=$EVAL_SHA7
-DATA_SHA7=$DATA_SHA7
-TRAIN_SHA7=$TRAIN_SHA7
-TRAIN_FAMILY=$TRAIN_FAMILY
-CKPT=$CKPT
-CKPT_BASENAME=$CKPT_BASENAME
-RUN_DIR=$RUN_DIR
-MODE=$MODE
-TEST_HOLDOUT=$TEST_HOLDOUT
-TRAIN_DIR=$TRAIN_DIR
-PACKAGER_TEST_SRC=$PACKAGER_TEST_SRC
-DATE_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-EOF
-
-# Echo the resolved provenance.
-cat <<EOF
-[submit_eval]
-  RUN_DIR           = $RUN_DIR
-  CKPT              = $CKPT
-  MODE              = $MODE
-  TEST_HOLDOUT      = $TEST_HOLDOUT
-  TRAIN_DIR         = $TRAIN_DIR
-  PACKAGER_TEST_SRC = $PACKAGER_TEST_SRC
-  EVAL_SHA7         = $EVAL_SHA7
-  DATA_SHA7         = $DATA_SHA7
-  TRAIN_SHA7        = $TRAIN_SHA7
-  TRAIN_FAMILY      = $TRAIN_FAMILY
-  RUN_TAG           = $RUN_TAG
-  OUT_ROOT          = $OUT_ROOT
-EOF
-
-# BENCHMARK_5410_OUT_ROOT — group SFNO-5410 results to overlay in the report
-# scorecard table and figures. Defaults to the H100 + packed-env settled valid
-# 96-IC run; set to empty to disable the overlay entirely (figures and report
-# render own-only with a loud warning when missing).
-: "${BENCHMARK_5410_OUT_ROOT:=/work2/11114/zhixingliu/stampede3/AI-RES/results/sfno_eval_5410/20260509_blocking_96ic_h100_packed_derecho_env_valid}"
-
-export RUN_DIR CKPT MODE TEST_HOLDOUT TRAIN_DIR PACKAGER_TEST_SRC \
-       EVAL_SHA7 DATA_SHA7 TRAIN_SHA7 RUN_TAG OUT_ROOT \
-       BENCHMARK_5410_OUT_ROOT
 
 submit_sbatch() {
     local output job_id

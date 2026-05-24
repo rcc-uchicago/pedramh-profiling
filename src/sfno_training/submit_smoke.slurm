@@ -22,15 +22,15 @@
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 SFNO_JOB_NAME="sfno_smoke"
 MAIL_TO="${MAIL_TO:-zhixingliu@uchicago.edu}"
 source "$REPO_ROOT/src/sfno_training/slurm_helpers.sh"
 sfno_install_status_trap
 
 # Required — overridable via env (sbatch propagates exported env by default).
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_astro_64x128}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_smoke}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_smoke}"
 
 # Activate the project venv (must include torch + makani + physicsnemo).
 source "$REPO_ROOT/.venv/bin/activate"

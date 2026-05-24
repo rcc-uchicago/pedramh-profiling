@@ -22,13 +22,20 @@ def _sigma_names(var: str) -> list[str]:
     return [f"{var}{i}" for i in range(1, _SIGMA_LEVELS + 1)]
 
 
-# Pressure-level zg subset (v10). TOA → surface order, integer hPa.
-# Selected per docs/plasim_zg_plev_migration_plan.md L1: drops 50/100
-# (redundant given top sigma + sigma channels) and 1000 (below-ground
-# extrapolation noise); includes 925 for boundary-layer coupling and
-# 500 explicitly for blocking / Z500 skill.
+# Pressure-level zg subset (v10.1). TOA → surface order, integer hPa.
+# Selected per docs/2026-05-04_zg1000hpa_migration_plan.md: drops 50/100/150
+# (redundant given top sigma + sigma channels above 200 hPa); includes 1000
+# for ACE channel parity (accepts below-ground extrapolation noise over
+# high terrain — Tibet, Andes — to be spot-checked post-train per
+# G-z1000-soft); includes 925 for boundary-layer coupling and 500
+# explicitly for blocking / Z500 skill.
+#
+# v10 (predecessor) was (150, 200, 250, 300, 400, 500, 600, 700, 850, 925)
+# with zg500 at STATE_CHANNELS[47]; v10.1 shifts the whole zg block one
+# slot, putting zg500 at index 46 — see docs/plasim_zg_plev_migration_plan.md
+# (historical) and the v10.1 plan above.
 ZG_PLEV_HPA: tuple[int, ...] = (
-    150, 200, 250, 300, 400, 500, 600, 700, 850, 925,
+    200, 250, 300, 400, 500, 600, 700, 850, 925, 1000,
 )
 assert len(ZG_PLEV_HPA) == 10
 
@@ -46,9 +53,9 @@ STATE_CHANNELS: list[str] = (
     + _zg_plev_names()
 )
 assert len(STATE_CHANNELS) == 52
-assert STATE_CHANNELS[42] == "zg150"
-assert STATE_CHANNELS[47] == "zg500"
-assert STATE_CHANNELS[51] == "zg925"
+assert STATE_CHANNELS[42] == "zg200"
+assert STATE_CHANNELS[46] == "zg500"
+assert STATE_CHANNELS[51] == "zg1000"
 
 DIAGNOSTIC_CHANNELS: list[str] = ["pr_6h"]
 

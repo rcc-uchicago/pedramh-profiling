@@ -32,11 +32,11 @@ def test_state_order():
     assert STATE_CHANNELS[31] == "va10"
     assert STATE_CHANNELS[32] == "hus1"
     assert STATE_CHANNELS[41] == "hus10"
-    # v10: zg pressure levels TOA → surface
-    assert STATE_CHANNELS[42] == "zg150"
-    assert STATE_CHANNELS[47] == "zg500"
-    assert STATE_CHANNELS[51] == "zg925"
-    assert ZG_PLEV_HPA == (150, 200, 250, 300, 400, 500, 600, 700, 850, 925)
+    # v10.1: zg pressure levels TOA → surface (zg200..zg1000; zg500 at index 46)
+    assert STATE_CHANNELS[42] == "zg200"
+    assert STATE_CHANNELS[46] == "zg500"
+    assert STATE_CHANNELS[51] == "zg1000"
+    assert ZG_PLEV_HPA == (200, 250, 300, 400, 500, 600, 700, 850, 925, 1000)
 
 
 def test_diagnostic():
@@ -127,12 +127,15 @@ def test_stack_fields_state_shape_and_order():
     np.testing.assert_array_equal(arr[:, 2], ds["ta"].values[:, 0])
     # ta10 at index 11 == lev[9] (surface)
     np.testing.assert_array_equal(arr[:, 11], ds["ta"].values[:, 9])
-    # v10: zg150 at index 42 == zg_plev row whose lev_2 value is 150 hPa
-    # (LEV_2_HPA[2] == 150).
-    np.testing.assert_array_equal(arr[:, 42], ds["zg_plev"].values[:, 2])
-    # zg500 at index 47 == zg_plev row whose lev_2 value is 500 hPa
+    # v10.1: zg200 at index 42 == zg_plev row whose lev_2 value is 200 hPa
+    # (LEV_2_HPA[3] == 200).
+    np.testing.assert_array_equal(arr[:, 42], ds["zg_plev"].values[:, 3])
+    # zg500 at index 46 == zg_plev row whose lev_2 value is 500 hPa
     # (LEV_2_HPA[7] == 500).
-    np.testing.assert_array_equal(arr[:, 47], ds["zg_plev"].values[:, 7])
+    np.testing.assert_array_equal(arr[:, 46], ds["zg_plev"].values[:, 7])
+    # zg1000 at index 51 == zg_plev row whose lev_2 value is 1000 hPa
+    # (LEV_2_HPA[12] == 1000).
+    np.testing.assert_array_equal(arr[:, 51], ds["zg_plev"].values[:, 12])
 
 
 def test_stack_fields_diagnostic():

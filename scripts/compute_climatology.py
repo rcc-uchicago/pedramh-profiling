@@ -13,8 +13,8 @@ channels — fits comfortably on a Stampede3 ``skx`` node (191 GB).
 Usage::
 
     scripts/compute_climatology.py \\
-        --train-dir $SCRATCH/AI-RES/data/makani/sim52_full/train \\
-        --out $WORK2/AI-RES/results/sfno_eval/$RUN_TAG/baselines/climatology_proleptic.nc
+        --train-dir $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_full/train \\
+        --out $WORK2/SFNO_Climate_Emulator/results/sfno_eval/$RUN_TAG/baselines/climatology_proleptic.nc
 """
 from __future__ import annotations
 

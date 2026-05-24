@@ -58,12 +58,14 @@ class RolloutResult:
     file_anchor: str  # e.g. '0126-08-01 00:00:00'
     time_plasim_at_ic: float
     rollout_mode: str  # 'nwp' or 'climate'
+    truth_sic: torch.Tensor | None = None  # (K, H, W) raw fraction; NaN over land
 
     def to_dict(self) -> dict:
         return {
             "prediction": self.prediction,
             "truth": self.truth,
             "init_state": self.init_state,
+            "truth_sic": self.truth_sic,
             "K": self.K,
             "ic_global_idx": self.ic_global_idx,
             "ic_sample_idx": self.ic_sample_idx,
@@ -259,6 +261,8 @@ def rollout_one_ic(
     # Provenance: locate the file and sample-within-file for this global idx.
     ic_file, ic_sample_idx, file_anchor, t_plasim = _resolve_ic_provenance(dataset, ic_global_idx)
 
+    truth_sic = _extract_truth_sic(tar_forcing, dataset)
+
     return RolloutResult(
         prediction=predictions_phys.cpu(),
         truth=truth_phys.cpu(),
@@ -270,7 +274,32 @@ def rollout_one_ic(
         file_anchor=file_anchor,
         time_plasim_at_ic=float(t_plasim),
         rollout_mode="",  # caller sets this
+        truth_sic=truth_sic,
     )
+
+
+def _extract_truth_sic(tar_forcing: torch.Tensor, dataset) -> torch.Tensor | None:
+    """Recover physical sic at each lead from the CPU `tar_forcing` tensor.
+
+    `tar_forcing` is `(K, 6, H, W)` z-scored on CPU, with channel order
+    `['lsm','sg','z0','sst','rsdt','sic']`. Inverse-transform channel 5
+    using the dataset's loaded forcing stats. NaN over land (per
+    packager.py:226) round-trips as NaN. Returns None if stats are
+    missing or mis-shaped; the writer then skips truth_sic.
+    """
+    try:
+        fb = np.asarray(dataset.forcing_bias, dtype=np.float32).reshape(-1)
+        fs = np.asarray(dataset.forcing_scale, dtype=np.float32).reshape(-1)
+    except (AttributeError, TypeError, ValueError):
+        logger.warning("dataset has no forcing_bias/forcing_scale; truth_sic disabled")
+        return None
+    if fb.shape[0] < 6 or fs.shape[0] < 6:
+        logger.warning("forcing stats too short (%d, %d); truth_sic disabled",
+                       fb.shape[0], fs.shape[0])
+        return None
+    sic_z = tar_forcing[:, 5, :, :].to(torch.float32)        # (K, H, W) CPU
+    sic_phys = sic_z * float(fs[5]) + float(fb[5])
+    return sic_phys
 
 
 # ---------------------------------------------------------------------------

@@ -77,7 +77,7 @@ authoritative.
 
 ## 1. Inventory — verified facts
 
-### 1.1 Top-level layout of `/home1/11114/zhixingliu/AI-RES/`
+### 1.1 Top-level layout of `/home1/11114/zhixingliu/projects/SFNO_Climate_Emulator/`
 
 | Entry                | Type    | Real size | Notes                                              |
 |----------------------|---------|-----------|----------------------------------------------------|
@@ -107,10 +107,10 @@ Tracked git content total: 1.09 MB / 115 files.
 ### 1.2 Symlinks (recursive, excluding `.git/`)
 
 ```
-.venv        -> /work2/11114/zhixingliu/stampede3/AI-RES/.venv      (6.5 GB)  SKIP
-checkpoints  -> /scratch/11114/zhixingliu/AI-RES/checkpoints        (empty)
-data         -> /scratch/11114/zhixingliu/AI-RES/data               (844 GB)  see §1.3
-results      -> /work2/11114/zhixingliu/stampede3/AI-RES/results    (12 KB)
+.venv        -> /work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/.venv      (6.5 GB)  SKIP
+checkpoints  -> /scratch/11114/zhixingliu/SFNO_Climate_Emulator/checkpoints        (empty)
+data         -> /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data               (844 GB)  see §1.3
+results      -> /work2/11114/zhixingliu/stampede3/SFNO_Climate_Emulator/results    (12 KB)
 ```
 
 ### 1.3 `data/` breakdown (844 GB)
@@ -199,7 +199,7 @@ The env rebuild is the **dominant blocker** for this plan, not data transfer.
 `src/sfno_training/submit_zgplev_smoke.slurm:35`:
 
 ```bash
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev}"
 ```
 
 The fallback name is `sim52_astro_64x128_zgplev` (no `_proto`), but the
@@ -240,7 +240,7 @@ the bootstrap branch *before* any working-tree edits, so the `.gitignore`
 and `requirements-stampede3.txt` changes land on the bootstrap branch only:
 
 ```bash
-cd /home1/11114/zhixingliu/AI-RES
+cd /home1/11114/zhixingliu/projects/SFNO_Climate_Emulator
 git checkout -b zgplev-migration-dsi-bootstrap
 ```
 
@@ -348,7 +348,7 @@ preempt) for the smoke job.
 ```bash
 # On DSI (assuming SSH key already on GitHub):
 cd $HOME
-git clone git@github.com:feynmanliu214/AI-RES-Stampede3.git AI-RES
+git clone git@github.com:feynmanliu214/SFNO_Climate_Emulator-Stampede3.git AI-RES
 cd AI-RES
 git checkout zgplev-migration-dsi-bootstrap
 ```
@@ -479,7 +479,7 @@ ln -s $DSI_PROJECT/AI-RES/results     results
 ### 4.E Tier-1 data transfer — 21 GB only
 
 ```
-SOURCE: /scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto/
+SOURCE: /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_proto/
 DEST:   $DSI_SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto/
 SIZE:   21 GB (16 + 2.7 + 2.7 + small)
 ```
@@ -490,7 +490,7 @@ Boundary, postproc, postproc_timing_test, plasim_postprocess, v9 baseline:
 #### 4.E.1 Globus (preferred)
 
 1. Activate `tacc#stampede3` and DSI's Globus endpoint (name from §3).
-2. Source: `/scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto/`.
+2. Source: `/scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_proto/`.
 3. Destination: `$DSI_SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto/`.
 4. Enable: preserve mtimes, verify integrity. Submit.
 
@@ -499,7 +499,7 @@ Boundary, postproc, postproc_timing_test, plasim_postprocess, v9 baseline:
 ```bash
 # From a Stampede3 login node:
 rsync -avh --partial --append-verify --info=progress2 \
-    /scratch/11114/zhixingliu/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto/ \
+    /scratch/11114/zhixingliu/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128_zgplev_proto/ \
     DSI_USER@DSI_HOST:$DSI_SCRATCH/AI-RES/data/makani/sim52_astro_64x128_zgplev_proto/
 ```
 

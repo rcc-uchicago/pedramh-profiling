@@ -23,7 +23,7 @@ Usage::
     scripts/preflight.py \\
         --yaml_config "$EXP_DIR/plasim_sim52_tiny.rendered.yaml" \\
         --config plasim_sim52_tiny \\
-        --template "$HOME/AI-RES/src/sfno_training/config/plasim_sim52_tiny.yaml" \\
+        --template "$HOME/projects/SFNO_Climate_Emulator/src/sfno_training/config/plasim_sim52_tiny.yaml" \\
         --log "$EXP_DIR/preflight_log.txt"
 """
 
@@ -53,7 +53,7 @@ def check_makani_path() -> None:
         raise RuntimeError(
             f"makani.__file__={makani_path} is not under a makani-src/ checkout. "
             f"PyPI wheel 0.2.0 is missing the cache_unpredicted_features clone fix. "
-            f"Reinstall via: pip install --no-deps -e $HOME/AI-RES/makani-src"
+            f"Reinstall via: pip install --no-deps -e $HOME/projects/SFNO_Climate_Emulator/makani-src"
         )
     logger.info("[1/5] makani import path OK: %s", makani_path)
 
@@ -88,6 +88,7 @@ def _build_loader_and_wrapper(
     *,
     amp_mode: str = "none",
     checkpointing_level: int = 0,
+    multistep_count: int = 1,
 ):
     """Build dataloader + freshly-instantiated wrapper from a rendered YAML.
 
@@ -148,7 +149,7 @@ def _build_loader_and_wrapper(
     params["enable_synthetic_data"] = False
     params["split_data_channels"] = False
     params["print_timings_frequency"] = -1
-    params["multistep_count"] = 1
+    params["multistep_count"] = multistep_count
     params["disable_ddp"] = True
     params["enable_grad_anomaly_detection"] = False
 
@@ -369,6 +370,11 @@ def _parse_args() -> argparse.Namespace:
                    help="Activation-checkpointing level for the memory-probe forward pass. "
                         "Pass-through (no enum); match the value the launching submit "
                         "script will pass to train_plasim.")
+    p.add_argument("--multistep-count", default=1, type=int,
+                   help="Multi-step rollout depth for the memory probe (1 = single-step "
+                        "default; 2 = rollout-2). Must match --multistep_count that the "
+                        "launching submit script passes to train_plasim, otherwise the "
+                        "memory probe exercises a different forward graph than training.")
     return p.parse_args()
 
 
@@ -403,6 +409,7 @@ def main() -> int:
             args.config,
             amp_mode=args.amp_mode,
             checkpointing_level=args.checkpointing_level,
+            multistep_count=args.multistep_count,
         )
         check_single_batch_contract(trainer, params)
         print_resolved_sizes(trainer, params)

@@ -20,17 +20,17 @@
 # Build the subset one time before launching:
 #
 #   scripts/build_subset_dataset.py \
-#       --src $SCRATCH/AI-RES/data/makani/sim52_astro_64x128 \
-#       --dst $SCRATCH/AI-RES/data/makani/sim52_short \
+#       --src $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128 \
+#       --dst $SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short \
 #       --train-years 3-7 --valid-years 101-102
 # ============================================================================
 
 set -euo pipefail
 
-REPO_ROOT="$HOME/AI-RES"
+REPO_ROOT="$HOME/projects/SFNO_Climate_Emulator"
 SFNO_JOB_NAME="sfno_short"
-OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/AI-RES/data/makani/sim52_short}"
-EXP_DIR="${EXP_DIR:-$SCRATCH/AI-RES/runs/sfno_short}"
+OUTPUT_ROOT="${OUTPUT_ROOT:-$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_short}"
+EXP_DIR="${EXP_DIR:-$SCRATCH/SFNO_Climate_Emulator/runs/sfno_short}"
 MAIL_TO="${MAIL_TO:-zhixingliu@uchicago.edu}"
 source "$REPO_ROOT/src/sfno_training/slurm_helpers.sh"
 sfno_install_status_trap

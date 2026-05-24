@@ -50,11 +50,11 @@ Ancillary: `/timestamp` (int64, per-split monotonic seconds, step 21600), `/time
 
 ## Environment
 
-The packager needs `xarray + h5py + netCDF4 + numpy`. The Phase 4b smoke additionally needs `torch + makani + physicsnemo`. The project venv at `~/AI-RES/.venv` provides all of these:
+The packager needs `xarray + h5py + netCDF4 + numpy`. The Phase 4b smoke additionally needs `torch + makani + physicsnemo`. The project venv at `~/projects/SFNO_Climate_Emulator/.venv` provides all of these:
 
 ```bash
-source ~/AI-RES/.venv/bin/activate
-export PYTHONPATH=~/AI-RES/src:$PYTHONPATH
+source ~/projects/SFNO_Climate_Emulator/.venv/bin/activate
+export PYTHONPATH=~/projects/SFNO_Climate_Emulator/src:$PYTHONPATH
 ```
 
 Makani's `data_helpers.get_timedelta_from_timestamp` rejects `numpy.int64` on Python 3.12. The stub loader in `tests/plasim_makani_packager/stub_forcing_loader.py` monkey-patches this; the production trainer PR (`src/sfno_training/`) must carry the same fix.
@@ -123,11 +123,11 @@ python3 -m plasim_makani_packager.validate
 ## End-to-end recipe (sim52, astronomical rsdt)
 
 ```bash
-source ~/AI-RES/.venv/bin/activate
-export PYTHONPATH=~/AI-RES/src:$PYTHONPATH
-POSTPROC=$SCRATCH/AI-RES/data/postproc
-BOUNDARY=$SCRATCH/AI-RES/data/boundary_astro
-OUT=$SCRATCH/AI-RES/data/makani/sim52_astro_64x128
+source ~/projects/SFNO_Climate_Emulator/.venv/bin/activate
+export PYTHONPATH=~/projects/SFNO_Climate_Emulator/src:$PYTHONPATH
+POSTPROC=$SCRATCH/SFNO_Climate_Emulator/data/postproc
+BOUNDARY=$SCRATCH/SFNO_Climate_Emulator/data/boundary_astro
+OUT=$SCRATCH/SFNO_Climate_Emulator/data/makani/sim52_astro_64x128
 
 # 1. Phase 0: boundary adaptor (needs astronomical rsdt)
 #    edit src/emulator_adaptor/submit.slurm then: sbatch --array=0-127 ...
@@ -139,7 +139,7 @@ sbatch --array=0-$((N-1)) src/plasim_makani_packager/submit.slurm
 
 # 3. Phase 2-4a (local, fast)
 python3 -m plasim_makani_packager.stats    --output-root "$OUT"
-python3 -m plasim_makani_packager.metadata --output-root "$OUT" --exp-dir $SCRATCH/AI-RES/runs/sim52_astro_64x128
+python3 -m plasim_makani_packager.metadata --output-root "$OUT" --exp-dir $SCRATCH/SFNO_Climate_Emulator/runs/sim52_astro_64x128
 python3 -m plasim_makani_packager.validate --output-root "$OUT" --mode structural
 
 # 4. Phase 4b Makani smoke (needs torch + makani + physicsnemo)
@@ -153,7 +153,7 @@ python3 -m plasim_makani_packager.validate --output-root "$OUT" --mode makani_sm
 Full test suite (all 31 tests; 7 require makani + torch):
 
 ```bash
-cd ~/AI-RES && source .venv/bin/activate
+cd ~/projects/SFNO_Climate_Emulator && source .venv/bin/activate
 python -m pytest tests/plasim_makani_packager/
 ```
 

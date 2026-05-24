@@ -11,9 +11,9 @@
 ###
 ### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substituted by submit_tiny.slurm.
 
-### v10 zg sigma → zg_plev migration. Pressure-level zg150..zg925 in
-### channel_names; literal zg500 at index 47 enables Z500 / blocking
-### skill. See docs/plasim_zg_plev_migration_plan.md (v7).
+### v10.1 zg pressure-level subset (docs/2026-05-04_zg1000hpa_migration_plan.md):
+### zg200..zg1000 in channel_names (drops zg150, adds zg1000 for ACE parity);
+### literal zg500 at STATE_CHANNELS[46] enables Z500 / blocking skill.
 ###
 
 plasim_sim52_zgplev_tiny:
@@ -38,7 +38,7 @@ plasim_sim52_zgplev_tiny:
     sht_grid_type:   "legendre-gauss"
 
     # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
-    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg150","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","pr_6h"]
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000","pr_6h"]
 
     # --- PlaSim plumbing ---
     diagnostic_h5_path: "fields_diagnostic"
@@ -144,3 +144,12 @@ plasim_sim52_zgplev_tiny:
 
     wireup_info: "mpi"
     wireup_store: "tcp"
+
+    # --- Phase-1 efficiency knobs (docs/2026-05-04_phase1_efficiency_implementation_plan.md) ---
+    # All three are no-ops at the current default values, so adding them
+    # is behaviour-preserving. prefetch_factor and persistent_workers are
+    # only consulted when num_data_workers > 0; the workerless path
+    # ignores both. ema_validation_period=1 = current behaviour.
+    prefetch_factor: 4
+    persistent_workers: !!bool True
+    ema_validation_period: 1
