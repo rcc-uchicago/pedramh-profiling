@@ -1,0 +1,177 @@
+### GB16 @ lr=2.0e-4, 40-yr recipe-transfer probe — gbhpo40 sweep, 2026-05-11.
+###
+### Identical to plasim_sim52_zgplev_group_clone.yaml in every knob except
+### batch_size (8 → 16), lr (1e-4 → 2.0e-4), and the dataset paths (full
+### 100-yr farm → 40-yr farm sim52_zgplev_40yr_y12-51_20260511/, train
+### years 12-51, valid year 11).
+###
+### lr=2.0e-4 = 1e-4 × (16/8) — exact linear scaling from the GB8 group_clone
+### anchor. This is the linear endpoint of the [sqrt, linear] LR-scaling
+### interval at GB=16; the most theoretically motivated GB16 LR.
+###
+### NOTE: a (GB=16, lr=2e-4) run already exists at 100 yr, but under PROD
+### KNOBS (β₂=0.95, grad_clip=32, NO input_noise) — see
+### sfno_zgplev_full_gb16_lr2e4_20260509_retry1. The current run differs in
+### β₂ (0.95 → 0.999), grad_clip (32 → disabled), input_noise (absent →
+### σ=0.05 on 52 state channels), and dataset (100 yr → 40 yr). Input
+### noise σ=0.05 in particular is a significant data augmentation, not a
+### trivial optimizer tweak, so this is a genuinely-new experiment — the
+### group_clone-recipe-transfer probe at GB16's linear-LR endpoint.
+### User-authorised 2026-05-11.
+###
+### Per-rank batch at 4-GPU DDP = 16 / 4 = 4. Empirically stable on prior
+### GB16 prod-knob 100-yr runs (64.7 ms/step, 247 samples/sec).
+###
+### See docs/2026-05-11_zgplev_gbhpo_40yr_lr_sweep_plan.md for the wider
+### sweep context.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are substituted by
+### submit_zgplev_gbhpo40_gb16_lr2_0e-4.slurm.
+
+plasim_sim52_zgplev_gbhpo40_gb16_lr2_0e-4:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time ---
+    img_shape_x: 64
+    img_shape_y: 128
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids ---
+    model_grid_type: "legendre-gauss"
+    data_grid_type:  "legendre-gauss"
+    sht_grid_type:   "legendre-gauss"
+
+    # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000","pr_6h"]
+
+    # --- PlaSim plumbing ---
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- SFNO architecture ---
+    nettype: "SFNO"
+    spectral_transform: "sht"
+    filter_type: "linear"
+    operator_type: "dhconv"
+    scale_factor: 1
+    embed_dim: 256
+    num_layers: 12
+    encoder_layers: 1
+    mlp_ratio: 2.0
+    use_mlp: !!bool True
+    activation_function: "gelu"
+    pos_embed: "direct"
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    big_skip: !!bool True
+    rank: 1.0
+    separable: !!bool False
+    complex_activation: "real"
+    spectral_layers: 3
+
+    # --- Aux features all OFF ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Training schedule (GB=16, lr=2.0e-4 — linear scaling from GB8=1e-4) ---
+    lr: 2.0E-4
+    weight_decay: 3.0E-6
+    max_epochs: 50
+    batch_size: 16                           # GLOBAL batch (per-rank=4 at 4-GPU DDP)
+    n_history: 0
+    n_future: 0
+    valid_autoreg_steps: 3
+    prediction_type: "iterative"
+
+    scheduler: "CosineAnnealingLR"
+    scheduler_T_max: 45                      # max_epochs (50) - lr_warmup_steps (5)
+    scheduler_min_lr: 1.0E-8
+    lr_warmup_steps: 5
+    lr_start: 1.0E-4
+
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9
+    optimizer_beta2: 0.999
+    optimizer_max_grad_norm: 0.0             # disabled — group recipe
+
+    num_data_workers: 4
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+
+    # --- Input perturbation (group recipe; σ=0.05 on 52 state channels) ---
+    input_noise:
+        type: "white"
+        mode: "perturb"
+        sigma: 0.05
+        alpha: 0.0
+        perturb_channels: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000"]
+        learnable: !!bool False
+
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    target: "state"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"
+
+    # --- EMA ---
+    ema:
+        enabled: !!bool True
+        decay: 0.999
+        warmup: !!bool True
+        allow_config_change: !!bool False
+
+    # --- Phase-1 efficiency knobs ---
+    prefetch_factor: 4
+    persistent_workers: !!bool True
+    ema_validation_period: 1

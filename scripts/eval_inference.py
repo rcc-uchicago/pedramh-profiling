@@ -99,42 +99,61 @@ def _read_n_samples(h5_path: Path) -> int:
         return int(f["time_plasim"].shape[0])
 
 
-def _read_lat_lon_from_run(run_dir: Path) -> tuple[list[float], list[float]]:
-    """Read lat/lon coords from the training run's metadata/data.json.
+def _read_lat_lon_from_run(run_dir: Path, h5_path: Path) -> tuple[list[float], list[float]]:
+    """Read lat/lon coords in DATA order (descending, North-first).
 
-    The packager writes metadata/data.json with ``lat`` (Legendre-Gauss
-    grid) and ``lon`` arrays; the training subset symlinks point at the
-    same metadata. As a fallback for environments where this file is
-    not co-located with the run dir, recompute from torch_harmonics.
+    The authoritative source is the source h5 (``<file>['lat']`` /
+    ``['lon']``) — the exact grid the model trains and forecasts on, and
+    the order the data rows are written in (row 0 = +87.86 deg N). When
+    the training metadata is co-located, cross-check the rounded
+    value-set against ``coords/lat`` and fail loud on a genuine grid
+    mismatch (orientation-agnostic, so it only fires on a real
+    wrong-run/wrong-data pairing).
+
+    NOTE: a prior version read a non-existent *top-level* ``lat`` key
+    from ``metadata/data.json`` (the lat array lives under ``coords/lat``)
+    and silently fell back to ascending torch-harmonics nodes, which
+    hemisphere-flipped the written ``lat`` coordinate relative to the
+    descending data. See docs/2026-06-02_eval_inference_latitude_flip*.md.
     """
-    cfg = json.loads((run_dir / "config.json").read_text())
-    metadata_paths = []
-    if "metadata_json_path" in cfg:
-        metadata_paths.append(Path(cfg["metadata_json_path"]))
-    # Try common neighbour location: $OUTPUT_ROOT/metadata/data.json sibling
-    # of stats/. Use train_data_path as a starting point.
-    train_path = cfg.get("train_data_path")
-    if train_path:
-        if isinstance(train_path, list):
-            train_path = train_path[0]
-        metadata_paths.append(Path(train_path).parent.parent / "metadata" / "data.json")
-
-    for mp in metadata_paths:
-        if mp.is_file():
-            md = json.loads(mp.read_text())
-            if "lat" in md and "lon" in md:
-                return list(md["lat"]), list(md["lon"])
-
-    # Fallback: compute from torch_harmonics.
-    import torch_harmonics as th
+    import h5py
     import numpy as np
-    nlat = cfg["img_shape_x"]
-    nlon = cfg["img_shape_y"]
-    # Legendre-Gauss latitudes from -1..1 cosines.
-    cos_thetas, _ = th.quadrature.legendre_gauss_weights(nlat, -1.0, 1.0)
-    cos_thetas = cos_thetas.numpy() if hasattr(cos_thetas, "numpy") else cos_thetas
-    lat = np.degrees(np.arcsin(cos_thetas))
-    lon = np.linspace(0.0, 360.0, nlon, endpoint=False)
+
+    with h5py.File(h5_path, "r") as f:
+        lat = np.asarray(f["lat"][:], dtype=np.float64)
+        lon = np.asarray(f["lon"][:], dtype=np.float64)
+
+    # Cross-check against training metadata coords/lat when co-located.
+    cfg = json.loads((run_dir / "config.json").read_text())
+    meta_path = None
+    if cfg.get("metadata_json_path"):
+        cand = Path(cfg["metadata_json_path"])
+        if cand.is_file():
+            meta_path = cand
+    if meta_path is None:
+        # Neighbour location: <train_data_path>/../metadata/data.json
+        # (train_data_path is ``{OUTPUT_ROOT}/train`` => parent is OUTPUT_ROOT).
+        train_path = cfg.get("train_data_path")
+        if isinstance(train_path, list):
+            train_path = train_path[0] if train_path else None
+        if train_path:
+            cand = Path(train_path).parent / "metadata" / "data.json"
+            if cand.is_file():
+                meta_path = cand
+
+    if meta_path is not None:
+        md = json.loads(meta_path.read_text())
+        meta_lat = md.get("coords", {}).get("lat")
+        if meta_lat is not None:
+            h5_set = sorted(round(float(x), 2) for x in lat)
+            md_set = sorted(round(float(x), 2) for x in meta_lat)
+            if h5_set != md_set:
+                raise ValueError(
+                    f"lat grid mismatch: h5 {h5_path.name} vs metadata {meta_path} "
+                    f"have different latitude value-sets. Refusing to write a "
+                    f"mislabeled grid (wrong run/data pairing?)."
+                )
+
     return list(lat), list(lon)
 
 
@@ -234,7 +253,7 @@ def run_nwp(args: argparse.Namespace) -> int:
     # Channel names: derive from the first test h5's authoritative
     # channel_state ‖ channel_diagnostic; cross-check against training config.
     channel_names = _resolve_and_check_channel_names(args.run_dir, test_files[0])
-    lat, lon = _read_lat_lon_from_run(args.run_dir)
+    lat, lon = _read_lat_lon_from_run(args.run_dir, test_files[0])
 
     out_dir = args.out_root / "inference" / "nwp"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -314,7 +333,7 @@ def run_climate(args: argparse.Namespace) -> int:
         test_files = test_files[: args.limit_files]
 
     channel_names = _resolve_and_check_channel_names(args.run_dir, test_files[0])
-    lat, lon = _read_lat_lon_from_run(args.run_dir)
+    lat, lon = _read_lat_lon_from_run(args.run_dir, test_files[0])
 
     out_dir = args.out_root / "inference" / "climate"
     out_dir.mkdir(parents=True, exist_ok=True)

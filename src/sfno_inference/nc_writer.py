@@ -102,6 +102,19 @@ def write_rollout_nc(
             f"lat/lon shape ({len(lat)}, {len(lon)}) does not match prediction grid ({H}, {W})"
         )
 
+    # Orientation guard: the PlaSim grid is descending (North-first, row 0 =
+    # +87.86 deg N). The data rows are written in that order, so the lat
+    # coordinate MUST be strictly descending or the file is hemisphere-
+    # mislabeled. Fail loud rather than silently corrupt coordinate-aware
+    # downstream scoring.
+    lat_arr = np.asarray(lat, dtype=np.float64)
+    if H > 1 and not np.all(np.diff(lat_arr) < 0):
+        raise ValueError(
+            f"lat must be strictly descending (data is North-first); got "
+            f"lat[0]={lat_arr[0]:.3f} lat[-1]={lat_arr[-1]:.3f}. "
+            f"Refusing to write a mislabeled grid."
+        )
+
     init_time_np = _parse_anchor_to_datetime64(result.file_anchor)
     init_time = init_time_np + np.timedelta64(int(round(result.time_plasim_at_ic * 86400)), "s")
 
@@ -138,7 +151,7 @@ def write_rollout_nc(
             lead_time=("lead_time", lead_time),
             channel=("channel", list(channel_names)),
             channel_ic=("channel_ic", channel_ic),
-            lat=("lat", np.asarray(lat, dtype=np.float64)),
+            lat=("lat", lat_arr),
             lon=("lon", np.asarray(lon, dtype=np.float64)),
         ),
         attrs=dict(

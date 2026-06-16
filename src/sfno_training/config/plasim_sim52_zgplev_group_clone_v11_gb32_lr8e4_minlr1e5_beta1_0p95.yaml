@@ -1,0 +1,216 @@
+### Group-recipe clone — v11 dataset, GB=32, single-knob OPTIMIZER-BETA1 probe
+### (optimizer_beta1=0.95, on top of lr8e4_minlr1e5 — current scorecard winner).
+###
+### Parented on lr8e4_minlr1e5 (peak=8e-4, min_lr=1e-5), the head-to-head
+### winner of the 2026-05-20 min_lr sweep (138 RMSE wins vs minlr1e4's 80
+### across all 324 scorecard cells). The min_lr axis is in diminishing
+### returns territory; this sweep opens the previously-unprobed beta1 axis
+### (group-suggested).
+###
+### Diff vs lr8e4_minlr1e5 (only one knob change):
+###   - optimizer_beta1: 0.9 → 0.95
+###
+### beta1 controls the EMA decay of AdamW's first moment (gradient momentum).
+### Effective averaging window ≈ 1/(1-beta1):
+###   0.9  → ~10 steps  (default)
+###   0.95 → ~20 steps  (this run; common in LLM / climate ML practice)
+###   0.97 → ~33 steps  (sister run)
+###   0.99 → ~100 steps (deliberately NOT probed; outside validated range
+###                      for this regime — escalate only after this round)
+###
+### Sister run is beta1_0p97. Together they form a 2-point sweep within the
+### validated range; interpretation matrix:
+###   - both win monotonically → push to 0.99 in a follow-up sweep
+###   - this wins, sister loses → optimum bracketed in (0.9, 0.97); refine
+###   - both tie baseline → beta1 isn't the lever at this scale; pivot
+###   - both lose → 0.9 was already optimal (rare but high-information)
+###
+### All other knobs identical to lr8e4_minlr1e5 winner:
+###   lr=8e-4, scheduler_min_lr=1.0E-5, beta2=0.999, weight_decay=3e-6,
+###   50 epochs, T_max=45, lr_warmup_steps=5, lr_start=1.0E-4,
+###   input_noise.sigma=0.05, optimizer_max_grad_norm=32.0, EMA decay 0.999.
+###   NO warmstart — single continuous schedule from scratch.
+###
+### Risk: low. beta1=0.95 is well-validated in climate/LLM training.
+### Effective momentum window doubles but stays well within typical practice.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substituted by
+### submit_zgplev_group_clone_v11_gb32_lr8e4_minlr1e5_beta1_0p95.slurm.
+
+plasim_sim52_zgplev_group_clone_v11_gb32_lr8e4_minlr1e5_beta1_0p95:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time ---
+    img_shape_x: 64
+    img_shape_y: 128
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids ---
+    model_grid_type: "legendre-gauss"
+    data_grid_type:  "legendre-gauss"
+    sht_grid_type:   "legendre-gauss"
+
+    # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000","pr_6h"]
+
+    # --- PlaSim plumbing (identical to GB4 baseline) ---
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization (zscore on full-dataset stats; matches group) ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- SFNO architecture (makani-supported subset of group convention) ---
+    # NOTE on capacity gap: makani SFNO at these hyperparams ≈ 56.5 M params;
+    # group ckpt is ≈ 106.9 M. The group's `num_blocks: 16` field has no
+    # makani analog (silently swallowed by sfnonet **kwargs). Architecture
+    # parity beyond what's set here would require porting upstream's
+    # `sfno_plasim` net; left out of this clone deliberately.
+    nettype: "SFNO"
+    spectral_transform: "sht"
+    filter_type: "linear"
+    operator_type: "dhconv"
+    scale_factor: 1
+    embed_dim: 256
+    num_layers: 12
+    encoder_layers: 1
+    mlp_ratio: 2.0
+    use_mlp: !!bool True
+    activation_function: "gelu"
+    pos_embed: "direct"                     # group `pos_embed: True` → makani 'direct' (learned)
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    big_skip: !!bool True
+    rank: 1.0
+    separable: !!bool False
+    complex_activation: "real"
+    spectral_layers: 3
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss (group uses "raw_l2" → makani's "l2 squared=true" is
+    #     observed-equivalent: both compute mean of squared per-pixel
+    #     residuals; "raw" in upstream means "no per-channel sqrt", same as
+    #     squared=true here). Channel weights constant matches group. ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Training schedule (5410-locked except lr) ---
+    # global_batch=32 → per-rank=8 at world_size=4 (matches 5410).
+    # lr=8e-4: frozen at the LR-winner from the v11 GB=32 √2 ladder. The
+    # varied knob in this run is scheduler_min_lr (see scheduler block below).
+    lr: 8.0E-4
+    weight_decay: 3.0E-6
+    max_epochs: 50
+    batch_size: 32                           # GLOBAL batch (per-rank=8 at 4-GPU DDP) — 5410 match
+    n_history: 0
+    n_future: 0
+    valid_autoreg_steps: 3                   # 24h rollout signal at validation; matches GB4 baseline
+    prediction_type: "iterative"
+
+    # Scheduler — makani's `CosineAnnealingLR` + `LinearLR` warmup auto-wrap
+    # = group's `LinearWarmupCosineAnnealingLR`. SWEEP KNOB: scheduler_min_lr.
+    # Baseline lr8e4 used 1e-8 (≈0). This run lifts the floor 1000× to 1e-5
+    # so the cosine tail decays to a non-trivial LR; the last ~7 epochs train
+    # at LR ≈ 1e-5 instead of effectively zero. Sister run lr8e4_minlr1e4
+    # tests the aggressive grade (floor = warmup start LR).
+    scheduler: "CosineAnnealingLR"
+    scheduler_T_max: 45                      # max_epochs (50) - lr_warmup_steps (5)
+    scheduler_min_lr: 1.0E-5                 # SWEEP: was 1.0E-8 in lr8e4 baseline
+    lr_warmup_steps: 5                       # epochs (NOT iterations) — driver wraps in SequentialLR
+    lr_start: 1.0E-4                         # LinearLR start_factor (unchanged from control)
+
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.95                    # SWEEP: was 0.9 in lr8e4_minlr1e5 winner; effective momentum window 1/(1-0.95) ≈ 20 steps
+    optimizer_beta2: 0.999                   # group default (yaml absent → torch default 0.999); was 0.95 in GB4
+    optimizer_max_grad_norm: 32.0            # carried from lr8e4 baseline (safety net for lr=8e-4 peak).
+
+    num_data_workers: 4
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+
+    # --- Input perturbation (group `epsilon_factor: 0.05`) ---
+    # Group adds Gaussian noise std=0.05 to NORMALIZED state inputs in the
+    # data loader (utils/data_loader_multifiles.py:869-881). Makani's
+    # equivalent: `input_noise` block with mode="perturb", type="white",
+    # sigma=0.05, perturb_channels = the 52 state channel names (no
+    # diagnostic, no boundary forcing — group also leaves boundary alone).
+    # Makani's preprocessor.py:255-258 adds the noise out-of-place after
+    # normalization, matching group's "post-transform" placement.
+    input_noise:
+        type: "white"
+        mode: "perturb"
+        sigma: 0.05
+        alpha: 0.0
+        perturb_channels: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000"]
+        learnable: !!bool False
+
+    # Belt-and-suspenders: legacy add_noise/perturb knobs explicitly off
+    # (input_noise above is the active noise pathway).
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    # Target field — makani ignores this (the trainer always predicts the
+    # full normalized state, see deterministic_trainer.py:631-642 and
+    # preprocessor.append_history). Set to "state" for documentation
+    # honesty only; flipping it changes nothing in the training loop.
+    target: "state"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False              # OFF for first launch; flip on after sane curve
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"
+
+    # --- EMA unchanged from GB4 baseline ---
+    ema:
+        enabled: !!bool True
+        decay: 0.999
+        warmup: !!bool True
+        allow_config_change: !!bool False
+
+    # --- Phase-1 efficiency knobs (no-op at defaults; carried through) ---
+    prefetch_factor: 4
+    persistent_workers: !!bool True
+    ema_validation_period: 1

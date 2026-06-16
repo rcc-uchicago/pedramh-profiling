@@ -65,7 +65,7 @@ class TestWriteRollout:
         K, H, W = 5, 4, 8
         result = _make_result(K=K, H=H, W=W)
         out = tmp_path / "MOST.0121_ic000.nc"
-        lat = np.linspace(-90, 90, H)
+        lat = np.linspace(90, -90, H)  # descending (North-first), per grid contract
         lon = np.linspace(0, 360, W, endpoint=False)
         write_rollout_nc(
             out,
@@ -106,7 +106,7 @@ class TestWriteRollout:
             out,
             result=result,
             channel_names=_CHANNELS,
-            lat=np.linspace(-90, 90, H),
+            lat=np.linspace(90, -90, H),
             lon=np.linspace(0, 360, W, endpoint=False),
             ckpt_path="/scratch/best_ckpt_mp0.tar",
             eval_sha7="abc1234",
@@ -137,7 +137,7 @@ class TestWriteRollout:
         write_rollout_nc(
             out, result=result,
             channel_names=_CHANNELS,
-            lat=np.linspace(-90, 90, H),
+            lat=np.linspace(90, -90, H),
             lon=np.linspace(0, 360, W, endpoint=False),
             ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
         )
@@ -174,6 +174,20 @@ class TestGuards:
                 ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
             )
 
+    def test_rejects_ascending_lat(self, tmp_path):
+        # Data is North-first (descending); an ascending lat coordinate would
+        # hemisphere-mislabel the file. The writer must fail loud.
+        result = _make_result(K=3, H=4, W=8)
+        with pytest.raises(ValueError, match="descending"):
+            write_rollout_nc(
+                tmp_path / "out.nc",
+                result=result,
+                channel_names=_CHANNELS,
+                lat=np.linspace(-90, 90, 4),  # ascending => rejected
+                lon=np.linspace(0, 360, 8, endpoint=False),
+                ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
+            )
+
     def test_rejects_channel_name_mismatch(self, tmp_path):
         result = _make_result(K=3, H=4, W=8)
         with pytest.raises(ValueError, match="channel_names"):
@@ -204,7 +218,7 @@ class TestGuards:
         out = tmp_path / "no_sic.nc"
         write_rollout_nc(
             out, result=result, channel_names=_CHANNELS,
-            lat=np.linspace(-90, 90, H),
+            lat=np.linspace(90, -90, H),
             lon=np.linspace(0, 360, W, endpoint=False),
             ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
         )
@@ -224,7 +238,7 @@ class TestGuards:
         out = tmp_path / "with_sic.nc"
         write_rollout_nc(
             out, result=result, channel_names=_CHANNELS,
-            lat=np.linspace(-90, 90, H),
+            lat=np.linspace(90, -90, H),
             lon=np.linspace(0, 360, W, endpoint=False),
             ckpt_path="/x", eval_sha7="a", data_sha7="b", train_sha7="c", run_tag="t",
         )
