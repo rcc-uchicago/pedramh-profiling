@@ -1,0 +1,50 @@
+conda ()
+{ 
+    \local cmd="${1-__missing__}";
+    case "$cmd" in 
+        activate | deactivate)
+            __conda_activate "$@"
+        ;;
+        install | update | upgrade | remove | uninstall)
+            __conda_exe "$@" || \return;
+            __conda_reactivate
+        ;;
+        *)
+            __conda_exe "$@"
+        ;;
+    esac
+}
+Tue Jun 16 07:44:02 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 590.48.01              Driver Version: 590.48.01      CUDA Version: 13.1     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100                    On  |   00000000:4C:00.0 Off |                    0 |
+| N/A   20C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100                    On  |   00000000:5D:00.0 Off |                    0 |
+| N/A   20C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100                    On  |   00000000:CC:00.0 Off |                    0 |
+| N/A   20C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100                    On  |   00000000:DC:00.0 Off |                    0 |
+| N/A   21C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+Running: torchrun --nproc_per_node=4 /work/11095/jwan4/PanguWeather/v2.0/ensemble_inference.py     --run_num=0016     --yaml_config=/work/11095/jwan4/PanguWeather/v2.0/config/stampede/E3SM_SFNO_H5_STAMPEDE_jsw.yaml     --config=SFNO     --init_datetime='2045-01-01 00:00:00' --init_datetimes='2045-01-01 00:00:00'     --init_nc_filepaths=/scratch/11095/jwan4/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/sigma_data/2045_Combined_EAM_ELM.nc     --ensemble_inference_hours=336 --num_ensemble_members=1  --epsilon_factor=0.0     --output_dir=/work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016     --save_basenames=/work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0016_001

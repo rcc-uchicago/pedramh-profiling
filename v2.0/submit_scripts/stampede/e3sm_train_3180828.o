@@ -1,0 +1,220 @@
+conda ()
+{ 
+    \local cmd="${1-__missing__}";
+    case "$cmd" in 
+        activate | deactivate)
+            __conda_activate "$@"
+        ;;
+        install | update | upgrade | remove | uninstall)
+            __conda_exe "$@" || \return;
+            __conda_reactivate
+        ;;
+        *)
+            __conda_exe "$@"
+        ;;
+    esac
+}
+Thu Jun  4 13:00:48 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 590.48.01              Driver Version: 590.48.01      CUDA Version: 13.1     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100                    On  |   00000000:4C:00.0 Off |                    0 |
+| N/A   19C    P0             66W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100                    On  |   00000000:5D:00.0 Off |                    0 |
+| N/A   20C    P0             72W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100                    On  |   00000000:CC:00.0 Off |                    0 |
+| N/A   19C    P0             68W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100                    On  |   00000000:DC:00.0 Off |                    0 |
+| N/A   21C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+Has diagnostic: TrueHas diagnostic: True
+validation epochs arg:
+ validation epochs arg:
+ Has diagnostic: TrueWorld size from OS: 4
+
+4
+
+World size from OS: 4validation epochs arg:
+ 4
+
+World size from OS: 4
+4
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 4
+4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+Using PyTorch nativeUsing PyTorch native
+Using PyTorch native
+
+Using PyTorch native
+Hours: 218994.0Hours: 218994.0
+
+End data hour: 218994.0Hours: 218994.0End data hour: 218994.0
+
+
+End data hour: 218994.0
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36499
+Len(inference_idxs): 36499Len(inference_idxs): 36499Len(inference_idxs): 36499
+
+
+Hours: 43794.0Hours: 43794.0
+End data hour: 43794.0
+
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Start date: 2045-01-01_00:00:00Hours: 43794.0Start date: 2045-01-01_00:00:00
+
+End data hour: 43794.0
+
+End date: 2050-01-01_00:00:00End date: 2050-01-01_00:00:00
+
+Hours: 43794.0Hours: 43794.0
+
+End data hour: 43794.0End data hour: 43794.0
+
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 7300Len(inference_idxs): 7300
+
+Len(inference_idxs): 7300
+Len(inference_idxs): 7300
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x1458dcb461d0>
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x153d8052c890>
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x14ea64e2a610>
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x15199c706950>
+Validating...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Plotting Bias
+Bias pred: Data variables:
+    TREFHT          (lat, lon) float32 259kB 245.0 244.7 242.1 ... 256.1 256.4
+    U10             (lat, lon) float32 259kB 5.296 5.695 5.363 ... 4.55 4.946
+    RHREFHT         (lat, lon) float32 259kB 90.35 90.29 92.56 ... 105.0 103.3
+    PS              (lat, lon) float32 259kB 7.562e+04 7.591e+04 ... 9.699e+04
+    PSL             (lat, lon) float32 259kB 9.771e+04 9.798e+04 ... 9.919e+04
+    TMQ             (lat, lon) float32 259kB 8.171 7.776 7.112 ... 7.246 6.241
+    SOILWATER_10CM  (lat, lon) float32 259kB -4.917 -4.324 ... 7.416 6.903
+    TSOI_10CM       (lat, lon) float32 259kB 158.0 148.3 159.8 ... 239.0 242.0
+    FSNTOA          (lat, lon) float32 259kB 61.27 66.81 47.59 ... 65.19 67.75
+    FSNT            (lat, lon) float32 259kB 50.85 68.86 37.94 ... 99.67 92.47
+    PRECT           (lat, lon) float32 259kB 1.218e-08 7.898e-09 ... 2.539e-08
+    T               (lev, lat, lon) float32 5MB 250.8 248.8 ... 257.7 257.0
+    U               (lev, lat, lon) float32 5MB -2.934 -2.881 ... 0.0721 -0.2316
+    V               (lev, lat, lon) float32 5MB 4.227 5.616 ... -4.643 -5.599
+    Z3              (lev, lat, lon) float32 5MB 3.531e+04 3.526e+04 ... 214.0
+    RELHUM          (lev, lat, lon) float32 5MB -0.03329 -0.027 ... 104.5 101.9
+Bias gt: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.9 224.9 224.9 ... 260.4 260.4
+    U10             (lat, lon) float32 259kB 4.466 4.466 4.466 ... 4.526 4.526
+    RHREFHT         (lat, lon) float32 259kB 103.2 103.2 103.2 ... 100.6 100.6
+    PS              (lat, lon) float32 259kB 6.733e+04 6.733e+04 ... 1.016e+05
+    PSL             (lat, lon) float32 259kB 9.989e+04 9.989e+04 ... 1.016e+05
+    TMQ             (lat, lon) float32 259kB 0.6321 0.6321 ... 7.439 7.439
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.0 0.0 0.0 0.0 ... nan nan nan nan
+    TSOI_10CM       (lat, lon) float32 259kB 224.1 224.0 224.0 ... nan nan nan
+    FSNTOA          (lat, lon) float32 259kB 51.59 51.59 51.59 ... 68.3 68.3
+    FSNT            (lat, lon) float32 259kB 51.5 51.5 51.5 ... 68.2 68.2 68.2
+    PRECT           (lat, lon) float32 259kB 1.829e-09 1.829e-09 ... 8.678e-09
+    T               (lev, lat, lon) float32 5MB 233.4 233.4 ... 260.4 260.4
+    U               (lev, lat, lon) float32 5MB -4.136 -4.136 ... -0.3109
+    V               (lev, lat, lon) float32 5MB -2.9 -2.9 ... -0.5478 -0.5478
+    Z3              (lev, lat, lon) float32 5MB 3.43e+04 3.43e+04 ... 11.53
+    RELHUM          (lev, lat, lon) float32 5MB 0.04281 0.04281 ... 100.8 100.8
+Var level dict: {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+Available variables: ['Z3', 'U', 'T', 'TREFHT']
+Saved bias plot (level value heuristic) to: /work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0014/plots/bias/bias_epoch_1.png
+
+Finished Bias Plots...
+Validating batch 1/8
+Validating batch 2/8

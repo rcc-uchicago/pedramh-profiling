@@ -240,7 +240,7 @@ class Trainer():
             self.model = DistributedDataParallel(self.model,
                                                 device_ids=[self.params.local_rank],
                                                 output_device=self.params.local_rank,  # Remove the list brackets
-                                                find_unused_parameters=True,
+                                                find_unused_parameters=False,
                                                 gradient_as_bucket_view=True,  # More memory efficient
             )
         
@@ -1054,45 +1054,43 @@ class Trainer():
                     if self.params.scheduler in ['OneCycleLR', 'LinearWarmupCosineAnnealingLR']:
                         self.scheduler.step()
 
-                    ## ADD IF STATEMENT FOR EVERY 200 STEPS ##
-                    if self.params.mode == "test" or self.iters % 200 == 0:
-                        with torch.no_grad():
+                    with torch.no_grad():
 
-                            if self.params.predict_delta:
-                                output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
-                                target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+                        if self.params.predict_delta:
+                            output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                            target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
 
-                            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
-                            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
+                        surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
+                        upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
 
-                            if self.params.has_diagnostic:
-                                diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
-                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                            else:
-                                diagnostic_lwrmse  = 0
-                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                        if self.params.has_diagnostic:
+                            diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
+                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                        else:
+                            diagnostic_lwrmse  = 0
+                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
 
-                            ######diagnoistic logging per iteration ###################
-                            diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
-                                                                            train_batch_loss = loss, 
-                                                                            train_batch_loss_sfc = loss_sfc, 
-                                                                            train_batch_loss_upper_air = loss_pl,
-                                                                            train_batch_loss_diagnostic =loss_diagnostic,
-                                                                            train_batch_loss_vae = loss_vae,
-                                                                            train_mean_norm_lwrmse = mean_norm_lwrmse)
-                        ##########################################################
-                            if self.world_rank == 0 and self.params.log_to_wandb:
-                                #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
-                                # Use wandb_step to ensure monotonicity, then increment it
-                                wandb.log(diagnostic_logs, step=self.wandb_step)
-                                self.wandb_step += 1
+                        ######diagnoistic logging per iteration ###################
+                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                        train_batch_loss = loss, 
+                                                                        train_batch_loss_sfc = loss_sfc, 
+                                                                        train_batch_loss_upper_air = loss_pl,
+                                                                        train_batch_loss_diagnostic =loss_diagnostic,
+                                                                        train_batch_loss_vae = loss_vae,
+                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
+                    ##########################################################
+                        if self.world_rank == 0 and self.params.log_to_wandb:
+                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                            # Use wandb_step to ensure monotonicity, then increment it
+                            wandb.log(diagnostic_logs, step=self.wandb_step)
+                            self.wandb_step += 1
 
-                        # torch.cuda.empty_cache()
-                        tr_time += time.time() - tr_start
-                    
-                        pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                        # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                        pbar.update(1)
+                    # torch.cuda.empty_cache()
+                    tr_time += time.time() - tr_start
+                
+                    pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                    # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                    pbar.update(1)
         pbar.close()
 
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)

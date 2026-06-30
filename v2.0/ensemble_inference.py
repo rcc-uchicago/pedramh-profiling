@@ -500,7 +500,7 @@ class Stepper():
         self.obs_time = 0
         self.save_time = 0
 
-        if self.params.save_forecasts:
+        if self.params.save_forecasts and self.world_rank == 0:
             save_queue = asyncio.Queue()
             save_task = asyncio.create_task(self.save_results(save_queue))
         
@@ -609,7 +609,7 @@ class Stepper():
                         await obs_queue.put((deepcopy(ensemble_datasets)[0], particle_idxs.numpy()[0], ensemble_start, ensemble_end, deepcopy(self.obs_args)))
                         await asyncio.sleep(0)
                         
-                    if self.params.save_forecasts:
+                    if self.params.save_forecasts and self.world_rank == 0:
                         # Queue the results for asynchronous saving
                         await save_queue.put((deepcopy(ensemble_datasets),  particle_idxs.numpy(), ensemble_start, ensemble_end))
                         await asyncio.sleep(0)
@@ -619,7 +619,7 @@ class Stepper():
             await obs_queue.put(None)
             # Wait for all saves to complete
             await obs_task
-        if self.params.save_forecasts:
+        if self.params.save_forecasts and self.world_rank == 0:
             # Signal that we're done
             await save_queue.put(None)
             # Wait for all saves to complete
@@ -839,7 +839,7 @@ class Stepper():
                     """
 
 
-                    if self.save_forecasts:
+                    if self.save_forecasts and self.world_rank == 0:
                         save_start = time.time()
                         self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
                         save_time += time.time() - save_start
@@ -850,7 +850,7 @@ class Stepper():
                         self.obs_function([ensemble_datasets, particle_idxs, ensemble_start, ensemble_end] + self.obs_args)
                         obs_time += time.time() - obs_start
 
-                if self.save_ensemble_nc:
+                if self.save_ensemble_nc and self.world_rank == 0:
                     save_start = time.time()
                     self._save_ensemble_nc_files(particle_datasets_buf, particle_idxs)
                     save_time += time.time() - save_start

@@ -753,8 +753,8 @@ class SphericalFourierNeuralOperatorNet_v2(SphericalFourierNeuralOperatorNet):
         params_trainer,
         dataset
     ):
-
-        grid_type = Params('legendre-gauss')
+        ## GRID IS HARD CODED-- make sure it aligns with input data grid ##
+        grid_type = Params('equiangular') # default for PlaSim: Params('legendre-gauss')
         img_shape = (len(params_trainer['lat']), len(params_trainer['lon']))
 
         # Calculate in_chans and out_chans
