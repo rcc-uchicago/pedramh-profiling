@@ -1,0 +1,47 @@
+model:
+    model_name: AE_Arches_DDC
+    lr: 5.0e-5
+    AE_Arches_DDC:
+        encoder:
+            downsample_factor: 4
+        decoder:
+            emb_dim: 128
+            patch_size: [2, 2, 2]
+            num_heads: [4, 8, 8, 4]
+            window_size: [1, 5, 10]
+            tensor_size: [15, 90, 180] # after patchify/encode
+            depth_multiplier: 1
+        scheduler:
+            num_refinement_steps: 5
+            num_train_steps: 11
+            sigma_coupling: 1.0
+
+data:
+    train_data_path: /glade/derecho/scratch/ayz/AMIP_train_new.h5
+    val_data_path: /glade/derecho/scratch/ayz/AMIP_valid_new.h5
+    norm_stats_path: /glade/derecho/scratch/ayz/norm_stats_dict_new.pkl
+    training_nsteps: 1
+    val_nsteps: 1
+    val_horizon: 1460
+    use_climatology: False
+    downsample_levels: 1
+    batch_size: 1
+    num_workers: 4
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 16-mixed
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 10
+    max_epochs: 50
+    ema_decay: 0.99
+    num_sanity_val_steps: 1
+    log_dir: /glade/derecho/scratch/ayz/AMIP_logs/
+    project: amip
+    wandb_mode: online
+    checkpoint: null
+    description: SI_DDC_Arches
+    accumulate_grad_batches: 16

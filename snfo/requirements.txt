@@ -1,0 +1,26 @@
+# PyTorch — install with the CUDA 12.8 wheel index:
+#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+torch
+torchvision
+lightning
+wandb
+timm
+einops
+h5py
+h5pickle
+h5netcdf
+numpy
+xarray
+cftime
+pyyaml
+matplotlib
+tqdm
+muon
+torch-harmonics
+
+# SFNO support (uncomment if training SFNO models):
+# tensorly
+# tensorly-torch
+
+# Neighbourhood attention (old/experimental layers only):
+# natten

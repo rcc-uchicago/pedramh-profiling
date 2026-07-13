@@ -1,0 +1,58 @@
+model:
+    model_name: sfno
+    lr: 5.0e-4
+    sfno:
+        spectral_transform: 'sht'
+        filter_type: 'linear'
+        operator_type: 'dhconv'
+        scale_factor: 1
+        in_chans: 81
+        out_chans: 73
+        img_shape: [64, 128]
+        embed_dim: 256
+        num_layers: 12
+        use_mlp: True
+        mlp_ratio: 2.0
+        activation_function: "gelu"
+        encoder_layers: 1
+        pos_embed: True
+        drop_rate: 0.0
+        drop_path_rate: 0.0
+        num_blocks: 16
+        sparsity_threshold: 0.0
+        normalization_layer: 'instance_norm'
+        hard_thresholding_fraction: 1.0
+        use_complex_kernels: True
+        big_skip: True
+
+data:
+    train_data_path: /glade/derecho/scratch/ayz/AMIP_train_new.h5
+    val_data_path: /glade/derecho/scratch/ayz/AMIP_valid_new.h5
+    norm_stats_path: /glade/derecho/scratch/ayz/norm_stats_dict_new.pkl
+    climatology_path: /glade/derecho/scratch/ayz/climatology_1990_1996.pkl
+        
+    training_nsteps: 2
+    val_nsteps: 41 # 10 days
+    val_horizon: 1460 # 1 year
+    use_climatology: True
+    climatology_horizon: 7308 # 5year #1460 # 1 year
+    climatology_start: 16072 # 1990-01-01
+
+    batch_size: 1
+    num_workers: 0 # needs to be set to zero, otherwise errors in pickling Dataset objects
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 16-mixed
+    check_val_every_n_epoch: 2
+    log_every_n_steps: 100
+    max_epochs: 50
+    ema_decay: 0.995
+    num_sanity_val_steps: 0
+    log_dir: /glade/derecho/scratch/ayz/AMIP_logs/
+    project: amip
+    wandb_mode: online
+    checkpoint: null

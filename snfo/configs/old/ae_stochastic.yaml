@@ -1,0 +1,52 @@
+model:
+    model_name: AE_Stochastic
+    lr: 5.0e-5
+    # [t, u, v, z, q, lwc, iwc, cc, w]
+    multi_level_variable_weight: [1.0, 1.0, 1.0, 10.0, 1.0, 0.25, 0.25, 0.25, 1.0]
+    level_weight: cosine
+    spectral_loss_weight: 0.1
+    n_ensemble: 2
+    crps_alpha: 0.95  # 1.0 = fair CRPS, <1.0 = almost-fair (encourages more spread)
+    AE_Stochastic:
+        encoder:
+            downsample_factor: 4
+        decoder:
+            out_channels: 249  # 6 + 26*9 + 9 = 249
+            hidden_channels: 512
+            z_channels: 249
+            noise_dim: 64
+            ch_mult: [1, 1, 2]
+            upsample_type: dc
+            padding_mode: circular
+
+data:
+    train_data_path: /glade/derecho/scratch/ayz/AMIP_train_new.h5
+    val_data_path: /glade/derecho/scratch/ayz/AMIP_valid_new.h5
+    norm_stats_path: /glade/derecho/scratch/ayz/norm_stats_dict_new.pkl
+
+    training_nsteps: 2
+    val_nsteps: 2
+    val_horizon: 1460 # 1 year
+    use_climatology: False
+    downsample_levels: 1
+
+    batch_size: 1
+    num_workers: 4
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 32-true
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 10
+    max_epochs: 50
+    ema_decay: 0.99
+    num_sanity_val_steps: 1
+    log_dir: /glade/derecho/scratch/ayz/AMIP_logs/
+    project: amip
+    wandb_mode: online
+    checkpoint: /glade/derecho/scratch/ayz/AMIP_logs/AE_Stochastic_stochastic_crps_spectral_42_2026-02-17T07-43-45/last.ckpt
+    description: stochastic_crps_spectral
+    accumulate_grad_batches: 16

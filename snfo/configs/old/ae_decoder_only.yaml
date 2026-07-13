@@ -1,0 +1,84 @@
+model:
+    model_name: AE_Decoder_Only
+    lr: 5.0e-5
+    DCAE:
+        encoder:
+            in_channels: 132 #249 # 6 + 26*9 + 9 = 249
+            hidden_channels: [512, 512, 1024] #[256, 512, 512]
+            blocks_per_layer: [2, 2, 2] # [4, 4, 4]
+            conv_type: '2d'
+            saturate: True 
+            downsample_type: "avg"
+        decoder:
+            in_channels: 132 # 249 # 6 + 26*9 + 9 = 249
+            hidden_channels: [512, 512, 1024] #[256, 512, 512]
+            blocks_per_layer: [2, 2, 2] #[4, 4, 4]
+            conv_type: '2d'
+            upsample_type: "avg"
+    AE_3D:
+        encoder:
+            surface_channels: 6
+            multilevel_channels: 9
+            diagnostic_channels: 9
+            nlevels: 26
+            hidden_channels: [64, 128, 256]
+            blocks_per_layer: [2, 2, 2]
+        decoder:
+            surface_channels: 6
+            multilevel_channels: 9
+            diagnostic_channels: 9
+            nlevels: 26
+            hidden_channels: [256, 128, 64]
+            blocks_per_layer: [2, 2, 2]
+    AE_simple:
+        encoder:
+            in_channels: 249  # 6 + 26*9 + 9 = 249
+            hidden_channels: 384
+            z_channels: 249
+            downsample_type: dc
+        decoder:
+            out_channels: 249  # 6 + 26*9 + 9 = 249
+            hidden_channels: 384
+            z_channels: 249
+            upsample_type: dc
+    AE_Decoder_Only:
+        encoder:
+            downsample_factor: 4
+        decoder:
+            out_channels: 249  # 6 + 26*9 + 9 = 249
+            hidden_channels: 512
+            z_channels: 249
+            upsample_type: dc
+
+data:
+    train_data_path: /glade/derecho/scratch/ayz/AMIP_train_new.h5
+    val_data_path: /glade/derecho/scratch/ayz/AMIP_valid_new.h5
+    norm_stats_path: /glade/derecho/scratch/ayz/norm_stats_dict_new.pkl
+        
+    training_nsteps: 1
+    val_nsteps: 1
+    val_horizon: 1460 # 1 year
+    use_climatology: False
+    downsample_levels: 1
+
+    batch_size: 2
+    num_workers: 4
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 32-true #16-mixed
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 10
+    max_epochs: 50
+    ema_decay: 0.99
+    num_sanity_val_steps: 1
+    log_dir: /glade/derecho/scratch/ayz/AMIP_logs/
+    project: amip
+    wandb_mode: online
+    checkpoint: null
+    #checkpoint: /glade/derecho/scratch/ayz/AMIP_logs/AE_simple_d16_simple_DC_42_2026-01-24T09-24-05/last.ckpt
+    description: d16_decoder_only
+    accumulate_grad_batches: 8

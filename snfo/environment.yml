@@ -1,0 +1,39 @@
+name: snfo
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.13
+  # PyTorch — install via the pytorch channel for CUDA 12.8 support
+  - pytorch::pytorch=2.10
+  - pytorch::torchvision
+  - pytorch::pytorch-cuda=12.8
+  # Data / IO
+  - conda-forge::numpy
+  - conda-forge::xarray
+  - conda-forge::cftime
+  - conda-forge::h5py
+  - conda-forge::h5netcdf    # xarray engine used by normalizer stats loader
+  # Utilities
+  - conda-forge::matplotlib
+  - conda-forge::tqdm
+  - conda-forge::pyyaml
+  - pip
+  - pip:
+    - lightning             # PyTorch Lightning 2.x
+    - wandb
+    - timm                  # vision transformer building blocks
+    - einops
+    - h5pickle              # HDF5-backed dataset caching
+    - muon                  # Muon + AuxAdam optimizer
+
+    # ── SFNO support (uncomment if training SFNO models) ──────────────
+    # Install torch-harmonics via conda before uncommenting:
+    #   conda install -c nvidia torch-harmonics
+    # - tensorly
+    # - tensorly-torch
+
+    # ── Neighbourhood attention (old/experimental layers only) ────────
+    # - natten

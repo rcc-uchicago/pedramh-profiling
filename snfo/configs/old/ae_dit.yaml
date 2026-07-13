@@ -1,0 +1,50 @@
+model:
+    model_name: AE_SuperResDiT
+    lr: 5.0e-5
+    AE_SuperResDiT:
+        encoder:
+            downsample_factor: 4        # 180x360 -> 45x90
+        decoder:
+            in_dim: 249                  # 6 surface + 9 diagnostic + 26*9 multilevel
+            out_dim: 249
+            dim: 384
+            num_heads: 8                 # dim_head = 64, divisible by 4 for 2D RoPE
+            num_blocks: 16
+            patch_size_lr: 3            # 45x90 -> 15x30 grid (450 LR tokens)
+            patch_size_hr: 12           # 180x360 -> 15x30 grid (450 HR context tokens)
+            h_lr: 45
+            w_lr: 90
+            h_hr: 180
+            w_hr: 360
+            dropout: 0.0
+            output_mode: unpatchify     # upscale factor = 180//15 = 12
+
+data:
+    train_data_path: /glade/derecho/scratch/ayz/AMIP_train_new.h5
+    val_data_path: /glade/derecho/scratch/ayz/AMIP_valid_new.h5
+    norm_stats_path: /glade/derecho/scratch/ayz/norm_stats_dict_new.pkl
+    training_nsteps: 2                  # timestep 0 = history context, timestep 1 = target
+    val_nsteps: 2
+    val_horizon: 1460
+    use_climatology: False
+    downsample_levels: 1
+    batch_size: 1
+    num_workers: 4
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 32-true
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 10
+    max_epochs: 50
+    ema_decay: 0.99
+    num_sanity_val_steps: 1
+    log_dir: /glade/derecho/scratch/ayz/AMIP_logs/
+    project: amip
+    wandb_mode: online
+    checkpoint: null
+    description: SuperResDiT_RoPE
+    accumulate_grad_batches: 16

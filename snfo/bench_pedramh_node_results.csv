@@ -1,0 +1,2 @@
+timestamp,git_sha,config_sha16,run_num,n_gpus,batch_per_gpu,precision,step_med,step_p90,step_mean,step_std,samples_per_s,samples_per_s_wall,data_idle_frac,peak_mem_gb_max_rank,n_steps_counted
+2026-05-20T13:08:19,2d12ae9,237cae5c318de8e4,bench_1779300371,4,4,bf16-mixed,0.884064,0.919783,0.889630,0.021304,18.098,17.720,0.021,64.685,80

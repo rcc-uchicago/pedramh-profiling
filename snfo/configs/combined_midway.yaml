@@ -1,0 +1,153 @@
+model:
+    model_name: Combined
+    # Which low-res forecaster output feeds the downscaler:
+    #   'y'      — Euler-updated state (stochastic)
+    #   'y_last' — model x-prediction (cleaner)
+    downscaler_input: 'y_last'
+    ensemble_size: 1
+
+    forecaster:
+        model_name: SI_X
+        SI_X:
+            model:
+                in_channels: 302 # 151*2 
+                out_channels: 151 # 26*5 + 6 + 15 
+                dim: 1536
+                num_heads: 16
+                num_blocks: 24
+                patch_size: 1
+                scalar_dim: 3
+                c_grid_downsample: 4
+                c_grid_dim: 6
+                c_grid_embed_dim: 192
+                unpatch: vanilla
+                nlat: 45
+                nlon: 90
+                num_ca_blocks: 8
+            scheduler:
+                num_steps: 10
+                sigma_coef: 1.0
+                train_sampler: power
+                l_max: 45
+                spectral_weight: 0.0
+                noise : spherical
+                model_last: False
+                integrator: euler
+                gamma: 0.5
+                S_churn: 0.0
+                S_noise: 1.0
+                noise_scale_path: /home/anthonyz/amip/sigma_c_lowres_26.pt
+
+    downscaler:
+        model_name: x_DDC
+        x_DDC:
+            encoder:
+                downsample_factor: 4
+            decoder:
+                in_channels: 302 # 151*2
+                out_channels: 151 # 26*5 + 6 + 15
+                model_channels: 384
+                channel_mult: [1, 2, 4]
+                num_res_blocks: 3
+                attn_levels: []
+                num_heads: 8
+                t_emb_dim: 256
+            scheduler:
+                num_steps: 10
+                sigma_coef: 1.0
+                train_sampler: power
+                l_max: 180
+                spectral_weight: 0.0
+                model_last: False
+                noise: spherical
+                tau: 1.3
+                noise_scale_path: /home/anthonyz/amip/sigma_c_highres_26.pt
+
+data:
+    data_dir: '/project/pedramh/AMIP/h5'
+    upper_air_variables: ["temperature",
+                  "u_component_of_wind",
+                  "v_component_of_wind",
+                  "geopotential",
+                  "specific_total_water"]
+    surface_variables: ["skin_temperature",
+                     "surface_pressure",
+                     "2m_temperature",
+                     "2m_specific_humidity",
+                     "10m_u_component_of_wind",
+                     "10m_v_component_of_wind"]
+    diagnostic_variables: ["USWRFtoa_24h",
+                        "ULWRFtoa_24h",
+                       "USWRFsfc_24h",
+                       "ULWRFsfc_24h",
+                       "DSWRFsfc_24h",
+                       "DLWRFsfc_24h",
+                       "LHTFLsfc_24h",
+                       "SHTFLsfc_24h",
+                       "PRATEsfc_24h",
+                       "hcc_24h",
+                       "lcc_24h",
+                       "mcc_24h",
+                       "mn2t_24h",
+                       "mx2t_24h",
+                       "mxtpr_24h"]
+    constant_boundary_variables: ["geopotential_at_surface", 
+                                    "land_sea_mask"]
+    varying_boundary_variables: ["global_mean_co2",
+                                "DSWRFtoa",
+                                "DSWRFtoa_24h_lead",
+                                "sea_surface_temperature", # has nans
+                                "sea_ice_cover"] # has nans
+    mask_fill: {'sea_surface_temperature': 270.,
+                'sea_ice_cover': 0.}
+    train_year_start: 1979
+    train_year_end: 2012
+    val_year_start: 2012
+    val_year_end: 2013
+    mean_path: "/project/pedramh/AMIP/h5/normalize_mean.nc"
+    std_path: "/project/pedramh/AMIP/h5/normalize_std.nc"
+    forecast_lead_times: [1, 3, 5, 10]
+    return_calendar: True
+    smooth_nan_boundaries: True 
+    smooth_sigma: 1.5
+    smooth_kernel_size: 5
+    smooth_n_iters: 10
+
+
+    calendar: 'standard'
+    data_timedelta_hours: 6
+    timedelta_hours: 24
+    has_year_zero: False
+    levels: [5, 7, 10, 20, 30, 50, 70, 100, 125, 150, 175, 200, 250, 300, 400, 500, 600, 700, 800, 850, 875, 900, 925, 950, 975, 1000]
+    horizontal_resolution: [180, 360]
+    predict_delta: False
+    epsilon_factor: 0
+    val_num_inferences: 50
+    diagnostic_input: True
+
+    batch_size: 1
+    num_data_workers: 4
+
+training:
+    seed: 42
+    devices: 1
+    accelerator: gpu
+    strategy: auto
+    precision: 32-true
+    log_dir: /project/pedramh/shared/anthonyz/AMIP_logs/
+    project: amip_forecast
+    description: combined_10_ep_31
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 10
+    max_epochs: 50
+    ema_decay: 0.99
+    num_sanity_val_steps: 0
+    plot_val: False
+    wandb_mode: online
+    accumulate_grad_batches: 1
+    optimizer: muon
+
+    # Pretrained checkpoints loaded manually inside CombinedModule
+    forecaster_checkpoint: /project/pedramh/shared/anthonyz/AMIP_logs/SI_X_lowres_10_churn_42_2026-04-22T20-37-39/model_epoch=31.ckpt
+    #forecaster_checkpoint: /project/pedramh/shared/anthonyz/AMIP_logs/SI_X_large_ft_42_2026-04-21T15-35-47/last.ckpt
+    downscaler_checkpoint: /project/pedramh/shared/anthonyz/AMIP_logs/x_DDC_x_DDC_42_2026-04-16T17-08-57/last.ckpt

@@ -1,0 +1,44 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# --- Environments ---
+venv/
+.venv/
+env/
+
+# --- Large data / weights (never commit) ---
+*.h5
+*.nc
+*.pt
+*.ckpt
+*.npy
+*.npz
+*.tar.gz
+# Exception: the small land/soil/topography boundary constants the port needs.
+!s2s-lightning/data/constant_mask/*.npy
+
+# --- Profiling artifacts (large binary captures) ---
+*.nsys-rep
+*.sqlite
+*.qdrep
+*.qdstrm
+
+# --- Run outputs / logs ---
+*.out
+*.err
+wandb/
+logs/
+results/
+outs/
+gif_out/
+acc_plots/
+spectra_out/
+core*
+
+# --- Editor / OS ---
+.idea/
+.vscode/
+.DS_Store

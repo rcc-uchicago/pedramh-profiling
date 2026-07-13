@@ -1,0 +1,96 @@
+model:
+    model_name: AE_DIT_DDC
+    lr: 5.0e-5
+    AE_DIT_DDC:
+        encoder:
+            downsample_factor: 4
+        decoder:
+            in_channels: 453
+            out_channels: 151 
+            dim: 1280
+            num_heads: 16
+            num_blocks: 20
+            patch_size: 2
+            nlat: 180
+            nlon: 360
+            scalar_dim: 1 # only interpolant timestep
+            unpatch: subpixel
+        scheduler:
+            num_refinement_steps: 5
+            num_train_steps: 21
+            sigma_coupling: 1.0
+
+data:
+    data_dir: '/project/pedramh/AMIP/h5'
+    upper_air_variables: ["temperature",
+                  "u_component_of_wind",
+                  "v_component_of_wind",
+                  "geopotential",
+                  "specific_total_water"]
+    surface_variables: ["skin_temperature",
+                     "surface_pressure",
+                     "2m_temperature",
+                     "2m_specific_humidity", 
+                     "10m_u_component_of_wind", 
+                     "10m_v_component_of_wind"]
+    diagnostic_variables: ["USWRFtoa_24h",
+                        "ULWRFtoa_24h", 
+                       "USWRFsfc_24h",
+                       "ULWRFsfc_24h",
+                       "DSWRFsfc_24h",
+                       "DLWRFsfc_24h",
+                       "LHTFLsfc_24h",
+                       "SHTFLsfc_24h",
+                       "PRATEsfc_24h", 
+                       "hcc_24h",
+                       "lcc_24h", 
+                       "mcc_24h", 
+                       "mn2t_24h", 
+                       "mx2t_24h", 
+                       "mxtpr_24h"]
+    constant_boundary_variables: []
+    varying_boundary_variables: [] 
+    mask_fill: {'sea_surface_temperature': 270.,
+                'sea_ice_cover': 0.}
+    train_year_start: 1979
+    train_year_end: 2012
+    val_year_start: 2012
+    val_year_end: 2013
+    mean_path: "/project/pedramh/AMIP/h5/normalize_mean.nc"
+    std_path: "/project/pedramh/AMIP/h5/normalize_std.nc"
+    forecast_lead_times: [1] 
+    autoencoder: True
+    use_history: True
+
+    calendar: 'standard'
+    data_timedelta_hours: 6
+    timedelta_hours: 24
+    has_year_zero: False
+    levels: [5, 7, 10, 20, 30, 50, 70, 100, 125, 150, 175, 200, 250, 300, 400, 500, 600, 700, 800, 850, 875, 900, 925, 950, 975, 1000]
+    horizontal_resolution: [180, 360]
+    predict_delta: False
+    epsilon_factor: 0
+    val_num_inferences: 0 # use entire val set
+    diagnostic_input: True # specific to AE model, we need diagnostic at time t, since we are training a downscaler
+
+    batch_size: 2
+    num_data_workers: 4
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 32-true
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 10
+    max_epochs: 50
+    ema_decay: 0.99
+    num_sanity_val_steps: 1
+    log_dir: /project/pedramh/shared/anthonyz/AMIP_logs/
+    project: amip
+    wandb_mode: online
+    checkpoint: null
+    description: SI_DDC_DiT_history
+    accumulate_grad_batches: 2
+    optimizer: adam
