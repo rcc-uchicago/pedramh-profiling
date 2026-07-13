@@ -45,8 +45,37 @@ git push -u origin <name>/<topic>   # then open a PR into main
 ```
 
 Each project is its own top-level directory, so work in different subtrees does
-not collide. Consider enabling branch protection on `main` (repo Settings →
-Branches) so all changes land through PRs.
+not collide.
+
+### Bringing your own existing code
+
+If your work already lives in a separate repo or a local folder, add this repo
+as a remote and push it as a branch — you do not need to re-clone:
+
+```bash
+# from inside your existing local checkout
+git remote add pedramh git@github.com:rcc-uchicago/pedramh-profiling.git
+git fetch pedramh
+
+# start your branch from the shared main, then add your code under a subdir
+git checkout -b <name>/<topic> pedramh/main
+#   ...copy your files into s2s/, s2s-lightning/, snfo/, or a new top-level dir...
+git add -A && git commit -m "Add <your work>"
+
+# push and set the upstream so later `git push` / `git pull` need no arguments
+git push -u pedramh <name>/<topic>
+```
+
+`-u` (`--set-upstream`) makes `pedramh/<name>/<topic>` the tracking branch, so a
+bare `git push` / `git pull` targets it thereafter. Already have a branch and
+just want to point it here? `git branch --set-upstream-to=pedramh/<name>/<topic>`.
+
+### Branch protection
+
+`main` is **protected**: direct pushes are blocked and merging requires a pull
+request with **1 approving review** (stale approvals are dismissed on new
+commits; conversations must be resolved; force-pushes and deletions are
+disabled). Push your branch and open a PR — do not commit to `main` directly.
 
 ## Data
 
