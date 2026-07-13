@@ -44,12 +44,11 @@ git checkout -b <name>/<topic>      # e.g. anthony/snfo-flexattention
 git push -u origin <name>/<topic>   # then open a PR into main
 ```
 
-Each project is its own top-level directory, so work in different subtrees does
-not collide.
+The main benefit is that each project is its own top-level directory, so there is no confliciting work.
 
 ### Bringing your own existing code
 
-If your work already lives in a separate repo or a local folder, add this repo
+Exisiting work in a separate repo or a local folder, add this repo
 as a remote and push it as a branch — you do not need to re-clone:
 
 ```bash
@@ -66,16 +65,10 @@ git add -A && git commit -m "Add <your work>"
 git push -u pedramh <name>/<topic>
 ```
 
-`-u` (`--set-upstream`) makes `pedramh/<name>/<topic>` the tracking branch, so a
-bare `git push` / `git pull` targets it thereafter. Already have a branch and
-just want to point it here? `git branch --set-upstream-to=pedramh/<name>/<topic>`.
-
 ### Branch protection
 
 `main` is **protected**: direct pushes are blocked and merging requires a pull
-request with **1 approving review** (stale approvals are dismissed on new
-commits; conversations must be resolved; force-pushes and deletions are
-disabled). Push your branch and open a PR — do not commit to `main` directly.
+request . Push your branch and open a PR — do not commit to `main` directly.
 
 ## Data
 
@@ -85,8 +78,6 @@ this repo. Per-cluster paths:
 | Cluster | Path |
 |---------|------|
 | Midway (RCC / UChicago) | `/project/pedramh/h5data/h5data` |
-| Derecho (NCAR)          | `/glade/campaign/univ/uchi0014/yqsun/pangu_s2s/h5data` |
-| Stampede3 (TACC)        | `/scratch/08198/tg874973/pangu-s2s/h5data` |
 
 Each project's YAML config sets `data_dir`, `checkpoint_path`, and the mean/std
 `.nc` filenames per cluster — edit these before launching a run.
@@ -98,16 +89,6 @@ There is no `pip install` package layout; scripts are launched via `torchrun` /
 **cluster-specific** paths (conda/venv locations, `data_dir`) that you edit per
 deployment — see each subdir's README.
 
-## Security note (NGC credentials)
-
-The NVIDIA NGC apptainer scripts under `s2s/v2.0/HPC_scripts/nvidia_*.sh` read
-the NGC API key from the environment:
-
-```bash
-export NGC_API_KEY=nvapi-...   # your key, from https://ngc.nvidia.com
-sbatch s2s/v2.0/HPC_scripts/nvidia_training.sh
-```
-
-**Never hardcode the key into a tracked file.** A previously-committed key was
-scrubbed from this repo; if you have access to that old key, treat it as
+**Never hardcode the key into a tracked file.** A previously-committed NVIDIA key was
+removed from this repo; if you have access to that old key, treat it as
 compromised and rotate it at NGC.
