@@ -63,7 +63,15 @@ mkdir -p "${TARGET}" || { echo "ERROR MKDIR_FAILED: ${TARGET}"; exit 2; }
 #   The SFNO frameworks need 0.9.x and get it from their own isolated venv instead.
 #   zarr <3 — the PhysicsNeMo SeqZarr path targets the v2 API.
 rm -rf "${TARGET}" && mkdir -p "${TARGET}"      # idempotent: never layer a stale resolve
-#   tensorly / tltorch — PanguWeather's SFNO stack imports both
+# HOW THIS LIST WAS DERIVED (do not guess — re-derive it):
+#   1. AST-scan the base-conda trees (PanguWeather/v2.0, si, s2s/v2.0, s2s-lightning) for
+#      third-party top-level imports.
+#   2. Import each with PYTHONNOUSERSITE=1 (a second member's view) + this dir on PYTHONPATH.
+#   3. Anything still missing that the INSTALLER also lacks is off the smoke path (dask,
+#      cf_xarray, h5pickle, muon, transformer_engine are absent for everyone and unused);
+#      anything missing that the installer HAS is a private-home leak and belongs here.
+#
+#   tensorly / tltorch / natsort / nvtx / cartopy — PanguWeather's SFNO stack imports both
 #   (networks/modulus_sfno/{factorizations,layers}.py). They were ALSO only ever present as
 #   private --user installs, so Pangu died with "No module named 'tensorly'" for anyone else
 #   (caught by job 7253539, run with PYTHONNOUSERSITE=1 to impersonate a second member).
@@ -71,6 +79,8 @@ python -m pip install --no-cache-dir --target "${TARGET}" --no-deps --upgrade \
     "netCDF4==1.7.4" "zarr==2.18.7" "torch_harmonics==0.7.4" "h5netcdf" \
     "cftime" "numcodecs<0.16" "asciitree" "fasteners" \
     "tensorly==0.9.0" "tensorly-torch==0.5.0" \
+    "natsort==8.4.0" "nvtx==0.2.15" \
+    "cartopy==0.25.0" "shapely==2.1.2" "pyproj==3.7.2" "pyshp==3.1.4" \
     || { echo "ERROR PIP_FAILED"; exit 2; }
 
 # --- guard: nothing in here may shadow a base-conda package ------------------
@@ -98,7 +108,7 @@ target = sys.argv[1]
 bad = [p for p in sys.path if "/.local/" in p]
 assert not bad, "user-site leaked into sys.path: %s" % bad
 for m in ("netCDF4", "zarr", "torch_harmonics", "h5netcdf", "cftime", "numcodecs",
-          "tensorly", "tltorch"):
+          "tensorly", "tltorch", "natsort", "nvtx", "cartopy"):
     mod = __import__(m)
     assert "/.local/" not in mod.__file__, "%s resolved to a private home: %s" % (m, mod.__file__)
     print("  OK  %-16s %-10s %s" % (m, getattr(mod, "__version__", "?"), mod.__file__))

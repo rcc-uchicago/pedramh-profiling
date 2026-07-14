@@ -120,7 +120,11 @@ Contents (all verified importable with the user site DISABLED, i.e. as another m
   torch ABI than 2.8). It also has **no sdist on PyPI**, so `--no-binary :all:` cannot
   build it.
 - `0.7.4` / `0.8.0` → import fine, but expose only the *private* `_precompute_latitudes`;
-  **makani 0.2.0 imports the public `precompute_latitudes`** and fails.
+  **makani 0.2.0 does `from torch_harmonics.quadrature import precompute_latitudes`**
+  (`makani/utils/grids.py:20`) and fails. Verified: `def precompute_latitudes` is present in
+  the venv's 0.9.2a `torch_harmonics/quadrature.py` and absent from 0.7.4. Note it is a
+  **submodule** symbol — `from torch_harmonics import precompute_latitudes` fails even on
+  0.9.2a, so probe `torch_harmonics.quadrature`, not the top-level package.
 - Only a **GitHub source build** gives both (public API + an ABI-matched `_C`).
 - ✅ **Resolution — split the envs (§6):** the base top-ups keep **0.7.4**, which is what the
   GREEN Pangu-SFNO (7252271) and SI (7252700) smokes actually ran on; the SFNO frameworks

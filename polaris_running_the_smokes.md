@@ -155,6 +155,10 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
    Slower, but the error is usually much easier to read.
 4. **If the log says `PHYSICSNEMO_WRONG_CHECKOUT`**, Step 2 didn't finish. Re-run
    `bash polaris_setup_sfno_venv.sh` and check for `SFNO_VENV_OK`.
+5. **If the log says `No module named` something** (for PanguWeather or SI), a piece of
+   shared software has gone missing. It lives in a folder everyone can read, so this
+   shouldn't happen — but if it does, tell Rahul; the one-line repair on his side is
+   `bash polaris_setup_base_topups.sh`. Please don't try to install anything yourself.
 5. **Still stuck? Email Rahul** (rmehta1987@gmail.com) with the full path of the log and its
    last 30 lines. Don't spend more than a few minutes on it.
 
