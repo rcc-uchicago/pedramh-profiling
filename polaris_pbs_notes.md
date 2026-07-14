@@ -38,10 +38,14 @@ this doc discharges.
 
 **PBS output-file gotchas (both bit us):**
 1. `#PBS -o polaris_logs/` (a *directory*) makes PBS write `polaris_logs/<full_jobid>.OU`
-   (with `-j oe`), **not** `<jobname>.o<seq>`. The per-model scripts instead pass an
-   explicit `-o polaris_logs/<name>.log` for a predictable filename.
-2. **PBS APPENDS to a fixed `-o` path** — it does not truncate. So a re-run's output is
-   concatenated after the previous run's, and `<name>.log` accumulates *several jobs*.
+   (with `-j oe`), **not** `<jobname>.o<seq>` — this is why the probe's log is named
+   `polaris_logs/7251974….OU`.
+   **The per-model scripts no longer pass `-o` at all** (an absolute path can only ever name
+   ONE user's dir, so a second member's job could not write its own log). With `-j oe` and no
+   `-o`, PBS writes `<jobname>.o<jobid>` into the SUBMIT dir — per-user for free.
+2. **HISTORICAL (pre-`7eacdb31`): PBS APPENDS to a fixed `-o` path** — it does not truncate,
+   so the older `polaris_logs/<name>.log` archives accumulate *several jobs* each. Current
+   runs get one file per job, so this only matters when reading the old archives.
    `pangu_e3sm_sfno.log` holds the OOM run 7252261 **and** the green 7252271;
    `si_polaris_bench.log` holds the crashed 7252286 **and** the green 7252700. **When
    reading these logs, always anchor on the `PBS_JOBID=` header of the run you care
@@ -131,7 +135,7 @@ SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 | **SI** (Lightning DDP) | ✅ imports | (via 4-GPU) | ✅ **GREEN** (job 7252700) | — runs on converted E3SM |
 | S2S (torchrun) | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | S2S-Lightning | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
-| **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job 7252769) | — pack ✅ `CONVERT_OK` (7252736) |
+| **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job **7253465** on the current script, train 2.61 / val 2.38; first green 7252769 pre-rework) | — pack ✅ `CONVERT_OK` (7252728) |
 | **PhysicsNeMo SFNO** (venv) | ✅ | ✅ **GREEN** (7252816) | ✅ **GREEN** (job 7252933, `rc=0`) | — zarr store ✅ `CONVERT_OK` |
 | PanguWeather deterministic | ✅ imports | ⬜ | ⬜ | PLASIM h5 not staged (NCAR glade) |
 
@@ -181,6 +185,28 @@ diagnostics, so the channel split would be wrong. The bench never sees it becaus
 opposed to the bench) on E3SM, plumb `ndiagnostic=len(diagnostic_variables)` and
 `nsurface=len(surface_variables)` into that call — a shared-code change, so re-run both
 the S2S and port smokes with it (CLAUDE.md rule #5).
+
+### Trap: makani's smoke re-run is a silent no-op (`rc=0`, zero steps)
+
+`train_plasim` **auto-resumes** from `${EXP_DIR}/e3sm_smoke/<run_num>/training_checkpoints/
+ckpt_mp0_v0.tar` whenever it exists. The smoke sets `max_epochs: 1`, which a finished run's
+checkpoint has *already satisfied* — so a second run with the same `--run_num` loads it,
+prints `Total training time is 0.00 sec`, trains **nothing**, and still exits **`rc=0`**.
+Job **7253454** looked green this way and proved nothing.
+
+Two fixes, both in `makani_sfno/polaris/polaris_sfno_smoke.pbs`:
+- `RUN_NUM` now defaults to `${PBS_JOBID%%.*}` (was a hardcoded `0`), so every job trains
+  from scratch into its own attributable run dir.
+- A **PASS gate** after the launcher: `rc=0` with no `ckpt_mp0_v0.tar` written by *this*
+  job's `RUN_NUM` is forced to `rc=4` with `ERROR NO_CHECKPOINT`.
+
+**Generalise this** (CLAUDE.md "never claim a step passed without reading the output"):
+`rc=0` is not a PASS criterion for any resumable trainer. Key on the work token — a loss
+line, a written checkpoint — not the exit code.
+
+Note also: the smoke has **no seed knob** (that's a DESIGN §4.0 prerequisite), so its losses
+move run-to-run — 7252769 gave 2.19/2.05 and 7253465 gave 2.61/2.38 on identical code. Treat
+these as "finite and roughly O(1)", never as an equivalence baseline.
 
 ## 6. SFNO frameworks — an ISOLATED venv (`polaris_setup_sfno_venv.sh`)
 
@@ -281,9 +307,9 @@ per-channel validation PNGs).
 |---|---|---|---|
 | S2S / port | `data_dir=/project/pedramh/h5data/h5data` + `pangu_s2s_1979-2018_*.nc` | `/eagle/.../mehta5/era5_h5data/h5data` (**stage ERA5**) | `s2s/v2.0/config/exp2_polaris.yaml`, `test_polaris.yaml` |
 | SI | `/project/pedramh/AMIP/h5` + `.nc` stats | `/eagle/.../mehta5/si_e3sm_stage/{h5,normalize_*.nc}` (converter output) | `si/configs/bench_polaris_e3sm.yaml` |
-| PanguWeather SFNO | Derecho glade paths | E3SM `.../jesswan/AI4SRM/...` + `PanguWeather/v2.0/polaris_data/*.nc` (prep output) | `PanguWeather/v2.0/config/E3SM_SFNO_H5_POLARIS.yaml` |
+| PanguWeather SFNO | Derecho glade paths | E3SM `.../jesswan/AI4SRM/...` + `$PANGU_AUX/*.nc` = `/eagle/.../mehta5/pangu_polaris_data` (prep output, shared read-only) | `PanguWeather/v2.0/config/E3SM_SFNO_H5_POLARIS.yaml` |
 | Makani SFNO | Stampede3 `$SCRATCH` | `/eagle/.../mehta5/data/e3sm_makani/{train,valid,test,stats,metadata}` (packer output) | `makani_sfno/polaris/e3sm_smoke.yaml` |
-| PhysicsNeMo SFNO | ARCO-ERA5 zarr | `/eagle/.../mehta5/e3sm_seqzarr/e3sm_{train,val}.zarr` (converter output) | hydra CLI overrides on `unified_recipe/conf/config.yaml` |
+| PhysicsNeMo SFNO | ARCO-ERA5 zarr | `/eagle/.../mehta5/e3sm_seqzarr/e3sm_{train,val}.zarr` (converter output) | `physicsnemo_sfno/examples/weather/unified_recipe/conf/config_e3sm_sfno.yaml` (+ CLI overrides) |
 
 All output/stage roots live on **eagle** (persistent), and every script sets
 `TMPDIR`/`TORCHINDUCTOR_CACHE_DIR`/`TRITON_CACHE_DIR` → `/eagle/.../mehta5/{tmp,torchinductor_cache,triton_cache}`
@@ -316,7 +342,7 @@ keys == h5 keys). Two data hazards every converter must handle:
   (PCT_GLACIER/PCT_NATVEG/PFTDATA_MASK/TOPO/sol_in) → unpredicted. Fills the E3SM
   land/ocean NaN masks via `NAN_FILL` and **hard-fails** if any NaN lacks a fill entry;
   `--validate` does an exact round-trip on an unfilled channel + an all-finite gate.
-  ✅ **Store PROVEN on the real data** (jobs 7252780/7252792): `validation: max|zarr-h5|
+  ✅ **Store PROVEN on the real data** (job 7252780): `validation: max|zarr-h5|
   = 0.000e+00 … sample0 all-finite = True` + `CONVERT_OK` for both the 64-sample train
   and 16-sample val stores (`predicted=157 unpredicted=5`, 180×360).
 

@@ -122,7 +122,7 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
 |---|---|---|
 | PanguWeather | 7252271 | training loss 0.34, validation loss 0.70, about 4 minutes |
 | SI | 7252700 | 0.40 seconds per step, used 31 GB of the GPU's 40 GB |
-| Makani | 7252769 | training loss 2.19, validation loss 2.05, 12 seconds per pass |
+| Makani | 7253465 | training loss 2.61, validation loss 2.38 |
 | PhysicsNeMo | 7252933 | loss 0.89, validation error 0.54 |
 
 ## If something goes wrong

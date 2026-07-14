@@ -13,7 +13,8 @@
 # Confirms nvidia-smi sees the A100s, node-local scratch exists, torch sees CUDA,
 # and every model package imports under its Polaris PYTHONPATH.
 # Submit from the repo root:   qsub polaris_probe.pbs
-# PASS = the line "PROBE_OK" in polaris_logs/polaris_probe.o<jobid>.
+# PASS = the line "PROBE_OK" in polaris_logs/<full_jobid>.OU  (a DIRECTORY -o target makes
+# PBS name the file after the job id, not the job name — see polaris_pbs_notes.md §1).
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}"

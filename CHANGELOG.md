@@ -32,7 +32,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
 | SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
 | PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
-| Makani SFNO | — | ✅ **4-GPU GREEN** (job 7252769; train loss 2.19 / val 2.05 + ckpt; pack `CONVERT_OK` 7252736) — runs from the isolated SFNO venv |
+| Makani SFNO | — | ✅ **4-GPU GREEN** (job **7253465**, current script: train loss 2.61 / val 2.38 + ckpt; first green 7252769 pre-rework; pack `CONVERT_OK` 7252728) — runs from the isolated SFNO venv |
 | PhysicsNeMo SFNO | — | ✅ **4-GPU GREEN** (job 7252933, rc=0: loss 0.889, val err 0.541, ckpt saved; 1-GPU 7252816 also green; zarr `CONVERT_OK`) |
 
 ## Next actions (pick from the top)
@@ -81,8 +81,9 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   `c970430`): `self.logger` is assigned only when `log_to_screen` is truthy (rank-0 only)
   yet `deterministic_trainer.py` calls it unconditionally → every non-zero rank died;
   patched in our `plasim_trainer.py` wrapper, not in makani.
-  **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252736) and Makani SFNO 4-GPU smoke GREEN
-  (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0).**
+  **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252728) and Makani SFNO 4-GPU smoke GREEN
+  (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0), **re-confirmed on the
+  post-rework script by 7253465** (train 2.61 / val 2.38, 7.10 s of real training).**
   **PhysicsNeMo is ALSO GREEN** (1-GPU, job 7252816, rc=0: loss 1.082, val err 0.776,
   checkpoint saved; zarr store `CONVERT_OK` with max|zarr-h5|=0 + all-finite). Its four
   traps: hydra's PATH-form defaults make `model=tiny_sfno` impossible (added

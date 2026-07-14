@@ -20,10 +20,9 @@
 #   makani, physicsnemo (editable), warp-lang, s3fs, treelib, nvidia-dali-cuda120.
 #   Isolated so the base conda keeps torch_harmonics 0.7.4 for the GREEN Pangu/SI smokes.
 #
-# ⚠ NOT YET PROVEN GREEN: the converter is micro-tested (max|zarr-h5|=0), but the
-#   SeqZarr curated-dataset + transform hydra wiring below is authored from the code
-#   map and must be verified live once physicsnemo is installed (transform.transformed_shape
-#   / curated_dataset key names may need a tweak vs conf/curated_dataset + conf/transform).
+# STATUS: GREEN. 1-GPU job 7252816 (rc=0, loss 1.082, val err 0.776) and 4-GPU job 7252933
+#   (rc=0, loss 0.889, val err 0.541), both writing checkpoints; the zarr stores verified with
+#   max|zarr-h5| = 0 and an all-finite gate (job 7252780).
 #
 # Submit (4-GPU):  qsub polaris/polaris_sfno_smoke.pbs   (1-GPU: qsub -v NPROC=1 ...)
 # PASS = "CONVERT_OK" (x2 stores) + finite per-iteration loss lines from train.py.

@@ -20,7 +20,9 @@ Run once on a login node (CPU, a few seconds):
     bash -lc 'module use /soft/modulefiles; module load conda; conda activate base; \
         python polaris_prepare_e3sm_stats.py'
 
-Outputs go to PanguWeather/v2.0/polaris_data/ (gitignored via *.nc).
+Outputs go to $PANGU_AUX (set by the PBS script to a shared read-only dir OUTSIDE the
+repo, so the ~17 GB is not re-encoded into every clone); if PANGU_AUX is unset they fall
+back to PanguWeather/v2.0/polaris_data/ (gitignored via *.nc).
 The Polaris config (config/E3SM_SFNO_H5_POLARIS.yaml) points at them with
 absolute paths — os.path.join(data_dir, <abs path>) returns the abs path,
 so no loader code changes are needed.

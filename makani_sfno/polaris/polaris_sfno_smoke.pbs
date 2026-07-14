@@ -23,7 +23,9 @@
 # This script preflights the import and tells you if the venv is missing.
 #
 # Submit (4-GPU):  qsub polaris/polaris_sfno_smoke.pbs   (1-GPU: qsub -v NPROC=1 ...)
-# PASS = "CONVERT_OK" (pack) + finite per-step loss lines + a checkpoint tar in EXP_DIR.
+# PASS = "CONVERT_OK" (pack, first run only) + finite per-step loss lines + "rc=0" on the
+# last line. rc=0 ALONE IS NOT ENOUGH — see the RUN_NUM note below; the script now gates
+# on this job having written its own checkpoint.
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}"                              # submit from makani_sfno/
@@ -57,6 +59,13 @@ export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
 OUTPUT_ROOT="${MAKANI_DATA}"
 EXP_DIR="${MEMBER_ROOT}/runs/e3sm_sfno_smoke"
 NPROC="${NPROC:-4}"
+# RUN_NUM must be UNIQUE PER JOB. makani auto-resumes from
+# ${EXP_DIR}/e3sm_smoke/${RUN_NUM}/training_checkpoints/ckpt_mp0_v0.tar if it exists, and
+# the smoke's max_epochs=1 is ALREADY SATISFIED by that checkpoint — so a re-run with a
+# fixed run_num resumes, trains ZERO steps ("Total training time is 0.00 sec"), and still
+# exits rc=0. That is a false green (it bit us on job 7253454). Keying on $PBS_JOBID makes
+# every run train from scratch and keeps its checkpoints attributable to its own job.
+RUN_NUM="${RUN_NUM:-${PBS_JOBID%%.*}}"
 
 echo "=== makani_e3sm_sfno: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  MAKANI_ROOT=${MAKANI_ROOT}"
@@ -93,7 +102,7 @@ echo "rendered config -> ${RENDERED}"
 cd "${MAKANI_ROOT}"
 if [ "${NPROC}" = "1" ]; then
     python -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_smoke \
-        --run_num 0 --batch_size 1 --multistep_count 1 --amp_mode bf16 --disable_ddp
+        --run_num "${RUN_NUM}" --batch_size 1 --multistep_count 1 --amp_mode bf16 --disable_ddp
 else
     # makani's --batch_size is GLOBAL: it asserts global_batch_size % data_parallel_size == 0.
     # Pass NPROC (=> 1 sample/GPU); --batch_size 1 on 4 ranks aborts with
@@ -105,8 +114,18 @@ else
     # spawned ranks then die with "No module named 'makani'" (makani lives only in the venv).
     python -m torch.distributed.run --standalone --nproc_per_node="${NPROC}" \
         -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_smoke \
-        --run_num 0 --batch_size "${NPROC}" --multistep_count 1 --amp_mode bf16
+        --run_num "${RUN_NUM}" --batch_size "${NPROC}" --multistep_count 1 --amp_mode bf16
 fi
 rc=$?
+
+# ---- 4) PASS gate: rc=0 alone does NOT mean the smoke trained. ----
+# A resumed/complete run exits 0 having done nothing, so assert a checkpoint was actually
+# written by THIS job before declaring success.
+CKPT="${EXP_DIR}/e3sm_smoke/${RUN_NUM}/training_checkpoints/ckpt_mp0_v0.tar"
+if [ ${rc} -eq 0 ] && [ ! -f "${CKPT}" ]; then
+    echo "ERROR NO_CHECKPOINT: the run exited 0 but wrote no ${CKPT}."
+    echo "  It almost certainly resumed from an already-finished run and trained 0 steps."
+    rc=4
+fi
 echo "=== makani_e3sm_sfno done (rc=${rc}) $(date -Iseconds) ==="
 exit ${rc}

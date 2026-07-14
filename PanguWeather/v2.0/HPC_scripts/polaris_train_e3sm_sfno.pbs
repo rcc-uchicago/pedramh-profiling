@@ -21,7 +21,8 @@
 #
 # Submit (4-GPU smoke, the default):  qsub HPC_scripts/polaris_train_e3sm_sfno.pbs
 # 1-GPU smoke:                        qsub -v NPROC=1 HPC_scripts/polaris_train_e3sm_sfno.pbs
-# PASS = "DONE ---- rank 0" in polaris_logs/pangu_e3sm_sfno.log with no traceback.
+# PASS = "DONE ---- rank 0" + "rc=0" in pangu_e3sm_sfno.o<jobid> (written into the dir you
+# submit from), with no traceback.
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
