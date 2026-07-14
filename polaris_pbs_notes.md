@@ -168,6 +168,7 @@ SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 | **SI** (Lightning DDP) | ✅ imports | (via 4-GPU) | ✅ **GREEN** (job 7252700) | — runs on converted E3SM |
 | S2S (torchrun) | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | S2S-Lightning | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
+| **PanguWeather SFNO** (2nd user) | — | — | ✅ **7253591** — `PYTHONNOUSERSITE=1`, rc=0, loss **0.3411 = identical** to 7253401 | proves the shared top-ups reproduce the green *exactly*, not merely approximately |
 | **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job **7253465** on the current script, train 2.61 / val 2.38; first green 7252769 pre-rework) | — pack ✅ `CONVERT_OK` (7252728) |
 | **PhysicsNeMo SFNO** (venv) | ✅ | ✅ **GREEN** (7252816) | ✅ **GREEN** (job 7252933, `rc=0`) | — zarr store ✅ `CONVERT_OK` |
 | PanguWeather deterministic | ✅ imports | ⬜ | ⬜ | PLASIM h5 not staged (NCAR glade) |
