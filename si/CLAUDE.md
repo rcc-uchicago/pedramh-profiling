@@ -18,9 +18,9 @@ Results are appended to `bench_results.csv` (one row per job). Columns: `step_me
 **Key bench override:** `accumulate_grad_batches` is forced to 1 regardless of the YAML (SI_midway uses 2). Every step therefore includes an optimizer call, making all measurements uniform. Note this when comparing bench throughput to production throughput.
 
 **Ablation knobs** (set in `bench_midway.sh` before `sbatch`):
-- `SNFO_BENCH_WARMUP` / `SNFO_BENCH_STEPS` — default 20 / 80
-- Edit `#SBATCH --precision` or add `export SNFO_PRECISION=bf16-mixed` to ablate precision
-- `SNFO_NVTX=1` + nsys wrapper — adds NVTX ranges (`step_N`, `preprocess`, `forward_loss` inside `training_step`) and brackets the 80 measured steps with `cudaProfilerStart/Stop`. Raise `SNFO_BENCH_WARMUP` to 40 when using `torch.compile`.
+- `SI_BENCH_WARMUP` / `SI_BENCH_STEPS` — default 20 / 80
+- Edit `#SBATCH --precision` or add `export SI_PRECISION=bf16-mixed` to ablate precision
+- `SI_NVTX=1` + nsys wrapper — adds NVTX ranges (`step_N`, `preprocess`, `forward_loss` inside `training_step`) and brackets the 80 measured steps with `cudaProfilerStart/Stop`. Raise `SI_BENCH_WARMUP` to 40 when using `torch.compile`.
 
 **Nsys analysis:** After the job, transfer the `.nsys-rep` + `.sqlite` and query the SQLite directly with `sqlite3`. Look for: `forward_loss` vs unlabeled backward time ratio; top CUDA kernels by total GPU time; NCCL all-reduce share.
 

@@ -8,8 +8,8 @@
 #SBATCH --gres=gpu:4
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
-#SBATCH -o snfo_optim_%x_%j.out
-#SBATCH -e snfo_optim_%x_%j.err
+#SBATCH -o si_optim_%x_%j.out
+#SBATCH -e si_optim_%x_%j.err
 
 # =============================================================================
 # bench_optim_sweep.sh — A/B sweep of the remaining optimization knobs.
@@ -30,11 +30,11 @@
 #   Under SLURM (job):     sbatch invokes this file with RUN_TAG set
 #       Runs a single bench config and appends one CSV row. You normally do
 #       not call this directly; the driver does it for you. To run one config
-#       by hand:  sbatch --export=ALL,RUN_TAG=foo,SNFO_TORCH_COMPILE=1 bench_optim_sweep.sh
-#       Add SNFO_NVTX=1 to also emit per-rank profiles
-#       (snfo_optim_<tag>_<jobid>_rank<N>.nsys-rep); the CSV row is still
+#       by hand:  sbatch --export=ALL,RUN_TAG=foo,SI_TORCH_COMPILE=1 bench_optim_sweep.sh
+#       Add SI_NVTX=1 to also emit per-rank profiles
+#       (si_optim_<tag>_<jobid>_rank<N>.nsys-rep); the CSV row is still
 #       written, with ~5% profiler overhead, so use a distinct RUN_TAG.
-#       NB: do NOT combine SNFO_NVTX=1 with SNFO_TORCH_COMPILE=1 — nsys tracing
+#       NB: do NOT combine SI_NVTX=1 with SI_TORCH_COMPILE=1 — nsys tracing
 #       the compiled DDP backward segfaults (exit 139). Profile eager.
 #
 # WHAT THE SWEEP COVERS (env / CLI controllable today; see bench.py)
@@ -51,7 +51,7 @@
 #
 # (max-autotune was dropped: it captures CUDA graphs, which crash on this model's
 #  reused outputs, and its autotuning OOMs the host across 4 ranks. Re-add as
-#  SNFO_COMPILE_MODE=max-autotune-no-cudagraphs if you want the kernel tuning.)
+#  SI_COMPILE_MODE=max-autotune-no-cudagraphs if you want the kernel tuning.)
 #
 # NOT COVERED HERE — these need a one-line code change before they can be benched
 # (out of scope for a test script; left as TODOs so the sweep stays honest):
@@ -90,11 +90,11 @@ if [[ -z "${SLURM_JOB_ID:-}" ]]; then
 
     SUBMITTED=()
     submit baseline
-    submit preopt_ddp       "SNFO_DDP_BUCKET_CAP_MB=25,SNFO_DDP_BF16_COMPRESS=0"
-    submit compile          "SNFO_TORCH_COMPILE=1,SNFO_BENCH_WARMUP=40"
-    submit bucket400        "SNFO_DDP_BUCKET_CAP_MB=400"
-    submit batch6           "SNFO_BENCH_BS=6"
-    submit compile_batch6   "SNFO_TORCH_COMPILE=1,SNFO_BENCH_WARMUP=40,SNFO_BENCH_BS=6"
+    submit preopt_ddp       "SI_DDP_BUCKET_CAP_MB=25,SI_DDP_BF16_COMPRESS=0"
+    submit compile          "SI_TORCH_COMPILE=1,SI_BENCH_WARMUP=40"
+    submit bucket400        "SI_DDP_BUCKET_CAP_MB=400"
+    submit batch6           "SI_BENCH_BS=6"
+    submit compile_batch6   "SI_TORCH_COMPILE=1,SI_BENCH_WARMUP=40,SI_BENCH_BS=6"
 
     echo ""
     echo "  Submitted ${#SUBMITTED[@]} jobs (any free H100 node; each waits for 4 free GPUs)."
@@ -130,40 +130,40 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # Defaults that the driver may override via --export (respect inherited values).
-export SNFO_BENCH_WARMUP="${SNFO_BENCH_WARMUP:-20}"
-if [[ "${SNFO_NVTX:-0}" == "1" ]]; then
-    export SNFO_BENCH_STEPS="${SNFO_BENCH_STEPS:-20}"   # smaller trace when profiling
+export SI_BENCH_WARMUP="${SI_BENCH_WARMUP:-20}"
+if [[ "${SI_NVTX:-0}" == "1" ]]; then
+    export SI_BENCH_STEPS="${SI_BENCH_STEPS:-20}"   # smaller trace when profiling
 else
-    export SNFO_BENCH_STEPS="${SNFO_BENCH_STEPS:-80}"
+    export SI_BENCH_STEPS="${SI_BENCH_STEPS:-80}"
 fi
-export SNFO_PRECISION="${SNFO_PRECISION:-bf16-mixed}"
+export SI_PRECISION="${SI_PRECISION:-bf16-mixed}"
 
 # Safety net: torch.compile needs a longer warm-up to absorb the JIT compile of
 # the first measured step, or the first 1–2 measurements are inflated.
-if [[ "${SNFO_TORCH_COMPILE:-0}" == "1" && "${SNFO_BENCH_WARMUP}" -lt 40 ]]; then
-    export SNFO_BENCH_WARMUP=40
+if [[ "${SI_TORCH_COMPILE:-0}" == "1" && "${SI_BENCH_WARMUP}" -lt 40 ]]; then
+    export SI_BENCH_WARMUP=40
 fi
 
 # One CSV per config so concurrent/serial runs never clobber each other.
-export SNFO_BENCH_CSV="${SLURM_SUBMIT_DIR}/bench_optim_${RUN_TAG}_results.csv"
+export SI_BENCH_CSV="${SLURM_SUBMIT_DIR}/bench_optim_${RUN_TAG}_results.csv"
 
 # Optional batch-size override (bench.py exposes --batch_size).
 BS_ARG=""
-[[ -n "${SNFO_BENCH_BS:-}" ]] && BS_ARG="--batch_size ${SNFO_BENCH_BS}"
+[[ -n "${SI_BENCH_BS:-}" ]] && BS_ARG="--batch_size ${SI_BENCH_BS}"
 
 config_file=configs/bench_midway.yaml
 
-echo "=== snfo_optim_sweep [${RUN_TAG}]: $(date -Iseconds) ==="
+echo "=== si_optim_sweep [${RUN_TAG}]: $(date -Iseconds) ==="
 echo "JOB_ID=${SLURM_JOB_ID}  NODELIST=${SLURM_NODELIST}"
 nvidia-smi -L
-echo "csv=${SNFO_BENCH_CSV}"
-echo "warmup=${SNFO_BENCH_WARMUP} steps=${SNFO_BENCH_STEPS} precision=${SNFO_PRECISION}"
-echo "DDP: bucket_cap_mb=${SNFO_DDP_BUCKET_CAP_MB:-200(default)} bf16_compress=${SNFO_DDP_BF16_COMPRESS:-1(default)} bucket_view=${SNFO_DDP_BUCKET_VIEW:-1(default)}"
-echo "compile=${SNFO_TORCH_COMPILE:-0(default)} mode=${SNFO_COMPILE_MODE:-default} batch_size=${SNFO_BENCH_BS:-yaml(4)}"
+echo "csv=${SI_BENCH_CSV}"
+echo "warmup=${SI_BENCH_WARMUP} steps=${SI_BENCH_STEPS} precision=${SI_PRECISION}"
+echo "DDP: bucket_cap_mb=${SI_DDP_BUCKET_CAP_MB:-200(default)} bf16_compress=${SI_DDP_BF16_COMPRESS:-1(default)} bucket_view=${SI_DDP_BUCKET_VIEW:-1(default)}"
+echo "compile=${SI_TORCH_COMPILE:-0(default)} mode=${SI_COMPILE_MODE:-default} batch_size=${SI_BENCH_BS:-yaml(4)}"
 
 cd "${SLURM_SUBMIT_DIR}"
 
-if [[ "${SNFO_NVTX:-0}" == "1" ]]; then
+if [[ "${SI_NVTX:-0}" == "1" ]]; then
     # Profiling run: per-rank .nsys-rep, capturing only the measured steps
     # (bench.py brackets them with cudaProfilerStart/Stop). Same flags as
     # bench_nvtx_compile.sh. Convert after with: nsys export --type=sqlite <file>
@@ -174,7 +174,7 @@ if [[ "${SNFO_NVTX:-0}" == "1" ]]; then
         --capture-range-end=stop-shutdown \
         --cuda-memory-usage=true \
         --force-overwrite=true \
-        --output="snfo_optim_${RUN_TAG}_${SLURM_JOB_ID}_rank%q{SLURM_PROCID}" \
+        --output="si_optim_${RUN_TAG}_${SLURM_JOB_ID}_rank%q{SLURM_PROCID}" \
         python bench.py --config "${config_file}" ${BS_ARG}
 else
     # Background GPU-utilisation sampler (all GPUs, 1 Hz) → one CSV per run.

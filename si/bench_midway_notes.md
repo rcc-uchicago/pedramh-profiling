@@ -1,4 +1,4 @@
-# SNFO Benchmark & Performance Report
+# SI Benchmark & Performance Report
 
 **Dates:** 2026-05-20 – 2026-05-21
 **Hardware under test:** Midway `pedramh-gpu` — 4 × NVIDIA H100 NVL (93.0 GiB each), verified from the nsys profiles; plus single-GPU smoke tests on the same H100 NVL node and on a shared-partition A100.
@@ -28,7 +28,7 @@ Before any throughput figure can be trusted, the hardware that produced it has t
 | `memoryBandwidth` | 4.02 TB/s |
 | `smCount` / L2 | 132 / 60 MiB |
 
-*Source: `sqlite3 snfo_nvtx_49898288_rank0.sqlite "SELECT * FROM TARGET_INFO_GPU"`, confirmed identical in job 49887289 and across ranks 0–3.*
+*Source: `sqlite3 si_nvtx_49898288_rank0.sqlite "SELECT * FROM TARGET_INFO_GPU"`, confirmed identical in job 49887289 and across ranks 0–3.*
 
 Three of these properties identify the card unambiguously. The device name is reported literally as NVIDIA H100 NVL; the framebuffer is 93.0 GiB, whereas an H200 would report roughly 141 GB and an 80 GB SXM card about 79.6 GiB; and the HBM bandwidth of 4.02 TB/s matches the NVL specification of approximately 3.9 TB/s rather than the 3.35 TB/s of the 80 GB SXM part. The compute capability of 9.0 further excludes the A100, which reports 8.0. The commit message's "h200" is therefore incorrect, and the "80 GB" figure that recurs throughout the earlier notes refers to the wrong memory class; the correct denominator for any statement about the fraction of GPU memory in use is 93.0 GiB. The job log confirms this independently, as its opening lines print `GPU 0: NVIDIA H100 NVL`.¹
 
@@ -123,7 +123,7 @@ A note of caution applies to the deeper communication analysis attempted in the 
 
 ## 6. Comparison across GPUs at matched precision
 
-A direct comparison of step times between the A100 and the H100 NVL is misleading, because the H100 smoke test ran in fp32 — the only precision that fit when it was taken — while the A100 ran in bf16. The appropriate comparison is the per-sample time at a common precision, bfloat16: the A100 requires 0.410 s per sample, while the NVL requires 0.221 s per sample in the full benchmark and 0.184 s after the DDP fix. The H100 NVL is therefore about 1.85 times faster than the A100 in bf16, which is consistent with NVIDIA's published BF16 tensor-core ratios and reassuring, since it indicates that nothing in the SNFO code path is leaving A100-specific performance unrealised. The cost trade-off is the conventional one: the NVL is about 1.85 times faster but typically two to three times more expensive per GPU-hour, so it is preferable for raw throughput while the A100 remains competitive for development iteration. The A100's own memory-headroom figures depend on the unverified 40 GB size noted in Part I.
+A direct comparison of step times between the A100 and the H100 NVL is misleading, because the H100 smoke test ran in fp32 — the only precision that fit when it was taken — while the A100 ran in bf16. The appropriate comparison is the per-sample time at a common precision, bfloat16: the A100 requires 0.410 s per sample, while the NVL requires 0.221 s per sample in the full benchmark and 0.184 s after the DDP fix. The H100 NVL is therefore about 1.85 times faster than the A100 in bf16, which is consistent with NVIDIA's published BF16 tensor-core ratios and reassuring, since it indicates that nothing in the SI code path is leaving A100-specific performance unrealised. The cost trade-off is the conventional one: the NVL is about 1.85 times faster but typically two to three times more expensive per GPU-hour, so it is preferable for raw throughput while the A100 remains competitive for development iteration. The A100's own memory-headroom figures depend on the unverified 40 GB size noted in Part I.
 
 ---
 
@@ -131,7 +131,7 @@ A direct comparison of step times between the A100 and the H100 NVL is misleadin
 
 With the step now dominated by computation, the remaining opportunities are concentrated there, and the most promising of them is already implemented. The recommendations below are ordered by expected return, and each is tied to the evidence that motivates it and to the run that would confirm it.
 
-1. The first recommendation is to enable `torch.compile` for the DiT. The mechanism is already present behind the `SNFO_TORCH_COMPILE` flag and disabled by default. Because the step is about 87 % compute-bound and roughly 211 ms of that compute is spent in some 3,500 small element-wise kernels, with a further 47 ms per step lost to inter-kernel idle, fusing these operations is the natural target, and a reduction of 10 to 18 % in step time is plausible. The effect can be confirmed with `bench_nvtx_compile.sh`, with the warm-up raised to 40 steps, by observing whether the `forward_loss` and `backward` ranges and the total kernel count fall. This is low-effort work.
+1. The first recommendation is to enable `torch.compile` for the DiT. The mechanism is already present behind the `SI_TORCH_COMPILE` flag and disabled by default. Because the step is about 87 % compute-bound and roughly 211 ms of that compute is spent in some 3,500 small element-wise kernels, with a further 47 ms per step lost to inter-kernel idle, fusing these operations is the natural target, and a reduction of 10 to 18 % in step time is plausible. The effect can be confirmed with `bench_nvtx_compile.sh`, with the warm-up raised to 40 steps, by observing whether the `forward_loss` and `backward` ranges and the total kernel count fall. This is low-effort work.
 
 2. The training dataloader should be given `persistent_workers=True` and a larger `prefetch_factor`. The loader in `amip_new.py:182` currently sets neither, whereas the loader in `bias.py:186` already sets both alongside pinned memory, so the training path is the inconsistent one; respawning eight workers at each epoch boundary is wasted work, and avoiding it protects the data-idle fraction over long runs. This change is trivial.
 
@@ -153,7 +153,7 @@ Three further candidates can be ruled out. The spherical-harmonic transform is n
 
 ```bash
 # Hardware identity (Part I)
-sqlite3 snfo_nvtx_49898288_rank0.sqlite \
+sqlite3 si_nvtx_49898288_rank0.sqlite \
   "SELECT name, totalMemory, memoryBandwidth, smCount, computeMajor, computeMinor FROM TARGET_INFO_GPU;"
 
 # NVTX phase medians (Part II §4–§5)
@@ -172,7 +172,7 @@ sqlite3 F.sqlite "SELECT count(*), SUM((k.end-k.start)/1e3) us FROM CUPTI_ACTIVI
 
 ### Footnotes
 
-¹ `snfo_bench_bench_midway.sh_49874162.out`, line 3: `GPU 0: NVIDIA H100 NVL (UUID: …)`.
+¹ `si_bench_bench_midway.sh_49874162.out`, line 3: `GPU 0: NVIDIA H100 NVL (UUID: …)`.
 
 ² The A100 ran via `bench_gpu_test_a100.sh` on `-p gpu --constraint=a100`, which left no nsys profile. A compute capability of 8.0 holds for any A100; the specific 40 GB size and node identity are from the run prose only. A single `nvidia-smi -q` in that job would verify it.
 
@@ -180,6 +180,6 @@ sqlite3 F.sqlite "SELECT count(*), SUM((k.end-k.start)/1e3) us FROM CUPTI_ACTIVI
 
 ⁴ `[BenchCallback] WARN sanity check failed (elapsed=129.194s expected~70.281s ratio=0.46)` — per-step compute of about 0.88 s against about 1.62 s of wall-clock, that is, roughly 46 % idle on HDF5 reads. Resolved by raising `num_data_workers` from 4 to 8 and `--cpus-per-task` from 4 to 8 with `OMP_NUM_THREADS=1`.
 
-⁵ Both captures contain the NVTX ranges `step_21..step_39`, which is 19 complete steps. `SNFO_BENCH_STEPS=20` was requested, but one step's range fell outside the capture window. The earlier notes' diagnosis correctly divides by 19 even where the prose says "20."
+⁵ Both captures contain the NVTX ranges `step_21..step_39`, which is 19 complete steps. `SI_BENCH_STEPS=20` was requested, but one step's range fell outside the capture window. The earlier notes' diagnosis correctly divides by 19 even where the prose says "20."
 
 ⁶ About 206 host-to-device transfers across 19 steps, totalling roughly 5.9 GB at an aggregate rate of about 15 GB/s. The transfers are pinned (`amip_new.py:188`), and at about 2 % of the step they are well off the critical path; the sub-PCIe-Gen5 rate is a curiosity rather than a bottleneck.

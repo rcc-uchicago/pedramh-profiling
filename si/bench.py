@@ -1,4 +1,4 @@
-"""SNFO training throughput benchmark.
+"""SI training throughput benchmark.
 
 Runs the standard training loop with GPU-sync-accurate step timing, then
 writes one CSV row and exits.  Uses random model weights — no checkpoint is
@@ -29,10 +29,10 @@ Usage
 
 Environment knobs
 ──────────────────
-    SNFO_BENCH_WARMUP   warmup steps to discard   (default 20)
-    SNFO_BENCH_STEPS    steps to measure           (default 80)
-    SNFO_BENCH_CSV      output CSV path            (default bench_results.csv)
-    SNFO_NVTX=1         NVTX step ranges + nsys capture window
+    SI_BENCH_WARMUP   warmup steps to discard   (default 20)
+    SI_BENCH_STEPS    steps to measure           (default 80)
+    SI_BENCH_CSV      output CSV path            (default bench_results.csv)
+    SI_NVTX=1         NVTX step ranges + nsys capture window
 """
 
 import argparse
@@ -52,19 +52,19 @@ from modules.train_module import TrainModule
 from modules.ae_module import AutoencoderModule
 from common.bench_callback import BenchCallback, BENCH_WARMUP, BENCH_STEPS
 
-BENCH_CSV = os.environ.get("SNFO_BENCH_CSV", "bench_results.csv")
+BENCH_CSV = os.environ.get("SI_BENCH_CSV", "bench_results.csv")
 
 # DDP knobs — overridable via env so we can A/B without editing the file.
 # Defaults are tuned against the 2026-05-20 NVTX profile (118 NCCL calls/step
 # with the 25 MB Lightning default → bucket bump + bf16 compression).
-DDP_BUCKET_CAP_MB    = int(os.environ.get("SNFO_DDP_BUCKET_CAP_MB", "200"))
-DDP_BF16_COMPRESS    = os.environ.get("SNFO_DDP_BF16_COMPRESS", "1") == "1"
-DDP_BUCKET_VIEW      = os.environ.get("SNFO_DDP_BUCKET_VIEW", "1") == "1"
+DDP_BUCKET_CAP_MB    = int(os.environ.get("SI_DDP_BUCKET_CAP_MB", "200"))
+DDP_BF16_COMPRESS    = os.environ.get("SI_DDP_BF16_COMPRESS", "1") == "1"
+DDP_BUCKET_VIEW      = os.environ.get("SI_DDP_BUCKET_VIEW", "1") == "1"
 
 # torch.compile knobs — off by default because compile times add ~30–60 s per
-# rank to the first measured step.  Raise SNFO_BENCH_WARMUP to ~40 when on.
-TORCH_COMPILE        = os.environ.get("SNFO_TORCH_COMPILE", "0") == "1"
-TORCH_COMPILE_MODE   = os.environ.get("SNFO_COMPILE_MODE", "default")
+# rank to the first measured step.  Raise SI_BENCH_WARMUP to ~40 when on.
+TORCH_COMPILE        = os.environ.get("SI_TORCH_COMPILE", "0") == "1"
+TORCH_COMPILE_MODE   = os.environ.get("SI_COMPILE_MODE", "default")
 
 
 def process_args(args, config):
@@ -96,11 +96,11 @@ def main(args):
     trainconfig.pop("partial_checkpoint",  None)
 
     # Allow precision to be overridden from the environment for ablation runs
-    # without editing the config (e.g. export SNFO_PRECISION=bf16-mixed).
-    precision_override = os.environ.get("SNFO_PRECISION")
+    # without editing the config (e.g. export SI_PRECISION=bf16-mixed).
+    precision_override = os.environ.get("SI_PRECISION")
     if precision_override:
         trainconfig["precision"] = precision_override
-        print(f"[bench] SNFO_PRECISION override: {precision_override}")
+        print(f"[bench] SI_PRECISION override: {precision_override}")
 
     devices     = trainconfig["devices"]
     n_gpus      = len(devices) if isinstance(devices, list) else int(devices)
@@ -135,7 +135,7 @@ def main(args):
     max_steps = BENCH_WARMUP + BENCH_STEPS + 5
 
     wandb_logger = WandbLogger(
-        project=trainconfig.get("project", "snfo_bench"),
+        project=trainconfig.get("project", "si_bench"),
         name=run_num,
         mode="disabled",
     )
@@ -174,7 +174,7 @@ def main(args):
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="SNFO training throughput benchmark")
+    parser = argparse.ArgumentParser(description="SI training throughput benchmark")
     parser.add_argument("--config",     required=True, help="Path to YAML config")
     parser.add_argument("--seed",       type=int, default=None)
     parser.add_argument("--devices",    nargs="+", default=[], help="GPU device IDs")

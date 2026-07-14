@@ -22,10 +22,10 @@ data-loading bottleneck.
 
 Environment knobs (set before launching)
 ──────────────────────────────────────────
-    SNFO_BENCH_WARMUP   steps to discard before measuring  (default 20)
-    SNFO_BENCH_STEPS    steps to measure                   (default 80)
-    SNFO_BENCH_CSV      output CSV path                    (default bench_results.csv)
-    SNFO_NVTX=1         emit NVTX step ranges + cudaProfilerStart/Stop for nsys
+    SI_BENCH_WARMUP   steps to discard before measuring  (default 20)
+    SI_BENCH_STEPS    steps to measure                   (default 80)
+    SI_BENCH_CSV      output CSV path                    (default bench_results.csv)
+    SI_NVTX=1         emit NVTX step ranges + cudaProfilerStart/Stop for nsys
                         and (via this callback) backward / optimizer ranges
 """
 
@@ -40,10 +40,10 @@ from pathlib import Path
 import torch
 import lightning as L
 
-BENCH_WARMUP = int(os.environ.get("SNFO_BENCH_WARMUP", "20"))
-BENCH_STEPS  = int(os.environ.get("SNFO_BENCH_STEPS",  "80"))
-BENCH_CSV    = os.environ.get("SNFO_BENCH_CSV", "bench_results.csv")
-NVTX         = os.environ.get("SNFO_NVTX") == "1"
+BENCH_WARMUP = int(os.environ.get("SI_BENCH_WARMUP", "20"))
+BENCH_STEPS  = int(os.environ.get("SI_BENCH_STEPS",  "80"))
+BENCH_CSV    = os.environ.get("SI_BENCH_CSV", "bench_results.csv")
+NVTX         = os.environ.get("SI_NVTX") == "1"
 
 
 class BenchCallback(L.Callback):
@@ -72,7 +72,7 @@ class BenchCallback(L.Callback):
         torch.cuda.synchronize()
         self._t0 = time.perf_counter()
 
-    # --- NVTX backward / optimizer ranges (only when SNFO_NVTX=1) ----------
+    # --- NVTX backward / optimizer ranges (only when SI_NVTX=1) ----------
     # These let the next nsys profile separate "backward compute" from
     # "NCCL gradient-sync wait" and from "optimizer step", which the current
     # train_module.py ranges (preprocess / forward_loss) do not.

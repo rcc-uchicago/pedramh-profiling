@@ -8,10 +8,10 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --exclusive
 #SBATCH --mem=500G
-#SBATCH -o snfo_nvtx_%x_%j.out
-#SBATCH -e snfo_nvtx_%x_%j.err
+#SBATCH -o si_nvtx_%x_%j.out
+#SBATCH -e si_nvtx_%x_%j.err
 
-# NVTX/nsys profiling run for the SNFO bench.
+# NVTX/nsys profiling run for the SI bench.
 #
 # Mirrors bench_midway.sh (same data-loading config, same SLURM shape) but
 # wraps srun with `nsys profile --capture-range=cudaProfilerApi`.  The
@@ -25,7 +25,7 @@
 # suspected.
 #
 # After the job, transfer the per-rank .nsys-rep files locally and run:
-#   nsys export --type=sqlite snfo_nvtx_<job>_<rank>.nsys-rep
+#   nsys export --type=sqlite si_nvtx_<job>_<rank>.nsys-rep
 # then query the SQLite per CLAUDE.md ("nsys analysis" section).
 
 module load python/miniforge-25.3.0
@@ -50,28 +50,28 @@ export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
 
 # --- Bench knobs for profiling ---
-export SNFO_NVTX=1
-export SNFO_BENCH_WARMUP=20
-export SNFO_BENCH_STEPS=20
+export SI_NVTX=1
+export SI_BENCH_WARMUP=20
+export SI_BENCH_STEPS=20
 
 # Match the precision used by the production bench so the profile reflects it.
-export SNFO_PRECISION=bf16-mixed
+export SI_PRECISION=bf16-mixed
 
 # Keep CSV output separate from production bench rows; the profile job is
 # not for benchmark numbers, but we still get one row appended as a sanity
 # check.
-export SNFO_BENCH_CSV="${SLURM_SUBMIT_DIR}/bench_nvtx_results.csv"
+export SI_BENCH_CSV="${SLURM_SUBMIT_DIR}/bench_nvtx_results.csv"
 
 config_file=configs/bench_midway.yaml
 
-echo "=== snfo_nvtx: $(date -Iseconds) ==="
+echo "=== si_nvtx: $(date -Iseconds) ==="
 echo "JOB_ID=${SLURM_JOB_ID}  NODELIST=${SLURM_NODELIST}"
 nvidia-smi -L
 which nsys
 nsys --version
 
-echo "config=${config_file}  csv=${SNFO_BENCH_CSV}"
-echo "warmup=${SNFO_BENCH_WARMUP}  steps=${SNFO_BENCH_STEPS}"
+echo "config=${config_file}  csv=${SI_BENCH_CSV}"
+echo "warmup=${SI_BENCH_WARMUP}  steps=${SI_BENCH_STEPS}"
 
 cd "${SLURM_SUBMIT_DIR}"
 
@@ -86,5 +86,5 @@ srun --export=ALL nsys profile \
     --capture-range-end=stop-shutdown \
     --cuda-memory-usage=true \
     --force-overwrite=true \
-    --output="snfo_nvtx_${SLURM_JOB_ID}_rank%q{SLURM_PROCID}" \
+    --output="si_nvtx_${SLURM_JOB_ID}_rank%q{SLURM_PROCID}" \
     python bench.py --config "${config_file}"
