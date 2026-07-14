@@ -1,0 +1,22 @@
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 1 WORLD_SIZE= 1
+/glade/work/jesswan/conda-envs/sfno_pangu/bin/python
+Has diagnostic: True
+World size from OS: 1
+World size from Cuda: 1
+1
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Len(inference_idxs): 1
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+
+
+Running SFNO model
+
+
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36440
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x150365887f10>
+Saving prediction 0 members 0-1...

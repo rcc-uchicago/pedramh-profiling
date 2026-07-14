@@ -1,0 +1,82 @@
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+/glade/work/jesswan/conda-envs/sfno_pangu/bin/python
+Has diagnostic: True
+World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+Has diagnostic: True
+World size from OS: 4
+World size from Cuda: 4
+4
+World size from Cuda: 4
+4
+World size from Cuda: 4
+4
+World size from Cuda: 4
+4
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Len(inference_idxs): 1
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Using PyTorch native
+with Automatic Mixed Precision (AMP)
+Num dates: 1
+Num dates: 1
+Len(inference_idxs): 1
+Len(inference_idxs): 1
+Len(inference_idxs): 1
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+Varying boundary data shape: torch.Size([56, 3, 180, 360])
+
+
+Running SFNO model
+
+
+
+
+Running SFNO model
+
+
+
+Running SFNO model
+
+
+
+Hours: 218994.0
+End data hour: 218994.0
+Hours: 218994.0Hours: 218994.0
+
+End data hour: 218994.0End data hour: 218994.0
+
+Len(inference_idxs): 36440
+Len(inference_idxs): 36440
+Len(inference_idxs): 36440
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x14b4303d0090>
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x14b81a07ea90>
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x148d52976110>
+
+
+Running SFNO model
+
+
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36440
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x149c94230b50>
+Saving prediction 0 members 0-1...
+Saving prediction 0 members 0-1...
+Saving prediction 0 members 0-1...
+Saving prediction 0 members 0-1...

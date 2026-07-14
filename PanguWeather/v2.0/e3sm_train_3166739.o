@@ -1,0 +1,153 @@
+Fri May 29 15:16:31 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 590.48.01              Driver Version: 590.48.01      CUDA Version: 13.1     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100                    On  |   00000000:4C:00.0 Off |                    0 |
+| N/A   18C    P0             66W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100                    On  |   00000000:5D:00.0 Off |                    0 |
+| N/A   20C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100                    On  |   00000000:CC:00.0 Off |                    0 |
+| N/A   20C    P0             71W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100                    On  |   00000000:DC:00.0 Off |                    0 |
+| N/A   21C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 4
+4
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 4
+4
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 4
+4
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 4
+4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+Using PyTorch nativeUsing PyTorch nativeUsing PyTorch native
+
+
+Using PyTorch native
+Hours: 218994.0
+End data hour: 218994.0
+Hours: 218994.0Hours: 218994.0
+
+End data hour: 218994.0End data hour: 218994.0
+
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36499Len(inference_idxs): 36499
+Len(inference_idxs): 36499Len(inference_idxs): 36499
+
+
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0Hours: 43794.0
+End data hour: 43794.0
+
+End data hour: 43794.0
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Start date: 2045-01-01_00:00:00Start date: 2045-01-01_00:00:00
+
+End date: 2050-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+Hours: 43794.0End data hour: 43794.0
+
+End data hour: 43794.0
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 7300
+Len(inference_idxs): 7300
+Len(inference_idxs): 7300
+Len(inference_idxs): 7300
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_gridFor sigma level training, disabling diagnostic ACC and diagnostic spectra 
+legendre-gauss
+params
+
+Running SFNO model
+
+ 
+<networks.modulus_sfno.sfnonet.Params object at 0x1476756af3d0>
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x147aecc07990>
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x149fe368af90>
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x14a4df8f0650>
