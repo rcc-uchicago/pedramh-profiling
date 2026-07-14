@@ -43,6 +43,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 export PYTHONPATH="${V20}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 # Bench knobs (match midway_bench_nsys.sh; smaller counts for a Polaris smoke).
 export S2S_BENCH=1

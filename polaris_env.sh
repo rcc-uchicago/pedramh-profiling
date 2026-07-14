@@ -88,6 +88,43 @@ _pick() {  # _pick <var> <relative-path>
 #   SFNO venv's 0.9.x and re-break makani. Pangu/SI/S2S opt in themselves; the SFNO
 #   scripts must never add it.
 export POLARIS_TOPUPS="$(_pick POLARIS_TOPUPS conda-envs/polaris-topups)"
+
+# Call this from any job that runs on the BASE conda (Pangu / SI / S2S / probe) — NOT from an
+# SFNO job. It turns the two silent failure modes into loud ones:
+#   * top-ups missing  -> the installer's job silently falls back to their private ~/.local
+#     and passes, while everyone else gets ModuleNotFoundError. That is the original bug,
+#     and it is invisible precisely to the person who would have to fix it.
+#   * a package still resolving out of /home/<someone>/.local -> the result is not
+#     reproducible by anyone else, so it is not a result.
+polaris_require_topups() {
+    if [ ! -d "${POLARIS_TOPUPS}" ]; then
+        echo "ERROR TOPUPS_MISSING: ${POLARIS_TOPUPS}"
+        echo "  Build it once on a LOGIN node:  bash <repo>/polaris_setup_base_topups.sh"
+        echo "  (netCDF4 / torch_harmonics / tensorly / natsort / cartopy live there — the base"
+        echo "   conda has none of them.)"
+        return 3
+    fi
+    python - <<'_PY' || return 3
+import sys
+bad = []
+for m in ("netCDF4", "torch_harmonics", "tensorly", "natsort"):
+    try:
+        mod = __import__(m)
+    except ImportError:
+        continue                      # a genuinely absent module fails later, with a clear name
+    if "/.local/" in (mod.__file__ or ""):
+        bad.append("%s <- %s" % (m, mod.__file__))
+if bad:
+    print("ERROR PRIVATE_DEPS_ON_PATH")
+    print("  These resolved from somebody's PRIVATE home (mode 0700 on ALCF), so this run is")
+    print("  reproducible by exactly one person:")
+    for b in bad:
+        print("    " + b)
+    print("  Fix: bash <repo>/polaris_setup_base_topups.sh, and make sure $POLARIS_TOPUPS is")
+    print("  on PYTHONPATH ahead of the user site.")
+    sys.exit(3)
+_PY
+}
 export SI_STAGE="$(_pick SI_STAGE si_e3sm_stage)"
 export MAKANI_DATA="$(_pick MAKANI_DATA data/e3sm_makani)"
 export SEQZARR_DATA="$(_pick SEQZARR_DATA e3sm_seqzarr)"

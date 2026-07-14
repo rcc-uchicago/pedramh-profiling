@@ -49,6 +49,7 @@ export MKL_NUM_THREADS=8
 # ~/.local install is readable by its owner alone and every other member's run fails.
 # Build it once with polaris_setup_base_topups.sh (PASS = TOPUPS_OK).
 export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)
 CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"

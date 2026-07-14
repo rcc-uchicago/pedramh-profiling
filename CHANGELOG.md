@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); SI's second-user run is in flight. Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
+| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -30,7 +30,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB; the 4 in-repo models import — makani/physicsnemo need the §6 venv, non-blocking) |
 | S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⛔ blocked on ERA5 stage (scripts ready) |
 | S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
-| SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
+| SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (7252700: step_med 0.400 s, peak 30.98 GB) **and reproducible by a SECOND USER** — job **7253603** (`PYTHONNOUSERSITE=1`): step_med 0.399, peak 30.69 GB, rc=0 |
 | PanguWeather SFNO | — | ✅ **4-GPU GREEN** (7252271) **and reproducible by a SECOND USER** — job **7253591** (`PYTHONNOUSERSITE=1`) rc=0 with loss **0.3411, identical** to the as-installer run |
 | Makani SFNO | — | ✅ **4-GPU GREEN** (job **7253465**, current script: train loss 2.61 / val 2.38 + ckpt; first green 7252769 pre-rework; pack `CONVERT_OK` 7252728) — runs from the isolated SFNO venv |
 | PhysicsNeMo SFNO | — | ✅ **4-GPU GREEN** (job 7252933, rc=0: loss 0.889, val err 0.541, ckpt saved; 1-GPU 7252816 also green; zarr `CONVERT_OK`) |
@@ -120,6 +120,17 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     torch_harmonics 0.7.4 would shadow the venv's 0.9.x and re-break makani
     (`PYTHONNOUSERSITE` does **not** block PYTHONPATH). Both SFNO scripts now assert
     torch_harmonics resolves inside their venv (`ERROR TORCH_HARMONICS_SHADOWED`).
+  - **Proven fixed, not assumed:** Pangu **7253591** (`PYTHONNOUSERSITE=1`) rc=0 with loss
+    **0.3411 — bit-identical** to the installer's 7253401, and SI **7253603** step_med 0.399 /
+    peak 30.69 GB (vs 0.400 / 30.98: noise). Identical rather than merely similar matters: it
+    shows the shared top-ups serve the *same code* the greens ran on. Version pins in
+    `$POLARIS_TOPUPS` match the old `~/.local` ones exactly.
+  - **Regression-proofed:** `polaris_require_topups()` (in `polaris_env.sh`, called by every
+    base-conda job) fails the run with `ERROR TOPUPS_MISSING` or `ERROR PRIVATE_DEPS_ON_PATH`
+    if a dep ever resolves from a private home again. Both branches tested: unsetting
+    PYTHONPATH reproduces the original bug and the guard catches it. **Note the asymmetry the
+    guard exists for — this bug is invisible to the one person who could fix it**, because
+    their own runs pass.
   - **Lesson (generalise):** never `pip install --user` a dependency the project must share,
     and never accept "it's green" from the environment that installed it. The probe
     (7251974) had the same blind spot — it certified "all models import" while importing

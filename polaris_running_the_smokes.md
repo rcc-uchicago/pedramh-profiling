@@ -6,7 +6,9 @@ the model still runs from start to finish. You are not training a real model her
 don't need to change any code.
 
 There are four to run: **PanguWeather**, **SI**, **Makani**, and **PhysicsNeMo**. Each is a
-single command. All four already work — the results near the bottom are from real runs, so
+single command. All four already work — and PanguWeather and SI have been run from a second
+person's account specifically to check nothing was tied to Rahul's — the results near the
+bottom are from real runs, so
 you have something to compare against.
 
 Everything you run writes only into your own folder. You can't break anyone else's work, and

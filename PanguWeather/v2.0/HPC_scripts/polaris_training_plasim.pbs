@@ -46,6 +46,7 @@ export MPLBACKEND=Agg
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 NPROC="${NPROC:-4}"
 # Repoint this to a Polaris copy once the PLASIM tree is staged.

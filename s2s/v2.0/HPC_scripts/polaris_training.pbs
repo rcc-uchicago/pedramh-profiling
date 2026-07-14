@@ -42,6 +42,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 export PYTHONPATH="${V20}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 NPROC="${NPROC:-4}"
 CONFIG_FILE="${V20}/config/exp2_polaris.yaml"
