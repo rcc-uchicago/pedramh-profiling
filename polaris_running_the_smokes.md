@@ -6,9 +6,8 @@ the model still runs from start to finish. You are not training a real model her
 don't need to change any code.
 
 There are four to run: **PanguWeather**, **SI**, **Makani**, and **PhysicsNeMo**. Each is a
-single command. All four have been run successfully, and the results near the bottom are from
-those real runs, so
-you have something to compare against.
+single command. All four have been run successfully, and the results near the bottom come from
+those real runs, so you have something to compare against.
 
 Everything you run writes only into your own folder. You can't break anyone else's work, and
 nothing here can damage the shared data.
@@ -138,7 +137,8 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
 
 ## If something goes wrong
 
-1. **Check the last line of the log.** `rc=0` is success; anything else is a failure.
+1. **Find the `rc=` line near the end of the log.** `rc=0` is success; anything else is a
+   failure. (It's the last line for every model except SI, which prints a table after it.)
 2. **Look near the top of the log.** There's a short block listing the folders the job used.
    Anything the job *writes* — its logs, its results, its run folder — should have **your**
    name in it. Some paths will legitimately say `mehta5`: that's the shared, read-only data
@@ -160,7 +160,7 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
    shared software has gone missing. It lives in a folder everyone can read, so this
    shouldn't happen — but if it does, tell Rahul; the one-line repair on his side is
    `bash polaris_setup_base_topups.sh`. Please don't try to install anything yourself.
-5. **Still stuck? Email Rahul** (rmehta1987@gmail.com) with the full path of the log and its
+6. **Still stuck? Email Rahul** (rmehta1987@gmail.com) with the full path of the log and its
    last 30 lines. Don't spend more than a few minutes on it.
 
 ## A few things worth knowing
