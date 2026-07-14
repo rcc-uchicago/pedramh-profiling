@@ -3,13 +3,13 @@
 Parse a Nsight Systems SQLite export and print a bench summary.
 
 Usage (on Midway after the job, or locally after scp):
-    python3 parse_nsys.py snfo_nvtx_<jobid>_rank<N>.sqlite
+    python3 parse_nsys.py si_nvtx_<jobid>_rank<N>.sqlite
 
 The .sqlite is produced from the .nsys-rep file via:
     nsys export --type=sqlite <file>.nsys-rep
 
 Originally copied from Projects/S2S/v2.0/HPC_scripts/parse_nsys.py; extended
-to include SNFO's `preprocess` NVTX range (emitted by modules/train_module.py).
+to include SI's `preprocess` NVTX range (emitted by modules/train_module.py).
 """
 import sqlite3
 import statistics
@@ -61,8 +61,8 @@ def nvtx_summary(cur):
         print("  NVTX_EVENTS table not found — was --trace=nvtx passed to nsys?")
         return
 
-    # SNFO emits: preprocess, forward_loss (from train_module.py),
-    # backward, optimizer (from bench_callback.py when SNFO_NVTX=1).
+    # SI emits: preprocess, forward_loss (from train_module.py),
+    # backward, optimizer (from bench_callback.py when SI_NVTX=1).
     # data_prep / vae_* are kept for backwards-compat with S2S traces.
     cur.execute("""
         SELECT text, (end - start) AS dur_ns
@@ -77,7 +77,7 @@ def nvtx_summary(cur):
     if not rows:
         print("  No bench NVTX ranges found "
               "(preprocess/forward_loss/backward/optimizer).")
-        print("  Was SNFO_NVTX=1 set and did the capture range fire?")
+        print("  Was SI_NVTX=1 set and did the capture range fire?")
         return
 
     from collections import defaultdict

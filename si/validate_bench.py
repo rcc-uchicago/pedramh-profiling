@@ -11,15 +11,15 @@ Checks
 - step_med  > 0 and < 60  (seconds; a step taking >1 min is clearly broken)
 - samples_per_s > 0
 - peak_mem_gb_max_rank > 0
-- n_steps_counted == SNFO_BENCH_STEPS (default 20 for the smoke test)
+- n_steps_counted == SI_BENCH_STEPS (default 20 for the smoke test)
 """
 
 import csv
 import os
 import sys
 
-CSV_PATH   = os.environ.get("SNFO_BENCH_CSV", "bench_test_results.csv")
-EXPECTED_N = int(os.environ.get("SNFO_BENCH_STEPS", "20"))
+CSV_PATH   = os.environ.get("SI_BENCH_CSV", "bench_test_results.csv")
+EXPECTED_N = int(os.environ.get("SI_BENCH_STEPS", "20"))
 
 REQUIRED_COLUMNS = [
     "timestamp", "git_sha", "run_num", "n_gpus", "batch_per_gpu",
@@ -94,7 +94,7 @@ try:
     if n != EXPECTED_N:
         fail(f"n_steps_counted={n}, expected {EXPECTED_N}")
     else:
-        ok(f"n_steps_counted={n} (matches SNFO_BENCH_STEPS)")
+        ok(f"n_steps_counted={n} (matches SI_BENCH_STEPS)")
 except (KeyError, ValueError) as e:
     fail(f"n_steps_counted parse error: {e}")
 

@@ -8,7 +8,7 @@ from common.loss import latitude_weighted_rmse
 from common.plotting import plot_result, plot_spectrum
 from common.utils import assemble_forcing, disassemble_input, assemble_input
 
-_NVTX = os.environ.get("SNFO_NVTX") == "1"
+_NVTX = os.environ.get("SI_NVTX") == "1"
 
 
 class _ModelWithScalar:
