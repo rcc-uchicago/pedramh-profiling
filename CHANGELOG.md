@@ -27,7 +27,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 | Model | Midway | Polaris |
 |---|---|---|
-| Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB; the 4 in-repo models import — makani/physicsnemo need the §6 venv, non-blocking) |
+| Toolchain probe | — | ✅ `PROBE_OK` (job **7253681**, the fixed probe run as a second user: `sys.path` free of `~/.local`, and it imports the REAL `modules.train_module` rather than an empty namespace package — the hollow check that hid `cf_xarray`. 4×A100-40GB; makani/physicsnemo need the §6 venv, non-blocking) |
 | S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⛔ blocked on ERA5 stage (scripts ready) |
 | S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
 | SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (7252700: step_med 0.400 s, peak 30.98 GB) **and reproducible by a SECOND USER** — job **7253603** (`PYTHONNOUSERSITE=1`): step_med 0.399, peak 30.69 GB, rc=0 |

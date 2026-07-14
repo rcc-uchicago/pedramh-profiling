@@ -143,9 +143,22 @@ imports each repo in its own subprocess/PYTHONPATH (the repos share colliding
 `utils`/`networks`/`data`/`modules` package names).
 
 Result (job `7251974`, node `x3001c0s13b1n0`): **`PROBE_OK`**. 4× A100-40GB visible,
-torch sees CUDA (device_count=4), all core libs import, and **all four in-repo
-models import** — S2S (`PanguModel_Plasim`), S2S-Lightning, SI, PanguWeather.
-`makani`/`physicsnemo` are not yet importable (need their own installs — see §6).
+torch sees CUDA (device_count=4), all core libs import, and the four in-repo models import.
+`makani`/`physicsnemo` are not yet importable (they live in the §6 venv — non-blocking).
+
+**Re-run 2026-07-14 after two corrections — job `7253681`, and only this one is worth
+quoting:**
+1. The port check imported `common, data, modules`, which have **no `__init__.py`** — they
+   are namespace packages, so it executed none of the smoke's code and would pass over any
+   missing import. It now imports **`modules.train_module`**, the module the entrypoint
+   actually loads. (This is exactly what let the missing `cf_xarray` hide behind a green
+   `PROBE_OK` — see the §2 box.)
+2. The probe resolved its imports from the author's private `~/.local`, so `PROBE_OK` was a
+   statement about one account. It now imports through `$POLARIS_TOPUPS`.
+
+`7253681` ran with `PYTHONNOUSERSITE=1` and reports:
+`sys.path is free of ~/.local -> imports below are reproducible by any member`,
+`[OK ] S2S-Lightning  modules.train_module`, then **`PROBE_OK`**.
 
 ## 4. Data availability on Polaris (the binding constraint)
 
