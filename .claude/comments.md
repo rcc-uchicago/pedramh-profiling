@@ -32,6 +32,10 @@ one re-deriving the math** — those docs are authoritative.
 - Private helpers get short docstrings when they resolve tensor shapes, cast
   precision (AMP), place tensors on a device, encode a `DESIGN.md §4.3` invariant,
   or bracket an NVTX range.
+- **Cite code by function / class / symbol name or a short snippet — never line
+  numbers** (`train.py:449`). Line numbers drift and become wrong the moment code
+  moves, silently pointing readers at the wrong place. Doc *section* anchors
+  (`DESIGN.md §4.3`, `CLAUDE.md #5`) are stable and are the right way to cite prose.
 - Inline comments answer *why*, not *what*.
 - **Shortcuts require a justification comment** citing the authoritative doc:
   AMP/precision casts, `torch.compile` regions/graph-break boundaries, DDP
@@ -228,6 +232,8 @@ redundant, stale, or too vague?
 ## Don't
 
 - Long tutorial-style docstrings on every helper.
+- **Line-number citations to code** (`train.py:449`, `losses.py:96`) — they go stale
+  on the next edit and mislead; name the function/class/symbol or paste the line.
 - `DESIGN.md`/`LIGHTNING_PORT.md` prose verbatim in docstrings — cite and move on.
 - Duplicate the same explanation across module docstring, function docstring, inline
   comment, and CHANGELOG unless each serves a different audience.

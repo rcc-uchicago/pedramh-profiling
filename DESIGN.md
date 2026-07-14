@@ -77,9 +77,9 @@ three; SI is independent.
 
 > **Naming trap (do not invert):** In `s2s/v2.0/`, `train.py`/`inference.py` are the
 > **actively-maintained, bench-instrumented** files (`find_unused_parameters=False,
-> static_graph=True` at `train.py:449-450`, the `S2S_BENCH` framework, live NVTX).
+> static_graph=True` in `train.py`'s DDP wrap, the `S2S_BENCH` framework, live NVTX).
 > `train_optimized.py`/`inference_optimized.py` are **older** despite the name
-> (`train_optimized.py:424` uses `find_unused_parameters=True`). Never swap this.
+> (`train_optimized.py` uses `find_unused_parameters=True`). Never swap this.
 
 ---
 
@@ -107,10 +107,11 @@ ERA5 HDF5  ──►  GetDataset / get_data_loader     (normalize; group vars:
 ```
 
 **Instrumentation is load-bearing** and must survive every change: `S2S_BENCH`
-(warmup/steps/CSV env knobs) times steps GPU-accurately (`cuda.synchronize` around
-each step, `train.py:752/764/814`); `S2S_NVTX` emits the ~11 NVTX ranges — for S2S
-these are `to_ensemble_batch`, `data_prep`, `forward_loss`, `backward`, `optimizer`,
-`step_N`, and the `val_*` ranges (`train.py:746-855`). **SI's range names differ**
+(warmup/steps/CSV env knobs) times steps GPU-accurately (`cuda.synchronize`
+bracketing each step in the training loop); `S2S_NVTX` emits the ~11 NVTX ranges —
+for S2S these are `to_ensemble_batch`, `data_prep`, `forward_loss`, `backward`,
+`optimizer`, `step_N`, and the `val_*` ranges (across `train.py`'s train/val loops).
+**SI's range names differ**
 (`preprocess`, `forward_loss`, … per `si/CLAUDE.md`) — do not assume S2S names in an
 SI trace or vice-versa. A benchmark whose instrumentation drifted (a dropped range,
 a renamed range, a missing CSV column) is not comparable — **treat instrumentation
@@ -130,7 +131,7 @@ pre-optimization model output within a stated tolerance.**
 The gate is not executable today. Three pieces must be built first (Roadmap item):
 
 - **A seed mechanism.** Canonical `s2s/v2.0/train.py` has **no** `--seed` (it
-  hardcodes `torch.manual_seed(world_rank)`, `train.py:1876`); `si/bench.py` has
+  hardcodes `torch.manual_seed(world_rank)` in its setup); `si/bench.py` has
   `--seed`; the port defaults to 42. Add a `--seed`/env knob to `train.py` so a
   baseline is reproducible.
 - **A tiny deterministic baseline config.** No small config exists — `test.yaml` is
@@ -186,14 +187,14 @@ expected-ROI order (highest leverage first). **Several knobs already exist — e
 them, don't re-implement:**
 
 1. **`torch.compile`** — canonical S2S already plumbs `TORCH_COMPILE_MODE=reduce-overhead|max-autotune`
-   (`train.py:428-431`, currently unset); the port has `S2S_TORCH_COMPILE`. Turning
+   in `train.py` (currently unset); the port has `S2S_TORCH_COMPILE`. Turning
    it on is the biggest single lever. Gate on equivalence; expect longer warmup.
    Do **not** write new compile wiring into the shared code.
 2. **FlexAttention** for the bias-disabled `EarthAttention3D` path (reproduce the
    SDPA additive-mask output within tolerance; confirm gradients flow through the
    learned bias).
 3. **bf16 DDP communication hook** — compress all-reduce. (Precision itself is
-   already selectable via `S2S_AMP_DTYPE=bf16|fp16`, `train.py:63-65`.)
+   already selectable via the `S2S_AMP_DTYPE=bf16|fp16` env knob in `train.py`.)
 4. **Fused AdamW.**
 5. **Vectorize the CRPS pairwise/ensemble loop** — last, and only if it profiles hot.
 
