@@ -83,20 +83,27 @@ echo "venv python=$(command -v python)"
 # physicsnemo from THAT person's repo — you would silently profile someone else's working
 # tree instead of your own. (makani is installed non-editable and lives in the venv, so it
 # is safe to share.) Fail loudly rather than produce attributable-to-nobody results.
-python - "${PN_ROOT}" <<'PY' || exit 3
+python - "${PN_ROOT}" "${SFNO_VENV}" <<'PY' || exit 3
 import os, sys
 import physicsnemo
-want = os.path.realpath(sys.argv[1])
+want, venv = (os.path.realpath(a) for a in sys.argv[1:3])
 got = os.path.realpath(os.path.dirname(os.path.dirname(physicsnemo.__file__)))
-if got != want:
+# Two provenances are legitimate:
+#   (a) this job's own repo  -> `pip install -e <this repo>` (the dev case)
+#   (b) inside the venv      -> a non-editable install (self-contained; no checkout coupling)
+# Anything else means an EDITABLE install bound to SOMEONE ELSE'S working tree.
+if got == want or got.startswith(venv + os.sep):
+    print(f"provenance OK: physicsnemo imported from {got}")
+else:
     print("ERROR PHYSICSNEMO_WRONG_CHECKOUT")
     print(f"  imported physicsnemo from : {got}")
-    print(f"  but this job's repo is    : {want}")
+    print(f"  this job's repo is        : {want}")
     print("  The SFNO venv you are using was built with `pip install -e` against a DIFFERENT")
-    print("  checkout, so you would be running that tree's code, not yours.")
-    print("  Fix: build your own venv ->  bash <your-repo>/polaris_setup_sfno_venv.sh")
+    print("  checkout, so you would silently run THAT tree's code — including any")
+    print("  uncommitted work-in-progress its owner happens to have right now.")
+    print("  Fix (one command, ~10 min, once):")
+    print("      bash <your-repo>/polaris_setup_sfno_venv.sh")
     sys.exit(3)
-print(f"provenance OK: physicsnemo imported from this repo ({got})")
 PY
 
 # ---- 1) build the two SeqZarr stores (compute node) if missing ----

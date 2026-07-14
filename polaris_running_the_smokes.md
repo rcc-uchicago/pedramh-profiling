@@ -10,22 +10,43 @@ job ids are real and the logs are quoted in `polaris_pbs_notes.md` §5.
 
 ---
 
-## 0. TL;DR
+## 0. Quickstart — copy/paste, in order
 
+**Step 1 — get the code (once).** From YOUR folder:
 ```bash
-# once
-cd /eagle/projects/lighthouse-uchicago/members/jesswan          # YOUR folder
+cd /eagle/projects/lighthouse-uchicago/members/jesswan
 git clone -b polaris-pbs-bringup git@github.com:rcc-uchicago/pedramh-profiling.git
 cd pedramh-profiling
-
-# then, from the repo:
-cd PanguWeather/v2.0     && qsub HPC_scripts/polaris_train_e3sm_sfno.pbs   # Pangu-SFNO
-cd si                    && qsub bench_polaris.pbs                          # SI
-cd makani_sfno           && qsub polaris/polaris_sfno_smoke.pbs             # Makani
-cd physicsnemo_sfno      && qsub polaris/polaris_sfno_smoke.pbs             # PhysicsNeMo
 ```
 
-**You do not need to convert any data or build any env** — see §2.
+**Step 2 — build your SFNO env (once, ~10 min, on the LOGIN node).**
+Needed only for **makani / physicsnemo**; Pangu and SI don't use it.
+```bash
+bash polaris_setup_sfno_venv.sh          # ends with:  SFNO_VENV_OK
+```
+> Why you need your own rather than reusing mine: `physicsnemo` is installed *editable*, so a
+> venv imports it from **whichever checkout it was built against**. Reusing mine would make
+> your runs silently execute *my* working tree — including whatever half-finished edit I
+> happen to have open. Your own venv makes your runs yours. (§4b; the job hard-fails with
+> `PHYSICSNEMO_WRONG_CHECKOUT` rather than let this happen quietly.)
+
+**Step 3 — run.** Each is one `qsub`, submitted from the directory shown:
+```bash
+cd PanguWeather/v2.0 && qsub HPC_scripts/polaris_train_e3sm_sfno.pbs    # Pangu-SFNO
+cd si                && qsub bench_polaris.pbs                          # SI
+cd makani_sfno       && qsub polaris/polaris_sfno_smoke.pbs             # Makani
+cd physicsnemo_sfno  && qsub polaris/polaris_sfno_smoke.pbs             # PhysicsNeMo
+```
+
+**Step 4 — watch it.**
+```bash
+qstat -u $USER                    # R = running, Q = queued. debug allows 1 running job.
+```
+The log appears in the directory you submitted from, named `<jobname>.o<jobid>` (e.g.
+`pangu_e3sm_sfno.o7253330`). §3 lists what success looks like for each.
+
+**You do NOT need to convert any data** — ~75 GB is already converted and reused
+automatically, read-only (§2). Nothing you run writes into anyone else's folder.
 
 ---
 
@@ -61,10 +82,10 @@ them up automatically and **skip conversion entirely**:
 | `mehta5/si_e3sm_stage` | 56 GB | ~30 min h5 rename + npz→nc |
 | `mehta5/data/e3sm_makani` | 18 GB | the multifiles pack |
 | `mehta5/e3sm_seqzarr` | 1.7 GB | the zarr build |
-| `mehta5/conda-envs/sfno-venv` | — | a torch_harmonics **source build** |
+| `mehta5/conda-envs/sfno-venv` | — | a torch_harmonics source build — **reusable for makani ONLY**; physicsnemo needs your own (§4b) |
 
-They're read-only to you — that's fine, the scripts only *read* them and write results to
-your own dir.
+They're read-only to you — that's fine for DATA: the scripts only *read* it and write
+results to your own dir. The venv is the exception — see §4b.
 
 **To build your own instead** (e.g. different years/variables), just create the same paths
 under your folder and the resolver prefers yours:
