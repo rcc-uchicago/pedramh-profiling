@@ -88,8 +88,12 @@ fi
 
 # ---- 2) launch the tiny SFNO smoke (hydra overrides on conf/config.yaml) ----
 cd "${RECIPE}"
-LAUNCH_ARGS=(train.py
-    model=tiny_sfno training=sfno
+# SFNO is selected by conf/config_e3sm_sfno.yaml (a 2-line diff off conf/config.yaml:
+# model/tiny_afno -> model/tiny_sfno, training/afno -> training/sfno), NOT by a CLI
+# `model=tiny_sfno`: the recipe's defaults list uses hydra's PATH form (`- model/tiny_afno`),
+# which registers no overridable `model` GROUP, so the CLI override dies with
+# "Could not override 'model'. No match in the defaults list."
+LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno
     "curated_dataset.train_dataset_filename=${DATA}/e3sm_train.zarr"
     "curated_dataset.val_dataset_filename=${DATA}/e3sm_val.zarr"
     curated_dataset.nr_predicted_variables=157
@@ -106,7 +110,10 @@ else
     # base (system-site), so the venv has no torchrun of its own and the bare name resolves
     # to the BASE conda torchrun, whose shebang pins the BASE python — the spawned ranks
     # would then miss physicsnemo/makani, which live only in the venv.
+    # --redirects/--tee 3: without them torchrun swallows the children's stderr and a
+    # failure surfaces only as a bare ChildFailedError with error_file: <N/A>.
     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        --redirects 3 --tee 3 \
         "${LAUNCH_ARGS[@]}"
 fi
 rc=$?
