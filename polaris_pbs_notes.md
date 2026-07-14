@@ -132,7 +132,7 @@ SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 | S2S (torchrun) | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | S2S-Lightning | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job 7252769) | — pack ✅ `CONVERT_OK` (7252736) |
-| **PhysicsNeMo SFNO** (venv) | ✅ | ✅ **GREEN** (job 7252816, `rc=0`) | ⬜ not yet run | zarr store ✅ `CONVERT_OK` |
+| **PhysicsNeMo SFNO** (venv) | ✅ | ✅ **GREEN** (7252816) | ✅ **GREEN** (job 7252933, `rc=0`) | — zarr store ✅ `CONVERT_OK` |
 | PanguWeather deterministic | ✅ imports | ⬜ | ⬜ | PLASIM h5 not staged (NCAR glade) |
 
 **PanguWeather SFNO 4-GPU smoke (GREEN, job 7252271):** one bounded epoch (year 2015,
@@ -300,10 +300,11 @@ keys == h5 keys). Two data hazards every converter must handle:
     value is a nonexistent relative ARCO-ERA5 path → `zarr PathNotFoundError` *after* a
     successful train+validate+checkpoint.
 
-  **PhysicsNeMo SFNO 1-GPU smoke (GREEN, job 7252816, `rc=0`):** `loss 1.082` over 10
-  iterations, `Validation error 0.776`, and `checkpoint.0.0.pt` +
-  `SphericalFourierNeuralOperatorNet.0.0.mdlus` written. fp32 (the recipe's `training/sfno`
-  sets `amp_supported: False` on purpose). The **4-GPU rung has not been run**.
+  **PhysicsNeMo SFNO smokes (GREEN):** 1-GPU job 7252816 (`rc=0`, loss 1.082, validation
+  error 0.776) and **4-GPU job 7252933** (`rc=0`, 4 ranks `[default0..3]`, loss 0.889,
+  validation error 0.541), both writing `checkpoint.0.0.pt` +
+  `SphericalFourierNeuralOperatorNet.0.0.mdlus`. fp32 — the recipe's `training/sfno` sets
+  `amp_supported: False` on purpose, so do NOT force bf16.
 
 Each converter runs **inside its PBS job** (compute node); the makani/physicsnemo
 smokes additionally require the §6 installs.

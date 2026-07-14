@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN** (PanguWeather-SFNO, SI, Makani-SFNO 4-GPU; PhysicsNeMo 1-GPU) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
+| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100** (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -33,7 +33,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
 | PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
 | Makani SFNO | — | ✅ **4-GPU GREEN** (job 7252769; train loss 2.19 / val 2.05 + ckpt; pack `CONVERT_OK` 7252736) — runs from the isolated SFNO venv |
-| PhysicsNeMo SFNO | — | ✅ **1-GPU GREEN** (job 7252816, rc=0: loss 1.082, val err 0.776, ckpt saved; zarr `CONVERT_OK`) — 4-GPU rung not yet run |
+| PhysicsNeMo SFNO | — | ✅ **4-GPU GREEN** (job 7252933, rc=0: loss 0.889, val err 0.541, ckpt saved; 1-GPU 7252816 also green; zarr `CONVERT_OK`) |
 
 ## Next actions (pick from the top)
 
@@ -81,7 +81,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   refuses its own file store (`MLFLOW_ALLOW_FILE_STORE=true`); `datapipe.parallel=false`
   is a broken fallback (DALI rejects `prefetch_queue_depth`); `validation.num_steps` must
   be >=2 (matplotlib squeezes the axes array) and `dataset.dataset_filename` must be
-  repointed. Remaining: the PhysicsNeMo **4-GPU** rung.
+  repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
+  val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
 

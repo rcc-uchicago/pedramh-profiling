@@ -261,7 +261,17 @@ class TrainModule(L.LightningModule):
 
             c_scalar_t = calendar[:, t] if calendar is not None else None
             y, y_last = self.forward(x, c_grid, return_model_last=True, c_scalar=c_scalar_t)
-            surface_pred_decoded, multilevel_pred_decoded, diagnostic_pred_decoded = disassemble_input(y_last, nlevels=self.nlevels)
+            # Pass the ACTUAL channel counts: disassemble_input defaults to
+            # nsurface=6, ndiagnostic=15 — silently hardcoded to the Midway AMIP config.
+            # Any config with a different diagnostic count (e.g. the Polaris E3SM config's
+            # 3) mis-splits the channels and dies in the einops rearrange. This is a no-op
+            # for Midway, where len(surface)=6 and len(diagnostic)=15 equal the defaults.
+            surface_pred_decoded, multilevel_pred_decoded, diagnostic_pred_decoded = disassemble_input(
+                y_last,
+                nsurface=len(self.surface_variables),
+                ndiagnostic=len(self.diagnostic_variables),
+                nlevels=self.nlevels,
+            )
 
             # update state
             x = y
