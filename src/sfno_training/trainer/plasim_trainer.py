@@ -263,6 +263,18 @@ class PlasimTrainer(Trainer):
         # Order matters: patches must land BEFORE super().__init__ runs the
         # dataloader factory and constructs the model wrapper.
         _install_plasim_patches()
+
+        # makani pin c970430 bug: utils/driver.py assigns `self.logger` ONLY when
+        # log_to_screen is truthy (which makani disables on non-zero ranks), but
+        # utils/training/deterministic_trainer.py then calls
+        #   self.logger.info("No channels to visualize, skipping visualization.")
+        # UNCONDITIONALLY whenever init_visualizer() returns None — which it does for
+        # any config without visualization channels (e.g. our e3sm_smoke). Every
+        # non-zero rank therefore dies inside super().__init__ with
+        #   AttributeError: 'PlasimTrainer' object has no attribute 'logger'.
+        # Guarantee the attribute on ALL ranks; driver re-assigns it on rank 0.
+        self.logger = logging.getLogger()
+
         super().__init__(params, world_rank, device)
 
         # ---- Warm-start load (plan: 2026-05-14_v11_clip_warmstart_continuation_plan §4.1) ----
