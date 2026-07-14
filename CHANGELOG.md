@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ⬜ not started — handoff on branch `polaris-pbs-handoff` (PR pending) |
+| Polaris (PBS) bring-up | ⬜ not started — handoff merged to `main` (PR #4, `4c283f2`); follow `polaris_handoff_prompt.md` |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -34,8 +34,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Next actions (pick from the top)
 
 1. **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for each model via PBS;
-   write `polaris_pbs_notes.md`. Follow `polaris_handoff_prompt.md` (currently on
-   branch `polaris-pbs-handoff` — merge or check it out first).
+   write `polaris_pbs_notes.md`. Follow `polaris_handoff_prompt.md` (on `main`).
 2. **Build the §4.0 prerequisites** — a `--seed` knob in `s2s/v2.0/train.py`, a
    `tiny_baseline.yaml`, and a VAE noise-fixing hook. Nothing can be optimized
    safely until the equivalence gate is executable.
@@ -51,49 +50,90 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
-- **2026-07-13** — Ran a cold adversarial review of the new docs (three Fable-5
-  agents) and applied the findings. Fixes: corrected the SI `bench.py` command
-  (`--config <path>`, no `--yaml_config`); corrected the DESIGN §2 launch table
-  (port & SI use `srun`/`ntasks==devices` on Midway, plain `python` on Polaris);
-  fixed the S2S NVTX range name (`data_prep`, not `preprocess`); made §4 concrete
-  (metric, tolerances, determinism flags, VAE noise-fixing) and split out the §4.0
-  prerequisites that must be built first; fixed the baseline `.pt`-vs-`.gitignore`
-  contradiction (commit JSON/CSV summaries only); reconciled "never run directly"
-  with the interactive-allocation preface; hedged the `pytest --fast` gate; added a
-  one-time-setup section; named the existing `TORCH_COMPILE_MODE`/`S2S_AMP_DTYPE`
-  knobs in §5; declared CLAUDE.md the cluster-facts SSOT. **Also fixed a real code
-  regression:** the port smokes (`smoke_train_module.py`, `smoke_datamodule.py`)
-  hardcoded a cwd-relative `v2.0/config/test.yaml` from the pre-monorepo layout —
-  now resolved relative to `__file__` (needs a Midway run to reconfirm end-to-end).
-- **2026-07-13** — Added `DESIGN.md`, `CLAUDE.md`, and this `CHANGELOG.md` — the
-  design spec, working guide (Fable 5; small commits + tests pass; explicit "things
-  NOT to do"), and living document — patterned on `smsharma/clax` and the
-  MARSHAL/decrypto Midway playbooks. Establishes the
-  **numerical-equivalence-vs-baseline** gate as the correctness oracle.
-- **2026-07-13** — Published the repo and completed the repo-wide **SNFO → SI**
-  rename (SI is the correct name; SNFO was a mislabel). NGC key scrubbed to
-  `$NGC_API_KEY`. `main` is branch-protected (PR + 1 review).
+- **2026-07-13** — Model policy set to **main = Opus 4.7 (xhigh effort), subagents =
+  Fable 5**. Trimmed CLAUDE.md to stay <200 lines while adding: filled the real
+  Midway env paths, a per-model smoke table (what to run + PASS signal), the
+  launcher-shape + env-bootstrap rules, the `test.yaml` trap (rule #12), and a
+  "where to look" doc map. Ran two cold Fable-5 agents to source the additions.
+- **2026-07-13** — PR #4 (`polaris-pbs-handoff`) merged to `main` (`4c283f2`);
+  `polaris_handoff_prompt.md` is on `main`.
+- **2026-07-13** — Cold adversarial review of the docs (three Fable-5 agents); applied
+  the findings (SI `bench.py --config <path>` command, DESIGN §2 launch table,
+  `data_prep` NVTX name, a concrete §4 + its §4.0 prerequisites, baseline
+  `.pt`-vs-`.gitignore` fix, interactive-allocation preface, `pytest --fast` hedge).
+  **Also fixed a real regression:** the port smokes hardcoded a cwd-relative
+  `v2.0/config/test.yaml` (pre-monorepo) → now resolved relative to `__file__`.
+- **2026-07-13** — Added `DESIGN.md`, `CLAUDE.md`, `CHANGELOG.md` (design spec,
+  working guide, living doc) patterned on `smsharma/clax` + the MARSHAL/decrypto
+  playbooks. Establishes the **numerical-equivalence-vs-baseline** gate as the oracle.
+- **2026-07-13** — Published the repo; repo-wide **SNFO → SI** rename (SI is correct;
+  SNFO a mislabel). NGC key scrubbed to `$NGC_API_KEY`. `main` branch-protected.
 
 ## Known issues / failed approaches (do NOT re-attempt)
 
-- **Port standalone smokes had a stale cwd-relative config path** (`os.path.abspath("v2.0/config/test.yaml")`)
-  from the pre-monorepo layout → `FileNotFoundError` before any GPU work. Fixed
-  2026-07-13 to resolve relative to `__file__`. If a port smoke fails to find the
-  config again, check this first.
-- _(record other dead-ends here with the reason, e.g. "Tried torch.compile default
-  mode on the port — graph break at the VAE reparam sampling; needs `dynamic=False`
-  + a compile-region boundary. — <date>")_
+Each is attributed to its source doc — verify there before acting.
+
+- **Port standalone smokes had a stale cwd-relative config path** (`v2.0/config/test.yaml`,
+  pre-monorepo) → `FileNotFoundError` before any GPU work. Fixed 2026-07-13 (resolve
+  relative to `__file__`). If a port smoke can't find the config, check this first.
+- **"Missing kernel tables" are NOT a profiler/ptrace limit** — an unconditional
+  `restore_checkpoint()` crashed on `FileNotFoundError` before any GPU work (a
+  byte-identical CUDA-API fingerprint). Fixed with the `os.path.isfile` guard. If a
+  profile has no kernel table, **read the `.err` first.** — `bench_report.md` §II.7.
+- **S2S batch ≥3/card (bf16) is a trap** — throughput collapses near allocator
+  saturation and 4/card OOMs; the known-good ceiling on ~94 GB cards is **2/card**.
+  — `bench_report.md` §II.4.
+- **`num_data_workers=0` fakes a GPU-idle "bottleneck"** (large idle %; SI's first
+  4-GPU bench failed its sanity check on HDF5 reads). Known-good: 8 workers +
+  `--cpus-per-task=8`. — `bench_report.md` §II.7 / `si/bench_midway_notes.md`.
+- **Inference: always pass `--async_save`** — synchronous NetCDF saving throttles
+  rank 0 well below the other ranks. — `bench_report.md` §II.7.
+- **Don't remove SI's fp32 island around the spherical-harmonic transform** — bf16
+  breaks `torch_harmonics` (`view_as_complex` rejects bf16); it's wrapped in
+  `autocast(enabled=False)` on purpose, cost ≈ 0. — `si/bench_midway_notes.md` §3–4.
+- **SI + `torch.compile max-autotune` / nsys-on-compiled-SI** — reported to
+  crash/segfault (CUDA-graph capture; tracing the compiled DDP backward). Use
+  `default` compile mode; profile eager, bench compiled. — `si/bench_optim_sweep.sh`
+  header (verify before relying on it).
+- **DSI handoff-latency investigation** — several hypotheses already investigated;
+  the current lead is a **driver/CUDA mismatch** (not interconnect). Read
+  `bench_report.md` §I.5/§I.7 and don't re-run the ruled-out ones.
+
+## Open questions (answer + record here)
+
+- **Baseline node class.** The SI optimization-sweep CSVs (`si/bench_optim_*.csv`)
+  ran on the **test partition H100**, a different node class from the pedramh-gpu
+  H100-NVL numbers — re-measure a pedramh-gpu baseline to compare like-for-like.
+- **A100 (Polaris) memory** — the "40 GB" figure is from prose, not an on-node
+  `nvidia-smi` (`si/bench_midway_notes.md` fn2); confirm during Polaris bring-up.
+- **SI compile gain** — reported ~+62% (`default` mode) but a `*_postfix` re-run is
+  lower; quote it as a range until re-measured on pedramh-gpu.
 
 ## Benchmark results
 
-Existing measured evidence (Midway) already lives in the repo — read these before
-capturing new baselines or claiming a speedup:
-- `s2s/v2.0/bench_report.md` — S2S H100 baselines.
-- `si/bench_midway_notes.md` — SI A100/H100-NVL bench report + decisions log
-  (note: it refutes the "H200" label for `pedramh-gpu`).
-- `s2s-lightning/LIGHTNING_PORT.md` — the port's DDP/AMP/bench wiring + its
-  nsys-vs-v2.0 comparison caveats.
+**Read the existing evidence before capturing baselines or claiming a speedup**
+(compare only within a cluster, never A100 vs H100 NVL):
+- `s2s/v2.0/bench_report.md` — S2S H100-NVL baselines + the step-time / VAE-encoder split.
+- `si/bench_midway_notes.md` — SI bench + decisions log (refutes the "H200" label).
+- `si/bench_optim_*.csv` + `si/bench_optim_sweep.sh` header — the 2026-05 one-lever-
+  at-a-time SI optimization sweep (test-partition H100 — a different node class).
+- `s2s-lightning/LIGHTNING_PORT.md` — the port's DDP/AMP/bench wiring + per-phase
+  smoke-id table. **The port-vs-v2.0 nsys caveat** is in the header of
+  `s2s-lightning/midway_bench_nsys_port.sh`: the port's per-step NVTX window opens at
+  `on_train_batch_start` (after H2D), so its `step_med` excludes the transfer —
+  compare throughput via `samples_per_s_wall`, never `step_med`.
+- `s2s/v2.0/HPC_scripts/bench_methodology.md` — what every `bench_results.csv` column
+  means and why timing is `cuda.synchronize`-bracketed.
 
-_(record new per-cluster bench deltas below as they land — model, cluster, config,
-samples/s, peak mem, and the equivalence result for any optimization. Compare only
-within a cluster, never A100 vs H100 NVL.)_
+**Hardware identity (do not reintroduce refuted labels):** `pedramh-gpu` is
+**H100 NVL (~93 GB)**, NOT "H200" (a commit message said so; refuted in
+`si/bench_midway_notes.md`) and NOT "80 GB H100". NVLink is within socket-pairs only
+(GPU0↔1, GPU2↔3); the host is PCIe Gen4. The Midway H200 *test* partition is a
+separate node class (full-mesh NVLink, PCIe Gen5).
+
+**How to capture a baseline (BLOCKED on §4.0):** procedure = DESIGN.md §4.1, storage
+= §4.2 (JSON/CSV summary in git, tensors on cluster storage), metric definitions =
+`bench_methodology.md`. Record each capture as a dated row here.
+
+_(record new per-cluster bench deltas below — model, cluster, config, samples/s,
+peak mem, and the equivalence result for any optimization.)_

@@ -220,8 +220,7 @@ ultimately live in `polaris_pbs_notes.md`.
 **The A100's 40 GB is the binding constraint on Polaris** — much tighter than
 Midway's ~94 GB. Midway bench settings (e.g. `exp2` batch 8 → 2/GPU, bf16) may OOM;
 Polaris smokes start at per-GPU batch 1. The full Polaris bring-up procedure is
-`polaris_handoff_prompt.md` — **currently on branch `polaris-pbs-handoff` (PR
-pending), not yet on `main`** — which will produce `polaris_pbs_notes.md`.
+`polaris_handoff_prompt.md` (on `main`), which will produce `polaris_pbs_notes.md`.
 
 ---
 
@@ -253,8 +252,7 @@ verbose diagnostics to files, keep `ERROR <reason>` greppable on one line.
 ## 8. Roadmap
 
 - [ ] **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for all three models via
-  PBS; produce `polaris_pbs_notes.md`. (See `polaris_handoff_prompt.md`, on branch
-  `polaris-pbs-handoff`.)
+  PBS; produce `polaris_pbs_notes.md`. (See `polaris_handoff_prompt.md`.)
 - [ ] **§4 prerequisites** — add a `--seed` knob to `train.py`, a `tiny_baseline.yaml`,
   and the VAE noise-fixing hook. *(Blocks baseline capture and all optimization.)*
 - [ ] **Baseline capture** — the §4 baselines for each model on each cluster.
@@ -272,9 +270,9 @@ Track live status in **CHANGELOG.md** (the living doc), not here.
 pedramh-profiling/
 ├── README.md                 # repo overview + contribution flow
 ├── DESIGN.md                 # this file — what & why
-├── CLAUDE.md                 # how to work here (conventions, don'ts, Fable 5); SSOT for cluster facts
+├── CLAUDE.md                 # how to work here (conventions, don'ts, model policy); SSOT for cluster facts
 ├── CHANGELOG.md              # the living doc: dated progress + decisions log
-├── polaris_handoff_prompt.md # Polaris (PBS) bring-up brief — currently on branch polaris-pbs-handoff (PR pending)
+├── polaris_handoff_prompt.md # Polaris (PBS) bring-up brief
 ├── s2s/            v2.0/     # canonical S2S (model, losses, loaders, HPC scripts)
 ├── s2s-lightning/            # the Lightning port (imports s2s/v2.0)
 └── si/                       # the SI model (own CLAUDE.md for SI-specific bench)
