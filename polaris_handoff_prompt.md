@@ -131,7 +131,10 @@ conda activate base          # ALCF base already has a CUDA-matched PyTorch
 Decide one of:
 - **Use the ALCF base conda** (fastest; confirm `python -c "import torch;
   print(torch.__version__, torch.cuda.is_available())"` sees the A100), then
-  `pip install --user pytorch-lightning wandb` on top for the port/SI. OR
+  ~~`pip install --user pytorch-lightning wandb`~~ on top for the port/SI (**superseded**:
+  base already has both, and `--user` is banned here — ALCF homes are 0700, so it makes the
+  result reproducible by one person. Use `polaris_setup_base_topups.sh`. See
+  `polaris_pbs_notes.md` §2). OR
 - **Build the env** from `s2s/v2.0/environment.yml` (+ `pytorch-lightning` for the
   port and `si/environment.yml` — now `name: si` — for SI) into project storage:
   `conda env create -f s2s/v2.0/environment.yml --prefix /eagle/<project>/<user>/envs/s2s`.

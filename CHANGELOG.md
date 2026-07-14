@@ -115,7 +115,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     silently pulled **torch 2.13 + CUDA 13 + numpy 2.5.1** (4.1 GB) — which, being on
     PYTHONPATH, would have **shadowed the base's torch 2.8/cu12.9** and moved every smoke
     onto an untested toolchain. `--no-deps` + a hard fail if `torch|numpy|nvidia|triton`
-    land in the target; now **1.1 MB**, and it asserts torch/numpy still come from base.
+    land in the target; now **64 MB**, and it asserts torch/numpy still come from base.
     (2) `$POLARIS_TOPUPS` must NEVER go on PYTHONPATH in an SFNO job — its
     torch_harmonics 0.7.4 would shadow the venv's 0.9.x and re-break makani
     (`PYTHONNOUSERSITE` does **not** block PYTHONPATH). Both SFNO scripts now assert
@@ -125,12 +125,27 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     peak 30.69 GB (vs 0.400 / 30.98: noise). Identical rather than merely similar matters: it
     shows the shared top-ups serve the *same code* the greens ran on. Version pins in
     `$POLARIS_TOPUPS` match the old `~/.local` ones exactly.
-  - **Regression-proofed:** `polaris_require_topups()` (in `polaris_env.sh`, called by every
-    base-conda job) fails the run with `ERROR TOPUPS_MISSING` or `ERROR PRIVATE_DEPS_ON_PATH`
+  - **Regression-proofed:** `polaris_require_topups()` (in `polaris_env.sh`, called by **all 8**
+    base-conda jobs — the SFNO pair is deliberately exempt) fails the run with `ERROR TOPUPS_MISSING` or `ERROR PRIVATE_DEPS_ON_PATH`
     if a dep ever resolves from a private home again. Both branches tested: unsetting
     PYTHONPATH reproduces the original bug and the guard catches it. **Note the asymmetry the
     guard exists for — this bug is invisible to the one person who could fix it**, because
     their own runs pass.
+  - **A reasoning error worth remembering.** When deriving the top-ups list I used the rule
+    *"missing for the installer too => off the smoke path"*. That is only valid for code that
+    has **actually run green**. The S2S/port smokes have never run on Polaris (blocked on
+    ERA5), so for them "missing for everyone" means **broken for everyone** — and I dropped
+    `cf_xarray` on that basis. It is a bare import at `s2s-lightning/modules/train_module.py:52`
+    reached from both port entrypoints. The port would have died at import right after a
+    multi-TB Globus stage. Caught by the third cold gauntlet; `cf_xarray` is now in the
+    top-ups and all 5 entrypoint chains import as a second user.
+  - **The probe's port check was hollow.** It imported `common, data, modules`, which have no
+    `__init__.py` — namespace packages, so the import succeeds without executing any of the
+    smoke's code. That is how a bare missing import survived a green `PROBE_OK` while the
+    docs claimed the port's env was "proven by the probe". The probe now imports
+    `modules.train_module`, and `polaris_require_topups` covers **8/8** base-conda jobs (it
+    was 5/8; the probe and both port jobs were missed, contradicting this very entry's
+    earlier claim of "every base-conda job").
   - **Lesson (generalise):** never `pip install --user` a dependency the project must share,
     and never accept "it's green" from the environment that installed it. The probe
     (7251974) had the same blind spot — it certified "all models import" while importing

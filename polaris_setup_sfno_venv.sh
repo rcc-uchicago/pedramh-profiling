@@ -109,8 +109,9 @@ except Exception as e:
     ok = False
     print("  FAIL precompute_latitudes: %s" % e)
 
-# Provenance gate: torch_harmonics/makani MUST resolve from the venv, not from the
-# base env's --user site (~/.local), which still holds 0.7.4 for the Pangu/SI smokes.
+# Provenance gate: torch_harmonics/makani MUST resolve from the venv — not from a stale
+# ~/.local, and not from $POLARIS_TOPUPS (the shared dir that carries 0.7.4 for the Pangu/SI
+# smokes; it is on PYTHONPATH for those jobs, and PYTHONPATH outranks this venv).
 import os
 import torch_harmonics, makani
 venv = os.environ.get("VIRTUAL_ENV", "")

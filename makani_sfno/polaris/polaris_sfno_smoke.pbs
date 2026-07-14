@@ -74,8 +74,15 @@ polaris_env_report
 
 # ---- install preflight (fail fast with the login-node fix) ----
 if ! python -c "import makani, physicsnemo" 2>/dev/null; then
+    # NOTE: a $POLARIS_TOPUPS leak (its torch_harmonics 0.7.4 on PYTHONPATH) ALSO lands here,
+    # because makani's `from torch_harmonics.quadrature import precompute_latitudes` fails at
+    # import — and then this message sends you to rebuild a venv that was never broken. The
+    # dump below names the real cause; the TORCH_HARMONICS_SHADOWED guard follows.
     echo "ERROR MAKANI_NOT_INSTALLED: 'import makani, physicsnemo' failed inside ${SFNO_VENV}."
     echo "  Rebuild the venv on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    echo "  BUT FIRST check PYTHONPATH for a stray \$POLARIS_TOPUPS — its torch_harmonics 0.7.4"
+    echo "  shadows this venv's 0.9.x and produces exactly this failure:"
+    echo "    PYTHONPATH=${PYTHONPATH:-<empty>}"
     python -c "import makani" 2>&1 | tail -3
     exit 3
 fi

@@ -32,12 +32,18 @@ source "${REPO_ROOT}/polaris_env.sh" || exit 2
 # person and told us nothing about anyone else. Importing from the shared dir is the claim
 # we actually want to test.
 export PYTHONPATH="${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 # Prove the probe is not silently leaning on a private ~/.local again.
+# polaris_require_topups (above) already hard-fails if a dep resolves from a private home.
+# This is the softer sibling: a ~/.local on sys.path is not fatal by itself — the top-ups
+# outrank it on PYTHONPATH — but the probe exists to certify what OTHER members will see,
+# so say plainly when the answer might be personalised.
 if python -c "import sys; sys.exit(0 if not any('/.local/' in p for p in sys.path) else 1)"; then
     echo "sys.path is free of ~/.local -> imports below are reproducible by any member"
 else
-    echo "WARN: a user site-packages dir is on sys.path; these results may not reproduce"
-    echo "      for other members. Re-run with PYTHONNOUSERSITE=1 to check."
+    echo "NOTE: a user site-packages dir is on sys.path. \$POLARIS_TOPUPS outranks it, and"
+    echo "      polaris_require_topups verified no dep resolves from it — but for a strict"
+    echo "      second-member check, re-run with:  qsub -v PYTHONNOUSERSITE=1 polaris_probe.pbs"
 fi
 
 echo "=== polaris_probe: $(date -Iseconds) ==="

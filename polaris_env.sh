@@ -40,8 +40,13 @@ fi
 export MEMBER_ROOT
 
 # --- SHARED_ROOT: reuse instead of rebuilding -------------------------------
-# mehta5's converted datasets + SFNO venv are group-readable (drwxr-sr-x), so a second
-# user can skip ~75 GB of conversion and the torch_harmonics source build entirely.
+# mehta5's converted datasets (~75 GB) and the base top-ups are group-readable (drwxr-sr-x),
+# so a second user reuses them and skips the conversion entirely.
+# The SFNO venv is a DIFFERENT case: it resolves to the shared one only as a last-resort
+# fallback, and using it is NOT recommended — physicsnemo is installed EDITABLE, so a shared
+# venv imports physicsnemo from ITS BUILDER'S checkout. Build your own with
+# polaris_setup_sfno_venv.sh; physicsnemo_sfno's PBS script hard-fails
+# (PHYSICSNEMO_WRONG_CHECKOUT) rather than let you profile someone else's working tree.
 export SHARED_ROOT="${POLARIS_SHARED:-${MEMBERS}/mehta5}"
 
 # --- E3SM source archive (read-only, owned by jesswan) -----------------------
@@ -89,8 +94,8 @@ _pick() {  # _pick <var> <relative-path>
 #   scripts must never add it.
 export POLARIS_TOPUPS="$(_pick POLARIS_TOPUPS conda-envs/polaris-topups)"
 
-# Call this from any job that runs on the BASE conda (Pangu / SI / S2S / probe) — NOT from an
-# SFNO job. It turns the two silent failure modes into loud ones:
+# Called by all 8 base-conda jobs (Pangu x2 / SI / S2S x2 / port x2 / probe). NOT from an
+# SFNO job — they must never see $POLARIS_TOPUPS. It turns the two silent failure modes into loud ones:
 #   * top-ups missing  -> the installer's job silently falls back to their private ~/.local
 #     and passes, while everyone else gets ModuleNotFoundError. That is the original bug,
 #     and it is invisible precisely to the person who would have to fix it.

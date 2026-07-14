@@ -52,11 +52,16 @@ this doc discharges.
    reading these logs, always anchor on the `PBS_JOBID=` header of the run you care
    about** — a naive `grep -c OutOfMemory` on the file will report a green run as failed.
 
-## 2. Environment strategy — ALCF base conda + `--user` top-ups
+## 2. Environment strategy — ALCF base conda + a SHARED top-ups dir
 
-Decision: **use the ALCF base conda** (fastest per handoff), and `pip install --user`
-the few packages it lacks. No fresh env was built — base already carries a
-CUDA-12.9-matched torch and Lightning.
+Decision: **use the ALCF base conda** (fastest per handoff) and add the few packages it
+lacks. No fresh env was built — base already carries a CUDA-12.9-matched torch and Lightning.
+
+**Those top-ups must NOT be `pip install --user`.** That was the original decision and it was
+wrong: ALCF homes are mode `0700`, so `--user` packages are readable by one person and every
+other member's job dies on `ModuleNotFoundError` (see the box below and the decisions log).
+They now live in a shared, world-readable `$POLARIS_TOPUPS`, built by
+`polaris_setup_base_topups.sh`.
 
 Canonical env block (identical in every `polaris_*.pbs`; validated by the green probe):
 
@@ -99,7 +104,7 @@ node). PASS = `TOPUPS_OK`. They install to the **shared, world-readable**
 >    moved every smoke onto an untested toolchain. Fixed with `--no-deps` + only the four
 >    deps base genuinely lacks (`cftime`, `numcodecs`, `asciitree`, `fasteners`); the
 >    script now hard-fails if `torch`/`numpy`/`nvidia`/`triton` land in the target.
->    **516 KB**, and it asserts torch/numpy still resolve to base.
+>    **64 MB** (cartopy dominates), and it asserts torch/numpy still resolve to base.
 > 2. `$POLARIS_TOPUPS` **must not** be added to `PYTHONPATH` globally in `polaris_env.sh`:
 >    its torch_harmonics **0.7.4** would shadow the SFNO venv's **0.9.x** and re-break
 >    makani. `PYTHONNOUSERSITE=1` does *not* block `PYTHONPATH`. Both SFNO scripts now
@@ -150,8 +155,23 @@ models import** — S2S (`PanguModel_Plasim`), S2S-Lightning, SI, PanguWeather.
 | **ERA5 HDF5** (`pangu_s2s_1979-2018_*.nc` + h5) | ❌ NOT staged | S2S, S2S-Lightning, PanguWeather-deterministic (`exp2.yaml`) | Midway had `/project/pedramh/h5data/h5data`; needs a Globus stage to eagle |
 
 **Consequence:** the S2S / S2S-Lightning real-data smokes are **blocked on an ERA5
-Globus stage**. Their PBS scripts are delivered and the launcher/env is proven by
-the probe, but the 4-GPU *data* smoke cannot close until ERA5 lands on eagle. The
+Globus stage**. Their PBS scripts are delivered and the **import chain is verified**
+(the probe now imports `modules.train_module` — the module the entrypoint really loads),
+but the 4-GPU *data* smoke has **never executed on Polaris** and cannot close until ERA5
+lands on eagle. Do not read "delivered" as "proven".
+
+> ⚠️ **The old wording here said the port's env was "proven by the probe". It wasn't.**
+> The probe imported `common, data, modules` — and those dirs have **no `__init__.py`**, so
+> they are *namespace packages*: the import succeeds without running a line of the smoke's
+> code. It therefore never touched `s2s-lightning/modules/train_module.py:52`, a bare
+> `import cf_xarray` that was missing from the base conda, from the top-ups, and from every
+> `~/.local` — i.e. **broken for everyone**. Both port entrypoints reach it
+> (`smoke_train_module.py:20`, `bench.py:67`), so the port would have died at import the
+> moment ERA5 landed, *after* a multi-TB Globus stage, while this doc insisted only data was
+> missing. Fixed: `cf_xarray` is in the top-ups and the probe imports the real entrypoint.
+> **Lesson: a green import check that imports a namespace package proves nothing.**
+
+The
 SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 
 ## 5. Per-model GREEN matrix (probe → 4-GPU)
@@ -168,9 +188,19 @@ SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 | **SI** (Lightning DDP) | ✅ imports | (via 4-GPU) | ✅ **GREEN** (job 7252700) | — runs on converted E3SM |
 | S2S (torchrun) | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | S2S-Lightning | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
-| **PanguWeather SFNO** (2nd user) | — | — | ✅ **7253591** — `PYTHONNOUSERSITE=1`, rc=0, loss **0.3411 = identical** to 7253401 | proves the shared top-ups reproduce the green *exactly*, not merely approximately |
-| **SI** (2nd user) | — | — | ✅ **7253603** — `PYTHONNOUSERSITE=1`, rc=0, step_med 0.399 / peak 30.69 GB (vs 0.400 / 30.98 as-installer: within noise) | torch_harmonics now resolves; it previously warned "could not be imported" and silently degraded |
-| **guard regression test** | — | — | ✅ Pangu **7253616** (rc=0, loss 0.3411) + SI **7253627** (rc=0, step_med 0.3985) — the COMMITTED scripts, with `polaris_require_topups` in the launch path | the guard is silent on a good env and costs nothing; its two failure branches are tested below |
+| **PanguWeather SFNO** (2nd-user *simulation*) | — | — | ✅ **7253591** — rc=0, loss **0.3411 = identical** to 7253401 | see the caveat below |
+| **SI** (2nd-user *simulation*) | — | — | ✅ **7253603** — rc=0, step_med 0.399 / peak 30.69 GB (vs 0.400 / 30.98 as-installer: noise) | torch_harmonics now resolves; it previously warned "could not be imported" and silently degraded |
+
+> **What "2nd-user" above does and does NOT mean.** These ran from **rmehta1987's account**
+> with `PYTHONNOUSERSITE=1`, which removes `/home/rmehta1987/.local` from `sys.path` and so
+> reproduces *the dependency-resolution view* another member gets. That is what makes them
+> evidence about the private-deps bug, and it is genuinely strong evidence: Pangu came back
+> **bit-identical** (0.3411).
+> It is **not** the same as jesswan running them. Still untested by simulation: her UID's
+> write permissions, her `MEMBER_ROOT` resolution, her quota, her fresh clone, and her own
+> SFNO venv build. **The first real second-user run is still jesswan's** — treat her first
+> attempt as the actual test, not a formality.
+| **guard regression test** | — | — | ✅ Pangu **7253616** (rc=0, loss 0.3411) + SI **7253627** (rc=0, step_med 0.3985) — the COMMITTED scripts, with `polaris_require_topups` in the launch path | the guard is silent on a good env and costs nothing; both failure branches verified by hand on the login node: `POLARIS_TOPUPS=/nonexistent` → `ERROR TOPUPS_MISSING` rc=3, and unsetting `PYTHONPATH` (which reproduces the original bug) → `ERROR PRIVATE_DEPS_ON_PATH` rc=3 naming all four offending packages |
 | **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job **7253465** on the current script, train 2.61 / val 2.38; first green 7252769 pre-rework) | — pack ✅ `CONVERT_OK` (7252728) |
 | **PhysicsNeMo SFNO** (venv) | ✅ | ✅ **GREEN** (7252816) | ✅ **GREEN** (job 7252933, `rc=0`) | — zarr store ✅ `CONVERT_OK` |
 | PanguWeather deterministic | ✅ imports | ⬜ | ⬜ | PLASIM h5 not staged (NCAR glade) |
@@ -259,6 +289,22 @@ Note also: the smoke has **no seed knob** (that's a DESIGN §4.0 prerequisite), 
 move run-to-run — 7252769 gave 2.19/2.05 and 7253465 gave 2.61/2.38 on identical code. Treat
 these as "finite and roughly O(1)", never as an equivalence baseline.
 
+### Known gap: the *inference* entrypoints are not import-clean
+
+`s2s/v2.0/inference.py:21` and `PanguWeather/v2.0/long_inference.py:34` both do a bare
+`import dask`, which is in neither the base conda nor `$POLARIS_TOPUPS`. **No Polaris script
+launches either file** — this bring-up delivers *training* smokes — so `dask` is deliberately
+not in the top-ups (it is a heavy dep, and adding unused packages to a dir that sits on
+everyone's `PYTHONPATH` is its own risk).
+
+Recorded because it is the same shape as the `cf_xarray` bug (§2): an unrun path's missing
+import is invisible until someone runs it. **Before the first Polaris inference run**, add
+`dask` to `polaris_setup_base_topups.sh` and check the chain with:
+
+```bash
+cd s2s/v2.0 && PYTHONNOUSERSITE=1 PYTHONPATH=.:$POLARIS_TOPUPS python -c "import inference"
+```
+
 ## 6. SFNO frameworks — an ISOLATED venv (`polaris_setup_sfno_venv.sh`)
 
 `makani` + `physicsnemo` do **not** run in the base conda: makani needs the *public*
@@ -276,7 +322,9 @@ bash polaris_setup_sfno_venv.sh          # PASS = "SFNO_VENV_OK"
 ```
 
 It is a `--system-site-packages` venv layered on the base conda, so it **inherits the
-CUDA-12.9-matched torch 2.8** (no 2.5 GB reinstall) and adds only: `torch_harmonics`
+CUDA-12.9-matched torch 2.8** (no 2.5 GB reinstall) and adds (see the script for the full
+pinned list, which also includes **mlflow** — §8 explains why it is not optional — plus
+`tensorly-torch`): `torch_harmonics`
 **0.9.2a built from GitHub source** (ABI-matched `_C` + the public API), `makani 0.2.0`
 (pinned `c970430…`, mandated by the makani_sfno README), `nvidia-physicsnemo 2.2.0a0`
 (editable, from the in-repo `physicsnemo_sfno/` tree — one install satisfies *both*

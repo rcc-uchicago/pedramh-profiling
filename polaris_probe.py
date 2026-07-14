@@ -94,11 +94,18 @@ run_import("S2S  networks.pangu + utils.losses",
            "print('PanguModel_Plasim=%s' % hasattr(networks.pangu,'PanguModel_Plasim'))",
            hard=True)
 
-run_import("S2S-Lightning  common+data+modules",
+# Import the REAL entrypoint module, not the top-level packages. `import common, data,
+# modules` is a HOLLOW check: those dirs have no __init__.py, so they are namespace packages
+# and the import succeeds without executing a single line of the smoke's code. That is how
+# the port's missing `cf_xarray` (train_module.py:52, a bare import reached from both
+# entrypoints) survived a green PROBE_OK — and the docs then told the next person the port's
+# env was "proven by the probe" and only the ERA5 data was missing.
+run_import("S2S-Lightning  modules.train_module",
            os.path.join(REPO, "s2s-lightning"),
            os.pathsep.join([os.path.join(REPO, "s2s", "v2.0"),
-                            os.path.join(REPO, "s2s-lightning")]),
-           "import common, data, modules; print('port packages ok')",
+                            os.path.join(REPO, "s2s-lightning"),
+                            os.environ.get("POLARIS_TOPUPS", "")]),
+           "import modules.train_module; print('port train_module ok')",
            hard=True)
 
 run_import("SI  common+data+modules",

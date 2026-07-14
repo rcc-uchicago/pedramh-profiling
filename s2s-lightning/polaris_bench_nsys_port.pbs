@@ -43,6 +43,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
 export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 export S2S_BENCH=1
 export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-5}"

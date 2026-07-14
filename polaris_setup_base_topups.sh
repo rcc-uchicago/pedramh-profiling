@@ -67,34 +67,60 @@ rm -rf "${TARGET}" && mkdir -p "${TARGET}"      # idempotent: never layer a stal
 #   1. AST-scan the base-conda trees (PanguWeather/v2.0, si, s2s/v2.0, s2s-lightning) for
 #      third-party top-level imports.
 #   2. Import each with PYTHONNOUSERSITE=1 (a second member's view) + this dir on PYTHONPATH.
-#   3. Anything still missing that the INSTALLER also lacks is off the smoke path (dask,
-#      cf_xarray, h5pickle, muon, transformer_engine are absent for everyone and unused);
-#      anything missing that the installer HAS is a private-home leak and belongs here.
+#   3. Anything missing that the installer HAS is a private-home leak and belongs here.
+#   4. CAREFUL — "the installer lacks it too" does NOT prove it is unused. That only holds for
+#      code paths that have actually RUN GREEN. The S2S/port smokes have never run on Polaris
+#      (blocked on the ERA5 stage), so for them "missing for everyone" means BROKEN FOR
+#      EVERYONE, not unused. An earlier version of this list made exactly that error and
+#      dropped cf_xarray, which s2s-lightning/modules/train_module.py:52 imports bare — both
+#      port entrypoints would have died at import the moment ERA5 landed, after a multi-TB
+#      Globus stage, with the docs insisting the env was "proven by the probe".
+#      dask / h5pickle / muon / transformer_engine are absent for everyone AND are not on any
+#      entrypoint's import chain (verified by importing the entrypoints); cf_xarray was.
 #
 #   tensorly / tltorch / natsort / nvtx / cartopy — PanguWeather's SFNO stack imports both
 #   (networks/modulus_sfno/{factorizations,layers}.py). They were ALSO only ever present as
 #   private --user installs, so Pangu died with "No module named 'tensorly'" for anyone else
 #   (caught by job 7253539, run with PYTHONNOUSERSITE=1 to impersonate a second member).
 python -m pip install --no-cache-dir --target "${TARGET}" --no-deps --upgrade \
-    "netCDF4==1.7.4" "zarr==2.18.7" "torch_harmonics==0.7.4" "h5netcdf" \
+    "netCDF4==1.7.4" "zarr==2.18.7" "torch_harmonics==0.7.4" \
     "cftime" "numcodecs<0.16" "asciitree" "fasteners" \
     "tensorly==0.9.0" "tensorly-torch==0.5.0" \
-    "natsort==8.4.0" "nvtx==0.2.15" \
+    "natsort==8.4.0" "nvtx==0.2.15" "cf_xarray" \
     "cartopy==0.25.0" "shapely==2.1.2" "pyproj==3.7.2" "pyshp==3.1.4" \
     || { echo "ERROR PIP_FAILED"; exit 2; }
 
-# --- guard: nothing in here may shadow a base-conda package ------------------
-# A top-up dir on PYTHONPATH must ADD to the base env, never override it. If a future
-# pin drags torch/numpy back in, fail here rather than silently re-toolchain the smokes.
-for _forbidden in torch numpy nvidia triton; do
-    if compgen -G "${TARGET}/${_forbidden}" > /dev/null || compgen -G "${TARGET}/${_forbidden}-*.dist-info" > /dev/null; then
-        echo "ERROR TOPUPS_SHADOWS_BASE: '${_forbidden}' was installed into ${TARGET}."
-        echo "  \$POLARIS_TOPUPS goes on PYTHONPATH, which OUTRANKS the base conda's"
-        echo "  site-packages — this would override the base's torch 2.8/cu12.9 stack that"
-        echo "  every GREEN smoke was validated against. Add --no-deps for the offending pin."
-        exit 2
-    fi
-done
+# --- guard: nothing in here may shadow ANY base-conda package ----------------
+# A top-up dir on PYTHONPATH must ADD to the base env, never override it. An earlier version
+# of this guard hardcoded a blocklist (torch/numpy/nvidia/triton) and therefore MISSED that
+# `h5netcdf` is already in the base conda (1.6.4) — this dir was silently upgrading it to
+# 1.8.1 for every job. Enumerate the target and ask the base env about each name instead:
+# a blocklist only catches the shadowing you already thought of.
+python - "${TARGET}" <<'_PY' || exit 2
+import os, subprocess, sys
+target = sys.argv[1]
+names = set()
+for e in os.listdir(target):
+    if e.endswith(".dist-info") or e.endswith(".libs") or e.startswith("_") or e == "bin":
+        continue
+    n = e[:-3] if e.endswith(".py") else e
+    if os.path.isdir(os.path.join(target, e)) or e.endswith(".py"):
+        names.add(n)
+# Ask a CLEAN base interpreter (no top-ups, no user site) what it can already import.
+probe = "import importlib.util as u;print([n for n in %r if u.find_spec(n) is not None])" % sorted(names)
+env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+env["PYTHONNOUSERSITE"] = "1"
+out = subprocess.run([sys.executable, "-c", probe], capture_output=True, text=True, env=env)
+shadowed = eval(out.stdout.strip() or "[]")
+if shadowed:
+    print("ERROR TOPUPS_SHADOWS_BASE: these already exist in the base conda: %s" % ", ".join(shadowed))
+    print("  $POLARIS_TOPUPS goes on PYTHONPATH, which OUTRANKS site-packages, so this dir")
+    print("  would silently REPLACE the base's copy for every job — including the toolchain")
+    print("  every GREEN smoke was validated against. Drop them from the pin list (the base")
+    print("  already provides them) or justify the override explicitly.")
+    sys.exit(2)
+print("  no base-conda package is shadowed by the top-ups")
+_PY
 
 # World-readable: the whole point is that other members can import these.
 chmod -R a+rX "${TARGET}" 2>/dev/null || true
@@ -107,8 +133,8 @@ import sys
 target = sys.argv[1]
 bad = [p for p in sys.path if "/.local/" in p]
 assert not bad, "user-site leaked into sys.path: %s" % bad
-for m in ("netCDF4", "zarr", "torch_harmonics", "h5netcdf", "cftime", "numcodecs",
-          "tensorly", "tltorch", "natsort", "nvtx", "cartopy"):
+for m in ("netCDF4", "zarr", "torch_harmonics", "cftime", "numcodecs",
+          "tensorly", "tltorch", "natsort", "nvtx", "cartopy", "cf_xarray"):
     mod = __import__(m)
     assert "/.local/" not in mod.__file__, "%s resolved to a private home: %s" % (m, mod.__file__)
     print("  OK  %-16s %-10s %s" % (m, getattr(mod, "__version__", "?"), mod.__file__))
