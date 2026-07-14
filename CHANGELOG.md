@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ⬜ not started — handoff merged to `main` (PR #4, `4c283f2`); follow `polaris_handoff_prompt.md` |
+| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100** (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -27,9 +27,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 | Model | Midway | Polaris |
 |---|---|---|
-| S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⬜ |
-| S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⬜ |
-| SI | ✅ runs (Midway scripts GREEN) | ⬜ |
+| Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB, all imports) |
+| S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⛔ blocked on ERA5 stage (scripts ready) |
+| S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
+| SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
+| PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
+| Makani SFNO | — | ✅ **4-GPU GREEN** (job 7252769; train loss 2.19 / val 2.05 + ckpt; pack `CONVERT_OK` 7252736) — runs from the isolated SFNO venv |
+| PhysicsNeMo SFNO | — | ✅ **4-GPU GREEN** (job 7252933, rc=0: loss 0.889, val err 0.541, ckpt saved; 1-GPU 7252816 also green; zarr `CONVERT_OK`) |
 
 ## Next actions (pick from the top)
 
@@ -46,10 +50,67 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- _(none yet — claim your task here, e.g. "IN PROGRESS: Polaris probe (@you)")_
+- **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed; open at
+  https://github.com/rcc-uchicago/pedramh-profiling/compare/main...polaris-pbs-bringup
+  (a solo session cannot self-approve — maintainer review/merge needed).
+- **Layout change: the 3 SFNO codebases are now `git subtree`s of this repo** (not
+  separate checkouts as the handoff assumed, not submodules). Imported **unsquashed for
+  full provenance**: upstream commits are real ancestors of HEAD (jesswan-uc 8,
+  feynmanliu214 38, ktangsali 203). Cost: 313 → 4,769 files, .git 3.9 MB → 306 MB.
+  Bidirectional merging (`subtree pull` from them, `subtree split` + PR to them) and the
+  rule-#8 exception for imported third-party junk are documented in
+  `polaris_pbs_notes.md` §6b. Note: pushing this repo now needs
+  `git -c pack.threads=1 push` — the ALCF login node's process cap kills multi-threaded
+  pack (`unable to create thread` / `git-pack-objects died`); the same cap forced the
+  physicsnemo `subtree add` onto a compute node.
+- **Deferred, ready:** **ERA5 Globus stage** → unblocks the S2S + S2S-Lightning smokes
+  (scripts already preflight `ERA5_NOT_STAGED`).
+- **makani / physicsnemo — torch_harmonics conflict RESOLVED via an isolated venv.**
+  makani 0.2.0 needs the *public* `precompute_latitudes`, absent from every torch-2.8-safe
+  release (0.7.4/0.8.0); 0.9.1 ships wheels only (no sdist) and its `attention/_C.so`
+  ABI-breaks torch 2.8. Resolution (per user): `polaris_setup_sfno_venv.sh` builds an
+  isolated `--system-site-packages` venv with **torch_harmonics 0.9.x from GitHub source**,
+  so the base conda keeps 0.7.4 and the GREEN Pangu/SI smokes need no re-validation.
+  **Trap:** a `--system-site-packages` venv re-enables the USER site, which `site.py` puts
+  *before* the venv — the base's `--user` 0.7.4 shadowed the venv and makani still failed;
+  fixed with `PYTHONNOUSERSITE=1` in the venv + both SFNO PBS scripts.
+  Two more launch traps (both encoded in the scripts): `torchrun` resolves to the BASE
+  conda launcher (whose shebang pins the base python) because the venv inherits torch and
+  has no torchrun — use `python -m torch.distributed.run`; and makani's `--batch_size` is
+  GLOBAL, so it must divide the rank count. Plus an **upstream makani bug** (pin
+  `c970430`): `self.logger` is assigned only when `log_to_screen` is truthy (rank-0 only)
+  yet `deterministic_trainer.py` calls it unconditionally → every non-zero rank died;
+  patched in our `plasim_trainer.py` wrapper, not in makani.
+  **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252736) and Makani SFNO 4-GPU smoke GREEN
+  (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0).**
+  **PhysicsNeMo is ALSO GREEN** (1-GPU, job 7252816, rc=0: loss 1.082, val err 0.776,
+  checkpoint saved; zarr store `CONVERT_OK` with max|zarr-h5|=0 + all-finite). Its four
+  traps: hydra's PATH-form defaults make `model=tiny_sfno` impossible (added
+  `conf/config_e3sm_sfno.yaml` + `--config-name`); mlflow is NOT optional and mlflow 3.x
+  refuses its own file store (`MLFLOW_ALLOW_FILE_STORE=true`); `datapipe.parallel=false`
+  is a broken fallback (DALI rejects `prefetch_queue_depth`); `validation.num_steps` must
+  be >=2 (matplotlib squeezes the axes array) and `dataset.dataset_filename` must be
+  repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
+  val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
 
+- **2026-07-14** — **Polaris (PBS) bring-up.** Confirmed cluster facts (`-A
+  lighthouse-uchicago`, 4×A100-40GB sm80, `debug` queue, `filesystems=home:eagle`,
+  `/local/scratch`); env = base ALCF conda (`module load conda`, torch 2.8/cu12.9) +
+  `pip install --user` netCDF4/zarr/**torch_harmonics 0.7.4** (0.9.1 ABI-breaks torch 2.8).
+  **Probe GREEN** (job 7251974). **PanguWeather-SFNO 4-GPU smoke GREEN** (job 7252271):
+  climatology CDF-5→NETCDF4 auto-prep + 1 bounded epoch, train loss 0.3411, DDP
+  validation, rc=0. Two traps recorded in `polaris_pbs_notes.md`: (1) Pangu `--debug`
+  hardcodes `world_size=1` → OOMs under `torchrun -n4` (bound with `--epochs 1`
+  instead); (2) Lustre needs `HDF5_USE_FILE_LOCKING=FALSE`. Authored all
+  `polaris_*.pbs` (S2S/port/SI/Pangu/makani/physicsnemo) + 3 data converters +
+  repointed configs. **S2S/port blocked on an ERA5 Globus stage** (not on Polaris).
+  **SI, Makani and PhysicsNeMo also went GREEN** (7252700 / 7252769 / 7252816) — the
+  latter two from an isolated SFNO venv (see the In-progress entry). Caches/TMPDIR
+  pinned to eagle (persistent), not node-local scratch (per user). A 5-agent cold
+  adversarial audit independently re-confirmed every GREEN claim against the raw logs and
+  surfaced the fixes applied in `3c0b4e5`. Full detail: `polaris_pbs_notes.md`.
 - **2026-07-13** — Model policy set to **main = Opus 4.7 (xhigh effort), subagents =
   Fable 5**. Trimmed CLAUDE.md to stay <200 lines while adding: filled the real
   Midway env paths, a per-model smoke table (what to run + PASS signal), the
@@ -73,6 +134,23 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 Each is attributed to its source doc — verify there before acting.
 
+- **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
+  `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or
+  0.8.0 (private `_precompute_latitudes`). 0.9.1 has it but ships **wheels only** (no
+  sdist on PyPI — `--no-binary :all:` cannot build it) and its prebuilt
+  `attention/_C.so` fails on torch 2.8 with `undefined symbol:
+  _ZNK3c1010TensorImpl15incref_pyobjectEv`, so `import torch_harmonics` dies outright.
+  Don't re-try pinning a PyPI version — install from the GitHub source (compiles `_C`
+  against the local torch) **and re-verify the green Pangu-SFNO smoke**, or isolate the
+  SFNO frameworks in their own venv. — `polaris_pbs_notes.md` §6.
+- **(Polaris) Pangu `--debug` is single-GPU ONLY** — it hardcodes `world_size=1`, so
+  under `torchrun --nproc_per_node=4` all 4 ranks init as rank-0-on-GPU-0 and OOM the
+  40 GB A100. Bound a smoke with `--epochs 1` instead. — `polaris_pbs_notes.md` §5.
+- **(Polaris) SI `calendar: 'noleap'` crashes the loader** — noleap is an *idealized*
+  cftime calendar that forces `has_year_zero=True`, clashing with `has_year_zero: False`
+  at `si/data/amip_new.py:667` (`cannot compute the time difference between dates with
+  year zero conventions`). Use `'standard'` (correct for a non-leap-year smoke); a full
+  run crossing a leap year needs a loader fix. — `polaris_pbs_notes.md` §8.
 - **Port standalone smokes had a stale cwd-relative config path** (`v2.0/config/test.yaml`,
   pre-monorepo) → `FileNotFoundError` before any GPU work. Fixed 2026-07-13 (resolve
   relative to `__file__`). If a port smoke can't find the config, check this first.

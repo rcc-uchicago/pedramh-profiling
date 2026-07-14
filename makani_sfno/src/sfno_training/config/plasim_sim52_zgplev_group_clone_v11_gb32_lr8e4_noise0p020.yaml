@@ -1,0 +1,210 @@
+### Group-recipe clone — v11 dataset, GB=32, single-knob INPUT-NOISE probe
+### (sigma=0.020, on top of LR=8e-4 — the CLEAN-tas baseline).
+###
+### Parented on lr=8e-4, NOT on lr=1.13e-3, because the NWP scorecard for
+### lr=1.13e-3 revealed a polar tas warm bias (+2.1 K Antarctica, +0.74 K
+### Arctic; global 6h tas RMSE 1.17 K vs 0.36 K at lr=8e-4). The earlier
+### lr1p13e3_noise* templates are kept as historical record but are not
+### in active use.
+###
+### Diff vs lr=8e-4 baseline (only one knob change):
+###   - input_noise.sigma: 0.05 → 0.020
+### Sister run is sigma=0.035 (noise0p035). Both-below bracket: 0.05 anchor
+### is already evaluated, so this sweep targets the short-lead-favoring
+### direction with two grades of less noise (0.020 is the deeper grade).
+###
+### Rationale: own emulator at sigma=0.05 wins at long leads vs 5410
+### (336h tas own 2.86 vs 5410 3.20, ACC 0.46 vs 0.38) but loses 16–33%
+### at short leads (6–24h). Lowering sigma should sharpen short leads.
+### 0.020 is the deeper probe — most likely to either dominate the
+### scorecard (→ go even lower next sweep) OR show long-lead collapse
+### (→ optimum is bracketed at 0.020 < σ* < 0.05; refine from sister
+### 0.035 if it wins). Risk: input noise is load-bearing for long-lead
+### stability (memory: feedback_input_noise_is_load_bearing); judge on NWP
+### scorecard at 336h, not train loss alone.
+###
+### All other knobs identical to lr=8e-4 baseline:
+###   lr=8e-4, weight_decay=3e-6, betas=(0.9, 0.999), 50 epochs,
+###   CosineAnnealingLR + 5-epoch LinearLR warmup, scheduler_min_lr=1e-8
+###   (cosine end), EMA decay 0.999, optimizer_max_grad_norm=32. NO warmstart.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substituted by
+### submit_zgplev_group_clone_v11_gb32_lr8e4_noise0p020.slurm.
+
+plasim_sim52_zgplev_group_clone_v11_gb32_lr8e4_noise0p020:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time ---
+    img_shape_x: 64
+    img_shape_y: 128
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids ---
+    model_grid_type: "legendre-gauss"
+    data_grid_type:  "legendre-gauss"
+    sht_grid_type:   "legendre-gauss"
+
+    # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000","pr_6h"]
+
+    # --- PlaSim plumbing (identical to GB4 baseline) ---
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization (zscore on full-dataset stats; matches group) ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- SFNO architecture (makani-supported subset of group convention) ---
+    # NOTE on capacity gap: makani SFNO at these hyperparams ≈ 56.5 M params;
+    # group ckpt is ≈ 106.9 M. The group's `num_blocks: 16` field has no
+    # makani analog (silently swallowed by sfnonet **kwargs). Architecture
+    # parity beyond what's set here would require porting upstream's
+    # `sfno_plasim` net; left out of this clone deliberately.
+    nettype: "SFNO"
+    spectral_transform: "sht"
+    filter_type: "linear"
+    operator_type: "dhconv"
+    scale_factor: 1
+    embed_dim: 256
+    num_layers: 12
+    encoder_layers: 1
+    mlp_ratio: 2.0
+    use_mlp: !!bool True
+    activation_function: "gelu"
+    pos_embed: "direct"                     # group `pos_embed: True` → makani 'direct' (learned)
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    big_skip: !!bool True
+    rank: 1.0
+    separable: !!bool False
+    complex_activation: "real"
+    spectral_layers: 3
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss (group uses "raw_l2" → makani's "l2 squared=true" is
+    #     observed-equivalent: both compute mean of squared per-pixel
+    #     residuals; "raw" in upstream means "no per-channel sqrt", same as
+    #     squared=true here). Channel weights constant matches group. ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Training schedule (5410-locked except lr) ---
+    # global_batch=32 → per-rank=8 at world_size=4 (matches 5410).
+    # lr=8e-4: frozen at the clean-tas LR baseline (lr=1.13e-3 produced a
+    # polar tas warm bias). The varied knob in this run is input_noise.sigma
+    # (see input_noise block below).
+    lr: 8.0E-4
+    weight_decay: 3.0E-6
+    max_epochs: 50
+    batch_size: 32                           # GLOBAL batch (per-rank=8 at 4-GPU DDP) — 5410 match
+    n_history: 0
+    n_future: 0
+    valid_autoreg_steps: 3                   # 24h rollout signal at validation; matches GB4 baseline
+    prediction_type: "iterative"
+
+    # Scheduler — makani's `CosineAnnealingLR` + `LinearLR` warmup auto-wrap
+    # = group's `LinearWarmupCosineAnnealingLR` (5 epochs warmup, cosine
+    # to eta_min=1e-8). lr_start is a FACTOR (PyTorch LinearLR contract);
+    # with new lr=8e-4 and lr_start=1e-4, warmup_start_lr = 8e-8
+    # (was 1e-8 in v11_gb32 control); negligible difference, both ≈ 0.
+    scheduler: "CosineAnnealingLR"
+    scheduler_T_max: 45                      # max_epochs (50) - lr_warmup_steps (5)
+    scheduler_min_lr: 1.0E-8                 # = group eta_min (cosine end)
+    lr_warmup_steps: 5                       # epochs (NOT iterations) — driver wraps in SequentialLR
+    lr_start: 1.0E-4                         # LinearLR start_factor (unchanged from control)
+
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9                     # group default (yaml absent → torch default 0.9)
+    optimizer_beta2: 0.999                   # group default (yaml absent → torch default 0.999); was 0.95 in GB4
+    optimizer_max_grad_norm: 32.0            # RESTORED vs lr4e4 baseline (was 0.0). Safety net for the higher peak LR; per project_v11_clip_experiment, clip=32 does not perturb the v11 baseline.
+
+    num_data_workers: 4
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+
+    # --- Input perturbation — SWEEP KNOB ---
+    # Group default is epsilon_factor=0.05 (group data_loader_multifiles.py:869-881).
+    # This run sweeps to sigma=0.020 (0.4× anchor; deeper grade of the
+    # short-lead-favoring direction). Sister run noise0p035 sweeps to
+    # sigma=0.035 (0.7× anchor; shallower grade). Anchor (sigma=0.05) is
+    # the lr8e4 baseline.
+    # Makani's preprocessor.py:255-258 adds the noise out-of-place after
+    # normalization, matching group's "post-transform" placement.
+    input_noise:
+        type: "white"
+        mode: "perturb"
+        sigma: 0.020
+        alpha: 0.0
+        perturb_channels: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg200","zg250","zg300","zg400","zg500","zg600","zg700","zg850","zg925","zg1000"]
+        learnable: !!bool False
+
+    # Belt-and-suspenders: legacy add_noise/perturb knobs explicitly off
+    # (input_noise above is the active noise pathway).
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    # Target field — makani ignores this (the trainer always predicts the
+    # full normalized state, see deterministic_trainer.py:631-642 and
+    # preprocessor.append_history). Set to "state" for documentation
+    # honesty only; flipping it changes nothing in the training loop.
+    target: "state"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False              # OFF for first launch; flip on after sane curve
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"
+
+    # --- EMA unchanged from GB4 baseline ---
+    ema:
+        enabled: !!bool True
+        decay: 0.999
+        warmup: !!bool True
+        allow_config_change: !!bool False
+
+    # --- Phase-1 efficiency knobs (no-op at defaults; carried through) ---
+    prefetch_factor: 4
+    persistent_workers: !!bool True
+    ema_validation_period: 1

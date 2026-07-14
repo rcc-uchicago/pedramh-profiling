@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) working in this repository. What &
+Guidance for Claude Code working in this repository. What &
 why lives in **DESIGN.md** — read it first. This file is *how to work here*, and
 is the **single source of truth for cluster facts** (§Cluster facts below).
 
 ## Model policy
 
-**Main session: Opus 4.7 at xhigh reasoning effort** (confirm with `/model`).
+**Main session: Opus 4.8 at xhigh reasoning effort** (confirm with `/model`).
 **Subagents / agent teams: Fable 5** (`claude-fable-5`) — set it on every agent you
 spawn unless a task explicitly needs a different tier.
 
@@ -64,7 +64,7 @@ These are the ways to silently break the project. Do not do them.
 
 1. Read **CHANGELOG.md** — what's done, what's in progress, what's blocked, and
    the failed approaches not to re-try.
-2. Confirm the model policy (`/model`): main = Opus 4.7 xhigh, subagents = Fable 5.
+2. Confirm the model policy (`/model`): main = Opus 4.8 xhigh, subagents = Fable 5.
    Note which cluster you're on (`hostname`, `sinfo`/`qstat -Q`).
 3. Run the fast checks **once the harness exists** (`pytest -q --fast`); until then,
    run the relevant smoke (§Common commands).
@@ -102,16 +102,16 @@ These are the ways to silently break the project. Do not do them.
 
 ## Cluster facts (single source of truth)
 
-| Item | Midway (RCC) | Polaris (ALCF) — *confirm on the cluster* |
+| Item | Midway (RCC) | Polaris (ALCF) — **confirmed on-node 2026-07-14** (detail: `polaris_pbs_notes.md`) |
 |---|---|---|
 | Scheduler | SLURM — `sbatch`/`squeue`/`scancel` | PBS Pro — `qsub`/`qstat`/`qdel` |
-| Account / queue | `--account=pi-pedramh`, `-p pedramh-gpu` | `-A <project>`, `-q debug` (smoke) |
+| Account / queue | `--account=pi-pedramh`, `-p pedramh-gpu` | **`-A lighthouse-uchicago`**, `-q debug` (smoke; 1 running job/user, ≤1 h). NOT `-q prod` for 1 node — it needs ≥10; use `preemptable` for long single-node runs |
 | GPU | H100 NVL ~94 GB (Intel Ice Lake, PCIe Gen4) | **4× A100 40 GB SXM4** (AMD Milan) |
 | Node/GPU directive | `--nodes=1 --gres=gpu:4` | `-l select=1:system=polaris -l place=scatter` |
-| Filesystems | implicit | `-l filesystems=home:eagle` — jobs are **rejected** if the flag is absent; confirm the exact FS names (`eagle`/`grand`) |
+| Filesystems | implicit | **`-l filesystems=home:eagle`** (confirmed accepted) — jobs are **rejected** if the flag is absent |
 | Env (S2S, port) | `module load python/miniforge-25.3.0 && eval "$(mamba shell hook --shell bash)" && mamba activate /project/pedramh/shared/S2S/v2.0/venv && module load cuda/12.6` | `module use /soft/modulefiles && module load conda && conda activate <env>` |
 | Env (SI) | same but `conda`: `... && conda activate /project/pedramh/shared/anthonyz/venv` (see `si/bench_midway.sh`) | same as above |
-| Data (ERA5 HDF5) | `/project/pedramh/h5data/h5data` | Globus-stage to `/eagle/<project>/…` (or `/grand/…`) |
+| Data (ERA5 HDF5) | `/project/pedramh/h5data/h5data` | **NOT staged** → S2S + port are blocked; Globus-stage to `/eagle/projects/lighthouse-uchicago/members/mehta5/era5_h5data/h5data`. **E3SM** (AMIP) *is* staged and drives SI/Pangu-SFNO/makani/physicsnemo — see `polaris_pbs_notes.md` §4 |
 | Job id in script | `$SLURM_JOB_ID` | `$PBS_JOBID` (use `${PBS_JOBID%%.*}`) |
 
 Configs are **cluster-specific**: fix `data_dir`, `checkpoint_path`, and the

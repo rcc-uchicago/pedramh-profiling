@@ -1,0 +1,36 @@
+/var/spool/pbs/mom_priv/jobs/5808053.desched1.SC: line 17: conda: command not found
+which: no conda in (/glade/u/home/bgong/google-cloud-sdk/bin:/glade/u/apps/derecho/25.10/spack/opt/spack/netcdf/4.9.3/intel-oneapi-compilers/2025.2.1/2t5o/bin:/glade/u/apps/derecho/25.10/spack/opt/spack/hdf5/1.14.6/intel-oneapi-compilers/2025.2.1/fr4a/bin:/glade/u/apps/common/25.10/spack/opt/spack/cuda/12.9.0/b74h/bin:/glade/u/apps/derecho/25.10/spack/opt/spack/ncarcompilers/1.1.0/intel-oneapi-compilers/2025.2.1/d7a7/bin/mpi:/opt/cray/pals/default/bin:/opt/cray/libfabric/1.22.0/bin:/opt/cray/pe/mpich/8.1.32/ofi/intel/2022.1/bin:/opt/cray/pe/mpich/8.1.32/bin:/glade/u/apps/derecho/25.10/spack/opt/spack/ncarcompilers/1.1.0/intel-oneapi-compilers/2025.2.1/d7a7/bin:/glade/u/apps/common/25.10/spack/opt/spack/intel-oneapi-compilers/2025.2.1/s4f2/compiler/2025.2/bin:/opt/cray/pe/craype/2.7.34/bin:/glade/u/apps/common/25.10/spack/opt/spack/gcc/12.5.0/hsbg/bin:/glade/u/apps/derecho/25.10/opt/wrappers/bin:/glade/u/apps/derecho/25.10/opt/utils/bin:/opt/clmgr/sbin:/opt/clmgr/bin:/opt/sgi/sbin:/opt/sgi/bin:/glade/u/home/bgong/.local/bin:/opt/c3/bin:/opt/pbs/bin:/glade/u/apps/derecho/25.10/opt/view/bin:/usr/local/bin:/usr/bin:/sbin:/bin:/opt/cray/pe/bin)
+Mon Apr 13 10:17:27 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.65.06              Driver Version: 580.65.06      CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA A100-SXM4-40GB          On  |   00000000:03:00.0 Off |                    0 |
+| N/A   28C    P0             56W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA A100-SXM4-40GB          On  |   00000000:41:00.0 Off |                    0 |
+| N/A   27C    P0             54W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA A100-SXM4-40GB          On  |   00000000:82:00.0 Off |                    0 |
+| N/A   27C    P0             51W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA A100-SXM4-40GB          On  |   00000000:C1:00.0 Off |                    0 |
+| N/A   28C    P0             52W /  400W |       0MiB /  40960MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+/glade/u/apps/derecho/25.10/opt/view/bin/python: Error while finding module specification for 'torch.distributed.launch' (ModuleNotFoundError: No module named 'torch')

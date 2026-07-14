@@ -1,0 +1,470 @@
+/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py:208: FutureWarning: The module torch.distributed.launch is deprecated
+and will be removed in future. Use torchrun.
+Note that --use-env is set by default in torchrun.
+If your script expects `--local-rank` argument to be set, please
+change it to read from `os.environ['LOCAL_RANK']` instead. See 
+https://pytorch.org/docs/stable/distributed.html#launch-utility for 
+further instructions
+
+  main()
+2026-05-11 10:36:22,346 - root - INFO - Resuming from existing checkpoint.
+2026-05-11 10:36:22,348 - root - INFO - --------------- Versions ---------------
+2026-05-11 10:36:22,363 - root - INFO - Torch: 2.6.0+cu124
+2026-05-11 10:36:22,363 - root - INFO - ----------------------------------------
+2026-05-11 10:36:22,363 - root - INFO - ------------------ Configuration ------------------
+2026-05-11 10:36:22,363 - root - INFO - Configuration file: /glade/work/jesswan/UChicago/PanguWeather/v2.0/config/E3SM_SFNO_H5_DERECHO_jsw.yaml
+2026-05-11 10:36:22,363 - root - INFO - Configuration name: SFNO
+2026-05-11 10:36:22,363 - root - INFO - nettype sfno_plasim
+2026-05-11 10:36:22,363 - root - INFO - scheduler LinearWarmupCosineAnnealingLR
+2026-05-11 10:36:22,363 - root - INFO - num_warmup_epochs 5
+2026-05-11 10:36:22,364 - root - INFO - warmup_start_lr 1e-08
+2026-05-11 10:36:22,364 - root - INFO - eta_min 1e-08
+2026-05-11 10:36:22,364 - root - INFO - loss raw_l2
+2026-05-11 10:36:22,364 - root - INFO - lr 0.0001
+2026-05-11 10:36:22,364 - root - INFO - checkpoint_save_interval 1
+2026-05-11 10:36:22,364 - root - INFO - max_checkpoints_to_keep 1000
+2026-05-11 10:36:22,364 - root - INFO - use_ema True
+2026-05-11 10:36:22,364 - root - INFO - ema_decay 0.999
+2026-05-11 10:36:22,364 - root - INFO - ema_warmup_epochs 6
+2026-05-11 10:36:22,364 - root - INFO - curriculum_learning False
+2026-05-11 10:36:22,364 - root - INFO - ensemble_validation False
+2026-05-11 10:36:22,364 - root - INFO - balanced_learning False
+2026-05-11 10:36:22,364 - root - INFO - spectral_transform sht
+2026-05-11 10:36:22,364 - root - INFO - filter_type linear
+2026-05-11 10:36:22,365 - root - INFO - operator_type dhconv
+2026-05-11 10:36:22,365 - root - INFO - scale_factor 1
+2026-05-11 10:36:22,365 - root - INFO - embed_dim 256
+2026-05-11 10:36:22,365 - root - INFO - num_layers 12
+2026-05-11 10:36:22,365 - root - INFO - use_mlp True
+2026-05-11 10:36:22,365 - root - INFO - mlp_ratio 2.0
+2026-05-11 10:36:22,365 - root - INFO - activation_function gelu
+2026-05-11 10:36:22,365 - root - INFO - encoder_layers 1
+2026-05-11 10:36:22,365 - root - INFO - pos_embed True
+2026-05-11 10:36:22,365 - root - INFO - drop_rate 0.0
+2026-05-11 10:36:22,365 - root - INFO - drop_path_rate 0.0
+2026-05-11 10:36:22,365 - root - INFO - num_blocks 16
+2026-05-11 10:36:22,365 - root - INFO - sparsity_threshold 0.0
+2026-05-11 10:36:22,365 - root - INFO - normalization_layer instance_norm
+2026-05-11 10:36:22,365 - root - INFO - hard_thresholding_fraction 1.0
+2026-05-11 10:36:22,366 - root - INFO - use_complex_kernels True
+2026-05-11 10:36:22,366 - root - INFO - big_skip True
+2026-05-11 10:36:22,366 - root - INFO - rank 1.0
+2026-05-11 10:36:22,371 - root - INFO - factorization None
+2026-05-11 10:36:22,371 - root - INFO - separable False
+2026-05-11 10:36:22,371 - root - INFO - complex_network True
+2026-05-11 10:36:22,371 - root - INFO - complex_activation real
+2026-05-11 10:36:22,371 - root - INFO - spectral_layers 3
+2026-05-11 10:36:22,371 - root - INFO - checkpointing 2
+2026-05-11 10:36:22,372 - root - INFO - sync_norm True
+2026-05-11 10:36:22,372 - root - INFO - data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/sigma_data
+2026-05-11 10:36:22,372 - root - INFO - bias_data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/bias
+2026-05-11 10:36:22,372 - root - INFO - upper_air_variables ['T', 'U', 'V', 'Z3', 'RELHUM']
+2026-05-11 10:36:22,372 - root - INFO - surface_variables ['TREFHT', 'U10', 'RHREFHT', 'PS', 'PSL', 'TMQ']
+2026-05-11 10:36:22,373 - root - INFO - diagnostic_variables ['FSNTOA', 'FSNT', 'PRECT']
+2026-05-11 10:36:22,373 - root - INFO - land_variables ['SOILWATER_10CM', 'TSOI_10CM']
+2026-05-11 10:36:22,373 - root - INFO - ocean_variables []
+2026-05-11 10:36:22,373 - root - INFO - mask_output False
+2026-05-11 10:36:22,373 - root - INFO - constant_boundary_variables ['PCT_GLACIER', 'PFTDATA_MASK', 'PCT_NATVEG', 'TOPO']
+2026-05-11 10:36:22,373 - root - INFO - varying_boundary_variables ['SST', 'ICE', 'sol_in']
+2026-05-11 10:36:22,373 - root - INFO - train_year_start 2015
+2026-05-11 10:36:22,373 - root - INFO - train_year_end 2040
+2026-05-11 10:36:22,374 - root - INFO - val_year_start 2045
+2026-05-11 10:36:22,374 - root - INFO - val_year_end 2050
+2026-05-11 10:36:22,374 - root - INFO - long_validation True
+2026-05-11 10:36:22,374 - root - INFO - long_val_year_start 2045
+2026-05-11 10:36:22,374 - root - INFO - long_rollout_years 5
+2026-05-11 10:36:22,374 - root - INFO - epochs_per_long_validation 1
+2026-05-11 10:36:22,374 - root - INFO - mask_fill {'SOILWATER_10CM': 0.0, 'TSOI_10CM': 270.0, 'PCT_GLACIER': 0.0, 'PFTDATA_MASK': 0.0, 'PCT_NATVEG': 0.0, 'TOPO': 0.0, 'SST': 270.0, 'ICE': 0.0}
+2026-05-11 10:36:22,374 - root - INFO - data_timedelta_hours 6
+2026-05-11 10:36:22,374 - root - INFO - surface_mean data_2015-2050_mean.nc
+2026-05-11 10:36:22,374 - root - INFO - surface_std data_2015-2050_std_corr.nc
+2026-05-11 10:36:22,374 - root - INFO - surface_ff_std data_2015-2050_std_corr.nc
+2026-05-11 10:36:22,374 - root - INFO - upper_air_mean data_2015-2050_mean.nc
+2026-05-11 10:36:22,374 - root - INFO - upper_air_std data_2015-2050_std_corr.nc
+2026-05-11 10:36:22,374 - root - INFO - upper_air_ff_std data_2015-2050_std_corr.nc
+2026-05-11 10:36:22,374 - root - INFO - boundary_mean data_2015-2050_mean.nc
+2026-05-11 10:36:22,375 - root - INFO - boundary_std data_2015-2050_std_corr.nc
+2026-05-11 10:36:22,375 - root - INFO - diagnostic_mean data_2015-2050_mean.nc
+2026-05-11 10:36:22,375 - root - INFO - diagnostic_std data_2015-2050_std_corr.nc
+2026-05-11 10:36:22,375 - root - INFO - climatology_file climatology.nc
+2026-05-11 10:36:22,375 - root - INFO - calendar 365_day
+2026-05-11 10:36:22,375 - root - INFO - timedelta_hours 6
+2026-05-11 10:36:22,375 - root - INFO - has_year_zero True
+2026-05-11 10:36:22,375 - root - INFO - num_levels 18
+2026-05-11 10:36:22,375 - root - INFO - use_sigma_levels True
+2026-05-11 10:36:22,375 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-05-11 10:36:22,375 - root - INFO - sigma_levels [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 925.5197481473349, 998.4964394917621]
+2026-05-11 10:36:22,375 - root - INFO - horizontal_resolution [180, 360]
+2026-05-11 10:36:22,375 - root - INFO - depths [2, 6, 6, 2]
+2026-05-11 10:36:22,375 - root - INFO - predict_delta False
+2026-05-11 10:36:22,375 - root - INFO - patch_size [2, 2, 2]
+2026-05-11 10:36:22,379 - root - INFO - updown_scale_factor 2
+2026-05-11 10:36:22,380 - root - INFO - window_size [2, 2, 4]
+2026-05-11 10:36:22,380 - root - INFO - epsilon_factor 0.1
+2026-05-11 10:36:22,380 - root - INFO - perturbation_type gaussian_noise
+2026-05-11 10:36:22,380 - root - INFO - upper_air_boundary False
+2026-05-11 10:36:22,380 - root - INFO - subpixel_deconv True
+2026-05-11 10:36:22,380 - root - INFO - recovery_head True
+2026-05-11 10:36:22,380 - root - INFO - diagnostic_head False
+2026-05-11 10:36:22,380 - root - INFO - vertical_windowing False
+2026-05-11 10:36:22,380 - root - INFO - train_year_to_year False
+2026-05-11 10:36:22,380 - root - INFO - polar_pad False
+2026-05-11 10:36:22,380 - root - INFO - grid_has_poles False
+2026-05-11 10:36:22,380 - root - INFO - diagnostic_logs True
+2026-05-11 10:36:22,380 - root - INFO - diagnostic_acc True
+2026-05-11 10:36:22,381 - root - INFO - diagnostic_gif True
+2026-05-11 10:36:22,381 - root - INFO - diagnostic_spectra True
+2026-05-11 10:36:22,381 - root - INFO - diagnostic_acc_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-11 10:36:22,381 - root - INFO - diagnostic_gif_var_dict {'Z3': [492.46857402252755], 'U': [492.46857402252755, 256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-11 10:36:22,381 - root - INFO - diagnostic_spectrum_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-11 10:36:22,381 - root - INFO - diagnostic_bias_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-11 10:36:22,381 - root - INFO - forecast_lead_times [1, 12, 20, 40, 60]
+2026-05-11 10:36:22,381 - root - INFO - lev lev
+2026-05-11 10:36:22,381 - root - INFO - num_inferences 128
+2026-05-11 10:36:22,381 - root - INFO - use_reentrant False
+2026-05-11 10:36:22,381 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-05-11 10:36:22,381 - root - INFO - lon [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 358.5, 359.5]
+2026-05-11 10:36:22,388 - root - INFO - loglr -13
+2026-05-11 10:36:22,388 - root - INFO - weight_decay 3e-06
+2026-05-11 10:36:22,388 - root - INFO - num_data_workers 4
+2026-05-11 10:36:22,388 - root - INFO - batch_size 1
+2026-05-11 10:36:22,388 - root - INFO - max_epochs 100
+2026-05-11 10:36:22,388 - root - INFO - no_leap_year 2020
+2026-05-11 10:36:22,388 - root - INFO - leap_year 2020
+2026-05-11 10:36:22,388 - root - INFO - log_to_screen True
+2026-05-11 10:36:22,388 - root - INFO - log_to_wandb True
+2026-05-11 10:36:22,389 - root - INFO - save_checkpoint True
+2026-05-11 10:36:22,389 - root - INFO - save_forecasts True
+2026-05-11 10:36:22,389 - root - INFO - optimizer_type AdamW
+2026-05-11 10:36:22,389 - root - INFO - plot_animations False
+2026-05-11 10:36:22,389 - root - INFO - group plasim
+2026-05-11 10:36:22,389 - root - INFO - exp_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results
+2026-05-11 10:36:22,389 - root - INFO - enable_fp8 False
+2026-05-11 10:36:22,389 - root - INFO - fresh_start False
+2026-05-11 10:36:22,389 - root - INFO - use_transformer_engine False
+2026-05-11 10:36:22,389 - root - INFO - early_stopping False
+2026-05-11 10:36:22,389 - root - INFO - entity jesswan-university-of-chicago
+2026-05-11 10:36:22,389 - root - INFO - project E3SM-SRM-SFNO
+2026-05-11 10:36:22,389 - root - INFO - name E3SM-SRM-SFNO-CTL_SST0051_REST0101-0008
+2026-05-11 10:36:22,389 - root - INFO - use_legacy_model False
+2026-05-11 10:36:22,389 - root - INFO - save_basenames ['/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001']
+2026-05-11 10:36:22,389 - root - INFO - output_dirs ['/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008']
+2026-05-11 10:36:22,390 - root - INFO - ensemble_inference_hours 336
+2026-05-11 10:36:22,390 - root - INFO - num_ensemble_members 1
+2026-05-11 10:36:22,390 - root - INFO - run_iter 1
+2026-05-11 10:36:22,390 - root - INFO - has_diagnostic True
+2026-05-11 10:36:22,390 - root - INFO - init_nc_filepaths ['/glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/sigma_data/2045_Combined_EAM_ELM.nc']
+2026-05-11 10:36:22,390 - root - INFO - ensemble_members_per_pred 1
+2026-05-11 10:36:22,390 - root - INFO - world_size 4
+2026-05-11 10:36:22,390 - root - INFO - global_batch_size 4
+2026-05-11 10:36:22,390 - root - INFO - experiment_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008
+2026-05-11 10:36:22,390 - root - INFO - checkpoint_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints
+2026-05-11 10:36:22,390 - root - INFO - best_checkpoint_path /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-05-11 10:36:22,396 - root - INFO - latest_checkpoint_path /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-05-11 10:36:22,396 - root - INFO - checkpoint_path_globstr /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_*.tar
+2026-05-11 10:36:22,396 - root - INFO - resuming True
+2026-05-11 10:36:22,396 - root - INFO - local_rank 0
+2026-05-11 10:36:22,396 - root - INFO - enable_amp True
+2026-05-11 10:36:22,397 - root - INFO - ---------------------------------------------------
+2026-05-11 10:36:22,417 - root - INFO - rank 0, begin data loader init
+2026-05-11 10:36:22,851 - root - INFO - rank 3, begin data loader init
+2026-05-11 10:36:22,853 - root - INFO - rank 1, begin data loader init
+2026-05-11 10:36:22,853 - root - INFO - rank 2, begin data loader init
+Loading boundary data:   0%|          | 0/56 [00:00<?, ?it/s]Loading boundary data:   2%|1         | 1/56 [00:00<00:10,  5.49it/s]Loading boundary data:   4%|3         | 2/56 [00:00<00:10,  5.21it/s]Loading boundary data:   5%|5         | 3/56 [00:00<00:08,  6.00it/s]Loading boundary data:   7%|7         | 4/56 [00:00<00:09,  5.56it/s]Loading boundary data:   9%|8         | 5/56 [00:00<00:09,  5.39it/s]Loading boundary data:  11%|#         | 6/56 [00:01<00:07,  6.34it/s]Loading boundary data:  12%|#2        | 7/56 [00:01<00:07,  6.90it/s]Loading boundary data:  14%|#4        | 8/56 [00:01<00:07,  6.19it/s]Loading boundary data:  16%|#6        | 9/56 [00:01<00:07,  6.21it/s]Loading boundary data:  18%|#7        | 10/56 [00:01<00:07,  6.15it/s]Loading boundary data:  20%|#9        | 11/56 [00:01<00:07,  6.21it/s]Loading boundary data:  21%|##1       | 12/56 [00:01<00:07,  6.14it/s]Loading boundary data:  23%|##3       | 13/56 [00:02<00:06,  6.73it/s]Loading boundary data:  25%|##5       | 14/56 [00:02<00:06,  6.42it/s]Loading boundary data:  27%|##6       | 15/56 [00:02<00:06,  6.73it/s]Loading boundary data:  30%|###       | 17/56 [00:02<00:05,  7.51it/s]Loading boundary data:  32%|###2      | 18/56 [00:02<00:05,  7.58it/s]Loading boundary data:  34%|###3      | 19/56 [00:02<00:05,  6.77it/s]Loading boundary data:  36%|###5      | 20/56 [00:03<00:05,  6.91it/s]Loading boundary data:  38%|###7      | 21/56 [00:03<00:05,  6.18it/s]Loading boundary data:  39%|###9      | 22/56 [00:03<00:05,  5.89it/s]Loading boundary data:  41%|####1     | 23/56 [00:03<00:05,  6.19it/s]Loading boundary data:  43%|####2     | 24/56 [00:03<00:05,  6.29it/s]Loading boundary data:  45%|####4     | 25/56 [00:03<00:05,  5.78it/s]Loading boundary data:  46%|####6     | 26/56 [00:04<00:06,  4.95it/s]Loading boundary data:  48%|####8     | 27/56 [00:04<00:05,  5.33it/s]Loading boundary data:  50%|#####     | 28/56 [00:04<00:04,  6.05it/s]Loading boundary data:  52%|#####1    | 29/56 [00:04<00:04,  6.34it/s]Loading boundary data:  54%|#####3    | 30/56 [00:04<00:03,  6.56it/s]Loading boundary data:  55%|#####5    | 31/56 [00:05<00:04,  5.98it/s]Loading boundary data:  57%|#####7    | 32/56 [00:05<00:03,  6.23it/s]Loading boundary data:  59%|#####8    | 33/56 [00:05<00:03,  6.78it/s]Loading boundary data:  61%|######    | 34/56 [00:05<00:03,  6.18it/s]Loading boundary data:  62%|######2   | 35/56 [00:05<00:03,  6.60it/s]Loading boundary data:  64%|######4   | 36/56 [00:05<00:02,  6.75it/s]Loading boundary data:  66%|######6   | 37/56 [00:05<00:02,  6.64it/s]Loading boundary data:  68%|######7   | 38/56 [00:06<00:02,  6.54it/s]Loading boundary data:  70%|######9   | 39/56 [00:06<00:02,  6.26it/s]Loading boundary data:  71%|#######1  | 40/56 [00:06<00:02,  6.43it/s]Loading boundary data:  73%|#######3  | 41/56 [00:06<00:02,  6.49it/s]Loading boundary data:  75%|#######5  | 42/56 [00:06<00:02,  6.04it/s]Loading boundary data:  77%|#######6  | 43/56 [00:06<00:02,  6.02it/s]Loading boundary data:  79%|#######8  | 44/56 [00:07<00:01,  6.45it/s]Loading boundary data:  80%|########  | 45/56 [00:07<00:01,  6.20it/s]Loading boundary data:  82%|########2 | 46/56 [00:07<00:01,  6.80it/s]Loading boundary data:  84%|########3 | 47/56 [00:07<00:01,  6.35it/s]Loading boundary data:  86%|########5 | 48/56 [00:07<00:01,  5.85it/s]Loading boundary data:  88%|########7 | 49/56 [00:07<00:01,  5.65it/s]Loading boundary data:  89%|########9 | 50/56 [00:08<00:00,  6.11it/s]Loading boundary data:  91%|#########1| 51/56 [00:08<00:00,  5.61it/s]Loading boundary data:  93%|#########2| 52/56 [00:08<00:00,  5.77it/s]Loading boundary data:  95%|#########4| 53/56 [00:08<00:00,  5.52it/s]Loading boundary data:  96%|#########6| 54/56 [00:08<00:00,  6.32it/s]Loading boundary data:  98%|#########8| 55/56 [00:08<00:00,  6.27it/s]Loading boundary data: 100%|##########| 56/56 [00:08<00:00,  6.86it/s]Loading boundary data: 100%|##########| 56/56 [00:08<00:00,  6.25it/s]
+2026-05-11 10:36:32,634 - root - INFO - rank 2, data loader initialized
+2026-05-11 10:36:32,634 - root - INFO - rank 1, data loader initialized2026-05-11 10:36:32,634 - root - INFO - rank 3, data loader initialized
+
+2026-05-11 10:36:32,841 - root - INFO - rank 0, data loader initialized
+2026-05-11 10:36:36,459 - root - INFO - Number of trainable model parameters: 303875328
+2026-05-11 10:36:36,459 - root - INFO - Number of trainable model parameters: 3038753282026-05-11 10:36:36,459 - root - INFO - Number of trainable model parameters: 303875328
+
+2026-05-11 10:36:36,459 - root - INFO - Number of trainable model parameters: 303875328
+2026-05-11 10:36:43,070 - root - INFO - Using EMA state from checkpoint (preferred for inference)2026-05-11 10:36:43,070 - root - INFO - Using EMA state from checkpoint (preferred for inference)
+
+2026-05-11 10:36:43,071 - root - INFO - Using EMA state from checkpoint (preferred for inference)2026-05-11 10:36:43,071 - root - INFO - Using EMA state from checkpoint (preferred for inference)
+
+2026-05-11 10:36:43,072 - root - WARNING - Direct load failed: Error(s) in loading state_dict for DistributedDataParallel:
+	Missing key(s) in state_dict: "module.pos_embed", "module.encoder.0.weight", "module.encoder.0.bias", "module.encoder.2.weight", "module.blocks.0.norm0.weight", "module.blocks.0.norm0.bias", "module.blocks.0.filter.filter.weight", "module.blocks.0.filter.filter.bias", "module.blocks.0.inner_skip.weight", "module.blocks.0.inner_skip.bias", "module.blocks.0.norm1.weight", "module.blocks.0.norm1.bias", "module.blocks.0.mlp.fwd.0.weight", "module.blocks.0.mlp.fwd.0.bias", "module.blocks.0.mlp.fwd.2.weight", "module.blocks.0.mlp.fwd.2.bias", "module.blocks.1.norm0.weight", "module.blocks.1.norm0.bias", "module.blocks.1.filter.filter.weight", "module.blocks.1.filter.filter.bias", "module.blocks.1.inner_skip.weight", "module.blocks.1.inner_skip.bias", "module.blocks.1.norm1.weight", "module.blocks.1.norm1.bias", "module.blocks.1.mlp.fwd.0.weight", "module.blocks.1.mlp.fwd.0.bias", "module.blocks.1.mlp.fwd.2.weight", "module.blocks.1.mlp.fwd.2.bias", "module.blocks.2.norm0.weight", "module.blocks.2.norm0.bias", "module.blocks.2.filter.filter.weight", "module.blocks.2.filter.filter.bias", "module.blocks.2.inner_skip.weight", "module.blocks.2.inner_skip.bias", "module.blocks.2.norm1.weight", "module.blocks.2.norm1.bias", "module.blocks.2.mlp.fwd.0.weight", "module.blocks.2.mlp.fwd.0.bias", "module.blocks.2.mlp.fwd.2.weight", "module.blocks.2.mlp.fwd.2.bias", "module.blocks.3.norm0.weight", "module.blocks.3.norm0.bias", "module.blocks.3.filter.filter.weight", "module.blocks.3.filter.filter.bias", "module.blocks.3.inner_skip.weight", "module.blocks.3.inner_skip.bias", "module.blocks.3.norm1.weight", "module.blocks.3.norm1.bias", "module.blocks.3.mlp.fwd.0.weight", "module.blocks.3.mlp.fwd.0.bias", "module.blocks.3.mlp.fwd.2.weight", "module.blocks.3.mlp.fwd.2.bias", "module.blocks.4.norm0.weight", "module.blocks.4.norm0.bias", "module.blocks.4.filter.filter.weight", "module.blocks.4.filter.filter.bias", "module.blocks.4.inner_skip.weight", "module.blocks.4.inner_skip.bias", "module.blocks.4.norm1.weight", "module.blocks.4.norm1.bias", "module.blocks.4.mlp.fwd.0.weight", "module.blocks.4.mlp.fwd.0.bias", "module.blocks.4.mlp.fwd.2.weight", "module.blocks.4.mlp.fwd.2.bias", "module.blocks.5.norm0.weight", "module.blocks.5.norm0.bias", "module.blocks.5.filter.filter.weight", "module.blocks.5.filter.filter.bias", "module.blocks.5.inner_skip.weight", "module.blocks.5.inner_skip.bias", "module.blocks.5.norm1.weight", "module.blocks.5.norm1.bias", "module.blocks.5.mlp.fwd.0.weight", "module.blocks.5.mlp.fwd.0.bias", "module.blocks.5.mlp.fwd.2.weight", "module.blocks.5.mlp.fwd.2.bias", "module.blocks.6.norm0.weight", "module.blocks.6.norm0.bias", "module.blocks.6.filter.filter.weight", "module.blocks.6.filter.filter.bias", "module.blocks.6.inner_skip.weight", "module.blocks.6.inner_skip.bias", "module.blocks.6.norm1.weight", "module.blocks.6.norm1.bias", "module.blocks.6.mlp.fwd.0.weight", "module.blocks.6.mlp.fwd.0.bias", "module.blocks.6.mlp.fwd.2.weight", "module.blocks.6.mlp.fwd.2.bias", "module.blocks.7.norm0.weight", "module.blocks.7.norm0.bias", "module.blocks.7.filter.filter.weight", "module.blocks.7.filter.filter.bias", "module.blocks.7.inner_skip.weight", "module.blocks.7.inner_skip.bias", "module.blocks.7.norm1.weight", "module.blocks.7.norm1.bias", "module.blocks.7.mlp.fwd.0.weight", "module.blocks.7.mlp.fwd.0.bias", "module.blocks.7.mlp.fwd.2.weight", "module.blocks.7.mlp.fwd.2.bias", "module.blocks.8.norm0.weight", "module.blocks.8.norm0.bias", "module.blocks.8.filter.filter.weight", "module.blocks.8.filter.filter.bias", "module.blocks.8.inner_skip.weight", "module.blocks.8.inner_skip.bias", "module.blocks.8.norm1.weight", "module.blocks.8.norm1.bias", "module.blocks.8.mlp.fwd.0.weight", "module.blocks.8.mlp.fwd.0.bias", "module.blocks.8.mlp.fwd.2.weight", "module.blocks.8.mlp.fwd.2.bias", "module.blocks.9.norm0.weight", "module.blocks.9.norm0.bias", "module.blocks.9.filter.filter.weight", "module.blocks.9.filter.filter.bias", "module.blocks.9.inner_skip.weight", "module.blocks.9.inner_skip.bias", "module.blocks.9.norm1.weight", "module.blocks.9.norm1.bias", "module.blocks.9.mlp.fwd.0.weight", "module.blocks.9.mlp.fwd.0.bias", "module.blocks.9.mlp.fwd.2.weight", "module.blocks.9.mlp.fwd.2.bias", "module.blocks.10.norm0.weight", "module.blocks.10.norm0.bias", "module.blocks.10.filter.filter.weight", "module.blocks.10.filter.filter.bias", "module.blocks.10.inner_skip.weight", "module.blocks.10.inner_skip.bias", "module.blocks.10.norm1.weight", "module.blocks.10.norm1.bias", "module.blocks.10.mlp.fwd.0.weight", "module.blocks.10.mlp.fwd.0.bias", "module.blocks.10.mlp.fwd.2.weight", "module.blocks.10.mlp.fwd.2.bias", "module.blocks.11.norm0.weight", "module.blocks.11.norm0.bias", "module.blocks.11.filter.filter.weight", "module.blocks.11.filter.filter.bias", "module.blocks.11.inner_skip.weight", "module.blocks.11.inner_skip.bias", "module.blocks.11.norm1.weight", "module.blocks.11.norm1.bias", "module.blocks.11.mlp.fwd.0.weight", "module.blocks.11.mlp.fwd.0.bias", "module.blocks.11.mlp.fwd.2.weight", "module.blocks.11.mlp.fwd.2.bias", "module.decoder.0.weight", "module.decoder.0.bias", "module.decoder.2.weight". 
+	Unexpected key(s) in state_dict: "pos_embed", "encoder.0.weight", "encoder.0.bias", "encoder.2.weight", "blocks.0.norm0.weight", "blocks.0.norm0.bias", "blocks.0.filter.filter.weight", "blocks.0.filter.filter.bias", "blocks.0.inner_skip.weight", "blocks.0.inner_skip.bias", "blocks.0.norm1.weight", "blocks.0.norm1.bias", "blocks.0.mlp.fwd.0.weight", "blocks.0.mlp.fwd.0.bias", "blocks.0.mlp.fwd.2.weight", "blocks.0.mlp.fwd.2.bias", "blocks.1.norm0.weight", "blocks.1.norm0.bias", "blocks.1.filter.filter.weight", "blocks.1.filter.filter.bias", "blocks.1.inner_skip.weight", "blocks.1.inner_skip.bias", "blocks.1.norm1.weight", "blocks.1.norm1.bias", "blocks.1.mlp.fwd.0.weight", "blocks.1.mlp.fwd.0.bias", "blocks.1.mlp.fwd.2.weight", "blocks.1.mlp.fwd.2.bias", "blocks.2.norm0.weight", "blocks.2.norm0.bias", "blocks.2.filter.filter.weight", "blocks.2.filter.filter.bias", "blocks.2.inner_skip.weight", "blocks.2.inner_skip.bias", "blocks.2.norm1.weight", "blocks.2.norm1.bias", "blocks.2.mlp.fwd.0.weight", "blocks.2.mlp.fwd.0.bias", "blocks.2.mlp.fwd.2.weight", "blocks.2.mlp.fwd.2.bias", "blocks.3.norm0.weight", "blocks.3.norm0.bias", "blocks.3.filter.filter.weight", "blocks.3.filter.filter.bias", "blocks.3.inner_skip.weight", "blocks.3.inner_skip.bias", "blocks.3.norm1.weight", "blocks.3.norm1.bias", "blocks.3.mlp.fwd.0.weight", "blocks.3.mlp.fwd.0.bias", "blocks.3.mlp.fwd.2.weight", "blocks.3.mlp.fwd.2.bias", "blocks.4.norm0.weight", "blocks.4.norm0.bias", "blocks.4.filter.filter.weight", "blocks.4.filter.filter.bias", "blocks.4.inner_skip.weight", "blocks.4.inner_skip.bias", "blocks.4.norm1.weight", "blocks.4.norm1.bias", "blocks.4.mlp.fwd.0.weight", "blocks.4.mlp.fwd.0.bias", "blocks.4.mlp.fwd.2.weight", "blocks.4.mlp.fwd.2.bias", "blocks.5.norm0.weight", "blocks.5.norm0.bias", "blocks.5.filter.filter.weight", "blocks.5.filter.filter.bias", "blocks.5.inner_skip.weight", "blocks.5.inner_skip.bias", "blocks.5.norm1.weight", "blocks.5.norm1.bias", "blocks.5.mlp.fwd.0.weight", "blocks.5.mlp.fwd.0.bias", "blocks.5.mlp.fwd.2.weight", "blocks.5.mlp.fwd.2.bias", "blocks.6.norm0.weight", "blocks.6.norm0.bias", "blocks.6.filter.filter.weight", "blocks.6.filter.filter.bias", "blocks.6.inner_skip.weight", "blocks.6.inner_skip.bias", "blocks.6.norm1.weight", "blocks.6.norm1.bias", "blocks.6.mlp.fwd.0.weight", "blocks.6.mlp.fwd.0.bias", "blocks.6.mlp.fwd.2.weight", "blocks.6.mlp.fwd.2.bias", "blocks.7.norm0.weight", "blocks.7.norm0.bias", "blocks.7.filter.filter.weight", "blocks.7.filter.filter.bias", "blocks.7.inner_skip.weight", "blocks.7.inner_skip.bias", "blocks.7.norm1.weight", "blocks.7.norm1.bias", "blocks.7.mlp.fwd.0.weight", "blocks.7.mlp.fwd.0.bias", "blocks.7.mlp.fwd.2.weight", "blocks.7.mlp.fwd.2.bias", "blocks.8.norm0.weight", "blocks.8.norm0.bias", "blocks.8.filter.filter.weight", "blocks.8.filter.filter.bias", "blocks.8.inner_skip.weight", "blocks.8.inner_skip.bias", "blocks.8.norm1.weight", "blocks.8.norm1.bias", "blocks.8.mlp.fwd.0.weight", "blocks.8.mlp.fwd.0.bias", "blocks.8.mlp.fwd.2.weight", "blocks.8.mlp.fwd.2.bias", "blocks.9.norm0.weight", "blocks.9.norm0.bias", "blocks.9.filter.filter.weight", "blocks.9.filter.filter.bias", "blocks.9.inner_skip.weight", "blocks.9.inner_skip.bias", "blocks.9.norm1.weight", "blocks.9.norm1.bias", "blocks.9.mlp.fwd.0.weight", "blocks.9.mlp.fwd.0.bias", "blocks.9.mlp.fwd.2.weight", "blocks.9.mlp.fwd.2.bias", "blocks.10.norm0.weight", "blocks.10.norm0.bias", "blocks.10.filter.filter.weight", "blocks.10.filter.filter.bias", "blocks.10.inner_skip.weight", "blocks.10.inner_skip.bias", "blocks.10.norm1.weight", "blocks.10.norm1.bias", "blocks.10.mlp.fwd.0.weight", "blocks.10.mlp.fwd.0.bias", "blocks.10.mlp.fwd.2.weight", "blocks.10.mlp.fwd.2.bias", "blocks.11.norm0.weight", "blocks.11.norm0.bias", "blocks.11.filter.filter.weight", "blocks.11.filter.filter.bias", "blocks.11.inner_skip.weight", "blocks.11.inner_skip.bias", "blocks.11.norm1.weight", "blocks.11.norm1.bias", "blocks.11.mlp.fwd.0.weight", "blocks.11.mlp.fwd.0.bias", "blocks.11.mlp.fwd.2.weight", "blocks.11.mlp.fwd.2.bias", "decoder.0.weight", "decoder.0.bias", "decoder.2.weight". . Attempting to fix "module." prefix mismatch...2026-05-11 10:36:43,072 - root - WARNING - Direct load failed: Error(s) in loading state_dict for DistributedDataParallel:
+	Missing key(s) in state_dict: "module.pos_embed", "module.encoder.0.weight", "module.encoder.0.bias", "module.encoder.2.weight", "module.blocks.0.norm0.weight", "module.blocks.0.norm0.bias", "module.blocks.0.filter.filter.weight", "module.blocks.0.filter.filter.bias", "module.blocks.0.inner_skip.weight", "module.blocks.0.inner_skip.bias", "module.blocks.0.norm1.weight", "module.blocks.0.norm1.bias", "module.blocks.0.mlp.fwd.0.weight", "module.blocks.0.mlp.fwd.0.bias", "module.blocks.0.mlp.fwd.2.weight", "module.blocks.0.mlp.fwd.2.bias", "module.blocks.1.norm0.weight", "module.blocks.1.norm0.bias", "module.blocks.1.filter.filter.weight", "module.blocks.1.filter.filter.bias", "module.blocks.1.inner_skip.weight", "module.blocks.1.inner_skip.bias", "module.blocks.1.norm1.weight", "module.blocks.1.norm1.bias", "module.blocks.1.mlp.fwd.0.weight", "module.blocks.1.mlp.fwd.0.bias", "module.blocks.1.mlp.fwd.2.weight", "module.blocks.1.mlp.fwd.2.bias", "module.blocks.2.norm0.weight", "module.blocks.2.norm0.bias", "module.blocks.2.filter.filter.weight", "module.blocks.2.filter.filter.bias", "module.blocks.2.inner_skip.weight", "module.blocks.2.inner_skip.bias", "module.blocks.2.norm1.weight", "module.blocks.2.norm1.bias", "module.blocks.2.mlp.fwd.0.weight", "module.blocks.2.mlp.fwd.0.bias", "module.blocks.2.mlp.fwd.2.weight", "module.blocks.2.mlp.fwd.2.bias", "module.blocks.3.norm0.weight", "module.blocks.3.norm0.bias", "module.blocks.3.filter.filter.weight", "module.blocks.3.filter.filter.bias", "module.blocks.3.inner_skip.weight", "module.blocks.3.inner_skip.bias", "module.blocks.3.norm1.weight", "module.blocks.3.norm1.bias", "module.blocks.3.mlp.fwd.0.weight", "module.blocks.3.mlp.fwd.0.bias", "module.blocks.3.mlp.fwd.2.weight", "module.blocks.3.mlp.fwd.2.bias", "module.blocks.4.norm0.weight", "module.blocks.4.norm0.bias", "module.blocks.4.filter.filter.weight", "module.blocks.4.filter.filter.bias", "module.blocks.4.inner_skip.weight", "module.blocks.4.inner_skip.bias", "module.blocks.4.norm1.weight", "module.blocks.4.norm1.bias", "module.blocks.4.mlp.fwd.0.weight", "module.blocks.4.mlp.fwd.0.bias", "module.blocks.4.mlp.fwd.2.weight", "module.blocks.4.mlp.fwd.2.bias", "module.blocks.5.norm0.weight", "module.blocks.5.norm0.bias", "module.blocks.5.filter.filter.weight", "module.blocks.5.filter.filter.bias", "module.blocks.5.inner_skip.weight", "module.blocks.5.inner_skip.bias", "module.blocks.5.norm1.weight", "module.blocks.5.norm1.bias", "module.blocks.5.mlp.fwd.0.weight", "module.blocks.5.mlp.fwd.0.bias", "module.blocks.5.mlp.fwd.2.weight", "module.blocks.5.mlp.fwd.2.bias", "module.blocks.6.norm0.weight", "module.blocks.6.norm0.bias", "module.blocks.6.filter.filter.weight", "module.blocks.6.filter.filter.bias", "module.blocks.6.inner_skip.weight", "module.blocks.6.inner_skip.bias", "module.blocks.6.norm1.weight", "module.blocks.6.norm1.bias", "module.blocks.6.mlp.fwd.0.weight", "module.blocks.6.mlp.fwd.0.bias", "module.blocks.6.mlp.fwd.2.weight", "module.blocks.6.mlp.fwd.2.bias", "module.blocks.7.norm0.weight", "module.blocks.7.norm0.bias", "module.blocks.7.filter.filter.weight", "module.blocks.7.filter.filter.bias", "module.blocks.7.inner_skip.weight", "module.blocks.7.inner_skip.bias", "module.blocks.7.norm1.weight", "module.blocks.7.norm1.bias", "module.blocks.7.mlp.fwd.0.weight", "module.blocks.7.mlp.fwd.0.bias", "module.blocks.7.mlp.fwd.2.weight", "module.blocks.7.mlp.fwd.2.bias", "module.blocks.8.norm0.weight", "module.blocks.8.norm0.bias", "module.blocks.8.filter.filter.weight", "module.blocks.8.filter.filter.bias", "module.blocks.8.inner_skip.weight", "module.blocks.8.inner_skip.bias", "module.blocks.8.norm1.weight", "module.blocks.8.norm1.bias", "module.blocks.8.mlp.fwd.0.weight", "module.blocks.8.mlp.fwd.0.bias", "module.blocks.8.mlp.fwd.2.weight", "module.blocks.8.mlp.fwd.2.bias", "module.blocks.9.norm0.weight", "module.blocks.9.norm0.bias", "module.blocks.9.filter.filter.weight", "module.blocks.9.filter.filter.bias", "module.blocks.9.inner_skip.weight", "module.blocks.9.inner_skip.bias", "module.blocks.9.norm1.weight", "module.blocks.9.norm1.bias", "module.blocks.9.mlp.fwd.0.weight", "module.blocks.9.mlp.fwd.0.bias", "module.blocks.9.mlp.fwd.2.weight", "module.blocks.9.mlp.fwd.2.bias", "module.blocks.10.norm0.weight", "module.blocks.10.norm0.bias", "module.blocks.10.filter.filter.weight", "module.blocks.10.filter.filter.bias", "module.blocks.10.inner_skip.weight", "module.blocks.10.inner_skip.bias", "module.blocks.10.norm1.weight", "module.blocks.10.norm1.bias", "module.blocks.10.mlp.fwd.0.weight", "module.blocks.10.mlp.fwd.0.bias", "module.blocks.10.mlp.fwd.2.weight", "module.blocks.10.mlp.fwd.2.bias", "module.blocks.11.norm0.weight", "module.blocks.11.norm0.bias", "module.blocks.11.filter.filter.weight", "module.blocks.11.filter.filter.bias", "module.blocks.11.inner_skip.weight", "module.blocks.11.inner_skip.bias", "module.blocks.11.norm1.weight", "module.blocks.11.norm1.bias", "module.blocks.11.mlp.fwd.0.weight", "module.blocks.11.mlp.fwd.0.bias", "module.blocks.11.mlp.fwd.2.weight", "module.blocks.11.mlp.fwd.2.bias", "module.decoder.0.weight", "module.decoder.0.bias", "module.decoder.2.weight". 
+	Unexpected key(s) in state_dict: "pos_embed", "encoder.0.weight", "encoder.0.bias", "encoder.2.weight", "blocks.0.norm0.weight", "blocks.0.norm0.bias", "blocks.0.filter.filter.weight", "blocks.0.filter.filter.bias", "blocks.0.inner_skip.weight", "blocks.0.inner_skip.bias", "blocks.0.norm1.weight", "blocks.0.norm1.bias", "blocks.0.mlp.fwd.0.weight", "blocks.0.mlp.fwd.0.bias", "blocks.0.mlp.fwd.2.weight", "blocks.0.mlp.fwd.2.bias", "blocks.1.norm0.weight", "blocks.1.norm0.bias", "blocks.1.filter.filter.weight", "blocks.1.filter.filter.bias", "blocks.1.inner_skip.weight", "blocks.1.inner_skip.bias", "blocks.1.norm1.weight", "blocks.1.norm1.bias", "blocks.1.mlp.fwd.0.weight", "blocks.1.mlp.fwd.0.bias", "blocks.1.mlp.fwd.2.weight", "blocks.1.mlp.fwd.2.bias", "blocks.2.norm0.weight", "blocks.2.norm0.bias", "blocks.2.filter.filter.weight", "blocks.2.filter.filter.bias", "blocks.2.inner_skip.weight", "blocks.2.inner_skip.bias", "blocks.2.norm1.weight", "blocks.2.norm1.bias", "blocks.2.mlp.fwd.0.weight", "blocks.2.mlp.fwd.0.bias", "blocks.2.mlp.fwd.2.weight", "blocks.2.mlp.fwd.2.bias", "blocks.3.norm0.weight", "blocks.3.norm0.bias", "blocks.3.filter.filter.weight", "blocks.3.filter.filter.bias", "blocks.3.inner_skip.weight", "blocks.3.inner_skip.bias", "blocks.3.norm1.weight", "blocks.3.norm1.bias", "blocks.3.mlp.fwd.0.weight", "blocks.3.mlp.fwd.0.bias", "blocks.3.mlp.fwd.2.weight", "blocks.3.mlp.fwd.2.bias", "blocks.4.norm0.weight", "blocks.4.norm0.bias", "blocks.4.filter.filter.weight", "blocks.4.filter.filter.bias", "blocks.4.inner_skip.weight", "blocks.4.inner_skip.bias", "blocks.4.norm1.weight", "blocks.4.norm1.bias", "blocks.4.mlp.fwd.0.weight", "blocks.4.mlp.fwd.0.bias", "blocks.4.mlp.fwd.2.weight", "blocks.4.mlp.fwd.2.bias", "blocks.5.norm0.weight", "blocks.5.norm0.bias", "blocks.5.filter.filter.weight", "blocks.5.filter.filter.bias", "blocks.5.inner_skip.weight", "blocks.5.inner_skip.bias", "blocks.5.norm1.weight", "blocks.5.norm1.bias", "blocks.5.mlp.fwd.0.weight", "blocks.5.mlp.fwd.0.bias", "blocks.5.mlp.fwd.2.weight", "blocks.5.mlp.fwd.2.bias", "blocks.6.norm0.weight", "blocks.6.norm0.bias", "blocks.6.filter.filter.weight", "blocks.6.filter.filter.bias", "blocks.6.inner_skip.weight", "blocks.6.inner_skip.bias", "blocks.6.norm1.weight", "blocks.6.norm1.bias", "blocks.6.mlp.fwd.0.weight", "blocks.6.mlp.fwd.0.bias", "blocks.6.mlp.fwd.2.weight", "blocks.6.mlp.fwd.2.bias", "blocks.7.norm0.weight", "blocks.7.norm0.bias", "blocks.7.filter.filter.weight", "blocks.7.filter.filter.bias", "blocks.7.inner_skip.weight", "blocks.7.inner_skip.bias", "blocks.7.norm1.weight", "blocks.7.norm1.bias", "blocks.7.mlp.fwd.0.weight", "blocks.7.mlp.fwd.0.bias", "blocks.7.mlp.fwd.2.weight", "blocks.7.mlp.fwd.2.bias", "blocks.8.norm0.weight", "blocks.8.norm0.bias", "blocks.8.filter.filter.weight", "blocks.8.filter.filter.bias", "blocks.8.inner_skip.weight", "blocks.8.inner_skip.bias", "blocks.8.norm1.weight", "blocks.8.norm1.bias", "blocks.8.mlp.fwd.0.weight", "blocks.8.mlp.fwd.0.bias", "blocks.8.mlp.fwd.2.weight", "blocks.8.mlp.fwd.2.bias", "blocks.9.norm0.weight", "blocks.9.norm0.bias", "blocks.9.filter.filter.weight", "blocks.9.filter.filter.bias", "blocks.9.inner_skip.weight", "blocks.9.inner_skip.bias", "blocks.9.norm1.weight", "blocks.9.norm1.bias", "blocks.9.mlp.fwd.0.weight", "blocks.9.mlp.fwd.0.bias", "blocks.9.mlp.fwd.2.weight", "blocks.9.mlp.fwd.2.bias", "blocks.10.norm0.weight", "blocks.10.norm0.bias", "blocks.10.filter.filter.weight", "blocks.10.filter.filter.bias", "blocks.10.inner_skip.weight", "blocks.10.inner_skip.bias", "blocks.10.norm1.weight", "blocks.10.norm1.bias", "blocks.10.mlp.fwd.0.weight", "blocks.10.mlp.fwd.0.bias", "blocks.10.mlp.fwd.2.weight", "blocks.10.mlp.fwd.2.bias", "blocks.11.norm0.weight", "blocks.11.norm0.bias", "blocks.11.filter.filter.weight", "blocks.11.filter.filter.bias", "blocks.11.inner_skip.weight", "blocks.11.inner_skip.bias", "blocks.11.norm1.weight", "blocks.11.norm1.bias", "blocks.11.mlp.fwd.0.weight", "blocks.11.mlp.fwd.0.bias", "blocks.11.mlp.fwd.2.weight", "blocks.11.mlp.fwd.2.bias", "decoder.0.weight", "decoder.0.bias", "decoder.2.weight". . Attempting to fix "module." prefix mismatch...
+
+2026-05-11 10:36:43,072 - root - INFO - Added "module." prefix to checkpoint keys2026-05-11 10:36:43,072 - root - INFO - Added "module." prefix to checkpoint keys
+
+2026-05-11 10:36:43,073 - root - WARNING - Direct load failed: Error(s) in loading state_dict for DistributedDataParallel:
+	Missing key(s) in state_dict: "module.pos_embed", "module.encoder.0.weight", "module.encoder.0.bias", "module.encoder.2.weight", "module.blocks.0.norm0.weight", "module.blocks.0.norm0.bias", "module.blocks.0.filter.filter.weight", "module.blocks.0.filter.filter.bias", "module.blocks.0.inner_skip.weight", "module.blocks.0.inner_skip.bias", "module.blocks.0.norm1.weight", "module.blocks.0.norm1.bias", "module.blocks.0.mlp.fwd.0.weight", "module.blocks.0.mlp.fwd.0.bias", "module.blocks.0.mlp.fwd.2.weight", "module.blocks.0.mlp.fwd.2.bias", "module.blocks.1.norm0.weight", "module.blocks.1.norm0.bias", "module.blocks.1.filter.filter.weight", "module.blocks.1.filter.filter.bias", "module.blocks.1.inner_skip.weight", "module.blocks.1.inner_skip.bias", "module.blocks.1.norm1.weight", "module.blocks.1.norm1.bias", "module.blocks.1.mlp.fwd.0.weight", "module.blocks.1.mlp.fwd.0.bias", "module.blocks.1.mlp.fwd.2.weight", "module.blocks.1.mlp.fwd.2.bias", "module.blocks.2.norm0.weight", "module.blocks.2.norm0.bias", "module.blocks.2.filter.filter.weight", "module.blocks.2.filter.filter.bias", "module.blocks.2.inner_skip.weight", "module.blocks.2.inner_skip.bias", "module.blocks.2.norm1.weight", "module.blocks.2.norm1.bias", "module.blocks.2.mlp.fwd.0.weight", "module.blocks.2.mlp.fwd.0.bias", "module.blocks.2.mlp.fwd.2.weight", "module.blocks.2.mlp.fwd.2.bias", "module.blocks.3.norm0.weight", "module.blocks.3.norm0.bias", "module.blocks.3.filter.filter.weight", "module.blocks.3.filter.filter.bias", "module.blocks.3.inner_skip.weight", "module.blocks.3.inner_skip.bias", "module.blocks.3.norm1.weight", "module.blocks.3.norm1.bias", "module.blocks.3.mlp.fwd.0.weight", "module.blocks.3.mlp.fwd.0.bias", "module.blocks.3.mlp.fwd.2.weight", "module.blocks.3.mlp.fwd.2.bias", "module.blocks.4.norm0.weight", "module.blocks.4.norm0.bias", "module.blocks.4.filter.filter.weight", "module.blocks.4.filter.filter.bias", "module.blocks.4.inner_skip.weight", "module.blocks.4.inner_skip.bias", "module.blocks.4.norm1.weight", "module.blocks.4.norm1.bias", "module.blocks.4.mlp.fwd.0.weight", "module.blocks.4.mlp.fwd.0.bias", "module.blocks.4.mlp.fwd.2.weight", "module.blocks.4.mlp.fwd.2.bias", "module.blocks.5.norm0.weight", "module.blocks.5.norm0.bias", "module.blocks.5.filter.filter.weight", "module.blocks.5.filter.filter.bias", "module.blocks.5.inner_skip.weight", "module.blocks.5.inner_skip.bias", "module.blocks.5.norm1.weight", "module.blocks.5.norm1.bias", "module.blocks.5.mlp.fwd.0.weight", "module.blocks.5.mlp.fwd.0.bias", "module.blocks.5.mlp.fwd.2.weight", "module.blocks.5.mlp.fwd.2.bias", "module.blocks.6.norm0.weight", "module.blocks.6.norm0.bias", "module.blocks.6.filter.filter.weight", "module.blocks.6.filter.filter.bias", "module.blocks.6.inner_skip.weight", "module.blocks.6.inner_skip.bias", "module.blocks.6.norm1.weight", "module.blocks.6.norm1.bias", "module.blocks.6.mlp.fwd.0.weight", "module.blocks.6.mlp.fwd.0.bias", "module.blocks.6.mlp.fwd.2.weight", "module.blocks.6.mlp.fwd.2.bias", "module.blocks.7.norm0.weight", "module.blocks.7.norm0.bias", "module.blocks.7.filter.filter.weight", "module.blocks.7.filter.filter.bias", "module.blocks.7.inner_skip.weight", "module.blocks.7.inner_skip.bias", "module.blocks.7.norm1.weight", "module.blocks.7.norm1.bias", "module.blocks.7.mlp.fwd.0.weight", "module.blocks.7.mlp.fwd.0.bias", "module.blocks.7.mlp.fwd.2.weight", "module.blocks.7.mlp.fwd.2.bias", "module.blocks.8.norm0.weight", "module.blocks.8.norm0.bias", "module.blocks.8.filter.filter.weight", "module.blocks.8.filter.filter.bias", "module.blocks.8.inner_skip.weight", "module.blocks.8.inner_skip.bias", "module.blocks.8.norm1.weight", "module.blocks.8.norm1.bias", "module.blocks.8.mlp.fwd.0.weight", "module.blocks.8.mlp.fwd.0.bias", "module.blocks.8.mlp.fwd.2.weight", "module.blocks.8.mlp.fwd.2.bias", "module.blocks.9.norm0.weight", "module.blocks.9.norm0.bias", "module.blocks.9.filter.filter.weight", "module.blocks.9.filter.filter.bias", "module.blocks.9.inner_skip.weight", "module.blocks.9.inner_skip.bias", "module.blocks.9.norm1.weight", "module.blocks.9.norm1.bias", "module.blocks.9.mlp.fwd.0.weight", "module.blocks.9.mlp.fwd.0.bias", "module.blocks.9.mlp.fwd.2.weight", "module.blocks.9.mlp.fwd.2.bias", "module.blocks.10.norm0.weight", "module.blocks.10.norm0.bias", "module.blocks.10.filter.filter.weight", "module.blocks.10.filter.filter.bias", "module.blocks.10.inner_skip.weight", "module.blocks.10.inner_skip.bias", "module.blocks.10.norm1.weight", "module.blocks.10.norm1.bias", "module.blocks.10.mlp.fwd.0.weight", "module.blocks.10.mlp.fwd.0.bias", "module.blocks.10.mlp.fwd.2.weight", "module.blocks.10.mlp.fwd.2.bias", "module.blocks.11.norm0.weight", "module.blocks.11.norm0.bias", "module.blocks.11.filter.filter.weight", "module.blocks.11.filter.filter.bias", "module.blocks.11.inner_skip.weight", "module.blocks.11.inner_skip.bias", "module.blocks.11.norm1.weight", "module.blocks.11.norm1.bias", "module.blocks.11.mlp.fwd.0.weight", "module.blocks.11.mlp.fwd.0.bias", "module.blocks.11.mlp.fwd.2.weight", "module.blocks.11.mlp.fwd.2.bias", "module.decoder.0.weight", "module.decoder.0.bias", "module.decoder.2.weight". 
+	Unexpected key(s) in state_dict: "pos_embed", "encoder.0.weight", "encoder.0.bias", "encoder.2.weight", "blocks.0.norm0.weight", "blocks.0.norm0.bias", "blocks.0.filter.filter.weight", "blocks.0.filter.filter.bias", "blocks.0.inner_skip.weight", "blocks.0.inner_skip.bias", "blocks.0.norm1.weight", "blocks.0.norm1.bias", "blocks.0.mlp.fwd.0.weight", "blocks.0.mlp.fwd.0.bias", "blocks.0.mlp.fwd.2.weight", "blocks.0.mlp.fwd.2.bias", "blocks.1.norm0.weight", "blocks.1.norm0.bias", "blocks.1.filter.filter.weight", "blocks.1.filter.filter.bias", "blocks.1.inner_skip.weight", "blocks.1.inner_skip.bias", "blocks.1.norm1.weight", "blocks.1.norm1.bias", "blocks.1.mlp.fwd.0.weight", "blocks.1.mlp.fwd.0.bias", "blocks.1.mlp.fwd.2.weight", "blocks.1.mlp.fwd.2.bias", "blocks.2.norm0.weight", "blocks.2.norm0.bias", "blocks.2.filter.filter.weight", "blocks.2.filter.filter.bias", "blocks.2.inner_skip.weight", "blocks.2.inner_skip.bias", "blocks.2.norm1.weight", "blocks.2.norm1.bias", "blocks.2.mlp.fwd.0.weight", "blocks.2.mlp.fwd.0.bias", "blocks.2.mlp.fwd.2.weight", "blocks.2.mlp.fwd.2.bias", "blocks.3.norm0.weight", "blocks.3.norm0.bias", "blocks.3.filter.filter.weight", "blocks.3.filter.filter.bias", "blocks.3.inner_skip.weight", "blocks.3.inner_skip.bias", "blocks.3.norm1.weight", "blocks.3.norm1.bias", "blocks.3.mlp.fwd.0.weight", "blocks.3.mlp.fwd.0.bias", "blocks.3.mlp.fwd.2.weight", "blocks.3.mlp.fwd.2.bias", "blocks.4.norm0.weight", "blocks.4.norm0.bias", "blocks.4.filter.filter.weight", "blocks.4.filter.filter.bias", "blocks.4.inner_skip.weight", "blocks.4.inner_skip.bias", "blocks.4.norm1.weight", "blocks.4.norm1.bias", "blocks.4.mlp.fwd.0.weight", "blocks.4.mlp.fwd.0.bias", "blocks.4.mlp.fwd.2.weight", "blocks.4.mlp.fwd.2.bias", "blocks.5.norm0.weight", "blocks.5.norm0.bias", "blocks.5.filter.filter.weight", "blocks.5.filter.filter.bias", "blocks.5.inner_skip.weight", "blocks.5.inner_skip.bias", "blocks.5.norm1.weight", "blocks.5.norm1.bias", "blocks.5.mlp.fwd.0.weight", "blocks.5.mlp.fwd.0.bias", "blocks.5.mlp.fwd.2.weight", "blocks.5.mlp.fwd.2.bias", "blocks.6.norm0.weight", "blocks.6.norm0.bias", "blocks.6.filter.filter.weight", "blocks.6.filter.filter.bias", "blocks.6.inner_skip.weight", "blocks.6.inner_skip.bias", "blocks.6.norm1.weight", "blocks.6.norm1.bias", "blocks.6.mlp.fwd.0.weight", "blocks.6.mlp.fwd.0.bias", "blocks.6.mlp.fwd.2.weight", "blocks.6.mlp.fwd.2.bias", "blocks.7.norm0.weight", "blocks.7.norm0.bias", "blocks.7.filter.filter.weight", "blocks.7.filter.filter.bias", "blocks.7.inner_skip.weight", "blocks.7.inner_skip.bias", "blocks.7.norm1.weight", "blocks.7.norm1.bias", "blocks.7.mlp.fwd.0.weight", "blocks.7.mlp.fwd.0.bias", "blocks.7.mlp.fwd.2.weight", "blocks.7.mlp.fwd.2.bias", "blocks.8.norm0.weight", "blocks.8.norm0.bias", "blocks.8.filter.filter.weight", "blocks.8.filter.filter.bias", "blocks.8.inner_skip.weight", "blocks.8.inner_skip.bias", "blocks.8.norm1.weight", "blocks.8.norm1.bias", "blocks.8.mlp.fwd.0.weight", "blocks.8.mlp.fwd.0.bias", "blocks.8.mlp.fwd.2.weight", "blocks.8.mlp.fwd.2.bias", "blocks.9.norm0.weight", "blocks.9.norm0.bias", "blocks.9.filter.filter.weight", "blocks.9.filter.filter.bias", "blocks.9.inner_skip.weight", "blocks.9.inner_skip.bias", "blocks.9.norm1.weight", "blocks.9.norm1.bias", "blocks.9.mlp.fwd.0.weight", "blocks.9.mlp.fwd.0.bias", "blocks.9.mlp.fwd.2.weight", "blocks.9.mlp.fwd.2.bias", "blocks.10.norm0.weight", "blocks.10.norm0.bias", "blocks.10.filter.filter.weight", "blocks.10.filter.filter.bias", "blocks.10.inner_skip.weight", "blocks.10.inner_skip.bias", "blocks.10.norm1.weight", "blocks.10.norm1.bias", "blocks.10.mlp.fwd.0.weight", "blocks.10.mlp.fwd.0.bias", "blocks.10.mlp.fwd.2.weight", "blocks.10.mlp.fwd.2.bias", "blocks.11.norm0.weight", "blocks.11.norm0.bias", "blocks.11.filter.filter.weight", "blocks.11.filter.filter.bias", "blocks.11.inner_skip.weight", "blocks.11.inner_skip.bias", "blocks.11.norm1.weight", "blocks.11.norm1.bias", "blocks.11.mlp.fwd.0.weight", "blocks.11.mlp.fwd.0.bias", "blocks.11.mlp.fwd.2.weight", "blocks.11.mlp.fwd.2.bias", "decoder.0.weight", "decoder.0.bias", "decoder.2.weight". . Attempting to fix "module." prefix mismatch...2026-05-11 10:36:43,073 - root - WARNING - Direct load failed: Error(s) in loading state_dict for DistributedDataParallel:
+	Missing key(s) in state_dict: "module.pos_embed", "module.encoder.0.weight", "module.encoder.0.bias", "module.encoder.2.weight", "module.blocks.0.norm0.weight", "module.blocks.0.norm0.bias", "module.blocks.0.filter.filter.weight", "module.blocks.0.filter.filter.bias", "module.blocks.0.inner_skip.weight", "module.blocks.0.inner_skip.bias", "module.blocks.0.norm1.weight", "module.blocks.0.norm1.bias", "module.blocks.0.mlp.fwd.0.weight", "module.blocks.0.mlp.fwd.0.bias", "module.blocks.0.mlp.fwd.2.weight", "module.blocks.0.mlp.fwd.2.bias", "module.blocks.1.norm0.weight", "module.blocks.1.norm0.bias", "module.blocks.1.filter.filter.weight", "module.blocks.1.filter.filter.bias", "module.blocks.1.inner_skip.weight", "module.blocks.1.inner_skip.bias", "module.blocks.1.norm1.weight", "module.blocks.1.norm1.bias", "module.blocks.1.mlp.fwd.0.weight", "module.blocks.1.mlp.fwd.0.bias", "module.blocks.1.mlp.fwd.2.weight", "module.blocks.1.mlp.fwd.2.bias", "module.blocks.2.norm0.weight", "module.blocks.2.norm0.bias", "module.blocks.2.filter.filter.weight", "module.blocks.2.filter.filter.bias", "module.blocks.2.inner_skip.weight", "module.blocks.2.inner_skip.bias", "module.blocks.2.norm1.weight", "module.blocks.2.norm1.bias", "module.blocks.2.mlp.fwd.0.weight", "module.blocks.2.mlp.fwd.0.bias", "module.blocks.2.mlp.fwd.2.weight", "module.blocks.2.mlp.fwd.2.bias", "module.blocks.3.norm0.weight", "module.blocks.3.norm0.bias", "module.blocks.3.filter.filter.weight", "module.blocks.3.filter.filter.bias", "module.blocks.3.inner_skip.weight", "module.blocks.3.inner_skip.bias", "module.blocks.3.norm1.weight", "module.blocks.3.norm1.bias", "module.blocks.3.mlp.fwd.0.weight", "module.blocks.3.mlp.fwd.0.bias", "module.blocks.3.mlp.fwd.2.weight", "module.blocks.3.mlp.fwd.2.bias", "module.blocks.4.norm0.weight", "module.blocks.4.norm0.bias", "module.blocks.4.filter.filter.weight", "module.blocks.4.filter.filter.bias", "module.blocks.4.inner_skip.weight", "module.blocks.4.inner_skip.bias", "module.blocks.4.norm1.weight", "module.blocks.4.norm1.bias", "module.blocks.4.mlp.fwd.0.weight", "module.blocks.4.mlp.fwd.0.bias", "module.blocks.4.mlp.fwd.2.weight", "module.blocks.4.mlp.fwd.2.bias", "module.blocks.5.norm0.weight", "module.blocks.5.norm0.bias", "module.blocks.5.filter.filter.weight", "module.blocks.5.filter.filter.bias", "module.blocks.5.inner_skip.weight", "module.blocks.5.inner_skip.bias", "module.blocks.5.norm1.weight", "module.blocks.5.norm1.bias", "module.blocks.5.mlp.fwd.0.weight", "module.blocks.5.mlp.fwd.0.bias", "module.blocks.5.mlp.fwd.2.weight", "module.blocks.5.mlp.fwd.2.bias", "module.blocks.6.norm0.weight", "module.blocks.6.norm0.bias", "module.blocks.6.filter.filter.weight", "module.blocks.6.filter.filter.bias", "module.blocks.6.inner_skip.weight", "module.blocks.6.inner_skip.bias", "module.blocks.6.norm1.weight", "module.blocks.6.norm1.bias", "module.blocks.6.mlp.fwd.0.weight", "module.blocks.6.mlp.fwd.0.bias", "module.blocks.6.mlp.fwd.2.weight", "module.blocks.6.mlp.fwd.2.bias", "module.blocks.7.norm0.weight", "module.blocks.7.norm0.bias", "module.blocks.7.filter.filter.weight", "module.blocks.7.filter.filter.bias", "module.blocks.7.inner_skip.weight", "module.blocks.7.inner_skip.bias", "module.blocks.7.norm1.weight", "module.blocks.7.norm1.bias", "module.blocks.7.mlp.fwd.0.weight", "module.blocks.7.mlp.fwd.0.bias", "module.blocks.7.mlp.fwd.2.weight", "module.blocks.7.mlp.fwd.2.bias", "module.blocks.8.norm0.weight", "module.blocks.8.norm0.bias", "module.blocks.8.filter.filter.weight", "module.blocks.8.filter.filter.bias", "module.blocks.8.inner_skip.weight", "module.blocks.8.inner_skip.bias", "module.blocks.8.norm1.weight", "module.blocks.8.norm1.bias", "module.blocks.8.mlp.fwd.0.weight", "module.blocks.8.mlp.fwd.0.bias", "module.blocks.8.mlp.fwd.2.weight", "module.blocks.8.mlp.fwd.2.bias", "module.blocks.9.norm0.weight", "module.blocks.9.norm0.bias", "module.blocks.9.filter.filter.weight", "module.blocks.9.filter.filter.bias", "module.blocks.9.inner_skip.weight", "module.blocks.9.inner_skip.bias", "module.blocks.9.norm1.weight", "module.blocks.9.norm1.bias", "module.blocks.9.mlp.fwd.0.weight", "module.blocks.9.mlp.fwd.0.bias", "module.blocks.9.mlp.fwd.2.weight", "module.blocks.9.mlp.fwd.2.bias", "module.blocks.10.norm0.weight", "module.blocks.10.norm0.bias", "module.blocks.10.filter.filter.weight", "module.blocks.10.filter.filter.bias", "module.blocks.10.inner_skip.weight", "module.blocks.10.inner_skip.bias", "module.blocks.10.norm1.weight", "module.blocks.10.norm1.bias", "module.blocks.10.mlp.fwd.0.weight", "module.blocks.10.mlp.fwd.0.bias", "module.blocks.10.mlp.fwd.2.weight", "module.blocks.10.mlp.fwd.2.bias", "module.blocks.11.norm0.weight", "module.blocks.11.norm0.bias", "module.blocks.11.filter.filter.weight", "module.blocks.11.filter.filter.bias", "module.blocks.11.inner_skip.weight", "module.blocks.11.inner_skip.bias", "module.blocks.11.norm1.weight", "module.blocks.11.norm1.bias", "module.blocks.11.mlp.fwd.0.weight", "module.blocks.11.mlp.fwd.0.bias", "module.blocks.11.mlp.fwd.2.weight", "module.blocks.11.mlp.fwd.2.bias", "module.decoder.0.weight", "module.decoder.0.bias", "module.decoder.2.weight". 
+	Unexpected key(s) in state_dict: "pos_embed", "encoder.0.weight", "encoder.0.bias", "encoder.2.weight", "blocks.0.norm0.weight", "blocks.0.norm0.bias", "blocks.0.filter.filter.weight", "blocks.0.filter.filter.bias", "blocks.0.inner_skip.weight", "blocks.0.inner_skip.bias", "blocks.0.norm1.weight", "blocks.0.norm1.bias", "blocks.0.mlp.fwd.0.weight", "blocks.0.mlp.fwd.0.bias", "blocks.0.mlp.fwd.2.weight", "blocks.0.mlp.fwd.2.bias", "blocks.1.norm0.weight", "blocks.1.norm0.bias", "blocks.1.filter.filter.weight", "blocks.1.filter.filter.bias", "blocks.1.inner_skip.weight", "blocks.1.inner_skip.bias", "blocks.1.norm1.weight", "blocks.1.norm1.bias", "blocks.1.mlp.fwd.0.weight", "blocks.1.mlp.fwd.0.bias", "blocks.1.mlp.fwd.2.weight", "blocks.1.mlp.fwd.2.bias", "blocks.2.norm0.weight", "blocks.2.norm0.bias", "blocks.2.filter.filter.weight", "blocks.2.filter.filter.bias", "blocks.2.inner_skip.weight", "blocks.2.inner_skip.bias", "blocks.2.norm1.weight", "blocks.2.norm1.bias", "blocks.2.mlp.fwd.0.weight", "blocks.2.mlp.fwd.0.bias", "blocks.2.mlp.fwd.2.weight", "blocks.2.mlp.fwd.2.bias", "blocks.3.norm0.weight", "blocks.3.norm0.bias", "blocks.3.filter.filter.weight", "blocks.3.filter.filter.bias", "blocks.3.inner_skip.weight", "blocks.3.inner_skip.bias", "blocks.3.norm1.weight", "blocks.3.norm1.bias", "blocks.3.mlp.fwd.0.weight", "blocks.3.mlp.fwd.0.bias", "blocks.3.mlp.fwd.2.weight", "blocks.3.mlp.fwd.2.bias", "blocks.4.norm0.weight", "blocks.4.norm0.bias", "blocks.4.filter.filter.weight", "blocks.4.filter.filter.bias", "blocks.4.inner_skip.weight", "blocks.4.inner_skip.bias", "blocks.4.norm1.weight", "blocks.4.norm1.bias", "blocks.4.mlp.fwd.0.weight", "blocks.4.mlp.fwd.0.bias", "blocks.4.mlp.fwd.2.weight", "blocks.4.mlp.fwd.2.bias", "blocks.5.norm0.weight", "blocks.5.norm0.bias", "blocks.5.filter.filter.weight", "blocks.5.filter.filter.bias", "blocks.5.inner_skip.weight", "blocks.5.inner_skip.bias", "blocks.5.norm1.weight", "blocks.5.norm1.bias", "blocks.5.mlp.fwd.0.weight", "blocks.5.mlp.fwd.0.bias", "blocks.5.mlp.fwd.2.weight", "blocks.5.mlp.fwd.2.bias", "blocks.6.norm0.weight", "blocks.6.norm0.bias", "blocks.6.filter.filter.weight", "blocks.6.filter.filter.bias", "blocks.6.inner_skip.weight", "blocks.6.inner_skip.bias", "blocks.6.norm1.weight", "blocks.6.norm1.bias", "blocks.6.mlp.fwd.0.weight", "blocks.6.mlp.fwd.0.bias", "blocks.6.mlp.fwd.2.weight", "blocks.6.mlp.fwd.2.bias", "blocks.7.norm0.weight", "blocks.7.norm0.bias", "blocks.7.filter.filter.weight", "blocks.7.filter.filter.bias", "blocks.7.inner_skip.weight", "blocks.7.inner_skip.bias", "blocks.7.norm1.weight", "blocks.7.norm1.bias", "blocks.7.mlp.fwd.0.weight", "blocks.7.mlp.fwd.0.bias", "blocks.7.mlp.fwd.2.weight", "blocks.7.mlp.fwd.2.bias", "blocks.8.norm0.weight", "blocks.8.norm0.bias", "blocks.8.filter.filter.weight", "blocks.8.filter.filter.bias", "blocks.8.inner_skip.weight", "blocks.8.inner_skip.bias", "blocks.8.norm1.weight", "blocks.8.norm1.bias", "blocks.8.mlp.fwd.0.weight", "blocks.8.mlp.fwd.0.bias", "blocks.8.mlp.fwd.2.weight", "blocks.8.mlp.fwd.2.bias", "blocks.9.norm0.weight", "blocks.9.norm0.bias", "blocks.9.filter.filter.weight", "blocks.9.filter.filter.bias", "blocks.9.inner_skip.weight", "blocks.9.inner_skip.bias", "blocks.9.norm1.weight", "blocks.9.norm1.bias", "blocks.9.mlp.fwd.0.weight", "blocks.9.mlp.fwd.0.bias", "blocks.9.mlp.fwd.2.weight", "blocks.9.mlp.fwd.2.bias", "blocks.10.norm0.weight", "blocks.10.norm0.bias", "blocks.10.filter.filter.weight", "blocks.10.filter.filter.bias", "blocks.10.inner_skip.weight", "blocks.10.inner_skip.bias", "blocks.10.norm1.weight", "blocks.10.norm1.bias", "blocks.10.mlp.fwd.0.weight", "blocks.10.mlp.fwd.0.bias", "blocks.10.mlp.fwd.2.weight", "blocks.10.mlp.fwd.2.bias", "blocks.11.norm0.weight", "blocks.11.norm0.bias", "blocks.11.filter.filter.weight", "blocks.11.filter.filter.bias", "blocks.11.inner_skip.weight", "blocks.11.inner_skip.bias", "blocks.11.norm1.weight", "blocks.11.norm1.bias", "blocks.11.mlp.fwd.0.weight", "blocks.11.mlp.fwd.0.bias", "blocks.11.mlp.fwd.2.weight", "blocks.11.mlp.fwd.2.bias", "decoder.0.weight", "decoder.0.bias", "decoder.2.weight". . Attempting to fix "module." prefix mismatch...
+
+2026-05-11 10:36:43,074 - root - INFO - Added "module." prefix to checkpoint keys
+2026-05-11 10:36:43,076 - root - INFO - Successfully loaded checkpoint after fixing "module." prefix
+2026-05-11 10:36:43,076 - root - INFO - Restored from epoch 57, iteration 129789
+2026-05-11 10:36:43,076 - root - INFO - Successfully loaded checkpoint after fixing "module." prefix
+2026-05-11 10:36:43,076 - root - INFO - Restored from epoch 57, iteration 129789
+2026-05-11 10:36:43,077 - root - INFO - Loading model from checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-05-11 10:36:43,077 - root - INFO - Starting Model Inference Loop...
+2026-05-11 10:36:43,077 - root - INFO - Successfully loaded checkpoint after fixing "module." prefix
+2026-05-11 10:36:43,077 - root - INFO - Loading model from checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-05-11 10:36:43,077 - root - INFO - Restored from epoch 57, iteration 129789
+2026-05-11 10:36:43,078 - root - INFO - Starting Model Inference Loop...
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py:638: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py:638: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+2026-05-11 10:36:43,078 - root - INFO - Loading model from checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-05-11 10:36:43,079 - root - INFO - Starting Model Inference Loop...
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py:638: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+2026-05-11 10:36:43,088 - root - INFO - Added "module." prefix to checkpoint keys
+2026-05-11 10:36:43,092 - root - INFO - Successfully loaded checkpoint after fixing "module." prefix
+2026-05-11 10:36:43,092 - root - INFO - Restored from epoch 57, iteration 129789
+2026-05-11 10:36:43,093 - root - INFO - Loading model from checkpoint: /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-05-11 10:36:43,093 - root - INFO - Starting Model Inference Loop...
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py:638: FutureWarning: `torch.cuda.amp.autocast(args...)` is deprecated. Please use `torch.amp.autocast('cuda', args...)` instead.
+  with torch.inference_mode(), amp.autocast(enabled=self.params.enable_amp):
+Ensemble forecast 0, members 0-1:   0%|          | 0/56 [00:00<?, ?it/s]2026-05-11 10:37:02,676 - root - INFO - ===== STEPPER predict_sync: FIRST FORWARD PASS DIAGNOSTIC =====
+2026-05-11 10:37:02,676 - root - INFO - input_surface shape: torch.Size([1, 8, 180, 360]), dtype: torch.float32
+2026-05-11 10:37:03,517 - root - INFO - input_surface[:1,:,0,0]: tensor([[-1.4311, -0.7175,  0.7230, -2.8071, -0.1870, -1.1341, -0.3479,  1.1018]],
+       device='cuda:0')
+2026-05-11 10:37:03,524 - root - INFO - input_surface stats: min=-4.775639, max=5.639477, mean=0.159814
+2026-05-11 10:37:03,524 - root - INFO - constant_boundary_data shape: torch.Size([1, 4, 180, 360])
+2026-05-11 10:37:03,525 - root - INFO - constant_boundary_data[:1,:,0,0]: tensor([[ 2.8279,  1.2951, -0.5940,  2.7703]], device='cuda:0')
+2026-05-11 10:37:03,525 - root - INFO - varying_boundary_data[:,0] shape: torch.Size([1, 3, 180, 360])
+2026-05-11 10:37:03,526 - root - INFO - varying_boundary_data[:1,0,:,0,0]: tensor([[ 1.2916, -0.3275,  0.5966]], device='cuda:0')
+2026-05-11 10:37:03,526 - root - INFO - input_upper_air shape: torch.Size([1, 5, 18, 180, 360])
+2026-05-11 10:37:03,528 - root - INFO - input_upper_air[:1,:,:,0,0]: tensor([[[ 1.3991e+00,  1.4691e+00,  2.0387e+00,  2.0225e+00,  2.6189e+00,
+           2.3401e+00,  1.8111e+00,  1.9227e+00,  1.6108e+00,  7.2475e-01,
+           1.1038e-02, -1.3938e+00, -1.5996e+00, -1.7406e+00, -1.7500e+00,
+          -1.6135e+00, -1.5013e+00, -1.6622e+00],
+         [-2.4630e-01, -4.4766e-01, -2.2082e-01, -2.7230e-01, -7.0408e-01,
+          -6.8260e-01, -1.0341e+00, -9.8746e-01, -9.9046e-01, -9.0004e-01,
+          -8.2273e-01, -6.2467e-01, -5.3538e-01, -5.7032e-01, -3.5703e-01,
+          -5.1701e-01, -2.9915e-01, -4.7179e-01],
+         [-1.3713e-01,  7.7364e-02, -2.2546e-01, -2.3922e-02, -6.4472e-02,
+          -1.8691e-01,  2.7199e-02, -1.2620e-01, -1.7145e-01, -2.2290e-03,
+           4.1479e-02,  2.1179e-01,  1.3018e-01,  6.6276e-02, -1.1861e-01,
+          -3.6834e-01, -4.3267e-01, -5.1953e-01],
+         [ 1.4474e+00,  1.3603e+00,  1.3870e+00,  1.2555e+00,  8.2423e-01,
+           3.9114e-01, -1.9214e-01, -6.8842e-01, -4.1049e-01,  2.7175e-01,
+           1.0008e+00,  2.0009e+00,  2.6458e+00,  2.8468e+00,  3.0102e+00,
+           2.9702e+00,  3.0099e+00,  3.1595e+00],
+         [-4.0953e-01, -3.8255e-01, -2.3658e-01, -2.5175e-01, -4.3692e-01,
+          -7.6994e-01, -4.9409e-01, -6.5800e-01, -9.5297e-01, -1.3659e+00,
+          -1.5400e+00,  1.6994e-02, -1.5404e-01, -3.3328e-01, -2.0706e-01,
+          -3.9836e-01, -4.4561e-01,  7.5236e-01]]], device='cuda:0')
+2026-05-11 10:37:03,563 - root - INFO - Model training mode: False
+2026-05-11 10:37:03,564 - root - INFO - Raw model training mode: False
+2026-05-11 10:37:06,722 - root - INFO - out_surface shape: torch.Size([1, 8, 180, 360]), dtype: torch.float16
+2026-05-11 10:37:06,724 - root - INFO - out_surface[:1,:,0,0]: tensor([[-1.3984, -0.7192,  0.8726, -2.9297, -0.2593, -1.0947, -0.4956,  0.9634]],
+       device='cuda:0', dtype=torch.float16)
+2026-05-11 10:37:06,724 - root - INFO - out_surface stats: min=-4.769531, max=5.523438, mean=0.156250
+2026-05-11 10:37:06,726 - root - INFO - out_upper_air[:1,:,:,0,0]: tensor([[[ 1.4492,  1.5332,  1.7930,  2.1387,  2.5195,  2.1953,  1.8506,
+           1.8320,  1.5576,  0.6572, -0.0502, -1.2842, -1.6768, -1.7676,
+          -1.7295, -1.6104, -1.5469, -1.4023],
+         [-0.4202, -0.3552, -0.3501, -0.4187, -0.5693, -0.7769, -1.0938,
+          -1.1094, -1.0205, -0.9033, -0.8301, -0.5493, -0.4182, -0.4048,
+          -0.3579, -0.3401, -0.2690, -0.3643],
+         [-0.0599, -0.2129, -0.1315, -0.2205, -0.2559, -0.2336, -0.1595,
+          -0.0664,  0.0349,  0.0156,  0.0169,  0.0729,  0.0106, -0.0890,
+          -0.2537, -0.3247, -0.3694, -0.5332],
+         [ 1.5332,  1.4268,  1.3057,  1.1328,  0.7109,  0.2959, -0.1588,
+          -0.5542, -0.4153,  0.3657,  0.9297,  1.8535,  2.5625,  2.8848,
+           2.9941,  3.0488,  3.0488,  3.0391],
+         [-0.3328, -0.3279, -0.2942, -0.3110, -0.4592, -0.6763, -0.6304,
+          -0.7188, -0.9365, -1.3115, -1.4648, -0.1630,  0.1196, -0.0589,
+          -0.1450, -0.2661, -0.1484,  0.8828]]], device='cuda:0',
+       dtype=torch.float16)
+2026-05-11 10:37:06,726 - root - INFO - ===== END STEPPER FIRST FORWARD PASS DIAGNOSTIC =====
+Ensemble forecast 0, members 0-1:   2%|1         | 1/56 [00:04<03:44,  4.08s/it]Ensemble forecast 0, members 0-1:   4%|3         | 2/56 [00:04<01:33,  1.74s/it]Ensemble forecast 0, members 0-1:   5%|5         | 3/56 [00:04<00:52,  1.01it/s]Ensemble forecast 0, members 0-1:   9%|8         | 5/56 [00:04<00:24,  2.06it/s]Ensemble forecast 0, members 0-1:  12%|#2        | 7/56 [00:04<00:15,  3.20it/s]Ensemble forecast 0, members 0-1:  16%|#6        | 9/56 [00:04<00:10,  4.38it/s]Ensemble forecast 0, members 0-1:  20%|#9        | 11/56 [00:05<00:08,  5.52it/s]Ensemble forecast 0, members 0-1:  23%|##3       | 13/56 [00:05<00:06,  6.58it/s]Ensemble forecast 0, members 0-1:  27%|##6       | 15/56 [00:05<00:05,  7.51it/s]Ensemble forecast 0, members 0-1:  30%|###       | 17/56 [00:05<00:04,  8.29it/s]Ensemble forecast 0, members 0-1:  34%|###3      | 19/56 [00:05<00:04,  8.90it/s]Ensemble forecast 0, members 0-1:  38%|###7      | 21/56 [00:06<00:03,  9.36it/s]Ensemble forecast 0, members 0-1:  41%|####1     | 23/56 [00:06<00:03,  9.69it/s]Ensemble forecast 0, members 0-1:  45%|####4     | 25/56 [00:06<00:03,  9.91it/s]Ensemble forecast 0, members 0-1:  48%|####8     | 27/56 [00:06<00:02, 10.07it/s]Ensemble forecast 0, members 0-1:  52%|#####1    | 29/56 [00:06<00:02, 10.17it/s]Ensemble forecast 0, members 0-1:  55%|#####5    | 31/56 [00:06<00:02, 10.24it/s]Ensemble forecast 0, members 0-1:  59%|#####8    | 33/56 [00:07<00:02, 10.29it/s]Ensemble forecast 0, members 0-1:  62%|######2   | 35/56 [00:07<00:02, 10.33it/s]Ensemble forecast 0, members 0-1:  66%|######6   | 37/56 [00:07<00:01, 10.32it/s]Ensemble forecast 0, members 0-1:  70%|######9   | 39/56 [00:07<00:01, 10.21it/s]Ensemble forecast 0, members 0-1:  73%|#######3  | 41/56 [00:07<00:01, 10.15it/s]Ensemble forecast 0, members 0-1:  77%|#######6  | 43/56 [00:08<00:01, 10.14it/s]Ensemble forecast 0, members 0-1:  80%|########  | 45/56 [00:08<00:01, 10.15it/s]Ensemble forecast 0, members 0-1:  84%|########3 | 47/56 [00:08<00:00, 10.17it/s]Ensemble forecast 0, members 0-1:  88%|########7 | 49/56 [00:08<00:00, 10.19it/s]Ensemble forecast 0, members 0-1:  91%|#########1| 51/56 [00:08<00:00, 10.21it/s]Ensemble forecast 0, members 0-1:  95%|#########4| 53/56 [00:09<00:00, 10.23it/s]Ensemble forecast 0, members 0-1:  98%|#########8| 55/56 [00:09<00:00, 10.19it/s]Ensemble forecast 0, members 0-1: 100%|##########| 56/56 [00:09<00:00,  5.95it/s]
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 211, in _acquire_with_cache_info
+[rank0]:     file = self._cache[self._key]
+[rank0]:            ~~~~~~~~~~~^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/lru_cache.py", line 56, in __getitem__
+[rank0]:     value = self._cache[key]
+[rank0]:             ~~~~~~~~~~~^^^^^
+[rank0]: KeyError: [<class 'netCDF4._netCDF4.Dataset'>, ('/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001_run.0000-0001_output.nc',), 'a', (('clobber', True), ('diskless', False), ('format', 'NETCDF4'), ('persist', False)), '4413e288-2893-4551-b472-c63c2bff1524']
+
+[rank0]: During handling of the above exception, another exception occurred:
+
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1455, in <module>
+[rank0]:     stepper.predict()
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 448, in predict
+[rank0]:     valid_time, valid_logs = self.predict_sync()
+[rank0]:                              ^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 829, in predict_sync
+[rank0]:     self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1113, in save_prediction
+[rank0]:     dataset.to_netcdf(filepath, mode='w', compute=True, format="NETCDF4")
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/core/dataset.py", line 2380, in to_netcdf
+[rank0]:     return to_netcdf(  # type: ignore[return-value]  # mypy cannot resolve the overloads:(
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/api.py", line 1911, in to_netcdf
+[rank0]:     store = store_open(target, mode, format, group, **kwargs)
+[rank0]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 452, in open
+[rank0]:     return cls(manager, group=group, mode=mode, lock=lock, autoclose=autoclose)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 393, in __init__
+[rank0]:     self.format = self.ds.data_model
+[rank0]:                   ^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 461, in ds
+[rank0]:     return self._acquire()
+[rank0]:            ^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 455, in _acquire
+[rank0]:     with self._manager.acquire_context(needs_lock) as root:
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/contextlib.py", line 137, in __enter__
+[rank0]:     return next(self.gen)
+[rank0]:            ^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 199, in acquire_context
+[rank0]:     file, cached = self._acquire_with_cache_info(needs_lock)
+[rank0]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 217, in _acquire_with_cache_info
+[rank0]:     file = self._opener(*self._args, **kwargs)
+[rank0]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "src/netCDF4/_netCDF4.pyx", line 2521, in netCDF4._netCDF4.Dataset.__init__
+[rank0]:   File "src/netCDF4/_netCDF4.pyx", line 2158, in netCDF4._netCDF4._ensure_nc_success
+[rank0]: PermissionError: [Errno 13] Permission denied: '/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001_run.0000-0001_output.nc'
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 211, in _acquire_with_cache_info
+[rank2]:     file = self._cache[self._key]
+[rank2]:            ~~~~~~~~~~~^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/lru_cache.py", line 56, in __getitem__
+[rank2]:     value = self._cache[key]
+[rank2]:             ~~~~~~~~~~~^^^^^
+[rank2]: KeyError: [<class 'netCDF4._netCDF4.Dataset'>, ('/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001_run.0000-0001_output.nc',), 'a', (('clobber', True), ('diskless', False), ('format', 'NETCDF4'), ('persist', False)), '482e7285-4bdc-4372-99b9-a94beefe76ba']
+
+[rank2]: During handling of the above exception, another exception occurred:
+
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1455, in <module>
+[rank2]:     stepper.predict()
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 448, in predict
+[rank2]:     valid_time, valid_logs = self.predict_sync()
+[rank2]:                              ^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 829, in predict_sync
+[rank2]:     self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1113, in save_prediction
+[rank2]:     dataset.to_netcdf(filepath, mode='w', compute=True, format="NETCDF4")
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/core/dataset.py", line 2380, in to_netcdf
+[rank2]:     return to_netcdf(  # type: ignore[return-value]  # mypy cannot resolve the overloads:(
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/api.py", line 1911, in to_netcdf
+[rank2]:     store = store_open(target, mode, format, group, **kwargs)
+[rank2]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 452, in open
+[rank2]:     return cls(manager, group=group, mode=mode, lock=lock, autoclose=autoclose)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 393, in __init__
+[rank2]:     self.format = self.ds.data_model
+[rank2]:                   ^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 461, in ds
+[rank2]:     return self._acquire()
+[rank2]:            ^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 455, in _acquire
+[rank2]:     with self._manager.acquire_context(needs_lock) as root:
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/contextlib.py", line 137, in __enter__
+[rank2]:     return next(self.gen)
+[rank2]:            ^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 199, in acquire_context
+[rank2]:     file, cached = self._acquire_with_cache_info(needs_lock)
+[rank2]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 217, in _acquire_with_cache_info
+[rank2]:     file = self._opener(*self._args, **kwargs)
+[rank2]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "src/netCDF4/_netCDF4.pyx", line 2521, in netCDF4._netCDF4.Dataset.__init__
+[rank2]:   File "src/netCDF4/_netCDF4.pyx", line 2158, in netCDF4._netCDF4._ensure_nc_success
+[rank2]: PermissionError: [Errno 13] Permission denied: '/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001_run.0000-0001_output.nc'
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 211, in _acquire_with_cache_info
+[rank1]:     file = self._cache[self._key]
+[rank1]:            ~~~~~~~~~~~^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/lru_cache.py", line 56, in __getitem__
+[rank1]:     value = self._cache[key]
+[rank1]:             ~~~~~~~~~~~^^^^^
+[rank1]: KeyError: [<class 'netCDF4._netCDF4.Dataset'>, ('/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001_run.0000-0001_output.nc',), 'a', (('clobber', True), ('diskless', False), ('format', 'NETCDF4'), ('persist', False)), '9a16ec33-f189-4251-a5fa-520c4b390400']
+
+[rank1]: During handling of the above exception, another exception occurred:
+
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1455, in <module>
+[rank1]:     stepper.predict()
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 448, in predict
+[rank1]:     valid_time, valid_logs = self.predict_sync()
+[rank1]:                              ^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 829, in predict_sync
+[rank1]:     self.save_prediction(ensemble_datasets, particle_idxs, ensemble_start, ensemble_end)
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1113, in save_prediction
+[rank1]:     dataset.to_netcdf(filepath, mode='w', compute=True, format="NETCDF4")
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/core/dataset.py", line 2380, in to_netcdf
+[rank1]:     return to_netcdf(  # type: ignore[return-value]  # mypy cannot resolve the overloads:(
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/api.py", line 1911, in to_netcdf
+[rank1]:     store = store_open(target, mode, format, group, **kwargs)
+[rank1]:             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 452, in open
+[rank1]:     return cls(manager, group=group, mode=mode, lock=lock, autoclose=autoclose)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 393, in __init__
+[rank1]:     self.format = self.ds.data_model
+[rank1]:                   ^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 461, in ds
+[rank1]:     return self._acquire()
+[rank1]:            ^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/netCDF4_.py", line 455, in _acquire
+[rank1]:     with self._manager.acquire_context(needs_lock) as root:
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/contextlib.py", line 137, in __enter__
+[rank1]:     return next(self.gen)
+[rank1]:            ^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 199, in acquire_context
+[rank1]:     file, cached = self._acquire_with_cache_info(needs_lock)
+[rank1]:                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/xarray/backends/file_manager.py", line 217, in _acquire_with_cache_info
+[rank1]:     file = self._opener(*self._args, **kwargs)
+[rank1]:            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "src/netCDF4/_netCDF4.pyx", line 2521, in netCDF4._netCDF4.Dataset.__init__
+[rank1]:   File "src/netCDF4/_netCDF4.pyx", line 2158, in netCDF4._netCDF4._ensure_nc_success
+[rank1]: PermissionError: [Errno 13] Permission denied: '/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001_run.0000-0001_output.nc'
+2026-05-11 10:37:15,224 - root - INFO - Validation logs: {'total_time': 32.14509916305542, 'data_time': 0, 'inference_time': 9.257513999938965, 'conversion_time': 0.26444101333618164, 'obs_time': 0, 'save_time': 2.992035150527954}
+2026-05-11 10:37:15,233 - root - INFO - DONE ---- rank 3
+W0511 10:37:18.003000 18355 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 22873 closing signal SIGTERM
+W0511 10:37:18.004000 18355 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 22874 closing signal SIGTERM
+W0511 10:37:18.004000 18355 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 22875 closing signal SIGTERM
+E0511 10:37:18.896000 18355 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 0 (pid: 22872) of binary: /glade/work/jesswan/conda-envs/sfno_pangu/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 208, in <module>
+    main()
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/typing_extensions.py", line 2853, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 204, in main
+    launch(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 189, in launch
+    run(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-05-11_10:37:18
+  host      : deg0068.hsn.de.hpc.ucar.edu
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 22872)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

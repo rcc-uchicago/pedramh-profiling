@@ -49,3 +49,13 @@ core*
 .*.swp
 .*.swo
 *~
+
+# --- Polaris (PBS) bring-up artifacts ---
+polaris_logs/
+*.o[0-9]*
+*.e[0-9]*
+nsys_*.nsys-rep
+nsys_*.sqlite
+
+# Polaris SI bench: one CSV per job id (numbers live in polaris_pbs_notes.md)
+si/bench_polaris_results_*.csv

@@ -1,0 +1,83 @@
+#!/bin/bash -l
+#PBS -N pangu_plasim_train
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/pangu_plasim_train.log
+# ============================================================================
+# PanguWeather **deterministic** (nettype pangu_plasim, --config=PLASIM) Polaris
+# launcher — handoff deliverable 6: the original Pangu-Weather 3D Earth-Specific
+# transformer. Deterministic: no VAE ensemble, no CRPS+KL (a lat-weighted MSE/L2),
+# and its OWN config + PLASIM loader — this is NOT S2S's exp2.yaml/loss.
+#
+# Launcher: the S2S wrap — torchrun --standalone --nproc_per_node=4. train.py inits
+# with dist.init_process_group('nccl', init_method='env://') and reads WORLD_SIZE.
+#
+# ⚠ BLOCKED ON DATA: the PLASIM h5 archive is NOT staged on Polaris. The Derecho
+#   config wants /glade/derecho/scratch/awikner/PLASIM/data/h5/plev_data (64x128 grid,
+#   years 12-112) + stats data_12-111_{mean,std}.nc + mean_daily_climatology_time_pl.nc.
+#   Unblock = Globus-stage that tree from NCAR glade to eagle, then point PLASIM_CONFIG
+#   at a repointed copy. The *runnable* PanguWeather path today is the SFNO-on-E3SM
+#   smoke (polaris_train_e3sm_sfno.pbs) — GREEN, job 7252271.
+#
+# Submit:  cd PanguWeather/v2.0 && qsub HPC_scripts/polaris_training_plasim.pbs
+#          (1-GPU rung: qsub -v NPROC=1 ...)
+# PASS = "DONE ---- rank 0" with a finite per-epoch Loss and no traceback.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda
+conda activate base                       # base keeps torch_harmonics 0.7.4 (Pangu path)
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
+
+NPROC="${NPROC:-4}"
+# Repoint this to a Polaris copy once the PLASIM tree is staged.
+PLASIM_CONFIG="${PLASIM_CONFIG:-config/PANGU_PLASIM_H5_DERECHO_0518.yaml}"
+RUN_NUM="polaris_plasim_${PBS_JOBID%%.*}"
+
+echo "=== pangu_plasim_train: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  config=${PLASIM_CONFIG}"
+nvidia-smi -L
+
+# ---- preflight: the PLASIM data must be staged (fails deep in the loader otherwise) ----
+DATA_DIR="$(python -c "
+import sys
+from ruamel.yaml import YAML
+c = YAML(typ='safe').load(open('${PLASIM_CONFIG}'))
+print(c.get('PLASIM', {}).get('data_dir', ''))
+" 2>/dev/null)"
+if [ -z "${DATA_DIR}" ] || [ ! -d "${DATA_DIR}" ]; then
+    echo "ERROR PLASIM_NOT_STAGED: data_dir '${DATA_DIR}' does not exist on Polaris."
+    echo "  The deterministic Pangu path needs the PLASIM h5 tree Globus-staged from NCAR glade"
+    echo "  (see this script's header). The runnable PanguWeather smoke today is"
+    echo "  HPC_scripts/polaris_train_e3sm_sfno.pbs (SFNO on the staged E3SM data)."
+    exit 2
+fi
+
+echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    train.py \
+    --yaml_config="${PLASIM_CONFIG}" \
+    --run_num="${RUN_NUM}" \
+    --config=PLASIM \
+    --fresh_start \
+    --epochs 1
+rc=$?
+echo "=== pangu_plasim_train done (torchrun rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

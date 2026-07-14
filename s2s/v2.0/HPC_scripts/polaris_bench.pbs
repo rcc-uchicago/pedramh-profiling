@@ -1,0 +1,85 @@
+#!/bin/bash -l
+#PBS -N s2s_polaris_bench
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/s2s_polaris_bench.log
+# ============================================================================
+# S2S (canonical) Polaris bench smoke — PBS analog of HPC_scripts/midway_bench_nsys.sh.
+# Launcher: torchrun --standalone (no srun/mpiexec). S2S_BENCH bounds the run to
+# S2S_BENCH_WARMUP + S2S_BENCH_STEPS steps and writes a bench_results.csv row.
+#
+# ⚠ BLOCKED ON DATA: ERA5 HDF5 (year-2020 h5 + the 5 pangu_s2s_1979-2018_*.nc stats
+#   + 1979-2018_mean_climatology.nc) is NOT staged on Polaris. Globus-stage Midway
+#   /project/pedramh/h5data/h5data into the data_dir below, then this runs green.
+#   The launcher/env/imports are already proven by polaris_probe (PROBE_OK).
+#
+# Submit from THIS directory (the ../.. path math below needs PBS_O_WORKDIR=HPC_scripts):
+#   cd s2s/v2.0/HPC_scripts
+#   qsub polaris_bench.pbs                  # 4-GPU
+#   qsub -v NPROC=1 polaris_bench.pbs       # 1-GPU rung
+#   qsub -v S2S_NSYS=1 polaris_bench.pbs    # + nsys profile
+# PASS = a new bench_results.csv row + the bench summary line in the log.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                          # submit from s2s/v2.0/HPC_scripts
+S2S_ROOT="$(cd "${PBS_O_WORKDIR}/../.." && pwd)"   # .../s2s
+V20="${S2S_ROOT}/v2.0"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${V20}:${PYTHONPATH:-}"
+
+# Bench knobs (match midway_bench_nsys.sh; smaller counts for a Polaris smoke).
+export S2S_BENCH=1
+export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-5}"
+export S2S_BENCH_STEPS="${S2S_BENCH_STEPS:-20}"
+export S2S_AMP_DTYPE=bf16
+export S2S_NVTX="${S2S_NVTX:-0}"
+
+NPROC="${NPROC:-4}"
+CONFIG_FILE="${V20}/config/exp2_polaris.yaml"
+export S2S_BENCH_CSV="${PBS_O_WORKDIR}/bench_results_polaris.csv"
+RUN_NUM="polaris_bench_${PBS_JOBID%%.*}"
+
+echo "=== s2s_polaris_bench: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
+nvidia-smi -L
+
+# ---- preflight: ERA5 must be staged (loader resolves stats via join(data_dir, name)) ----
+DATA_DIR="$(python -c "import yaml,sys; print(yaml.safe_load(open('${CONFIG_FILE}'))['S2S']['data_dir'])")"
+if [ ! -d "${DATA_DIR}" ]; then
+    echo "ERROR ERA5_NOT_STAGED: data_dir '${DATA_DIR}' does not exist."
+    echo "  Globus-stage Midway /project/pedramh/h5data/h5data (year-2020 *.h5 + the 5"
+    echo "  pangu_s2s_1979-2018_*.nc stats + 1979-2018_mean_climatology.nc) into it."
+    exit 2
+fi
+
+cd "${S2S_ROOT}"
+LAUNCH=(torchrun --standalone --nproc_per_node="${NPROC}" \
+        "${V20}/train.py" --yaml_config="${CONFIG_FILE}" --run_num="${RUN_NUM}")
+if [ "${S2S_NSYS:-0}" = "1" ]; then
+    export S2S_NVTX=1
+    nsys profile --trace=cuda,nvtx,cudnn,cublas,osrt \
+        --capture-range=cudaProfilerApi --capture-range-end=stop \
+        --output="${PBS_O_WORKDIR}/nsys_polaris_${RUN_NUM}" --force-overwrite=true \
+        "${LAUNCH[@]}"
+else
+    "${LAUNCH[@]}"
+fi
+rc=$?
+echo "=== s2s_polaris_bench done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

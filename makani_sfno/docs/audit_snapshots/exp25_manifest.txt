@@ -1,0 +1,28 @@
+=== dimensions ===
+lat = 64 ;
+lev = 10 ;
+lev_2 = 13 ;
+lon = 128 ;
+time = UNLIMITED ; // (1459 currently)
+=== variables ===
+	double lat(lat) ;
+	double lev_2(lev_2) ;
+	double lev(lev) ;
+	double lon(lon) ;
+	double time(time) ;
+	float hus(time, lev, lat, lon) ;
+	float pl(time, lat, lon) ;
+	float pr_6h(time, lat, lon) ;
+	float pr(time, lat, lon) ;
+	float tas(time, lat, lon) ;
+	float ta(time, lev, lat, lon) ;
+	float ua(time, lev, lat, lon) ;
+	float va(time, lev, lat, lon) ;
+	float zg(time, lev_2, lat, lon) ;
+=== lev (sigma) coordinate values ===
+lev=0.0383000001311302,0.119100004434586,0.21085000783205,0.316850006580353,0.436800003051758,0.566800028085709,0.699350088834763,0.823350071907043,0.924099981784821,0.983299970626831
+=== lev_2 (pressure) coordinate values ===
+lev_2=50,100,150,200,250,300,400,500,600,700,850,925,1000
+=== lat/lon shape (sanity) ===
+	lat = 64 ;
+	lon = 128 ;

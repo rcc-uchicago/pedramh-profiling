@@ -1,0 +1,14 @@
+.idea/
+examples/pangu_lite/data/test
+examples/pangu_lite/data/train
+examples/pangu_lite/data/valid
+dist/
+papers/
+examples/pangu_lite/temp.ipynb
+examples/pangu_lite/slurm*
+examples/pangu_lite/epochs/
+examples/pangu_lite/bench/
+__pycache__/
+inference/slurm*
+inference/pangu_weather_24.onnx
+inference/bench

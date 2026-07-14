@@ -1,0 +1,534 @@
+conda ()
+{ 
+    \local cmd="${1-__missing__}";
+    case "$cmd" in 
+        activate | deactivate)
+            __conda_activate "$@"
+        ;;
+        install | update | upgrade | remove | uninstall)
+            __conda_exe "$@" || \return;
+            __conda_reactivate
+        ;;
+        *)
+            __conda_exe "$@"
+        ;;
+    esac
+}
+Mon Jun  8 19:10:39 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 590.48.01              Driver Version: 590.48.01      CUDA Version: 13.1     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA H100                    On  |   00000000:4C:00.0 Off |                    0 |
+| N/A   19C    P0             68W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   1  NVIDIA H100                    On  |   00000000:5D:00.0 Off |                    0 |
+| N/A   19C    P0             66W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   2  NVIDIA H100                    On  |   00000000:CC:00.0 Off |                    0 |
+| N/A   20C    P0             67W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+|   3  NVIDIA H100                    On  |   00000000:DC:00.0 Off |                    0 |
+| N/A   19C    P0             66W /  700W |       0MiB /  95830MiB |      0%      Default |
+|                                         |                        |             Disabled |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+Has diagnostic: TrueHas diagnostic: True
+Has diagnostic: Truevalidation epochs arg:
+ validation epochs arg:
+ 
+validation epochs arg:
+ World size from OS: 4
+World size from OS: 4
+4
+
+4World size from OS: 4
+
+4
+Has diagnostic: True
+validation epochs arg: 
+World size from OS: 4
+4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from Cuda: 4
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4
+World size from Cuda: 4
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+World size from OS: 4World size from OS: 4
+
+World size from Cuda: 4
+World size from Cuda: 4NVIDIA H100
+
+NVIDIA H100
+Memory Allocated: 0.00 MB
+Memory Allocated: 0.00 MB
+Memory Cached: 0.00 MB
+Memory Cached: 0.00 MB
+Using PyTorch nativeUsing PyTorch nativeUsing PyTorch native
+
+
+Using PyTorch native
+Hours: 218994.0
+End data hour: 218994.0
+Hours: 218994.0Hours: 218994.0
+
+End data hour: 218994.0End data hour: 218994.0
+
+Hours: 218994.0
+End data hour: 218994.0
+Len(inference_idxs): 36499Len(inference_idxs): 36499Len(inference_idxs): 36499Len(inference_idxs): 36499
+
+
+
+Hours: 43794.0Hours: 43794.0
+End data hour: 43794.0
+
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Len(inference_idxs): 129
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+Start date: 2045-01-01_00:00:00End data hour: 43794.0
+
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Start date: 2045-01-01_00:00:00
+End date: 2050-01-01_00:00:00
+Hours: 43794.0
+End data hour: 43794.0
+Len(inference_idxs): 7300
+Len(inference_idxs): 7300
+Len(inference_idxs): 7300Len(inference_idxs): 7300
+
+For sigma level training, disabling diagnostic ACC and diagnostic spectraFor sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+
+Running SFNO model
+
+
+
+Running SFNO model
+
+
+
+data_grid legendre-gaussdata_grid
+params  legendre-gauss
+<networks.modulus_sfno.sfnonet.Params object at 0x148499763450>params
+ <networks.modulus_sfno.sfnonet.Params object at 0x149e688bbb50>
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x148cca22e110>
+For sigma level training, disabling diagnostic ACC and diagnostic spectra
+
+
+Running SFNO model
+
+
+data_grid legendre-gauss
+params <networks.modulus_sfno.sfnonet.Params object at 0x147972ebd890>
+Validating...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Plotting Bias
+Bias pred: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.1 225.2 228.3 ... 255.9 255.9
+    U10             (lat, lon) float32 259kB 5.813 5.63 6.046 ... 6.545 6.661
+    RHREFHT         (lat, lon) float32 259kB 95.5 97.46 95.8 ... 102.3 100.5
+    PS              (lat, lon) float32 259kB 6.746e+04 6.977e+04 ... 1.01e+05
+    PSL             (lat, lon) float32 259kB 1.001e+05 1.003e+05 ... 1.002e+05
+    TMQ             (lat, lon) float32 259kB 0.3005 0.2629 ... 2.901 3.658
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.8204 3.912 1.16 ... 8.244 8.561
+    TSOI_10CM       (lat, lon) float32 259kB 229.0 225.0 220.0 ... 289.3 286.0
+    FSNTOA          (lat, lon) float32 259kB 40.1 11.61 29.11 ... 32.53 36.05
+    FSNT            (lat, lon) float32 259kB 48.37 40.08 46.27 ... 26.74 7.59
+    PRECT           (lat, lon) float32 259kB 4.108e-09 1.13e-08 ... 2.474e-08
+    T               (lev, lat, lon) float32 5MB 237.2 236.6 ... 254.1 253.7
+    U               (lev, lat, lon) float32 5MB 7.565 14.57 ... 1.437 1.088
+    V               (lev, lat, lon) float32 5MB -0.9727 -3.102 ... -3.778 -4.464
+    Z3              (lev, lat, lon) float32 5MB 3.52e+04 3.514e+04 ... -27.31
+    RELHUM          (lev, lat, lon) float32 5MB -0.01942 -0.01896 ... 99.45
+Bias gt: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.9 224.9 224.9 ... 260.4 260.4
+    U10             (lat, lon) float32 259kB 4.466 4.466 4.466 ... 4.526 4.526
+    RHREFHT         (lat, lon) float32 259kB 103.2 103.2 103.2 ... 100.6 100.6
+    PS              (lat, lon) float32 259kB 6.733e+04 6.733e+04 ... 1.016e+05
+    PSL             (lat, lon) float32 259kB 9.989e+04 9.989e+04 ... 1.016e+05
+    TMQ             (lat, lon) float32 259kB 0.6321 0.6321 ... 7.439 7.439
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.0 0.0 0.0 0.0 ... nan nan nan nan
+    TSOI_10CM       (lat, lon) float32 259kB 224.1 224.0 224.0 ... nan nan nan
+    FSNTOA          (lat, lon) float32 259kB 51.59 51.59 51.59 ... 68.3 68.3
+    FSNT            (lat, lon) float32 259kB 51.5 51.5 51.5 ... 68.2 68.2 68.2
+    PRECT           (lat, lon) float32 259kB 1.829e-09 1.829e-09 ... 8.678e-09
+    T               (lev, lat, lon) float32 5MB 233.4 233.4 ... 260.4 260.4
+    U               (lev, lat, lon) float32 5MB -4.136 -4.136 ... -0.3109
+    V               (lev, lat, lon) float32 5MB -2.9 -2.9 ... -0.5478 -0.5478
+    Z3              (lev, lat, lon) float32 5MB 3.43e+04 3.43e+04 ... 11.53
+    RELHUM          (lev, lat, lon) float32 5MB 0.04281 0.04281 ... 100.8 100.8
+Var level dict: {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+Available variables: ['Z3', 'U', 'T', 'TREFHT']
+Saved bias plot (level value heuristic) to: /work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016/plots/bias/bias_epoch_1.png
+
+Finished Bias Plots...
+Validating batch 1/8
+Validating batch 2/8
+Validating batch 3/8
+Validating batch 4/8
+Validating batch 5/8
+Validating batch 6/8
+Validating batch 7/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.0880, device='cuda:0'), 'valid_loss_sfc': tensor(0.0250, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0425, device='cuda:0'), 'valid_loss_diag': tensor(0.1569, device='cuda:0'), 'valid_loss_1step': 0.08795557916164398, 'valid_loss_12step': 0.616678774356842, 'valid_loss_20step': 0.928498387336731, 'valid_loss_40step': 1.3380873203277588, 'valid_loss_60step': 1.4576563835144043, 'valid_Z3_492_1step_acc': 0.9112728238105774, 'valid_Z3_492_1step_rmse': 26.604473114013672, 'valid_U_256_1step_acc': 0.9550313949584961, 'valid_U_256_1step_rmse': 3.745290994644165, 'valid_T_849_1step_acc': 0.9104177951812744, 'valid_T_849_1step_rmse': 1.3560614585876465, 'valid_TREFHT_1step_acc': 0.8399630188941956, 'valid_TREFHT_1step_rmse': 1.6886255741119385, 'valid_Z3_492_12step_acc': 0.4037022888660431, 'valid_Z3_492_12step_rmse': 85.38175964355469, 'valid_U_256_12step_acc': 0.4470910131931305, 'valid_U_256_12step_rmse': 12.509241104125977, 'valid_T_849_12step_acc': 0.41621705889701843, 'valid_T_849_12step_rmse': 3.623884677886963, 'valid_TREFHT_12step_acc': 0.42591720819473267, 'valid_TREFHT_12step_rmse': 3.581461191177368, 'valid_Z3_492_20step_acc': 0.12709568440914154, 'valid_Z3_492_20step_rmse': 138.905029296875, 'valid_U_256_20step_acc': 0.16703781485557556, 'valid_U_256_20step_rmse': 16.06432342529297, 'valid_T_849_20step_acc': 0.1147165596485138, 'valid_T_849_20step_rmse': 5.7826008796691895, 'valid_TREFHT_20step_acc': 0.1816064566373825, 'valid_TREFHT_20step_rmse': 5.745646953582764, 'valid_Z3_492_40step_acc': 0.004770881496369839, 'valid_Z3_492_40step_rmse': 197.470703125, 'valid_U_256_40step_acc': 0.005882518365979195, 'valid_U_256_40step_rmse': 21.207500457763672, 'valid_T_849_40step_acc': 0.002871542237699032, 'valid_T_849_40step_rmse': 8.18886661529541, 'valid_TREFHT_40step_acc': 0.07704564183950424, 'valid_TREFHT_40step_rmse': 8.203145980834961, 'valid_Z3_492_60step_acc': -0.005219974089413881, 'valid_Z3_492_60step_rmse': 213.412353515625, 'valid_U_256_60step_acc': -0.0003050147497560829, 'valid_U_256_60step_rmse': 22.576248168945312, 'valid_T_849_60step_acc': -0.002794194035232067, 'valid_T_849_60step_rmse': 8.637535095214844, 'valid_TREFHT_60step_acc': 0.067815400660038, 'valid_TREFHT_60step_rmse': 8.743952751159668, 'valid_TREFHT_bias_lwrmse': 3.7123246215037593, 'valid_U10_bias_lwrmse': 1.5524815290331804, 'valid_RHREFHT_bias_lwrmse': 8.244748554909213, 'valid_PS_bias_lwrmse': 1669.6011291596787, 'valid_PSL_bias_lwrmse': 625.3818015367406, 'valid_TMQ_bias_lwrmse': 8.745752108462282, 'valid_SOILWATER_10CM_bias_lwrmse': nan, 'valid_TSOI_10CM_bias_lwrmse': nan, 'valid_T_level4.715_bias_lwrmse': 2.7603488228679747, 'valid_T_level10.655_bias_lwrmse': 2.5151875860584076, 'valid_T_level19.235_bias_lwrmse': 2.282571377247572, 'valid_T_level28.795_bias_lwrmse': 2.1071242642927674, 'valid_T_level50.118_bias_lwrmse': 2.350186237086678, 'valid_T_level69.599_bias_lwrmse': 3.7801642131253392, 'valid_T_level96.464_bias_lwrmse': 4.4045395651298485, 'valid_T_level145.043_bias_lwrmse': 2.9538411594399796, 'valid_T_level200.999_bias_lwrmse': 2.4248637610471717, 'valid_T_level256.724_bias_lwrmse': 3.146493344792122, 'valid_T_level302.214_bias_lwrmse': 3.4075716027682357, 'valid_T_level385.999_bias_lwrmse': 3.502016505519405, 'valid_T_level492.469_bias_lwrmse': 3.4534118545185257, 'valid_T_level608.644_bias_lwrmse': 3.2740532007521717, 'valid_T_level713.705_bias_lwrmse': 3.50964153400487, 'valid_T_level849.661_bias_lwrmse': 3.472409147718729, 'valid_T_level925.520_bias_lwrmse': 3.2473928715345055, 'valid_T_level998.496_bias_lwrmse': 3.385926170485309, 'valid_U_level4.715_bias_lwrmse': 12.954554798136128, 'valid_U_level10.655_bias_lwrmse': 12.541721407627222, 'valid_U_level19.235_bias_lwrmse': 9.928794168029235, 'valid_U_level28.795_bias_lwrmse': 7.328365660911014, 'valid_U_level50.118_bias_lwrmse': 5.337630485464766, 'valid_U_level69.599_bias_lwrmse': 5.222309086895715, 'valid_U_level96.464_bias_lwrmse': 7.265221126790806, 'valid_U_level145.043_bias_lwrmse': 9.606064710044631, 'valid_U_level200.999_bias_lwrmse': 9.88141332961106, 'valid_U_level256.724_bias_lwrmse': 8.989171953779614, 'valid_U_level302.214_bias_lwrmse': 8.351746959781844, 'valid_U_level385.999_bias_lwrmse': 7.4635461678825195, 'valid_U_level492.469_bias_lwrmse': 6.42613872900181, 'valid_U_level608.644_bias_lwrmse': 5.510494742238065, 'valid_U_level713.705_bias_lwrmse': 4.779893344021865, 'valid_U_level849.661_bias_lwrmse': 4.1312735809774015, 'valid_U_level925.520_bias_lwrmse': 4.023016191384922, 'valid_U_level998.496_bias_lwrmse': 2.5793174238473675, 'valid_V_level4.715_bias_lwrmse': 3.0900762436390563, 'valid_V_level10.655_bias_lwrmse': 2.9444568791121064, 'valid_V_level19.235_bias_lwrmse': 2.759493149645138, 'valid_V_level28.795_bias_lwrmse': 2.64813890579937, 'valid_V_level50.118_bias_lwrmse': 2.5383193183327357, 'valid_V_level69.599_bias_lwrmse': 2.7175369570456285, 'valid_V_level96.464_bias_lwrmse': 3.3605340265513823, 'valid_V_level145.043_bias_lwrmse': 4.35879602953988, 'valid_V_level200.999_bias_lwrmse': 5.294239467932142, 'valid_V_level256.724_bias_lwrmse': 5.736564511449398, 'valid_V_level302.214_bias_lwrmse': 5.672734746647951, 'valid_V_level385.999_bias_lwrmse': 5.034174593021587, 'valid_V_level492.469_bias_lwrmse': 4.1316483200841905, 'valid_V_level608.644_bias_lwrmse': 3.3942815540716915, 'valid_V_level713.705_bias_lwrmse': 2.9157415461431504, 'valid_V_level849.661_bias_lwrmse': 2.5651330842168782, 'valid_V_level925.520_bias_lwrmse': 2.5232811213770248, 'valid_V_level998.496_bias_lwrmse': 1.5502790389000811, 'valid_Z3_level4.715_bias_lwrmse': 253.5311483007761, 'valid_Z3_level10.655_bias_lwrmse': 216.1774189723687, 'valid_Z3_level19.235_bias_lwrmse': 196.4342140962968, 'valid_Z3_level28.795_bias_lwrmse': 185.81074192151962, 'valid_Z3_level50.118_bias_lwrmse': 151.98428546217124, 'valid_Z3_level69.599_bias_lwrmse': 140.76324579926265, 'valid_Z3_level96.464_bias_lwrmse': 146.1100793811424, 'valid_Z3_level145.043_bias_lwrmse': 146.68143320409396, 'valid_Z3_level200.999_bias_lwrmse': 152.8897499249186, 'valid_Z3_level256.724_bias_lwrmse': 134.32278645485565, 'valid_Z3_level302.214_bias_lwrmse': 125.90242365953047, 'valid_Z3_level385.999_bias_lwrmse': 113.20646888812543, 'valid_Z3_level492.469_bias_lwrmse': 120.53794293825894, 'valid_Z3_level608.644_bias_lwrmse': 124.31134564364713, 'valid_Z3_level713.705_bias_lwrmse': 138.8431687548301, 'valid_Z3_level849.661_bias_lwrmse': 147.9611054896572, 'valid_Z3_level925.520_bias_lwrmse': 153.4245818503227, 'valid_Z3_level998.496_bias_lwrmse': 160.20997319466704, 'valid_RELHUM_level4.715_bias_lwrmse': 0.011638604613234892, 'valid_RELHUM_level10.655_bias_lwrmse': 0.1975423038650027, 'valid_RELHUM_level19.235_bias_lwrmse': 0.7067642428157729, 'valid_RELHUM_level28.795_bias_lwrmse': 1.390034104125559, 'valid_RELHUM_level50.118_bias_lwrmse': 1.937696086185233, 'valid_RELHUM_level69.599_bias_lwrmse': 7.444117829324692, 'valid_RELHUM_level96.464_bias_lwrmse': 15.212693732753758, 'valid_RELHUM_level145.043_bias_lwrmse': 15.178039015220122, 'valid_RELHUM_level200.999_bias_lwrmse': 13.338057618738027, 'valid_RELHUM_level256.724_bias_lwrmse': 12.778593493714737, 'valid_RELHUM_level302.214_bias_lwrmse': 12.255334097225463, 'valid_RELHUM_level385.999_bias_lwrmse': 11.835231726483848, 'valid_RELHUM_level492.469_bias_lwrmse': 13.37728843262458, 'valid_RELHUM_level608.644_bias_lwrmse': 14.45020646722602, 'valid_RELHUM_level713.705_bias_lwrmse': 13.748177041754476, 'valid_RELHUM_level849.661_bias_lwrmse': 11.545109622500318, 'valid_RELHUM_level925.520_bias_lwrmse': 9.376304608004478, 'valid_RELHUM_level998.496_bias_lwrmse': 8.822646816240866, 'valid_FSNTOA_bias_lwrmse': 39.09246238454825, 'valid_FSNT_bias_lwrmse': 40.182390828768675, 'valid_PRECT_bias_lwrmse': 2.846799559839022e-08}
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.0880, device='cuda:3'), 'valid_loss_sfc': tensor(0.0250, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0425, device='cuda:3'), 'valid_loss_diag': tensor(0.1569, device='cuda:3'), 'valid_loss_1step': 0.08795557916164398, 'valid_loss_12step': 0.616678774356842, 'valid_loss_20step': 0.928498387336731, 'valid_loss_40step': 1.3380873203277588, 'valid_loss_60step': 1.4576563835144043, 'valid_Z3_492_1step_acc': 0.9112728238105774, 'valid_Z3_492_1step_rmse': 26.604473114013672, 'valid_U_256_1step_acc': 0.9550313949584961, 'valid_U_256_1step_rmse': 3.745290994644165, 'valid_T_849_1step_acc': 0.9104177951812744, 'valid_T_849_1step_rmse': 1.3560614585876465, 'valid_TREFHT_1step_acc': 0.8399630188941956, 'valid_TREFHT_1step_rmse': 1.6886255741119385, 'valid_Z3_492_12step_acc': 0.4037022888660431, 'valid_Z3_492_12step_rmse': 85.38175964355469, 'valid_U_256_12step_acc': 0.4470910131931305, 'valid_U_256_12step_rmse': 12.509241104125977, 'valid_T_849_12step_acc': 0.41621705889701843, 'valid_T_849_12step_rmse': 3.623884677886963, 'valid_TREFHT_12step_acc': 0.42591720819473267, 'valid_TREFHT_12step_rmse': 3.581461191177368, 'valid_Z3_492_20step_acc': 0.12709568440914154, 'valid_Z3_492_20step_rmse': 138.905029296875, 'valid_U_256_20step_acc': 0.16703781485557556, 'valid_U_256_20step_rmse': 16.06432342529297, 'valid_T_849_20step_acc': 0.1147165596485138, 'valid_T_849_20step_rmse': 5.7826008796691895, 'valid_TREFHT_20step_acc': 0.1816064566373825, 'valid_TREFHT_20step_rmse': 5.745646953582764, 'valid_Z3_492_40step_acc': 0.004770881496369839, 'valid_Z3_492_40step_rmse': 197.470703125, 'valid_U_256_40step_acc': 0.005882518365979195, 'valid_U_256_40step_rmse': 21.207500457763672, 'valid_T_849_40step_acc': 0.002871542237699032, 'valid_T_849_40step_rmse': 8.18886661529541, 'valid_TREFHT_40step_acc': 0.07704564183950424, 'valid_TREFHT_40step_rmse': 8.203145980834961, 'valid_Z3_492_60step_acc': -0.005219974089413881, 'valid_Z3_492_60step_rmse': 213.412353515625, 'valid_U_256_60step_acc': -0.0003050147497560829, 'valid_U_256_60step_rmse': 22.576248168945312, 'valid_T_849_60step_acc': -0.002794194035232067, 'valid_T_849_60step_rmse': 8.637535095214844, 'valid_TREFHT_60step_acc': 0.067815400660038, 'valid_TREFHT_60step_rmse': 8.743952751159668}
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.0880, device='cuda:2'), 'valid_loss_sfc': tensor(0.0250, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0425, device='cuda:2'), 'valid_loss_diag': tensor(0.1569, device='cuda:2'), 'valid_loss_1step': 0.08795557916164398, 'valid_loss_12step': 0.616678774356842, 'valid_loss_20step': 0.928498387336731, 'valid_loss_40step': 1.3380873203277588, 'valid_loss_60step': 1.4576563835144043, 'valid_Z3_492_1step_acc': 0.9112728238105774, 'valid_Z3_492_1step_rmse': 26.604473114013672, 'valid_U_256_1step_acc': 0.9550313949584961, 'valid_U_256_1step_rmse': 3.745290994644165, 'valid_T_849_1step_acc': 0.9104177951812744, 'valid_T_849_1step_rmse': 1.3560614585876465, 'valid_TREFHT_1step_acc': 0.8399630188941956, 'valid_TREFHT_1step_rmse': 1.6886255741119385, 'valid_Z3_492_12step_acc': 0.4037022888660431, 'valid_Z3_492_12step_rmse': 85.38175964355469, 'valid_U_256_12step_acc': 0.4470910131931305, 'valid_U_256_12step_rmse': 12.509241104125977, 'valid_T_849_12step_acc': 0.41621705889701843, 'valid_T_849_12step_rmse': 3.623884677886963, 'valid_TREFHT_12step_acc': 0.42591720819473267, 'valid_TREFHT_12step_rmse': 3.581461191177368, 'valid_Z3_492_20step_acc': 0.12709568440914154, 'valid_Z3_492_20step_rmse': 138.905029296875, 'valid_U_256_20step_acc': 0.16703781485557556, 'valid_U_256_20step_rmse': 16.06432342529297, 'valid_T_849_20step_acc': 0.1147165596485138, 'valid_T_849_20step_rmse': 5.7826008796691895, 'valid_TREFHT_20step_acc': 0.1816064566373825, 'valid_TREFHT_20step_rmse': 5.745646953582764, 'valid_Z3_492_40step_acc': 0.004770881496369839, 'valid_Z3_492_40step_rmse': 197.470703125, 'valid_U_256_40step_acc': 0.005882518365979195, 'valid_U_256_40step_rmse': 21.207500457763672, 'valid_T_849_40step_acc': 0.002871542237699032, 'valid_T_849_40step_rmse': 8.18886661529541, 'valid_TREFHT_40step_acc': 0.07704564183950424, 'valid_TREFHT_40step_rmse': 8.203145980834961, 'valid_Z3_492_60step_acc': -0.005219974089413881, 'valid_Z3_492_60step_rmse': 213.412353515625, 'valid_U_256_60step_acc': -0.0003050147497560829, 'valid_U_256_60step_rmse': 22.576248168945312, 'valid_T_849_60step_acc': -0.002794194035232067, 'valid_T_849_60step_rmse': 8.637535095214844, 'valid_TREFHT_60step_acc': 0.067815400660038, 'valid_TREFHT_60step_rmse': 8.743952751159668}
+diagnostic_logs: {'epoch': 1, 'valid_loss': tensor(0.0880, device='cuda:1'), 'valid_loss_sfc': tensor(0.0250, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0425, device='cuda:1'), 'valid_loss_diag': tensor(0.1569, device='cuda:1'), 'valid_loss_1step': 0.08795557916164398, 'valid_loss_12step': 0.616678774356842, 'valid_loss_20step': 0.928498387336731, 'valid_loss_40step': 1.3380873203277588, 'valid_loss_60step': 1.4576563835144043, 'valid_Z3_492_1step_acc': 0.9112728238105774, 'valid_Z3_492_1step_rmse': 26.604473114013672, 'valid_U_256_1step_acc': 0.9550313949584961, 'valid_U_256_1step_rmse': 3.745290994644165, 'valid_T_849_1step_acc': 0.9104177951812744, 'valid_T_849_1step_rmse': 1.3560614585876465, 'valid_TREFHT_1step_acc': 0.8399630188941956, 'valid_TREFHT_1step_rmse': 1.6886255741119385, 'valid_Z3_492_12step_acc': 0.4037022888660431, 'valid_Z3_492_12step_rmse': 85.38175964355469, 'valid_U_256_12step_acc': 0.4470910131931305, 'valid_U_256_12step_rmse': 12.509241104125977, 'valid_T_849_12step_acc': 0.41621705889701843, 'valid_T_849_12step_rmse': 3.623884677886963, 'valid_TREFHT_12step_acc': 0.42591720819473267, 'valid_TREFHT_12step_rmse': 3.581461191177368, 'valid_Z3_492_20step_acc': 0.12709568440914154, 'valid_Z3_492_20step_rmse': 138.905029296875, 'valid_U_256_20step_acc': 0.16703781485557556, 'valid_U_256_20step_rmse': 16.06432342529297, 'valid_T_849_20step_acc': 0.1147165596485138, 'valid_T_849_20step_rmse': 5.7826008796691895, 'valid_TREFHT_20step_acc': 0.1816064566373825, 'valid_TREFHT_20step_rmse': 5.745646953582764, 'valid_Z3_492_40step_acc': 0.004770881496369839, 'valid_Z3_492_40step_rmse': 197.470703125, 'valid_U_256_40step_acc': 0.005882518365979195, 'valid_U_256_40step_rmse': 21.207500457763672, 'valid_T_849_40step_acc': 0.002871542237699032, 'valid_T_849_40step_rmse': 8.18886661529541, 'valid_TREFHT_40step_acc': 0.07704564183950424, 'valid_TREFHT_40step_rmse': 8.203145980834961, 'valid_Z3_492_60step_acc': -0.005219974089413881, 'valid_Z3_492_60step_rmse': 213.412353515625, 'valid_U_256_60step_acc': -0.0003050147497560829, 'valid_U_256_60step_rmse': 22.576248168945312, 'valid_T_849_60step_acc': -0.002794194035232067, 'valid_T_849_60step_rmse': 8.637535095214844, 'valid_TREFHT_60step_acc': 0.067815400660038, 'valid_TREFHT_60step_rmse': 8.743952751159668}
+Validating...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Plotting Bias
+Bias pred: Data variables:
+    TREFHT          (lat, lon) float32 259kB 230.3 229.8 230.2 ... 247.6 247.1
+    U10             (lat, lon) float32 259kB 5.881 5.272 5.509 ... 9.132 8.964
+    RHREFHT         (lat, lon) float32 259kB 104.7 108.7 106.7 ... 103.3 103.1
+    PS              (lat, lon) float32 259kB 6.743e+04 6.725e+04 ... 1.002e+05
+    PSL             (lat, lon) float32 259kB 1.008e+05 1.005e+05 ... 1.012e+05
+    TMQ             (lat, lon) float32 259kB 0.8599 1.352 ... 0.5925 0.2094
+    SOILWATER_10CM  (lat, lon) float32 259kB 1.638 0.8401 0.3908 ... 11.55 10.8
+    TSOI_10CM       (lat, lon) float32 259kB 230.5 228.1 226.5 ... 276.4 276.7
+    FSNTOA          (lat, lon) float32 259kB 76.44 67.41 75.51 ... 34.22 19.43
+    FSNT            (lat, lon) float32 259kB 61.48 59.54 60.24 ... 39.41 23.56
+    PRECT           (lat, lon) float32 259kB 1.04e-08 1.266e-08 ... 7.512e-09
+    T               (lev, lat, lon) float32 5MB 235.5 233.6 ... 246.7 245.1
+    U               (lev, lat, lon) float32 5MB 2.312 10.92 ... 4.603 4.444
+    V               (lev, lat, lon) float32 5MB 13.22 9.802 ... -8.141 -8.545
+    Z3              (lev, lat, lon) float32 5MB 3.571e+04 3.575e+04 ... 63.23
+    RELHUM          (lev, lat, lon) float32 5MB 0.01572 0.02595 ... 100.8 100.8
+Bias gt: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.9 224.9 224.9 ... 260.4 260.4
+    U10             (lat, lon) float32 259kB 4.466 4.466 4.466 ... 4.526 4.526
+    RHREFHT         (lat, lon) float32 259kB 103.2 103.2 103.2 ... 100.6 100.6
+    PS              (lat, lon) float32 259kB 6.733e+04 6.733e+04 ... 1.016e+05
+    PSL             (lat, lon) float32 259kB 9.989e+04 9.989e+04 ... 1.016e+05
+    TMQ             (lat, lon) float32 259kB 0.6321 0.6321 ... 7.439 7.439
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.0 0.0 0.0 0.0 ... nan nan nan nan
+    TSOI_10CM       (lat, lon) float32 259kB 224.1 224.0 224.0 ... nan nan nan
+    FSNTOA          (lat, lon) float32 259kB 51.59 51.59 51.59 ... 68.3 68.3
+    FSNT            (lat, lon) float32 259kB 51.5 51.5 51.5 ... 68.2 68.2 68.2
+    PRECT           (lat, lon) float32 259kB 1.829e-09 1.829e-09 ... 8.678e-09
+    T               (lev, lat, lon) float32 5MB 233.4 233.4 ... 260.4 260.4
+    U               (lev, lat, lon) float32 5MB -4.136 -4.136 ... -0.3109
+    V               (lev, lat, lon) float32 5MB -2.9 -2.9 ... -0.5478 -0.5478
+    Z3              (lev, lat, lon) float32 5MB 3.43e+04 3.43e+04 ... 11.53
+    RELHUM          (lev, lat, lon) float32 5MB 0.04281 0.04281 ... 100.8 100.8
+Var level dict: {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+Available variables: ['Z3', 'U', 'T', 'TREFHT']
+Saved bias plot (level value heuristic) to: /work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016/plots/bias/bias_epoch_2.png
+
+Finished Bias Plots...
+Validating batch 1/8
+Validating batch 2/8
+Validating batch 3/8
+Validating batch 4/8
+Validating batch 5/8
+Validating batch 6/8
+Validating batch 7/8
+Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0638, device='cuda:1'), 'valid_loss_sfc': tensor(0.0161, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0303, device='cuda:1'), 'valid_loss_diag': tensor(0.1179, device='cuda:1'), 'valid_loss_1step': 0.06375868618488312, 'valid_loss_12step': 0.5043150186538696, 'valid_loss_20step': 0.7692157030105591, 'valid_loss_40step': 1.212440848350525, 'valid_loss_60step': 1.3698232173919678, 'valid_Z3_492_1step_acc': 0.9587526321411133, 'valid_Z3_492_1step_rmse': 17.665496826171875, 'valid_U_256_1step_acc': 0.9700384736061096, 'valid_U_256_1step_rmse': 3.063584566116333, 'valid_T_849_1step_acc': 0.9475088119506836, 'valid_T_849_1step_rmse': 1.0417338609695435, 'valid_TREFHT_1step_acc': 0.9203903079032898, 'valid_TREFHT_1step_rmse': 1.195578694343567, 'valid_Z3_492_12step_acc': 0.6114295721054077, 'valid_Z3_492_12step_rmse': 59.22679901123047, 'valid_U_256_12step_acc': 0.5775542855262756, 'valid_U_256_12step_rmse': 11.592292785644531, 'valid_T_849_12step_acc': 0.5803262591362, 'valid_T_849_12step_rmse': 3.023651361465454, 'valid_TREFHT_12step_acc': 0.6065468192100525, 'valid_TREFHT_12step_rmse': 2.7693982124328613, 'valid_Z3_492_20step_acc': 0.3242674171924591, 'valid_Z3_492_20step_rmse': 84.05522918701172, 'valid_U_256_20step_acc': 0.29816123843193054, 'valid_U_256_20step_rmse': 15.507317543029785, 'valid_T_849_20step_acc': 0.3019848167896271, 'valid_T_849_20step_rmse': 4.004003524780273, 'valid_TREFHT_20step_acc': 0.41337746381759644, 'valid_TREFHT_20step_rmse': 3.4953629970550537, 'valid_Z3_492_40step_acc': 0.032606091350317, 'valid_Z3_492_40step_rmse': 130.49978637695312, 'valid_U_256_40step_acc': 0.042387764900922775, 'valid_U_256_40step_rmse': 20.021041870117188, 'valid_T_849_40step_acc': 0.029749268665909767, 'valid_T_849_40step_rmse': 5.232893943786621, 'valid_TREFHT_40step_acc': 0.18929001688957214, 'valid_TREFHT_40step_rmse': 4.648656845092773, 'valid_Z3_492_60step_acc': -0.012935061007738113, 'valid_Z3_492_60step_rmse': 147.8342742919922, 'valid_U_256_60step_acc': 0.004516181536018848, 'valid_U_256_60step_rmse': 21.56573486328125, 'valid_T_849_60step_acc': -0.010630671866238117, 'valid_T_849_60step_rmse': 5.658926010131836, 'valid_TREFHT_60step_acc': 0.1468171924352646, 'valid_TREFHT_60step_rmse': 5.257587909698486}
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0638, device='cuda:2'), 'valid_loss_sfc': tensor(0.0161, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0303, device='cuda:2'), 'valid_loss_diag': tensor(0.1179, device='cuda:2'), 'valid_loss_1step': 0.06375868618488312, 'valid_loss_12step': 0.5043150186538696, 'valid_loss_20step': 0.7692157030105591, 'valid_loss_40step': 1.212440848350525, 'valid_loss_60step': 1.3698232173919678, 'valid_Z3_492_1step_acc': 0.9587526321411133, 'valid_Z3_492_1step_rmse': 17.665496826171875, 'valid_U_256_1step_acc': 0.9700384736061096, 'valid_U_256_1step_rmse': 3.063584566116333, 'valid_T_849_1step_acc': 0.9475088119506836, 'valid_T_849_1step_rmse': 1.0417338609695435, 'valid_TREFHT_1step_acc': 0.9203903079032898, 'valid_TREFHT_1step_rmse': 1.195578694343567, 'valid_Z3_492_12step_acc': 0.6114295721054077, 'valid_Z3_492_12step_rmse': 59.22679901123047, 'valid_U_256_12step_acc': 0.5775542855262756, 'valid_U_256_12step_rmse': 11.592292785644531, 'valid_T_849_12step_acc': 0.5803262591362, 'valid_T_849_12step_rmse': 3.023651361465454, 'valid_TREFHT_12step_acc': 0.6065468192100525, 'valid_TREFHT_12step_rmse': 2.7693982124328613, 'valid_Z3_492_20step_acc': 0.3242674171924591, 'valid_Z3_492_20step_rmse': 84.05522918701172, 'valid_U_256_20step_acc': 0.29816123843193054, 'valid_U_256_20step_rmse': 15.507317543029785, 'valid_T_849_20step_acc': 0.3019848167896271, 'valid_T_849_20step_rmse': 4.004003524780273, 'valid_TREFHT_20step_acc': 0.41337746381759644, 'valid_TREFHT_20step_rmse': 3.4953629970550537, 'valid_Z3_492_40step_acc': 0.032606091350317, 'valid_Z3_492_40step_rmse': 130.49978637695312, 'valid_U_256_40step_acc': 0.042387764900922775, 'valid_U_256_40step_rmse': 20.021041870117188, 'valid_T_849_40step_acc': 0.029749268665909767, 'valid_T_849_40step_rmse': 5.232893943786621, 'valid_TREFHT_40step_acc': 0.18929001688957214, 'valid_TREFHT_40step_rmse': 4.648656845092773, 'valid_Z3_492_60step_acc': -0.012935061007738113, 'valid_Z3_492_60step_rmse': 147.8342742919922, 'valid_U_256_60step_acc': 0.004516181536018848, 'valid_U_256_60step_rmse': 21.56573486328125, 'valid_T_849_60step_acc': -0.010630671866238117, 'valid_T_849_60step_rmse': 5.658926010131836, 'valid_TREFHT_60step_acc': 0.1468171924352646, 'valid_TREFHT_60step_rmse': 5.257587909698486}
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0638, device='cuda:3'), 'valid_loss_sfc': tensor(0.0161, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0303, device='cuda:3'), 'valid_loss_diag': tensor(0.1179, device='cuda:3'), 'valid_loss_1step': 0.06375868618488312, 'valid_loss_12step': 0.5043150186538696, 'valid_loss_20step': 0.7692157030105591, 'valid_loss_40step': 1.212440848350525, 'valid_loss_60step': 1.3698232173919678, 'valid_Z3_492_1step_acc': 0.9587526321411133, 'valid_Z3_492_1step_rmse': 17.665496826171875, 'valid_U_256_1step_acc': 0.9700384736061096, 'valid_U_256_1step_rmse': 3.063584566116333, 'valid_T_849_1step_acc': 0.9475088119506836, 'valid_T_849_1step_rmse': 1.0417338609695435, 'valid_TREFHT_1step_acc': 0.9203903079032898, 'valid_TREFHT_1step_rmse': 1.195578694343567, 'valid_Z3_492_12step_acc': 0.6114295721054077, 'valid_Z3_492_12step_rmse': 59.22679901123047, 'valid_U_256_12step_acc': 0.5775542855262756, 'valid_U_256_12step_rmse': 11.592292785644531, 'valid_T_849_12step_acc': 0.5803262591362, 'valid_T_849_12step_rmse': 3.023651361465454, 'valid_TREFHT_12step_acc': 0.6065468192100525, 'valid_TREFHT_12step_rmse': 2.7693982124328613, 'valid_Z3_492_20step_acc': 0.3242674171924591, 'valid_Z3_492_20step_rmse': 84.05522918701172, 'valid_U_256_20step_acc': 0.29816123843193054, 'valid_U_256_20step_rmse': 15.507317543029785, 'valid_T_849_20step_acc': 0.3019848167896271, 'valid_T_849_20step_rmse': 4.004003524780273, 'valid_TREFHT_20step_acc': 0.41337746381759644, 'valid_TREFHT_20step_rmse': 3.4953629970550537, 'valid_Z3_492_40step_acc': 0.032606091350317, 'valid_Z3_492_40step_rmse': 130.49978637695312, 'valid_U_256_40step_acc': 0.042387764900922775, 'valid_U_256_40step_rmse': 20.021041870117188, 'valid_T_849_40step_acc': 0.029749268665909767, 'valid_T_849_40step_rmse': 5.232893943786621, 'valid_TREFHT_40step_acc': 0.18929001688957214, 'valid_TREFHT_40step_rmse': 4.648656845092773, 'valid_Z3_492_60step_acc': -0.012935061007738113, 'valid_Z3_492_60step_rmse': 147.8342742919922, 'valid_U_256_60step_acc': 0.004516181536018848, 'valid_U_256_60step_rmse': 21.56573486328125, 'valid_T_849_60step_acc': -0.010630671866238117, 'valid_T_849_60step_rmse': 5.658926010131836, 'valid_TREFHT_60step_acc': 0.1468171924352646, 'valid_TREFHT_60step_rmse': 5.257587909698486}
+diagnostic_logs: {'epoch': 2, 'valid_loss': tensor(0.0638, device='cuda:0'), 'valid_loss_sfc': tensor(0.0161, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0303, device='cuda:0'), 'valid_loss_diag': tensor(0.1179, device='cuda:0'), 'valid_loss_1step': 0.06375868618488312, 'valid_loss_12step': 0.5043150186538696, 'valid_loss_20step': 0.7692157030105591, 'valid_loss_40step': 1.212440848350525, 'valid_loss_60step': 1.3698232173919678, 'valid_Z3_492_1step_acc': 0.9587526321411133, 'valid_Z3_492_1step_rmse': 17.665496826171875, 'valid_U_256_1step_acc': 0.9700384736061096, 'valid_U_256_1step_rmse': 3.063584566116333, 'valid_T_849_1step_acc': 0.9475088119506836, 'valid_T_849_1step_rmse': 1.0417338609695435, 'valid_TREFHT_1step_acc': 0.9203903079032898, 'valid_TREFHT_1step_rmse': 1.195578694343567, 'valid_Z3_492_12step_acc': 0.6114295721054077, 'valid_Z3_492_12step_rmse': 59.22679901123047, 'valid_U_256_12step_acc': 0.5775542855262756, 'valid_U_256_12step_rmse': 11.592292785644531, 'valid_T_849_12step_acc': 0.5803262591362, 'valid_T_849_12step_rmse': 3.023651361465454, 'valid_TREFHT_12step_acc': 0.6065468192100525, 'valid_TREFHT_12step_rmse': 2.7693982124328613, 'valid_Z3_492_20step_acc': 0.3242674171924591, 'valid_Z3_492_20step_rmse': 84.05522918701172, 'valid_U_256_20step_acc': 0.29816123843193054, 'valid_U_256_20step_rmse': 15.507317543029785, 'valid_T_849_20step_acc': 0.3019848167896271, 'valid_T_849_20step_rmse': 4.004003524780273, 'valid_TREFHT_20step_acc': 0.41337746381759644, 'valid_TREFHT_20step_rmse': 3.4953629970550537, 'valid_Z3_492_40step_acc': 0.032606091350317, 'valid_Z3_492_40step_rmse': 130.49978637695312, 'valid_U_256_40step_acc': 0.042387764900922775, 'valid_U_256_40step_rmse': 20.021041870117188, 'valid_T_849_40step_acc': 0.029749268665909767, 'valid_T_849_40step_rmse': 5.232893943786621, 'valid_TREFHT_40step_acc': 0.18929001688957214, 'valid_TREFHT_40step_rmse': 4.648656845092773, 'valid_Z3_492_60step_acc': -0.012935061007738113, 'valid_Z3_492_60step_rmse': 147.8342742919922, 'valid_U_256_60step_acc': 0.004516181536018848, 'valid_U_256_60step_rmse': 21.56573486328125, 'valid_T_849_60step_acc': -0.010630671866238117, 'valid_T_849_60step_rmse': 5.658926010131836, 'valid_TREFHT_60step_acc': 0.1468171924352646, 'valid_TREFHT_60step_rmse': 5.257587909698486, 'valid_TREFHT_bias_lwrmse': 2.9108117273986305, 'valid_U10_bias_lwrmse': 1.366094448986567, 'valid_RHREFHT_bias_lwrmse': 6.100076968404795, 'valid_PS_bias_lwrmse': 1190.1943646399593, 'valid_PSL_bias_lwrmse': 474.7162267604751, 'valid_TMQ_bias_lwrmse': 5.996759134675792, 'valid_SOILWATER_10CM_bias_lwrmse': nan, 'valid_TSOI_10CM_bias_lwrmse': nan, 'valid_T_level4.715_bias_lwrmse': 4.451838391999165, 'valid_T_level10.655_bias_lwrmse': 4.263694244969908, 'valid_T_level19.235_bias_lwrmse': 4.489357026506134, 'valid_T_level28.795_bias_lwrmse': 4.53736052939222, 'valid_T_level50.118_bias_lwrmse': 4.384331914233526, 'valid_T_level69.599_bias_lwrmse': 4.538186409681266, 'valid_T_level96.464_bias_lwrmse': 3.7889019787449207, 'valid_T_level145.043_bias_lwrmse': 3.2934229598686855, 'valid_T_level200.999_bias_lwrmse': 3.2022749429677373, 'valid_T_level256.724_bias_lwrmse': 2.8590654053319633, 'valid_T_level302.214_bias_lwrmse': 2.178062004412164, 'valid_T_level385.999_bias_lwrmse': 2.4840179755285523, 'valid_T_level492.469_bias_lwrmse': 2.665558217184069, 'valid_T_level608.644_bias_lwrmse': 2.728354476605574, 'valid_T_level713.705_bias_lwrmse': 2.8592708720638442, 'valid_T_level849.661_bias_lwrmse': 2.99380532184907, 'valid_T_level925.520_bias_lwrmse': 2.9800314283698235, 'valid_T_level998.496_bias_lwrmse': 2.896820582260899, 'valid_U_level4.715_bias_lwrmse': 16.04864551790724, 'valid_U_level10.655_bias_lwrmse': 13.053935447440747, 'valid_U_level19.235_bias_lwrmse': 11.796683008045353, 'valid_U_level28.795_bias_lwrmse': 10.517852543333898, 'valid_U_level50.118_bias_lwrmse': 7.943733197335313, 'valid_U_level69.599_bias_lwrmse': 7.14305290929665, 'valid_U_level96.464_bias_lwrmse': 8.490406290591276, 'valid_U_level145.043_bias_lwrmse': 8.579418982397852, 'valid_U_level200.999_bias_lwrmse': 7.930100676645998, 'valid_U_level256.724_bias_lwrmse': 7.2693530920833345, 'valid_U_level302.214_bias_lwrmse': 6.5946406659251995, 'valid_U_level385.999_bias_lwrmse': 5.717851765619296, 'valid_U_level492.469_bias_lwrmse': 5.029029810881995, 'valid_U_level608.644_bias_lwrmse': 4.2697221032957025, 'valid_U_level713.705_bias_lwrmse': 3.7713316836193114, 'valid_U_level849.661_bias_lwrmse': 3.2113695235882718, 'valid_U_level925.520_bias_lwrmse': 3.1281116955724326, 'valid_U_level998.496_bias_lwrmse': 2.114785730898272, 'valid_V_level4.715_bias_lwrmse': 3.512908587806831, 'valid_V_level10.655_bias_lwrmse': 3.402520859956146, 'valid_V_level19.235_bias_lwrmse': 3.0015490896007484, 'valid_V_level28.795_bias_lwrmse': 2.6808090426917466, 'valid_V_level50.118_bias_lwrmse': 2.2935197457535486, 'valid_V_level69.599_bias_lwrmse': 2.261952607501874, 'valid_V_level96.464_bias_lwrmse': 3.0432136612129725, 'valid_V_level145.043_bias_lwrmse': 4.0495870265903875, 'valid_V_level200.999_bias_lwrmse': 4.133490249866035, 'valid_V_level256.724_bias_lwrmse': 3.991692729452634, 'valid_V_level302.214_bias_lwrmse': 3.7197073395952374, 'valid_V_level385.999_bias_lwrmse': 3.300049432413326, 'valid_V_level492.469_bias_lwrmse': 2.7323971877752937, 'valid_V_level608.644_bias_lwrmse': 2.3765644476304724, 'valid_V_level713.705_bias_lwrmse': 2.1490465626144073, 'valid_V_level849.661_bias_lwrmse': 1.8115975142712282, 'valid_V_level925.520_bias_lwrmse': 1.8087642283060832, 'valid_V_level998.496_bias_lwrmse': 1.2736455082065885, 'valid_Z3_level4.715_bias_lwrmse': 503.4482177493371, 'valid_Z3_level10.655_bias_lwrmse': 417.89617140152933, 'valid_Z3_level19.235_bias_lwrmse': 352.805811242543, 'valid_Z3_level28.795_bias_lwrmse': 307.1690504467381, 'valid_Z3_level50.118_bias_lwrmse': 234.48950360856273, 'valid_Z3_level69.599_bias_lwrmse': 197.2958536712193, 'valid_Z3_level96.464_bias_lwrmse': 167.4500140330055, 'valid_Z3_level145.043_bias_lwrmse': 139.33701740636275, 'valid_Z3_level200.999_bias_lwrmse': 123.979527211143, 'valid_Z3_level256.724_bias_lwrmse': 113.6498001400645, 'valid_Z3_level302.214_bias_lwrmse': 109.97874719649828, 'valid_Z3_level385.999_bias_lwrmse': 102.98783285179003, 'valid_Z3_level492.469_bias_lwrmse': 104.11147123419045, 'valid_Z3_level608.644_bias_lwrmse': 103.9449696893139, 'valid_Z3_level713.705_bias_lwrmse': 107.99697907557272, 'valid_Z3_level849.661_bias_lwrmse': 111.522046289708, 'valid_Z3_level925.520_bias_lwrmse': 118.00762413824292, 'valid_Z3_level998.496_bias_lwrmse': 122.01279919019298, 'valid_RELHUM_level4.715_bias_lwrmse': 0.030709406679887526, 'valid_RELHUM_level10.655_bias_lwrmse': 0.29303869524896137, 'valid_RELHUM_level19.235_bias_lwrmse': 0.8922652830043286, 'valid_RELHUM_level28.795_bias_lwrmse': 1.7023959809480758, 'valid_RELHUM_level50.118_bias_lwrmse': 2.7706918316860287, 'valid_RELHUM_level69.599_bias_lwrmse': 9.58743302340847, 'valid_RELHUM_level96.464_bias_lwrmse': 8.110793833673789, 'valid_RELHUM_level145.043_bias_lwrmse': 11.878375335632185, 'valid_RELHUM_level200.999_bias_lwrmse': 11.758277569511637, 'valid_RELHUM_level256.724_bias_lwrmse': 12.917262777182929, 'valid_RELHUM_level302.214_bias_lwrmse': 10.748311644534226, 'valid_RELHUM_level385.999_bias_lwrmse': 10.5090620731978, 'valid_RELHUM_level492.469_bias_lwrmse': 12.226570815242981, 'valid_RELHUM_level608.644_bias_lwrmse': 10.131810548102186, 'valid_RELHUM_level713.705_bias_lwrmse': 10.475054762621692, 'valid_RELHUM_level849.661_bias_lwrmse': 10.22134269182135, 'valid_RELHUM_level925.520_bias_lwrmse': 7.1163538230707415, 'valid_RELHUM_level998.496_bias_lwrmse': 6.530845698761089, 'valid_FSNTOA_bias_lwrmse': 37.52192961048938, 'valid_FSNT_bias_lwrmse': 37.46739623692999, 'valid_PRECT_bias_lwrmse': 2.814969670369891e-08}
+Validating...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Plotting Bias
+Bias pred: Data variables:
+    TREFHT          (lat, lon) float32 259kB 220.1 220.5 219.7 ... 252.6 252.2
+    U10             (lat, lon) float32 259kB 4.757 4.71 4.739 ... 4.484 4.235
+    RHREFHT         (lat, lon) float32 259kB 105.9 105.4 105.5 ... 105.2 106.1
+    PS              (lat, lon) float32 259kB 6.86e+04 6.857e+04 ... 9.898e+04
+    PSL             (lat, lon) float32 259kB 1.016e+05 1.014e+05 ... 9.997e+04
+    TMQ             (lat, lon) float32 259kB 0.2033 0.7116 0.2801 ... 6.95 7.135
+    SOILWATER_10CM  (lat, lon) float32 259kB 3.218 2.841 2.32 ... 0.5636 0.1011
+    TSOI_10CM       (lat, lon) float32 259kB 234.5 234.4 233.9 ... 276.8 276.3
+    FSNTOA          (lat, lon) float32 259kB 8.897 4.876 4.887 ... 46.67 49.67
+    FSNT            (lat, lon) float32 259kB 14.19 10.64 9.312 ... 55.76 55.72
+    PRECT           (lat, lon) float32 259kB 3.457e-09 4.061e-09 ... 5.942e-09
+    T               (lev, lat, lon) float32 5MB 227.3 226.0 ... 252.5 251.8
+    U               (lev, lat, lon) float32 5MB 11.02 16.8 20.6 ... 2.516 2.801
+    V               (lev, lat, lon) float32 5MB 2.385 2.975 ... -1.729 -1.6
+    Z3              (lev, lat, lon) float32 5MB 3.508e+04 3.51e+04 ... 93.39
+    RELHUM          (lev, lat, lon) float32 5MB 0.06459 0.07211 ... 103.8 104.8
+Bias gt: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.9 224.9 224.9 ... 260.4 260.4
+    U10             (lat, lon) float32 259kB 4.466 4.466 4.466 ... 4.526 4.526
+    RHREFHT         (lat, lon) float32 259kB 103.2 103.2 103.2 ... 100.6 100.6
+    PS              (lat, lon) float32 259kB 6.733e+04 6.733e+04 ... 1.016e+05
+    PSL             (lat, lon) float32 259kB 9.989e+04 9.989e+04 ... 1.016e+05
+    TMQ             (lat, lon) float32 259kB 0.6321 0.6321 ... 7.439 7.439
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.0 0.0 0.0 0.0 ... nan nan nan nan
+    TSOI_10CM       (lat, lon) float32 259kB 224.1 224.0 224.0 ... nan nan nan
+    FSNTOA          (lat, lon) float32 259kB 51.59 51.59 51.59 ... 68.3 68.3
+    FSNT            (lat, lon) float32 259kB 51.5 51.5 51.5 ... 68.2 68.2 68.2
+    PRECT           (lat, lon) float32 259kB 1.829e-09 1.829e-09 ... 8.678e-09
+    T               (lev, lat, lon) float32 5MB 233.4 233.4 ... 260.4 260.4
+    U               (lev, lat, lon) float32 5MB -4.136 -4.136 ... -0.3109
+    V               (lev, lat, lon) float32 5MB -2.9 -2.9 ... -0.5478 -0.5478
+    Z3              (lev, lat, lon) float32 5MB 3.43e+04 3.43e+04 ... 11.53
+    RELHUM          (lev, lat, lon) float32 5MB 0.04281 0.04281 ... 100.8 100.8
+Var level dict: {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+Available variables: ['Z3', 'U', 'T', 'TREFHT']
+Saved bias plot (level value heuristic) to: /work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016/plots/bias/bias_epoch_3.png
+
+Finished Bias Plots...
+Validating batch 1/8
+Validating batch 2/8
+Validating batch 3/8
+Validating batch 4/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Validating batch 5/8
+Validating batch 6/8
+Validating batch 7/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0534, device='cuda:2'), 'valid_loss_sfc': tensor(0.0128, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0252, device='cuda:2'), 'valid_loss_diag': tensor(0.1003, device='cuda:2'), 'valid_loss_1step': 0.05344671756029129, 'valid_loss_12step': 0.4545232951641083, 'valid_loss_20step': 0.7095948457717896, 'valid_loss_40step': 1.1070246696472168, 'valid_loss_60step': 1.2531800270080566, 'valid_Z3_492_1step_acc': 0.9670817852020264, 'valid_Z3_492_1step_rmse': 15.616223335266113, 'valid_U_256_1step_acc': 0.9764050245285034, 'valid_U_256_1step_rmse': 2.7284035682678223, 'valid_T_849_1step_acc': 0.9592483043670654, 'valid_T_849_1step_rmse': 0.9419612288475037, 'valid_TREFHT_1step_acc': 0.9384774565696716, 'valid_TREFHT_1step_rmse': 1.172721028327942, 'valid_Z3_492_12step_acc': 0.6561233997344971, 'valid_Z3_492_12step_rmse': 55.51694869995117, 'valid_U_256_12step_acc': 0.6319528222084045, 'valid_U_256_12step_rmse': 10.685526847839355, 'valid_T_849_12step_acc': 0.6198351383209229, 'valid_T_849_12step_rmse': 2.917015790939331, 'valid_TREFHT_12step_acc': 0.63502037525177, 'valid_TREFHT_12step_rmse': 2.7614736557006836, 'valid_Z3_492_20step_acc': 0.39603477716445923, 'valid_Z3_492_20step_rmse': 77.1885986328125, 'valid_U_256_20step_acc': 0.36274319887161255, 'valid_U_256_20step_rmse': 14.494759559631348, 'valid_T_849_20step_acc': 0.3492085039615631, 'valid_T_849_20step_rmse': 3.8919711112976074, 'valid_TREFHT_20step_acc': 0.4550131857395172, 'valid_TREFHT_20step_rmse': 3.437432289123535, 'valid_Z3_492_40step_acc': 0.05561874806880951, 'valid_Z3_492_40step_rmse': 104.87315368652344, 'valid_U_256_40step_acc': 0.05490938946604729, 'valid_U_256_40step_rmse': 18.997556686401367, 'valid_T_849_40step_acc': 0.045767270028591156, 'valid_T_849_40step_rmse': 4.947995185852051, 'valid_TREFHT_40step_acc': 0.25232118368148804, 'valid_TREFHT_40step_rmse': 4.202816963195801, 'valid_Z3_492_60step_acc': 0.01184551976621151, 'valid_Z3_492_60step_rmse': 112.9267349243164, 'valid_U_256_60step_acc': 0.007135591935366392, 'valid_U_256_60step_rmse': 20.192909240722656, 'valid_T_849_60step_acc': 0.0045162285678088665, 'valid_T_849_60step_rmse': 5.1548590660095215, 'valid_TREFHT_60step_acc': 0.20897042751312256, 'valid_TREFHT_60step_rmse': 4.466475009918213}diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0534, device='cuda:3'), 'valid_loss_sfc': tensor(0.0128, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0252, device='cuda:3'), 'valid_loss_diag': tensor(0.1003, device='cuda:3'), 'valid_loss_1step': 0.05344671756029129, 'valid_loss_12step': 0.4545232951641083, 'valid_loss_20step': 0.7095948457717896, 'valid_loss_40step': 1.1070246696472168, 'valid_loss_60step': 1.2531800270080566, 'valid_Z3_492_1step_acc': 0.9670817852020264, 'valid_Z3_492_1step_rmse': 15.616223335266113, 'valid_U_256_1step_acc': 0.9764050245285034, 'valid_U_256_1step_rmse': 2.7284035682678223, 'valid_T_849_1step_acc': 0.9592483043670654, 'valid_T_849_1step_rmse': 0.9419612288475037, 'valid_TREFHT_1step_acc': 0.9384774565696716, 'valid_TREFHT_1step_rmse': 1.172721028327942, 'valid_Z3_492_12step_acc': 0.6561233997344971, 'valid_Z3_492_12step_rmse': 55.51694869995117, 'valid_U_256_12step_acc': 0.6319528222084045, 'valid_U_256_12step_rmse': 10.685526847839355, 'valid_T_849_12step_acc': 0.6198351383209229, 'valid_T_849_12step_rmse': 2.917015790939331, 'valid_TREFHT_12step_acc': 0.63502037525177, 'valid_TREFHT_12step_rmse': 2.7614736557006836, 'valid_Z3_492_20step_acc': 0.39603477716445923, 'valid_Z3_492_20step_rmse': 77.1885986328125, 'valid_U_256_20step_acc': 0.36274319887161255, 'valid_U_256_20step_rmse': 14.494759559631348, 'valid_T_849_20step_acc': 0.3492085039615631, 'valid_T_849_20step_rmse': 3.8919711112976074, 'valid_TREFHT_20step_acc': 0.4550131857395172, 'valid_TREFHT_20step_rmse': 3.437432289123535, 'valid_Z3_492_40step_acc': 0.05561874806880951, 'valid_Z3_492_40step_rmse': 104.87315368652344, 'valid_U_256_40step_acc': 0.05490938946604729, 'valid_U_256_40step_rmse': 18.997556686401367, 'valid_T_849_40step_acc': 0.045767270028591156, 'valid_T_849_40step_rmse': 4.947995185852051, 'valid_TREFHT_40step_acc': 0.25232118368148804, 'valid_TREFHT_40step_rmse': 4.202816963195801, 'valid_Z3_492_60step_acc': 0.01184551976621151, 'valid_Z3_492_60step_rmse': 112.9267349243164, 'valid_U_256_60step_acc': 0.007135591935366392, 'valid_U_256_60step_rmse': 20.192909240722656, 'valid_T_849_60step_acc': 0.0045162285678088665, 'valid_T_849_60step_rmse': 5.1548590660095215, 'valid_TREFHT_60step_acc': 0.20897042751312256, 'valid_TREFHT_60step_rmse': 4.466475009918213}diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0534, device='cuda:1'), 'valid_loss_sfc': tensor(0.0128, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0252, device='cuda:1'), 'valid_loss_diag': tensor(0.1003, device='cuda:1'), 'valid_loss_1step': 0.05344671756029129, 'valid_loss_12step': 0.4545232951641083, 'valid_loss_20step': 0.7095948457717896, 'valid_loss_40step': 1.1070246696472168, 'valid_loss_60step': 1.2531800270080566, 'valid_Z3_492_1step_acc': 0.9670817852020264, 'valid_Z3_492_1step_rmse': 15.616223335266113, 'valid_U_256_1step_acc': 0.9764050245285034, 'valid_U_256_1step_rmse': 2.7284035682678223, 'valid_T_849_1step_acc': 0.9592483043670654, 'valid_T_849_1step_rmse': 0.9419612288475037, 'valid_TREFHT_1step_acc': 0.9384774565696716, 'valid_TREFHT_1step_rmse': 1.172721028327942, 'valid_Z3_492_12step_acc': 0.6561233997344971, 'valid_Z3_492_12step_rmse': 55.51694869995117, 'valid_U_256_12step_acc': 0.6319528222084045, 'valid_U_256_12step_rmse': 10.685526847839355, 'valid_T_849_12step_acc': 0.6198351383209229, 'valid_T_849_12step_rmse': 2.917015790939331, 'valid_TREFHT_12step_acc': 0.63502037525177, 'valid_TREFHT_12step_rmse': 2.7614736557006836, 'valid_Z3_492_20step_acc': 0.39603477716445923, 'valid_Z3_492_20step_rmse': 77.1885986328125, 'valid_U_256_20step_acc': 0.36274319887161255, 'valid_U_256_20step_rmse': 14.494759559631348, 'valid_T_849_20step_acc': 0.3492085039615631, 'valid_T_849_20step_rmse': 3.8919711112976074, 'valid_TREFHT_20step_acc': 0.4550131857395172, 'valid_TREFHT_20step_rmse': 3.437432289123535, 'valid_Z3_492_40step_acc': 0.05561874806880951, 'valid_Z3_492_40step_rmse': 104.87315368652344, 'valid_U_256_40step_acc': 0.05490938946604729, 'valid_U_256_40step_rmse': 18.997556686401367, 'valid_T_849_40step_acc': 0.045767270028591156, 'valid_T_849_40step_rmse': 4.947995185852051, 'valid_TREFHT_40step_acc': 0.25232118368148804, 'valid_TREFHT_40step_rmse': 4.202816963195801, 'valid_Z3_492_60step_acc': 0.01184551976621151, 'valid_Z3_492_60step_rmse': 112.9267349243164, 'valid_U_256_60step_acc': 0.007135591935366392, 'valid_U_256_60step_rmse': 20.192909240722656, 'valid_T_849_60step_acc': 0.0045162285678088665, 'valid_T_849_60step_rmse': 5.1548590660095215, 'valid_TREFHT_60step_acc': 0.20897042751312256, 'valid_TREFHT_60step_rmse': 4.466475009918213}
+
+
+diagnostic_logs: {'epoch': 3, 'valid_loss': tensor(0.0534, device='cuda:0'), 'valid_loss_sfc': tensor(0.0128, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0252, device='cuda:0'), 'valid_loss_diag': tensor(0.1003, device='cuda:0'), 'valid_loss_1step': 0.05344671756029129, 'valid_loss_12step': 0.4545232951641083, 'valid_loss_20step': 0.7095948457717896, 'valid_loss_40step': 1.1070246696472168, 'valid_loss_60step': 1.2531800270080566, 'valid_Z3_492_1step_acc': 0.9670817852020264, 'valid_Z3_492_1step_rmse': 15.616223335266113, 'valid_U_256_1step_acc': 0.9764050245285034, 'valid_U_256_1step_rmse': 2.7284035682678223, 'valid_T_849_1step_acc': 0.9592483043670654, 'valid_T_849_1step_rmse': 0.9419612288475037, 'valid_TREFHT_1step_acc': 0.9384774565696716, 'valid_TREFHT_1step_rmse': 1.172721028327942, 'valid_Z3_492_12step_acc': 0.6561233997344971, 'valid_Z3_492_12step_rmse': 55.51694869995117, 'valid_U_256_12step_acc': 0.6319528222084045, 'valid_U_256_12step_rmse': 10.685526847839355, 'valid_T_849_12step_acc': 0.6198351383209229, 'valid_T_849_12step_rmse': 2.917015790939331, 'valid_TREFHT_12step_acc': 0.63502037525177, 'valid_TREFHT_12step_rmse': 2.7614736557006836, 'valid_Z3_492_20step_acc': 0.39603477716445923, 'valid_Z3_492_20step_rmse': 77.1885986328125, 'valid_U_256_20step_acc': 0.36274319887161255, 'valid_U_256_20step_rmse': 14.494759559631348, 'valid_T_849_20step_acc': 0.3492085039615631, 'valid_T_849_20step_rmse': 3.8919711112976074, 'valid_TREFHT_20step_acc': 0.4550131857395172, 'valid_TREFHT_20step_rmse': 3.437432289123535, 'valid_Z3_492_40step_acc': 0.05561874806880951, 'valid_Z3_492_40step_rmse': 104.87315368652344, 'valid_U_256_40step_acc': 0.05490938946604729, 'valid_U_256_40step_rmse': 18.997556686401367, 'valid_T_849_40step_acc': 0.045767270028591156, 'valid_T_849_40step_rmse': 4.947995185852051, 'valid_TREFHT_40step_acc': 0.25232118368148804, 'valid_TREFHT_40step_rmse': 4.202816963195801, 'valid_Z3_492_60step_acc': 0.01184551976621151, 'valid_Z3_492_60step_rmse': 112.9267349243164, 'valid_U_256_60step_acc': 0.007135591935366392, 'valid_U_256_60step_rmse': 20.192909240722656, 'valid_T_849_60step_acc': 0.0045162285678088665, 'valid_T_849_60step_rmse': 5.1548590660095215, 'valid_TREFHT_60step_acc': 0.20897042751312256, 'valid_TREFHT_60step_rmse': 4.466475009918213, 'valid_TREFHT_bias_lwrmse': 1.3289644276016792, 'valid_U10_bias_lwrmse': 1.009867097770419, 'valid_RHREFHT_bias_lwrmse': 4.029300548493389, 'valid_PS_bias_lwrmse': 771.669353278437, 'valid_PSL_bias_lwrmse': 547.6147467941273, 'valid_TMQ_bias_lwrmse': 4.714605324018, 'valid_SOILWATER_10CM_bias_lwrmse': nan, 'valid_TSOI_10CM_bias_lwrmse': nan, 'valid_T_level4.715_bias_lwrmse': 3.67795362743037, 'valid_T_level10.655_bias_lwrmse': 1.7982977769859942, 'valid_T_level19.235_bias_lwrmse': 1.3848026160534812, 'valid_T_level28.795_bias_lwrmse': 1.5176710175032235, 'valid_T_level50.118_bias_lwrmse': 2.2198452469400536, 'valid_T_level69.599_bias_lwrmse': 2.995112567079083, 'valid_T_level96.464_bias_lwrmse': 2.8679346397281167, 'valid_T_level145.043_bias_lwrmse': 2.119215517291871, 'valid_T_level200.999_bias_lwrmse': 2.3916239404348762, 'valid_T_level256.724_bias_lwrmse': 2.431758165123656, 'valid_T_level302.214_bias_lwrmse': 2.0016476934160643, 'valid_T_level385.999_bias_lwrmse': 1.6620009757192546, 'valid_T_level492.469_bias_lwrmse': 1.5183304708844738, 'valid_T_level608.644_bias_lwrmse': 1.3417689328923952, 'valid_T_level713.705_bias_lwrmse': 1.316487730429537, 'valid_T_level849.661_bias_lwrmse': 1.389598709800538, 'valid_T_level925.520_bias_lwrmse': 1.2713432114374204, 'valid_T_level998.496_bias_lwrmse': 1.2676684475551607, 'valid_U_level4.715_bias_lwrmse': 11.389320892447849, 'valid_U_level10.655_bias_lwrmse': 8.426814361700337, 'valid_U_level19.235_bias_lwrmse': 7.2597278617337135, 'valid_U_level28.795_bias_lwrmse': 7.471081179559098, 'valid_U_level50.118_bias_lwrmse': 5.4238194539921984, 'valid_U_level69.599_bias_lwrmse': 4.60461499323034, 'valid_U_level96.464_bias_lwrmse': 5.854926536873354, 'valid_U_level145.043_bias_lwrmse': 6.74106668781149, 'valid_U_level200.999_bias_lwrmse': 6.679240530461507, 'valid_U_level256.724_bias_lwrmse': 6.065052677179757, 'valid_U_level302.214_bias_lwrmse': 5.579429988768336, 'valid_U_level385.999_bias_lwrmse': 4.73276292514138, 'valid_U_level492.469_bias_lwrmse': 4.107332826541181, 'valid_U_level608.644_bias_lwrmse': 3.686032771334327, 'valid_U_level713.705_bias_lwrmse': 3.327578549171418, 'valid_U_level849.661_bias_lwrmse': 2.9312534503030476, 'valid_U_level925.520_bias_lwrmse': 2.7154362448829246, 'valid_U_level998.496_bias_lwrmse': 1.7357026975882812, 'valid_V_level4.715_bias_lwrmse': 2.430862717648361, 'valid_V_level10.655_bias_lwrmse': 2.386526108448779, 'valid_V_level19.235_bias_lwrmse': 2.235324715480207, 'valid_V_level28.795_bias_lwrmse': 2.071391511627267, 'valid_V_level50.118_bias_lwrmse': 1.8424904227310437, 'valid_V_level69.599_bias_lwrmse': 1.9442072676365092, 'valid_V_level96.464_bias_lwrmse': 2.6777317940113363, 'valid_V_level145.043_bias_lwrmse': 3.138131374428991, 'valid_V_level200.999_bias_lwrmse': 3.2369366744879153, 'valid_V_level256.724_bias_lwrmse': 2.976085264069327, 'valid_V_level302.214_bias_lwrmse': 2.7776483707950703, 'valid_V_level385.999_bias_lwrmse': 2.4155802605219248, 'valid_V_level492.469_bias_lwrmse': 2.0807248721031892, 'valid_V_level608.644_bias_lwrmse': 1.8113407107988508, 'valid_V_level713.705_bias_lwrmse': 1.5726171791119505, 'valid_V_level849.661_bias_lwrmse': 1.357779213774087, 'valid_V_level925.520_bias_lwrmse': 1.4413543686192833, 'valid_V_level998.496_bias_lwrmse': 0.961937827017132, 'valid_Z3_level4.715_bias_lwrmse': 139.87716112442726, 'valid_Z3_level10.655_bias_lwrmse': 163.8042552284892, 'valid_Z3_level19.235_bias_lwrmse': 164.62805177356043, 'valid_Z3_level28.795_bias_lwrmse': 156.96997723885247, 'valid_Z3_level50.118_bias_lwrmse': 135.3322020366097, 'valid_Z3_level69.599_bias_lwrmse': 116.8014500231796, 'valid_Z3_level96.464_bias_lwrmse': 101.46508855208774, 'valid_Z3_level145.043_bias_lwrmse': 93.33204008805588, 'valid_Z3_level200.999_bias_lwrmse': 82.86340798585063, 'valid_Z3_level256.724_bias_lwrmse': 67.63403310508899, 'valid_Z3_level302.214_bias_lwrmse': 60.044792491425895, 'valid_Z3_level385.999_bias_lwrmse': 48.920277533599396, 'valid_Z3_level492.469_bias_lwrmse': 44.06347112631785, 'valid_Z3_level608.644_bias_lwrmse': 43.7958302765855, 'valid_Z3_level713.705_bias_lwrmse': 46.647376209967504, 'valid_Z3_level849.661_bias_lwrmse': 50.3561040076358, 'valid_Z3_level925.520_bias_lwrmse': 50.02163761869497, 'valid_Z3_level998.496_bias_lwrmse': 51.448783515842024, 'valid_RELHUM_level4.715_bias_lwrmse': 0.013864598834185973, 'valid_RELHUM_level10.655_bias_lwrmse': 0.10093673982816732, 'valid_RELHUM_level19.235_bias_lwrmse': 0.4615702821051367, 'valid_RELHUM_level28.795_bias_lwrmse': 1.1973699953531487, 'valid_RELHUM_level50.118_bias_lwrmse': 2.13953507996556, 'valid_RELHUM_level69.599_bias_lwrmse': 6.7229550866335135, 'valid_RELHUM_level96.464_bias_lwrmse': 9.784114571251079, 'valid_RELHUM_level145.043_bias_lwrmse': 8.488730808213397, 'valid_RELHUM_level200.999_bias_lwrmse': 10.504080016466384, 'valid_RELHUM_level256.724_bias_lwrmse': 11.448092491215418, 'valid_RELHUM_level302.214_bias_lwrmse': 10.194593097840876, 'valid_RELHUM_level385.999_bias_lwrmse': 9.610754942305856, 'valid_RELHUM_level492.469_bias_lwrmse': 9.718749449917707, 'valid_RELHUM_level608.644_bias_lwrmse': 9.737872097082281, 'valid_RELHUM_level713.705_bias_lwrmse': 8.965247490487803, 'valid_RELHUM_level849.661_bias_lwrmse': 6.49711102242244, 'valid_RELHUM_level925.520_bias_lwrmse': 4.789899100646763, 'valid_RELHUM_level998.496_bias_lwrmse': 4.396037659429794, 'valid_FSNTOA_bias_lwrmse': 17.657733902575924, 'valid_FSNT_bias_lwrmse': 16.68933481026093, 'valid_PRECT_bias_lwrmse': 2.0433133677632014e-08}
+Validating...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Plotting Bias
+Bias pred: Data variables:
+    TREFHT          (lat, lon) float32 259kB 216.1 216.6 215.6 ... 247.5 247.9
+    U10             (lat, lon) float32 259kB 4.933 4.972 5.082 ... 3.06 3.136
+    RHREFHT         (lat, lon) float32 259kB 102.6 102.2 102.1 ... 106.0 106.1
+    PS              (lat, lon) float32 259kB 6.779e+04 6.778e+04 ... 1.005e+05
+    PSL             (lat, lon) float32 259kB 1.01e+05 1.01e+05 ... 1.005e+05
+    TMQ             (lat, lon) float32 259kB 0.4813 0.4779 ... 5.014 4.888
+    SOILWATER_10CM  (lat, lon) float32 259kB -1.47 -1.033 -2.125 ... 2.505 1.946
+    TSOI_10CM       (lat, lon) float32 259kB 231.2 232.5 231.3 ... 273.4 274.2
+    FSNTOA          (lat, lon) float32 259kB 10.07 10.35 10.68 ... 46.0 47.96
+    FSNT            (lat, lon) float32 259kB 11.95 12.82 12.48 ... 53.28 54.82
+    PRECT           (lat, lon) float32 259kB 1.239e-09 1.714e-09 ... 5.548e-09
+    T               (lev, lat, lon) float32 5MB 224.2 223.8 ... 247.7 247.8
+    U               (lev, lat, lon) float32 5MB 4.165 4.791 ... 1.369 1.422
+    V               (lev, lat, lon) float32 5MB -4.046 -5.372 ... -0.2424
+    Z3              (lev, lat, lon) float32 5MB 3.422e+04 3.422e+04 ... 9.886
+    RELHUM          (lev, lat, lon) float32 5MB 0.05765 0.05779 ... 106.8 106.8
+Bias gt: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.9 224.9 224.9 ... 260.4 260.4
+    U10             (lat, lon) float32 259kB 4.466 4.466 4.466 ... 4.526 4.526
+    RHREFHT         (lat, lon) float32 259kB 103.2 103.2 103.2 ... 100.6 100.6
+    PS              (lat, lon) float32 259kB 6.733e+04 6.733e+04 ... 1.016e+05
+    PSL             (lat, lon) float32 259kB 9.989e+04 9.989e+04 ... 1.016e+05
+    TMQ             (lat, lon) float32 259kB 0.6321 0.6321 ... 7.439 7.439
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.0 0.0 0.0 0.0 ... nan nan nan nan
+    TSOI_10CM       (lat, lon) float32 259kB 224.1 224.0 224.0 ... nan nan nan
+    FSNTOA          (lat, lon) float32 259kB 51.59 51.59 51.59 ... 68.3 68.3
+    FSNT            (lat, lon) float32 259kB 51.5 51.5 51.5 ... 68.2 68.2 68.2
+    PRECT           (lat, lon) float32 259kB 1.829e-09 1.829e-09 ... 8.678e-09
+    T               (lev, lat, lon) float32 5MB 233.4 233.4 ... 260.4 260.4
+    U               (lev, lat, lon) float32 5MB -4.136 -4.136 ... -0.3109
+    V               (lev, lat, lon) float32 5MB -2.9 -2.9 ... -0.5478 -0.5478
+    Z3              (lev, lat, lon) float32 5MB 3.43e+04 3.43e+04 ... 11.53
+    RELHUM          (lev, lat, lon) float32 5MB 0.04281 0.04281 ... 100.8 100.8
+Var level dict: {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+Available variables: ['Z3', 'U', 'T', 'TREFHT']
+Saved bias plot (level value heuristic) to: /work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016/plots/bias/bias_epoch_4.png
+
+Finished Bias Plots...
+Validating batch 1/8
+Validating batch 2/8
+Validating batch 3/8
+Validating batch 4/8
+Validating batch 5/8
+Validating batch 6/8
+Validating batch 7/8
+Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0470, device='cuda:3'), 'valid_loss_sfc': tensor(0.0105, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0217, device='cuda:3'), 'valid_loss_diag': tensor(0.0906, device='cuda:3'), 'valid_loss_1step': 0.04695017263293266, 'valid_loss_12step': 0.4370878040790558, 'valid_loss_20step': 0.7069513201713562, 'valid_loss_40step': 1.1048965454101562, 'valid_loss_60step': 1.2342286109924316, 'valid_Z3_492_1step_acc': 0.9785972833633423, 'valid_Z3_492_1step_rmse': 12.475866317749023, 'valid_U_256_1step_acc': 0.980232298374176, 'valid_U_256_1step_rmse': 2.4941558837890625, 'valid_T_849_1step_acc': 0.9681784510612488, 'valid_T_849_1step_rmse': 0.8208920955657959, 'valid_TREFHT_1step_acc': 0.950963020324707, 'valid_TREFHT_1step_rmse': 0.921126127243042, 'valid_Z3_492_12step_acc': 0.7134639024734497, 'valid_Z3_492_12step_rmse': 49.4736328125, 'valid_U_256_12step_acc': 0.6725079417228699, 'valid_U_256_12step_rmse': 10.19304084777832, 'valid_T_849_12step_acc': 0.6818645596504211, 'valid_T_849_12step_rmse': 2.6485347747802734, 'valid_TREFHT_12step_acc': 0.6957289576530457, 'valid_TREFHT_12step_rmse': 2.4016380310058594, 'valid_Z3_492_20step_acc': 0.4642269015312195, 'valid_Z3_492_20step_rmse': 70.05512237548828, 'valid_U_256_20step_acc': 0.4026224911212921, 'valid_U_256_20step_rmse': 14.18171501159668, 'valid_T_849_20step_acc': 0.42331406474113464, 'valid_T_849_20step_rmse': 3.643857002258301, 'valid_TREFHT_20step_acc': 0.5211393237113953, 'valid_TREFHT_20step_rmse': 3.101081371307373, 'valid_Z3_492_40step_acc': 0.07999778538942337, 'valid_Z3_492_40step_rmse': 100.31536865234375, 'valid_U_256_40step_acc': 0.08335482329130173, 'valid_U_256_40step_rmse': 18.87973976135254, 'valid_T_849_40step_acc': 0.0767626240849495, 'valid_T_849_40step_rmse': 4.903288841247559, 'valid_TREFHT_40step_acc': 0.2845892012119293, 'valid_TREFHT_40step_rmse': 4.037459850311279, 'valid_Z3_492_60step_acc': 0.021981703117489815, 'valid_Z3_492_60step_rmse': 111.64098358154297, 'valid_U_256_60step_acc': 0.01757575199007988, 'valid_U_256_60step_rmse': 20.509910583496094, 'valid_T_849_60step_acc': 0.014735381118953228, 'valid_T_849_60step_rmse': 5.2874627113342285, 'valid_TREFHT_60step_acc': 0.21232503652572632, 'valid_TREFHT_60step_rmse': 4.445115566253662}
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0470, device='cuda:2'), 'valid_loss_sfc': tensor(0.0105, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0217, device='cuda:2'), 'valid_loss_diag': tensor(0.0906, device='cuda:2'), 'valid_loss_1step': 0.04695017263293266, 'valid_loss_12step': 0.4370878040790558, 'valid_loss_20step': 0.7069513201713562, 'valid_loss_40step': 1.1048965454101562, 'valid_loss_60step': 1.2342286109924316, 'valid_Z3_492_1step_acc': 0.9785972833633423, 'valid_Z3_492_1step_rmse': 12.475866317749023, 'valid_U_256_1step_acc': 0.980232298374176, 'valid_U_256_1step_rmse': 2.4941558837890625, 'valid_T_849_1step_acc': 0.9681784510612488, 'valid_T_849_1step_rmse': 0.8208920955657959, 'valid_TREFHT_1step_acc': 0.950963020324707, 'valid_TREFHT_1step_rmse': 0.921126127243042, 'valid_Z3_492_12step_acc': 0.7134639024734497, 'valid_Z3_492_12step_rmse': 49.4736328125, 'valid_U_256_12step_acc': 0.6725079417228699, 'valid_U_256_12step_rmse': 10.19304084777832, 'valid_T_849_12step_acc': 0.6818645596504211, 'valid_T_849_12step_rmse': 2.6485347747802734, 'valid_TREFHT_12step_acc': 0.6957289576530457, 'valid_TREFHT_12step_rmse': 2.4016380310058594, 'valid_Z3_492_20step_acc': 0.4642269015312195, 'valid_Z3_492_20step_rmse': 70.05512237548828, 'valid_U_256_20step_acc': 0.4026224911212921, 'valid_U_256_20step_rmse': 14.18171501159668, 'valid_T_849_20step_acc': 0.42331406474113464, 'valid_T_849_20step_rmse': 3.643857002258301, 'valid_TREFHT_20step_acc': 0.5211393237113953, 'valid_TREFHT_20step_rmse': 3.101081371307373, 'valid_Z3_492_40step_acc': 0.07999778538942337, 'valid_Z3_492_40step_rmse': 100.31536865234375, 'valid_U_256_40step_acc': 0.08335482329130173, 'valid_U_256_40step_rmse': 18.87973976135254, 'valid_T_849_40step_acc': 0.0767626240849495, 'valid_T_849_40step_rmse': 4.903288841247559, 'valid_TREFHT_40step_acc': 0.2845892012119293, 'valid_TREFHT_40step_rmse': 4.037459850311279, 'valid_Z3_492_60step_acc': 0.021981703117489815, 'valid_Z3_492_60step_rmse': 111.64098358154297, 'valid_U_256_60step_acc': 0.01757575199007988, 'valid_U_256_60step_rmse': 20.509910583496094, 'valid_T_849_60step_acc': 0.014735381118953228, 'valid_T_849_60step_rmse': 5.2874627113342285, 'valid_TREFHT_60step_acc': 0.21232503652572632, 'valid_TREFHT_60step_rmse': 4.445115566253662}diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0470, device='cuda:1'), 'valid_loss_sfc': tensor(0.0105, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0217, device='cuda:1'), 'valid_loss_diag': tensor(0.0906, device='cuda:1'), 'valid_loss_1step': 0.04695017263293266, 'valid_loss_12step': 0.4370878040790558, 'valid_loss_20step': 0.7069513201713562, 'valid_loss_40step': 1.1048965454101562, 'valid_loss_60step': 1.2342286109924316, 'valid_Z3_492_1step_acc': 0.9785972833633423, 'valid_Z3_492_1step_rmse': 12.475866317749023, 'valid_U_256_1step_acc': 0.980232298374176, 'valid_U_256_1step_rmse': 2.4941558837890625, 'valid_T_849_1step_acc': 0.9681784510612488, 'valid_T_849_1step_rmse': 0.8208920955657959, 'valid_TREFHT_1step_acc': 0.950963020324707, 'valid_TREFHT_1step_rmse': 0.921126127243042, 'valid_Z3_492_12step_acc': 0.7134639024734497, 'valid_Z3_492_12step_rmse': 49.4736328125, 'valid_U_256_12step_acc': 0.6725079417228699, 'valid_U_256_12step_rmse': 10.19304084777832, 'valid_T_849_12step_acc': 0.6818645596504211, 'valid_T_849_12step_rmse': 2.6485347747802734, 'valid_TREFHT_12step_acc': 0.6957289576530457, 'valid_TREFHT_12step_rmse': 2.4016380310058594, 'valid_Z3_492_20step_acc': 0.4642269015312195, 'valid_Z3_492_20step_rmse': 70.05512237548828, 'valid_U_256_20step_acc': 0.4026224911212921, 'valid_U_256_20step_rmse': 14.18171501159668, 'valid_T_849_20step_acc': 0.42331406474113464, 'valid_T_849_20step_rmse': 3.643857002258301, 'valid_TREFHT_20step_acc': 0.5211393237113953, 'valid_TREFHT_20step_rmse': 3.101081371307373, 'valid_Z3_492_40step_acc': 0.07999778538942337, 'valid_Z3_492_40step_rmse': 100.31536865234375, 'valid_U_256_40step_acc': 0.08335482329130173, 'valid_U_256_40step_rmse': 18.87973976135254, 'valid_T_849_40step_acc': 0.0767626240849495, 'valid_T_849_40step_rmse': 4.903288841247559, 'valid_TREFHT_40step_acc': 0.2845892012119293, 'valid_TREFHT_40step_rmse': 4.037459850311279, 'valid_Z3_492_60step_acc': 0.021981703117489815, 'valid_Z3_492_60step_rmse': 111.64098358154297, 'valid_U_256_60step_acc': 0.01757575199007988, 'valid_U_256_60step_rmse': 20.509910583496094, 'valid_T_849_60step_acc': 0.014735381118953228, 'valid_T_849_60step_rmse': 5.2874627113342285, 'valid_TREFHT_60step_acc': 0.21232503652572632, 'valid_TREFHT_60step_rmse': 4.445115566253662}
+
+diagnostic_logs: {'epoch': 4, 'valid_loss': tensor(0.0470, device='cuda:0'), 'valid_loss_sfc': tensor(0.0105, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0217, device='cuda:0'), 'valid_loss_diag': tensor(0.0906, device='cuda:0'), 'valid_loss_1step': 0.04695017263293266, 'valid_loss_12step': 0.4370878040790558, 'valid_loss_20step': 0.7069513201713562, 'valid_loss_40step': 1.1048965454101562, 'valid_loss_60step': 1.2342286109924316, 'valid_Z3_492_1step_acc': 0.9785972833633423, 'valid_Z3_492_1step_rmse': 12.475866317749023, 'valid_U_256_1step_acc': 0.980232298374176, 'valid_U_256_1step_rmse': 2.4941558837890625, 'valid_T_849_1step_acc': 0.9681784510612488, 'valid_T_849_1step_rmse': 0.8208920955657959, 'valid_TREFHT_1step_acc': 0.950963020324707, 'valid_TREFHT_1step_rmse': 0.921126127243042, 'valid_Z3_492_12step_acc': 0.7134639024734497, 'valid_Z3_492_12step_rmse': 49.4736328125, 'valid_U_256_12step_acc': 0.6725079417228699, 'valid_U_256_12step_rmse': 10.19304084777832, 'valid_T_849_12step_acc': 0.6818645596504211, 'valid_T_849_12step_rmse': 2.6485347747802734, 'valid_TREFHT_12step_acc': 0.6957289576530457, 'valid_TREFHT_12step_rmse': 2.4016380310058594, 'valid_Z3_492_20step_acc': 0.4642269015312195, 'valid_Z3_492_20step_rmse': 70.05512237548828, 'valid_U_256_20step_acc': 0.4026224911212921, 'valid_U_256_20step_rmse': 14.18171501159668, 'valid_T_849_20step_acc': 0.42331406474113464, 'valid_T_849_20step_rmse': 3.643857002258301, 'valid_TREFHT_20step_acc': 0.5211393237113953, 'valid_TREFHT_20step_rmse': 3.101081371307373, 'valid_Z3_492_40step_acc': 0.07999778538942337, 'valid_Z3_492_40step_rmse': 100.31536865234375, 'valid_U_256_40step_acc': 0.08335482329130173, 'valid_U_256_40step_rmse': 18.87973976135254, 'valid_T_849_40step_acc': 0.0767626240849495, 'valid_T_849_40step_rmse': 4.903288841247559, 'valid_TREFHT_40step_acc': 0.2845892012119293, 'valid_TREFHT_40step_rmse': 4.037459850311279, 'valid_Z3_492_60step_acc': 0.021981703117489815, 'valid_Z3_492_60step_rmse': 111.64098358154297, 'valid_U_256_60step_acc': 0.01757575199007988, 'valid_U_256_60step_rmse': 20.509910583496094, 'valid_T_849_60step_acc': 0.014735381118953228, 'valid_T_849_60step_rmse': 5.2874627113342285, 'valid_TREFHT_60step_acc': 0.21232503652572632, 'valid_TREFHT_60step_rmse': 4.445115566253662, 'valid_TREFHT_bias_lwrmse': 2.470253775304755, 'valid_U10_bias_lwrmse': 1.1415806446310202, 'valid_RHREFHT_bias_lwrmse': 4.587168520796825, 'valid_PS_bias_lwrmse': 683.2516129821269, 'valid_PSL_bias_lwrmse': 518.9164619258887, 'valid_TMQ_bias_lwrmse': 6.732439127143956, 'valid_SOILWATER_10CM_bias_lwrmse': nan, 'valid_TSOI_10CM_bias_lwrmse': nan, 'valid_T_level4.715_bias_lwrmse': 3.1148416892781166, 'valid_T_level10.655_bias_lwrmse': 2.4873122158766665, 'valid_T_level19.235_bias_lwrmse': 1.8635225609361294, 'valid_T_level28.795_bias_lwrmse': 1.8568305861404155, 'valid_T_level50.118_bias_lwrmse': 2.0340971621823676, 'valid_T_level69.599_bias_lwrmse': 3.3277405275058136, 'valid_T_level96.464_bias_lwrmse': 2.8856877392099194, 'valid_T_level145.043_bias_lwrmse': 2.66136875323371, 'valid_T_level200.999_bias_lwrmse': 2.424919450125301, 'valid_T_level256.724_bias_lwrmse': 2.9064921762431273, 'valid_T_level302.214_bias_lwrmse': 2.867855118282457, 'valid_T_level385.999_bias_lwrmse': 2.761680655972083, 'valid_T_level492.469_bias_lwrmse': 2.6198373222189044, 'valid_T_level608.644_bias_lwrmse': 2.4701913826912465, 'valid_T_level713.705_bias_lwrmse': 2.548030532813167, 'valid_T_level849.661_bias_lwrmse': 2.515411138609592, 'valid_T_level925.520_bias_lwrmse': 2.4331808269224044, 'valid_T_level998.496_bias_lwrmse': 2.4988477158060394, 'valid_U_level4.715_bias_lwrmse': 9.920408660866087, 'valid_U_level10.655_bias_lwrmse': 7.43016996981568, 'valid_U_level19.235_bias_lwrmse': 6.93738245493208, 'valid_U_level28.795_bias_lwrmse': 4.32326175893541, 'valid_U_level50.118_bias_lwrmse': 4.293998927079684, 'valid_U_level69.599_bias_lwrmse': 5.543995073285365, 'valid_U_level96.464_bias_lwrmse': 8.369352812373702, 'valid_U_level145.043_bias_lwrmse': 9.623289554181492, 'valid_U_level200.999_bias_lwrmse': 10.12939049129334, 'valid_U_level256.724_bias_lwrmse': 9.117454663012143, 'valid_U_level302.214_bias_lwrmse': 8.135622136398423, 'valid_U_level385.999_bias_lwrmse': 6.483707155991313, 'valid_U_level492.469_bias_lwrmse': 4.797725016213856, 'valid_U_level608.644_bias_lwrmse': 3.8931218864581645, 'valid_U_level713.705_bias_lwrmse': 3.4823056231580436, 'valid_U_level849.661_bias_lwrmse': 3.208125484139459, 'valid_U_level925.520_bias_lwrmse': 3.0078349388376626, 'valid_U_level998.496_bias_lwrmse': 1.898649497247963, 'valid_V_level4.715_bias_lwrmse': 2.0047456681857954, 'valid_V_level10.655_bias_lwrmse': 1.944327051669208, 'valid_V_level19.235_bias_lwrmse': 1.869758815910547, 'valid_V_level28.795_bias_lwrmse': 1.7676133538384018, 'valid_V_level50.118_bias_lwrmse': 1.605395972701242, 'valid_V_level69.599_bias_lwrmse': 1.6346919057789586, 'valid_V_level96.464_bias_lwrmse': 2.073388255179212, 'valid_V_level145.043_bias_lwrmse': 2.904560676263027, 'valid_V_level200.999_bias_lwrmse': 3.270674445975705, 'valid_V_level256.724_bias_lwrmse': 2.8434320578234247, 'valid_V_level302.214_bias_lwrmse': 2.596029336952219, 'valid_V_level385.999_bias_lwrmse': 2.298697076941027, 'valid_V_level492.469_bias_lwrmse': 1.9861230062826478, 'valid_V_level608.644_bias_lwrmse': 1.693509295177977, 'valid_V_level713.705_bias_lwrmse': 1.5454594536016693, 'valid_V_level849.661_bias_lwrmse': 1.4868797829816858, 'valid_V_level925.520_bias_lwrmse': 1.7505970375042867, 'valid_V_level998.496_bias_lwrmse': 1.2776088712596168, 'valid_Z3_level4.715_bias_lwrmse': 121.18662205561769, 'valid_Z3_level10.655_bias_lwrmse': 109.09188615515875, 'valid_Z3_level19.235_bias_lwrmse': 105.5740385607604, 'valid_Z3_level28.795_bias_lwrmse': 107.05305898684954, 'valid_Z3_level50.118_bias_lwrmse': 106.09825186022017, 'valid_Z3_level69.599_bias_lwrmse': 106.14807472486683, 'valid_Z3_level96.464_bias_lwrmse': 113.02612829029138, 'valid_Z3_level145.043_bias_lwrmse': 119.6917648370648, 'valid_Z3_level200.999_bias_lwrmse': 116.38902437886574, 'valid_Z3_level256.724_bias_lwrmse': 104.3793952503457, 'valid_Z3_level302.214_bias_lwrmse': 94.58204092917003, 'valid_Z3_level385.999_bias_lwrmse': 76.85476811148789, 'valid_Z3_level492.469_bias_lwrmse': 63.73658555233242, 'valid_Z3_level608.644_bias_lwrmse': 52.22479540299137, 'valid_Z3_level713.705_bias_lwrmse': 49.73118703371104, 'valid_Z3_level849.661_bias_lwrmse': 46.26046720630633, 'valid_Z3_level925.520_bias_lwrmse': 47.003793971448225, 'valid_Z3_level998.496_bias_lwrmse': 48.591234818012104, 'valid_RELHUM_level4.715_bias_lwrmse': 0.01673368657390224, 'valid_RELHUM_level10.655_bias_lwrmse': 0.15873953343939817, 'valid_RELHUM_level19.235_bias_lwrmse': 0.5750670912200117, 'valid_RELHUM_level28.795_bias_lwrmse': 1.1982361791826377, 'valid_RELHUM_level50.118_bias_lwrmse': 1.9764709348066696, 'valid_RELHUM_level69.599_bias_lwrmse': 10.153011114254607, 'valid_RELHUM_level96.464_bias_lwrmse': 10.7033776964058, 'valid_RELHUM_level145.043_bias_lwrmse': 16.910901543595926, 'valid_RELHUM_level200.999_bias_lwrmse': 15.833404410148841, 'valid_RELHUM_level256.724_bias_lwrmse': 13.067314227655386, 'valid_RELHUM_level302.214_bias_lwrmse': 10.575963192028997, 'valid_RELHUM_level385.999_bias_lwrmse': 9.95816629846694, 'valid_RELHUM_level492.469_bias_lwrmse': 10.691274670062198, 'valid_RELHUM_level608.644_bias_lwrmse': 11.453460403494688, 'valid_RELHUM_level713.705_bias_lwrmse': 10.641431376367624, 'valid_RELHUM_level849.661_bias_lwrmse': 9.093577104895914, 'valid_RELHUM_level925.520_bias_lwrmse': 6.056026618293782, 'valid_RELHUM_level998.496_bias_lwrmse': 4.85215860002981, 'valid_FSNTOA_bias_lwrmse': 23.679884923585455, 'valid_FSNT_bias_lwrmse': 22.537450671839355, 'valid_PRECT_bias_lwrmse': 3.3256482421231905e-08}
+Validating...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Performing long validation...
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Completed 7300 step long validation
+Plotting Bias
+Bias pred: Data variables:
+    TREFHT          (lat, lon) float32 259kB 237.5 238.0 237.3 ... 254.2 254.8
+    U10             (lat, lon) float32 259kB 4.689 4.749 4.746 ... 3.848 3.77
+    RHREFHT         (lat, lon) float32 259kB 98.42 98.08 97.97 ... 101.3 101.1
+    PS              (lat, lon) float32 259kB 6.962e+04 6.951e+04 ... 9.902e+04
+    PSL             (lat, lon) float32 259kB 1.029e+05 1.029e+05 ... 9.885e+04
+    TMQ             (lat, lon) float32 259kB 1.06 1.121 1.054 ... 4.606 4.741
+    SOILWATER_10CM  (lat, lon) float32 259kB -1.588 -0.8509 ... 3.287 2.287
+    TSOI_10CM       (lat, lon) float32 259kB 237.9 239.0 237.6 ... 278.6 279.2
+    FSNTOA          (lat, lon) float32 259kB 91.39 92.32 92.39 ... 21.99 22.44
+    FSNT            (lat, lon) float32 259kB 105.4 105.6 105.1 ... 35.49 35.79
+    PRECT           (lat, lon) float32 259kB 6.462e-09 6.187e-09 ... 9.935e-09
+    T               (lev, lat, lon) float32 5MB 243.3 242.4 ... 253.4 254.0
+    U               (lev, lat, lon) float32 5MB -17.08 -14.77 ... 0.4053 0.4891
+    V               (lev, lat, lon) float32 5MB -5.37 -5.301 ... 1.047 0.902
+    Z3              (lev, lat, lon) float32 5MB 3.667e+04 3.668e+04 ... 1.119
+    RELHUM          (lev, lat, lon) float32 5MB -0.00378 -0.001525 ... 100.9
+Bias gt: Data variables:
+    TREFHT          (lat, lon) float32 259kB 224.9 224.9 224.9 ... 260.4 260.4
+    U10             (lat, lon) float32 259kB 4.466 4.466 4.466 ... 4.526 4.526
+    RHREFHT         (lat, lon) float32 259kB 103.2 103.2 103.2 ... 100.6 100.6
+    PS              (lat, lon) float32 259kB 6.733e+04 6.733e+04 ... 1.016e+05
+    PSL             (lat, lon) float32 259kB 9.989e+04 9.989e+04 ... 1.016e+05
+    TMQ             (lat, lon) float32 259kB 0.6321 0.6321 ... 7.439 7.439
+    SOILWATER_10CM  (lat, lon) float32 259kB 0.0 0.0 0.0 0.0 ... nan nan nan nan
+    TSOI_10CM       (lat, lon) float32 259kB 224.1 224.0 224.0 ... nan nan nan
+    FSNTOA          (lat, lon) float32 259kB 51.59 51.59 51.59 ... 68.3 68.3
+    FSNT            (lat, lon) float32 259kB 51.5 51.5 51.5 ... 68.2 68.2 68.2
+    PRECT           (lat, lon) float32 259kB 1.829e-09 1.829e-09 ... 8.678e-09
+    T               (lev, lat, lon) float32 5MB 233.4 233.4 ... 260.4 260.4
+    U               (lev, lat, lon) float32 5MB -4.136 -4.136 ... -0.3109
+    V               (lev, lat, lon) float32 5MB -2.9 -2.9 ... -0.5478 -0.5478
+    Z3              (lev, lat, lon) float32 5MB 3.43e+04 3.43e+04 ... 11.53
+    RELHUM          (lev, lat, lon) float32 5MB 0.04281 0.04281 ... 100.8 100.8
+Var level dict: {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+Available variables: ['Z3', 'U', 'T', 'TREFHT']
+Saved bias plot (level value heuristic) to: /work/11095/jwan4/PanguWeather/v2.0/results/SFNO/0016/plots/bias/bias_epoch_5.png
+
+Finished Bias Plots...
+Validating batch 1/8
+Validating batch 2/8
+Validating batch 3/8
+Validating batch 4/8
+Validating batch 5/8
+Validating batch 6/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Validating batch 7/8
+Validating batch 8/8
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+Finished batch validation.
+
+Finished combining predictions and ground truths.
+diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0421, device='cuda:3'), 'valid_loss_sfc': tensor(0.0092, device='cuda:3'), 'valid_loss_upper_air': tensor(0.0190, device='cuda:3'), 'valid_loss_diag': tensor(0.0832, device='cuda:3'), 'valid_loss_1step': 0.042062971740961075, 'valid_loss_12step': 0.40164366364479065, 'valid_loss_20step': 0.6606862545013428, 'valid_loss_40step': 1.0688591003417969, 'valid_loss_60step': 1.2463606595993042, 'valid_Z3_492_1step_acc': 0.9853189587593079, 'valid_Z3_492_1step_rmse': 10.849456787109375, 'valid_U_256_1step_acc': 0.982642650604248, 'valid_U_256_1step_rmse': 2.3384921550750732, 'valid_T_849_1step_acc': 0.972840428352356, 'valid_T_849_1step_rmse': 0.7539952397346497, 'valid_TREFHT_1step_acc': 0.9570596814155579, 'valid_TREFHT_1step_rmse': 0.87694251537323, 'valid_Z3_492_12step_acc': 0.7673097848892212, 'valid_Z3_492_12step_rmse': 43.59870147705078, 'valid_U_256_12step_acc': 0.7168385982513428, 'valid_U_256_12step_rmse': 9.375771522521973, 'valid_T_849_12step_acc': 0.716676652431488, 'valid_T_849_12step_rmse': 2.5222692489624023, 'valid_TREFHT_12step_acc': 0.7358588576316833, 'valid_TREFHT_12step_rmse': 2.2219135761260986, 'valid_Z3_492_20step_acc': 0.5130900144577026, 'valid_Z3_492_20step_rmse': 64.46733856201172, 'valid_U_256_20step_acc': 0.4637328088283539, 'valid_U_256_20step_rmse': 13.124314308166504, 'valid_T_849_20step_acc': 0.4577137529850006, 'valid_T_849_20step_rmse': 3.545010566711426, 'valid_TREFHT_20step_acc': 0.5589537620544434, 'valid_TREFHT_20step_rmse': 2.938995838165283, 'valid_Z3_492_40step_acc': 0.12088321149349213, 'valid_Z3_492_40step_rmse': 93.14018249511719, 'valid_U_256_40step_acc': 0.12708061933517456, 'valid_U_256_40step_rmse': 17.415712356567383, 'valid_T_849_40step_acc': 0.103838711977005, 'valid_T_849_40step_rmse': 4.808864593505859, 'valid_TREFHT_40step_acc': 0.31387364864349365, 'valid_TREFHT_40step_rmse': 3.896501064300537, 'valid_Z3_492_60step_acc': 0.024909036234021187, 'valid_Z3_492_60step_rmse': 103.5714111328125, 'valid_U_256_60step_acc': 0.04078838601708412, 'valid_U_256_60step_rmse': 18.784061431884766, 'valid_T_849_60step_acc': 0.02618236094713211, 'valid_T_849_60step_rmse': 5.138681888580322, 'valid_TREFHT_60step_acc': 0.23490779101848602, 'valid_TREFHT_60step_rmse': 4.320443630218506}diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0421, device='cuda:2'), 'valid_loss_sfc': tensor(0.0092, device='cuda:2'), 'valid_loss_upper_air': tensor(0.0190, device='cuda:2'), 'valid_loss_diag': tensor(0.0832, device='cuda:2'), 'valid_loss_1step': 0.042062971740961075, 'valid_loss_12step': 0.40164366364479065, 'valid_loss_20step': 0.6606862545013428, 'valid_loss_40step': 1.0688591003417969, 'valid_loss_60step': 1.2463606595993042, 'valid_Z3_492_1step_acc': 0.9853189587593079, 'valid_Z3_492_1step_rmse': 10.849456787109375, 'valid_U_256_1step_acc': 0.982642650604248, 'valid_U_256_1step_rmse': 2.3384921550750732, 'valid_T_849_1step_acc': 0.972840428352356, 'valid_T_849_1step_rmse': 0.7539952397346497, 'valid_TREFHT_1step_acc': 0.9570596814155579, 'valid_TREFHT_1step_rmse': 0.87694251537323, 'valid_Z3_492_12step_acc': 0.7673097848892212, 'valid_Z3_492_12step_rmse': 43.59870147705078, 'valid_U_256_12step_acc': 0.7168385982513428, 'valid_U_256_12step_rmse': 9.375771522521973, 'valid_T_849_12step_acc': 0.716676652431488, 'valid_T_849_12step_rmse': 2.5222692489624023, 'valid_TREFHT_12step_acc': 0.7358588576316833, 'valid_TREFHT_12step_rmse': 2.2219135761260986, 'valid_Z3_492_20step_acc': 0.5130900144577026, 'valid_Z3_492_20step_rmse': 64.46733856201172, 'valid_U_256_20step_acc': 0.4637328088283539, 'valid_U_256_20step_rmse': 13.124314308166504, 'valid_T_849_20step_acc': 0.4577137529850006, 'valid_T_849_20step_rmse': 3.545010566711426, 'valid_TREFHT_20step_acc': 0.5589537620544434, 'valid_TREFHT_20step_rmse': 2.938995838165283, 'valid_Z3_492_40step_acc': 0.12088321149349213, 'valid_Z3_492_40step_rmse': 93.14018249511719, 'valid_U_256_40step_acc': 0.12708061933517456, 'valid_U_256_40step_rmse': 17.415712356567383, 'valid_T_849_40step_acc': 0.103838711977005, 'valid_T_849_40step_rmse': 4.808864593505859, 'valid_TREFHT_40step_acc': 0.31387364864349365, 'valid_TREFHT_40step_rmse': 3.896501064300537, 'valid_Z3_492_60step_acc': 0.024909036234021187, 'valid_Z3_492_60step_rmse': 103.5714111328125, 'valid_U_256_60step_acc': 0.04078838601708412, 'valid_U_256_60step_rmse': 18.784061431884766, 'valid_T_849_60step_acc': 0.02618236094713211, 'valid_T_849_60step_rmse': 5.138681888580322, 'valid_TREFHT_60step_acc': 0.23490779101848602, 'valid_TREFHT_60step_rmse': 4.320443630218506}
+diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0421, device='cuda:1'), 'valid_loss_sfc': tensor(0.0092, device='cuda:1'), 'valid_loss_upper_air': tensor(0.0190, device='cuda:1'), 'valid_loss_diag': tensor(0.0832, device='cuda:1'), 'valid_loss_1step': 0.042062971740961075, 'valid_loss_12step': 0.40164366364479065, 'valid_loss_20step': 0.6606862545013428, 'valid_loss_40step': 1.0688591003417969, 'valid_loss_60step': 1.2463606595993042, 'valid_Z3_492_1step_acc': 0.9853189587593079, 'valid_Z3_492_1step_rmse': 10.849456787109375, 'valid_U_256_1step_acc': 0.982642650604248, 'valid_U_256_1step_rmse': 2.3384921550750732, 'valid_T_849_1step_acc': 0.972840428352356, 'valid_T_849_1step_rmse': 0.7539952397346497, 'valid_TREFHT_1step_acc': 0.9570596814155579, 'valid_TREFHT_1step_rmse': 0.87694251537323, 'valid_Z3_492_12step_acc': 0.7673097848892212, 'valid_Z3_492_12step_rmse': 43.59870147705078, 'valid_U_256_12step_acc': 0.7168385982513428, 'valid_U_256_12step_rmse': 9.375771522521973, 'valid_T_849_12step_acc': 0.716676652431488, 'valid_T_849_12step_rmse': 2.5222692489624023, 'valid_TREFHT_12step_acc': 0.7358588576316833, 'valid_TREFHT_12step_rmse': 2.2219135761260986, 'valid_Z3_492_20step_acc': 0.5130900144577026, 'valid_Z3_492_20step_rmse': 64.46733856201172, 'valid_U_256_20step_acc': 0.4637328088283539, 'valid_U_256_20step_rmse': 13.124314308166504, 'valid_T_849_20step_acc': 0.4577137529850006, 'valid_T_849_20step_rmse': 3.545010566711426, 'valid_TREFHT_20step_acc': 0.5589537620544434, 'valid_TREFHT_20step_rmse': 2.938995838165283, 'valid_Z3_492_40step_acc': 0.12088321149349213, 'valid_Z3_492_40step_rmse': 93.14018249511719, 'valid_U_256_40step_acc': 0.12708061933517456, 'valid_U_256_40step_rmse': 17.415712356567383, 'valid_T_849_40step_acc': 0.103838711977005, 'valid_T_849_40step_rmse': 4.808864593505859, 'valid_TREFHT_40step_acc': 0.31387364864349365, 'valid_TREFHT_40step_rmse': 3.896501064300537, 'valid_Z3_492_60step_acc': 0.024909036234021187, 'valid_Z3_492_60step_rmse': 103.5714111328125, 'valid_U_256_60step_acc': 0.04078838601708412, 'valid_U_256_60step_rmse': 18.784061431884766, 'valid_T_849_60step_acc': 0.02618236094713211, 'valid_T_849_60step_rmse': 5.138681888580322, 'valid_TREFHT_60step_acc': 0.23490779101848602, 'valid_TREFHT_60step_rmse': 4.320443630218506}
+
+diagnostic_logs: {'epoch': 5, 'valid_loss': tensor(0.0421, device='cuda:0'), 'valid_loss_sfc': tensor(0.0092, device='cuda:0'), 'valid_loss_upper_air': tensor(0.0190, device='cuda:0'), 'valid_loss_diag': tensor(0.0832, device='cuda:0'), 'valid_loss_1step': 0.042062971740961075, 'valid_loss_12step': 0.40164366364479065, 'valid_loss_20step': 0.6606862545013428, 'valid_loss_40step': 1.0688591003417969, 'valid_loss_60step': 1.2463606595993042, 'valid_Z3_492_1step_acc': 0.9853189587593079, 'valid_Z3_492_1step_rmse': 10.849456787109375, 'valid_U_256_1step_acc': 0.982642650604248, 'valid_U_256_1step_rmse': 2.3384921550750732, 'valid_T_849_1step_acc': 0.972840428352356, 'valid_T_849_1step_rmse': 0.7539952397346497, 'valid_TREFHT_1step_acc': 0.9570596814155579, 'valid_TREFHT_1step_rmse': 0.87694251537323, 'valid_Z3_492_12step_acc': 0.7673097848892212, 'valid_Z3_492_12step_rmse': 43.59870147705078, 'valid_U_256_12step_acc': 0.7168385982513428, 'valid_U_256_12step_rmse': 9.375771522521973, 'valid_T_849_12step_acc': 0.716676652431488, 'valid_T_849_12step_rmse': 2.5222692489624023, 'valid_TREFHT_12step_acc': 0.7358588576316833, 'valid_TREFHT_12step_rmse': 2.2219135761260986, 'valid_Z3_492_20step_acc': 0.5130900144577026, 'valid_Z3_492_20step_rmse': 64.46733856201172, 'valid_U_256_20step_acc': 0.4637328088283539, 'valid_U_256_20step_rmse': 13.124314308166504, 'valid_T_849_20step_acc': 0.4577137529850006, 'valid_T_849_20step_rmse': 3.545010566711426, 'valid_TREFHT_20step_acc': 0.5589537620544434, 'valid_TREFHT_20step_rmse': 2.938995838165283, 'valid_Z3_492_40step_acc': 0.12088321149349213, 'valid_Z3_492_40step_rmse': 93.14018249511719, 'valid_U_256_40step_acc': 0.12708061933517456, 'valid_U_256_40step_rmse': 17.415712356567383, 'valid_T_849_40step_acc': 0.103838711977005, 'valid_T_849_40step_rmse': 4.808864593505859, 'valid_TREFHT_40step_acc': 0.31387364864349365, 'valid_TREFHT_40step_rmse': 3.896501064300537, 'valid_Z3_492_60step_acc': 0.024909036234021187, 'valid_Z3_492_60step_rmse': 103.5714111328125, 'valid_U_256_60step_acc': 0.04078838601708412, 'valid_U_256_60step_rmse': 18.784061431884766, 'valid_T_849_60step_acc': 0.02618236094713211, 'valid_T_849_60step_rmse': 5.138681888580322, 'valid_TREFHT_60step_acc': 0.23490779101848602, 'valid_TREFHT_60step_rmse': 4.320443630218506, 'valid_TREFHT_bias_lwrmse': 5.226160565522138, 'valid_U10_bias_lwrmse': 1.545174686960092, 'valid_RHREFHT_bias_lwrmse': 7.167177101945315, 'valid_PS_bias_lwrmse': 1279.479618241468, 'valid_PSL_bias_lwrmse': 1076.7732778672073, 'valid_TMQ_bias_lwrmse': 8.302788599891377, 'valid_SOILWATER_10CM_bias_lwrmse': nan, 'valid_TSOI_10CM_bias_lwrmse': nan, 'valid_T_level4.715_bias_lwrmse': 8.140785379769175, 'valid_T_level10.655_bias_lwrmse': 6.939576836895629, 'valid_T_level19.235_bias_lwrmse': 6.397065773938869, 'valid_T_level28.795_bias_lwrmse': 5.856653256466518, 'valid_T_level50.118_bias_lwrmse': 5.426968422960434, 'valid_T_level69.599_bias_lwrmse': 6.256279464680536, 'valid_T_level96.464_bias_lwrmse': 4.086160588063849, 'valid_T_level145.043_bias_lwrmse': 3.5844859103175595, 'valid_T_level200.999_bias_lwrmse': 4.071210403697699, 'valid_T_level256.724_bias_lwrmse': 3.8407664003558777, 'valid_T_level302.214_bias_lwrmse': 3.5663812969505746, 'valid_T_level385.999_bias_lwrmse': 3.6985931221055757, 'valid_T_level492.469_bias_lwrmse': 3.803063961105439, 'valid_T_level608.644_bias_lwrmse': 3.748398215281909, 'valid_T_level713.705_bias_lwrmse': 3.98662160257486, 'valid_T_level849.661_bias_lwrmse': 4.30870305678773, 'valid_T_level925.520_bias_lwrmse': 4.505136654716593, 'valid_T_level998.496_bias_lwrmse': 5.285737728893167, 'valid_U_level4.715_bias_lwrmse': 24.8787420786646, 'valid_U_level10.655_bias_lwrmse': 20.086978748174072, 'valid_U_level19.235_bias_lwrmse': 14.799143916378938, 'valid_U_level28.795_bias_lwrmse': 12.944532546894152, 'valid_U_level50.118_bias_lwrmse': 10.937428381340968, 'valid_U_level69.599_bias_lwrmse': 11.487176608122168, 'valid_U_level96.464_bias_lwrmse': 13.395919583714882, 'valid_U_level145.043_bias_lwrmse': 13.547578367840584, 'valid_U_level200.999_bias_lwrmse': 12.226687299113365, 'valid_U_level256.724_bias_lwrmse': 10.56631656514429, 'valid_U_level302.214_bias_lwrmse': 9.248122449045539, 'valid_U_level385.999_bias_lwrmse': 7.732826125964108, 'valid_U_level492.469_bias_lwrmse': 6.765879729048299, 'valid_U_level608.644_bias_lwrmse': 5.944565342779722, 'valid_U_level713.705_bias_lwrmse': 5.583073521998668, 'valid_U_level849.661_bias_lwrmse': 5.410796453111824, 'valid_U_level925.520_bias_lwrmse': 5.204742300231264, 'valid_U_level998.496_bias_lwrmse': 3.2106347732673064, 'valid_V_level4.715_bias_lwrmse': 5.027968308841604, 'valid_V_level10.655_bias_lwrmse': 4.708366470243293, 'valid_V_level19.235_bias_lwrmse': 4.057861477580974, 'valid_V_level28.795_bias_lwrmse': 3.51293093350837, 'valid_V_level50.118_bias_lwrmse': 2.8580174596909993, 'valid_V_level69.599_bias_lwrmse': 3.5757387249976973, 'valid_V_level96.464_bias_lwrmse': 4.917653857839031, 'valid_V_level145.043_bias_lwrmse': 5.883112246735203, 'valid_V_level200.999_bias_lwrmse': 5.34999448553109, 'valid_V_level256.724_bias_lwrmse': 4.080949214561884, 'valid_V_level302.214_bias_lwrmse': 3.5424865881246625, 'valid_V_level385.999_bias_lwrmse': 3.040058672697193, 'valid_V_level492.469_bias_lwrmse': 2.628868843088741, 'valid_V_level608.644_bias_lwrmse': 2.361320221854956, 'valid_V_level713.705_bias_lwrmse': 2.333600168548087, 'valid_V_level849.661_bias_lwrmse': 2.385867572309192, 'valid_V_level925.520_bias_lwrmse': 2.7377138150006743, 'valid_V_level998.496_bias_lwrmse': 1.8586303251368181, 'valid_Z3_level4.715_bias_lwrmse': 662.1205186600307, 'valid_Z3_level10.655_bias_lwrmse': 519.86600822259, 'valid_Z3_level19.235_bias_lwrmse': 419.08447216751654, 'valid_Z3_level28.795_bias_lwrmse': 353.34005320678773, 'valid_Z3_level50.118_bias_lwrmse': 277.24314618099334, 'valid_Z3_level69.599_bias_lwrmse': 244.17710845531766, 'valid_Z3_level96.464_bias_lwrmse': 227.95528071977608, 'valid_Z3_level145.043_bias_lwrmse': 208.00080118085918, 'valid_Z3_level200.999_bias_lwrmse': 186.3991606012416, 'valid_Z3_level256.724_bias_lwrmse': 168.08805770510807, 'valid_Z3_level302.214_bias_lwrmse': 153.8068090538259, 'valid_Z3_level385.999_bias_lwrmse': 130.6168656057986, 'valid_Z3_level492.469_bias_lwrmse': 105.95237681853644, 'valid_Z3_level608.644_bias_lwrmse': 89.25563235341099, 'valid_Z3_level713.705_bias_lwrmse': 81.06906388266503, 'valid_Z3_level849.661_bias_lwrmse': 73.1898436741236, 'valid_Z3_level925.520_bias_lwrmse': 71.89132520913968, 'valid_Z3_level998.496_bias_lwrmse': 71.74050313764005, 'valid_RELHUM_level4.715_bias_lwrmse': 0.025758662983824225, 'valid_RELHUM_level10.655_bias_lwrmse': 0.2771411673351987, 'valid_RELHUM_level19.235_bias_lwrmse': 0.9186455220236462, 'valid_RELHUM_level28.795_bias_lwrmse': 1.6783376013429663, 'valid_RELHUM_level50.118_bias_lwrmse': 2.918032326108527, 'valid_RELHUM_level69.599_bias_lwrmse': 23.251741943097077, 'valid_RELHUM_level96.464_bias_lwrmse': 13.737654208324336, 'valid_RELHUM_level145.043_bias_lwrmse': 18.189966997551874, 'valid_RELHUM_level200.999_bias_lwrmse': 17.78302089150222, 'valid_RELHUM_level256.724_bias_lwrmse': 18.372752098643815, 'valid_RELHUM_level302.214_bias_lwrmse': 15.836177866690774, 'valid_RELHUM_level385.999_bias_lwrmse': 13.819310950771538, 'valid_RELHUM_level492.469_bias_lwrmse': 16.175661181107763, 'valid_RELHUM_level608.644_bias_lwrmse': 15.331690446860009, 'valid_RELHUM_level713.705_bias_lwrmse': 13.995228845672978, 'valid_RELHUM_level849.661_bias_lwrmse': 11.054657482746462, 'valid_RELHUM_level925.520_bias_lwrmse': 7.565178562604835, 'valid_RELHUM_level998.496_bias_lwrmse': 7.518323123140444, 'valid_FSNTOA_bias_lwrmse': 56.331025081710166, 'valid_FSNT_bias_lwrmse': 56.08477037664802, 'valid_PRECT_bias_lwrmse': 4.448493468217519e-08}

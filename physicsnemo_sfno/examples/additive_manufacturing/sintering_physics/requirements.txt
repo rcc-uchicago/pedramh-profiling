@@ -1,0 +1,12 @@
+# Core dependencies for training, inference, and rollout rendering
+dm-tree
+tqdm
+hydra-core
+omegaconf
+matplotlib
+pyvista
+vtk
+natsort
+scikit-learn
+tensorboard
+tensorflow-cpu>=2.15,<3.0

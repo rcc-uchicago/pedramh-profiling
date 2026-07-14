@@ -1,0 +1,67 @@
+# PanguWeather/v2.0 deps — Stampede3 venv delta
+# =============================================
+# Recorded 2026-05-07 by §K step 1 of
+# docs/2026-05-06_group_sfno_5410_eval_plan.md.
+#
+# Base venv:    /work2/11114/zhixingliu/stampede3/AI-RES/.venv
+# Python:       3.12.11
+# Activate:     source /work2/11114/zhixingliu/stampede3/AI-RES/.venv/bin/activate
+#
+# Upstream code: /work2/11114/zhixingliu/stampede3/AI-RES/artifacts/derecho_glade/PanguWeather/v2.0/
+# Smoke import:  cd <upstream>; PYTHONPATH=. python -c "import long_inference"
+#
+# Required additions to base venv (4 packages, all pure-Python or wheel-only)
+# ---------------------------------------------------------------------------
+# These were missing from the venv and required by the import chain of
+# upstream `long_inference.py` (and its transitive `networks/` + `utils/`):
+natsort==8.4.0           # long_inference.py:1396 — ckpt_epoch_*.tar globstr ordering
+tensorly==0.9.0          # networks/modulus_sfno/s2convolutions.py:19 — `import tensorly as tl`
+tensorly-torch==0.5.0    # networks/modulus_sfno/s2convolutions.py — `from tltorch.factorized_tensors.core import FactorizedTensor`
+Cartopy==0.25.0          # utils/power_spectrum.py:15 (re-exported via `from utils.power_spectrum import *`)
+
+# Cartopy transitive deps (pulled in automatically by pip; pinned for reference)
+# ----------------------------------------------------------------------------
+shapely==2.1.2
+pyshp==3.0.3
+
+# Already-present packages compatible with PanguWeather/v2.0 (no upgrade needed)
+# ----------------------------------------------------------------------------
+# torch==2.11.0
+# torchvision==0.26.0
+# torch_harmonics==0.8.1
+# numpy==2.4.4
+# scipy==1.17.1
+# h5py==3.16.0
+# h5netcdf==1.8.1
+# netCDF4==1.7.2
+# xarray==2026.4.0
+# cftime==1.6.5
+# dask==2026.3.0
+# matplotlib==3.10.9
+# pandas==2.3.3
+# pyproj==3.7.2
+# psutil==7.2.2
+# PyYAML==6.0.3
+# ruamel.yaml==0.19.1
+# tqdm==4.67.3
+# wandb==0.26.0
+# einops==0.8.2
+# timm==1.0.26
+
+# Notes
+# -----
+# * `tltorch` is the import name; pip distribution is `tensorly-torch`.
+# * `long_inference.py` uses `from utils.power_spectrum import *`, which
+#   transitively imports cartopy at module load — `cartopy` is therefore
+#   required even for inference-only invocations that never touch plotting.
+# * Smoke-import command (last verified 2026-05-07):
+#       cd /work2/.../PanguWeather/v2.0
+#       python -c "import sys; sys.path.insert(0, '.'); import long_inference; \
+#                  from utils.data_loader_multifiles import get_data_given_path_nc; \
+#                  from utils.YParams import YParams; \
+#                  from networks.modulus_sfno.sfnonet import \
+#                      SphericalFourierNeuralOperatorNet_v2 as SFNO; \
+#                  print('OK')"
+# * If the venv is rebuilt from scratch, install these four lines after the
+#   base AI-RES requirements:
+#       pip install natsort==8.4.0 tensorly==0.9.0 tensorly-torch==0.5.0 cartopy==0.25.0

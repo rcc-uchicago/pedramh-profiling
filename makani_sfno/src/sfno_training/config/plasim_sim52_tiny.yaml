@@ -1,0 +1,141 @@
+### PlaSim → Makani SFNO tiny config — slightly bigger than smoke, 2-file split.
+###
+### Goal (docs/sfno_tiny_short_training_plan.md §A): produce a believable
+### downward loss curve, set the throughput baseline used to calibrate
+### short, and exercise the post-training-check pipeline end-to-end.
+###
+### Subset built by scripts/build_subset_dataset.py:
+###   train: MOST.0003.h5  (1 file)
+###   valid: MOST.0101.h5  (1 file)
+### Stats / metadata / config symlinked from full sim52_astro_64x128.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substituted by submit_tiny.slurm.
+
+plasim_sim52_tiny:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time ---
+    img_shape_x: 64
+    img_shape_y: 128
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids ---
+    model_grid_type: "legendre-gauss"
+    data_grid_type:  "legendre-gauss"
+    sht_grid_type:   "legendre-gauss"
+
+    # --- Channels (53 loss-target names; state 52 + diagnostic 1) ---
+    channel_names: ["pl","tas","ta1","ta2","ta3","ta4","ta5","ta6","ta7","ta8","ta9","ta10","ua1","ua2","ua3","ua4","ua5","ua6","ua7","ua8","ua9","ua10","va1","va2","va3","va4","va5","va6","va7","va8","va9","va10","hus1","hus2","hus3","hus4","hus5","hus6","hus7","hus8","hus9","hus10","zg1","zg2","zg3","zg4","zg5","zg6","zg7","zg8","zg9","zg10","pr_6h"]
+
+    # --- PlaSim plumbing ---
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","sg","z0","sst","rsdt","sic"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization (zscore against full-dataset stats; subset shares these) ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- Tiny SFNO (slightly bigger than smoke, still very small) ---
+    nettype: "SFNO"
+    filter_type: "linear"
+    scale_factor: 4
+    embed_dim: 32
+    num_layers: 2
+    complex_activation: "real"
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    use_mlp: !!bool True
+    mlp_mode: "serial"
+    mlp_ratio: 2
+    separable: !!bool False
+    operator_type: "dhconv"
+    activation_function: "gelu"
+    pos_embed: "none"
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Tiny training (3 epochs, 1 file train + 1 file valid, batch_size=2) ---
+    lr: 1.0E-3
+    n_eval_samples: 512
+    n_train_samples_per_epoch: 1024
+    max_epochs: 3
+    batch_size: 2
+    weight_decay: 0.0
+    n_history: 0
+    n_future: 0
+    # valid_autoreg_steps=0 → 1 prediction at +6 h (true single-step).
+    # See plan v3 fix #1: stock loader yields n_future+1 targets.
+    valid_autoreg_steps: 0
+    prediction_type: "iterative"
+
+    scheduler: "ReduceLROnPlateau"
+    scheduler_T_max: 3
+    scheduler_factor: 0.5
+    scheduler_patience: 2
+    scheduler_step_size: 1
+    scheduler_gamma: 0.5
+    # MUST be 0 — ReduceLROnPlateau + warmup>0 raises NotImplementedError
+    # at makani-src/.../driver.py:701.
+    lr_warmup_steps: 0
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9
+    optimizer_beta2: 0.95
+    optimizer_max_grad_norm: 32
+
+    num_data_workers: 1
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    target: "tendency"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"

@@ -1,0 +1,66 @@
+#!/bin/bash -l
+#PBS -N si_polaris_bench
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/si_polaris_bench.log
+# ============================================================================
+# SI (stochastic interpolants) Polaris bench — PBS analog of bench_midway.sh.
+# Runs on the STAGED, CONVERTED E3SM data (SI's AMIP loader needs renamed upper-air
+# keys + NetCDF stats — see convert_e3sm_for_si.py / polaris_pbs_notes.md §8).
+# Launcher: single `python bench.py` — NO srun (bench.py builds DDPStrategy; on PBS
+# Lightning's subprocess launcher spawns the extra ranks and does not detect SLURM).
+#
+# Submit (4-GPU):  qsub bench_polaris.pbs        1-GPU: qsub -v NPROC=1 bench_polaris.pbs
+# First run auto-stages ~60 GB (compute node, ~20-40 min); later runs skip it.
+# PASS = a "BENCH RESULT" block + a new row in $SI_BENCH_CSV with finite step_med.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from si/
+SI_DIR="${PBS_O_WORKDIR}"
+STAGE=/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+
+export SI_PRECISION=bf16-mixed
+export SI_BENCH_WARMUP="${SI_BENCH_WARMUP:-5}"
+export SI_BENCH_STEPS="${SI_BENCH_STEPS:-20}"
+export SI_BENCH_CSV="${SI_DIR}/bench_polaris_results_${PBS_JOBID%%.*}.csv"
+
+NPROC="${NPROC:-4}"
+if [ "${NPROC}" = "1" ]; then DEVICES="0"; else DEVICES="0 1 2 3"; fi
+CONFIG_FILE="configs/bench_polaris_e3sm.yaml"
+
+echo "=== si_polaris_bench: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  devices='${DEVICES}'  csv=${SI_BENCH_CSV}"
+nvidia-smi -L
+
+# ---- stage (convert) once if missing — compute node, NOT login ----
+if [ ! -f "${STAGE}/normalize_mean.nc" ] || [ ! -f "${STAGE}/h5/2015_0000.h5" ]; then
+    echo "--- SI stage missing; running convert_e3sm_for_si.py (compute node) ---"
+    python "${SI_DIR}/convert_e3sm_for_si.py" --stage "${STAGE}" --validate
+fi
+if [ ! -f "${STAGE}/normalize_mean.nc" ] || [ ! -f "${STAGE}/h5/2015_0000.h5" ]; then
+    echo "ERROR SI_STAGE_FAILED: ${STAGE} not populated"; exit 2
+fi
+
+python "${SI_DIR}/bench.py" --config "${CONFIG_FILE}" --devices ${DEVICES}
+rc=$?
+echo "=== si_polaris_bench done (rc=${rc}) $(date -Iseconds) ==="
+[ -f "${SI_BENCH_CSV}" ] && { echo "--- CSV ---"; cat "${SI_BENCH_CSV}"; }
+exit ${rc}

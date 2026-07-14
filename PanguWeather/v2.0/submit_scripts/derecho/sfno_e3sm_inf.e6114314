@@ -1,0 +1,262 @@
+/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py:208: FutureWarning: The module torch.distributed.launch is deprecated
+and will be removed in future. Use torchrun.
+Note that --use-env is set by default in torchrun.
+If your script expects `--local-rank` argument to be set, please
+change it to read from `os.environ['LOCAL_RANK']` instead. See 
+https://pytorch.org/docs/stable/distributed.html#launch-utility for 
+further instructions
+
+  main()
+2026-05-10 16:24:19,801 - root - INFO - Resuming from existing checkpoint.
+2026-05-10 16:24:19,802 - root - INFO - --------------- Versions ---------------
+2026-05-10 16:24:19,802 - root - INFO - Torch: 2.6.0+cu124
+2026-05-10 16:24:19,802 - root - INFO - ----------------------------------------
+2026-05-10 16:24:19,802 - root - INFO - ------------------ Configuration ------------------
+2026-05-10 16:24:19,802 - root - INFO - Configuration file: /glade/work/jesswan/UChicago/PanguWeather/v2.0/config/E3SM_SFNO_H5_DERECHO_jsw.yaml
+2026-05-10 16:24:19,802 - root - INFO - Configuration name: SFNO
+2026-05-10 16:24:19,802 - root - INFO - nettype sfno_plasim
+2026-05-10 16:24:19,802 - root - INFO - scheduler LinearWarmupCosineAnnealingLR
+2026-05-10 16:24:19,802 - root - INFO - num_warmup_epochs 5
+2026-05-10 16:24:19,803 - root - INFO - warmup_start_lr 1e-08
+2026-05-10 16:24:19,803 - root - INFO - eta_min 1e-08
+2026-05-10 16:24:19,803 - root - INFO - loss raw_l2
+2026-05-10 16:24:19,803 - root - INFO - lr 0.0001
+2026-05-10 16:24:19,803 - root - INFO - checkpoint_save_interval 1
+2026-05-10 16:24:19,803 - root - INFO - max_checkpoints_to_keep 1000
+2026-05-10 16:24:19,803 - root - INFO - use_ema True
+2026-05-10 16:24:19,803 - root - INFO - ema_decay 0.999
+2026-05-10 16:24:19,803 - root - INFO - ema_warmup_epochs 6
+2026-05-10 16:24:19,803 - root - INFO - curriculum_learning False
+2026-05-10 16:24:19,803 - root - INFO - ensemble_validation False
+2026-05-10 16:24:19,803 - root - INFO - balanced_learning False
+2026-05-10 16:24:19,803 - root - INFO - spectral_transform sht
+2026-05-10 16:24:19,803 - root - INFO - filter_type linear
+2026-05-10 16:24:19,804 - root - INFO - operator_type dhconv
+2026-05-10 16:24:19,804 - root - INFO - scale_factor 1
+2026-05-10 16:24:19,804 - root - INFO - embed_dim 256
+2026-05-10 16:24:19,804 - root - INFO - num_layers 12
+2026-05-10 16:24:19,804 - root - INFO - use_mlp True
+2026-05-10 16:24:19,804 - root - INFO - mlp_ratio 2.0
+2026-05-10 16:24:19,804 - root - INFO - activation_function gelu
+2026-05-10 16:24:19,804 - root - INFO - encoder_layers 1
+2026-05-10 16:24:19,804 - root - INFO - pos_embed True
+2026-05-10 16:24:19,804 - root - INFO - drop_rate 0.0
+2026-05-10 16:24:19,804 - root - INFO - drop_path_rate 0.0
+2026-05-10 16:24:19,804 - root - INFO - num_blocks 16
+2026-05-10 16:24:19,804 - root - INFO - sparsity_threshold 0.0
+2026-05-10 16:24:19,804 - root - INFO - normalization_layer instance_norm
+2026-05-10 16:24:19,805 - root - INFO - hard_thresholding_fraction 1.0
+2026-05-10 16:24:19,805 - root - INFO - use_complex_kernels True
+2026-05-10 16:24:19,805 - root - INFO - big_skip True
+2026-05-10 16:24:19,808 - root - INFO - rank 1.0
+2026-05-10 16:24:19,808 - root - INFO - factorization None
+2026-05-10 16:24:19,808 - root - INFO - separable False
+2026-05-10 16:24:19,808 - root - INFO - complex_network True
+2026-05-10 16:24:19,808 - root - INFO - complex_activation real
+2026-05-10 16:24:19,808 - root - INFO - spectral_layers 3
+2026-05-10 16:24:19,808 - root - INFO - checkpointing 2
+2026-05-10 16:24:19,809 - root - INFO - sync_norm True
+2026-05-10 16:24:19,809 - root - INFO - data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/sigma_data
+2026-05-10 16:24:19,809 - root - INFO - bias_data_dir /glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/bias
+2026-05-10 16:24:19,809 - root - INFO - upper_air_variables ['T', 'U', 'V', 'Z3', 'RELHUM']
+2026-05-10 16:24:19,809 - root - INFO - surface_variables ['TREFHT', 'U10', 'RHREFHT', 'PS', 'PSL', 'TMQ']
+2026-05-10 16:24:19,809 - root - INFO - diagnostic_variables ['FSNTOA', 'FSNT', 'PRECT']
+2026-05-10 16:24:19,810 - root - INFO - land_variables ['SOILWATER_10CM', 'TSOI_10CM']
+2026-05-10 16:24:19,810 - root - INFO - ocean_variables []
+2026-05-10 16:24:19,810 - root - INFO - mask_output False
+2026-05-10 16:24:19,810 - root - INFO - constant_boundary_variables ['PCT_GLACIER', 'PFTDATA_MASK', 'PCT_NATVEG', 'TOPO']
+2026-05-10 16:24:19,810 - root - INFO - varying_boundary_variables ['SST', 'ICE', 'sol_in']
+2026-05-10 16:24:19,810 - root - INFO - train_year_start 2015
+2026-05-10 16:24:19,810 - root - INFO - train_year_end 2040
+2026-05-10 16:24:19,810 - root - INFO - val_year_start 2045
+2026-05-10 16:24:19,810 - root - INFO - val_year_end 2050
+2026-05-10 16:24:19,810 - root - INFO - long_validation True
+2026-05-10 16:24:19,810 - root - INFO - long_val_year_start 2045
+2026-05-10 16:24:19,810 - root - INFO - long_rollout_years 5
+2026-05-10 16:24:19,810 - root - INFO - epochs_per_long_validation 1
+2026-05-10 16:24:19,810 - root - INFO - mask_fill {'SOILWATER_10CM': 0.0, 'TSOI_10CM': 270.0, 'PCT_GLACIER': 0.0, 'PFTDATA_MASK': 0.0, 'PCT_NATVEG': 0.0, 'TOPO': 0.0, 'SST': 270.0, 'ICE': 0.0}
+2026-05-10 16:24:19,811 - root - INFO - data_timedelta_hours 6
+2026-05-10 16:24:19,811 - root - INFO - surface_mean data_2015-2050_mean.nc
+2026-05-10 16:24:19,811 - root - INFO - surface_std data_2015-2050_std_corr.nc
+2026-05-10 16:24:19,811 - root - INFO - surface_ff_std data_2015-2050_std_corr.nc
+2026-05-10 16:24:19,811 - root - INFO - upper_air_mean data_2015-2050_mean.nc
+2026-05-10 16:24:19,811 - root - INFO - upper_air_std data_2015-2050_std_corr.nc
+2026-05-10 16:24:19,811 - root - INFO - upper_air_ff_std data_2015-2050_std_corr.nc
+2026-05-10 16:24:19,811 - root - INFO - boundary_mean data_2015-2050_mean.nc
+2026-05-10 16:24:19,811 - root - INFO - boundary_std data_2015-2050_std_corr.nc
+2026-05-10 16:24:19,811 - root - INFO - diagnostic_mean data_2015-2050_mean.nc
+2026-05-10 16:24:19,811 - root - INFO - diagnostic_std data_2015-2050_std_corr.nc
+2026-05-10 16:24:19,811 - root - INFO - climatology_file climatology.nc
+2026-05-10 16:24:19,811 - root - INFO - calendar 365_day
+2026-05-10 16:24:19,811 - root - INFO - timedelta_hours 6
+2026-05-10 16:24:19,811 - root - INFO - has_year_zero True
+2026-05-10 16:24:19,812 - root - INFO - num_levels 18
+2026-05-10 16:24:19,812 - root - INFO - use_sigma_levels True
+2026-05-10 16:24:19,812 - root - INFO - levels [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+2026-05-10 16:24:19,812 - root - INFO - sigma_levels [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 925.5197481473349, 998.4964394917621]
+2026-05-10 16:24:19,812 - root - INFO - horizontal_resolution [180, 360]
+2026-05-10 16:24:19,812 - root - INFO - depths [2, 6, 6, 2]
+2026-05-10 16:24:19,812 - root - INFO - predict_delta False
+2026-05-10 16:24:19,812 - root - INFO - patch_size [2, 2, 2]
+2026-05-10 16:24:19,816 - root - INFO - updown_scale_factor 2
+2026-05-10 16:24:19,816 - root - INFO - window_size [2, 2, 4]
+2026-05-10 16:24:19,816 - root - INFO - epsilon_factor 0.1
+2026-05-10 16:24:19,817 - root - INFO - upper_air_boundary False
+2026-05-10 16:24:19,817 - root - INFO - subpixel_deconv True
+2026-05-10 16:24:19,817 - root - INFO - recovery_head True
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_head False
+2026-05-10 16:24:19,817 - root - INFO - vertical_windowing False
+2026-05-10 16:24:19,817 - root - INFO - train_year_to_year False
+2026-05-10 16:24:19,817 - root - INFO - polar_pad False
+2026-05-10 16:24:19,817 - root - INFO - grid_has_poles False
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_logs True
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_acc True
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_gif True
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_spectra True
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_acc_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-10 16:24:19,817 - root - INFO - diagnostic_gif_var_dict {'Z3': [492.46857402252755], 'U': [492.46857402252755, 256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-10 16:24:19,818 - root - INFO - diagnostic_spectrum_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-10 16:24:19,818 - root - INFO - diagnostic_bias_var_dict {'Z3': [492.46857402252755], 'U': [256.72368590525895], 'T': [849.6612491105952], 'TREFHT': []}
+2026-05-10 16:24:19,818 - root - INFO - forecast_lead_times [1, 12, 20, 40, 60]
+2026-05-10 16:24:19,818 - root - INFO - lev lev
+2026-05-10 16:24:19,818 - root - INFO - num_inferences 128
+2026-05-10 16:24:19,818 - root - INFO - use_reentrant False
+2026-05-10 16:24:19,818 - root - INFO - lat [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5]
+2026-05-10 16:24:19,818 - root - INFO - lon [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 358.5, 359.5]
+2026-05-10 16:24:19,825 - root - INFO - loglr -13
+2026-05-10 16:24:19,825 - root - INFO - weight_decay 3e-06
+2026-05-10 16:24:19,825 - root - INFO - num_data_workers 4
+2026-05-10 16:24:19,825 - root - INFO - batch_size 1
+2026-05-10 16:24:19,825 - root - INFO - max_epochs 100
+2026-05-10 16:24:19,825 - root - INFO - no_leap_year 2020
+2026-05-10 16:24:19,825 - root - INFO - leap_year 2020
+2026-05-10 16:24:19,825 - root - INFO - log_to_screen True
+2026-05-10 16:24:19,825 - root - INFO - log_to_wandb True
+2026-05-10 16:24:19,825 - root - INFO - save_checkpoint True
+2026-05-10 16:24:19,825 - root - INFO - optimizer_type AdamW
+2026-05-10 16:24:19,825 - root - INFO - plot_animations False
+2026-05-10 16:24:19,825 - root - INFO - group plasim
+2026-05-10 16:24:19,826 - root - INFO - exp_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results
+2026-05-10 16:24:19,826 - root - INFO - enable_fp8 False
+2026-05-10 16:24:19,826 - root - INFO - fresh_start False
+2026-05-10 16:24:19,826 - root - INFO - use_transformer_engine False
+2026-05-10 16:24:19,826 - root - INFO - early_stopping False
+2026-05-10 16:24:19,826 - root - INFO - entity jesswan-university-of-chicago
+2026-05-10 16:24:19,826 - root - INFO - project E3SM-SRM-SFNO
+2026-05-10 16:24:19,826 - root - INFO - name E3SM-SRM-SFNO-CTL_SST0051_REST0101-0008
+2026-05-10 16:24:19,826 - root - INFO - use_legacy_model False
+2026-05-10 16:24:19,826 - root - INFO - save_basenames ['/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101_2045_0008_001']
+2026-05-10 16:24:19,826 - root - INFO - output_dirs ['/glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008']
+2026-05-10 16:24:19,826 - root - INFO - ensemble_inference_hours 336
+2026-05-10 16:24:19,826 - root - INFO - num_ensemble_members 1
+2026-05-10 16:24:19,826 - root - INFO - run_iter 1
+2026-05-10 16:24:19,827 - root - INFO - has_diagnostic True
+2026-05-10 16:24:19,827 - root - INFO - init_nc_filepaths ['/glade/derecho/scratch/jesswan/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/sigma_data/2045_Combined_EAM_ELM.nc']
+2026-05-10 16:24:19,827 - root - INFO - ensemble_members_per_pred 1
+2026-05-10 16:24:19,827 - root - INFO - world_size 4
+2026-05-10 16:24:19,827 - root - INFO - global_batch_size 4
+2026-05-10 16:24:19,827 - root - INFO - experiment_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008
+2026-05-10 16:24:19,827 - root - INFO - checkpoint_dir /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints
+2026-05-10 16:24:19,827 - root - INFO - best_checkpoint_path /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/best_ckpt.tar
+2026-05-10 16:24:19,833 - root - INFO - latest_checkpoint_path /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_latest.tar
+2026-05-10 16:24:19,833 - root - INFO - checkpoint_path_globstr /glade/work/jesswan/UChicago/PanguWeather/v2.0/results/SFNO/0008/checkpoints/ckpt_epoch_*.tar
+2026-05-10 16:24:19,833 - root - INFO - resuming True
+2026-05-10 16:24:19,833 - root - INFO - local_rank 0
+2026-05-10 16:24:19,834 - root - INFO - enable_amp True
+2026-05-10 16:24:19,834 - root - INFO - ---------------------------------------------------
+2026-05-10 16:24:19,853 - root - INFO - rank 0, begin data loader init
+Loading boundary data:   0%|          | 0/56 [00:00<?, ?it/s]Loading boundary data:  14%|#4        | 8/56 [00:00<00:00, 73.96it/s]2026-05-10 16:24:20,227 - root - INFO - rank 1, begin data loader init
+2026-05-10 16:24:20,259 - root - INFO - rank 3, begin data loader init
+2026-05-10 16:24:20,291 - root - INFO - rank 2, begin data loader init
+Loading boundary data:  29%|##8       | 16/56 [00:00<00:00, 74.64it/s]Loading boundary data:  43%|####2     | 24/56 [00:00<00:00, 74.88it/s]Loading boundary data:  57%|#####7    | 32/56 [00:00<00:00, 75.04it/s]Loading boundary data:  71%|#######1  | 40/56 [00:00<00:00, 74.67it/s]Loading boundary data:  86%|########5 | 48/56 [00:00<00:00, 74.71it/s]Loading boundary data: 100%|##########| 56/56 [00:00<00:00, 74.76it/s]Loading boundary data: 100%|##########| 56/56 [00:00<00:00, 74.72it/s]
+[rank0]: Traceback (most recent call last):
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1435, in <module>
+[rank0]:     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
+[rank0]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 141, in __init__
+[rank0]:     self.get_dataset()
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 181, in get_dataset
+[rank0]:     self.perturber = Perturber(self.params, self.dataset, device = self.device,
+[rank0]:                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/perturbation.py", line 28, in __init__
+[rank0]:     if params.perturbation_type == 'gaussian_noise':
+[rank0]:        ^^^^^^^^^^^^^^^^^^^^^^^^
+[rank0]: AttributeError: 'YParams' object has no attribute 'perturbation_type'
+[rank3]: Traceback (most recent call last):
+[rank3]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1435, in <module>
+[rank3]:     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
+[rank3]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 141, in __init__
+[rank3]:     self.get_dataset()
+[rank3]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 181, in get_dataset
+[rank3]:     self.perturber = Perturber(self.params, self.dataset, device = self.device,
+[rank3]:                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/perturbation.py", line 28, in __init__
+[rank3]:     if params.perturbation_type == 'gaussian_noise':
+[rank3]:        ^^^^^^^^^^^^^^^^^^^^^^^^
+[rank3]: AttributeError: 'YParams' object has no attribute 'perturbation_type'
+[rank1]: Traceback (most recent call last):
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1435, in <module>
+[rank1]:     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
+[rank1]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 141, in __init__
+[rank1]:     self.get_dataset()
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 181, in get_dataset
+[rank1]:     self.perturber = Perturber(self.params, self.dataset, device = self.device,
+[rank1]:                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/perturbation.py", line 28, in __init__
+[rank1]:     if params.perturbation_type == 'gaussian_noise':
+[rank1]:        ^^^^^^^^^^^^^^^^^^^^^^^^
+[rank1]: AttributeError: 'YParams' object has no attribute 'perturbation_type'
+[rank2]: Traceback (most recent call last):
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 1435, in <module>
+[rank2]:     stepper = Stepper(params_list, world_rank, use_6h_24h_model = args.use_6h_24h_model,
+[rank2]:               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 141, in __init__
+[rank2]:     self.get_dataset()
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py", line 181, in get_dataset
+[rank2]:     self.perturber = Perturber(self.params, self.dataset, device = self.device,
+[rank2]:                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]:   File "/glade/work/jesswan/UChicago/PanguWeather/v2.0/utils/perturbation.py", line 28, in __init__
+[rank2]:     if params.perturbation_type == 'gaussian_noise':
+[rank2]:        ^^^^^^^^^^^^^^^^^^^^^^^^
+[rank2]: AttributeError: 'YParams' object has no attribute 'perturbation_type'
+W0510 16:24:22.120000 17811 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17814 closing signal SIGTERM
+W0510 16:24:22.120000 17811 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17815 closing signal SIGTERM
+W0510 16:24:22.121000 17811 site-packages/torch/distributed/elastic/multiprocessing/api.py:897] Sending process 17816 closing signal SIGTERM
+E0510 16:24:22.835000 17811 site-packages/torch/distributed/elastic/multiprocessing/api.py:869] failed (exitcode: 1) local_rank: 0 (pid: 17813) of binary: /glade/work/jesswan/conda-envs/sfno_pangu/bin/python
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 208, in <module>
+    main()
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/typing_extensions.py", line 2853, in wrapper
+    return arg(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 204, in main
+    launch(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launch.py", line 189, in launch
+    run(args)
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/run.py", line 909, in run
+    elastic_launch(
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 138, in __call__
+    return launch_agent(self._config, self._entrypoint, list(args))
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/glade/work/jesswan/conda-envs/sfno_pangu/lib/python3.11/site-packages/torch/distributed/launcher/api.py", line 269, in launch_agent
+    raise ChildFailedError(
+torch.distributed.elastic.multiprocessing.errors.ChildFailedError: 
+============================================================
+/glade/work/jesswan/UChicago/PanguWeather/v2.0/ensemble_inference.py FAILED
+------------------------------------------------------------
+Failures:
+  <NO_OTHER_FAILURES>
+------------------------------------------------------------
+Root Cause (first observed failure):
+[0]:
+  time      : 2026-05-10_16:24:22
+  host      : deg0068.hsn.de.hpc.ucar.edu
+  rank      : 0 (local_rank: 0)
+  exitcode  : 1 (pid: 17813)
+  error_file: <N/A>
+  traceback : To enable traceback see: https://pytorch.org/docs/stable/elastic/errors.html
+============================================================

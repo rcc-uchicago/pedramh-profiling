@@ -1,0 +1,58 @@
+#!/bin/bash -l
+#PBS -N port_polaris_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/port_polaris_smoke.log
+# ============================================================================
+# S2S-Lightning (port) Polaris smoke — PBS analog of midway_smoke_train_module.sh.
+# 1-GPU, 2-step Lightning fit of TrainModule (SMOKE_OK on finite loss).
+# Single `python` — NO srun (Lightning's subprocess launcher; Polaris has no SLURM).
+#
+# ⚠ BLOCKED ON DATA: reads real ERA5 HDF5 via ClimateDataModule; ERA5 is NOT staged
+#   on Polaris (see polaris_pbs_notes.md §4). Once staged into test_polaris.yaml's
+#   data_dir this runs green — the env/imports are proven by polaris_probe.
+#
+# Submit:  qsub polaris_smoke_train_module.pbs      PASS = "SMOKE_OK" in the log.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from s2s-lightning/
+PORT_DIR="${PBS_O_WORKDIR}"
+REPO_ROOT="$(cd "${PORT_DIR}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# Belt-and-braces: Lightning must NOT think it is under SLURM (it is not, on Polaris).
+unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+# s2s/v2.0 -> utils,networks ; port dir -> data,modules,common
+export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}:${PYTHONPATH:-}"
+# Polaris-repointed smoke config (backward-compatible env override; defaults to test.yaml).
+export S2S_SMOKE_CONFIG="${REPO_ROOT}/s2s/v2.0/config/test_polaris.yaml"
+export CUDA_VISIBLE_DEVICES=0                      # 1-GPU smoke (Trainer devices=1)
+
+echo "=== port_polaris_smoke: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  config=${S2S_SMOKE_CONFIG}"
+nvidia-smi -L
+
+DATA_DIR="$(python -c "import yaml; print(yaml.safe_load(open('${S2S_SMOKE_CONFIG}'))['S2S']['data_dir'])")"
+if [ ! -d "${DATA_DIR}" ]; then
+    echo "ERROR ERA5_NOT_STAGED: data_dir '${DATA_DIR}' does not exist (Globus-stage ERA5 first)."
+    exit 2
+fi
+
+python "${PORT_DIR}/smoke_train_module.py"
+rc=$?
+echo "=== port_polaris_smoke done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

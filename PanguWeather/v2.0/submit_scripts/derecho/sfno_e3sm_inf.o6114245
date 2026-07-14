@@ -1,0 +1,2 @@
+NUM_OF_NODES= 1 NUM_TASKS_PER_NODE= 4 WORLD_SIZE= 4
+/glade/work/jesswan/conda-envs/sfno_pangu/bin/python

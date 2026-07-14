@@ -1,0 +1,90 @@
+#!/bin/bash -l
+#PBS -N pangu_e3sm_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/pangu_e3sm_sfno.log
+# ============================================================================
+# PanguWeather (SFNO-on-E3SM) Polaris smoke — PBS analog of the Derecho PBS
+# script HPC_scripts/derecho_training_bing.sh, retargeted to Polaris + the
+# staged E3SM data. This is the SFNO path (nettype sfno_plasim, --config=SFNO);
+# it reuses PanguWeather's *bundled* networks/modulus_sfno (NOT external makani).
+#
+# The deterministic-Pangu path (--config=PLASIM, nettype pangu_plasim) is BLOCKED
+# on data (needs the NCAR/glade PLASIM h5, not staged on Polaris).
+#
+# Launcher: torchrun --standalone (train.py uses init_process_group('nccl',
+# init_method='env://') and reads WORLD_SIZE — torchrun sets it). No srun/mpiexec.
+#
+# Submit (4-GPU smoke, the default):  qsub HPC_scripts/polaris_train_e3sm_sfno.pbs
+# 1-GPU smoke:                        qsub -v NPROC=1 HPC_scripts/polaris_train_e3sm_sfno.pbs
+# PASS = "DONE ---- rank 0" in polaris_logs/pangu_e3sm_sfno.log with no traceback.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+# ---- Polaris env (base conda; validated by polaris_probe) ----
+module use /soft/modulefiles
+module load conda
+conda activate base
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg                              # train.py imports matplotlib (headless)
+export OMP_NUM_THREADS=8                            # 64 HW threads / ~8 per rank
+export MKL_NUM_THREADS=8
+# Persistent caches on eagle (survive across jobs — node-local /local/scratch is wiped)
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
+
+NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)
+CONFIG_FILE="config/E3SM_SFNO_H5_POLARIS.yaml"
+RUN_NUM="polaris_sfno_${PBS_JOBID%%.*}"
+
+echo "=== polaris_train_e3sm_sfno: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
+nvidia-smi -L
+echo "python=$(command -v python)"
+
+# ---- preflight: the E3SM auxiliary files must be prepared. climatology.nc is a
+# 16 GB CDF-5 -> NETCDF4 re-encode (~minutes); a truncated/0-byte file crashes
+# train.py at Trainer init. This must run on a COMPUTE node (a login-node
+# background job gets killed mid-write, leaving a 96-byte stub). Auto-run the prep
+# here if the output is missing/truncated, then hard-verify it. ----
+CLIM="${V20_DIR}/polaris_data/climatology.nc"
+clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
+if ! clim_ok; then
+    echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
+    ( cd "${V20_DIR}" && python polaris_prepare_e3sm_stats.py )
+fi
+python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
+import sys, xarray as xr
+with xr.open_dataset(sys.argv[1]) as ds:
+    assert ds.sizes.get("time") == 365, ds.sizes
+print("preflight OK: climatology time=365")
+PY
+
+# Bound the smoke with --epochs 1 (one epoch over 2015 = 1460 samples -> ~365
+# steps/rank on 4 GPUs). Do NOT use --debug here: --debug hardcodes world_size=1
+# (single-GPU debug mode), so under torchrun --nproc_per_node=4 every rank would
+# init as rank-0-on-GPU-0 and OOM. Without --debug, setup_distributed binds
+# device = rank % device_count. SFNO batch_size=1 (from BASE; the config's
+# batch_size=16 lives in the unused `modified_1` section, not SFNO).
+echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    train.py \
+    --yaml_config="${CONFIG_FILE}" \
+    --run_num="${RUN_NUM}" \
+    --config=SFNO \
+    --fresh_start \
+    --epochs 1
+rc=$?
+echo "=== polaris_train_e3sm_sfno done (torchrun rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

@@ -70,7 +70,7 @@ def main():
     """
     # Resolve the config relative to THIS file, not cwd, so the smoke works from
     # any directory in the monorepo (s2s/v2.0/ is a sibling of s2s-lightning/).
-    cfg = os.path.normpath(
+    cfg = os.environ.get("S2S_SMOKE_CONFIG") or os.path.normpath(
         os.path.join(os.path.dirname(os.path.abspath(__file__)),
                      "..", "s2s", "v2.0", "config", "test.yaml")
     )
