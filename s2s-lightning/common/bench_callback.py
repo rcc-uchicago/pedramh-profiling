@@ -1,8 +1,8 @@
 """Lightning callback for wall-clock throughput benchmarking (S2S port).
 
-This mirrors the structure of the SNFO template at
-``$SNFO_DIR/common/bench_callback.py`` but preserves S2S's **S2S_BENCH**
-framework: it reads the ``S2S_*`` environment knobs (not ``SNFO_*``) and writes
+This mirrors the structure of the SI template at
+``$SI_DIR/common/bench_callback.py`` but preserves S2S's **S2S_BENCH**
+framework: it reads the ``S2S_*`` environment knobs (not ``SI_*``) and writes
 the CSV columns recognizable from ``v2.0/train.py::Trainer._bench_finalize``.
 It moves the in-loop synchronisation / NVTX / CSV instrumentation that the
 manual S2S training loop owned onto Lightning hooks, so the

@@ -1,8 +1,8 @@
 """Lightning ``DataModule`` wrapping the S2S HDF5 data loaders.
 
 This module ports the data-loading half of ``v2.0/train.py::Trainer.get_dataset``
-onto a :class:`lightning.LightningDataModule`, mirroring the SNFO template at
-``$SNFO_DIR/data/datamodule.py``. It **reuses** the existing S2S loaders rather
+onto a :class:`lightning.LightningDataModule`, mirroring the SI template at
+``$SI_DIR/data/datamodule.py``. It **reuses** the existing S2S loaders rather
 than reimplementing them: the HDF5-backed
 :class:`utils.data_loader_multifiles.GetDataset` is constructed once in
 :meth:`ClimateDataModule.__init__` (so it is available as the normalizer before
@@ -79,7 +79,7 @@ class ClimateDataModule(L.LightningDataModule):
         statistics source — it holds ``constant_boundary_data``, ``land_mask``,
         and the surface/upper-air/diagnostic/boundary means and stds. It is built
         in :meth:`__init__` and exposed as :attr:`train_dataset` exactly as the
-        SNFO template does, so the entry point can pass
+        SI template does, so the entry point can pass
         ``normalizer=datamodule.train_dataset`` into the ``LightningModule``
         *before* ``fit`` (Phase 2/3).
 
@@ -168,7 +168,7 @@ class ClimateDataModule(L.LightningDataModule):
 
         No-op: the S2S HDF5 dataset at ``params.data_dir`` is read in place on a
         shared filesystem (no download or staging step), so there is nothing to
-        do here. Mirrors the SNFO template.
+        do here. Mirrors the SI template.
         """
         pass
 
@@ -281,7 +281,7 @@ class ClimateDataModule(L.LightningDataModule):
         """Return the test dataloader.
 
         Returns:
-            None: S2S has no separate test split; mirrors the SNFO template.
+            None: S2S has no separate test split; mirrors the SI template.
         """
         return None
 

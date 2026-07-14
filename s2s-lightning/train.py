@@ -1,10 +1,10 @@
 """Lightning training entry point for the S2S Pangu-PLASIM model (Phase 3).
 
 This is the production training entry point of the S2S -> PyTorch Lightning
-port. It mirrors the *shape* of the SNFO template at ``$SNFO_DIR/train.py``
+port. It mirrors the *shape* of the SI template at ``$SI_DIR/train.py``
 (argparse -> config -> callbacks -> :class:`lightning.Trainer` ->
 ``trainer.fit(model, datamodule)``) but feeds it S2S's flat
-:class:`utils.YParams.YParams` config rather than SNFO's nested
+:class:`utils.YParams.YParams` config rather than SI's nested
 ``model:`` / ``data:`` / ``training:`` dict. The same flat ``params`` object is
 handed to both :class:`data.datamodule.ClimateDataModule` and
 :class:`modules.train_module.TrainModule`, matching what those committed modules
@@ -62,11 +62,11 @@ from data.datamodule import ClimateDataModule
 from modules.train_module import TrainModule
 from common.set_epoch_callback import SetEpochCallback
 
-# WeightAveraging is the SNFO EMA base class, but it only exists in newer
+# WeightAveraging is the SI EMA base class, but it only exists in newer
 # Lightning (>= 2.6); the pinned LPORT_ENV is 2.5.0.post0 and lacks it. Guard
 # the import so train.py stays importable here, and only define
 # EMAWeightAveraging when the base class is present. Building it when absent
-# raises a clear error (env-unification with SNFO's newer Lightning is a Phase-5
+# raises a clear error (env-unification with SI's newer Lightning is a Phase-5
 # concern; until then EMA is opt-in via ema_decay > 0 and off by default in
 # configs/test_midway.yaml).
 try:
@@ -82,7 +82,7 @@ if _WeightAveraging is not None:
 
         Thin wrapper over ``lightning.pytorch.callbacks.WeightAveraging`` that
         uses an EMA averaging function and updates on every step. Mirrors the
-        SNFO template's ``EMAWeightAveraging`` so the two codebases share
+        SI template's ``EMAWeightAveraging`` so the two codebases share
         callback shape. Defined only when ``WeightAveraging`` is importable (see
         the module-level guard); on the pinned LPORT_ENV (Lightning 2.5) it is
         absent and :func:`_build_ema_callback` raises if EMA is requested.
@@ -132,7 +132,7 @@ def _build_ema_callback(decay: float):
             "ema_decay > 0 requested but lightning.pytorch.callbacks.WeightAveraging "
             "is unavailable in this Lightning (needs >= 2.6; LPORT_ENV is 2.5). "
             "Set ema_decay=0 to disable EMA, or upgrade Lightning (Phase-5 env "
-            "unification with SNFO)."
+            "unification with SI)."
         )
     return EMAWeightAveraging(decay)
 
@@ -184,7 +184,7 @@ def _is_ddp(strategy_name) -> bool:
 def process_args(args, params):
     """Apply argparse overrides to the flat config and resolve Trainer knobs.
 
-    Mirrors the SNFO template's ``process_args`` but operates on a flat
+    Mirrors the SI template's ``process_args`` but operates on a flat
     :class:`utils.YParams.YParams` object (S2S has no nested ``training:``
     block). Argparse values take precedence over the config; the config's flat
     keys (or built-in defaults) fill the rest. Also injects ``has_diagnostic`` /

@@ -1,7 +1,7 @@
 # Lightning-port launchable config (Phase 3) for the S2S Pangu-PLASIM model.
 #
 # Loaded with utils.YParams.YParams(<this file>, "S2S") -- a sectioned S2S YAML
-# (anchor `base_config` + section `S2S`) with FLAT keys, NOT SNFO's nested
+# (anchor `base_config` + section `S2S`) with FLAT keys, NOT SI's nested
 # model:/data:/training: split. The new Lightning entry points (train.py /
 # bench.py) read these flat keys via YParams and source the Trainer knobs from
 # argparse + the optional flat keys below (devices/accelerator/strategy/...),
@@ -9,7 +9,7 @@
 #
 # This is a near-copy of v2.0/config/test.yaml's S2S section, plus the optional
 # Lightning Trainer knobs at the bottom. It exists so the ported entry points
-# have a launchable config under configs/ alongside the SNFO-style tree.
+# have a launchable config under configs/ alongside the SI-style tree.
 #
 # CLUSTER-SPECIFIC, FAILS DEEP (CLAUDE.md constraint #6): `data_dir` and the
 # mean/std `.nc` filenames assume Midway's filesystem. A wrong value does NOT
@@ -118,7 +118,7 @@ S2S: &S2S
   checkpointing: 2
 
   # --- Optional Lightning Trainer knobs (read by the ported train.py) ---
-  # These FLAT keys are NOT part of SNFO's nested training: block; train.py
+  # These FLAT keys are NOT part of SI's nested training: block; train.py
   # falls back to argparse + built-in defaults when they are absent, so they
   # are optional. accelerator/strategy/precision shown here are the defaults
   # train.py would otherwise use.

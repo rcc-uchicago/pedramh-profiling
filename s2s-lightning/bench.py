@@ -3,7 +3,7 @@
 Runs the standard training loop with GPU-sync-accurate step timing, then writes
 one CSV row and exits. Uses random model weights -- no checkpoint is loaded
 because we are measuring speed, not quality. This mirrors the *shape* of the
-SNFO template at ``$SNFO_DIR/bench.py`` but preserves S2S's **S2S_BENCH**
+SI template at ``$SI_DIR/bench.py`` but preserves S2S's **S2S_BENCH**
 framework: it feeds S2S's flat :class:`utils.YParams.YParams` config to the
 ported :class:`data.datamodule.ClimateDataModule` /
 :class:`modules.train_module.TrainModule`, attaches the S2S-flavoured
@@ -26,7 +26,7 @@ DDP invariants (C2): when the config asks for DDP this builds an explicit
 ``find_unused_parameters=False`` / ``static_graph=True`` pair is mandatory for
 S2S (the dead-module freeze in
 :meth:`modules.train_module.TrainModule._get_model` makes ``static_graph`` safe)
-and is kept alongside the SNFO bucket / bf16-compress knobs. The Trainer is also
+and is kept alongside the SI bucket / bf16-compress knobs. The Trainer is also
 built with ``use_distributed_sampler=False`` (C1) because S2S's
 :func:`utils.data_loader_multifiles.get_data_loader` supplies its own sampler.
 
@@ -44,7 +44,7 @@ Environment knobs:
     TORCH_COMPILE_MODE  torch.compile mode for model.model (off unless set)
     S2S_TORCH_COMPILE=1 force-enable torch.compile even without TORCH_COMPILE_MODE
     S2S_DDP_BUCKET_CAP_MB / S2S_DDP_BF16_COMPRESS / S2S_DDP_BUCKET_VIEW
-                        DDP bucket / comm-hook knobs (mirror SNFO's defaults)
+                        DDP bucket / comm-hook knobs (mirror SI's defaults)
 
 See Also:
     train.py: The production training entry point this benchmark shadows.
@@ -68,7 +68,7 @@ from modules.train_module import TrainModule
 from common.bench_callback import BenchCallback, BENCH_WARMUP, BENCH_STEPS
 
 # DDP knobs -- overridable via env so we can A/B without editing the file.
-# Defaults mirror the SNFO bench template (200 MB bucket + bf16 gradient
+# Defaults mirror the SI bench template (200 MB bucket + bf16 gradient
 # compression to cut per-call NCCL overhead).
 DDP_BUCKET_CAP_MB = int(os.environ.get("S2S_DDP_BUCKET_CAP_MB", "200"))
 DDP_BF16_COMPRESS = os.environ.get("S2S_DDP_BF16_COMPRESS", "1") == "1"
@@ -84,7 +84,7 @@ TORCH_COMPILE = (TORCH_COMPILE_MODE is not None) or (os.environ.get("S2S_TORCH_C
 def process_args(args, params):
     """Apply argparse overrides to the flat config (bench variant).
 
-    Mirrors the SNFO bench template's ``process_args`` but on a flat
+    Mirrors the SI bench template's ``process_args`` but on a flat
     :class:`utils.YParams.YParams` object. Also injects ``has_diagnostic`` /
     ``num_ensemble_members`` defensively, matching ``train.py::process_args``.
 
@@ -179,7 +179,7 @@ def main(args):
     )
 
     # C2: explicit DDPStrategy with the S2S invariants (find_unused_parameters=
-    # False, static_graph=True) kept alongside the SNFO bucket / bf16 knobs.
+    # False, static_graph=True) kept alongside the SI bucket / bf16 knobs.
     if ddp:
         ddp_kwargs = {
             "find_unused_parameters": False,

@@ -1,10 +1,10 @@
 """Lightning validation / inference entry point for S2S Pangu-PLASIM (Phase 4).
 
 This is the inference-side counterpart of the Phase-3 training entry point
-:mod:`train.py`. It mirrors the *shape* of the SNFO template at
-``$SNFO_DIR/val.py`` (argparse -> config -> single-device ``Trainer`` ->
+:mod:`train.py`. It mirrors the *shape* of the SI template at
+``$SI_DIR/val.py`` (argparse -> config -> single-device ``Trainer`` ->
 ``trainer.validate(model, datamodule)``) but feeds it S2S's flat
-:class:`utils.YParams.YParams` config rather than SNFO's nested
+:class:`utils.YParams.YParams` config rather than SI's nested
 ``model:`` / ``data:`` / ``training:`` dict, reusing :mod:`train.py`'s
 ``process_args`` / ``_resolve_devices`` helpers so the two entry points stay in
 lockstep.
@@ -21,7 +21,7 @@ validate loader the canonical ``v2.0/inference.py::Stepper`` reads (via
 Several inference contracts are enforced here rather than in the module, because
 they are entry-point / Trainer-level concerns:
 
-* **Single-device validation.** Like SNFO ``val.py`` this forces ``devices=1``
+* **Single-device validation.** Like SI ``val.py`` this forces ``devices=1``
   and ``strategy="auto"`` (no DDP, no injected/distributed sampler), so the
   validate loader is read sequentially on one GPU. This sidesteps DDP val
   sharding entirely for the inference run.
@@ -75,7 +75,7 @@ from train import process_args, _resolve_devices
 def main(args):
     """Build the DataModule, module and single-device Trainer, then validate.
 
-    Mirrors the SNFO ``val.py`` flow: load + override the config, force
+    Mirrors the SI ``val.py`` flow: load + override the config, force
     single-device validation, build the ``Trainer``, and call
     ``trainer.validate`` (passing ``ckpt_path`` only when a checkpoint is
     supplied). When ``--save_predictions`` is set, a writable ``predictions_dir``
@@ -98,7 +98,7 @@ def main(args):
     seed_everything(seed)
     torch.set_float32_matmul_precision("high")
 
-    # Single-device validation, exactly like SNFO val.py: no DDP, no distributed
+    # Single-device validation, exactly like SI val.py: no DDP, no distributed
     # sampler, sequential read of the validate loader on one GPU. We honour an
     # explicit --devices (a single id) but never run DDP here.
     devices = _resolve_devices(args.devices, params)
