@@ -182,38 +182,54 @@ opposed to the bench) on E3SM, plumb `ndiagnostic=len(diagnostic_variables)` and
 `nsurface=len(surface_variables)` into that call — a shared-code change, so re-run both
 the S2S and port smokes with it (CLAUDE.md rule #5).
 
-## 6. SFNO framework installs (login node only — compute nodes have no network)
+## 6. SFNO frameworks — an ISOLATED venv (`polaris_setup_sfno_venv.sh`)
 
-`makani` and `physicsnemo` are NOT in base conda. Install once on a **login node**
-(the conda module sets an http proxy there); `--no-deps` protects base torch 2.8.0:
+`makani` + `physicsnemo` do **not** run in the base conda: makani needs the *public*
+`torch_harmonics.quadrature.precompute_latitudes`, which only exists in 0.9.x, while the
+base must keep **0.7.4** (the version the GREEN Pangu/SI smokes ran on — see the §2
+version box). Resolution: a dedicated venv, built once on a **login node** (compute nodes
+have no outbound network):
 
 ```bash
-module use /soft/modulefiles && module load conda && conda activate base
-# Makani:
-pip install --user --no-deps 'makani @ git+https://github.com/NVIDIA/makani.git@c97043086e60d44a3adc3bede9a6b3dc71f5005d'
-pip install --user nvidia-physicsnemo moviepy
-# PhysicsNeMo (unified_recipe SFNO):
-pip install --user warp-lang s3fs treelib
-pip install --user --extra-index-url https://developer.download.nvidia.com/compute/redist nvidia-dali-cuda120
-cd physicsnemo_sfno && pip install --user --no-deps -e .   # registers physicsnemo.models
-pip install --user --no-deps 'makani @ git+https://github.com/NVIDIA/makani.git'  # 'SFNO' entry point
+bash polaris_setup_sfno_venv.sh          # PASS = "SFNO_VENV_OK"
+# -> /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv
 ```
 
-Each `polaris_*.pbs` preflights the imports and exits with `*_NOT_INSTALLED` + this
-block if missing.
+It is a `--system-site-packages` venv layered on the base conda, so it **inherits the
+CUDA-12.9-matched torch 2.8** (no 2.5 GB reinstall) and adds only: `torch_harmonics`
+**0.9.2a built from GitHub source** (ABI-matched `_C` + the public API), `makani 0.2.0`
+(pinned `c970430…`, mandated by the makani_sfno README), `nvidia-physicsnemo 2.2.0a0`
+(editable, from the in-repo `physicsnemo_sfno/` tree — one install satisfies *both*
+physicsnemo's own example and makani's `from physicsnemo.distributed.manager import
+DistributedManager`), `warp-lang`, `nvidia-dali-cuda120`, `s3fs`, `treelib`, `moviepy`,
+`tensorly`, `tensorly-torch`. Verified: `SFNO_VENV_OK` + a provenance gate asserting
+`torch_harmonics`/`makani` resolve **from the venv**.
 
-**STATUS (2026-07-14): installs DONE and verified.** `makani 0.2.0`,
-`nvidia-physicsnemo 2.2.0a0` (editable, from the in-repo `physicsnemo_sfno/` tree —
-this one install satisfies *both* physicsnemo's own example and makani's
-`from physicsnemo.distributed.manager import DistributedManager`), `warp-lang 1.15.0`,
-`nvidia-dali-cuda120 2.2.0`, `s3fs`, `treelib`, `moviepy`, plus **torch_harmonics
-0.9.2.dev74 built from GitHub source** (§2 — the pinned PyPI releases cannot satisfy
-makani). `import makani, physicsnemo, warp` all succeed, and Pangu/SI still import.
+**Four traps this env cost us — all encoded in the scripts:**
+1. **User-site shadowing.** `--system-site-packages` re-enables the USER site (`~/.local`),
+   and `site.py` adds it **before** the venv's own site-packages — so the base's `--user`
+   torch_harmonics 0.7.4 shadowed the venv's 0.9.x and makani still failed with
+   `cannot import name 'precompute_latitudes'`. Fix: **`PYTHONNOUSERSITE=1`** in the venv
+   *and* in both SFNO PBS scripts. (The conda base is the SYSTEM site, so torch survives.)
+2. **`torchrun` is the wrong launcher here.** torch is inherited from the conda base, so
+   the venv has no `torchrun` of its own; the bare name resolves to the **base** conda
+   `torchrun`, whose shebang pins the **base** python — the spawned ranks then die with
+   `No module named 'makani'`. Use **`python -m torch.distributed.run`**.
+3. **`pip install tltorch` does not exist** — the module `tltorch` ships as the PyPI
+   package **`tensorly-torch`**. (It silently "worked" only by leaking from the user site.)
+4. **Never `pip install nvidia-physicsnemo` from PyPI without `--no-deps`**: its pyproject
+   pins `torch>=2.10` and would upgrade the base torch 2.8 out from under every model. The
+   editable in-repo install (`--no-deps`) is the safe path (runtime only enforces `torch>=2.4`).
 
-⚠️ Do **not** `pip install nvidia-physicsnemo` from PyPI without `--no-deps`: its
-pyproject pins `torch>=2.10` and would upgrade the base torch 2.8 out from under every
-model. The editable in-repo install (`--no-deps`) is the safe path (runtime only
-enforces `torch>=2.4`).
+**Upstream makani bug (patched in our wrapper, not in makani):** at pin `c970430…`,
+`utils/driver.py` assigns `self.logger` **only when `log_to_screen` is truthy** (makani
+disables it on non-zero ranks), but `utils/training/deterministic_trainer.py` then calls
+`self.logger.info("No channels to visualize, skipping visualization.")` **unconditionally**
+whenever `init_visualizer()` returns `None` — true for any config without visualization
+channels, including our smoke. Every non-zero rank dies with
+`AttributeError: 'PlasimTrainer' object has no attribute 'logger'`. Fixed by setting
+`self.logger` before `super().__init__()` in `sfno_training/trainer/plasim_trainer.py`
+(the wrapper whose stated job is patching stock makani; zero edits to makani itself).
 
 ## 7. Repointed-path map (per model)
 
