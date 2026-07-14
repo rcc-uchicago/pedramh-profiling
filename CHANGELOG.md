@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | 🟡 **seed knob DONE** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`, 10 tests `SEEDING_OK`); tiny config + VAE noise-fix still **block baseline capture** |
+| §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
 | Optimization ladder (DESIGN.md §5) | ⬜ not started |
