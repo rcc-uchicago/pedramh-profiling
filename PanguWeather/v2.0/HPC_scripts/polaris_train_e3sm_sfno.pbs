@@ -7,7 +7,6 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=00:50:00
 #PBS -j oe
-#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/pangu_e3sm_sfno.log
 # ============================================================================
 # PanguWeather (SFNO-on-E3SM) Polaris smoke — PBS analog of the Derecho PBS
 # script HPC_scripts/derecho_training_bing.sh, retargeted to Polaris + the
@@ -39,9 +38,6 @@ export MPLBACKEND=Agg                              # train.py imports matplotlib
 export OMP_NUM_THREADS=8                            # 64 HW threads / ~8 per rank
 export MKL_NUM_THREADS=8
 # Persistent caches on eagle (survive across jobs — node-local /local/scratch is wiped)
-export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
-export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
-export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
 export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
 
 NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)

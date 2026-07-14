@@ -7,7 +7,6 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=01:00:00
 #PBS -j oe
-#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/si_polaris_bench.log
 # ============================================================================
 # SI (stochastic interpolants) Polaris bench — PBS analog of bench_midway.sh.
 # Runs on the STAGED, CONVERTED E3SM data (SI's AMIP loader needs renamed upper-air
@@ -22,33 +21,40 @@
 
 cd "${PBS_O_WORKDIR}"                              # submit from si/
 SI_DIR="${PBS_O_WORKDIR}"
-STAGE=/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage
 
 module use /soft/modulefiles
 module load conda
 conda activate base
+# Resolves MEMBER_ROOT (your writable dir), SI_STAGE (yours, else the shared read-only
+# copy), caches and the common knobs. Works for ANY project member.
+# shellcheck disable=SC1091
+source "${SI_DIR}/../polaris_env.sh" || exit 2
+STAGE="${SI_STAGE}"
 unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
 export WANDB_MODE=offline
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
-export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
-export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
-export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
 
 export SI_PRECISION=bf16-mixed
 export SI_BENCH_WARMUP="${SI_BENCH_WARMUP:-5}"
 export SI_BENCH_STEPS="${SI_BENCH_STEPS:-20}"
-export SI_BENCH_CSV="${SI_DIR}/bench_polaris_results_${PBS_JOBID%%.*}.csv"
+export SI_BENCH_CSV="${POLARIS_LOG_DIR}/si_bench_polaris_${PBS_JOBID%%.*}.csv"
 
 NPROC="${NPROC:-4}"
 if [ "${NPROC}" = "1" ]; then DEVICES="0"; else DEVICES="0 1 2 3"; fi
-CONFIG_FILE="configs/bench_polaris_e3sm.yaml"
+CONFIG_TEMPLATE="${SI_DIR}/configs/bench_polaris_e3sm.yaml"
+# Render the template into YOUR member dir (the repo checkout may be read-only/shared).
+CONFIG_FILE="${MEMBER_ROOT}/si_bench_polaris_e3sm.rendered.yaml"
+sed -e "s|{{SI_STAGE}}|${STAGE}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+echo "rendered config -> ${CONFIG_FILE}"
 
 echo "=== si_polaris_bench: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  devices='${DEVICES}'  csv=${SI_BENCH_CSV}"
 nvidia-smi -L
+polaris_env_report
 
 # ---- stage (convert) once if missing — compute node, NOT login ----
 if [ ! -f "${STAGE}/normalize_mean.nc" ] || [ ! -f "${STAGE}/h5/2015_0000.h5" ]; then

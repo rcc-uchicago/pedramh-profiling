@@ -7,7 +7,6 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=00:30:00
 #PBS -j oe
-#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/port_polaris_smoke.log
 # ============================================================================
 # S2S-Lightning (port) Polaris smoke — PBS analog of midway_smoke_train_module.sh.
 # 1-GPU, 2-step Lightning fit of TrainModule (SMOKE_OK on finite loss).
@@ -33,9 +32,6 @@ export WANDB_MODE=offline
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
-export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
-export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
-export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
 # s2s/v2.0 -> utils,networks ; port dir -> data,modules,common
 export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}:${PYTHONPATH:-}"
 # Polaris-repointed smoke config (backward-compatible env override; defaults to test.yaml).

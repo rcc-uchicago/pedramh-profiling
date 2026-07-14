@@ -7,7 +7,6 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=00:30:00
 #PBS -j oe
-#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/s2s_polaris_bench.log
 # ============================================================================
 # S2S (canonical) Polaris bench smoke — PBS analog of HPC_scripts/midway_bench_nsys.sh.
 # Launcher: torchrun --standalone (no srun/mpiexec). S2S_BENCH bounds the run to
@@ -38,9 +37,6 @@ export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
-export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
-export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
-export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
 export PYTHONPATH="${V20}:${PYTHONPATH:-}"
 
 # Bench knobs (match midway_bench_nsys.sh; smaller counts for a Polaris smoke).

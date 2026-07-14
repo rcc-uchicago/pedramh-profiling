@@ -1,5 +1,7 @@
 # SI bench config for the Polaris E3SM smoke.
-# Derived from bench_midway.yaml, repointed to the CONVERTED E3SM stage produced by
+# TEMPLATE: {{SI_STAGE}} / {{MEMBER_ROOT}} are rendered by si/bench_polaris.pbs at job
+# time (so any project member can run it). Derived from bench_midway.yaml, repointed
+# to the CONVERTED E3SM stage produced by
 # convert_e3sm_for_si.py (upper-air keys renamed to '{VAR}_{int(level)}.0', npz->nc
 # stats with a 'level' dim). See polaris_pbs_notes.md §8 (SI conversion recipe).
 #
@@ -54,7 +56,7 @@ model:
             noise_scale_path: null
 
 data:
-    data_dir: '/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage/h5'
+    data_dir: '{{SI_STAGE}}/h5'
     upper_air_variables: ["T", "U", "V", "Z3", "RELHUM", "CLDICE", "CLDLIQ", "CLOUD"]
     surface_variables: ["TREFHT", "PS", "PSL", "TMQ", "U10", "RHREFHT"]
     diagnostic_variables: ["FSNTOA", "FSNT", "PRECT"]
@@ -65,8 +67,8 @@ data:
     train_year_end: 2016
     val_year_start: 2015
     val_year_end: 2016
-    mean_path: "/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage/normalize_mean.nc"
-    std_path: "/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage/normalize_std.nc"
+    mean_path: "{{SI_STAGE}}/normalize_mean.nc"
+    std_path: "{{SI_STAGE}}/normalize_std.nc"
     forecast_lead_times: [1]
     return_calendar: False
     smooth_nan_boundaries: False
@@ -99,7 +101,7 @@ training:
     max_epochs: 1
     num_sanity_val_steps: 0
     accumulate_grad_batches: 1
-    log_dir: /eagle/projects/lighthouse-uchicago/members/mehta5/si_logs/
+    log_dir: {{MEMBER_ROOT}}/si_logs/
     project: amip_bench
     wandb_mode: disabled
     optimizer: adam
