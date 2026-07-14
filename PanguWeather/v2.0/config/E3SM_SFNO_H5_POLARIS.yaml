@@ -28,7 +28,7 @@ base_config: &BASE
   nettype: 'sfno_plasim'
   group: 'plasim'
 
-  exp_dir: '/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/results'  # gitignored (results/)
+  exp_dir: '{{MEMBER_ROOT}}/runs/pangu_sfno'  # gitignored (results/)
 
   enable_fp8: False
   fresh_start: False
@@ -78,20 +78,20 @@ PLASIM: &PLASIM
   # Absolute paths (os.path.join(data_dir, <abs>) yields <abs>): the staged
   # stats have the level dim named 'Z' but load_mean_std(use_sigma_levels=True)
   # needs 'Z_2'; run polaris_prepare_e3sm_stats.py once to generate these.
-  surface_mean: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_mean.nc
-  surface_std: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_std_corr.nc
-  surface_ff_std: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_std_corr.nc
-  upper_air_mean: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_mean.nc
-  upper_air_std: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_std_corr.nc
-  upper_air_ff_std: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_std_corr.nc
-  boundary_mean: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_mean.nc
-  boundary_std: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_std_corr.nc
-  diagnostic_mean: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_mean.nc
-  diagnostic_std: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/data_2015-2050_std_corr.nc
+  surface_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  surface_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  surface_ff_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  upper_air_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  upper_air_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  upper_air_ff_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  boundary_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  boundary_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  diagnostic_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  diagnostic_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
   #surface_delta_std: 'data_12-111_surface_delta_std.nc'
   #upper_air_delta_std: 'data_12-111_delta_std_Z.nc'
   # Converted to NETCDF4 (staged copy is CDF-5, which xarray's default engine rejects)
-  climatology_file: /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/PanguWeather/v2.0/polaris_data/climatology.nc
+  climatology_file: {{PANGU_AUX}}/climatology.nc
   calendar: '365_day'
   timedelta_hours: 6
 

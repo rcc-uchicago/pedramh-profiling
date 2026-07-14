@@ -31,6 +31,10 @@ V20_DIR="${PBS_O_WORKDIR}"
 module use /soft/modulefiles
 module load conda
 conda activate base
+# Resolves MEMBER_ROOT (your writable dir), PANGU_AUX (the shared ~17 GB stats +
+# climatology) and the caches. Works for ANY project member.
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
 export WANDB_MODE=offline
 export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
@@ -41,12 +45,16 @@ export MKL_NUM_THREADS=8
 export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
 
 NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)
-CONFIG_FILE="config/E3SM_SFNO_H5_POLARIS.yaml"
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+# Render into YOUR member dir: exp_dir must be writable by you, and the stats/climatology
+# must point at the shared read-only aux (never another user's clone).
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.rendered.yaml"
 RUN_NUM="polaris_sfno_${PBS_JOBID%%.*}"
 
 echo "=== polaris_train_e3sm_sfno: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
 nvidia-smi -L
+polaris_env_report
 echo "python=$(command -v python)"
 
 # ---- preflight: the E3SM auxiliary files must be prepared. climatology.nc is a
@@ -54,11 +62,11 @@ echo "python=$(command -v python)"
 # train.py at Trainer init. This must run on a COMPUTE node (a login-node
 # background job gets killed mid-write, leaving a 96-byte stub). Auto-run the prep
 # here if the output is missing/truncated, then hard-verify it. ----
-CLIM="${V20_DIR}/polaris_data/climatology.nc"
+CLIM="${PANGU_AUX}/climatology.nc"
 clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
 if ! clim_ok; then
     echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
-    ( cd "${V20_DIR}" && python polaris_prepare_e3sm_stats.py )
+    ( cd "${V20_DIR}" && PANGU_AUX="${PANGU_AUX}" python polaris_prepare_e3sm_stats.py )
 fi
 python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
 import sys, xarray as xr
@@ -73,6 +81,11 @@ PY
 # init as rank-0-on-GPU-0 and OOM. Without --debug, setup_distributed binds
 # device = rank % device_count. SFNO batch_size=1 (from BASE; the config's
 # batch_size=16 lives in the unused `modified_1` section, not SFNO).
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+echo "rendered config -> ${CONFIG_FILE}"
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
 echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
 torchrun --standalone --nproc_per_node="${NPROC}" \
     train.py \

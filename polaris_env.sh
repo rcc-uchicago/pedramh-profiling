@@ -79,6 +79,10 @@ _pick() {  # _pick <var> <relative-path>
 export SI_STAGE="$(_pick SI_STAGE si_e3sm_stage)"
 export MAKANI_DATA="$(_pick MAKANI_DATA data/e3sm_makani)"
 export SEQZARR_DATA="$(_pick SEQZARR_DATA e3sm_seqzarr)"
+# PanguWeather aux (~17 GB: the Z->Z_2 stats + the CDF-5->NETCDF4 climatology).
+# Lives OUTSIDE the repo so it can be shared read-only like the datasets above —
+# otherwise every user re-encodes a 16 GB climatology into their own clone.
+export PANGU_AUX="$(_pick PANGU_AUX pangu_polaris_data)"
 
 polaris_env_report() {
     echo "--- polaris_env ---"
@@ -88,6 +92,7 @@ polaris_env_report() {
     echo "  SI_STAGE      = ${SI_STAGE}"
     echo "  MAKANI_DATA   = ${MAKANI_DATA}"
     echo "  SEQZARR_DATA  = ${SEQZARR_DATA}"
+    echo "  PANGU_AUX     = ${PANGU_AUX}"
     echo "  SFNO_VENV     = ${SFNO_VENV}"
     echo "  logs          = ${POLARIS_LOG_DIR}"
 }

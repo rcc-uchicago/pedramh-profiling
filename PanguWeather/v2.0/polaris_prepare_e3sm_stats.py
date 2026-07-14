@@ -30,7 +30,10 @@ import xarray as xr
 
 SRC = ("/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
        "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/plev_data")
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polaris_data")
+# Default OUT is passed in by the PBS script (PANGU_AUX, outside the repo) so the
+# ~17 GB is shared read-only instead of re-encoded into every user's clone.
+OUT = os.environ.get("PANGU_AUX") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "polaris_data")
 os.makedirs(OUT, exist_ok=True)
 
 # 1) stats: rename the level dim Z -> Z_2 (values already sigma levels)

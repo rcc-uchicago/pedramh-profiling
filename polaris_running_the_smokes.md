@@ -1,212 +1,167 @@
-# Running the Polaris smokes from your own folder
+# Running the four test jobs on Polaris
 
-**Audience:** any member of the `lighthouse-uchicago` project (written for **jesswan**).
-**Covers:** PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo-SFNO — i.e. everything except
-S2S / S2S-Lightning, which are blocked on an ERA5 Globus stage (see
-`polaris_pbs_notes.md` §4).
+Hi Jess — this page walks you through running four of our weather models on Polaris. Each one
+is a short **test run**: it trains for a few minutes on one machine, just far enough to prove
+the model still runs from start to finish. You are not training a real model here, and you
+don't need to change any code.
 
-All four are **GREEN on 4× A100** as of 2026-07-14. Nothing below is hypothetical — the
-job ids are real and the logs are quoted in `polaris_pbs_notes.md` §5.
+There are four to run: **PanguWeather**, **SI**, **Makani**, and **PhysicsNeMo**. Each is a
+single command. All four already work — the results near the bottom are from real runs, so
+you have something to compare against.
+
+Everything you run writes only into your own folder. You can't break anyone else's work, and
+nothing here can damage the shared data.
+
+**If you get stuck at any point, email Rahul (rmehta1987@gmail.com)** with the location of the
+log file and its last 30 lines (`tail -30 <the log file>`). That's always the right move —
+none of this is worth spending an afternoon on.
 
 ---
 
-## 0. Quickstart — copy/paste, in order
+## Step 1 — Get the code (once)
 
-**Step 1 — get the code (once).** From YOUR folder:
+Log in to Polaris, then:
+
 ```bash
 cd /eagle/projects/lighthouse-uchicago/members/jesswan
-git clone -b polaris-pbs-bringup git@github.com:rcc-uchicago/pedramh-profiling.git
+git clone -b polaris-pbs-bringup https://github.com/rcc-uchicago/pedramh-profiling.git
 cd pedramh-profiling
 ```
 
-**Step 2 — build your SFNO env (once, ~10 min, on the LOGIN node).**
-Needed only for **makani / physicsnemo**; Pangu and SI don't use it.
-```bash
-bash polaris_setup_sfno_venv.sh          # ends with:  SFNO_VENV_OK
-```
-> Why you need your own rather than reusing mine: `physicsnemo` is installed *editable*, so a
-> venv imports it from **whichever checkout it was built against**. Reusing mine would make
-> your runs silently execute *my* working tree — including whatever half-finished edit I
-> happen to have open. Your own venv makes your runs yours. (§4b; the job hard-fails with
-> `PHYSICSNEMO_WRONG_CHECKOUT` rather than let this happen quietly.)
+This copies the code into your own folder. It takes a minute or two.
 
-**Step 3 — run.** Each is one `qsub`, submitted from the directory shown:
+## Step 2 — Set up an environment (once, about 10 minutes)
+
+Two of the four models (Makani and PhysicsNeMo) need extra software. This installs it into
+your folder:
+
 ```bash
-cd PanguWeather/v2.0 && qsub HPC_scripts/polaris_train_e3sm_sfno.pbs    # Pangu-SFNO
-cd si                && qsub bench_polaris.pbs                          # SI
-cd makani_sfno       && qsub polaris/polaris_sfno_smoke.pbs             # Makani
-cd physicsnemo_sfno  && qsub polaris/polaris_sfno_smoke.pbs             # PhysicsNeMo
+bash polaris_setup_sfno_venv.sh
 ```
 
-**Step 4 — watch it.**
-```bash
-qstat -u $USER                    # R = running, Q = queued. debug allows 1 running job.
-```
-The log appears in the directory you submitted from, named `<jobname>.o<jobid>` (e.g.
-`pangu_e3sm_sfno.o7253330`). §3 lists what success looks like for each.
+Wait for it to finish, and check that the last line says:
 
-**You do NOT need to convert any data** — ~75 GB is already converted and reused
-automatically, read-only (§2). Nothing you run writes into anyone else's folder.
+```
+SFNO_VENV_OK
+```
+
+If it says anything else, send Rahul the output.
+
+> **Why you can't just borrow Rahul's copy.** His installation is wired to *his* copy of the
+> code. If you used it, your runs would quietly execute whatever he happens to be editing
+> that day, and your results could change for reasons that have nothing to do with you.
+> Your own copy makes your runs yours. (PanguWeather and SI skip this step entirely — they
+> use software already installed on Polaris.)
+
+## Step 3 — Run the four jobs
+
+Run these **from the `pedramh-profiling` folder** you just created. Copy them one at a time.
+The brackets matter: they keep each command independent, so the order doesn't matter and one
+doesn't affect the next.
+
+```bash
+( cd PanguWeather/v2.0 && qsub HPC_scripts/polaris_train_e3sm_sfno.pbs )
+( cd si                && qsub bench_polaris.pbs )
+( cd makani_sfno       && qsub polaris/polaris_sfno_smoke.pbs )
+( cd physicsnemo_sfno  && qsub polaris/polaris_sfno_smoke.pbs )
+```
+
+Each prints a job number like `7253330.polaris-pbs-01...`. Note it down — it's how you find
+the results.
+
+**Only one of your jobs runs at a time.** You can submit all four; they'll simply queue and
+run one after another.
+
+You don't need to prepare any data. About 75 GB of it is already prepared and shared with you
+automatically.
+
+## Step 4 — Watch it, and find the results
+
+Check on your jobs:
+
+```bash
+qstat -u $USER
+```
+
+`Q` means waiting in the queue, `R` means running. When a job disappears from that list, it's
+finished. Each test takes roughly 2–10 minutes once it starts.
+
+When it finishes, a log file appears **in the folder you submitted from**, named after the
+job — for example `PanguWeather/v2.0/pangu_e3sm_sfno.o7253330`. It only appears at the *end*,
+so don't worry if it's missing while the job is still running.
+
+To read it:
+
+```bash
+tail -30 pangu_e3sm_sfno.o7253330
+```
+
+## What "it worked" looks like
+
+| Model | You submitted from | Look for this in the log |
+|---|---|---|
+| **PanguWeather** | `PanguWeather/v2.0` | `DONE ---- rank 0` (and ranks 1, 2, 3), plus a `Loss:` number |
+| **SI** | `si` | a block headed `BENCH RESULT` |
+| **Makani** | `makani_sfno` | `Saving checkpoint`, plus a `loss=` number |
+| **PhysicsNeMo** | `physicsnemo_sfno` | `Saved training checkpoint`, plus a `loss =` number |
+
+In every case the last line should end with **`rc=0`**, which means success. Any other number
+means it failed — send Rahul the log.
+
+SI also writes a small table of timings here:
+
+```
+/eagle/projects/lighthouse-uchicago/members/jesswan/polaris_logs/si_bench_polaris_<jobnumber>.csv
+```
+
+## Results from Rahul's runs, for comparison
+
+Yours should land in the same ballpark. They won't match exactly, and that's normal.
+
+| Model | Job | What it produced |
+|---|---|---|
+| PanguWeather | 7252271 | training loss 0.34, validation loss 0.70, about 4 minutes |
+| SI | 7252700 | 0.40 seconds per step, used 31 GB of the GPU's 40 GB |
+| Makani | 7252769 | training loss 2.19, validation loss 2.05, 12 seconds per pass |
+| PhysicsNeMo | 7252933 | loss 0.89, validation error 0.54 |
+
+## If something goes wrong
+
+1. **Check the last line of the log.** `rc=0` is success; anything else is a failure.
+2. **Look near the top of the log.** There's a short block listing the folders the job used.
+   Every path should have **your** name in it, not Rahul's. If it doesn't, submit again naming
+   your folder:
+   ```bash
+   qsub -v POLARIS_MEMBER=jesswan <the same script>
+   ```
+   (It has to be passed to `qsub` like this — setting it in your shell beforehand won't reach
+   the job.)
+3. **For a clearer error message**, re-run the same job on a single GPU:
+   ```bash
+   qsub -v NPROC=1 <the same script>
+   ```
+   Slower, but the error is usually much easier to read.
+4. **If the log says `PHYSICSNEMO_WRONG_CHECKOUT`**, Step 2 didn't finish. Re-run
+   `bash polaris_setup_sfno_venv.sh` and check for `SFNO_VENV_OK`.
+5. **Still stuck? Email Rahul** (rmehta1987@gmail.com) with the full path of the log and its
+   last 30 lines. Don't spend more than a few minutes on it.
+
+## A few things worth knowing
+
+- **Don't add `--debug`** to the PanguWeather job. It sounds helpful, but it forces everything
+  onto a single GPU and all four processes crash by piling onto the same one.
+- **The first PanguWeather run may pause for several minutes** near the start while it prepares
+  a large data file. That's expected, and it only happens once.
+- **These are deliberately tiny models.** They prove the code runs; they say nothing about
+  speed or accuracy. Don't read anything into the loss numbers.
+- **SI's test only uses data from 2015.** It would need a code fix to run across a leap year,
+  so please don't change the years in the settings file.
+- **S2S and S2S-Lightning aren't in this list.** Their data hasn't been copied to Polaris yet,
+  so they can't run. If you try one it stops immediately with `ERROR ERA5_NOT_STAGED` —
+  expected, and not something you did.
 
 ---
 
-## 1. How the scripts find *your* folder
-
-Every script sources `polaris_env.sh`, which resolves:
-
-| var | meaning | where it points for you |
-|---|---|---|
-| `MEMBER_ROOT` | **your writable dir** — all caches, logs, run dirs, CSVs | `members/jesswan` |
-| `SHARED_ROOT` | group-readable artifacts to **reuse** | `members/mehta5` |
-| `E3SM_ROOT` | the read-only E3SM archive | `jesswan/AI4SRM/data/E3SMv3_…` (yours!) |
-
-It auto-detects `MEMBER_ROOT` as the `members/*` dir **you own**. (It can't just use
-`$USER` — for `rmehta1987` the folder is `members/mehta5`.) If it guesses wrong:
-
-```bash
-export POLARIS_MEMBER=jesswan
-```
-
-Every job prints a `polaris_env` block at the top showing exactly what it resolved —
-**check that first if anything looks odd.**
-
-Nothing writes into another member's folder, so two people can run concurrently.
-
-## 2. You can reuse ~75 GB of already-converted data (recommended)
-
-The three converted datasets and the SFNO venv are group-readable, so the scripts pick
-them up automatically and **skip conversion entirely**:
-
-| artifact | size | saves you |
-|---|---|---|
-| `mehta5/si_e3sm_stage` | 56 GB | ~30 min h5 rename + npz→nc |
-| `mehta5/data/e3sm_makani` | 18 GB | the multifiles pack |
-| `mehta5/e3sm_seqzarr` | 1.7 GB | the zarr build |
-| `mehta5/conda-envs/sfno-venv` | — | a torch_harmonics source build — **reusable for makani ONLY**; physicsnemo needs your own (§4b) |
-
-They're read-only to you — that's fine for DATA: the scripts only *read* it and write
-results to your own dir. The venv is the exception — see §4b.
-
-**To build your own instead** (e.g. different years/variables), just create the same paths
-under your folder and the resolver prefers yours:
-
-```bash
-export POLARIS_SHARED=/eagle/projects/lighthouse-uchicago/members/jesswan   # ignore mehta5's
-bash polaris_setup_sfno_venv.sh        # LOGIN node; PASS = "SFNO_VENV_OK"  (makani/physicsnemo only)
-```
-The conversion steps inside each PBS script run automatically when the data is missing.
-
-## 3. The four smokes
-
-Submit **from the directory shown** (the scripts resolve paths relative to `$PBS_O_WORKDIR`).
-Logs land as `<jobname>.o<jobid>` in that same directory.
-
-| model | submit from | command | PASS looks like |
-|---|---|---|---|
-| **PanguWeather-SFNO** | `PanguWeather/v2.0` | `qsub HPC_scripts/polaris_train_e3sm_sfno.pbs` | `DONE ---- rank 0..3`, `rc=0`, finite `Loss:` |
-| **SI** | `si` | `qsub bench_polaris.pbs` | `BENCH RESULT` block + a CSV row in `$MEMBER_ROOT/polaris_logs/` |
-| **Makani-SFNO** | `makani_sfno` | `qsub polaris/polaris_sfno_smoke.pbs` | finite `loss=`, `Saving checkpoint`, `rc=0` |
-| **PhysicsNeMo-SFNO** | `physicsnemo_sfno` | `qsub polaris/polaris_sfno_smoke.pbs` | `Epoch 0 Metrics: … loss = …`, `Saved training checkpoint`, `rc=0` |
-
-Common options:
-- `qsub -v NPROC=1 <script>` → the **1-GPU** rung. Also the best way to debug: it uses plain
-  `python`, so a real traceback reaches the log (under `torchrun` the child stderr is
-  swallowed and you only get a bare `ChildFailedError`).
-- Queue: `debug` allows **one running job per user** and ≤1 h. Yours is separate from mine.
-
-**Reference results** (mine, for comparison — not targets):
-
-| model | job | result |
-|---|---|---|
-| Pangu-SFNO 4-GPU | 7252271 | train loss 0.3411, val 0.7049, 365 steps/rank, ~4 min |
-| SI 4-GPU | 7252700 | step_med 0.400 s, **peak 30.98 GB**, 20 steps |
-| Makani 4-GPU | 7252769 | train 2.19 / val 2.05, epoch 11.5 s |
-| PhysicsNeMo 4-GPU | 7252933 | loss 0.889 / val err 0.541 |
-
-## 4. Gotchas that will cost you an hour (all already handled in the scripts)
-
-These are real bugs we hit; the scripts encode the fixes, but you'll meet them if you
-deviate:
-
-1. **Pangu `--debug` is single-GPU ONLY.** It hardcodes `world_size=1`, so under
-   `torchrun --nproc_per_node=4` all 4 ranks init as rank-0-on-GPU-0 and OOM the same
-   card. Bound a short run with **`--epochs 1`** instead.
-2. **Lustre needs `HDF5_USE_FILE_LOCKING=FALSE`** or writing `.nc`/`.h5` dies with
-   `BlockingIOError: unable to lock file`.
-3. **SI: `calendar: 'noleap'` crashes the loader** (`TypeError: cannot compute the time
-   difference between dates with year zero conventions`) — `noleap` is an *idealized*
-   cftime calendar that forces `has_year_zero=True`. Use `standard`; it's correct for
-   2015 + early-Jan 2016. A run crossing a leap year needs a loader fix.
-4. **makani/physicsnemo: use the venv, and `python -m torch.distributed.run`, not
-   `torchrun`.** The venv inherits torch from the conda base, so the bare `torchrun`
-   resolves to the *base* python and the ranks die with `No module named 'makani'`.
-   Also `PYTHONNOUSERSITE=1` — a `--system-site-packages` venv re-enables `~/.local`,
-   which shadows the venv's torch_harmonics 0.9.x with the base's 0.7.4.
-5. **makani `--batch_size` is GLOBAL** and must divide the rank count (`--batch_size 1` on
-   4 ranks aborts).
-6. **PBS appends to a fixed `-o` path**, so a log can contain several runs. **Anchor on the
-   `PBS_JOBID=` header** of the run you care about — a naive `grep OutOfMemory` will report
-   a green run as failed.
-7. **Login node is resource-capped.** Heavy git/pack work dies with
-   `unable to create thread` / `git-pack-objects died`; use `git -c pack.threads=1 push`.
-   Run heavy compute as PBS jobs, never on login.
-
-## 4b. Why you build your own venv (and why we do NOT share one working dir)
-
-**Share the DATA, never the checkout or the venv.** Concretely:
-
-| thing | shared? | why |
-|---|---|---|
-| converted data (75 GB) | ✅ read-only | immutable inputs; makes a result attributable to a data version |
-| the git clone | ❌ never | see below |
-| the SFNO venv | ❌ per-user | see below |
-
-**The venv cannot be shared** because `physicsnemo` is installed **editable**
-(`pip install -e`), so the venv imports it from *whichever checkout it was built against*.
-Using someone else's venv means `import physicsnemo` silently resolves to **their** working
-tree — you would think you were profiling your change and you would not be. Measured:
-
-```
-physicsnemo -> .../members/mehta5/pedramh-profiling/physicsnemo_sfno/physicsnemo/__init__.py
-makani      -> .../conda-envs/sfno-venv/lib/python3.12/site-packages/makani/   # non-editable, fine
-```
-
-`polaris/polaris_sfno_smoke.pbs` now **hard-fails** with `PHYSICSNEMO_WRONG_CHECKOUT` if the
-imported `physicsnemo` is not from the job's own repo, rather than producing results nobody
-can attribute. If you hit it: `bash <your-repo>/polaris_setup_sfno_venv.sh` (~10 min, once).
-(makani-only work can safely use the shared venv.)
-
-**A shared working directory is worse than it looks**, even with unlimited quota — these are
-concurrency problems, not space problems:
-- `.git/index` is one file: two people = `index.lock` races. Worse, a `git checkout` by one
-  person mutates the tree **underneath the other's running job** — silently mixed code.
-- File modes: `umask 022` makes files `g+r` only, so the other user's `git checkout` cannot
-  overwrite them; `setgid` fixes the *group*, not the *mode*. `g+w` without a sticky bit also
-  lets anyone delete anyone's files.
-- One clone means you cannot both have different code checked out — which is exactly what
-  profiling needs.
-- The physicsnemo smoke writes checkpoints + 157 PNGs **into the repo**, so two concurrent
-  runs collide.
-
-Cost of doing it right: one 306 MB clone + one 10-minute venv build, each.
-
-## 5. Known limitations (please don't be surprised)
-
-- These are **tiny** models (makani: embed_dim 16, 2 layers, 4 samples/epoch; physicsnemo:
-  10 iterations). They prove the loop closes — **not** performance.
-- **SI numbers are not Midway-comparable**: warmup 5 / steps 20 (vs Midway's 20/80), and
-  different channel counts (153 vs 151, 18 vs 26 levels).
-- **SI validation/rollout on E3SM had a latent bug** (`disassemble_input` defaulted to
-  `ndiagnostic=15`, we use 3). Fixed, but the same pattern remains in
-  `combined_module.py`, `ae_module.py`, `bias.py` — those paths are untested here.
-- **SI SST normalization is degenerate** — the converter copies upstream npz SST stats
-  (mean ≈ 110) that don't describe the °C, land-filled data. Doesn't crash; scales SST badly.
-- `S2S` / `S2S-Lightning` exit `ERROR ERA5_NOT_STAGED` by design until ERA5 is staged.
-
-## 6. If something breaks
-
-1. Read the **`polaris_env` block** at the top of the log — is `MEMBER_ROOT` your folder?
-2. Re-run with `-v NPROC=1` to get a real traceback.
-3. Check the job actually ran: `qstat -x -f <jobid> | grep Exit_status`.
-4. `polaris_pbs_notes.md` has the full cluster facts, the GREEN matrix, every trap, and the
-   conversion recipes.
+*Technical background — why the environment is per-user, what's shared, the known bugs and
+traps, and the cluster details — is in `polaris_pbs_notes.md`. You don't need any of it to run
+these.*
