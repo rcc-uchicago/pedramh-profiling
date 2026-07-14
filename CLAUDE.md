@@ -4,12 +4,11 @@ Guidance for Claude Code (claude.ai/code) working in this repository. What &
 why lives in **DESIGN.md** — read it first. This file is *how to work here*, and
 is the **single source of truth for cluster facts** (§Cluster facts below).
 
-## Model: use Fable 5
+## Model policy
 
-**Run this project's Claude Code sessions and subagents on Fable 5**
-(`claude-fable-5`). Set it with `/model claude-fable-5` at the start of a session
-(or your Claude Code config). If you spawn subagents/agent teams, keep them on
-Fable 5 unless a task explicitly needs a different tier.
+**Main session: Opus 4.7 at xhigh reasoning effort** (confirm with `/model`).
+**Subagents / agent teams: Fable 5** (`claude-fable-5`) — set it on every agent you
+spawn unless a task explicitly needs a different tier.
 
 ## Why we're here
 
@@ -57,13 +56,16 @@ These are the ways to silently break the project. Do not do them.
     `parse_nsys.py`). S2S and SI use *different* range names — don't cross them.
 11. **Never add fudge factors or `--skip`/`xfail` a failing correctness test** to
     get green. A wrong number means a wrong term — trace it.
+12. **Never launch `test.yaml` bare.** Despite the name it is the full ~79M-param
+    model (OOMed a 93 GiB H100 at its defaults); the smokes fit it only via a
+    `batch_size=1` override + `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
 
 ## Orientation (do this when you start a session)
 
 1. Read **CHANGELOG.md** — what's done, what's in progress, what's blocked, and
    the failed approaches not to re-try.
-2. Confirm your model is Fable 5 (`/model`), and which cluster you're on
-   (`hostname`, `sinfo`/`qstat -Q`).
+2. Confirm the model policy (`/model`): main = Opus 4.7 xhigh, subagents = Fable 5.
+   Note which cluster you're on (`hostname`, `sinfo`/`qstat -Q`).
 3. Run the fast checks **once the harness exists** (`pytest -q --fast`); until then,
    run the relevant smoke (§Common commands).
 4. Pick the next unchecked roadmap item (DESIGN §8) / failing check.
@@ -91,15 +93,12 @@ These are the ways to silently break the project. Do not do them.
 - **Read the `.err`/stderr first when a job fails.** Most bring-up failures are
   path/module/OOM and are visible immediately. (On Midway, a whole class of
   "missing kernels" was really an early crash before any GPU work — read the error.)
-- **Concise output.** Tests print ≤10 lines on success, ~20 on failure; report max
-  relative error + where it occurs, not raw tensors; keep `ERROR <reason>`
-  greppable on one line; log verbose diagnostics to files.
+- **Concise output** (full hygiene: DESIGN §7). ≤10 lines on success; report max
+  relative error + where it occurs (not raw tensors); `ERROR <reason>` greppable.
 - **Never claim a step passed without reading the actual output.** Smoke scripts
   print a success token / write a CSV row — key on that, not on exit code alone.
-- **Readability standards** — docstring, module-header, and inline-comment
-  conventions for this repo live in [`.claude/comments.md`](.claude/comments.md).
-  Follow it on any readability pass or new module (it cites this file + DESIGN.md
-  for the invariants a comment should point at).
+- **Readability standards** live in [`.claude/comments.md`](.claude/comments.md) —
+  follow it on any readability pass or new module.
 
 ## Cluster facts (single source of truth)
 
@@ -110,8 +109,8 @@ These are the ways to silently break the project. Do not do them.
 | GPU | H100 NVL ~94 GB (Intel Ice Lake, PCIe Gen4) | **4× A100 40 GB SXM4** (AMD Milan) |
 | Node/GPU directive | `--nodes=1 --gres=gpu:4` | `-l select=1:system=polaris -l place=scatter` |
 | Filesystems | implicit | `-l filesystems=home:eagle` — jobs are **rejected** if the flag is absent; confirm the exact FS names (`eagle`/`grand`) |
-| Env (S2S, port) | `module load python/miniforge-25.3.0 && eval "$(mamba shell hook --shell bash)" && mamba activate <env> && module load cuda/12.6` | `module use /soft/modulefiles && module load conda && conda activate <env>` |
-| Env (SI) | same, but SI's scripts use `conda` not mamba: `... && conda activate <env>` (see `si/bench_midway.sh`) | same as above |
+| Env (S2S, port) | `module load python/miniforge-25.3.0 && eval "$(mamba shell hook --shell bash)" && mamba activate /project/pedramh/shared/S2S/v2.0/venv && module load cuda/12.6` | `module use /soft/modulefiles && module load conda && conda activate <env>` |
+| Env (SI) | same but `conda`: `... && conda activate /project/pedramh/shared/anthonyz/venv` (see `si/bench_midway.sh`) | same as above |
 | Data (ERA5 HDF5) | `/project/pedramh/h5data/h5data` | Globus-stage to `/eagle/<project>/…` (or `/grand/…`) |
 | Job id in script | `$SLURM_JOB_ID` | `$PBS_JOBID` (use `${PBS_JOBID%%.*}`) |
 
@@ -121,22 +120,12 @@ loader, not early). Use `WANDB_MODE=offline`.
 
 ## One-time setup (per cluster)
 
-1. **Environment.** Reuse the shared env if present, else create from the model's
-   YAML into project storage (env prefixes are cluster-specific — check the model's
-   `midway_*.sh` for the exact path it activates):
-   ```bash
-   # S2S / port (torch + lightning + wandb)
-   conda env create -f s2s/v2.0/environment.yml --prefix <project>/envs/s2s
-   pip install pytorch-lightning wandb          # port/SI, if not in the YAML
-   # SI
-   conda env create -f si/environment.yml --prefix <project>/envs/si   # name: si
-   ```
-   On Polaris, match the torch build to the cluster CUDA (12.x); don't reuse a
-   Midway-pinned wheel blindly.
-2. **wandb.** First run needs `wandb login`, or set `WANDB_MODE=offline` (the HPC
-   scripts already do).
-3. **Data.** Midway: already at `/project/pedramh/h5data/h5data`. Polaris:
-   Globus-stage it first, then repoint each config's `data_dir` + `.nc` paths.
+Midway already has the shared envs (filled into the table above). To build fresh:
+`conda env create -f <model>/…/environment.yml --prefix <project>/envs/<name>`
+(SI's is `name: si`; the port adds `pytorch-lightning wandb`). On Polaris match the
+torch build to the cluster CUDA (12.x) — don't reuse a Midway wheel. `wandb login`
+once or `WANDB_MODE=offline` (scripts set it). Polaris also needs a one-time Globus
+stage of the HDF5 data to `/eagle/<project>/…`, then repoint each config's paths.
 
 ## Common commands
 
@@ -169,6 +158,24 @@ Submit real work through the cluster scripts (`s2s/v2.0/HPC_scripts/midway_*.sh`
 `s2s-lightning/midway_*.sh`, `si/bench_midway.sh`; Polaris `*.pbs` per the handoff),
 never directly.
 
+## Smokes: what to run, what PASS looks like
+
+Key on the log (token / CSV row), not the exit code. After any `s2s/v2.0/` edit the
+**S2S and port** smokes must both pass (rule #5); SI is independent.
+
+| Model | Submit (Midway) | PASS = |
+|---|---|---|
+| S2S | `sbatch s2s/v2.0/HPC_scripts/midway_bench.sh` | new `bench_results.csv` row + the bench summary line in the `.out` |
+| Port | `sbatch s2s-lightning/midway_smoke_train_module.sh` | `SMOKE_OK` in the `.out` (finite per-step loss) |
+| SI | `sbatch si/bench_midway.sh` | new `SI_BENCH_CSV` row; sanity via `si/validate_bench.py` |
+
+Writing a **new** submission script? **Launcher shape** — S2S = `--ntasks-per-node=1`
++ `torchrun --nproc_per_node=4`; port/SI = `--ntasks-per-node=4` (== devices) +
+`srun python …` (Lightning's SLURM launcher aborts on a mismatch); Polaris/PBS =
+single `python`, no `srun`. And copy the env-bootstrap block verbatim from the same
+model's `midway_*.sh` — module ordering differs on purpose (S2S `module purge`s; the
+port must NOT).
+
 ## Repo architecture
 
 See **DESIGN.md §2–3** for the model pipeline and how the three relate. Short
@@ -178,3 +185,8 @@ losses (`utils/losses.py`), and HDF5 loaders (`utils/data_loader_multifiles.py`)
 SI (stochastic-interpolants) model (with its own `si/CLAUDE.md` for SI-specific
 bench details). `PYTHONPATH` must include `s2s/v2.0` for any `from utils…`/`from
 networks…` import.
+
+**Where to look:** measured evidence → `s2s/v2.0/bench_report.md`,
+`si/bench_midway_notes.md`, `s2s-lightning/LIGHTNING_PORT.md` (+ the port-vs-v2.0
+`step_med` caveat in `midway_bench_nsys_port.sh`'s header); SI knobs →
+`si/CLAUDE.md` (auto-loads under `si/`); Polaris bring-up → `polaris_handoff_prompt.md`.
