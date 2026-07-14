@@ -1,0 +1,30 @@
+# SFNO Climate Emulator
+
+SFNO (Spherical Fourier Neural Operator) emulators of PlaSim simple-climate-model outputs, on Stampede3. Two parallel tracks: own-track v10 zgplev training/eval and group SFNO-5410 (blocking emulator) evaluation. Originally codenamed AI-RES (AI + Rare Event Sampling).
+Codex/Claude Code: use `.venv` in the repo root for Earth2Studio + SFNO work.
+
+## Layout
+
+Code and lightweight files live under `$HOME`. Heavy artifacts live on `$SCRATCH` / `$WORK` and are exposed here as symlinks (gitignored).
+
+| Path           | Where it lives                             | Purpose                               |
+| -------------- | ------------------------------------------ | ------------------------------------- |
+| `src/`         | `$HOME`                                    | Python / core implementation          |
+| `scripts/`     | `$HOME`                                    | Shell + SLURM job scripts             |
+| `skills/`      | `$HOME`                                    | Claude Code skills (SKILL.md)         |
+| `configs/`     | `$HOME`                                    | Experiment configs (YAML / JSON)      |
+| `notebooks/`   | `$HOME`                                    | Exploratory analysis                  |
+| `tests/`       | `$HOME`                                    | Unit / integration tests              |
+| `docs/`        | `$HOME`                                    | Documentation                         |
+| `logs/`        | `$HOME`                                    | Job logs (small)                      |
+| `data/`        | → `$SCRATCH/SFNO_Climate_Emulator/data`                   | Raw & intermediate simulation data    |
+| `checkpoints/` | → `$SCRATCH/SFNO_Climate_Emulator/checkpoints`            | Model checkpoints / training state    |
+| `results/`     | → `$WORK/SFNO_Climate_Emulator/results`                   | Curated results for medium-term keep  |
+
+## Stampede3 paths
+
+```
+$HOME    = /home1/11114/zhixingliu
+$SCRATCH = /scratch/11114/zhixingliu        # purged periodically — backups required
+$WORK    = /work2/11114/zhixingliu/stampede3 # medium-term, no backup
+```

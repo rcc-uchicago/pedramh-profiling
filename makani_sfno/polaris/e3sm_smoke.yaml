@@ -1,0 +1,135 @@
+### E3SM -> Makani SFNO smoke config for Polaris — tiny SFNO, 1 epoch.
+###
+### Derived from src/sfno_training/config/plasim_sim52_smoke.yaml with the
+### E3SM dataset deltas: 180x360 equiangular grid, E3SM channel names
+### (still 52 state + 1 diag + 6 forcing = locked 58-in / 53-out contract).
+### Dataset produced by makani_sfno/polaris/convert_e3sm_to_makani.py.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substitute via sed in
+### the PBS launcher (same pattern as src/sfno_training/submit_smoke.slurm):
+###   sed -e "s|{{OUTPUT_ROOT}}|$OUTPUT_ROOT|g" -e "s|{{EXP_DIR}}|$EXP_DIR|g" \
+###       polaris/e3sm_smoke.yaml > $EXP_DIR/e3sm_smoke.rendered.yaml
+
+e3sm_smoke:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time (E3SM: 1-degree equiangular, 6-hourly) ---
+    img_shape_x: 180
+    img_shape_y: 360
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids (E3SM is equiangular, NOT legendre-gauss) ---
+    model_grid_type: "equiangular"
+    data_grid_type:  "equiangular"
+    sht_grid_type:   "equiangular"
+
+    # --- Channels (53 = 52 state + PRECT; must match metadata coords.channel) ---
+    channel_names: ["PS","TREFHT","T200","T250","T300","T400","T500","T600","T700","T850","T925","T1000","U200","U250","U300","U400","U500","U600","U700","U850","U925","U1000","V200","V250","V300","V400","V500","V600","V700","V850","V925","V1000","RH200","RH250","RH300","RH400","RH500","RH600","RH700","RH850","RH925","RH1000","Z200","Z250","Z300","Z400","Z500","Z600","Z700","Z850","Z925","Z1000","PRECT"]
+
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 52
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 6
+    forcing_channel_names: ["lsm","topo","glacier","sst","solin","ice"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- Tiny SFNO (same as plasim_sim52_smoke) ---
+    nettype: "SFNO"
+    filter_type: "linear"
+    scale_factor: 4
+    embed_dim: 16
+    num_layers: 2
+    complex_activation: "real"
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    use_mlp: !!bool True
+    mlp_mode: "serial"
+    mlp_ratio: 2
+    separable: !!bool False
+    operator_type: "dhconv"
+    activation_function: "gelu"
+    pos_embed: "none"
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss ---
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Smoke training (1 epoch; batch_size overridden on the CLI) ---
+    lr: 1.0E-3
+    n_eval_samples: 4
+    n_train_samples_per_epoch: 4
+    max_epochs: 1
+    batch_size: 1
+    weight_decay: 0.0
+    n_history: 0
+    n_future: 0
+    valid_autoreg_steps: 1
+    prediction_type: "iterative"
+
+    scheduler: "ReduceLROnPlateau"
+    scheduler_T_max: 1
+    scheduler_factor: 0.5
+    scheduler_patience: 1
+    scheduler_step_size: 1
+    scheduler_gamma: 0.5
+    lr_warmup_steps: 0
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9
+    optimizer_beta2: 0.95
+    optimizer_max_grad_norm: 32
+
+    num_data_workers: 0
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    target: "tendency"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"

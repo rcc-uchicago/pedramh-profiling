@@ -1,0 +1,24 @@
+**Strengths**
+- The R3 stash fix is resolved: the plan now requires commit-only and has an untracked-old-path abort gate.
+- The Earth2Studio conditional, `~/AI-RES` sed coverage, `$DSI_SCRATCH/AI-RES` preserve row, and `NEW_OUT_ROOT` persistence are materially applied.
+- Phase 10b now respects the repo’s eval conventions: fresh `OUT_ROOT`, EMA default via `submit_eval_prelude.sh`, and no fake `SCORE_ONLY_K`.
+
+**Issues**
+- **P1 - Phase 4b still does not make the group conda env independent of the old path.** The plan fixes `bin`, `conda-meta` JSON, `etc/conda`, and `.pth`, but the env has old-prefix text in load-bearing config surfaces such as [python-3.11.pc](/work2/11114/zhixingliu/stampede3/AI-RES/envs/group_pangu_sfno_v2/lib/pkgconfig/python-3.11.pc:2), [_sysconfigdata_x86_64_conda_cos6_linux_gnu.py](/work2/11114/zhixingliu/stampede3/AI-RES/envs/group_pangu_sfno_v2/lib/python3.11/_sysconfigdata_x86_64_conda_cos6_linux_gnu.py:15), and [tclConfig.sh](/work2/11114/zhixingliu/stampede3/AI-RES/envs/group_pangu_sfno_v2/lib/tclConfig.sh:47). This matters because activation is by absolute prefix in [env_activate.sh](/home1/11114/zhixingliu/AI-RES/src/sfno_training_group/env_activate.sh:13). The verification only checks `python`/`pip`, so it will miss these stale prefixes.
+
+- **P1 - Phase 5.5 misses old-path symlinks inside run/results dirs.** The plan says old runs become re-evaluable after the transitional symlink expires, but it only rewrites selected text files. Existing generated symlinks point at `/AI-RES`, including group-track `training_checkpoints` links created by [submit_train_full.slurm](/home1/11114/zhixingliu/AI-RES/src/sfno_training_group/slurm/submit_train_full.slurm:90) and 5410 checkpoint shims created by [stampede3_yaml_override.py](/home1/11114/zhixingliu/AI-RES/src/sfno_inference_5410/stampede3_yaml_override.py:301). I found current stale symlinks under both `/scratch/.../AI-RES/runs` and `/work2/.../AI-RES/results`; those will break after Phase 8’s symlink is removed.
+
+- **P1 - Phase 11 `git add -A` can stage vendored/unrelated untracked trees.** The repo inventory itself records `external/` and `makani-src/` as clean but untracked vendored clones in [dsi_smoke_backup_plan.md](/home1/11114/zhixingliu/AI-RES/docs/dsi_smoke_backup_plan.md:95) and [dsi_smoke_backup_plan.md](/home1/11114/zhixingliu/AI-RES/docs/dsi_smoke_backup_plan.md:97). The current worktree also has those untracked. A blanket `git add -A` in [the plan](/home1/11114/zhixingliu/AI-RES/docs/2026-05-23_sfno_climate_emulator_migration_plan.md:518) would stage them despite the plan’s vendored-code out-of-scope rule.
+
+- **P2 - Phase 5.5 omits generated JSON/non-`provenance.txt` text with old paths.** `compute_climatology.py` explicitly writes resolved source paths to JSON in [compute_climatology.py](/home1/11114/zhixingliu/AI-RES/scripts/compute_climatology.py:81), and current result dirs contain stale `diagnostics/climatology_source_files.json`. There are also stale `preflight_log.txt` and `warmstart_provenance.txt` files. This is mostly provenance, but it contradicts the “complete generated artifact migration” intent.
+
+- **P2 - The DSI-doc post-audit grep is too strict for preserved DSI worktree names.** The plan preserves `$HOME/AI-RES`, `$DSI_PROJECT/AI-RES`, `$DSI_SCRATCH/AI-RES`, and `AI-RES-dsi-bootstrap`, but legitimate DSI prose/commands also include bare `AI-RES/`, `git clone ... AI-RES`, and `cd AI-RES` in [dsi_smoke_backup_plan.md](/home1/11114/zhixingliu/AI-RES/docs/dsi_smoke_backup_plan.md:4), [dsi_smoke_backup_plan.md](/home1/11114/zhixingliu/AI-RES/docs/dsi_smoke_backup_plan.md:351), and [dsi_smoke_backup_plan.md](/home1/11114/zhixingliu/AI-RES/docs/dsi_smoke_backup_plan.md:352). The grep in Phase 6 would still fail or push someone to rewrite DSI-local names that the user chose to preserve.
+
+**Suggested Edits**
+- Extend Phase 4b to include text files under `lib/pkgconfig/*.pc`, `lib/*Config.sh`, `lib/python*/_sysconfigdata*.py`, and `conda-meta/history`, then verify with a recursive old-prefix grep plus `python -c 'import sysconfig; ...'`.
+- Add a Phase 5.5 symlink pass: back up `find ... -type l -lname '*AI-RES*'`, rewrite targets from old scratch/work2 roots to new roots with `ln -sfn`, and verify no stale symlink targets remain.
+- Replace Phase 11 `git add -A` with a reviewed pathspec or an explicit exclude set for `external/`, `makani-src/`, large archive dirs, and unrelated untracked artifacts.
+- Add `*.json`, `*.txt`, and maybe selected CSV manifests to the Phase 5.5 text backup/rewrite set, or explicitly document them as preserved stale provenance.
+- Expand the DSI preserve allowlist for bare DSI checkout names, or make the audit command classify line-by-line instead of requiring an empty grep.
+
+verdict: CHANGES_REQUESTED
