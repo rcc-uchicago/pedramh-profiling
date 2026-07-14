@@ -24,8 +24,13 @@
 # ============================================================================
 set -uo pipefail
 
-VENV=/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv
-REPO=/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling
+# Resolve YOUR dirs (works for any project member) — the repo root is this script's dir.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# Build into YOUR member dir. NOTE: polaris_env.sh would have pointed SFNO_VENV at the
+# shared read-only one if you have none yet — for BUILDING we always want your own.
+VENV="${POLARIS_SFNO_VENV:-${MEMBER_ROOT}/conda-envs/sfno-venv}"
 MAKANI_PIN=c97043086e60d44a3adc3bede9a6b3dc71f5005d   # README-mandated pin (0.2.0 wheel lacks the
                                                       # cache_unpredicted_features clone fix)
 
@@ -39,7 +44,7 @@ export OMP_NUM_THREADS=1
 export MAX_JOBS=4
 export TORCH_CUDA_ARCH_LIST=8.0        # A100 sm80
 export HDF5_USE_FILE_LOCKING=FALSE
-export PIP_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/pip_cache
+export PIP_CACHE_DIR="${MEMBER_ROOT}/pip_cache"
 
 echo "=== creating venv (inherits base conda torch) : ${VENV} ==="
 python -m venv --system-site-packages "${VENV}"
