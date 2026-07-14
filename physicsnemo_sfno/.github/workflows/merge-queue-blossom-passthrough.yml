@@ -1,0 +1,58 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This script is for merge queue purposes only.
+# Its role is to post auto-pass commit statuses (blossom-ci, Coverage,
+# Testmon) on the temp merge-queue branch in order to clear the branch
+# protection rule.  The real checks have already run on the PR before
+# it can enter the merge queue:
+#   - blossom-ci runs on the PR via the Blossom-CI workflow.
+#   - Coverage and Testmon run on the PR via the Pull Request Github CI
+#     workflow (github-pr.yml), which only triggers on push to
+#     `pull-request/[0-9]+` branches and therefore never fires on
+#     `merge_group`.
+
+# It must only ever be run on the `merge_group`.
+
+name: merge-queue-status-passthrough
+
+on:
+  merge_group:
+
+permissions:
+  statuses: write
+  contents: read
+
+jobs:
+  post-merge-queue-statuses:
+    name: Post merge-queue passthrough statuses
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post merge-queue passthrough statuses
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const contexts = ["blossom-ci", "Coverage", "Testmon"];
+            for (const ctx of contexts) {
+              await github.rest.repos.createCommitStatus({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha: context.sha,
+                state: "success",
+                context: ctx,
+                description: "Auto-pass for merge queue"
+              });
+            }

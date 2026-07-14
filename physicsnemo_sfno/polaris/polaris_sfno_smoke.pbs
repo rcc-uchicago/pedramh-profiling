@@ -1,0 +1,139 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_e3sm_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:40:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/physicsnemo_e3sm_sfno.log
+# ============================================================================
+# PhysicsNeMo SFNO Polaris smoke — E3SM h5 -> SeqZarr -> unified_recipe tiny SFNO.
+# Pipeline (compute node): 1) convert E3SM h5 -> two zarr stores (train/val);
+# 2) launch examples/weather/unified_recipe/train.py (hydra) with model=tiny_sfno,
+# training=sfno (AMP off — SFNO fp32; tiny SFNO at 180x360 batch 1 is <2 GB).
+#
+# ⚠ ONE-TIME SETUP (LOGIN NODE — compute nodes have no network):
+#     bash <repo>/polaris_setup_sfno_venv.sh        # PASS = "SFNO_VENV_OK"
+#   Builds the ISOLATED SFNO venv: torch_harmonics 0.9.x from source (the 'SFNO' model
+#   is resolved via makani's entry point, which needs the public precompute_latitudes),
+#   makani, physicsnemo (editable), warp-lang, s3fs, treelib, nvidia-dali-cuda120.
+#   Isolated so the base conda keeps torch_harmonics 0.7.4 for the GREEN Pangu/SI smokes.
+#
+# ⚠ NOT YET PROVEN GREEN: the converter is micro-tested (max|zarr-h5|=0), but the
+#   SeqZarr curated-dataset + transform hydra wiring below is authored from the code
+#   map and must be verified live once physicsnemo is installed (transform.transformed_shape
+#   / curated_dataset key names may need a tweak vs conf/curated_dataset + conf/transform).
+#
+# Submit (4-GPU):  qsub polaris/polaris_sfno_smoke.pbs   (1-GPU: qsub -v NPROC=1 ...)
+# PASS = "CONVERT_OK" (x2 stores) + finite per-iteration loss lines from train.py.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from physicsnemo_sfno/
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${PN_ROOT}/examples/weather/unified_recipe"
+SFNO_VENV=/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv
+
+module use /soft/modulefiles
+module load conda
+conda activate base                                # CUDA/NCCL env + the inherited torch 2.8
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${PN_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"                 # torch_harmonics 0.9.x + makani + physicsnemo
+# MUST come with the venv: --system-site-packages re-enables the USER site (~/.local),
+# which site.py puts BEFORE the venv — the base env's --user torch_harmonics 0.7.4 would
+# shadow this venv's 0.9.x and makani dies on "cannot import name precompute_latitudes".
+export PYTHONNOUSERSITE=1
+export WANDB_MODE=offline
+# unified_recipe/train.py calls initialize_mlflow() unconditionally (it does NOT degrade
+# to a no-op — it raises ImportError without mlflow). mlflow 3.x then refuses its own
+# './mlruns' file store ("in maintenance mode") unless we opt in; a DB backend is
+# pointless for an offline smoke.
+export MLFLOW_ALLOW_FILE_STORE=true
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+DATA=/eagle/projects/lighthouse-uchicago/members/mehta5/e3sm_seqzarr
+NPROC="${NPROC:-4}"
+
+echo "=== physicsnemo_e3sm_sfno: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
+nvidia-smi -L
+
+# ---- install preflight ----
+if ! python -c "import physicsnemo, warp, makani" 2>/dev/null; then
+    echo "ERROR PHYSICSNEMO_NOT_INSTALLED: 'import physicsnemo, warp, makani' failed inside ${SFNO_VENV}."
+    echo "  Rebuild the venv on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    python -c "import physicsnemo, warp, makani" 2>&1 | tail -3
+    exit 3
+fi
+echo "venv python=$(command -v python)"
+
+# ---- 1) build the two SeqZarr stores (compute node) if missing ----
+mkdir -p "${DATA}"
+if [ ! -d "${DATA}/e3sm_train.zarr" ]; then
+    python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${DATA}/e3sm_train.zarr" \
+        --years 2015 --start-sample 0 --max-samples 64 || { echo "ERROR ZARR_TRAIN_FAILED"; exit 2; }
+fi
+if [ ! -d "${DATA}/e3sm_val.zarr" ]; then
+    python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${DATA}/e3sm_val.zarr" \
+        --years 2015 --start-sample 64 --max-samples 16 || { echo "ERROR ZARR_VAL_FAILED"; exit 2; }
+fi
+
+# ---- 2) launch the tiny SFNO smoke (hydra overrides on conf/config.yaml) ----
+cd "${RECIPE}"
+# SFNO is selected by conf/config_e3sm_sfno.yaml (a 2-line diff off conf/config.yaml:
+# model/tiny_afno -> model/tiny_sfno, training/afno -> training/sfno), NOT by a CLI
+# `model=tiny_sfno`: the recipe's defaults list uses hydra's PATH form (`- model/tiny_afno`),
+# which registers no overridable `model` GROUP, so the CLI override dies with
+# "Could not override 'model'. No match in the defaults list."
+LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno
+    "curated_dataset.train_dataset_filename=${DATA}/e3sm_train.zarr"
+    "curated_dataset.val_dataset_filename=${DATA}/e3sm_val.zarr"
+    # dataset.dataset_filename is the RAW (pre-curation) store. We supply pre-curated
+    # stores, but a trailing step still opens this one, and the stock value is a
+    # nonexistent relative ARCO-ERA5 path -> zarr PathNotFoundError AFTER a successful
+    # train+validate+checkpoint. Point it at the train store to keep the job rc=0.
+    "dataset.dataset_filename=${DATA}/e3sm_train.zarr"
+    curated_dataset.nr_predicted_variables=157
+    curated_dataset.nr_unpredicted_variables=5
+    "transform.transformed_shape=[180,360]"
+    training.stages.0.num_epochs=1 training.stages.0.max_iterations=10
+    training.stages.0.batch_size=1 validation.batch_size=1 validation.num_steps=2)
+# validation.num_steps must be >= 2: train.py's post-validation plotting indexes
+# `ax[0, t]`, but matplotlib SQUEEZES plt.subplots(...) to a 1-D axes array when a grid
+# dimension is 1, so num_steps=1 dies AFTER a successful epoch with
+#   IndexError: too many indices for array: array is 1-dimensional, but 2 were indexed.
+# NOTE: do NOT pass `datapipe.parallel=false` as a DALI fallback — seq_zarr_datapipe.py
+# passes `prefetch_queue_depth` to dali.fn.external_source unconditionally, and DALI
+# rejects it unless parallel=True:
+#   ValueError: The argument `prefetch_queue_depth` is valid only for parallel external
+#   sources (when ``parallel`` is True).
+
+if [ "${NPROC}" = "1" ]; then
+    python "${LAUNCH_ARGS[@]}"
+else
+    # `python -m torch.distributed.run`, NOT `torchrun`: torch is inherited from the conda
+    # base (system-site), so the venv has no torchrun of its own and the bare name resolves
+    # to the BASE conda torchrun, whose shebang pins the BASE python — the spawned ranks
+    # would then miss physicsnemo/makani, which live only in the venv.
+    # --redirects/--tee 3: without them torchrun swallows the children's stderr and a
+    # failure surfaces only as a bare ChildFailedError with error_file: <N/A>.
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        --redirects 3 --tee 3 \
+        "${LAUNCH_ARGS[@]}"
+fi
+rc=$?
+echo "=== physicsnemo_e3sm_sfno done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}
