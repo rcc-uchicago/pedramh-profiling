@@ -6,6 +6,12 @@
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=12:00:00
+#PBS -r y
+# Rerunnable: Polaris' preempt_order is RD (requeue first, delete only if it cannot), and
+# PBS defaults to Rerunable=False, so without this a preempted pack is just killed. On
+# requeue the script re-runs from the top; the packer's per-year outputs make that forward
+# progress rather than wasted work — but VERIFY that in the log ("skipping <year>") rather
+# than taking it on faith.
 #PBS -j oe
 # ============================================================================
 # Pack the FULL E3SM archive into Makani "multifiles" layout — the data step for
@@ -33,6 +39,14 @@
 
 cd "${PBS_O_WORKDIR}"
 MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+
+# Group-readable by design, not by luck. The whole point of a one-time transcode is that the
+# project shares it — but nothing here forced that: the existing packs are group-readable only
+# because the login shell's umask happens to be 0022. A job that inherited umask 077 would
+# produce a private copy and the next member's run would die on permissions, days later.
+# Set it explicitly, and verify at the end.
+umask 0022
 
 module use /soft/modulefiles
 module load conda
@@ -48,7 +62,9 @@ fi
 source "${SFNO_VENV}/bin/activate"
 export PYTHONNOUSERSITE=1
 export HDF5_USE_FILE_LOCKING=FALSE
-export PYTHONPATH="${MAKANI_ROOT}:${PYTHONPATH:-}"
+# sfno_training lives under <root>/src — NOT <root>. Without /src every rank dies
+# with "No module named 'sfno_training'" (caught by probe 7253835).
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
 
 # Full pack goes to its OWN root: never overwrite the smoke's store. The smoke is the thing
 # you run to check the code still works, and it must keep working while this runs for hours.
@@ -130,4 +146,37 @@ if not ok:
     sys.exit(2)
 print("PACK_FULL_COMPLETE")
 PY
+
+# ---- prove it is actually shareable, rather than assuming ----
+# The parent dirs carry setgid (drwxr-sr-x), so new files inherit the lighthouse-uchicago
+# group; combined with umask 0022 that yields g+r. Check, don't trust.
+python - "${OUTPUT_ROOT}" <<'_PY' || echo "WARN: share check failed (data is still usable by you)"
+import os, stat, sys, grp
+root = sys.argv[1]
+bad = []
+checked = 0
+for dirpath, dirnames, filenames in os.walk(root):
+    for name in list(dirnames) + list(filenames):
+        p = os.path.join(dirpath, name)
+        try:
+            st = os.stat(p)
+        except OSError:
+            continue
+        checked += 1
+        if not st.st_mode & stat.S_IRGRP:
+            bad.append(p)
+        if checked > 400:
+            break
+    if checked > 400:
+        break
+if bad:
+    print("WARN NOT_GROUP_READABLE (%d of %d checked):" % (len(bad), checked))
+    for b in bad[:3]:
+        print("   ", b)
+    print("  Fix:  chmod -R g+rX %s" % root)
+else:
+    print("  share check: all %d sampled entries are group-readable (%s)"
+          % (checked, grp.getgrgid(os.stat(root).st_gid).gr_name))
+_PY
+chmod -R g+rX "${OUTPUT_ROOT}" 2>/dev/null || true
 echo "=== makani_pack_e3sm_full done (rc=$?) $(date -Iseconds) ==="

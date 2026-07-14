@@ -6,6 +6,19 @@
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=24:00:00
+#PBS -r y
+# ^ RERUNNABLE — this is what makes preemption self-healing, and it is NOT the default.
+# Polaris' scheduler has `preempt_order = RD`: it tries to REQUEUE a preempted job first and
+# only DELETES if it cannot. A job is only requeueable if it is rerunnable, and PBS defaults
+# to `Rerunable = False` (verified on our own finished jobs) — so without this line a
+# preempted job falls straight through to D and is simply killed, and someone has to notice
+# and resubmit by hand.
+# With `-r y`, PBS puts the job back in the queue itself and re-runs THIS SCRIPT from the
+# top. That is only safe because the script is idempotent and resumes from its checkpoint:
+# a stable RUN_NUM, and a trainer that restores state on startup. Re-running from the top is
+# the whole contract — do not add anything to this script that cannot survive it.
+# (`preempt_sort = min_time_since_start`: the most recently started jobs get preempted first,
+# so the longer a run survives, the safer it gets.)
 #PBS -j oe
 # ============================================================================
 # PhysicsNeMo SFNO on E3SM — FULL TRAINING. Sibling of polaris/polaris_sfno_smoke.pbs.
@@ -63,6 +76,10 @@ export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
 
 DATA="${SEQZARR_FULL_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_full}"
 NPROC="${NPROC:-4}"
+# STABLE across preemptions: with -r y PBS re-runs this script from the top, and the run must
+# find its own checkpoints again. Keying this to $PBS_JOBID would silently restart training
+# from scratch on every preemption.
+RUN_NAME="${RUN_NAME:-full01}"
 
 echo "=== physicsnemo_e3sm_sfno_full: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
@@ -127,6 +144,20 @@ if n < 1000:
     sys.exit(2)
 PY
 
+# ---- checkpoint isolation (NOT optional) ------------------------------------
+# train.py:139/432 hardcode load_checkpoint("./checkpoints") / save_checkpoint("./checkpoints")
+# — RELATIVE to the CWD. hydra 1.3 defaults job.chdir=false, so every run of this recipe
+# reads and writes <recipe>/checkpoints INSIDE THE REPO, and the smoke and full training
+# SHARE it. That is not theoretical: probe 7253854 died with
+#   RuntimeError: Missing key(s) in state_dict ... inner_model.blocks.4..7
+# because the full 8-block SFNO tried to resume from the smoke's 4-block checkpoint. It cuts
+# both ways — a smoke run after a full run would fail the same way.
+# Giving hydra a per-run dir AND chdir=true makes "./checkpoints" land inside it, so runs
+# cannot contaminate each other and a resume finds only its own history.
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/physicsnemo_sfno_full/${RUN_NAME}}"
+mkdir -p "${RUN_DIR}"
+echo "run dir (holds ./checkpoints): ${RUN_DIR}"
+
 cd "${RECIPE}"
 # No training.stages.0.* overrides: those are the SMOKE's bounds. training/sfno.yaml already
 # carries num_epochs 500 / max_iterations .inf, selected via conf/config_e3sm_sfno_full.yaml
@@ -138,7 +169,8 @@ LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno_full
     curated_dataset.nr_predicted_variables=157
     curated_dataset.nr_unpredicted_variables=5
     "transform.transformed_shape=[180,360]"
-    validation.num_steps=2)
+    validation.num_steps=2
+    "hydra.run.dir=${RUN_DIR}" hydra.job.chdir=true)
 # validation.num_steps must be >= 2: the post-validation plot indexes ax[0, t], and
 # matplotlib squeezes the axes array to 1-D when a grid dimension is 1.
 

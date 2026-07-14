@@ -92,6 +92,29 @@ PY
 sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
     "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
 echo "rendered config -> ${CONFIG_FILE}"
+
+# ---- W&B: flip the config's own switch, not just the client's mode --------------
+# $WANDB_MODE only controls the wandb CLIENT. This config sets `log_to_wandb: False`, and
+# train.py:513 guards `wandb.init` behind it — so `-v WANDB_MODE=online` alone logs NOTHING.
+# Flip the rendered copy (never the template) when the user asks for online.
+# `entity` in the template is hardcoded to one person's W&B account; wandb.init(entity=None)
+# falls back to the account the API key belongs to, which is what any other member needs.
+if [ "${WANDB_MODE}" = "online" ]; then
+    python - "${CONFIG_FILE}" "${WANDB_PROJECT}" "${WANDB_ENTITY:-}" <<'_PY' || exit 2
+import re, sys
+path, project, entity = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*log_to_wandb:\s*).*$", lambda m: m.group(1) + "!!bool True", src, count=1)
+if n != 1:
+    print("ERROR WANDB_PATCH_FAILED: log_to_wandb matched %d times" % n); sys.exit(2)
+src = re.subn(r"(?m)^(\s*entity:\s*).*$", lambda m: m.group(1) + (("'%s'" % entity) if entity else "null"), src, count=1)[0]
+src = re.subn(r"(?m)^(\s*project:\s*).*$", lambda m: m.group(1) + "'%s'" % project, src, count=1)[0]
+open(path, "w").write(src)
+print("  wandb ON: log_to_wandb=True, project=%s, entity=%s" % (project, entity or "<your default>"))
+_PY
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
 mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
 
 echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"

@@ -190,7 +190,10 @@ print("  disassemble_input: all callers pass explicit channel counts.")
 PY
 
 echo "preflight OK — starting SI full training"
-python "${SI_DIR}/train.py" --config "${CONFIG_FILE}" --devices ${DEVICES}
+# SI's train.py takes --wandb_mode directly (bench.py, by contrast, hardcodes "disabled"
+# at bench.py:92, so the SI *bench* can never log to W&B whatever you set).
+python "${SI_DIR}/train.py" --config "${CONFIG_FILE}" --devices ${DEVICES} \
+    --wandb_mode "${WANDB_MODE}"
 rc=$?
 echo "=== si_train_full done (rc=${rc}) $(date -Iseconds) ==="
 if [ ${rc} -ne 0 ]; then

@@ -164,23 +164,72 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
 
 Optional for the test runs, worth doing before any real training.
 
-**Once, on a login node:**
+First get your API key: sign in at https://wandb.ai/authorize and copy it.
+
+Then **pick either one** of these, on a login node. They do the same thing.
+
+**Option A — let wandb do it (simplest):**
 
 ```bash
-bash polaris_setup_wandb.sh
+module use /soft/modulefiles && module load conda && conda activate base
+wandb login
 ```
 
-It asks for an API key — get one from https://wandb.ai/authorize after signing in. The last
-line should say `WANDB_OK`. The key is stored in `~/.netrc` in your home folder, readable
-only by you. **Don't put it in any file in the repo** — that would publish it to everyone.
+Paste the key when prompted. That's it.
+
+**Option B — write the file yourself.** Create `~/.netrc` containing exactly:
+
+```
+machine api.wandb.ai
+  login user
+  password YOUR_KEY_HERE
+```
+
+then lock it down — wandb won't use it otherwise, and neither should you:
+
+```bash
+chmod 600 ~/.netrc
+```
+
+The word `login user` is literal; leave it as-is. (`machine api.wandb.ai` is the part that
+actually matters — verified.)
+
+> **The one mistake that bites.** Don't put the bare key in `~/.netrc` on its own line with
+> nothing else. It looks like it should work and it doesn't — and worse, the error it causes
+> **prints your key into the log**, so anyone reading that log now has it. It happened here.
+> If you do it by accident, assume the key is compromised and get a new one from
+> https://wandb.ai/authorize.
+
+Either way, **never put the key in a file inside the repo** — that would publish it to
+everyone with access.
+
+**To check it worked** (optional):
+
+```bash
+bash polaris_setup_wandb.sh          # prints WANDB_OK, tells you which account you're on
+```
+
+You can also just put your API key into ~/.netrc without using the bash script.
 
 **Then add one thing to any submit line:**
 
 ```bash
 ( cd PanguWeather/v2.0 && qsub -v WANDB_MODE=online HPC_scripts/polaris_train_e3sm_sfno.pbs )
+( cd makani_sfno       && qsub -v WANDB_MODE=online polaris/polaris_sfno_smoke.pbs )
 ```
 
-Your run appears live at wandb.ai under the project `pedramh-profiling`.
+Your run appears live at wandb.ai, under the project `pedramh-profiling` and **your own**
+account.
+
+**Only PanguWeather and Makani can do this.** The other two can't, and it isn't worth your
+time trying:
+
+| Model | Live tracking? |
+|---|---|
+| PanguWeather | yes |
+| Makani | yes |
+| SI (the test job) | **no** — its benchmark has W&B switched off in the code itself |
+| PhysicsNeMo | **no** — it records to MLflow instead, and doesn't use W&B at all |
 
 **Without that, runs are "offline"** — still fully recorded, just written to your own folder
 (`/eagle/projects/lighthouse-uchicago/members/jesswan/wandb/`) instead of uploaded. That's
@@ -206,8 +255,6 @@ Everything above is a **test run**. The full-training jobs are separate scripts,
 | PhysicsNeMo | `qsub polaris/polaris_zarr_e3sm_full.pbs` (~1 TB) | `( cd physicsnemo_sfno && qsub polaris/polaris_sfno_full.pbs )` |
 | SI | — | **not ready — see below** |
 
-**Please talk to Rahul before starting any of these.** They run for days and write hundreds
-of gigabytes. These notes are so you know what they are, not an invitation to launch one.
 
 Four things that differ from the test runs, and will surprise you if you don't expect them:
 

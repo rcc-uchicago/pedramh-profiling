@@ -363,6 +363,46 @@ import is invisible until someone runs it. **Before the first Polaris inference 
 cd s2s/v2.0 && PYTHONNOUSERSITE=1 PYTHONPATH=.:$POLARIS_TOPUPS python -c "import inference"
 ```
 
+### Full-training resources: MEASURED, not guessed
+
+The `*_full` scripts request `select=1` (4x A100-40GB) on `preemptable`. Whether that is
+right was an open question — `e3sm_full.yaml`'s `batch_size: 8` comes from the group's
+`plasim_sim52_baseline.yaml`, which targets **Stampede3 H100 (80 GB)**, and Polaris has
+**A100 (40 GB)**. So we measured it with `*_full_probe.pbs` (full-size model, smoke-sized
+data, debug queue — cheap):
+
+| model | job | params | peak mem | rate | verdict |
+|---|---|---|---|---|---|
+| Makani SFNO | **7253837** | **147,818,882** (vs the smoke's 54,258 — **2,724x**) | **8.82 GB / 40** | 4.74 it/s @ batch 8 | fits, large headroom |
+| PhysicsNeMo SFNO | **7253862** | (model/sfno) | no OOM | loss 1.280, val 0.780 | fits |
+
+So `batch_size: 8` is fine on A100-40GB and 1 node is the right ask — the H100 pedigree was
+not a problem. **Caveat:** the probes read the *smoke's* small, cached data, so their step
+rates are optimistic; real I/O against a ~750 GB store will be slower. Treat the timings as
+an upper bound on throughput, not a promise.
+
+**Two bugs the probes caught that would have wasted days of queue:**
+1. `PYTHONPATH` must be `<root>/src`, not `<root>` — `sfno_training` lives under `src/`.
+   `polaris_sfno_full.pbs` had it wrong and every rank would have died with
+   `No module named 'sfno_training'` (job 7253835).
+2. **PhysicsNeMo checkpoint cross-contamination.** `train.py:139/432` hardcode
+   `load_checkpoint("./checkpoints")` — *relative to CWD*, and hydra 1.3 defaults
+   `job.chdir=false` — so every run reads/writes `<recipe>/checkpoints` **inside the repo**,
+   shared between the smoke and full training. Job **7253854** died with
+   `RuntimeError: Missing key(s) ... inner_model.blocks.4..7`: the 8-block model resuming the
+   smoke's 4-block checkpoint. It cuts both ways (a smoke after a full run fails the same).
+   Fixed with `hydra.run.dir=<per-run> hydra.job.chdir=true`; job **7253862** then passed.
+
+### Preemption is self-healing — but only with `-r y`
+
+Polaris' scheduler: `preempt_order = RD` — **R**equeue first, **D**elete only if it cannot.
+A job is requeueable only if rerunnable, and **PBS defaults to `Rerunable = False`** (checked
+on our own jobs). So a preempted job was simply being killed when it could have been requeued
+automatically. Every `*_full` script now sets `#PBS -r y`; PBS re-runs the script **from the
+top**, which is safe only because they are idempotent and resume from a stable `RUN_NUM`.
+(`preempt_sort = min_time_since_start`: recently-started jobs are preempted first, so the
+longer a run survives the safer it gets.)
+
 ## 6. SFNO frameworks — an ISOLATED venv (`polaris_setup_sfno_venv.sh`)
 
 `makani` + `physicsnemo` do **not** run in the base conda: makani needs the *public*

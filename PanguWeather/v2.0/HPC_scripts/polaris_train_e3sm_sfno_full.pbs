@@ -6,6 +6,19 @@
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=24:00:00
+#PBS -r y
+# ^ RERUNNABLE — this is what makes preemption self-healing, and it is NOT the default.
+# Polaris' scheduler has `preempt_order = RD`: it tries to REQUEUE a preempted job first and
+# only DELETES if it cannot. A job is only requeueable if it is rerunnable, and PBS defaults
+# to `Rerunable = False` (verified on our own finished jobs) — so without this line a
+# preempted job falls straight through to D and is simply killed, and someone has to notice
+# and resubmit by hand.
+# With `-r y`, PBS puts the job back in the queue itself and re-runs THIS SCRIPT from the
+# top. That is only safe because the script is idempotent and resumes from its checkpoint:
+# a stable RUN_NUM, and a trainer that restores state on startup. Re-running from the top is
+# the whole contract — do not add anything to this script that cannot survive it.
+# (`preempt_sort = min_time_since_start`: the most recently started jobs get preempted first,
+# so the longer a run survives, the safer it gets.)
 #PBS -j oe
 # ============================================================================
 # PanguWeather SFNO on E3SM — FULL TRAINING (not the smoke).
@@ -99,6 +112,30 @@ for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", e
 open(path, "w").write(src)
 print("config patched: train_year_start=%s train_year_end=%s exp_dir=%s" % (y0, y1, exp_dir))
 PY
+
+
+# ---- W&B: flip the config's own switch, not just the client's mode --------------
+# $WANDB_MODE only controls the wandb CLIENT. This config sets `log_to_wandb: False`, and
+# train.py:513 guards `wandb.init` behind it — so `-v WANDB_MODE=online` alone logs NOTHING.
+# Flip the rendered copy (never the template) when the user asks for online.
+# `entity` in the template is hardcoded to one person's W&B account; wandb.init(entity=None)
+# falls back to the account the API key belongs to, which is what any other member needs.
+if [ "${WANDB_MODE}" = "online" ]; then
+    python - "${CONFIG_FILE}" "${WANDB_PROJECT}" "${WANDB_ENTITY:-}" <<'_PY' || exit 2
+import re, sys
+path, project, entity = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*log_to_wandb:\s*).*$", lambda m: m.group(1) + "!!bool True", src, count=1)
+if n != 1:
+    print("ERROR WANDB_PATCH_FAILED: log_to_wandb matched %d times" % n); sys.exit(2)
+src = re.subn(r"(?m)^(\s*entity:\s*).*$", lambda m: m.group(1) + (("'%s'" % entity) if entity else "null"), src, count=1)[0]
+src = re.subn(r"(?m)^(\s*project:\s*).*$", lambda m: m.group(1) + "'%s'" % project, src, count=1)[0]
+open(path, "w").write(src)
+print("  wandb ON: log_to_wandb=True, project=%s, entity=%s" % (project, entity or "<your default>"))
+_PY
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
 
 CKPT="${EXP_DIR}/$(basename "${CONFIG_FILE}" .yaml)/${RUN_NUM}/training_checkpoints/ckpt.tar"
 if [ -f "${CKPT}" ]; then

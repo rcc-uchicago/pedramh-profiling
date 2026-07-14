@@ -127,6 +127,15 @@ sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
     "${MAKANI_ROOT}/polaris/e3sm_smoke.yaml" > "${RENDERED}"
 echo "rendered config -> ${RENDERED}"
 
+# ---- W&B: the config's own switch (see the Pangu scripts for the full explanation) ----
+# `log_to_wandb: False` in the yaml means $WANDB_MODE=online logs nothing on its own.
+if [ "${WANDB_MODE}" = "online" ]; then
+    sed -i -E "s/^( *log_to_wandb: *).*$/\1!!bool True/" "${RENDERED}"
+    echo "  wandb ON (log_to_wandb=True in ${RENDERED})"
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
+
 # ---- 3) launch the tiny SFNO smoke ----
 cd "${MAKANI_ROOT}"
 if [ "${NPROC}" = "1" ]; then

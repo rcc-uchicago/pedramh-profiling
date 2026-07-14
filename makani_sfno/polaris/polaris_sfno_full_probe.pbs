@@ -1,0 +1,73 @@
+#!/bin/bash -l
+#PBS -N makani_full_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# RESOURCE PROBE for polaris_sfno_full.pbs: run the FULL-SIZE model (e3sm_full.yaml's
+# 384-dim / 8-layer SFNO) on the SMOKE's small dataset for a handful of steps, purely to
+# measure peak GPU memory and step time on a real A100-40GB.
+#
+# Why this exists: e3sm_full.yaml's batch_size 8 comes from the group's
+# plasim_sim52_baseline.yaml, which targets Stampede3 **H100 (80 GB)**. Polaris has
+# **A100 (40 GB)** — half the memory. Whether batch 8 fits, and how long an epoch takes,
+# are measurements, not opinions. Guessing them wrong wastes days of preemptable queue.
+#
+# Submit from makani_sfno/:  qsub polaris/polaris_sfno_full_probe.pbs
+#                            qsub -v BATCH=4 polaris/polaris_sfno_full_probe.pbs
+# Reports: peak memory/GPU and s/step -> feeds the batch_size and walltime in the full script.
+# ============================================================================
+cd "${PBS_O_WORKDIR}"
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+module use /soft/modulefiles
+module load conda
+conda activate base
+source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2
+source "${SFNO_VENV}/bin/activate" || exit 3
+export PYTHONNOUSERSITE=1
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+# sfno_training lives under <root>/src — NOT <root>. Without /src every rank dies
+# with "No module named 'sfno_training'" (caught by probe 7253835).
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+
+OUTPUT_ROOT="${MAKANI_DATA}"                 # the SMOKE's data — we only need a few batches
+EXP_DIR="${MEMBER_ROOT}/runs/e3sm_sfno_full_probe"
+NPROC="${NPROC:-4}"
+BATCH="${BATCH:-8}"
+RUN_NUM="probe_${PBS_JOBID%%.*}"
+mkdir -p "${EXP_DIR}"
+
+echo "=== makani_full_probe: $(date -Iseconds) ==="
+echo "host=$(hostname)  NPROC=${NPROC}  BATCH=${BATCH} (global)  -> $((BATCH / NPROC))/GPU"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
+
+# Full-size model, but only enough samples to time a few steps.
+RENDERED="${EXP_DIR}/probe.rendered.yaml"
+sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
+    -e "s|^    n_train_samples_per_epoch: 8192|    n_train_samples_per_epoch: ${BATCH}|" \
+    -e "s|^    n_eval_samples: 512|    n_eval_samples: ${BATCH}|" \
+    -e "s|^    max_epochs: 100|    max_epochs: 3|" \
+    -e "s|^e3sm_full:|e3sm_probe:|" \
+    "${MAKANI_ROOT}/polaris/e3sm_full.yaml" > "${RENDERED}"
+echo "--- probe config: full model dims, tiny sample count ---"
+grep -E "^    (embed_dim|num_layers|scale_factor|batch_size|n_train_samples_per_epoch|max_epochs):" "${RENDERED}"
+
+cd "${MAKANI_ROOT}"
+python -m torch.distributed.run --standalone --nproc_per_node="${NPROC}" --redirects 3 --tee 3 \
+    -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_probe \
+    --run_num "${RUN_NUM}" --batch_size "${BATCH}" --multistep_count 1 --amp_mode bf16
+rc=$?
+echo "=== makani_full_probe done (rc=${rc}) $(date -Iseconds) ==="
+if [ ${rc} -ne 0 ]; then
+    echo "If this is an OOM, that IS the finding: batch ${BATCH} does not fit 4x A100-40GB."
+    echo "Re-probe lower:  qsub -v BATCH=4 polaris/polaris_sfno_full_probe.pbs"
+fi
+exit ${rc}

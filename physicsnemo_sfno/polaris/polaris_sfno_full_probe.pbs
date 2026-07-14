@@ -1,0 +1,68 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_full_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# RESOURCE PROBE for polaris_sfno_full.pbs: run the FULL-SIZE model (model/sfno, not
+# tiny_sfno) on the SMOKE's small zarr stores for a few iterations, to measure peak GPU
+# memory and per-iteration time on a real A100-40GB.
+#
+# Why: the full script's bounds come from training/sfno.yaml (batch_size 2, 500 epochs),
+# which was written for NVIDIA's reference hardware, not Polaris A100-40GB. Whether the
+# full SFNO fits, and how long an iteration takes, are measurements.
+#
+# Submit from physicsnemo_sfno/:  qsub polaris/polaris_sfno_full_probe.pbs
+#                                 qsub -v BATCH=1 polaris/polaris_sfno_full_probe.pbs
+# ============================================================================
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${PN_ROOT}/examples/weather/unified_recipe"
+module use /soft/modulefiles
+module load conda
+conda activate base
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+source "${SFNO_VENV}/bin/activate" || exit 3
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline MLFLOW_ALLOW_FILE_STORE=true
+export HDF5_USE_FILE_LOCKING=FALSE PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+DATA="${SEQZARR_DATA}"          # the SMOKE's stores — only a few iterations needed
+NPROC="${NPROC:-4}"
+BATCH="${BATCH:-2}"
+echo "=== physicsnemo_full_probe: $(date -Iseconds) ==="
+echo "host=$(hostname)  NPROC=${NPROC}  BATCH=${BATCH}/rank  data=${DATA}"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
+
+# Isolate ./checkpoints (see polaris_sfno_full.pbs): without this the probe resumes the
+# SMOKE's 4-block checkpoint into the 8-block model and dies before measuring anything —
+# which is exactly what happened on the first attempt (job 7253854).
+RUN_DIR="${MEMBER_ROOT}/runs/physicsnemo_sfno_probe/${PBS_JOBID%%.*}"
+mkdir -p "${RUN_DIR}"
+echo "run dir: ${RUN_DIR}"
+
+cd "${RECIPE}"
+# config_e3sm_sfno_full.yaml = the FULL model (model/sfno). Bound the ITERATIONS only, so we
+# measure the real model's memory/step without running 500 epochs.
+LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno_full
+    "curated_dataset.train_dataset_filename=${DATA}/e3sm_train.zarr"
+    "curated_dataset.val_dataset_filename=${DATA}/e3sm_val.zarr"
+    "dataset.dataset_filename=${DATA}/e3sm_train.zarr"
+    curated_dataset.nr_predicted_variables=157
+    curated_dataset.nr_unpredicted_variables=5
+    "transform.transformed_shape=[180,360]"
+    training.stages.0.num_epochs=1 training.stages.0.max_iterations=10
+    "training.stages.0.batch_size=${BATCH}" validation.batch_size=1 validation.num_steps=2
+    "hydra.run.dir=${RUN_DIR}" hydra.job.chdir=true)
+python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+    --redirects 3 --tee 3 "${LAUNCH_ARGS[@]}"
+rc=$?
+echo "=== physicsnemo_full_probe done (rc=${rc}) $(date -Iseconds) ==="
+[ ${rc} -ne 0 ] && echo "If OOM: batch ${BATCH}/rank does not fit A100-40GB. Retry -v BATCH=1."
+exit ${rc}
