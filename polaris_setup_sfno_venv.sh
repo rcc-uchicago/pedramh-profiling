@@ -75,6 +75,11 @@ pip install --no-cache-dir --extra-index-url https://developer.download.nvidia.c
 # **tensorly-torch** — `pip install tltorch` fails with "No matching distribution".
 pip install --no-cache-dir tensorly tensorly-torch numba
 
+# mlflow is NOT optional for the physicsnemo unified_recipe: train.py calls
+# initialize_mlflow() unconditionally and physicsnemo/utils/logging/mlflow.py RAISES
+# ImportError without it (it does not degrade to a no-op).
+pip install --no-cache-dir mlflow
+
 echo "=== VERIFY ==="
 python - <<'PY'
 import importlib, sys
