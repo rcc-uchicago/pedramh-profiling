@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | 🟡 nearly done — **4 of 6 models GREEN on 4×A100** (probe, PanguWeather-SFNO, SI, Makani-SFNO) + both SFNO data converters proven. S2S/port blocked on an ERA5 Globus stage; PhysicsNeMo unproven. See `polaris_pbs_notes.md`. |
+| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN** (PanguWeather-SFNO, SI, Makani-SFNO 4-GPU; PhysicsNeMo 1-GPU) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -33,7 +33,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
 | PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
 | Makani SFNO | — | ✅ **4-GPU GREEN** (job 7252769; train loss 2.19 / val 2.05 + ckpt; pack `CONVERT_OK` 7252736) — runs from the isolated SFNO venv |
-| PhysicsNeMo SFNO | — | 🟡 venv ready + converter authored; zarr store/hydra wiring unproven |
+| PhysicsNeMo SFNO | — | ✅ **1-GPU GREEN** (job 7252816, rc=0: loss 1.082, val err 0.776, ckpt saved; zarr `CONVERT_OK`) — 4-GPU rung not yet run |
 
 ## Next actions (pick from the top)
 
@@ -74,8 +74,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   patched in our `plasim_trainer.py` wrapper, not in makani.
   **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252736) and Makani SFNO 4-GPU smoke GREEN
   (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0).**
-  PhysicsNeMo: venv ready, converter authored (+NaN fills + all-finite gate); zarr store
-  and the hydra SeqZarr/transform wiring still unproven.
+  **PhysicsNeMo is ALSO GREEN** (1-GPU, job 7252816, rc=0: loss 1.082, val err 0.776,
+  checkpoint saved; zarr store `CONVERT_OK` with max|zarr-h5|=0 + all-finite). Its four
+  traps: hydra's PATH-form defaults make `model=tiny_sfno` impossible (added
+  `conf/config_e3sm_sfno.yaml` + `--config-name`); mlflow is NOT optional and mlflow 3.x
+  refuses its own file store (`MLFLOW_ALLOW_FILE_STORE=true`); `datapipe.parallel=false`
+  is a broken fallback (DALI rejects `prefetch_queue_depth`); `validation.num_steps` must
+  be >=2 (matplotlib squeezes the axes array) and `dataset.dataset_filename` must be
+  repointed. Remaining: the PhysicsNeMo **4-GPU** rung.
 
 ## Decisions / changes log
 
@@ -89,10 +95,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   hardcodes `world_size=1` → OOMs under `torchrun -n4` (bound with `--epochs 1`
   instead); (2) Lustre needs `HDF5_USE_FILE_LOCKING=FALSE`. Authored all
   `polaris_*.pbs` (S2S/port/SI/Pangu/makani/physicsnemo) + 3 data converters +
-  repointed configs. **S2S/port blocked on an ERA5 Globus stage** (not on Polaris);
-  **makani/physicsnemo blocked on login-node `pip install`** (deferred). Caches/TMPDIR
-  pinned to eagle (persistent), not node-local scratch (per user). Full detail:
-  `polaris_pbs_notes.md`.
+  repointed configs. **S2S/port blocked on an ERA5 Globus stage** (not on Polaris).
+  **SI, Makani and PhysicsNeMo also went GREEN** (7252700 / 7252769 / 7252816) — the
+  latter two from an isolated SFNO venv (see the In-progress entry). Caches/TMPDIR
+  pinned to eagle (persistent), not node-local scratch (per user). A 5-agent cold
+  adversarial audit independently re-confirmed every GREEN claim against the raw logs and
+  surfaced the fixes applied in `3c0b4e5`. Full detail: `polaris_pbs_notes.md`.
 - **2026-07-13** — Model policy set to **main = Opus 4.7 (xhigh effort), subagents =
   Fable 5**. Trimmed CLAUDE.md to stay <200 lines while adding: filled the real
   Midway env paths, a per-model smoke table (what to run + PASS signal), the

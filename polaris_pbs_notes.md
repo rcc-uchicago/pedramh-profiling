@@ -132,7 +132,7 @@ SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 | S2S (torchrun) | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | S2S-Lightning | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job 7252769) | — pack ✅ `CONVERT_OK` (7252736) |
-| PhysicsNeMo SFNO | ✅ (venv) | ⬜ | ⬜ | converter authored (**zarr store not yet built**); hydra wiring unproven |
+| **PhysicsNeMo SFNO** (venv) | ✅ | ✅ **GREEN** (job 7252816, `rc=0`) | ⬜ not yet run | zarr store ✅ `CONVERT_OK` |
 | PanguWeather deterministic | ✅ imports | ⬜ | ⬜ | PLASIM h5 not staged (NCAR glade) |
 
 **PanguWeather SFNO 4-GPU smoke (GREEN, job 7252271):** one bounded epoch (year 2015,
@@ -272,9 +272,38 @@ keys == h5 keys). Two data hazards every converter must handle:
   (PCT_GLACIER/PCT_NATVEG/PFTDATA_MASK/TOPO/sol_in) → unpredicted. Fills the E3SM
   land/ocean NaN masks via `NAN_FILL` and **hard-fails** if any NaN lacks a fill entry;
   `--validate` does an exact round-trip on an unfilled channel + an all-finite gate.
-  ⚠️ **Status: authored, store NOT yet built and the smoke NOT yet run** — the hydra
-  SeqZarr/transform wiring (`curated_dataset.*`, `transform.transformed_shape`) was
-  authored from the code map and needs live verification.
+  ✅ **Store PROVEN on the real data** (jobs 7252780/7252792): `validation: max|zarr-h5|
+  = 0.000e+00 … sample0 all-finite = True` + `CONVERT_OK` for both the 64-sample train
+  and 16-sample val stores (`predicted=157 unpredicted=5`, 180×360).
+
+  **PhysicsNeMo training traps** (each cost a job; all now encoded):
+  - **`model=tiny_sfno` on the CLI is impossible.** The recipe's `defaults:` use hydra's
+    *path* form (`- model/tiny_afno`), which registers no overridable `model` **group** →
+    `Could not override 'model'. No match in the defaults list.` Fix: the 2-line
+    `conf/config_e3sm_sfno.yaml` (tiny_afno→tiny_sfno, training/afno→training/sfno) and
+    `--config-name=config_e3sm_sfno` with *value* overrides only.
+  - **mlflow is NOT optional** — `train.py` calls `initialize_mlflow()` unconditionally and
+    `physicsnemo/utils/logging/mlflow.py` **raises** `ImportError` without it (it does not
+    degrade to a no-op). Then mlflow 3.x **refuses its own `./mlruns` file store**
+    ("maintenance mode") → `export MLFLOW_ALLOW_FILE_STORE=true`.
+  - **Debug via the 1-GPU rung** (`qsub -v NPROC=1`): it uses plain `python`, so the real
+    traceback reaches the log. Under `torchrun` the child stderr is swallowed and you only
+    get a bare `ChildFailedError` with `error_file: <N/A>` — hence `--redirects/--tee 3`.
+  - **`datapipe.parallel=false` is a broken "fallback"** — `seq_zarr_datapipe.py` passes
+    `prefetch_queue_depth` to `dali.fn.external_source` unconditionally and DALI rejects it
+    unless `parallel=True`. Leave the datapipe defaults alone.
+  - **`validation.num_steps` must be ≥ 2** — `train.py`'s post-validation plotting indexes
+    `ax[0, t]`, but matplotlib squeezes `plt.subplots(...)` to a 1-D axes array when a grid
+    dim is 1, so `num_steps=1` dies *after* a successful epoch with `IndexError`.
+  - **`dataset.dataset_filename` must be repointed too** — it is the RAW (pre-curation)
+    store; a trailing step opens it even though we supply pre-curated stores, and its stock
+    value is a nonexistent relative ARCO-ERA5 path → `zarr PathNotFoundError` *after* a
+    successful train+validate+checkpoint.
+
+  **PhysicsNeMo SFNO 1-GPU smoke (GREEN, job 7252816, `rc=0`):** `loss 1.082` over 10
+  iterations, `Validation error 0.776`, and `checkpoint.0.0.pt` +
+  `SphericalFourierNeuralOperatorNet.0.0.mdlus` written. fp32 (the recipe's `training/sfno`
+  sets `amp_supported: False` on purpose). The **4-GPU rung has not been run**.
 
 Each converter runs **inside its PBS job** (compute node); the makani/physicsnemo
 smokes additionally require the §6 installs.
