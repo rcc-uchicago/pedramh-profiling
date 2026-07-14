@@ -131,7 +131,7 @@ SI + SFNO models target the **staged E3SM data**, so they are the runnable path.
 | **SI** (Lightning DDP) | ✅ imports | (via 4-GPU) | ✅ **GREEN** (job 7252700) | — runs on converted E3SM |
 | S2S (torchrun) | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
 | S2S-Lightning | ✅ imports | ⬜ | ⬜ | **ERA5 not staged** (Globus) |
-| Makani SFNO | ✅ (venv) | ⬜ | 🟡 in progress | pack ✅ **built** (`CONVERT_OK`, job 7252736); training needs the SFNO venv (§6) |
+| **Makani SFNO** (venv) | ✅ | ⬜ | ✅ **GREEN** (job 7252769) | — pack ✅ `CONVERT_OK` (7252736) |
 | PhysicsNeMo SFNO | ✅ (venv) | ⬜ | ⬜ | converter authored (**zarr store not yet built**); hydra wiring unproven |
 | PanguWeather deterministic | ✅ imports | ⬜ | ⬜ | PLASIM h5 not staged (NCAR glade) |
 

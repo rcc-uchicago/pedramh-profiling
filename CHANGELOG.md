@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | 🟡 in progress — probe + **PanguWeather-SFNO** + **SI** 4-GPU smokes GREEN; all `polaris_*.pbs` authored. S2S/port blocked on ERA5 stage; makani/physicsnemo on a torch_harmonics conflict. See `polaris_pbs_notes.md`. |
+| Polaris (PBS) bring-up | 🟡 nearly done — **4 of 6 models GREEN on 4×A100** (probe, PanguWeather-SFNO, SI, Makani-SFNO) + both SFNO data converters proven. S2S/port blocked on an ERA5 Globus stage; PhysicsNeMo unproven. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -32,8 +32,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
 | SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
 | PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
-| Makani SFNO | — | 🟡 authored; blocked on login-node `pip install` |
-| PhysicsNeMo SFNO | — | 🟡 authored; blocked on login-node `pip install` |
+| Makani SFNO | — | ✅ **4-GPU GREEN** (job 7252769; train loss 2.19 / val 2.05 + ckpt; pack `CONVERT_OK` 7252736) — runs from the isolated SFNO venv |
+| PhysicsNeMo SFNO | — | 🟡 venv ready + converter authored; zarr store/hydra wiring unproven |
 
 ## Next actions (pick from the top)
 
@@ -65,8 +65,17 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   **Trap:** a `--system-site-packages` venv re-enables the USER site, which `site.py` puts
   *before* the venv — the base's `--user` 0.7.4 shadowed the venv and makani still failed;
   fixed with `PYTHONNOUSERSITE=1` in the venv + both SFNO PBS scripts.
-  Makani **pack is GREEN** (`CONVERT_OK`, job 7252736); its training smoke is in flight.
-  PhysicsNeMo: converter authored (+NaN fills), store not yet built, hydra wiring unproven.
+  Two more launch traps (both encoded in the scripts): `torchrun` resolves to the BASE
+  conda launcher (whose shebang pins the base python) because the venv inherits torch and
+  has no torchrun — use `python -m torch.distributed.run`; and makani's `--batch_size` is
+  GLOBAL, so it must divide the rank count. Plus an **upstream makani bug** (pin
+  `c970430`): `self.logger` is assigned only when `log_to_screen` is truthy (rank-0 only)
+  yet `deterministic_trainer.py` calls it unconditionally → every non-zero rank died;
+  patched in our `plasim_trainer.py` wrapper, not in makani.
+  **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252736) and Makani SFNO 4-GPU smoke GREEN
+  (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0).**
+  PhysicsNeMo: venv ready, converter authored (+NaN fills + all-finite gate); zarr store
+  and the hydra SeqZarr/transform wiring still unproven.
 
 ## Decisions / changes log
 
