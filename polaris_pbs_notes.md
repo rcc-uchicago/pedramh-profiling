@@ -363,6 +363,30 @@ import is invisible until someone runs it. **Before the first Polaris inference 
 cd s2s/v2.0 && PYTHONNOUSERSITE=1 PYTHONPATH=.:$POLARIS_TOPUPS python -c "import inference"
 ```
 
+### W&B online: verified end-to-end on a real training job
+
+`qsub -v WANDB_MODE=online` on the **Pangu smoke** (job **7253874**): `rc=0`, **loss 0.3411 —
+identical** to every offline run, so turning tracking on perturbs nothing. The run synced live
+(`pom2ma3n`, state `finished`) with real metrics (`batch_grad_norm`, `lr`,
+`train_FSNTOA_lwrmse`, …) and landed on **`rmehta1987-the-university-of-chicago`** — i.e. the
+entity fallback worked.
+
+That last point is the one that matters for sharing: `E3SM_SFNO_H5_POLARIS.yaml` hardcodes
+`entity: 'jesswan-university-of-chicago'`, so **every member's runs would otherwise be pushed
+at one person's W&B account**. The launcher now rewrites it to `$WANDB_ENTITY`, or `null` so
+wandb falls back to whoever owns the API key.
+
+**`WANDB_MODE` alone does nothing** — it only drives the wandb *client*. The model must also
+be told to log:
+
+| model | switch | live tracking? |
+|---|---|---|
+| Pangu | `log_to_wandb` in the YAML (launcher flips it) | ✅ |
+| Makani | `log_to_wandb` in the YAML (launcher flips it) | ✅ |
+| SI bench | `wandb_mode="disabled"` **hardcoded** at `bench.py:92` | ❌ needs a code change |
+| SI train.py | `--wandb_mode` (the full script passes it) | ✅ |
+| PhysicsNeMo | uses **MLflow**; zero wandb calls | ❌ |
+
 ### Full-training resources: MEASURED, not guessed
 
 The `*_full` scripts request `select=1` (4x A100-40GB) on `preemptable`. Whether that is
