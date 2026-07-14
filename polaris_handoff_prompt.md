@@ -14,6 +14,11 @@ bench run on Polaris GPUs**: a job that starts, completes a handful of
 optimization (or bench) steps without crashing, and writes a log/CSV proving the
 loop closed.
 
+**This handoff covers SIX codebases:** the three in this repo (S2S, S2S-Lightning,
+SI) **plus three additional ones — PanguWeather, Makani SFNO, PhysicsNeMo SFNO** —
+see the dedicated section near the end. PanguWeather reuses the S2S path; the two
+SFNO codebases need their data regenerated first (multifiles / zarr).
+
 **Scope: cluster bring-up only.** NOT the optimization work (torch.compile /
 FlexAttention / DDP-comm-hook — that comes *after* bring-up), NOT paper repro,
 NOT hyperparameter tuning, NOT a full training run. Same scope discipline as the
@@ -159,9 +164,20 @@ I'm authoring from Midway and cannot see Polaris. Verify each and record it in
 your notes:
 
 - **Allocation/project** for `-A` (need an active Polaris allocation under pedramh).
-- **Queue** — use `debug` for smokes (8 dedicated nodes, ≤1 hr, 1 job/user). Confirm
-  max nodes/walltime with `qstat -Q`. Others: `debug-scaling`, `prod` (default;
-  routes to small/medium/large), `preemptable` (can be killed by `demand`).
+- **Queues** — for a bring-up smoke use **`debug`**. Full set below (values per
+  ALCF's Queue & Scheduling Policy — **confirm the current numbers with `qstat -Q`**,
+  they change):
+
+  | Queue | Nodes (min–max) | Max walltime | Notes |
+  |---|---|---|---|
+  | `debug` | 1–2 | 1 hr | 8 nodes reserved for debug/-scaling; **1 running job/user** — use this for smokes |
+  | `debug-scaling` | 1–10 | 1 hr | multi-node scaling tests |
+  | `prod` (default) | 10–496 | 24 hr | **routing** queue → `small`/`medium`/`large`; min 10 nodes, so NOT for a 1-node smoke; up to 10 jobs |
+  | `preemptable` | 1–20 | 72 hr | **killed without warning** when a `demand` job needs the nodes; up to 20 jobs |
+  | `demand` | 1–56 | 1 hr | by request only (email support); preempts `preemptable` |
+
+  Every job also needs `-A <project>` and `-l filesystems=…`. (MIG is available only
+  in `debug`/`debug-scaling`/`preemptable`.)
 - **`-l filesystems=`** — almost certainly `home:eagle` (or `home:grand`). Jobs are
   **rejected** without it; declare every FS touched.
 - **GPUs** — **4× A100 40 GB SXM4 per node.** Confirm with `nvidia-smi`. **This is far
@@ -177,6 +193,62 @@ your notes:
   conda` and the base torch version/CUDA.
 - **Project storage root** — `/eagle/<Project>/...` vs `/grand/...`.
 
+## Additional codebases: PanguWeather, Makani SFNO, PhysicsNeMo SFNO
+
+Beyond the three models in this repo, **three more weather-model codebases** need
+the same Polaris bring-up. They are **separate checkouts — NOT in `pedramh-profiling`**
+(locate/clone them on Polaris). They exist to benchmark different implementations of
+the same two architecture families side by side. Same scope discipline: bring-up +
+a smoke proof only.
+
+| Codebase | What it is | Closest existing model | Data format it needs |
+|---|---|---|---|
+| **PanguWeather** | The original Pangu-Weather 3D Earth-Specific transformer (deterministic). | **S2S** (reconciled below) | its own ERA5 loader — confirm |
+| **makani_sfno** | NVIDIA **Makani** Spherical Fourier Neural Operator (SFNO). | SI's SFNO variant | **multifiles** HDF5 (FourCastNet/Makani layout) — must be generated |
+| **physicsnemo_sfno** | NVIDIA **PhysicsNeMo** (ex-Modulus) SFNO. | SI's SFNO variant | **zarr** store — must be generated |
+
+### Reconciliation: is PanguWeather closest to S2S? — YES.
+
+`s2s/v2.0/networks/pangu.py` is explicitly *"A PyTorch impl of Pangu-Weather"*: S2S's
+`PanguModel_Plasim` **is** the Pangu-Weather architecture (`EarthSpecificLayer` /
+`EarthAttention3D` 3D Earth-Specific attention, patch embed/recover, up/down sample)
+with Plasim adaptations plus a VAE-reparameterization ensemble head and the CRPS+KL
+loss. So of the three additions, the original PanguWeather is unambiguously closest
+to S2S — the **same architecture family**.
+
+- **What that buys you:** reuse the **S2S launcher path** — `torchrun --standalone
+  --nproc_per_node=4` on a single node, no `srun`, the same PBS wrap as
+  `polaris_training.pbs`.
+- **What differs from S2S:** PanguWeather is *deterministic* — no VAE ensemble, no
+  CRPS+KL (expect a latitude-weighted MAE/MSE loss), and its own config + data
+  loader. Port the scheduler wrap, **not** S2S's `exp2.yaml`/loss/instrumentation.
+
+Makani and PhysicsNeMo are a **different** family (SFNO, spherical-harmonic
+operators, NVIDIA training frameworks) — closest to SI's own SFNO variant, not to
+S2S/Pangu. Each ships its own `torchrun` launcher + config system; treat them as
+independent bring-ups, not S2S clones.
+
+### The data (the load-bearing part for Makani / PhysicsNeMo)
+
+The source data is **already on Polaris `eagle`** — no Globus stage needed:
+
+    /eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101
+
+- These are **per-sample HDF5 files** and drive the **original SFNO code directly**.
+- This is **E3SMv3** climate-model output (SSP245 AMIP) — **not** the ERA5 that the
+  S2S/SI Midway configs use — so variables, normalization, and grid differ. It also
+  lives under a **different eagle project** (`lighthouse-uchicago`): your PBS
+  `-l filesystems=` must include `eagle` **and** your allocation must have read
+  access to that path. Confirm both before assuming the data is reachable.
+- **Makani needs a "multifiles" HDF5 layout** (the FourCastNet/Makani dataset format:
+  per-split HDF5 + global-means/stds `.npy` + a `data.json`/metadata); **PhysicsNeMo
+  needs a zarr store.** **Neither exists yet — both must be generated from the
+  per-sample h5 above.** Write one converter per target (`h5 → multifiles`,
+  `h5 → zarr`), prove the converted data loads with a single-sample read *before* any
+  training, and record the exact layout each framework expects in
+  `polaris_pbs_notes.md`. This conversion is the first real gate for these two — the
+  model won't start without it.
+
 ## Deliverables
 
 Mirror the Midway naming so the two ports sit side by side:
@@ -186,9 +258,18 @@ Mirror the Midway naming so the two ports sit side by side:
 3. `si/bench_polaris.pbs` — PBS analog of `bench_midway.sh`.
 4. A one-GPU **toolchain probe** PBS script (`select=1:system=polaris`, but run one rank): confirm `nvidia-smi` sees an A100, torch imports, and each model's package imports (`PYTHONPATH` correct). Run and pass this FIRST.
 5. **`polaris_pbs_notes.md`** (repo root) — the PBS equivalent of a Midway notes doc: a cluster-facts table (the confirmed values above), the env/module strategy, the per-model GREEN entries (probe → 1-GPU smoke → 4-GPU smoke), repointed-path map, and a dated decisions log. **This is the deliverable that proves the bring-up.**
+6. **PanguWeather** — a `polaris_*.pbs` reusing the S2S `torchrun --standalone --nproc_per_node=4` wrap (its own config/loader; deterministic — no CRPS/VAE).
+7. **Makani SFNO** — a `polaris_*.pbs` **plus** a `h5 → multifiles` data converter (FourCastNet/Makani layout + the means/stds/metadata it needs).
+8. **PhysicsNeMo SFNO** — a `polaris_*.pbs` **plus** a `h5 → zarr` data converter.
+
+`polaris_pbs_notes.md` covers all six: extend the GREEN matrix and record each SFNO
+data-conversion recipe there.
 
 ## Validation ladder (per model, in order)
 
+0. **(Makani / PhysicsNeMo only) Data conversion** — run the `h5 → multifiles` /
+   `h5 → zarr` converter and prove the converted data loads with a single-sample
+   read. These models won't start without their format; this is their first gate.
 1. **Probe** — 1 A100: `nvidia-smi`, `import torch` sees CUDA, each model's imports resolve with the Polaris `PYTHONPATH`. Don't proceed until green.
 2. **1-GPU smoke** — smallest config, per-GPU batch 1, bf16, a few steps; confirm it completes and writes its log/CSV. (S2S: `torchrun --nproc_per_node=1`; port/SI: `--devices 0`.)
 3. **4-GPU DDP smoke** — full node, `devices=4`; confirm all 4 ranks start, DDP all-reduce works, no OOM, log/CSV written.
