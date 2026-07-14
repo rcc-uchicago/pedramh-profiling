@@ -11,8 +11,8 @@ them.
 | Directory        | What it is |
 |------------------|------------|
 | [`s2s/`](s2s/)                     | The canonical S2S model — Pangu/Plasim Earth-Specific 3D Swin Transformer with VAE ensembles and latitude-weighted CRPS. The full codebase lives under `s2s/v2.0/` (the actively-maintained, benchmark-instrumented variant). |
-| [`s2s-lightning/`](s2s-lightning/) | The PyTorch **Lightning** port of S2S, restructured to mirror SNFO. It **reuses** the S2S model/losses/data loaders — it does not copy them — by importing `s2s/v2.0` at runtime. |
-| [`snfo/`](snfo/)                   | The SNFO model (spectral/neural forecasting operator) — the sibling project whose Lightning layout `s2s-lightning/` is modeled on. |
+| [`s2s-lightning/`](s2s-lightning/) | The PyTorch **Lightning** port of S2S, restructured to mirror SI. It **reuses** the S2S model/losses/data loaders — it does not copy them — by importing `s2s/v2.0` at runtime. |
+| [`si/`](si/)                       | The SI model — the sibling project (transformer-based; DiT/SiT-style architectures) whose Lightning layout `s2s-lightning/` is modeled on. |
 
 ### How `s2s-lightning/` and `s2s/` relate
 
@@ -39,8 +39,8 @@ checked out together (as they always are in this repo).
 ```bash
 git clone git@github.com:rcc-uchicago/pedramh-profiling.git
 cd pedramh-profiling
-git checkout -b <name>/<topic>      # e.g. anthony/snfo-flexattention
-# ...work inside one of s2s/, s2s-lightning/, snfo/...
+git checkout -b <name>/<topic>      # e.g. anthony/si-flexattention
+# ...work inside one of s2s/, s2s-lightning/, si/...
 git push -u origin <name>/<topic>   # then open a PR into main
 ```
 
@@ -58,7 +58,7 @@ git fetch pedramh
 
 # start your branch from the shared main, then add your code under a subdir
 git checkout -b <name>/<topic> pedramh/main
-#   ...copy your files into s2s/, s2s-lightning/, snfo/, or a new top-level dir...
+#   ...copy your files into s2s/, s2s-lightning/, si/, or a new top-level dir...
 git add -A && git commit -m "Add <your work>"
 
 # push and set the upstream so later `git push` / `git pull` need no arguments

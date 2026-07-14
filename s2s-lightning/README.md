@@ -1,8 +1,8 @@
 # s2s-lightning — PyTorch Lightning port of S2S
 
 A PyTorch **Lightning** restructuring of the S2S model, laid out to mirror the
-sibling **SNFO** project. The goal is a codebase whose only material difference
-from SNFO is the model definition (S2S's `PanguModel_Plasim`).
+sibling **SI** project. The goal is a codebase whose only material difference
+from SI is the model definition (S2S's `PanguModel_Plasim`).
 
 ## Reuses `../s2s`, does not copy it
 
@@ -23,7 +23,7 @@ hooks and `Trainer` config.
 
 - `modules/` — `LightningModule`s (e.g. `train_module.py`) wrapping the model + CRPS/KL loss.
 - `data/` — `LightningDataModule` (`datamodule.py`) wrapping the S2S HDF5 loaders. `data/constant_mask/*.npy` are the land/soil/topography boundary constants.
-- `configs/`, `common/` — SNFO-style config and shared helpers.
+- `configs/`, `common/` — SI-style config and shared helpers.
 - `train.py`, `val.py`, `bench.py`, `verify_bench.py` — entry points (`bench.py` is the benchmark/NVTX-profiling runner).
 - `smoke_datamodule.py`, `smoke_train_module.py` — single-GPU smoke tests; each prints `SMOKE_OK` on success.
 
