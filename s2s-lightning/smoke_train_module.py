@@ -68,7 +68,12 @@ def main():
         None: Outcome is signalled by the printed token and the process exit code
         (0 on success, 2 on a recorded/finiteness failure).
     """
-    cfg = os.path.abspath("v2.0/config/test.yaml")
+    # Resolve the config relative to THIS file, not cwd, so the smoke works from
+    # any directory in the monorepo (s2s/v2.0/ is a sibling of s2s-lightning/).
+    cfg = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "s2s", "v2.0", "config", "test.yaml")
+    )
     print(f"Loading config: {cfg} (section S2S)", flush=True)
     params = YParams(cfg, "S2S")
 
