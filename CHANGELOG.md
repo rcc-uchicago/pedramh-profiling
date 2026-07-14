@@ -121,6 +121,9 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     classic falsy bug), loud failure on a bad seed, rank offsets, and model-level identical
     init+forward+backward. `polaris_seeding_test.pbs` runs the CUDA half on a real GPU and
     **fails rc=4 if CUDA was not visible** — a skipped test must never read as a pass.
+    **GPU-verified: job 7253738, rc=0, `SEEDING_OK (10 tests)` +
+    `CUDA was visible -> the CUDA RNG assertion really ran`.** So CUDA RNG reproducibility is
+    demonstrated on the device a baseline would actually be captured on, not just on CPU.
   - **Still blocking baseline capture:** `tiny_baseline.yaml` and the VAE noise-fix hook.
     Also note `--deterministic` needs `CUBLAS_WORKSPACE_CONFIG=:4096:8` exported *before*
     python starts (the PBS script does it); `enable_determinism()` warns rather than
