@@ -1,0 +1,52 @@
+#!/bin/bash -l
+#PBS -N s2s_seeding_test
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:10:00
+#PBS -j oe
+# ============================================================================
+# DESIGN §4.0 seed knob — the GPU half of s2s/v2.0/test/seeding_test.py.
+#
+# The CPU assertions run anywhere (including a login node), but the CUDA RNG check
+# self-skips without a GPU — and CUDA is exactly where a baseline gets captured, so it
+# needs a real device. This job supplies one.
+#
+# Submit from s2s/v2.0/test/:   qsub polaris_seeding_test.pbs
+# PASS = "SEEDING_OK" in s2s_seeding_test.o<jobid>, with the CUDA test NOT skipped.
+# ============================================================================
+cd "${PBS_O_WORKDIR}"
+V20="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+REPO="$(cd "${V20}/../.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONPATH="${V20}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+# DESIGN §4.1 requires this for deterministic cuBLAS reductions, and it must be set BEFORE
+# the CUDA context exists — hence here, not inside python. enable_determinism() warns if it
+# is missing rather than pretending.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+
+echo "=== s2s_seeding_test: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+nvidia-smi -L | head -1
+python "${V20}/test/seeding_test.py"
+rc=$?
+
+# The CUDA assertion self-skips when no GPU is visible, and a skip must not read as a pass:
+# this job exists precisely to cover CUDA, so a skip here means the job proved nothing.
+if [ ${rc} -eq 0 ] && python -c "import torch,sys; sys.exit(0 if torch.cuda.is_available() else 1)"; then
+    echo "CUDA was visible -> the CUDA RNG assertion really ran"
+else
+    echo "ERROR NO_CUDA: the CUDA test skipped, so this job did not cover what it exists for."
+    rc=4
+fi
+echo "=== s2s_seeding_test done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

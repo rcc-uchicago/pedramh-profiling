@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
+| §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | 🟡 **seed knob DONE** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`, 10 tests `SEEDING_OK`); tiny config + VAE noise-fix still **block baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
 | Optimization ladder (DESIGN.md §5) | ⬜ not started |
@@ -39,8 +39,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 1. **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for each model via PBS;
    write `polaris_pbs_notes.md`. Follow `polaris_handoff_prompt.md` (on `main`).
-2. **Build the §4.0 prerequisites** — a `--seed` knob in `s2s/v2.0/train.py`, a
-   `tiny_baseline.yaml`, and a VAE noise-fixing hook. Nothing can be optimized
+2. **Build the remaining §4.0 prerequisites** — ~~a `--seed` knob in `s2s/v2.0/train.py`~~
+   (**done**), a `tiny_baseline.yaml`, and a VAE noise-fixing hook. Nothing can be optimized
    safely until the equivalence gate is executable.
 3. **Capture correctness baselines** (DESIGN.md §4) for each model.
 4. **Stand up the test harness** — CRPS/KL numerical checks, normalize↔inverse
@@ -95,6 +95,37 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-07-14** — **DESIGN §4.0 seed knob: DONE.** `s2s/v2.0/train.py` gains `--seed` and
+  `--deterministic`; the logic lives in the new shared `s2s/v2.0/utils/seeding.py` (imported
+  by S2S *and* the port, CLAUDE.md #5 — additive, nothing existing changed).
+  Precedence: `--seed` > `$S2S_SEED` > the YAML's `seed:` > **legacy**.
+  - **Opt-in by design.** No seed => the historical path is preserved *byte-for-byte*
+    (`torch.manual_seed(world_rank)`, `cudnn.benchmark=True`), which is what lets this ship
+    without re-validating the existing greens. A test pins that property.
+  - **What was actually broken:** `torch.manual_seed(world_rank)` seeded torch only.
+    **numpy was never seeded** — and `train.py:1251` draws the validation sample from it
+    (`np.random.randint`) — so two runs of the "same" config diverged. `random` was unseeded
+    too, and `cudnn.benchmark=True` picks kernels by timing. A "reproducible baseline" on
+    that footing was not reproducible.
+  - **Rank offset:** `seed + world_rank`, preserving the legacy intent (distinct streams per
+    rank, so the loader's per-sample noise — `data_loader_multifiles.py:474-481`, drawn in
+    the workers — doesn't correlate across ranks). At rank 0 the applied seed IS the seed,
+    so a §4.1 world-size-1 baseline is comparable with the port's `seed_everything(s)`. A
+    multi-rank baseline is NOT comparable across launchers — documented in
+    `seeding.equivalent_to_seed_everything`.
+  - **Tests:** `s2s/v2.0/test/seeding_test.py` — 10 assertions, **`SEEDING_OK`**, runs with
+    no ERA5/GPU/cluster (deliberate: the S2S+port data smokes are blocked on the ERA5 stage,
+    so the mechanism is proven without them). Covers same-seed reproduction, different-seed
+    divergence, the numpy gap, byte-identical legacy, precedence (incl. **seed 0**, the
+    classic falsy bug), loud failure on a bad seed, rank offsets, and model-level identical
+    init+forward+backward. `polaris_seeding_test.pbs` runs the CUDA half on a real GPU and
+    **fails rc=4 if CUDA was not visible** — a skipped test must never read as a pass.
+  - **Still blocking baseline capture:** `tiny_baseline.yaml` and the VAE noise-fix hook.
+    Also note `--deterministic` needs `CUBLAS_WORKSPACE_CONFIG=:4096:8` exported *before*
+    python starts (the PBS script does it); `enable_determinism()` warns rather than
+    pretending when it is missing.
+
 
 - **2026-07-14** — **🔴 The "GREEN" smokes were green for ONE PERSON. Fixed.** A cold
   5-agent audit of the *fixed* tree (the second gauntlet) surfaced that Pangu/SI depended on
