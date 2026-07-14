@@ -2,11 +2,11 @@
 
 This module ports the model/loss/optimisation half of
 ``v2.0/train.py::Trainer`` onto a :class:`lightning.LightningModule`, mirroring
-the SNFO template at ``$SNFO_DIR/modules/train_module.py``. It **reuses** the
+the SI template at ``$SI_DIR/modules/train_module.py``. It **reuses** the
 existing S2S architecture and loss functions rather than reimplementing them:
 
 * :class:`networks.pangu.PanguModel_Plasim` is held as ``self.model`` — the one
-  S2S-specific component that distinguishes this codebase from SNFO.
+  S2S-specific component that distinguishes this codebase from SI.
 * The latitude-weighted CRPS / MSE / L1 losses, their masked variants, and the
   VAE KL term from :mod:`utils.losses` are instantiated in
   :meth:`TrainModule._setup_loss_fun` (a faithful port of
@@ -230,7 +230,7 @@ class TrainModule(L.LightningModule):
         else:
             self.constant_boundary_data = None
 
-        # SNFO reads ``config['training']['strategy']`` to set ``self.ddp``. S2S
+        # SI reads ``config['training']['strategy']`` to set ``self.ddp``. S2S
         # configs do not carry a Lightning-style ``training.strategy`` block yet
         # (that convergence is Phase 3/5), so honour a ``strategy`` key if one is
         # present, else default to the DDP-safe ``True`` used by v2.0/train.py
@@ -264,13 +264,13 @@ class TrainModule(L.LightningModule):
             params["predictions_dir"] if "predictions_dir" in params else None
         )
         # save_predictions toggle: only saves when explicitly enabled AND a
-        # predictions_dir is set (mirrors SNFO gating save off a config flag).
+        # predictions_dir is set (mirrors SI gating save off a config flag).
         self.do_save_predictions = bool(
             getattr(params, "save_predictions", False) and self.predictions_dir
         )
 
         # The normalizer holds open HDF5 handles and is not picklable; exclude it
-        # from the hparams snapshot (SNFO ignores its normalizer the same way).
+        # from the hparams snapshot (SI ignores its normalizer the same way).
         self.save_hyperparameters(ignore=["normalizer"])
 
     def _move_losses_to_device(self) -> None:
@@ -874,12 +874,12 @@ class TrainModule(L.LightningModule):
     def validation_step(self, batch, batch_idx):
         """Score a validation batch, log per-lead-time losses, optionally save.
 
-        Mirrors the SNFO ``validation_step`` public shape: delegate the rollout
+        Mirrors the SI ``validation_step`` public shape: delegate the rollout
         and scoring to :meth:`predict`, then log each per-lead-time loss with
         ``sync_dist=self.ddp``. When :attr:`do_save_predictions` is set, the
         source's prediction-saving behaviour (``Stepper.validate_one_epoch`` ->
         ``save_prediction``) is reproduced on rank 0 / batch 0 only -- matching
-        SNFO's ``if batch_idx == 0 and (not self.ddp or self.global_rank == 0)``
+        SI's ``if batch_idx == 0 and (not self.ddp or self.global_rank == 0)``
         gate -- via :meth:`save_predictions`.
 
         Args:

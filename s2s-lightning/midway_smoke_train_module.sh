@@ -26,7 +26,7 @@ export WANDB_MODE=offline
 # Reduce allocator fragmentation on the single-GPU smoke (large activations).
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # s2s/v2.0 resolves `from utils...` / `from networks...`; the port dir resolves
-# the ported `from data...` / `from modules...` packages (SNFO-style).
+# the ported `from data...` / `from modules...` packages (SI-style).
 PORT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # .../s2s-lightning
 REPO_ROOT="$(cd "${PORT_DIR}/.." && pwd)"                  # .../pedramh-profiling
 export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}"

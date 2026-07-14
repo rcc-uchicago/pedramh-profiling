@@ -1,5 +1,5 @@
 #!/bin/bash
-# Autonomous driver for the S2S -> PyTorch Lightning port (SNFO-mirrored).
+# Autonomous driver for the S2S -> PyTorch Lightning port (SI-mirrored).
 # Pure orchestrator on --partition=build (RCC, has egress for the headless `claude` CLI): runs the loop + the
 # light agent gauntlet + git, and submits ALL gate-deciding GPU smoke tests as NESTED sbatch jobs to
 # --partition=pedramh-gpu (--account=pi-pedramh). The compute nodes are offline (pre-built env, WANDB_MODE=offline,
@@ -83,9 +83,9 @@ trap chain_on_signal USR1
 # TODO(operator): add any site module loads your build node needs for git/python here.
 module load python/miniforge-25.3.0 2>/dev/null || true
 export PATH="$HOME/.local/bin:$PATH"          # keep the node-based `claude` CLI on PATH
-# SNFO template checkout the porter mirrors — exported so the porter (and the preflight) resolve it. Cluster
-# default is the shared copy; if SNFO ever moves, change ONLY this line (or set SNFO_DIR in the environment).
-export SNFO_DIR="${SNFO_DIR:-/project/pedramh/shared/anthonyz}"
+# SI template checkout the porter mirrors — exported so the porter (and the preflight) resolve it. Cluster
+# default is the shared copy; if SI ever moves, change ONLY this line (or set SI_DIR in the environment).
+export SI_DIR="${SI_DIR:-/project/pedramh/shared/anthonyz}"
 command -v claude >/dev/null 2>&1 || { echo "[FATAL] $(date) 'claude' not on PATH (expected ~/.local/bin) — cannot run headless loop." >&2; exit 1; }
 command -v git    >/dev/null 2>&1 || { echo "[FATAL] $(date) 'git' not on PATH." >&2; exit 1; }
 
