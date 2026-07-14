@@ -7,8 +7,10 @@ per-sample h5 in two ways; this converter fixes both:
   (A) npz -> normalize_{mean,std}.nc — SI's `_load_mean_std` only reads NetCDF
       (h5netcdf engine) and needs a 'level' dim for the upper-air stats. E3SM ships
       normalize_{mean,std}.npz (162 scalar keys). GUARD: normalize_std.npz has
-      std==0 for 4 stratospheric CLDICE levels — those are set to 1.0 so the
-      (x-mean)/std normalization yields 0 (constant field) instead of NaN.
+      **16 zero-std keys** (CLDLIQ x8 at 4.71-145.04 hPa, CLDICE x4, CLOUD x4 — the
+      condensate fields are identically zero in the upper stratosphere). All are set
+      to 1.0 so the (x-mean)/std normalization yields 0 (constant field) not NaN/inf.
+      The guard is a vectorized `where(std==0, 1.0, std)`, so it covers all 16.
 
   (B) h5 repack with an upper-air key rename — SI builds keys as
       f'{var}_{int(level)}.0' (e.g. 'T_850.0'); E3SM keys carry the full float

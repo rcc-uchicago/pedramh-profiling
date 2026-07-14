@@ -18,9 +18,11 @@
 #   /project/pedramh/h5data/h5data into the data_dir below, then this runs green.
 #   The launcher/env/imports are already proven by polaris_probe (PROBE_OK).
 #
-# Submit (4-GPU):  qsub HPC_scripts/polaris_bench.pbs
-# 1-GPU:           qsub -v NPROC=1 HPC_scripts/polaris_bench.pbs
-# Optional nsys:   qsub -v S2S_NSYS=1 HPC_scripts/polaris_bench.pbs
+# Submit from THIS directory (the ../.. path math below needs PBS_O_WORKDIR=HPC_scripts):
+#   cd s2s/v2.0/HPC_scripts
+#   qsub polaris_bench.pbs                  # 4-GPU
+#   qsub -v NPROC=1 polaris_bench.pbs       # 1-GPU rung
+#   qsub -v S2S_NSYS=1 polaris_bench.pbs    # + nsys profile
 # PASS = a new bench_results.csv row + the bench summary line in the log.
 # ============================================================================
 

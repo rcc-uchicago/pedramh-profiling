@@ -50,8 +50,23 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- **Polaris SI smoke** running (job 7252286). **Deferred, ready:** ERA5 Globus stage
-  (unblocks S2S/port) and the login-node SFNO `pip install` (unblocks makani/physicsnemo).
+- **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed
+  (`9cb0f3b`); open at
+  https://github.com/rcc-uchicago/pedramh-profiling/pull/new/polaris-pbs-bringup
+  (a solo session cannot self-approve — maintainer review/merge needed).
+- **Deferred, ready:** **ERA5 Globus stage** → unblocks the S2S + S2S-Lightning smokes
+  (scripts already preflight `ERA5_NOT_STAGED`).
+- **makani / physicsnemo — torch_harmonics conflict RESOLVED via an isolated venv.**
+  makani 0.2.0 needs the *public* `precompute_latitudes`, absent from every torch-2.8-safe
+  release (0.7.4/0.8.0); 0.9.1 ships wheels only (no sdist) and its `attention/_C.so`
+  ABI-breaks torch 2.8. Resolution (per user): `polaris_setup_sfno_venv.sh` builds an
+  isolated `--system-site-packages` venv with **torch_harmonics 0.9.x from GitHub source**,
+  so the base conda keeps 0.7.4 and the GREEN Pangu/SI smokes need no re-validation.
+  **Trap:** a `--system-site-packages` venv re-enables the USER site, which `site.py` puts
+  *before* the venv — the base's `--user` 0.7.4 shadowed the venv and makani still failed;
+  fixed with `PYTHONNOUSERSITE=1` in the venv + both SFNO PBS scripts.
+  Makani **pack is GREEN** (`CONVERT_OK`, job 7252736); its training smoke is in flight.
+  PhysicsNeMo: converter authored (+NaN fills), store not yet built, hydra wiring unproven.
 
 ## Decisions / changes log
 
@@ -92,6 +107,23 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 Each is attributed to its source doc — verify there before acting.
 
+- **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
+  `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or
+  0.8.0 (private `_precompute_latitudes`). 0.9.1 has it but ships **wheels only** (no
+  sdist on PyPI — `--no-binary :all:` cannot build it) and its prebuilt
+  `attention/_C.so` fails on torch 2.8 with `undefined symbol:
+  _ZNK3c1010TensorImpl15incref_pyobjectEv`, so `import torch_harmonics` dies outright.
+  Don't re-try pinning a PyPI version — install from the GitHub source (compiles `_C`
+  against the local torch) **and re-verify the green Pangu-SFNO smoke**, or isolate the
+  SFNO frameworks in their own venv. — `polaris_pbs_notes.md` §6.
+- **(Polaris) Pangu `--debug` is single-GPU ONLY** — it hardcodes `world_size=1`, so
+  under `torchrun --nproc_per_node=4` all 4 ranks init as rank-0-on-GPU-0 and OOM the
+  40 GB A100. Bound a smoke with `--epochs 1` instead. — `polaris_pbs_notes.md` §5.
+- **(Polaris) SI `calendar: 'noleap'` crashes the loader** — noleap is an *idealized*
+  cftime calendar that forces `has_year_zero=True`, clashing with `has_year_zero: False`
+  at `si/data/amip_new.py:667` (`cannot compute the time difference between dates with
+  year zero conventions`). Use `'standard'` (correct for a non-leap-year smoke); a full
+  run crossing a leap year needs a loader fix. — `polaris_pbs_notes.md` §8.
 - **Port standalone smokes had a stale cwd-relative config path** (`v2.0/config/test.yaml`,
   pre-monorepo) → `FileNotFoundError` before any GPU work. Fixed 2026-07-13 (resolve
   relative to `__file__`). If a port smoke can't find the config, check this first.

@@ -10,7 +10,8 @@
 #     and DDP crashes on unused params.
 #   * data: E3SM variable names + 18 E3SM plevs; return_calendar False (no co2 analog);
 #     mask_fill for every NaN-bearing field (SST in degC -> fill 0., not 270.);
-#     calendar 'noleap' (1460 files/yr even in leap years); mean/std_path -> nc stats.
+#     calendar 'standard' (NOT 'noleap' — see the note at the calendar key below);
+#     mean/std_path -> the .nc stats built by convert_e3sm_for_si.py.
 #   * batch_size 1 (A100-40GB: batch1 bf16 ~31 GB peak; do NOT raise without checking
 #     peak_mem_gb_max_rank in the CSV). Precision via SI_PRECISION=bf16-mixed env.
 #
