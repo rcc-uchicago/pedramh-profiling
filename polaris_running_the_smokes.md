@@ -2,21 +2,14 @@
 
 This page walks you through running four of our weather models on Polaris. Each one
 is a short **test run**: it trains for a few minutes on one machine, just far enough to prove
-the model still runs from start to finish. 
+the model still runs from start to finish.
 
-You are not training a real model here, and you
-don't need to change any code.
+There are also full training runs, but run these test runs first to make sure your paths and
+environment are correct.
 
 There are four to run: **PanguWeather**, **SI**, **Makani**, and **PhysicsNeMo**. Each is a
 single command. All four have been run successfully, and the results near the bottom come from
 those real runs, so you have something to compare against.
-
-Everything you run writes only into your own folder. You can't break anyone else's work, and
-nothing here can damage the shared data.
-
-**If you get stuck at any point, email Rahul (rmehta1987@gmail.com)** with the location of the
-log file and its last 30 lines (`tail -30 <the log file>`). That's always the right move —
-none of this is worth spending an afternoon on.
 
 ---
 
@@ -137,7 +130,7 @@ tail -30 PanguWeather/v2.0/pangu_e3sm_sfno.o7253330
 Each log also has an `rc=0` line near the end, which means success — any other number means
 it failed. For PanguWeather, Makani and PhysicsNeMo it's the very last line. **SI is the
 exception**: it prints a table of numbers *after* its `rc=0` line, so look a little further
-up rather than only at the bottom. If you see anything other than `rc=0`, send Rahul the log.
+up rather than only at the bottom. 
 
 Don't rely on `rc=0` alone for Makani. A Makani run that has already finished once can start
 up, decide there's nothing left to do, and stop straight away still reporting `rc=0` — so
@@ -149,7 +142,7 @@ SI also writes a small table of timings here:
 /eagle/projects/lighthouse-uchicago/members/jesswan/polaris_logs/si_bench_polaris_<jobnumber>.csv
 ```
 
-## Results from Rahul's runs, for comparison
+## Initial baseline results for comparison
 
 Yours should land in the same ballpark. They won't match exactly, and that's normal.
 
@@ -194,14 +187,8 @@ chmod 600 ~/.netrc
 The word `login user` is literal; leave it as-is. (`machine api.wandb.ai` is the part that
 actually matters — verified.)
 
-> **The one mistake that bites.** Don't put the bare key in `~/.netrc` on its own line with
-> nothing else. It looks like it should work and it doesn't — and worse, the error it causes
-> **prints your key into the log**, so anyone reading that log now has it. It happened here.
-> If you do it by accident, assume the key is compromised and get a new one from
-> https://wandb.ai/authorize.
-
-Either way, **never put the key in a file inside the repo** — that would publish it to
-everyone with access.
+> **NOTE** Don't put the bare key in `~/.netrc` on its own line with
+> nothing else. 
 
 **To check it worked** (optional):
 
@@ -218,18 +205,11 @@ You can also just put your API key into ~/.netrc without using the bash script.
 ( cd makani_sfno       && qsub -v WANDB_MODE=online polaris/polaris_sfno_smoke.pbs )
 ```
 
-Your run appears live at wandb.ai, under the project `pedramh-profiling` and **your own**
-account.
+Your run appears live at wandb.ai under the project `pedramh-profiling`, on your own account.
 
-**Only PanguWeather and Makani can do this.** The other two can't, and it isn't worth your
-time trying:
-
-| Model | Live tracking? |
-|---|---|
-| PanguWeather | yes |
-| Makani | yes |
-| SI (the test job) | **no** — its benchmark has W&B switched off in the code itself |
-| PhysicsNeMo | **no** — it records to MLflow instead, and doesn't use W&B at all |
+**This works for PanguWeather and Makani only.** SI and PhysicsNeMo ignore it — SI's test job
+has W&B switched off in its code, and PhysicsNeMo records to MLflow instead. Nothing will
+appear for those two no matter what you set, so don't spend time on it.
 
 **Without that, runs are "offline"** — still fully recorded, just written to your own folder
 (`/eagle/projects/lighthouse-uchicago/members/jesswan/wandb/`) instead of uploaded. That's
@@ -260,8 +240,7 @@ Four things that differ from the test runs, and will surprise you if you don't e
 
 1. **A "failed" job is usually normal.** Full training runs on the `preemptable` queue, which
    is the only way to get more than an hour on one machine. Your job **will be killed**
-   without warning, sometimes minutes in, and report a failure. That's the deal, not a bug.
-   Just submit the same command again — it picks up from its last checkpoint. Only worry if
+   without warning, sometimes minutes in, and report a failure. Just submit the same command again — it picks up from its last checkpoint. Only worry if
    there's an actual error message in the log.
 2. **The models are much bigger.** Makani's test model is a toy of ~54,000 numbers; the real
    one is thousands of times larger. The test isn't a small version of the real thing — it's
