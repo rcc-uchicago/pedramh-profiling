@@ -78,6 +78,27 @@ if ! python -c "import physicsnemo, warp, makani" 2>/dev/null; then
 fi
 echo "venv python=$(command -v python)"
 
+# ---- PROVENANCE GUARD: physicsnemo is installed EDITABLE (pip install -e), so the venv
+# imports it from whichever checkout it was built against. A SHARED venv therefore imports
+# physicsnemo from THAT person's repo — you would silently profile someone else's working
+# tree instead of your own. (makani is installed non-editable and lives in the venv, so it
+# is safe to share.) Fail loudly rather than produce attributable-to-nobody results.
+python - "${PN_ROOT}" <<'PY' || exit 3
+import os, sys
+import physicsnemo
+want = os.path.realpath(sys.argv[1])
+got = os.path.realpath(os.path.dirname(os.path.dirname(physicsnemo.__file__)))
+if got != want:
+    print("ERROR PHYSICSNEMO_WRONG_CHECKOUT")
+    print(f"  imported physicsnemo from : {got}")
+    print(f"  but this job's repo is    : {want}")
+    print("  The SFNO venv you are using was built with `pip install -e` against a DIFFERENT")
+    print("  checkout, so you would be running that tree's code, not yours.")
+    print("  Fix: build your own venv ->  bash <your-repo>/polaris_setup_sfno_venv.sh")
+    sys.exit(3)
+print(f"provenance OK: physicsnemo imported from this repo ({got})")
+PY
+
 # ---- 1) build the two SeqZarr stores (compute node) if missing ----
 mkdir -p "${DATA}"
 if [ ! -d "${DATA}/e3sm_train.zarr" ]; then

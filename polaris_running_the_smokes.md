@@ -130,6 +130,45 @@ deviate:
    `unable to create thread` / `git-pack-objects died`; use `git -c pack.threads=1 push`.
    Run heavy compute as PBS jobs, never on login.
 
+## 4b. Why you build your own venv (and why we do NOT share one working dir)
+
+**Share the DATA, never the checkout or the venv.** Concretely:
+
+| thing | shared? | why |
+|---|---|---|
+| converted data (75 GB) | ✅ read-only | immutable inputs; makes a result attributable to a data version |
+| the git clone | ❌ never | see below |
+| the SFNO venv | ❌ per-user | see below |
+
+**The venv cannot be shared** because `physicsnemo` is installed **editable**
+(`pip install -e`), so the venv imports it from *whichever checkout it was built against*.
+Using someone else's venv means `import physicsnemo` silently resolves to **their** working
+tree — you would think you were profiling your change and you would not be. Measured:
+
+```
+physicsnemo -> .../members/mehta5/pedramh-profiling/physicsnemo_sfno/physicsnemo/__init__.py
+makani      -> .../conda-envs/sfno-venv/lib/python3.12/site-packages/makani/   # non-editable, fine
+```
+
+`polaris/polaris_sfno_smoke.pbs` now **hard-fails** with `PHYSICSNEMO_WRONG_CHECKOUT` if the
+imported `physicsnemo` is not from the job's own repo, rather than producing results nobody
+can attribute. If you hit it: `bash <your-repo>/polaris_setup_sfno_venv.sh` (~10 min, once).
+(makani-only work can safely use the shared venv.)
+
+**A shared working directory is worse than it looks**, even with unlimited quota — these are
+concurrency problems, not space problems:
+- `.git/index` is one file: two people = `index.lock` races. Worse, a `git checkout` by one
+  person mutates the tree **underneath the other's running job** — silently mixed code.
+- File modes: `umask 022` makes files `g+r` only, so the other user's `git checkout` cannot
+  overwrite them; `setgid` fixes the *group*, not the *mode*. `g+w` without a sticky bit also
+  lets anyone delete anyone's files.
+- One clone means you cannot both have different code checked out — which is exactly what
+  profiling needs.
+- The physicsnemo smoke writes checkpoints + 157 PNGs **into the repo**, so two concurrent
+  runs collide.
+
+Cost of doing it right: one 306 MB clone + one 10-minute venv build, each.
+
 ## 5. Known limitations (please don't be surprised)
 
 - These are **tiny** models (makani: embed_dim 16, 2 layers, 4 samples/epoch; physicsnemo:
