@@ -231,6 +231,50 @@ channels, including our smoke. Every non-zero rank dies with
 `self.logger` before `super().__init__()` in `sfno_training/trainer/plasim_trainer.py`
 (the wrapper whose stated job is patching stock makani; zero edits to makani itself).
 
+## 6b. Repo layout: the 3 SFNO codebases are **git subtrees** (full provenance)
+
+`PanguWeather/`, `makani_sfno/` and `physicsnemo_sfno/` are **not** separate checkouts any
+more (the handoff assumed they were) and **not** submodules. They are `git subtree`
+imports, added **unsquashed** so the complete upstream history is preserved:
+
+| prefix | imported from | upstream authorship reachable |
+|---|---|---|
+| `PanguWeather/` | `git@github.com:envfluids/PanguWeather.git` (`sfno_e3sm`) | jesswan-uc (8) |
+| `makani_sfno/` | `git@github.com:feynmanliu214/SFNO_Climate_Emulator.git` (`snapshot/sfno-climate-emulator`) | feynmanliu214 (38) |
+| `physicsnemo_sfno/` | `https://github.com/awikner/physicsnemo.git` (`main`) | ktangsali (203) + NVIDIA |
+
+Each landed as a real **merge commit with two parents**, so upstream commits are genuine
+ancestors of `HEAD` (`git merge-base --is-ancestor <their-sha> HEAD` succeeds). Cost:
+the repo went **313 → 4,769 files**, **.git 3.9 MB → 306 MB**. That is the deliberate
+price of full provenance.
+
+### Merging in both directions
+
+**Them → us** (take upstream's new work):
+```bash
+git subtree pull --prefix=makani_sfno git@github.com:feynmanliu214/SFNO_Climate_Emulator.git snapshot/sfno-climate-emulator
+git subtree pull --prefix=PanguWeather git@github.com:envfluids/PanguWeather.git sfno_e3sm
+git subtree pull --prefix=physicsnemo_sfno https://github.com/awikner/physicsnemo.git main
+```
+Conflicts are ordinary git conflicts, only where we touched the same lines.
+
+**Us → them** (send our fixes upstream). We have **no write access** to those repos, so:
+```bash
+git subtree split --prefix=makani_sfno -b makani-polaris   # history of ONLY that subdir,
+                                                           # re-rooted as if it were the repo
+```
+then push `makani-polaris` to a fork you control and open a PR (or hand them the branch /
+`git format-patch` series). Do NOT `git subtree push` to their URLs — we cannot write there.
+
+⚠️ **Keep the subtrees pristine.** Upstream ships files this repo would normally reject
+(13 `*.npy`, 50 `*.o`/`*.e` job logs). They came in with the history and are **already in
+`.git` permanently** — deleting them from the tree would NOT shrink the clone, and would
+make every future `subtree pull` fight to re-add them and every `subtree split` look like
+it deletes upstream's files. So they stay, as a **deliberate, informed exception to
+CLAUDE.md rule #8**, scoped to imported third-party history. Each subtree's own
+`.gitignore` stops *new* junk (`polaris_data/`, `core.*`, `checkpoints/`, `mlruns/`,
+per-channel validation PNGs).
+
 ## 7. Repointed-path map (per model)
 
 | Model | Original (Midway/Derecho) | Polaris target | Config file |
