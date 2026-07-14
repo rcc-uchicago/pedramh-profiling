@@ -50,10 +50,19 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed
-  (`9cb0f3b`); open at
-  https://github.com/rcc-uchicago/pedramh-profiling/pull/new/polaris-pbs-bringup
+- **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed; open at
+  https://github.com/rcc-uchicago/pedramh-profiling/compare/main...polaris-pbs-bringup
   (a solo session cannot self-approve — maintainer review/merge needed).
+- **Layout change: the 3 SFNO codebases are now `git subtree`s of this repo** (not
+  separate checkouts as the handoff assumed, not submodules). Imported **unsquashed for
+  full provenance**: upstream commits are real ancestors of HEAD (jesswan-uc 8,
+  feynmanliu214 38, ktangsali 203). Cost: 313 → 4,769 files, .git 3.9 MB → 306 MB.
+  Bidirectional merging (`subtree pull` from them, `subtree split` + PR to them) and the
+  rule-#8 exception for imported third-party junk are documented in
+  `polaris_pbs_notes.md` §6b. Note: pushing this repo now needs
+  `git -c pack.threads=1 push` — the ALCF login node's process cap kills multi-threaded
+  pack (`unable to create thread` / `git-pack-objects died`); the same cap forced the
+  physicsnemo `subtree add` onto a compute node.
 - **Deferred, ready:** **ERA5 Globus stage** → unblocks the S2S + S2S-Lightning smokes
   (scripts already preflight `ERA5_NOT_STAGED`).
 - **makani / physicsnemo — torch_harmonics conflict RESOLVED via an isolated venv.**
