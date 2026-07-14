@@ -164,9 +164,20 @@ I'm authoring from Midway and cannot see Polaris. Verify each and record it in
 your notes:
 
 - **Allocation/project** for `-A` (need an active Polaris allocation under pedramh).
-- **Queue** — use `debug` for smokes (8 dedicated nodes, ≤1 hr, 1 job/user). Confirm
-  max nodes/walltime with `qstat -Q`. Others: `debug-scaling`, `prod` (default;
-  routes to small/medium/large), `preemptable` (can be killed by `demand`).
+- **Queues** — for a bring-up smoke use **`debug`**. Full set below (values per
+  ALCF's Queue & Scheduling Policy — **confirm the current numbers with `qstat -Q`**,
+  they change):
+
+  | Queue | Nodes (min–max) | Max walltime | Notes |
+  |---|---|---|---|
+  | `debug` | 1–2 | 1 hr | 8 nodes reserved for debug/-scaling; **1 running job/user** — use this for smokes |
+  | `debug-scaling` | 1–10 | 1 hr | multi-node scaling tests |
+  | `prod` (default) | 10–496 | 24 hr | **routing** queue → `small`/`medium`/`large`; min 10 nodes, so NOT for a 1-node smoke; up to 10 jobs |
+  | `preemptable` | 1–20 | 72 hr | **killed without warning** when a `demand` job needs the nodes; up to 20 jobs |
+  | `demand` | 1–56 | 1 hr | by request only (email support); preempts `preemptable` |
+
+  Every job also needs `-A <project>` and `-l filesystems=…`. (MIG is available only
+  in `debug`/`debug-scaling`/`preemptable`.)
 - **`-l filesystems=`** — almost certainly `home:eagle` (or `home:grand`). Jobs are
   **rejected** without it; declare every FS touched.
 - **GPUs** — **4× A100 40 GB SXM4 per node.** Confirm with `nvidia-smi`. **This is far
