@@ -96,6 +96,10 @@ These are the ways to silently break the project. Do not do them.
   greppable on one line; log verbose diagnostics to files.
 - **Never claim a step passed without reading the actual output.** Smoke scripts
   print a success token / write a CSV row — key on that, not on exit code alone.
+- **Readability standards** — docstring, module-header, and inline-comment
+  conventions for this repo live in [`.claude/comments.md`](.claude/comments.md).
+  Follow it on any readability pass or new module (it cites this file + DESIGN.md
+  for the invariants a comment should point at).
 
 ## Cluster facts (single source of truth)
 
