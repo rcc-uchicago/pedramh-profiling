@@ -1,0 +1,58 @@
+#!/bin/bash -l
+#PBS -N polaris_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -j oe
+#PBS -o polaris_logs/
+# ============================================================================
+# Polaris bring-up gate 1: toolchain probe on ONE Polaris node (4x A100 40GB).
+# Confirms nvidia-smi sees the A100s, node-local scratch exists, torch sees CUDA,
+# and every model package imports under its Polaris PYTHONPATH.
+# Submit from the repo root:   qsub polaris_probe.pbs
+# PASS = the line "PROBE_OK" in polaris_logs/polaris_probe.o<jobid>.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+export REPO_ROOT="${PBS_O_WORKDIR}"
+
+# ---- Polaris env (base ALCF conda: torch 2.8 / cu12.9; +user netCDF4/zarr) ----
+module use /soft/modulefiles
+module load conda
+conda activate base
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+echo "=== polaris_probe: $(date -Iseconds) ==="
+echo "hostname=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "python=$(command -v python)"
+
+echo "--- nvidia-smi -L ---"
+nvidia-smi -L || echo "WARN: nvidia-smi -L failed"
+echo "--- GPU memory (nvidia-smi) ---"
+nvidia-smi --query-gpu=index,name,memory.total,driver_version --format=csv,noheader || true
+
+echo "--- node CPU / memory ---"
+echo "nproc=$(nproc)"
+free -g | awk 'NR<=2{print}'
+
+echo "--- node-local scratch candidates (for TMPDIR / inductor cache) ---"
+for d in /local/scratch "${PBS_JOBFS:-}" /tmp; do
+    [ -n "$d" ] && [ -d "$d" ] && echo "  present: $d  ($(df -h "$d" 2>/dev/null | awk 'NR==2{print $4" free"}'))"
+done
+
+echo "--- PBS_NODEFILE ---"
+if [ -n "${PBS_NODEFILE:-}" ]; then
+    echo "  NNODES=$(wc -l < "${PBS_NODEFILE}")"
+    cat "${PBS_NODEFILE}"
+fi
+
+echo "=== running toolchain import checks ==="
+python "${REPO_ROOT}/polaris_probe.py"
+rc=$?
+echo "=== polaris_probe done (python rc=${rc}) ==="
+exit ${rc}

@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ⬜ not started — handoff merged to `main` (PR #4, `4c283f2`); follow `polaris_handoff_prompt.md` |
+| Polaris (PBS) bring-up | 🟡 in progress — probe + **PanguWeather-SFNO** + **SI** 4-GPU smokes GREEN; all `polaris_*.pbs` authored. S2S/port blocked on ERA5 stage; makani/physicsnemo on a torch_harmonics conflict. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -27,9 +27,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 | Model | Midway | Polaris |
 |---|---|---|
-| S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⬜ |
-| S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⬜ |
-| SI | ✅ runs (Midway scripts GREEN) | ⬜ |
+| Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB, all imports) |
+| S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⛔ blocked on ERA5 stage (scripts ready) |
+| S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
+| SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
+| PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
+| Makani SFNO | — | 🟡 authored; blocked on login-node `pip install` |
+| PhysicsNeMo SFNO | — | 🟡 authored; blocked on login-node `pip install` |
 
 ## Next actions (pick from the top)
 
@@ -46,10 +50,25 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- _(none yet — claim your task here, e.g. "IN PROGRESS: Polaris probe (@you)")_
+- **Polaris SI smoke** running (job 7252286). **Deferred, ready:** ERA5 Globus stage
+  (unblocks S2S/port) and the login-node SFNO `pip install` (unblocks makani/physicsnemo).
 
 ## Decisions / changes log
 
+- **2026-07-14** — **Polaris (PBS) bring-up.** Confirmed cluster facts (`-A
+  lighthouse-uchicago`, 4×A100-40GB sm80, `debug` queue, `filesystems=home:eagle`,
+  `/local/scratch`); env = base ALCF conda (`module load conda`, torch 2.8/cu12.9) +
+  `pip install --user` netCDF4/zarr/**torch_harmonics 0.7.4** (0.9.1 ABI-breaks torch 2.8).
+  **Probe GREEN** (job 7251974). **PanguWeather-SFNO 4-GPU smoke GREEN** (job 7252271):
+  climatology CDF-5→NETCDF4 auto-prep + 1 bounded epoch, train loss 0.3411, DDP
+  validation, rc=0. Two traps recorded in `polaris_pbs_notes.md`: (1) Pangu `--debug`
+  hardcodes `world_size=1` → OOMs under `torchrun -n4` (bound with `--epochs 1`
+  instead); (2) Lustre needs `HDF5_USE_FILE_LOCKING=FALSE`. Authored all
+  `polaris_*.pbs` (S2S/port/SI/Pangu/makani/physicsnemo) + 3 data converters +
+  repointed configs. **S2S/port blocked on an ERA5 Globus stage** (not on Polaris);
+  **makani/physicsnemo blocked on login-node `pip install`** (deferred). Caches/TMPDIR
+  pinned to eagle (persistent), not node-local scratch (per user). Full detail:
+  `polaris_pbs_notes.md`.
 - **2026-07-13** — Model policy set to **main = Opus 4.7 (xhigh effort), subagents =
   Fable 5**. Trimmed CLAUDE.md to stay <200 lines while adding: filled the real
   Midway env paths, a per-model smoke table (what to run + PASS signal), the

@@ -1,0 +1,79 @@
+#!/bin/bash -l
+#PBS -N port_polaris_bench
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/port_polaris_bench.log
+# ============================================================================
+# S2S-Lightning (port) Polaris bench — PBS analog of midway_bench_nsys_port.sh.
+# The load-bearing port difference: Midway used `srun --ntasks-per-node=4` for
+# Lightning's SLURM launcher. Polaris has NO srun and Lightning must NOT detect
+# SLURM: drop srun entirely and let Lightning's subprocess/ddp launcher spawn the
+# 4 ranks from ONE `python`.  Trainer(devices=4, num_nodes=1, strategy="ddp").
+#
+# ⚠ BLOCKED ON DATA: reads exp2_polaris.yaml (ERA5), NOT staged on Polaris.
+#
+# Submit (4-GPU):  qsub polaris_bench_nsys_port.pbs
+# 1-GPU:           qsub -v NPROC=1 polaris_bench_nsys_port.pbs
+# Optional nsys:   qsub -v S2S_NSYS=1 polaris_bench_nsys_port.pbs
+# PASS = a new port_bench_results_polaris.csv row + the bench summary in the log.
+# Compare THROUGHPUT via samples_per_s_wall, never step_med (port NVTX window opens
+# after H2D — see midway_bench_nsys_port.sh header).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PORT_DIR="${PBS_O_WORKDIR}"
+REPO_ROOT="$(cd "${PORT_DIR}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}:${PYTHONPATH:-}"
+
+export S2S_BENCH=1
+export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-5}"
+export S2S_BENCH_STEPS="${S2S_BENCH_STEPS:-20}"
+export S2S_PRECISION=bf16-mixed
+export S2S_BENCH_CSV="${PORT_DIR}/port_bench_results_polaris.csv"
+
+NPROC="${NPROC:-4}"
+CONFIG_FILE="${REPO_ROOT}/s2s/v2.0/config/exp2_polaris.yaml"
+if [ "${NPROC}" = "1" ]; then DEVICES="0"; STRATEGY="auto"; else DEVICES="0 1 2 3"; STRATEGY="ddp"; fi
+
+echo "=== port_polaris_bench: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  devices='${DEVICES}'  strategy=${STRATEGY}"
+nvidia-smi -L
+
+DATA_DIR="$(python -c "import yaml; print(yaml.safe_load(open('${CONFIG_FILE}'))['S2S']['data_dir'])")"
+if [ ! -d "${DATA_DIR}" ]; then
+    echo "ERROR ERA5_NOT_STAGED: data_dir '${DATA_DIR}' does not exist (Globus-stage ERA5 first)."
+    exit 2
+fi
+
+export S2S_NVTX="${S2S_NSYS:-0}"
+if [ "${S2S_NSYS:-0}" = "1" ]; then
+    nsys profile --trace=cuda,nvtx,cudnn,cublas,osrt \
+        --capture-range=cudaProfilerApi --capture-range-end=stop \
+        --output="${PORT_DIR}/nsys_port_polaris_${PBS_JOBID%%.*}" --force-overwrite=true \
+        python "${PORT_DIR}/bench.py" --yaml_config "${CONFIG_FILE}" --config S2S \
+            --batch_size 1 --devices ${DEVICES} --strategy ${STRATEGY}
+else
+    python "${PORT_DIR}/bench.py" --yaml_config "${CONFIG_FILE}" --config S2S \
+        --batch_size 1 --devices ${DEVICES} --strategy ${STRATEGY}
+fi
+rc=$?
+echo "=== port_polaris_bench done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

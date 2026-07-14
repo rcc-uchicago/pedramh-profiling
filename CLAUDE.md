@@ -1,12 +1,12 @@
 # CLAUDE.md
 
-Guidance for Claude Code (claude.ai/code) working in this repository. What &
+Guidance for Claude Code working in this repository. What &
 why lives in **DESIGN.md** — read it first. This file is *how to work here*, and
 is the **single source of truth for cluster facts** (§Cluster facts below).
 
 ## Model policy
 
-**Main session: Opus 4.7 at xhigh reasoning effort** (confirm with `/model`).
+**Main session: Opus 4.8 at xhigh reasoning effort** (confirm with `/model`).
 **Subagents / agent teams: Fable 5** (`claude-fable-5`) — set it on every agent you
 spawn unless a task explicitly needs a different tier.
 

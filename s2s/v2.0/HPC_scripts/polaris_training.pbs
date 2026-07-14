@@ -1,0 +1,61 @@
+#!/bin/bash -l
+#PBS -N s2s_polaris_train
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/s2s_polaris_train.log
+# ============================================================================
+# S2S (canonical) Polaris training launcher — PBS analog of HPC_scripts/midway_training.sh.
+# Launcher: torchrun --standalone --nproc_per_node=4 (single node, 4 local ranks).
+#
+# ⚠ BLOCKED ON DATA: ERA5 HDF5 is NOT staged on Polaris (see polaris_bench.pbs /
+#   polaris_pbs_notes.md §4). Globus-stage it into exp2_polaris.yaml's data_dir first.
+#
+# This is the *full-training* launcher (config max_epochs); for a bounded proof use
+# polaris_bench.pbs. For real multi-hour training switch to `-q prod` + a longer
+# walltime (debug is capped at 1 h / 2 nodes).
+#
+# Submit:  qsub HPC_scripts/polaris_training.pbs   (1-GPU: qsub -v NPROC=1 ...)
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+S2S_ROOT="$(cd "${PBS_O_WORKDIR}/../.." && pwd)"
+V20="${S2S_ROOT}/v2.0"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${V20}:${PYTHONPATH:-}"
+
+NPROC="${NPROC:-4}"
+CONFIG_FILE="${V20}/config/exp2_polaris.yaml"
+RUN_NUM="polaris_train_${PBS_JOBID%%.*}"
+
+echo "=== s2s_polaris_train: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
+nvidia-smi -L
+
+DATA_DIR="$(python -c "import yaml; print(yaml.safe_load(open('${CONFIG_FILE}'))['S2S']['data_dir'])")"
+if [ ! -d "${DATA_DIR}" ]; then
+    echo "ERROR ERA5_NOT_STAGED: data_dir '${DATA_DIR}' does not exist (Globus-stage ERA5 first)."
+    exit 2
+fi
+
+cd "${S2S_ROOT}"
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    "${V20}/train.py" --yaml_config="${CONFIG_FILE}" --run_num="${RUN_NUM}"
+rc=$?
+echo "=== s2s_polaris_train done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

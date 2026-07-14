@@ -1,0 +1,104 @@
+# SI bench config for the Polaris E3SM smoke.
+# Derived from bench_midway.yaml, repointed to the CONVERTED E3SM stage produced by
+# convert_e3sm_for_si.py (upper-air keys renamed to '{VAR}_{int(level)}.0', npz->nc
+# stats with a 'level' dim). See polaris_pbs_notes.md §8 (SI conversion recipe).
+#
+# Structural changes vs bench_midway.yaml (all interdependent — do not partially revert):
+#   * model.SI_X.model: in_channels 302->306, out_channels 151->153, scalar_dim 3->0
+#     (306 = 2*153; 153 = 8*18 upper-air + 6 surface + 3 diagnostic). scalar_dim MUST
+#     be 0: with return_calendar False the DiT CalendarEmbedding would get no gradient
+#     and DDP crashes on unused params.
+#   * data: E3SM variable names + 18 E3SM plevs; return_calendar False (no co2 analog);
+#     mask_fill for every NaN-bearing field (SST in degC -> fill 0., not 270.);
+#     calendar 'noleap' (1460 files/yr even in leap years); mean/std_path -> nc stats.
+#   * batch_size 1 (A100-40GB: batch1 bf16 ~31 GB peak; do NOT raise without checking
+#     peak_mem_gb_max_rank in the CSV). Precision via SI_PRECISION=bf16-mixed env.
+#
+# NOTE: channel counts differ from the Midway bench (153/306 vs 151/302, 18 vs 26
+# levels, 3 vs 15 diagnostics) — Polaris numbers are same-order but NOT directly
+# comparable to Midway bench_results.csv rows (the bench CSV records config_sha16).
+
+model:
+    model_name: SI_X
+    lr: 5.0e-5
+    SI_X:
+        model:
+            in_channels: 306   # 2 * out_channels
+            out_channels: 153  # 8*18 + 6 + 3
+            dim: 1536
+            num_heads: 16
+            num_blocks: 24
+            patch_size: 1
+            scalar_dim: 0      # return_calendar False -> no CalendarEmbedding (DDP-safe)
+            c_grid_downsample: 4
+            c_grid_dim: 5      # 3 varying + 2 constant boundary
+            c_grid_embed_dim: 192
+            unpatch: vanilla
+            nlat: 45
+            nlon: 90
+            num_ca_blocks: 8
+            num_output_blocks: 2
+        scheduler:
+            num_steps: 10
+            sigma_coef: 1.0
+            train_sampler: power
+            l_max: 45
+            spectral_weight: 0.0
+            noise: spherical
+            model_last: False
+            integrator: euler
+            gamma: 0.5
+            S_churn: 0.0
+            S_noise: 1.0
+            noise_scale_path: null
+
+data:
+    data_dir: '/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage/h5'
+    upper_air_variables: ["T", "U", "V", "Z3", "RELHUM", "CLDICE", "CLDLIQ", "CLOUD"]
+    surface_variables: ["TREFHT", "PS", "PSL", "TMQ", "U10", "RHREFHT"]
+    diagnostic_variables: ["FSNTOA", "FSNT", "PRECT"]
+    constant_boundary_variables: ["TOPO", "PFTDATA_MASK"]
+    varying_boundary_variables: ["sol_in", "SST", "ICE"]
+    mask_fill: {'SST': 0., 'ICE': 0., 'TOPO': 0., 'PFTDATA_MASK': 0.}
+    train_year_start: 2015
+    train_year_end: 2016
+    val_year_start: 2015
+    val_year_end: 2016
+    mean_path: "/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage/normalize_mean.nc"
+    std_path: "/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage/normalize_std.nc"
+    forecast_lead_times: [1]
+    return_calendar: False
+    smooth_nan_boundaries: False
+    calendar: 'standard'   # NOT 'noleap': noleap is an idealized cftime calendar that
+                           # forces has_year_zero=True and crashes amip_new.py:667 (year-zero
+                           # mismatch). The smoke spans only 2015 + early-Jan 2016, which index
+                           # identically under standard (2015 is non-leap), so standard is correct
+                           # here. A FULL run crossing a leap year would need a loader fix for noleap.
+    data_timedelta_hours: 6
+    timedelta_hours: 24
+    has_year_zero: False
+    levels: [5, 11, 19, 29, 50, 70, 96, 145, 201, 257, 302, 386, 492, 609, 714, 850, 926, 998]
+    horizontal_resolution: [180, 360]
+    predict_delta: False
+    epsilon_factor: 0
+    val_num_inferences: 5
+    diagnostic_input: True
+
+    batch_size: 1
+    num_data_workers: 8
+
+training:
+    seed: 42
+    devices: 4
+    accelerator: gpu
+    strategy: ddp
+    precision: 32-true          # SI_PRECISION=bf16-mixed env override is applied by bench.py
+    check_val_every_n_epoch: 1
+    log_every_n_steps: 1000
+    max_epochs: 1
+    num_sanity_val_steps: 0
+    accumulate_grad_batches: 1
+    log_dir: /eagle/projects/lighthouse-uchicago/members/mehta5/si_logs/
+    project: amip_bench
+    wandb_mode: disabled
+    optimizer: adam
