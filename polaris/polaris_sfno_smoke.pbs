@@ -1,0 +1,113 @@
+#!/bin/bash -l
+#PBS -N makani_e3sm_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:40:00
+#PBS -j oe
+#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/makani_e3sm_sfno.log
+# ============================================================================
+# Makani SFNO Polaris smoke — E3SM per-sample h5 -> Makani "multifiles" -> tiny SFNO.
+# Pipeline (all compute on the node, no login-node work):
+#   1. pack the E3SM data into the multifiles contract (convert_e3sm_to_makani.py)
+#   2. render polaris/e3sm_smoke.yaml ({{OUTPUT_ROOT}}/{{EXP_DIR}} -> abs paths)
+#   3. launch `sfno_training.train_plasim` (nettype SFNO, --config e3sm_smoke)
+#
+# ⚠ ONE-TIME SETUP (LOGIN NODE — compute nodes have no network):
+#     bash <repo>/polaris_setup_sfno_venv.sh        # PASS = "SFNO_VENV_OK"
+# That builds the ISOLATED SFNO venv (torch_harmonics 0.9.x from source + makani +
+# physicsnemo). It is isolated on purpose: makani needs the public
+# `precompute_latitudes` (torch_harmonics 0.9.x only), while the base conda must keep
+# 0.7.4 — the GREEN Pangu-SFNO (7252271) and SI (7252700) smokes run on it.
+# This script preflights the import and tells you if the venv is missing.
+#
+# Submit (4-GPU):  qsub polaris/polaris_sfno_smoke.pbs   (1-GPU: qsub -v NPROC=1 ...)
+# PASS = "CONVERT_OK" (pack) + finite per-step loss lines + a checkpoint tar in EXP_DIR.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from makani_sfno/
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+SFNO_VENV=/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv
+
+module use /soft/modulefiles
+module load conda
+conda activate base                                # CUDA/NCCL env + the inherited torch 2.8
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${MAKANI_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"                 # torch_harmonics 0.9.x + makani + physicsnemo
+# MUST come with the venv: --system-site-packages re-enables the USER site (~/.local),
+# which site.py puts BEFORE the venv — the base env's --user torch_harmonics 0.7.4 would
+# shadow this venv's 0.9.x and makani dies on "cannot import name precompute_latitudes".
+export PYTHONNOUSERSITE=1
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
+export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
+export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+
+E3SM_ROOT=/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101
+OUTPUT_ROOT=/eagle/projects/lighthouse-uchicago/members/mehta5/data/e3sm_makani
+EXP_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/e3sm_sfno_smoke
+NPROC="${NPROC:-4}"
+
+echo "=== makani_e3sm_sfno: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  MAKANI_ROOT=${MAKANI_ROOT}"
+nvidia-smi -L
+
+# ---- install preflight (fail fast with the login-node fix) ----
+if ! python -c "import makani, physicsnemo" 2>/dev/null; then
+    echo "ERROR MAKANI_NOT_INSTALLED: 'import makani, physicsnemo' failed inside ${SFNO_VENV}."
+    echo "  Rebuild the venv on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    python -c "import makani" 2>&1 | tail -3
+    exit 3
+fi
+echo "venv python=$(command -v python)"
+python -c "import torch, torch_harmonics as th; print('torch', torch.__version__, '| torch_harmonics', th.__version__)"
+
+# ---- 1) pack the multifiles dataset (compute node) if missing ----
+mkdir -p "${OUTPUT_ROOT}" "${EXP_DIR}"
+if [ ! -f "${OUTPUT_ROOT}/train/2015.h5" ] || [ ! -f "${OUTPUT_ROOT}/metadata/data.json" ]; then
+    echo "--- packing E3SM -> makani multifiles (convert_e3sm_to_makani.py) ---"
+    python "${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py" \
+        --e3sm-root "${E3SM_ROOT}" --output-root "${OUTPUT_ROOT}" \
+        --train-years 2015 2015 --valid-years 2016 2016 --test-years 2016 2016 \
+        --max-samples-per-year 400 --validate || { echo "ERROR PACK_FAILED"; exit 2; }
+fi
+
+# ---- 2) render the smoke config ----
+RENDERED="${EXP_DIR}/e3sm_smoke.rendered.yaml"
+sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
+    "${MAKANI_ROOT}/polaris/e3sm_smoke.yaml" > "${RENDERED}"
+echo "rendered config -> ${RENDERED}"
+
+# ---- 3) launch the tiny SFNO smoke ----
+cd "${MAKANI_ROOT}"
+if [ "${NPROC}" = "1" ]; then
+    python -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_smoke \
+        --run_num 0 --batch_size 1 --multistep_count 1 --amp_mode bf16 --disable_ddp
+else
+    # makani's --batch_size is GLOBAL: it asserts global_batch_size % data_parallel_size == 0.
+    # Pass NPROC (=> 1 sample/GPU); --batch_size 1 on 4 ranks aborts with
+    # "global_batch_size=1 must be divisible by data parallel size 4".
+    #
+    # Use `python -m torch.distributed.run`, NOT `torchrun`: torch is inherited from the
+    # conda base (system-site), so no `torchrun` exists in the venv's bin — the bare name
+    # resolves to the BASE conda torchrun, whose shebang pins the BASE python, and the
+    # spawned ranks then die with "No module named 'makani'" (makani lives only in the venv).
+    python -m torch.distributed.run --standalone --nproc_per_node="${NPROC}" \
+        -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_smoke \
+        --run_num 0 --batch_size "${NPROC}" --multistep_count 1 --amp_mode bf16
+fi
+rc=$?
+echo "=== makani_e3sm_sfno done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}
