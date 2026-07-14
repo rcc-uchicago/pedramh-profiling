@@ -39,7 +39,8 @@ conda activate base                       # base keeps torch_harmonics 0.7.4 (Pa
 # and NOT in a private ~/.local, so any member can run this).
 # shellcheck disable=SC1091
 source "${V20_DIR}/../../polaris_env.sh" || exit 2
-export WANDB_MODE=offline
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export MPLBACKEND=Agg

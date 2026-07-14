@@ -26,12 +26,16 @@
 #   PYTHONNOUSERSITE does NOT block PYTHONPATH. The SFNO scripts assert torch_harmonics
 #   resolves inside their venv, so a leak fails loudly instead of silently.
 #
-# Run on a LOGIN node: compute nodes have no outbound network.
+# Run on a LOGIN node.
+# (Precisely: compute nodes DO reach the internet, but only through the ALCF proxy that
+# `module load conda` exports — verified on-node, job 7253810: pypi.org -> HTTP 200. A pip
+# install from a job would therefore work; we keep this on the login node because burning
+# GPU-hours on downloads is wasteful, not because it is impossible.)
 # ============================================================================
 set -uo pipefail
 
 if [[ "$(hostname)" != *login* ]]; then
-    echo "ERROR WRONG_NODE: run this on a Polaris LOGIN node (compute nodes have no network)."
+    echo "ERROR WRONG_NODE: run this on a Polaris LOGIN node (do not spend GPU-hours on pip)."
     exit 2
 fi
 

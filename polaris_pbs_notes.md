@@ -36,6 +36,51 @@ this doc discharges.
 | Nodefile | `$PBS_NODEFILE`; `NNODES=$(wc -l < $PBS_NODEFILE)` | probe |
 | Project storage | `/eagle/projects/lighthouse-uchicago` = `/eagle/lighthouse-uchicago` (both → `/lus/eagle/projects/lighthouse-uchicago`) | `readlink -f` |
 
+**Compute-node networking — CORRECTED 2026-07-14.** Several places in this repo said
+"compute nodes have no outbound network". **That is wrong.** Per ALCF's docs the proxy is the
+*only* route out, but it does work from compute nodes:
+
+```bash
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+export ftp_proxy="http://proxy.alcf.anl.gov:3128"
+```
+
+`module load conda` already exports `http_proxy`/`https_proxy` (not `ftp_proxy`), so every
+`polaris_*.pbs` has them. Measured on-node (job **7253810**, `x3206c0s7b1n0`):
+
+| from a compute node | result |
+|---|---|
+| `https://api.wandb.ai/healthz` via proxy | **HTTP 200** |
+| `https://pypi.org/simple/` via proxy | **HTTP 200** |
+| same, with the proxy unset | **HTTP 000** (no route) |
+
+Consequences: **W&B can log online from a job** (`qsub -v WANDB_MODE=online …`, see §9), and
+a pip install from a job *would* work — we still keep installs on the login node because they
+waste allocation, not because they are impossible.
+
+> ⚠️ A trap this session walked into: the FIRST version of that probe called
+> `HTTP 404` a failure. A 404 is the server *answering* — it is proof of connectivity, and
+> `urllib` raising `HTTPError` means the same. The probe reported "compute nodes CANNOT reach
+> W&B" while its own output showed they could. Read what the check actually measured.
+
+**W&B online logging: PROVEN from a compute node** (job **7253823**, `x3206c0s7b1n0`). A real
+run uploaded live through the proxy and was read back from the server afterwards:
+`polaris-connectivity-check`, state `finished`, 5 history points —
+`wandb.ai/rmehta1987-the-university-of-chicago/pedramh-profiling/runs/rh6142uo`. So
+`qsub -v WANDB_MODE=online …` works; offline remains the default (a network hiccup can never
+fail a run, and a preempted job still leaves a clean local record to `wandb sync` later).
+
+> Two traps found while proving it, both worth knowing:
+> * **`wandb.Api().viewer` is a PROPERTY, not a method.** Calling `viewer()` raises
+>   `TypeError: 'User' object is not callable` — which reads exactly like an auth failure but
+>   is auth *succeeding*. Our setup script had this bug; fixed.
+> * **A bare key in `~/.netrc` is not a netrc.** wandb writes
+>   `machine api.wandb.ai / login user / password <key>`; a raw token on line 1 makes
+>   `netrc.netrc()` raise `NetrcParseError` **with the key in the message** — i.e. the
+>   malformed file leaks the secret into any log that parses it. Keep `~/.netrc` at mode 600
+>   and in proper format; prefer `wandb login` over hand-editing.
+
 **PBS output-file gotchas (both bit us):**
 1. `#PBS -o polaris_logs/` (a *directory*) makes PBS write `polaris_logs/<full_jobid>.OU`
    (with `-j oe`), **not** `<jobname>.o<seq>` — this is why the probe's log is named

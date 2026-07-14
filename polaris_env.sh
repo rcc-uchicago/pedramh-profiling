@@ -61,9 +61,29 @@ export POLARIS_LOG_DIR="${MEMBER_ROOT}/polaris_logs"
 mkdir -p "${TMPDIR}" "${TORCHINDUCTOR_CACHE_DIR}" "${TRITON_CACHE_DIR}" "${POLARIS_LOG_DIR}" 2>/dev/null
 
 # --- knobs every model needs on this cluster --------------------------------
-export WANDB_MODE=offline
 export HDF5_USE_FILE_LOCKING=FALSE          # Lustre: h5py/netCDF locking must be off
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# --- Weights & Biases -------------------------------------------------------
+# Default OFFLINE so a run never blocks or fails on a missing API key, but this is now an
+# OVERRIDE, not a hard pin:  qsub -v WANDB_MODE=online <script>
+#
+# Compute nodes CAN reach W&B. Verified on-node (job 7253810, x3206c0s7b1n0):
+#   https://api.wandb.ai/healthz -> HTTP 200, https://pypi.org/simple/ -> HTTP 200,
+# via the ALCF proxy that `module load conda` exports
+# (https_proxy=http://proxy.alcf.anl.gov:3128). A DIRECT connection fails (HTTP 000) — only
+# the proxy works, so the module must be loaded before anything tries to talk to W&B.
+# (An earlier note in this repo claimed compute nodes have no outbound network at all. That
+# was wrong: they have no DIRECT route. pip-installing from a job would also work — we still
+# don't, because it wastes allocation, not because it can't.)
+#
+# Online needs a key: run polaris_setup_wandb.sh once on a login node. Offline runs write
+# to $WANDB_DIR and can be uploaded later from a LOGIN node with `wandb sync`.
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export WANDB_DIR="${MEMBER_ROOT}/wandb"          # per-user; never a shared dir
+export WANDB_CACHE_DIR="${MEMBER_ROOT}/wandb/.cache"
+export WANDB_PROJECT="${WANDB_PROJECT:-pedramh-profiling}"
+mkdir -p "${WANDB_DIR}" "${WANDB_CACHE_DIR}" 2>/dev/null
 
 # --- SFNO venv (makani / physicsnemo only): prefer your own, else the shared one ---
 if [ -n "${POLARIS_SFNO_VENV:-}" ]; then

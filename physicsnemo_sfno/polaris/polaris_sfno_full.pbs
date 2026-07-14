@@ -1,0 +1,158 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_e3sm_sfno_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -j oe
+# ============================================================================
+# PhysicsNeMo SFNO on E3SM — FULL TRAINING. Sibling of polaris/polaris_sfno_smoke.pbs.
+#
+# WHAT DIFFERS FROM THE SMOKE:
+#   model    model/tiny_sfno            -> model/sfno   (conf/config_e3sm_sfno_full.yaml)
+#   bounds   1 epoch / 10 iterations    -> training/sfno.yaml's own (500 epochs / inf iters)
+#   data     64 train + 16 val samples  -> the full zarr stores (a separate prep job)
+#   queue    debug (1 h)                -> preemptable (24 h, resumable)
+#
+# PREREQUISITES (both fail loudly below):
+#   1. bash <repo>/polaris_setup_sfno_venv.sh              # PASS = SFNO_VENV_OK
+#   2. qsub polaris/polaris_zarr_e3sm_full.pbs             # PASS = ZARR_FULL_COMPLETE (~1 TB, hours)
+#
+# ⚠ RESUME IS NOT VERIFIED HERE. The recipe writes checkpoints (the smoke logged
+#   "Saved training checkpoint"), and train.py calls load_checkpoint on startup, so it
+#   SHOULD resume after a preemption — but we have not observed it resume, only save.
+#   Watch the first re-submit: if the epoch counter restarts at 0, it is not resuming and
+#   this script needs a `--resume`-style knob wired in before any long run is trusted.
+#   Do not assume; read the log.
+#
+# Submit from physicsnemo_sfno/:   qsub polaris/polaris_sfno_full.pbs
+#
+# PASS is NOT "rc=0" — a preempted job is killed, which is normal.
+# Progress = "Epoch N Metrics ... loss = ..." advancing across re-submits.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${PN_ROOT}/examples/weather/unified_recipe"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${PN_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export MLFLOW_ALLOW_FILE_STORE=true      # train.py calls initialize_mlflow() unconditionally
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+# NOTE: never add $POLARIS_TOPUPS here — its torch_harmonics 0.7.4 would shadow the venv's
+# 0.9.x (PYTHONPATH outranks site-packages). The guard below catches it.
+
+DATA="${SEQZARR_FULL_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_full}"
+NPROC="${NPROC:-4}"
+
+echo "=== physicsnemo_e3sm_sfno_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
+echo "data=${DATA}"
+nvidia-smi -L
+polaris_env_report
+
+if ! python -c "import physicsnemo, warp, makani" 2>/dev/null; then
+    echo "ERROR PHYSICSNEMO_NOT_INSTALLED inside ${SFNO_VENV}."
+    echo "  Rebuild on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    python -c "import physicsnemo, warp, makani" 2>&1 | tail -3
+    exit 3
+fi
+python - <<'PY' || exit 3
+import os, sys, torch_harmonics
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED: %s (v%s) is not inside %s"
+          % (got, torch_harmonics.__version__, venv))
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+PY
+
+# PROVENANCE GUARD: physicsnemo is installed EDITABLE, so a shared venv imports it from its
+# BUILDER'S checkout — you would profile someone else's working tree. 24 h of that is worse
+# than 4 minutes of it, so this matters more here than in the smoke.
+python - "${PN_ROOT}" "${SFNO_VENV}" <<'PY' || exit 3
+import os, sys, physicsnemo
+want, venv = (os.path.realpath(a) for a in sys.argv[1:3])
+got = os.path.realpath(os.path.dirname(os.path.dirname(physicsnemo.__file__)))
+if got == want or got.startswith(venv + os.sep):
+    print("provenance OK: physicsnemo from %s" % got)
+else:
+    print("ERROR PHYSICSNEMO_WRONG_CHECKOUT")
+    print("  imported physicsnemo from : %s" % got)
+    print("  this job's repo is        : %s" % want)
+    print("  Fix (once):  bash <your-repo>/polaris_setup_sfno_venv.sh")
+    sys.exit(3)
+PY
+
+# ---- data preflight: the FULL stores, not the smoke's 64+16 samples ----
+for store in e3sm_train.zarr e3sm_val.zarr; do
+    if [ ! -d "${DATA}/${store}" ]; then
+        echo "ERROR FULL_ZARR_MISSING: ${DATA}/${store}"
+        echo "  Full training needs the full stores; the smoke's hold 64 train + 16 val"
+        echo "  samples of 2015 only. Build them first (~1 TB, hours):"
+        echo "      qsub polaris/polaris_zarr_e3sm_full.pbs     # PASS = ZARR_FULL_COMPLETE"
+        exit 2
+    fi
+done
+python - "${DATA}/e3sm_train.zarr" <<'PY' || exit 2
+import sys, zarr
+z = zarr.open(sys.argv[1], mode="r")
+n = z["predicted"].shape[0]
+print("train store: %d samples" % n)
+# The smoke's store is 64. Refuse to start a multi-day run against smoke-sized data: it
+# would train, log a falling loss, and mean nothing.
+if n < 1000:
+    print("ERROR STORE_LOOKS_LIKE_A_SMOKE: only %d samples — expected tens of thousands." % n)
+    print("  Re-run polaris/polaris_zarr_e3sm_full.pbs, or point SEQZARR_FULL_DATA elsewhere.")
+    sys.exit(2)
+PY
+
+cd "${RECIPE}"
+# No training.stages.0.* overrides: those are the SMOKE's bounds. training/sfno.yaml already
+# carries num_epochs 500 / max_iterations .inf, selected via conf/config_e3sm_sfno_full.yaml
+# (which differs from the smoke's config by one line: model/tiny_sfno -> model/sfno).
+LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno_full
+    "curated_dataset.train_dataset_filename=${DATA}/e3sm_train.zarr"
+    "curated_dataset.val_dataset_filename=${DATA}/e3sm_val.zarr"
+    "dataset.dataset_filename=${DATA}/e3sm_train.zarr"
+    curated_dataset.nr_predicted_variables=157
+    curated_dataset.nr_unpredicted_variables=5
+    "transform.transformed_shape=[180,360]"
+    validation.num_steps=2)
+# validation.num_steps must be >= 2: the post-validation plot indexes ax[0, t], and
+# matplotlib squeezes the axes array to 1-D when a grid dimension is 1.
+
+if [ "${NPROC}" = "1" ]; then
+    python "${LAUNCH_ARGS[@]}"
+else
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        --redirects 3 --tee 3 "${LAUNCH_ARGS[@]}"
+fi
+rc=$?
+echo "=== physicsnemo_e3sm_sfno_full done (rc=${rc}) $(date -Iseconds) ==="
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: on preemptable, a non-zero rc is most often a PREEMPTION rather than a bug."
+    echo "      If there is no traceback above, re-submit. CHECK that it resumes (see the"
+    echo "      header): if the epoch counter restarts at 0, resume is NOT working."
+fi
+exit ${rc}

@@ -50,7 +50,8 @@ source "${SFNO_VENV}/bin/activate"                 # torch_harmonics 0.9.x + mak
 # which site.py puts BEFORE the venv — the base env's --user torch_harmonics 0.7.4 would
 # shadow this venv's 0.9.x and makani dies on "cannot import name precompute_latitudes".
 export PYTHONNOUSERSITE=1
-export WANDB_MODE=offline
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8

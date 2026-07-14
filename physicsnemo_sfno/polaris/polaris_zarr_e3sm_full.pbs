@@ -1,0 +1,104 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_zarr_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=12:00:00
+#PBS -j oe
+# ============================================================================
+# Build the FULL E3SM -> SeqZarr stores — the data step for polaris/polaris_sfno_full.pbs.
+#
+# Separate from the trainer because the smoke's 80 samples convert in a minute, while the
+# full conversion is 51,100 samples and takes hours; done inline it would eat the training
+# walltime, and a preemption mid-write would leave a truncated store the trainer would read
+# without complaint.
+#
+# ⚠ SIZE: the smoke's 80 samples produced 1.7 GB, so the full stores are order **1 TB**.
+#   Check quota first:  myquota
+#
+# ⚠ NOT RESUMABLE. The converter writes a store from scratch; if this job is preempted the
+#   partial store is DELETED on the next run rather than appended to, because a half-written
+#   zarr is indistinguishable from a complete one to the trainer. That means the job has to
+#   finish inside one 12 h window. If it cannot, split it by year with --years/--start-sample
+#   into several stores, or ask for a demand/prod allocation.
+#
+# Submit from physicsnemo_sfno/:   qsub polaris/polaris_zarr_e3sm_full.pbs
+# PASS = "CONVERT_OK" twice AND "ZARR_FULL_COMPLETE" on the last line.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+# Its own root — never overwrite the smoke's store, which must keep working.
+DATA="${SEQZARR_FULL_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_full}"
+# Year split. E3SM is one continuous SSP245 run, so train/val years must not overlap
+# (DESIGN §4.3: no train/val leakage).
+TRAIN_YEARS="${TRAIN_YEARS:-$(seq 2015 2044 | tr '\n' ' ')}"
+VAL_YEARS="${VAL_YEARS:-$(seq 2045 2047 | tr '\n' ' ')}"
+
+echo "=== physicsnemo_zarr_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "E3SM_ROOT = ${E3SM_ROOT}"
+echo "out       = ${DATA}"
+echo "train years: ${TRAIN_YEARS}"
+echo "val years  : ${VAL_YEARS}"
+df -h "$(dirname "${DATA}")" | awk 'NR<=2'
+mkdir -p "${DATA}"
+
+python - "${TRAIN_YEARS}" "${VAL_YEARS}" <<'PY' || exit 2
+import sys
+tr = set(int(x) for x in sys.argv[1].split())
+va = set(int(x) for x in sys.argv[2].split())
+if tr & va:
+    print("ERROR SPLIT_OVERLAP: train and val share %s — train/val leakage." % sorted(tr & va))
+    sys.exit(2)
+bad = (tr | va) - set(range(2015, 2050))
+if bad:
+    print("ERROR YEAR_OUT_OF_RANGE: %s (E3SM covers 2015-2049)" % sorted(bad)); sys.exit(2)
+print("split OK: %d train years, %d val years, no overlap" % (len(tr), len(va)))
+PY
+
+# No --max-samples / --start-sample: those are the SMOKE's bounds (64 train, 16 val).
+# shellcheck disable=SC2086
+python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${DATA}/e3sm_train.zarr" \
+    --years ${TRAIN_YEARS} || { echo "ERROR ZARR_TRAIN_FAILED"; exit 2; }
+# shellcheck disable=SC2086
+python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${DATA}/e3sm_val.zarr" \
+    --years ${VAL_YEARS} || { echo "ERROR ZARR_VAL_FAILED"; exit 2; }
+
+# Prove the stores are the size the year span implies — a silently short store trains fine.
+python - "${DATA}" "${TRAIN_YEARS}" "${VAL_YEARS}" <<'PY' || exit 2
+import sys, zarr
+data, tr, va = sys.argv[1], sys.argv[2].split(), sys.argv[3].split()
+ok = True
+for store, years in (("e3sm_train.zarr", tr), ("e3sm_val.zarr", va)):
+    z = zarr.open("%s/%s" % (data, store), mode="r")
+    n = z["predicted"].shape[0]
+    # E3SM is a NOLEAP calendar: every year is exactly 1460 samples (365 days x 4/day),
+    # 2016 and 2020 included. A leap year would be 1464 — if you ever see that, the source
+    # archive changed and every year-count assumption here needs re-checking.
+    want = len(years) * 1460
+    print("  %-16s %d samples (expected ~%d from %d years)" % (store, n, want, len(years)))
+    if n < want * 0.99:
+        print("    ERROR STORE_SHORT: %s has %d, expected ~%d" % (store, n, want)); ok = False
+sys.exit(0 if ok else 2)
+PY
+echo "ZARR_FULL_COMPLETE"
+echo "=== physicsnemo_zarr_full done (rc=0) $(date -Iseconds) ==="

@@ -1,0 +1,162 @@
+#!/bin/bash -l
+#PBS -N makani_e3sm_sfno_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -j oe
+# ============================================================================
+# Makani SFNO on E3SM — FULL TRAINING. Sibling of polaris_sfno_smoke.pbs (unchanged).
+#
+# WHAT DIFFERS FROM THE SMOKE — the smoke is NOT a small version of this:
+#   model    embed_dim 16 / 2 layers   -> 384 / 8   (54,258 params -> ~O(100M))
+#   samples  4 per epoch, 1 epoch      -> 8192 per epoch, 100 epochs
+#   data     400 samples of 2015       -> 2015-2049 (51,100 samples, a separate pack job)
+#   queue    debug (1 h)               -> preemptable (24 h, resumable)
+#   run_num  per-job (fresh)           -> STABLE (resume across preemptions)
+#   config   polaris/e3sm_smoke.yaml   -> polaris/e3sm_full.yaml
+# The model dims come from the group's own plasim_sim52_baseline.yaml, not from us.
+#
+# TWO PREREQUISITES, both fail loudly below rather than producing a quietly wrong run:
+#   1. bash <repo>/polaris_setup_sfno_venv.sh          # PASS = SFNO_VENV_OK
+#   2. qsub polaris/polaris_pack_e3sm_full.pbs         # PASS = PACK_FULL_COMPLETE (~750 GB, hours)
+#
+# ⚠ RUN_NUM IS STABLE HERE, AND THAT IS DELIBERATE — it is the exact opposite of the smoke.
+#   train_plasim auto-resumes from a checkpoint. For the SMOKE that is a hazard: a re-run
+#   resumes a finished run, trains zero steps and still exits 0 (the false green of job
+#   7253454), so the smoke keys run_num to $PBS_JOBID to force a fresh start. For FULL
+#   training on a preemptable queue, that same auto-resume is the feature that makes the
+#   run survive being killed. Same mechanism, opposite intent.
+#
+# Submit from makani_sfno/:
+#     qsub polaris/polaris_sfno_full.pbs
+#     qsub -v RUN_NUM=full02 polaris/polaris_sfno_full.pbs
+#
+# PASS is NOT "rc=0" — a preempted job is killed, which is normal.
+# Progress = "Total training time" > 0 and the epoch counter advancing across re-submits.
+# DONE    = the epoch counter reaches max_epochs (100).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${MAKANI_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+# A --system-site-packages venv re-enables the USER site, which site.py ranks ABOVE the venv.
+export PYTHONNOUSERSITE=1
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export PYTHONPATH="${MAKANI_ROOT}:${PYTHONPATH:-}"
+# NOTE: do NOT add $POLARIS_TOPUPS to PYTHONPATH here. Its torch_harmonics 0.7.4 outranks
+# this venv's 0.9.x (PYTHONPATH beats site-packages, and PYTHONNOUSERSITE does not stop it),
+# and makani dies on "cannot import name precompute_latitudes". The guard below catches it.
+
+OUTPUT_ROOT="${MAKANI_FULL_DATA:-${MEMBER_ROOT}/data/e3sm_makani_full}"
+EXP_DIR="${MEMBER_ROOT}/runs/e3sm_sfno_full"
+NPROC="${NPROC:-4}"
+RUN_NUM="${RUN_NUM:-full01}"          # STABLE — see the header
+mkdir -p "${EXP_DIR}"
+
+echo "=== makani_e3sm_sfno_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
+echo "data=${OUTPUT_ROOT}  exp_dir=${EXP_DIR}"
+nvidia-smi -L
+polaris_env_report
+
+if ! python -c "import makani, physicsnemo" 2>/dev/null; then
+    echo "ERROR MAKANI_NOT_INSTALLED: 'import makani, physicsnemo' failed inside ${SFNO_VENV}."
+    echo "  Rebuild the venv on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    echo "  BUT FIRST check PYTHONPATH for a stray \$POLARIS_TOPUPS — its torch_harmonics 0.7.4"
+    echo "  shadows this venv's 0.9.x and produces exactly this failure:"
+    echo "    PYTHONPATH=${PYTHONPATH:-<empty>}"
+    python -c "import makani" 2>&1 | tail -3
+    exit 3
+fi
+python - <<'PY' || exit 3
+import os, sys, torch_harmonics
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED")
+    print("  imported torch_harmonics from : %s (v%s)" % (got, torch_harmonics.__version__))
+    print("  expected it inside the venv   : %s" % venv)
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+print("torch_harmonics OK: v%s from the venv" % torch_harmonics.__version__)
+PY
+
+# ---- data preflight: the FULL pack, not the smoke's ----
+if [ ! -f "${OUTPUT_ROOT}/stats/global_means.npy" ] || [ ! -d "${OUTPUT_ROOT}/train" ]; then
+    echo "ERROR FULL_PACK_MISSING: ${OUTPUT_ROOT}"
+    echo "  Full training needs the full pack (2015-2049), which the smoke's store is NOT:"
+    echo "  the smoke packs 400 samples of 2015 only. Build it first (~750 GB, hours):"
+    echo "      qsub polaris/polaris_pack_e3sm_full.pbs        # PASS = PACK_FULL_COMPLETE"
+    exit 2
+fi
+_ntrain=$(find "${OUTPUT_ROOT}/train" -name '*.h5' 2>/dev/null | wc -l)
+if [ "${_ntrain}" -lt 10 ]; then
+    echo "ERROR PACK_LOOKS_LIKE_A_SMOKE: only ${_ntrain} train file(s) in ${OUTPUT_ROOT}/train."
+    echo "  The full pack should hold one file per training year (~30). Refusing to run a"
+    echo "  100-epoch job against smoke-sized data — it would 'succeed' and mean nothing."
+    exit 2
+fi
+echo "train files: ${_ntrain}"
+
+# ---- render the full config ----
+RENDERED="${EXP_DIR}/e3sm_full.rendered.yaml"
+sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
+    "${MAKANI_ROOT}/polaris/e3sm_full.yaml" > "${RENDERED}" || exit 2
+echo "rendered config -> ${RENDERED}"
+
+CKPT="${EXP_DIR}/e3sm_full/${RUN_NUM}/training_checkpoints/ckpt_mp0_v0.tar"
+if [ -f "${CKPT}" ]; then
+    echo "RESUMING from ${CKPT} ($(date -r "${CKPT}" -Iseconds))"
+else
+    echo "starting fresh (no checkpoint at ${CKPT})"
+fi
+
+cd "${MAKANI_ROOT}"
+# --batch_size is GLOBAL and must divide the rank count (makani asserts
+# global_batch_size % data_parallel_size == 0). The config's 8 works for 4 ranks
+# (2/GPU); override with -v BATCH=<n> if you hit OOM.
+BATCH="${BATCH:-8}"
+if [ $((BATCH % NPROC)) -ne 0 ]; then
+    echo "ERROR BATCH_NOT_DIVISIBLE: --batch_size ${BATCH} must be a multiple of ${NPROC} ranks."
+    exit 2
+fi
+# `python -m torch.distributed.run`, not `torchrun`: torch is inherited from the base conda,
+# so the venv has no torchrun and the bare name resolves to the BASE one, whose shebang pins
+# the wrong python — the ranks would then miss makani.
+python -m torch.distributed.run --standalone --nproc_per_node="${NPROC}" \
+    --redirects 3 --tee 3 \
+    -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_full \
+    --run_num "${RUN_NUM}" --batch_size "${BATCH}" --multistep_count 1 --amp_mode bf16
+rc=$?
+
+# The smoke's NO_CHECKPOINT gate does not apply here: for full training, resuming a finished
+# run and exiting immediately is the CORRECT behaviour once max_epochs is reached. Report
+# what happened instead of guessing.
+echo "=== makani_e3sm_sfno_full done (rc=${rc}) $(date -Iseconds) ==="
+if [ -f "${CKPT}" ]; then
+    echo "checkpoint now: $(date -r "${CKPT}" -Iseconds)  ($(du -h "${CKPT}" | cut -f1))"
+fi
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: on preemptable, a non-zero rc is most often a PREEMPTION, not a bug. If there"
+    echo "      is no traceback above, re-submit the same command — it resumes from the checkpoint."
+fi
+exit ${rc}

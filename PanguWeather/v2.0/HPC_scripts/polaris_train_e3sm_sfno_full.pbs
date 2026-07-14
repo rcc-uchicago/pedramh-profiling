@@ -1,0 +1,130 @@
+#!/bin/bash -l
+#PBS -N pangu_e3sm_sfno_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -j oe
+# ============================================================================
+# PanguWeather SFNO on E3SM — FULL TRAINING (not the smoke).
+#
+# Sibling of polaris_train_e3sm_sfno.pbs, which is the bounded smoke. That script stays
+# as-is: the smoke is the thing you run to prove the code works, and it must stay cheap.
+#
+# WHAT DIFFERS FROM THE SMOKE (only these; the model was already full size):
+#   queue      debug (1 h cap)      -> preemptable (up to 72 h; 24 h here, see below)
+#   epochs     --epochs 1           -> the config's max_epochs (100), i.e. no CLI cap
+#   years      2015-2016 (1 year)   -> $TRAIN_YEAR_START..$TRAIN_YEAR_END (default all 35)
+#   run_num    per-job              -> STABLE (resume across preemptions)
+#   resume     irrelevant           -> mandatory
+# The network is unchanged: the smoke already runs the real SFNO (embed_dim 512,
+# num_layers 12) on real data — it is bounded by TIME, not by size. So this is the one
+# model where "full training" really is just turning the bounds off.
+#
+# ⚠ PREEMPTABLE MEANS YOUR JOB WILL BE KILLED, possibly minutes in, with no warning.
+#   That is the price of >1 h on a single node (prod needs >=10 nodes; debug caps at 1 h).
+#   Training therefore MUST resume, and this script keeps RUN_NUM stable so it does:
+#   train.py reconstructs checkpoint_path from exp_dir/config/run_num and restores when
+#   the file exists. Re-submit the SAME command after a preemption and it picks up.
+#   Chain it if you like:  qsub -W depend=afterany:<jobid> polaris_train_e3sm_sfno_full.pbs
+#
+# Submit from PanguWeather/v2.0:
+#     qsub HPC_scripts/polaris_train_e3sm_sfno_full.pbs
+#     qsub -v RUN_NUM=full02,TRAIN_YEAR_END=2030 HPC_scripts/polaris_train_e3sm_sfno_full.pbs
+#
+# PASS is NOT "rc=0" — a preempted job is killed and that is normal and expected.
+# Progress = the "Epoch [n/N]" lines advancing and a checkpoint newer than the last run in
+#   ${MEMBER_ROOT}/runs/pangu_sfno_full/<config>/<RUN_NUM>/training_checkpoints/
+# DONE = the epoch counter reaches max_epochs and "DONE ---- rank 0" appears.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics 0.7.4 / tensorly, which the base conda
+# lacks. Shared and world-readable on purpose: a `pip install --user` copy lives in a 0700
+# home and is readable by one person, so every other member's job dies on ModuleNotFoundError.
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+NPROC="${NPROC:-4}"
+# STABLE by default — the opposite of the smoke, which keys run_num to $PBS_JOBID so that
+# every smoke starts clean (a resumed smoke would train 0 steps and still exit 0 — that
+# false green cost us job 7253454). Full training wants exactly the resume the smoke forbids.
+RUN_NUM="${RUN_NUM:-full01}"
+TRAIN_YEAR_START="${TRAIN_YEAR_START:-2015}"
+# E3SM covers 2015..2049. train.py's loop is `range(train_year_start, train_year_end)`, so
+# train_year_end is EXCLUSIVE: 2049 trains through 2048 and leaves 2049 for validation.
+TRAIN_YEAR_END="${TRAIN_YEAR_END:-2049}"
+
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+EXP_DIR="${MEMBER_ROOT}/runs/pangu_sfno_full"
+CONFIG_FILE="${EXP_DIR}/E3SM_SFNO_H5_POLARIS.full.rendered.yaml"
+mkdir -p "${EXP_DIR}"
+
+echo "=== pangu_e3sm_sfno_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
+echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}"
+nvidia-smi -L
+polaris_env_report
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}" || exit 2
+
+# Full-run overrides on the rendered copy (never the template — the smoke reads it too).
+python - "${CONFIG_FILE}" "${TRAIN_YEAR_START}" "${TRAIN_YEAR_END}" "${EXP_DIR}" <<'PY' || exit 2
+import sys, re
+path, y0, y1, exp_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+src = open(path).read()
+# Line-scoped substitution: these keys appear once each in the BASE block the SFNO section
+# inherits. A YAML round-trip would reorder/strip the anchors (&SFNO / <<: *BASE) the file
+# depends on, so patch the lines in place instead.
+for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", exp_dir)):
+    new, n = re.subn(r"(?m)^(\s*%s:\s*)\S+.*$" % key, lambda m: m.group(1) + str(val), src, count=1)
+    if n != 1:
+        print("ERROR CONFIG_PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
+        sys.exit(2)
+    src = new
+open(path, "w").write(src)
+print("config patched: train_year_start=%s train_year_end=%s exp_dir=%s" % (y0, y1, exp_dir))
+PY
+
+CKPT="${EXP_DIR}/$(basename "${CONFIG_FILE}" .yaml)/${RUN_NUM}/training_checkpoints/ckpt.tar"
+if [ -f "${CKPT}" ]; then
+    echo "RESUMING from ${CKPT} ($(du -h "${CKPT}" | cut -f1), $(date -r "${CKPT}" -Iseconds))"
+else
+    echo "starting fresh (no checkpoint at ${CKPT})"
+fi
+
+# NOTE: no --epochs. That flag is the SMOKE's bound (train.py:3562 overrides max_epochs when
+# args.epochs > 0); omitting it lets the config's max_epochs: 100 stand.
+# Do NOT add --debug: it hardcodes world_size=1, so under torchrun every rank would init as
+# rank-0-on-GPU-0 and OOM (job 7252261).
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    "${V20_DIR}/train.py" \
+    --yaml_config="${CONFIG_FILE}" \
+    --config=SFNO \
+    --run_num="${RUN_NUM}"
+rc=$?
+
+echo "=== pangu_e3sm_sfno_full done (rc=${rc}) $(date -Iseconds) ==="
+# rc!=0 on preemptable usually means PREEMPTED, not broken. Say so, so nobody "fixes" a
+# working run: PBS kills the job, torchrun reports a non-zero rc, and the fix is to
+# re-submit — the checkpoint carries the progress.
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: a non-zero rc on the preemptable queue is most often a PREEMPTION, not a bug."
+    echo "      Check for a traceback above. If there is none, just re-submit the same command;"
+    echo "      it resumes from ${CKPT}."
+fi
+exit ${rc}

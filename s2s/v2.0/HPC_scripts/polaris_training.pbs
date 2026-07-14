@@ -36,7 +36,8 @@ conda activate base
 # and NOT in a private ~/.local, so any member can run this).
 # shellcheck disable=SC1091
 source "${S2S_ROOT}/../polaris_env.sh" || exit 2
-export WANDB_MODE=offline
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8

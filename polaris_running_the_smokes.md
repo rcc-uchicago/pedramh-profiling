@@ -1,8 +1,10 @@
 # Running the four test jobs on Polaris
 
-Hi Jess — this page walks you through running four of our weather models on Polaris. Each one
+This page walks you through running four of our weather models on Polaris. Each one
 is a short **test run**: it trains for a few minutes on one machine, just far enough to prove
-the model still runs from start to finish. You are not training a real model here, and you
+the model still runs from start to finish. 
+
+You are not training a real model here, and you
 don't need to change any code.
 
 There are four to run: **PanguWeather**, **SI**, **Makani**, and **PhysicsNeMo**. Each is a
@@ -45,16 +47,6 @@ Wait for it to finish, and check that the last line says:
 SFNO_VENV_OK
 ```
 
-If it says anything else, send Rahul the output.
-
-> **Why you can't just borrow Rahul's copy.** His installation is wired to *his* copy of the
-> code. If you used it, your runs would quietly execute whatever he happens to be editing
-> that day, and your results could change for reasons that have nothing to do with you.
-> Your own copy makes your runs yours.
->
-> PanguWeather and SI don't need this step — they use software already set up for the whole
-> project, in a shared folder you can read.
-
 ## Step 3 — Run the four jobs
 
 Run these **from the `pedramh-profiling` folder** you just created. Copy them one at a time.
@@ -74,8 +66,41 @@ the results.
 **Only one of your jobs runs at a time.** You can submit all four; they'll simply queue and
 run one after another.
 
-You don't need to prepare any data. About 75 GB of it is already prepared and shared with you
-automatically.
+### Where the data actually is
+
+You don't prepare any data — it already exists and the scripts find it for you. This is only
+so you know what is being read, and can tell whether a path in a log looks right.
+
+**The source archive** — the raw E3SM climate simulation everything derives from. Read-only,
+shared, ~2 TB, 51,100 files covering 2015–2049 (four snapshots a day, 1,460 per year):
+
+```
+/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/
+    E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/plev_data/{year}_{0000..1459}.h5
+```
+
+That one is in *your* AI4SRM folder — it's the group's copy of the simulation output.
+
+**The prepared copies** — each model wants the same data in its own format, so it was
+converted once and shared. About 92 GB in total, all read-only to you:
+
+| Used by | What it is | Where |
+|---|---|---|
+| PanguWeather | statistics + climatology it needs | `.../members/mehta5/pangu_polaris_data` (16 GB) |
+| SI | renamed/restructured copy | `.../members/mehta5/si_e3sm_stage` (56 GB) |
+| Makani | packed into Makani's layout | `.../members/mehta5/data/e3sm_makani` (18 GB) |
+| PhysicsNeMo | converted to Zarr | `.../members/mehta5/e3sm_seqzarr` (1.7 GB) |
+
+(all under `/eagle/projects/lighthouse-uchicago/`)
+
+**Two things worth knowing about those paths:**
+
+- Seeing `mehta5` in a log is **normal and correct** — that's the shared, read-only prepared
+  data. What must say `jesswan` is anything the job *writes*: your logs, checkpoints and
+  results, which go to `/eagle/projects/lighthouse-uchicago/members/jesswan/`.
+- These prepared copies are **small subsets** made for testing — Makani's holds 400 of 2015's
+  1,460 snapshots, PhysicsNeMo's holds 80. That's on purpose: they're for checking the code
+  runs. Real training uses different, much larger copies (see the full-training section).
 
 ## Step 4 — Watch it, and find the results
 
@@ -135,6 +160,75 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
 | Makani | 7253465 | training loss 2.61, validation loss 2.38 |
 | PhysicsNeMo | 7252933 | loss 0.89, validation error 0.54 |
 
+## Tracking your runs in Weights & Biases
+
+Optional for the test runs, worth doing before any real training.
+
+**Once, on a login node:**
+
+```bash
+bash polaris_setup_wandb.sh
+```
+
+It asks for an API key — get one from https://wandb.ai/authorize after signing in. The last
+line should say `WANDB_OK`. The key is stored in `~/.netrc` in your home folder, readable
+only by you. **Don't put it in any file in the repo** — that would publish it to everyone.
+
+**Then add one thing to any submit line:**
+
+```bash
+( cd PanguWeather/v2.0 && qsub -v WANDB_MODE=online HPC_scripts/polaris_train_e3sm_sfno.pbs )
+```
+
+Your run appears live at wandb.ai under the project `pedramh-profiling`.
+
+**Without that, runs are "offline"** — still fully recorded, just written to your own folder
+(`/eagle/projects/lighthouse-uchicago/members/jesswan/wandb/`) instead of uploaded. That's
+the default on purpose: an offline run can't stall or fail because of a network problem. You
+can upload one later from a login node:
+
+```bash
+wandb sync /eagle/projects/lighthouse-uchicago/members/jesswan/wandb/offline-run-*
+```
+
+> Compute nodes do reach the internet, but only through ALCF's proxy — which the job scripts
+> set up for you. So this works from inside a job; you don't need to do anything special.
+
+## Running the real thing (full training)
+
+Everything above is a **test run**. The full-training jobs are separate scripts, named
+`*_full`, so the test scripts stay quick and safe to re-run:
+
+| Model | Data prep first (hours, big) | Then training |
+|---|---|---|
+| PanguWeather | *none needed* | `( cd PanguWeather/v2.0 && qsub HPC_scripts/polaris_train_e3sm_sfno_full.pbs )` |
+| Makani | `qsub polaris/polaris_pack_e3sm_full.pbs` (~750 GB) | `( cd makani_sfno && qsub polaris/polaris_sfno_full.pbs )` |
+| PhysicsNeMo | `qsub polaris/polaris_zarr_e3sm_full.pbs` (~1 TB) | `( cd physicsnemo_sfno && qsub polaris/polaris_sfno_full.pbs )` |
+| SI | — | **not ready — see below** |
+
+**Please talk to Rahul before starting any of these.** They run for days and write hundreds
+of gigabytes. These notes are so you know what they are, not an invitation to launch one.
+
+Four things that differ from the test runs, and will surprise you if you don't expect them:
+
+1. **A "failed" job is usually normal.** Full training runs on the `preemptable` queue, which
+   is the only way to get more than an hour on one machine. Your job **will be killed**
+   without warning, sometimes minutes in, and report a failure. That's the deal, not a bug.
+   Just submit the same command again — it picks up from its last checkpoint. Only worry if
+   there's an actual error message in the log.
+2. **The models are much bigger.** Makani's test model is a toy of ~54,000 numbers; the real
+   one is thousands of times larger. The test isn't a small version of the real thing — it's
+   a different thing that happens to exercise the same code.
+3. **The data is different too.** Full training needs its own much larger prepared copies,
+   which is why there's a prep job first. The training script refuses to start if it finds
+   the small test data instead — that check exists so a multi-day run can't quietly train on
+   400 snapshots and look fine.
+4. **SI can't do full training yet.** Its script exists but deliberately stops with
+   `ERROR SI_CALENDAR_LEAP_MISMATCH`. The climate data has 365 days in every year, but the
+   settings tell it to use a normal calendar with leap days — so from March 2016 onward it
+   would read the *wrong day's* file and never notice. Nothing looks broken; the numbers just
+   quietly stop meaning anything. It needs a code fix first. Please don't work around it.
+
 ## If something goes wrong
 
 1. **Find the `rc=` line near the end of the log.** `rc=0` is success; anything else is a
@@ -169,16 +263,12 @@ Yours should land in the same ballpark. They won't match exactly, and that's nor
   onto a single GPU and all four processes crash by piling onto the same one.
 - **The first PanguWeather run may pause for several minutes** near the start while it prepares
   a large data file. That's expected, and it only happens once.
-- **These are deliberately tiny models.** They prove the code runs; they say nothing about
-  speed or accuracy. Don't read anything into the loss numbers.
+- **These test runs use deliberately small models** (except PanguWeather, which is full-size
+  but only runs for one pass). They prove the code works; they say nothing about speed or
+  accuracy. Don't read anything into the loss numbers.
 - **SI's test uses data from 2015 and the first few days of 2016.** It would need a code fix
   to run across a leap year, so please don't change the years in the settings file.
 - **S2S and S2S-Lightning aren't in this list.** Their data hasn't been copied to Polaris yet,
   so they can't run. If you try one it stops immediately with `ERROR ERA5_NOT_STAGED` —
   expected, and not something you did.
 
----
-
-*Technical background — why the environment is per-user, what's shared, the known bugs and
-traps, and the cluster details — is in `polaris_pbs_notes.md`. You don't need any of it to run
-these.*

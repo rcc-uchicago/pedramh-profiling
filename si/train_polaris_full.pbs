@@ -1,0 +1,199 @@
+#!/bin/bash -l
+#PBS -N si_train_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -j oe
+# ============================================================================
+# SI on E3SM — FULL TRAINING (si/train.py, NOT the bench).
+#
+# NOTE ON THE SIBLING: si/bench_polaris.pbs is NOT a small training run — it runs bench.py,
+# a THROUGHPUT BENCHMARK. It forces limit_val_batches=0 and stops after
+# SI_BENCH_WARMUP+SI_BENCH_STEPS (5+20) steps. It exists to measure step time, not to learn
+# anything. Full training is a different entrypoint: si/train.py.
+#
+# ############################################################################
+# # THIS SCRIPT WILL REFUSE TO RUN, BY DESIGN, UNTIL A LOADER BUG IS FIXED.   #
+# ############################################################################
+#
+# WHY — the calendar bug is a CORRECTNESS bug, not an inconvenience:
+#   si/data/amip_new.py:666-670 derives the FILENAME from the date:
+#       seconds_into_year = (data_datetime - datetime_class(year, 1, 1)).total_seconds()
+#       data_idx          = seconds_into_year // 3600 // 6
+#       path              = f'{year}_{data_idx:04}.h5'
+#   E3SM ships exactly 1460 files/year (365 days x 4) for EVERY year — 2016 and 2020
+#   included — i.e. the archive is NOLEAP. With calendar 'standard' (Gregorian), 2016 has
+#   366 days, so:
+#       Mar 1 2016   -> 2016_0240.h5   but the correct noleap file is 2016_0236.h5
+#       Dec 31 2016  -> 2016_1463.h5   which DOES NOT EXIST (files stop at 1459)
+#   So a run spanning a leap year reads the WRONG DAY from March onward — silently, with a
+#   perfectly plausible falling loss — and then dies in December on a missing file.
+#
+#   The smoke gets away with 'standard' only because it never leaves early 2016.
+#   'noleap' is the correct calendar but currently CRASHES: cftime's DatetimeNoLeap forces
+#   has_year_zero=True, while amip_new.py passes has_year_zero=self.has_year_zero (False)
+#   into every constructor (lines 612-615, 622, 668) ->
+#       TypeError: cannot compute the time difference between dates with year zero conventions
+#
+# THE FIX (someone must do this before full training is meaningful):
+#   Make has_year_zero follow the calendar instead of the config — cftime's own default per
+#   class — rather than forcing False. Then set calendar: 'noleap' in the config. That is a
+#   correctness change to a shared loader, so it needs a test that pins the date->filename
+#   mapping across Feb/Mar of a leap year (2016_0236, not 2016_0240) before anything trains.
+#   Do NOT "fix" this by clamping the index or trimming December — that is a fudge factor
+#   hiding a wrong term (CLAUDE.md #1/#11).
+#
+# Once fixed: set calendar 'noleap' in the config and this gate passes on its own.
+#
+# Submit from si/:   qsub train_polaris_full.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+SI_DIR="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${SI_DIR}/../polaris_env.sh" || exit 2
+export PYTHONPATH="${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+export OMP_NUM_THREADS=8
+
+CONFIG_TEMPLATE="${CONFIG_TEMPLATE:-${SI_DIR}/configs/train_polaris_e3sm_full.yaml}"
+CONFIG_FILE="${MEMBER_ROOT}/si_train_polaris_e3sm_full.rendered.yaml"
+DEVICES="${DEVICES:-0 1 2 3}"
+
+echo "=== si_train_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  devices='${DEVICES}'"
+echo "config=${CONFIG_FILE}"
+nvidia-smi -L
+polaris_env_report
+
+if [ ! -f "${CONFIG_TEMPLATE}" ]; then
+    echo "ERROR CONFIG_MISSING: ${CONFIG_TEMPLATE}"
+    echo "  Start from si/configs/bench_polaris_e3sm.yaml, widen the year span, and set"
+    echo "  calendar: 'noleap' (see the calendar gate below — 'standard' is silently wrong)."
+    exit 2
+fi
+
+# Render {{SI_STAGE}} / {{MEMBER_ROOT}} FIRST — the configs are templates, and `{{...}}` is
+# not valid YAML (`log_dir: {{MEMBER_ROOT}}/si_logs/` parses as a flow mapping and blows up).
+# The gate below must read the RENDERED file, not the template, or it dies with a yaml
+# ParserError instead of the clear refusal it exists to print.
+sed -e "s|{{SI_STAGE}}|${SI_STAGE}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}" || exit 2
+echo "rendered config -> ${CONFIG_FILE}"
+if grep -q "{{" "${CONFIG_FILE}"; then
+    echo "ERROR UNRENDERED_PLACEHOLDER in ${CONFIG_FILE}:"
+    grep -n "{{" "${CONFIG_FILE}" | head -3
+    exit 2
+fi
+
+# ---- GATE 1: the calendar/leap-year correctness bug --------------------------
+# Runs BEFORE any GPU work. This is the difference between "no result" and "a wrong result
+# that looks fine", and the second is far more expensive.
+python - "${CONFIG_FILE}" <<'PY' || exit 4
+import sys, yaml
+
+cfg = yaml.safe_load(open(sys.argv[1]))
+
+def find(node, key):
+    if isinstance(node, dict):
+        if key in node:
+            return node[key]
+        for v in node.values():
+            r = find(v, key)
+            if r is not None:
+                return r
+    elif isinstance(node, list):
+        for v in node:
+            r = find(v, key)
+            if r is not None:
+                return r
+    return None
+
+cal = find(cfg, "calendar")
+y0, y1 = find(cfg, "train_year_start"), find(cfg, "train_year_end")
+v0, v1 = find(cfg, "val_year_start"), find(cfg, "val_year_end")
+print("  calendar=%r  train=[%s..%s]  val=[%s..%s]" % (cal, y0, y1, v0, v1))
+
+years = set()
+for a, b in ((y0, y1), (v0, v1)):
+    if a is not None and b is not None:
+        years |= set(range(int(a), int(b) + 1))
+
+# E3SM is noleap: 1460 files/year for every year. Gregorian dates in a leap year map to the
+# wrong file from Mar 1 and overrun 1459 in December.
+leaps = {y for y in years if (y % 4 == 0 and y % 100 != 0) or y % 400 == 0}
+
+if cal in ("noleap", "365_day"):
+    print("  calendar OK: matches the E3SM archive (1460 files/year).")
+    sys.exit(0)
+
+if not leaps:
+    print("  WARNING: calendar=%r is not the archive's noleap, but the year span %s contains"
+          % (cal, sorted(years)))
+    print("           no leap year, so the date->file mapping happens to agree. Fragile:")
+    print("           widening the span by one year can silently corrupt the run.")
+    sys.exit(0)
+
+print()
+print("ERROR SI_CALENDAR_LEAP_MISMATCH")
+print("  calendar=%r but the span includes leap year(s) %s." % (cal, sorted(leaps)))
+print("  E3SM is NOLEAP (1460 files/year, 2016 included). With a Gregorian calendar,")
+print("  amip_new.py:666-670 computes the filename from the date, so:")
+print("    * every sample after Feb 28 of a leap year reads the WRONG DAY's file")
+print("      (Mar 1 2016 -> 2016_0240.h5; correct is 2016_0236.h5), and")
+print("    * December overruns to 2016_1463.h5, which does not exist.")
+print("  The loss would still fall. The model would still 'train'. It would be wrong.")
+print()
+print("  Refusing to start. Fix amip_new.py's has_year_zero handling so calendar 'noleap'")
+print("  works (it currently raises 'cannot compute the time difference between dates with")
+print("  year zero conventions'), then set calendar: 'noleap' here. See this script's header.")
+sys.exit(4)
+PY
+
+# ---- GATE 2: the open disassemble_input bug ---------------------------------
+# The bench never hit this because it forces limit_val_batches=0. Full training VALIDATES,
+# so it does.
+python - "${SI_DIR}" <<'PY' || exit 4
+import os, re, sys
+si = sys.argv[1]
+# train_module.py was fixed in 1fef2473; these four callers still rely on the defaults
+# nsurface=6 / ndiagnostic=15, which are baked to the Midway AMIP config. E3SM has 3
+# diagnostics, so the channel split is wrong — plausible tensors, wrong content.
+suspects = [("bias.py", 226), ("modules/ae_module.py", 68),
+            ("modules/combined_module.py", 185), ("modules/combined_module.py", 287)]
+open_calls = []
+for rel, _ in suspects:
+    p = os.path.join(si, rel)
+    if not os.path.exists(p):
+        continue
+    for i, line in enumerate(open(p), 1):
+        if "disassemble_input(" in line and "ndiagnostic" not in line and "def " not in line:
+            open_calls.append("%s:%d" % (rel, i))
+if open_calls:
+    print("ERROR SI_DISASSEMBLE_INPUT_OPEN")
+    print("  These call disassemble_input() without the real channel counts, so they use the")
+    print("  hardcoded nsurface=6 / ndiagnostic=15 (Midway AMIP). E3SM has 3 diagnostics:")
+    for c in open_calls:
+        print("    " + c)
+    print("  The bench never exercised them (limit_val_batches=0); full training validates,")
+    print("  so it will. Pass len(surface_variables)/len(diagnostic_variables)/nlevels — or")
+    print("  better, make disassemble_input REQUIRE them so a missed caller fails loudly.")
+    sys.exit(4)
+print("  disassemble_input: all callers pass explicit channel counts.")
+PY
+
+echo "preflight OK — starting SI full training"
+python "${SI_DIR}/train.py" --config "${CONFIG_FILE}" --devices ${DEVICES}
+rc=$?
+echo "=== si_train_full done (rc=${rc}) $(date -Iseconds) ==="
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: on preemptable, a non-zero rc is often a PREEMPTION rather than a bug."
+fi
+exit ${rc}

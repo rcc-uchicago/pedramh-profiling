@@ -1,0 +1,133 @@
+#!/bin/bash -l
+#PBS -N makani_pack_e3sm_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=12:00:00
+#PBS -j oe
+# ============================================================================
+# Pack the FULL E3SM archive into Makani "multifiles" layout — the data step for
+# polaris/polaris_sfno_full.pbs.
+#
+# WHY THIS IS A SEPARATE JOB, not a step inside the trainer:
+#   The smoke packs 400 samples of 2015 and takes minutes, so it converts inline. The full
+#   pack is 2015-2049 = 51,100 samples and takes HOURS. Doing that inside a training job
+#   would burn the walltime on I/O, and on the preemptable queue a kill mid-pack would leave
+#   a half-written store that the trainer would happily read.
+#
+# ⚠ SIZE: the smoke's 1,200 samples produced ~18 GB, so the full pack is roughly
+#   **750 GB - 800 GB**. Check your quota before starting:  myquota
+#   It writes to $MAKANI_DATA (default: <your member dir>/data/e3sm_makani_full).
+#
+# ⚠ CPU-BOUND, single node: this does not use the GPUs. It is on preemptable because it
+#   exceeds the 1 h debug cap. If it is killed, re-submit — the packer skips years whose
+#   output already exists, so it makes forward progress each time. VERIFY that claim in the
+#   log ("skipping <year>") rather than assuming it.
+#
+# Submit from makani_sfno/:   qsub polaris/polaris_pack_e3sm_full.pbs
+# PASS = "CONVERT_OK" AND "PACK_FULL_COMPLETE" on the last lines.
+#   (CONVERT_OK alone is NOT enough — job 7252728 emitted it and then failed rc=1.)
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${MAKANI_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTHONPATH="${MAKANI_ROOT}:${PYTHONPATH:-}"
+
+# Full pack goes to its OWN root: never overwrite the smoke's store. The smoke is the thing
+# you run to check the code still works, and it must keep working while this runs for hours.
+OUTPUT_ROOT="${MAKANI_FULL_DATA:-${MEMBER_ROOT}/data/e3sm_makani_full}"
+TRAIN_Y0="${TRAIN_Y0:-2015}"; TRAIN_Y1="${TRAIN_Y1:-2044}"
+VALID_Y0="${VALID_Y0:-2045}"; VALID_Y1="${VALID_Y1:-2047}"
+TEST_Y0="${TEST_Y0:-2048}";   TEST_Y1="${TEST_Y1:-2049}"
+
+echo "=== makani_pack_e3sm_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "E3SM_ROOT   = ${E3SM_ROOT}"
+echo "OUTPUT_ROOT = ${OUTPUT_ROOT}"
+echo "train=[${TRAIN_Y0}..${TRAIN_Y1}]  valid=[${VALID_Y0}..${VALID_Y1}]  test=[${TEST_Y0}..${TEST_Y1}]"
+echo "--- free space on the target filesystem ---"
+df -h "$(dirname "${OUTPUT_ROOT}")" | awk 'NR<=2'
+mkdir -p "${OUTPUT_ROOT}"
+
+# The split is by YEAR and the ranges must not overlap: E3SM is a single continuous SSP245
+# run, so a year in both train and valid is train/val leakage (DESIGN §4.3).
+python - "${TRAIN_Y0}" "${TRAIN_Y1}" "${VALID_Y0}" "${VALID_Y1}" "${TEST_Y0}" "${TEST_Y1}" <<'PY' || exit 2
+import sys
+t0, t1, v0, v1, s0, s1 = (int(a) for a in sys.argv[1:7])
+spans = {"train": set(range(t0, t1 + 1)), "valid": set(range(v0, v1 + 1)), "test": set(range(s0, s1 + 1))}
+for a in ("train", "valid", "test"):
+    for b in ("train", "valid", "test"):
+        if a < b and spans[a] & spans[b]:
+            print("ERROR SPLIT_OVERLAP: %s and %s share %s — that is train/val leakage."
+                  % (a, b, sorted(spans[a] & spans[b])))
+            sys.exit(2)
+allowed = set(range(2015, 2050))
+for name, span in spans.items():
+    bad = span - allowed
+    if bad:
+        print("ERROR YEAR_OUT_OF_RANGE: %s wants %s; E3SM covers 2015-2049." % (name, sorted(bad)))
+        sys.exit(2)
+print("split OK: train=%d yr, valid=%d yr, test=%d yr, no overlap" % tuple(len(spans[k]) for k in ("train", "valid", "test")))
+PY
+
+# NOTE: no --max-samples-per-year. That flag is the SMOKE's bound (400 of 1460/yr);
+# omitting it packs every sample.
+python "${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py" \
+    --e3sm-root "${E3SM_ROOT}" --output-root "${OUTPUT_ROOT}" \
+    --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
+    --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+    --test-years  "${TEST_Y0}"  "${TEST_Y1}" \
+    --validate
+rc=$?
+if [ ${rc} -ne 0 ]; then
+    echo "=== makani_pack_e3sm_full FAILED (rc=${rc}) $(date -Iseconds) ==="
+    echo "NOTE: on preemptable, a non-zero rc is often a PREEMPTION rather than a bug."
+    echo "      Look for a traceback; if there is none, re-submit and it continues."
+    exit ${rc}
+fi
+
+# Prove the pack is actually complete before anything trains on it: a silently short store
+# trains fine and produces a quietly wrong model.
+python - "${OUTPUT_ROOT}" "${TRAIN_Y0}" "${TRAIN_Y1}" "${VALID_Y0}" "${VALID_Y1}" <<'PY' || exit 2
+import os, sys, glob
+root, t0, t1, v0, v1 = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
+ok = True
+for split, y0, y1 in (("train", t0, t1), ("valid", v0, v1)):
+    want = set(range(y0, y1 + 1))
+    got = set()
+    for p in glob.glob(os.path.join(root, split, "*.h5")):
+        stem = os.path.basename(p).split(".")[0]
+        try:
+            got.add(int(stem[:4]))
+        except ValueError:
+            pass
+    missing = sorted(want - got)
+    print("  %-5s: %d/%d years present" % (split, len(want & got), len(want)))
+    if missing:
+        print("    ERROR MISSING_YEARS in %s: %s" % (split, missing)); ok = False
+for stat in ("global_means.npy", "global_stds.npy", "time_means.npy"):
+    p = os.path.join(root, "stats", stat)
+    if not os.path.exists(p):
+        print("    ERROR MISSING_STAT: %s" % p); ok = False
+if not ok:
+    sys.exit(2)
+print("PACK_FULL_COMPLETE")
+PY
+echo "=== makani_pack_e3sm_full done (rc=$?) $(date -Iseconds) ==="

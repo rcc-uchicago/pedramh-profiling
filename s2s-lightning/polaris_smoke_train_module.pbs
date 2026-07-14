@@ -35,7 +35,8 @@ conda activate base
 source "${REPO_ROOT}/polaris_env.sh" || exit 2
 # Belt-and-braces: Lightning must NOT think it is under SLURM (it is not, on Polaris).
 unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
-export WANDB_MODE=offline
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8

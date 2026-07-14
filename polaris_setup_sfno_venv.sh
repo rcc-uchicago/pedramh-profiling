@@ -22,7 +22,8 @@
 #   PYTHONNOUSERSITE=1 is set here and in both SFNO PBS scripts. (PYTHONNOUSERSITE does not
 #   block PYTHONPATH, so $POLARIS_TOPUPS must never be added to it in an SFNO job either.)
 #
-# RUN ON A LOGIN NODE (compute nodes have no outbound network):
+# RUN ON A LOGIN NODE (compute nodes reach PyPI only via the ALCF proxy, and a 10-minute
+# source build has no business on an allocation):
 #     bash polaris_setup_sfno_venv.sh
 # PASS = the final line "SFNO_VENV_OK".
 # The makani / physicsnemo polaris_*.pbs scripts activate this venv.
