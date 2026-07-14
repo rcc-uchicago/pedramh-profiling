@@ -30,8 +30,14 @@ so no loader code changes are needed.
 import os
 import xarray as xr
 
-SRC = ("/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
-       "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/plev_data")
+# Default source archive. $E3SM_ROOT (exported by polaris_env.sh, overridable with
+# POLARIS_E3SM_ROOT) wins, so the advertised knob actually works; the literal is the
+# fallback for a bare run outside a PBS job.
+SRC = os.path.join(
+    os.environ.get("E3SM_ROOT") or (
+        "/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
+        "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101"),
+    "h5/plev_data")
 # Default OUT is passed in by the PBS script (PANGU_AUX, outside the repo) so the
 # ~17 GB is shared read-only instead of re-encoded into every user's clone.
 OUT = os.environ.get("PANGU_AUX") or os.path.join(

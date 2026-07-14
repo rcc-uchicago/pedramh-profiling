@@ -171,8 +171,13 @@ Key on the log (token / CSV row), not the exit code. After any `s2s/v2.0/` edit 
 
 Writing a **new** submission script? **Launcher shape** — S2S = `--ntasks-per-node=1`
 + `torchrun --nproc_per_node=4`; port/SI = `--ntasks-per-node=4` (== devices) +
-`srun python …` (Lightning's SLURM launcher aborts on a mismatch); Polaris/PBS =
-single `python`, no `srun`. And copy the env-bootstrap block verbatim from the same
+`srun python …` (Lightning's SLURM launcher aborts on a mismatch). **Polaris/PBS: never
+`srun`** — but the launcher is per-model, not "always single `python`": S2S / Pangu use
+`torchrun --standalone --nproc_per_node=$NPROC`; the port and SI use a single `python`
+(they self-distribute); makani / physicsnemo must use `python -m torch.distributed.run`
+(their venv has no `torchrun` of its own, so the bare name resolves to the BASE conda's,
+whose shebang pins the wrong python). Every Polaris script must also
+`source polaris_env.sh`. And copy the env-bootstrap block verbatim from the same
 model's `midway_*.sh` — module ordering differs on purpose (S2S `module purge`s; the
 port must NOT).
 

@@ -18,11 +18,16 @@ category of large files looks like junk but is required.**
 There is **55.9 MB of `.npy`** in the repo. It is **NOT junk** — these are static boundary
 fields loaded at runtime:
 
-| file | size | loaded by |
+| file | size | actually loaded by (`np.load`) |
 |---|---|---|
-| `soil_type.npy` | 7.3 MB ×3 | `v1.0/train.py`, `v1.0/networks/pangu_lite.py`, `pangu_original/pseudocode.py` |
+| `soil_type.npy` | 7.3 MB ×3 | `v1.0/train.py:126-128`, `v1.0/train_profiling.py`, `v1.0/train_precip.py`, `v2.0/train.py`, `v2.0/long_inference.py`, `Pangu-UC/examples/pangu_plasim/data_utils.py:153` |
 | `land_mask.npy` | 7.3 MB ×3 | same |
 | `topography.npy` | 4.0 MB ×3 | same |
+
+(The path comes from the config's `mask_dir`, e.g. `v1.0/config/PANGU.yaml:26` →
+`data/constant_mask`. Note `v1.0/networks/pangu_lite.py` only *mentions* the masks in a
+comment on line 20 — it receives them as tensors and never reads the files; an earlier
+draft of this table miscredited it.)
 
 A blanket `*.npy` ignore rule **would break the model.** (For reference, `pedramh-profiling`
 hits the same issue and solves it with an explicit carve-out:

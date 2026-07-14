@@ -14,8 +14,13 @@
 #
 # HOW: a `--system-site-packages` venv layered on the ALCF base conda, so it
 # INHERITS the CUDA-12.9-matched torch 2.8 (no 2.5 GB reinstall) and only the
-# SFNO-specific packages are installed/overridden here. venvs disable the user
-# site-packages, so the base's --user torch_harmonics 0.7.4 is NOT visible inside.
+# SFNO-specific packages are installed/overridden here.
+#
+# ⚠ A --system-site-packages venv does NOT hide the user site — site.py re-enables it and
+#   ranks ~/.local ABOVE the venv, so a --user torch_harmonics 0.7.4 silently shadows this
+#   venv's 0.9.x and makani dies on "cannot import name precompute_latitudes". That is why
+#   PYTHONNOUSERSITE=1 is set here and in both SFNO PBS scripts. (PYTHONNOUSERSITE does not
+#   block PYTHONPATH, so $POLARIS_TOPUPS must never be added to it in an SFNO job either.)
 #
 # RUN ON A LOGIN NODE (compute nodes have no outbound network):
 #     bash polaris_setup_sfno_venv.sh

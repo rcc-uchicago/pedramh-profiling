@@ -17,11 +17,16 @@ from pathlib import Path
 
 import h5py
 import numpy as np
+import os
 import zarr
 
+# Default source archive. $E3SM_ROOT (exported by polaris_env.sh, overridable with
+# POLARIS_E3SM_ROOT) wins, so the advertised knob actually works; the literal is the
+# fallback for a bare run outside a PBS job.
 E3SM_ROOT = Path(
-    "/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
-    "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101"
+    os.environ.get("E3SM_ROOT")
+    or "/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
+       "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101"
 )
 UNPREDICTED = ["PCT_GLACIER", "PCT_NATVEG", "PFTDATA_MASK", "TOPO", "sol_in"]
 EPOCH = np.datetime64("2015-01-01T00:00:00")

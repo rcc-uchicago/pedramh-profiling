@@ -17,7 +17,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100** (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
+| Polaris (PBS) bring-up | ⚠️ **all 4 runnable models GREEN on 4×A100 — Pangu/SI re-validation as a SECOND USER in flight** (job 7253573; their deps were private to rmehta1987 until the shared top-ups landed today) (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
 | §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
@@ -27,7 +27,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 | Model | Midway | Polaris |
 |---|---|---|
-| Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB, all imports) |
+| Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB; the 4 in-repo models import — makani/physicsnemo need the §6 venv, non-blocking) |
 | S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⛔ blocked on ERA5 stage (scripts ready) |
 | S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
 | SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
@@ -96,6 +96,60 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-07-14** — **🔴 The "GREEN" smokes were green for ONE PERSON. Fixed.** A cold
+  5-agent audit of the *fixed* tree (the second gauntlet) surfaced that Pangu/SI depended on
+  `pip install --user` packages living in `PYTHONUSERBASE=/home/rmehta1987/.local/...`.
+  **ALCF home dirs are mode `0700`**, so those packages are readable by their owner alone.
+  Every Pangu/SI "GREEN" was therefore unreproducible by the rest of the project — the exact
+  opposite of this deliverable's purpose — and `polaris_running_the_smokes.md` told jesswan
+  "they use software already installed on Polaris", which was false.
+  - **Proof, not inference:** job **7253539** re-ran Pangu with `PYTHONNOUSERSITE=1` (which
+    reproduces a second member's view of the filesystem) and died on
+    `ModuleNotFoundError: No module named 'tensorly'`. Impersonating the other user is the
+    only way to catch this class of bug; a normal re-run by the installer always passes.
+  - **Fix:** `polaris_setup_base_topups.sh` installs netCDF4 / zarr / torch_harmonics 0.7.4 /
+    tensorly / tltorch / cftime / numcodecs into the **shared, world-readable**
+    `$POLARIS_TOPUPS` on eagle; Pangu/SI/S2S/probe prepend it to `PYTHONPATH`.
+  - **Two traps inside the fix**, both now guarded:
+    (1) `pip install --target` can't see the base conda, so it re-resolved the world and
+    silently pulled **torch 2.13 + CUDA 13 + numpy 2.5.1** (4.1 GB) — which, being on
+    PYTHONPATH, would have **shadowed the base's torch 2.8/cu12.9** and moved every smoke
+    onto an untested toolchain. `--no-deps` + a hard fail if `torch|numpy|nvidia|triton`
+    land in the target; now **1.1 MB**, and it asserts torch/numpy still come from base.
+    (2) `$POLARIS_TOPUPS` must NEVER go on PYTHONPATH in an SFNO job — its
+    torch_harmonics 0.7.4 would shadow the venv's 0.9.x and re-break makani
+    (`PYTHONNOUSERSITE` does **not** block PYTHONPATH). Both SFNO scripts now assert
+    torch_harmonics resolves inside their venv (`ERROR TORCH_HARMONICS_SHADOWED`).
+  - **Lesson (generalise):** never `pip install --user` a dependency the project must share,
+    and never accept "it's green" from the environment that installed it. The probe
+    (7251974) had the same blind spot — it certified "all models import" while importing
+    from a private home; it now imports through the shared dir and warns if `~/.local` is on
+    `sys.path`.
+
+- **2026-07-14** — **Makani's re-run was a silent no-op (`rc=0`, zero steps).** With a
+  hardcoded `--run_num 0`, `train_plasim` auto-resumed from a checkpoint that already
+  satisfied the smoke's `max_epochs=1`: job **7253454** printed `Total training time is
+  0.00 sec` and exited **0**. `RUN_NUM` now defaults to `${PBS_JOBID%%.*}`, plus a gate that
+  forces `rc=4`/`ERROR NO_CHECKPOINT` when a run exits 0 without writing its checkpoint.
+  Revalidated by **7253465** (train 2.61 / val 2.38, 7.10 s of real training).
+  **`rc=0` is not a PASS criterion for a resumable trainer** — key on the work token.
+  Related: the smokes have **no seed knob** (DESIGN §4.0), so their losses move run-to-run
+  (7252769: 2.19/2.05 vs 7253465: 2.61/2.38 on identical code) — they are **not** an
+  equivalence baseline.
+
+- **2026-07-14** — **Audit fixes (docs + scripts).** `CONVERT_OK` re-attributed **7252736 →
+  7252728** (7252736 packed nothing and failed rc=1; verified from the log). The
+  `disassemble_input` note corrected: **fixed** in `train_module.py` (`1fef2473`) but still
+  **open** in `bias.py:226`, `ae_module.py:68`, `combined_module.py:185/287`. All 3
+  converters now honour the advertised `$E3SM_ROOT` (only makani did). All 10 `*.pbs` now
+  source `polaris_env.sh` (5 didn't, so the notes' "every script pins the caches" was false).
+  `polaris_logs/.gitkeep` committed — the dir is gitignored, so the probe's `#PBS -o
+  polaris_logs/` had nowhere to deliver in a fresh clone. CLAUDE.md's "Polaris/PBS = single
+  `python`" corrected (6 of 10 use torchrun). Cleanup doc's `.npy` "loaded by" column fixed
+  (`pangu_lite.py` only mentions the masks in a comment) — the conclusion (never blanket-
+  ignore `*.npy`) was right, the evidence wasn't.
+
+
 - **2026-07-14** — **Polaris (PBS) bring-up.** Confirmed cluster facts (`-A
   lighthouse-uchicago`, 4×A100-40GB sm80, `debug` queue, `filesystems=home:eagle`,
   `/local/scratch`); env = base ALCF conda (`module load conda`, torch 2.8/cu12.9) +
@@ -151,7 +205,7 @@ Each is attributed to its source doc — verify there before acting.
   cftime calendar that forces `has_year_zero=True`, clashing with `has_year_zero: False`
   at `si/data/amip_new.py:667` (`cannot compute the time difference between dates with
   year zero conventions`). Use `'standard'` (correct for a non-leap-year smoke); a full
-  run crossing a leap year needs a loader fix. — `polaris_pbs_notes.md` §8.
+  run crossing a leap year needs a loader fix. — `polaris_pbs_notes.md` §5.
 - **Port standalone smokes had a stale cwd-relative config path** (`v2.0/config/test.yaml`,
   pre-monorepo) → `FileNotFoundError` before any GPU work. Fixed 2026-07-13 (resolve
   relative to `__file__`). If a port smoke can't find the config, check this first.
@@ -183,8 +237,9 @@ Each is attributed to its source doc — verify there before acting.
 - **Baseline node class.** The SI optimization-sweep CSVs (`si/bench_optim_*.csv`)
   ran on the **test partition H100**, a different node class from the pedramh-gpu
   H100-NVL numbers — re-measure a pedramh-gpu baseline to compare like-for-like.
-- **A100 (Polaris) memory** — the "40 GB" figure is from prose, not an on-node
-  `nvidia-smi` (`si/bench_midway_notes.md` fn2); confirm during Polaris bring-up.
+- ~~**A100 (Polaris) memory**~~ — **RESOLVED** by probe 7251974: `nvidia-smi` on-node
+  reports **40960 MiB/GPU** (4× A100-SXM4-40GB, driver 570.124.06). See
+  `polaris_pbs_notes.md` §1.
 - **SI compile gain** — reported ~+62% (`default` mode) but a `*_postfix` re-run is
   lower; quote it as a range until re-measured on pedramh-gpu.
 

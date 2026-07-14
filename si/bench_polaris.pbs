@@ -29,6 +29,13 @@ conda activate base
 # copy), caches and the common knobs. Works for ANY project member.
 # shellcheck disable=SC1091
 source "${SI_DIR}/../polaris_env.sh" || exit 2
+
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics 0.7.4 / zarr, which the base conda
+# lacks. It MUST be on PYTHONPATH or this job dies on `ModuleNotFoundError`. It is a
+# SHARED eagle dir, not a `pip install --user` one: ALCF homes are mode 0700, so a
+# ~/.local install is readable by its owner alone and every other member's run fails.
+# Build it once with polaris_setup_base_topups.sh (PASS = TOPUPS_OK).
+export PYTHONPATH="${POLARIS_TOPUPS}:${PYTHONPATH:-}"
 STAGE="${SI_STAGE}"
 unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
 export WANDB_MODE=offline

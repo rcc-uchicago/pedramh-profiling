@@ -52,6 +52,7 @@ core*
 
 # --- Polaris (PBS) bring-up artifacts ---
 polaris_logs/
+!polaris_logs/.gitkeep
 *.o[0-9]*
 *.e[0-9]*
 nsys_*.nsys-rep

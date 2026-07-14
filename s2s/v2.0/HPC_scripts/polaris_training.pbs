@@ -31,12 +31,17 @@ V20="${S2S_ROOT}/v2.0"
 module use /soft/modulefiles
 module load conda
 conda activate base
+# The shared Polaris env: TMPDIR + inductor/triton caches on eagle, the WANDB/HDF5 knobs,
+# and $POLARIS_TOPUPS (netCDF4 / torch_harmonics / tensorly — absent from the base conda,
+# and NOT in a private ~/.local, so any member can run this).
+# shellcheck disable=SC1091
+source "${S2S_ROOT}/../polaris_env.sh" || exit 2
 export WANDB_MODE=offline
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
-export PYTHONPATH="${V20}:${PYTHONPATH:-}"
+export PYTHONPATH="${V20}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
 
 NPROC="${NPROC:-4}"
 CONFIG_FILE="${V20}/config/exp2_polaris.yaml"

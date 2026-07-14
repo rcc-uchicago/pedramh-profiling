@@ -76,6 +76,18 @@ _pick() {  # _pick <var> <relative-path>
     local _mine="${MEMBER_ROOT}/$2" _shared="${SHARED_ROOT}/$2"
     if [ -e "${_mine}" ]; then echo "${_mine}"; elif [ -e "${_shared}" ]; then echo "${_shared}"; else echo "${_mine}"; fi
 }
+
+# --- base-conda top-ups (netCDF4 / zarr / torch_harmonics 0.7.4) -------------
+# The base conda lacks these. They MUST NOT live in a `pip install --user` dir: ALCF homes
+# are mode 0700, so ~/.local packages are readable by one person only and every other
+# member's Pangu/SI job dies on `ModuleNotFoundError: torch_harmonics` / `netCDF4`.
+# Build with polaris_setup_base_topups.sh.
+#
+# ⚠ Exported as a PATH ONLY — deliberately NOT prepended to PYTHONPATH here. PYTHONPATH
+#   outranks a venv's site-packages, so this dir's torch_harmonics 0.7.4 would shadow the
+#   SFNO venv's 0.9.x and re-break makani. Pangu/SI/S2S opt in themselves; the SFNO
+#   scripts must never add it.
+export POLARIS_TOPUPS="$(_pick POLARIS_TOPUPS conda-envs/polaris-topups)"
 export SI_STAGE="$(_pick SI_STAGE si_e3sm_stage)"
 export MAKANI_DATA="$(_pick MAKANI_DATA data/e3sm_makani)"
 export SEQZARR_DATA="$(_pick SEQZARR_DATA e3sm_seqzarr)"

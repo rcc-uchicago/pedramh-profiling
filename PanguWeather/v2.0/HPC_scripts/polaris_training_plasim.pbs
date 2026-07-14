@@ -34,13 +34,18 @@ V20_DIR="${PBS_O_WORKDIR}"
 module use /soft/modulefiles
 module load conda
 conda activate base                       # base keeps torch_harmonics 0.7.4 (Pangu path)
+# The shared Polaris env: TMPDIR + inductor/triton caches on eagle, the WANDB/HDF5 knobs,
+# and $POLARIS_TOPUPS (netCDF4 / torch_harmonics / tensorly — absent from the base conda,
+# and NOT in a private ~/.local, so any member can run this).
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
 export WANDB_MODE=offline
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export MPLBACKEND=Agg
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
-export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
 
 NPROC="${NPROC:-4}"
 # Repoint this to a Polaris copy once the PLASIM tree is staged.

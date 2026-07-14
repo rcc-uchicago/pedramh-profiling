@@ -47,7 +47,8 @@ this doc discharges.
    so the older `polaris_logs/<name>.log` archives accumulate *several jobs* each. Current
    runs get one file per job, so this only matters when reading the old archives.
    `pangu_e3sm_sfno.log` holds the OOM run 7252261 **and** the green 7252271;
-   `si_polaris_bench.log` holds the crashed 7252286 **and** the green 7252700. **When
+   `si_polaris_bench.log` holds *three* runs — the crashed 7252286, the green 7252700, and a
+   later green re-run 7252946 (rc=0, step_med 0.399). **When
    reading these logs, always anchor on the `PBS_JOBID=` header of the run you care
    about** — a naive `grep -c OutOfMemory` on the file will report a green run as failed.
 
@@ -74,16 +75,44 @@ to cuda-12.9.1, and prepends the cuda/nccl/cudnn libs to `LD_LIBRARY_PATH` — t
 why `h5py` (built against `libcudart.so.12`) imports only *after* the full module
 load, not a bare `source conda.sh`.
 
-**`pip install --user` top-ups** (done once on the **login node** — compute nodes
-have no outbound network; the conda module sets `http_proxy` for the login node).
-They land in `PYTHONUSERBASE=/home/rmehta1987/.local/polaris/conda/2025-09-25`:
+**Base-conda top-ups** — `polaris_setup_base_topups.sh`, once on the **login node**
+(compute nodes have no outbound network; the conda module sets `http_proxy` for the login
+node). PASS = `TOPUPS_OK`. They install to the **shared, world-readable**
+`$POLARIS_TOPUPS` = `<member>/conda-envs/polaris-topups`, and Pangu/SI/S2S prepend it to
+`PYTHONPATH` themselves.
+
+> ⚠️ **This was originally `pip install --user`, and that was a silent, project-wide bug**
+> (found 2026-07-14 by the cold audit; see the decisions log). `--user` lands in
+> `PYTHONUSERBASE=/home/<installer>/.local/...`, and **ALCF home dirs are mode `0700`** — so
+> those packages were readable by exactly one person. Every "GREEN" Pangu/SI result was green
+> *only for rmehta1987*; a second member running the identical script got
+> `ModuleNotFoundError: No module named 'torch_harmonics'`
+> (`networks/modulus_sfno/sfnonet.py:24`, a bare import) or `netCDF4`
+> (`utils/data_loader_multifiles.py:71`). That defeats the entire point of the deliverable.
+> **Never `pip install --user` a dependency the project is supposed to share.**
+>
+> Two traps in the fix itself, both now guarded in the script:
+> 1. **`pip install --target` cannot see the base conda**, so it re-resolves *everything* —
+>    the first attempt silently pulled **torch 2.13.0 + a CUDA-13 stack + numpy 2.5.1**
+>    (4.1 GB). Since `$POLARIS_TOPUPS` goes on `PYTHONPATH`, which *outranks*
+>    site-packages, that torch would have **shadowed the base's torch 2.8.0/cu12.9** and
+>    moved every smoke onto an untested toolchain. Fixed with `--no-deps` + only the four
+>    deps base genuinely lacks (`cftime`, `numcodecs`, `asciitree`, `fasteners`); the
+>    script now hard-fails if `torch`/`numpy`/`nvidia`/`triton` land in the target.
+>    **516 KB**, and it asserts torch/numpy still resolve to base.
+> 2. `$POLARIS_TOPUPS` **must not** be added to `PYTHONPATH` globally in `polaris_env.sh`:
+>    its torch_harmonics **0.7.4** would shadow the SFNO venv's **0.9.x** and re-break
+>    makani. `PYTHONNOUSERSITE=1` does *not* block `PYTHONPATH`. Both SFNO scripts now
+>    assert torch_harmonics resolves inside their venv (`ERROR TORCH_HARMONICS_SHADOWED`).
+
+Contents (all verified importable with the user site DISABLED, i.e. as another member):
 
 | Package | Version | Needed by | Note |
 |---|---|---|---|
 | `netCDF4` | 1.7.4 | S2S/SI/Pangu `.nc` stats | base lacks it |
 | `h5netcdf` | — | xarray `.nc` backend | |
 | `zarr` | 2.18.7 (`<3`) | PhysicsNeMo zarr store | pinned <3 |
-| `torch_harmonics` | **0.7.4** in base conda | S2S-family, Pangu-SFNO, SI | the SFNO frameworks need 0.9.x — see the version box + §6 venv |
+| `torch_harmonics` | **0.7.4** (top-ups dir, NOT base conda) | S2S-family, Pangu-SFNO, SI | the SFNO frameworks need 0.9.x — see the version box + §6 venv |
 
 **The `torch_harmonics` version box (a genuine 3-way version squeeze):**
 - `0.9.1` **wheel** → `import torch_harmonics` dies: `undefined symbol:
@@ -93,7 +122,7 @@ They land in `PYTHONUSERBASE=/home/rmehta1987/.local/polaris/conda/2025-09-25`:
 - `0.7.4` / `0.8.0` → import fine, but expose only the *private* `_precompute_latitudes`;
   **makani 0.2.0 imports the public `precompute_latitudes`** and fails.
 - Only a **GitHub source build** gives both (public API + an ABI-matched `_C`).
-- ✅ **Resolution — split the envs (§6):** base conda keeps **0.7.4**, which is what the
+- ✅ **Resolution — split the envs (§6):** the base top-ups keep **0.7.4**, which is what the
   GREEN Pangu-SFNO (7252271) and SI (7252700) smokes actually ran on; the SFNO frameworks
   get an **isolated venv** carrying the source-built **0.9.2a**. This avoids re-validating
   the two greens against a new torch_harmonics, at the cost of one extra env.
@@ -177,14 +206,29 @@ full run crossing a leap year would need a loader fix (E3SM has 1460 files/yr al
 - The bench ran **warmup=5 / steps=20**, not the Midway convention of **20 / 80**
   (`bench_polaris.pbs` defaults). Raise both before quoting any throughput number.
 
-⚠️ **Known latent bug — SI validation/rollout is broken with this config (not hit by the
-smoke).** `si/modules/train_module.py` calls `disassemble_input(y_last, nlevels=...)`
-relying on the hardcoded defaults `nsurface=6, ndiagnostic=15`; this config has **3**
-diagnostics, so the channel split would be wrong. The bench never sees it because
-`bench.py` forces `limit_val_batches=0`. Before running SI *training/validation* (as
-opposed to the bench) on E3SM, plumb `ndiagnostic=len(diagnostic_variables)` and
-`nsurface=len(surface_variables)` into that call — a shared-code change, so re-run both
-the S2S and port smokes with it (CLAUDE.md rule #5).
+⚠️ **Latent bug — `disassemble_input`'s hardcoded channel split. FIXED in
+`train_module.py` (commit `1fef2473`); STILL OPEN in four other call sites.**
+`disassemble_input` defaults to `nsurface=6, ndiagnostic=15` — silently baked to the Midway
+AMIP config. The E3SM config has **3** diagnostics, so any caller that relies on the
+defaults splits the channels wrongly and produces *plausible but wrong* tensors rather than
+raising. `si/modules/train_module.py:269` now passes the real
+`len(self.surface_variables)` / `len(self.diagnostic_variables)` / `self.nlevels`.
+
+The bench never exercised it (`bench.py` forces `limit_val_batches=0`), which is why the
+GREEN 7252700 is still valid. **These callers remain unfixed** and will mis-split on E3SM:
+
+| Call site | Passes |
+|---|---|
+| `si/bias.py:226` | `nlevels` only |
+| `si/modules/ae_module.py:68` | `nlevels` only |
+| `si/modules/combined_module.py:185` | `nlevels` only |
+| `si/modules/combined_module.py:287` | `nlevels` only |
+
+(`si/modules/models/old/*` is dead code — out of scope.) Fix these before running SI
+*training/validation or the bias/AE/combined paths* on E3SM. The real repair is to make
+`disassemble_input` **require** the counts instead of defaulting them, so a missed caller
+fails loudly; that is a shared-code change → re-run both the S2S and port smokes
+(CLAUDE.md rule #5).
 
 ### Trap: makani's smoke re-run is a silent no-op (`rc=0`, zero steps)
 
@@ -218,7 +262,10 @@ have no outbound network):
 
 ```bash
 bash polaris_setup_sfno_venv.sh          # PASS = "SFNO_VENV_OK"
-# -> /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv
+# -> ${MEMBER_ROOT}/conda-envs/sfno-venv   (YOUR member dir — e.g. .../members/jesswan/...;
+#    override with POLARIS_SFNO_VENV=<dir>. It must be yours: physicsnemo is installed
+#    editable, so a shared venv would import someone else's checkout — see the guard in
+#    physicsnemo_sfno/polaris/polaris_sfno_smoke.pbs.)
 ```
 
 It is a `--system-site-packages` venv layered on the base conda, so it **inherits the
@@ -311,9 +358,12 @@ per-channel validation PNGs).
 | Makani SFNO | Stampede3 `$SCRATCH` | `/eagle/.../mehta5/data/e3sm_makani/{train,valid,test,stats,metadata}` (packer output) | `makani_sfno/polaris/e3sm_smoke.yaml` |
 | PhysicsNeMo SFNO | ARCO-ERA5 zarr | `/eagle/.../mehta5/e3sm_seqzarr/e3sm_{train,val}.zarr` (converter output) | `physicsnemo_sfno/examples/weather/unified_recipe/conf/config_e3sm_sfno.yaml` (+ CLI overrides) |
 
-All output/stage roots live on **eagle** (persistent), and every script sets
-`TMPDIR`/`TORCHINDUCTOR_CACHE_DIR`/`TRITON_CACHE_DIR` → `/eagle/.../mehta5/{tmp,torchinductor_cache,triton_cache}`
-(not node-local `/local/scratch`, which is wiped at job end).
+All output/stage roots live on **eagle** (persistent). Every per-model `*.pbs` sources
+`polaris_env.sh`, which sets `TMPDIR`/`TORCHINDUCTOR_CACHE_DIR`/`TRITON_CACHE_DIR` →
+`${MEMBER_ROOT}/{tmp,torchinductor_cache,triton_cache}` — **your own** member dir, resolved
+per user, not a hardcoded `mehta5` (not node-local `/local/scratch`, which is wiped at job
+end). `polaris_probe.pbs` sources it too. (Until 2026-07-14 five scripts — the S2S/port pair
+and the PLASIM one — set none of this; the audit caught the doc claiming otherwise.)
 
 ## 8. Data-conversion recipes (Makani multifiles / PhysicsNeMo zarr / SI rename)
 

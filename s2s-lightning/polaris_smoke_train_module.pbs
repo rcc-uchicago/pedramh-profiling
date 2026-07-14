@@ -26,6 +26,11 @@ REPO_ROOT="$(cd "${PORT_DIR}/.." && pwd)"
 module use /soft/modulefiles
 module load conda
 conda activate base
+# The shared Polaris env: TMPDIR + inductor/triton caches on eagle, the WANDB/HDF5 knobs,
+# and $POLARIS_TOPUPS (netCDF4 / torch_harmonics / tensorly — absent from the base conda,
+# and NOT in a private ~/.local, so any member can run this).
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/polaris_env.sh" || exit 2
 # Belt-and-braces: Lightning must NOT think it is under SLURM (it is not, on Polaris).
 unset SLURM_NTASKS SLURM_JOB_NAME SLURM_NTASKS_PER_NODE SLURM_PROCID SLURM_LOCALID 2>/dev/null || true
 export WANDB_MODE=offline
@@ -33,7 +38,7 @@ export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
 # s2s/v2.0 -> utils,networks ; port dir -> data,modules,common
-export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}:${PYTHONPATH:-}"
+export PYTHONPATH="${REPO_ROOT}/s2s/v2.0:${PORT_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
 # Polaris-repointed smoke config (backward-compatible env override; defaults to test.yaml).
 export S2S_SMOKE_CONFIG="${REPO_ROOT}/s2s/v2.0/config/test_polaris.yaml"
 export CUDA_VISIBLE_DEVICES=0                      # 1-GPU smoke (Trainer devices=1)

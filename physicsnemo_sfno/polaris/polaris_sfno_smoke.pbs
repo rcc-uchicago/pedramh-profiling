@@ -77,6 +77,27 @@ if ! python -c "import physicsnemo, warp, makani" 2>/dev/null; then
 fi
 echo "venv python=$(command -v python)"
 
+# ---- GUARD: torch_harmonics must come from THIS venv, not the base top-ups ----
+# $POLARIS_TOPUPS (netCDF4/zarr/torch_harmonics 0.7.4, for Pangu/SI) is a PYTHONPATH dir,
+# and PYTHONPATH OUTRANKS a venv's site-packages — PYTHONNOUSERSITE=1 does not stop it.
+# If it ever leaks into this job, makani dies far downstream on the cryptic
+# "cannot import name 'precompute_latitudes'". Fail here, where the cause is obvious.
+python - <<'PYGUARD' || exit 3
+import os, sys, torch_harmonics
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED")
+    print("  imported torch_harmonics from : %s (v%s)" % (got, torch_harmonics.__version__))
+    print("  expected it inside the venv   : %s" % venv)
+    print("  Something put a second torch_harmonics ahead of the venv — almost certainly")
+    print("  $POLARIS_TOPUPS on PYTHONPATH. The SFNO scripts must never add it.")
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+print("torch_harmonics OK: v%s from the venv" % torch_harmonics.__version__)
+PYGUARD
+
+
 # ---- PROVENANCE GUARD: physicsnemo is installed EDITABLE (pip install -e), so the venv
 # imports it from whichever checkout it was built against. A SHARED venv therefore imports
 # physicsnemo from THAT person's repo — you would silently profile someone else's working

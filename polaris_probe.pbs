@@ -20,13 +20,25 @@
 cd "${PBS_O_WORKDIR}"
 export REPO_ROOT="${PBS_O_WORKDIR}"
 
-# ---- Polaris env (base ALCF conda: torch 2.8 / cu12.9; +user netCDF4/zarr) ----
+# ---- Polaris env (base ALCF conda: torch 2.8 / cu12.9 + the shared top-ups) ----
 module use /soft/modulefiles
 module load conda
 conda activate base
-export WANDB_MODE=offline
-export HDF5_USE_FILE_LOCKING=FALSE
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/polaris_env.sh" || exit 2
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics / tensorly, which the base conda lacks.
+# The probe MUST import through it: the original run (7251974) resolved those from the
+# author's private ~/.local, so its "all models import" verdict was true for exactly one
+# person and told us nothing about anyone else. Importing from the shared dir is the claim
+# we actually want to test.
+export PYTHONPATH="${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+# Prove the probe is not silently leaning on a private ~/.local again.
+if python -c "import sys; sys.exit(0 if not any('/.local/' in p for p in sys.path) else 1)"; then
+    echo "sys.path is free of ~/.local -> imports below are reproducible by any member"
+else
+    echo "WARN: a user site-packages dir is on sys.path; these results may not reproduce"
+    echo "      for other members. Re-run with PYTHONNOUSERSITE=1 to check."
+fi
 
 echo "=== polaris_probe: $(date -Iseconds) ==="
 echo "hostname=$(hostname)  PBS_JOBID=${PBS_JOBID}"

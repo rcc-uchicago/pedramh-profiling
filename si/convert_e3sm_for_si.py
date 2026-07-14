@@ -32,8 +32,12 @@ import h5py
 import numpy as np
 import xarray as xr
 
-DEFAULT_ROOT = ("/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
-                "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101")
+# Default source archive. $E3SM_ROOT (exported by polaris_env.sh, overridable with
+# POLARIS_E3SM_ROOT) wins, so the advertised knob actually works; the literal is the
+# fallback for a bare run outside a PBS job.
+DEFAULT_ROOT = os.environ.get("E3SM_ROOT") or (
+    "/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
+    "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101")
 DEFAULT_STAGE = "/eagle/projects/lighthouse-uchicago/members/mehta5/si_e3sm_stage"
 
 UA_VARS = ["T", "U", "V", "Z3", "RELHUM", "CLDICE", "CLDLIQ", "CLOUD"]
