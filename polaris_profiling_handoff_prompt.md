@@ -197,14 +197,20 @@ infrastructure — use it rather than reinventing:
   before deleting — but only for rerunnable jobs, and it **defaults to `Rerunable = False`**
   (checked on our own jobs). With `-r y` PBS re-runs the script **from the top**, which is
   safe only because the full scripts are idempotent and resume from a stable `RUN_NUM`.
-  ⚠️ **The resume itself is verified by INSPECTION, not observation.** Pangu resumes via
-  `train.py:3851  elif checkpoint_exists: params['resuming'] = True`, and the full script
-  correctly omits the `--fresh_start` that the smoke passes — so the logic is right. But at
-  handoff the empirical test (run → kill → resubmit → see it resume) had **not** come back
-  from the queue. **Confirm it yourself before trusting a multi-day run to it:**
-  `qsub -q debug -l walltime=00:50:00 -v TRAIN_YEAR_END=2016,RUN_NUM=resumetest <full script>`
-  twice; the second must log `Resuming from existing checkpoint`. Per guardrail #9, do not
-  take my word for it.
+  ⚠️ **Resume: read this before trusting a long run to it.** I first verified it by
+  *inspection* and declared the mechanism sound. The empirical test then found **two bugs that
+  would have destroyed a multi-day run**, which is guardrail #9 earning its place:
+  1. `E3SM_SFNO_H5_POLARIS.yaml:21` sets **`save_checkpoint: False`** ("Polaris smoke: skip
+     ~3.5 GB ckpt writes; **re-enable for real runs**"). The full script inherited it, so it
+     saved **nothing** — job 7253898 reached **Epoch [12/100] in 50 minutes and wrote zero
+     checkpoints**. On preemptable, every kill would have lost everything.
+  2. The script's `CKPT` path was built from the config *filename*, but `train.py:1881` uses
+     `os.path.join(exp_dir, args.config, run_num)` → the real dir is `.../SFNO/<run_num>/`.
+     So the resume banner said "starting fresh" no matter what.
+  Both are fixed (the launcher now flips `save_checkpoint` in the rendered config). The
+  re-test was still in the queue at handoff. **Confirm it yourself:** run
+  `qsub -q debug -l walltime=00:25:00 -v TRAIN_YEAR_END=2016,RUN_NUM=<new> <full script>`
+  twice — the second must log `Resuming from existing checkpoint` and `resuming True`.
 - **Network:** compute nodes reach the internet **only via the ALCF proxy**
   (`https_proxy=http://proxy.alcf.anl.gov:3128`), which `module load conda` exports. Verified
   on-node (job 7253810: `api.wandb.ai/healthz` → 200; direct → 000). Earlier notes claiming

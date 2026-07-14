@@ -49,7 +49,7 @@
 #
 # PASS is NOT "rc=0" — a preempted job is killed and that is normal and expected.
 # Progress = the "Epoch [n/N]" lines advancing and a checkpoint newer than the last run in
-#   ${MEMBER_ROOT}/runs/pangu_sfno_full/<config>/<RUN_NUM>/training_checkpoints/
+#   ${MEMBER_ROOT}/runs/pangu_sfno_full/SFNO/<RUN_NUM>/training_checkpoints/
 # DONE = the epoch counter reaches max_epochs and "DONE ---- rank 0" appears.
 # ============================================================================
 
@@ -103,7 +103,12 @@ src = open(path).read()
 # Line-scoped substitution: these keys appear once each in the BASE block the SFNO section
 # inherits. A YAML round-trip would reorder/strip the anchors (&SFNO / <<: *BASE) the file
 # depends on, so patch the lines in place instead.
-for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", exp_dir)):
+# save_checkpoint MUST be re-enabled: the template pins it False to keep the smoke cheap
+# ("skip ~3.5 GB ckpt writes; re-enable for real runs"). Inheriting that here would make the
+# whole resume design a no-op — job 7253898 reached Epoch [12/100] in 50 minutes and wrote
+# nothing, so a preemption would have lost every hour of it.
+for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", exp_dir),
+                 ("save_checkpoint", "!!bool True")):
     new, n = re.subn(r"(?m)^(\s*%s:\s*)\S+.*$" % key, lambda m: m.group(1) + str(val), src, count=1)
     if n != 1:
         print("ERROR CONFIG_PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
@@ -137,7 +142,10 @@ else
     echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
 fi
 
-CKPT="${EXP_DIR}/$(basename "${CONFIG_FILE}" .yaml)/${RUN_NUM}/training_checkpoints/ckpt.tar"
+# train.py builds expDir as os.path.join(params.exp_dir, args.config, run_num) — so the
+# directory is named after --config (SFNO), NOT after the config FILE. Getting this wrong made
+# the banner below always claim "starting fresh".
+CKPT="${EXP_DIR}/SFNO/${RUN_NUM}/training_checkpoints/ckpt.tar"
 if [ -f "${CKPT}" ]; then
     echo "RESUMING from ${CKPT} ($(du -h "${CKPT}" | cut -f1), $(date -r "${CKPT}" -Iseconds))"
 else
