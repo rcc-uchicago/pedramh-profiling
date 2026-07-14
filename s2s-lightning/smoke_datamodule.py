@@ -56,7 +56,12 @@ def main():
         None: The commit gate keys on the printed ``SMOKE_OK`` token, not a
         return value (``sys.exit(main())`` therefore exits 0).
     """
-    config_path = os.path.abspath("v2.0/config/test.yaml")
+    # Resolve the config relative to THIS file, not cwd, so the smoke works from
+    # any directory in the monorepo (s2s/v2.0/ is a sibling of s2s-lightning/).
+    config_path = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "..", "s2s", "v2.0", "config", "test.yaml")
+    )
     print(f"Loading config: {config_path} (section S2S)")
     params = YParams(config_path, "S2S")
 
