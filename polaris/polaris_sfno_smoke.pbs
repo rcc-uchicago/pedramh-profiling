@@ -51,6 +51,11 @@ source "${SFNO_VENV}/bin/activate"                 # torch_harmonics 0.9.x + mak
 # shadow this venv's 0.9.x and makani dies on "cannot import name precompute_latitudes".
 export PYTHONNOUSERSITE=1
 export WANDB_MODE=offline
+# unified_recipe/train.py calls initialize_mlflow() unconditionally (it does NOT degrade
+# to a no-op — it raises ImportError without mlflow). mlflow 3.x then refuses its own
+# './mlruns' file store ("in maintenance mode") unless we opt in; a DB backend is
+# pointless for an offline smoke.
+export MLFLOW_ALLOW_FILE_STORE=true
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export OMP_NUM_THREADS=8
@@ -96,12 +101,25 @@ cd "${RECIPE}"
 LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno
     "curated_dataset.train_dataset_filename=${DATA}/e3sm_train.zarr"
     "curated_dataset.val_dataset_filename=${DATA}/e3sm_val.zarr"
+    # dataset.dataset_filename is the RAW (pre-curation) store. We supply pre-curated
+    # stores, but a trailing step still opens this one, and the stock value is a
+    # nonexistent relative ARCO-ERA5 path -> zarr PathNotFoundError AFTER a successful
+    # train+validate+checkpoint. Point it at the train store to keep the job rc=0.
+    "dataset.dataset_filename=${DATA}/e3sm_train.zarr"
     curated_dataset.nr_predicted_variables=157
     curated_dataset.nr_unpredicted_variables=5
     "transform.transformed_shape=[180,360]"
     training.stages.0.num_epochs=1 training.stages.0.max_iterations=10
-    training.stages.0.batch_size=1 validation.batch_size=1 validation.num_steps=1
-    datapipe.parallel=false datapipe.py_num_workers=0)
+    training.stages.0.batch_size=1 validation.batch_size=1 validation.num_steps=2)
+# validation.num_steps must be >= 2: train.py's post-validation plotting indexes
+# `ax[0, t]`, but matplotlib SQUEEZES plt.subplots(...) to a 1-D axes array when a grid
+# dimension is 1, so num_steps=1 dies AFTER a successful epoch with
+#   IndexError: too many indices for array: array is 1-dimensional, but 2 were indexed.
+# NOTE: do NOT pass `datapipe.parallel=false` as a DALI fallback — seq_zarr_datapipe.py
+# passes `prefetch_queue_depth` to dali.fn.external_source unconditionally, and DALI
+# rejects it unless parallel=True:
+#   ValueError: The argument `prefetch_queue_depth` is valid only for parallel external
+#   sources (when ``parallel`` is True).
 
 if [ "${NPROC}" = "1" ]; then
     python "${LAUNCH_ARGS[@]}"
