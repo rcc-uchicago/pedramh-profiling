@@ -181,3 +181,8 @@ sbatch_logs/
 
 # ASV
 .asv/
+
+# Polaris smoke: train.py writes one forcast_validation_channel<N>_epoch<E>.png
+# per channel into the example dir (157 for the E3SM channel set).
+examples/weather/unified_recipe/forcast_validation_channel*.png
+examples/weather/unified_recipe/model_package_*/
