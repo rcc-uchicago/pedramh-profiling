@@ -42,3 +42,10 @@ core*
 .idea/
 .vscode/
 .DS_Store
+
+# editor swap/temp files
+*.swp
+*.swo
+.*.swp
+.*.swo
+*~
