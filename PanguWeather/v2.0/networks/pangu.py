@@ -65,6 +65,7 @@ from utils.earth_position_index import get_earth_position_index
 from utils.pad import get_pad3d
 from utils.shift_window_mask import get_shift_window_mask, window_partition, window_reverse
 from utils.crop import crop3d
+from utils import vae_noise
 from timm.layers import trunc_normal_, DropPath
 from utils.integrate import Integrator, forward_euler
 import os
@@ -445,9 +446,15 @@ class PanguModel_Plasim(nn.Module):
             self.patchrecovery2d = PatchRecovery2D(params.horizontal_resolution, params.patch_size[1:], 2 * embed_dim, self.num_surface_vars + self.num_diagnostic_vars + self.num_land_vars + self.num_ocean_vars)
             self.patchrecovery3d = PatchRecovery3D(self.atmo_resolution, params.patch_size, 2 * embed_dim, self.num_atmo_vars)
 
-    def reparameterize(self, mu, sigma):
+    def reparameterize(self, mu, sigma, site="default"):
             std = torch.exp(0.5 * sigma)
-            eps = torch.randn_like(std)
+            # eps comes from the vae_noise hook (DESIGN §4.0) instead of torch.randn_like
+            # directly. With no mode enabled it IS torch.randn_like(std) — the historical
+            # global-RNG draw, byte for byte. The hook exists so the §4 equivalence gate can
+            # fix the noise: torch.compile/FlexAttention can change RNG kernel selection and
+            # consumption order, so a CORRECT optimization would otherwise show up as an
+            # ensemble-output mismatch. `site` keeps the two encoders' draws independent.
+            eps = vae_noise.draw_eps(std, site=site)
             return mu + eps * std
     
     def forward(self, surface_in, constant_boundary, varying_boundary, upper_air_in, 
@@ -520,7 +527,7 @@ class PanguModel_Plasim(nn.Module):
         ###########VAE Enocer 1#################
         mu = self.layer_mu(x_vae) # should be #8,192, 10,23,45, 
         sigma = self.layer_sigma(x_vae) # should be #8, 192, 10,23,45, 
-        norm = self.reparameterize(mu, sigma) # should be #8,192, 10,23,45
+        norm = self.reparameterize(mu, sigma, site="encoder1") # should be #8,192, 10,23,45
         x_purb = self.layer_purturbation(norm)
         #print("mu, sigma, norm, x_purb", mu.shape, sigma.shape, norm.shape, x_purb.shape) #8, 10, 23, 45, 192
 
@@ -533,7 +540,7 @@ class PanguModel_Plasim(nn.Module):
 
             mu_e2 = self.layer_mu_e2(x_e2_vae) 
             sigma_e2 = self.layer_sigma_e2(x_e2_vae)
-            norm_e2 = self.reparameterize(mu_e2, sigma_e2) 
+            norm_e2 = self.reparameterize(mu_e2, sigma_e2, site="encoder2")
 
 
         ##############Decoder ##################
