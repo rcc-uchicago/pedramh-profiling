@@ -5,6 +5,13 @@ Hassanzadeh group's probabilistic **subseasonal-to-seasonal (S2S)** weather
 models. The goal is to make these models **faster on HPC GPUs without changing
 what they compute** — measured, gated, and reproducible across clusters.
 
+> **Current focus: `PanguWeather/`** (2026-07-15). It is a 95%-identical fork of
+> `s2s/v2.0` (§2c) and the one that actually runs on Polaris today — `s2s/v2.0` is blocked on
+> an ERA5 stage. Two consequences worth knowing before you read further: PanguWeather carries
+> **none** of s2s's NVTX/`S2S_BENCH` instrumentation, so profiling it starts with porting
+> that; and the two forks are **copies, not shared imports**, so a fix in one silently does
+> not reach the other. Six codebases now live here (§2, §2b), not three.
+
 Development guide and conventions are in **CLAUDE.md** (read that for how to
 work here — it is also the single source of truth for cluster facts). This
 document covers *what* we are building and *why*.
@@ -14,7 +21,7 @@ document covers *what* we are building and *why*.
 ## Table of Contents
 
 1. [Goals and Non-Goals](#1-goals-and-non-goals)
-2. [The three models and how they relate](#2-the-three-models-and-how-they-relate)
+2. [The models and how they relate](#2-the-models-and-how-they-relate)
 3. [Architecture: the shared model pipeline](#3-architecture-the-shared-model-pipeline)
 4. [The correctness oracle: numerical-equivalence-vs-baseline](#4-the-correctness-oracle-numerical-equivalence-vs-baseline)
 5. [Optimization thesis and ROI ladder](#5-optimization-thesis-and-roi-ladder)
@@ -30,7 +37,7 @@ document covers *what* we are building and *why*.
 
 ### Goals
 
-- **Measure** training and inference throughput of all three models on HPC GPUs,
+- **Measure** training and inference throughput of the models on HPC GPUs,
   with the existing NVTX / `*_BENCH` / CSV instrumentation, reproducibly.
 - **Optimize** the hot path (torch.compile, FlexAttention, DDP comm hooks, fused
   optimizers, vectorized loss) — each optimization **gated on numerical
@@ -55,19 +62,90 @@ document covers *what* we are building and *why*.
 - **We do NOT hand-write custom CUDA/Triton kernels as a first move.** Per the ROI
   analysis (§5), compiler- and framework-level wins come first; bespoke kernels
   are last-resort.
-- **We do NOT diverge the three models.** The model/loss/loader code under
+- **We do NOT diverge S2S and the port.** The model/loss/loader code under
   `s2s/v2.0/` is shared and imported by the Lightning port — edits there must
   serve all consumers, never one harness.
 
 ---
 
-## 2. The three models and how they relate
+## 2. The models and how they relate
 
 | Dir | Model | Harness | 4-GPU launch | Instrumentation env |
 |---|---|---|---|---|
 | `s2s/v2.0/` | **S2S** — Pangu/Plasim 3D-Swin + VAE ensembles, lat-weighted CRPS. The canonical, benchmark-instrumented codebase. | plain PyTorch DDP via `torchrun` | `torchrun --standalone --nproc_per_node=4` (single launcher, spawns 4 local ranks) | `S2S_BENCH_*`, `S2S_NVTX`, `S2S_AMP_DTYPE`, `TORCH_COMPILE_MODE` |
 | `s2s-lightning/` | **S2S-Lightning** — a PyTorch Lightning restructuring of S2S. **Imports** `s2s/v2.0` (no copy); only the harness differs. | Lightning `Trainer` + `DDPStrategy` | **Midway:** `srun` with `--ntasks-per-node=4` == devices (Lightning SLURM launcher, one process/GPU). **Polaris:** one `python` (subprocess launcher, no `srun`). | `S2S_BENCH_*`, `S2S_NVTX`, `S2S_PRECISION`, `S2S_TORCH_COMPILE`, `S2S_DDP_BUCKET_CAP_MB` |
 | `si/` | **SI (stochastic interpolants)** — the sibling generative-forecasting project (DiT/SiT interpolant models, plus SFNO/UNet/AE variants); the Lightning-layout template S2S-Lightning mirrors. | Lightning `Trainer` + `DDPStrategy` | **Midway:** `srun` with `--ntasks-per-node=4` == devices (identical to the port). **Polaris:** one `python` (no `srun`). | `SI_BENCH_*`, `SI_NVTX`, `SI_PRECISION`, `SI_DDP_*` |
+
+### 2b. The three SFNO codebases (added 2026-07-14 as git subtrees)
+
+Three more trees joined the repo during the Polaris bring-up. They are **not** part of the
+S2S/port/SI trio above, and two of them are not ours at all:
+
+| Dir | What it is | Ours? | Model | Stochastic? | Harness | Data |
+|---|---|---|---|---|---|---|
+| `PanguWeather/` | The group's PanguWeather work — **the current focus** (§2c) | ✅ group | `pangu_plasim` (3D-Swin + VAE) **or** `sfno_plasim` (SFNO) | depends on nettype | plain torch DDP + `torchrun` | E3SM / PLASIM / ERA5 |
+| `makani_sfno/` | NVIDIA **makani** + the group's `sfno_training` wrapper | ⚠️ vendor + our wrapper | SFNO (spherical harmonics) | no (as configured) | makani's own trainer (`train_plasim`) | E3SM / PLASIM |
+| `physicsnemo_sfno/` | NVIDIA **PhysicsNeMo** `unified_recipe` | ❌ vendor | AFNO / **SFNO** / GraphCast | no (as configured) | hydra recipe | E3SM / ARCO-ERA5 |
+
+Why this matters when you touch them: the vendor trees behave nothing like ours, and their
+traps are of a different kind — makani **auto-resumes** and will exit 0 having trained zero
+steps; PhysicsNeMo hardcodes `load_checkpoint("./checkpoints")` *relative to CWD* and its
+hydra defaults use the PATH form, so `model=sfno` on the CLI is impossible. Both are recorded
+in `polaris_pbs_notes.md`.
+
+**Three ways of being stochastic — the split is not "SI vs the rest":**
+
+| family | how | loss |
+|---|---|---|
+| S2S, the port, PanguWeather `pangu_plasim` | **VAE reparameterization → N ensemble members** | lat-weighted CRPS + KL |
+| SI | **stochastic interpolants** (DiT/SiT, diffusion-family) | interpolant objective |
+| PanguWeather `sfno_plasim`, makani, physicsnemo | **deterministic** single-shot | `raw_l2` / L2 |
+
+This is why §4.0's VAE noise-fixing hook matters for S2S/Pangu and not only for SI.
+
+### 2c. PanguWeather is a FORK of `s2s/v2.0` — and it is now the focus
+
+`s2s/v2.0` and `PanguWeather/v2.0` are **the same codebase, diverged by purpose.** They both
+define `PanguModel_Plasim`, and `networks/pangu.py` is **95% identical** (1093 of ~1148 lines
+in common). `s2s/v2.0/utils/losses.py` is a strict **subset** of PanguWeather's (171/171 lines
+shared; PanguWeather adds `Raw_MSELoss` and an unweighted `CRPSLoss`).
+
+They diverged along one axis — instrumentation vs science:
+
+| | `s2s/v2.0` | `PanguWeather/v2.0` |
+|---|---|---|
+| NVTX ranges | **39** | **0** |
+| `S2S_BENCH` | 6 | **0** |
+| `TORCH_COMPILE_MODE` | 2 | **0** |
+| DDP `static_graph` | 4 | **0** |
+| SFNO nettype | 0 | **8** |
+| bias correction | 0 | **59** |
+| finetuning | 1 | **32** |
+| `train.py` size | 1,975 lines | **3,985 lines** |
+
+**Both keep the VAE** (`reparameterize` at s2s:463, PanguWeather:448) — the fork did not
+remove it. What changes is the **nettype**: `train.py:594` takes the VAE path for
+`pangu_plasim`, and `:613` the SFNO path for `sfno_plasim`. The SFNO net
+(`networks/modulus_sfno/`) has **no VAE at all**, and the E3SM config uses `loss: "raw_l2"`.
+So "s2s vs the Pangu SFNO run" differs by the VAE; "s2s vs PanguWeather `pangu_plasim`" does
+not.
+
+> ⚠️ **The forks do not share code.** Unlike S2S↔the port (which share by *import*),
+> `PanguWeather/v2.0` is a **copy**. A fix to `s2s/v2.0/networks/pangu.py` does **not** reach
+> it, and vice versa. Rule #5 in CLAUDE.md ("shared code serves both") does not apply here —
+> this is worse: nothing tells you the other copy drifted.
+
+**FOCUS: the work is now on PanguWeather.** Practical consequences:
+1. **PanguWeather has zero instrumentation.** Profiling it means porting the NVTX ranges and
+   the `S2S_BENCH` harness from `s2s/v2.0` — that is a prerequisite, not a detail. Keep the
+   range names identical to S2S's or `parse_nsys.py` and every prior comparison break
+   (CLAUDE.md #10).
+2. **It is the only one of the two that runs on Polaris today** — its E3SM SFNO path is GREEN
+   (job 7252271, re-verified as a second user by 7253591 at an identical loss of 0.3411),
+   while `s2s/v2.0` is blocked on the ERA5 stage.
+3. Its full training needs **no data prep** — it reads the E3SM archive directly.
+4. Fixes made in `s2s/v2.0` during the S2S phase (e.g. the `--seed` knob in
+   `utils/seeding.py`) are **not** in PanguWeather. Port them deliberately; do not assume.
 
 **Key relationship:** S2S and S2S-Lightning are the *same model* with two harnesses
 (the port shares `s2s/v2.0` by import — a change to `s2s/v2.0/networks/pangu.py` is
@@ -252,7 +330,7 @@ verbose diagnostics to files, keep `ERROR <reason>` greppable on one line.
 
 ## 8. Roadmap
 
-- [ ] **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for all three models via
+- [ ] **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for each model via
   PBS; produce `polaris_pbs_notes.md`. (See `polaris_handoff_prompt.md`.)
 - [ ] **§4 prerequisites** — add a `--seed` knob to `train.py`, a `tiny_baseline.yaml`,
   and the VAE noise-fixing hook. *(Blocks baseline capture and all optimization.)*

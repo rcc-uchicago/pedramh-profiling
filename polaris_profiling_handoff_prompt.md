@@ -10,6 +10,25 @@ Cluster facts and every trap found so far: **`polaris_pbs_notes.md`**.
 
 ---
 
+## 0. Focus: PanguWeather
+
+The target is **`PanguWeather/`**, not `s2s/v2.0`. See DESIGN §2c — they are 95%-identical
+forks of the same code, but **copies, not shared imports**: a fix to one silently never
+reaches the other. Two things this changes for you:
+
+- **PanguWeather has NO instrumentation** — 0 NVTX ranges, no `S2S_BENCH`, no
+  `TORCH_COMPILE_MODE`, no DDP `static_graph`, where s2s has 39/6/2/4. Profiling it *begins*
+  with porting that harness across. Keep the range names byte-identical to S2S's or
+  `parse_nsys.py` and every prior comparison break (CLAUDE.md #10).
+- **It is the one that runs here.** Its E3SM SFNO path is green (7252271; re-verified as a
+  second user by 7253591 at an identical loss of 0.3411) and its full training needs **no
+  data prep**. `s2s/v2.0` is still blocked on the ERA5 stage.
+- The `--seed` knob this session built lives in `s2s/v2.0/utils/seeding.py` **only**.
+
+Note the nettype split (DESIGN §2c): `pangu_plasim` is the VAE+CRPS model (identical to s2s);
+`sfno_plasim` — what the E3SM runs use — is a **deterministic** SFNO with `loss: "raw_l2"` and
+**no VAE**. That decides whether §4.0's VAE noise hook is on your critical path.
+
 ## 1. The one distinction that decides what you may do
 
 **Profiling is unblocked. Optimizing is not.**

@@ -37,6 +37,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Next actions (pick from the top)
 
+0. **FOCUS CHANGED (2026-07-15): the work is on `PanguWeather/`, not `s2s/v2.0`.** They are
+   95%-identical forks (DESIGN §2c) — but **copies, not shared imports**, so nothing
+   propagates between them. Two things follow: PanguWeather has **zero** NVTX/`S2S_BENCH`
+   instrumentation, so profiling it starts by porting that harness from `s2s/v2.0` (keeping
+   the range names identical, CLAUDE.md #10); and the `--seed` knob built this session lives
+   in `s2s/v2.0/utils/seeding.py` only — port it deliberately.
+
+
 1. **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for each model via PBS;
    write `polaris_pbs_notes.md`. Follow `polaris_handoff_prompt.md` (on `main`).
 2. **Build the remaining §4.0 prerequisites** — ~~a `--seed` knob in `s2s/v2.0/train.py`~~
