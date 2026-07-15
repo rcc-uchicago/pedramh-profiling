@@ -21,6 +21,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | **Profiling (PanguWeather SFNO on A100)** | ✅ **DONE — see `polaris_bench_report.md`.** Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (61% of GPU time pointwise vs 15% GEMM) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
+| **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | 🟡 3 test files now exist + self-run (`SEEDING_OK`, `BENCH_INSTR_OK`, `VAE_NOISE_OK`); no `conftest.py`/`--fast` yet |
 | Optimization ladder (DESIGN.md §5) | ⬜ not started — **deliberately**: profiling is unblocked, optimizing is not |
@@ -80,6 +81,11 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
+- **Data-prep PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/11**
+  (branch `polaris-data-prep`). ⚠️ **Stacked on `polaris-profiling` (#10), itself stacked on
+  `polaris-pbs-bringup`** — merge in that order. Carries the 7 converter defects (5 fixed, 4
+  open) and **5 decisions** needing jesswan/us: see `polaris_data_prep_handoff_prompt.md` §0.
+  **The analysis is 1/3 done** — makani's 367-line converter is unaudited (§8).
 - **Profiling PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/10**
   (branch `polaris-profiling`). ⚠️ **Stacked on `polaris-pbs-bringup`**, which is still
   unmerged, so PR #10's diff includes those commits until it lands. **Merge the bring-up PR
