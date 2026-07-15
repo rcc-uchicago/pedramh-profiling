@@ -387,6 +387,15 @@ Stated plainly so nothing below reads as done:
   `baselines/` — has not been done. That is the next job, and it is no longer blocked.
 * **No optimization was attempted or measured.** No `torch.compile`, no precision change, no
   DDP tuning, no `checkpointing` change. The §4 gate is not executable yet.
+* **`TORCH_COMPILE_MODE` is wired and statically tested, but has NOT been exercised at
+  runtime.** Deliberate: actually compiling the model *is* §5 rung 1, and the handoff's rule
+  is that optimizing stays blocked until §4 is executable — so setting it once "just to see"
+  would be starting the ladder without the gate. The test proves the env value reaches
+  `torch.compile`; it does **not** prove `torch.compile` succeeds on this model. It may hit
+  graph breaks or fail outright against `checkpointing: 3` / the SFNO's custom ops. Finding
+  that out is rung 1's first task, after the baseline. Do not read "wired" as "works".
+* **`static_graph=True` was not tried** — see the §6b box for why it is not a free copy from
+  s2s (unmeasured in isolation, and it needs a dead-module freeze PanguWeather lacks).
 * **The `workers=8` +9% is a bench result, not an endorsement** — see the `epsilon_factor`
   box in §3. It changes the loss trajectory.
 * **Single-run numbers.** Each sweep point is one job. The step distributions are tight
