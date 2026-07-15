@@ -238,8 +238,77 @@ Two things follow, both **unmeasured hypotheses, flagged as such**:
 ## 6. Optimizing is still blocked — and one §4.0 prerequisite turned out to already exist
 
 Per the handoff: **profiling is unblocked, optimizing is not.** Nothing in this report
-changed the hot path. `TORCH_COMPILE_MODE` is plumbed in the new harness and left **unset**;
-both PBS scripts say why in a comment.
+changed the hot path. `TORCH_COMPILE_MODE` is now wired and left **unset**; both PBS scripts
+say why in a comment.
+
+> **Correction (2026-07-15).** An earlier draft of this report said `TORCH_COMPILE_MODE` was
+> "already plumbed in the ported harness". **It was not.** The harness port brought the
+> `S2S_BENCH`/NVTX plumbing across but not the compile knob — PanguWeather had only a
+> commented-out `torch.compile(self.model, mode='default')` (`train.py:639`) and no env read,
+> exactly as DESIGN §2c's table says (`TORCH_COMPILE_MODE`: s2s **2**, PanguWeather **0**).
+> The commented-out `export TORCH_COMPILE_MODE=…` in both bench scripts was therefore a live
+> trap: uncomment it, get no compile, no error, and conclude "torch.compile doesn't help this
+> model". Now genuinely wired (`get_model()`, gated, unset ⇒ legacy) with a test that fails if
+> the knob is ever disconnected again.
+
+### 6b. Fork drift vs `s2s/v2.0` — which `bench_report.md` optimizations actually reached here
+
+DESIGN §2c's warning is that the forks share code by **copy**, so "nothing tells you the other
+copy drifted". Checked rather than assumed. **The drift is bidirectional** — each fork has
+something the other lacks:
+
+| `bench_report.md` finding | `s2s/v2.0` | `PanguWeather` | on the Polaris path? |
+|---|---|---|---|
+| §4 **bf16** (+5.3% on H100) | env `S2S_AMP_DTYPE`, defaults **fp16** | ✅ YAML `amp_dtype`, **defaults `bfloat16`** — already on, and a better design than an env knob | ✅ yes — the green runs are bf16 |
+| §4 `find_unused_parameters=False` | ✅ | ✅ | ✅ |
+| §4 **`static_graph=True`** | ✅ | ❌ **missing** | ✅ would apply — **candidate** |
+| `gradient_as_bucket_view=True` | ❌ **missing** | ✅ | drift the *other* way |
+| §5 **`TORCH_COMPILE_MODE`** | ✅ | ❌ → ✅ **fixed here** | rung 1 |
+| §4 batch **2**/card (+11.4% on H100) | config | ❌ config is batch 1 | candidate — but see §5 memory |
+| per-iteration `empty_cache()` removal | ✅ | ✅ (independently) | ✅ |
+| grad-norm without per-param `.item()` | ✅ (fused `grad_norm_and_max`) | ✅ (separate on-device `grad_norm`/`grad_max`) | ✅ |
+| §7 checkpoint `os.path.isfile` guard | ✅ | ✅ (more call sites) | ✅ |
+| §7 `--async_save` | ✅ (inference only) | ✅ (**more** files than s2s) | inference |
+| NVTX `vae_encoder1/2` ranges (+ the backward-bracketing autograd trick) | ✅ | ❌ **missing** | ViT only — not on the SFNO path |
+
+**The two real gaps are `static_graph=True` and (until now) the compile knob.** Everything
+else either landed independently or is *ahead* in PanguWeather.
+
+> `static_graph=True` is a **candidate, not a known win.** `bench_report.md` §4 changed bf16
+> and `find_unused_parameters=False`+`static_graph=True` **together** and attributes +5.3% to
+> the pair, so `static_graph`'s isolated contribution was never measured — and PanguWeather
+> already has the expensive half (`find_unused_parameters=False`). Also: s2s needs a
+> **dead-module freeze** (`layer_perturbation2`, `layer_purturbation_e2`, `train.py:437-444`)
+> for `static_graph` to be legal; PanguWeather has **no such freeze**, so this cannot simply
+> be copied across. Measure it, don't assume it.
+
+### 6c. The ViT/Swin optimizations: there are none to port, and they are not on this path
+
+Asked directly: have `bench_report.md`'s transformer/ViT optimizations been done in
+PanguWeather? **Two independent reasons the answer is "the question doesn't bite yet":**
+
+1. **They were never implemented in *either* fork.** `bench_report.md` §3's ViT findings —
+   LayerNorm-backward is the 2nd-largest GPU consumer (17.3 s), memory-layout conversions
+   (4.4 s), `roll` for shifted-window attention (7.7 s), matmul only 6th/18th — are
+   **profiler observations, explicitly deferred to `torch.compile`** (§3: "Fusing LayerNorm
+   via torch.compile is the single biggest optimisation the profile suggests"; §5: "in
+   progress"). §5-ladder rung 2 (FlexAttention) is unstarted. A `diff` of the two
+   `networks/pangu.py` files shows **the only perf-relevant divergence is s2s's NVTX
+   instrumentation** — `F.scaled_dot_product_attention` is already in `EarthAttention3D` in
+   **both** (s2s:1091/1099, PanguWeather:1079/1087), both have the same 2 `torch.roll`s and
+   13 `LayerNorm`s, and both have transformer-block checkpointing commented out identically.
+   So there is nothing to port: the ViT cores agree.
+2. **The ViT does not run on Polaris.** The green E3SM path is `nettype: sfno_plasim`, which
+   builds `networks/modulus_sfno/sfnonet.py` and **never touches `networks/pangu.py`**. The
+   Swin/ViT (and its VAE, and this report's `vae_noise` hook) belong to `pangu_plasim`,
+   blocked on PLASIM h5 that is not staged.
+
+**But the two profiles agree on the lever, which is the interesting part.** The H100 ViT
+(`bench_report.md` §3/§5: element-wise ops "the single largest GPU-time consumer … launched
+as hundreds of small kernels", matmul ranks 6th) and this A100 SFNO (§4.2: **61%** elementwise
+over ~1506 launches/step, GEMM 15%) are **different architectures that profile the same way** —
+memory-bandwidth bound and fusion-starved. Two independent measurements, one conclusion:
+`torch.compile` is rung 1. That is now reachable on PanguWeather.
 
 Status of the three DESIGN §4.0 prerequisites **for PanguWeather** (they were tracked for
 `s2s/v2.0`; the trees are forks and share nothing, DESIGN §2c):

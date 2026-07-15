@@ -650,8 +650,23 @@ class Trainer():
         else:
             raise Exception("not implemented")
 
+        # torch.compile: set TORCH_COMPILE_MODE=reduce-overhead (or max-autotune) to enable.
+        # Ported from s2s/v2.0/train.py:429 — PanguWeather had only a commented-out
+        # `torch.compile(self.model, mode='default')` (:639) and NO env knob, so the
+        # TORCH_COMPILE_MODE that every bench script advertises was silently inert here.
+        # Compile before the DDP wrap (which happens in __init__, after this returns) so the
+        # compiled graph covers the full forward pass. fullgraph=False tolerates graph breaks
+        # from custom ops / activation checkpointing (`checkpointing: 3` is on by default).
+        #
+        # Unset => no compile => legacy path, byte for byte. Turning it ON is DESIGN §5 rung 1
+        # and is gated on the §4 equivalence check — this only makes the lever reachable.
+        _compile_mode = os.environ.get("TORCH_COMPILE_MODE", "")
+        if _compile_mode:
+            self.model = torch.compile(self.model, mode=_compile_mode, fullgraph=False)
+            logging.info("torch.compile enabled (mode=%s)", _compile_mode)
+
         return self.model
-        
+
     def count_parameters(self):
         """
         Count the trainable parameters

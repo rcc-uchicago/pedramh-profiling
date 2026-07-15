@@ -203,6 +203,27 @@ def _env_default(path, knob):
     return None
 
 
+def test_torch_compile_knob_is_actually_wired():
+    """The bench scripts advertise TORCH_COMPILE_MODE — it must reach torch.compile.
+
+    It did not. PanguWeather had only a commented-out `torch.compile(..., mode='default')`
+    and no env read (DESIGN §2c's table: s2s 2, PanguWeather 0), so the commented-out
+    `export TORCH_COMPILE_MODE=...` in the bench scripts was a live trap: uncomment it and
+    you get no compile, no error, and a "torch.compile doesn't help this model" conclusion.
+    """
+    assert _env_default(_PANGU_TRAIN, "TORCH_COMPILE_MODE") is not None, (
+        "TORCH_COMPILE_MODE is not read from the environment — the knob the bench scripts "
+        "document does nothing")
+    fn = _find_func(_tree(_PANGU_TRAIN), "get_model")
+    compiles = [n for n in ast.walk(fn)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+                and n.func.attr == "compile"]
+    assert compiles, "no live torch.compile call in get_model()"
+    src = _read(_PANGU_TRAIN)
+    assert 'torch.compile(self.model, mode=_compile_mode, fullgraph=False)' in src, (
+        "the compile call no longer uses the env-resolved mode / fullgraph=False")
+
+
 def test_bench_defaults_match_s2s():
     for knob, default in (("S2S_BENCH_WARMUP", "20"), ("S2S_BENCH_STEPS", "80")):
         got = _env_default(_PANGU_TRAIN, knob)

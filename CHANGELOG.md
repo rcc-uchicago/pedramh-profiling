@@ -55,14 +55,17 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
    prerequisites are met on PanguWeather: the seed knob already existed, the VAE hook is
    built, and `tiny_baseline.yaml` is written *and run* (job 7255583: **7,166,656 params**,
    165× smaller than the real 1.18 B; 0.023 s/step; **1.00 GB**), so a K=20 baseline is
+   ~0.5 s of compute.
    Procedure: world size 1, fixed seed (`--global_seed`), K=20 steps, per-step loss
    trajectory + output summary stats → `baselines/pangu_sfno/` as JSON/CSV (§4.2 — text
    only, never tensors).
 2. **Then, and only then, rung 1 of the §5 ladder: `torch.compile`.** The profile now says
    this is the right lever on evidence — **61% of GPU time is elementwise over ~1506
    launches/step vs 15% GEMM** (`polaris_bench_report.md` §4.2), i.e. fusion-starved.
-   `TORCH_COMPILE_MODE` is already plumbed in the ported harness and deliberately unset.
-   Expect longer warmup (raise `S2S_BENCH_WARMUP` to 40); profile eager, bench compiled.
+   `TORCH_COMPILE_MODE` is now genuinely wired and deliberately unset — it was **not**
+   plumbed in PanguWeather despite an earlier claim in this file (see the correction entry
+   below). Expect longer warmup (raise `S2S_BENCH_WARMUP` to 40); profile eager, bench
+   compiled.
 3. **Profile the other three models** (`polaris_bench_report.md` covers only PanguWeather
    SFNO). SI is cheapest — it already has `SI_BENCH_*`/`SI_NVTX` and a green Polaris bench
    (7252700/7253603). makani/physicsnemo have no comparable harness.
@@ -127,6 +130,47 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-07-15** — **🔴 CORRECTION + fork-drift audit: `TORCH_COMPILE_MODE` was NOT plumbed in
+  PanguWeather, and this file said it was.** Prompted by the question "have the
+  `bench_report.md` optimizations — especially the ViT ones — already been done in
+  PanguWeather?". Checked instead of assumed (DESIGN §2c: the forks share code by **copy**, so
+  "nothing tells you the other copy drifted"). Full table: `polaris_bench_report.md` §6b.
+  - **The error:** the harness port brought `S2S_BENCH`/NVTX across but **not** the compile
+    knob. PanguWeather had only a commented-out `torch.compile(self.model, mode='default')`
+    (`train.py:639`) and no env read — exactly as DESIGN §2c's table already said
+    (`TORCH_COMPILE_MODE`: s2s **2**, PanguWeather **0**). I should have read my own table.
+    The commented-out `export TORCH_COMPILE_MODE=…` in both new bench scripts was therefore a
+    **live trap**: uncomment it → no compile, no error → "torch.compile doesn't help this
+    model". **Now genuinely wired** in `get_model()` (gated; unset ⇒ legacy path) + a test
+    that fails if the knob is ever disconnected again.
+  - **The drift is BIDIRECTIONAL** — each fork has something the other lacks:
+    **`static_graph=True`** is in s2s and **missing in PanguWeather**;
+    **`gradient_as_bucket_view=True`** is in PanguWeather and **missing in s2s**.
+  - **PanguWeather is AHEAD on several**: bf16 is the YAML default (`amp_dtype: bfloat16`)
+    rather than an env knob defaulting to fp16; `--async_save` reaches more files; there are
+    more `os.path.isfile` checkpoint guards. The per-iteration `empty_cache()` removal and the
+    per-param `.item()` removal landed in both, independently.
+  - **`static_graph=True` is a candidate, NOT a known win — do not just copy it.**
+    `bench_report.md` §4 changed bf16 and `find_unused_parameters=False`+`static_graph=True`
+    **together** (+5.3% for the pair), so `static_graph`'s isolated contribution was never
+    measured, and PanguWeather already has the expensive half. Worse, s2s needs a
+    **dead-module freeze** (`layer_perturbation2`/`layer_purturbation_e2`, `train.py:437-444`)
+    to make `static_graph` legal; PanguWeather has no such freeze, so copying it across could
+    fail at runtime on `pangu_plasim`.
+  - **The ViT/Swin optimizations: there are none to port.** `bench_report.md` §3's findings
+    (LayerNorm-backward 2nd-largest, layout conversions, `roll`, matmul only 6th) are
+    **profiler observations explicitly deferred to `torch.compile`**, and rung 2
+    (FlexAttention) is unstarted — in *either* fork. A diff of the two `networks/pangu.py`
+    shows the **only** perf-relevant divergence is s2s's NVTX ranges: SDPA is already in
+    `EarthAttention3D` in both, and both have the same 2 `torch.roll`s, 13 `LayerNorm`s and
+    identically commented-out block checkpointing. **And the ViT does not run on Polaris** —
+    the green path is `sfno_plasim` → `networks/modulus_sfno/`, which never touches
+    `pangu.py`. The ViT (and its VAE, and the new `vae_noise` hook) belong to `pangu_plasim`,
+    blocked on PLASIM data.
+  - **Worth noting:** the H100 **ViT** and the A100 **SFNO** — different architectures —
+    profile the *same way*: elementwise-dominated, matmul secondary. Two independent
+    measurements, one conclusion: `torch.compile` is rung 1.
+
 - **2026-07-15** — **Profiling phase: PanguWeather SFNO profiled on 4×A100. Full report:
   `polaris_bench_report.md`.** Branch `polaris-profiling` (stacked on the still-unmerged
   `polaris-pbs-bringup`). Headlines:
@@ -169,8 +213,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     is **no `worker_init_fn`**, so the worker count changes the noise realization and moves
     the loss. `1 → 8` is **+9% wall throughput and 10× less jitter** (step_p90 0.826→0.603) —
     recorded as a **finding, not a recommendation**. Clean fix: a seeded `worker_init_fn`.
-  - **Nothing was optimized.** `TORCH_COMPILE_MODE` is plumbed and left unset; the §4 gate is
-    not executable until `tiny_baseline.yaml` is run.
+  - **Nothing was optimized.** `TORCH_COMPILE_MODE` is wired and left unset; the §4 gate is
+    not executable until a baseline is captured.
 
 - **2026-07-15** — **§4.0 on PanguWeather: the seed prerequisite was already satisfied.**
   The handoff implied `--seed` needed porting from `s2s/v2.0/utils/seeding.py`. It does
@@ -336,6 +380,19 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 Each is attributed to its source doc — verify there before acting.
 
+- **(PanguWeather) Don't assume a `bench_report.md` optimization reached this fork — the drift
+  is bidirectional.** `static_graph=True` is in s2s only; `gradient_as_bucket_view=True` is in
+  PanguWeather only; bf16/`--async_save`/checkpoint-guards are *ahead* in PanguWeather. Full
+  table before acting: `polaris_bench_report.md` §6b.
+- **(PanguWeather) Do NOT copy `static_graph=True` across without the dead-module freeze** —
+  s2s freezes `layer_perturbation2`/`layer_purturbation_e2` (`train.py:437-444`) to make it
+  legal, and PanguWeather has no such freeze. Its isolated gain was also never measured
+  (`bench_report.md` §4 changed it together with bf16). — `polaris_bench_report.md` §6b.
+- **(PanguWeather) There are no ViT/Swin optimizations to port — they were never implemented
+  in either fork**, and the ViT doesn't run on Polaris anyway (`sfno_plasim` uses
+  `networks/modulus_sfno/`, never `networks/pangu.py`). `bench_report.md` §3's LayerNorm/
+  layout/`roll` findings are observations deferred to `torch.compile`; SDPA is already in both.
+  Don't go hunting for a missing port that doesn't exist. — `polaris_bench_report.md` §6c.
 - **(PanguWeather) Do NOT port `s2s/v2.0/utils/seeding.py` into PanguWeather** — it already
   has `--global_seed` → `seed_torch()`, which is more complete than s2s's legacy path. Two
   seed mechanisms racing to set the same global RNG is a regression, not a port.
