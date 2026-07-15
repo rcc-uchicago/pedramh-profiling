@@ -77,6 +77,10 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
+- **Profiling PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/10**
+  (branch `polaris-profiling`). ⚠️ **Stacked on `polaris-pbs-bringup`**, which is still
+  unmerged, so PR #10's diff includes those commits until it lands. **Merge the bring-up PR
+  first.** A solo session cannot self-approve — maintainer review/merge needed.
 - **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed; open at
   https://github.com/rcc-uchicago/pedramh-profiling/compare/main...polaris-pbs-bringup
   (a solo session cannot self-approve — maintainer review/merge needed).
