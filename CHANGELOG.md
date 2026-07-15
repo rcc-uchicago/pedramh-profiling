@@ -18,10 +18,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
+| **Profiling (PanguWeather SFNO on A100)** | ✅ **DONE — see `polaris_bench_report.md`.** Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (61% of GPU time pointwise vs 15% GEMM) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
+| §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
+| §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
-| Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
-| Optimization ladder (DESIGN.md §5) | ⬜ not started |
+| Test harness (tier-1 equivalence/unit + `--fast`) | 🟡 3 test files now exist + self-run (`SEEDING_OK`, `BENCH_INSTR_OK`, `VAE_NOISE_OK`); no `conftest.py`/`--fast` yet |
+| Optimization ladder (DESIGN.md §5) | ⬜ not started — **deliberately**: profiling is unblocked, optimizing is not |
 
 ### Smoke status matrix (probe → 1-GPU → 4-GPU)
 
@@ -37,24 +39,41 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Next actions (pick from the top)
 
-0. **FOCUS CHANGED (2026-07-15): the work is on `PanguWeather/`, not `s2s/v2.0`.** They are
+0. **FOCUS (2026-07-15): the work is on `PanguWeather/`, not `s2s/v2.0`.** They are
    95%-identical forks (DESIGN §2c) — but **copies, not shared imports**, so nothing
-   propagates between them. Two things follow: PanguWeather has **zero** NVTX/`S2S_BENCH`
-   instrumentation, so profiling it starts by porting that harness from `s2s/v2.0` (keeping
-   the range names identical, CLAUDE.md #10); and the `--seed` knob built this session lives
-   in `s2s/v2.0/utils/seeding.py` only — port it deliberately.
+   propagates between them. Both consequences the earlier handoff listed here are now
+   **resolved, and one of them was wrong**:
+   - PanguWeather's missing NVTX/`S2S_BENCH` instrumentation: ✅ **ported** (2026-07-15,
+     range names identical per CLAUDE.md #10), and the legacy path is proven unchanged
+     (job 7255505 reproduces the green 0.3411 bit-identically).
+   - "the `--seed` knob lives in `s2s/v2.0/utils/seeding.py` only — port it deliberately":
+     ❌ **do NOT.** PanguWeather already has `--global_seed` → `seed_torch()`, which is
+     *more* complete than s2s's legacy path. See the Known-issues entry.
 
 
-1. **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for each model via PBS;
-   write `polaris_pbs_notes.md`. Follow `polaris_handoff_prompt.md` (on `main`).
-2. **Build the remaining §4.0 prerequisites** — ~~a `--seed` knob in `s2s/v2.0/train.py`~~
-   (**done**), a `tiny_baseline.yaml`, and a VAE noise-fixing hook. Nothing can be optimized
-   safely until the equivalence gate is executable.
-3. **Capture correctness baselines** (DESIGN.md §4) for each model.
-4. **Stand up the test harness** — CRPS/KL numerical checks, normalize↔inverse
-   round-trip, tiny-model forward/backward, a `conftest`-registered `--fast`.
-5. Then start the optimization ladder (torch.compile first — enable the existing
-   `TORCH_COMPILE_MODE` plumbing), one gated commit each.
+1. **Capture the §4.1 baseline** on TINY — **nothing blocks it any more.** All three §4.0
+   prerequisites are met on PanguWeather: the seed knob already existed, the VAE hook is
+   built, and `tiny_baseline.yaml` is written *and run* (job 7255583: **7,166,656 params**,
+   165× smaller than the real 1.18 B; 0.023 s/step; **1.00 GB**), so a K=20 baseline is
+   Procedure: world size 1, fixed seed (`--global_seed`), K=20 steps, per-step loss
+   trajectory + output summary stats → `baselines/pangu_sfno/` as JSON/CSV (§4.2 — text
+   only, never tensors).
+2. **Then, and only then, rung 1 of the §5 ladder: `torch.compile`.** The profile now says
+   this is the right lever on evidence — **61% of GPU time is elementwise over ~1506
+   launches/step vs 15% GEMM** (`polaris_bench_report.md` §4.2), i.e. fusion-starved.
+   `TORCH_COMPILE_MODE` is already plumbed in the ported harness and deliberately unset.
+   Expect longer warmup (raise `S2S_BENCH_WARMUP` to 40); profile eager, bench compiled.
+3. **Profile the other three models** (`polaris_bench_report.md` covers only PanguWeather
+   SFNO). SI is cheapest — it already has `SI_BENCH_*`/`SI_NVTX` and a green Polaris bench
+   (7252700/7253603). makani/physicsnemo have no comparable harness.
+4. **Fix the loader's missing `worker_init_fn`** — it would make `num_data_workers` an
+   output-neutral knob and unlock a measured **+9% wall throughput with 10× less jitter**
+   (`1 → 8`). Today the worker count changes the noise realization, so the win cannot pass
+   the §4 bitwise gate. Ship it with a test pinning sample→noise independence from worker count.
+5. **Stand up the test harness proper** — three self-running test files now exist
+   (`SEEDING_OK`, `BENCH_INSTR_OK`, `VAE_NOISE_OK`) but there is no `conftest.py` or
+   `--fast`. Add CRPS/KL numerical checks and the normalize↔inverse round-trip.
+6. **Unblock `s2s`/the port** — still the ERA5 Globus stage.
 
 ## In progress
 
@@ -103,6 +122,62 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-07-15** — **Profiling phase: PanguWeather SFNO profiled on 4×A100. Full report:
+  `polaris_bench_report.md`.** Branch `polaris-profiling` (stacked on the still-unmerged
+  `polaris-pbs-bringup`). Headlines:
+  - **Instrumentation had to be built first** — PanguWeather carried 0 NVTX ranges and no
+    `S2S_BENCH` (DESIGN §2c). Ported from `s2s/v2.0` with range names + CSV columns
+    byte-identical (CLAUDE.md #10), gated so unset knobs ⇒ legacy path byte-for-byte.
+    **Proven, not asserted:** job **7255505** (no `S2S_BENCH`) reproduced the GREEN
+    reference **7253591** exactly — train loss **0.3411**, valid_loss
+    **0.7049359679222107**, bit-identical. Adapted where the fork differs: the scaler can be
+    `None` (bf16), EMA is real hot-path work s2s lacks (own `ema` range), and `amp_dtype` is
+    recorded from the dtype actually used (PanguWeather takes precision from the YAML, so
+    reading `$S2S_AMP_DTYPE` would have mislabelled every row).
+  - **VERDICT 1 — GPU-bound.** Loader idle is **0.7%** at the shipped `num_data_workers: 1`
+    (job 7255410). The §5 kernel ladder is **not** premature.
+  - **VERDICT 2 — elementwise-bound, not matmul-bound.** **61%** of GPU time is
+    pointwise/elementwise over ~1506 launches/step; GEMM is only **15%**; NCCL 10.5%;
+    cuFFT/SHT just 3.3% (job 7255503). Memory-bandwidth bound and fusion-starved ⇒
+    `torch.compile` is the right first lever **on evidence**, not assumption.
+  - **The model is 1,182,108,160 params** — 1.18 B, **not** the "~79M" DESIGN/CLAUDE.md
+    assume (that figure is the Pangu/Swin model, not the E3SM SFNO). 26.98 GB peak of 40 GB.
+  - **`cpu_prep_frac` is NOT the data-loader idle fraction** — a trap worth remembering. It
+    times `_prepare_inputs_batch` on an **already-fetched** batch (0.3–0.6% of the step even
+    with the loader deliberately starved). The blocking fetch happens in `__next__`,
+    *between* steps, inside no step window. Worse, it was **fatal**: the elapsed-vs-sum
+    self-check fires on an input-bound run and **refuses the row**, i.e. the harness aborts
+    exactly when the loader is the finding. Now measured (`loader_wait_med`/`loader_wait_frac`,
+    appended after s2s's 19 columns) and folded into the check, which makes it *tighter*.
+    **Falsified before believed:** `workers=0` moved it 0.7% → 14.8% (21×) while
+    `cpu_prep_frac` stayed flat — a metric that cannot move proves nothing.
+  - **`elapsed` was sampled AFTER `cudaProfilerStop()`** (inherited from s2s), folding the
+    profiler's buffer flush into the measured wall time. Job **7255503** read `elapsed=51.8s`
+    vs `sum=25.7s` and threw away a good bench row — on **every** nsys run. The timers were
+    fine; the clock was stopped in the wrong place. Fixed; the re-run **7255557** records
+    cleanly at rc=0.
+  - **`samples_per_s` is a STEP RATE, not throughput** — it excludes the loader gap. At
+    `workers=0` it reads 6.50 while the truth is 5.53; quoting it would have ranked the
+    **slower** config first. Convert: `wall = samples_per_s × (1 − loader_wait_frac)`.
+  - **`num_data_workers` is NOT output-neutral here** — `data_loader_multifiles.py:1031/1102`
+    draws per-sample gaussian noise **inside the workers** (`epsilon_factor: 0.1`) and there
+    is **no `worker_init_fn`**, so the worker count changes the noise realization and moves
+    the loss. `1 → 8` is **+9% wall throughput and 10× less jitter** (step_p90 0.826→0.603) —
+    recorded as a **finding, not a recommendation**. Clean fix: a seeded `worker_init_fn`.
+  - **Nothing was optimized.** `TORCH_COMPILE_MODE` is plumbed and left unset; the §4 gate is
+    not executable until `tiny_baseline.yaml` is run.
+
+- **2026-07-15** — **§4.0 on PanguWeather: the seed prerequisite was already satisfied.**
+  The handoff implied `--seed` needed porting from `s2s/v2.0/utils/seeding.py`. It does
+  **not**: `train.py:3825` has `--global_seed` (default 0) → `seed_torch()` (`:3742`, called
+  at `:3785`), which seeds `PYTHONHASHSEED`/numpy/torch/CUDA and sets `cudnn.benchmark=False`
+  + `cudnn.deterministic=True`. That is **stronger than s2s's legacy path** — the numpy gap
+  that made s2s's baselines irreproducible does not exist here, which is *why* 0.3411 is
+  bit-reproducible. **Porting `seeding.py` would create two competing seed mechanisms — don't.**
+  Remaining gaps: Python's `random` unseeded, `torch.use_deterministic_algorithms(True)` never
+  set. Side note: `cudnn.benchmark=False`/`deterministic=True` are therefore **always on** —
+  a performance fact hiding inside a reproducibility mechanism.
 
 - **2026-07-14** — **DESIGN §4.0 seed knob: DONE.** `s2s/v2.0/train.py` gains `--seed` and
   `--deterministic`; the logic lives in the new shared `s2s/v2.0/utils/seeding.py` (imported
@@ -256,6 +331,28 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 ## Known issues / failed approaches (do NOT re-attempt)
 
 Each is attributed to its source doc — verify there before acting.
+
+- **(PanguWeather) Do NOT port `s2s/v2.0/utils/seeding.py` into PanguWeather** — it already
+  has `--global_seed` → `seed_torch()`, which is more complete than s2s's legacy path. Two
+  seed mechanisms racing to set the same global RNG is a regression, not a port.
+  — `polaris_bench_report.md` §6.
+- **(PanguWeather) `cpu_prep_frac` is NOT the data-loader idle fraction** — it times
+  `_prepare_inputs_batch` on an already-fetched batch and stays at ~0.4% even with the loader
+  deliberately starved to a 14.8% stall. Use `loader_wait_frac`. — `polaris_bench_report.md` §3.
+- **(PanguWeather) `samples_per_s` is a step rate, not wall throughput** — it excludes the
+  between-step loader fetch. Convert with `× (1 − loader_wait_frac)` before comparing two
+  configurations, or you will rank the slower one first. — `polaris_bench_report.md` §3.
+- **(PanguWeather) Don't read the NVTX sub-ranges as GPU time** — they are pushed/popped on
+  the CPU thread and measure *enqueue*; they sum to 55% of the step, and the rest is the
+  terminal `cuda.synchronize()` draining the GPU. `backward = 280 ms` is CPU launch work, not
+  47% of GPU time. Attribute GPU time from the kernel table. — `polaris_bench_report.md` §4.1.
+- **(PanguWeather) Bumping `num_data_workers` changes the LOSS, not just the speed** — the
+  loader draws per-sample gaussian noise inside the workers (`epsilon_factor: 0.1`) with no
+  `worker_init_fn`. The +9% from `1 → 8` is real but cannot be validated by the §4 bitwise
+  gate. Fix `worker_init_fn` first. — `polaris_bench_report.md` §3.
+- **The E3SM SFNO is 1.18 B params, not "~79M"** — the 79M figure (DESIGN, CLAUDE.md #12)
+  describes the Pangu/Swin model. Don't carry 79M-era resource intuition onto the SFNO path.
+  — `polaris_bench_report.md` §1.
 
 - **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
   `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or

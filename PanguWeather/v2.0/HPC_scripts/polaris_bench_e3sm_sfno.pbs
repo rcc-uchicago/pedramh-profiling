@@ -78,8 +78,14 @@ mkdir -p "$(dirname "${S2S_BENCH_CSV}")"
 # export TORCH_COMPILE_MODE=reduce-overhead
 
 NPROC="${NPROC:-4}"
-CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
-CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.bench.rendered.yaml"
+# CONFIG_NAME/CONFIG_SECTION let this script also drive config/tiny_baseline.yaml (the
+# DESIGN §4.0 small config, section TINY) without a near-duplicate script:
+#   qsub -v CONFIG_NAME=tiny_baseline,CONFIG_SECTION=TINY,NPROC=1 <this>
+CONFIG_NAME="${CONFIG_NAME:-E3SM_SFNO_H5_POLARIS}"
+CONFIG_SECTION="${CONFIG_SECTION:-SFNO}"
+CONFIG_TEMPLATE="${V20_DIR}/config/${CONFIG_NAME}.yaml"
+[ -f "${CONFIG_TEMPLATE}" ] || { echo "ERROR NO_CONFIG: ${CONFIG_TEMPLATE}"; exit 2; }
+CONFIG_FILE="${MEMBER_ROOT}/pangu_${CONFIG_NAME}.bench.rendered.yaml"
 RUN_NUM="polaris_bench_${PBS_JOBID%%.*}"
 
 export S2S_YAML="${CONFIG_FILE}"
@@ -90,6 +96,7 @@ echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NU
 nvidia-smi -L
 polaris_env_report
 echo "python=$(command -v python)"
+echo "config=${CONFIG_NAME} section=${CONFIG_SECTION}"
 echo "bench: warmup=${S2S_BENCH_WARMUP} steps=${S2S_BENCH_STEPS} csv=${S2S_BENCH_CSV}"
 
 # ---- preflight: the 16 GB CDF-5 -> NETCDF4 climatology must exist (Trainer init reads
@@ -143,7 +150,7 @@ torchrun --standalone --nproc_per_node="${NPROC}" \
     train.py \
     --yaml_config="${CONFIG_FILE}" \
     --run_num="${RUN_NUM}" \
-    --config=SFNO \
+    --config="${CONFIG_SECTION}" \
     --fresh_start \
     --epochs 1
 rc=$?
