@@ -131,17 +131,47 @@ for store in e3sm_train.zarr e3sm_val.zarr; do
         exit 2
     fi
 done
-python - "${DATA}/e3sm_train.zarr" <<'PY' || exit 2
+python - "${DATA}/e3sm_train.zarr" "${DATA}/e3sm_val.zarr" <<'PY' || exit 2
 import sys, zarr
-z = zarr.open(sys.argv[1], mode="r")
-n = z["predicted"].shape[0]
-print("train store: %d samples" % n)
-# The smoke's store is 64. Refuse to start a multi-day run against smoke-sized data: it
-# would train, log a falling loss, and mean nothing.
-if n < 1000:
-    print("ERROR STORE_LOOKS_LIKE_A_SMOKE: only %d samples — expected tens of thousands." % n)
-    print("  Re-run polaris/polaris_zarr_e3sm_full.pbs, or point SEQZARR_FULL_DATA elsewhere.")
-    sys.exit(2)
+for path in sys.argv[1:]:
+    z = zarr.open(path, mode="r")
+    n = z["predicted"].shape[0]
+    print("%s: %d samples" % (path.rsplit("/", 1)[-1], n))
+    # The smoke's store is 64. Refuse to start a multi-day run against smoke-sized data: it
+    # would train, log a falling loss, and mean nothing.
+    if n < 1000:
+        print("ERROR STORE_LOOKS_LIKE_A_SMOKE: only %d samples — expected tens of thousands." % n)
+        print("  Re-run polaris/polaris_zarr_e3sm_full.pbs, or point SEQZARR_FULL_DATA elsewhere.")
+        sys.exit(2)
+
+    # ⚠ SHAPE IS NOT COMPLETENESS. zarr pre-allocates the full (T,...) shape up front with
+    # fill_value 0.0 and one chunk per sample, and the converter is NOT resumable while the
+    # conversion (~10.6 h) runs on a PREEMPTABLE queue against a 12 h walltime. A killed run
+    # therefore leaves a store with the RIGHT shape whose unwritten samples read back as
+    # all-zero slabs — no error, no NaN. Training then mixes real data with zero slabs,
+    # BatchNorm normalizes them, the loss falls, and the model is silently degraded. The
+    # sample-count check above passes such a store from the first minute of a conversion.
+    # A --random-sample store spans every year but its samples are NOT consecutive, so
+    # SFNO's t -> t+6h target is meaningless on it. It is a correctness fixture. It would
+    # sail past the sample-count gate above and train to a falling, meaningless loss.
+    if z.attrs.get("sampling_mode") == "random":
+        print("ERROR STORE_IS_A_RANDOM_FIXTURE: built with --random-sample (seed %s)."
+              % z.attrs.get("sampling_seed"))
+        print("  Its samples are not consecutive — SFNO's t -> t+6h target is meaningless.")
+        print("  Use it to VERIFY the prep; convert a contiguous store to train on.")
+        sys.exit(2)
+    if not z.attrs.get("conversion_complete"):
+        print("ERROR STORE_INCOMPLETE: %s has no conversion_complete sentinel." % path)
+        print("  Either the conversion was killed/preempted part-way (its unwritten samples")
+        print("  are ZERO slabs, not an error), or it predates the sentinel. Re-convert, or")
+        print("  verify exhaustively with polaris/verify_seqzarr.py before overriding.")
+        sys.exit(2)
+    init, tot = z["predicted"].nchunks_initialized, z["predicted"].nchunks
+    if init != tot:
+        print("ERROR STORE_HAS_UNWRITTEN_CHUNKS: %d/%d written — %d samples would read as "
+              "all-zero slabs." % (init, tot, tot - init))
+        sys.exit(2)
+    print("  complete: %d/%d chunks written, sentinel present" % (init, tot))
 PY
 
 # ---- checkpoint isolation (NOT optional) ------------------------------------

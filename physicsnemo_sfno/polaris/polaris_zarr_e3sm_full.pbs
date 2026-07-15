@@ -66,6 +66,23 @@ DATA="${SEQZARR_FULL_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_full}"
 TRAIN_YEARS="${TRAIN_YEARS:-$(seq 2015 2044 | tr '\n' ' ')}"
 VAL_YEARS="${VAL_YEARS:-$(seq 2045 2047 | tr '\n' ' ')}"
 
+# ---- INTERLOCK ------------------------------------------------------------------------
+# Until 2026-07-15 the converter's --max-samples defaulted to 64, so submitting this wrote a
+# 64-sample store and printed CONVERT_OK — wrong, but cheap. That default is fixed, so this
+# now really does write ~48,180 samples / ~1 TB over ~10 h. A stray qsub is no longer
+# harmless. Validate the prep at small scale first (`--random-sample`, see
+# polaris_data_prep_handoff_prompt.md), then:
+#
+#   qsub -v CONFIRM_FULL=1 polaris/polaris_zarr_e3sm_full.pbs
+#
+# (Check `myquota` yourself before you do: ~1 TB has to fit, and a conversion that dies on
+# quota at hour 8 leaves exactly the zero-filled store the sentinel exists to catch.)
+if [ "${CONFIRM_FULL:-}" != "1" ]; then
+    echo "ERROR FULL_RUN_NOT_CONFIRMED: this writes ~48,180 samples (~1 TB) over ~10 h."
+    echo "  Re-submit with -v CONFIRM_FULL=1 once the small-scale validation has passed."
+    exit 2
+fi
+
 echo "=== physicsnemo_zarr_full: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
 echo "E3SM_ROOT = ${E3SM_ROOT}"
@@ -88,7 +105,10 @@ if bad:
 print("split OK: %d train years, %d val years, no overlap" % (len(tr), len(va)))
 PY
 
-# No --max-samples / --start-sample: those are the SMOKE's bounds (64 train, 16 val).
+# No --max-samples / --start-sample: the converter defaults to ALL files in --years.
+# ⚠ This was WRONG until 2026-07-15: --max-samples defaulted to 64, so this "full" run
+# converted 64 of 51,100 samples and printed CONVERT_OK. The default is now None. The
+# STORE_SHORT gate below is what would have caught it — keep it.
 # shellcheck disable=SC2086
 python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${DATA}/e3sm_train.zarr" \
     --years ${TRAIN_YEARS} || { echo "ERROR ZARR_TRAIN_FAILED"; exit 2; }
@@ -111,6 +131,13 @@ for store, years in (("e3sm_train.zarr", tr), ("e3sm_val.zarr", va)):
     print("  %-16s %d samples (expected ~%d from %d years)" % (store, n, want, len(years)))
     if n < want * 0.99:
         print("    ERROR STORE_SHORT: %s has %d, expected ~%d" % (store, n, want)); ok = False
+    # Shape is not completeness — see the long note in polaris_sfno_full.pbs. A preempted
+    # conversion leaves the full shape with zero-filled holes.
+    if not z.attrs.get("conversion_complete"):
+        print("    ERROR STORE_INCOMPLETE: %s has no conversion_complete sentinel" % store); ok = False
+    init, tot = z["predicted"].nchunks_initialized, z["predicted"].nchunks
+    if init != tot:
+        print("    ERROR UNWRITTEN_CHUNKS: %s wrote %d/%d" % (store, init, tot)); ok = False
 sys.exit(0 if ok else 2)
 PY
 

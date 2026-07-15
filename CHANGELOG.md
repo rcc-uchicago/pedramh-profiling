@@ -130,6 +130,49 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-07-15** — **🔴 E3SM data prep: the PhysicsNeMo converter had 7 defects, and the smoke
+  could not see the worst 3. Full analysis + the 5 open decisions:
+  `polaris_data_prep_handoff_prompt.md`.** Prompted by "how do we confirm the conversion is
+  correct before the ~1 TB run" — the answer was that we couldn't.
+  - **The smoke was green because it was the one configuration where the bugs were invisible.**
+    It converts 64+16 samples from **2015 only**: the archive's frozen in-file year is
+    *correct* for 2015; `--max-samples` defaulted to **64**, which is what the smoke passes
+    explicitly; and the zero-fill-on-interrupt trap needs an interrupt. Guardrail #4 exactly.
+  - **Fixed (5):** `--max-samples` default 64→None (the "full" run wrote **64 of 51,100** and
+    printed CONVERT_OK); the time axis now takes the **year from the filename** (measured: the
+    archive stamps 2015 into EVERY file — `2049_1459.h5` → `2015-12-31 18:00:00`); `longitude`
+    0..359 → **0.5..359.5** cell centres (verified vs `boundary_data/TOPO.nc`; `train.py:447`
+    reads it into the inference model package, so it georegistered every product half a degree
+    west); a `conversion_complete` sentinel (zarr pre-allocates with `fill_value: 0.0`, so a
+    preempted run leaves a **right-shaped store of silent zero slabs** and the trainer gate only
+    checked `shape[0] >= 1000`); and the **four `means_/stds_` arrays DELETED** — dead
+    (nothing reads them: the datapipe asks only for `time/predicted/unpredicted`, `train.py`
+    normalizes with `BatchNorm2d(momentum=None, affine=False)`, `model_packages.py:85-86` saves
+    *that* batchnorm's stats) **and wrong** (npz SST assumes a 270 fill; the store fills −1.8).
+  - **Dead-and-wrong metadata is worse than none** — it fooled **two independent auditors**
+    (me and a cold Fable 5 agent) into "the model can't see SST". It can; the arrays are never
+    read. Deleted, not corrected. The converter has **no npz dependency** now: layout + fill.
+  - **New `--random-sample N --seed S`** + `polaris/polaris_verify_data_prep.pbs`: a small store
+    spanning EVERY year, verified **exhaustively**. Green: **`SEQZARR_VERIFIED (EXHAUSTIVE:
+    40 samples × 162 channels = 6480 channel-samples, bitwise)`**, job **7257786**, 24 distinct
+    years. The full script now needs `-v CONFIRM_FULL=1` (the `--max-samples` fix *armed* it).
+  - **STILL OPEN (4, documented not fixed):** a non-contiguous `--years` store passes every gate
+    with **8766 h seams**; `nchunks_initialized` is defeatable (zarr 2.18.7 counts `.partial`
+    files by prefix — measured 6/6 while a sample was a zero slab); a preemption during the
+    *val* conversion **destroys the completed 9 h train store**; `--random-sample` ignores
+    `--start-sample` but records it.
+  - **5 DECISIONS for jesswan/us** (§0 of the handoff). The sharpest: **PhysicsNeMo forecasts
+    SST and sea ice; Pangu and makani prescribe them — and this is an AMIP run, where they are
+    prescribed by definition.** `UNPREDICTED` is *our* list, so that one is ours to fix.
+  - **The npz "Kelvin" open issue is RESOLVED and its recorded diagnosis was WRONG.** SST is
+    **°C** (measured `[−1.80, 32.21]`). The npz mean of 109.963 is arithmetically a **270
+    land-fill of °C data**: `0.374×270 + 0.626×14.70 = 110.06`. The npz is not broken — it
+    *encodes* Pangu's `SST: 270.` fill. Do not "fix" it to Kelvin.
+  - **Analysis is 1/3 done:** PhysicsNeMo's converter audited, Pangu's stats prep audited (64
+    lines, metadata-only, clean). **makani's 367-line converter is unaudited** — it flips
+    latitude, truncates to 10 of 18 levels, renames channels, and its stats *are* live. §8 of
+    the handoff scopes it.
+
 - **2026-07-15** — **🔴 CORRECTION + fork-drift audit: `TORCH_COMPILE_MODE` was NOT plumbed in
   PanguWeather, and this file said it was.** Prompted by the question "have the
   `bench_report.md` optimizations — especially the ViT ones — already been done in
@@ -393,6 +436,26 @@ Each is attributed to its source doc — verify there before acting.
   `networks/modulus_sfno/`, never `networks/pangu.py`). `bench_report.md` §3's LayerNorm/
   layout/`roll` findings are observations deferred to `torch.compile`; SDPA is already in both.
   Don't go hunting for a missing port that doesn't exist. — `polaris_bench_report.md` §6c.
+- **(E3SM data prep) `CONVERT_OK` is NOT a verification** — it checks 1 channel of 1 sample
+  (0.01%) and is blind to the NaN fill by construction (its probe channel is chosen as one
+  with no fill). Require `SEQZARR_VERIFIED` from `polaris/verify_seqzarr.py`.
+  — `polaris_data_prep_handoff_prompt.md` §4.
+- **(E3SM data prep) The PhysicsNeMo smoke store CANNOT validate the full conversion** — it is
+  64+16 samples of **2015 only**, and all three worst defects were invisible at exactly that
+  scale. Use `polaris/polaris_verify_data_prep.pbs` (`--random-sample`, spans every year).
+  — `polaris_data_prep_handoff_prompt.md` §5.
+- **(E3SM archive) `input/time` is FROZEN AT 2015 in every file** — `2049_1459.h5` carries
+  `2015-12-31 18:00:00`. Month/day/hour track the index; only the year is wrong. Never build a
+  time axis from the in-file label; take the year from the filename. Upstream defect.
+  — `polaris_data_prep_handoff_prompt.md` §1.
+- **(E3SM stats) The npz SST mean of ~110 is NOT "Kelvin data"** — that inference (previously
+  recorded here as an open issue) is refuted. SST is °C; 110 is arithmetically a 270 land-fill:
+  `0.374×270 + 0.626×14.70 = 110.06`. The npz encodes Pangu's `SST: 270.` fill and is
+  self-consistent. Do not "fix" it. — `polaris_data_prep_handoff_prompt.md` §3.
+- **(zarr) `nchunks_initialized` is not a completeness check** in zarr 2.18.7 — it counts chunk
+  keys by *prefix* regex, so a `.partial` left by a kill mid-write counts as written (measured
+  6/6 while a sample was an all-zero slab). Compare the exact expected key set.
+  — `polaris_data_prep_handoff_prompt.md` §4.
 - **(PanguWeather) Do NOT port `s2s/v2.0/utils/seeding.py` into PanguWeather** — it already
   has `--global_seed` → `seed_torch()`, which is more complete than s2s's legacy path. Two
   seed mechanisms racing to set the same global RNG is a regression, not a port.

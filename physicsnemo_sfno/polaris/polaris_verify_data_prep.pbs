@@ -1,0 +1,123 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_verify_prep
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# Prove the E3SM -> SeqZarr data prep is correct, BEFORE committing ~1 TB / ~10 h to
+# polaris/polaris_zarr_e3sm_full.pbs. Cheap: a few GB, minutes, debug queue, no GPU, no
+# training.
+#
+# WHY THIS EXISTS, and why the existing smoke is not a substitute:
+# polaris_sfno_smoke.pbs builds 64 train + 16 val samples from **2015 only** — 16 days of
+# January. All three converter defects found on 2026-07-15 were invisible at exactly that
+# scale, and each would have silently poisoned the full store:
+#   * the archive stamps year 2015 into EVERY file, so the frozen-year bug is *correct* for
+#     a 2015-only store and wrong for all 34 other years;
+#   * --max-samples defaulted to 64, which is what the smoke asks for explicitly, so the
+#     "full" run would have written 64 samples and printed CONVERT_OK;
+#   * a preempted conversion leaves zero-filled slabs, which a completed smoke never hits.
+# "The smoke is green" is therefore NOT the gate for the full run. This is.
+#
+# WHAT IT DOES
+#   1. converts N samples drawn AT RANDOM across 2015-2049 (--random-sample, seeded)
+#   2. verifies that store EXHAUSTIVELY against the source h5 — every sample, every
+#      channel, bitwise, plus NaN-fill placement, the channel map, and the time axis
+#
+# ⚠ The store it builds is a CORRECTNESS FIXTURE, not training data: random samples are not
+#   consecutive, so SFNO's t -> t+6h target is meaningless on it. It records
+#   sampling_mode=random and polaris_sfno_full.pbs refuses to train on it.
+#
+# Submit (from physicsnemo_sfno/):
+#   qsub polaris/polaris_verify_data_prep.pbs                     # 40 samples (~1 GB)
+#   qsub -v N_SAMPLES=200 polaris/polaris_verify_data_prep.pbs    # deeper (~5 GB)
+#   qsub -v SEED=7 polaris/polaris_verify_data_prep.pbs           # a different draw
+#   qsub -v KEEP=1 polaris/polaris_verify_data_prep.pbs           # don't delete the fixture
+#
+# PASS = "SEQZARR_VERIFIED (EXHAUSTIVE: ...)" in the log. NOT rc=0 alone, and NOT
+# CONVERT_OK — that is the converter's own cheap 1-channel gate, which is exactly what was
+# trusted for too long.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+
+umask 0022
+
+# ---- env: copied verbatim from polaris_zarr_e3sm_full.pbs (same converter, same deps) ----
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+N_SAMPLES="${N_SAMPLES:-40}"
+SEED="${SEED:-0}"
+YEARS="${YEARS:-$(seq 2015 2049 | tr '\n' ' ')}"
+# Its own scratch root — never touch the smoke's store or the full store.
+FIXTURE="${VERIFY_FIXTURE:-${MEMBER_ROOT}/e3sm_seqzarr_verify}/prep_check.zarr"
+
+echo "=== polaris_verify_data_prep: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+polaris_env_report
+echo "python=$(command -v python)"
+echo "fixture : ${FIXTURE}"
+echo "sampling: ${N_SAMPLES} random samples, seed ${SEED}, across years ${YEARS}"
+
+mkdir -p "$(dirname "${FIXTURE}")"
+rm -rf "${FIXTURE}"
+
+# ---- 1. build the fixture -------------------------------------------------------------
+echo "--- converting ---"
+python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" \
+    --out "${FIXTURE}" \
+    --years ${YEARS} \
+    --random-sample "${N_SAMPLES}" \
+    --seed "${SEED}" || { echo "ERROR CONVERT_FAILED"; exit 2; }
+
+# ---- 2. verify it EXHAUSTIVELY --------------------------------------------------------
+# No --samples/--stride: the whole point of a small fixture is that every value can be
+# checked against its source. At ~1 TB you can only ever sample; here you cannot afford not
+# to check everything.
+echo "--- verifying (exhaustive) ---"
+python "${PN_ROOT}/polaris/verify_seqzarr.py" --store "${FIXTURE}"
+rc=$?
+
+# ---- 3. report the year coverage: the reason this fixture exists -----------------------
+python - "${FIXTURE}" <<'PY' || true
+import sys, zarr, numpy as np
+z = zarr.open(sys.argv[1], mode="r")
+t = z["time"][:]
+yrs = sorted(set((2015 + t // 8760).tolist()))
+print(f"  year coverage: {len(yrs)} distinct years, {min(yrs)}..{max(yrs)}")
+print(f"  time span: {t[0]} .. {t[-1]} h since 2015-01-01")
+print("  (pre-2026-07-15 the archive's frozen in-file year put EVERY sample in [0, 8754];"
+      " a max above that is the year reconstruction working)")
+PY
+
+if [ "${KEEP:-0}" != "1" ]; then
+    rm -rf "${FIXTURE}"
+    echo "fixture removed (pass -v KEEP=1 to keep it for inspection)"
+fi
+
+if [ ${rc} -ne 0 ]; then
+    echo "=== polaris_verify_data_prep FAILED (rc=${rc}) — do NOT run the full conversion ==="
+    exit ${rc}
+fi
+echo "=== polaris_verify_data_prep done (rc=0) $(date -Iseconds) ==="
+echo "Data prep verified on ${N_SAMPLES} samples spanning the archive."
+echo "The full conversion is: qsub -v CONFIRM_FULL=1 polaris/polaris_zarr_e3sm_full.pbs"
+exit 0
