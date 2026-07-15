@@ -72,14 +72,20 @@ data:
     forecast_lead_times: [1]
     return_calendar: False
     smooth_nan_boundaries: False
-    calendar: 'standard'   # NOT 'noleap': noleap is an idealized cftime calendar that
+    calendar: 'noleap'    # E3SM ships 1460 files/yr for EVERY year
+    #   (2016 and 2020 included), i.e. the archive is NOLEAP. This was
+    #   'standard' only because forcing has_year_zero=False crashed noleap
+    #   (amip_new.py). With that fixed, 'standard' is simply WRONG: it maps
+    #   Mar 1 2016 to 2016_0240.h5 when the correct file is 2016_0236.h5,
+    #   and overruns past 1459 in December. The loss still falls.
                            # forces has_year_zero=True and crashes amip_new.py:667 (year-zero
                            # mismatch). The smoke spans only 2015 + early-Jan 2016, which index
                            # identically under standard (2015 is non-leap), so standard is correct
                            # here. A FULL run crossing a leap year would need a loader fix for noleap.
     data_timedelta_hours: 6
     timedelta_hours: 24
-    has_year_zero: False
+    has_year_zero: True   # noleap's cftime default; the loader derives this
+    #   from the calendar anyway and warns if the two disagree.
     levels: [5, 11, 19, 29, 50, 70, 96, 145, 201, 257, 302, 386, 492, 609, 714, 850, 926, 998]
     horizontal_resolution: [180, 360]
     predict_delta: False

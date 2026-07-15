@@ -347,6 +347,56 @@ Note also: the smoke has **no seed knob** (that's a DESIGN §4.0 prerequisite), 
 move run-to-run — 7252769 gave 2.19/2.05 and 7253465 gave 2.61/2.38 on identical code. Treat
 these as "finite and roughly O(1)", never as an equivalence baseline.
 
+### SI's two blockers: FIXED. Both were the same bug — coupling to the Midway dataset
+
+Neither needed new data. **SI worked on Midway because Midway's dataset shape is literally
+what the code hardcoded**, so the assumptions were invisible there:
+
+| | Midway | Polaris E3SM | what the code assumed |
+|---|---|---|---|
+| `surface_variables` | 6 | 6 | `nsurface=6` ✅ by luck |
+| `diagnostic_variables` | **15** | **3** | `ndiagnostic=15` ← Midway only |
+| calendar | `standard` | archive is **noleap** | `has_year_zero=False` = *Gregorian's default* |
+
+**1. `disassemble_input` — the counts are now REQUIRED** (`si/common/utils.py`). They used to
+default to `6/15/13`, i.e. the Midway config frozen into a signature. On E3SM (3 diagnostics)
+the defaults slice in the wrong place and return **plausible tensors with wrong contents** —
+it does not necessarily raise. All 5 live call sites now pass explicit counts
+(`bias.py`, `ae_module.py`, `combined_module.py` ×2, `train_module.py`), verified by AST, not
+grep. Requiring them makes a missed caller a `TypeError`, not a silent mis-split.
+
+**2. The calendar — `has_year_zero` now comes from the CALENDAR, not the config.**
+cftime's defaults: `DatetimeGregorian` → `False`; idealized (`noleap`/`all_leap`/`360_day`) →
+`True`. Every config pinned `False`, which *agrees* with Gregorian (hence Midway's silence)
+and *contradicts* noleap — and mixing a forced-`False` date with a default-`True` one raises
+`cannot compute the time difference between dates with year zero conventions`. The loader now
+derives it from `self.datetime_class` and **warns** if the config disagrees instead of
+silently ignoring the key.
+`si/configs/bench_polaris_e3sm.yaml` is now **`calendar: 'noleap'`** — the truth about the
+archive. `'standard'` was only ever a workaround for the crash, and it silently read the wrong
+day from Mar 2016 on.
+
+**Verified, not asserted:**
+- `si/test/calendar_channels_test.py` — **8 tests, `SI_FIXES_OK`**, no GPU/data/cluster needed.
+  Pins the leap-year drift (`Mar 1 2016` → `2016_0236`, *not* `0240`), that Jan/Feb agree
+  (which is *why* the smoke never caught it), that the counts are required, and that a wrong
+  count returns wrong answers rather than erroring.
+- **Regression:** SI bench on `standard` after the change — step_med **0.399208**, peak
+  30.979, rc=0 (job 7254397): unchanged vs the 0.3985–0.406 baseline.
+- **The unblock:** SI bench on **`noleap`** — step_med **0.398501**, rc=0, **0 TypeErrors**
+  (job 7254399). It used to crash outright.
+- **Final config:** step_med **0.399541**, rc=0, **0 warnings** (job 7254404), and
+  `si/train_polaris_full.pbs`'s calendar gate now passes on its own.
+- My first patch put the derivation *before* `self.datetime_class` was assigned →
+  `AttributeError`, caught by the smoke (job 7254396). The smoke gate earned its keep.
+
+**Still open on SI:** the SST normalization stats (mean 109.96 / std 123.91 for a field the
+config says is **°C** land-filled with 0 — those magnitudes are the fingerprint of *Kelvin*
+data). Not new data: recompute from the archive we have (`si/compute_missing_stats.py`).
+⚠️ The unit mismatch is **inferred, not measured** — both the raw and staged HDF5 pack every
+variable into one `input` array, so isolating SST needs the channel order from
+`convert_e3sm_for_si.py`. Confirm before recomputing.
+
 ### Known gap: the *inference* entrypoints are not import-clean
 
 `s2s/v2.0/inference.py:21` and `PanguWeather/v2.0/long_inference.py:34` both do a bare

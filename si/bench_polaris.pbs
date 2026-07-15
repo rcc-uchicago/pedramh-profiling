@@ -53,7 +53,9 @@ export SI_BENCH_CSV="${POLARIS_LOG_DIR}/si_bench_polaris_${PBS_JOBID%%.*}.csv"
 
 NPROC="${NPROC:-4}"
 if [ "${NPROC}" = "1" ]; then DEVICES="0"; else DEVICES="0 1 2 3"; fi
-CONFIG_TEMPLATE="${SI_DIR}/configs/bench_polaris_e3sm.yaml"
+# Overridable so a variant config can be benched without editing this script:
+#   qsub -v CONFIG_TEMPLATE=<path> bench_polaris.pbs
+CONFIG_TEMPLATE="${CONFIG_TEMPLATE:-${SI_DIR}/configs/bench_polaris_e3sm.yaml}"
 # Render the template into YOUR member dir (the repo checkout may be read-only/shared).
 CONFIG_FILE="${MEMBER_ROOT}/si_bench_polaris_e3sm.rendered.yaml"
 sed -e "s|{{SI_STAGE}}|${STAGE}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
