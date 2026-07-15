@@ -1,0 +1,293 @@
+### tiny_baseline — the DESIGN §4.0 small config (see the header block below) ###
+# GENERATED from E3SM_SFNO_H5_POLARIS.yaml by hand-editing ONLY the keys listed in
+# `tiny_baseline_diff` at the bottom of this file. Everything else — the lat/lon grids, the
+# sigma levels, the variable lists, the stats paths — is identical to the real config,
+# because those are DATA-shape facts and shrinking them would mean this config no longer
+# exercises the model the baseline is about.
+#
+# WHY THIS EXISTS (DESIGN §4.0): no small config existed. `test.yaml` is the FULL ~79M-param
+# model despite its name (it OOMed a 93 GiB H100 at its defaults), so there was nothing cheap
+# to capture an equivalence baseline on. This is a genuinely small MODEL on the real data.
+#
+# Section is TINY -> run with `--config=TINY`; train.py writes to <exp_dir>/TINY/<run_num>.
+### base config ###
+base_config: &BASE
+  loss: 'l1'
+  loglr: -13
+  weight_decay: 3e-6
+  scheduler: 'LinearWarmupCosineAnnealingLR' 
+  num_data_workers: 0   # §4.0: no worker nondeterminism
+  num_warmup_epochs: 5
+  batch_size: 1   # §4.0
+  max_epochs: 1   # §4.0: the harness bounds the step count
+  warmup_start_lr: 1e-6
+  eta_min: 1e-5
+  use_ema: False  # §4.0: EMA is not part of the forward under test
+  ema_decay: 0.999
+  
+  no_leap_year: 2020 #yearly repeating conditions so set to any year in training data
+  leap_year: 2020 #yearly repeating conditions so set to any year in training data
+
+  log_to_screen: !!bool True
+  log_to_wandb: !!bool False  # §4.0: no wandb
+  save_checkpoint: !!bool False  # §4.0: no checkpoint
+  save_forecasts: !!bool False  # §4.0: no forecast writes
+
+  optimizer_type: 'AdamW' #'Adam' #'FusedAdam'
+
+  plot_animations: !!bool False
+
+  nettype: 'sfno_plasim'
+  group: 'plasim'
+
+  exp_dir: '{{MEMBER_ROOT}}/runs/pangu_tiny_baseline'
+
+  enable_fp8: False
+  fresh_start: False
+  use_transformer_engine: False
+  early_stopping: False
+
+
+  entity: 'jesswan-university-of-chicago'
+  project: 'E3SM-SRM-SFNO'
+  name: E3SM-SRM-SFNO-CTL_SST0051_REST0101-0010
+
+
+PLASIM: &PLASIM
+  <<: *BASE
+  # Polaris staged E3SM data. NOTE: despite the name, plev_data h5 files hold
+  # SIGMA-level fields (keys like T_4.714998332947841) matching sigma_levels below.
+  data_dir: /eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/plev_data
+  # Bias .npy files are NOT staged on Polaris (only TREFHT in bias/old) ->
+  # long_validation must stay False or Trainer init crashes in _load_bias().
+  bias_data_dir: /eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/bias
+  upper_air_variables: ["T", "U", "V", "Z3", "RELHUM"] #"CLDLIQ", "CLDICE", "CLOUD"
+  surface_variables: ["TREFHT","U10","RHREFHT","PS","PSL","TMQ"]
+  diagnostic_variables: ["FSNTOA", "FSNT", "PRECT"]
+  land_variables: ["SOILWATER_10CM","TSOI_10CM"]
+  ocean_variables: []
+  mask_output: False
+  constant_boundary_variables: ["PCT_GLACIER","PFTDATA_MASK","PCT_NATVEG","TOPO"]
+  varying_boundary_variables: ["SST","ICE","sol_in"]
+  train_year_start: 2015
+  train_year_end: 2016   # smoke: 1 year (full run on Derecho used 2040)
+  val_year_start: 2045
+  val_year_end: 2046     # smoke: 1 year (full run used 2050)
+  long_validation: False # smoke: bias .npy files not staged on Polaris
+  long_val_year_start: 2045
+  long_rollout_years: 5
+  epochs_per_long_validation: 1
+  #, 'snow_depth', 'sea_ice_cover']
+  mask_fill: {'SOILWATER_10CM': 0.,
+             'TSOI_10CM': 270.,
+             'PCT_GLACIER': 0.,
+             'PFTDATA_MASK': 0.,
+             'PCT_NATVEG': 0.,
+             'TOPO': 0.,
+             'SST': 270.,
+             'ICE': 0.}
+  data_timedelta_hours: 6
+  # Absolute paths (os.path.join(data_dir, <abs>) yields <abs>): the staged
+  # stats have the level dim named 'Z' but load_mean_std(use_sigma_levels=True)
+  # needs 'Z_2'; run polaris_prepare_e3sm_stats.py once to generate these.
+  surface_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  surface_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  surface_ff_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  upper_air_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  upper_air_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  upper_air_ff_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  boundary_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  boundary_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  diagnostic_mean: {{PANGU_AUX}}/data_2015-2050_mean.nc
+  diagnostic_std: {{PANGU_AUX}}/data_2015-2050_std_corr.nc
+  #surface_delta_std: 'data_12-111_surface_delta_std.nc'
+  #upper_air_delta_std: 'data_12-111_delta_std_Z.nc'
+  # Converted to NETCDF4 (staged copy is CDF-5, which xarray's default engine rejects)
+  climatology_file: {{PANGU_AUX}}/climatology.nc
+  calendar: '365_day'
+  timedelta_hours: 6
+
+  has_year_zero: True
+
+  num_levels: 18 
+  #num_levels: 10
+  use_sigma_levels: True 
+  levels: [5, 10, 20, 30, 50, 70, 100, 150, 200, 250, 300, 400, 500, 600, 700, 850, 925, 1000]
+  sigma_levels: [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195, 
+    50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347, 
+    200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911, 
+    492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952, 
+    925.5197481473349, 998.4964394917621]
+  horizontal_resolution: [180, 360]
+  depths: [2, 6, 6, 2]
+  predict_delta: False
+  patch_size: [2, 2, 2]
+  updown_scale_factor: 2
+  window_size: [2, 2, 4]
+  epsilon_factor: 0.1
+  perturbation_type: gaussian_noise
+  upper_air_boundary: False
+  subpixel_deconv: True
+  recovery_head: True
+  diagnostic_head: False
+  vertical_windowing: False
+  train_year_to_year: False
+  polar_pad: False
+  grid_has_poles: False
+
+  diagnostic_logs: True
+  diagnostic_acc: False
+  diagnostic_gif: False
+  diagnostic_spectra: False
+  diagnostic_acc_var_dict: {"Z3": [492.46857402252755], "U": [256.72368590525895], "T":[849.6612491105952], "TREFHT": []}
+  diagnostic_gif_var_dict: {"Z3": [492.46857402252755], "U": [492.46857402252755, 256.72368590525895], "T":[849.6612491105952], "TREFHT": []}
+  diagnostic_spectrum_var_dict: {"Z3": [492.46857402252755], "U": [256.72368590525895], "T":[849.6612491105952], "TREFHT": []}
+  diagnostic_bias_var_dict: {"Z3": [492.46857402252755], "U": [256.72368590525895], "T":[849.6612491105952], "TREFHT": []}
+  forecast_lead_times: [1]   # smoke: full run on Derecho used [1, 12, 20, 40, 60]
+
+  lev: 'lev'
+  num_inferences: 8   # smoke: full run used 128
+
+  use_reentrant: False
+  checkpointing: 3 #0
+  lat: [-89.5, -88.5, -87.5, -86.5, -85.5, -84.5, -83.5, -82.5, -81.5, -80.5, 
+    -79.5, -78.5, -77.5, -76.5, -75.5, -74.5, -73.5, -72.5, -71.5, -70.5, 
+    -69.5, -68.5, -67.5, -66.5, -65.5, -64.5, -63.5, -62.5, -61.5, -60.5, 
+    -59.5, -58.5, -57.5, -56.5, -55.5, -54.5, -53.5, -52.5, -51.5, -50.5, 
+    -49.5, -48.5, -47.5, -46.5, -45.5, -44.5, -43.5, -42.5, -41.5, -40.5, 
+    -39.5, -38.5, -37.5, -36.5, -35.5, -34.5, -33.5, -32.5, -31.5, -30.5, 
+    -29.5, -28.5, -27.5, -26.5, -25.5, -24.5, -23.5, -22.5, -21.5, -20.5, 
+    -19.5, -18.5, -17.5, -16.5, -15.5, -14.5, -13.5, -12.5, -11.5, -10.5, 
+    -9.5, -8.5, -7.5, -6.5, -5.5, -4.5, -3.5, -2.5, -1.5, -0.5, 0.5, 1.5, 
+    2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5, 
+    15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 25.5, 26.5, 
+    27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 37.5, 38.5, 
+    39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 49.5, 50.5, 
+    51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 61.5, 62.5, 
+    63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 73.5, 74.5, 
+    75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 85.5, 86.5, 
+    87.5, 88.5, 89.5]
+  lon: [0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 
+    13.5, 14.5, 15.5, 16.5, 17.5, 18.5, 19.5, 20.5, 21.5, 22.5, 23.5, 24.5, 
+    25.5, 26.5, 27.5, 28.5, 29.5, 30.5, 31.5, 32.5, 33.5, 34.5, 35.5, 36.5, 
+    37.5, 38.5, 39.5, 40.5, 41.5, 42.5, 43.5, 44.5, 45.5, 46.5, 47.5, 48.5, 
+    49.5, 50.5, 51.5, 52.5, 53.5, 54.5, 55.5, 56.5, 57.5, 58.5, 59.5, 60.5, 
+    61.5, 62.5, 63.5, 64.5, 65.5, 66.5, 67.5, 68.5, 69.5, 70.5, 71.5, 72.5, 
+    73.5, 74.5, 75.5, 76.5, 77.5, 78.5, 79.5, 80.5, 81.5, 82.5, 83.5, 84.5, 
+    85.5, 86.5, 87.5, 88.5, 89.5, 90.5, 91.5, 92.5, 93.5, 94.5, 95.5, 96.5, 
+    97.5, 98.5, 99.5, 100.5, 101.5, 102.5, 103.5, 104.5, 105.5, 106.5, 107.5, 
+    108.5, 109.5, 110.5, 111.5, 112.5, 113.5, 114.5, 115.5, 116.5, 117.5, 
+    118.5, 119.5, 120.5, 121.5, 122.5, 123.5, 124.5, 125.5, 126.5, 127.5, 
+    128.5, 129.5, 130.5, 131.5, 132.5, 133.5, 134.5, 135.5, 136.5, 137.5, 
+    138.5, 139.5, 140.5, 141.5, 142.5, 143.5, 144.5, 145.5, 146.5, 147.5, 
+    148.5, 149.5, 150.5, 151.5, 152.5, 153.5, 154.5, 155.5, 156.5, 157.5, 
+    158.5, 159.5, 160.5, 161.5, 162.5, 163.5, 164.5, 165.5, 166.5, 167.5, 
+    168.5, 169.5, 170.5, 171.5, 172.5, 173.5, 174.5, 175.5, 176.5, 177.5, 
+    178.5, 179.5, 180.5, 181.5, 182.5, 183.5, 184.5, 185.5, 186.5, 187.5, 
+    188.5, 189.5, 190.5, 191.5, 192.5, 193.5, 194.5, 195.5, 196.5, 197.5, 
+    198.5, 199.5, 200.5, 201.5, 202.5, 203.5, 204.5, 205.5, 206.5, 207.5, 
+    208.5, 209.5, 210.5, 211.5, 212.5, 213.5, 214.5, 215.5, 216.5, 217.5, 
+    218.5, 219.5, 220.5, 221.5, 222.5, 223.5, 224.5, 225.5, 226.5, 227.5, 
+    228.5, 229.5, 230.5, 231.5, 232.5, 233.5, 234.5, 235.5, 236.5, 237.5, 
+    238.5, 239.5, 240.5, 241.5, 242.5, 243.5, 244.5, 245.5, 246.5, 247.5, 
+    248.5, 249.5, 250.5, 251.5, 252.5, 253.5, 254.5, 255.5, 256.5, 257.5, 
+    258.5, 259.5, 260.5, 261.5, 262.5, 263.5, 264.5, 265.5, 266.5, 267.5, 
+    268.5, 269.5, 270.5, 271.5, 272.5, 273.5, 274.5, 275.5, 276.5, 277.5, 
+    278.5, 279.5, 280.5, 281.5, 282.5, 283.5, 284.5, 285.5, 286.5, 287.5, 
+    288.5, 289.5, 290.5, 291.5, 292.5, 293.5, 294.5, 295.5, 296.5, 297.5, 
+    298.5, 299.5, 300.5, 301.5, 302.5, 303.5, 304.5, 305.5, 306.5, 307.5, 
+    308.5, 309.5, 310.5, 311.5, 312.5, 313.5, 314.5, 315.5, 316.5, 317.5, 
+    318.5, 319.5, 320.5, 321.5, 322.5, 323.5, 324.5, 325.5, 326.5, 327.5, 
+    328.5, 329.5, 330.5, 331.5, 332.5, 333.5, 334.5, 335.5, 336.5, 337.5, 
+    338.5, 339.5, 340.5, 341.5, 342.5, 343.5, 344.5, 345.5, 346.5, 347.5, 
+    348.5, 349.5, 350.5, 351.5, 352.5, 353.5, 354.5, 355.5, 356.5, 357.5, 
+    358.5, 359.5]
+  #use_ff_input: False
+
+TINY: &TINY
+  <<: *PLASIM
+  nettype: 'sfno_plasim'
+  scheduler: 'LinearWarmupCosineAnnealingLR'
+  num_warmup_epochs: 5
+  warmup_start_lr: 1e-8
+  eta_min: 1e-8
+  loss: "raw_l2"
+  lr: 1e-4  
+  checkpoint_save_interval: 1
+  max_checkpoints_to_keep: 1000
+  use_ema: False
+  ema_decay: 0.999
+  ema_warmup_epochs: 6
+  curriculum_learning: False
+  ensemble_validation: False
+  balanced_learning: False
+
+  spectral_transform: 'sht'
+  filter_type: 'linear'
+  operator_type: 'dhconv'
+  scale_factor: 1
+  embed_dim: 64      # tiny: 512 in the real config
+  num_layers: 2       # tiny: 12 in the real config
+  use_mlp: True
+  mlp_ratio: 2.0
+  activation_function: "gelu"
+  encoder_layers: 1
+  pos_embed: True
+  drop_rate: 0.0
+  drop_path_rate: 0.0
+  num_blocks: 4       # tiny: 16 in the real config
+  sparsity_threshold: 0.0
+  normalization_layer: 'instance_norm'
+  hard_thresholding_fraction: 1.0
+  use_complex_kernels: True
+  big_skip: True
+  rank: 1.0
+  factorization: None
+  separable: False
+  complex_network: True
+  complex_activation: 'real'
+  spectral_layers: 1      # tiny: 3 in the real config
+  checkpointing: 3 #2
+  sync_norm: True
+
+# ============================================================================
+# tiny_baseline_diff — EVERY key that differs from E3SM_SFNO_H5_POLARIS.yaml.
+# Not loaded by train.py (it is a top-level key nothing reads); it exists so the
+# next person can see the whole delta without diffing 250 lines of lat/lon.
+#
+#   MODEL SIZE (the point of the config)
+#     embed_dim        512 -> 64
+#     num_layers        12 -> 2
+#     num_blocks        16 -> 4
+#     spectral_layers    3 -> 1
+#
+#   HARNESS (DESIGN §4.1 asks for exactly these)
+#     num_data_workers   1 -> 0     seeded/worker nondeterminism removed
+#     use_ema         True -> False EMA is not part of the forward under test
+#     log_to_wandb   False -> False (already off)
+#     save_checkpoint      -> False
+#     save_forecasts  True -> False
+#     max_epochs       100 -> 1
+#     diagnostic_{gif,spectra,acc} -> False
+#     exp_dir -> {{MEMBER_ROOT}}/runs/pangu_tiny_baseline
+#     section name    SFNO -> TINY  (so it cannot collide with the real run's exp_dir)
+#     the unused `modified_1` block is deleted (it carried batch_size 16 — a live trap)
+#
+#   DELIBERATELY *NOT* CHANGED — and why
+#     checkpointing: 3   kept. It is a LEVEL (sfnonet.py:692/704 test >=3 and >=1), not a
+#                        per-layer segment count, so it is valid at 2 layers — and keeping
+#                        it means an optimization validated here exercised the same
+#                        activation-checkpointing path the real config uses.
+#     batch_size: 1      already 1 in the real config.
+#     the grids / levels / variable lists / stats paths / mask_fill: these are DATA facts.
+#                        Shrinking them would mean this config no longer describes the model
+#                        whose baseline we are capturing — and the E3SM archive is what it is.
+#     nettype/loss       sfno_plasim + raw_l2: the path that actually runs on Polaris.
+#
+#   NOT EXERCISED BY THIS CONFIG — read before trusting a green here
+#     The VAE. nettype sfno_plasim is DETERMINISTIC and has no VAE at all (DESIGN §2c), so
+#     the utils/vae_noise.py hook is inert on this path. A pangu_plasim tiny baseline is
+#     still needed to gate anything touching the VAE/CRPS path — it is blocked on PLASIM h5,
+#     which is not staged on Polaris.
+# ============================================================================
+tiny_baseline_diff: 'see the comment block above'
