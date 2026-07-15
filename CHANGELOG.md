@@ -84,7 +84,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 - **Data-prep PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/11**
   (branch `polaris-data-prep`). ⚠️ **Stacked on `polaris-profiling` (#10), itself stacked on
   `polaris-pbs-bringup`** — merge in that order. Carries the 7 converter defects (5 fixed, 4
-  open) and **5 decisions** needing jesswan/us: see `polaris_data_prep_handoff_prompt.md` §0.
+  open) and **5 decisions** needing jesswan/us: `polaris_data_prep_decisions.md`.
   **The analysis is 1/3 done** — makani's 367-line converter is unaudited (§8).
 - **Profiling PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/10**
   (branch `polaris-profiling`). ⚠️ **Stacked on `polaris-pbs-bringup`**, which is still
@@ -442,6 +442,18 @@ Each is attributed to its source doc — verify there before acting.
   `networks/modulus_sfno/`, never `networks/pangu.py`). `bench_report.md` §3's LayerNorm/
   layout/`roll` findings are observations deferred to `torch.compile`; SDPA is already in both.
   Don't go hunting for a missing port that doesn't exist. — `polaris_bench_report.md` §6c.
+- **(polaris_env.sh) `-v SEQZARR_DATA=…` (and the other `_pick` vars) CANNOT be overridden** —
+  `_pick` never reads its first argument, and `polaris_env.sh:155` exports unconditionally. Job
+  7257791 was submitted with `-v SEQZARR_DATA=…_fresh` to force the PhysicsNeMo smoke to rebuild
+  its store with a changed converter; it silently used the OLD cached store and passed. A gate
+  that cannot be pointed at fresh data is not a gate.
+  — `polaris_data_prep_handoff_prompt.md` §4.
+- **(E3SM archive) The .h5 construction is NOT in this repo** — it lives in
+  `/eagle/.../jesswan/PanguWeather/data_utils/` (`netcdf_to_h5*.py` ×3, `get_stats.py`, adapted
+  "from FourCastNet repo"). Read it before deciding the fill questions: it is the ground truth
+  for the 270 sea-surface-temperature fill, the 19 constant cloud channels, and the frozen
+  `time` year. Three `netcdf_to_h5` variants exist and nothing records which built the archive.
+  — `polaris_data_prep_handoff_prompt.md` §8c-bis.
 - **(E3SM data prep) `CONVERT_OK` is NOT a verification** — it checks 1 channel of 1 sample
   (0.01%) and is blind to the NaN fill by construction (its probe channel is chosen as one
   with no fill). Require `SEQZARR_VERIFIED` from `polaris/verify_seqzarr.py`.

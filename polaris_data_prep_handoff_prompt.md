@@ -16,18 +16,13 @@ the staging and converter recipes.
 
 ## 0. What needs a decision
 
-None of these are mine to make: they change what the models learn, which DESIGN §1 freezes.
-Each is stated with the measurement that motivates it. **D1 is the only one in code we own.**
-
-| # | decision | who | cost of getting it wrong |
-|---|---|---|---|
-| **D1** | **Should the PhysicsNeMo SFNO *forecast* SST and sea ice?** It currently does. Pangu and makani both **prescribe** them — and this is an **AMIP** run, where SST/ice are prescribed *by definition*. | us (it's our `UNPREDICTED` list) | the model is scored on predicting its own boundary condition |
-| **D2** | **Is Pangu's `SST: 270.` fill intended?** SST is **°C**, range `[−1.80, 32.21]`. A 270 fill is ~8× outside the data. | jesswan | measured: it turns the SST channel into a land-sea mask — real signal **0.27σ**, mask step **2.06σ** |
-| **D3** | **Is PhysicsNeMo's `TSOI_10CM: 0.0` fill intended?** TSOI is **Kelvin** (land mean 268 K). 0.0 is **0 K** over 61% of the globe. Pangu fills 270 here, which is sensible. | jesswan | same pathology as D2, opposite pipeline |
-| **D4** | **Should PhysicsNeMo train on the cloud variables at all?** 19 of its 157 predicted channels are **identically zero** (or float32 subnormals ~1e-26) across the whole archive. Pangu and makani exclude the clouds entirely. | jesswan | ~12% of a 1 TB store, and 19 output channels predicting nothing |
-| **D5** | **Is it intended that the three models read different data?** Pangu 108 channels, PhysicsNeMo 162, makani 59. | jesswan | cross-model skill comparisons are not like-for-like |
-
----
+**Five open decisions live in `polaris_data_prep_decisions.md`** — they change what the models
+learn, so DESIGN §1 puts them out of my hands. In short: whether PhysicsNeMo should forecast
+sea-surface temperature and sea ice (it does; PanguWeather and makani prescribe them, and this
+is an Atmospheric Model Intercomparison Project run where they are prescribed by definition);
+whether PanguWeather's 270 fill and PhysicsNeMo's zero fill are intended; whether PhysicsNeMo
+should train on nineteen constant cloud channels; and whether the three models reading 108 /
+162 / 59 channels is deliberate. The measurements behind each are below.
 
 ## 1. The dataset (measured)
 
@@ -92,9 +87,9 @@ PRECT               1    diag   prog    diag
 PS / TREFHT         1    prog   prog    prog
 PSL/RHREFHT/TMQ/U10 1    prog   prog       -
 SOILWATER_10CM      1    prog   prog       -        0 /  0   / –
-SST                 1   force   prog   force      270 / −1.8 / −1.8   ← D1, D2
+SST                 1   force   prog   force      270 / −1.8 / −1.8   ← see the decisions file
 TOPO                1   force  force   force        0 /  0   / 0
-TSOI_10CM           1    prog   prog       -      270 /  0   / –      ← D3
+TSOI_10CM           1    prog   prog       -      270 /  0   / –      ← see the decisions file
 sol_in              1   force  force   force
 ──────────────────────────────────────────────────────────────────────────────────
   Pangu  reads 108/162   not read: CLDICE, CLDLIQ, CLOUD          (54 channels)
@@ -149,7 +144,7 @@ Each pipeline gets one right and one wrong, in opposite directions.
 > like Kelvin data and `CHANGELOG` recorded it as a "unit mismatch, inferred not measured".
 > **It is not Kelvin.** The arithmetic closes exactly on a **270 land-fill of °C data**:
 > `0.374 × 270 + 0.626 × 14.70 = 110.06` vs the npz's 109.963. So the npz is self-consistent
-> **with Pangu's 270 fill** — it is not wrong, it encodes D2. Anyone "fixing" the npz to
+> **with Pangu's 270 fill** — it is not wrong, it encodes the 270-fill choice. Anyone "fixing" the npz to
 > Kelvin would be fixing a bug that doesn't exist.
 
 ---
@@ -185,6 +180,18 @@ are never read. Dead-and-wrong metadata is worse than none; they are deleted, no
    Repeated preemption thrashes forever. *Fix:* per-year stores, or skip completed ones.
 4. **`--random-sample` ignores `--start-sample` but records it** — lying provenance in the attr
    that exists to record provenance.
+5. **`-v SEQZARR_DATA=…` does not work, so the converter changes are UNGATED by the smoke.**
+   `polaris_env.sh:155` does `export SEQZARR_DATA="$(_pick SEQZARR_DATA e3sm_seqzarr)"`
+   unconditionally, and `_pick` **never reads its first argument** — so a pre-set value cannot
+   win. Job **7257791** was submitted with `-v SEQZARR_DATA=…_fresh` specifically to force
+   `polaris_sfno_smoke.pbs` to rebuild its store with the new converter; the log shows it used
+   the OLD cached store at `…/e3sm_seqzarr` and passed (rc=0, loss 1.049). **It exercised none
+   of the changes.** Combined with the smoke's `[ ! -d ]` skip-if-exists, there is currently
+   **no way to make the smoke rebuild** short of moving the store aside.
+   *Fix:* honour a pre-set value in `_pick` (`echo "${!1:-…}"`), or have the smoke accept an
+   explicit override. Until then the converter changes are proven only by
+   `polaris_verify_data_prep.pbs` (which does exercise them, exhaustively) — **not** by a
+   training run.
 
 ---
 
@@ -231,16 +238,18 @@ hour 8 leaves exactly the zero-filled store the sentinel exists to catch.
 
 - **That the fill *values* are right.** The verifier imports `NAN_FILL` from the converter, so
   it checks the store against the converter's *own intent*. Change SST's fill to 0.0 in the
-  dict and it still passes — by construction. **D2/D3 are settled by review or not at all**,
+  dict and it still passes — by construction. **the fill values are settled by review or not at all**,
   which is why the converter now records `nan_fill` into the store's attrs.
-- **That the channel *roles* are right.** D1 is a semantic choice; no bitwise check sees it.
+- **That the channel *roles* are right.** Whether sea-surface temperature should be forecast
+  or prescribed is a semantic choice; no bitwise check sees it.
 - **That a green smoke generalises.** Absence is only evidence where execution happened.
 
 ## 7. Suggested order
 
-1. **Answer D1** — it's ours, it's one line (`UNPREDICTED += ["SST", "ICE"]`), and it aligns
-   all three pipelines with the AMIP definition.
-2. **Take D2/D3/D4 to jesswan** with the measurements in §1/§3.
+1. **Answer the sea-surface-temperature/sea-ice role question** — it's ours, it's one line
+   (`UNPREDICTED += ["SST", "ICE"]`), and it aligns all three pipelines with how the source
+   experiment was actually run.
+2. **Take the fill and cloud-channel questions to jesswan** with the measurements in §1/§3.
 3. **Close the four open defects** in §4 — 1 and 3 are the ones that silently poison a 1 TB run.
 4. **Run `polaris_verify_data_prep.pbs`** and require `SEQZARR_VERIFIED`.
 5. **Then** `CONFIRM_FULL=1`.
@@ -305,12 +314,42 @@ order is what worked:
    Two of the three worst findings here came from cold agents, and one cold agent independently
    reproduced my own wrong conclusion — which is itself the evidence that the trap was real.
 
+### 8c-bis. FOUND: how the .h5 archive itself was built — and it is not in this repo
+
+Nothing in this repository documents the step that made `h5/plev_data` out of the raw E3SM
+model output. Everything we have audited so far is *downstream* of it. The code that built it
+lives in jesswan's own checkout, outside this repo and outside its history:
+
+```
+/eagle/lighthouse-uchicago/members/jesswan/PanguWeather/data_utils/
+    netcdf_to_h5.py  netcdf_to_h5_2.py  netcdf_to_h5_better.py
+    get_stats.py            <- almost certainly what produced normalize_{mean,std}.npz
+    combine_nc_files.py     get_data_pl_short_length.py  get_data_sfc_short_length.py
+    parallel_copy.py        submit_convert.sh  submit_convert_2.sh
+```
+
+`get_stats.py` opens "### From FourCastNet repo" — so the statistics path is adapted from
+FourCastNet, which matters because FourCastNet's conventions are not E3SM's.
+
+**Read these before answering the fill questions.** They are the ground truth for three things
+this session could only infer:
+- **What the 270 sea-surface-temperature fill actually is.** We proved arithmetically that
+  `normalize_mean.npz` was computed on 270-filled °C data. `get_stats.py` should say so
+  outright — and whether 270 was deliberate or a Kelvin default that leaked into a °C field.
+- **Whether the 19 constant cloud channels are zero in the source model output**, or were lost
+  in the netCDF → HDF5 step. `Gridded_EAM_Lev_Subset/` (1.9 TB) is the input that would settle
+  it, and it has never been opened.
+- **Why `input/time` is frozen at 2015 in every file.** The bug is introduced here, not by us.
+
+Note the three `netcdf_to_h5*.py` variants (`_2`, `_better`) — the archive was built by *one*
+of them and nothing records which. Ask jesswan rather than guess.
+
 ### 8d. Cross-cutting questions still unanswered
 
 - **Do the three pipelines agree on the physics they claim to share?** Measured so far: they
   do **not** agree on SST's role (2 prescribe, 1 forecasts), on SST's fill (270 / −1.8 / −1.8),
   on TSOI's fill (270 / 0), or on which channels to read (108 / 162 / 59). Nobody reconciled
-  them. Is any of that intended? (D1–D5.)
+  them. Is any of that intended? (See `polaris_data_prep_decisions.md`.)
 - **The archive's frozen `time` year is an upstream defect.** PhysicsNeMo now reconstructs from
   the filename and makani sidesteps it; **Pangu reads `h5/plev_data` directly** — does *its*
   loader use the in-file date? Not checked. If it does, the same bug is live there.
