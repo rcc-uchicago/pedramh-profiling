@@ -1,0 +1,185 @@
+#!/bin/bash -l
+#PBS -N pangu_bench_nsys_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Nsight Systems profile of the PanguWeather SFNO benchmark window on Polaris —
+# the PBS analog of s2s/v2.0/HPC_scripts/midway_bench_nsys.sh (CLAUDE.md #7: added
+# BESIDE the Midway script, never editing it).
+#
+# --capture-range=cudaProfilerApi means nsys records nothing until train.py calls
+# cudaProfilerStart() at the first measured step (after warmup), and stops at
+# cudaProfilerStop() at the end of the last measured step. Warmup, NCCL init and the
+# _bench_finalize all_reduce stay out of the trace.
+#
+# nsys on Polaris (there is no `module load nsight`; the binary ships with the CUDA
+# toolkit under /soft):
+#   /soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys   (Nsight Systems 2025.1.3)
+#
+# Output: ${MEMBER_ROOT}/bench/nsys_pangu_sfno_<jobid>.nsys-rep (+ .sqlite)
+# Analyse with:  python ../../s2s/v2.0/HPC_scripts/parse_nsys.py <file>.sqlite
+#
+# ⚠ A100-40GB. Midway's traces are H100-NVL — a different node class. Never table them
+#   together (DESIGN §1 non-goals).
+#
+# Submit:            qsub HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs
+# Fewer steps:       qsub -v S2S_BENCH_STEPS=20 HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs
+#
+# PASS = "BENCH n=..." in the log AND a .nsys-rep whose NVTX table is non-empty. NOT
+# rc=0, and NOT "the .nsys-rep exists": nsys writes a report file even when it captured
+# nothing at all (see the gate at the bottom).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+# ---- Polaris env — copied verbatim from polaris_train_e3sm_sfno.pbs ----
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+unset NCCL_DEBUG
+unset TORCH_DISTRIBUTED_DEBUG
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export CUDA_LAUNCH_BLOCKING=0
+ulimit -l unlimited
+
+NSYS_BIN="${NSYS_BIN:-/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys}"
+[ -x "${NSYS_BIN}" ] || { echo "ERROR NSYS_NOT_FOUND: ${NSYS_BIN}"; exit 2; }
+
+# ---- Bench knobs — must match polaris_bench_e3sm_sfno.pbs so the trace and the CSV
+# describe the same shape. Fewer steps by default than the CSV bench: a 4-rank trace
+# grows fast and the analysis only needs a representative window.
+export S2S_BENCH=1
+export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-20}"   # eager (no torch.compile) — no Triton warmup needed
+export S2S_BENCH_STEPS="${S2S_BENCH_STEPS:-40}"
+export S2S_NVTX=1                                    # NVTX ranges + cudaProfilerStart/Stop
+export S2S_BENCH_CSV="${S2S_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_nsys.csv}"
+mkdir -p "$(dirname "${S2S_BENCH_CSV}")"
+
+# torch.compile DISABLED for profiling, and for the same reasons Midway disables it:
+# reduce-overhead (CUDA graphs) drops the CUPTI kernel table, so NVTX->kernel correlation
+# — the whole point of the trace — goes missing. Eager is also the correct baseline while
+# the DESIGN §4 equivalence gate is still not executable.
+# export TORCH_COMPILE_MODE=reduce-overhead
+
+NPROC="${NPROC:-4}"
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.nsys.rendered.yaml"
+RUN_NUM="polaris_nsys_${PBS_JOBID%%.*}"
+
+export S2S_YAML="${CONFIG_FILE}"
+export S2S_RUN_NUM="${RUN_NUM}"
+
+echo "=== polaris_bench_nsys_e3sm_sfno: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
+nvidia-smi -L
+polaris_env_report
+echo "nsys=$(${NSYS_BIN} --version | head -1)"
+
+CLIM="${PANGU_AUX}/climatology.nc"
+clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
+if ! clim_ok; then
+    echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
+    ( cd "${V20_DIR}" && PANGU_AUX="${PANGU_AUX}" python polaris_prepare_e3sm_stats.py )
+fi
+python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
+import sys, xarray as xr
+with xr.open_dataset(sys.argv[1]) as ds:
+    assert ds.sizes.get("time") == 365, ds.sizes
+print("preflight OK: climatology time=365")
+PY
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+if [ -n "${NUM_DATA_WORKERS:-}" ]; then
+    python - "${CONFIG_FILE}" "${NUM_DATA_WORKERS}" <<'_PY' || exit 2
+import re, sys
+path, workers = sys.argv[1], int(sys.argv[2])
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*num_data_workers:\s*)\S+.*$",
+                 lambda m: m.group(1) + str(workers), src, count=1)
+if n != 1:
+    print("ERROR WORKERS_PATCH_FAILED: num_data_workers matched %d times (expected 1)" % n)
+    sys.exit(2)
+open(path, "w").write(src)
+print("  num_data_workers -> %d" % workers)
+_PY
+fi
+echo "rendered config -> ${CONFIG_FILE}"
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
+NSYS_OUT="${MEMBER_ROOT}/bench/nsys_pangu_sfno_${PBS_JOBID%%.*}"
+echo "nsys output: ${NSYS_OUT}.nsys-rep"
+
+# One nsys wrapping torchrun profiles the launcher AND all 4 local ranks it forks
+# (matching midway_bench_nsys.sh). --trace=osrt is what makes the loader's blocking
+# fetch visible as host-side wait, which is the point of this profile.
+"${NSYS_BIN}" profile \
+    --trace=cuda,nvtx,cudnn,cublas,osrt \
+    --capture-range=cudaProfilerApi \
+    --capture-range-end=stop \
+    --output="${NSYS_OUT}" \
+    --force-overwrite=true \
+    torchrun \
+        --standalone \
+        --nproc_per_node="${NPROC}" \
+        train.py \
+        --yaml_config="${CONFIG_FILE}" \
+        --run_num="${RUN_NUM}" \
+        --config=SFNO \
+        --fresh_start \
+        --epochs 1
+rc=$?
+echo "--- nsys rc=${rc} ---"
+
+# ---- PASS gate. "The .nsys-rep exists" proves nothing: nsys writes one even when the
+# capture range never fired, and that is exactly the failure this profile can have (it is
+# how Midway's "missing kernel table" mystery started — the answer was in the .err).
+[ -s "${NSYS_OUT}.nsys-rep" ] || { echo "ERROR NO_NSYS_REP: ${NSYS_OUT}.nsys-rep missing/empty"; exit 4; }
+
+echo "--- exporting sqlite ---"
+"${NSYS_BIN}" export --type=sqlite --force-overwrite=true \
+    --output="${NSYS_OUT}.sqlite" "${NSYS_OUT}.nsys-rep" || {
+    echo "ERROR NSYS_EXPORT_FAILED"; exit 4; }
+
+python - "${NSYS_OUT}.sqlite" <<'PY' || exit 4
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+cur = db.cursor()
+cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='NVTX_EVENTS'")
+if not cur.fetchone():
+    print("ERROR NO_NVTX_TABLE: the capture range never fired (S2S_NVTX=1 set? did the "
+          "run reach step warmup+1?). A .nsys-rep with no NVTX is not a profile.")
+    sys.exit(4)
+cur.execute("SELECT COUNT(*) FROM NVTX_EVENTS WHERE text IN "
+            "('data_prep','forward_loss','backward','optimizer','ema')")
+n = cur.fetchone()[0]
+if n == 0:
+    print("ERROR NO_BENCH_RANGES: NVTX_EVENTS has no data_prep/forward_loss/backward/"
+          "optimizer/ema ranges — instrumentation drifted or the window missed them.")
+    sys.exit(4)
+print(f"nsys gate OK: {n} bench NVTX ranges captured")
+PY
+
+echo "--- parse_nsys summary ---"
+python "${V20_DIR}/../../s2s/v2.0/HPC_scripts/parse_nsys.py" "${NSYS_OUT}.sqlite" || true
+
+echo "Profile written: ${NSYS_OUT}.nsys-rep  (+ .sqlite)"
+echo "=== polaris_bench_nsys_e3sm_sfno done (rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

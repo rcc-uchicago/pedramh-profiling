@@ -65,8 +65,29 @@ torch._dynamo.config.optimize_ddp = False
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
-torch.cuda.empty_cache()           
+torch.cuda.empty_cache()
 logging.info("Torch version: {}".format(torch.__version__))
+
+# --- S2S_BENCH instrumentation (gated; no effect when S2S_BENCH unset) ---
+# Ported from s2s/v2.0/train.py. s2s and PanguWeather are forks that share code by
+# COPY, not by import (DESIGN §2c), so this is a deliberate duplicate. The NVTX range
+# names and the CSV columns are byte-identical to s2s's on purpose: renaming either
+# breaks parse_nsys.py and silently invalidates every prior comparison (CLAUDE.md #10).
+import hashlib, subprocess, statistics, csv
+import torch.cuda.nvtx as nvtx
+BENCH = os.environ.get("S2S_BENCH") == "1"
+BENCH_WARMUP = int(os.environ.get("S2S_BENCH_WARMUP", "20"))
+BENCH_STEPS  = int(os.environ.get("S2S_BENCH_STEPS",  "80"))
+BENCH_CSV    = os.environ.get("S2S_BENCH_CSV", "bench_results.csv")
+# NVTX ranges for Nsight Systems. Set S2S_NVTX=1 together with nsys capture-range.
+# When BENCH=1 the code also emits cudaProfilerStart/Stop to bracket only the
+# measured steps, so nsys --capture-range=cudaProfilerApi skips warmup entirely.
+NVTX = os.environ.get("S2S_NVTX") == "1"
+
+# Deliberate divergence from s2s: precision is NOT read from $S2S_AMP_DTYPE here.
+# PanguWeather already resolves it from the YAML (`amp_dtype`, Trainer.__init__), and a
+# second, silently-winning source of truth is how a bench ends up mislabelling its own
+# row. The amp_dtype CSV column is filled from the dtype the run actually used.
 
 @torch.no_grad()
 def update_ema(ema_model, model, decay=0.9999):
@@ -152,7 +173,13 @@ def to_ensemble_batch(data, ens_members):
     Uses repeat_interleave to keep all work on the GPU with no auxiliary tensor creation
     or CPU/GPU data transfers.
     """
-    return data.repeat_interleave(ens_members, dim=0)
+    # Range name matches s2s/v2.0/train.py:188 (CLAUDE.md #10). Unlike s2s — which calls
+    # this per-step from cal_loss/validate — PanguWeather only calls it once, at Trainer
+    # init, so this range does not appear in a training-loop trace.
+    if NVTX: nvtx.range_push("to_ensemble_batch")
+    out = data.repeat_interleave(ens_members, dim=0)
+    if NVTX: nvtx.range_pop()  # End to_ensemble_batch
+    return out
 
 
 class Trainer():
@@ -992,8 +1019,24 @@ class Trainer():
 
         pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}',
                     dynamic_ncols=True, file=logging_utils.tqdm_stream,
-                    disable=(self.world_rank != 0))
+                    disable=(self.world_rank != 0) or BENCH)
         running_results = {"batch_sizes": 0, "loss": 0.0}
+
+        # --- S2S_BENCH state ---
+        bench_step_times, bench_data_times, bench_compute_times = [], [], []
+        bench_scaler_skips = 0
+        bench_done = False
+        bench_loop_t0 = None
+        bench_n_loaders = len(self.train_data_loaders)
+        # Loader idle (PanguWeather addition — s2s does not measure this). The blocking
+        # fetch happens inside the loader's __next__, i.e. BETWEEN the previous step's end
+        # and the top of this body, so it lands in no step window: cpu_prep_med times
+        # _prepare_inputs_batch (H2D + reshape) on an ALREADY-fetched batch, not the wait
+        # for it. Unmeasured, that gap still shows up in `elapsed` and drives the
+        # elapsed-vs-sum self-check into rejecting the row — so an input-bound run would
+        # abort instead of reporting the very thing being asked about.
+        bench_loader_waits = []
+        bench_prev_step_end = None
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             logging.debug(f"Processing year idx {year_idx}")
@@ -1004,6 +1047,14 @@ class Trainer():
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
             for i, data in enumerate(train_data_loader):
+                if BENCH and self.iters >= BENCH_WARMUP + BENCH_STEPS:
+                    bench_done = True
+                    break
+                if BENCH and bench_loop_t0 is not None and bench_prev_step_end is not None:
+                    # Guarded on bench_loop_t0 so only gaps INSIDE the measured window are
+                    # collected: that keeps sum(steps)+sum(waits) reconcilable against
+                    # `elapsed`, which starts at the first measured step's t0.
+                    bench_loader_waits.append(time.perf_counter() - bench_prev_step_end)
                 if self.params.mode == "test":
                     logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
@@ -1012,89 +1063,361 @@ class Trainer():
                     data_time += time.time() - data_start
 
                 else:
+                    if NVTX: nvtx.range_push(f"step_{self.iters}")
                     self.iters += 1
                     data_start = time.time()
+
+                    # Bench timing: sync, then start the fetch+H2D window.
+                    if BENCH:
+                        torch.cuda.synchronize()
+                        bench_t0 = time.perf_counter()
+                        if bench_loop_t0 is None and self.iters > BENCH_WARMUP:
+                            bench_loop_t0 = bench_t0
+                            if NVTX:
+                                torch.cuda.cudart().cudaProfilerStart()
+
+                    if NVTX: nvtx.range_push("data_prep")
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
+                    if NVTX: nvtx.range_pop()  # data_prep
+
+                    if BENCH:
+                        torch.cuda.synchronize()
+                        bench_t1 = time.perf_counter()
+
                     data_time += time.time() - data_start
                     if self.params.mode == "test":
                         logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
                     tr_start = time.time()
-                    self.model.zero_grad()                
+                    self.model.zero_grad()
                     #define loss
+                    if NVTX: nvtx.range_push("forward_loss")
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
                     )
-                    
-                    
+                    if NVTX: nvtx.range_pop()  # forward_loss
+
+                    # fp16 only: GradScaler skips the step on an inf/NaN grad. A skipped step
+                    # does less work than a real one, so it must not enter the timing sample.
+                    # bf16 (the SFNO default) has no scaler => nothing to skip.
+                    bench_scale_before = (self.scaler.get_scale()
+                                          if BENCH and self.scaler is not None else None)
+
                     if self.scaler is not None:
                         # fp16 path — GradScaler is required to avoid underflow.
+                        if NVTX: nvtx.range_push("backward")
                         self.scaler.scale(loss).backward()
+                        if NVTX: nvtx.range_pop()  # backward
+                        if NVTX: nvtx.range_push("optimizer")
                         # Unscale gradients before clipping
                         self.scaler.unscale_(self.optimizer)
                         # Clip gradients to prevent explosion
                         #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
+                        if NVTX: nvtx.range_pop()  # optimizer
                     else:
                         # bfloat16 (full range, no scaling) or AMP disabled.
+                        if NVTX: nvtx.range_push("backward")
                         loss.backward()
+                        if NVTX: nvtx.range_pop()  # backward
+                        if NVTX: nvtx.range_push("optimizer")
                         # Clip gradients to prevent explosion
                         #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
                         self.optimizer.step()
+                        if NVTX: nvtx.range_pop()  # optimizer
                     if self._ema_active():
+                        # PanguWeather-only range (s2s has no EMA). It sweeps every parameter
+                        # each step, so it is real hot-path work and belongs inside the
+                        # measured window — but it needs its own range to be attributable.
+                        if NVTX: nvtx.range_push("ema")
                         if dist.is_initialized():
                             update_ema(self.ema, self.model.module, decay=self.params.ema_decay)
                         else:
                             update_ema(self.ema, self.model, decay=self.params.ema_decay)
+                        if NVTX: nvtx.range_pop()  # ema
                     tr_end_time = time.time()
                     if self.params.mode == "test":
                         logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler in ['OneCycleLR', 'LinearWarmupCosineAnnealingLR']:
                         self.scheduler.step()
 
-                    with torch.no_grad():
+                    if BENCH:
+                        torch.cuda.synchronize()
+                        bench_t2 = time.perf_counter()
+                        bench_prev_step_end = bench_t2
+                        bench_skipped = (bench_scale_before is not None
+                                         and self.scaler.get_scale() < bench_scale_before)
+                        if self.iters > BENCH_WARMUP:
+                            if bench_skipped:
+                                bench_scaler_skips += 1
+                            else:
+                                bench_data_times.append(bench_t1 - bench_t0)
+                                bench_compute_times.append(bench_t2 - bench_t1)
+                                bench_step_times.append(bench_t2 - bench_t0)
 
-                        if self.params.predict_delta:
-                            output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
-                            target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+                    # Skipped under BENCH, mirroring s2s: this block is per-iteration
+                    # diagnostics (RMSE + wandb), it runs AFTER the measured window, and
+                    # leaving it in would inflate loop wall-time until the elapsed-vs-sum
+                    # self-check in _bench_finalize rejected the row.
+                    if not BENCH:
+                        with torch.no_grad():
 
-                        surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
-                        upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
+                            if self.params.predict_delta:
+                                output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                                target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
 
-                        if self.params.has_diagnostic:
-                            diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        else:
-                            diagnostic_lwrmse  = 0
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
+                            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
 
-                        ######diagnoistic logging per iteration ###################
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
-                                                                        train_batch_loss = loss, 
-                                                                        train_batch_loss_sfc = loss_sfc, 
-                                                                        train_batch_loss_upper_air = loss_pl,
-                                                                        train_batch_loss_diagnostic =loss_diagnostic,
-                                                                        train_batch_loss_vae = loss_vae,
-                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
-                    ##########################################################
-                        if self.world_rank == 0 and self.params.log_to_wandb:
-                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
-                            # Use wandb_step to ensure monotonicity, then increment it
-                            wandb.log(diagnostic_logs, step=self.wandb_step)
-                            self.wandb_step += 1
+                            if self.params.has_diagnostic:
+                                diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            else:
+                                diagnostic_lwrmse  = 0
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+
+                            ######diagnoistic logging per iteration ###################
+                            diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                            train_batch_loss = loss,
+                                                                            train_batch_loss_sfc = loss_sfc,
+                                                                            train_batch_loss_upper_air = loss_pl,
+                                                                            train_batch_loss_diagnostic =loss_diagnostic,
+                                                                            train_batch_loss_vae = loss_vae,
+                                                                            train_mean_norm_lwrmse = mean_norm_lwrmse)
+                            ##########################################################
+                            if self.world_rank == 0 and self.params.log_to_wandb:
+                                #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                                # Use wandb_step to ensure monotonicity, then increment it
+                                wandb.log(diagnostic_logs, step=self.wandb_step)
+                                self.wandb_step += 1
 
                     # torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
-                
-                    pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                    # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                    pbar.update(1)
+
+                    if not BENCH:
+                        pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                        # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                        pbar.update(1)
+                    if NVTX: nvtx.range_pop()  # step_{N}
+
+            if bench_done:
+                break
+
         pbar.close()
+
+        if BENCH:
+            self._bench_finalize(
+                step_times=bench_step_times,
+                data_times=bench_data_times,
+                compute_times=bench_compute_times,
+                scaler_skips=bench_scaler_skips,
+                loop_t0=bench_loop_t0,
+                n_loaders=bench_n_loaders,
+                loader_waits=bench_loader_waits,
+            )
 
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
         return tr_time, data_time, logs
+
+    def _bench_finalize(self, step_times, data_times, compute_times, scaler_skips,
+                        loop_t0, n_loaders, loader_waits=()):
+        """Aggregate bench timings, write CSV row + env side-car on rank 0, then exit.
+
+        Ported from s2s/v2.0/train.py. s2s's 19 columns are reproduced verbatim, in order —
+        parse_nsys.py and every prior comparison depend on them (CLAUDE.md #10). The two
+        loader_wait_* columns are APPENDED after them, never inserted, so a reader keyed on
+        either name or position still works. They are PanguWeather-only; s2s's own CSV
+        schema is untouched (the two trees are forks with separate files, DESIGN §2c).
+        """
+        # Stop the loop clock FIRST — before cudaProfilerStop() and before the all_reduce.
+        # s2s computes `elapsed` further down, after both, which silently folds the profiler
+        # teardown into the measured wall time. Under nsys that flush is enormous: job
+        # 7255503 measured elapsed=51.8s against sum(steps)+sum(waits)=25.7s (a 50%
+        # "disagreement") purely because cudaProfilerStop() was inside the window. The timer
+        # was fine; the clock was stopped in the wrong place, and the self-check then threw
+        # away a perfectly good bench row on every profiled run.
+        loop_end = time.perf_counter()
+
+        # Close the nsys capture range before the all_reduce so the profiler
+        # doesn't record collective ops that aren't part of a training step.
+        if NVTX:
+            torch.cuda.cudart().cudaProfilerStop()
+
+        n = len(step_times)
+
+        # Cross-rank max of peak GPU memory (bytes -> GB).
+        peak_local = torch.tensor([torch.cuda.max_memory_allocated()], device=self.device,
+                                  dtype=torch.float64)
+        if dist.is_initialized():
+            dist.all_reduce(peak_local, op=dist.ReduceOp.MAX)
+        peak_mem_gb = float(peak_local.item()) / 1e9
+
+        if self.world_rank != 0:
+            if dist.is_initialized():
+                dist.barrier()
+            sys.exit(0)
+
+        if n == 0:
+            logging.error("BENCH: no steps recorded (warmup=%d, requested=%d). Aborting.",
+                          BENCH_WARMUP, BENCH_STEPS)
+            if dist.is_initialized():
+                dist.barrier()
+            sys.exit(2)
+
+        elapsed = loop_end - loop_t0 if loop_t0 is not None else sum(step_times)
+        step_med   = statistics.median(step_times)
+        step_p90   = sorted(step_times)[int(n * 0.9)] if n >= 10 else max(step_times)
+        step_mean  = statistics.fmean(step_times)
+        step_std   = statistics.pstdev(step_times) if n > 1 else 0.0
+        data_med   = statistics.median(data_times)
+        comp_med   = statistics.median(compute_times)
+        cpu_prep_frac = data_med / step_med if step_med > 0 else 0.0
+        world      = dist.get_world_size() if dist.is_initialized() else 1
+        bs_per_gpu = int(self.params.batch_size)
+        global_bs  = bs_per_gpu * world
+        # ⚠ samples_per_s is a STEP RATE, not wall throughput: step_med excludes the
+        # between-step loader fetch, so this OVERSTATES throughput whenever the loader is
+        # not keeping up. Column kept as-is (it is s2s's, CLAUDE.md #10) — convert with
+        #     wall throughput = samples_per_s * (1 - loader_wait_frac)
+        # Measured example (job 7255434, num_data_workers=0): samples_per_s=6.5 while the
+        # real rate was 6.5*(1-0.1485)=5.5. Comparing that 6.5 against the num_data_workers=1
+        # run's 6.1 would have ranked the SLOWER configuration first.
+        samples_s  = global_bs / step_med if step_med > 0 else 0.0
+
+        # Loader idle. s2s reconciles `elapsed` against sum(step_times) alone, which holds
+        # there only because its loader (8 workers) keeps ahead of the GPU. It is NOT an
+        # identity: the between-step fetch is in `elapsed` and in no step window, so on an
+        # input-bound run that check fires and the row is refused — the harness would abort
+        # exactly when the loader is the finding. Accounting for the gap explicitly makes
+        # the check TIGHTER, not looser: elapsed is now reconciled against everything the
+        # loop actually spent, and any residual >10% is a genuine timer bug again.
+        loader_wait_sum = sum(loader_waits)
+        loader_wait_med = statistics.median(loader_waits) if loader_waits else 0.0
+        loader_wait_frac = loader_wait_sum / elapsed if elapsed > 0 else 0.0
+
+        expected = sum(step_times) + loader_wait_sum
+        if scaler_skips:
+            # A skipped step's time is in `elapsed` but deliberately not in step_times, so
+            # the identity cannot hold. Report instead of asserting.
+            logging.warning("BENCH: %d scaler-skipped step(s) excluded from the sample; "
+                            "skipping the elapsed-vs-sum self-check.", scaler_skips)
+        elif elapsed > 0 and abs(elapsed - expected) / elapsed > 0.10:
+            logging.error("BENCH: timer self-disagreement (elapsed=%.3fs, "
+                          "sum(steps)+sum(loader_waits)=%.3fs, deviation=%.1f%%). "
+                          "Refusing to record row.",
+                          elapsed, expected, 100 * abs(elapsed - expected) / elapsed)
+            if dist.is_initialized():
+                dist.barrier()
+            sys.exit(3)
+
+        # Resolve env: git sha, yaml hash, gpu, driver, torch/cuda.
+        def _safe_run(cmd):
+            try:
+                return subprocess.check_output(cmd, stderr=subprocess.DEVNULL,
+                                               text=True, timeout=10).strip()
+            except Exception:
+                return ""
+        git_sha = _safe_run(["git", "rev-parse", "--short=12", "HEAD"]) or "unknown"
+        gpu_info = _safe_run(["nvidia-smi", "--query-gpu=name,driver_version",
+                              "--format=csv,noheader"]).splitlines()
+        gpu_name = gpu_info[0] if gpu_info else "unknown"
+        yaml_path = (getattr(self.params, "_yaml_filename", None)
+                     or os.environ.get("S2S_YAML", ""))
+        yaml_sha = ""
+        if yaml_path and os.path.isfile(yaml_path):
+            with open(yaml_path, "rb") as fh:
+                yaml_sha = hashlib.sha256(fh.read()).hexdigest()[:16]
+
+        # Unlike s2s, precision here is a YAML knob, not $S2S_AMP_DTYPE — record what the
+        # run actually used, and say so when AMP is off entirely.
+        if not self.params.enable_amp:
+            amp_dtype = "off"
+        else:
+            amp_dtype = {torch.float16: "fp16", torch.bfloat16: "bf16"}.get(
+                self.amp_dtype, str(self.amp_dtype))
+
+        # Number of loaders is a confound flag.
+        run_num = getattr(self.params, "run_num", "") or os.environ.get("S2S_RUN_NUM", "")
+
+        row = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "git_sha": git_sha,
+            "run_num": run_num,
+            "n_gpus": world,
+            "batch_per_gpu": bs_per_gpu,
+            "amp_dtype": amp_dtype,
+            "ddp_find_unused": "false",
+            "n_loaders": n_loaders,
+            "step_med": f"{step_med:.6f}",
+            "step_p90": f"{step_p90:.6f}",
+            "step_mean": f"{step_mean:.6f}",
+            "step_std": f"{step_std:.6f}",
+            "cpu_prep_med": f"{data_med:.6f}",
+            "compute_med": f"{comp_med:.6f}",
+            "cpu_prep_frac": f"{cpu_prep_frac:.4f}",
+            "samples_per_s": f"{samples_s:.3f}",
+            "peak_mem_gb_max_rank": f"{peak_mem_gb:.3f}",
+            "scaler_skips": scaler_skips,
+            "n_steps_counted": n,
+            # --- appended after s2s's 19; see the docstring ---
+            "loader_wait_med": f"{loader_wait_med:.6f}",
+            "loader_wait_frac": f"{loader_wait_frac:.4f}",
+        }
+
+        write_header = not os.path.exists(BENCH_CSV)
+        with open(BENCH_CSV, "a", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(row.keys()))
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
+
+        env_path = os.path.join(os.path.dirname(os.path.abspath(BENCH_CSV)) or ".",
+                                f"bench_env_{run_num or git_sha}.txt")
+        with open(env_path, "w") as fh:
+            fh.write(f"run_num: {run_num}\n")
+            fh.write(f"git_sha: {git_sha}\n")
+            fh.write(f"torch: {torch.__version__}\n")
+            fh.write(f"torch.cuda: {torch.version.cuda}\n")
+            fh.write(f"gpu: {gpu_name}\n")
+            fh.write(f"yaml_path: {yaml_path}\n")
+            fh.write(f"yaml_sha256_16: {yaml_sha}\n")
+            fh.write(f"slurm_job_id: {os.environ.get('SLURM_JOB_ID','')}\n")
+            fh.write(f"slurm_nodelist: {os.environ.get('SLURM_NODELIST','')}\n")
+            # Polaris/PBS analogs of the two SLURM lines above — a Midway-authored
+            # side-car would otherwise attribute every Polaris row to a blank job.
+            fh.write(f"pbs_jobid: {os.environ.get('PBS_JOBID','')}\n")
+            fh.write(f"pbs_nodefile: {os.environ.get('PBS_NODEFILE','')}\n")
+            fh.write(f"nettype: {getattr(self.params, 'nettype', '')}\n")
+            fh.write(f"num_data_workers: {getattr(self.params, 'num_data_workers', '')}\n")
+            fh.write(f"checkpointing: {getattr(self.params, 'checkpointing', '')}\n")
+            fh.write(f"use_ema: {getattr(self.params, 'use_ema', '')}\n")
+            fh.write(f"world_size: {world}\n")
+            fh.write(f"bench_warmup: {BENCH_WARMUP}\n")
+            fh.write(f"bench_steps: {BENCH_STEPS}\n")
+
+        logging.info(
+            "BENCH n=%d  step_med=%.3fs  step_p90=%.3fs  data_med=%.3fs  compute_med=%.3fs  "
+            "cpu_prep_frac=%.1f%%  loader_wait_med=%.3fs  loader_wait_frac=%.1f%%  "
+            "samples/s=%.1f  peak_mem=%.2fGB  scaler_skips=%d  n_loaders=%d  csv=%s",
+            n, step_med, step_p90, data_med, comp_med, 100 * cpu_prep_frac,
+            loader_wait_med, 100 * loader_wait_frac,
+            samples_s, peak_mem_gb, scaler_skips, n_loaders, BENCH_CSV,
+        )
+        # The headline the profiling phase actually needs: where does wall time go?
+        logging.info(
+            "BENCH VERDICT: %.1f%% of loop wall time is the GPU step, %.1f%% is waiting on "
+            "the data loader (num_data_workers=%s). %s",
+            100 * (1 - loader_wait_frac), 100 * loader_wait_frac,
+            getattr(self.params, "num_data_workers", "?"),
+            "INPUT-BOUND: optimising kernels is premature — fix the loader first."
+            if loader_wait_frac > 0.20 else "GPU-BOUND: the step itself is the target.",
+        )
+
+        if dist.is_initialized():
+            dist.barrier()
+        sys.exit(0)
 
     # @log_gpu_memory
     def _prepare_inputs_batch(self, data:torch.Tensor):

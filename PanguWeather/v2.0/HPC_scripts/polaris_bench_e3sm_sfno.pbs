@@ -1,0 +1,164 @@
+#!/bin/bash -l
+#PBS -N pangu_bench_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# PanguWeather SFNO-on-E3SM wall-clock benchmark on Polaris — the PBS analog of
+# s2s/v2.0/HPC_scripts/midway_bench.sh, retargeted to the A100 nodes and to the
+# PanguWeather fork (CLAUDE.md #7: added BESIDE the Midway script, never editing it).
+#
+# Uses the S2S_BENCH harness ported into PanguWeather/v2.0/train.py: an instrumented
+# step loop with cuda.synchronize() bracketing, scaler-skip detection, and a rank-0
+# CSV row + env side-car. No nsys, no NCCL_DEBUG, no TORCH_DISTRIBUTED_DEBUG — all of
+# those distort timing. For the nsys trace use polaris_bench_nsys_e3sm_sfno.pbs.
+#
+# ⚠ These are A100-40GB numbers. Midway's bench_results.csv is H100-NVL. They are a
+#   DIFFERENT NODE CLASS and must never share a table (DESIGN §1 non-goals).
+#
+# Submit (4-GPU, the default):
+#   qsub HPC_scripts/polaris_bench_e3sm_sfno.pbs
+# 1-GPU:
+#   qsub -v NPROC=1 HPC_scripts/polaris_bench_e3sm_sfno.pbs
+# Data-loader sweep (the GPU-bound vs input-bound question — the config ships
+# num_data_workers: 1, and 0/1 workers is a known way to fake a GPU-idle
+# "bottleneck", see CHANGELOG "Known issues"):
+#   qsub -v NUM_DATA_WORKERS=0 HPC_scripts/polaris_bench_e3sm_sfno.pbs
+#   qsub -v NUM_DATA_WORKERS=8 HPC_scripts/polaris_bench_e3sm_sfno.pbs
+#
+# PASS = a NEW row in $S2S_BENCH_CSV + "BENCH n=..." in the log. NOT rc=0: rank!=0
+# exits 0 by design, and a bench that recorded nothing also exits 0 on those ranks
+# (guardrail: `rc=0` is not a PASS criterion — key on the work token).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+# ---- Polaris env — copied verbatim from polaris_train_e3sm_sfno.pbs. The module
+# ordering is per-model on purpose (CLAUDE.md); do not "harmonise" it with another
+# model's block.
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg                              # train.py imports matplotlib (headless)
+export OMP_NUM_THREADS=8                           # 64 HW threads / ~8 per rank
+export MKL_NUM_THREADS=8
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+# Production training keeps these set; the bench must run without their overhead.
+unset NCCL_DEBUG
+unset TORCH_DISTRIBUTED_DEBUG
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export CUDA_LAUNCH_BLOCKING=0
+
+# ---- Bench knobs. Defaults match midway_bench.sh (20/80) so the METHOD is the same
+# even though the hardware is not. Note the Polaris SI smoke used 5/20 and had to
+# caveat every number it produced — don't repeat that.
+export S2S_BENCH=1
+export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-20}"
+export S2S_BENCH_STEPS="${S2S_BENCH_STEPS:-80}"
+# CSV goes to YOUR member dir: an absolute path inside the repo would collide between
+# members and dirty the working tree.
+export S2S_BENCH_CSV="${S2S_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_bench.csv}"
+mkdir -p "$(dirname "${S2S_BENCH_CSV}")"
+
+# torch.compile is deliberately NOT enabled here. It is rung 1 of the DESIGN §5 ladder
+# and the §4 equivalence gate is not executable yet (no tiny_baseline.yaml, no VAE noise
+# hook) — so switching it on would be an ungated hot-path change. Eager is the baseline.
+# export TORCH_COMPILE_MODE=reduce-overhead
+
+NPROC="${NPROC:-4}"
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.bench.rendered.yaml"
+RUN_NUM="polaris_bench_${PBS_JOBID%%.*}"
+
+export S2S_YAML="${CONFIG_FILE}"
+export S2S_RUN_NUM="${RUN_NUM}"
+
+echo "=== polaris_bench_e3sm_sfno: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
+nvidia-smi -L
+polaris_env_report
+echo "python=$(command -v python)"
+echo "bench: warmup=${S2S_BENCH_WARMUP} steps=${S2S_BENCH_STEPS} csv=${S2S_BENCH_CSV}"
+
+# ---- preflight: the 16 GB CDF-5 -> NETCDF4 climatology must exist (Trainer init reads
+# it). Identical to the smoke's gate; a truncated file crashes deep in Trainer init.
+CLIM="${PANGU_AUX}/climatology.nc"
+clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
+if ! clim_ok; then
+    echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
+    ( cd "${V20_DIR}" && PANGU_AUX="${PANGU_AUX}" python polaris_prepare_e3sm_stats.py )
+fi
+python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
+import sys, xarray as xr
+with xr.open_dataset(sys.argv[1]) as ds:
+    assert ds.sizes.get("time") == 365, ds.sizes
+print("preflight OK: climatology time=365")
+PY
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+
+# ---- optional num_data_workers override (the input-bound experiment) -------------
+# Patch the rendered copy only, never the template. The key lives once, in the BASE
+# anchor — assert exactly one substitution so a config reshuffle can't silently make
+# this a no-op and hand back a "result" for the wrong loader shape.
+if [ -n "${NUM_DATA_WORKERS:-}" ]; then
+    python - "${CONFIG_FILE}" "${NUM_DATA_WORKERS}" <<'_PY' || exit 2
+import re, sys
+path, workers = sys.argv[1], int(sys.argv[2])
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*num_data_workers:\s*)\S+.*$",
+                 lambda m: m.group(1) + str(workers), src, count=1)
+if n != 1:
+    print("ERROR WORKERS_PATCH_FAILED: num_data_workers matched %d times (expected 1)" % n)
+    sys.exit(2)
+open(path, "w").write(src)
+print("  num_data_workers -> %d" % workers)
+_PY
+fi
+echo "rendered config -> ${CONFIG_FILE}"
+grep -E "^\s*(num_data_workers|batch_size|checkpointing|use_ema|nettype|loss):" "${CONFIG_FILE}" | sed 's/^/  /'
+
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
+# Row count BEFORE the run — the PASS gate below keys on this growing by one.
+rows_before=$( [ -f "${S2S_BENCH_CSV}" ] && wc -l < "${S2S_BENCH_CSV}" || echo 0 )
+
+# --epochs 1 bounds the run; the BENCH harness exits after warmup+steps anyway.
+# Never --debug: it hardcodes world_size=1, so all 4 ranks would init on GPU 0 and OOM.
+echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    train.py \
+    --yaml_config="${CONFIG_FILE}" \
+    --run_num="${RUN_NUM}" \
+    --config=SFNO \
+    --fresh_start \
+    --epochs 1
+rc=$?
+
+# ---- PASS gate: a bench that measured nothing must not read as a pass --------------
+rows_after=$( [ -f "${S2S_BENCH_CSV}" ] && wc -l < "${S2S_BENCH_CSV}" || echo 0 )
+if [ "${rows_after}" -le "${rows_before}" ]; then
+    echo "ERROR NO_BENCH_ROW: ${S2S_BENCH_CSV} did not gain a row (before=${rows_before} after=${rows_after}, torchrun rc=${rc})"
+    echo "  A bench that recorded nothing exits 0 on every non-zero rank — read the log above,"
+    echo "  not the exit code. train.py exits 2 when n=0 steps were counted and 3 when its"
+    echo "  elapsed-vs-sum timer self-check fails."
+    exit 4
+fi
+echo "--- bench row recorded ---"
+head -1 "${S2S_BENCH_CSV}"
+tail -1 "${S2S_BENCH_CSV}"
+echo "=== polaris_bench_e3sm_sfno done (torchrun rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}
