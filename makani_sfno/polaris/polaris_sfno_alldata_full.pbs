@@ -1,0 +1,245 @@
+#!/bin/bash -l
+#PBS -N makani_e3sm_sfno_alldata_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -r y
+# ^ RERUNNABLE — required for preemptable self-healing (preempt_order = RD requeues only
+# rerunnable jobs; PBS defaults to Rerunable=False). Safe because RUN_NUM is stable and
+# train_plasim resumes from its checkpoint. See polaris_sfno_full.pbs's header for the
+# full story; do not add anything here that cannot survive a rerun from the top.
+#PBS -j oe
+# ============================================================================
+# Makani SFNO on E3SM — ALL-DATA (107-in / 101-out) FULL TRAINING.
+#
+# ⚠ NEVER RUN. Written 2026-07-16 to close a gap: e3sm_alldata_full.yaml existed with no
+#   launcher (the two ALLDATA PBS were pack-full and train-smoke). It mirrors the GREEN
+#   locked launcher (polaris_sfno_full.pbs, job family of 7253465) with the alldata
+#   smoke's contract gates (7258407 — but that ran at the pre-exclusion 154/1/7; nothing
+#   has trained at 100/1/7 beyond the smoke's tiny model). Watch the first submit.
+#
+# Sibling of polaris_sfno_full.pbs (locked 52/1/6 path — untouched); this variant differs:
+#   contract  52 state + 1 diag + 6 forcing  -> 100/1/7 (108 kept E3SM channels; the 54
+#             cloud channels are excluded from every model, science owner 2026-07-16)
+#   data      MAKANI_FULL_DATA e3sm_makani_full -> MAKANI_ALLDATA_FULL_DATA
+#             e3sm_makani_alldata_full (built by polaris_pack_e3sm_alldata_full.pbs)
+#   config    polaris/e3sm_full.yaml -> polaris/e3sm_alldata_full.yaml (same group-baseline
+#             model dims: embed_dim 384 / 8 layers; only the encoder/decoder ends widen)
+#   gates     + the alldata smoke's WRONG_CONTRACT / WRONG_CHANNEL_NAMES /
+#             CONFIG_CONVERTER_DRIFT checks (all DERIVED from the converter, no literals)
+#
+# ⚠ KNOWN UNKNOWNS, stated rather than hidden:
+#   * Memory at 107-in on 40 GB A100s is UNMEASURED (the yaml's own header says so).
+#     If it OOMs: drop -v BATCH= first, model dims are the group's and stay put.
+#   * Expect the benign watchdog warning "N_in_channels=107 ... expected 58" — the
+#     locked-contract watchdog noticing this is not the PlaSim-comparable shape.
+#   * A checkpoint trained here CANNOT CURRENTLY BE EVALUATED: our inference package
+#     hard-asserts the locked contract (src/sfno_inference/checkpoint_loader.py:74-82,
+#     N_in_channels == 58), and stock makani inference is hard-gated off
+#     (plasim_trainer.py:127-131). Decide the eval path BEFORE burning ~100 epochs.
+#
+# PREREQUISITES (each fails loudly below):
+#   1. bash <repo>/polaris_setup_sfno_venv.sh                    # PASS = SFNO_VENV_OK
+#   2. qsub polaris/polaris_sfno_alldata_smoke.pbs               # PASS = ALLDATA_SMOKE_OK
+#      (must be re-run at the current 100/1/7 contract — the recorded green 7258407
+#       predates the cloud exclusion; its stale smoke pack will hit WRONG_CONTRACT)
+#   3. qsub polaris/polaris_pack_e3sm_alldata_full.pbs           # PASS = CONVERT_ALLDATA_OK
+#                                                                #      + PACK_ALLDATA_COMPLETE
+#
+# Submit from makani_sfno/:
+#     qsub polaris/polaris_sfno_alldata_full.pbs
+#     qsub -v RUN_NUM=alldata_full02,BATCH=4 polaris/polaris_sfno_alldata_full.pbs
+#
+# PASS is NOT "rc=0" (preemption kills jobs normally).
+# Progress = "Total training time" > 0 and the epoch counter advancing across re-submits.
+# DONE    = the epoch counter reaches max_epochs (100).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${MAKANI_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+# A --system-site-packages venv re-enables the USER site, which site.py ranks ABOVE the venv.
+export PYTHONNOUSERSITE=1
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+# sfno_training lives under <root>/src — NOT <root>.
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+# NOTE: do NOT add $POLARIS_TOPUPS to PYTHONPATH here (torch_harmonics 0.7.4 would shadow
+# the venv's 0.9.x; PYTHONPATH beats site-packages). The guard below catches it.
+
+# OWN roots — never the locked path's MAKANI_FULL_DATA/e3sm_sfno_full, and never the
+# alldata SMOKE's roots. Both env names are honoured (polaris_env.sh never sets them).
+OUTPUT_ROOT="${MAKANI_ALLDATA_FULL_DATA:-${MEMBER_ROOT}/data/e3sm_makani_alldata_full}"
+EXP_DIR="${MEMBER_ROOT}/runs/e3sm_sfno_alldata_full"
+NPROC="${NPROC:-4}"
+RUN_NUM="${RUN_NUM:-alldata_full01}"   # STABLE — resume across preemptions (see header)
+mkdir -p "${EXP_DIR}"
+
+echo "=== makani_e3sm_sfno_alldata_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
+echo "data=${OUTPUT_ROOT}  exp_dir=${EXP_DIR}"
+nvidia-smi -L
+polaris_env_report
+
+if ! python -c "import makani, physicsnemo" 2>/dev/null; then
+    echo "ERROR MAKANI_NOT_INSTALLED: 'import makani, physicsnemo' failed inside ${SFNO_VENV}."
+    echo "  Rebuild the venv on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    echo "  BUT FIRST check PYTHONPATH for a stray \$POLARIS_TOPUPS — its torch_harmonics 0.7.4"
+    echo "  shadows this venv's 0.9.x and produces exactly this failure:"
+    echo "    PYTHONPATH=${PYTHONPATH:-<empty>}"
+    python -c "import makani" 2>&1 | tail -3
+    exit 3
+fi
+python - <<'PY' || exit 3
+import os, sys, torch_harmonics
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED")
+    print("  imported torch_harmonics from : %s (v%s)" % (got, torch_harmonics.__version__))
+    print("  expected it inside the venv   : %s" % venv)
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+print("torch_harmonics OK: v%s from the venv" % torch_harmonics.__version__)
+PY
+
+# ---- data preflight: the FULL all-data pack, not the smoke's -----------------------------
+if [ ! -f "${OUTPUT_ROOT}/stats/global_means.npy" ] || [ ! -d "${OUTPUT_ROOT}/train" ]; then
+    echo "ERROR ALLDATA_FULL_PACK_MISSING: ${OUTPUT_ROOT}"
+    echo "  Full training needs the full all-data pack (~1.4 TB, hours). Build it first:"
+    echo "      qsub polaris/polaris_pack_e3sm_alldata_full.pbs   # PASS = PACK_ALLDATA_COMPLETE"
+    exit 2
+fi
+_ntrain=$(find "${OUTPUT_ROOT}/train" -name '*.h5' 2>/dev/null | wc -l)
+if [ "${_ntrain}" -lt 10 ]; then
+    echo "ERROR PACK_LOOKS_LIKE_A_SMOKE: only ${_ntrain} train file(s) in ${OUTPUT_ROOT}/train."
+    echo "  The full pack holds one file per training year (~30). Refusing to run a"
+    echo "  100-epoch job against smoke-sized data — it would 'succeed' and mean nothing."
+    exit 2
+fi
+echo "train files: ${_ntrain}"
+
+# ---- guard: whatever pack is there must BE the current all-data contract -----------------
+# Widths and names DERIVED from the converter (a restated literal is how 154 went stale).
+# Catches a locked 52/1/6 pack AND a stale pre-exclusion 154/1/7 pack.
+_first_train=$(find "${OUTPUT_ROOT}/train" -name '*.h5' | sort | head -1)
+python - "${_first_train}" "${MAKANI_ROOT}/polaris" <<'PY' || exit 2
+import sys, h5py
+sys.path.insert(0, sys.argv[2])
+import convert_e3sm_to_makani_alldata as conv
+want = (conv.N_STATE, len(conv.DIAG_CHANNELS), conv.N_FORCING)
+with h5py.File(sys.argv[1], "r") as f:
+    c = (f["fields_state"].shape[1], f["fields_diagnostic"].shape[1], f["forcing"].shape[1])
+    names = [b.decode() for b in f["channel_state"][...]]
+if c != want:
+    print(f"ERROR WRONG_CONTRACT: pack at {sys.argv[1]} is {c}, expected {want}.")
+    print("  This OUTPUT_ROOT holds a different-generation pack (locked 52/1/6, or a stale")
+    print("  pre-exclusion 154/1/7) — repack it, or point MAKANI_ALLDATA_FULL_DATA elsewhere.")
+    sys.exit(2)
+if names != conv.STATE_CHANNELS:
+    print("ERROR WRONG_CHANNEL_NAMES: pack widths match but its channel_state names")
+    print("  differ from the converter's STATE_CHANNELS — repack into a fresh root.")
+    sys.exit(2)
+print(f"pack contract OK: state/diag/forcing = {want[0]}/{want[1]}/{want[2]} "
+      f"({conv.N_STATE + conv.N_FORCING}-in / {conv.N_TARGET}-out), names match the converter")
+PY
+
+# ---- render the all-data full config ------------------------------------------------------
+RENDERED="${EXP_DIR}/e3sm_alldata_full.rendered.yaml"
+sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
+    "${MAKANI_ROOT}/polaris/e3sm_alldata_full.yaml" > "${RENDERED}" || exit 2
+echo "rendered config -> ${RENDERED}"
+
+# ---- gate: the rendered config must agree with the converter, name-for-name ---------------
+# channel_names is PINNED in the yaml (a config cannot import python); same-width name
+# drift would map channels to the wrong slots with no error at all.
+python - "${RENDERED}" "${MAKANI_ROOT}/polaris" <<'PY' || exit 2
+import sys, yaml
+sys.path.insert(0, sys.argv[2])
+import convert_e3sm_to_makani_alldata as conv
+cfg = yaml.safe_load(open(sys.argv[1]))["e3sm_alldata_full"]
+bad = []
+for key, want in (("channel_names", conv.TARGET_CHANNELS),
+                  ("forcing_channel_names", conv.FORCING_CHANNELS),
+                  ("n_state_channels", conv.N_STATE),
+                  ("n_diagnostic_channels", len(conv.DIAG_CHANNELS)),
+                  ("n_forcing_channels", conv.N_FORCING)):
+    if cfg.get(key) != want:
+        bad.append((key, cfg.get(key), want))
+if bad:
+    print("ERROR CONFIG_CONVERTER_DRIFT: e3sm_alldata_full.yaml disagrees with the converter:")
+    for key, got, want in bad:
+        if isinstance(want, list) and isinstance(got, list):
+            i = next((j for j, (a, b) in enumerate(zip(got, want)) if a != b),
+                     min(len(got), len(want)))
+            ga = got[i] if i < len(got) else "<missing>"
+            wa = want[i] if i < len(want) else "<missing>"
+            print(f"  {key}: len {len(got)} vs {len(want)}; first mismatch [{i}]: {ga} vs {wa}")
+        else:
+            print(f"  {key}: yaml={got!r} converter={want!r}")
+    sys.exit(2)
+print(f"config<->converter OK: {len(conv.TARGET_CHANNELS)} target + "
+      f"{conv.N_FORCING} forcing channel names match")
+PY
+
+# ---- W&B: the config's own switch ---------------------------------------------------------
+if [ "${WANDB_MODE}" = "online" ]; then
+    sed -i -E "s/^( *log_to_wandb: *).*$/\1!!bool True/" "${RENDERED}"
+    echo "  wandb ON (log_to_wandb=True in ${RENDERED})"
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
+
+CKPT="${EXP_DIR}/e3sm_alldata_full/${RUN_NUM}/training_checkpoints/ckpt_mp0_v0.tar"
+if [ -f "${CKPT}" ]; then
+    echo "RESUMING from ${CKPT} ($(date -r "${CKPT}" -Iseconds))"
+else
+    echo "starting fresh (no checkpoint at ${CKPT})"
+fi
+
+cd "${MAKANI_ROOT}"
+# --batch_size is GLOBAL and must divide the rank count. The config's 8 works for 4 ranks
+# (2/GPU on the LOCKED contract; memory at 107-in is unmeasured — see header).
+BATCH="${BATCH:-8}"
+if [ $((BATCH % NPROC)) -ne 0 ]; then
+    echo "ERROR BATCH_NOT_DIVISIBLE: --batch_size ${BATCH} must be a multiple of ${NPROC} ranks."
+    exit 2
+fi
+# `python -m torch.distributed.run`, not `torchrun` (the venv has none; the bare name
+# resolves to the BASE conda's, whose shebang pins the wrong python).
+python -m torch.distributed.run --standalone --nproc_per_node="${NPROC}" \
+    --redirects 3 --tee 3 \
+    -m sfno_training.train_plasim --yaml_config "${RENDERED}" --config e3sm_alldata_full \
+    --run_num "${RUN_NUM}" --batch_size "${BATCH}" --multistep_count 1 --amp_mode bf16
+rc=$?
+
+# The smoke's NO_CHECKPOINT gate does not apply here: for full training, resuming a finished
+# run and exiting immediately is CORRECT once max_epochs is reached. Report, don't guess.
+echo "=== makani_e3sm_sfno_alldata_full done (rc=${rc}) $(date -Iseconds) ==="
+if [ -f "${CKPT}" ]; then
+    echo "checkpoint now: $(date -r "${CKPT}" -Iseconds)  ($(du -h "${CKPT}" | cut -f1))"
+fi
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: on preemptable, a non-zero rc is most often a PREEMPTION, not a bug. If there"
+    echo "      is no traceback above, re-submit the same command — it resumes from the checkpoint."
+fi
+exit ${rc}
