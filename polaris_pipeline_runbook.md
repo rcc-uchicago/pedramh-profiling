@@ -128,13 +128,17 @@ per person, up to one hour; long jobs use `preemptable` and resume automatically
 
 **Experiment tracking (Weights & Biases).** All jobs default to *offline* tracking —
 nothing is sent anywhere and no account is needed. For **PanguWeather and makani**,
-live dashboards are available: once per person, run `bash polaris_setup_wandb.sh` on a
-login node (stores your API key), then submit any training job with
-`qsub -v WANDB_MODE=online <script>` — the launcher enables the config's own logging
-switch for you (setting the mode alone is not enough; the scripts handle both).
-Offline runs accumulate under `members/<you>/wandb/` and can be uploaded later from a
-login node with `wandb sync`. **PhysicsNeMo does not use Weights & Biases at all** —
-its record is the local MLflow store plus the plain `metrics.csv` described in §6.
+live dashboards are one flag away: submit any training job with
+`qsub -v WANDB_MODE=online <script>` and the launcher enables the config's own logging
+switch for you (setting the mode alone is not enough; the scripts handle both). This
+requires a Weights & Biases API key registered on Polaris — **jesswan already has one
+set up**, so she needs nothing further; anyone who has never run `wandb login` here
+runs `bash polaris_setup_wandb.sh` once on a login node first. Runs land in your
+default W&B account under the project `pedramh-profiling` (override with
+`-v WANDB_ENTITY=<account-or-team>` / `-v WANDB_PROJECT=<name>`). Offline runs
+accumulate under `members/<you>/wandb/` and can be uploaded later from a login node
+with `wandb sync`. **PhysicsNeMo does not use Weights & Biases at all** — its record
+is the local MLflow store plus the plain `metrics.csv` described in §6.
 
 ---
 
