@@ -81,6 +81,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
+- **Pipelines runbook delivered (`polaris_pipelines_plan.md`), execution waiting on two
+  things:** (a) a human go for the §0 job order (Pangu validation smoke first — it decides
+  whether the production design stands); (b) **jesswan's zarr transfer** (announced 2026-07-16,
+  not yet on disk). The moment it lands:
+  `cd physicsnemo_sfno && qsub -v STORE=<transferred-path> polaris/polaris_verify_store.pbs`
+  (PASS = `SEQZARR_VERIFIED` per store + `STORE_VERIFY_OK`), then train against it via
+  `qsub -v SEQZARR_ALLYEARS_DATA=<dir> polaris/polaris_sfno_allyears.pbs` — if it verifies at
+  the current generation, our own ~11 h / ~1.43 TB conversion is unnecessary.
 - **Data-prep PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/11**
   (branch `polaris-data-prep`). ⚠️ **Stacked on `polaris-profiling` (#10), itself stacked on
   `polaris-pbs-bringup`** — merge in that order. Carries the 7 converter defects (5 fixed, 4
@@ -136,6 +144,53 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-07-16** — **The three-pipeline runbook is written (`polaris_pipelines_plan.md`) and the
+  handoff's §6 tee + two gap-closing scripts are implemented. Nothing was submitted** (per the
+  handoff: design, don't launch). Method: two Fable-5 agents swept PanguWeather and makani code;
+  PhysicsNeMo read directly; every command in the plan carries its PASS token and what the gate
+  cannot catch.
+  - **§6 PhysicsNeMo CSV tee: DONE.** New `examples/weather/unified_recipe/bench_csv.py` +
+    5 delimited vendor-divergence blocks in the vendored `train.py` (subtree-pull conflict
+    surface is those blocks; a tripwire test greps for them). Frozen 10-column schema
+    (`timestamp,epoch,step,loss,lr,gb_per_s,valid_error,n_gpus,git_sha,run_name`), rank-0 only,
+    env-gated (`PHYSICSNEMO_BENCH_CSV`, unset ⇒ byte-identical no-op). **No per-step GPU sync
+    added**: the loss is `.clone()`d (CUDA-graph static-buffer aliasing — N unclone'd refs would
+    all read the last step) and buffered; conversion happens on a 100-row flush, the cadence at
+    which LaunchLogger already syncs by string-formatting the tensor. Proven:
+    `BENCH_CSV_OK (23 tests)` (login node, stdlib-only test). End-to-end proof wired but
+    pending a job: the allyears smoke now also requires `PHYSICSNEMO_CSV_OK` (a real minibatch
+    row) and the allyears launcher writes `${RUN_DIR}/metrics.csv` by default.
+  - **`physicsnemo_sfno/polaris/polaris_verify_store.pbs` (new): verify an EXISTING SeqZarr
+    store at any path** — built for the store jesswan is transferring in (not present yet,
+    checked today). Three layers: attrs/generation vs the converter's current lists; **exact
+    chunk-key set per array** (deliberately not `nchunks_initialized`, which counts `.partial`s
+    by prefix); stride-sampled bitwise round-trip vs the h5 archive (auto-stride ≈480 samples,
+    nudged off divisors of 1460 so it never re-samples the same calendar dates; `EXHAUSTIVE=1`
+    escape for the full read). Attrs+chunk layer tested against the on-disk old-generation
+    store — correctly refused it (`STORE_INCOMPLETE` + `STORE_WRONG_GENERATION`). The PBS has
+    never been submitted. Note recorded while testing: **the stores at
+    `${MEMBER_ROOT}/e3sm_seqzarr/` are pre-exclusion 157+5 smoke-scale relics** (CLDICE in
+    attrs, no sentinel) — only the tracked 162-era launchers may use them.
+  - **`makani_sfno/polaris/polaris_sfno_alldata_full.pbs` (new, NEVER RUN):**
+    `e3sm_alldata_full.yaml` existed with **no launcher** (the "2 pbs" were pack-full +
+    train-smoke — a gap the handoff missed). Mirrors the green locked launcher + the alldata
+    smoke's derived contract gates. Its header carries the blocker in bold: **a 100/1/7
+    checkpoint cannot currently be evaluated** (`sfno_inference/checkpoint_loader.py:74-82`
+    hard-asserts 52/1/6; stock makani inference is hard-gated off) — decide the eval path
+    before burning 100 epochs.
+  - **Handoff corrections found by verification** (details in the plan §5): Pangu
+    `inference.py` cannot run E3SM-SFNO at all (nettype gate + a checkpoint layout train.py
+    never writes) — `ensemble_inference.py` with h5-derived ICs is the only path runnable from
+    what is staged; the bias-`.npy`/`long_validation` caveat binds **train.py**, not the
+    inference scripts; train.py's `--amp_dtype` help text says fp16 but the code default is
+    bf16 (`train.py:265`) while both inference scripts default fp16 — a train/infer precision
+    asymmetry to decide before comparing numbers; Pangu's full/smoke PBS headers still carry
+    stale 162-ch/3.5-GB comments (flagged, deliberately not edited this session).
+  - **Deliberately NOT done:** no Pangu inference PBS wrapper (the h5-IC ensemble path has
+    never been exercised anywhere — the plan gives the exact first interactive command instead
+    of encoding guesses into a script); no edit to `polaris_env.sh`'s `_pick` (the allyears
+    smoke header records that as a deliberate stay-away; new scripts use their own env names).
 
 - **2026-07-16** — **🔴 The E3SM archive replays ONE year of ocean forcing 35 times, and two of
   three pipelines mis-normalize a channel. Measured, adversarially verified, and written up in
