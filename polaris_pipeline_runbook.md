@@ -126,6 +126,16 @@ to the directory the job was submitted from (file `<job-name>.o<job-id>`), excep
 where a script states otherwise. The `debug` queue (used by the tests) allows one job
 per person, up to one hour; long jobs use `preemptable` and resume automatically.
 
+**Experiment tracking (Weights & Biases).** All jobs default to *offline* tracking —
+nothing is sent anywhere and no account is needed. For **PanguWeather and makani**,
+live dashboards are available: once per person, run `bash polaris_setup_wandb.sh` on a
+login node (stores your API key), then submit any training job with
+`qsub -v WANDB_MODE=online <script>` — the launcher enables the config's own logging
+switch for you (setting the mode alone is not enough; the scripts handle both).
+Offline runs accumulate under `members/<you>/wandb/` and can be uploaded later from a
+login node with `wandb sync`. **PhysicsNeMo does not use Weights & Biases at all** —
+its record is the local MLflow store plus the plain `metrics.csv` described in §6.
+
 ---
 
 ## 4. PanguWeather
