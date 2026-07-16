@@ -1,10 +1,10 @@
 # Running the E3SM → SFNO training pipeline on Polaris
 
-*A step-by-step guide. Written 2026-07-16, while the confirmation runs (§2) were in
-progress; this document will be revised if any of them fails. For the two companion
-model pipelines (PanguWeather and makani), see `polaris_pipelines_plan.md` — this
-document covers the PhysicsNeMo pipeline, the one that consumes the transferred
-dataset.*
+*A step-by-step guide. Written 2026-07-16; **all four confirmation runs (§2) passed
+the same day**, so every command below sits on a demonstrated-green software path. For
+the two companion model pipelines (PanguWeather and makani), see
+`polaris_pipelines_plan.md` — this document covers the PhysicsNeMo pipeline, the one
+that consumes the transferred dataset.*
 
 ---
 
@@ -46,15 +46,15 @@ to fast sequential reads — named exactly `e3sm_train.zarr` (years 2015–2046)
 
 Every stage below has a brief confirmation run (a "smoke test": the complete software
 path exercised on a small data subset, minutes instead of days). **Success is always a
-specific printed line in the job's log — never just a clean exit code.** The
-confirmation sequence for the current pipeline state was started 2026-07-16:
+specific printed line in the job's log — never just a clean exit code.** The full
+confirmation sequence was run 2026-07-16 and **all four passed**:
 
-| test | job | success line |
+| test | job | result |
 |---|---|---|
-| PanguWeather validation-memory test | 7259271 | `PANGU_VAL_SMOKE_OK` |
-| PanguWeather training test (108 fields) | pending | `ALLDATA_SMOKE_OK` |
-| PhysicsNeMo pipeline test (103+5 fields) | pending | `ALLYEARS_SMOKE_OK` |
-| makani pipeline test (100/1/7 fields) | pending | `ALLDATA_SMOKE_OK` |
+| PanguWeather validation-memory test | 7259271 | ✅ `PANGU_VAL_SMOKE_OK` — validation peaks at 25.0 of 39.5 GiB per GPU (13.9 GiB headroom); the previously feared out-of-memory failure mode is refuted |
+| PanguWeather training test (108 fields) | 7259296 | ✅ `ALLDATA_SMOKE_OK` — peak 27.0 GB, median step 0.64 s |
+| PhysicsNeMo pipeline test (103+5 fields) | 7259303 | ✅ `ALLYEARS_SMOKE_OK` — year-seam data verified bit-for-bit; the per-step metrics file also confirmed working (`PHYSICSNEMO_CSV_OK`) |
+| makani pipeline test (100/1/7 fields) | 7259321 | ✅ `ALLDATA_SMOKE_OK` — fresh 108-field pack built and trained; the "expected 58" warning in its log is a benign, by-design notice |
 
 ---
 
@@ -63,16 +63,40 @@ confirmation sequence for the current pipeline state was started 2026-07-16:
 Any member of the `lighthouse-uchicago` project can run this pipeline. Two things are
 per-person:
 
-1. **Your own copy of the repository.** The scripts resolve all writable paths to
-   *your* member directory automatically, but they must be *submitted from your own
-   checkout*. jesswan's copy is at:
+1. **Your own copy of the repository, updated to the newest code.** The scripts
+   resolve all writable paths to *your* member directory automatically, but they must
+   be *submitted from your own checkout*. jesswan's copy is at:
 
    ```
    /lus/eagle/projects/lighthouse-uchicago/members/jesswan/pedramh-profiling
    ```
 
-   The scripts referenced here are on the branch `polaris-data-prep`; update your copy
-   with `git fetch && git checkout polaris-data-prep && git pull` before starting.
+   **Getting the newest code from GitHub.** The repository is
+   `https://github.com/rcc-uchicago/pedramh-profiling`, and everything this guide
+   describes lives on the branch **`polaris-data-prep`** (an open pull request; once
+   it is merged, substitute `main` below). On a login node:
+
+   ```
+   # if you already have a copy (jesswan does):
+   cd /lus/eagle/projects/lighthouse-uchicago/members/jesswan/pedramh-profiling
+   git fetch origin
+   git checkout polaris-data-prep
+   git pull origin polaris-data-prep
+
+   # if you are starting from nothing:
+   cd /lus/eagle/projects/lighthouse-uchicago/members/<you>
+   git clone https://github.com/rcc-uchicago/pedramh-profiling.git
+   cd pedramh-profiling
+   git checkout polaris-data-prep
+   ```
+
+   Two practical notes. First, after a `git pull`, the updated PhysicsNeMo code takes
+   effect immediately — the Python environment links to your checkout rather than
+   copying from it, so no reinstallation is needed (rebuild the environment only if
+   `polaris_setup_sfno_venv.sh` itself changed). Second, if you ever *push* from a
+   Polaris login node, use `git -c pack.threads=1 push` — the login nodes cap
+   per-user processes and multi-threaded git pushes are killed mid-transfer
+   (ordinary `git pull` is not affected).
 
 2. **Your own Python environment.** Build it once, on a login node (about 15 minutes;
    success line `SFNO_VENV_OK`):

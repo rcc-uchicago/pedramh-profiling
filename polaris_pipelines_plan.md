@@ -15,31 +15,34 @@ in this document has been submitted.
 
 ---
 
-## 0. The job order (what to submit, in sequence, once a human says go)
+## 0. The job order — RUN 2026-07-16, ALL FOUR GREEN
 
-Every recorded green except the PhysicsNeMo converter predates the contract it would now
-validate (handoff §2). The sequence below re-establishes greens at the current contracts
-before anything expensive runs. All are `-q debug` unless noted; debug allows 1 queued
-job/user, so they are serial anyway.
+Every earlier green predated the contract it would now validate (handoff §2). The
+re-establishing sequence below was executed 2026-07-16 with the owner's go-ahead:
 
-1. **Pangu validation smoke** — `cd PanguWeather/v2.0 && qsub HPC_scripts/polaris_val_e3sm_sfno_alldata_smoke.pbs`
-   PASS `PANGU_VAL_SMOKE_OK`, FAIL `ERROR PANGU_VAL_SMOKE_OOM` (+ measured peaks either way).
-   First because its answer (does production validation fit in 40 GB with the CPU-climatology
-   fix?) decides whether the Pangu production design below stands at all.
-2. **Pangu training smoke at 108** — `qsub HPC_scripts/polaris_train_e3sm_sfno_alldata_smoke.pbs`
-   PASS `ALLDATA_SMOKE_OK` + a new bench-CSV row.
-3. **makani alldata smoke at 100/1/7** — first delete (or `-v MAKANI_ALLDATA_DATA=` repoint)
-   the stale 154-channel smoke pack at `${MEMBER_ROOT}/data/e3sm_makani_alldata_smoke`
-   (the smoke only re-packs if `train/2015.h5` is missing, and its `WRONG_CONTRACT` guard
-   will refuse the stale pack rather than repack it). Then from `makani_sfno/`:
-   `qsub polaris/polaris_sfno_alldata_smoke.pbs` — PASS `ALLDATA_SMOKE_OK`.
-4. **PhysicsNeMo allyears smoke at 103** — `cd physicsnemo_sfno && qsub polaris/polaris_sfno_allyears_smoke.pbs`
-   PASS `ALLYEARS_SMOKE_OK`, which now also requires `PHYSICSNEMO_CSV_OK` (the §6 tee's
-   end-to-end proof).
+1. **Pangu validation smoke** — ✅ **job 7259271: `PANGU_VAL_SMOKE_OK`**.
+   `valid_loss=0.6989` (finite), val peak **25.048 GiB** / train peak 25.127 / device
+   39.495 ⇒ **13.86 GiB headroom**; climatology confirmed on CPU on all 4 ranks. The
+   §4a requeue-forever OOM scenario is **refuted** — the `utils/metrics.py` fix is now
+   proven, not just written. Planning number: validation took 112.6 s at 9 ICs ⇒
+   production's 129 ICs ≈ **~27 min of validation per epoch**.
+2. **Pangu training smoke at 108** — ✅ **job 7259296: `ALLDATA_SMOKE_OK`**,
+   105-in/101-out, peak 26.98 GB, `step_med` 0.643 s (n=12 — small-n, don't compare to
+   the n=80 0.602 s).
+3. **makani alldata smoke at 100/1/7** — ✅ **job 7259321: `ALLDATA_SMOKE_OK`** after the
+   stale 154-ch pack was moved aside (now at
+   `${MEMBER_ROOT}/data/e3sm_makani_alldata_smoke_154ch_stale`; delete when convenient).
+   Fresh pack `CONVERT_ALLDATA_OK`, contract + channel names verified against the
+   converter, real training (6.79 s) + checkpoint; the benign 107-vs-58 watchdog warning
+   appeared exactly as designed.
+4. **PhysicsNeMo allyears smoke at 103** — ✅ **job 7259303: `ALLYEARS_SMOKE_OK` +
+   `PHYSICSNEMO_CSV_OK`** (7 metric rows: 5 minibatch with decreasing loss, 1 epoch,
+   1 validation — the §6 tee is proven end-to-end).
 5. **When the transferred zarr lands in jesswan's folder: verify it** (§4 below), before
    any conversion job — if it verifies and is the right generation, our own ~11 h /
-   ~1.43 TB conversion is unnecessary.
+   ~1.43 TB conversion is unnecessary. **Still pending the transfer.**
 6. Then the conversions that are still needed, then training, per pipeline below.
+   The operator-facing guide for the PhysicsNeMo path is `polaris_pipeline_runbook.md`.
 
 ---
 
@@ -362,23 +365,25 @@ chunk keys). The full PBS has never been submitted (needs a compute node).
    "all-years, 108 ch". Rename to `_allyears` only with a full grep of every reference
    (PBS, docs, CHANGELOG) — deferred, not forgotten.
 
-### The honest list: what is unproven right now
-- **Pangu validation memory fix** (`utils/metrics.py` CPU climatology): code exists,
-  **never executed**. Job 1 is the proof either way.
-- **Pangu 108-ch training**: last green was 162 ch (7258626). Job 2 re-proves.
-- **makani 100/1/7 pack + training**: last green was 154 ch (7258407, tiny model).
-  Jobs 3 + the pack re-prove; production-model memory at 107-in unmeasured.
-- **PhysicsNeMo 103-ch training**: last green was 157 ch (7252933). Job 4 re-proves
-  (tiny model; the production SFNO at 103 ch has never trained a step).
+### The honest list (updated after the 2026-07-16 smoke sequence)
+
+Proven today (job ids in §0): the Pangu validation memory fix, Pangu 108-ch training,
+the makani 100/1/7 pack + tiny-model training, PhysicsNeMo 103-ch tiny-model training,
+and the §6 CSV tee end-to-end.
+
+Still unproven:
 - **PhysicsNeMo resume across preemption**: never observed; watch the first requeue.
-- **The §6 CSV tee under a real training run**: unit-proven only; job 4 closes it.
 - **`polaris_verify_store.pbs` as a job**: logic tested on a login node against a real
-  store; the PBS wrapper itself never submitted.
-- **The new makani full launcher**: never run at all.
+  store; the PBS wrapper itself never submitted (needs the transferred store to exist).
+- **The new makani full launcher**: never run; production-model memory at 107-in
+  unmeasured (the smokes train a tiny model).
+- **The PhysicsNeMo production SFNO at 103 ch**: has never trained a step (the smoke's
+  model is tiny).
 - **Every inference command in this document**: none has ever been executed on Polaris.
   The Pangu ensemble h5-IC path has never been executed anywhere.
 - **Production wall-clock for makani and PhysicsNeMo**: no production-scale s/step
-  exists; the first epochs are the measurement.
+  exists; the first epochs are the measurement (PhysicsNeMo's `metrics.csv` now records
+  it automatically).
 
 ### Corrections to the handoff, found while verifying it (update it or trust this doc)
 - `inference.py` is not merely "one of three Pangu inference paths" — it **cannot run

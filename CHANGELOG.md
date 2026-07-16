@@ -81,10 +81,10 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- **Pipelines runbook delivered (`polaris_pipelines_plan.md`), execution waiting on two
-  things:** (a) a human go for the §0 job order (Pangu validation smoke first — it decides
-  whether the production design stands); (b) **jesswan's zarr transfer** (announced 2026-07-16,
-  not yet on disk). The moment it lands:
+- **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
+  `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
+  decisions log). Remaining wait: jesswan's zarr transfer** (announced 2026-07-16, not yet on
+  disk). The moment it lands:
   `cd physicsnemo_sfno && qsub -v STORE=<transferred-path> polaris/polaris_verify_store.pbs`
   (PASS = `SEQZARR_VERIFIED` per store + `STORE_VERIFY_OK`), then train against it via
   `qsub -v SEQZARR_ALLYEARS_DATA=<dir> polaris/polaris_sfno_allyears.pbs` — if it verifies at
@@ -144,6 +144,32 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-07-16** — **🟢 The §0 smoke sequence ran with the owner's go-ahead: ALL FOUR GREEN at
+  the current contracts, same day.** Every prior green predated the change it would validate;
+  that debt is now paid. Read each verdict from the log token, not rc:
+  - **Pangu validation smoke (7259271): `PANGU_VAL_SMOKE_OK`** — the headline. The unproven
+    `utils/metrics.py` CPU-climatology fix EXECUTED for the first time (all 4 ranks reported
+    `clim_*=cpu`): validation peak **25.048 GiB**, train peak 25.127, device 39.495 ⇒
+    **13.86 GiB headroom**, `valid_loss=0.6989` finite, full production leads [1,12,20,40,60].
+    **The §4a adversarial arithmetic (38.8–40.8 GiB ⇒ requeue-forever) is REFUTED with the fix
+    in place** — Pangu production training is cleared on memory. Planning number: validation
+    112.6 s at 9 ICs ⇒ ~27 min/epoch at production's 129 ICs.
+  - **Pangu 108-ch training smoke (7259296): `ALLDATA_SMOKE_OK`** — 105-in/101-out, peak
+    26.98 GB, `step_med` 0.643 s (n=12; the trustworthy number remains 0.602 s at n=80).
+  - **PhysicsNeMo allyears smoke (7259303): `ALLYEARS_SMOKE_OK` + `PHYSICSNEMO_CSV_OK`** —
+    seam stores bitwise-verified, 103+5 schema pinned, and the §6 CSV tee is now proven
+    END-TO-END: 7 rows exactly as designed (5 minibatch, decreasing loss 1.518→1.330; 1 epoch
+    row lr=1e-3 + GB/s; 1 validation row 1.883), git_sha stamped.
+  - **makani 100/1/7 smoke (7259321): `ALLDATA_SMOKE_OK`** — fresh pack `CONVERT_ALLDATA_OK`,
+    contract + names verified against the converter, real training (6.79 s) + checkpoint, and
+    the benign `N_in_channels=107 ... expected 58` watchdog warning appeared exactly as
+    designed. The stale 154-ch pack was MOVED (not deleted) to
+    `${MEMBER_ROOT}/data/e3sm_makani_alldata_smoke_154ch_stale` — delete when convenient.
+  - Also: `polaris_pipeline_runbook.md` added — the operator-facing guide (plain scientific
+    language, full paths) for running the PhysicsNeMo pipeline off the transferred dataset
+    (Route A: verify in place) or a rebuild (Route B). §0/§5 of the plan and the runbook's §2
+    table updated with these results.
 
 - **2026-07-16** — **The three-pipeline runbook is written (`polaris_pipelines_plan.md`) and the
   handoff's §6 tee + two gap-closing scripts are implemented. Nothing was submitted** (per the
