@@ -1,0 +1,205 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_verify_store
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# ============================================================================
+# Verify an EXISTING SeqZarr store — wherever it lives — against the E3SM h5 archive.
+#
+# Built for the case polaris_verify_data_prep.pbs cannot cover: a store converted
+# somewhere else (or by someone else) and TRANSFERRED here, e.g. into
+# /eagle/projects/lighthouse-uchicago/members/jesswan/. That sibling script builds its
+# own fixture and verifies it; this one takes a store it did not build and answers, in
+# order of cheap to expensive:
+#
+#   1. ATTRS REPORT      — years / sampling_mode / channel counts / excluded_vars vs the
+#                          current converter / conversion_complete sentinel. This is what
+#                          the trainer preflight will gate on; a wrong-generation store
+#                          is announced here, before any data is read.
+#   2. CHUNK COMPLETENESS — the EXACT expected chunk-key set exists on disk, for every
+#                          array. NOT nchunks_initialized, which counts by prefix and is
+#                          satisfied by a `.partial` left by a killed transfer (measured,
+#                          2026-07-15). An interrupted rsync/Globus otherwise leaves
+#                          holes that read back as silent all-zero slabs.
+#   3. BITWISE ROUND-TRIP — verify_seqzarr.py --stride N: sampled samples x all 108
+#                          channels, bitwise vs the h5 source, plus NaN-fill placement,
+#                          channel-map partition, and the year-reconstructed time axis.
+#
+# WHAT A PASS DOES **NOT** PROVE: the unsampled samples' bytes. A stride-97 pass reads
+# ~1% of a full store; a transfer that corrupted (rather than dropped) a chunk file in
+# the other 99% is invisible to it. For full fidelity either run EXHAUSTIVE=1 below
+# (~hours: reads the whole store + archive) or checksum the transfer itself
+# (rsync -c / Globus checksum on). Stride sampling + the exact-key check is the honest
+# 1-hour compromise: every *missing* byte is caught, every *sampled* byte is proven.
+#
+# Submit (from physicsnemo_sfno/):
+#   qsub -v STORE=/path/to/e3sm_train.zarr           polaris/polaris_verify_store.pbs
+#   qsub -v STORE=/path/to/dir_holding_zarr_stores   polaris/polaris_verify_store.pbs
+#       (a directory: every immediate *.zarr child is verified in turn)
+#   qsub -v STORE=...,STRIDE=200                     polaris/polaris_verify_store.pbs
+#       STRIDE default: auto — about 480 samples, nudged off divisors of 1460 so the
+#       sample never locks onto the same dates every year.
+#   qsub -q preemptable -l walltime=24:00:00 -v STORE=...,EXHAUSTIVE=1 \
+#       polaris/polaris_verify_store.pbs             # stride 1: every sample, ~hours
+#
+# STORE is required and is honoured verbatim (its name is never touched by
+# polaris_env.sh — unlike SEQZARR_DATA, whose _pick clobbers qsub -v overrides).
+#
+# PASS = "SEQZARR_VERIFIED" for EVERY store AND "STORE_VERIFY_OK (n stores)" on the last
+# line. Every failure prints a greppable ERROR. rc=0 alone is NOT a pass.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+
+# ---- env: copied verbatim from polaris_verify_data_prep.pbs (same deps, no GPU) --------
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+if [ -z "${STORE:-}" ]; then
+    echo "ERROR STORE_NOT_SET: submit with  qsub -v STORE=/path/to/store.zarr  (or a dir of stores)"
+    exit 2
+fi
+
+echo "=== physicsnemo_verify_store: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "STORE   = ${STORE}"
+echo "archive = ${E3SM_ROOT}/h5/plev_data"
+polaris_env_report
+
+# ---- resolve the store list ------------------------------------------------------------
+STORES=()
+if [ -f "${STORE}/.zattrs" ] || [ -f "${STORE}/.zgroup" ]; then
+    STORES=("${STORE}")
+elif [ -d "${STORE}" ]; then
+    for s in "${STORE}"/*.zarr; do
+        [ -f "${s}/.zgroup" ] || [ -f "${s}/.zattrs" ] || continue
+        STORES+=("${s}")
+    done
+fi
+if [ "${#STORES[@]}" -eq 0 ]; then
+    echo "ERROR NO_STORE_FOUND: ${STORE} is neither a zarr store nor a directory holding *.zarr"
+    exit 2
+fi
+echo "stores to verify: ${#STORES[@]}"
+
+fail=0
+for s in "${STORES[@]}"; do
+    echo ""
+    echo "==== ${s} ===="
+
+    # ---- 1+2: attrs report + EXACT chunk-key completeness -----------------------------
+    python - "${s}" "${PN_ROOT}/polaris" <<'PY' || { fail=1; continue; }
+import os, sys
+store, libdir = sys.argv[1], sys.argv[2]
+sys.path.insert(0, libdir)
+import zarr
+from e3sm_h5_to_seqzarr import EXCLUDED_VARS, UNPREDICTED
+z = zarr.open(store, mode="r")
+a = dict(z.attrs)
+years = list(a.get("years") or [])
+cp = list(a.get("channels_predicted") or [])
+cu = list(a.get("channels_unpredicted") or [])
+T = z["predicted"].shape[0]
+print("  attrs: %d samples, years=%s..%s (%d), mode=%s, %d predicted + %d unpredicted"
+      % (T, years[0] if years else "?", years[-1] if years else "?", len(years),
+         a.get("sampling_mode"), len(cp), len(cu)))
+print("  sentinel conversion_complete = %s" % bool(a.get("conversion_complete")))
+ok = True
+if not a.get("conversion_complete"):
+    print("ERROR STORE_INCOMPLETE: no conversion_complete sentinel. Either the conversion")
+    print("  never finished, the transfer dropped the final .zattrs update, or the store")
+    print("  was built by a pre-2026-07-15 converter (which wrote no sentinel at all).")
+    print("  The trainer preflight refuses all three for the same reason: it cannot tell")
+    print("  a finished store from a killed one without the sentinel.")
+    ok = False
+# Generation vs the CURRENT converter: the trainer preflight refuses a mismatch, so say
+# so now. Report-and-fail here (unlike verify_seqzarr's warn): the point of verifying a
+# transferred store is to decide whether the pipeline can adopt it.
+if list(a.get("excluded_vars") or []) != list(EXCLUDED_VARS):
+    print("ERROR STORE_WRONG_GENERATION: store excluded_vars=%s, converter's is %s"
+          % (a.get("excluded_vars"), EXCLUDED_VARS))
+    print("  The data may still round-trip bitwise, but polaris_sfno_allyears.pbs will")
+    print("  (correctly) refuse to train on it.")
+    ok = False
+if cu != list(UNPREDICTED):
+    print("ERROR STORE_UNPREDICTED_MISMATCH: store %s vs converter %s" % (cu, UNPREDICTED))
+    ok = False
+# EXACT chunk keys, per array — nchunks_initialized counts by prefix and blesses
+# `.partial` files (measured 2026-07-15), so it cannot certify a transfer.
+for arr_name in ("predicted", "unpredicted", "time", "latitude", "longitude"):
+    arr = z[arr_name]
+    want = set()
+    import itertools
+    dims = [range((shp + ch - 1) // ch) for shp, ch in zip(arr.shape, arr.chunks)]
+    for idx in itertools.product(*dims):
+        want.add(".".join(str(i) for i in idx))
+    have = {e.name for e in os.scandir(os.path.join(store, arr_name))
+            if not e.name.startswith(".")}
+    missing, alien = want - have, have - want
+    if missing:
+        print("ERROR CHUNKS_MISSING: %s lacks %d of %d chunk files (first: %s) — an"
+              % (arr_name, len(missing), len(want), sorted(missing)[0]))
+        print("  interrupted transfer; those samples would read back as silent zero slabs.")
+        ok = False
+    if alien:
+        print("ERROR CHUNKS_ALIEN: %s holds %d unexpected entries (first: %s) — e.g. a"
+              % (arr_name, len(alien), sorted(alien)[0]))
+        print("  '.partial' from a killed writer, or a chunk grid that disagrees with the")
+        print("  array metadata.")
+        ok = False
+    if not missing and not alien:
+        print("  chunks: %-12s %d/%d exact keys present" % (arr_name, len(have), len(want)))
+sys.exit(0 if ok else 1)
+PY
+
+    # ---- 3: bitwise round-trip vs the archive, sampled ---------------------------------
+    if [ "${EXHAUSTIVE:-0}" = "1" ]; then
+        STRIDE_EFF=1
+    elif [ -n "${STRIDE:-}" ]; then
+        STRIDE_EFF="${STRIDE}"
+    else
+        # ~480 samples, nudged off divisors of 1460 (a divisor stride re-samples the
+        # same dates/hours every year and never sees the rest of the annual cycle).
+        STRIDE_EFF=$(python - "${s}" <<'PY'
+import sys, zarr
+T = zarr.open(sys.argv[1], mode="r")["predicted"].shape[0]
+st = max(1, T // 480)
+while st > 1 and 1460 % st == 0:
+    st += 1
+print(st)
+PY
+)
+    fi
+    echo "  round-trip stride: ${STRIDE_EFF}"
+    LOG="$(mktemp "${TMPDIR:-/tmp}/verify_store.XXXXXX.log")"
+    python "${PN_ROOT}/polaris/verify_seqzarr.py" --store "${s}" --stride "${STRIDE_EFF}" \
+        2>&1 | tee "${LOG}"
+    grep -q "SEQZARR_VERIFIED" "${LOG}" || { echo "ERROR STORE_VERIFY_FAILED: ${s}"; fail=1; }
+    rm -f "${LOG}"
+done
+
+echo ""
+if [ "${fail}" -ne 0 ]; then
+    echo "ERROR STORE_VERIFY_FAILED: at least one store failed — do NOT point the trainer at it"
+    exit 1
+fi
+echo "STORE_VERIFY_OK (${#STORES[@]} stores)"
+echo "=== physicsnemo_verify_store done (rc=0) $(date -Iseconds) ==="
+exit 0
