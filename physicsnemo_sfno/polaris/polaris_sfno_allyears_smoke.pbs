@@ -240,6 +240,11 @@ mkdir -p "${SMOKE_RUN_DIR}"
 echo "smoke run dir: ${SMOKE_RUN_DIR}"
 TRAIN_LOG="${SMOKE_RUN_DIR}/train.log"
 
+# The CSV metrics tee (bench_csv.py, wired into train.py as a vendor divergence): this
+# smoke is its end-to-end proof — the unit test (polaris/bench_csv_test.py, BENCH_CSV_OK)
+# can't show a real training run reaches the hooks. Absolute path: hydra chdir's.
+export PHYSICSNEMO_BENCH_CSV="${SMOKE_RUN_DIR}/metrics.csv"
+
 cd "${RECIPE}"
 # Channel counts DERIVED from the store attrs — the same mechanism the real trainer uses,
 # so this smoke exercises the derivation itself. No silent drift is possible here: the
@@ -286,6 +291,19 @@ fi
 if grep -i "loss" "${TRAIN_LOG}" | grep -qi "nan"; then
     echo "ERROR SMOKE_LOSS_NAN: see ${TRAIN_LOG}"; exit 2
 fi
+
+# The tee must have written a real MINIBATCH row (row shape: ISO-timestamp,epoch,step,
+# loss,...). Key on a data row, not on the file existing — a header-only file means the
+# hooks were never reached (e.g. a subtree pull dropped the train.py divergence and the
+# unit test wasn't run).
+if ! grep -qE '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8},[0-9]+,[0-9]+,[0-9.eE+-]+,' \
+        "${PHYSICSNEMO_BENCH_CSV}" 2>/dev/null; then
+    echo "ERROR SMOKE_NO_CSV_ROW: no minibatch row in ${PHYSICSNEMO_BENCH_CSV}"
+    echo "  (the PHYSICSNEMO_BENCH_CSV tee never fired — check train.py's vendor-divergence"
+    echo "   blocks and run: python polaris/bench_csv_test.py)"
+    exit 2
+fi
+echo "PHYSICSNEMO_CSV_OK: $(($(wc -l < "${PHYSICSNEMO_BENCH_CSV}") - 1)) metric rows in ${PHYSICSNEMO_BENCH_CSV}"
 
 echo "ALLYEARS_SMOKE_OK"
 echo "=== physicsnemo_allyears_smoke done (rc=0) $(date -Iseconds) ==="

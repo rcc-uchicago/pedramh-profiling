@@ -47,6 +47,14 @@ from physicsnemo.utils import StaticCaptureEvaluateNoGrad, StaticCaptureTraining
 from seq_zarr_datapipe import SeqZarrDatapipe
 from model_packages import save_inference_model_package
 
+# ==== pedramh-profiling vendor divergence (1/4): CSV metrics tee ====================
+# See bench_csv.py for the contract. Unset $PHYSICSNEMO_BENCH_CSV => from_env() returns
+# None => every hook below is a no-op and this file behaves byte-identically to upstream.
+# A subtree pull will conflict on these blocks — keep them; polaris/bench_csv_test.py
+# fails if they are ever dropped.
+from bench_csv import BenchCSVTee
+# ==== end vendor divergence =========================================================
+
 
 def batch_normalized_mse(pred: Tensor, target: Tensor) -> Tensor:
     """Calculates batch-wise normalized mse error between two tensors."""
@@ -85,6 +93,13 @@ def main(cfg: DictConfig) -> None:
     )
     LaunchLogger.initialize(use_mlflow=True)  # PhysicsNeMo launch logger
     logger = PythonLogger("main")  # General python logger
+
+    # ==== pedramh-profiling vendor divergence (2/4): CSV metrics tee ================
+    # None on every rank but 0, and None when $PHYSICSNEMO_BENCH_CSV is unset.
+    bench_csv = BenchCSVTee.from_env(
+        rank=dist.rank, n_gpus=dist.world_size, run_name=cfg.experiment_name
+    )
+    # ==== end vendor divergence =====================================================
 
     # Initialize model
     model = Module.instantiate(
@@ -333,6 +348,11 @@ def main(cfg: DictConfig) -> None:
                         cfg.training.nr_input_steps,
                     )
                     log.log_minibatch({"loss": loss.detach()})
+                    # ==== pedramh-profiling vendor divergence (3/4): CSV tee ========
+                    # Buffered + cloned, no extra GPU sync (see bench_csv.py).
+                    if bench_csv:
+                        bench_csv.minibatch(epoch, current_step, loss.detach())
+                    # ==== end vendor divergence =====================================
 
                     # Increment current step
                     current_step += 1
@@ -345,6 +365,17 @@ def main(cfg: DictConfig) -> None:
 
                 # Log memory throughput
                 log.log_epoch({"GB/s": nr_bytes / (time.time() - tic) / 1e9})
+                # ==== pedramh-profiling vendor divergence (4a/4): CSV tee ===========
+                # Recomputed rather than hoisted so the upstream lines above stay
+                # untouched; the GB/s value differs from MLflow's by the microseconds
+                # between the two time.time() calls (~6 significant figures agree).
+                if bench_csv:
+                    bench_csv.epoch(
+                        epoch,
+                        lr=optimizer.param_groups[0]["lr"],
+                        gb_per_s=nr_bytes / (time.time() - tic) / 1e9,
+                    )
+                # ==== end vendor divergence =========================================
 
             # Perform validation
             if dist.rank == 0:
@@ -417,6 +448,11 @@ def main(cfg: DictConfig) -> None:
 
                     # Log validation loss
                     log.log_epoch({"Validation error": loss_epoch / num_examples})
+                    # ==== pedramh-profiling vendor divergence (4b/4): CSV tee =======
+                    # Same arithmetic as the line above — exact, not approximate.
+                    if bench_csv:
+                        bench_csv.validation(epoch, float(loss_epoch / num_examples))
+                    # ==== end vendor divergence =====================================
 
                     # Switch back to train mode
                     model.train()

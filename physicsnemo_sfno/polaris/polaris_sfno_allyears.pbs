@@ -247,6 +247,13 @@ RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/physicsnemo_sfno_allyears/${RUN_NAME}}"
 mkdir -p "${RUN_DIR}"
 echo "run dir (holds ./checkpoints): ${RUN_DIR}"
 
+# CSV metrics tee (bench_csv.py; PHYSICSNEMO_BENCH_CSV= to disable). Appends across
+# requeues — the file lives in the STABLE run dir, and the tee refuses (loudly) to append
+# under a changed schema, so one run = one continuous CSV. Set the var yourself on qsub
+# (-v PHYSICSNEMO_BENCH_CSV=...) to put it elsewhere.
+export PHYSICSNEMO_BENCH_CSV="${PHYSICSNEMO_BENCH_CSV-${RUN_DIR}/metrics.csv}"
+echo "metrics CSV: ${PHYSICSNEMO_BENCH_CSV:-<disabled>}"
+
 cd "${RECIPE}"
 # Same config as the full sibling; the channel counts were derived from the store above
 # (103 predicted + 5 unpredicted under the current exclusion), grid stays [180,360];
