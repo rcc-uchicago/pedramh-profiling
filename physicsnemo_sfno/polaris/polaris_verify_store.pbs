@@ -6,6 +6,11 @@
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=00:59:00
+#PBS -r y
+# ^ Rerunnable: verification is read-only and idempotent, so a preempted EXHAUSTIVE run
+#   (submitted with -q preemptable) requeues and simply re-reads from the start instead
+#   of being silently DELETED (preempt_order=RD deletes non-rerunnable jobs). Harmless
+#   on the default debug queue.
 #PBS -j oe
 # ============================================================================
 # Verify an EXISTING SeqZarr store — wherever it lives — against the E3SM h5 archive.

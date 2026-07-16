@@ -5,7 +5,7 @@
 #PBS -l select=1:system=polaris
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
-#PBS -l walltime=24:00:00
+#PBS -l walltime=72:00:00
 #PBS -r y
 # Rerunnable: a preemption requeues this script from the top (see polaris_sfno_full.pbs's
 # header for the preempt_order=RD story). Safe only because the run dir is STABLE and the

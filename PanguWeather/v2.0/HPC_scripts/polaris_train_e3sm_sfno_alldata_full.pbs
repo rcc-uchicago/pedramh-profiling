@@ -5,7 +5,7 @@
 #PBS -l select=1:system=polaris
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
-#PBS -l walltime=24:00:00
+#PBS -l walltime=72:00:00
 #PBS -r y
 # ^ RERUNNABLE — this is what makes preemption self-healing, and it is NOT the default.
 # Polaris' scheduler has `preempt_order = RD`: it tries to REQUEUE a preempted job first and
@@ -21,7 +21,22 @@
 # so the longer a run survives, the safer it gets.)
 #PBS -j oe
 # ============================================================================
-# PanguWeather SFNO on E3SM, ALL-DATA (162-channel) — FULL PRODUCTION TRAINING.
+# PanguWeather SFNO on E3SM, ALL-YEARS — FULL PRODUCTION TRAINING.
+#
+# ⚠ HEADER CORRECTIONS (2026-07-16, flagged by two independent reviews): parts of the
+#   narrative below predate two changes and are left as-written for provenance.
+#   Where it says              read instead (current, measured)
+#   162 channels / in 159 /    108 channels / in_chans 105 / out_chans 101 — the three
+#     out 155, "all 8 upper-     cloud variables are EXCLUDED from all models (science
+#     air variables"             owner, 2026-07-16); the smoke gate pins 108 and job
+#                                7259296 proved it (ALLDATA_SMOKE_OK, peak 26.98 GB)
+#   "~3.5 GB" checkpoints      18.9 GB each, measured on disk (18,913,987,526 bytes);
+#     and storage math from      keep-10 + latest + best ≈ 230 GB, keep-all(100) ≈ 1.9 TB
+#     it (350 GB, 35 GB, ...)
+#   walltime 24:00:00          72:00:00 (queue max) — and use ../../polaris_submit_chain.sh
+#                                to pre-submit the full ~8.5-day timeline unattended
+#   Validation memory          PROVEN SAFE by job 7259271 (PANGU_VAL_SMOKE_OK: val peak
+#                                25.0 GiB, 13.9 GiB headroom vs the reserved peak)
 #
 # Mirror of polaris_train_e3sm_sfno_full.pbs (untouched, per CLAUDE.md #7),
 # repointed at config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml: all 8 upper-air

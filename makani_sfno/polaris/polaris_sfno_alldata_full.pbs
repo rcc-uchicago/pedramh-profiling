@@ -5,7 +5,7 @@
 #PBS -l select=1:system=polaris
 #PBS -l place=scatter
 #PBS -l filesystems=home:eagle
-#PBS -l walltime=24:00:00
+#PBS -l walltime=72:00:00
 #PBS -r y
 # ^ RERUNNABLE — required for preemptable self-healing (preempt_order = RD requeues only
 # rerunnable jobs; PBS defaults to Rerunable=False). Safe because RUN_NUM is stable and
