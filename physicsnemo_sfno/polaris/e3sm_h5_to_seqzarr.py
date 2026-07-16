@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 """E3SM per-sample HDF5 -> SeqZarr store for PhysicsNeMo unified_recipe SFNO training.
 
-Target: <root>/predicted (T,157,180,360) + unpredicted (T,5,180,360) + time (T,) i8 +
+Target: <root>/predicted (T,103,180,360) + unpredicted (T,5,180,360) + time (T,) i8 +
 lat/lon, read by examples/weather/unified_recipe/seq_zarr_datapipe.py (SeqZarrSource does
-zarr.open(store)["<array>"][time_idx]; axis 0 = time). Static / prescribed-forcing fields
-go to "unpredicted"; the other 157 channels are "predicted". time is int hours-since-epoch
-(DALI can't ingest datetime64/bytes).
+zarr.open(store)["<array>"][time_idx]; axis 0 = time). The EXCLUDED_VARS cloud channels
+are dropped entirely (162 archive channels -> 108 stored); static / prescribed-forcing
+fields go to "unpredicted"; the remaining 103 are "predicted". time is int
+hours-since-epoch (DALI can't ingest datetime64/bytes).
 
 This does exactly TWO things: a layout rewrite (per-sample files x per-variable datasets ->
 time-major chunked arrays) and a NaN fill. The layout is mechanical; the fill is the only
@@ -15,7 +16,7 @@ It deliberately writes **no normalization statistics** — see the note on NAN_F
 store with polaris/verify_seqzarr.py (bitwise, every sample x every channel).
 
 Micro-tested on Polaris (base conda, zarr 2.18.7): 6-sample store -> max|zarr-h5|=0 + CONVERT_OK.
-One full year is ~61 GB (1460*162*180*360*f4) -- convert subsets for a smoke.
+One full year is ~41 GB (1460*108*180*360*f4) -- convert subsets for a smoke.
 Run inside the PBS job (compute node) via polaris/polaris_sfno_smoke.pbs.
 """
 import argparse
@@ -36,6 +37,38 @@ E3SM_ROOT = Path(
        "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101"
 )
 UNPREDICTED = ["PCT_GLACIER", "PCT_NATVEG", "PFTDATA_MASK", "TOPO", "sol_in"]
+
+# Variables dropped from the store entirely — neither predicted nor unpredicted.
+# The three cloud variables are excluded from ALL models (confirmed by the science owner
+# 2026-07-16), matching PanguWeather (E3SM_SFNO_H5_POLARIS.yaml: they are commented out of
+# upper_air_variables) and makani (never in its channel map). PhysicsNeMo was the only
+# pipeline taking them, purely because this converter took every key in the file.
+#
+# Matching is by VARIABLE name; the h5 keys are "{var}_{level}" for the 18 sigma levels
+# (e.g. "CLDICE_4.714998332947841"), so 3 vars x 18 levels = 54 channels leave the store:
+# 162 -> 108, predicted 157 -> 103. Anything without a "_{float}" suffix is matched whole.
+#
+# Independent of the science, these 54 were the worst channels in the store (measured — see
+# polaris_e3sm_variable_reference.md R5/R1): 16 have std EXACTLY 0.0 across all 35 years, and
+# ~23 more carry σ so far below sqrt(BatchNorm eps)=3.16e-3 that train.py's normalizer crushes
+# them to numerical zero. Dropping them removes ~33% of the store and no information.
+EXCLUDED_VARS = ["CLDICE", "CLDLIQ", "CLOUD"]
+
+
+def _base_var(key: str) -> str:
+    """'CLDICE_4.714998332947841' -> 'CLDICE'; 'PRECT' -> 'PRECT'.
+
+    The h5 upper-air keys carry a float level suffix; surface keys do not. Split only when the
+    tail actually parses as a float, so a surface name containing '_' is never truncated.
+    """
+    if "_" in key:
+        head, _, tail = key.rpartition("_")
+        try:
+            float(tail)
+        except ValueError:
+            return key
+        return head
+    return key
 EPOCH = np.datetime64("2015-01-01T00:00:00")
 # E3SM is a noleap calendar: 365 d x 24 h == 1460 samples x 6 h, EVERY year (measured:
 # all 35 years hold exactly 1460 files; 51,100 total).
@@ -166,8 +199,21 @@ def main():
     T = len(files)
 
     with h5py.File(files[0], "r") as f:
-        names = sorted(k for k in f["input"].keys() if k != "time")
-        h, w = f["input"][names[0]].shape
+        all_names = sorted(k for k in f["input"].keys() if k != "time")
+        h, w = f["input"][all_names[0]].shape
+
+    # Drop EXCLUDED_VARS before the predicted/unpredicted split — they are not stored at all.
+    names = [n for n in all_names if _base_var(n) not in EXCLUDED_VARS]
+    excluded_names = [n for n in all_names if _base_var(n) in EXCLUDED_VARS]
+    n_dropped = len(excluded_names)
+    # Guard: a typo in EXCLUDED_VARS must not silently become a no-op, and must not silently
+    # drop the wrong count. 3 cloud vars x 18 sigma levels = 54.
+    unmatched = [v for v in EXCLUDED_VARS if not any(_base_var(n) == v for n in all_names)]
+    if unmatched:
+        print(f"ERROR EXCLUDED_VARS not found in h5 (typo?): {unmatched}")
+        return 1
+    print(f"excluded {n_dropped} channels ({len(EXCLUDED_VARS)} vars): {EXCLUDED_VARS}", flush=True)
+
     missing = [v for v in UNPREDICTED if v not in names]
     if missing:
         print(f"ERROR expected unpredicted channels missing from h5: {missing}")
@@ -209,6 +255,15 @@ def main():
     root.create_dataset("longitude", shape=(w,), dtype="f4")[:] = np.arange(w, dtype=np.float32) + 0.5
     root.attrs["channels_predicted"] = pred_names
     root.attrs["channels_unpredicted"] = unpred_names
+    # The exclusion, recorded two ways: the POLICY (excluded_vars — variable names, for a
+    # consumer to compare against its own EXCLUDED_VARS) and the MECHANISM (excluded_channels
+    # — the exact h5 keys dropped, so a verifier can reassemble the full h5 key set without
+    # re-implementing _base_var). This is what makes a wrong-generation store DETECTABLE:
+    # a pre-exclusion store has no excluded_vars attr and 157 channels_predicted names;
+    # this converter writes 103. Launch scripts must key on these instead of restating
+    # channel counts as literals.
+    root.attrs["excluded_vars"] = list(EXCLUDED_VARS)
+    root.attrs["excluded_channels"] = excluded_names
     root.attrs["source"] = str(args.src)
     root.attrs["time_units"] = "hours since 2015-01-01T00:00:00"
     # Provenance: what this store was ASKED for, so a verifier can check the slice that was

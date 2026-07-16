@@ -117,7 +117,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   Two more launch traps (both encoded in the scripts): `torchrun` resolves to the BASE
   conda launcher (whose shebang pins the base python) because the venv inherits torch and
   has no torchrun — use `python -m torch.distributed.run`; and makani's `--batch_size` is
-  GLOBAL, so it must divide the rank count. Plus an **upstream makani bug** (pin
+  GLOBAL, so the **rank count must divide it** (`global_batch_size % data_parallel_size == 0`
+  — `--batch_size=1` on 4 ranks fails). Plus an **upstream makani bug** (pin
   `c970430`): `self.logger` is assigned only when `log_to_screen` is truthy (rank-0 only)
   yet `deterministic_trainer.py` calls it unconditionally → every non-zero rank died;
   patched in our `plasim_trainer.py` wrapper, not in makani.
@@ -135,6 +136,91 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-07-16** — **🔴 The E3SM archive replays ONE year of ocean forcing 35 times, and two of
+  three pipelines mis-normalize a channel. Measured, adversarially verified, and written up in
+  `polaris_e3sm_variable_reference.md` (per-variable reference + risk register R1–R12) and
+  `data_for_training.md` (which risks actually affect *training*).** Method that produced these:
+  4 agents — 3 adversarial (told to refute) + **1 cold, given no conclusions at all**. The cold
+  one found the single worst issue; nobody was looking for it. Two of my own interpretations were
+  corrected by the adversaries. Do this again.
+  - **`SST`/`ICE`/`sol_in` are BITWISE identical across all 35 years** at the same index-in-year.
+    1,224 md5 comparisons (12 indices × 34 years × 3 vars) + 480 random: **0 mismatches**; distinct
+    inodes (not hardlinks); valid cells compared by value. Control: atmospheric fields **never**
+    matched (1,632 comparisons; `TREFHT` differs by up to 30.6 K). Global SST mean is
+    `14.574015 °C` in 2015, 2020, 2030, 2040 **and** 2049. Cause: `boundary_data/*_masked.nc` hold
+    exactly **1460 steps = one year**; `netcdf-to-h5_e3sm.py` re-slices from `chunk_id=0` every
+    year. The frozen 2015 in-file timestamp is the SAME bug, not a second one.
+    **Intent is unresolved — only jesswan can say.** `CTL_SST0051` reads as a deliberate fixed-SST
+    control; `SSP245AMIP` reads as a transient scenario that should warm. Both readings fit the
+    name. Within-year seasonality is intact and strong (σ: SST 11.5, `sol_in` 403) — only the
+    *interannual* axis is dead. **Not a training blocker** (it is a valid prescribed boundary);
+    it contaminates metrics if a model *forecasts* those fields, which PhysicsNeMo does.
+  - **PhysicsNeMo's normalizer silently erases precipitation.** `BatchNorm2d(momentum=None,
+    affine=False)` on **raw physical units**, `eps=1e-5` → amplitude `σ/√(σ²+eps)`. `PRECT`'s σ is
+    **7.7e-8 m/s** (m/s!), ~40,000× below `√eps` → amplitude **2.5e-5**. The loss is a *global* L2
+    over all channels, so gradient share scales as amplitude²: PRECT's is **~6e-10**. The model
+    converges and forecasts **climatological-mean rain**. Zero skill, no error, and the BatchNorm
+    state is exported into the inference package. **NOT a data defect** — in mm/day σ is 6.72 →
+    amplitude 1.0000. Fix belongs in the training path; **does not gate conversion**.
+  - **PanguWeather's `TSOI_10CM` is normalized with stats that don't match its fill.** Config fills
+    **270**; `compute_normalization_e3sm.py` never sets that key so its stats encode a **0** fill
+    (npz 105.229/133.802 vs predicted 0-fill 105.266/133.857; 270-fill would be 271.13/16.43).
+    A *predicted* channel ends up ~**26×** under-weighted. **Inherited from jesswan's own
+    `_DERECHO_jsw.yaml:66` / `_STAMPEDE_jsw.yaml:66` — live in the group's existing runs**, not
+    introduced here. The 270 fill itself is *good* (0.02σ from the valid mean).
+  - **The `SST` 270 fill is inherited from a Kelvin ancestor.** `compute_normalization{,_plasim}.py`
+    both carry `mask_fill['sst'] = 270.` / `['ts'] = 270.` — ERA5/PlaSim names for **Kelvin** fields.
+    The E3SM copy renamed them mechanically; `SST` is **degC** (metadata says so). Fingerprint that
+    it was mechanical: the same edit produced `mask_fill['TREFHT'] = 270.`, and TREFHT has **zero
+    NaN** — dead code. 270-filling `SST_masked.nc` reproduces the shipped npz **exactly** (1e-7).
+  - **Units metadata lies on 4 fields.** `SST`'s `long_name` is literally *"potential temperature"*;
+    `RHREFHT` says units `1` but is percent; `PCT_*` say `unitless` but run 0–100. On this archive a
+    variable name is not evidence **and neither is the attribute**. Measure.
+  - Also corrected: the store is **2.15 TB**, not the "~1 TB" the older docs repeat; checkpoints are
+    **18.9 GB**, not ~3.5 GB (`runs/pangu_sfno_full/.../checkpoints/` was already 177 GB at ~9
+    epochs); the E3SM SFNO model is **1.18 B params**, not ~79 M.
+
+- **2026-07-16** — **Cloud variables excluded from ALL three models (science owner).** All three
+  pipelines now agree on the same **108 of 162** channels. PanguWeather already excluded them;
+  makani's ALLDATA converter and PhysicsNeMo's `e3sm_h5_to_seqzarr.py` (`EXCLUDED_VARS`) now do too.
+  PhysicsNeMo: **162 → 108, predicted 157 → 103**, store **2.15 TB → ~1.43 TB**. Verified by running
+  the converter on the real archive: `excluded 54 channels`, `max|zarr-h5| = 0.0`, `CONVERT_OK`, then
+  `SEQZARR_VERIFIED (EXHAUSTIVE: 6 × 108 = 648 channel-samples, bitwise)`, and the store's own attrs
+  inspected independently (103+5+54 = 162, zero clouds survive, `TSOI_10CM`/`SOILWATER_10CM` intact).
+  - **The duplication bug this exposed is the real lesson.** Nothing derived the channel counts:
+    `157`/`5` was restated across ~13 sites, and makani's converter had `N_STATE, N_TARGET,
+    N_FORCING = 154, 155, 7` as literals the asserts did **not** check — it would have written a
+    correct 100-channel pack advertising 154 in its metadata. Both are now **derived**. The
+    trainer reads counts from the store's attrs behind a `STORE_WRONG_GENERATION` gate; a stale
+    162-channel store can no longer be silently adopted.
+  - The biggest miss was **not** a `157` literal: `verify_seqzarr.py:107-135` structurally assumed
+    the store partitions all 162 h5 keys, so it would have hard-failed **every** new store —
+    including the tracked `polaris_verify_data_prep.pbs`, which rebuilds its fixture each run.
+
+- **2026-07-16** — **Scope widened (owner): training is now Phase 1, not out of bounds.** DESIGN.md
+  rewritten (375 → 314 lines) around *implement-first, then-profile*; three overlapping model tables
+  merged into one six-codebase table; CLAUDE.md's "Why we're here" updated to match (it said "NOT
+  retraining" and is auto-loaded, so it outranked DESIGN). **The division of labor is the line that
+  matters and did not change: bring-up and training are ours; the science — variable sets, fill
+  values, channel roles, physics — is jesswan's.** The rewrite also found ~10 stale claims in the
+  old DESIGN (it said the §4 prerequisites "NONE exist yet"; all three exist).
+
+- **2026-07-16** — **PanguWeather's bench knobs renamed `S2S_*` → `PANGU_*`.** PanguWeather is its
+  own project — a fork of `s2s/v2.0` by **copy, not import** — and nothing outside it ever read
+  these (verified: the only cross-project bench consumers are `s2s-lightning/common/bench_callback.py`,
+  which genuinely imports `s2s/v2.0`, and `si/parse_nsys.py`). The `S2S_` prefix was decoration the
+  copy carried along, and it kept inviting the conflation (it led me to cite CLAUDE.md #5 — which
+  governs `s2s/v2.0/` — about a PanguWeather-only file).
+  - **`train.py` now errors `LEGACY_BENCH_ENV` if an `S2S_BENCH*`/`S2S_NVTX` knob is set.** Required,
+    not politeness: `BENCH = os.environ.get(...) == "1"` means *unset ⇒ silently no benchmarking*, so
+    a stale script or doc (e.g. `polaris_bench_report.md`'s reproduction command) would have produced
+    a run that measured nothing and exited 0. Verified the guard fires on `S2S_BENCH=1`/`S2S_NVTX=1`
+    and passes on `PANGU_BENCH=1`/nothing-set.
+  - **NVTX range names and CSV columns are UNCHANGED** (CLAUDE.md #10) — only the env knobs moved, so
+    every prior bench row stays comparable. `s2s/` and `s2s-lightning/` keep `S2S_*`; historical
+    CHANGELOG entries below are left as written (they record what was true then — the guard is what
+    catches anyone following them).
 
 - **2026-07-15** — **🔴 E3SM data prep: the PhysicsNeMo converter had 7 defects, and the smoke
   could not see the worst 3. Full analysis + the 5 open decisions:

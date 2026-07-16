@@ -1,0 +1,281 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_e3sm_sfno_allyears
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -r y
+# Rerunnable: a preemption requeues this script from the top (see polaris_sfno_full.pbs's
+# header for the preempt_order=RD story). Safe only because the run dir is STABLE and the
+# trainer restores from ./checkpoints on startup — do not add anything here that cannot
+# survive a rerun from the top.
+#PBS -j oe
+# ============================================================================
+# PhysicsNeMo SFNO on E3SM — ALL-DATA (2015-2049) TRAINING. Sibling of
+# polaris/polaris_sfno_full.pbs (untouched, keeps working); this variant differs in:
+#
+#   data   ${MEMBER_ROOT}/e3sm_seqzarr_full (2015-2044/2045-2047, 2048-49 unused)
+#          -> ${MEMBER_ROOT}/e3sm_seqzarr_allyears (2015-2046 / 2047-2049 — ALL 35 years,
+#             51,100 samples; built by polaris/polaris_zarr_e3sm_allyears.pbs)
+#   gates  generic n>=1000 -> exact per-store gates from the stores' own recorded attrs:
+#          contiguous years, exact len(years)*1460 count, sentinel, chunks, no train/val
+#          overlap, union == 2015-2049 (this IS the all-data run; a partial span
+#          would silently mislabel the result — escape: -v ALLYEARS_ALLOW_PARTIAL=1),
+#          PLUS store generation (excluded_vars == the converter's current list) and
+#          train/val channel-list agreement. Channel counts are then DERIVED from the
+#          stores' own channel-name attrs, not restated here.
+#
+# Model/config are IDENTICAL to the full sibling (conf/config_e3sm_sfno_full.yaml,
+# [180,360]) EXCEPT the channel counts: the converter drops the 3 cloud vars
+# (CLDICE/CLDLIQ/CLOUD — excluded from ALL models, science owner 2026-07-16; 54 of the
+# archive's 162 channels), so its stores hold 103 predicted + 5 unpredicted
+# (e3sm_h5_to_seqzarr.py EXCLUDED_VARS/UNPREDICTED). The tracked full sibling still
+# passes its 157 literal — correct for ITS pre-exclusion stores; feeding it a
+# wrong-generation store dies loudly at the first batch (BatchNorm2d channel mismatch,
+# train.py:122).
+#
+# PREREQUISITES (both fail loudly below):
+#   1. bash <repo>/polaris_setup_sfno_venv.sh                        # PASS = SFNO_VENV_OK
+#   2. qsub polaris/polaris_sfno_allyears_smoke.pbs                  # PASS = ALLYEARS_SMOKE_OK
+#   3. qsub -v CONFIRM_ALLYEARS=1 polaris/polaris_zarr_e3sm_allyears.pbs
+#                                                    # PASS = ZARR_ALLYEARS_COMPLETE (~1.43 TB)
+#
+# ⚠ RESUME IS NOT VERIFIED (inherited caveat from the sibling): the recipe saves
+#   checkpoints and calls load_checkpoint on startup, but we have only ever observed the
+#   save. Watch the first re-submit; if the epoch counter restarts at 0, wire a resume
+#   knob before trusting any long run.
+#
+# Submit from physicsnemo_sfno/:   qsub polaris/polaris_sfno_allyears.pbs
+# PASS is NOT "rc=0" (preemption kills jobs normally). Progress = "Epoch N Metrics ...
+# loss = ..." advancing across re-submits.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${PN_ROOT}/examples/weather/unified_recipe"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${PN_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export MLFLOW_ALLOW_FILE_STORE=true      # train.py calls initialize_mlflow() unconditionally
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+# NOTE: never add $POLARIS_TOPUPS here — its torch_harmonics 0.7.4 would shadow the venv's
+# 0.9.x (PYTHONPATH outranks site-packages). The guard below catches it.
+
+# Own env var, honoured because polaris_env.sh never sets this name (unlike SEQZARR_DATA,
+# which its _pick clobbers unconditionally). Must match polaris_zarr_e3sm_allyears.pbs.
+DATA="${SEQZARR_ALLYEARS_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_allyears}"
+NPROC="${NPROC:-4}"
+# STABLE across preemptions — keying to $PBS_JOBID would restart training from scratch
+# on every requeue.
+RUN_NAME="${RUN_NAME:-allyears01}"
+
+echo "=== physicsnemo_e3sm_sfno_allyears: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
+echo "data=${DATA}"
+nvidia-smi -L
+polaris_env_report
+
+if ! python -c "import physicsnemo, warp, makani" 2>/dev/null; then
+    echo "ERROR PHYSICSNEMO_NOT_INSTALLED inside ${SFNO_VENV}."
+    echo "  Rebuild on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    python -c "import physicsnemo, warp, makani" 2>&1 | tail -3
+    exit 3
+fi
+python - <<'PY' || exit 3
+import os, sys, torch_harmonics
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED: %s (v%s) is not inside %s"
+          % (got, torch_harmonics.__version__, venv))
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+PY
+
+# PROVENANCE GUARD: physicsnemo is installed EDITABLE, so a shared venv imports it from
+# its BUILDER'S checkout — 24 h of profiling someone else's working tree. Fail loudly.
+python - "${PN_ROOT}" "${SFNO_VENV}" <<'PY' || exit 3
+import os, sys, physicsnemo
+want, venv = (os.path.realpath(a) for a in sys.argv[1:3])
+got = os.path.realpath(os.path.dirname(os.path.dirname(physicsnemo.__file__)))
+if got == want or got.startswith(venv + os.sep):
+    print("provenance OK: physicsnemo from %s" % got)
+else:
+    print("ERROR PHYSICSNEMO_WRONG_CHECKOUT")
+    print("  imported physicsnemo from : %s" % got)
+    print("  this job's repo is        : %s" % want)
+    print("  Fix (once):  bash <your-repo>/polaris_setup_sfno_venv.sh")
+    sys.exit(3)
+PY
+
+# ---- data preflight: the ALL-YEARS stores, gated on their own recorded attrs -----------
+# Reads the stores + the converter's declared lists (EXCLUDED_VARS/UNPREDICTED): the
+# converter records years/sampling_mode/channels/exclusion/source provenance into attrs
+# precisely so a consumer can check the store it was HANDED against the pipeline's
+# current intent instead of trusting a path name. Catches, loudly: smoke-sized stores,
+# random fixtures, preempted zero-slab stores, gapped year spans (the 8766-h-seam trap),
+# leaky train/val overlap, "all-years" runs that quietly aren't, pre-exclusion
+# (162-channel) stores, and train/val stores of different generations.
+for store in e3sm_train.zarr e3sm_val.zarr; do
+    if [ ! -d "${DATA}/${store}" ]; then
+        echo "ERROR ALLYEARS_ZARR_MISSING: ${DATA}/${store}"
+        echo "  Build the all-years stores first (~1.43 TB, up to ~11 h):"
+        echo "      qsub -v CONFIRM_ALLYEARS=1 polaris/polaris_zarr_e3sm_allyears.pbs"
+        exit 2
+    fi
+done
+python - "${DATA}/e3sm_train.zarr" "${DATA}/e3sm_val.zarr" "${ALLYEARS_ALLOW_PARTIAL:-0}" \
+    "${PN_ROOT}/polaris" <<'PY' || exit 2
+import sys, zarr
+tpath, vpath, allow_partial = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
+# The converter is the single source of truth for the exclusion + unpredicted set.
+sys.path.insert(0, sys.argv[4])
+from e3sm_h5_to_seqzarr import EXCLUDED_VARS, UNPREDICTED
+years_of, channels_of = {}, {}
+for path in (tpath, vpath):
+    name = path.rsplit("/", 1)[-1]
+    z = zarr.open(path, mode="r")
+    a = dict(z.attrs)
+    years = list(a.get("years") or [])
+    n = z["predicted"].shape[0]
+    print("  %s: %d samples, years=%s..%s (%d), mode=%s, %d+%d channels"
+          % (name, n, years[0] if years else "?", years[-1] if years else "?",
+             len(years), a.get("sampling_mode"),
+             len(a.get("channels_predicted") or []), len(a.get("channels_unpredicted") or [])))
+    # Generation gate — what makes DERIVING the channel counts below safe. Without it, a
+    # stale pre-exclusion store (162 channels incl. the clouds the science owner excluded
+    # 2026-07-16) would set nr_predicted=157 and train SILENTLY on the wrong channels.
+    if list(a.get("excluded_vars") or []) != list(EXCLUDED_VARS):
+        print("ERROR STORE_WRONG_GENERATION: %s records excluded_vars=%s;"
+              % (name, a.get("excluded_vars")))
+        print("  the converter now excludes %s. This store predates (or disagrees with)" % EXCLUDED_VARS)
+        print("  the exclusion — rebuild it:  qsub -v CONFIRM_ALLYEARS=1,FORCE_RECONVERT=1 \\")
+        print("      polaris/polaris_zarr_e3sm_allyears.pbs")
+        sys.exit(2)
+    if list(a.get("channels_unpredicted") or []) != list(UNPREDICTED):
+        print("ERROR STORE_UNPREDICTED_MISMATCH: %s has %s, converter declares %s"
+              % (name, a.get("channels_unpredicted"), UNPREDICTED))
+        sys.exit(2)
+    channels_of[path] = (list(a.get("channels_predicted") or []),
+                         list(a.get("channels_unpredicted") or []))
+    if a.get("sampling_mode") == "random":
+        print("ERROR STORE_IS_A_RANDOM_FIXTURE: built with --random-sample (seed %s) —"
+              % a.get("sampling_seed"))
+        print("  its samples are not consecutive, so SFNO's t->t+6h target is meaningless.")
+        sys.exit(2)
+    if a.get("sampling_mode") != "contiguous":
+        print("ERROR STORE_MODE_UNKNOWN: no sampling_mode attr (pre-2026-07-15 converter?).")
+        print("  Re-convert with the current converter; its provenance attrs are the gates here.")
+        sys.exit(2)
+    if not years or years != list(range(years[0], years[-1] + 1)):
+        print("ERROR STORE_YEARS_NOT_CONTIGUOUS: %s years=%s. A gapped span carries" % (name, years))
+        print("  multi-year seams (8766 h) the trainer would silently learn as t->t+6h.")
+        sys.exit(2)
+    if not a.get("conversion_complete"):
+        print("ERROR STORE_INCOMPLETE: no conversion_complete sentinel — a preempted")
+        print("  conversion's unwritten samples read back as all-zero slabs, not errors.")
+        sys.exit(2)
+    init, tot = z["predicted"].nchunks_initialized, z["predicted"].nchunks
+    if init != tot:
+        print("ERROR STORE_HAS_UNWRITTEN_CHUNKS: %d/%d written." % (init, tot))
+        sys.exit(2)
+    if n != len(years) * 1460:
+        print("ERROR STORE_COUNT_MISMATCH: %d samples for %d noleap years (want exactly %d)."
+              % (n, len(years), len(years) * 1460))
+        print("  Partial-year store (wrong --start-sample/--max-samples?) — refuse to train.")
+        sys.exit(2)
+    years_of[path] = years
+tr, va = set(years_of[tpath]), set(years_of[vpath])
+if tr & va:
+    print("ERROR SPLIT_OVERLAP: train and val stores share years %s — leakage." % sorted(tr & va))
+    sys.exit(2)
+if channels_of[tpath] != channels_of[vpath]:
+    print("ERROR SPLIT_CHANNELS_DIFFER: train and val stores carry different channel lists")
+    print("  (a half-reconverted DATA dir?). Training would crash at the FIRST VALIDATION —")
+    print("  hours in. Rebuild whichever store is stale (FORCE_RECONVERT=1).")
+    sys.exit(2)
+missing = sorted(set(range(2015, 2050)) - tr - va)
+if missing and not allow_partial:
+    print("ERROR NOT_ALL_YEARS: %s unused. This launcher is the ALL-data variant; training" % missing)
+    print("  it on a partial span mislabels the result (that's polaris_sfno_full.pbs's job).")
+    print("  Override only deliberately:  qsub -v ALLYEARS_ALLOW_PARTIAL=1 ...")
+    sys.exit(2)
+print("preflight OK: %d train + %d val samples, %d+%d years, disjoint%s"
+      % (zarr.open(tpath, mode="r")["predicted"].shape[0],
+         zarr.open(vpath, mode="r")["predicted"].shape[0],
+         len(tr), len(va), ", all 35 years covered" if not missing else " (PARTIAL, allowed)"))
+PY
+
+# Channel counts come from the STORE's own attrs, not a restated literal (the old 157 here
+# went stale the day the converter changed). Safe to derive ONLY because the preflight
+# above proved both stores carry the converter's CURRENT exclusion and unpredicted set —
+# a wrong-generation store already died loudly up there. With the 2026-07-16 exclusion
+# this yields 103 predicted + 5 unpredicted (the smoke pins those exact literals).
+read -r NPRED NUNPRED <<< "$(python -c '
+import sys, zarr
+a = zarr.open(sys.argv[1], mode="r").attrs
+print(len(a["channels_predicted"]), len(a["channels_unpredicted"]))
+' "${DATA}/e3sm_train.zarr")"
+if [ -z "${NPRED:-}" ] || [ -z "${NUNPRED:-}" ]; then
+    echo "ERROR CHANNEL_COUNTS_UNREADABLE: no channels_* attrs in ${DATA}/e3sm_train.zarr"
+    exit 2
+fi
+echo "channel counts (derived from store attrs): predicted=${NPRED} unpredicted=${NUNPRED}"
+
+# ---- checkpoint isolation (NOT optional; see polaris_sfno_full.pbs for the incident) ---
+# Its own runs/ family: never share checkpoints with the full run — same architecture,
+# different data, and a cross-resume would silently blend the two.
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/physicsnemo_sfno_allyears/${RUN_NAME}}"
+mkdir -p "${RUN_DIR}"
+echo "run dir (holds ./checkpoints): ${RUN_DIR}"
+
+cd "${RECIPE}"
+# Same config as the full sibling; the channel counts were derived from the store above
+# (103 predicted + 5 unpredicted under the current exclusion), grid stays [180,360];
+# only the time axis is longer.
+LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno_full
+    "curated_dataset.train_dataset_filename=${DATA}/e3sm_train.zarr"
+    "curated_dataset.val_dataset_filename=${DATA}/e3sm_val.zarr"
+    "dataset.dataset_filename=${DATA}/e3sm_train.zarr"
+    "curated_dataset.nr_predicted_variables=${NPRED}"
+    "curated_dataset.nr_unpredicted_variables=${NUNPRED}"
+    "transform.transformed_shape=[180,360]"
+    validation.num_steps=2
+    "hydra.run.dir=${RUN_DIR}" hydra.job.chdir=true)
+# validation.num_steps must be >= 2: the post-validation plot indexes ax[0, t], and
+# matplotlib squeezes the axes array to 1-D when a grid dimension is 1.
+
+if [ "${NPROC}" = "1" ]; then
+    python "${LAUNCH_ARGS[@]}"
+else
+    # python -m torch.distributed.run, NOT torchrun: the venv has no torchrun of its own,
+    # so the bare name resolves to the BASE conda's, whose shebang pins the wrong python.
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        --redirects 3 --tee 3 "${LAUNCH_ARGS[@]}"
+fi
+rc=$?
+echo "=== physicsnemo_e3sm_sfno_allyears done (rc=${rc}) $(date -Iseconds) ==="
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: on preemptable, a non-zero rc is most often a PREEMPTION rather than a bug."
+    echo "      If there is no traceback above, re-submit. CHECK that it resumes (see the"
+    echo "      header): if the epoch counter restarts at 0, resume is NOT working."
+fi
+exit ${rc}

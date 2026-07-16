@@ -77,7 +77,7 @@ def _resolve_from_env():
     """`$PANGU_VAE_NOISE=fixed:0` / `generator:1234` — opt-in, absent => legacy.
 
     Env-configurable so a bench/equivalence PBS script can flip it without editing code,
-    matching how S2S_BENCH/S2S_NVTX are plumbed.
+    matching how PANGU_BENCH/PANGU_NVTX are plumbed.
     """
     raw = os.environ.get("PANGU_VAE_NOISE", "").strip()
     if not raw:

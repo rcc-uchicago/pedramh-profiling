@@ -1,4 +1,4 @@
-"""Tests for the S2S_BENCH / NVTX harness ported into PanguWeather (DESIGN.md §2c).
+"""Tests for the PANGU_BENCH / NVTX harness ported into PanguWeather (DESIGN.md §2c).
 
 Runs anywhere: no E3SM data, no cluster, no GPU, no torch import of train.py (which would
 need the whole model stack). Everything here is static analysis of the source, which is the
@@ -144,7 +144,7 @@ def test_parse_nsys_parses_every_range_we_emit():
 
 
 def test_every_nvtx_and_bench_statement_is_gated():
-    """The safety property: with S2S_BENCH/S2S_NVTX unset the legacy path is unchanged.
+    """The safety property: with PANGU_BENCH/PANGU_NVTX unset the legacy path is unchanged.
 
     This is what lets the harness land without re-validating the GREEN loss-0.3411 smoke
     (job 7252271 / 7253591). An ungated nvtx.range_push or an ungated timing sync would
@@ -184,7 +184,7 @@ def test_every_nvtx_and_bench_statement_is_gated():
         Visitor().visit(_find_func(tree, fn_name))
 
     assert not ungated, (
-        "these profiling statements run on the LEGACY path (no S2S_NVTX/S2S_BENCH):\n  %s"
+        "these profiling statements run on the LEGACY path (no PANGU_NVTX/PANGU_BENCH):\n  %s"
         % "\n  ".join(ungated))
     assert gated >= 8, "expected >=8 gated nvtx/profiler calls, found %d" % gated
 
@@ -192,7 +192,7 @@ def test_every_nvtx_and_bench_statement_is_gated():
 def _env_default(path, knob):
     """The literal default in `os.environ.get("<knob>", "<default>")`, via AST.
 
-    Not a string match: s2s writes `os.environ.get("S2S_BENCH_STEPS",  "80")` with padding
+    Not a string match: s2s writes `os.environ.get("PANGU_BENCH_STEPS",  "80")` with padding
     spaces, so a literal search tests formatting rather than the value.
     """
     for node in ast.walk(_tree(path)):
@@ -225,13 +225,21 @@ def test_torch_compile_knob_is_actually_wired():
 
 
 def test_bench_defaults_match_s2s():
-    for knob, default in (("S2S_BENCH_WARMUP", "20"), ("S2S_BENCH_STEPS", "80")):
-        got = _env_default(_PANGU_TRAIN, knob)
+    """Same bench WINDOW in both trees, even though the env knobs are named differently.
+
+    The knob names diverged 2026-07-16 (PanguWeather owns PANGU_*; s2s keeps S2S_*) — that is
+    deliberate, they are separate projects. What must NOT diverge is the measured window: a
+    different warmup/steps default would make the two trees' CSVs method-incomparable while
+    still looking like the same schema.
+    """
+    for pangu_knob, s2s_knob, default in (("PANGU_BENCH_WARMUP", "S2S_BENCH_WARMUP", "20"),
+                                          ("PANGU_BENCH_STEPS", "S2S_BENCH_STEPS", "80")):
+        got = _env_default(_PANGU_TRAIN, pangu_knob)
         assert got == default, (
             "%s defaults to %r here vs s2s's %r — the two trees would bench different "
-            "windows and their CSVs would not be method-comparable." % (knob, got, default))
-        assert _env_default(_S2S_TRAIN, knob) == default, (
-            "s2s's %s default changed; re-check this port" % knob)
+            "windows and their CSVs would not be method-comparable." % (pangu_knob, got, default))
+        assert _env_default(_S2S_TRAIN, s2s_knob) == default, (
+            "s2s's %s default changed; re-check this port" % s2s_knob)
 
 
 def test_loop_clock_stops_before_the_profiler_teardown():

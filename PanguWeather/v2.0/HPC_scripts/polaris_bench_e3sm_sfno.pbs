@@ -12,7 +12,7 @@
 # s2s/v2.0/HPC_scripts/midway_bench.sh, retargeted to the A100 nodes and to the
 # PanguWeather fork (CLAUDE.md #7: added BESIDE the Midway script, never editing it).
 #
-# Uses the S2S_BENCH harness ported into PanguWeather/v2.0/train.py: an instrumented
+# Uses the PANGU_BENCH harness ported into PanguWeather/v2.0/train.py: an instrumented
 # step loop with cuda.synchronize() bracketing, scaler-skip detection, and a rank-0
 # CSV row + env side-car. No nsys, no NCCL_DEBUG, no TORCH_DISTRIBUTED_DEBUG — all of
 # those distort timing. For the nsys trace use polaris_bench_nsys_e3sm_sfno.pbs.
@@ -30,7 +30,7 @@
 #   qsub -v NUM_DATA_WORKERS=0 HPC_scripts/polaris_bench_e3sm_sfno.pbs
 #   qsub -v NUM_DATA_WORKERS=8 HPC_scripts/polaris_bench_e3sm_sfno.pbs
 #
-# PASS = a NEW row in $S2S_BENCH_CSV + "BENCH n=..." in the log. NOT rc=0: rank!=0
+# PASS = a NEW row in $PANGU_BENCH_CSV + "BENCH n=..." in the log. NOT rc=0: rank!=0
 # exits 0 by design, and a bench that recorded nothing also exits 0 on those ranks
 # (guardrail: `rc=0` is not a PASS criterion — key on the work token).
 # ============================================================================
@@ -64,13 +64,13 @@ export CUDA_LAUNCH_BLOCKING=0
 # ---- Bench knobs. Defaults match midway_bench.sh (20/80) so the METHOD is the same
 # even though the hardware is not. Note the Polaris SI smoke used 5/20 and had to
 # caveat every number it produced — don't repeat that.
-export S2S_BENCH=1
-export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-20}"
-export S2S_BENCH_STEPS="${S2S_BENCH_STEPS:-80}"
+export PANGU_BENCH=1
+export PANGU_BENCH_WARMUP="${PANGU_BENCH_WARMUP:-20}"
+export PANGU_BENCH_STEPS="${PANGU_BENCH_STEPS:-80}"
 # CSV goes to YOUR member dir: an absolute path inside the repo would collide between
 # members and dirty the working tree.
-export S2S_BENCH_CSV="${S2S_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_bench.csv}"
-mkdir -p "$(dirname "${S2S_BENCH_CSV}")"
+export PANGU_BENCH_CSV="${PANGU_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_bench.csv}"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
 
 # torch.compile is deliberately NOT enabled here. It is rung 1 of the DESIGN §5 ladder
 # and the §4 equivalence gate is not executable yet (no tiny_baseline.yaml, no VAE noise
@@ -97,7 +97,7 @@ nvidia-smi -L
 polaris_env_report
 echo "python=$(command -v python)"
 echo "config=${CONFIG_NAME} section=${CONFIG_SECTION}"
-echo "bench: warmup=${S2S_BENCH_WARMUP} steps=${S2S_BENCH_STEPS} csv=${S2S_BENCH_CSV}"
+echo "bench: warmup=${PANGU_BENCH_WARMUP} steps=${PANGU_BENCH_STEPS} csv=${PANGU_BENCH_CSV}"
 
 # ---- preflight: the 16 GB CDF-5 -> NETCDF4 climatology must exist (Trainer init reads
 # it). Identical to the smoke's gate; a truncated file crashes deep in Trainer init.
@@ -141,7 +141,7 @@ grep -E "^\s*(num_data_workers|batch_size|checkpointing|use_ema|nettype|loss):" 
 mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
 
 # Row count BEFORE the run — the PASS gate below keys on this growing by one.
-rows_before=$( [ -f "${S2S_BENCH_CSV}" ] && wc -l < "${S2S_BENCH_CSV}" || echo 0 )
+rows_before=$( [ -f "${PANGU_BENCH_CSV}" ] && wc -l < "${PANGU_BENCH_CSV}" || echo 0 )
 
 # --epochs 1 bounds the run; the BENCH harness exits after warmup+steps anyway.
 # Never --debug: it hardcodes world_size=1, so all 4 ranks would init on GPU 0 and OOM.
@@ -156,16 +156,16 @@ torchrun --standalone --nproc_per_node="${NPROC}" \
 rc=$?
 
 # ---- PASS gate: a bench that measured nothing must not read as a pass --------------
-rows_after=$( [ -f "${S2S_BENCH_CSV}" ] && wc -l < "${S2S_BENCH_CSV}" || echo 0 )
+rows_after=$( [ -f "${PANGU_BENCH_CSV}" ] && wc -l < "${PANGU_BENCH_CSV}" || echo 0 )
 if [ "${rows_after}" -le "${rows_before}" ]; then
-    echo "ERROR NO_BENCH_ROW: ${S2S_BENCH_CSV} did not gain a row (before=${rows_before} after=${rows_after}, torchrun rc=${rc})"
+    echo "ERROR NO_BENCH_ROW: ${PANGU_BENCH_CSV} did not gain a row (before=${rows_before} after=${rows_after}, torchrun rc=${rc})"
     echo "  A bench that recorded nothing exits 0 on every non-zero rank — read the log above,"
     echo "  not the exit code. train.py exits 2 when n=0 steps were counted and 3 when its"
     echo "  elapsed-vs-sum timer self-check fails."
     exit 4
 fi
 echo "--- bench row recorded ---"
-head -1 "${S2S_BENCH_CSV}"
-tail -1 "${S2S_BENCH_CSV}"
+head -1 "${PANGU_BENCH_CSV}"
+tail -1 "${PANGU_BENCH_CSV}"
 echo "=== polaris_bench_e3sm_sfno done (torchrun rc=${rc}) $(date -Iseconds) ==="
 exit ${rc}

@@ -150,7 +150,7 @@ smoke and full training **sharing a checkpoint dir inside the repo**).
 `/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys` (2025.1.3). You inherit real
 infrastructure — use it rather than reinventing:
 
-- knobs already plumbed: `S2S_BENCH_{WARMUP,STEPS,CSV}`, `S2S_NVTX`, `S2S_AMP_DTYPE`,
+- knobs already plumbed: `PANGU_BENCH_{WARMUP,STEPS,CSV}`, `PANGU_NVTX` (renamed from S2S_* 2026-07-16),
   `TORCH_COMPILE_MODE`, `SI_BENCH_*`, `SI_NVTX`, `S2S_PRECISION`
 - parsers: `s2s/v2.0/HPC_scripts/parse_nsys.py`, `compare_nsys.py`, `si/parse_nsys.py`
 - prior art + the reporting style to match: `s2s/v2.0/bench_report.md`,

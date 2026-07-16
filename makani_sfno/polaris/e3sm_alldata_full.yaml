@@ -1,0 +1,168 @@
+### E3SM ALL-DATA -> Makani SFNO FULL TRAINING config for Polaris.
+###
+### The ALL-DATA variant of polaris/e3sm_full.yaml — 100 state + 1 diag +
+### 7 forcing (107-in / 101-out), i.e. 108 of the archive's 162 channels at
+### all 18 levels (the 54 cloud channels are excluded from every model,
+### science owner 2026-07-16). It sits BESIDE the locked 52/1/6
+### PlaSim-comparable path and never replaces it. The dataset half matches
+### e3sm_alldata_smoke.yaml;
+### the MODEL and TRAINING halves keep the group-baseline dims
+### (src/sfno_training/config/plasim_sim52_baseline.yaml), same as e3sm_full.yaml:
+###     scale_factor 3, embed_dim 384, num_layers 8, 8192 samples/epoch,
+###     100 epochs, n_eval 512, valid_autoreg 3.
+### NOTE the wider channel count only grows the encoder/decoder ends of the
+### SFNO (107-in/101-out vs 58/53); the trunk is embed_dim-sized. Expect a
+### modest parameter/memory increase, not the ~1.8x channel ratio. NOT
+### measured on the A100s yet —
+### if it OOMs, drop batch_size before touching model dims.
+###
+### CHANNEL NAMES — {VAR}_l{00..17} is a LEVEL INDEX (l00 = top, l17 = near-
+### surface), deliberately NOT "T850"-style: the levels are terrain-following
+### (sigma-like), not isobaric. See convert_e3sm_to_makani_alldata.py's header
+### and metadata/data.json attrs.level_table. n_diagnostic_channels MUST stay 1
+### (plasim_forcing_dataset.py:320 assumes exactly one diagnostic channel).
+###
+### DATA: needs the FULL all-data pack (~1.4 TB!). Build it with
+### polaris/polaris_pack_e3sm_alldata_full.pbs — see the size warning there.
+### Dataset produced by makani_sfno/polaris/convert_e3sm_to_makani_alldata.py.
+###
+### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders — substitute via sed in
+### the PBS launcher (same pattern as polaris/polaris_sfno_smoke.pbs):
+###   sed -e "s|{{OUTPUT_ROOT}}|$OUTPUT_ROOT|g" -e "s|{{EXP_DIR}}|$EXP_DIR|g" \
+###       polaris/e3sm_alldata_full.yaml > $EXP_DIR/e3sm_alldata_full.rendered.yaml
+
+e3sm_alldata_full:
+
+    # --- Dataset paths ---
+    metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
+    train_data_path:   "{{OUTPUT_ROOT}}/train"
+    valid_data_path:   "{{OUTPUT_ROOT}}/valid"
+    inf_data_path:     "{{OUTPUT_ROOT}}/test"
+    exp_dir:           "{{EXP_DIR}}"
+
+    # --- Image / time (E3SM: 1-degree equiangular, 6-hourly) ---
+    img_shape_x: 180
+    img_shape_y: 360
+    dhours: 6
+    dt: 1
+    multifiles: !!bool True
+
+    # --- Grids (E3SM is equiangular, NOT legendre-gauss) ---
+    model_grid_type: "equiangular"
+    data_grid_type:  "equiangular"
+    sht_grid_type:   "equiangular"
+
+    # --- Channels (101 = 100 state + PRECT; must match metadata coords.channel) ---
+    # channel_names is PINNED here on purpose (yaml cannot import the converter):
+    # it is the trainer-side half of the converter<->trainer gate and must equal
+    # TARGET_CHANNELS exactly — same-width name drift maps channels to the wrong
+    # slots with no error. Keep it identical to e3sm_alldata_smoke.yaml, whose
+    # PBS smoke re-derives both sides and aborts on drift. Regenerate (from
+    # makani_sfno/polaris/):
+    #   python -c 'import json, convert_e3sm_to_makani_alldata as c; print("["+",".join(json.dumps(n) for n in c.TARGET_CHANNELS)+"]")'
+    channel_names: ["PS","TREFHT","U10","RHREFHT","PSL","TMQ","FSNT","FSNTOA","SOILWATER_10CM","TSOI_10CM","T_l00","T_l01","T_l02","T_l03","T_l04","T_l05","T_l06","T_l07","T_l08","T_l09","T_l10","T_l11","T_l12","T_l13","T_l14","T_l15","T_l16","T_l17","U_l00","U_l01","U_l02","U_l03","U_l04","U_l05","U_l06","U_l07","U_l08","U_l09","U_l10","U_l11","U_l12","U_l13","U_l14","U_l15","U_l16","U_l17","V_l00","V_l01","V_l02","V_l03","V_l04","V_l05","V_l06","V_l07","V_l08","V_l09","V_l10","V_l11","V_l12","V_l13","V_l14","V_l15","V_l16","V_l17","Z3_l00","Z3_l01","Z3_l02","Z3_l03","Z3_l04","Z3_l05","Z3_l06","Z3_l07","Z3_l08","Z3_l09","Z3_l10","Z3_l11","Z3_l12","Z3_l13","Z3_l14","Z3_l15","Z3_l16","Z3_l17","RELHUM_l00","RELHUM_l01","RELHUM_l02","RELHUM_l03","RELHUM_l04","RELHUM_l05","RELHUM_l06","RELHUM_l07","RELHUM_l08","RELHUM_l09","RELHUM_l10","RELHUM_l11","RELHUM_l12","RELHUM_l13","RELHUM_l14","RELHUM_l15","RELHUM_l16","RELHUM_l17","PRECT"]
+
+    diagnostic_h5_path: "fields_diagnostic"
+    n_state_channels: 100
+    n_diagnostic_channels: 1
+    forcing_h5_path: "forcing"
+    n_forcing_channels: 7
+    forcing_channel_names: ["lsm","topo","glacier","natveg","sst","solin","ice"]
+    forcing_global_means_path: "{{OUTPUT_ROOT}}/stats/forcing_global_means.npy"
+    forcing_global_stds_path:  "{{OUTPUT_ROOT}}/stats/forcing_global_stds.npy"
+    forcing_time_means_path:   "{{OUTPUT_ROOT}}/stats/forcing_time_means.npy"
+
+    # --- Normalization ---
+    normalization: "zscore"
+    global_means_path: "{{OUTPUT_ROOT}}/stats/global_means.npy"
+    global_stds_path:  "{{OUTPUT_ROOT}}/stats/global_stds.npy"
+    time_means_path:   "{{OUTPUT_ROOT}}/stats/time_means.npy"
+
+    # --- SFNO (dims from plasim_sim52_baseline.yaml, same as e3sm_full.yaml) ---
+    nettype: "SFNO"
+    filter_type: "linear"
+    scale_factor: 3
+    embed_dim: 384
+    num_layers: 8
+    complex_activation: "real"
+    normalization_layer: "instance_norm"
+    hard_thresholding_fraction: 1.0
+    use_mlp: !!bool True
+    mlp_mode: "serial"
+    mlp_ratio: 2
+    separable: !!bool False
+    operator_type: "dhconv"
+    activation_function: "gelu"
+    pos_embed: "none"
+
+    # --- Aux features all OFF (asserted by PlasimTrainer._set_data_shapes) ---
+    add_grid:      !!bool False
+    add_zenith:    !!bool False
+    add_orography: !!bool False
+    add_landmask:  !!bool False
+    add_soiltype:  !!bool False
+    history_normalization_mode: "none"
+
+    # --- Loss ---
+    # constant channel weights over the 101 targets. The zero-variance dilution
+    # concern is GONE: the cloud channels (16 of them exactly constant) are
+    # excluded from the pack entirely, so no target normalizes to a constant 0.
+    losses:
+    -   type: "l2"
+        channel_weights: "constant"
+        temp_diff_normalization: !!bool False
+        parameters:
+            squared: !!bool True
+
+    # --- Full training (batch_size is GLOBAL and is overridden on the CLI) ---
+    # makani asserts global_batch_size % data_parallel_size == 0, so the launcher passes a
+    # multiple of the rank count; the value here is the single-node default from the baseline.
+    lr: 1.0E-3
+    n_eval_samples: 512
+    n_train_samples_per_epoch: 8192
+    max_epochs: 100
+    batch_size: 8
+    weight_decay: 0.0
+    n_history: 0
+    n_future: 0
+    valid_autoreg_steps: 3
+    prediction_type: "iterative"
+
+    scheduler: "ReduceLROnPlateau"
+    scheduler_T_max: 100
+    scheduler_factor: 0.5
+    scheduler_patience: 1
+    scheduler_step_size: 1
+    scheduler_gamma: 0.5
+    lr_warmup_steps: 0
+    optimizer_type: "AdamW"
+    optimizer_beta1: 0.9
+    optimizer_beta2: 0.95
+    optimizer_max_grad_norm: 32
+
+    num_data_workers: 8
+    num_visualization_workers: 0
+    crop_size_x: None
+    crop_size_y: None
+
+    ics_type: "specify_number"
+    save_raw_forecasts: !!bool True
+    save_channel:       !!bool False
+    masked_acc:         !!bool False
+    maskpath: None
+    perturb:    !!bool False
+    add_noise:  !!bool False
+    noise_std:  0.0
+    pretrained: !!bool False
+
+    target: "tendency"
+    normalize_residual: !!bool False
+
+    log_to_screen: !!bool True
+    log_to_wandb:  !!bool False
+    log_video: 0
+    save_checkpoint: "legacy"
+    verbose: !!bool True
+
+    wireup_info: "mpi"
+    wireup_store: "tcp"

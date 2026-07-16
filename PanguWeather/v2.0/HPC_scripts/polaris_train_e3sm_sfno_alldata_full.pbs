@@ -1,0 +1,266 @@
+#!/bin/bash -l
+#PBS -N pangu_alldata_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -r y
+# ^ RERUNNABLE — this is what makes preemption self-healing, and it is NOT the default.
+# Polaris' scheduler has `preempt_order = RD`: it tries to REQUEUE a preempted job first and
+# only DELETES if it cannot. A job is only requeueable if it is rerunnable, and PBS defaults
+# to `Rerunable = False` (verified on our own finished jobs) — so without this line a
+# preempted job falls straight through to D and is simply killed, and someone has to notice
+# and resubmit by hand.
+# With `-r y`, PBS puts the job back in the queue itself and re-runs THIS SCRIPT from the
+# top. That is only safe because the script is idempotent and resumes from its checkpoint:
+# a stable RUN_NUM, and a trainer that restores state on startup. Re-running from the top is
+# the whole contract — do not add anything to this script that cannot survive it.
+# (`preempt_sort = min_time_since_start`: the most recently started jobs get preempted first,
+# so the longer a run survives, the safer it gets.)
+#PBS -j oe
+# ============================================================================
+# PanguWeather SFNO on E3SM, ALL-DATA (162-channel) — FULL PRODUCTION TRAINING.
+#
+# Mirror of polaris_train_e3sm_sfno_full.pbs (untouched, per CLAUDE.md #7),
+# repointed at config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml: all 8 upper-air
+# variables incl. CLDLIQ/CLDICE/CLOUD (in_chans=159 / out_chans=155), full
+# 2015->2045 train / 2045->2049 val split, and PRODUCTION validation scope
+# (num_inferences 128 -> 129 ICs, forecast_lead_times [1,12,20,40,60]).
+# The 162-channel shape was proven on this node type by job 7258382
+# (ALLDATA_SMOKE_OK, peak_mem 27.045 GB on 40 GB A100s).
+#
+# WHAT DIFFERS FROM THE PARENT SCRIPT (each decided, not drifted):
+#   1. CONFIG_TEMPLATE / EXP_DIR / RUN_NUM -> the ALLDATA config and its own
+#      runs/pangu_sfno_alldata_full tree, so this run can never collide with a
+#      108-channel full run using the parent script.
+#   2. YEAR PATCHING KEPT, DEFAULT CHANGED: the parent patches
+#      train_year_start/train_year_end from $TRAIN_YEAR_START/$TRAIN_YEAR_END so
+#      years stay overridable via qsub -v; that mechanism is kept (the
+#      exactly-one-match assert also guards against template drift, and at the
+#      defaults the patch is a no-op). But the parent's default TRAIN_YEAR_END
+#      of 2049 is WRONG for this config: the ALLDATA template validates on
+#      2045->2049, so training through 2048 would leak all four validation
+#      years into the training set. Default here = 2045, the template's own
+#      value (train 2015..2044 = 30 years, no train/val overlap).
+#   3. val_year_start/val_year_end are NOT patched (same as the parent) and
+#      survive rendering untouched: the sed below replaces only {{PANGU_AUX}}
+#      and {{MEMBER_ROOT}}, and the python patch touches only the keys listed
+#      in its loop. The banner echoes them from the RENDERED file as proof.
+#      They must stay 2045/2049: val_year_end 2050 would point the last
+#      validation target at 2050_0000.h5, which does not exist.
+#   4. CHECKPOINT RETENTION: max_checkpoints_to_keep is patched 1000 -> 10
+#      (override: qsub -v MAX_CKPTS_KEEP=n). The template inherits interval 1 +
+#      keep 1000 from the original config; at max_epochs 100 that is 100
+#      numbered ckpts x ~3.5 GB ~= 350 GB of Eagle quota for pure history.
+#      What each file is FOR (verified in train.py):
+#        - resume needs only ckpt_latest.tar, rewritten every epoch
+#          (train.py:3548; resume priority 3 at train.py:330-335);
+#        - the best model is best_ckpt.tar, saved separately on validation
+#          improvement (train.py:975, 3568-3570);
+#        - numbered ckpt_epoch_N.tar are history: resume priority 4
+#          (train.py:337-346) falls back to the newest one if ckpt_latest is
+#          missing — e.g. deleted by hand after a preemption corrupted it
+#          mid-torch.save — and they allow post-hoc eval at earlier epochs.
+#      A rolling window of 10 (~35 GB; ~42 GB with latest+best) preserves both
+#      uses; keeping all 100 buys nothing a production run needs.
+#      checkpoint_save_interval stays 1: on a preemptable queue, durable state
+#      every epoch (~2-3 h, see budget) is exactly what you want, and a 3.5 GB
+#      write per epoch is negligible I/O.
+#   5. RESUME BANNER PATH CORRECTED: the parent checks
+#      .../training_checkpoints/ckpt.tar, which matches nothing train.py ever
+#      writes — checkpoints go to <exp_dir>/SFNO/<run_num>/checkpoints/ with
+#      ckpt_latest.tar / ckpt_epoch_N.tar / best_ckpt.tar (train.py:4091,
+#      4101-4106). Cosmetic only (train.py finds its own checkpoint either
+#      way), but a banner that always says "starting fresh" on a resumed run
+#      is worse than no banner. Not copied.
+#   6. Memory env carried from the ALLDATA smoke: the 27.045 GB peak that
+#      established the 162-channel fit was measured WITH
+#      PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True and
+#      HDF5_USE_FILE_LOCKING=FALSE exported. Kept here so the full run inherits
+#      the validated memory behaviour (the 108-ch parent sets neither).
+#
+# BUDGET (honest arithmetic — read before queueing 100 epochs):
+#   Training: 30 years x 1460 = 43,800 samples/epoch; 4 GPUs x batch_size 1
+#     -> 43,800/4 = 10,950 optimizer steps/epoch.
+#     step_med 0.602 s (108-ch Polaris bench, n=80, trustworthy)
+#       -> 10,950 x 0.602 = 6,592 s = 1.83 h/epoch.
+#     step_med 0.665 s (162-ch smoke, n=12 — its own CSV says never to compare;
+#       order-of-magnitude only) -> 10,950 x 0.665 = 7,282 s = 2.02 h/epoch.
+#     Best estimate: ~1.8-2.0 h/epoch of pure training.
+#   Validation (PRODUCTION scope — the bring-up runs never paid this):
+#     129 ICs over 4 ranks (DistributedSampler pads 129->132) = 33 samples/rank,
+#     each rolled 60 no-grad forward steps -> 1,980 forwards/rank/epoch.
+#     Forward-only step time is UNMEASURED at 162 ch; at ~1/4-1/3 of a training
+#     step (~0.15-0.25 s) that is ~5-8 min of compute, but each sample also
+#     loads 61 target/IC h5 reads (~155 vars, ~40 MB each) + 59 boundary reads
+#     ~= 2.5 GB -> ~80 GB/rank/epoch off Eagle with num_data_workers: 1, so
+#     I/O may dominate. Estimate: ~0.2-0.7 h/epoch. If the first epochs show
+#     validation above ~45 min, profile the loader before touching anything.
+#   Total: ~2.0-2.7 h/epoch -> max_epochs 100 = 200-270 h ~= 8.5-11 days of
+#     continuous single-node compute ~= 9-12 fully-used 24 h preemptable jobs
+#     (more submissions in practice: preemptions + queue wait). Expect ~9-11
+#     epochs per uninterrupted 24 h job.
+#   Validation memory: lead-60 targets + GIF buffers add ~5 GB on-GPU vs the
+#     lead-1 smoke (60x144x180x360 f4 ~= 2.2 GB each for targets and the acc
+#     buffer). Unverified at 162 ch, but no-grad forward frees most of the
+#     27 GB training peak's activations; 40 GB should hold. If validation OOMs,
+#     that is the first suspect.
+#
+# ⚠ PREEMPTABLE MEANS YOUR JOB WILL BE KILLED, possibly minutes in, with no warning.
+#   That is the price of >1 h on a single node (prod needs >=10 nodes; debug caps at 1 h).
+#   Training therefore MUST resume, and this script keeps RUN_NUM stable so it does:
+#   train.py reconstructs checkpoint_path from exp_dir/config/run_num and restores when
+#   the file exists. Re-submit the SAME command after a preemption and it picks up.
+#   Chain it if you like:  qsub -W depend=afterany:<jobid> polaris_train_e3sm_sfno_alldata_full.pbs
+#
+# Submit from PanguWeather/v2.0:
+#     qsub HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs
+#     qsub -v RUN_NUM=alldata02,MAX_CKPTS_KEEP=20 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs
+#
+# PASS is NOT "rc=0" — a preempted job is killed and that is normal and expected.
+# Progress = the "Epoch [n/N]" lines advancing and a checkpoint newer than the last run in
+#   ${MEMBER_ROOT}/runs/pangu_sfno_alldata_full/SFNO/<RUN_NUM>/checkpoints/
+# DONE = the epoch counter reaches max_epochs and "DONE ---- rank 0" appears.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+# Carried from the ALLDATA smoke (see header #6): the 162-channel 27 GB peak was
+# measured under these two; keep the full run on the validated footing.
+export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics 0.7.4 / tensorly, which the base conda
+# lacks. Shared and world-readable on purpose: a `pip install --user` copy lives in a 0700
+# home and is readable by one person, so every other member's job dies on ModuleNotFoundError.
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+NPROC="${NPROC:-4}"
+# STABLE by default — the opposite of the smoke, which keys run_num to $PBS_JOBID so that
+# every smoke starts clean (a resumed smoke would train 0 steps and still exit 0 — that
+# false green cost us job 7253454). Full training wants exactly the resume the smoke forbids.
+RUN_NUM="${RUN_NUM:-alldata_full01}"
+TRAIN_YEAR_START="${TRAIN_YEAR_START:-2015}"
+# EXCLUSIVE (train.py:456 iterates range(train_year_start, train_year_end)).
+# Default 2045 = the ALLDATA template's own split: train 2015..2044 (30 years),
+# val 2045..2048. Do NOT default 2049 like the parent script — this config
+# validates on 2045-2048, and training through 2048 would leak every validation
+# year into the training set (header #2).
+TRAIN_YEAR_END="${TRAIN_YEAR_END:-2045}"
+# Rolling window of numbered ckpt_epoch_N.tar to keep (header #4). ckpt_latest
+# and best_ckpt are always kept regardless.
+MAX_CKPTS_KEEP="${MAX_CKPTS_KEEP:-10}"
+
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml"
+EXP_DIR="${MEMBER_ROOT}/runs/pangu_sfno_alldata_full"
+CONFIG_FILE="${EXP_DIR}/E3SM_SFNO_H5_POLARIS_ALLDATA.full.rendered.yaml"
+mkdir -p "${EXP_DIR}"
+
+echo "=== pangu_e3sm_sfno_alldata_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
+echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}  max_ckpts_keep=${MAX_CKPTS_KEEP}"
+nvidia-smi -L
+polaris_env_report
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}" || exit 2
+
+# Full-run overrides on the rendered copy (never the template — the smoke reads it too).
+python - "${CONFIG_FILE}" "${TRAIN_YEAR_START}" "${TRAIN_YEAR_END}" "${EXP_DIR}" "${MAX_CKPTS_KEEP}" <<'PY' || exit 2
+import sys, re
+path, y0, y1, exp_dir, max_ckpts = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
+src = open(path).read()
+# Line-scoped substitution: these keys appear once each in the blocks the SFNO section
+# inherits. A YAML round-trip would reorder/strip the anchors (&SFNO / <<: *BASE) the file
+# depends on, so patch the lines in place instead.
+# save_checkpoint MUST be re-enabled: the template pins it False to keep the smoke cheap
+# ("skip ~3.5 GB ckpt writes; re-enable for real runs"). Inheriting that here would make the
+# whole resume design a no-op — job 7253898 reached Epoch [12/100] in 50 minutes and wrote
+# nothing, so a preemption would have lost every hour of it.
+# max_checkpoints_to_keep 1000 -> a rolling window (header #4): interval 1 x 100 epochs
+# x ~3.5 GB is ~350 GB of pure history if every numbered checkpoint is kept.
+for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", exp_dir),
+                 ("save_checkpoint", "!!bool True"),
+                 ("max_checkpoints_to_keep", max_ckpts)):
+    new, n = re.subn(r"(?m)^(\s*%s:\s*)\S+.*$" % key, lambda m: m.group(1) + str(val), src, count=1)
+    if n != 1:
+        print("ERROR CONFIG_PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
+        sys.exit(2)
+    src = new
+open(path, "w").write(src)
+print("config patched: train_year_start=%s train_year_end=%s exp_dir=%s max_checkpoints_to_keep=%s"
+      % (y0, y1, exp_dir, max_ckpts))
+PY
+
+# val years are deliberately NOT patched (header #3) — echo them from the rendered
+# copy so every job log carries proof of what actually ran.
+echo "rendered val scope (unpatched, from ${CONFIG_FILE}):"
+grep -E '^\s*(val_year_start|val_year_end|num_inferences|forecast_lead_times):' "${CONFIG_FILE}" | sed 's/^/    /'
+
+# ---- W&B: flip the config's own switch, not just the client's mode --------------
+# $WANDB_MODE only controls the wandb CLIENT. This config sets `log_to_wandb: False`, and
+# train.py:540-543 guards `wandb.init` behind it — so `-v WANDB_MODE=online` alone logs NOTHING.
+# Flip the rendered copy (never the template) when the user asks for online.
+# `entity` in the template is hardcoded to one person's W&B account; wandb.init(entity=None)
+# falls back to the account the API key belongs to, which is what any other member needs.
+if [ "${WANDB_MODE}" = "online" ]; then
+    python - "${CONFIG_FILE}" "${WANDB_PROJECT}" "${WANDB_ENTITY:-}" <<'_PY' || exit 2
+import re, sys
+path, project, entity = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*log_to_wandb:\s*).*$", lambda m: m.group(1) + "!!bool True", src, count=1)
+if n != 1:
+    print("ERROR WANDB_PATCH_FAILED: log_to_wandb matched %d times" % n); sys.exit(2)
+src = re.subn(r"(?m)^(\s*entity:\s*).*$", lambda m: m.group(1) + (("'%s'" % entity) if entity else "null"), src, count=1)[0]
+src = re.subn(r"(?m)^(\s*project:\s*).*$", lambda m: m.group(1) + "'%s'" % project, src, count=1)[0]
+open(path, "w").write(src)
+print("  wandb ON: log_to_wandb=True, project=%s, entity=%s" % (project, entity or "<your default>"))
+_PY
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
+
+# train.py builds expDir as os.path.join(params.exp_dir, args.config, run_num) — so the
+# directory is named after --config (SFNO), NOT after the config FILE. The resume file is
+# checkpoints/ckpt_latest.tar (train.py:4091,4105 — the parent script's
+# training_checkpoints/ckpt.tar path matches nothing train.py writes; header #5).
+CKPT="${EXP_DIR}/SFNO/${RUN_NUM}/checkpoints/ckpt_latest.tar"
+if [ -f "${CKPT}" ]; then
+    echo "RESUMING from ${CKPT} ($(du -h "${CKPT}" | cut -f1), $(date -r "${CKPT}" -Iseconds))"
+else
+    echo "starting fresh (no checkpoint at ${CKPT})"
+fi
+
+# NOTE: no --epochs. That flag is the SMOKE's bound (train.py:3900-3901 overrides max_epochs
+# when args.epochs > 0); omitting it lets the config's max_epochs: 100 stand.
+# Do NOT add --debug: it hardcodes world_size=1, so under torchrun every rank would init as
+# rank-0-on-GPU-0 and OOM (job 7252261).
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    "${V20_DIR}/train.py" \
+    --yaml_config="${CONFIG_FILE}" \
+    --config=SFNO \
+    --run_num="${RUN_NUM}"
+rc=$?
+
+echo "=== pangu_e3sm_sfno_alldata_full done (rc=${rc}) $(date -Iseconds) ==="
+# rc!=0 on preemptable usually means PREEMPTED, not broken. Say so, so nobody "fixes" a
+# working run: PBS kills the job, torchrun reports a non-zero rc, and the fix is to
+# re-submit — the checkpoint carries the progress.
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: a non-zero rc on the preemptable queue is most often a PREEMPTION, not a bug."
+    echo "      Check for a traceback above. If there is none, just re-submit the same command;"
+    echo "      it resumes from ${CKPT}."
+fi
+exit ${rc}

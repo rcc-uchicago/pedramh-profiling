@@ -28,7 +28,7 @@
 #   together (DESIGN §1 non-goals).
 #
 # Submit:            qsub HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs
-# Fewer steps:       qsub -v S2S_BENCH_STEPS=20 HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs
+# Fewer steps:       qsub -v PANGU_BENCH_STEPS=20 HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs
 #
 # PASS = "BENCH n=..." in the log AND a .nsys-rep whose NVTX table is non-empty. NOT
 # rc=0, and NOT "the .nsys-rep exists": nsys writes a report file even when it captured
@@ -65,12 +65,12 @@ NSYS_BIN="${NSYS_BIN:-/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys}"
 # ---- Bench knobs — must match polaris_bench_e3sm_sfno.pbs so the trace and the CSV
 # describe the same shape. Fewer steps by default than the CSV bench: a 4-rank trace
 # grows fast and the analysis only needs a representative window.
-export S2S_BENCH=1
-export S2S_BENCH_WARMUP="${S2S_BENCH_WARMUP:-20}"   # eager (no torch.compile) — no Triton warmup needed
-export S2S_BENCH_STEPS="${S2S_BENCH_STEPS:-40}"
-export S2S_NVTX=1                                    # NVTX ranges + cudaProfilerStart/Stop
-export S2S_BENCH_CSV="${S2S_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_nsys.csv}"
-mkdir -p "$(dirname "${S2S_BENCH_CSV}")"
+export PANGU_BENCH=1
+export PANGU_BENCH_WARMUP="${PANGU_BENCH_WARMUP:-20}"   # eager (no torch.compile) — no Triton warmup needed
+export PANGU_BENCH_STEPS="${PANGU_BENCH_STEPS:-40}"
+export PANGU_NVTX=1                                    # NVTX ranges + cudaProfilerStart/Stop
+export PANGU_BENCH_CSV="${PANGU_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_nsys.csv}"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
 
 # torch.compile DISABLED for profiling, and for the same reasons Midway disables it:
 # reduce-overhead (CUDA graphs) drops the CUPTI kernel table, so NVTX->kernel correlation
@@ -164,7 +164,7 @@ db = sqlite3.connect(sys.argv[1])
 cur = db.cursor()
 cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='NVTX_EVENTS'")
 if not cur.fetchone():
-    print("ERROR NO_NVTX_TABLE: the capture range never fired (S2S_NVTX=1 set? did the "
+    print("ERROR NO_NVTX_TABLE: the capture range never fired (PANGU_NVTX=1 set? did the "
           "run reach step warmup+1?). A .nsys-rep with no NVTX is not a profile.")
     sys.exit(4)
 cur.execute("SELECT COUNT(*) FROM NVTX_EVENTS WHERE text IN "

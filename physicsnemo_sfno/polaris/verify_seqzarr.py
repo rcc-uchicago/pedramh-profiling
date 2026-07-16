@@ -43,7 +43,8 @@ import zarr
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from e3sm_h5_to_seqzarr import (  # noqa: E402
-    E3SM_ROOT, NAN_FILL, UNPREDICTED, EPOCH, sample_files, read_time_hours, year_of,
+    E3SM_ROOT, EXCLUDED_VARS, NAN_FILL, UNPREDICTED, EPOCH, sample_files, read_time_hours,
+    year_of,
 )
 
 class Checks:
@@ -103,18 +104,35 @@ def main():
     print(f"  verifying {n}/{T} samples against {args.src}"
           f"{'  (EXHAUSTIVE)' if n == T else '  (PARTIAL — not a full verification)'}\n")
 
-    # ---- 1. channel map: the two lists must partition the h5's keys exactly -----------
+    # ---- 1. channel map: pred + unpred + the RECORDED exclusion partition the h5 keys --
     with h5py.File(files[0], "r") as f:
         h5_names = sorted(k for k in f["input"].keys() if k != "time")
+    # The store records the exact h5 keys it deliberately dropped (excluded_channels,
+    # written since the 2026-07-16 cloud-var exclusion; earlier stores dropped nothing and
+    # carry no attr, so [] reproduces the original two-list check). Sorted-list equality:
+    # a key that is both stored and "excluded", duplicated, or missing all fail this one
+    # check — a store cannot smuggle in a bogus exclusion and still reassemble the h5 set.
+    excluded = list(z.attrs.get("excluded_channels") or [])
     c.report("channel_map/partition",
-             sorted(pred_names + unpred_names) == h5_names,
-             f"{len(pred_names)}+{len(unpred_names)} vs {len(h5_names)} h5 keys")
+             sorted(pred_names + unpred_names + excluded) == h5_names,
+             f"{len(pred_names)}+{len(unpred_names)}+{len(excluded)} excluded "
+             f"vs {len(h5_names)} h5 keys")
     c.report("channel_map/disjoint", not (set(pred_names) & set(unpred_names)))
     c.report("channel_map/no_dupes",
              len(set(pred_names)) == len(pred_names) and len(set(unpred_names)) == len(unpred_names))
     c.report("channel_map/unpredicted_is_the_declared_set",
              set(unpred_names) == set(UNPREDICTED))
     c.report("shape/counts", cp == len(pred_names) and z["unpredicted"].shape[1] == len(unpred_names))
+    # Generation, not fidelity: a store with a DIFFERENT exclusion (usually: none — built
+    # before 2026-07-16) can still be a bitwise-perfect copy of its source, and the tracked
+    # 162-channel launchers legitimately still use one. So: warn here; it is the LAUNCHERS'
+    # preflights that refuse a wrong-generation store (they compare the store's
+    # excluded_vars to the converter's current list before deriving channel counts).
+    store_excl = list(z.attrs.get("excluded_vars") or [])
+    if store_excl != list(EXCLUDED_VARS):
+        print(f"  warn  store excluded_vars={store_excl or None} != converter's "
+              f"{EXCLUDED_VARS}: a different-generation store. Its data may still verify,")
+        print("        but current launchers will (correctly) refuse to train on it.")
     if c.failed:
         # Bail before the round-trip: it indexes the h5 by these names, so a bogus one
         # raises an uncaught KeyError and the run dies with a traceback instead of a report.

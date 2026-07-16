@@ -12,11 +12,28 @@ spawn unless a task explicitly needs a different tier.
 
 ## Why we're here
 
-Make the three S2S-family weather models (**S2S**, **S2S-Lightning**, **SI**)
-**faster on HPC GPUs without changing what they compute.** The work is: bring
-them up on each cluster, capture correctness baselines, then optimize the hot
-path one gated step at a time. Scope is **performance + cluster bring-up**, NOT
-retraining, NOT forecast repro, NOT science changes. See DESIGN.md §1.
+Get the six weather codebases here (**PanguWeather** — the focus — **makani**,
+**PhysicsNeMo**, **S2S**, **S2S-Lightning**, **SI**) running on HPC GPUs, then
+make them **faster without changing what they compute.** Two phases, in order
+(DESIGN.md §1):
+
+1. **Bring-up** — environment, staged/prepared data, scheduler scripts, then
+   **training runs that produce evaluatable models**, and **inference**.
+2. **Profile, then optimize** — measure first; every hot-path change gated on
+   numerical equivalence vs a captured baseline (DESIGN.md §4).
+
+Phase is **per model, per cluster**: s2s is deep into Phase 2 on Midway while
+PanguWeather is mid-Phase-1 on Polaris. Check CHANGELOG.md for where each is.
+
+**The division of labor — this is the line that matters:** bring-up and training
+are **ours**; the **science is jesswan's** — variable sets, fill values, channel
+roles, loss definitions, the physics. Training to get an evaluatable model is our
+work; *changing what a model computes* needs jesswan's sign-off. In the hot path
+it stays mechanical: an "optimization" that moves outputs beyond tolerance is a
+**bug**, not a result.
+
+*(Scope widened 2026-07-16, owner's decision: training moved from out-of-scope to
+Phase 1. This file previously said "NOT retraining".)*
 
 ## Things NOT to do (read before you touch anything)
 
@@ -35,7 +52,10 @@ These are the ways to silently break the project. Do not do them.
    compute-node allocations only** (see the preface there).
 4. **Never invert the `train.py` vs `train_optimized.py` attribution.** In
    `s2s/v2.0/`, `train.py`/`inference.py` are the bench-instrumented, actively
-   maintained files; the `_optimized` ones are older despite the name.
+   maintained files; the `_optimized` ones are older despite the name. The
+   evidence, since the name argues the opposite: `train_optimized.py:424` still
+   wraps DDP with `find_unused_parameters=True`, while `train.py:450-451` uses
+   `find_unused_parameters=False, static_graph=True` — the newer, faster path.
 5. **Never edit shared `s2s/v2.0/` code to satisfy one harness.** It's imported by
    S2S *and* the Lightning port — changes must serve both; re-run both smokes.
 6. **Never commit an optimization without (a) a passing smoke and (b) an
@@ -152,6 +172,12 @@ python bench.py --config configs/SI_midway.yaml --devices 0
 #                        S2S_NVTX  S2S_AMP_DTYPE=bf16|fp16  TORCH_COMPILE_MODE=reduce-overhead|max-autotune
 # Bench env knobs (port): S2S_BENCH_* S2S_NVTX S2S_PRECISION S2S_TORCH_COMPILE S2S_DDP_BUCKET_CAP_MB
 # Bench env knobs (SI):   SI_BENCH_*  SI_NVTX  SI_PRECISION  SI_DDP_*
+# Bench env knobs (PanguWeather): PANGU_BENCH=1 PANGU_BENCH_{WARMUP,STEPS,CSV} PANGU_NVTX
+#                        TORCH_COMPILE_MODE. Precision is a YAML knob (amp_dtype), NOT an env
+#                        var. Renamed from S2S_* on 2026-07-16 — PanguWeather is its own
+#                        project (fork by COPY, not import), and nothing shared read them.
+#                        train.py errors LOUDLY (ERROR LEGACY_BENCH_ENV) if an S2S_* bench knob
+#                        is set, because "unset" silently means "no benchmarking".
 ```
 
 Submit real work through the cluster scripts (`s2s/v2.0/HPC_scripts/midway_*.sh`,

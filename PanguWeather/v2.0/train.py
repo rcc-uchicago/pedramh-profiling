@@ -68,23 +68,53 @@ torch.set_float32_matmul_precision('high')
 torch.cuda.empty_cache()
 logging.info("Torch version: {}".format(torch.__version__))
 
-# --- S2S_BENCH instrumentation (gated; no effect when S2S_BENCH unset) ---
-# Ported from s2s/v2.0/train.py. s2s and PanguWeather are forks that share code by
-# COPY, not by import (DESIGN §2c), so this is a deliberate duplicate. The NVTX range
-# names and the CSV columns are byte-identical to s2s's on purpose: renaming either
-# breaks parse_nsys.py and silently invalidates every prior comparison (CLAUDE.md #10).
+# --- PANGU_BENCH instrumentation (gated; no effect when PANGU_BENCH unset) ---
+# The IDEA is ported from s2s/v2.0/train.py — s2s and PanguWeather are forks that share
+# code by COPY, not by import (DESIGN §2c) — but PanguWeather is its own project and owns
+# its own knobs. Renamed S2S_* -> PANGU_* on 2026-07-16: nothing outside PanguWeather ever
+# read these (verified: the only cross-project bench consumers are s2s-lightning's
+# bench_callback.py, which genuinely imports s2s/v2.0, and si/parse_nsys.py). The prefix was
+# decoration the copy carried along, and it kept inviting the conflation.
+#
+# What did NOT change, and must not: the NVTX range names and the CSV columns are still
+# byte-identical to s2s's. Renaming either breaks parse_nsys.py and silently invalidates
+# every prior comparison (CLAUDE.md #10). Only the env knobs are PanguWeather's own.
 import hashlib, subprocess, statistics, csv
 import torch.cuda.nvtx as nvtx
-BENCH = os.environ.get("S2S_BENCH") == "1"
-BENCH_WARMUP = int(os.environ.get("S2S_BENCH_WARMUP", "20"))
-BENCH_STEPS  = int(os.environ.get("S2S_BENCH_STEPS",  "80"))
-BENCH_CSV    = os.environ.get("S2S_BENCH_CSV", "bench_results.csv")
-# NVTX ranges for Nsight Systems. Set S2S_NVTX=1 together with nsys capture-range.
+
+
+def _reject_legacy_bench_env():
+    """Fail loudly if the pre-rename S2S_* knobs are set.
+
+    `BENCH` is an equality test against "1", so an unset var means "don't benchmark" —
+    silently. Without this guard a stale script or doc still exporting S2S_BENCH=1 (e.g.
+    polaris_bench_report.md's reproduction command) would produce a run that measures
+    nothing, writes no CSV row, and still exits 0. A benchmark that quietly doesn't
+    benchmark is exactly the failure mode CLAUDE.md #10 exists to prevent.
+    """
+    legacy = [k for k in ("S2S_BENCH", "S2S_BENCH_WARMUP", "S2S_BENCH_STEPS",
+                          "S2S_BENCH_CSV", "S2S_NVTX") if os.environ.get(k)]
+    if legacy and not (os.environ.get("PANGU_BENCH") or os.environ.get("PANGU_NVTX")):
+        raise SystemExit(
+            "ERROR LEGACY_BENCH_ENV: {} set, but PanguWeather's knobs are now PANGU_*.\n"
+            "  These were renamed 2026-07-16 (PanguWeather is independent of s2s; nothing\n"
+            "  shared reads them). Unset would have meant 'no benchmarking', silently.\n"
+            "  Fix: S2S_BENCH -> PANGU_BENCH, S2S_BENCH_{{WARMUP,STEPS,CSV}} -> PANGU_BENCH_*,\n"
+            "  S2S_NVTX -> PANGU_NVTX. (s2s/ and s2s-lightning/ keep the S2S_* names.)"
+            .format(", ".join(legacy)))
+
+
+_reject_legacy_bench_env()
+BENCH = os.environ.get("PANGU_BENCH") == "1"
+BENCH_WARMUP = int(os.environ.get("PANGU_BENCH_WARMUP", "20"))
+BENCH_STEPS  = int(os.environ.get("PANGU_BENCH_STEPS",  "80"))
+BENCH_CSV    = os.environ.get("PANGU_BENCH_CSV", "bench_results.csv")
+# NVTX ranges for Nsight Systems. Set PANGU_NVTX=1 together with nsys capture-range.
 # When BENCH=1 the code also emits cudaProfilerStart/Stop to bracket only the
 # measured steps, so nsys --capture-range=cudaProfilerApi skips warmup entirely.
-NVTX = os.environ.get("S2S_NVTX") == "1"
+NVTX = os.environ.get("PANGU_NVTX") == "1"
 
-# Deliberate divergence from s2s: precision is NOT read from $S2S_AMP_DTYPE here.
+# Deliberate divergence from s2s: precision is NOT read from an $AMP_DTYPE env knob here.
 # PanguWeather already resolves it from the YAML (`amp_dtype`, Trainer.__init__), and a
 # second, silently-winning source of truth is how a bench ends up mislabelling its own
 # row. The amp_dtype CSV column is filled from the dtype the run actually used.
@@ -1037,7 +1067,7 @@ class Trainer():
                     disable=(self.world_rank != 0) or BENCH)
         running_results = {"batch_sizes": 0, "loss": 0.0}
 
-        # --- S2S_BENCH state ---
+        # --- PANGU_BENCH state ---
         bench_step_times, bench_data_times, bench_compute_times = [], [], []
         bench_scaler_skips = 0
         bench_done = False

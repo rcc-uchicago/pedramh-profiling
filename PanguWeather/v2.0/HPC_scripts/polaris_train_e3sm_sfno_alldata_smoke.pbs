@@ -1,0 +1,186 @@
+#!/bin/bash -l
+#PBS -N pangu_alldata_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# ALL-DATA (162-channel) shape smoke for PanguWeather SFNO-on-E3SM on Polaris.
+# Proves config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml — all 8 upper-air variables
+# incl. CLDLIQ/CLDICE/CLOUD, i.e. in_chans=159 / out_chans=155 — BUILDS and
+# STEPS on the 4x A100-40GB node. Added BESIDE polaris_train_e3sm_sfno.pbs
+# (CLAUDE.md #7); that script and its config are untouched.
+#
+# This is NOT a benchmark and NOT a training run:
+#   * the year ranges are patched down to 1 train year / 1 val year in the
+#     RENDERED copy only (template untouched). Channel derivation is
+#     year-independent (sfnonet.py:760-765 sizes the model from the variable
+#     lists), so the 162-channel shape is exercised exactly as the full
+#     2015-2049 config would exercise it;
+#   * the PANGU_BENCH harness bounds the run to a few optimizer steps and exits
+#     before validation. Its CSV goes to a SEPARATE *alldata_smoke* file so
+#     these tiny-n timings can never be mistaken for bench rows (the Polaris
+#     SI smoke's 5/20 numbers needed a caveat on every use — don't repeat that).
+#
+# Launcher: torchrun --standalone (train.py inits NCCL via env://). Never srun.
+#
+# Submit (from PanguWeather/v2.0):
+#   qsub HPC_scripts/polaris_train_e3sm_sfno_alldata_smoke.pbs
+# 1-GPU: qsub -v NPROC=1 HPC_scripts/polaris_train_e3sm_sfno_alldata_smoke.pbs
+#
+# PASS = "ALLDATA_SMOKE_OK" in pangu_alldata_smoke.o<jobid> (it is only printed
+# after a NEW row lands in the smoke CSV). rc=0 alone is NOT a pass: every
+# rank!=0 exits 0 by design, and so does a run that recorded nothing on them.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+# ---- Polaris env — copied verbatim from polaris_train_e3sm_sfno.pbs. The module
+# ordering is per-model on purpose (CLAUDE.md); do not "harmonise" it with another
+# model's block.
+module use /soft/modulefiles
+module load conda
+conda activate base
+# Resolves MEMBER_ROOT (your writable dir), PANGU_AUX (the shared ~17 GB stats +
+# climatology) and the caches. Works for ANY project member.
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg                              # train.py imports matplotlib (headless)
+export OMP_NUM_THREADS=8                            # 64 HW threads / ~8 per rank
+export MKL_NUM_THREADS=8
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml"
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno_alldata.smoke.rendered.yaml"
+RUN_NUM="polaris_alldata_smoke_${PBS_JOBID%%.*}"
+
+# ---- step bound: PANGU_BENCH breaks the train loop after WARMUP+STEPS optimizer
+# steps, writes one CSV row on rank 0, and exits before validation runs. 3+12
+# steps is a shape smoke, not a measurement — hence the dedicated smoke CSV.
+export PANGU_BENCH=1
+export PANGU_BENCH_WARMUP="${PANGU_BENCH_WARMUP:-3}"
+export PANGU_BENCH_STEPS="${PANGU_BENCH_STEPS:-12}"
+export PANGU_BENCH_CSV="${PANGU_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_polaris_alldata_smoke.csv}"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+export S2S_YAML="${CONFIG_FILE}"
+export S2S_RUN_NUM="${RUN_NUM}"
+
+# ---- smoke year bounds, patched into the RENDERED copy only. The template keeps
+# the full 2015->2045 / 2045->2049 split; 1 year each is plenty to build the
+# 162-channel model and step it, and keeps Trainer init + scheduler math small.
+SMOKE_TRAIN_END="${SMOKE_TRAIN_END:-2016}"   # train 2015->2016 = 1 year
+SMOKE_VAL_END="${SMOKE_VAL_END:-2046}"       # val 2045->2046 = 1 year (2046 data exists for the endpoint target)
+
+echo "=== polaris_train_e3sm_sfno_alldata_smoke: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
+nvidia-smi -L
+polaris_env_report
+echo "python=$(command -v python)"
+echo "smoke: warmup=${PANGU_BENCH_WARMUP} steps=${PANGU_BENCH_STEPS} csv=${PANGU_BENCH_CSV}"
+echo "smoke years: train 2015->${SMOKE_TRAIN_END}, val 2045->${SMOKE_VAL_END}"
+
+# ---- preflight: the E3SM auxiliary files must be prepared. climatology.nc is a
+# 16 GB CDF-5 -> NETCDF4 re-encode (~minutes); a truncated/0-byte file crashes
+# train.py at Trainer init. This must run on a COMPUTE node (a login-node
+# background job gets killed mid-write, leaving a 96-byte stub). Auto-run the prep
+# here if the output is missing/truncated, then hard-verify it. ----
+CLIM="${PANGU_AUX}/climatology.nc"
+clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
+if ! clim_ok; then
+    echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
+    ( cd "${V20_DIR}" && PANGU_AUX="${PANGU_AUX}" python polaris_prepare_e3sm_stats.py )
+fi
+python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
+import sys, xarray as xr
+with xr.open_dataset(sys.argv[1]) as ds:
+    assert ds.sizes.get("time") == 365, ds.sizes
+print("preflight OK: climatology time=365")
+PY
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+
+# ---- patch the smoke years into the rendered copy (exactly-one-substitution
+# asserts, same pattern as the wandb/num_data_workers patches elsewhere), then
+# recompute the channel count from the patched text as a cheap precheck. The
+# REAL proof is the training step below — this just fails fast on a mangled
+# variable list instead of 20 minutes into Trainer init.
+python - "${CONFIG_FILE}" "${SMOKE_TRAIN_END}" "${SMOKE_VAL_END}" <<'_PY' || exit 2
+import re, sys
+path, train_end, val_end = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+for key, val in (("train_year_end", train_end), ("val_year_end", val_end)):
+    src, n = re.subn(r"(?m)^(\s*%s:\s*)\S+.*$" % key,
+                     lambda m: m.group(1) + "%s   # ALLDATA smoke override" % val,
+                     src, count=1)
+    if n != 1:
+        print("ERROR YEAR_PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
+        sys.exit(2)
+open(path, "w").write(src)
+
+def count(key):
+    m = re.search(r"(?m)^\s*%s:\s*\[([^\]]*)\]" % key, src)
+    if m is None:
+        print("ERROR PRECHECK_KEY_MISSING: %s" % key)
+        sys.exit(2)
+    body = m.group(1).strip()
+    return len([s for s in body.split(",") if s.strip()]) if body else 0
+
+nlev = int(re.search(r"(?m)^\s*num_levels:\s*(\d+)", src).group(1))
+n_upper = count("upper_air_variables")
+n_surf, n_land = count("surface_variables"), count("land_variables")
+n_diag = count("diagnostic_variables")
+n_const, n_vary = count("constant_boundary_variables"), count("varying_boundary_variables")
+total = n_upper * nlev + n_surf + n_land + n_diag + n_const + n_vary
+in_chans = n_upper * nlev + n_surf + n_land + n_vary + n_const   # sfnonet.py:762-765
+out_chans = n_upper * nlev + n_surf + n_land + n_diag
+if total != 162:
+    print("ERROR PRECHECK_CHANNELS: expected 162 archive channels, config yields %d" % total)
+    sys.exit(2)
+print("PRECHECK_OK total_channels=%d in_chans=%d out_chans=%d (train_year_end=%s val_year_end=%s)"
+      % (total, in_chans, out_chans, train_end, val_end))
+_PY
+echo "rendered+patched config -> ${CONFIG_FILE}"
+
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
+# Row count BEFORE the run — the PASS gate keys on this growing by one.
+rows_before=$( [ -f "${PANGU_BENCH_CSV}" ] && wc -l < "${PANGU_BENCH_CSV}" || echo 0 )
+
+# --epochs 1 bounds the run; the BENCH harness exits after warmup+steps anyway.
+# Never --debug: it hardcodes world_size=1, so all 4 ranks would init on GPU 0 and OOM.
+echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    train.py \
+    --yaml_config="${CONFIG_FILE}" \
+    --run_num="${RUN_NUM}" \
+    --config=SFNO \
+    --fresh_start \
+    --epochs 1
+rc=$?
+
+# ---- PASS gate: key on the work token (a new CSV row), never on rc alone -----------
+rows_after=$( [ -f "${PANGU_BENCH_CSV}" ] && wc -l < "${PANGU_BENCH_CSV}" || echo 0 )
+if [ "${rows_after}" -le "${rows_before}" ]; then
+    echo "ERROR ALLDATA_SMOKE_NO_ROW: ${PANGU_BENCH_CSV} did not gain a row (before=${rows_before} after=${rows_after}, torchrun rc=${rc})"
+    echo "  Read the traceback above — the interesting failure here is an OOM: 162 channels"
+    echo "  widen the SFNO encoder/decoder (embed_dim 512 body is unchanged) on 40 GB A100s."
+    exit 4
+fi
+echo "--- smoke row recorded (n=${PANGU_BENCH_STEPS} tiny-step SMOKE — never compare against bench CSVs) ---"
+head -1 "${PANGU_BENCH_CSV}"
+tail -1 "${PANGU_BENCH_CSV}"
+peak_mem=$(tail -1 "${PANGU_BENCH_CSV}" | awk -F, '{print $17}')   # peak_mem_gb_max_rank
+echo "ALLDATA_SMOKE_OK channels=162 in_chans=159 out_chans=155 steps=$((PANGU_BENCH_WARMUP + PANGU_BENCH_STEPS)) peak_mem_gb=${peak_mem}"
+echo "=== polaris_train_e3sm_sfno_alldata_smoke done (torchrun rc=${rc}) $(date -Iseconds) ==="
+exit ${rc}

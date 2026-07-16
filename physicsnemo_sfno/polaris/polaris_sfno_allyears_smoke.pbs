@@ -1,0 +1,291 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_allyears_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -j oe
+# ============================================================================
+# ALL-DATA (2015-2049) SHAPE SMOKE for the PhysicsNeMo SFNO pipeline. Sibling of
+# polaris/polaris_sfno_smoke.pbs (untouched); certifies polaris_zarr_e3sm_allyears.pbs +
+# polaris_sfno_allyears.pbs cheaply (~0.7 GB, minutes) WITHOUT the ~1.43 TB conversion.
+#
+# The variable half of "all data": the converter stores 108 of the archive's 162
+# channels — 103 predicted + 5 unpredicted; CLDICE/CLDLIQ/CLOUD (3 vars x 18 sigma
+# levels = 54 channels) are excluded from ALL models (science owner, 2026-07-16). The
+# genuinely NEW part of the all-years variant is TEMPORAL. This smoke exercises both:
+#   1. the split itself (contiguity/overlap/range gates shared via allyears_split.sh)
+#   2. archive census: every split year really has 1460 files (one scandir, fail-fast)
+#   3. two 12-sample EDGE stores built with the real converter across real YEAR SEAMS —
+#      the last train seam (2045->2046) and the last val seam (2048->2049, the archive's
+#      final files). The 2026-07-15 converter bugs (frozen in-file year, etc.) were
+#      invisible on Jan-2015-only smokes precisely because they never read a later year.
+#   4. bitwise round-trip of both stores (verify_seqzarr.py, exhaustive at this size)
+#   5. an INDEPENDENT first-principles time-axis check (filename math only — does not
+#      reuse the converter's own reconstruction, which verify_seqzarr does)
+#   6. store schema == the PINNED literals (103+5 @ 180x360, zero cloud channels). The
+#      trainer DERIVES its channel counts from the store's attrs, so this deliberate
+#      restatement is the one gate that keeps converter and trainer from drifting TOGETHER.
+#   7. a tiny-SFNO train+val on the seam stores, deriving its counts the same way the
+#      real trainer does
+#
+# ⚠ STALE-STORE TRAP, closed here by construction: polaris_env.sh's _pick never reads a
+#   pre-set value, so `qsub -v SEQZARR_DATA=...` silently loses (job 7257791 "passed"
+#   against the old cached store), and polaris_sfno_smoke.pbs's [ ! -d ] skip means its
+#   store can NEVER be rebuilt through the front door. This script (a) uses its own
+#   ALLYEARS_SMOKE_DATA name, which polaris_env.sh does not touch, so -v overrides are
+#   honoured; and (b) ALWAYS rebuilds its stores (rm -rf first) — a ~0.7 GB / ~1 min cost
+#   that buys immunity: there is no cached state for this smoke to silently reuse.
+#   (polaris_env.sh itself is left alone: it is shared by 8+ green jobs across 5 models,
+#   and changing _pick's semantics would change every _pick-derived path at once.)
+#
+# Submit from physicsnemo_sfno/:   qsub polaris/polaris_sfno_allyears_smoke.pbs
+# PASS = "ALLYEARS_SMOKE_OK" on the last line (every failure prints a greppable ERROR).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${PN_ROOT}/examples/weather/unified_recipe"
+
+module use /soft/modulefiles
+module load conda
+conda activate base                                # CUDA/NCCL env + the inherited torch 2.8
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${PN_ROOT}/../polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"                 # torch_harmonics 0.9.x + makani + physicsnemo
+export PYTHONNOUSERSITE=1
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export MLFLOW_ALLOW_FILE_STORE=true
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export OMP_NUM_THREADS=8
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+# 1 GPU by default: this smoke certifies the DATA path; the 4-GPU launcher shape is
+# already proven green by polaris_sfno_smoke.pbs (job 7252933). Override: -v NPROC=4.
+NPROC="${NPROC:-1}"
+# Own name + own default dir; polaris_env.sh never sets ALLYEARS_SMOKE_DATA, so a
+# `qsub -v ALLYEARS_SMOKE_DATA=...` override genuinely wins (unlike SEQZARR_DATA).
+SMOKE_DATA="${ALLYEARS_SMOKE_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_allyears_smoke}"
+
+echo "=== physicsnemo_allyears_smoke: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}"
+echo "smoke stores -> ${SMOKE_DATA}  (rebuilt from scratch EVERY run)"
+nvidia-smi -L
+polaris_env_report
+
+# ---- install + shadowing + provenance guards (same failure modes as every SFNO job) ---
+if ! python -c "import physicsnemo, warp, makani" 2>/dev/null; then
+    echo "ERROR PHYSICSNEMO_NOT_INSTALLED: 'import physicsnemo, warp, makani' failed inside ${SFNO_VENV}."
+    echo "  Rebuild the venv on a LOGIN node:  bash <repo>/polaris_setup_sfno_venv.sh"
+    python -c "import physicsnemo, warp, makani" 2>&1 | tail -3
+    exit 3
+fi
+echo "venv python=$(command -v python)"
+python - <<'PY' || exit 3
+import os, sys, torch_harmonics
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED: %s (v%s) is not inside %s"
+          % (got, torch_harmonics.__version__, venv))
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+print("torch_harmonics OK: v%s from the venv" % torch_harmonics.__version__)
+PY
+python - "${PN_ROOT}" "${SFNO_VENV}" <<'PY' || exit 3
+import os, sys, physicsnemo
+want, venv = (os.path.realpath(a) for a in sys.argv[1:3])
+got = os.path.realpath(os.path.dirname(os.path.dirname(physicsnemo.__file__)))
+if got == want or got.startswith(venv + os.sep):
+    print("provenance OK: physicsnemo imported from %s" % got)
+else:
+    print("ERROR PHYSICSNEMO_WRONG_CHECKOUT")
+    print("  imported physicsnemo from : %s" % got)
+    print("  this job's repo is        : %s" % want)
+    print("  Fix (once):  bash <your-repo>/polaris_setup_sfno_venv.sh")
+    sys.exit(3)
+PY
+
+# ---- 1+2) the split under test + the archive census -----------------------------------
+# shellcheck disable=SC1091
+source "${PN_ROOT}/polaris/allyears_split.sh"
+allyears_split_check    || exit 2   # SPLIT_OK
+allyears_archive_census || exit 2   # CENSUS_OK
+
+# ---- 3) build the two seam-edge stores with the REAL converter ------------------------
+# Edges derive from the ACTUAL split (so an overridden TRAIN_YEARS is what gets tested):
+# the last two years of each span, sliced 6 samples either side of the year seam
+# (start 1454 of 2920 concatenated files -> files 1454..1465 = Y_1454..Y_1459,Y+1_0000..0005).
+# Late years on purpose: every 2026-07-15 converter bug was invisible on 2015-only data.
+read -r -a _tr <<< "${TRAIN_YEARS}"
+read -r -a _va <<< "${VAL_YEARS}"
+if [ "${#_tr[@]}" -ge 2 ]; then
+    TRAIN_EDGE_YEARS="${_tr[$((${#_tr[@]}-2))]} ${_tr[$((${#_tr[@]}-1))]}"; TRAIN_EDGE_START=1454
+else
+    TRAIN_EDGE_YEARS="${_tr[0]}"; TRAIN_EDGE_START=0
+    echo "WARN single train year — no train-span seam to exercise"
+fi
+if [ "${#_va[@]}" -ge 2 ]; then
+    VAL_EDGE_YEARS="${_va[$((${#_va[@]}-2))]} ${_va[$((${#_va[@]}-1))]}"; VAL_EDGE_START=1454
+else
+    VAL_EDGE_YEARS="${_va[0]}"; VAL_EDGE_START=0
+    echo "WARN single val year — no val-span seam to exercise"
+fi
+echo "train edge: years ${TRAIN_EDGE_YEARS} start ${TRAIN_EDGE_START} (12 samples)"
+echo "val   edge: years ${VAL_EDGE_YEARS} start ${VAL_EDGE_START} (12 samples)"
+
+mkdir -p "${SMOKE_DATA}"
+# ALWAYS rebuild — scoped rm (just the two stores, not the whole dir) so a mistyped
+# ALLYEARS_SMOKE_DATA cannot wipe anything but same-named smoke artifacts.
+rm -rf "${SMOKE_DATA}/train_edge.zarr" "${SMOKE_DATA}/val_edge.zarr"
+_convert_edge() {  # <store-name> <start> <years...>
+    local store="${SMOKE_DATA}/$1" start="$2"; shift 2
+    local log="${store}.convert.log"
+    # shellcheck disable=SC2086
+    python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${store}" \
+        --years $* --start-sample "${start}" --max-samples 12 2>&1 | tee "${log}"
+    # Key on the converter's own success token, not just the exit code.
+    grep -q "CONVERT_OK" "${log}" || { echo "ERROR EDGE_CONVERT_FAILED: ${store}"; exit 2; }
+}
+# shellcheck disable=SC2086
+_convert_edge train_edge.zarr "${TRAIN_EDGE_START}" ${TRAIN_EDGE_YEARS}
+# shellcheck disable=SC2086
+_convert_edge val_edge.zarr "${VAL_EDGE_START}" ${VAL_EDGE_YEARS}
+du -sh "${SMOKE_DATA}"/*.zarr
+
+# ---- 4) exhaustive bitwise round-trip (12 samples x 108 channels each — cheap) --------
+for store in train_edge val_edge; do
+    python "${PN_ROOT}/polaris/verify_seqzarr.py" --store "${SMOKE_DATA}/${store}.zarr" \
+        | tee "${SMOKE_DATA}/${store}.verify.log"
+    grep -q "SEQZARR_VERIFIED" "${SMOKE_DATA}/${store}.verify.log" \
+        || { echo "ERROR EDGE_VERIFY_FAILED: ${store}"; exit 2; }
+done
+
+# ---- 5) independent seam check: filename math only ------------------------------------
+# verify_seqzarr's time check reuses the converter's read_time_hours(), so it would agree
+# with a bug in that reconstruction. This one derives the expected axis purely from the
+# recorded source FILENAMES ({year}_{idx}.h5, noleap: hours = (year-2015)*8760 + idx*6)
+# and demands uniform 6 h spacing ACROSS the year seam — the core all-years claim.
+python - "${SMOKE_DATA}/train_edge.zarr" "${SMOKE_DATA}/val_edge.zarr" <<'PY' || exit 2
+import sys, zarr
+import numpy as np
+for path in sys.argv[1:]:
+    z = zarr.open(path, mode="r")
+    names = list(z.attrs["source_files"])
+    t = z["time"][:].astype(np.int64)
+    want = np.array([(int(n.split("_")[0]) - 2015) * 8760
+                     + int(n.split("_")[1].split(".")[0]) * 6 for n in names], np.int64)
+    years = sorted({int(n.split("_")[0]) for n in names})
+    if not np.array_equal(t, want):
+        i = int(np.argmax(t != want))
+        print("ERROR SEAM_TIME_MISMATCH: %s sample %d (%s): store %d h, filename math %d h"
+              % (path, i, names[i], t[i], want[i]))
+        print("  The store's time axis disagrees with file order+year — the frozen-2015")
+        print("  in-file-year bug class. Do NOT build the full store until this is fixed.")
+        sys.exit(2)
+    d = np.unique(np.diff(t))
+    if d.tolist() != [6]:
+        print("ERROR SEAM_NOT_6H: %s time diffs %s (want exactly [6] across the year seam)"
+              % (path, d.tolist()))
+        sys.exit(2)
+    print("SEAM_OK %s: %d samples, years %s, uniform 6 h incl. the seam"
+          % (path.rsplit('/', 1)[-1], len(t), "-".join(map(str, years))))
+PY
+
+# ---- 6) store schema == the PINNED expectation (the one deliberate literal) ------------
+# polaris_sfno_allyears.pbs DERIVES nr_predicted/nr_unpredicted from the store's own
+# attrs (gated on excluded_vars matching the converter's), so it would follow a changed
+# converter without complaint. These literals are therefore the ONE independent
+# restatement that keeps converter and trainer from drifting together: 103 predicted
+# + 5 unpredicted @ 180x360 — the archive's 162 channels minus the 54 excluded cloud
+# channels (CLDICE/CLDLIQ/CLOUD x 18 sigma levels; science owner, 2026-07-16) — and
+# zero surviving cloud channels. Do NOT derive these numbers from anything.
+python - "${SMOKE_DATA}/train_edge.zarr" <<'PY' || exit 2
+import sys, zarr
+z = zarr.open(sys.argv[1], mode="r")
+cp, cu = list(z.attrs["channels_predicted"]), list(z.attrs["channels_unpredicted"])
+shp_p, shp_u = z["predicted"].shape, z["unpredicted"].shape
+cloud = [n for n in cp + cu if n.split("_")[0] in ("CLDICE", "CLDLIQ", "CLOUD")]
+ok = ((len(cp), len(cu)) == (103, 5) and shp_p[1:] == (103, 180, 360)
+      and shp_u[1:] == (5, 180, 360) and not cloud)
+print("  schema: predicted %s (%d names), unpredicted %s (%d names), cloud channels: %d"
+      % (shp_p, len(cp), shp_u, len(cu), len(cloud)))
+if not ok:
+    print("ERROR SCHEMA_MISMATCH: pinned expectation is 103 predicted + 5 unpredicted")
+    print("  @ 180x360 with 0 cloud channels; the trainer derives its counts from the")
+    print("  store, so it would train on THIS shape without complaint. Fix the converter,")
+    print("  or update this gate together with the recorded exclusion decision.")
+    sys.exit(2)
+print("SCHEMA_OK: 103 predicted + 5 unpredicted @ 180x360, 0 cloud channels — matches")
+print("  what the trainer will derive from the store's attrs")
+PY
+
+# ---- 7) tiny SFNO across the seam stores, same shape overrides as the real trainer ----
+# Isolated hydra run dir, UNIQUE per job: train.py hard-codes ./checkpoints relative to
+# CWD, and a shared dir either contaminates the repo (<recipe>/checkpoints — the probe
+# 7253854 incident) or silently RESUMES from a previous smoke's checkpoint, skipping the
+# training this smoke exists to observe.
+SMOKE_RUN_DIR="${MEMBER_ROOT}/runs/physicsnemo_sfno_allyears/smoke_${PBS_JOBID%%.*}"
+mkdir -p "${SMOKE_RUN_DIR}"
+echo "smoke run dir: ${SMOKE_RUN_DIR}"
+TRAIN_LOG="${SMOKE_RUN_DIR}/train.log"
+
+cd "${RECIPE}"
+# Channel counts DERIVED from the store attrs — the same mechanism the real trainer uses,
+# so this smoke exercises the derivation itself. No silent drift is possible here: the
+# schema gate above just pinned these to the 103+5 literals.
+read -r NPRED NUNPRED <<< "$(python -c '
+import sys, zarr
+a = zarr.open(sys.argv[1], mode="r").attrs
+print(len(a["channels_predicted"]), len(a["channels_unpredicted"]))
+' "${SMOKE_DATA}/train_edge.zarr")"
+if [ -z "${NPRED:-}" ] || [ -z "${NUNPRED:-}" ]; then
+    echo "ERROR CHANNEL_COUNTS_UNREADABLE: no channels_* attrs in ${SMOKE_DATA}/train_edge.zarr"
+    exit 2
+fi
+echo "channel counts (derived from store attrs): predicted=${NPRED} unpredicted=${NUNPRED}"
+LAUNCH_ARGS=(train.py --config-name=config_e3sm_sfno
+    "curated_dataset.train_dataset_filename=${SMOKE_DATA}/train_edge.zarr"
+    "curated_dataset.val_dataset_filename=${SMOKE_DATA}/val_edge.zarr"
+    "dataset.dataset_filename=${SMOKE_DATA}/train_edge.zarr"
+    "curated_dataset.nr_predicted_variables=${NPRED}"
+    "curated_dataset.nr_unpredicted_variables=${NUNPRED}"
+    "transform.transformed_shape=[180,360]"
+    training.stages.0.num_epochs=1 training.stages.0.max_iterations=5
+    training.stages.0.batch_size=1 validation.batch_size=1 validation.num_steps=2
+    "hydra.run.dir=${SMOKE_RUN_DIR}" hydra.job.chdir=true)
+# validation.num_steps >= 2 (matplotlib squeezes a 1-wide subplot grid); with 12-sample
+# stores the datapipes hold 10 train / 9 val sequences — plenty for 5 iterations.
+
+if [ "${NPROC}" = "1" ]; then
+    python "${LAUNCH_ARGS[@]}" 2>&1 | tee "${TRAIN_LOG}"
+    rc=${PIPESTATUS[0]}
+else
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        --redirects 3 --tee 3 "${LAUNCH_ARGS[@]}" 2>&1 | tee "${TRAIN_LOG}"
+    rc=${PIPESTATUS[0]}
+fi
+if [ "${rc}" -ne 0 ]; then
+    echo "ERROR SMOKE_TRAIN_FAILED (rc=${rc}) — read the traceback above"; exit 2
+fi
+# Key on observed behavior, not the exit code alone: the checkpoint save is the last
+# thing a healthy epoch does (rank 0, epoch 0), and a NaN loss would still exit 0.
+if [ ! -d "${SMOKE_RUN_DIR}/checkpoints" ]; then
+    echo "ERROR SMOKE_NO_CHECKPOINT: ${SMOKE_RUN_DIR}/checkpoints was never written"; exit 2
+fi
+if grep -i "loss" "${TRAIN_LOG}" | grep -qi "nan"; then
+    echo "ERROR SMOKE_LOSS_NAN: see ${TRAIN_LOG}"; exit 2
+fi
+
+echo "ALLYEARS_SMOKE_OK"
+echo "=== physicsnemo_allyears_smoke done (rc=0) $(date -Iseconds) ==="
