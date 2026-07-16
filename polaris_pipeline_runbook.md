@@ -60,8 +60,13 @@ PhysicsNeMo dataset (~1.43 TB, whether transferred in or rebuilt) + Pangu checkp
 
 - **Never hold two copies of the PhysicsNeMo dataset** — either the transferred one
   *or* a rebuild, not both.
-- Before the makani pack or a Route-B rebuild, run `myquota` and confirm ≥1.5 TB free;
-  a job that hits the quota dies mid-write hours in, with `Disk quota exceeded`.
+- Before the makani pack or a Route-B rebuild, confirm at least 1.5 TB is free:
+
+  ```
+  myquota
+  ```
+
+  A job that hits the quota dies mid-write hours in, with `Disk quota exceeded`.
 
 ---
 
@@ -127,10 +132,14 @@ are per-person:
    Two practical notes. First, after a `git pull`, updated code takes effect
    immediately — the Python environment links to your checkout rather than copying
    from it, so no reinstallation is needed (rebuild the environment only if
-   `polaris_setup_sfno_venv.sh` itself changed). Second, if you ever *push* from a
-   Polaris login node, use `git -c pack.threads=1 push` — the login nodes cap
-   per-user processes and multi-threaded git pushes are killed mid-transfer
-   (ordinary `git pull` is not affected).
+   `polaris_setup_sfno_venv.sh` itself changed). Second, ordinary `git pull` works
+   normally, but if you ever *push* from a Polaris login node, push single-threaded —
+   the login nodes cap per-user processes and multi-threaded pushes are killed
+   mid-transfer:
+
+   ```
+   git -c pack.threads=1 push
+   ```
 
 2. **Your own Python environment for makani and PhysicsNeMo.** Build it once, on a
    login node (~10–20 minutes; success line `SFNO_VENV_OK`) — **from your own
@@ -153,45 +162,109 @@ are per-person:
    shared, group-readable package directory that the scripts locate automatically
    (they fail loudly with `TOPUPS_MISSING` if it is ever absent, with the fix printed).
 
-**Scheduler basics.** All compute runs through PBS (`qsub` to submit, `qstat -u $USER`
-to watch, `qdel` to cancel); nothing heavy runs on login nodes. Job logs land in the
-directory the job was submitted from (file `<job-name>.o<job-id>`; these are
-git-ignored). The `debug` queue (the tests) allows one job per person, up to one hour.
-Long jobs use `preemptable` (up to **72 h** walltime, 10 running / 20 queued per
-person). **Two different interruptions, two different behaviors:** if the scheduler
-*preempts* a job, it requeues and resumes from its checkpoint automatically; if a job
-reaches its **walltime, it is simply killed** — nothing resubmits it. For runs longer
-than 72 h, pre-submit a dependency chain so no one has to babysit:
+**Scheduler basics.** All compute runs through the PBS batch scheduler; nothing heavy
+runs on login nodes:
 
 ```
-bash <repo>/polaris_submit_chain.sh <n-links> <script.pbs> [extra qsub args...]
+qsub <script.pbs>       # submit a job
+qstat -u $USER          # watch your jobs
+qdel <job-id>           # cancel a job
 ```
 
-**Run it from the same directory you would `qsub` from** (`PanguWeather/v2.0/`,
-`makani_sfno/`, or `physicsnemo_sfno/`) — that directory is recorded into every link
-as its working directory, and the launchers resolve their helper files against it; the
-helper refuses a script it cannot see from the wrong directory and warns loudly if an
-absolute script path bypasses that check. Each link starts only when the previous one
-has terminated (works with preemption too), re-runs the same script, and resumes from
-the checkpoint; a link that starts after training has already finished exits within
-minutes, so over-provisioning the chain is cheap. Mechanics proven 2026-07-16 (jobs
-7259371/72: link 2 held on link 1, clean `qdel`). Cancel a chain by deleting **all**
-its links in one `qdel` (deleting only an early link releases the next one).
+Job logs land in the directory the job was submitted from (file
+`<job-name>.o<job-id>`; these are git-ignored). The `debug` queue (the tests) allows
+one job per person, up to one hour. Long jobs use `preemptable` (up to **72 h**
+walltime, 10 running / 20 queued per person).
+
+**Two different interruptions, two different behaviors:** if the scheduler *preempts*
+a job, it requeues and resumes from its checkpoint automatically; if a job reaches its
+**walltime, it is simply killed** — nothing resubmits it. For runs longer than 72 h,
+pre-submit a dependency chain with `polaris_submit_chain.sh` (repo root) so no one has
+to babysit. Each link starts only when the previous one has terminated (works with
+preemption too), re-runs the same script, and resumes from the checkpoint; a link that
+starts after training has already finished exits within minutes, so over-provisioning
+the chain is cheap. Mechanics proven 2026-07-16 (jobs 7259371/72: link 2 held on
+link 1, clean `qdel`).
+
+**Run it from the same directory you would `qsub` from** — that directory is recorded
+into every link as its working directory, and the launchers resolve their helper files
+against it; the helper refuses a script it cannot see from the wrong directory and
+warns loudly if an absolute script path bypasses that check.
+
+The exact chain command for each pipeline (substitute `<you>`; these are the same
+commands repeated in each pipeline's own section):
+
+```
+# PanguWeather full training — ~8–9 days total => 3 links x 72 h
+cd /lus/eagle/projects/lighthouse-uchicago/members/<you>/pedramh-profiling/PanguWeather/v2.0
+bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs
+```
+
+```
+# makani full training — duration unmeasured => start with 2 links, extend later
+cd /lus/eagle/projects/lighthouse-uchicago/members/<you>/pedramh-profiling/makani_sfno
+bash ../polaris_submit_chain.sh 2 polaris/polaris_sfno_alldata_full.pbs
+```
+
+```
+# PhysicsNeMo full training — duration unmeasured => start with 3 links;
+# the -v argument points at the verified transferred dataset (omit it for a Route-B
+# dataset in your own member directory — that location is the default)
+cd /lus/eagle/projects/lighthouse-uchicago/members/<you>/pedramh-profiling/physicsnemo_sfno
+bash ../polaris_submit_chain.sh 3 polaris/polaris_sfno_allyears.pbs \
+    -v SEQZARR_ALLYEARS_DATA=/lus/eagle/projects/lighthouse-uchicago/members/jesswan/e3sm_seqzarr_allyears
+```
+
+To add live Weights & Biases logging to a PanguWeather or makani chain, append the
+mode flag as an extra argument:
+
+```
+bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs \
+    -v WANDB_MODE=online
+```
+
+To cancel a chain, delete **all** its links in one command — the submitter prints this
+exact line at submission (deleting only an early link releases the next one):
+
+```
+qdel <jobid-link1> <jobid-link2> <jobid-link3>
+```
 
 **Experiment tracking (Weights & Biases).** All jobs default to *offline* tracking —
 nothing is sent anywhere and no account is needed. For **PanguWeather and makani**,
-live dashboards are one flag away: submit any training job with
-`qsub -v WANDB_MODE=online <script>` (or add `-v WANDB_MODE=online` to the chain
-command) and the launcher enables the config's own logging switch for you. **Proven
-live 2026-07-16** (job 7259364 synced a real training run to wandb.ai through the ALCF
-proxy). This requires a Weights & Biases API key registered on Polaris — **jesswan
-already has one**, so she needs nothing further; anyone who has never run
-`wandb login` here runs `bash polaris_setup_wandb.sh` once on a login node first. Runs
-land in your default W&B account under the project `pedramh-profiling` (override with
-`-v WANDB_ENTITY=<account-or-team>` / `-v WANDB_PROJECT=<name>`). Offline runs
-accumulate under `members/<you>/wandb/` and can be uploaded later from a login node
-with `wandb sync`. **PhysicsNeMo does not use Weights & Biases at all** — its record
-is the local MLflow store plus the plain `metrics.csv` described in §6.
+live dashboards are one flag away — submit any training job (or chain, as shown above)
+with the mode flag, and the launcher enables the config's own logging switch for you:
+
+```
+qsub -v WANDB_MODE=online <script.pbs>
+```
+
+**Proven live 2026-07-16** (job 7259364 synced a real training run to wandb.ai through
+the ALCF proxy). This requires a Weights & Biases API key registered on Polaris —
+**jesswan already has one**, so she needs nothing further; anyone who has never run
+`wandb login` here first runs, once, on a login node:
+
+```
+bash polaris_setup_wandb.sh
+```
+
+Runs land in your default W&B account under the project `pedramh-profiling`; to route
+them to a specific account/team or a different project, add the overrides to the same
+`-v` list:
+
+```
+qsub -v WANDB_MODE=online,WANDB_ENTITY=<account-or-team>,WANDB_PROJECT=<name> <script.pbs>
+```
+
+Offline runs accumulate under `members/<you>/wandb/` and can be uploaded later from a
+login node:
+
+```
+wandb sync <run-directory>
+```
+
+**PhysicsNeMo does not use Weights & Biases at all** — its record is the local MLflow
+store plus the plain `metrics.csv` described in §6.
 
 ---
 
@@ -225,7 +298,14 @@ qsub HPC_scripts/polaris_train_e3sm_sfno_alldata_smoke.pbs    # success: ALLDATA
 ```
 cd /lus/eagle/projects/lighthouse-uchicago/members/<you>/pedramh-profiling/PanguWeather/v2.0
 bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs
-# add wandb:  bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs -v WANDB_MODE=online
+```
+
+The same, with live Weights & Biases logging:
+
+```
+cd /lus/eagle/projects/lighthouse-uchicago/members/<you>/pedramh-profiling/PanguWeather/v2.0
+bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs \
+    -v WANDB_MODE=online
 ```
 
 - **Scale:** a 1.18-billion-parameter model; 100 epochs over years 2015–2044 with
@@ -237,8 +317,14 @@ bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata
   unattended.
 - **Storage:** each checkpoint is **18.9 GB**; the job keeps the ten most recent plus
   the latest and best — budget **~230 GB** under
-  `.../members/<you>/runs/pangu_sfno_alldata_full/`. (Keeping more history is
-  `-v MAX_CKPTS_KEEP=<n>` at 18.9 GB per epoch kept — mind §1's storage budget.)
+  `.../members/<you>/runs/pangu_sfno_alldata_full/`. To keep more history
+  (18.9 GB per kept epoch — mind §1's storage budget), add the knob to the chain
+  command:
+
+  ```
+  bash ../../polaris_submit_chain.sh 3 HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs \
+      -v MAX_CKPTS_KEEP=30
+  ```
 - **What progress looks like:** `Starting epoch N/100` advancing in the log across
   links. **Finished** = the final log ends with `DONE ---- rank 0` after epoch
   100/100. A non-zero exit on preemptable usually means preemption — normal.
@@ -289,7 +375,11 @@ bash ../polaris_submit_chain.sh 2 polaris/polaris_sfno_alldata_full.pbs
 - Duration is **unmeasured at production scale** (only a tiny-model test has run);
   start with a 2-link chain and extend once the first epochs give a rate. The global
   batch size defaults to 8 and must remain divisible by the 4 GPUs — if memory runs
-  out, resubmit with `-v BATCH=4`.
+  out, resubmit with a smaller batch:
+
+  ```
+  bash ../polaris_submit_chain.sh 2 polaris/polaris_sfno_alldata_full.pbs -v BATCH=4
+  ```
 - Progress = "Total training time" > 0 and the epoch counter advancing across links;
   **finished** = a later link starts, finds nothing left to train (epoch counter at
   100), and exits almost immediately.
