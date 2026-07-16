@@ -6,9 +6,6 @@ day**, and this revision incorporates the findings of a three-agent adversarial 
 run the same evening. The engineering companion (costs, failure-mode analysis, open
 decisions) is `polaris_pipelines_plan.md`.*
 
-*Contacts: science decisions (variable sets, fills, whether archive properties are
-intended) — **jesswan**. Pipeline/bring-up engineering and this repository —
-**rmehta1987**.*
 
 ---
 
@@ -23,8 +20,7 @@ network that operates on fields defined on the sphere. The pipeline *names* refe
 the code bases, not the architectures: the "PanguWeather" repository also contains the
 original Pangu 3-D transformer, but on Polaris it trains an SFNO (1.18 billion
 parameters); makani and PhysicsNeMo train smaller SFNOs of identical width (embedding
-384, 8 layers; parameter counts unmeasured, order 10⁸). The project measures how the
-three implementations compare — see §7.6 for what "compare" can and cannot mean today.
+384, 8 layers; parameter counts unmeasured, order 10⁸). 
 
 **Source data (shared by all three).** A 35-year E3SM version 3 atmosphere simulation
 (SSP2-4.5 scenario with prescribed ocean, years 2015–2049), archived as one HDF5 file
@@ -66,9 +62,6 @@ PhysicsNeMo dataset (~1.43 TB, whether transferred in or rebuilt) + Pangu checkp
   *or* a rebuild, not both.
 - Before the makani pack or a Route-B rebuild, run `myquota` and confirm ≥1.5 TB free;
   a job that hits the quota dies mid-write hours in, with `Disk quota exceeded`.
-- Freeing space or requesting a quota increase is a project decision (rmehta1987 /
-  jesswan) that should be made **before** the first terabyte-scale job — and note the
-  incoming dataset transfer itself needs ~1.43 TB of this same quota to land.
 
 ---
 
@@ -174,12 +167,16 @@ than 72 h, pre-submit a dependency chain so no one has to babysit:
 bash <repo>/polaris_submit_chain.sh <n-links> <script.pbs> [extra qsub args...]
 ```
 
-Each link starts only when the previous one has terminated (works with preemption
-too), re-runs the same script, and resumes from the checkpoint; a link that starts
-after training has already finished exits within minutes, so over-provisioning the
-chain is cheap. Mechanics proven 2026-07-16 (jobs 7259371/72: link 2 held on link 1,
-clean `qdel`). Cancel a chain by deleting **all** its links in one `qdel` (deleting
-only an early link releases the next one).
+**Run it from the same directory you would `qsub` from** (`PanguWeather/v2.0/`,
+`makani_sfno/`, or `physicsnemo_sfno/`) — that directory is recorded into every link
+as its working directory, and the launchers resolve their helper files against it; the
+helper refuses a script it cannot see from the wrong directory and warns loudly if an
+absolute script path bypasses that check. Each link starts only when the previous one
+has terminated (works with preemption too), re-runs the same script, and resumes from
+the checkpoint; a link that starts after training has already finished exits within
+minutes, so over-provisioning the chain is cheap. Mechanics proven 2026-07-16 (jobs
+7259371/72: link 2 held on link 1, clean `qdel`). Cancel a chain by deleting **all**
+its links in one `qdel` (deleting only an early link releases the next one).
 
 **Experiment tracking (Weights & Biases).** All jobs default to *offline* tracking —
 nothing is sent anywhere and no account is needed. For **PanguWeather and makani**,

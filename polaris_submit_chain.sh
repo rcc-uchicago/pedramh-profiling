@@ -55,6 +55,17 @@ if [ ! -f "${script}" ]; then
     echo "ERROR CHAIN_SCRIPT_NOT_FOUND: ${script} (run this from the script's submission dir)"
     exit 2
 fi
+case "${script}" in /*)
+    # An absolute script path lets qsub succeed from ANY directory — and then every
+    # link dies at startup, because $PBS_O_WORKDIR (= the directory you run this from,
+    # recorded into each link) is what the launchers resolve polaris_env.sh and their
+    # train scripts against. Warn loudly; the relative-path usage cannot make this mistake.
+    echo "WARN CHAIN_ABSOLUTE_SCRIPT_PATH: every link will run with PBS_O_WORKDIR=$(pwd)."
+    echo "  The launchers expect to be submitted from their own directory (PanguWeather/v2.0,"
+    echo "  makani_sfno, physicsnemo_sfno). If $(pwd) is not that directory, qdel the chain"
+    echo "  now — each link will fail at startup."
+    ;;
+esac
 
 prev=""
 ids=()
