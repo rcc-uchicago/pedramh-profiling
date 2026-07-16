@@ -398,24 +398,18 @@ bash ../polaris_submit_chain.sh 2 polaris/polaris_sfno_alldata_full.pbs
 ### Dataset — two routes, and you use exactly one (§1 storage budget)
 
 **Route A (preferred): verify the transferred dataset, then use it in place.**
-**Status 2026-07-16: the transfer is announced but not yet on disk** — until it lands,
-the commands below fail immediately with `NO_STORE_FOUND` (verification) or
-`ALLYEARS_ZARR_MISSING` (training); that is those errors' meaning today. When it
-lands, it is expected as a directory containing two Zarr stores, e.g.:
+
+The dataset lives (once the transfer lands) at:
 
 ```
-/lus/eagle/projects/lighthouse-uchicago/members/jesswan/e3sm_seqzarr_allyears/
-    e3sm_train.zarr/      (training years 2015–2046)
-    e3sm_val.zarr/        (validation years 2047–2049)
+/lus/eagle/projects/lighthouse-uchicago/members/jesswan/e3sm_seqzarr_allyears
 ```
 
-(Substitute the actual directory if it differs. The two store names, however, must be
-exactly `e3sm_train.zarr` and `e3sm_val.zarr` — rename or symlink if necessary. If the
-transfer stalls or fails verification and the dataset is needed sooner, fall back to
-Route B — after checking the storage budget.)
+holding two Zarr stores named exactly `e3sm_train.zarr` (years 2015–2046) and
+`e3sm_val.zarr` (years 2047–2049).
 
-**A dataset is never trusted just because it arrived.** Submit the verification job
-(under one hour, no GPUs; it reads the dataset in place and writes nothing into it):
+**To verify it, run this** (a one-hour job, no GPUs; it reads the dataset in place and
+writes nothing into it):
 
 ```
 cd /lus/eagle/projects/lighthouse-uchicago/members/<you>/pedramh-profiling/physicsnemo_sfno
@@ -423,7 +417,16 @@ qsub -v STORE=/lus/eagle/projects/lighthouse-uchicago/members/jesswan/e3sm_seqza
     polaris/polaris_verify_store.pbs
 ```
 
-The job checks, in order of increasing cost:
+**Success = the line `STORE_VERIFY_OK` in the job log** (preceded by
+`SEQZARR_VERIFIED` once per store) — file `physicsnemo_verify_store.o<job-id>`,
+written to the directory you submitted from.
+
+Two notes on that command. If the dataset lands under a different directory, put that
+path after `STORE=` instead. And as of 2026-07-16 the transfer had not arrived yet —
+until it does, the job exits immediately with `NO_STORE_FOUND`, which today means
+"not transferred yet" and nothing more.
+
+What the job checks, in order of increasing cost:
 
 1. **Provenance and generation** — the dataset's own recorded metadata must match the
    current pipeline: the cloud-variable exclusion, the five supplied fields, the
@@ -435,9 +438,6 @@ The job checks, in order of increasing cost:
    store, 11 % of the smaller validation store), spread across each store's years, is
    compared **bit for bit** against the original archive, including the placement and
    value of every land/ocean fill constant and the correctness of the time axis.
-
-**Success = the line `STORE_VERIFY_OK`** (preceded by `SEQZARR_VERIFIED` for each of
-the two stores) in the job log.
 
 *Honest scope:* the sampled fidelity check leaves ~99 % of the training store unread,
 so a transfer that *corrupted* (rather than dropped) a chunk there would not be seen.
