@@ -24,22 +24,27 @@ things the code contradicts — including several this session had to retract.
 - PhysicsNeMo: `e3sm_h5_to_seqzarr.py` now has `EXCLUDED_VARS`; **162 → 108, predicted 157 → 103**,
   store shrinks 33.3%. Verified against `2015_0000.h5`: 54 channels dropped, 0 clouds survive.
 
-### The state of the tree (all UNCOMMITTED — `git status` before you do anything)
+### The state of the tree
 
-| file | state |
+**All committed** on branch `polaris-data-prep` (`2fdcb0ff`, `3eb9d839`) — not pushed, not on
+main. Nothing here has been submitted since job 7258626. `git log --oneline -3` first; the two
+commit messages are the honest record, including what is unproven.
+
+| area | what exists |
 |---|---|
-| `physicsnemo_sfno/polaris/e3sm_h5_to_seqzarr.py` | **M** — cloud exclusion added |
-| `physicsnemo_sfno/polaris/verify_seqzarr.py` | **M** — kept in lockstep |
-| `PanguWeather/v2.0/utils/metrics.py` | **M** — climatology moved to CPU (§4) |
-| `PanguWeather/v2.0/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml` | new — full years, 108 ch |
-| `PanguWeather/v2.0/HPC_scripts/polaris_train_e3sm_sfno_alldata_{smoke,full}.pbs` | new |
-| `makani_sfno/polaris/convert_e3sm_to_makani_alldata.py` + 2 yaml + 2 pbs | new |
-| `physicsnemo_sfno/polaris/{allyears_split.sh,polaris_*_allyears*.pbs}` | new |
-| `polaris_e3sm_variable_reference.md`, `data_for_training.md` | new — the data facts |
+| `physicsnemo_sfno/polaris/e3sm_h5_to_seqzarr.py` + `verify_seqzarr.py` | cloud exclusion; verifier kept in lockstep |
+| `PanguWeather/v2.0/utils/metrics.py` | climatology on CPU — **the unproven fix (§4)** |
+| `PanguWeather/v2.0/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml` | full years (2015-2044 train / 2045-2048 val), 108 ch |
+| `PanguWeather/v2.0/HPC_scripts/polaris_train_e3sm_sfno_alldata_{smoke,full}.pbs` | training smoke + production launcher |
+| `PanguWeather/v2.0/HPC_scripts/polaris_val_e3sm_sfno_alldata_smoke.pbs` + `run_validation_smoke.py` | **the validation smoke — built, NEVER RUN (§4)** |
+| `makani_sfno/polaris/convert_e3sm_to_makani_alldata.py` + 2 yaml + 2 pbs | all-data pack: 100 state + 1 diag + 7 forcing |
+| `physicsnemo_sfno/polaris/{allyears_split.sh,polaris_*_allyears*.pbs}` | all-years convert + train + smoke |
+| `polaris_e3sm_variable_reference.md`, `data_for_training.md` | the measured data facts |
 
-⚠ **The `_alldata` names are now misleading.** They were built to enable clouds (162 ch); after
-the science decision they carry the **full-year range** only. Renaming to `_allyears` would be
-honest — decide, and if you rename, grep for every reference.
+⚠ **`_alldata` is a misleading name.** Those files were built to enable clouds (162 ch); the
+science decision reverted that, so they now carry only the **full-year range**. The Pangu config's
+header already says "ALL-YEARS variant"; the *filenames* still say `_alldata`. Renaming to
+`_allyears` would be honest — if you do, grep every reference (PBS, docs, CHANGELOG).
 
 ### Proven on Polaris
 - **Pangu, 162 ch: job 7258382 — `ALLDATA_SMOKE_OK … peak_mem_gb=27.045`** on a 40 GB A100.
@@ -57,9 +62,15 @@ For **each** of the three pipelines, the full path: **convert → train → infe
 
 | pipeline | data prep | status |
 |---|---|---|
-| **PanguWeather** | **none** — reads `h5/plev_data` directly | training smoke green; **inference never run** |
-| **makani** | pack `convert_e3sm_to_makani_alldata.py` → its own h5 contract | smoke built, **never run** |
-| **PhysicsNeMo** | convert h5 → zarr (`e3sm_h5_to_seqzarr.py`) | converter verified; **not re-run since cloud exclusion** |
+| **PanguWeather** | **none** — reads `h5/plev_data` directly | training smoke green **at 162 ch (7258626)**; config is now 108 → **re-run**. Validation + inference **never run** |
+| **makani** | pack `convert_e3sm_to_makani_alldata.py` → its own h5 contract | pack+train green **at 154 ch (7258407)**; converter is now 100 → **re-run** (guards will reject the stale pack: `WRONG_CONTRACT`) |
+| **PhysicsNeMo** | convert h5 → zarr (`e3sm_h5_to_seqzarr.py`) | converter verified at 103 ✓ (ran it: `CONVERT_OK` → `SEQZARR_VERIFIED` 6×108 bitwise). **Training never run at 103** — last green was 157 ch (7252933) |
+
+> ⚠ **Every green above except the converter predates the change it would validate.** That is not
+> bad luck — it is the same structural problem as the bench harness (§4a): the gates ran before
+> the thing they would catch existed. **Trust no job id in this repo without checking what
+> contract it ran at.** First four jobs, in order: fixed Pangu smoke (108) → makani (100) →
+> PhysicsNeMo (103) → the validation smoke.
 
 **Inference is the biggest gap.** This session was all training-side. Nothing here has produced a
 forecast. Each model's inference path is a different beast:
@@ -97,26 +108,40 @@ repo root fails in 1 second with `No such file or directory`. This bit me twice.
 
 These are real, measured, and unsolved. **Do not design around them silently.**
 
-**a) Production validation is expected to OOM — and no smoke can see it.**
-`validate_one_epoch` (`train.py:939`) runs **before** the first checkpoint save (`:971`). An
-adversarial agent's arithmetic: 22.0 GiB training state + 13.48 GiB GPU-resident climatology
-+ 2.26 GiB lead-60 targets + transients ≈ **38.8–40.8 GiB vs ~38–39.3 usable**. The run would
-train ~2 h, die at validation, requeue, repeat — **forever, at zero progress, never checkpointing.**
+**a) Production validation is expected to OOM — and until now no smoke could see it.**
+`train.py::validate_one_epoch` is called (`:969`) **before** the first `save_checkpoint` (`:1001`).
+Adversarial arithmetic: 22.0 GiB training state + 13.48 GiB GPU-resident climatology + 2.26 GiB
+lead-60 targets + transients ≈ **38.8–40.8 GiB vs ~38–39.3 usable**. The production run would
+train ~2 h, die at validation, requeue, repeat — **forever, zero progress, never checkpointing.**
 
-**Partially addressed:** `utils/metrics.py` now holds the climatology on CPU and gathers the
-`[batch]` slice per call (~9 MB/batch instead of 13.5 GiB resident). **This is UNVERIFIED** — job
-7258626 passed but proves only that training still works, because `PANGU_BENCH` (formerly
-`S2S_BENCH`) exits before validation. `utils/metrics.py` is tracked, but its blast radius is
-**PanguWeather only**: `s2s/v2.0/utils/metrics.py` does not exist, and the sole importers are
-PanguWeather's own `train.py` and `train_optimized.py` (verified). CLAUDE.md #5 governs
-`s2s/v2.0/` — which the Lightning port *imports* — and does **not** apply here. The Pangu smoke
-covers the whole radius; the S2S/Lightning smokes are irrelevant to this file.
+**Attempted fix, UNVERIFIED:** `utils/metrics.py` now holds the climatology on CPU and gathers
+the `[batch]` slice per call (~9 MB/batch instead of 13.5 GiB resident). Job 7258626 passed but
+proves only that *training* still works — the bench harness `sys.exit(0)`s (`train.py:1305`,
+inside `_bench_finalize`) upstream of validation, so **nothing has executed the changed code.**
+Blast radius is **PanguWeather only**: `s2s/v2.0/utils/metrics.py` does not exist and the sole
+importers are PanguWeather's own `train.py`/`train_optimized.py` (verified). CLAUDE.md #5 governs
+`s2s/v2.0/` — which the port *imports* — and does not reach here.
 
-**The blind spot is structural and you must fix it:** every smoke keys on `PANGU_BENCH`, whose
-`_bench_finalize` ends in `sys.exit(0)` (`train.py:1433-1436`) **upstream of validation**. So no
-smoke in this repo has ever executed `validate_one_epoch`. **Design a validation smoke that does
-not use `PANGU_BENCH`** — 1 train year, 1 val year, production `forecast_lead_times`, all 5
-upper-air vars — or the OOM and the CPU-climatology fix both stay unproven.
+**The tool now exists: `HPC_scripts/polaris_val_e3sm_sfno_alldata_smoke.pbs` + `run_validation_smoke.py`.
+RUN IT FIRST — it answers the question this whole section is about.** It uses **no bench harness**
+(that is the point), keeps production `forecast_lead_times [1,12,20,40,60]` and all 5 upper-air
+vars so the climatology allocates at full size, and shrinks only duration (1 train year, 1 val
+year, 9 ICs). `run_validation_smoke.py` patches `create_metrics_aggregator_new` before
+`runpy`-exec'ing `train.py`, so **train.py runs unmodified and no tracked file is touched**; it
+snapshots the pre-validation peak, then `reset_peak_memory_stats()`, so the reported number is the
+**validation window** and not the cumulative ~27 GB training peak. PASS = `PANGU_VAL_SMOKE_OK`,
+emitted only from inside `MetricsAggregator.compute()` (once per validation, after the batch loop)
+— a run that never validates cannot print it (verified against a synthetic skip log). OOM prints
+`ERROR PANGU_VAL_SMOKE_OOM` with the per-rank pre-validation peaks. Either way **the measured
+number is the deliverable.** Watchlist: it asks `-q debug` for `00:59:00` against a 1 h cap —
+~60 s of margin, and validation I/O (~80 GB of h5 reads at `num_data_workers=1`) is unmeasured.
+
+**The blind spot was structural — remember why, because it generalises:** every *training* smoke
+keys on `PANGU_BENCH`, whose `_bench_finalize` ends in `sys.exit(0)` (`train.py:1305`) **upstream
+of validation**. The harness exists to time training steps, and exiting early is right for that
+job — but it means every gate built on it is blind to everything after the loop. The validation
+smoke above exists precisely because no gate can test code it never reaches. **Ask that question
+of every check you inherit here.**
 
 **b) Numbers the docs got wrong (measured):**
 - **Checkpoints are 18.9 GB, not ~3.5 GB.** Every `ckpt_epoch_N.tar` in
@@ -126,14 +151,20 @@ upper-air vars — or the OOM and the CPU-climatology fix both stay unproven.
   (`Number of trainable model parameters: 1182191104`, from 7258382's own log).
 
 **c) `best_ckpt.tar` is best-of-final-segment, not global best.** `best_valid_loss` is a function
-local (`train.py:853`, init `1e6`) and is **not** in the checkpoint, so the first validation after
-every requeue always "improves". Across the ~10–25 requeues an 8-day run needs, plus rolling
-keep-10 pruning, an early global best is lost. Decide whether to fix or accept.
+local (`PanguWeather/v2.0/train.py:883`, init `1e6`) and is **not** in the checkpoint, so the first
+validation after every requeue always "improves". Across the ~10–25 requeues an 8-day run needs,
+plus rolling keep-10 pruning, an early global best is lost. Decide whether to fix or accept.
 
 **d) ~90% of validation I/O is dead weight.** Each val sample loads a full target for every step
 1..60 (`data_loader_multifiles.py:1151-1153`) but only the 5 `forecast_lead_times` are consumed;
 the all-steps consumer (GIF accumulation) is force-disabled for sigma-level runs
-(`train.py:4251-4256`).
+(`PanguWeather/v2.0/train.py:4283`).
+
+> **Line numbers rot — this doc's did.** `train.py:939/971/1433/853/4251` were all correct when
+> written and all wrong within a day (the `PANGU_BENCH` rename shifted them). Corrected above;
+> **re-verify before trusting any of them**, and prefer the symbol name. Note also that **two
+> different files are called `train.py`** here: `PanguWeather/v2.0/train.py` and
+> `physicsnemo_sfno/examples/weather/unified_recipe/train.py` (§5). They are unrelated.
 
 **e) The 157-literal cascade.** Nothing derives `nr_predicted_variables` from `UNPREDICTED` —
 it is restated across the PBS files. After the cloud exclusion the correct value is **103**.
@@ -155,9 +186,12 @@ mismatch.** The store's attrs should be the arbiter; verify a mismatch fails LOU
 
 ## 5. PhysicsNeMo's normalizer erases precipitation (R1) — know this before you design training
 
-`train.py:120-126` normalizes with `nn.BatchNorm2d(momentum=None, affine=False)` on **raw physical
+All refs here are **`physicsnemo_sfno/examples/weather/unified_recipe/train.py`** — a different
+file from PanguWeather's `train.py`.
+
+`:121-126` normalizes with `nn.BatchNorm2d(momentum=None, affine=False)` on **raw physical
 units**, `eps=1e-5`. Amplitude is `σ/√(σ²+eps)`; `√eps ≈ 3.16e-3`. **`PRECT`'s σ is 7.7e-8 m/s**
-→ amplitude **2.5e-5**. The loss (`batch_normalized_mse`, `:51-61`) is a **global** L2 over all
+→ amplitude **2.5e-5**. The loss (`batch_normalized_mse`, `:51`) is a **global** L2 over all
 channels flattened, so a channel's gradient share scales as amplitude²: PRECT's is **~6e-10**.
 The model converges normally and forecasts **climatological-mean precipitation** — zero skill, no
 error raised, and the BatchNorm state is exported into the inference package (`:444-445`),
