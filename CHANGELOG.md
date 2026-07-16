@@ -145,6 +145,50 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-07-16** — **The runbook survived a 3-agent gauntlet (2 adversarial + 1 cold, Fable 5),
+  which refuted four of its claims and surfaced one operational blocker; all fixed, plus the
+  no-babysitting mechanics the owner asked for.**
+  - **🔴 QUOTA (operator-sim agent): the eagle project quota is 13.14 of 15 TB used — ~1.86 TB
+    free, SHARED project-wide** — while the full plan needs ~3.1 TB and the incoming zarr
+    transfer itself needs ~1.43 TB of the same pool. Runbook now leads with a storage-budget
+    section (one PhysicsNeMo dataset copy ever; `myquota` ≥1.5 TB free before any TB-scale job;
+    freeing/raising quota is an owner decision that precedes the first big write).
+  - **Walltime + chains: the "resume automatically" claim was wrong for walltime expiry**
+    (`-r y` requeues only PREEMPTED jobs; a walltime kill just stops). Fixed three ways: the 3
+    production launchers (Pangu full, makani alldata full, PhysicsNeMo allyears) go 24 h → **72 h**
+    (queue max, verified `qstat -Qf preemptable`: max walltime 72:00:00, 20 queued/10 running
+    per user); new **`polaris_submit_chain.sh`** pre-submits N `-W depend=afterany` links so a
+    multi-day run needs zero monitoring (links resume from checkpoint; post-completion links
+    exit in minutes). **Mechanics proven**: jobs 7259371/72 — link 2 held on link 1's afterany,
+    clean chain qdel, zero node-hours. Also `polaris_verify_store.pbs` gains `-r y` (read-only
+    idempotent ⇒ a preempted EXHAUSTIVE verify requeues instead of being silently deleted).
+  - **Refuted by the fact-check agent, fixed in the runbook:** the "~27 min (measured)"
+    validation figure (it is an extrapolation from 112.6 s at 9 ICs; now stated as such, budget
+    20–30 min); "PNGs refreshed each epoch" (they ACCUMULATE — ~103 new files/epoch, ~51,500
+    over 500 epochs; `model_package_*` is the opposite: ONE dir overwritten every save);
+    the Route B success rule (a resumed conversion legitimately prints a skip line INSTEAD of
+    `CONVERT_OK` — keying on it would fail a correct run; key on `ZARR_ALLYEARS_COMPLETE`);
+    the headroom arithmetic (13.9 GiB is vs the RESERVED peak 25.6, not the 25.0 used).
+  - **Misleading-as-written, fixed:** `PHYSICSNEMO_WRONG_CHECKOUT` protects only the
+    PhysicsNeMo jobs — **makani has no checkout guard** and silently falls back to the shared
+    venv (= the builder's working tree) if the per-user venv build is skipped; the venv build
+    command must run from YOUR OWN checkout (it editable-links whatever tree it runs from);
+    jesswan-hardcoded paths became `<you>` placeholders; "fails within a second" softened
+    (module loads come first, and two-levels-deep dirs pass the polaris_env.sh check).
+  - **Cold-agent findings adopted:** train/val splits are NOT aligned across pipelines
+    (PhysicsNeMo trains through 2046 — years Pangu/makani validate on; only **2047–2049 is
+    unseen by all three**) and epoch budgets differ ~30× — recorded as runbook §7.6: no
+    cross-model skill comparison without a protocol from jesswan; per-run "finished" log lines
+    added (Pangu `DONE ---- rank 0`, PhysicsNeMo `Finished training!`, makani = a later link
+    exits immediately); makani's pack has NO value-level verifier (stated in its section with
+    the same honesty as PhysicsNeMo's); debug re-runs serialize (~2–3 h for all four); the
+    stale 162-ch/3.5-GB narrative in the Pangu full launcher's header got a correction banner
+    (18.9 GB measured, 108 ch, 72 h, chain pointer).
+  - **W&B online logging: PROVEN live** (previous entry's smoke 7259364 synced run `gywtrgsr`
+    to wandb.ai through the ALCF proxy mid-training; `ALLDATA_SMOKE_OK` unchanged). The Pangu
+    smoke now carries the full launcher's online block — the block itself had never executed
+    anywhere before this.
+
 - **2026-07-16** — **🟢 The §0 smoke sequence ran with the owner's go-ahead: ALL FOUR GREEN at
   the current contracts, same day.** Every prior green predated the change it would validate;
   that debt is now paid. Read each verdict from the log token, not rc:
