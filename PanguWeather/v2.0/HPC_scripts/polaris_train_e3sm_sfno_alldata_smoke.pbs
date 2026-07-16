@@ -162,6 +162,30 @@ _PY
 echo "${PRECHECK_OUT}"
 echo "rendered+patched config -> ${CONFIG_FILE}"
 
+# ---- W&B: flip the config's own switch, not just the client's mode --------------
+# Copied verbatim from polaris_train_e3sm_sfno_alldata_full.pbs (same rationale there):
+# $WANDB_MODE only controls the wandb CLIENT; train.py guards wandb.init behind the
+# config's log_to_wandb, so `-v WANDB_MODE=online` alone logs NOTHING. This block is in
+# the SMOKE so the full run's online path can be proven end-to-end (config patch, ALCF
+# proxy, ~/.netrc key, wandb.init) in a 15-minute debug job instead of being exercised
+# for the first time hours into the production run.
+if [ "${WANDB_MODE}" = "online" ]; then
+    python - "${CONFIG_FILE}" "${WANDB_PROJECT}" "${WANDB_ENTITY:-}" <<'_PY' || exit 2
+import re, sys
+path, project, entity = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*log_to_wandb:\s*).*$", lambda m: m.group(1) + "!!bool True", src, count=1)
+if n != 1:
+    print("ERROR WANDB_PATCH_FAILED: log_to_wandb matched %d times" % n); sys.exit(2)
+src = re.subn(r"(?m)^(\s*entity:\s*).*$", lambda m: m.group(1) + (("'%s'" % entity) if entity else "null"), src, count=1)[0]
+src = re.subn(r"(?m)^(\s*project:\s*).*$", lambda m: m.group(1) + "'%s'" % project, src, count=1)[0]
+open(path, "w").write(src)
+print("  wandb ON: log_to_wandb=True, project=%s, entity=%s" % (project, entity or "<your default>"))
+_PY
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
+
 mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
 
 # Row count BEFORE the run — the PASS gate keys on this growing by one.
