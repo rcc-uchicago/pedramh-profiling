@@ -1,0 +1,337 @@
+#!/bin/bash -l
+#PBS -N pangu_val_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:59:00
+#PBS -j oe
+# ============================================================================
+# VALIDATION smoke for PanguWeather SFNO-on-E3SM (ALLDATA config) on Polaris.
+# Added BESIDE polaris_train_e3sm_sfno_alldata_smoke.pbs; nothing existing is
+# edited.
+#
+# WHY (the gap this closes): every prior smoke here gated on the bench harness,
+# whose finalizer sys.exit(0)s BEFORE the epoch loop reaches validate_one_epoch
+# (train.py:969). So no job had ever executed validation — the very phase where
+# (a) a first-validation OOM is predicted on the 4x A100-40GB (validation runs
+# before the first checkpoint save, train.py:1001: OOM there = train ~2 h, die,
+# requeue, zero progress forever), and (b) the utils/metrics.py CPU-climatology
+# fix for it has never been executed by anyone.
+#
+# WHAT IT RUNS: one REAL (tiny) epoch — NO bench env. torchrun launches
+# run_validation_smoke.py, which executes train.py unmodified after hooking
+# utils.metrics.create_metrics_aggregator_new (sole call site = the top of
+# validate_one_epoch, train.py:2036) to measure the validation-window GPU peak.
+# See that file's header for why the interception is sound.
+#
+# CONFIG VALUES (patched into the RENDERED copy only; template untouched):
+#   train_year_end 2045 -> 2016   1 train year = 1460 samples / (bs1 x 4 ranks)
+#                                 = 365 optimizer steps/rank. Job 7258626
+#                                 measured 0.603 s/step at 162 channels, so the
+#                                 whole training epoch is ~4 min at our 108 —
+#                                 this is the step cap, no harness needed, and
+#                                 nothing about it can skip validation:
+#                                 validate_one_epoch is unconditional in the
+#                                 epoch body (train.py:969).
+#   val_year_end 2049 -> 2046    1 val year = 1460 dates; max_inference_idx =
+#                                 1460-60 = 1400 > 0, and the linspace endpoint
+#                                 IC (idx 1400) rolled 60 steps targets exactly
+#                                 2046-01-01 00:00 = 2046_0000.h5, which is
+#                                 staged (same argument as the template's own
+#                                 2049 note). The climatology — the tensor the
+#                                 OOM prediction is about — is [365-day x full
+#                                 channel set] and does NOT depend on how many
+#                                 val years are configured, so shrinking the
+#                                 range changes duration, not peak memory.
+#   num_inferences 128 -> 8      -> 9 ICs (loader draws num+1 linspace points,
+#                                 data_loader_multifiles.py:507) -> 3 val
+#                                 batches/rank. Peak GPU memory during
+#                                 validation is per-batch (rollout transients +
+#                                 the [1,60,C,H,W] targets are allocated at the
+#                                 same size every batch; metrics accumulators
+#                                 are sized by lead_times x channels, NOT by IC
+#                                 count) — more ICs repeat the same allocation
+#                                 pattern, so 9 preserves the peak while cutting
+#                                 the duration ~14x. 3 batches/rank still
+#                                 iterates the loop, catching first-order
+#                                 per-batch growth.
+#   --epochs 1 (CLI)             max_epochs=1 -> exactly one epoch, then a
+#                                 normal exit. No YAML surgery.
+# KEPT AT PRODUCTION VALUES (the whole point):
+#   forecast_lead_times [1, 12, 20, 40, 60]  (roll to lead 60 = what OOMs)
+#   all 5 upper-air variables x 18 levels    (climatology at real size)
+#   batch_size 1, long_validation False      (bias .npy not staged on Polaris —
+#                                             True crashes Trainer init)
+#   Note: diagnostic_gif/spectra/acc are force-disabled at runtime for
+#   sigma-level configs (train.py:4281-4286) — in PRODUCTION runs too, so their
+#   absence here is not a scope reduction.
+#
+# Launcher: torchrun --standalone (never srun). Submit (from PanguWeather/v2.0):
+#   qsub HPC_scripts/polaris_val_e3sm_sfno_alldata_smoke.pbs
+# 1-GPU variant: qsub -v NPROC=1 HPC_scripts/polaris_val_e3sm_sfno_alldata_smoke.pbs
+#
+# PASS = "PANGU_VAL_SMOKE_OK" in pangu_val_smoke.o<jobid>. The gate prints it
+# only if ALL of the following hold — rc=0 alone proves nothing:
+#   * one PANGU_VAL_SMOKE_MEM token per rank. The token is printed from inside
+#     MetricsAggregator.compute(), which train.py calls exactly once per
+#     validation (train.py:2473) AFTER the full batch loop + metrics all_reduce
+#     — a run that never validates cannot emit it;
+#   * "Epoch 1 validation time" in the log (validate_one_epoch RETURNED,
+#     train.py:970 — logged unconditionally);
+#   * valid_loss parsed from train.py's own "diagnostic_logs:" print
+#     (train.py:2627) and FINITE (NaN/Inf fail; note rc stays 0 on a NaN loss
+#     because is_best uses `<=`, so the gate must check, not the exit code);
+#   * climatology tensors on CPU (the metrics.py fix actually in effect);
+#   * Len(inference_idxs): 9 (the loader really got the patched IC count);
+#   * torchrun rc=0.
+# On CUDA OOM the gate prints "ERROR PANGU_VAL_SMOKE_OOM" next to the
+# per-rank pre-validation peaks, so the answer to "does validation fit in
+# 40 GiB?" is unmistakable either way — the measured number is the deliverable.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+# ---- Polaris env — copied verbatim from polaris_train_e3sm_sfno.pbs. The module
+# ordering is per-model on purpose (CLAUDE.md); do not "harmonise" it with another
+# model's block.
+module use /soft/modulefiles
+module load conda
+conda activate base
+# Resolves MEMBER_ROOT (your writable dir), PANGU_AUX (the shared ~17 GB stats +
+# climatology) and the caches. Works for ANY project member.
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg                              # train.py imports matplotlib (headless)
+export OMP_NUM_THREADS=8                            # 64 HW threads / ~8 per rank
+export MKL_NUM_THREADS=8
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+# ---- NO bench harness — that is the entire point of this smoke. PANGU_BENCH=1
+# breaks out of the train loop and exits before validate_one_epoch; the legacy
+# S2S_* names additionally make train.py SystemExit at import. Unset both
+# families so a stale shell/qsub -v cannot quietly turn this back into the
+# steps-only smoke; run_validation_smoke.py refuses to start if any survive.
+unset PANGU_BENCH PANGU_BENCH_WARMUP PANGU_BENCH_STEPS PANGU_BENCH_CSV PANGU_NVTX
+unset S2S_BENCH S2S_BENCH_WARMUP S2S_BENCH_STEPS S2S_BENCH_CSV S2S_NVTX
+
+NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml"
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno_alldata.valsmoke.rendered.yaml"
+RUN_NUM="polaris_val_smoke_${PBS_JOBID%%.*}"
+mkdir -p "${POLARIS_LOG_DIR}"
+RUN_LOG="${POLARIS_LOG_DIR}/pangu_val_smoke_${PBS_JOBID%%.*}.log"
+
+# Smoke bounds (see header for the full justification of each value).
+SMOKE_TRAIN_END="${SMOKE_TRAIN_END:-2016}"   # train 2015->2016 = 1 year = 365 steps/rank
+SMOKE_VAL_END="${SMOKE_VAL_END:-2046}"       # val 2045->2046 = 1 year (2046_0000.h5 exists for the lead-60 endpoint target)
+SMOKE_NUM_INFERENCES="${SMOKE_NUM_INFERENCES:-8}"  # -> 9 ICs -> 3 val batches/rank
+
+echo "=== polaris_val_e3sm_sfno_alldata_smoke: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
+nvidia-smi -L
+polaris_env_report
+echo "python=$(command -v python)"
+echo "val smoke: train 2015->${SMOKE_TRAIN_END}, val 2045->${SMOKE_VAL_END}, num_inferences=${SMOKE_NUM_INFERENCES}, epochs=1, NO bench env"
+echo "run log (tee) -> ${RUN_LOG}"
+
+# ---- preflight: the E3SM auxiliary files must be prepared. climatology.nc is a
+# 16 GB CDF-5 -> NETCDF4 re-encode (~minutes); a truncated/0-byte file crashes
+# train.py at Trainer init. This must run on a COMPUTE node (a login-node
+# background job gets killed mid-write, leaving a 96-byte stub). Auto-run the prep
+# here if the output is missing/truncated, then hard-verify it. ----
+CLIM="${PANGU_AUX}/climatology.nc"
+clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
+if ! clim_ok; then
+    echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
+    ( cd "${V20_DIR}" && PANGU_AUX="${PANGU_AUX}" python polaris_prepare_e3sm_stats.py )
+fi
+python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
+import sys, xarray as xr
+with xr.open_dataset(sys.argv[1]) as ds:
+    assert ds.sizes.get("time") == 365, ds.sizes
+print("preflight OK: climatology time=365")
+PY
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+
+# ---- patch the smoke bounds into the rendered copy (exactly-one-substitution
+# asserts, same pattern as the sibling smoke), then verify the PRODUCTION
+# validation scope survived: the point is allocating the climatology at real
+# size and rolling to lead 60, so the lead times and the 108-channel variable
+# set must be exactly the template's.
+python - "${CONFIG_FILE}" "${SMOKE_TRAIN_END}" "${SMOKE_VAL_END}" "${SMOKE_NUM_INFERENCES}" <<'_PY' || exit 2
+import re, sys
+path, train_end, val_end, num_inf = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+src = open(path).read()
+for key, val in (("train_year_end", train_end), ("val_year_end", val_end),
+                 ("num_inferences", num_inf)):
+    src, n = re.subn(r"(?m)^(\s*%s:\s*)\S+.*$" % key,
+                     lambda m: m.group(1) + "%s   # VAL smoke override" % val,
+                     src, count=1)
+    if n != 1:
+        print("ERROR PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
+        sys.exit(2)
+open(path, "w").write(src)
+
+# -- invariants: production validation scope must be untouched ---------------
+m = re.search(r"(?m)^\s*forecast_lead_times:\s*\[([^\]]*)\]", src)
+leads = [int(s) for s in m.group(1).split(",")] if m else None
+if leads != [1, 12, 20, 40, 60]:
+    print("ERROR INVARIANT_LEAD_TIMES: expected [1, 12, 20, 40, 60], got %s" % leads)
+    sys.exit(2)
+if not re.search(r"(?m)^\s*long_validation:\s*False\b", src):
+    print("ERROR INVARIANT_LONG_VALIDATION: must stay False (bias .npy not staged on Polaris)")
+    sys.exit(2)
+
+def count(key):
+    m = re.search(r"(?m)^\s*%s:\s*\[([^\]]*)\]" % key, src)
+    if m is None:
+        print("ERROR PRECHECK_KEY_MISSING: %s" % key)
+        sys.exit(2)
+    body = m.group(1).strip()
+    return len([s for s in body.split(",") if s.strip()]) if body else 0
+
+nlev = int(re.search(r"(?m)^\s*num_levels:\s*(\d+)", src).group(1))
+n_upper = count("upper_air_variables")
+n_surf, n_land = count("surface_variables"), count("land_variables")
+n_diag = count("diagnostic_variables")
+n_const, n_vary = count("constant_boundary_variables"), count("varying_boundary_variables")
+total = n_upper * nlev + n_surf + n_land + n_diag + n_const + n_vary
+in_chans = n_upper * nlev + n_surf + n_land + n_vary + n_const   # sfnonet.py:762-765
+out_chans = n_upper * nlev + n_surf + n_land + n_diag
+if (n_upper, total) != (5, 108):
+    print("ERROR PRECHECK_CHANNELS: expected 5 upper-air vars / 108 archive channels, "
+          "config yields %d / %d" % (n_upper, total))
+    sys.exit(2)
+print("PRECHECK_OK total_channels=%d in_chans=%d out_chans=%d leads=%s "
+      "(train_year_end=%s val_year_end=%s num_inferences=%s)"
+      % (total, in_chans, out_chans, leads, train_end, val_end, num_inf))
+_PY
+echo "rendered+patched config -> ${CONFIG_FILE}"
+
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
+# --epochs 1 -> max_epochs=1 -> exactly one train epoch, then the UNCONDITIONAL
+# validate_one_epoch (train.py:969), then a normal exit. No bench env, so nothing
+# exits early. Never --debug: it hardcodes world_size=1 -> 4 ranks on GPU 0 -> OOM.
+echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    run_validation_smoke.py \
+    --yaml_config="${CONFIG_FILE}" \
+    --run_num="${RUN_NUM}" \
+    --config=SFNO \
+    --fresh_start \
+    --epochs 1 2>&1 | tee "${RUN_LOG}"
+rc=${PIPESTATUS[0]}
+echo "--- torchrun rc=${rc} ---"
+
+# ---- PASS gate: key on validation evidence in the tee'd log, never on rc alone.
+python - "${RUN_LOG}" "${rc}" "${NPROC}" <<'_GATE'
+import math, re, sys
+
+log_path, rc, nproc = sys.argv[1], int(sys.argv[2]), int(sys.argv[3])
+txt = open(log_path, errors="replace").read()
+
+def fail(code, msg, context=()):
+    print("ERROR %s: %s" % (code, msg))
+    for line in context:
+        print("    " + line.strip()[:300])
+    sys.exit({"PANGU_VAL_SMOKE_OOM": 4}.get(code, 5))
+
+# 1) OOM is the headline failure this smoke exists to expose — report it first,
+#    with the pre-validation peaks, whatever the exit code was.
+oom_markers = ("CUDA out of memory", "OutOfMemoryError", "CUDA error: out of memory")
+if any(m in txt for m in oom_markers):
+    ctx = [l for l in txt.splitlines()
+           if "PANGU_VAL_SMOKE_PRE" in l or "out of memory" in l.lower()][:12]
+    fail("PANGU_VAL_SMOKE_OOM",
+         "CUDA OOM in the run log — validation does NOT fit on the 40 GB A100s "
+         "as configured. Pre-validation peaks per rank below; full traceback above.",
+         ctx)
+
+if rc != 0:
+    ctx = [l for l in txt.splitlines() if "Error" in l or "ERROR" in l][-12:]
+    fail("PANGU_VAL_SMOKE_RC", "torchrun exited %d without a CUDA OOM — read the "
+         "traceback in the log above." % rc, ctx)
+
+# 2) The MEM token is printed only from inside MetricsAggregator.compute(), i.e.
+#    only after that rank finished its whole validation loop + metrics all_reduce.
+mem = re.findall(r"PANGU_VAL_SMOKE_MEM rank=(\d+) val_peak_gib=([0-9.]+) "
+                 r"val_peak_reserved_gib=([0-9.]+) train_peak_gib=([0-9.]+) "
+                 r"overall_peak_gib=([0-9.]+) metrics_finite=(\w+)", txt)
+if len(mem) < nproc:
+    fail("PANGU_VAL_SMOKE_NO_VALIDATION",
+         "only %d/%d ranks emitted PANGU_VAL_SMOKE_MEM — validation did not run to "
+         "completion on every rank (rc was 0: exactly the silent skip this gate exists "
+         "to catch; check for a bench env or an early exit)." % (len(mem), nproc))
+if any(m[5] != "True" for m in mem):
+    fail("PANGU_VAL_SMOKE_NONFINITE_METRICS",
+         "MetricsAggregator.compute() produced non-finite RMSE/ACC on some rank.",
+         ["rank=%s metrics_finite=%s" % (m[0], m[5]) for m in mem])
+
+# 3) validate_one_epoch RETURNED (train.py:970 — unconditional logging).
+if not re.search(r"Epoch \d+ validation time: [0-9.]+ seconds", txt):
+    fail("PANGU_VAL_SMOKE_NO_RETURN",
+         "'Epoch N validation time' never logged — validate_one_epoch did not return.")
+
+# 4) The loader actually received the patched IC count (9 = num_inferences 8 + 1).
+if "Len(inference_idxs): 9" not in txt:
+    fail("PANGU_VAL_SMOKE_IC_COUNT",
+         "'Len(inference_idxs): 9' not in log — the validation loader did not get the "
+         "patched num_inferences (peak claim would still hold, duration would not).")
+
+# 5) The fix under test: climatology tensors must be on CPU.
+clim = re.findall(r"PANGU_VAL_SMOKE_CLIM_DEVICE rank=\d+ (\S+)", txt)
+if len(clim) < nproc:
+    fail("PANGU_VAL_SMOKE_NO_CLIM_EVIDENCE",
+         "missing PANGU_VAL_SMOKE_CLIM_DEVICE lines (%d/%d)." % (len(clim), nproc))
+if any("cuda" in c for c in clim):
+    fail("PANGU_VAL_SMOKE_CLIM_ON_GPU",
+         "climatology tensors resolved to a CUDA device — the utils/metrics.py "
+         "CPU-climatology fix is NOT in effect; this run measured the wrong code.",
+         clim)
+
+# 6) valid_loss from train.py's own print (train.py:2627), and it must be finite.
+#    (rc stays 0 on a NaN loss — is_best uses `<=`, which is simply False for NaN.)
+losses = re.findall(r"'valid_loss': tensor\(([^,)]+)", txt)
+parsed = []
+for tok in losses:
+    try:
+        parsed.append(float(tok))
+    except ValueError:
+        pass
+if not parsed:
+    fail("PANGU_VAL_SMOKE_LOSS_UNPARSED",
+         "could not parse valid_loss from any rank's diagnostic_logs print — "
+         "inspect the log; the dict lines may be interleaved.")
+if any(math.isnan(v) or math.isinf(v) for v in parsed):
+    fail("PANGU_VAL_SMOKE_LOSS_NONFINITE",
+         "valid_loss is non-finite: %s" % parsed)
+
+val_peak = max(float(m[1]) for m in mem)
+val_reserved = max(float(m[2]) for m in mem)
+train_peak = max(float(m[3]) for m in mem)
+overall = max(float(m[4]) for m in mem)
+tot = re.search(r"device_total_gib=([0-9.]+)", txt)
+total_gib = float(tot.group(1)) if tot else float("nan")
+
+print("PANGU_VAL_SMOKE_OK valid_loss=%.6f val_peak_gib_max_rank=%.3f "
+      "val_peak_reserved_gib_max_rank=%.3f train_peak_gib_max_rank=%.3f "
+      "overall_peak_gib=%.3f device_total_gib=%.3f headroom_gib=%.3f "
+      "ranks=%d num_inferences=8 lead_times=1,12,20,40,60"
+      % (parsed[0], val_peak, val_reserved, train_peak, overall,
+         total_gib, total_gib - max(overall, val_reserved), nproc))
+_GATE
+gate_rc=$?
+
+echo "=== polaris_val_e3sm_sfno_alldata_smoke done (torchrun rc=${rc}, gate rc=${gate_rc}) $(date -Iseconds) ==="
+exit ${gate_rc}

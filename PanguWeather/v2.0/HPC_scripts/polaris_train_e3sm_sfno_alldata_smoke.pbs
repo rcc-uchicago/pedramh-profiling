@@ -115,7 +115,9 @@ sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" 
 # recompute the channel count from the patched text as a cheap precheck. The
 # REAL proof is the training step below — this just fails fast on a mangled
 # variable list instead of 20 minutes into Trainer init.
-python - "${CONFIG_FILE}" "${SMOKE_TRAIN_END}" "${SMOKE_VAL_END}" <<'_PY' || exit 2
+# Captured (not just echoed) so the success token can ECHO the measured shape instead of
+# restating it — see the ALLDATA_SMOKE_OK line at the end.
+PRECHECK_OUT=$(python - "${CONFIG_FILE}" "${SMOKE_TRAIN_END}" "${SMOKE_VAL_END}" <<'_PY'
 import re, sys
 path, train_end, val_end = sys.argv[1], sys.argv[2], sys.argv[3]
 src = open(path).read()
@@ -144,12 +146,20 @@ n_const, n_vary = count("constant_boundary_variables"), count("varying_boundary_
 total = n_upper * nlev + n_surf + n_land + n_diag + n_const + n_vary
 in_chans = n_upper * nlev + n_surf + n_land + n_vary + n_const   # sfnonet.py:762-765
 out_chans = n_upper * nlev + n_surf + n_land + n_diag
-if total != 162:
-    print("ERROR PRECHECK_CHANNELS: expected 162 archive channels, config yields %d" % total)
+# PINNED, deliberately: 108 = the archive's 162 minus the 54 cloud channels
+# (CLDICE/CLDLIQ/CLOUD x 18 levels), excluded from ALL models by the science owner
+# 2026-07-16. This gate is the loud proof that the config still matches what this smoke's
+# success token advertises — re-enabling clouds must fail here, not silently print the
+# wrong shape. (It read 162 until 2026-07-16 and would now reject its own config.)
+if total != 108:
+    print("ERROR PRECHECK_CHANNELS: expected 108 channels (162 archive - 54 cloud), "
+          "config yields %d — did upper_air_variables change?" % total)
     sys.exit(2)
 print("PRECHECK_OK total_channels=%d in_chans=%d out_chans=%d (train_year_end=%s val_year_end=%s)"
       % (total, in_chans, out_chans, train_end, val_end))
 _PY
+) || { echo "${PRECHECK_OUT}"; exit 2; }
+echo "${PRECHECK_OUT}"
 echo "rendered+patched config -> ${CONFIG_FILE}"
 
 mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
@@ -181,6 +191,12 @@ echo "--- smoke row recorded (n=${PANGU_BENCH_STEPS} tiny-step SMOKE — never c
 head -1 "${PANGU_BENCH_CSV}"
 tail -1 "${PANGU_BENCH_CSV}"
 peak_mem=$(tail -1 "${PANGU_BENCH_CSV}" | awk -F, '{print $17}')   # peak_mem_gb_max_rank
-echo "ALLDATA_SMOKE_OK channels=162 in_chans=159 out_chans=155 steps=$((PANGU_BENCH_WARMUP + PANGU_BENCH_STEPS)) peak_mem_gb=${peak_mem}"
+# The shape is ECHOED from PRECHECK_OK, never restated: a token that hardcodes its own
+# numbers lies the moment the config changes (this one advertised 162/159/155 for hours
+# after the config went to 108). ${shape} is empty if the precheck line is missing, which
+# would itself be a bug — so key on it.
+shape=$(printf '%s\n' "${PRECHECK_OUT}" | grep -m1 '^PRECHECK_OK ' \
+        | sed -E 's/^PRECHECK_OK (total_channels=[0-9]+ in_chans=[0-9]+ out_chans=[0-9]+).*/\1/')
+echo "ALLDATA_SMOKE_OK ${shape:-SHAPE_UNKNOWN} steps=$((PANGU_BENCH_WARMUP + PANGU_BENCH_STEPS)) peak_mem_gb=${peak_mem}"
 echo "=== polaris_train_e3sm_sfno_alldata_smoke done (torchrun rc=${rc}) $(date -Iseconds) ==="
 exit ${rc}

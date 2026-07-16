@@ -51,8 +51,17 @@ Every number here was **measured from the archive** on 2026-07-16, or read from 
 | `PCT_GLACIER` | 1 | `unitless` ⚠ | float32 | 0 … 100 | 62.65 | 45.29 | P N M | R11 |
 | `PCT_NATVEG` | 1 | `unitless` ⚠ | float32 | 0 … 100 | 62.65 | 44.58 | P N · | R11 |
 
-**Used by:** `P` = PanguWeather (108 ch), `N` = PhysicsNeMo (162 ch), `M` = makani (59 ch, 10/18 levels).
-`·` = not read. Counts verified independently; makani keeps only the **lowest 10** of 18 levels.
+**Used by:** `P` = PanguWeather (108 ch), `N` = PhysicsNeMo (108 ch), `M` = makani (59 ch locked
+path / 108 ch all-data path). `·` = not read.
+
+> **Updated 2026-07-16 — the cloud rows below are now historical.** The science owner excluded
+> `CLDICE`/`CLDLIQ`/`CLOUD` from **all** models, so all three pipelines read the same **108 of
+> 162** channels and the "not used" marks are now unanimous for clouds. PhysicsNeMo went
+> **162 → 108** (predicted **157 → 103**, unpredicted 5) via `EXCLUDED_VARS` in
+> `physicsnemo_sfno/polaris/e3sm_h5_to_seqzarr.py`; makani's all-data path packs 100 state + 1
+> diag + 7 forcing (`convert_e3sm_to_makani_alldata.py`). makani's **locked** 52/1/6 path still
+> keeps only the lowest 10 of 18 levels — that contract is frozen for PlaSim comparability.
+> The per-variable measurements below are unaffected: they are properties of the archive.
 
 ### Roles and NaN fills, per pipeline
 
@@ -266,7 +275,8 @@ are milder there than their entry above implies; only R1 clearly matters, and it
 **Verified** — measured directly this session, and independently re-measured by an adversarial
 agent over a disjoint 280-file sample: units, dtypes, ranges, NaN fractions and masks, σ per
 channel, the frozen boundary (R2), both fill/stats findings (R3, R4), the 270 provenance (R4),
-the channel counts 108/162/59, the role split, the 16 dead channels (R5), the BatchNorm
+the channel counts **as they were on 2026-07-15** (108/162/59 — superseded that same day by the
+cloud exclusion; now 108 for all three), the role split, the 16 dead channels (R5), the BatchNorm
 arithmetic (R1).
 
 **Not verified:**
@@ -283,8 +293,10 @@ arithmetic (R1).
 
 ## Volume — the budget in circulation is ~2× wrong
 
-Measured **2.15 TB** source (51,100 × 42,051,856 B). A full 162-channel float32 uncompressed
-PhysicsNeMo store is **also ~2.15 TB**; makani's 59-channel pack ~0.78 TB.
+Measured **2.15 TB** source (51,100 × 42,051,856 B) — that is the archive, and it still holds all
+162 channels. **A PhysicsNeMo store is now ~1.43 TB**, not 2.15: the 2026-07-16 cloud exclusion
+drops 54 of 162 channels (−33.3%), leaving 103 predicted + 5 unpredicted. makani: ~0.78 TB for the
+locked 59-channel pack, ~1.43 TB for the 108-channel all-data pack.
 `polaris_data_prep_handoff_prompt.md` repeats **"~1 TB"** throughout. It also records the project
 at **15.18 TB against a 15 TB quota** (2026-07-15). **Check `myquota` before any conversion** —
 dropping the 42 R1/R5 channels would cut ~26% of the store.

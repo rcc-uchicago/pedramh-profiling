@@ -56,8 +56,15 @@ These are the ways to silently break the project. Do not do them.
    evidence, since the name argues the opposite: `train_optimized.py:424` still
    wraps DDP with `find_unused_parameters=True`, while `train.py:450-451` uses
    `find_unused_parameters=False, static_graph=True` — the newer, faster path.
-5. **Never edit shared `s2s/v2.0/` code to satisfy one harness.** It's imported by
-   S2S *and* the Lightning port — changes must serve both; re-run both smokes.
+5. **Never edit live-coupled code to satisfy one consumer.** Two pairs are coupled
+   (§Repo architecture): (a) `s2s/v2.0/` is imported by S2S *and* the Lightning
+   port — changes must serve both; re-run both smokes. (b) `physicsnemo_sfno/` is
+   editable-installed into the shared SFNO venv and **makani imports it** — a
+   change there must serve makani too; re-run both SFNO smokes.
+   **Scope: those two pairs.** This rule does **not** reach `PanguWeather/` or
+   `si/`, which are copies — a same-named file there (e.g. `utils/metrics.py`,
+   which `s2s/v2.0/` does not even have) has a blast radius of exactly its own
+   project. Check the table before assuming either way.
 6. **Never commit an optimization without (a) a passing smoke and (b) an
    equivalence check** against the baseline. No exceptions.
 7. **Never break the Midway (SLURM) path when adding Polaris (PBS) scripts.**
@@ -209,13 +216,45 @@ port must NOT).
 
 ## Repo architecture
 
-See **DESIGN.md §2–3** for the model pipeline and how the three relate. Short
-version: `s2s/v2.0/` holds the shared model (`networks/pangu.py::PanguModel_Plasim`),
-losses (`utils/losses.py`), and HDF5 loaders (`utils/data_loader_multifiles.py`);
-`s2s-lightning/` imports that code and wraps it in Lightning; `si/` is the separate
-SI (stochastic-interpolants) model (with its own `si/CLAUDE.md` for SI-specific
-bench details). `PYTHONPATH` must include `s2s/v2.0` for any `from utils…`/`from
-networks…` import.
+**TWO pairs are live-coupled; the rest borrow by copy.** Know which you are in before you
+edit — "these are separate projects" is true of some pairs and dangerously false of others.
+See **DESIGN.md §2** for all six.
+
+| pair | coupling | what that means |
+|---|---|---|
+| `s2s/v2.0/` ↔ `s2s-lightning/` | **live, by PYTHONPATH import** | the port has no copy — an edit in `s2s/v2.0/` changes both. **Rule #5.** `PYTHONPATH` must include `s2s/v2.0` for the port's `from utils…`/`from networks…` |
+| `physicsnemo_sfno/` → `makani_sfno/` | **live, by EDITABLE install** ⚠ | `polaris_setup_sfno_venv.sh:78-79` pip-installs makani from a **GitHub pin** and `physicsnemo_sfno` as `-e` (editable) into **one shared venv**; the `.pth` points into this repo, and makani imports physicsnemo (`makani/utils/comm.py:19`). **An edit to `physicsnemo_sfno/physicsnemo/` changes what makani jobs execute.** Nothing in either directory says so |
+| `PanguWeather/` ← `s2s/v2.0/` | **copy** (fork) | ~95% identical, no import. Fixes do **not** propagate — §2c. But see the instrumentation exception below |
+| `si/`, and everything else | **copy / unrelated** | borrow freely; no live coupling |
+
+**makani is NOT vendored in this repo** — zero files; it is a pip pin
+(`git+https://github.com/NVIDIA/makani.git@<pin>`). Only `physicsnemo_sfno/` is an in-repo tree.
+Corollary: PhysicsNeMo's SFNO *is* makani's model (entry point
+`[physicsnemo.models] SFNO = makani.models.networks.sfnonet:SFNO`) — the two "separate" SFNO
+projects run the same class.
+
+**One rule DOES span the copy boundary, by design:** #10. `PanguWeather/v2.0/train.py:206` pins
+its NVTX range names to `s2s/v2.0/train.py:188`, and
+`PanguWeather/v2.0/test/bench_instrumentation_test.py` asserts s2s's CSV columns — so the two
+forks' benchmarks stay comparable. Bench *knobs* are per-project (`PANGU_*` vs `S2S_*`); range
+names and CSV columns are **shared contract**. Do not "fix" that asymmetry.
+
+`s2s/v2.0/` holds the shared model (`networks/pangu.py::PanguModel_Plasim`), losses
+(`utils/losses.py`), HDF5 loaders (`utils/data_loader_multifiles.py`); `si/` is the
+separate SI model (own `si/CLAUDE.md`).
+
+> ### ⚠ Independence is enforced by `PYTHONPATH` ORDER, not by structure
+> `s2s/v2.0/` and `PanguWeather/v2.0/` export the **same top-level module names**
+> (`utils`, `networks`, `config`) and both import **unqualified** (`from networks.pangu
+> import …`). So `networks.pangu` resolves to **whichever tree is first on `PYTHONPATH`** —
+> and the two `networks/pangu.py` differ by **106 lines** (measured 2026-07-16). A leaked or
+> mis-ordered `PYTHONPATH` silently runs one project's trainer against the other's model.
+> **Set `PYTHONPATH` to exactly one tree.** Never both.
+>
+> Corollary — **do not carry a rule across the boundary**. `s2s/v2.0/utils/metrics.py` does
+> not even exist; PanguWeather's copy is imported only by its own `train.py`. Citing rule #5
+> (which exists because the *port imports* `s2s/v2.0`) about a PanguWeather file is a category
+> error — it happened in this repo, and it cost real work.
 
 **Where to look:** measured evidence → `s2s/v2.0/bench_report.md`,
 `si/bench_midway_notes.md`, `s2s-lightning/LIGHTNING_PORT.md` (+ the port-vs-v2.0
