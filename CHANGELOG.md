@@ -145,6 +145,27 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-03** — **TSOI_10CM ocean fill changed `0.0 → 270 K`, and a 103-var E3SM SeqZarr
+  regeneration submitted** — branch `fix/tsoi-fill-270`, commit `aa43824a`. rmehta1987's
+  decision after establishing that `0.0` is 0 K over the ~61% ocean (out-of-distribution — the
+  ~268 K coastline cliff dominates BatchNorm's σ and starves the channel ~26× of gradient, R3),
+  while **270** is mid-distribution (land mean 268 K) and matches PanguWeather's own
+  `mask_fill['TSOI_10CM']=270.`. Because PhysicsNeMo normalizes online (BatchNorm), fill and
+  stats can't disagree — the old "keep 0.0" reason (npz stats at 0-fill) doesn't apply here.
+  - **⚠ SCIENCE CHANGE — needs jesswan's sign-off** before any resulting model's numbers are
+    reported (DESIGN §1). Made explicitly + recorded (store `nan_fill` attr + here), not silently.
+    `verify_seqzarr.py` imports `NAN_FILL`, so it checks the 270 placement automatically.
+  - **Jobs:** verify `7324097` (debug, N=120 random draw + exhaustive bitwise incl. TSOI=270;
+    PASS=`SEQZARR_VERIFIED`) → full `7324098` (preemptable, **HELD** on
+    `-W depend=afterok:7324097`; runs only if verify exits 0). **Output →
+    `/eagle/.../members/mehta5/e3sm_seqzarr_allyears_tsoi270`** (`e3sm_train.zarr` 2015–2046 +
+    `e3sm_val.zarr` 2047–2049, 103+5 ch, ~1.43 TB, ~11 h). **Quota OK: 16.17 / 50 TB used** (the
+    old 15 TB / 1.86 TB-free note below is stale — quota was raised).
+  - **⚠ Operational:** the PBS jobs read the converter from the **working tree at runtime**, so
+    keep the checkout on `fix/tsoi-fill-270` (TSOI=270) until `7324098` finishes; the produced
+    store's `nan_fill` attr is the post-hoc proof it used 270. This regen is the field-set that
+    **matches PanguWeather** (clouds excluded + all 7: PS/TMQ/RHREFHT/FSNT/FSNTOA/SOILWATER/TSOI).
+
 - **2026-07-16** — **The runbook survived a 3-agent gauntlet (2 adversarial + 1 cold, Fable 5),
   which refuted four of its claims and surfaced one operational blocker; all fixed, plus the
   no-babysitting mechanics the owner asked for.**
