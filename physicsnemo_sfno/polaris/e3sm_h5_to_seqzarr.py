@@ -87,16 +87,23 @@ FIRST_YEAR = 2015
 # reviewed by humans or not at all, so it is recorded into the store's attrs. Measured
 # facts to review it against (from the archive, not from a variable name):
 #   SST        degC, ocean range [-1.80, 32.21]  -> -1.8 is the physical min, in-distribution
-#   TSOI_10CM  KELVIN, land mean 268 K           -> 0.0 is 0 K over ocean: OUT of distribution
+#   TSOI_10CM  KELVIN, land mean 268 K           -> 270 sits mid-distribution, in-distribution
 #   ICE        fraction [0, 1]                   -> 0.0 fine
-# The TSOI_10CM fill is inherited and left alone deliberately: changing it changes what the
-# model learns (DESIGN §1 — the science is frozen), and the E3SM npz stats were themselves
-# computed under a 0-fill convention for that field. Flagged, not silently "fixed".
+# TSOI_10CM was CHANGED from 0.0 to 270 on 2026-08-03 (rmehta1987's decision, for a 103-var
+# regeneration). Rationale: 0.0 is 0 K over the ~61% ocean — out-of-distribution, it builds a
+# ~268 K coastline cliff that dominates BatchNorm's estimated sigma and draws ~26x less gradient
+# to the channel (data_for_training.md R3). 270 is mid-distribution (land mean 268 K) and matches
+# PanguWeather (E3SM_SFNO_H5_POLARIS.yaml mask_fill['TSOI_10CM']=270.). This normalizes online
+# via BatchNorm, so the fill and the stats can never disagree (no stale npz to recompute — the
+# reason the old note kept 0.0 no longer applies here).
+# ⚠ This is a SCIENCE change (it changes what the model learns) — per DESIGN §1 it needs
+# jesswan's sign-off before any resulting model's numbers are reported. Changed explicitly and
+# recorded (into the store attrs + CHANGELOG), NOT silently.
 NAN_FILL = {
     "SST": -1.8,            # degC — freezing seawater (matches the makani packer)
     "ICE": 0.0,             # sea-ice fraction
     "SOILWATER_10CM": 0.0,
-    "TSOI_10CM": 0.0,       # ⚠ Kelvin field; 0.0 == 0 K over ocean. See the box above.
+    "TSOI_10CM": 270.0,     # Kelvin — mid-distribution (land mean 268 K); matches PanguWeather. See box.
     "TOPO": 0.0,            # m
     "PFTDATA_MASK": 0.0,
     "PCT_GLACIER": 0.0,
