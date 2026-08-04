@@ -1,0 +1,131 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_e3sm_convert
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=02:00:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# E3SM h5 -> ai-rossby per-year Zarr, at PanguWeather variable parity, then
+# verify each store bitwise against its source.
+#
+# Layout it produces (the loader globs `*.zarr` under the train/ and val/ dirs,
+# so the normalization store MUST live in its own sibling dir or the glob tries
+# to load it as a year of data and crashes):
+#
+#   $AI_ROSSBY_DATA/e3sm/train/<year>.zarr
+#   $AI_ROSSBY_DATA/e3sm/val/<year>.zarr
+#   $AI_ROSSBY_DATA/e3sm/norm/normalization_2015-2050.zarr   (built separately,
+#       on a LOGIN node, by tools/data/e3sm/build_normalization_zarr.py)
+#
+# ⚠ ONE-TIME SETUP (LOGIN NODE — this needs outbound network):
+#     bash <repo>/polaris_setup_ai_rossby_venv.sh      # PASS = "AI_ROSSBY_VENV_OK"
+#
+# Submit (defaults: 1 train year + 1 val year, matching the PanguWeather
+# Polaris smoke split):
+#     qsub polaris/polaris_e3sm_pangu_convert.pbs
+# Override:
+#     qsub -v TRAIN_YEARS="2015 2016",VAL_YEARS="2045" polaris/polaris_e3sm_pangu_convert.pbs
+#
+# PASS = one "PANGU_STORE_VERIFIED" per store + "CONVERT_ALL_OK" at the end.
+# Keying on the exit code alone is not enough — the converter can write a
+# well-formed store with transposed channels and exit 0.
+#
+# Cost: ~61 GB of h5 read per year (1460 files x ~42 MB); the output store is
+# ~41 GB/year (108 of 162 channels). Budget ~20 min/year.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/tools/data/e3sm" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+PY="${AI_ROSSBY_VENV}/bin/python"
+
+# physicsnemo is installed EDITABLE into that venv, so it imports from whatever
+# checkout built it. Converting with one tree's channel lists and training with
+# another's is exactly the silent-mismatch class this whole pipeline guards
+# against — so refuse rather than warn.
+VENV_PN="$(${PY} -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    echo "  Rebuild the venv from THIS checkout: bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+
+H5_DIR="${E3SM_ROOT}/h5/plev_data"
+OUT="${AI_ROSSBY_DATA}/e3sm"
+NORM="${OUT}/norm/normalization_2015-2050.zarr"
+TRAIN_YEARS="${TRAIN_YEARS:-2015}"
+VAL_YEARS="${VAL_YEARS:-2045}"
+# One process per core for the h5 reads; the job owns the whole node.
+NWORKERS="${NWORKERS:-32}"
+
+[ -d "${H5_DIR}" ] || { echo "ERROR E3SM_H5_MISSING: ${H5_DIR}"; exit 3; }
+[ -d "${NORM}" ] || {
+    echo "ERROR NORM_STORE_MISSING: ${NORM}"
+    echo "  Build it on a login node (seconds):"
+    echo "    ${PY} ${AR_ROOT}/tools/data/e3sm/build_normalization_zarr.py \\"
+    echo "      --source-dir \${PANGU_AUX} --std data_2015-2050_std_corr.nc \\"
+    echo "      --output ${NORM}"
+    exit 3
+}
+
+polaris_env_report
+echo "--- convert ---"
+echo "  h5 source   = ${H5_DIR}"
+echo "  output root = ${OUT}"
+echo "  train years = ${TRAIN_YEARS}"
+echo "  val years   = ${VAL_YEARS}"
+echo "  workers     = ${NWORKERS}"
+echo
+
+rc=0
+convert_and_verify() {   # $1 = split (train|val), $2 = year
+    local split="$1" year="$2"
+    local store="${OUT}/${split}/${year}.zarr"
+    echo "=========== ${split}/${year} -> ${store}"
+    mkdir -p "${OUT}/${split}"
+    ${PY} "${AR_ROOT}/tools/data/e3sm/pangu_h5_to_zarr.py" \
+        --input-dir "${H5_DIR}" \
+        --year "${year}" \
+        --output "${store}" \
+        --n-workers "${NWORKERS}" \
+        --overwrite || { echo "ERROR CONVERT_FAILED ${split}/${year}"; return 1; }
+    ${PY} "${AR_ROOT}/polaris/verify_pangu_store.py" \
+        --store "${store}" \
+        --h5-dir "${H5_DIR}" \
+        --norm "${NORM}" \
+        --n-samples "${VERIFY_SAMPLES:-8}" || return 1
+    return 0
+}
+
+for y in ${TRAIN_YEARS}; do convert_and_verify train "${y}" || rc=1; done
+for y in ${VAL_YEARS};   do convert_and_verify val   "${y}" || rc=1; done
+
+echo
+if [ "${rc}" -eq 0 ]; then
+    echo "CONVERT_ALL_OK  train=[${TRAIN_YEARS}] val=[${VAL_YEARS}]"
+else
+    echo "ERROR CONVERT_ALL_FAILED"
+fi
+exit "${rc}"
