@@ -73,19 +73,34 @@ PLANNED = {
         925.5197481473349,
         998.4964394917621,
     ],
-    # Parity fills: reuse PanguWeather's `mask_fill` verbatim. SST and TSOI_10CM
-    # are filled in-distribution at 270; every other masked field fills at 0.
-    # (A masked-stats recompute with SST=-1.8 is the documented fast-follow.)
+    # CORRECTED fills (2026-08-04). Every masked field fills in-distribution.
+    # Parity with PanguWeather is asserted on the VARIABLE SET — names, roles,
+    # order, levels. It is deliberately NOT asserted on this fill map any more:
+    # `SST: 270` was a Kelvin constant on a degC field, and both pipelines are
+    # being retrained with the correction rather than reproducing the defect.
+    # See LEGACY_FILLS for what the untouched reference configs still carry.
     "fills": {
         "SOILWATER_10CM": 0.0,
-        "TSOI_10CM": 270.0,
+        "TSOI_10CM": 270.0,   # K — unchanged; the defect was its STATS, not this
         "PCT_GLACIER": 0.0,
         "PFTDATA_MASK": 0.0,
         "PCT_NATVEG": 0.0,
         "TOPO": 0.0,
-        "SST": 270.0,
+        "SST": -1.8,          # degC — freezing seawater (was 270)
         "ICE": 0.0,
     },
+}
+
+# What jesswan's untouched `_jsw` reference configs still carry. Kept so the
+# ground-truth check can tell an INTENDED correction from an accidental drift:
+# a difference here that is not in CORRECTIONS is a real failure.
+LEGACY_FILLS = {**PLANNED["fills"], "SST": 270.0}
+
+# Fills we deliberately changed, and why. Anything outside this set must match.
+CORRECTIONS = {
+    "SST": ("270 -> -1.8", "270 was a Kelvin constant on a degC field measuring "
+                           "[-1.80, 32.92]; -1.8 is the seawater freezing point the "
+                           "data already clamps to, and matches physicsnemo + makani."),
 }
 
 VAR_GROUPS = [
@@ -270,9 +285,20 @@ def check_ground_truth(path: Path) -> int:
     for g in VAR_GROUPS:
         _cmp(f"{g} (names + order)", gt[g], PLANNED[g], results)
     _cmp_levels("levels (values + order)", gt["levels"], PLANNED["levels"], results)
-    _cmp("mask fills", gt["fills"], PLANNED["fills"], results)
+    # Fills are compared against LEGACY, not PLANNED: the variable set must be
+    # identical, but the fill map has intentionally diverged (see CORRECTIONS).
+    # This still catches accidental drift — only the listed keys may differ.
+    _cmp("mask fills (vs legacy, corrections excluded)",
+         {k: v for k, v in gt["fills"].items() if k not in CORRECTIONS},
+         {k: v for k, v in LEGACY_FILLS.items() if k not in CORRECTIONS}, results)
     _cmp("total field count", n_channels(gt), n_channels(PLANNED), results)
-    return report(results, f"PLANNED vs ground truth ({path.name})")
+    rc = report(results, f"PLANNED vs ground truth ({path.name})")
+    print("\n  Intentional fill corrections (NOT parity failures):")
+    for var, (change, why) in CORRECTIONS.items():
+        ref = gt["fills"].get(var)
+        print(f"    {var}: {change}   [reference config still has {ref}]")
+        print(f"      {why}")
+    return rc
 
 
 def check_artifacts(model: Path, dataset: Path, converter: Path, store: Path | None) -> int:

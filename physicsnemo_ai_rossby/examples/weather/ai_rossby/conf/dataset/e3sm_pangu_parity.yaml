@@ -47,26 +47,31 @@ persistent_workers: True
 pin_memory: True
 shuffle: True
 
-# --- NaN fills — PanguWeather `mask_fill` parity ----------------------------
+# --- NaN fills — CORRECTED (parity on variables, not on the defective fill) --
 # The converter preserves raw NaN; filling happens here, on inputs.
-# Two fields at 270, everything else at 0 — exactly
-# E3SM_SFNO_H5_STAMPEDE_jsw.yaml:66-73. Asserted by
-# ai_rossby_variable_contract.py --check-artifacts.
 #
-#   TSOI_10CM = 270 K is right: soil temperature is KELVIN and the valid-land
-#   mean is 268 K, so 270 is effectively a mean-fill (0.02 sigma out).
+#   TSOI_10CM = 270 K — UNCHANGED and correct. Soil temperature is KELVIN and
+#   the valid-land mean is 272 K, so 270 is effectively a mean-fill. The defect
+#   for this field was never the fill; it was that the shipped stats were
+#   computed under a 0-fill, leaving the channel at 0.122 normalized spread
+#   instead of 1.0 (~67x under-weighted in an element-mean squared loss).
+#   Fixed by regenerating the stats, not by touching this value.
 #
-#   SST = 270 is an INHERITED DEFECT, reproduced deliberately. E3SM's SST is
-#   degC (measured range -1.80 .. 32.92), so 270 is ~8x the maximum; it came
-#   from a mechanical rename of ERA5/PLASIM's `mask_fill['sst'] = 270.`, where
-#   the field really was Kelvin. We keep it because the shipped normalization
-#   stats were computed under the SAME 270-fill (so fill and stats agree), and
-#   because matching jesswan's run is the point of this config. The corrected
-#   path — SST = -1.8 with a masked-stats recompute — is the documented
-#   fast-follow, NOT this config. See polaris_e3sm_variable_reference.md R4.
+#   SST = -1.8 degC — CORRECTED from 270 on 2026-08-04. E3SM's SST is degC
+#   (measured [-1.80, 32.92]); 270 was a Kelvin constant that survived a
+#   mechanical rename from ERA5/PLASIM, where the field really was Kelvin.
+#   -1.8 is the freezing point of seawater and a value the data itself already
+#   takes (6.01% of ocean cells sit exactly there, all poleward of 60 deg with
+#   mean sea-ice fraction 0.93). It also matches physicsnemo and makani, so all
+#   three pipelines now agree. Chosen over 0 degC after an adversarial review:
+#   the metrics are within noise of each other, and consistency decides.
+#
+# ⚠ These fills REQUIRE the regenerated stats (see the handoff). Pairing them
+# with the old shipped stats would recreate the exact fill-vs-stats mismatch
+# this change exists to remove. check_normalization.py gates that.
 nan_fill_default: 0.0
 nan_fill_values:
-  SST: 270.0
+  SST: -1.8
   TSOI_10CM: 270.0
 # Raise if any NaN survives the fill rather than letting it reach the model and
 # resurface as a NaN loss with no origin. On for the smoke (the launcher does not

@@ -1,0 +1,99 @@
+#!/bin/bash -l
+#PBS -N e3sm_norm_moments
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=03:00:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Regenerate the E3SM normalization statistics so they AGREE with the mask fills.
+#
+# Replaces data_2015-2050_{mean,std_corr}.nc, whose soil-temperature entry was
+# computed under a 0-fill while training fills 270 K — leaving that channel at
+# 0.122 normalized spread instead of 1.0, and ~67x under-weighted in the loss.
+# Also adopts the corrected SST fill (-1.8 degC, was 270, a Kelvin constant on a
+# Celsius field).
+#
+# Two stages; only stage 1 is expensive:
+#   1. moments — one streaming pass, ~2 TB of reads, accumulating per-variable
+#      valid-cell count/sum/sumsq + masked count. Fill-independent.
+#   2. nc      — derives mean/std for ANY fill from those moments, analytically.
+#      Seconds. Re-run it free to try a different fill.
+#
+# Submit:  qsub HPC_scripts/polaris_compute_e3sm_norm.pbs
+#          qsub -v SST_FILL=0.0 HPC_scripts/polaris_compute_e3sm_norm.pbs
+#
+# PASS = "MOMENTS_OK" then "NORM_NC_OK" then "NORMALIZATION_OK" from the gate.
+# Outputs land in $PANGU_AUX (shared, read-only to others) — the ORIGINALS in
+# jesswan's archive dir are never touched.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+PW="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -f "${PW}/compute_e3sm_normalization.py" ]; then PW="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+REPO="$(cd "${PW}/../.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+[ -x "${PY}" ] || { echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"; exit 3; }
+
+H5="${E3SM_ROOT}/h5/plev_data"
+CFG="${PW}/config/E3SM_SFNO_H5_POLARIS.yaml"     # supplies levels + the CORRECTED mask_fill
+OUT="${PANGU_AUX}"
+TAG="${TAG:-2015-2050}"
+MOMENTS="${OUT}/moments_${TAG}.json"
+SST_FILL="${SST_FILL:--1.8}"
+WORKERS="${WORKERS:-32}"
+
+[ -d "${H5}" ] || { echo "ERROR E3SM_H5_MISSING: ${H5}"; exit 3; }
+mkdir -p "${OUT}"
+
+polaris_env_report
+echo "--- normalization regeneration ---"
+echo "  archive  = ${H5}"
+echo "  config   = ${CFG}   (levels + mask_fill)"
+echo "  out      = ${OUT}/data_${TAG}_{mean,std_corr}.nc"
+echo "  SST fill = ${SST_FILL} degC"
+echo
+
+# --- stage 1: moments (expensive; skipped if already present) ---------------
+if [ -s "${MOMENTS}" ] && [ -z "${FORCE_MOMENTS:-}" ]; then
+    echo "moments already present, reusing: ${MOMENTS}"
+    echo "  (set FORCE_MOMENTS=1 to recompute)"
+else
+    ${PY} "${PW}/compute_e3sm_normalization.py" --stage moments \
+        --h5-dir "${H5}" --years 2015 2050 --config "${CFG}" \
+        --out "${MOMENTS}" --workers "${WORKERS}" || {
+        echo "ERROR MOMENTS_FAILED"; exit 1; }
+fi
+
+# --- stage 2: the .nc pair --------------------------------------------------
+${PY} "${PW}/compute_e3sm_normalization.py" --stage nc \
+    --moments "${MOMENTS}" --config "${CFG}" \
+    --fill "SST=${SST_FILL}" \
+    --out-dir "${OUT}" --tag "${TAG}" || { echo "ERROR NORM_NC_FAILED"; exit 1; }
+
+# --- gate: do the new stats actually agree with the fills? -------------------
+# The whole point of the exercise. Not optional.
+echo
+${PY} "${PW}/check_normalization.py" \
+    --mean "${OUT}/data_${TAG}_mean.nc" \
+    --std  "${OUT}/data_${TAG}_std_corr.nc" \
+    --h5-dir "${H5}" --config "${CFG}" || { echo "ERROR NORM_GATE_FAILED"; exit 1; }
+
+echo
+echo "E3SM_NORM_REGEN_OK  ${OUT}/data_${TAG}_{mean,std_corr}.nc"
+echo "  Next: rebuild the ai-rossby normalization zarr from these:"
+echo "    ${PY} ${REPO}/physicsnemo_ai_rossby/tools/data/e3sm/build_normalization_zarr.py \\"
+echo "      --source-dir ${OUT} --std data_${TAG}_std_corr.nc \\"
+echo "      --output \${AI_ROSSBY_DATA}/e3sm/norm/normalization_${TAG}.zarr --overwrite"

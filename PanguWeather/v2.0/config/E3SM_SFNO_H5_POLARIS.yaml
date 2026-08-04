@@ -72,7 +72,8 @@ PLASIM: &PLASIM
              'PFTDATA_MASK': 0.,
              'PCT_NATVEG': 0.,
              'TOPO': 0.,
-             'SST': 270.,
+             'SST': -1.8,   # degC field: freezing seawater. Was 270 (a Kelvin
+             #               value on a Celsius field) until 2026-08-04.
              'ICE': 0.}
   data_timedelta_hours: 6
   # Absolute paths (os.path.join(data_dir, <abs>) yields <abs>): the staged
