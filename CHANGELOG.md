@@ -145,6 +145,21 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-04** — **Pivot: training moves to the ai-rossby recipe (PanguPlasim), for exact
+  PanguWeather parity — and the SFNO 103-var conversion `7324098` was cancelled + its 463 GB
+  partial store deleted.** The SFNO `unified_recipe` v2 packed store can't feed ai-rossby (which
+  needs a per-variable **zarr v3** store from its own `tools/data/e3sm/pangu_h5_to_zarr.py`), so
+  finishing it bought nothing for the chosen path. Decisions (with the user): model
+  **PanguPlasimLegacy** on the exact PanguWeather 108-field groups (SST/ICE prescribed);
+  **normalization parity-first** (reuse shipped stats + reference fills `SST=270, TSOI=270`),
+  masked-stats recompute + `SST=-1.8` as a fast-follow; ai-rossby vendored as a git subtree
+  `physicsnemo_ai_rossby/` on `fix/tsoi-fill-270` with its OWN uv venv (zarr≥3, torch≥2.10);
+  cluster Polaris. **Full plan + a variable-parity assertion gate (Step 0) → handoff
+  `polaris_ai_rossby_pangu_handoff_prompt.md`** (adversarial + cold reviewed; caught the silent
+  channel-order trap, the `sol_in` solar-name blocker, and the OOM launch flags). The TSOI 0→270
+  code change (`aa43824a`) stands — consistent with ai-rossby's parity fills, still pending
+  jesswan sign-off.
+
 - **2026-08-03** — **TSOI_10CM ocean fill changed `0.0 → 270 K`, and a 103-var E3SM SeqZarr
   regeneration submitted** — branch `fix/tsoi-fill-270`, commit `aa43824a`. rmehta1987's
   decision after establishing that `0.0` is 0 K over the ~61% ocean (out-of-distribution — the
