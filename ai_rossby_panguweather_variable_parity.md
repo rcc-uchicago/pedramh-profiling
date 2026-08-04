@@ -356,10 +356,11 @@ contract. None adds, removes or re-roles a field:
    surface tensor is 8 channels. Appending `land + ocean` makes the lists describe the
    tensor. It changes which *names* the fill and loss iterate, not which *fields* exist —
    and without it the fill would broadcast-mismatch rather than fail silently.
-   ⚠ A **third** site has the same shape — `train.py:709`, the `ArchesWeatherLoss` branch —
-   but it is only reached when `loss.loss_class == "archesweather"`, and this run uses
-   `loss=mae`. Left alone deliberately; noted here so that switching the loss later does not
-   silently reintroduce the 6-names-vs-8-channels mismatch.
+   Two further sites had the same latent mismatch and were fixed with the same helper:
+   the `ArchesWeatherLoss` branch (off our `loss=mae` path, but a landmine for any later
+   loss switch) and `channel_equal_weight`'s `n_surf`, which would otherwise under-weight
+   the surface term against the channels it actually scores. All four now derive from one
+   `_surface_channel_names()` helper rather than restating the rule.
 
 ### Also not asserted
 

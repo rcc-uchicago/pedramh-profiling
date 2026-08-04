@@ -259,7 +259,11 @@ class PanguPlasimLegacy(Module):
         self.upper_air_boundary = upper_air_boundary
         self.varying_boundary_variables = list(varying_boundary_variables)
         self.num_varying_boundary_vars = len(varying_boundary_variables)
-        _solar_names = ("rsdt", "toa_incident_solar_radiation")
+        # One varying-boundary channel is the TOA solar forcing, routed into the
+        # 3D stream rather than the surface one. It is identified by NAME, so the
+        # tuple has to carry every dataset's spelling: `rsdt` (PLASIM),
+        # `toa_incident_solar_radiation` (ERA5), `sol_in` (E3SM).
+        _solar_names = ("rsdt", "toa_incident_solar_radiation", "sol_in")
         self.idx_upper_air_var_bound = next(
             (
                 self.varying_boundary_variables.index(n)

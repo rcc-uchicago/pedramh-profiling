@@ -1,0 +1,82 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026 The University of Chicago.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# E3SM at PanguWeather variable parity — pairs with conf/model/pangu_plasim_e3sm.yaml.
+#
+# Distinct from `e3sm.yaml`, which is the SFNO speed-benchmark config (single
+# year 2041/2045, ai-rossby's own 3-surface-var channel set). This one carries
+# the 108-field Pangu contract and its fills.
+#
+# Paths resolve under AI_ROSSBY_DATA (the converted-Zarr root). On Polaris the
+# PBS launcher exports it to ${MEMBER_ROOT}/ai_rossby_data.
+#
+# ⚠ LAYOUT: train/ and val/ are DIRECTORIES of per-year `<year>.zarr` stores, and
+# the normalization store lives in a SEPARATE sibling dir. The multi-year loader
+# globs `*.zarr` under the given directory, so co-locating the norm store there
+# makes it try to load normalization_*.zarr as a year of data and crash.
+#
+#   $AI_ROSSBY_DATA/e3sm/
+#     train/2015.zarr ...
+#     val/2045.zarr ...
+#     norm/normalization_2015-2050.zarr
+
+zarr_path: ${oc.env:AI_ROSSBY_DATA}/e3sm/train
+val_zarr_path: ${oc.env:AI_ROSSBY_DATA}/e3sm/val
+mean_path: ${oc.env:AI_ROSSBY_DATA}/e3sm/norm/normalization_2015-2050.zarr
+std_path: ${oc.env:AI_ROSSBY_DATA}/e3sm/norm/normalization_2015-2050.zarr
+delta_std_path: null
+
+# Varying boundaries (SST/ICE/sol_in) come from the prognostic store at the same
+# time index — E3SM archives them per timestep alongside everything else.
+boundary_zarr_path: null
+yearly_repeating_boundary: False
+leap_boundary_zarr_path: null
+non_leap_boundary_zarr_path: null
+
+forecast_lead_times: [1]
+num_samples_per_epoch: null
+# 1 on a 40 GB A100: this is the 1.18 B-param-class regime and the defaults OOM.
+# bf16 + this are the real memory levers (model `checkpointing` only gates the
+# recovery heads).
+batch_size: 1
+num_workers: 8
+prefetch_factor: 2
+persistent_workers: True
+pin_memory: True
+shuffle: True
+
+# --- NaN fills — PanguWeather `mask_fill` parity ----------------------------
+# The converter preserves raw NaN; filling happens here, on inputs.
+# Two fields at 270, everything else at 0 — exactly
+# E3SM_SFNO_H5_STAMPEDE_jsw.yaml:66-73. Asserted by
+# ai_rossby_variable_contract.py --check-artifacts.
+#
+#   TSOI_10CM = 270 K is right: soil temperature is KELVIN and the valid-land
+#   mean is 268 K, so 270 is effectively a mean-fill (0.02 sigma out).
+#
+#   SST = 270 is an INHERITED DEFECT, reproduced deliberately. E3SM's SST is
+#   degC (measured range -1.80 .. 32.92), so 270 is ~8x the maximum; it came
+#   from a mechanical rename of ERA5/PLASIM's `mask_fill['sst'] = 270.`, where
+#   the field really was Kelvin. We keep it because the shipped normalization
+#   stats were computed under the SAME 270-fill (so fill and stats agree), and
+#   because matching jesswan's run is the point of this config. The corrected
+#   path — SST = -1.8 with a masked-stats recompute — is the documented
+#   fast-follow, NOT this config. See polaris_e3sm_variable_reference.md R4.
+nan_fill_default: 0.0
+nan_fill_values:
+  SST: 270.0
+  TSOI_10CM: 270.0
+
+# Boundary constants and diagnostics are normalized (PanguWeather normalizes
+# every group from the same stats file).
+normalize_constant_boundary: True
+normalize_diagnostic: True
+
+# --- Node-local data staging ------------------------------------------------
+# Off: on Polaris the stores live on eagle (Lustre) and compute nodes' local
+# scratch is wiped at job end. Revisit only if a profile shows the loader bound.
+stage_to_local: False
+stage_dir: null
+stage_num_workers: 256

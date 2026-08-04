@@ -95,6 +95,16 @@ else
 fi
 export SFNO_VENV
 
+# --- ai-rossby venv + data (PanguPlasim only) --------------------------------
+# A SEPARATE venv from SFNO_VENV, not a preference: ai-rossby needs torch>=2.10
+# (SFNO_VENV has 2.8) and zarr>=3 (v2 there). Build with
+# polaris_setup_ai_rossby_venv.sh. Like the SFNO one it installs physicsnemo
+# EDITABLE, so it imports from ITS BUILDER'S checkout — there is deliberately no
+# shared fallback here; polaris_pangu_plasim.pbs hard-fails instead.
+export AI_ROSSBY_VENV="${POLARIS_AI_ROSSBY_VENV:-${MEMBER_ROOT}/conda-envs/ai-rossby-venv}"
+# Converted-Zarr root the ai-rossby configs interpolate (${oc.env:AI_ROSSBY_DATA}).
+export AI_ROSSBY_DATA="${POLARIS_AI_ROSSBY_DATA:-${MEMBER_ROOT}/ai_rossby_data}"
+
 # --- per-user derived data locations (converted stages) ----------------------
 # If you have your own copy use it; otherwise fall back to the shared one (read-only).
 _pick() {  # _pick <var> <relative-path>
@@ -168,5 +178,7 @@ polaris_env_report() {
     echo "  SEQZARR_DATA  = ${SEQZARR_DATA}"
     echo "  PANGU_AUX     = ${PANGU_AUX}"
     echo "  SFNO_VENV     = ${SFNO_VENV}"
+    echo "  AI_ROSSBY_VENV= ${AI_ROSSBY_VENV}"
+    echo "  AI_ROSSBY_DATA= ${AI_ROSSBY_DATA}"
     echo "  logs          = ${POLARIS_LOG_DIR}"
 }

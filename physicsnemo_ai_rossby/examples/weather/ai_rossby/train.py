@@ -89,6 +89,25 @@ def _resolve_path(p: str | None) -> str | None:
     return to_absolute_path(p) if p else None
 
 
+def _surface_channel_names(cfg_model: DictConfig) -> list[str]:
+    """Names of every channel in the ``surface_in`` tensor, in channel order.
+
+    The surface tensor is NOT just ``surface_variables``. ``PanguPlasimLegacy``
+    builds and slices it as ``[surface | land | ocean]``
+    (``pangu_plasim_legacy.py:567, 673-678``), and the Zarr store schema has no
+    land/ocean groups at all — the converter folds them into the store's
+    ``surface_variables`` attr in that same order. So anything that walks the
+    surface tensor by name (the NaN fill, the loss) needs all three groups
+    concatenated, or it silently describes only the first ``len(surface)``
+    channels and broadcast-mismatches against the rest.
+    """
+    return (
+        list(cfg_model.surface_variables)
+        + list(cfg_model.get("land_variables", []) or [])
+        + list(cfg_model.get("ocean_variables", []) or [])
+    )
+
+
 class _PressureLevelSubsetTransform:
     """Select a subset of pressure levels from upper-air tensors.
 
@@ -633,7 +652,9 @@ def build_datapipe(
         # match Pangu-S2S) + diagnostics can carry masked NaN over land; fill them
         # with the same per-variable mask values (Pangu _fill_mask: sst/ts=270,
         # sic/soil=0). Without this the SST land-NaN reaches the loss -> NaN.
-        surface_variables=list(model.surface_variables),
+        # Land/ocean included: they are channels of the same tensor, and they are
+        # exactly the masked ones (E3SM soil is NaN over ~61% ocean).
+        surface_variables=_surface_channel_names(model),
         diagnostic_variables=list(model.get("diagnostic_variables", []) or []),
         fill_values=dict(OmegaConf.to_container(data.nan_fill_values, resolve=True) or {}),
         default=float(data.nan_fill_default),
@@ -706,7 +727,8 @@ def build_loss(cfg: DictConfig) -> PanguPlasimLoss:
     # 24 h-increment (delta) normalization. Selected via `loss.loss_class`.
     if str(cfg_loss.get("loss_class", "")) == "archesweather":
         return ArchesWeatherLoss(
-            surface_variables=list(cfg_model.surface_variables),
+            # Same surface-tensor naming rule as PanguPlasimLoss below.
+            surface_variables=_surface_channel_names(cfg_model),
             upper_air_variable_names=list(cfg_model.upper_air_variables),
             levels=list(cfg_model.levels),
             num_lat=int(cfg_model.horizontal_resolution[0]),
@@ -727,7 +749,10 @@ def build_loss(cfg: DictConfig) -> PanguPlasimLoss:
     upper_air_weight = float(cfg_loss.upper_air_weight)
     diagnostic_weight = float(cfg_loss.diagnostic_weight)
     if bool(cfg_loss.get("channel_equal_weight", False)):
-        n_surf = len(cfg_model.surface_variables)
+        # Count land/ocean too — they are surface-tensor channels (see
+        # _surface_channel_names), so omitting them would under-weight the
+        # surface term relative to the channels it actually scores.
+        n_surf = len(_surface_channel_names(cfg_model))
         n_upper_ch = len(cfg_model.upper_air_variables) * len(cfg_model.levels)
         n_diag = len(cfg_model.get("diagnostic_variables", []) or [])
         total_ch = n_surf + n_upper_ch + n_diag
@@ -736,7 +761,9 @@ def build_loss(cfg: DictConfig) -> PanguPlasimLoss:
         diagnostic_weight = n_diag / total_ch
 
     return PanguPlasimLoss(
-        surface_variables=list(cfg_model.surface_variables),
+        # Surface + land + ocean: the loss walks the surface tensor by name, and
+        # the model emits len(surface)+len(land)+len(ocean) channels.
+        surface_variables=_surface_channel_names(cfg_model),
         upper_air_variable_names=list(cfg_model.upper_air_variables),
         diagnostic_variables=list(cfg_model.diagnostic_variables),
         num_lat=int(cfg_model.horizontal_resolution[0]),

@@ -7,7 +7,7 @@
 """Convert PanguWeather-style per-timestep E3SM HDF5 files to one Zarr store.
 
 E3SM source layout
-(``/path/to/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/sigma_data/``)
+(``/path/to/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/plev_data/``)
 has one sample per ``{year}_{idx:04d}.h5`` file. Flat ``input/<var>[_<level>]``
 keys; pressure-level vars use **hPa** in the level suffix (e.g.
 ``T_998.4964394917621``). Note:
@@ -15,18 +15,27 @@ keys; pressure-level vars use **hPa** in the level suffix (e.g.
 * E3SM uses uppercase var names (``T``, ``U``, ``V``, ``Z3``, ``CLOUD``, etc.).
 * Hybrid pressure levels are written as **hPa floats** with full source
   precision — the converter rounds to float32 at the unified ``pressure_level``
-  coord per the ai-rossby schema convention.
+  coord per the ai-rossby schema convention. Despite the ``plev_data`` directory
+  name and the hPa labels these are **terrain-following hybrid** levels, not
+  isobaric ones.
 * Calendar: 365-day no-leap (``noleap`` in cftime).
-* Soil vars (``H2OSOI``, ``TSOI``) appear in the *climatology* file only and
-  decompose into per-depth 2D channels (see
-  :mod:`tools.data.e3sm.build_climatology_zarr`).
-  The per-year converter does NOT process soil vars.
+* Each file carries 163 keys: 8 upper-air names x 18 levels (144), 18 flat
+  surface-type names, and ``time``. Every field is ``float32 (180, 360)``.
+* The two soil fields the Pangu contract uses — ``SOILWATER_10CM`` and
+  ``TSOI_10CM`` — are **flat per-timestep keys here** and are converted like any
+  other surface field. (The *depth-resolved* soil vars ``H2OSOI`` / ``TSOI``
+  are a different thing: they live in the climatology file only and decompose
+  into per-depth 2D channels — see
+  :mod:`tools.data.e3sm.build_climatology_zarr`.)
+* **NaN is preserved raw.** Masked fields (soil ~61% ocean, SST/ICE ~37% land,
+  the four boundary constants ~63%) keep their NaN through conversion; filling
+  happens downstream in ``NanFillTransform``, from the model/dataset configs.
 
 The output Zarr uses the shared ai-rossby
 :class:`ClimateZarrStoreLayout`, identical schema to ERA5 and PLASIM stores.
 
-Default channel groups follow the Pangu-Weather-style training feature set
-adapted to E3SM var names. Override via ``--channel-config <json>``.
+Default channel groups reproduce the PanguWeather E3SM variable contract
+exactly — see ``PANGU_E3SM_CHANNELS``. Override via ``--channel-config <json>``.
 
 Usage::
 
@@ -56,17 +65,46 @@ logger = logging.getLogger(__name__)
 
 # Default Pangu-E3SM channel groups (overrideable per-run via --channel-config).
 # All pressure values are hPa.
+#
+# ⚠ ORDER IS LOAD-BEARING, AND NOTHING DOWNSTREAM CROSS-CHECKS IT.
+# `ClimateZarrDataset._build_sample` stacks each tensor in the order of the
+# store's attrs, while the NaN fills and the loss are built from the *model
+# config's* lists. A permutation therefore produces correctly-shaped tensors
+# with the channels transposed, and `torch.cat` raises nothing. These lists
+# reproduce PanguWeather's YAML order exactly; the assertion that they still do
+# lives in `ai_rossby_variable_contract.py` (`--check-artifacts`), which the PBS
+# launcher runs as a preflight.
+#
+# 108 fields = 5 upper-air x 18 levels (90) + 18 surface-type
+#            = 90 + surface 6 + land 2 + ocean 0 + diagnostic 3
+#              + constant_boundary 4 + varying_boundary 3.
+# CLDLIQ / CLDICE / CLOUD are deliberately excluded (162 -> 108): the science
+# owner dropped all three from every pipeline on 2026-07-16, and their npz stats
+# are zero-std anyway.
 PANGU_E3SM_CHANNELS = {
+    # Surface, then LAND, then ocean (empty) — one flat group, because the store
+    # schema has no land/ocean groups but `PanguPlasimLegacy` slices its surface
+    # tensor as [surface | land | ocean] (pangu_plasim_legacy.py:567, 673-678).
+    # The model config keeps the three lists separate; only the store folds them.
     "surface_variables": [
+        # --- surface (6) ---
         "TREFHT",
         "U10",
+        "RHREFHT",
+        "PS",
         "PSL",
+        "TMQ",
+        # --- land (2), masked NaN over ~61% ocean ---
+        "SOILWATER_10CM",
+        "TSOI_10CM",
+        # --- ocean (0) — empty: SST/ICE are PRESCRIBED (varying boundary),
+        #     not forecast. This is what makes the run PanguWeather-comparable.
     ],
     "constant_boundary_variables": [
-        "TOPO",
         "PCT_GLACIER",
-        "PCT_NATVEG",
         "PFTDATA_MASK",
+        "PCT_NATVEG",
+        "TOPO",
     ],
     "varying_boundary_variables": [
         "SST",
@@ -74,14 +112,16 @@ PANGU_E3SM_CHANNELS = {
         "sol_in",
     ],
     "diagnostic_variables": [
+        "FSNTOA",
+        "FSNT",
         "PRECT",
     ],
     "pressure_upper_air_variables": [
         "T",
         "U",
         "V",
-        "RELHUM",
         "Z3",
+        "RELHUM",
     ],
     "sigma_upper_air_variables": [],
     # FULL E3SM hybrid-pressure coverage — all 18 levels (hPa). These are

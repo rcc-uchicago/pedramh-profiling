@@ -24,6 +24,7 @@ import argparse
 import ast
 import json
 import re
+import struct
 import sys
 from pathlib import Path
 
@@ -163,28 +164,47 @@ def parse_ai_rossby_model(path: Path) -> dict:
 def parse_ai_rossby_dataset(path: Path) -> dict:
     """`nan_fill_values` + `nan_fill_default`, expanded to a full fill map.
 
-    The dataset config only names the non-default fills, so the comparison
-    against PLANNED expands the default across every field that can carry a
-    mask: land, constant-boundary and varying-boundary.
+    The dataset config only names the non-default fills, so the default is
+    expanded across the rest. "The rest" is taken to be exactly the fields
+    PanguWeather's `mask_fill` covers — i.e. the ones that actually carry a
+    mask. It is deliberately NOT every boundary field: `sol_in` has 0% NaN, so
+    a fill for it would never fire, and demanding one would fail a correct
+    config.
     """
     text = path.read_text()
     m = re.search(r"^\s*nan_fill_default:\s*([-\d.eE]+)", text, re.M)
     if not m:
         raise KeyError("nan_fill_default not found")
     default = float(m.group(1))
+    # `nan_fill_values` may be flow style (`{SST: 270.0}`) or block style
+    # (indented `SST: 270.0` lines). Accept both — the ai-rossby configs use one
+    # and ours uses the other, and a parser that silently sees an empty map here
+    # would report "all fills at default" as a PASS-shaped answer.
+    explicit: dict[str, float] = {}
     m = re.search(r"^\s*nan_fill_values:\s*\{(.*?)\}", text, re.M | re.S)
-    explicit = (
-        {k: float(v) for k, v in re.findall(r"([A-Za-z_0-9]+)\s*:\s*([-\d.eE]+)", m.group(1))}
-        if m
-        else {}
-    )
-    maskable = (
-        PLANNED["land_variables"]
-        + PLANNED["ocean_variables"]
-        + PLANNED["constant_boundary_variables"]
-        + PLANNED["varying_boundary_variables"]
-    )
-    return {"fills": {v: explicit.get(v, default) for v in maskable}}
+    if m:
+        explicit = {
+            k: float(v) for k, v in re.findall(r"([A-Za-z_0-9]+)\s*:\s*([-\d.eE]+)", m.group(1))
+        }
+    else:
+        m = re.search(r"^(\s*)nan_fill_values:\s*$", text, re.M)
+        if m:
+            indent = len(m.group(1))
+            for line in text[m.end():].splitlines()[1:]:
+                if not line.strip() or line.lstrip().startswith("#"):
+                    continue
+                if len(line) - len(line.lstrip()) <= indent:
+                    break
+                k, _, v = line.strip().partition(":")
+                explicit[k.strip()] = float(v.split("#")[0].strip())
+    maskable = list(PLANNED["fills"])
+    fills = {v: explicit.get(v, default) for v in maskable}
+    # An explicit fill for a field PanguWeather does not mask is a real
+    # divergence, not a harmless extra — surface it rather than dropping it.
+    for k, v in explicit.items():
+        if k not in fills:
+            fills[k] = v
+    return {"fills": fills}
 
 
 def parse_converter_channels(path: Path) -> dict:
@@ -210,6 +230,24 @@ def _cmp(label: str, expected, actual, results: list) -> None:
     results.append((label, ok, expected, actual))
 
 
+def _cmp_levels(label: str, expected: list, actual: list, results: list) -> None:
+    """Compare level lists after a float32 cast.
+
+    The Zarr `pressure_level` coord is stored float32, so a store (or a config
+    written to match one) differs from the archive's float64 literals at ~1e-7
+    relative. That is a storage artifact, not a different level. Both consumers
+    already tolerate it (train.py's subset guard only fires for a strict subset;
+    the normalizer matches nearest-value at atol=1e-3), so the check does too —
+    while still catching a genuinely different level, a reordering, or a
+    different count.
+    """
+    def f32(xs):
+        return [struct.unpack("f", struct.pack("f", float(x)))[0] for x in xs]
+
+    ok = len(expected) == len(actual) and f32(expected) == f32(actual)
+    results.append((label, ok, expected, actual))
+
+
 def report(results: list, title: str) -> int:
     print(f"=== {title} ===")
     failed = 0
@@ -231,7 +269,7 @@ def check_ground_truth(path: Path) -> int:
     results: list = []
     for g in VAR_GROUPS:
         _cmp(f"{g} (names + order)", gt[g], PLANNED[g], results)
-    _cmp("levels (values + order)", gt["levels"], PLANNED["levels"], results)
+    _cmp_levels("levels (values + order)", gt["levels"], PLANNED["levels"], results)
     _cmp("mask fills", gt["fills"], PLANNED["fills"], results)
     _cmp("total field count", n_channels(gt), n_channels(PLANNED), results)
     return report(results, f"PLANNED vs ground truth ({path.name})")
@@ -243,7 +281,7 @@ def check_artifacts(model: Path, dataset: Path, converter: Path, store: Path | N
     m = parse_ai_rossby_model(model)
     for g in VAR_GROUPS:
         _cmp(f"model.{g}", PLANNED[g], m[g], results)
-    _cmp("model.levels", PLANNED["levels"], m["levels"], results)
+    _cmp_levels("model.levels", PLANNED["levels"], m["levels"], results)
 
     d = parse_ai_rossby_dataset(dataset)
     _cmp("dataset fills", PLANNED["fills"], d["fills"], results)
@@ -259,7 +297,7 @@ def check_artifacts(model: Path, dataset: Path, converter: Path, store: Path | N
     for g in ("diagnostic_variables", "constant_boundary_variables", "varying_boundary_variables"):
         _cmp(f"converter.{g}", PLANNED[g], c[g], results)
     _cmp("converter.sigma_upper_air_variables", [], c["sigma_upper_air_variables"], results)
-    _cmp("converter.pressure_levels", PLANNED["levels"], c["pressure_levels"], results)
+    _cmp_levels("converter.pressure_levels", PLANNED["levels"], c["pressure_levels"], results)
 
     if store is not None:
         results.extend(_check_store(store))
