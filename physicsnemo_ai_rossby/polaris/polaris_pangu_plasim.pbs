@@ -1,0 +1,154 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_pangu_plasim
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# PanguPlasimLegacy on E3SM, at PanguWeather variable parity — Polaris, 4x A100.
+#
+# ⚠ PREREQUISITES, in order (both PASS on a token, not an exit code):
+#   1. LOGIN node, once:  bash <repo>/polaris_setup_ai_rossby_venv.sh
+#                         PASS = "AI_ROSSBY_VENV_OK"
+#   2. LOGIN node, once:  build the normalization store (seconds) —
+#        $AI_ROSSBY_VENV/bin/python tools/data/e3sm/build_normalization_zarr.py \
+#          --source-dir $PANGU_AUX --std data_2015-2050_std_corr.nc \
+#          --output $AI_ROSSBY_DATA/e3sm/norm/normalization_2015-2050.zarr
+#   3. COMPUTE:           qsub polaris/polaris_e3sm_pangu_convert.pbs
+#                         PASS = "PANGU_STORE_VERIFIED" per store + "CONVERT_ALL_OK"
+#
+# Submit:  qsub polaris/polaris_pangu_plasim.pbs
+#          qsub -v NPROC=1,MAX_EPOCHS=1 polaris/polaris_pangu_plasim.pbs   # 1-GPU
+#          qsub -v WANDB_MODE=online     polaris/polaris_pangu_plasim.pbs
+#
+# PASS = "PREFLIGHT_OK" + advancing train/* epoch metrics with a finite,
+#        decreasing loss. A NaN loss is a FAILURE, not a slow start —
+#        dataset.nan_fill_strict is on, so any NaN reaching the model raises.
+#
+# Offline wandb by default (polaris_env.sh). Upload later from a LOGIN node:
+#     wandb sync $WANDB_DIR/<run>
+# Online is a one-flag flip once the key is set (polaris_setup_wandb.sh).
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base                                # CUDA/NCCL env
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+# The venv is NOT --system-site-packages, but keep the user site out regardless:
+# ALCF homes are mode 0700, so anything resolving from ~/.local makes the run
+# reproducible by exactly one person — which is to say, not a result.
+export PYTHONNOUSERSITE=1
+
+# physicsnemo is EDITABLE in that venv, so it imports from whichever checkout
+# built it. Training from tree A against a store converted with tree B's channel
+# lists is the exact silent mismatch this pipeline exists to prevent.
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+NORM="${DATA}/norm/normalization_2015-2050.zarr"
+RUN_NAME="${RUN_NAME:-pangu_plasim_e3sm_$(date +%Y%m%d)_${PBS_JOBID%%.*}}"
+# Run dir on EAGLE, not the (job-scoped) node scratch and not the repo: hydra
+# chdir's into it, and checkpoints/wandb must outlive the job.
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/ai_rossby_pangu_plasim/${RUN_NAME}}"
+MAX_EPOCHS="${MAX_EPOCHS:-1}"
+
+for d in "${DATA}/train" "${DATA}/val" "${NORM}"; do
+    [ -e "${d}" ] || {
+        echo "ERROR AI_ROSSBY_DATA_MISSING: ${d}"
+        echo "  Run the converter first:  qsub polaris/polaris_e3sm_pangu_convert.pbs"
+        exit 3
+    }
+done
+
+polaris_env_report
+echo "--- run ---"
+echo "  recipe   = ${RECIPE}"
+echo "  ranks    = ${NPROC}"
+echo "  data     = ${DATA}"
+echo "  run dir  = ${RUN_DIR}"
+echo "  wandb    = ${WANDB_MODE} (project ${WANDB_PROJECT}, name ${RUN_NAME})"
+echo
+
+# --- PREFLIGHT: the contract, asserted against what will actually be read ----
+# Channel order is a SILENT failure: ClimateZarrDataset stacks tensors in the
+# STORE's attrs order while the NaN fill and the loss are built from the MODEL
+# CONFIG's lists, and a permutation produces correctly-shaped tensors that
+# torch.cat cannot object to. So compare both against the one contract, and
+# refuse to burn node-hours on a mismatch.
+echo "=== preflight: variable contract ==="
+PREFLIGHT_RC=0
+for store in "${DATA}"/train/*.zarr "${DATA}"/val/*.zarr; do
+    [ -e "${store}" ] || continue
+    python "${REPO}/ai_rossby_variable_contract.py" \
+        --check-artifacts \
+        --model-config "${RECIPE}/conf/model/pangu_plasim_e3sm.yaml" \
+        --dataset-config "${RECIPE}/conf/dataset/e3sm_pangu_parity.yaml" \
+        --converter "${AR_ROOT}/tools/data/e3sm/pangu_h5_to_zarr.py" \
+        --store "${store}" || PREFLIGHT_RC=1
+done
+if [ "${PREFLIGHT_RC}" -ne 0 ]; then
+    echo "ERROR PREFLIGHT_FAILED — not launching training."
+    exit 4
+fi
+echo "PREFLIGHT_OK"
+echo
+
+# --- launch ------------------------------------------------------------------
+# `python -m torch.distributed.run`, never bare `torchrun`: the bare name can
+# resolve to the BASE conda's launcher, whose shebang pins the wrong python.
+cd "${RECIPE}" || exit 2
+mkdir -p "${RUN_DIR}"
+
+python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+    train.py \
+    model=pangu_plasim_e3sm \
+    dataset=e3sm_pangu_parity \
+    training=pangu_plasim_legacy \
+    loss=mae \
+    training.amp=bf16 \
+    training.max_epochs="${MAX_EPOCHS}" \
+    dataset.batch_size=1 \
+    run_name="${RUN_NAME}" \
+    hydra.run.dir="${RUN_DIR}" \
+    wandb.mode="${WANDB_MODE}" \
+    wandb.project="${WANDB_PROJECT}" \
+    wandb.name="${RUN_NAME}"
+rc=$?
+
+echo
+if [ "${rc}" -eq 0 ]; then
+    echo "PANGU_PLASIM_RUN_OK  run_dir=${RUN_DIR}"
+    echo "  Upload the offline wandb run from a LOGIN node:  wandb sync ${WANDB_DIR}/<run>"
+else
+    echo "ERROR PANGU_PLASIM_RUN_FAILED rc=${rc}"
+fi
+exit "${rc}"

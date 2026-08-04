@@ -68,6 +68,10 @@ nan_fill_default: 0.0
 nan_fill_values:
   SST: 270.0
   TSOI_10CM: 270.0
+# Raise if any NaN survives the fill rather than letting it reach the model and
+# resurface as a NaN loss with no origin. On for the smoke (the launcher does not
+# override it); turn off for production if the per-sample scan shows up in a profile.
+nan_fill_strict: True
 
 # Boundary constants and diagnostics are normalized (PanguWeather normalizes
 # every group from the same stats file).

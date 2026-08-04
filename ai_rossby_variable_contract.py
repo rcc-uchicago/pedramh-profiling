@@ -308,11 +308,9 @@ def check_artifacts(model: Path, dataset: Path, converter: Path, store: Path | N
 def _check_store(store: Path) -> list:
     """Compare a produced Zarr store's attrs against PLANNED.
 
-    Read straight off ``zarr.json`` / ``.zattrs`` so the check needs no zarr
-    install -- it has to be runnable from the login node too.
+    Read straight off ``zarr.json`` (v3) / ``.zattrs`` (v2) so the check needs no
+    zarr install -- it has to be runnable from the login node too.
     """
-    import numpy as np  # noqa: F401  (only needed for the level cast below)
-
     results: list = []
     meta = store / "zarr.json"
     if meta.exists():

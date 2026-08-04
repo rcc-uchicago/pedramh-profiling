@@ -658,6 +658,10 @@ def build_datapipe(
         diagnostic_variables=list(model.get("diagnostic_variables", []) or []),
         fill_values=dict(OmegaConf.to_container(data.nan_fill_values, resolve=True) or {}),
         default=float(data.nan_fill_default),
+        # Opt-in: raise if any NaN survives the fill, instead of letting it reach
+        # the model and surface later as a NaN loss with no origin. Worth the
+        # per-sample scan on a smoke; off by default for production throughput.
+        strict=bool(data.get("nan_fill_strict", False)),
     )
 
     effective_batch = int(batch_size_override) if batch_size_override else int(data.batch_size)

@@ -81,14 +81,16 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- **ai-rossby PanguPlasim bring-up — Step 0 gate PASSED, steps 1-6 built, NOTHING
-  SUBMITTED YET** (branch `fix/tsoi-fill-270`, 2026-08-04). Ready to run, in order:
-  1. `cd physicsnemo_ai_rossby && qsub polaris/polaris_e3sm_pangu_convert.pbs`
-     (1 train year 2015 + 1 val year 2045, ~20 min/year;
-     PASS = `PANGU_STORE_VERIFIED` per store + `CONVERT_ALL_OK`)
-  2. the training smoke — **launcher not yet written** (step 7 of the handoff).
+- **ai-rossby PanguPlasim bring-up — Step 0 gate PASSED, ALL 7 steps built, NOTHING
+  SUBMITTED YET** (branch `fix/tsoi-fill-270`, pushed 2026-08-04). Two `qsub`s remain,
+  in order, both from `physicsnemo_ai_rossby/`:
+  1. `qsub polaris/polaris_e3sm_pangu_convert.pbs` — 1 train year (2015) + 1 val year
+     (2045), ~20 min/year. PASS = `PANGU_STORE_VERIFIED` per store + `CONVERT_ALL_OK`.
+  2. `qsub polaris/polaris_pangu_plasim.pbs` — 4×A100 training smoke.
+     PASS = `PREFLIGHT_OK` + advancing `train/*` epoch metrics, finite and decreasing.
   Everything else is done and verified: subtree vendored, venv green, code edits in,
-  configs written, normalization store built. See the decisions-log entry below.
+  configs written, normalization store built + round-tripped. See the decisions-log
+  entry below.
 
 - **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
   `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
@@ -216,6 +218,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     `AI_ROSSBY_DATA` added to `polaris_env.sh` — **no shared fallback for the venv**,
     deliberately: it is an editable install, and the PBS scripts hard-fail
     `AI_ROSSBY_WRONG_CHECKOUT` instead.
+  - **Preflight is real, and proven so.** `polaris_pangu_plasim.pbs` refuses to launch
+    unless every produced store's attrs AND the model/dataset configs match the contract
+    (`PREFLIGHT_OK`). Negative-tested by pointing `--store` at the normalization store:
+    5 store checks FAIL loudly rather than no-op'ing. Also wired
+    `dataset.nan_fill_strict` (the transform supported `strict` but `train.py` never
+    passed it) — on for the smoke, so a NaN reaching the model raises at its origin
+    instead of surfacing later as an unattributable NaN loss.
   - **Subtree:** `physicsnemo_ai_rossby/` imported **unsquashed** from jesswan's local copy
     (`ai-rossby`, HEAD `87002adb`, a real ancestor of HEAD). 4,037 files; `.git` 310 → 315 MB
     only, because it shares objects with the existing `physicsnemo_sfno/` subtree (both fork
