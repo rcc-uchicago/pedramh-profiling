@@ -81,6 +81,15 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
+- **ai-rossby PanguPlasim bring-up — Step 0 gate PASSED, steps 1-6 built, NOTHING
+  SUBMITTED YET** (branch `fix/tsoi-fill-270`, 2026-08-04). Ready to run, in order:
+  1. `cd physicsnemo_ai_rossby && qsub polaris/polaris_e3sm_pangu_convert.pbs`
+     (1 train year 2015 + 1 val year 2045, ~20 min/year;
+     PASS = `PANGU_STORE_VERIFIED` per store + `CONVERT_ALL_OK`)
+  2. the training smoke — **launcher not yet written** (step 7 of the handoff).
+  Everything else is done and verified: subtree vendored, venv green, code edits in,
+  configs written, normalization store built. See the decisions-log entry below.
+
 - **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
   `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
   decisions log). Remaining wait: jesswan's zarr transfer** (announced 2026-07-16, not yet on
@@ -144,6 +153,75 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-04** — **ai-rossby PanguPlasim bring-up: Step-0 variable-parity gate PASSED
+  (10/10), then steps 1-6 implemented. Nothing submitted to the scheduler yet.**
+  Commits `b28b2e7c` (gate) → `b10d5e5c` (venv + code + configs) → `2924b90b` (norm store +
+  conversion tooling).
+  - **The gate.** `ai_rossby_panguweather_variable_parity.md` proves the run trains the
+    **identical 108-field variable set** as jesswan's PanguWeather E3SM run — group for
+    group, name for name, **order for order**, level for level, fill for fill. The contract
+    lives once in `ai_rossby_variable_contract.py::PLANNED` and is machine-checked two ways:
+    `--check-ground-truth` (vs jesswan's YAML) and `--check-artifacts` (vs our configs,
+    converter and store attrs). **26/26 pass.** stdlib-only so it runs on a login node
+    before any venv exists — but needs `python3.12`, since the bare `python3` there is 3.6.
+  - **Ground truth identified from run artifacts, not assumed:** the trainer logged
+    `E3SM_SFNO_H5_STAMPEDE_jsw.yaml` at startup in 7 of the 10 `e3sm_train_*.e` logs, from
+    jesswan's Stampede3 `$WORK` (`jwan4`), with a descending loss. It turned out not to
+    matter: **all four** E3SM configs (`_STAMPEDE_jsw`, `_DERECHO_jsw`, `_POLARIS`,
+    `_POLARIS_ALLDATA`) carry a byte-equivalent variable contract.
+  - **⚠ Trap that would have been a FALSE PASS:** PanguWeather carries two level lists.
+    `levels: [5, 10, 20, …]` are nominal hPa *labels*; `sigma_levels: [4.714998…, …]` are
+    the values actually embedded in the H5 keys, and `use_sigma_levels: True` makes the
+    latter what reaches the loader. The check compares `sigma_levels` — verified identical
+    to ai-rossby's 18 levels, `max|diff| = 0.0`.
+  - **ai-rossby's shipped E3SM defaults were NOT the contract** — 3 surface vars vs 6 (+2
+    land), 1 diagnostic vs 3, and **two groups in a different order**. Order is the silent
+    one: `ClimateZarrDataset` stacks tensors in **store-attrs** order while fills and loss
+    build from the **model-config** lists (`dataset.py:533` vs `train.py:636,739`), so a
+    permutation is correctly-shaped and `torch.cat` raises nothing. Hence the preflight.
+  - **Code edits (vendored tree).** `sol_in` added to `_solar_names` in *both*
+    `pangu_plasim_legacy.py` and `pangu_plasim.py` (E3SM's solar field is neither `rsdt`
+    nor `toa_incident_solar_radiation`, so the ctor raised `ValueError`). One
+    `_surface_channel_names()` helper in `train.py` replaces four restatements of "the
+    surface tensor is `[surface|land|ocean]`" — the two sites the handoff named, **plus two
+    it did not**: the `ArchesWeatherLoss` branch (off our `loss=mae` path, but a landmine
+    for a later loss switch) and `channel_equal_weight`'s `n_surf`, which would
+    under-weight the surface term against the channels it scores.
+  - **Fills — the user's Kelvin confirmation, and where it does not hold.** `TSOI_10CM =
+    270 K` is right (soil temp is Kelvin; land mean 268 K ⇒ effectively a mean-fill).
+    **`SST` is degC in this archive** (measured −1.80…32.92), so the same 270 is ~8× its
+    maximum — R4, inherited from a mechanical rename of ERA5/PlaSim's
+    `mask_fill['sst']=270.` where the field really was Kelvin. **Reproduced deliberately**
+    (parity is the point, and the shipped stats were computed under the same 270-fill, so
+    fill and stats agree — unlike `TSOI_10CM`, R3). `SST = -1.8` + masked stats remains the
+    fast-follow. **Both still need jesswan's sign-off before any numbers are reported.**
+  - **Normalization store BUILT + verified** (login node, seconds):
+    `$AI_ROSSBY_DATA/e3sm/norm/normalization_2015-2050.zarr`, 26 vars / 18 levels, from
+    `$PANGU_AUX/data_2015-2050_{mean,std_corr}.nc` — the *same constants jesswan's run
+    used*, converted not recomputed. Round-trip vs source over all 23 contract vars:
+    `max|diff| = 0`. The `Z`→`Z_2` fix the handoff anticipated was **already applied**
+    upstream by `polaris_prepare_e3sm_stats.py`; the tool's rename branch is a no-op here.
+    No zero/tiny std among the 23 (that is what `_std_corr` corrects).
+  - **Handoff corrections worth keeping:** (a) `uv` *does* ship with the ALCF conda module,
+    but only after **`conda activate base`** — `module load conda` alone puts neither
+    `python` nor `uv` on PATH. (b) The dataset config is a **new** file,
+    `conf/dataset/e3sm_pangu_parity.yaml`, **not** an overwrite of `conf/dataset/e3sm.yaml`
+    — that one is the SFNO speed-bench config for a different channel set. Launch with
+    `dataset=e3sm_pangu_parity`.
+  - **Venv:** `polaris_setup_ai_rossby_venv.sh` → `AI_ROSSBY_VENV_OK`. torch 2.10.0+cu129,
+    zarr 3.2.1, torch_harmonics 0.9.1, wandb 0.27.0; physicsnemo editable from **this**
+    checkout (13 GB, `${MEMBER_ROOT}/conda-envs/ai-rossby-venv`, via
+    `UV_PROJECT_ENVIRONMENT` so it stays out of the git tree). `AI_ROSSBY_VENV` +
+    `AI_ROSSBY_DATA` added to `polaris_env.sh` — **no shared fallback for the venv**,
+    deliberately: it is an editable install, and the PBS scripts hard-fail
+    `AI_ROSSBY_WRONG_CHECKOUT` instead.
+  - **Subtree:** `physicsnemo_ai_rossby/` imported **unsquashed** from jesswan's local copy
+    (`ai-rossby`, HEAD `87002adb`, a real ancestor of HEAD). 4,037 files; `.git` 310 → 315 MB
+    only, because it shares objects with the existing `physicsnemo_sfno/` subtree (both fork
+    awikner/physicsnemo). `subtree add` ran fine on the **login** node with
+    `-c pack.threads=1` — the compute-node workaround the physicsnemo import needed was not
+    required here (local path, no network fetch).
 
 - **2026-08-04** — **Pivot: training moves to the ai-rossby recipe (PanguPlasim), for exact
   PanguWeather parity — and the SFNO 103-var conversion `7324098` was cancelled + its 463 GB
