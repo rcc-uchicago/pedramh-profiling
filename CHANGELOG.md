@@ -207,7 +207,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     No zero/tiny std among the 23 (that is what `_std_corr` corrects).
   - **Handoff corrections worth keeping:** (a) `uv` *does* ship with the ALCF conda module,
     but only after **`conda activate base`** — `module load conda` alone puts neither
-    `python` nor `uv` on PATH. (b) The dataset config is a **new** file,
+    `python` nor `uv` on PATH. (a2) **The extras list was incomplete: `--extra
+    datapipes-extras` is REQUIRED.** The fork promoted `xarray`/`zarr`/`netCDF4` to core
+    deps but **not `dask`**, which `pangu_h5_to_zarr.py` imports to allocate the Zarr
+    template. Caught by running the converter on 8 timesteps locally; otherwise it would
+    have died `ModuleNotFoundError` on the compute node **after queueing**. The venv script
+    now installs and verifies it. (b) The dataset config is a **new** file,
     `conf/dataset/e3sm_pangu_parity.yaml`, **not** an overwrite of `conf/dataset/e3sm.yaml`
     — that one is the SFNO speed-bench config for a different channel set. Launch with
     `dataset=e3sm_pangu_parity`.

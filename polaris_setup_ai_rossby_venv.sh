@@ -20,8 +20,15 @@
 #   than let a run silently execute someone else's working tree.
 #
 # Wheels only — no source builds. torch_harmonics and wandb come from the
-# sfno-extras / utils-extras groups; xarray / zarr>=3 / netCDF4 / h5py / cftime /
-# hydra are already core deps in the ai-rossby fork, so no datapipes-extras needed.
+# sfno-extras / utils-extras groups.
+#
+# datapipes-extras is REQUIRED even though the ai-rossby fork promoted
+# xarray / zarr>=3 / netCDF4 to core deps: `dask` did NOT get promoted, and
+# tools/data/e3sm/pangu_h5_to_zarr.py imports it to allocate the Zarr template
+# (`import dask.array as da`). Without it the h5->zarr conversion dies with
+# ModuleNotFoundError — on the compute node, after queueing. The fork's own
+# CLAUDE.md says as much: "`uv sync` must include --extra sfno-extras
+# --extra utils-extras --extra datapipes-extras or it silently prunes SFNO/zarr deps."
 set -eo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -63,7 +70,7 @@ echo "  venv    = ${VENV}"
 echo "  uv      = $(command -v uv) ($(uv --version))"
 
 cd "${PROJECT}"
-uv sync --extra cu129 --extra sfno-extras --extra utils-extras
+uv sync --extra cu129 --extra sfno-extras --extra utils-extras --extra datapipes-extras
 
 # --- verification: the imports that actually gate the run -------------------
 # Key on the printed token, not on exit code alone (CLAUDE.md).
@@ -101,7 +108,8 @@ import physicsnemo  # noqa: E402
 
 print(f"  physicsnemo from: {physicsnemo.__file__}")
 
-for mod in ("zarr", "xarray", "netCDF4", "h5py", "cftime", "wandb", "hydra", "torch_harmonics"):
+for mod in ("zarr", "xarray", "netCDF4", "h5py", "cftime", "wandb", "hydra",
+            "torch_harmonics", "dask"):  # dask: the h5->zarr converter needs it
     check(mod, lambda m=mod: __import__(m).__version__ if hasattr(__import__(m), "__version__") else "ok")
 
 import zarr  # noqa: E402
