@@ -165,7 +165,7 @@ directory*:
 | | PanguWeather config | ai-rossby directory | Stores | Timesteps |
 |---|---|---|---:|---:|
 | Train | `2015 → 2045` (excl.) | `e3sm/train/` = `2015.zarr … 2044.zarr` | 30 | 43,800 |
-| Val | `2045 → 2049` (excl.) | `e3sm/val/` = `2045.zarr … 2048.zarr` | 4 | 5,840 |
+| Val | `2045 → 2049` (excl.) | `e3sm/val/` = `2045.zarr … 2048.zarr` **+ `2049.zarr` (1 sample)** | 4 + tail | 5,840 **+ 1** |
 
 Submit as:
 
@@ -174,11 +174,15 @@ qsub -v TRAIN_YEARS="$(seq -s' ' 2015 2044)",VAL_YEARS="2045 2046 2047 2048" \
      polaris/polaris_e3sm_pangu_convert.pbs
 ```
 
+The **one-sample 2049 tail store is built automatically** — `VAL_TAIL_YEAR` defaults to
+`max(VAL_YEARS) + 1` and is converted with `--sample-range 0 1`. Set `VAL_TAIL_YEAR=none`
+to skip it. §4.1 explains why it is required for parity.
+
 At ~20 min/year that is ~11 h of single-node time — past the 72 h queue max is not a
 concern, but split it across a few submissions or use `polaris_submit_chain.sh` so a
 preemption doesn't lose the lot. Each year is independent, so re-running one year is cheap.
 
-### The two semantics that differ, and why they still match
+### 4.1 The tail store — why validation needs a one-sample 2049
 
 **Cross-year forecast pairs work — inside a directory.** The composite dataset glues the
 per-year stores into one contiguous global time index and dispatches a pair's start and
@@ -186,24 +190,74 @@ target to whichever year covers each (`multiyear.py:71-74`). So a start at 2020-
 correctly reads its target from `2021.zarr`. That reproduces PanguWeather's continuous
 date-range behaviour across the 30 training years.
 
-**The tail loses exactly `max(forecast_lead_times)` starts.** `LeadTimePairSampler` uses
-`valid_starts = dataset_length - max_lead` (`samplers.py:139-140`). With
-`forecast_lead_times: [1]` that is **one** dropped start per directory — the final
-timestep, whose target would fall outside the directory. Train loses 2044-12-31 18:00; val
-loses 2048-12-31 18:00.
+**But the directory tail loses `max(forecast_lead_times)` starts.** `LeadTimePairSampler`
+uses `valid_starts = dataset_length - max_lead` (`samplers.py:139-140`). At
+`forecast_lead_times: [1]` that is **one** dropped start per directory: the final timestep,
+whose target would fall outside the directory.
 
-That last one is the only real divergence from the reference split. PanguWeather's
-`val_year_end: 2049` makes its final validation target land on **2049-01-01 00:00**, using
-`2049_0000.h5`. To reproduce that exactly, add a **one-sample 2049 store**:
+Whether that matters depends on a PanguWeather detail worth getting exactly right, because
+the reference config's own comment states it imprecisely. Traced through the source and
+verified numerically:
 
-```bash
-python tools/data/e3sm/pangu_h5_to_zarr.py --input-dir $E3SM_ROOT/h5/plev_data \
-  --year 2049 --sample-range 0 1 --output $AI_ROSSBY_DATA/e3sm/val/2049.zarr
+1. `partition_date_range` builds the date axis with **`np.arange(start_h, end_h, step)`**
+   (`data_loader_multifiles.py`), so `end_date` is **exclusive**. `val 2045 → 2049` is
+   therefore **5,840** timesteps ending **2048-12-31 18:00** — the date array contains **no
+   2049 entry at all**. (Confirmed against jesswan's job log, which prints
+   `Hours: 43794.0` for a 5-year 2045→2050 range: 43,800 − 6.)
+2. `max_inference_idx = len(dates) - lead` = **5,839** (`:505`).
+3. The last IC then depends on `num_inferences` (`:507` vs `:509`):
+
+| `num_inferences` | index selection | ICs | last IC | its target |
+|---|---|---:|---|---|
+| `0` | `arange(0, 5839)` — excludes endpoint | 5,839 | 2048-12-31 12:00 | 2048-12-31 18:00 (in range) |
+| **`128`** (the full-run value) | `linspace(0, 5839, 129)` — **includes** endpoint | 129 | **2048-12-31 18:00** | **2049-01-01 00:00** → reads `2049_0000.h5` |
+
+So it is the **`linspace` endpoint**, not the exclusive `val_year_end`, that reaches into
+2049 — and only on the `num_inferences > 0` path, which is what jesswan's E3SM configs use
+(`num_inferences: 128` full, `8` smoke).
+
+**Consequence for us:** ai-rossby's sampler is `arange`-like, so a bare `val/2045..2048`
+stops at 2048-12-31 12:00 — one IC short of the reference. A **one-sample 2049 store**
+restores it, and the converter job builds it automatically.
+
+**Verified, on real stores** (an 8-step 2015 + a 1-step 2016 in one directory):
+
+```
+sub lengths [8, 1] -> composite 9;  valid starts = N - max_lead = 8
+  last IC     global 7 -> 2015.zarr local 7  time 2015-01-02 18:00:00
+  its target  global 8 -> 2016.zarr local 0  time 2016-01-01 00:00:00
+
+WITHOUT the tail store: composite 8, valid starts 7 -> last IC would be local 6
 ```
 
-~22 MB, and the 2048-12-31 18:00 start regains its target. **Optional** — it is 1 sample in
-5,840 (0.02% of validation). Recorded because "why is my val set one shorter" is otherwise
-an afternoon.
+Every real timestep of the full years is a usable IC, and the last one's target resolves
+into the tail store. Scaled to production: `5840 + 1 = 5841` composite, `valid_starts =
+5840` — ICs spanning **2045-01-01 00:00 … 2048-12-31 18:00**, final target
+**2049-01-01 00:00**. That is PanguWeather's `val_year_end: 2049` semantics exactly.
+
+Two things that make this safe, both checked rather than assumed:
+
+* **The loader accepts the short store.** `_assert_layouts_match` compares variable groups,
+  calendar, `data_timedelta_hours` and the level lists — **not** time length
+  (`multiyear.py`). Confirmed identical across a full and a 1-sample store.
+* **The short store passes verification.** `PANGU_STORE_VERIFIED 13/13` on the 1-sample
+  store — 108 fields bitwise vs h5, 290,408 NaN cells in the same positions.
+
+Cost: **~22 MB**, one file-read. `VAL_TAIL_YEAR=none` skips it and gives back the one-IC
+shortfall.
+
+**What parity does and does not mean here.** With the tail store, the two runs agree on the
+*span* of reachable validation ICs — 2045-01-01 00:00 through 2048-12-31 18:00, final target
+2049-01-01 00:00. They do **not** agree on IC *density*: PanguWeather subsamples 129 ICs via
+`linspace`, while ai-rossby's sampler walks all 5,840. That is a validation-protocol
+difference, not a data one, and it is out of scope for this store.
+
+> **`train/` needs no tail store, and adding one would diverge.** PanguWeather's
+> `_compute_train_inference_idxs` "excludes the final `timedelta_hours / data_timedelta_hours`
+> samples of every contiguous range so that `dates[idx + lead]` always lives in the same
+> range" — which is *exactly* ai-rossby's `valid_starts = N - max_lead`. Both drop
+> 2044-12-31 18:00. Verified against the job log: a 25-year training range printed
+> `Len(inference_idxs): 36499` = 36,500 − 1. Already identical; leave it alone.
 
 ### An alternative, if parity is not the goal
 

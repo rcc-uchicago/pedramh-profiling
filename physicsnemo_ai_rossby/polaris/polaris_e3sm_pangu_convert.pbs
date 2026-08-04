@@ -77,6 +77,33 @@ OUT="${AI_ROSSBY_DATA}/e3sm"
 NORM="${OUT}/norm/normalization_2015-2050.zarr"
 TRAIN_YEARS="${TRAIN_YEARS:-2015}"
 VAL_YEARS="${VAL_YEARS:-2045}"
+
+# --- Validation tail store (PanguWeather final-IC parity) --------------------
+# PanguWeather's final validation IC is Dec 31 18:00 of the last val year, and
+# its lead-1 target is Jan 1 00:00 of the NEXT year -- read straight off disk as
+# {year}_0000.h5. The mechanism is NOT the exclusive `val_year_end` (the date
+# axis is np.arange, so that year never enters `dates`); it is the linspace
+# endpoint in data_loader_multifiles.py:507, which INCLUDES
+# max_inference_idx = len(dates) - lead. Only on the `num_inferences > 0` path
+# -- which is what jesswan's E3SM configs use (128 full / 8 smoke).
+#
+# ai-rossby's sampler is arange-like (valid_starts = N - max_lead,
+# samplers.py:139-140), so a bare val/2045..2048 stops one IC short. A
+# ONE-SAMPLE store for the following year restores it: sub lengths [.., 1] give
+# valid_starts = N-1, so every real val timestep is a usable IC and the last
+# one's target resolves into the tail store. Verified on real stores.
+#
+# The multi-year loader accepts the short store: _assert_layouts_match compares
+# variable groups, calendar and levels, NOT time length.
+#
+# train/ deliberately gets NO tail store -- PanguWeather's
+# _compute_train_inference_idxs drops the final `lead` of each range, which is
+# already exactly what ai-rossby's sampler does.
+#
+# Set VAL_TAIL_YEAR=none to skip it (loses that one IC).
+_last_val=""
+for y in ${VAL_YEARS}; do _last_val="${y}"; done
+VAL_TAIL_YEAR="${VAL_TAIL_YEAR:-$(( _last_val + 1 ))}"
 # One process per core for the h5 reads; the job owns the whole node.
 NWORKERS="${NWORKERS:-32}"
 
@@ -96,20 +123,23 @@ echo "  h5 source   = ${H5_DIR}"
 echo "  output root = ${OUT}"
 echo "  train years = ${TRAIN_YEARS}"
 echo "  val years   = ${VAL_YEARS}"
+echo "  val tail    = ${VAL_TAIL_YEAR} (1 sample; PanguWeather val_year_end parity)"
 echo "  workers     = ${NWORKERS}"
 echo
 
 rc=0
-convert_and_verify() {   # $1 = split (train|val), $2 = year
-    local split="$1" year="$2"
+convert_and_verify() {   # $1 = split (train|val), $2 = year, $3 = optional "0 N" sample range
+    local split="$1" year="$2" range="${3:-}"
     local store="${OUT}/${split}/${year}.zarr"
-    echo "=========== ${split}/${year} -> ${store}"
+    echo "=========== ${split}/${year} -> ${store} ${range:+(samples ${range})}"
     mkdir -p "${OUT}/${split}"
+    # shellcheck disable=SC2086 — ${range} is intentionally word-split into two args
     ${PY} "${AR_ROOT}/tools/data/e3sm/pangu_h5_to_zarr.py" \
         --input-dir "${H5_DIR}" \
         --year "${year}" \
         --output "${store}" \
         --n-workers "${NWORKERS}" \
+        ${range:+--sample-range ${range}} \
         --overwrite || { echo "ERROR CONVERT_FAILED ${split}/${year}"; return 1; }
     ${PY} "${AR_ROOT}/polaris/verify_pangu_store.py" \
         --store "${store}" \
@@ -121,10 +151,13 @@ convert_and_verify() {   # $1 = split (train|val), $2 = year
 
 for y in ${TRAIN_YEARS}; do convert_and_verify train "${y}" || rc=1; done
 for y in ${VAL_YEARS};   do convert_and_verify val   "${y}" || rc=1; done
+if [ "${VAL_TAIL_YEAR}" != "none" ]; then
+    convert_and_verify val "${VAL_TAIL_YEAR}" "0 1" || rc=1
+fi
 
 echo
 if [ "${rc}" -eq 0 ]; then
-    echo "CONVERT_ALL_OK  train=[${TRAIN_YEARS}] val=[${VAL_YEARS}]"
+    echo "CONVERT_ALL_OK  train=[${TRAIN_YEARS}] val=[${VAL_YEARS}] val_tail=${VAL_TAIL_YEAR}"
 else
     echo "ERROR CONVERT_ALL_FAILED"
 fi
