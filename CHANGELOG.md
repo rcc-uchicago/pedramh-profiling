@@ -156,6 +156,56 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-04** — **SST-fill investigation (jesswan): the degC/Kelvin bug is confirmed, my
+  "it doesn't affect training" framing was WRONG, and an audit shows the defect class is
+  structural — it exists only where stats are precomputed externally.**
+  - **Correction to my own earlier claim.** I argued normalization is affine-invertible so a
+    first-layer weight absorbs the bad fill. **That holds in fp32 only.** AMP was on
+    (`enable_amp` defaults `not args.no_amp`; no launcher passes `--no_amp`), and under bf16
+    the ocean SST range collapses to **75 distinct values** (fp16: ~575). Quantization is
+    irreversible — no downstream weight recovers it. jesswan is right: SST is a *feature*, so
+    training and inference are both affected. Measured: ocean signal **0.093σ**, ~**0.47 °C
+    per bf16 level**.
+  - **⚠ R2 CONFIRMED INDEPENDENTLY, and it reframes the cost.** `SST`, `ICE` and `sol_in` are
+    **bit-identical across all 35 years** at the same day-of-year (`max|diff| = 0` for 2015 vs
+    2020/2035/2049), while prognostic `TREFHT` varies normally. So this archive has **no
+    interannual SST variability and no SSP245 warming trend** — measured global-mean ocean SST
+    trend is *exactly* 0.000 °C/decade. The quantization therefore costs no ENSO/trend signal
+    (there is none); it costs **spatial + seasonal** structure — SST fronts, upwelling, the ice
+    edge — and because the field repeats exactly, that blurring is a *systematic* forcing bias
+    seen 35 times, not averaging noise.
+  - **Audit (jesswan's ask) — physicsnemo_sfno and makani are CLEAN, and immune by
+    construction**, via two different mechanisms:
+    | path | SST fill | stats | exposed? |
+    |---|---|---|---|
+    | PanguWeather | 270 (degC field) | precomputed `.nc`/`.npz` | **YES** |
+    | **ai-rossby (ours)** | 270 (parity) | precomputed zarr **+ `amp: bf16`** | **YES — worst** |
+    | physicsnemo_sfno | −1.8 ✅ | **writes none**, online BatchNorm | no |
+    | makani | −1.8 ✅ | **in-stream from PACKED data** | no |
+    Both already document SST as degC and explicitly rejected the npz because it "was computed
+    under a land-fill convention of ~270 for SST"
+    (`e3sm_h5_to_seqzarr.py:242`, `convert_e3sm_to_makani.py:56-57`). **Nothing to change there.**
+    ⇒ **The bug class exists only where an externally-precomputed stats file is paired with a
+    separately-configured fill.** That is exactly PanguWeather and our ai-rossby path.
+  - **Corrected constants are exactly derivable — no raw recompute needed.** Because the land
+    mask is static AND SST repeats bit-identically (R2), the 35-year stats equal any year's,
+    and the shipped 270-fill pair inverts analytically to ocean-only moments (land fraction
+    0.37352, ocean mean 14.546 °C, ocean std 11.514 — cross-checked against a direct 12-sample
+    measurement: 14.598 / 11.488). Re-filling gives:
+    | SST fill | mean | std | ocean signal |
+    |---:|---:|---:|---:|
+    | 270 (current) | 109.9630 | 123.9083 | 0.093σ |
+    | **0.0** | **9.1130** | **11.5140** | **1.000σ** |
+    | **−1.8** | **8.4407** | **12.0659** | **0.954σ** |
+    Either is ~10× the current signal and ~36× the bf16 levels. **−1.8 additionally unifies
+    all three pipelines**; 0.0 is marginally better numerically. jesswan regenerates the
+    PanguWeather `.nc`; these are the cross-check.
+  - **Deferred by jesswan's call: "fix SST first".** `TSOI_10CM`'s mismatch stands —
+    shipped stats encode a **0-fill** while the config fills **270**, measured over 12
+    samples (0.195σ vs 1.606σ if matched = **8.2× under-weighted**). Unlike SST this channel
+    is **scored** (a `land_variable`, i.e. prognostic), so it hits a loss term, not an input.
+    Fix in the same regeneration pass when SST is settled.
+
 - **2026-08-04** — **ai-rossby PanguPlasim bring-up: Step-0 variable-parity gate PASSED
   (10/10), then steps 1-6 implemented. Nothing submitted to the scheduler yet.**
   Commits `b28b2e7c` (gate) → `b10d5e5c` (venv + code + configs) → `2924b90b` (norm store +
