@@ -87,12 +87,12 @@ FIRST_YEAR = 2015
 # reviewed by humans or not at all, so it is recorded into the store's attrs. Measured
 # facts to review it against (from the archive, not from a variable name):
 #   SST        degC, ocean range [-1.80, 32.21]  -> -1.8 is the physical min, in-distribution
-#   TSOI_10CM  KELVIN, land mean 268 K           -> 270 sits mid-distribution, in-distribution
+#   TSOI_10CM  KELVIN, land mean 272 K           -> 270 sits mid-distribution, in-distribution
 #   ICE        fraction [0, 1]                   -> 0.0 fine
 # TSOI_10CM was CHANGED from 0.0 to 270 on 2026-08-03 (rmehta1987's decision, for a 103-var
 # regeneration). Rationale: 0.0 is 0 K over the ~61% ocean — out-of-distribution, it builds a
 # ~268 K coastline cliff that dominates BatchNorm's estimated sigma and draws ~26x less gradient
-# to the channel (data_for_training.md R3). 270 is mid-distribution (land mean 268 K) and matches
+# to the channel (data_for_training.md R3). 270 is mid-distribution (land mean 272 K) and matches
 # PanguWeather (E3SM_SFNO_H5_POLARIS.yaml mask_fill['TSOI_10CM']=270.). This normalizes online
 # via BatchNorm, so the fill and the stats can never disagree (no stale npz to recompute — the
 # reason the old note kept 0.0 no longer applies here).

@@ -81,8 +81,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- **ai-rossby PanguPlasim bring-up — Step 0 gate PASSED, ALL 7 steps built, NOTHING
-  SUBMITTED YET** (branch `fix/tsoi-fill-270`, pushed 2026-08-04). Two `qsub`s remain,
+- **ai-rossby PanguPlasim bring-up — Step 0 gate PASSED; conversion GREEN (7337122), normalization regen queued (7337234)** (branch `fix/tsoi-fill-270`, pushed 2026-08-04). Two `qsub`s remain,
   in order, both from `physicsnemo_ai_rossby/`:
   1. `qsub polaris/polaris_e3sm_pangu_convert.pbs` — 1 train year (2015) + 1 val year
      (2045), ~20 min/year. PASS = `PANGU_STORE_VERIFIED` per store + `CONVERT_ALL_OK`.
@@ -230,7 +229,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **ai-rossby's shipped E3SM defaults were NOT the contract** — 3 surface vars vs 6 (+2
     land), 1 diagnostic vs 3, and **two groups in a different order**. Order is the silent
     one: `ClimateZarrDataset` stacks tensors in **store-attrs** order while fills and loss
-    build from the **model-config** lists (`dataset.py:533` vs `train.py:636,739`), so a
+    build from the **model-config** lists (`dataset.py:533` vs `train.py:657` fill / `:735`,`:770` loss, via `_surface_channel_names()` at `:92`), so a
     permutation is correctly-shaped and `torch.cat` raises nothing. Hence the preflight.
   - **Code edits (vendored tree).** `sol_in` added to `_solar_names` in *both*
     `pangu_plasim_legacy.py` and `pangu_plasim.py` (E3SM's solar field is neither `rsdt`

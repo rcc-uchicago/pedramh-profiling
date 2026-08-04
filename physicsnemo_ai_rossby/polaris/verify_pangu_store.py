@@ -5,7 +5,7 @@
 
 """Verify a converted E3SM Pangu-parity Zarr store against its H5 source.
 
-Six checks, all of which must pass:
+Thirteen checks (six groups below), all of which must pass:
 
 1. **Attrs vs contract** — every channel group, in order, equals
    ``ai_rossby_variable_contract.PLANNED`` (with land folded last into the
