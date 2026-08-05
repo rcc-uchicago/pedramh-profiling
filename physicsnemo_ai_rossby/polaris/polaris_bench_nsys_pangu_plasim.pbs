@@ -1,0 +1,155 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_bench_nsys
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Nsight Systems trace of PanguPlasimLegacy on E3SM — Polaris, 4x A100.
+#
+# Companion to polaris_bench_pangu_plasim.pbs: same harness, plus NVTX ranges
+# and a cudaProfilerApi capture window around the MEASURED steps only, so the
+# trace shows steady state rather than warmup/autotune. 55 min (vs the CSV
+# bench's 50) because profiling adds real overhead — the same margin split
+# PanguWeather's two bench scripts use.
+#
+# ⚠ TORCH_COMPILE_MODE is deliberately NOT set here. `reduce-overhead` replays
+# CUDA graphs, which drops the CUPTI kernel table and breaks NVTX->kernel
+# correlation — the trace comes back looking empty. Profile eager; bench compiled.
+#
+# Submit:  qsub polaris/polaris_bench_nsys_pangu_plasim.pbs
+#          qsub -v WARMUP=5,STEPS=20 polaris/polaris_bench_nsys_pangu_plasim.pbs
+#
+# PASS = a new CSV row AND a non-empty .nsys-rep AND an NVTX_EVENTS table that
+# actually contains our ranges. "The .nsys-rep exists" proves nothing: nsys
+# writes one even when the capture range never fired.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+NSYS_BIN="${NSYS_BIN:-/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys}"
+[ -x "${NSYS_BIN}" ] || { echo "ERROR NSYS_MISSING: ${NSYS_BIN}"; exit 3; }
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+RUN_NAME="${RUN_NAME:-nsys_$(date +%Y%m%d)_${PBS_JOBID%%.*}}"
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/ai_rossby_bench/${RUN_NAME}}"
+
+export AI_ROSSBY_BENCH=1
+export AI_ROSSBY_NVTX=1
+# Fewer measured steps than the CSV bench: a trace grows with every step and
+# 40 is plenty to characterise a steady-state kernel mix.
+export AI_ROSSBY_BENCH_WARMUP="${WARMUP:-20}"
+export AI_ROSSBY_BENCH_STEPS="${STEPS:-40}"
+export AI_ROSSBY_BENCH_CSV="${AI_ROSSBY_BENCH_CSV:-${MEMBER_ROOT}/bench/ai_rossby_pangu_plasim_nsys.csv}"
+mkdir -p "$(dirname "${AI_ROSSBY_BENCH_CSV}")" "${RUN_DIR}" "${MEMBER_ROOT}/bench"
+
+[ -d "${DATA}/train" ] || { echo "ERROR AI_ROSSBY_DATA_MISSING: ${DATA}/train"; exit 3; }
+
+NSYS_OUT="${MEMBER_ROOT}/bench/nsys_ai_rossby_${PBS_JOBID%%.*}"
+
+polaris_env_report
+echo "--- nsys bench ---"
+echo "  ranks   = ${NPROC}"
+echo "  warmup  = ${AI_ROSSBY_BENCH_WARMUP}, steps = ${AI_ROSSBY_BENCH_STEPS}"
+echo "  trace   = ${NSYS_OUT}.nsys-rep"
+echo
+
+rows_before=0
+[ -f "${AI_ROSSBY_BENCH_CSV}" ] && rows_before=$(wc -l < "${AI_ROSSBY_BENCH_CSV}")
+
+cd "${RECIPE}" || exit 2
+# One nsys wraps the launcher AND every rank it forks. --trace=osrt is what makes
+# a blocking loader fetch visible as host-side wait, which is half the point.
+"${NSYS_BIN}" profile \
+    --trace=cuda,nvtx,cudnn,cublas,osrt \
+    --capture-range=cudaProfilerApi \
+    --capture-range-end=stop \
+    --output="${NSYS_OUT}" \
+    --force-overwrite=true \
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        profile_train.py \
+        model=pangu_plasim_e3sm \
+        dataset=e3sm_pangu_parity \
+        training=pangu_plasim_legacy \
+        loss=mae \
+        training.amp=bf16 \
+        dataset.batch_size=1 \
+        run_name="${RUN_NAME}" \
+        hydra.run.dir="${RUN_DIR}"
+rc=$?
+echo "--- nsys rc=${rc} ---"
+
+rows_after=0
+[ -f "${AI_ROSSBY_BENCH_CSV}" ] && rows_after=$(wc -l < "${AI_ROSSBY_BENCH_CSV}")
+if [ "${rows_after}" -le "${rows_before}" ]; then
+    echo "ERROR BENCH_NO_ROW_WRITTEN (before=${rows_before} after=${rows_after})"
+    exit 4
+fi
+
+[ -s "${NSYS_OUT}.nsys-rep" ] || { echo "ERROR NO_NSYS_REP: ${NSYS_OUT}.nsys-rep missing/empty"; exit 4; }
+
+echo "--- exporting sqlite ---"
+"${NSYS_BIN}" export --type=sqlite --force-overwrite=true \
+    --output="${NSYS_OUT}.sqlite" "${NSYS_OUT}.nsys-rep" || {
+    echo "ERROR NSYS_EXPORT_FAILED"; exit 4; }
+
+python - "${NSYS_OUT}.sqlite" <<'PY' || exit 4
+import sqlite3, sys
+db = sqlite3.connect(sys.argv[1])
+cur = db.cursor()
+cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='NVTX_EVENTS'")
+if not cur.fetchone():
+    print("ERROR NO_NVTX_TABLE: the capture range never fired (AI_ROSSBY_NVTX=1 set? "
+          "did the run reach warmup+1 steps?). A .nsys-rep with no NVTX is not a profile.")
+    sys.exit(4)
+cur.execute("SELECT COUNT(*) FROM NVTX_EVENTS WHERE text IN "
+            "('data_prep','forward_loss','backward','optimizer')")
+n = cur.fetchone()[0]
+if n == 0:
+    print("ERROR NO_BENCH_RANGES: NVTX_EVENTS has no data_prep/forward_loss/backward/"
+          "optimizer ranges — instrumentation drifted or the window missed them.")
+    sys.exit(4)
+print(f"nsys gate OK: {n} bench NVTX ranges captured")
+PY
+
+echo "--- parse_nsys summary ---"
+# The SAME parser s2s and PanguWeather use — proving it understands our ranges
+# is what makes the three projects' profiles comparable.
+python "${REPO}/s2s/v2.0/HPC_scripts/parse_nsys.py" "${NSYS_OUT}.sqlite" || true
+
+echo "AI_ROSSBY_BENCH_NSYS_OK  ${NSYS_OUT}.nsys-rep (+ .sqlite)"
+exit "${rc}"

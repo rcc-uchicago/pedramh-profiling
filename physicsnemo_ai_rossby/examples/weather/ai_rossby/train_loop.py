@@ -14,15 +14,45 @@ for the future PanguPlasim with VAE).
 from __future__ import annotations
 
 import contextlib
+import os
 from typing import Any, Optional
 
 import torch
+import torch.cuda.nvtx as nvtx
 from torch.optim.lr_scheduler import (
     CosineAnnealingLR,
     LinearLR,
     OneCycleLR,
     SequentialLR,
 )
+
+# --- profiling instrumentation (inert unless AI_ROSSBY_NVTX=1) --------------
+# Range NAMES are a cross-project contract, not a local choice: `parse_nsys.py`
+# selects on them by literal string, so renaming one silently drops it from every
+# profile summary and invalidates comparison against PanguWeather/s2s
+# (CLAUDE.md #10). Knobs are per-project (`AI_ROSSBY_*`), names are shared.
+#
+# `ema` is deliberately NOT emitted here: ai-rossby's EMA update lives in
+# train.py's batch loop, not in either step function below. parse_nsys.py
+# tolerates an absent range; a MISNAMED one is the failure mode that matters.
+NVTX = os.environ.get("AI_ROSSBY_NVTX") == "1"
+
+
+@contextlib.contextmanager
+def _nvtx_range(name: str):
+    """Push an NVTX range, popping it even if the body raises.
+
+    A context manager rather than bare push/pop pairs because an exception
+    between them leaves the range open and corrupts every subsequent range in
+    the trace. No-op — and no CUDA call at all — when AI_ROSSBY_NVTX is unset.
+    """
+    if NVTX:
+        nvtx.range_push(name)
+    try:
+        yield
+    finally:
+        if NVTX:
+            nvtx.range_pop()
 
 
 def make_optimizer(model: torch.nn.Module, cfg: Any) -> torch.optim.Optimizer:
@@ -253,7 +283,7 @@ def train_step(
         amp_ctx = torch.amp.autocast(device_type=device_type, dtype=amp_dtype)
 
     extra_kwargs = _optional_model_kwargs(model, batch)
-    with amp_ctx:
+    with _nvtx_range("forward_loss"), amp_ctx:
         out = model(
             batch["surface_in"],
             batch["constant_boundary"],
@@ -314,12 +344,16 @@ def train_step(
     # Backward + step. GradScaler is required for fp16 (underflow protection);
     # bf16 retains enough dynamic range that no scaling is needed.
     if grad_scaler is not None:
-        grad_scaler.scale(losses["loss"]).backward()
-        grad_scaler.step(optimizer)
-        grad_scaler.update()
+        with _nvtx_range("backward"):
+            grad_scaler.scale(losses["loss"]).backward()
+        with _nvtx_range("optimizer"):
+            grad_scaler.step(optimizer)
+            grad_scaler.update()
     else:
-        losses["loss"].backward()
-        optimizer.step()
+        with _nvtx_range("backward"):
+            losses["loss"].backward()
+        with _nvtx_range("optimizer"):
+            optimizer.step()
     if scheduler is not None:
         scheduler.step()
     return losses
@@ -392,7 +426,10 @@ def multistep_train_step(
     }
     accum_loss = torch.zeros((), device=state_surface.device, dtype=state_surface.dtype)
 
-    with amp_ctx:
+    # One range spans the whole rollout: the K sub-steps are not separable phases
+    # and per-sub-step ranges would multiply `forward_loss` entries by K, which
+    # parse_nsys.py would average into a meaningless per-range median.
+    with _nvtx_range("forward_loss"), amp_ctx:
         for k in range(int(unroll_steps)):
             boundary_in = varying_seq[:, k]
             out = model(
@@ -445,12 +482,16 @@ def multistep_train_step(
     }
 
     if grad_scaler is not None:
-        grad_scaler.scale(total).backward()
-        grad_scaler.step(optimizer)
-        grad_scaler.update()
+        with _nvtx_range("backward"):
+            grad_scaler.scale(total).backward()
+        with _nvtx_range("optimizer"):
+            grad_scaler.step(optimizer)
+            grad_scaler.update()
     else:
-        total.backward()
-        optimizer.step()
+        with _nvtx_range("backward"):
+            total.backward()
+        with _nvtx_range("optimizer"):
+            optimizer.step()
     if scheduler is not None:
         scheduler.step()
     return losses_out

@@ -1,0 +1,119 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_bench
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Throughput bench for PanguPlasimLegacy on E3SM — Polaris, 4x A100.
+# Measurement only: this trains nothing usable (random weights, no checkpoint).
+#
+# WHY debug, and why 50 minutes: a 20+80-step bench is ~1 min of stepping at the
+# measured 537 ms/step, but job 7341412 spent ~6 min on model construction +
+# preflight before its first step. 50 min is the same margin the PanguWeather
+# bench script uses; debug's cap is 1 h with ONE running job per user, so a
+# timeout burns the whole slot. Do not raise this to 01:00:00.
+#
+# Submit:  qsub polaris/polaris_bench_pangu_plasim.pbs
+#          qsub -v WARMUP=5,STEPS=20 polaris/polaris_bench_pangu_plasim.pbs
+#          qsub -v NPROC=1 polaris/polaris_bench_pangu_plasim.pbs
+#          qsub -v TORCH_COMPILE_MODE=reduce-overhead polaris/...   # DESIGN §5 rung 1
+#
+# PASS = a NEW ROW in $AI_ROSSBY_BENCH_CSV, not rc=0. Ranks != 0 exit 0 by
+# design, and a bench that recorded nothing also exits 0 — so the row count is
+# the only honest gate.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# --- env bootstrap: copied verbatim from polaris_pangu_plasim.pbs -----------
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+# physicsnemo is EDITABLE in that venv — benching tree A against a store built
+# by tree B is the silent mismatch this pipeline exists to prevent.
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+RUN_NAME="${RUN_NAME:-bench_$(date +%Y%m%d)_${PBS_JOBID%%.*}}"
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/ai_rossby_bench/${RUN_NAME}}"
+
+export AI_ROSSBY_BENCH=1
+export AI_ROSSBY_BENCH_WARMUP="${WARMUP:-20}"
+export AI_ROSSBY_BENCH_STEPS="${STEPS:-80}"
+export AI_ROSSBY_BENCH_CSV="${AI_ROSSBY_BENCH_CSV:-${MEMBER_ROOT}/bench/ai_rossby_pangu_plasim_bench.csv}"
+# NVTX off here: this is the wall-clock/CSV bench. The nsys variant turns it on.
+unset AI_ROSSBY_NVTX
+mkdir -p "$(dirname "${AI_ROSSBY_BENCH_CSV}")" "${RUN_DIR}"
+
+[ -d "${DATA}/train" ] || { echo "ERROR AI_ROSSBY_DATA_MISSING: ${DATA}/train"; exit 3; }
+
+polaris_env_report
+echo "--- bench ---"
+echo "  ranks   = ${NPROC}"
+echo "  warmup  = ${AI_ROSSBY_BENCH_WARMUP}, steps = ${AI_ROSSBY_BENCH_STEPS}"
+echo "  csv     = ${AI_ROSSBY_BENCH_CSV}"
+echo "  compile = ${TORCH_COMPILE_MODE:-<eager>}"
+echo
+
+# Row count BEFORE, so the gate can prove a row was actually appended.
+rows_before=0
+[ -f "${AI_ROSSBY_BENCH_CSV}" ] && rows_before=$(wc -l < "${AI_ROSSBY_BENCH_CSV}")
+
+cd "${RECIPE}" || exit 2
+# `python -m torch.distributed.run`, never bare `torchrun`: the bare name can
+# resolve to the BASE conda's launcher, whose shebang pins the wrong python.
+python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+    profile_train.py \
+    model=pangu_plasim_e3sm \
+    dataset=e3sm_pangu_parity \
+    training=pangu_plasim_legacy \
+    loss=mae \
+    training.amp=bf16 \
+    dataset.batch_size=1 \
+    run_name="${RUN_NAME}" \
+    hydra.run.dir="${RUN_DIR}"
+rc=$?
+echo "--- bench rc=${rc} ---"
+
+rows_after=0
+[ -f "${AI_ROSSBY_BENCH_CSV}" ] && rows_after=$(wc -l < "${AI_ROSSBY_BENCH_CSV}")
+if [ "${rows_after}" -le "${rows_before}" ]; then
+    echo "ERROR BENCH_NO_ROW_WRITTEN (before=${rows_before} after=${rows_after})"
+    echo "  rc=0 is NOT proof: non-zero ranks exit 0, and a bench that recorded"
+    echo "  nothing also exits 0. Read the log above for the real failure."
+    exit 4
+fi
+
+echo "AI_ROSSBY_BENCH_OK  row appended to ${AI_ROSSBY_BENCH_CSV}"
+tail -1 "${AI_ROSSBY_BENCH_CSV}"
+exit "${rc}"
