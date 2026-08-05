@@ -24,7 +24,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
 | Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
 | Test harness (tier-1 equivalence/unit + `--fast`) | 🟡 3 test files now exist + self-run (`SEEDING_OK`, `BENCH_INSTR_OK`, `VAE_NOISE_OK`); no `conftest.py`/`--fast` yet |
-| Optimization ladder (DESIGN.md §5) | ⬜ not started — **deliberately**: profiling is unblocked, optimizing is not |
+| Optimization ladder (DESIGN.md §5) | 🟡 **rung 1 MEASURED on ai-rossby, not adopted**: `torch.compile` (default mode) = **1.401×** (step_med 449.6→320.8 ms, peak mem 24.98→21.07 GB; jobs 7352022 vs 7352948). Still **not enabled anywhere** — §4 equivalence gate does not exist yet. Measuring is unblocked; adopting is not. PanguWeather/SI/s2s rungs untouched |
 
 ### Smoke status matrix (probe → 1-GPU → 4-GPU)
 
@@ -158,6 +158,52 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-05** — **DESIGN §5 rung 1 MEASURED on ai-rossby: `torch.compile` = 1.40×.
+  Getting there exposed a silent correctness bug that would have inflated it.**
+  Commit `6972a940`.
+  - **The bug, first.** `train_step` introspects the model's forward signature to
+    decide whether to pass `train=True` + targets. `torch.compile` returns an
+    `OptimizedModule` whose forward is dynamo's wrapper, so introspection answered
+    **`eager=True` vs `compiled=False`** (measured). Compiling therefore dropped
+    `train=True`, flipping `if self.checkpointing > 0 and train:` false —
+    activation checkpointing silently OFF and a different forward path. A speedup
+    measured that way times a *different computation* (rule #1), **and flatters
+    itself**, since disabled checkpointing is faster. Fixed with a bounded
+    `_unwrap_model` peeling `_orig_mod` then `.module` (`_orig_mod` first —
+    `OptimizedModule` forwards unknown attrs, so `hasattr(m,"module")` misses it).
+  - **The measurement** (jobs **7352022** eager vs **7352948** compiled; 4×A100,
+    bf16, `default` mode, 40 warmup + 20 steps, `train/2015.zarr`):
+
+    | | eager | compiled | ratio |
+    |---|---:|---:|---:|
+    | `step_med` | 449.6 ms | **320.8 ms** | **1.401×** |
+    | `samples_per_s` | 8.90 | 12.47 | 1.401× |
+    | `samples_per_s_wall` | 8.80 | 12.29 | 1.397× |
+    | `peak_mem_gb_max_rank` | 24.98 | 21.07 | 1.186× |
+    | `n_params` | 60,708,112 | 60,708,112 | identical ✓ |
+
+  - **The profile predicted this.** nsys put `backward` at **63%** of the step
+    (288.2 ms vs `forward_loss` 37.0 ms — a 7.8× ratio where ~2× is healthy) with
+    `elementwise_kernel` holding the top three kernel slots: fusion-starved, which
+    is exactly what compile fixes. The memory drop is the same effect from another
+    angle — fused kernels stop materialising intermediates. **`default` mode, NO
+    cuda graphs**; `reduce-overhead` may add more given ~62k launches/step.
+  - **NOT ENABLED.** DESIGN §4 requires equivalence vs a captured baseline and §5
+    leaves rung 1 unset until it exists — it still doesn't. Shipped as a
+    measurement + correctness fix, not a config change. **The gate is now cheap:**
+    the harness already runs a real `train_step` and merely discards the losses;
+    recording them would both capture the repo's first `baselines/<model>/` entry
+    and gate this lever. That is the next job.
+  - **Login nodes are not a test environment.** The same suite returned `rc=0`,
+    `rc=1`, and `rc=130`-at-scipy-import within one hour, then passed cleanly in
+    isolation minutes later — pure contention. Added
+    `polaris/polaris_recipe_tests.pbs` (compute node, gates on pytest's summary
+    LINE not the exit code, since a killed run can exit misleadingly):
+    **`RECIPE_TESTS_OK 13 passed`** (job 7353083, 46 s). The login node had been
+    displaying 6 dots for a 13-test suite — truncated output that I twice read as
+    a result. **A truncated capture with `rc=0` is not evidence, and one failure
+    on a shared login node is not evidence of a code defect.**
 
 - **2026-08-05** — **ai-rossby profiling harness built and GREEN; `n_params` overturns
   the standing explanation for the SFNO-vs-PanguPlasim speed gap.**
