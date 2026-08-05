@@ -1,0 +1,122 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_equiv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# DESIGN §4.1 equivalence gate for TORCH_COMPILE_MODE on ai-rossby.
+#
+# Captures TWO deterministic K=20 trajectories in ONE job — eager, then
+# compiled — and applies §4.1's metric. Same job on purpose: same node, same
+# GPU, same driver, so the only difference between the runs is the change under
+# test. Splitting them across jobs would let hardware variation in.
+#
+# Both captures run at WORLD SIZE 1 with use_deterministic_algorithms(True),
+# cudnn.benchmark=False and CUBLAS_WORKSPACE_CONFIG=:4096:8 (exported below —
+# it must be in the environment before torch initialises cuBLAS).
+#
+# Submit:  qsub polaris/polaris_equivalence_compile.pbs
+#          qsub -v COMPILE_MODE=reduce-overhead polaris/polaris_equivalence_compile.pbs
+#          qsub -v TOLERANCE=1e-2 polaris/polaris_equivalence_compile.pbs
+#
+# PASS = "EQUIV_CAPTURE_OK" x2 then "EQUIVALENCE_OK".
+# A FAILURE HERE IS A REAL RESULT: it means compiling changes what the model
+# computes, and the lever must not be adopted. Do not loosen TOLERANCE to pass
+# (CLAUDE.md #1/#11) — §4.1 fixes it at 1e-2 for bf16/compiled paths.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+[ -x "${AI_ROSSBY_VENV}/bin/python" ] || { echo "ERROR AI_ROSSBY_VENV_MISSING"; exit 3; }
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT (venv=${VENV_PN} job=${THIS_PN})"
+    exit 3
+fi
+
+# Deterministic cuBLAS. MUST precede any torch import (hence: here, exported).
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+export AI_ROSSBY_EQUIV_STEPS="${STEPS:-20}"
+COMPILE_MODE="${COMPILE_MODE:-default}"
+TOLERANCE="${TOLERANCE:-1e-2}"     # §4.1: bf16/compiled path
+BASE_DIR="${REPO}/baselines/ai_rossby_pangu_plasim"
+mkdir -p "${BASE_DIR}"
+export AI_ROSSBY_EQUIV_DIR="${BASE_DIR}"
+
+DATA="${AI_ROSSBY_DATA}/e3sm"
+[ -d "${DATA}/train" ] || { echo "ERROR AI_ROSSBY_DATA_MISSING: ${DATA}/train"; exit 3; }
+
+OVERRIDES=(
+    model=pangu_plasim_e3sm
+    dataset=e3sm_pangu_parity
+    training=pangu_plasim_legacy
+    loss=mae
+    training.amp=bf16
+    dataset.batch_size=1
+    dataset.num_workers=0      # seeded/deterministic loading: no worker RNG in play
+    dataset.shuffle=False
+)
+
+polaris_env_report
+echo "--- §4.1 equivalence gate ---"
+echo "  steps      = ${AI_ROSSBY_EQUIV_STEPS} (K per §4.1)"
+echo "  change     = TORCH_COMPILE_MODE=${COMPILE_MODE}"
+echo "  tolerance  = ${TOLERANCE}"
+echo "  baselines  = ${BASE_DIR}"
+echo
+
+cd "${RECIPE}" || exit 2
+
+# --- 1. baseline: eager -----------------------------------------------------
+echo "=== capture 1/2: eager (baseline) ==="
+AI_ROSSBY_EQUIV_TAG=eager python equivalence.py "${OVERRIDES[@]}" \
+    hydra.run.dir="${MEMBER_ROOT}/runs/ai_rossby_equiv/eager_${PBS_JOBID%%.*}" \
+    || { echo "ERROR EQUIV_EAGER_CAPTURE_FAILED"; exit 4; }
+
+# --- 2. candidate: compiled -------------------------------------------------
+echo
+echo "=== capture 2/2: TORCH_COMPILE_MODE=${COMPILE_MODE} ==="
+AI_ROSSBY_EQUIV_TAG="compiled_${COMPILE_MODE}" TORCH_COMPILE_MODE="${COMPILE_MODE}" \
+    python equivalence.py "${OVERRIDES[@]}" \
+    hydra.run.dir="${MEMBER_ROOT}/runs/ai_rossby_equiv/compiled_${PBS_JOBID%%.*}" \
+    || { echo "ERROR EQUIV_COMPILED_CAPTURE_FAILED"; exit 4; }
+
+# --- 3. the gate ------------------------------------------------------------
+echo
+echo "=== §4.1 comparison ==="
+python "${AR_ROOT}/polaris/compare_baselines.py" \
+    "${BASE_DIR}/eager.json" "${BASE_DIR}/compiled_${COMPILE_MODE}.json" \
+    --tolerance "${TOLERANCE}"
+rc=$?
+
+echo
+if [ "${rc}" -eq 0 ]; then
+    echo "AI_ROSSBY_EQUIV_GATE_OK  torch.compile(${COMPILE_MODE}) is equivalent within ${TOLERANCE}"
+    echo "  Baselines committed as JSON text summaries (DESIGN §4.2): ${BASE_DIR}"
+else
+    echo "ERROR AI_ROSSBY_EQUIV_GATE_FAILED rc=${rc}"
+    echo "  torch.compile(${COMPILE_MODE}) must NOT be adopted on this evidence."
+fi
+exit "${rc}"
