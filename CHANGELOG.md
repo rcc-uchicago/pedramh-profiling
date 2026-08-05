@@ -81,15 +81,16 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
-- **ai-rossby PanguPlasim bring-up — Step 0 gate PASSED; conversion GREEN (7337122), normalization regen queued (7337234)** (branch `fix/tsoi-fill-270`, pushed 2026-08-04). Two `qsub`s remain,
-  in order, both from `physicsnemo_ai_rossby/`:
-  1. `qsub polaris/polaris_e3sm_pangu_convert.pbs` — 1 train year (2015) + 1 val year
-     (2045), ~20 min/year. PASS = `PANGU_STORE_VERIFIED` per store + `CONVERT_ALL_OK`.
-  2. `qsub polaris/polaris_pangu_plasim.pbs` — 4×A100 training smoke.
-     PASS = `PREFLIGHT_OK` + advancing `train/*` epoch metrics, finite and decreasing.
-  Everything else is done and verified: subtree vendored, venv green, code edits in,
-  configs written, normalization store built + round-tripped. See the decisions-log
-  entry below.
+- **ai-rossby PanguPlasim bring-up — ✅ ALL THREE HANDOFF-v2 STEPS GREEN (2026-08-05).**
+  Branch `fix/tsoi-fill-270`. The smoke-scale pipeline is end-to-end proven: corrected
+  statistics → rebuilt norm zarr → a 4×A100 training run that converges.
+  1. **Normalization regen** — job **7340945**, exit 0, **34:54** over all 51,100 h5 files
+     (~2.15 TB). `MOMENTS_OK` → `NORM_NC_OK` → `NORMALIZATION_OK` → `E3SM_NORM_REGEN_OK`.
+  2. **Norm zarr rebuilt** — bitwise-identical to the source `.nc` across all 26 vars/levels.
+  3. **Training smoke** — job **7341412**, exit 0, **9:36**. `PREFLIGHT_OK`
+     (`VARIABLE_PARITY_OK 21/21` ×3 stores) + `PANGU_PLASIM_RUN_OK`.
+  **Next: production** (handoff §5 Step 4) — the full conversion (~11 h, ~1.08 TB,
+  ~1.14 M inodes; check the inode cap with the ALCF helpdesk first) then the long train.
 
 - **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
   `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
@@ -154,6 +155,72 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-05** — **Handoff-v2 Steps 1-3 executed: corrected normalization regenerated,
+  norm zarr rebuilt, and the ai-rossby PanguPlasim training smoke is GREEN on 4×A100.**
+  The whole point of the exercise, measured: **`TSOI_10CM` normalizes to spread 0.9968,
+  was 0.122.**
+  - **Step 1 — regeneration** (job **7340945**, exit 0, **34:54**). Full 51,100-file /
+    ~2.15 TB moments pass. Measured vs the handoff's predicted values:
+    `SST` **8.4407 / 12.0659** (predicted 8.44 / 12.06), `TSOI_10CM` **271.1259 / 16.3902**
+    (predicted 271.09 / 16.39). The gate `check_normalization.py` passes **all 23 contract
+    channels** at mean ≈0 / spread ≈1. The two fill warnings are the documented false
+    positives (`PFTDATA_MASK` is degenerate — valid values are only ever 1; `SST`'s −1.8
+    fill sits exactly *on* the data minimum, so the `valid_lo <= fill` test trips on a
+    float boundary).
+  - **Step 2 — norm zarr rebuilt.** Old store moved to `…zarr.prefix` (rollback path).
+    Verified beyond the handoff's 2-field spot-check: **all 26 vars × all levels are
+    bitwise-identical to the source `.nc`** (worst abs diff 0.000e+00). Old→new:
+    `SST` 109.963/123.908 → 8.441/12.066; `TSOI_10CM` 105.229/133.802 → 271.126/16.390.
+  - **Step 3 — training smoke** (job **7341412**, exit 0, **9:36**, 4 ranks, bf16,
+    365 steps/epoch, 537 ms/iter). `PREFLIGHT_OK` + `PANGU_PLASIM_RUN_OK`. Loss finite and
+    decreasing within the epoch (8.122e-01 → 6.949e-01 → 6.870e-01), epoch loss 8.410e-01,
+    **val_loss 6.708e-01**. **All four "never executed" unknowns from handoff §5 are now
+    resolved:** the model constructs (the `sol_in` patch holds on a real config), the
+    tensors line up, **it fits in 40 GB with no lever pulled** (`checkpointing: 3` and
+    `embed_dim: 240` were NOT needed), and the windowing divides.
+  - **The window_size question was answerable statically** — no run needed. 18 levels → 9
+    after the level patch, **+1 for the surface row = 10**, which the vertical window of 2
+    divides. (`pangu_plasim_e3sm.yaml:65`'s comment reaches the right conclusion by wrong
+    arithmetic — it stops at 9.) Horizontally the downsampled 45×90 is *not*
+    window-divisible, but `Transformer3DBlock` applies `get_pad3d`/`crop3d`, so it pads.
+  - **Cross-check against jesswan's shipped `.nc` — this is the real validation, and it is
+    stronger than her regeneration would have been.** The defect touches 2 channels; the
+    other 24 carry 0% NaN and so have no fill dependence, meaning her Jul 8 file is an
+    *independent* reference for them. **18 of 26 variables reproduce her numbers** (most to
+    ~1e-8). `U`/`V`/`RELHUM` appear changed only under *relative* error on near-zero means —
+    absolute diffs are ≤0.15 on values up to 83, inside §3's ±1%. Note this tests our
+    arithmetic against a differently-computed source, whereas a second regeneration by her
+    would share our fill assumptions rather than test them.
+  - **⚠ NEW, latent — cloud std floors differ.** Shipped `_std_corr` floored **16**
+    near-zero levels to 1.0; ours floors **9**. Where hers underflowed to exactly 0 (and so
+    got floored), our float64 shifted accumulation leaves catastrophic-cancellation
+    residue: `CLDICE` ×4 at **2.03e-12** and `CLDLIQ` ×3 at 7e-28…6.6e-24 instead of 1.0.
+    **Inert today** — `CLDICE`/`CLDLIQ`/`CLOUD` are commented out of
+    `E3SM_SFNO_H5_POLARIS.yaml:52` and absent from the 108-field contract — but **anyone
+    re-enabling those channels would divide by ~1e-12.** Deliberately NOT "fixed": the
+    floor is a science call, and rule/trap #8 forbids raising `STD_ZERO` globally because
+    `PRECT`'s real std is ~8.3e-8. Flagged for jesswan alongside the fills.
+  - **Scheduling: Step 1 was rerouted to `debug`.** The handoff's job 7337234 sat queued
+    ~5 h behind **106 preemptable jobs**. Measured the cost first (0.62 s/file × 51,100 ÷ 32
+    workers ≈ 16 min), so it fits debug's 1 h cap — it ran in 34:54. Submitted under
+    `TAG=dbg` so its outputs (`data_dbg_*.nc`) could not collide with the queued job's,
+    which stayed queued as a fallback; results were promoted to the canonical names
+    afterward and 7337234 was cancelled (state F, never ran). **Reusable trick:** the `TAG`
+    env var makes a racing submission safe.
+  - **⚠ The handoff's backup step had never been performed.** `$PANGU_AUX/pre_fix/` did not
+    exist, so job 7337234 would have destroyed the only local copy of the pre-fix statistics
+    (the ones §2's analysis and the 85-epoch checkpoint rest on). Backed up before anything
+    else. Anyone re-running this: do that step first, literally first.
+  - **jesswan's own regeneration still has not started** (checked 2026-08-05 ~03:00 UTC):
+    every stats file in `$E3SM_ROOT` is still dated Jul 8 17:01, and her newest PBS job
+    (`7322826`, `physicsnemo_e3sm_sfno_peryear`, ended Aug 4 17:19 **exit 1**) is a training
+    job. Caveat: ALCF homes are 0700, so this is "no evidence", not proof.
+  - **Stale-doc sweep (handoff §8).** `e3sm_h5_to_seqzarr.py` said TSOI land mean **268 K**
+    in two places; measured is **272 K** — corrected (comment-only, no behavior change, so
+    the makani coupling in rule #5 is unaffected). The other two §8 items —
+    `verify_pangu_store.py`'s "six checks" and the CHANGELOG's `train.py:636,739` anchors /
+    "NOTHING SUBMITTED YET" line — were **already fixed** in `3cf6c6c4`.
 
 - **2026-08-04** — **SST-fill investigation (jesswan): the degC/Kelvin bug is confirmed, my
   "it doesn't affect training" framing was WRONG, and an audit shows the defect class is
