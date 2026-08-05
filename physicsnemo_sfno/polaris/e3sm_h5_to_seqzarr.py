@@ -91,7 +91,7 @@ FIRST_YEAR = 2015
 #   ICE        fraction [0, 1]                   -> 0.0 fine
 # TSOI_10CM was CHANGED from 0.0 to 270 on 2026-08-03 (rmehta1987's decision, for a 103-var
 # regeneration). Rationale: 0.0 is 0 K over the ~61% ocean — out-of-distribution, it builds a
-# ~268 K coastline cliff that dominates BatchNorm's estimated sigma and draws ~26x less gradient
+# ~272 K coastline cliff that dominates BatchNorm's estimated sigma and draws ~26x less gradient
 # to the channel (data_for_training.md R3). 270 is mid-distribution (land mean 272 K) and matches
 # PanguWeather (E3SM_SFNO_H5_POLARIS.yaml mask_fill['TSOI_10CM']=270.). This normalizes online
 # via BatchNorm, so the fill and the stats can never disagree (no stale npz to recompute — the
@@ -103,7 +103,7 @@ NAN_FILL = {
     "SST": -1.8,            # degC — freezing seawater (matches the makani packer)
     "ICE": 0.0,             # sea-ice fraction
     "SOILWATER_10CM": 0.0,
-    "TSOI_10CM": 270.0,     # Kelvin — mid-distribution (land mean 268 K); matches PanguWeather. See box.
+    "TSOI_10CM": 270.0,     # Kelvin — mid-distribution (land mean 272 K); matches PanguWeather. See box.
     "TOPO": 0.0,            # m
     "PFTDATA_MASK": 0.0,
     "PCT_GLACIER": 0.0,
