@@ -240,15 +240,16 @@ def main(cfg: DictConfig) -> None:
         for batch in datapipe:
             if len(step_times) >= BENCH_STEPS:
                 break
-            # Time spent waiting on the loader = gap since the previous step
-            # ended. Measured OUTSIDE the step so it never inflates step_med.
-            loader_wait = time.perf_counter() - last_end
-
             measuring = iters >= BENCH_WARMUP
             if measuring and loop_t0 is None:
                 # Start the profiler capture window at the first MEASURED step,
                 # so nsys traces steady state and not warmup/autotune.
-                loop_t0 = time.perf_counter()
+                #
+                # The CLOCK starts at `last_end` (where the previous step's GPU
+                # work finished), NOT at "now" — this step's loader_wait was
+                # already measured from `last_end`, so anchoring here makes
+                # `elapsed` and the accounted sum span the identical interval.
+                loop_t0 = last_end
                 if NVTX and torch.cuda.is_available():
                     torch.cuda.cudart().cudaProfilerStart()
 
@@ -257,6 +258,12 @@ def main(cfg: DictConfig) -> None:
 
             _sync()
             t0 = time.perf_counter()
+            # Everything since the previous step's GPU work finished: the loader's
+            # blocking fetch plus our own per-step overhead (range_push, the sync).
+            # Measured OUTSIDE the step so it never inflates step_med, but INSIDE
+            # the accounting so `elapsed == sum(loader_wait + step)` is an exact
+            # identity and the self-check below can be trusted.
+            loader_wait = t0 - last_end
 
             # H2D / batch prep. The datapipe already returns device tensors, so
             # this is the residual host-side work before compute begins.
@@ -301,9 +308,17 @@ def main(cfg: DictConfig) -> None:
                 loader_waits.append(loader_wait)
 
             iters += 1
-            last_end = time.perf_counter()
+            # Anchor the next step's loader_wait at t2 — the instant this step's
+            # GPU work completed — so the bookkeeping above (range_pop, list
+            # appends) lands INSIDE the next loader_wait rather than in a gap
+            # that belongs to no bucket. Using perf_counter() here instead leaks
+            # that time: invisible in an eager run (microseconds), but ~80 ms/step
+            # under nsys, which tripped BENCH_CLOCK_MISMATCH on job 7352406.
+            last_end = t2
 
-    loop_end = time.perf_counter()
+    # Close the clock at the last recorded step boundary, not "now", so
+    # `elapsed` is exactly the interval the accounted sum covers.
+    loop_end = last_end
     if NVTX and torch.cuda.is_available():
         torch.cuda.cudart().cudaProfilerStop()
 

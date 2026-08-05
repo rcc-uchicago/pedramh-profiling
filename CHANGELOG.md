@@ -112,10 +112,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 - **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed; open at
   https://github.com/rcc-uchicago/pedramh-profiling/compare/main...polaris-pbs-bringup
   (a solo session cannot self-approve — maintainer review/merge needed).
-- **Layout change: the 3 SFNO codebases are now `git subtree`s of this repo** (not
+- **Layout change: the SFNO codebases are now `git subtree`s of this repo** (not
   separate checkouts as the handoff assumed, not submodules). Imported **unsquashed for
   full provenance**: upstream commits are real ancestors of HEAD (jesswan-uc 8,
   feynmanliu214 38, ktangsali 203). Cost: 313 → 4,769 files, .git 3.9 MB → 306 MB.
+  **Was 3; `physicsnemo_ai_rossby/` made it 4 on 2026-08-04** (`0777be0f` ← `87002adb`) —
+  and its `examples/weather/ai_rossby/` recipe is subtree-owned too, despite reading as
+  fork-owned. See `polaris_pbs_notes.md` §6b's warning box before editing anything there.
   Bidirectional merging (`subtree pull` from them, `subtree split` + PR to them) and the
   rule-#8 exception for imported third-party junk are documented in
   `polaris_pbs_notes.md` §6b. Note: pushing this repo now needs

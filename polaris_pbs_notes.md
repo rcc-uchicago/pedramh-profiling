@@ -531,22 +531,46 @@ channels, including our smoke. Every non-zero rank dies with
 `self.logger` before `super().__init__()` in `sfno_training/trainer/plasim_trainer.py`
 (the wrapper whose stated job is patching stock makani; zero edits to makani itself).
 
-## 6b. Repo layout: the 3 SFNO codebases are **git subtrees** (full provenance)
+## 6b. Repo layout: **4** codebases are `git subtree`s (full provenance)
 
-`PanguWeather/`, `makani_sfno/` and `physicsnemo_sfno/` are **not** separate checkouts any
-more (the handoff assumed they were) and **not** submodules. They are `git subtree`
-imports, added **unsquashed** so the complete upstream history is preserved:
+`PanguWeather/`, `makani_sfno/`, `physicsnemo_sfno/` and `physicsnemo_ai_rossby/` are
+**not** separate checkouts any more (the handoff assumed they were) and **not**
+submodules. They are `git subtree` imports, added **unsquashed** so the complete
+upstream history is preserved:
 
 | prefix | imported from | upstream authorship reachable |
 |---|---|---|
 | `PanguWeather/` | `git@github.com:envfluids/PanguWeather.git` (`sfno_e3sm`) | jesswan-uc (8) |
 | `makani_sfno/` | `git@github.com:feynmanliu214/SFNO_Climate_Emulator.git` (`snapshot/sfno-climate-emulator`) | feynmanliu214 (38) |
 | `physicsnemo_sfno/` | `https://github.com/awikner/physicsnemo.git` (`main`) | ktangsali (203) + NVIDIA |
+| **`physicsnemo_ai_rossby/`** | **jesswan's local `ai-rossby` fork of `awikner/physicsnemo`** | **added 2026-08-04, `0777be0f` ← `87002adb`** |
 
 Each landed as a real **merge commit with two parents**, so upstream commits are genuine
-ancestors of `HEAD` (`git merge-base --is-ancestor <their-sha> HEAD` succeeds). Cost:
-the repo went **313 → 4,769 files**, **.git 3.9 MB → 306 MB**. That is the deliberate
-price of full provenance.
+ancestors of `HEAD` (`git merge-base --is-ancestor <their-sha> HEAD` succeeds — verified
+for `87002adb` on 2026-08-05). Cost: the repo went **313 → 4,769 files**,
+**.git 3.9 MB → 306 MB**. That is the deliberate price of full provenance.
+
+> ### ⚠ `physicsnemo_ai_rossby/` is a subtree — including `examples/weather/ai_rossby/`
+> The recipe directory **looks** fork-owned (it is UChicago code, it is not in NVIDIA
+> upstream, and its own `CLAUDE.md` describes an active `ai-rossby` PR workflow), so it is
+> easy to assume edits there are exempt from subtree-pull conflicts. **They are not.**
+> `examples/weather/ai_rossby/train_loop.py` was present in the initial subtree-add commit,
+> i.e. it has exactly the same provenance as `physicsnemo/`. A future
+> `git subtree pull --prefix=physicsnemo_ai_rossby …` can conflict with anything we change
+> there.
+>
+> Practical rule, applied to the profiling harness (`84dbacf6`): **keep edits to
+> subtree-owned files minimal and contiguous** — one gate constant plus paired
+> `with _nvtx_range(...)` wrappers — so a conflict is trivial to resolve, and put new
+> project-owned files in `polaris/` (which upstream has no counterpart to) rather than
+> scattering them through the vendored tree. That is the same reasoning that produced
+> `physicsnemo_sfno/examples/weather/unified_recipe/bench_csv.py` as a *new file* instead
+> of an edit to upstream's `train.py`.
+>
+> *(This box exists because the 2026-08-05 plan for that harness asserted the opposite —
+> "fork-owned, not NVIDIA upstream, so this edit doesn't fight `git subtree pull`" — and an
+> adversarial review disproved it from `git log`. The subtree add postdated the original
+> version of this §6b, so the table above simply had not been updated.)*
 
 ### Merging in both directions
 
@@ -555,8 +579,17 @@ price of full provenance.
 git subtree pull --prefix=makani_sfno git@github.com:feynmanliu214/SFNO_Climate_Emulator.git snapshot/sfno-climate-emulator
 git subtree pull --prefix=PanguWeather git@github.com:envfluids/PanguWeather.git sfno_e3sm
 git subtree pull --prefix=physicsnemo_sfno https://github.com/awikner/physicsnemo.git main
+# physicsnemo_ai_rossby was imported from jesswan's LOCAL checkout, not a URL —
+# confirm the remote/branch with her before pulling (the ai-rossby branch is the
+# fork's mainline; PRs target it rather than NVIDIA upstream).
 ```
-Conflicts are ordinary git conflicts, only where we touched the same lines.
+Conflicts are ordinary git conflicts, only where we touched the same lines. Files we
+have edited, and so the likely conflict sites:
+
+| prefix | our edits |
+|---|---|
+| `physicsnemo_ai_rossby/` | `examples/weather/ai_rossby/train_loop.py` (gated NVTX, `84dbacf6`) — everything else we added is a new file under `examples/weather/ai_rossby/` or `polaris/` |
+| `physicsnemo_sfno/` | `polaris/e3sm_h5_to_seqzarr.py` (fills + comments) |
 
 **Us → them** (send our fixes upstream). We have **no write access** to those repos, so:
 ```bash
