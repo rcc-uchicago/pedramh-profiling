@@ -59,6 +59,10 @@ fi
 # Deterministic cuBLAS. MUST precede any torch import (hence: here, exported).
 export CUBLAS_WORKSPACE_CONFIG=:4096:8
 export AI_ROSSBY_EQUIV_STEPS="${STEPS:-20}"
+# MODE=train  -> §4.1 as written (K optimizer steps; divergence compounds)
+# MODE=fixed  -> K fwd+bwd with NO optimizer step; isolates the kernel
+#                difference from step-to-step compounding.
+export AI_ROSSBY_EQUIV_MODE="${MODE:-train}"
 COMPILE_MODE="${COMPILE_MODE:-default}"
 TOLERANCE="${TOLERANCE:-1e-2}"     # §4.1: bf16/compiled path
 BASE_DIR="${REPO}/baselines/ai_rossby_pangu_plasim"
@@ -82,6 +86,7 @@ OVERRIDES=(
 polaris_env_report
 echo "--- §4.1 equivalence gate ---"
 echo "  steps      = ${AI_ROSSBY_EQUIV_STEPS} (K per §4.1)"
+echo "  mode       = ${AI_ROSSBY_EQUIV_MODE}"
 echo "  change     = TORCH_COMPILE_MODE=${COMPILE_MODE}"
 echo "  tolerance  = ${TOLERANCE}"
 echo "  baselines  = ${BASE_DIR}"
@@ -91,14 +96,14 @@ cd "${RECIPE}" || exit 2
 
 # --- 1. baseline: eager -----------------------------------------------------
 echo "=== capture 1/2: eager (baseline) ==="
-AI_ROSSBY_EQUIV_TAG=eager python equivalence.py "${OVERRIDES[@]}" \
+AI_ROSSBY_EQUIV_TAG="eager_${AI_ROSSBY_EQUIV_MODE}" python equivalence.py "${OVERRIDES[@]}" \
     hydra.run.dir="${MEMBER_ROOT}/runs/ai_rossby_equiv/eager_${PBS_JOBID%%.*}" \
     || { echo "ERROR EQUIV_EAGER_CAPTURE_FAILED"; exit 4; }
 
 # --- 2. candidate: compiled -------------------------------------------------
 echo
 echo "=== capture 2/2: TORCH_COMPILE_MODE=${COMPILE_MODE} ==="
-AI_ROSSBY_EQUIV_TAG="compiled_${COMPILE_MODE}" TORCH_COMPILE_MODE="${COMPILE_MODE}" \
+AI_ROSSBY_EQUIV_TAG="compiled_${COMPILE_MODE}_${AI_ROSSBY_EQUIV_MODE}" TORCH_COMPILE_MODE="${COMPILE_MODE}" \
     python equivalence.py "${OVERRIDES[@]}" \
     hydra.run.dir="${MEMBER_ROOT}/runs/ai_rossby_equiv/compiled_${PBS_JOBID%%.*}" \
     || { echo "ERROR EQUIV_COMPILED_CAPTURE_FAILED"; exit 4; }
@@ -107,7 +112,8 @@ AI_ROSSBY_EQUIV_TAG="compiled_${COMPILE_MODE}" TORCH_COMPILE_MODE="${COMPILE_MOD
 echo
 echo "=== §4.1 comparison ==="
 python "${AR_ROOT}/polaris/compare_baselines.py" \
-    "${BASE_DIR}/eager.json" "${BASE_DIR}/compiled_${COMPILE_MODE}.json" \
+    "${BASE_DIR}/eager_${AI_ROSSBY_EQUIV_MODE}.json" \
+    "${BASE_DIR}/compiled_${COMPILE_MODE}_${AI_ROSSBY_EQUIV_MODE}.json" \
     --tolerance "${TOLERANCE}"
 rc=$?
 

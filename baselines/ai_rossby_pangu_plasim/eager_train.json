@@ -3,6 +3,7 @@
   "git_sha": "e814575e220d",
   "seed": 0,
   "steps": 20,
+  "mode": "train",
   "world_size": 1,
   "n_params": 60708112,
   "amp_dtype": "bfloat16",

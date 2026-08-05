@@ -38,6 +38,7 @@ Output is a JSON text summary only (DESIGN §4.2 — no tensors in git).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import platform
@@ -70,6 +71,18 @@ from train_loop import (
 
 STEPS = int(os.environ.get("AI_ROSSBY_EQUIV_STEPS", "20"))  # K=20 per §4.1
 TAG = os.environ.get("AI_ROSSBY_EQUIV_TAG", "baseline")
+
+# "train" — §4.1 as written: K optimizer steps, so the weights evolve.
+# "fixed" — K forward+backward passes with NO optimizer step, so the weights
+#           never change and differences CANNOT compound between steps.
+#
+# Why "fixed" exists: a training trajectory in bf16 amplifies any bit-level
+# perturbation, so it cannot distinguish a correct-but-bit-different kernel
+# (e.g. a fusion) from a genuinely wrong one — both drift. Holding the weights
+# fixed isolates the per-step kernel difference, which is the quantity a fusion
+# change should actually be judged on. Backward still runs (it is where most of
+# the fusion is), it just does not feed back into the weights.
+MODE = os.environ.get("AI_ROSSBY_EQUIV_MODE", "train")
 OUT_DIR = os.environ.get(
     "AI_ROSSBY_EQUIV_DIR",
     str(Path(__file__).resolve().parents[4] / "baselines" / "ai_rossby_pangu_plasim"),
@@ -174,12 +187,55 @@ def main(cfg: DictConfig) -> None:
             break
         if probe_batch is None:
             probe_batch = batch  # kept for the post-training forward probe
-        losses = train_step(
-            model=model, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
-            batch=batch, has_diagnostic=has_diagnostic, vae_kl_weight=vae_kl_weight,
-            amp_dtype=amp_dtype, grad_scaler=grad_scaler,
-        )
-        traj.append({k: float(v) for k, v in losses.items()})
+
+        if MODE == "fixed":
+            # Forward + backward, but NO optimizer.step(): weights are identical
+            # at every iteration, so step i's difference is purely the kernels',
+            # never inherited from step i-1. `grad_norm` is recorded because it
+            # summarises the BACKWARD pass, which a forward-only check would miss
+            # — and backward is 63% of this model's step time.
+            optimizer.zero_grad(set_to_none=True)
+            amp_ctx = (
+                torch.amp.autocast(device_type="cuda", dtype=amp_dtype)
+                if amp_dtype is not None else contextlib.nullcontext()
+            )
+            with amp_ctx:
+                kw = _optional_model_kwargs(model, batch)
+                if _model_accepts_train_kwarg(model):
+                    out = model(
+                        batch["surface_in"], batch["constant_boundary"],
+                        batch["varying_boundary"], batch["upper_air_in"],
+                        target_surface=batch.get("target_surface"),
+                        target_upper_air=batch.get("target_upper_air"),
+                        train=True, **kw,
+                    )
+                else:
+                    out = model(
+                        batch["surface_in"], batch["constant_boundary"],
+                        batch["varying_boundary"], batch["upper_air_in"], **kw,
+                    )
+                o_s, o_u = out[0], out[1]
+                o_d = out[2] if has_diagnostic else None
+                losses = loss_fn(
+                    o_s, o_u, batch["target_surface"], batch["target_upper_air"],
+                    out_diagnostic=o_d,
+                    target_diagnostic=batch.get("diagnostic") if has_diagnostic else None,
+                )
+            losses["loss"].backward()
+            gnorm = torch.nn.utils.clip_grad_norm_(
+                inner_model.parameters(), float("inf")
+            )  # inf max_norm => measures, never clips
+            rec = {k: float(v) for k, v in losses.items()}
+            rec["grad_norm"] = float(gnorm)
+            traj.append(rec)
+            optimizer.zero_grad(set_to_none=True)
+        else:
+            losses = train_step(
+                model=model, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
+                batch=batch, has_diagnostic=has_diagnostic, vae_kl_weight=vae_kl_weight,
+                amp_dtype=amp_dtype, grad_scaler=grad_scaler,
+            )
+            traj.append({k: float(v) for k, v in losses.items()})
 
     if len(traj) < STEPS:
         print(f"ERROR EQUIV_SHORT_TRAJECTORY ({len(traj)}/{STEPS} steps)")
@@ -212,6 +268,7 @@ def main(cfg: DictConfig) -> None:
         "git_sha": _git_sha(),
         "seed": seed,
         "steps": STEPS,
+        "mode": MODE,
         "world_size": 1,
         "n_params": n_params,
         "amp_dtype": str(amp_dtype).replace("torch.", "") if amp_dtype else "off",
@@ -240,7 +297,7 @@ def main(cfg: DictConfig) -> None:
 
     first, last = traj[0]["loss"], traj[-1]["loss"]
     print(f"EQUIV_CAPTURE_OK {path}")
-    print(f"  tag={TAG} steps={STEPS} seed={seed} compile={compile_mode or 'eager'}")
+    print(f"  tag={TAG} mode={MODE} steps={STEPS} seed={seed} compile={compile_mode or 'eager'}")
     print(f"  loss {first:.6f} -> {last:.6f}   params={n_params:,}")
 
 

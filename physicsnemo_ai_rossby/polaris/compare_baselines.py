@@ -34,8 +34,11 @@ from pathlib import Path
 
 # Differences in these invalidate the comparison outright: they mean the two runs
 # were not the same experiment, so any relative error is uninterpretable.
+# "mode" is here because a fixed-weights capture and a training-trajectory
+# capture measure different things — comparing one against the other would
+# produce a number that looks valid and means nothing.
 MUST_MATCH = ("seed", "steps", "world_size", "n_params", "batch_size",
-              "amp_dtype", "config_yaml_sha256")
+              "amp_dtype", "config_yaml_sha256", "mode")
 
 
 def _rel(a: float, b: float) -> float:
