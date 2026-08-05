@@ -156,6 +156,53 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-05** — **ai-rossby profiling harness built and GREEN; `n_params` overturns
+  the standing explanation for the SFNO-vs-PanguPlasim speed gap.**
+  Commits `b5f80060` (converter fix) → `84dbacf6` (harness).
+  - **The measurement** (job **7352022**, 4×A100, bf16, 5+20 steps on `train/2015.zarr`):
+    `step_med` **449.6 ms**, p90 449.9, std 0.27 ms, `samples_per_s` 8.90,
+    `peak_mem` **24.98 GB**, `data_idle_frac` 0.0107, **`n_params` 60,708,112**.
+  - **`n_params` was never logged before, and it inverts the story.** ai-rossby is
+    **60.7 M params vs SFNO's measured 1,182,108,160 — 19.5× SMALLER** — yet only
+    ~1.6× faster per step. So the gap was never SFNO's spectral transforms (the
+    profile puts cuFFT/SHT at **3.3%**). A 19.5× smaller model gaining only 1.6×
+    means **ai-rossby is badly under-utilizing the GPU.** That is now the first
+    thing to profile, and it is on evidence rather than assumption.
+  - **The old step time was ~19% pessimistic.** `LaunchLogger`'s 537 ms is an epoch
+    *mean* including first-step warmup; the synced median is **449.6 ms**. Every
+    wall-clock estimate derived from 537 ms is stale.
+  - **Memory was never the constraint we assumed.** 24.98 GB of 40 GB at
+    `batch_size=1` — ~15 GB headroom, and `checkpointing`/`embed_dim` were never needed.
+  - **Shape.** `profile_train.py` is a *wrapper*, not a fork: it imports
+    `build_model`/`build_datapipe`/`build_loss`/`make_optimizer`/`make_scheduler`/
+    `train_step` from the real trainer, so it cannot drift (rule #4). `train.py` is
+    unchanged; `train_loop.py` gains gated NVTX only. CSV's first 19 columns are
+    s2s's, in order, with 4 appended (`samples_per_s_wall`, `data_idle_frac`,
+    `config_sha16`, `n_params`).
+  - **Verification, in full:** existing `test_train_loop.py`/`test_multistep_train_step.py`
+    6 pass **before** the edit, 6 after with NVTX unset, 6 with `AI_ROSSBY_NVTX=1`;
+    the new drift guard is **negative-tested** (renaming `backward`→`backwards` fails
+    it with the exact diff, revert byte-identical); PanguWeather's own guard still
+    `BENCH_INSTR_OK (10 tests)`.
+  - **Two bugs caught during implementation, both by reading the real call sites:**
+    (a) `make_optimizer`/`make_scheduler` need `_flatten_{optimizer,scheduler}_cfg`
+    first — passing raw nested config silently builds the WRONG optimizer;
+    (b) `multistep_train_step`'s rollout gets ONE `forward_loss` range, not K, or
+    `parse_nsys.py`'s per-range median becomes meaningless.
+  - **A 4-reviewer adversarial pass rewrote the plan first**, and killed a claim I had
+    repeated several times: the **"1.51× faster" figure was apples-to-oranges**
+    (SFNO's `Time taken for epoch` includes validation + checkpoint; ai-rossby's was
+    train-only). Like-for-like it is **1.33×**, and even that carries four
+    uncontrolled confounds — chiefly that **`checkpointing: 3` is NOT a matched
+    setting**: graduated in SFNO (`>= 3` does strictly more recompute), a flat
+    boolean in ai-rossby (`> 0`, so 1/2/3 are byte-identical). Also uncontrolled:
+    `num_data_workers` 1 vs 8, and her step time drifting 702→832 ms (+18.5%).
+  - **Converter landmine fixed** (`b5f80060`): `${VAL_YEARS:-2045}` defaults on
+    *empty* as well as unset, so splitting the conversion across parallel jobs gave
+    every train-only shard `val/2045` — concurrent racing writers on one store with
+    `--overwrite`. `qsub -v VAR=" "` does not dodge it (PBS strips it to empty;
+    verified with `od`). Fixed `:-`→`-` plus a tail-year guard, four cases unit-tested.
+
 - **2026-08-05** — **Handoff-v2 Steps 1-3 executed: corrected normalization regenerated,
   norm zarr rebuilt, and the ai-rossby PanguPlasim training smoke is GREEN on 4×A100.**
   The whole point of the exercise, measured: **`TSOI_10CM` normalizes to spread 0.9968,
