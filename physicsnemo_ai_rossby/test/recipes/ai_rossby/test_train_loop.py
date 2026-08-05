@@ -19,7 +19,14 @@ _RECIPE_DIR = Path(__file__).resolve().parents[3] / "examples" / "weather" / "ai
 sys.path.insert(0, str(_RECIPE_DIR))
 
 from loss import PanguPlasimLoss  # noqa: E402
-from train_loop import make_optimizer, make_scheduler, train_step  # noqa: E402
+from train_loop import (  # noqa: E402
+    _model_accepts_train_kwarg,
+    _optional_model_kwargs,
+    _unwrap_model,
+    make_optimizer,
+    make_scheduler,
+    train_step,
+)
 
 
 def _toy_model():
@@ -166,3 +173,78 @@ def test_train_step_reduces_loss_on_toy_model():
             initial_loss = float(out["loss"].detach())
     final_loss = float(out["loss"].detach())
     assert final_loss < initial_loss
+
+
+class _CompiledLike(torch.nn.Module):
+    """Stand-in for ``torch._dynamo.OptimizedModule``.
+
+    Mimics the two properties that matter: it holds the real model in
+    ``_orig_mod``, forwards unknown attributes to it, and its own ``forward`` is
+    a wrapper whose signature is NOT the wrapped model's. Using this instead of
+    a real ``torch.compile`` call keeps the test at milliseconds and runnable
+    anywhere — invoking inductor here spawns compile workers that the ALCF login
+    node's process cap kills, taking the whole pytest run down with it.
+    """
+
+    def __init__(self, mod):
+        super().__init__()
+        object.__setattr__(self, "_orig_mod", mod)
+
+    def forward(self, *args, **kwargs):  # deliberately opaque, like dynamo's
+        return self._orig_mod(*args, **kwargs)
+
+    def __getattr__(self, name):
+        try:
+            return super().__getattr__(name)
+        except AttributeError:
+            return getattr(object.__getattribute__(self, "_orig_mod"), name)
+
+
+def test_compile_and_ddp_wrappers_do_not_change_the_forward_signature():
+    """A wrapper must not silently change HOW the model is called.
+
+    `train_step` introspects the forward signature to decide whether to pass
+    `train=True` + targets. `torch.compile` returns an OptimizedModule whose
+    forward is dynamo's wrapper, so introspecting the wrapper reports the wrong
+    answer: before `_unwrap_model` existed this flipped True -> False, which
+    silently disabled activation checkpointing (`if self.checkpointing > 0 and
+    train`) and changed the forward path under compile. A speedup measured that
+    way is timing a different computation (CLAUDE.md #1).
+
+    Checked two ways: a cheap stand-in that pins the contract with no compiler
+    involved, then the REAL ``torch.compile`` object (measured at ~0.5 s here, so
+    it is worth keeping — it is the only thing that catches dynamo changing its
+    wrapper shape in a future torch).
+    """
+    class _M(torch.nn.Module):
+        has_vae = False
+
+        def forward(self, a, b, c, d, target_surface=None, train=False, calendar=None):
+            return a
+
+    m = _M()
+    batch = {"calendar": torch.zeros(1)}
+
+    # The stand-in must actually reproduce the hazard, or this test is vacuous:
+    # introspecting it WITHOUT unwrapping has to give the wrong answer.
+    wrapped = _CompiledLike(m)
+    naive = "train" in getattr(
+        wrapped.forward, "__code__", type("_x", (), {"co_varnames": ()})()
+    ).co_varnames
+    assert not naive, "stand-in no longer reproduces the wrapper hazard"
+
+    assert _model_accepts_train_kwarg(wrapped) == _model_accepts_train_kwarg(m) is True
+    assert _optional_model_kwargs(wrapped, batch).keys() == _optional_model_kwargs(m, batch).keys()
+    assert _unwrap_model(wrapped) is m
+
+    # And through both layers, the way a distributed compiled run is stacked.
+    ddp_like = torch.nn.parallel.DataParallel(_CompiledLike(m))
+    assert _unwrap_model(ddp_like) is m
+
+    # Now the real thing. This is what actually regressed: measured 2026-08-05,
+    # a real OptimizedModule reported accepts-train=False while eager reported
+    # True, so compiling silently changed the call.
+    compiled = torch.compile(m)
+    assert _model_accepts_train_kwarg(compiled) == _model_accepts_train_kwarg(m) is True
+    assert _optional_model_kwargs(compiled, batch).keys() == _optional_model_kwargs(m, batch).keys()
+    assert _unwrap_model(compiled) is m

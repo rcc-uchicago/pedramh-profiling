@@ -1,0 +1,73 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_tests
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Run the ai-rossby recipe unit tests on a COMPUTE node.
+#
+# WHY a job for CPU-only unit tests: the ALCF login nodes are shared and often
+# heavily contended, and importing torch + scipy from the venv over Lustre can
+# take minutes there — long enough that a run gets killed mid-import and returns
+# a truncated log with a misleading exit code. (Observed 2026-08-05: the same
+# suite gave rc=0, rc=1 and rc=130-at-scipy-import within the hour, none of them
+# reflecting the code under test — while the SAME tests passed in 29 s when run
+# in isolation minutes later. The variance is the node, not the code.) A compute
+# node has the node to itself, so the result means what it says.
+#
+# Submit:  qsub polaris/polaris_recipe_tests.pbs
+#          qsub -v TESTS="test/recipes/ai_rossby/test_train_loop.py" polaris/polaris_recipe_tests.pbs
+#
+# PASS = "RECIPE_TESTS_OK <n> passed". Keys on pytest's own summary line, not the
+# exit code alone — a killed run can exit 0 with nothing having run.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+[ -x "${AI_ROSSBY_VENV}/bin/python" ] || { echo "ERROR AI_ROSSBY_VENV_MISSING"; exit 3; }
+export PYTHONNOUSERSITE=1
+
+TESTS="${TESTS:-test/recipes/ai_rossby/test_train_loop.py test/recipes/ai_rossby/test_multistep_train_step.py}"
+OUT="${AR_ROOT}/recipe_tests_${PBS_JOBID%%.*}.log"
+
+echo "--- recipe tests ---"
+echo "  venv  = ${AI_ROSSBY_VENV}"
+echo "  tests = ${TESTS}"
+echo
+
+cd "${AR_ROOT}" || exit 2
+# shellcheck disable=SC2086
+"${AI_ROSSBY_VENV}/bin/python" -m pytest ${TESTS} -v --tb=short -p no:cacheprovider 2>&1 | tee "${OUT}"
+rc=${PIPESTATUS[0]}
+
+echo
+# The summary line is the gate. A truncated/killed run has no summary at all,
+# which is exactly the failure mode that made the login-node results unusable.
+summary=$(grep -E "^=+ .*(passed|failed|error).* =+$" "${OUT}" | tail -1)
+if [ -z "${summary}" ]; then
+    echo "ERROR RECIPE_TESTS_NO_SUMMARY (run did not complete; rc=${rc})"
+    exit 4
+fi
+if echo "${summary}" | grep -qE "failed|error"; then
+    echo "ERROR RECIPE_TESTS_FAILED  ${summary}"
+    exit 1
+fi
+npassed=$(echo "${summary}" | grep -oE "[0-9]+ passed" | grep -oE "[0-9]+")
+echo "RECIPE_TESTS_OK ${npassed} passed"
+exit 0

@@ -510,11 +510,38 @@ def _optional_model_kwargs(
     ``forward``. SFNO/Pangu forwards don't name these, so the result is empty
     and their call is byte-for-byte unchanged; ArchesWeather names all three.
     """
-    inner = model.module if hasattr(model, "module") else model
+    inner = _unwrap_model(model)
     varnames = getattr(
         inner.forward, "__code__", type("_x", (), {"co_varnames": ()})()
     ).co_varnames
     return {k: batch[k] for k in _OPTIONAL_MODEL_BATCH_KEYS if k in batch and k in varnames}
+
+
+def _unwrap_model(model: torch.nn.Module) -> torch.nn.Module:
+    """Peel DDP and ``torch.compile`` wrappers to reach the real module.
+
+    Both helpers below read the *forward signature* to decide how to call the
+    model. ``torch.compile`` returns an ``OptimizedModule`` whose ``forward`` is
+    dynamo's wrapper, so introspecting it reports the WRONG signature: measured
+    on a model whose forward takes ``train=``, the eager object answers True and
+    the compiled object answers False. That would silently drop ``train=True``
+    and the target kwargs under compile — flipping activation checkpointing off
+    and changing the forward path, i.e. compiling would change what the model
+    computes (CLAUDE.md #1). Unwrapping first keeps compiled and eager identical.
+
+    ``_orig_mod`` is checked before ``module`` because ``OptimizedModule``
+    forwards unknown attributes to the wrapped model. Bounded so a pathological
+    wrapper chain cannot spin.
+    """
+    m = model
+    for _ in range(4):
+        if hasattr(m, "_orig_mod"):  # torch.compile
+            m = m._orig_mod
+        elif isinstance(getattr(m, "module", None), torch.nn.Module):  # DDP
+            m = m.module
+        else:
+            break
+    return m
 
 
 def _model_accepts_train_kwarg(model: torch.nn.Module) -> bool:
@@ -525,7 +552,7 @@ def _model_accepts_train_kwarg(model: torch.nn.Module) -> bool:
     ``train=True``). PanguPlasimLegacy doesn't — its forward only takes the
     four input tensors.
     """
-    inner = model.module if hasattr(model, "module") else model
+    inner = _unwrap_model(model)
     return getattr(inner, "has_vae", False) or "train" in getattr(
         inner.forward, "__code__", type("_x", (), {"co_varnames": ()})()
     ).co_varnames
