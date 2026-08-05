@@ -22,7 +22,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
-| Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
+| Correctness baselines captured (DESIGN.md §4) | 🟡 **machinery BUILT and first baselines captured** (`baselines/ai_rossby_pangu_plasim/{eager,compiled_default}.json`, job 7353187) — `equivalence.py` + `compare_baselines.py` + a PBS gate. **First verdict: `torch.compile` FAILS** (4.02e-01 > 1e-2), so rung 1 is measured (1.40×) but **not adopted**. Open question for the owner: §4.1 gates on a 20-step bf16 *training* trajectory, which compounds — step 0 agrees to 8.3e-4. Other models still have no baseline |
 | Test harness (tier-1 equivalence/unit + `--fast`) | 🟡 3 test files now exist + self-run (`SEEDING_OK`, `BENCH_INSTR_OK`, `VAE_NOISE_OK`); no `conftest.py`/`--fast` yet |
 | Optimization ladder (DESIGN.md §5) | 🟡 **rung 1 MEASURED on ai-rossby, not adopted**: `torch.compile` (default mode) = **1.401×** (step_med 449.6→320.8 ms, peak mem 24.98→21.07 GB; jobs 7352022 vs 7352948). Still **not enabled anywhere** — §4 equivalence gate does not exist yet. Measuring is unblocked; adopting is not. PanguWeather/SI/s2s rungs untouched |
 
@@ -158,6 +158,49 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-05** — **DESIGN §4 equivalence gate BUILT, first baselines captured — and
+  `torch.compile` FAILS it, so the 1.40× is NOT adopted.** Commit `402d336e`,
+  job **7353187**.
+  - **What now exists.** `baselines/ai_rossby_pangu_plasim/{eager,compiled_default}.json`
+    — the repo's first §4 artifacts — plus `equivalence.py` (deterministic K=20
+    capture), `polaris/compare_baselines.py` (§4.1's metric, stdlib-only), and
+    `polaris/polaris_equivalence_compile.pbs` (both captures in ONE job, so the
+    only difference is the change under test). §4.1 was the item blocking every
+    optimization; it is now runnable in ~3 min.
+  - **The verdict, stated plainly: FAIL.**
+
+    ```
+    max rel err 4.019e-01 > 1e-2   at forward_output_stats.surface.mean
+    loss trajectory alone          1.113e-01  (step 11, diagnostic)
+    surface.std    0.44623 -> 0.43339   (2.9%)
+    upper_air.max  1.44501 -> 1.28017  (11.4%)
+    ```
+
+    The `std`/`max` drifts are on well-scaled quantities, so this is **not** just
+    the near-zero-mean artifact the headline number might suggest.
+  - **The divergence COMPOUNDS — it does not start large:**
+
+    | step | 0 | 2 | 3 | 10 | 15 |
+    |---|---:|---:|---:|---:|---:|
+    | rel err | **8.30e-04** ✓ | 3.37e-03 | 8.29e-03 | 1.82e-02 ✗ | 1.30e-02 ✗ |
+
+    Step 0 — identical weights, one forward+backward — agrees to **8.3e-4**, well
+    inside tolerance. So the per-step computation matches; what fails is the
+    20-step trajectory, because each optimizer step feeds slightly different bf16
+    weights forward. **That is expected of any change perturbing bit-level
+    arithmetic, correct ones included.**
+  - **Recorded as a failure anyway, and the tolerance stays 1e-2.** Whether §4.1
+    should gate fusion changes on *fixed weights* (single forward, or K forwards
+    with no optimizer steps) rather than a 20-step bf16 training trajectory is a
+    **DESIGN decision for the owner** — not something to settle by adjusting a
+    number until it passes (rules #1/#11). Flagged, not acted on.
+  - **Also open:** this is a **world-size-1** capture. `torch.compile` is applied
+    beneath the DDP wrap, so §4.1 additionally requires a 4-GPU baseline before
+    adoption could even be considered.
+  - The comparator's failure modes were unit-tested **before** it gated anything:
+    identical and 0.5%-drift pass; 5% drift, seed mismatch, output-shape drift and
+    3% stat drift are all correctly rejected.
 
 - **2026-08-05** — **DESIGN §5 rung 1 MEASURED on ai-rossby: `torch.compile` = 1.40×.
   Getting there exposed a silent correctness bug that would have inflated it.**
