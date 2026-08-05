@@ -190,11 +190,33 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     20-step trajectory, because each optimizer step feeds slightly different bf16
     weights forward. **That is expected of any change perturbing bit-level
     arithmetic, correct ones included.**
-  - **Recorded as a failure anyway, and the tolerance stays 1e-2.** Whether §4.1
-    should gate fusion changes on *fixed weights* (single forward, or K forwards
-    with no optimizer steps) rather than a 20-step bf16 training trajectory is a
-    **DESIGN decision for the owner** — not something to settle by adjusting a
-    number until it passes (rules #1/#11). Flagged, not acted on.
+  - **Recorded as a failure anyway, and the tolerance stays 1e-2.**
+  - **FOLLOW-UP (job 7353316, `MODE=fixed`): compile fails the GENEROUS test too.**
+    Added `AI_ROSSBY_EQUIV_MODE=fixed` — K forward+backward passes with **no
+    optimizer step**, so weights are identical every iteration and step *i* cannot
+    inherit from step *i−1*. Backward still runs (63% of step time, where the
+    fusion is) and `grad_norm` is recorded. This separates the two hypotheses, and
+    **both turn out to be real**:
+
+    | step | 0 | 5 | 10 | 19 |
+    |---|---:|---:|---:|---:|
+    | train mode | 8.3e-4 | 8.0e-3 | **1.8e-2** ↗ | 1.6e-3 |
+    | **fixed mode** | 8.3e-4 | 1.2e-3 | 8.9e-4 | 1.8e-3 |
+
+    Compounding was genuine (fixed-mode loss error is flat at ~1e-3). **But a real
+    per-step difference remains, which the compounding had masked:**
+    `grad_norm` **5.33e-02** at identical weights, `surface.std` 3.02e-02,
+    `surface.min` 1.34e-01 (**0.606 of the field's own σ**), `upper_air.min`
+    6.53e-02 (0.400 σ). The aggregate loss agrees to ~0.1% while the output
+    *extremes* differ by 0.4–0.6 σ — an averaged scalar hiding pointwise
+    disagreement, which is exactly why §4.1 asks for output stats *alongside* the
+    losses.
+  - **Verdict strengthened: NOT adopted.** The test built to give compile its best
+    chance still fails on quantities unrelated to trajectory amplification.
+  - Consequently the procedural question (should §4.1 gate fusion changes on fixed
+    weights rather than a training trajectory?) is **still worth settling on its
+    own merits, but it is not what blocks this lever** — and it was never something
+    to settle by adjusting a number until it passed (rules #1/#11).
   - **Also open:** this is a **world-size-1** capture. `torch.compile` is applied
     beneath the DDP wrap, so §4.1 additionally requires a 4-GPU baseline before
     adoption could even be considered.
