@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026 The University of Chicago.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# SfnoPlasim on E3SM at PanguWeather PRODUCTION parity — optimizer/schedule half
+# of the apples-to-apples comparison. Pairs with
+# `conf/model/sfno_e3sm_parity.yaml` and `conf/dataset/e3sm_pangu_parity.yaml`.
+#
+# Mirrors the EFFECTIVE hyperparameters of
+# `PanguWeather/v2.0/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml` — effective, not
+# as-written. Two of them differ from what that file appears to say; both are
+# explained below, and both would have silently broken the comparison.
+#
+# Distinct from `sfno_plasim.yaml`, which is the PLASIM-5412 SFNO recipe
+# (no AMP, EMA off, 50 epochs).
+
+use_static_capture: False       # StaticCaptureTraining + CUDA graphs: off, as in the reference
+
+# bf16, matching the PanguWeather runs. Both sides of the comparison must use
+# the same precision or the throughput numbers are not comparable.
+amp: bf16
+
+# 0 = disabled, matching PanguWeather: its two `clip_grad_norm_` calls are
+# commented out (train.py:1161,1172), so the reference run clips nothing.
+grad_clip_norm: 0.0
+
+max_epochs: 100                 # the reference config's own value; override per run
+
+ddp_bucket_cap_mb: null         # PyTorch's 25 MB default
+ddp_static_graph: False
+# torch.compile stays OFF. It was measured at 1.40x on this recipe and FAILED
+# the DESIGN §4 equivalence gate under both procedures (grad_norm off 5.3% at
+# IDENTICAL weights). A faster run that computes something else is a bug.
+jit_compile: False
+
+optimizer:
+  type: AdamW
+  # ⚠ 3.0517578125e-05, NOT the `lr: 1e-4` written in the reference config's
+  # SFNO block. That line is DEAD: PanguWeather's `get_optimizer`
+  # (train.py:706-709) checks `hasattr(params, 'loglr')` FIRST, and `loglr: -13`
+  # is inherited from the base config, so `lr` is never read. The effective peak
+  # LR is
+  #     2**loglr * global_batch_size / 16 = 2**-13 * 4 / 16 = 3.0517578125e-05
+  # at batch_size 1 x 4 ranks. Taking the file at face value would have run this
+  # side at 3.3x the reference learning rate.
+  #
+  # This value is therefore tied to the WORLD SIZE. At 4 ranks x batch_size 1 it
+  # is correct; change either and it must be recomputed from the formula above.
+  lr: 3.0517578125e-05
+  weight_decay: 3.0e-6
+  # PanguWeather passes fused=True for AdamW unconditionally (train.py:717).
+  fused: True
+
+ema:
+  enabled: True                 # `use_ema: True` in the reference
+  decay: 0.999
+  warmup_epochs: 6
+  validate_with_ema: True
+
+stages:
+  - name: default
+    num_epochs: ${training.max_epochs}
+    unroll_steps: 1             # single-step training; `forecast_lead_times: [1]`
+    max_iterations: .inf
+    batch_size: null            # inherits dataset.batch_size (1)
+    scheduler:
+      # Same family and same units as the reference: warmup is converted to
+      # STEPS as `num_warmup_epochs * steps_per_epoch` on both sides
+      # (train.py:474 here, train.py:783 there).
+      #
+      # One residual difference, disclosed rather than papered over: the cosine
+      # phase. PanguWeather anneals over `max_epochs * steps_per_epoch` total
+      # steps including warmup; this recipe composes LinearLR + CosineAnnealingLR
+      # with `T_max = total_steps - warmup_steps`. Same endpoints, slightly
+      # different curve through the middle.
+      type: LinearWarmupCosineAnnealingLR
+      num_warmup_epochs: 5
+      warmup_start_lr: 1.0e-8
+      eta_min: 1.0e-8

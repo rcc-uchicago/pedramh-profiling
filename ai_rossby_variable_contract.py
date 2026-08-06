@@ -169,9 +169,51 @@ def parse_panguweather(path: Path) -> dict:
     return out
 
 
+# Model configs come in two shapes, and which one is correct is decided by the
+# MODEL CLASS, not by preference:
+#
+#   "split"  — `land_variables` / `ocean_variables` are their own groups.
+#              `PanguPlasimLegacy` takes them and slices its surface tensor as
+#              [surface | land | ocean].
+#   "folded" — no land/ocean groups; `surface_variables` is the concatenation.
+#              `SfnoPlasim.__init__` accepts NO land/ocean kwargs, and
+#              `build_model` forwards every config key as a kwarg, so declaring
+#              them is a TypeError rather than a harmless extra.
+#
+# Both describe the SAME tensor: PanguWeather's own loader concatenates the
+# three groups before the model sees them, and the converter writes that folded
+# order into the store's `surface_variables` attr. So the contract is checked
+# against `PLANNED` groups for a split config and against `STORE_SURFACE` for a
+# folded one — same channels, same order, stated differently.
+FOLDABLE_GROUPS = ("land_variables", "ocean_variables")
+
+
 def parse_ai_rossby_model(path: Path) -> dict:
+    """Variable groups out of an ai-rossby model config.
+
+    Sets ``surface_folded`` when the config omits the land/ocean groups. Only
+    those two are optional — a config missing any other group is an error, not
+    a shape.
+    """
     text = path.read_text()
-    out = {g: _yaml_list(text, g) for g in VAR_GROUPS}
+    out: dict = {}
+    missing = []
+    for g in VAR_GROUPS:
+        try:
+            out[g] = _yaml_list(text, g)
+        except KeyError:
+            if g not in FOLDABLE_GROUPS:
+                raise
+            missing.append(g)
+    # All-or-nothing: a config declaring `land_variables` but not
+    # `ocean_variables` is neither shape, and guessing which one it meant is how
+    # a channel permutation gets waved through.
+    if missing and len(missing) != len(FOLDABLE_GROUPS):
+        raise KeyError(
+            f"{path.name}: declares only part of {FOLDABLE_GROUPS} "
+            f"(missing {missing}). Declare both (split) or neither (folded)."
+        )
+    out["surface_folded"] = bool(missing)
     out["levels"] = _yaml_scalar_list(text, "levels")
     return out
 
@@ -305,8 +347,18 @@ def check_artifacts(model: Path, dataset: Path, converter: Path, store: Path | N
     results: list = []
 
     m = parse_ai_rossby_model(model)
-    for g in VAR_GROUPS:
-        _cmp(f"model.{g}", PLANNED[g], m[g], results)
+    if m["surface_folded"]:
+        # Folded (SfnoPlasim): surface carries land+ocean, so it is compared
+        # against the same folded order the store and converter are compared
+        # against. Nothing is skipped — the land/ocean channels are checked
+        # here, inside `surface_variables`.
+        _cmp("model.surface_variables (folded)", STORE_SURFACE, m["surface_variables"], results)
+        for g in VAR_GROUPS:
+            if g not in FOLDABLE_GROUPS and g != "surface_variables":
+                _cmp(f"model.{g}", PLANNED[g], m[g], results)
+    else:
+        for g in VAR_GROUPS:
+            _cmp(f"model.{g}", PLANNED[g], m[g], results)
     _cmp_levels("model.levels", PLANNED["levels"], m["levels"], results)
 
     d = parse_ai_rossby_dataset(dataset)
@@ -328,7 +380,8 @@ def check_artifacts(model: Path, dataset: Path, converter: Path, store: Path | N
     if store is not None:
         results.extend(_check_store(store))
 
-    return report(results, "PLANNED vs produced artifacts")
+    shape = "folded surface" if m["surface_folded"] else "split surface/land/ocean"
+    return report(results, f"PLANNED vs produced artifacts [{model.name}: {shape}]")
 
 
 def _check_store(store: Path) -> list:

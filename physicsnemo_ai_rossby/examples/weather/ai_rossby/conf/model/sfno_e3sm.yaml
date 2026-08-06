@@ -12,11 +12,25 @@
 name: SfnoPlasim
 module: physicsnemo.experimental.models.sfno_plasim
 
-# Variable groups — must match the ai-rossby E3SM Zarr store's attrs
-# (tools/data/e3sm/pangu_h5_to_zarr.py PANGU_E3SM_CHANNELS). Land variables
-# (SOILWATER_10CM, TSOI_10CM) are NOT written by the per-year converter (soil
-# vars only appear in the climatology store) so they're absent here — the
-# reference config's land_variables have no analogue in this Zarr schema.
+# Variable groups — the SPEED-BENCHMARK subset, deliberately smaller than the
+# store carries.
+#
+# ⚠ CORRECTION (2026-08-06): an earlier comment here claimed the land variables
+# (SOILWATER_10CM, TSOI_10CM) "are NOT written by the per-year converter (soil
+# vars only appear in the climatology store)". That is FALSE. The converter
+# writes both, FOLDED into the store's `surface_variables` attr — verified on
+# `train/2020.zarr`, whose attr reads
+#   [TREFHT, U10, RHREFHT, PS, PSL, TMQ, SOILWATER_10CM, TSOI_10CM]
+# and against `PANGU_E3SM_CHANNELS` in tools/data/e3sm/pangu_h5_to_zarr.py.
+# They are absent below because this config is a 3-surface-var speed benchmark,
+# not because the data lacks them.
+#
+# ⚠ Do NOT use this file as the starting point for a PanguWeather-parity run.
+# Besides the reduced variable set and embed_dim 256, the group ORDER below is
+# PERMUTED relative to the store (TOPO first; Z3/RELHUM swapped), which
+# `ClimateZarrDataset` cannot catch — it stacks by store-attrs order, so a
+# permutation is correctly-shaped and raises nothing. The parity config is
+# `sfno_e3sm_parity.yaml`.
 surface_variables: [TREFHT, U10, PSL]
 upper_air_variables: [T, U, V, RELHUM, Z3]
 constant_boundary_variables: [TOPO, PCT_GLACIER, PCT_NATVEG, PFTDATA_MASK]

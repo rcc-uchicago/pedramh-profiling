@@ -1,0 +1,124 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026 The University of Chicago.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# SfnoPlasim on E3SM at PanguWeather PRODUCTION parity — the ai-rossby half of
+# the apples-to-apples SFNO comparison.
+#
+# = `sfno_e3sm.yaml`'s ARCHITECTURE block  +  `pangu_plasim_e3sm.yaml`'s
+#   VARIABLE block, reconciled against what `SfnoPlasim.__init__` actually
+#   accepts. The reference is jesswan's Polaris production config
+#   `PanguWeather/v2.0/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml` (`SFNO:`
+#   section), NOT the `_jsw_256` speed-benchmark variant.
+#
+# ⚠ Do NOT start from `sfno_e3sm.yaml`. That file is the speed-benchmark config:
+#   3 surface vars, no land, 1 diagnostic, embed_dim 256, and a PERMUTED group
+#   order (TOPO first; Z3/RELHUM swapped). Against our stores that is a SILENT
+#   failure — `ClimateZarrDataset` stacks by store-attrs order, so a permutation
+#   is correctly-shaped and raises nothing.
+#
+# --- Why `surface_variables` here is 8 entries and there is no `land_variables`
+#
+# `SfnoPlasim.__init__` accepts NO `land_variables` / `ocean_variables` kwargs
+# (sfno_plasim.py:161-165), unlike `PanguPlasimLegacy` which slices its surface
+# tensor as [surface | land | ocean]. And `build_model` forwards EVERY key in
+# this file as a constructor kwarg (train.py:544-546), so a `land_variables`
+# key here is a TypeError, not a harmless extra.
+#
+# Folding is the correct answer, not a workaround — it is exactly what
+# PanguWeather itself does. Its loader concatenates
+# `surface_variables + land_variables + ocean_variables` into one surface tensor
+# before the model ever sees it (data_loader_multifiles.py:452-472), and our
+# converter writes that same folded 8 into the store's `surface_variables` attr.
+# `train.py::_surface_channel_names` defaults the two missing groups to `[]`, so
+# the NaN fill and the loss walk the same 8 names in the same order.
+#
+# The contract is still asserted, not asserted-by-comment:
+# `ai_rossby_variable_contract.py --check-artifacts` compares this file against
+# the folded form (`STORE_SURFACE`) and the store's attrs against the same.
+#
+# --- Channel arithmetic (must equal PanguWeather's) -------------------------
+#   108 fields = 5 upper-air x 18 levels (90) + surface 6 + land 2
+#              + diagnostic 3 + constant_boundary 4 + varying_boundary 3
+#   in_chans  = 8 surface + 4 const + 3 varying + 90 upper-air = 105
+#   out_chans = 8 surface + 3 diagnostic + 90 upper-air        = 101
+# PanguWeather reaches the same two numbers by a different route
+# (`variable_list_in` + `constant_boundary_variables`, sfnonet.py:762-765).
+# The architecture gate (`compare_sfno_parity.py`) asserts the resulting
+# parameter counts are identical.
+
+name: SfnoPlasim
+module: physicsnemo.experimental.models.sfno_plasim
+
+# --- Variable groups — the PanguWeather E3SM contract, 108 fields -----------
+# Identical names/order to `pangu_plasim_e3sm.yaml` except for the fold above.
+upper_air_variables: ["T", "U", "V", "Z3", "RELHUM"]
+# [surface 6 | land 2] folded, in the order PanguWeather's loader concatenates
+# them and the order the store's `surface_variables` attr records.
+surface_variables: ["TREFHT", "U10", "RHREFHT", "PS", "PSL", "TMQ",
+                    "SOILWATER_10CM", "TSOI_10CM"]
+diagnostic_variables: ["FSNTOA", "FSNT", "PRECT"]
+# SST/ICE are PRESCRIBED boundaries, not forecast fields — the single most
+# consequential role assignment in the contract, and what makes this run
+# PanguWeather-comparable.
+constant_boundary_variables: ["PCT_GLACIER", "PFTDATA_MASK", "PCT_NATVEG", "TOPO"]
+varying_boundary_variables: ["SST", "ICE", "sol_in"]
+
+# --- Grid / level geometry --------------------------------------------------
+# The 18 E3SM hybrid levels in hPa at the archive's full precision — the values
+# embedded in the H5 keys (`T_998.4964394917621`), which PanguWeather selects on
+# via `sigma_levels` (`use_sigma_levels: True`). Terrain-following hybrid levels
+# despite the hPa labels.
+#
+# `SfnoPlasim` reads only `len(levels)`; the values are what the normalizer
+# matches on (nearest value, atol 1e-3 — the store's coord is float32, so these
+# float64 literals do not compare == to it).
+levels: [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195,
+         50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347,
+         200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911,
+         492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952,
+         925.5197481473349, 998.4964394917621]
+horizontal_resolution: [180, 360]
+
+# --- SFNO architecture — E3SM_SFNO_H5_POLARIS_ALLDATA.yaml `SFNO:` verbatim --
+# Every value below is copied from that block. Three notes where the two
+# spellings differ but the VALUE does not:
+#   * `factorization: null` == PanguWeather's `factorization: None`. YParams
+#     maps the string 'None' to Python None (YParams.py:19), which is what
+#     selects the non-tensorly ComplexDense path (sfnonet.py:115).
+#   * `sync_norm: True` has no analogue here and needs none — it wraps the model
+#     in SyncBatchNorm, and InstanceNorm2d is not a `_BatchNorm` subclass, so
+#     the conversion is a no-op at `normalization_layer: instance_norm`.
+#   * `data_grid` is explicit here; PanguWeather hardcodes 'equiangular'.
+spectral_transform: sht
+filter_type: linear
+operator_type: dhconv
+scale_factor: 1
+embed_dim: 512
+num_layers: 12
+use_mlp: True
+mlp_ratio: 2.0
+activation_function: gelu
+encoder_layers: 1
+pos_embed: True
+drop_rate: 0.0
+drop_path_rate: 0.0
+num_blocks: 16
+sparsity_threshold: 0.0
+normalization_layer: instance_norm
+hard_thresholding_fraction: 1.0
+use_complex_kernels: True
+big_skip: True
+rank: 1.0
+factorization: null
+separable: False
+complex_network: True
+complex_activation: real
+spectral_layers: 3
+# 3, matching the reference. In SFNO `checkpointing` is GRADUATED, not a
+# boolean: >= 3 forces strictly more recompute than >= 1. Both sides of the
+# comparison are SFNO, so the same number means the same thing — but it does NOT
+# transfer to a PanguPlasim run, where the field is a flat boolean.
+checkpointing: 3
+data_grid: equiangular
