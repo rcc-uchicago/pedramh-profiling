@@ -162,6 +162,21 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
 polaris_require_topups || exit 3
 
+# --- per-epoch step-timing telemetry (utils/epoch_telemetry.py) --------------
+# ON by default: two CUDA events per step and one all-reduce per epoch, with no
+# per-step sync, so it costs no extra node-hours and perturbs nothing it
+# measures. Unlike PANGU_BENCH it does NOT truncate the run or skip the
+# per-iteration diagnostics — it observes the real thing.
+# Why it earns its place here: this config has a 5-epoch LR warmup and a 6-epoch
+# EMA warmup, and PanguWeather SKIPS the EMA parameter sweep entirely until
+# ema_warmup_epochs — a full extra pass over 1.18 B parameters that switches on
+# mid-run. The rows make that visible instead of averaged away.
+# TELEMETRY_EPOCHS=0 records every epoch; set e.g. 6 to stop after the warmup.
+export PANGU_EPOCH_TELEMETRY="${TELEMETRY:-1}"
+export PANGU_EPOCH_TELEMETRY_EPOCHS="${TELEMETRY_EPOCHS:-0}"
+export PANGU_EPOCH_TELEMETRY_CSV="${PANGU_EPOCH_TELEMETRY_CSV:-${MEMBER_ROOT}/bench/epoch_telemetry_pangu_sfno.csv}"
+mkdir -p "$(dirname "${PANGU_EPOCH_TELEMETRY_CSV}")"
+
 NPROC="${NPROC:-4}"
 # STABLE by default — the opposite of the smoke, which keys run_num to $PBS_JOBID so that
 # every smoke starts clean (a resumed smoke would train 0 steps and still exit 0 — that
@@ -177,6 +192,15 @@ TRAIN_YEAR_END="${TRAIN_YEAR_END:-2045}"
 # Rolling window of numbered ckpt_epoch_N.tar to keep (header #4). ckpt_latest
 # and best_ckpt are always kept regardless.
 MAX_CKPTS_KEEP="${MAX_CKPTS_KEEP:-10}"
+# EXPLICIT, not implicit. 0 is train.py's own default (--global_seed, :3879), so
+# this changes nothing today — but the SFNO comparison requires both harnesses to
+# be seeded from the same value, and "it happens to default the same way" is not
+# something a reader of the log can check. The ai-rossby side pins cfg.seed to the
+# same number (polaris_sfno_e3sm.pbs $SEED).
+# Note the per-rank derivation still differs between harnesses and cannot be made
+# to match: here seed = global_seed * world_size + rank (train.py:3817); there it
+# is cfg.seed + rank. → polaris_sfno_comparison_handoff.md §1
+SEED="${SEED:-0}"
 
 CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml"
 EXP_DIR="${MEMBER_ROOT}/runs/pangu_sfno_alldata_full"
@@ -185,7 +209,7 @@ mkdir -p "${EXP_DIR}"
 
 echo "=== pangu_e3sm_sfno_alldata_full: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
-echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}  max_ckpts_keep=${MAX_CKPTS_KEEP}"
+echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}  max_ckpts_keep=${MAX_CKPTS_KEEP}  seed=${SEED}"
 nvidia-smi -L
 polaris_env_report
 
@@ -266,6 +290,7 @@ torchrun --standalone --nproc_per_node="${NPROC}" \
     "${V20_DIR}/train.py" \
     --yaml_config="${CONFIG_FILE}" \
     --config=SFNO \
+    --global_seed="${SEED}" \
     --run_num="${RUN_NUM}"
 rc=$?
 

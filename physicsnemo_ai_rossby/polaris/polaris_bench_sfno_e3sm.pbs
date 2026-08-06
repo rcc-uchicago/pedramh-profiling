@@ -1,0 +1,160 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_bench_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Throughput bench for SfnoPlasim on E3SM at PanguWeather parity — 4x A100.
+# Measurement only: this trains nothing usable (random weights, no checkpoint).
+#
+# THE COMPARISON SURFACE. This writes the same 19 canonical CSV columns as
+# PanguWeather's `PANGU_BENCH=1` (CLAUDE.md #10), so the harness comparison
+# rests on two matched rows rather than on epoch-time arithmetic off two
+# differently-scoped runs. Its counterpart is
+#     PanguWeather/v2.0/HPC_scripts/polaris_bench_e3sm_sfno.pbs
+#         qsub -v CONFIG_NAME=E3SM_SFNO_H5_POLARIS_ALLDATA HPC_scripts/polaris_bench_e3sm_sfno.pbs
+# Run BOTH at the same warmup/steps before queueing anything long.
+#
+# ⚠ WHAT IS PINNED HERE, AND WHY (→ polaris_sfno_comparison_handoff.md §1):
+#   * `dataset.num_workers=1` — matches PanguWeather's `num_data_workers: 1`.
+#     This is a COMPARISON AXIS, not a tuning knob: a prior sweep measured ~9%
+#     wall throughput and 10x step-time jitter between 1 and 8, the same order
+#     as the harness difference being measured. The sibling PanguPlasim bench
+#     does NOT pin it (it inherits 8 from the dataset config), so its rows are
+#     not comparable to Pangu's — do not mix them.
+#   * `training=sfno_e3sm_parity` — bf16 and the reference's EFFECTIVE lr.
+#   * `loss=raw_l2` — PanguWeather's SFNO loss.
+#
+# ⚠ WHAT THIS BENCH DOES *NOT* MEASURE. `profile_train.py` builds no EMA and
+#   builds its scheduler over the BENCH WINDOW, not the 100-epoch schedule. So
+#   it measures steady-state step cost, and it cannot answer "what do epochs 1-6
+#   of the real run cost" — over that window the reference config's 5-epoch LR
+#   warmup and 6-epoch EMA warmup are still changing what a step does (EMA alone
+#   is an extra full sweep over 1.18 B parameters once it engages). Sizing STEPS
+#   to 6 epochs would measure 6 epochs of a DIFFERENT configuration.
+#
+# WHY debug, and why 50 minutes: 20+80 steps is a couple of minutes of stepping,
+# but model construction + preflight took ~6 min on job 7341412 and this model is
+# ~19x the parameters. debug's cap is 1 h with ONE running job per user, so a
+# timeout burns the whole slot. Do not raise this to 01:00:00.
+#
+# Submit:  qsub polaris/polaris_bench_sfno_e3sm.pbs
+#          qsub -v WARMUP=5,STEPS=20 polaris/polaris_bench_sfno_e3sm.pbs
+#          qsub -v NPROC=1 polaris/polaris_bench_sfno_e3sm.pbs
+#
+# ⚠ Do NOT set TORCH_COMPILE_MODE for these rows. torch.compile measured 1.40x
+#   but FAILS the DESIGN §4 equivalence gate, so a compiled row is not a row for
+#   this comparison.
+#
+# PASS = a NEW ROW in $AI_ROSSBY_BENCH_CSV, not rc=0. Ranks != 0 exit 0 by
+# design, and a bench that recorded nothing also exits 0 — so the row count is
+# the only honest gate.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# --- env bootstrap: copied verbatim from polaris_bench_pangu_plasim.pbs ------
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+# physicsnemo is EDITABLE in that venv — benching tree A against a store built
+# by tree B is the silent mismatch this pipeline exists to prevent.
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+RUN_NAME="${RUN_NAME:-bench_sfno_$(date +%Y%m%d)_${PBS_JOBID%%.*}}"
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/ai_rossby_bench/${RUN_NAME}}"
+LOADER_WORKERS="${LOADER_WORKERS:-1}"
+
+export AI_ROSSBY_BENCH=1
+export AI_ROSSBY_BENCH_WARMUP="${WARMUP:-20}"
+export AI_ROSSBY_BENCH_STEPS="${STEPS:-80}"
+# Its OWN csv: mixing SFNO rows into the PanguPlasim file would put two
+# architectures and two loader-worker settings in one table.
+export AI_ROSSBY_BENCH_CSV="${AI_ROSSBY_BENCH_CSV:-${MEMBER_ROOT}/bench/ai_rossby_sfno_e3sm_bench.csv}"
+# NVTX off here: this is the wall-clock/CSV bench. The nsys variant turns it on.
+unset AI_ROSSBY_NVTX
+mkdir -p "$(dirname "${AI_ROSSBY_BENCH_CSV}")" "${RUN_DIR}"
+
+[ -d "${DATA}/train" ] || { echo "ERROR AI_ROSSBY_DATA_MISSING: ${DATA}/train"; exit 3; }
+
+polaris_env_report
+echo "--- bench ---"
+echo "  ranks   = ${NPROC}"
+echo "  warmup  = ${AI_ROSSBY_BENCH_WARMUP}, steps = ${AI_ROSSBY_BENCH_STEPS}"
+echo "  workers = ${LOADER_WORKERS}  (pinned to match PanguWeather)"
+echo "  csv     = ${AI_ROSSBY_BENCH_CSV}"
+echo "  compile = ${TORCH_COMPILE_MODE:-<eager>}"
+echo
+
+# Cheap and decisive: if the architecture drifted from PanguWeather's, the row
+# this job writes is not comparable to anything.
+python "${REPO}/compare_sfno_parity.py" --static || {
+    echo "ERROR PREFLIGHT_FAILED — architecture diverged; the row would be meaningless."
+    exit 4
+}
+echo
+
+# Row count BEFORE, so the gate can prove a row was actually appended.
+rows_before=0
+[ -f "${AI_ROSSBY_BENCH_CSV}" ] && rows_before=$(wc -l < "${AI_ROSSBY_BENCH_CSV}")
+
+cd "${RECIPE}" || exit 2
+# `python -m torch.distributed.run`, never bare `torchrun`: the bare name can
+# resolve to the BASE conda's launcher, whose shebang pins the wrong python.
+python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+    profile_train.py \
+    model=sfno_e3sm_parity \
+    dataset=e3sm_pangu_parity \
+    training=sfno_e3sm_parity \
+    loss=raw_l2 \
+    training.amp=bf16 \
+    dataset.batch_size=1 \
+    dataset.num_workers="${LOADER_WORKERS}" \
+    run_name="${RUN_NAME}" \
+    hydra.run.dir="${RUN_DIR}"
+rc=$?
+echo "--- bench rc=${rc} ---"
+
+rows_after=0
+[ -f "${AI_ROSSBY_BENCH_CSV}" ] && rows_after=$(wc -l < "${AI_ROSSBY_BENCH_CSV}")
+if [ "${rows_after}" -le "${rows_before}" ]; then
+    echo "ERROR BENCH_NO_ROW_WRITTEN (before=${rows_before} after=${rows_after})"
+    echo "  rc=0 is NOT proof: non-zero ranks exit 0, and a bench that recorded"
+    echo "  nothing also exits 0. Read the log above for the real failure."
+    exit 4
+fi
+
+echo "AI_ROSSBY_BENCH_OK  row appended to ${AI_ROSSBY_BENCH_CSV}"
+tail -1 "${AI_ROSSBY_BENCH_CSV}"
+exit "${rc}"
