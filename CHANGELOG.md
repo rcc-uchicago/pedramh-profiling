@@ -297,9 +297,28 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     which does NOT fit one 168 h `capacity` job. PanguWeather **2.55 h/epoch** training
     + production validation (129 ICs × 60-step rollouts, est. 0.2–0.7 h) ⇒ 100 epochs
     ≈ **275–325 h**, i.e. 4–5 uninterrupted 72 h `preemptable` links at best.
+  - **PRODUCTION RUNS QUEUED — 100 epochs each, to CONVERGENCE (owner's call: the goal
+    is trained models, not only parity/profiling).** Both pre-chained with
+    `polaris_submit_chain.sh`, so neither needs daily human resubmission; every link
+    re-runs its script from the top and resumes from the run's checkpoint.
+    - **ai-rossby** → `capacity`, **2 × 168 h**: **7365020** (Q) → 7365021 (H).
+      ~228 h needed, so link 2 finishes it. This holds the project's ONLY capacity
+      slot (`max_run=1` per project) — coordinate before queueing anything else there.
+    - **PanguWeather** → `preemptable`, **6 × 72 h**: **7365022** (Q) → 7365023-27 (H).
+      ~275–325 h needed; 6 links = 432 h of margin, deliberately over-provisioned
+      because a link that starts after training completed just resumes a finished run
+      and exits in minutes. `preemptable` is scheduling again (26 running at submit
+      time), unlike 2026-08-05 when it never started a single job.
+    - Both at `seed=0`, `num_data_workers/num_workers=1`, bf16, batch 1 × 4 ranks,
+      `checkpointing: 3`, telemetry on for every epoch. Watch progress with the
+      per-epoch CSVs under `$MEMBER_ROOT/bench/epoch_telemetry_*.csv`, not the exit
+      code — a preempted link exits non-zero and that is normal.
+  - **Group read+write DONE and verified**: `ai_rossby_data` stores are `drwxrwsr-x`
+    with `-rw-rw-r--` chunks, likewise `runs/`, `bench/`, `pangu_polaris_data/`,
+    `baselines/`. The `chmod -R` over the 35 zarr stores took ~50 min (millions of
+    chunk files) — run it in the background, not inline.
   - **Still open:** jesswan's sign-off on the fills (DESIGN §1) before any resulting
-    model's numbers are reported; **epoch budget** for the two production runs (nothing
-    is queued for production yet — the numbers above are what that decision needs).
+    model's numbers are reported.
 
 - **2026-08-06** — **PRODUCTION CONVERSION COMPLETE (35 stores) — after routing it
   through `debug`, because `preemptable` never scheduled it.**
