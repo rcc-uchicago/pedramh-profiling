@@ -58,6 +58,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
      Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
      Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
 from utils.lr_scheduler_sfno import LinearWarmupCosineAnnealingLR
+from utils.epoch_telemetry import EpochTelemetry
 from ensemble_inference import Stepper
 logging_utils.config_logger()
 
@@ -1062,6 +1063,25 @@ class Trainer():
 
         self.model.train()
 
+        # --- per-epoch step-timing telemetry (opt-in; PANGU_EPOCH_TELEMETRY=1) ---
+        # Built lazily so the edit stays contiguous and __init__ is untouched.
+        # Every call is a no-op when the knob is unset, so the training path is
+        # byte-identical without it. This measures the REAL run — unlike
+        # PANGU_BENCH, which truncates it after WARMUP+STEPS and exits.
+        if not hasattr(self, '_epoch_telemetry'):
+            self._epoch_telemetry = EpochTelemetry(
+                prefix="PANGU",
+                harness="panguweather",
+                run_name=str(getattr(self.params, 'run_num', 'unknown')),
+                n_gpus=int(self.params['world_size']),
+                batch_per_gpu=int(self.params.batch_size),
+                amp_dtype=str(getattr(self, 'amp_dtype', 'none')),
+                n_loaders=int(getattr(self.params, 'num_data_workers', 0)),
+                rank=self.world_rank,
+                repo_dir=os.path.dirname(os.path.abspath(__file__)),
+            )
+        self._epoch_telemetry.epoch_start(self.epoch)
+
         pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}',
                     dynamic_ncols=True, file=logging_utils.tqdm_stream,
                     disable=(self.world_rank != 0) or BENCH)
@@ -1095,6 +1115,11 @@ class Trainer():
                 if BENCH and self.iters >= BENCH_WARMUP + BENCH_STEPS:
                     bench_done = True
                     break
+                # Opens the timed window before data prep, closing it after the
+                # EMA sweep, so it spans the same work as the ai-rossby side.
+                # Loader wait falls BETWEEN windows and surfaces as
+                # `gpu_busy_frac` < 1 rather than inflating step_med.
+                self._epoch_telemetry.step_start()
                 if BENCH and bench_loop_t0 is not None and bench_prev_step_end is not None:
                     # Guarded on bench_loop_t0 so only gaps INSIDE the measured window are
                     # collected: that keeps sum(steps)+sum(waits) reconcilable against
@@ -1188,6 +1213,14 @@ class Trainer():
                     if self.params.scheduler in ['OneCycleLR', 'LinearWarmupCosineAnnealingLR']:
                         self.scheduler.step()
 
+                    # Closes the timed window at exactly `bench_t2`'s position, so
+                    # a telemetry row and a PANGU_BENCH row measure the same span.
+                    # Deliberately BEFORE the `if not BENCH:` per-iteration
+                    # diagnostics (RMSE + wandb) below: that block has no
+                    # counterpart inside ai-rossby's window, and including it here
+                    # would make the two harnesses' step times incomparable.
+                    self._epoch_telemetry.step_end()
+
                     if BENCH:
                         torch.cuda.synchronize()
                         bench_t2 = time.perf_counter()
@@ -1251,6 +1284,17 @@ class Trainer():
                 break
 
         pbar.close()
+
+        # `ema_active` is `self._ema_active()`, not an epoch test: PanguWeather
+        # SKIPS the `update_ema` sweep entirely until `ema_warmup_epochs`, so the
+        # step cost visibly jumps at that epoch. ai-rossby instead sweeps from
+        # epoch 1 and warms only the decay value — the two are recorded honestly
+        # rather than made to look alike. All ranks reach this (it all-reduces
+        # peak memory); it is a no-op when the knob is unset.
+        self._epoch_telemetry.epoch_end(
+            lr=self.optimizer.param_groups[0]['lr'],
+            ema_active=self._ema_active(),
+        )
 
         if BENCH:
             self._bench_finalize(

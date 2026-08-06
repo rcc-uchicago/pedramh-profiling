@@ -68,6 +68,7 @@ from typing import Optional
 
 from data_staging import _STAGEABLE_KEYS, resolve_stage_root, stage_store
 from ema import ModelEMA
+from epoch_telemetry import EpochTelemetry
 from loss import ArchesWeatherLoss, PanguPlasimLoss
 from train_loop import (
     _resolve_amp_dtype,
@@ -996,6 +997,24 @@ def main(cfg: DictConfig) -> None:
             steps_per_epoch=steps_per_epoch,
         )
 
+    # --- Per-epoch step-timing telemetry (opt-in; AI_ROSSBY_EPOCH_TELEMETRY=1) --
+    # Rides along on the production run so the first epochs — where the 5-epoch
+    # LR warmup and the EMA schedule are still changing what a step does — are
+    # measured on the real configuration. The bench harness (profile_train.py)
+    # structurally cannot see this: it builds no EMA and scopes its scheduler to
+    # the bench window. Every call below is a no-op when the knob is unset.
+    telemetry = EpochTelemetry(
+        prefix="AI_ROSSBY",
+        harness="ai_rossby",
+        run_name=str(cfg.get("run_name", "unknown")),
+        n_gpus=dist.world_size,
+        batch_per_gpu=int(cfg.dataset.batch_size),
+        amp_dtype=str(cfg_train.get("amp", "none")),
+        n_loaders=int(cfg.dataset.get("num_workers", 0)),
+        rank=dist.rank,
+        repo_dir=Path(__file__).resolve().parent,
+    )
+
     # --- Checkpoint resume ------------------------------------------------
     # We resume the model + optimizer state only — the scheduler is
     # reconstructed per-stage to keep the multi-stage semantics clean. To
@@ -1134,6 +1153,7 @@ def main(cfg: DictConfig) -> None:
         for _ in range(epochs_remaining):
             stage_datapipe.set_epoch(global_epoch)
             model.train()
+            telemetry.epoch_start(global_epoch)
             with LaunchLogger(
                 "train",
                 epoch=global_epoch,
@@ -1143,6 +1163,11 @@ def main(cfg: DictConfig) -> None:
                 for batch_idx, batch in enumerate(stage_datapipe):
                     if max_iterations is not None and stage_iter >= max_iterations:
                         break
+                    # Opens the timed window BEFORE the step so it covers the
+                    # same span as the PanguWeather side: prep -> forward ->
+                    # backward -> optimizer -> EMA. Loader wait falls between
+                    # windows and surfaces as `gpu_busy_frac` < 1.
+                    telemetry.step_start()
                     if captured_train_fn is not None:
                         # StaticCaptureTraining-wrapped path: returns scalar
                         # loss only. The decorator handles backward + step +
@@ -1194,6 +1219,11 @@ def main(cfg: DictConfig) -> None:
                         )
                     if ema is not None:
                         ema.update(inner_model, epoch=global_epoch)
+                    # Closes the timed window here, with the EMA sweep INSIDE it:
+                    # on a 1.18 B-param model that sweep is real hot-path work
+                    # (~4.7 GB of elementwise traffic), and attributing it
+                    # elsewhere would understate the step.
+                    telemetry.step_end()
                     # Aggregate the per-GPU minibatch losses to a global mean
                     # before logging, so the single wandb run's per-step series
                     # reflects all ranks (not just rank 0's local batch). On-
@@ -1228,6 +1258,15 @@ def main(cfg: DictConfig) -> None:
                         "stage_idx": stage_idx,
                     }
                 )
+            # Outside the LaunchLogger block but before validation, so the row
+            # covers training only. `ema_active` is `ema is not None` and not an
+            # epoch test: unlike PanguWeather, this recipe calls `ema.update`
+            # from epoch 1 and warms up only the DECAY, so the sweep is paid
+            # throughout. All ranks must reach this — it all-reduces peak memory.
+            telemetry.epoch_end(
+                lr=optimizer.param_groups[0]["lr"],
+                ema_active=(ema is not None),
+            )
 
             # --- Validation (optional) ----------------------------------
             if val_datapipe is not None:
