@@ -89,8 +89,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   2. **Norm zarr rebuilt** — bitwise-identical to the source `.nc` across all 26 vars/levels.
   3. **Training smoke** — job **7341412**, exit 0, **9:36**. `PREFLIGHT_OK`
      (`VARIABLE_PARITY_OK 21/21` ×3 stores) + `PANGU_PLASIM_RUN_OK`.
-  **Next: production** (handoff §5 Step 4) — the full conversion (~11 h, ~1.08 TB,
-  ~1.14 M inodes; check the inode cap with the ALCF helpdesk first) then the long train.
+  4. **Production conversion** — ✅ **DONE 2026-08-06**: 35 stores (train 2015–2044,
+     val 2045–2048 + 2049 tail), 43,800 training samples, verified on disk. Took
+     3 h through `debug`; `preemptable` never scheduled it (see the 2026-08-06 entry).
+     No inode problem materialised — `lfs quota` shows files quota/limit **0 = no cap**.
+  **Next: the long training run.** `qsub -v MAX_EPOCHS=100 -l walltime=72:00:00`
+  via `polaris_submit_chain.sh`. ⚠ Size the chain from the *measured* 449.6 ms/step
+  (not the stale 537 ms), and note the chain's inter-link waits were 40 h each on
+  `preemptable` for jesswan's run — that queue is currently not scheduling at all.
 
 - **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
   `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
@@ -158,6 +164,41 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-06** — **PRODUCTION CONVERSION COMPLETE (35 stores) — after routing it
+  through `debug`, because `preemptable` never scheduled it.**
+  - **Final dataset**, verified on disk (not from logs): `train/` **30 stores,
+    2015–2044**, contiguous, 1460 timesteps each = **43,800 training samples**;
+    `val/` **2045–2048** full years + **2049** as the 1-sample tail store. Exactly
+    the handoff §5 Step 4 target. Production training is no longer blocked on data.
+  - **⚠ `val/2046.zarr` existed but was WRONG — and "it's on disk" would have hidden
+    it.** It was the 1-sample tail store from the first smoke (time len **1**,
+    22 MB) whereas production needs 2046 as a full val year and 2049 as the tail.
+    Rebuilt to 1460. Skipping it would have given production a validation year of
+    one sample — surfacing much later as a metrics oddity, not as a conversion bug.
+    **Check `time` length, never mere existence.**
+  - **The scheduling lesson, and a wrong diagnosis of mine.** I blamed queue times
+    on requested walltime and resubmitted three times on that theory (18 h → 3 h →
+    2 h). Wrong: the jobs had been **eligible 11 h 28 m** with
+    `comment = Insufficient amount of resource: queue_tags`. `preemptable` only
+    runs on nodes prod isn't using and had none (backlog grew 106 → **134 queued**
+    while we waited). Walltime was never the constraint.
+
+    | queue | evidence, 2026-08-05/06 |
+    |---|---|
+    | `debug` | **9/9 jobs started**, median wait **19 s**, worst 27 min |
+    | `preemptable` | 18 h job: never started in 12 h. 8× 2 h jobs: never started in 11.5 h |
+
+    **Every piece of real work that completed came through `debug`**; everything
+    sent to `preemptable` after 16:08 did nothing. Check `eligible_time` (with an
+    anchored grep — `wfp_eligible_time_exp` is a substring trap) before theorising
+    about priority.
+  - **How it was done:** `debug` allows one job at a time, so a driver submitted 5
+    sequential chunks of ≤7 stores (6.2 min/store measured ⇒ ~43 min against a
+    55 min wall). All five green on `CONVERT_ALL_OK`; **3 h wall total.** The driver
+    stops on the first failed chunk rather than leaving a silent hole. This is only
+    expressible because of the `${VAL_YEARS-}` fix (`b5f80060`) — with `:-`, every
+    train-only chunk would have silently converted `val/2045` and raced.
 
 - **2026-08-05** — **DESIGN §4 equivalence gate BUILT, first baselines captured — and
   `torch.compile` FAILS it, so the 1.40× is NOT adopted.** Commit `402d336e`,
