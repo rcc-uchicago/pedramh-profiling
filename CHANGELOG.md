@@ -280,12 +280,29 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     | loader idle | 0.63% (`data_idle_frac`) | 9.05% (`loader_wait_frac`) | — |
     | `cpu_prep_med` | 1.5e-05 s | 2.2e-03 s | 149× |
 
-    `step_med` and `samples_per_s` agree to three digits, which is the internal
-    consistency check. **Contrast with this repo's history:** an earlier comparison
-    claimed 1.51× and was really 1.33× on mismatched windows with three more
-    confounds (post-mortem, 2026-08-05). 1.166× is on matched rows with the model
-    proven bitwise identical, so it is attributable to the harness and the data path
-    — HDF5 vs Zarr — and nothing else.
+    `step_med` and `samples_per_s` agree to three digits (internal consistency).
+
+    > ### ⚠ RETRACTED SAME DAY — 1.166× IS NOT CONFIRMED. **Do not quote it.**
+    > The two rows were measured in **separate jobs on different nodes** —
+    > ai-rossby on `x3001c0s13b0n0`, PanguWeather on `x3003c0s37b0n0`. The sweep
+    > (job 7365119, node `x3109c0s19b1n0`) then re-measured the **identical**
+    > `ckpt3/sg0/w1/bs1` config at **0.6517 s** against the parity bench's
+    > **0.7200 s** — **1.105×, from the node alone.**
+    >
+    > Node-to-node spread (10.5%) is therefore the same order as the effect
+    > attributed to the harness (16.6%), and with n=2 nodes the *direction* of the
+    > bias is unknown, so the true gap could be larger, smaller, or absent.
+    >
+    > This is the same failure class as the 1.51×→1.33× post-mortem below —
+    > caught here only because the sweep happened to re-run the baseline config.
+    > **Fix: bench both harnesses in ONE job on ONE node, alternating A/B/A/B/A/B
+    > for repeats.** Until that runs, the only defensible statements are the
+    > architecture gate (exact) and the within-job sweep ratios (same node,
+    > back-to-back).
+    >
+    > **Lesson for every future comparison here: a cross-JOB ratio on Polaris is
+    > not a measurement.** One node, one job, interleaved repeats, or it does not
+    > count.
   - **Two things worth chasing, both now measurable:** (a) `compute_med` alone differs
     by 1.163×, i.e. the gap is NOT mostly loader — with an identical model, that is
     harness overhead inside the step; (b) PanguWeather is slower **while not yet paying
