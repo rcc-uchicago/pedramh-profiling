@@ -15,6 +15,18 @@
 #   POLARIS_SFNO_VENV=<dir>               # force a specific SFNO venv
 #   POLARIS_E3SM_ROOT=<dir>               # alternate E3SM archive
 
+# --- group-writable by default ----------------------------------------------
+# Polaris' default umask is 0022, so every file a job writes lands -rw-r--r-- and
+# every directory drwxr-sr-x: another lighthouse-uchicago member can READ a run's
+# results but cannot extend, re-run into, or fix them. The setgid bit is already
+# set on these trees (group ownership inherits correctly) — only the mode was
+# wrong. 0002 makes new files/dirs group-writable.
+#
+# Set BEFORE the mkdir -p calls below, or the caches this script creates keep the
+# old mode. It applies to the whole job, which is the point: checkpoints, logs,
+# bench CSVs and converted stores are all group artifacts.
+umask 0002
+
 MEMBERS=/eagle/projects/lighthouse-uchicago/members
 
 # --- MEMBER_ROOT ------------------------------------------------------------
