@@ -83,6 +83,15 @@ These are the ways to silently break the project. Do not do them.
     `parse_nsys.py`). S2S and SI use *different* range names — don't cross them.
 11. **Never add fudge factors or `--skip`/`xfail` a failing correctness test** to
     get green. A wrong number means a wrong term — trace it.
+11b. **Never resubmit a job that "isn't starting" without diagnosing first.** Run
+    `qstat -x -f <id> | grep -E "^ +comment|^ +eligible_time"` (anchored — a bare
+    `grep eligible_time` matches `wfp_eligible_time_exp` and returns the exponent).
+    `Insufficient amount of resource: queue_tags` + a large `eligible_time` means
+    **the queue has no nodes** — walltime, node count and priority are all
+    irrelevant, and each resubmit *destroys* accrued eligible time. Move the work
+    to `debug` in ≤1 h chunks or wait. This cost a day on 2026-08-05
+    (18 h → 3 h → 2 h resubmits, 0 starts in 11.5 h; `debug` then did the whole
+    job in 3 h). Full procedure: `polaris_pbs_notes.md` §1b.
 12. **Never launch `test.yaml` bare.** Despite the name it is the full ~79M-param
     model (OOMed a 93 GiB H100 at its defaults); the smokes fit it only via a
     `batch_size=1` override + `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True`.
@@ -132,7 +141,7 @@ These are the ways to silently break the project. Do not do them.
 | Item | Midway (RCC) | Polaris (ALCF) — **confirmed on-node 2026-07-14** (detail: `polaris_pbs_notes.md`) |
 |---|---|---|
 | Scheduler | SLURM — `sbatch`/`squeue`/`scancel` | PBS Pro — `qsub`/`qstat`/`qdel` |
-| Account / queue | `--account=pi-pedramh`, `-p pedramh-gpu` | **`-A lighthouse-uchicago`**, `-q debug` (smoke; 1 running job/user, ≤1 h). NOT `-q prod` for 1 node — it needs ≥10; use `preemptable` for long single-node runs |
+| Account / queue | `--account=pi-pedramh`, `-p pedramh-gpu` | **`-A lighthouse-uchicago`**. Smoke → `-q debug` (≤1 h; **max 1 queued AND 1 running per user** — cannot be chained or pre-loaded). **Long single-node → `-q capacity`** (1–4 nodes, **≤168 h**, `Priority=150`; but **max 1 running / 2 queued per PROJECT** — check the slot is free first). `preemptable` (≤72 h) only runs on nodes `prod` isn't using and **can sit for hours or never start** — it is the fallback, not the default. NOT `-q prod` for 1 node (needs ≥10). Queue-selection + stuck-job diagnostic: `polaris_pbs_notes.md` §1b |
 | GPU | H100 NVL ~94 GB (Intel Ice Lake, PCIe Gen4) | **4× A100 40 GB SXM4** (AMD Milan) |
 | Node/GPU directive | `--nodes=1 --gres=gpu:4` | `-l select=1:system=polaris -l place=scatter` |
 | Filesystems | implicit | **`-l filesystems=home:eagle`** (confirmed accepted) — jobs are **rejected** if the flag is absent |

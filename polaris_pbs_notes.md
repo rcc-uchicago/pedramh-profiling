@@ -97,6 +97,100 @@ fail a run, and a preempted job still leaves a clean local record to `wandb sync
    reading these logs, always anchor on the `PBS_JOBID=` header of the run you care
    about** — a naive `grep -c OutOfMemory` on the file will report a green run as failed.
 
+## 1b. Queue selection — and how to tell a SLOW queue from a STOPPED one
+
+⚠️ **Read this before submitting anything long, and before EVER resubmitting a job
+that "isn't starting".** On 2026-08-05/06 this cost a full day: a conversion was
+resubmitted three times on the theory that requested walltime was the problem
+(18 h → 3 h → 2 h). It wasn't. The queue simply had no nodes, and every resubmit
+threw away accrued queue priority for nothing.
+
+### The limits (queried from PBS, 2026-08-05)
+
+| queue | walltime | nodes | limits | starts? |
+|---|---|---|---|---|
+| `debug` | **≤ 1 h** | 1–2 | **max_run 1, max_queued 1 per USER** — cannot chain, cannot pre-load | **9/9 started, median 19 s** |
+| **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1, max_queued 2 per PROJECT**; `Priority = 150` | 12 running / 6 queued — actively scheduling. ⚠ limits queried, **not yet exercised by us** |
+| `preemptable` | ≤ 72 h | 1–10 | max_queued 20/user, max_run 10/project | **0/9 started in 11.5 h** |
+| `prod` | — | **≥ 10** | routing queue | n/a for single-node work |
+
+> ### ⚠ `capacity` is the right queue for long single-node runs — not `preemptable`
+> An earlier version of these notes (and CLAUDE.md) said `preemptable` was *the*
+> option for long single-node work. **That was wrong and it cost a day.**
+> `capacity` takes **1–4 nodes for up to 7 days** at `Priority = 150`, and unlike
+> `preemptable` it is not restricted to leftover `prod` nodes.
+>
+> The catch is the counter: `max_run`/`max_queued` are **per PROJECT**, not per user
+> — 1 running and 2 queued for all of `lighthouse-uchicago` combined. So coordinate
+> before taking the slot, and check it is free first:
+> ```bash
+> qstat -a | awk 'NR>5 && $3 ~ /capacity/ {print $2, $10}'   # who holds it
+> ```
+> Sizing note: the ai-rossby 100-epoch run is ~150 h at the measured 449.6 ms/step
+> (10,950 steps/epoch × 100, +~10% validation) — it **fits in a single 168 h
+> `capacity` job**, versus 3× 72 h `preemptable` links that historically paid ~40 h
+> of queue wait *between* links (80 h total for jesswan's run). One job also removes
+> the restart overhead and the partial-epoch loss at every walltime kill.
+
+`debug`'s `max_run`/`queued_jobs_threshold` are BOTH 1: a second `qsub` is rejected
+outright (`would exceed queue generic's per-user limit of jobs in 'Q' state`), and a
+`-W depend=` job is rejected too — a dependency-held job still counts. So `debug`
+cannot be pre-loaded or chained; it needs a driver that submits chunk *N+1* when
+chunk *N* finishes.
+
+### The diagnostic — 30 seconds, do it BEFORE resubmitting
+
+```bash
+qstat -x -f <jobid> | grep -E "^ +comment|^ +eligible_time|^ +job_state"
+qstat -Q | grep -E "^Queue|^preemptable|^debug "     # Que vs Run for the queue
+```
+
+⚠️ **Anchor the grep.** A bare `grep eligible_time` matches
+`Resource_List.wfp_eligible_time_exp` first and returns the *exponent* (`4`), not the
+wait. That misread sent this session down a wrong path for several minutes.
+
+Then read `comment`:
+
+| comment | meaning | what actually helps |
+|---|---|---|
+| `Insufficient amount of resource: queue_tags` | **No nodes are available for this queue.** `preemptable` only runs on nodes `prod` is not using. | **Nothing you control.** Not walltime, not node count, not resubmitting. Switch queue or wait. |
+| `Not Running: Insufficient amount of resource: <other>` | a real resource you asked for is unavailable | reduce that specific resource |
+| job is `H` | dependency or hold | check `depend` |
+
+And read `eligible_time`: if it is **large and growing**, the job *is* eligible and is
+simply not getting nodes — a **supply** problem, not a priority one. Resubmitting
+resets it to zero and makes things strictly worse.
+
+### The rule
+
+> **A queued `preemptable` job with `queue_tags` and a large `eligible_time` will not
+> be helped by resubmitting it differently. Diagnose once; if the queue is dry, move
+> the work to `debug` in ≤1 h chunks, or wait — but do not loop.**
+
+Empirically on 2026-08-05/06 **every** piece of work that completed (normalization
+regen, training smoke, both benches, both §4 equivalence gates, the recipe unit
+tests, and finally all 35 conversion stores) went through `debug`; **everything**
+sent to `preemptable` after 16:08 accomplished nothing in 11.5 h.
+
+### Chunking long work through `debug`
+
+Measure the per-unit cost first, then size chunks to ~80% of the 1 h cap. The
+conversion driver used: 6.2 min/store measured (job 7349904: 5 stores in 30:49,
+startup included) ⇒ **7 stores/chunk ≈ 43 min against a 55 min wall**. Five chunks,
+run serially by a driver that keys each chunk's success on its **PASS token**
+(`CONVERT_ALL_OK`), not `rc`, and **stops on the first failure** rather than leaving
+a silent hole in the dataset. Total: 3 h. Pattern worth reusing:
+`scratchpad/drive_convert_debug.sh` from that session.
+
+### Caveat on `wfp` priority (the thing that is NOT the lever)
+
+`preemptable` jobs carry `wfp_req_walltime_exp = 5` and `wfp_eligible_time_exp = 4`
+(they were both `1` before ~2026-08-04). It is tempting — I did this — to conclude
+that shortening requested walltime buys a large priority win. **That term only ranks
+jobs against each other; it cannot conjure a free node.** When the comment is
+`queue_tags`, priority is irrelevant. Treat `wfp` as a tiebreaker among *runnable*
+jobs, never as an explanation for a queue that is not scheduling at all.
+
 ## 2. Environment strategy — ALCF base conda + a SHARED top-ups dir
 
 Decision: **use the ALCF base conda** (fastest per handoff) and add the few packages it

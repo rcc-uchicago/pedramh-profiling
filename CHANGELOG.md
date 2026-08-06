@@ -93,10 +93,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
      val 2045–2048 + 2049 tail), 43,800 training samples, verified on disk. Took
      3 h through `debug`; `preemptable` never scheduled it (see the 2026-08-06 entry).
      No inode problem materialised — `lfs quota` shows files quota/limit **0 = no cap**.
-  **Next: the long training run.** `qsub -v MAX_EPOCHS=100 -l walltime=72:00:00`
-  via `polaris_submit_chain.sh`. ⚠ Size the chain from the *measured* 449.6 ms/step
-  (not the stale 537 ms), and note the chain's inter-link waits were 40 h each on
-  `preemptable` for jesswan's run — that queue is currently not scheduling at all.
+  **Next: the long training run — and use `-q capacity`, NOT `preemptable`.**
+  `capacity` takes **1–4 nodes for ≤168 h** at `Priority=150` and is actively
+  scheduling (12 running); the project's slot is currently free. At the *measured*
+  449.6 ms/step (not the stale 537) the 100-epoch run is **~150 h — it fits in ONE
+  job**, versus 3× 72 h `preemptable` links that cost jesswan ~80 h of inter-link
+  queue wait plus a lost partial epoch per kill. Caveat: `capacity`'s
+  max_run 1 / max_queued 2 are **per PROJECT**, so coordinate before taking the slot.
 
 - **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
   `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
