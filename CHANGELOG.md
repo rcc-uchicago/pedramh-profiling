@@ -168,6 +168,139 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-06** — **SFNO apples-to-apples: ARCHITECTURE GATE PASSED (job 7364984) — the
+  two implementations are BITWISE identical, not merely same-sized.** Parity config,
+  gate, per-epoch telemetry and group-write all in.
+  > **Gate result (4×A100, ai-rossby venv, fp32, rc=0, `SFNO_PARITY_OK`):**
+  > `in_chans=105 / out_chans=101` as predicted; **both models 1,182,108,160 params**,
+  > matching the independently measured reference (job 7255410) exactly; and at
+  > **identical weights on identical input the two agree to 0.000e+00 relative error**
+  > on `surface`, `upper_air`, `diagnostic`, `loss` (5.26061580e-02) and `grad_norm`
+  > (2.16819166e-01). Handoff §5 asked only for equal parameter counts — this is the
+  > stronger fixed-weights form, so any remaining difference between the two runs is
+  > **harness and data-path, not model.**
+  Implements `polaris_sfno_comparison_handoff.md`. Owner decisions taken this session:
+  results stay in `$MEMBER_ROOT` with the modes fixed (no new group-level dir),
+  **`embed_dim 512`** (jesswan's production value), and the two long runs go to
+  **different queues** — ai-rossby on `capacity`, PanguWeather on `preemptable` — which
+  sidesteps `capacity`'s one-running-job-per-PROJECT cap (`max_run=[p:PBS_GENERIC=1]`,
+  verified with `qstat -Qf`) instead of serialising them.
+  - **The architecture claim is now PROVEN, not asserted** (`compare_sfno_parity.py`).
+    `SfnoPlasim`'s docstring claimed fidelity to PanguWeather's
+    `SphericalFourierNeuralOperatorNet_v2`; the vendored `modulus_sfno/` is in fact a
+    near-verbatim copy — **5 of 7 files byte-identical**, the other two differing only by
+    `@torch.compiler.disable` decorators (inert in eager) and `return_latent` plumbing
+    (adds no module ⇒ no parameter). The gate keeps an **exact-line** allowlist, not
+    regexes: a regex broad enough to cover the `return_latent` refactor (`^\s*else:$`)
+    is broad enough to hide a real change. Negative control confirms an added
+    `nn.Linear` still fails it. Config block: **26/26 architecture keys identical.**
+  - **Two traps found that would each have silently broken the comparison:**
+    1. **The effective learning rate is 3.0517578125e-05, NOT the `lr: 1e-4` written in
+       the SFNO block.** That line is dead — `get_optimizer` (train.py:706-709) checks
+       `hasattr(params,'loglr')` FIRST, and `loglr: -13` is inherited from the base
+       config, so the peak LR is `2**-13 * global_batch_size/16` at 4 ranks × batch 1.
+       Taking the file at face value would have run ai-rossby at **3.3×** the reference.
+       It is also world-size-dependent, so it must be recomputed if ranks change.
+    2. **The handoff's §4 claim that the checker already expects a folded config was
+       wrong.** `--check-artifacts` compared `model.surface_variables` against the
+       *unfolded* 6 and required `land_variables`/`ocean_variables` keys — which
+       `SfnoPlasim.__init__` cannot accept (`build_model` forwards every config key as a
+       kwarg). Checker now handles both shapes explicitly and reports which it checked;
+       12 tests, incl. negative cases proving the folded branch is not a way to skip the
+       land channels. **19/19 PASS folded, 21/21 PASS split (unchanged).**
+  - **`torch.compile` stays OFF** for both runs — measured 1.40× but FAILS the §4 gate.
+  - **Per-epoch telemetry added to BOTH PRODUCTION trainers** (`epoch_telemetry.py`,
+    duplicated in each tree because they share code by copy; a drift test pins the
+    copies identical). Opt-in (`{PANGU,AI_ROSSBY}_EPOCH_TELEMETRY=1`), on by default in
+    the two run scripts. **Why not the bench harness:** it structurally cannot answer
+    "what do epochs 1-6 cost" — `profile_train.py` builds **no EMA** and scopes its
+    scheduler to the bench window, and `PANGU_BENCH` truncates the run and exits. Two
+    CUDA events/step + one all-reduce/epoch, **no per-step sync** (a sync would remove
+    CPU/GPU overlap and change the number being measured). 21 shared columns.
+    - **This immediately exposed a real harness difference:** PanguWeather **skips the
+      `update_ema` sweep entirely** until `ema_warmup_epochs` (6), so its step cost jumps
+      at that epoch; ai-rossby calls `ema.update` from epoch 1 and warms only the *decay
+      value*, paying the sweep throughout. On 1.18 B params that is ~4.7 GB of
+      elementwise traffic per step. Recorded honestly in `ema_active` rather than
+      smoothed over. Window boundaries are pinned by test so both sides span the same
+      work (Pangu's per-iteration RMSE/wandb block is deliberately *outside* it — it has
+      no ai-rossby counterpart).
+  - **Group write fixed** (`umask 0002` in `polaris_env.sh`, before its `mkdir`s;
+    `chmod -R g+rwX` + setgid over runs/bench/ai_rossby_data/pangu_polaris_data/
+    baselines). The setgid bit was already correct — only the mode was wrong.
+  - **Dead knob found:** `cfg.max_checkpoints_to_keep` is declared in ai-rossby's
+    `conf/config.yaml` and **never read**, and physicsnemo's `save_checkpoint` does not
+    prune ⇒ checkpoints accumulate unbounded at ~14 GB each (4.7 GB weights + 9.4 GB
+    AdamW moments). `CKPT_INTERVAL` (default 5 ⇒ ~280 GB/100 epochs) is the only lever
+    today. Eagle shows no quota cap, so this is a tidiness issue, not a blocker.
+  - **New files:** `compare_sfno_parity.py`, `epoch_telemetry_test.py`,
+    `ai_rossby_variable_contract_test.py`, `{PanguWeather/v2.0/utils,
+    physicsnemo_ai_rossby/examples/weather/ai_rossby}/epoch_telemetry.py`,
+    `conf/model/sfno_e3sm_parity.yaml`, `conf/training/sfno_e3sm_parity.yaml`,
+    `polaris/polaris_sfno_{parity_gate,e3sm}.pbs`, `polaris/polaris_bench_sfno_e3sm.pbs`.
+    Also corrected a **false comment** in `conf/model/sfno_e3sm.yaml` claiming the land
+    variables are not written by the per-year converter — they are, folded into the
+    store's `surface_variables` (verified on `train/2020.zarr`).
+  - **ai-rossby SFNO training smoke GREEN — job 7364985, `SFNO_E3SM_SMOKE_OK`.** First
+    time the vendored SFNO has ever been executed in the ai-rossby venv.
+    `PREFLIGHT_OK` (`VARIABLE_PARITY_OK 19/19` against every one of the 35 stores),
+    `steps_per_epoch=10950` — exactly the Pangu arithmetic (43,800/4) — finite loss
+    **2.947**, val_loss **2.995**, and the first telemetry row:
+    `epoch=1 n=20 step_med=751.1ms gpu_busy=94.9% peak=25.89GB ema=1`. Peak leaves
+    ~14 GB of headroom on a 40 GB A100. `gpu_busy 94.9%` at `num_workers=1` puts loader
+    idle at ~5%. (`step_mean` 1133 ms vs `step_med` 751 ms with std 1658 is first-step
+    autotune in a 20-step window; it washes out over 10,950 steps — read the median.)
+    Confirmed end-to-end that `umask 0002` works: the CSV landed `-rw-rw-r--`.
+  - **`validation=off` does NOT turn validation off** — found by the smoke appearing to
+    hang for 5 minutes after training finished. `conf/validation/off.yaml` disables only
+    the ROLLOUT; a single-step `val_loss` pass still runs over every sample whenever
+    `dataset.val_zarr_path` is set (train.py:832-842). Measured: **322.6 s per epoch**
+    over the 4 val years (5,840 samples) — 13× the 20-step smoke it was validating.
+    `dataset.val_zarr_path=null` is what actually skips it; the smoke path now does
+    (override with `SMOKE_VALIDATE=1`). Two consequences: budget ~5.4 min/epoch of
+    validation into the ai-rossby production run, and note this is a **disclosed
+    non-matching axis** — PanguWeather's production validation is 129 ICs × 60-step
+    rollouts, entirely different work. The telemetry row deliberately covers TRAINING
+    only (`epoch_end` fires before validation), so the step comparison stays clean.
+  - **MATCHED BENCH ROWS — the honest harness number is 1.166×, ai-rossby faster.**
+    Jobs **7364997** (ai-rossby) and **7364998** (PanguWeather, `CONFIG_NAME=
+    E3SM_SFNO_H5_POLARIS_ALLDATA`), same node type, 20+80 steps each. Every
+    controlled axis identical in the CSVs: `n_gpus 4`, `batch_per_gpu 1`, bf16,
+    `ddp_find_unused false`, **`n_loaders 1`**, `n_steps_counted 80`, and — proven by
+    the gate — the same 1,182,108,160-param model.
+
+    | | ai-rossby | PanguWeather | ratio |
+    |---|---|---|---|
+    | `step_med` | **0.71996 s** | **0.83975 s** | **1.166×** |
+    | `samples_per_s` | 5.556 | 4.763 | **1.166×** |
+    | `compute_med` | 0.71994 | 0.83753 | 1.163× |
+    | `step_p90` | 0.72346 | 1.11494 | 1.541× |
+    | `step_std` | 0.00814 | 0.19743 | 24× |
+    | `peak_mem_gb_max_rank` | 21.40 | 28.76 | 1.34× |
+    | loader idle | 0.63% (`data_idle_frac`) | 9.05% (`loader_wait_frac`) | — |
+    | `cpu_prep_med` | 1.5e-05 s | 2.2e-03 s | 149× |
+
+    `step_med` and `samples_per_s` agree to three digits, which is the internal
+    consistency check. **Contrast with this repo's history:** an earlier comparison
+    claimed 1.51× and was really 1.33× on mismatched windows with three more
+    confounds (post-mortem, 2026-08-05). 1.166× is on matched rows with the model
+    proven bitwise identical, so it is attributable to the harness and the data path
+    — HDF5 vs Zarr — and nothing else.
+  - **Two things worth chasing, both now measurable:** (a) `compute_med` alone differs
+    by 1.163×, i.e. the gap is NOT mostly loader — with an identical model, that is
+    harness overhead inside the step; (b) PanguWeather is slower **while not yet paying
+    for EMA** (`_ema_active()` is False until epoch 6) whereas ai-rossby sweeps from
+    epoch 1. Expect the gap to WIDEN at Pangu's epoch 6 — which is exactly what the
+    per-epoch telemetry was built to catch.
+  - **Epoch budget arithmetic** (from the measured rows, for the still-open decision):
+    ai-rossby **2.19 h/epoch** training + 0.09 h validation ⇒ 100 epochs ≈ **228 h**,
+    which does NOT fit one 168 h `capacity` job. PanguWeather **2.55 h/epoch** training
+    + production validation (129 ICs × 60-step rollouts, est. 0.2–0.7 h) ⇒ 100 epochs
+    ≈ **275–325 h**, i.e. 4–5 uninterrupted 72 h `preemptable` links at best.
+  - **Still open:** jesswan's sign-off on the fills (DESIGN §1) before any resulting
+    model's numbers are reported; **epoch budget** for the two production runs (nothing
+    is queued for production yet — the numbers above are what that decision needs).
+
 - **2026-08-06** — **PRODUCTION CONVERSION COMPLETE (35 stores) — after routing it
   through `debug`, because `preemptable` never scheduled it.**
   - **Final dataset**, verified on disk (not from logs): `train/` **30 stores,
