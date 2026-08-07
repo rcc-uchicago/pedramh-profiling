@@ -76,6 +76,10 @@ export PANGU_BENCH=1
 export PANGU_BENCH_WARMUP="${WARMUP:-10}"
 export PANGU_BENCH_STEPS="${STEPS:-40}"
 export PANGU_BENCH_CSV="${PANGU_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_sweep.csv}"
+# Repeats. A single pass cannot separate a real effect from a first-config
+# warm-up artefact or plain run-to-run spread — and the first pass produced a
+# 1.47x "ZeRO speedup" that is large enough to demand a control.
+REPEATS="${REPEATS:-1}"
 unset PANGU_NVTX PANGU_EPOCH_TELEMETRY
 mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
 
@@ -96,11 +100,21 @@ CONFIGS=(
 )
 
 i=0
-for cfg in "${CONFIGS[@]}"; do
+for rep in $(seq 1 "${REPEATS}"); do
+  # Reverse the order on even passes: if a config is slow only because it ran
+  # first, reversing moves it last and the effect disappears. Blocked repeats
+  # (AAA BBB) could not distinguish that from a real difference.
+  if [ $(( rep % 2 )) -eq 0 ]; then
+      ORDER=(); for ((k=${#CONFIGS[@]}-1; k>=0; k--)); do ORDER+=("${CONFIGS[k]}"); done
+  else
+      ORDER=("${CONFIGS[@]}")
+  fi
+  for cfg in "${ORDER[@]}"; do
     IFS='|' read -r label ckpt zero <<< "${cfg}"
+    label="${label}_r${rep}"
     i=$((i + 1))
     echo "=============================================================="
-    echo "[${i}/${#CONFIGS[@]}] ${label}  checkpointing=${ckpt} use_zero_optimizer=${zero}"
+    echo "[${i}/$(( ${#CONFIGS[@]} * REPEATS ))] ${label}  checkpointing=${ckpt} use_zero_optimizer=${zero}"
     echo "=============================================================="
     CONFIG_FILE="${SWEEP_DIR}/${label}.yaml"
     sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
@@ -142,6 +156,7 @@ PY
         echo "--> ${label}: NO ROW (rc=${rc}) — OOM or failure"
     fi
     echo
+  done
 done
 
 echo "=============================================================="
@@ -152,6 +167,26 @@ import csv, sys
 rows = {r["run_num"]: r for r in csv.DictReader(open(sys.argv[1]))}
 grid = ["ckpt3_zero0", "ckpt2_zero0", "ckpt1_zero0",
         "ckpt3_zero1", "ckpt2_zero1", "ckpt1_zero1"]
+# Collapse label_rN -> label so repeats aggregate; keep every sample.
+import re as _re, statistics as _st
+reps = {}
+for k, v in list(rows.items()):
+    base_lbl = _re.sub(r"_r\d+$", "", k)
+    reps.setdefault(base_lbl, []).append(v)
+if any(len(v) > 1 for v in reps.values()):
+    print("--- repeats (step_med per pass; spread exposes warm-up/order effects) ---")
+    for lbl in grid:
+        v = reps.get(lbl, [])
+        if not v:
+            continue
+        xs = [float(r["step_med"]) for r in v]
+        sp = (max(xs) - min(xs)) / min(xs) * 100 if len(xs) > 1 else 0.0
+        print(f"  {lbl:14s} n={len(xs)}  " + " ".join(f"{x:.4f}" for x in xs)
+              + f"   median={_st.median(xs):.4f}  spread={sp:.1f}%")
+    print()
+    def _median_row(v):
+        return sorted(v, key=lambda r: float(r["step_med"]))[len(v) // 2]
+    rows = {lbl: _median_row(v) for lbl, v in reps.items()}
 base = rows.get("ckpt3_zero0")
 b = float(base["step_med"]) if base else None
 print(f"{'config':14s} {'step_med':>9s} {'vs base':>8s} {'peak_GB':>8s} {'peak_GiB':>9s} "
