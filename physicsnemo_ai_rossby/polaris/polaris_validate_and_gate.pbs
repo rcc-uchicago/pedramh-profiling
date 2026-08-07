@@ -41,7 +41,22 @@
 #   plain DDP TWICE at one seed to establish the reduction's own run-to-run
 #   noise floor, then check ZeRO's deviation sits inside it. Comparing a single
 #   DDP run to a single ZeRO run proves nothing, because DDP is not bitwise
-#   reproducible against itself across reduction orders. Not built yet.
+#   reproducible against itself across reduction orders.
+#   That instrument now exists: polaris/polaris_equivalence_zero.pbs
+#   (equivalence_ddp.py + compare_zero_equivalence.py). Run it as well; neither
+#   job subsumes the other.
+#
+# ⚠ TWO BUGS THIS SCRIPT SHIPPED WITH, fixed after job 7366887 failed on both:
+#   * Phase A used `training.stages.0.max_iterations`, which is a per-STAGE cap,
+#     not per-epoch — `stage_iter` accumulates across epochs (train.py:1161,
+#     1173, 1377). It stopped the whole stage after 20 steps, so epoch 2 never
+#     ran and the validation peak was unobservable. Now capped with
+#     `dataset.num_samples_per_epoch` instead, which is GLOBAL and divided
+#     across ranks by the sampler (samplers.py:44-46).
+#   * Phase B compared two CONFIGS, which always moves `config_yaml_sha256`, and
+#     compare_baselines.py refuses on that field. It now passes
+#     --allow-config-diff, which waives ONLY that field and still enforces seed,
+#     steps, world_size, n_params, batch_size, amp_dtype and mode.
 #
 # Submit:  qsub polaris/polaris_validate_and_gate.pbs
 #          qsub -v CKPT_CAND=1 polaris/polaris_validate_and_gate.pbs   # test ckpt1 instead
@@ -73,7 +88,10 @@ if [ "${VENV_PN}" != "${THIS_PN}" ]; then
 NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
 CKPT_BASE="${CKPT_BASE:-3}"          # what production runs today
 CKPT_CAND="${CKPT_CAND:-2}"          # the recommended candidate
-MAX_ITERS="${MAX_ITERS:-20}"
+MAX_ITERS="${MAX_ITERS:-20}"                 # steps per rank per epoch
+# num_samples_per_epoch is GLOBAL — the sampler splits it across ranks
+# (samplers.py:44-46) — so multiply by the rank count.
+SAMPLES_PER_EPOCH=$(( MAX_ITERS * NPROC ))
 TOLERANCE="${TOLERANCE:-1e-2}"       # §4.1: bf16. NEVER loosen to pass (CLAUDE.md #1/#11).
 RUN_ROOT="${MEMBER_ROOT}/runs/ai_rossby_val_gate/${PBS_JOBID%%.*}"
 TEL_CSV="${MEMBER_ROOT}/bench/ai_rossby_sfno_validation_smoke.csv"
@@ -105,7 +123,7 @@ python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPRO
     train.py \
     model=sfno_e3sm_parity dataset=e3sm_pangu_parity training=sfno_e3sm_parity loss=raw_l2 \
     training.amp=bf16 training.max_epochs=2 \
-    training.stages.0.max_iterations="${MAX_ITERS}" \
+    dataset.num_samples_per_epoch="${SAMPLES_PER_EPOCH}" \
     model.checkpointing="${CKPT_CAND}" \
     training.optimizer.use_zero_optimizer=true \
     dataset.batch_size=1 dataset.num_workers=1 \
@@ -165,7 +183,7 @@ for MODE in fixed train; do
         python "${AR_ROOT}/polaris/compare_baselines.py" \
             "${BASE_DIR}/ckpt${CKPT_BASE}_${MODE}.json" \
             "${BASE_DIR}/ckpt${CKPT_CAND}_${MODE}.json" \
-            --tolerance "${TOLERANCE}" || rc_b=5
+            --tolerance "${TOLERANCE}" --allow-config-diff || rc_b=5
     fi
     echo
 done

@@ -52,13 +52,28 @@ def main(argv=None) -> int:
     p.add_argument("candidate", type=Path)
     p.add_argument("--tolerance", type=float, required=True,
                    help="§4.1: 1e-5 eager fp32, 1e-2 bf16/compiled. State it explicitly.")
+    p.add_argument("--allow-config-diff", action="store_true",
+                   help="Permit config_yaml_sha256 to differ — for comparing two "
+                        "CONFIGS (e.g. checkpointing 3 vs 2) rather than two "
+                        "implementations of one config. Every other MUST_MATCH "
+                        "field is still enforced, and the difference is printed.")
     a = p.parse_args(argv)
 
     base = json.loads(a.baseline.read_text())
     cand = json.loads(a.candidate.read_text())
 
+    # The guard exists to stop an accidental apples-to-oranges comparison. But a
+    # deliberate config change (checkpointing 3 -> 2) ALWAYS moves the config
+    # hash, so demanding it match makes such a change untestable — and "we could
+    # not test it" is the worst possible outcome for a §4 gate. --allow-config-diff
+    # narrows the guard to that one field rather than switching it off: seed,
+    # steps, world_size, n_params, batch_size, amp_dtype and mode must still be
+    # identical, so the two runs are still the same experiment in every way that
+    # would otherwise make a relative error meaningless.
+    waived = {"config_yaml_sha256"} if a.allow_config_diff else set()
     mismatched = [
-        (k, base.get(k), cand.get(k)) for k in MUST_MATCH if base.get(k) != cand.get(k)
+        (k, base.get(k), cand.get(k)) for k in MUST_MATCH
+        if k not in waived and base.get(k) != cand.get(k)
     ]
     if mismatched:
         print("ERROR EQUIVALENCE_NOT_COMPARABLE — these runs are not the same "
@@ -66,6 +81,10 @@ def main(argv=None) -> int:
         for k, x, y in mismatched:
             print(f"    {k}: baseline={x!r} candidate={y!r}")
         return 2
+    for k in sorted(waived):
+        if base.get(k) != cand.get(k):
+            print(f"  NOTE waived {k}: baseline={base.get(k)!r} "
+                  f"candidate={cand.get(k)!r} (--allow-config-diff)")
 
     worst = (-1.0, "")
     n_compared = 0
