@@ -447,6 +447,11 @@ def _flatten_optimizer_cfg(opt_cfg: DictConfig) -> DictConfig:
         "weight_decay": float(opt_cfg.get("weight_decay", 0.0)),
         "fused": opt_cfg.get("fused", None),
         "selective_weight_decay": bool(opt_cfg.get("selective_weight_decay", False)),
+        # This mapping is an explicit WHITELIST — a key absent here is silently
+        # dropped, which for `use_zero_optimizer` would mean the config says
+        # sharding is on while the run quietly uses the full optimizer. Add new
+        # optimizer keys in both places.
+        "use_zero_optimizer": bool(opt_cfg.get("use_zero_optimizer", False)),
     }
     if opt_cfg.get("betas", None) is not None:
         flat["betas"] = list(opt_cfg.get("betas"))
@@ -1347,10 +1352,19 @@ def main(cfg: DictConfig) -> None:
                 torch.distributed.barrier()
 
             # --- Save checkpoint ----------------------------------------
-            if (
-                global_epoch % int(cfg.checkpoint_save_interval) == 0
-                and dist.rank == 0
-            ):
+            _saving = global_epoch % int(cfg.checkpoint_save_interval) == 0
+            # ZeRO shards the optimizer state, so `optimizer.state_dict()`
+            # returns only THIS rank's slice. Saving without consolidating first
+            # writes a checkpoint that resumes with a fraction of the optimizer
+            # state — no error, just a training curve that quietly goes wrong
+            # days later. PanguWeather does the same (train.py:996-997).
+            #
+            # ⚠ consolidate_state_dict is a COLLECTIVE: every rank must call it,
+            # which is why it sits OUTSIDE the `dist.rank == 0` guard below.
+            # Putting it inside deadlocks the other ranks.
+            if _saving and hasattr(optimizer, "consolidate_state_dict"):
+                optimizer.consolidate_state_dict(to=0)
+            if _saving and dist.rank == 0:
                 save_checkpoint(
                     str(ckpt_dir),
                     models=inner_model,

@@ -120,9 +120,68 @@ def make_optimizer(model: torch.nn.Module, cfg: Any) -> torch.optim.Optimizer:
             {"params": no_decay, "weight_decay": 0.0},
         ]
         kwargs.pop("weight_decay")
+        return _wrap_zero(params, kwargs, cfg)
+
+    return _wrap_zero(model.parameters(), kwargs, cfg)
+
+
+def _wrap_zero(params, kwargs: dict, cfg: Any) -> torch.optim.Optimizer:
+    """Build AdamW, optionally sharded across ranks as ZeRO Stage 1.
+
+    ``use_zero_optimizer: True`` shards the optimizer STATE (Adam's ``exp_avg``
+    and ``exp_avg_sq``) across the data-parallel ranks instead of every rank
+    holding an identical full copy. Same arithmetic, same result — it trades
+    memory for one all-gather of the updated parameters per step.
+
+    Why it matters here: this model's optimizer state is
+    2 x 1,182,108,160 x 4 B = **8.8 GB per GPU**, replicated 4 times over. At 4
+    ranks ZeRO-1 leaves ~2.2 GB, freeing ~6.6 GB — which is the difference
+    between ``checkpointing: 1`` (the 1.307x config, measured at 36.1 GB +
+    4.4 GB of EMA = OOM on a 40 GB A100) and it fitting.
+
+    Note it shards a DIFFERENT pool than activation checkpointing: ZeRO touches
+    optimizer state, ``model.checkpointing`` touches activations. They compose.
+
+    ⚠ Two things this changes that callers must honor:
+
+    * **``fused=True`` is invalid on the wrapper** and is dropped with a
+      warning. PanguWeather's trainer documents the same constraint
+      (``train.py:713-717``). Costs ~1-2%, against ~6.6 GB gained.
+    * **``state_dict()`` returns only the LOCAL SHARD** until
+      ``consolidate_state_dict(to=0)`` is called. Saving without it produces a
+      checkpoint that silently resumes with a fraction of the optimizer state —
+      a corruption that shows up as a training-curve discontinuity days later,
+      not as an error. ``train.py`` consolidates before every save.
+
+    Falls back to the plain optimizer (with a warning) when torch.distributed is
+    not initialized, so single-GPU runs and the bench keep working unchanged.
+    """
+    if not bool(getattr(cfg, "use_zero_optimizer", False)):
         return torch.optim.AdamW(params, **kwargs)
 
-    return torch.optim.AdamW(model.parameters(), **kwargs)
+    import warnings as _warnings
+
+    if not (torch.distributed.is_available() and torch.distributed.is_initialized()):
+        _warnings.warn(
+            "use_zero_optimizer=True but torch.distributed is not initialized; "
+            "falling back to the unsharded AdamW.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return torch.optim.AdamW(params, **kwargs)
+
+    from torch.distributed.optim import ZeroRedundancyOptimizer
+
+    if kwargs.pop("fused", False):
+        _warnings.warn(
+            "fused=True is not supported by ZeroRedundancyOptimizer; using the "
+            "eager AdamW kernel. (~1-2% slower, ~6.6 GB/GPU saved.)",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return ZeroRedundancyOptimizer(
+        params, optimizer_class=torch.optim.AdamW, **kwargs
+    )
 
 
 def _make_muon_optimizer(model: torch.nn.Module, cfg: Any) -> torch.optim.Optimizer:

@@ -58,6 +58,21 @@ jit_compile: False
 
 optimizer:
   type: AdamW
+  # --- ZeRO Stage 1: shard the optimizer state across ranks -----------------
+  # OFF by default so this config still reproduces the parity measurement.
+  # Turn on with `training.optimizer.use_zero_optimizer=true` when running the
+  # best-config variant.
+  #
+  # Why it is the lever that matters here: Adam's exp_avg + exp_avg_sq are
+  # 2 x 1,182,108,160 x 4 B = 8.8 GB PER GPU, and under plain DDP all four
+  # ranks hold identical copies. Sharding leaves ~2.2 GB, freeing ~6.6 GB —
+  # enough to reach `model.checkpointing: 1` (measured 1.307x, but 36.1 GB
+  # + 4.4 GB EMA = OOM on a 40 GB A100 without this).
+  #
+  # Same arithmetic, same result: it is output-neutral, unlike batch_size.
+  # Costs one all-gather of parameters per step, and forces `fused: False`
+  # (the wrapper rejects the fused kernel) — ~1-2% for ~6.6 GB.
+  use_zero_optimizer: False
   # ⚠ 3.0517578125e-05, NOT the `lr: 1e-4` written in the reference config's
   # SFNO block. That line is DEAD: PanguWeather's `get_optimizer`
   # (train.py:706-709) checks `hasattr(params, 'loglr')` FIRST, and `loglr: -13`
