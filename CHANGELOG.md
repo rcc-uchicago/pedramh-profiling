@@ -467,7 +467,39 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     places, batch 1, workers 1, 100 epochs, `train.py`). ZeRO is off because its
     gate is not rebuilt — an ungated change does not go into a 300 h run.
     At 0.4667 s/step ⇒ 1.42 h/epoch training — **WRONG, see below**.
-  - **⚠ BENCH STEP TIMES DO NOT PREDICT PRODUCTION, AND THE CAUSE IS UNKNOWN.**
+  - **✅ THE BENCH-VS-PRODUCTION GAP IS SOLVED: it is COLD PAGE CACHE / loader I/O.**
+    Two earlier entries called it unexplained and blamed first-CUDA-context clock
+    ramp. **Both wrong, and the discriminating column was already in the CSV.**
+    Four samples of the identical `ckpt3_zero0` config:
+    | run | step_med | step_std | **loader_wait_frac** |
+    |---|---|---|---|
+    | `ckpt3_zero0` (first in job 7366921) | 0.8965 | 0.2458 | **0.0611** |
+    | `ckpt3_zero0_r1` (first in job 7366932) | 0.8916 | 0.1349 | **0.0259** |
+    | `ckpt3_zero0_r2` | 0.6014 | 0.0002 | 0.0003 |
+    | `ckpt3_zero0_r3` | 0.6014 | 0.0002 | 0.0002 |
+    Every config is its own `torchrun`, so a fresh CUDA context happens EVERY time —
+    "first context" would make every row slow, but only **first-in-JOB** is. What
+    survives across processes inside a job and not across jobs is the **page cache**,
+    and `loader_wait_frac` is **100-200× higher** on exactly those rows. A clock ramp
+    does not move a loader-wait metric by 200×.
+    The magnitudes close in three independent comparisons:
+    cold−warm same job **0.2927 s**, cold−warm other job **0.295 s**,
+    production ckpt2 − warm bench ckpt2 **0.2995 s** — the same penalty at two
+    checkpointing levels on two clocks.
+    **The bench never touches cold data**: 50 steps × 4 ranks redraws the same 200
+    samples (`DistributedSampler(seed=0, epoch=0)`), while production shuffles over
+    **51,100 files / 2.0 TB, 42 MB per timestep, at `num_data_workers: 1`**.
+    ⇒ Bench step times are a **warm-cache lower bound**, not a measurement artifact.
+  - **WHERE THE 100-EPOCH TIME GOES — from `out.log` + telemetry, zero extra jobs.**
+    Epoch 3 decomposes: train-loop wall 90.8% (in-window GPU 75.0%, gap 15.8% — of
+    which **loader `next()` 12.3%** and **diagnostics 3.5%**), validation 8.2%,
+    checkpoint write ~1.0%. Over 100 epochs: **loader 37.9 h, diagnostics 10.8 h,
+    validation 25.4 h, checkpoints 3.0 h**, plus the in-window cold-I/O penalty of
+    **~91 h** ⇒ **~129 h of a ~308 h projection is addressable I/O (42%)**.
+    The 16-18% `gpu_busy` gap is the SECOND-order term; the in-window penalty is 2.4×
+    larger.
+  - **⚠ SUPERSEDED (kept for provenance): "BENCH STEP TIMES DO NOT PREDICT
+    PRODUCTION, AND THE CAUSE IS UNKNOWN."**
     Live production at `ckpt2` measures **754.9 / 776.1 ms/step** (telemetry,
     epochs 1-2) against the bench's **466.7 ms** — a **1.62×** gap, and ~2.27× on
     epoch wall-clock. Real budget: **~3.4 h/epoch ⇒ ~340 h for 100 epochs**, so the
@@ -484,13 +516,15 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     every bench-derived step time in this document as a lower bound** — including
     the older 0.602 s/step. Bench MEMORY figures remain trustworthy (bench and
     production agree exactly at 32.63).
-  - **⚠ COLD-START CONTAMINATION — the Pangu sweep's RATIOS were inflated
+  - **⚠ COLD-CACHE CONTAMINATION (originally filed as "cold start") — the sweep's RATIOS were inflated
     (repeat job 7366932).** Four samples of the identical `ckpt3_zero0` config:
     **0.8965, 0.8916, 0.6014, 0.6014** — bimodal, 49% spread, while every other
     config held to **≤0.1%**. Tracing by job: both slow samples were the **first
-    config of their job**; both fast ones came later *within* a job. It is a
-    **per-job cold start** (first CUDA context / clock ramp), not the
-    position-in-sequence effect predicted. Corrected against the warm 0.6014:
+    config of their job**; both fast ones came later *within* a job. Originally
+    attributed to "first CUDA context / clock ramp" — **that was wrong**; it is the
+    **page cache** (see the entry above: `loader_wait_frac` 100-200× higher on
+    exactly those rows). The conclusion that the ratios were contaminated stands;
+    only the mechanism changed. Corrected against the warm 0.6014:
     | config | sweep said | **actual** |
     |---|---|---|
     | `ckpt2` no-ZeRO | 1.909× | **1.288×** |
