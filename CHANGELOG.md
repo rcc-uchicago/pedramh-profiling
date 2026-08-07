@@ -276,11 +276,22 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     | `compute_med` | 0.71994 | 0.83753 | 1.163× |
     | `step_p90` | 0.72346 | 1.11494 | 1.541× |
     | `step_std` | 0.00814 | 0.19743 | 24× |
-    | `peak_mem_gb_max_rank` | 21.40 | 28.76 | 1.34× |
+    | `peak_mem_gb_max_rank` | 21.40 GiB | 28.76 **"GB"** = 26.79 GiB | **1.25×** |
     | loader idle | 0.63% (`data_idle_frac`) | 9.05% (`loader_wait_frac`) | — |
     | `cpu_prep_med` | 1.5e-05 s | 2.2e-03 s | 149× |
 
     `step_med` and `samples_per_s` agree to three digits (internal consistency).
+
+    > **⚠ UNIT MISMATCH in `peak_mem_gb_max_rank` — the two harnesses do not
+    > report the same unit.** PanguWeather divides by **1e9** (decimal GB,
+    > `train.py:1344`); ai-rossby's `profile_train.py:347` and
+    > `epoch_telemetry.py:224` divide by **1024³** (GiB). Pangu's numbers are
+    > therefore inflated ~7.4% relative to everything else in this document.
+    > Pangu's `28.76 "GB"` is **26.79 GiB**, its headroom is **12.70 GiB** (not
+    > 10.7), and the memory ratio is **1.25×** (not 1.34×). Third cross-harness
+    > measurement inconsistency found today, after the missing EMA and the node
+    > variance — every one of them made the two sides look more different than
+    > they are. **Convert before comparing anything against a Pangu row.**
 
     > ### ⚠ RETRACTED SAME DAY — 1.166× IS NOT CONFIRMED. **Do not quote it.**
     > The two rows were measured in **separate jobs on different nodes** —

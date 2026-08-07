@@ -1,0 +1,180 @@
+#!/bin/bash -l
+#PBS -N pangu_sweep_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# BEST-CONFIGURATION SWEEP for PanguWeather SFNO on E3SM — Polaris, 4x A100.
+#
+# The PanguWeather counterpart of physicsnemo_ai_rossby/polaris/
+# polaris_sweep_sfno_zero.pbs, so "each harness at its own best config" is
+# answered on both sides rather than one. Same two knobs, both already present
+# here:
+#   * `checkpointing` — graduated, 0..3, patched into the rendered YAML
+#     (there is no --checkpointing CLI flag; --use_zero_optimizer does exist).
+#   * `use_zero_optimizer` — ZeRO Stage 1, train.py:735, already implemented.
+#
+# WHY IT MATTERS: this run is ~280-330 h. On the ai-rossby side the same two
+# knobs were worth 1.24x, and ZeRO turned out to be REQUIRED to reach any
+# speedup at all (job 7366778). ~30 min here plausibly saves 50-80 h there.
+#
+# --- READ THE UNITS -------------------------------------------------------
+# ⚠ `peak_mem_gb` in PanguWeather's bench CSV is bytes/1e9 — DECIMAL GB
+# (train.py:1344) — whereas ai-rossby and the epoch telemetry use bytes/1024^3
+# (GiB). Pangu's numbers run ~7.4% high against everything else. The summary
+# below prints BOTH so no one compares across harnesses without converting.
+# A100 usable is 39.49 GiB = 42.40 decimal GB.
+#
+# --- WHAT THIS MEASURES, AND WHAT IT UNDERSTATES ---------------------------
+# Uses PANGU_BENCH, i.e. instrumentation INSIDE the real train.py, so unlike
+# ai-rossby's separate bench entry point the EMA copy IS included
+# (`use_ema: True` => self.ema = deepcopy(self.model), train.py:249).
+#
+# But PANGU_BENCH skips the per-iteration diagnostics block (RMSE + wandb), so
+# its peak still understates production by whatever that path allocates — the
+# mirror of the missing-EMA mistake on the other side. Treat the absolute
+# headroom as optimistic; the RELATIVE ordering across configs is sound, since
+# every row omits the same thing.
+#
+# ⚠ An OOM is a RESULT (the memory wall), not a failure. Recorded; sweep continues.
+#
+# Submit from PanguWeather/v2.0:
+#     qsub HPC_scripts/polaris_sweep_e3sm_sfno.pbs
+#
+# PASS = the summary table + new rows in $PANGU_BENCH_CSV.
+# ============================================================================
+
+set -o pipefail
+cd "${PBS_O_WORKDIR}"                              # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+NPROC="${NPROC:-4}"
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml"
+[ -f "${CONFIG_TEMPLATE}" ] || { echo "ERROR NO_CONFIG: ${CONFIG_TEMPLATE}"; exit 2; }
+SWEEP_DIR="${MEMBER_ROOT}/runs/pangu_sweep/${PBS_JOBID%%.*}"
+mkdir -p "${SWEEP_DIR}"
+
+export PANGU_BENCH=1
+export PANGU_BENCH_WARMUP="${WARMUP:-10}"
+export PANGU_BENCH_STEPS="${STEPS:-40}"
+export PANGU_BENCH_CSV="${PANGU_BENCH_CSV:-${MEMBER_ROOT}/bench/pangu_sfno_sweep.csv}"
+unset PANGU_NVTX PANGU_EPOCH_TELEMETRY
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+echo "=== pangu sweep: $(date -Iseconds) ==="
+echo "host=$(hostname)  NPROC=${NPROC}  warmup=${PANGU_BENCH_WARMUP} steps=${PANGU_BENCH_STEPS}"
+nvidia-smi -L
+polaris_env_report
+echo
+
+# label|checkpointing|use_zero
+CONFIGS=(
+  "ckpt3_zero0|3|false"   # today's production config — the baseline
+  "ckpt2_zero0|2|false"
+  "ckpt1_zero0|1|false"
+  "ckpt3_zero1|3|true"    # prices ZeRO on its own
+  "ckpt2_zero1|2|true"
+  "ckpt1_zero1|1|true"
+)
+
+i=0
+for cfg in "${CONFIGS[@]}"; do
+    IFS='|' read -r label ckpt zero <<< "${cfg}"
+    i=$((i + 1))
+    echo "=============================================================="
+    echo "[${i}/${#CONFIGS[@]}] ${label}  checkpointing=${ckpt} use_zero_optimizer=${zero}"
+    echo "=============================================================="
+    CONFIG_FILE="${SWEEP_DIR}/${label}.yaml"
+    sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+        "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}" || exit 2
+
+    # `checkpointing` appears TWICE (the PLASIM block and the SFNO block that
+    # inherits from it). The SFNO section is the one that runs, but both are
+    # patched so the rendered file cannot disagree with itself.
+    python - "${CONFIG_FILE}" "${ckpt}" "${SWEEP_DIR}" <<'PY' || exit 2
+import re, sys
+path, ck, exp_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*checkpointing:\s*)\S+.*$", lambda m: m.group(1) + ck, src)
+if n < 1:
+    print("ERROR CONFIG_PATCH_FAILED: checkpointing matched 0 times"); sys.exit(2)
+src = re.subn(r"(?m)^(\s*exp_dir:\s*).*$", lambda m: m.group(1) + exp_dir, src, count=1)[0]
+open(path, "w").write(src)
+print(f"  patched checkpointing={ck} in {n} place(s)")
+PY
+
+    rows_before=0
+    [ -f "${PANGU_BENCH_CSV}" ] && rows_before=$(wc -l < "${PANGU_BENCH_CSV}")
+
+    export S2S_RUN_NUM="${label}"
+    torchrun --standalone --nproc_per_node="${NPROC}" \
+        "${V20_DIR}/train.py" \
+        --yaml_config="${CONFIG_FILE}" \
+        --config=SFNO \
+        --global_seed=0 \
+        --use_zero_optimizer="${zero}" \
+        --run_num="${label}"
+    rc=$?
+
+    rows_after=0
+    [ -f "${PANGU_BENCH_CSV}" ] && rows_after=$(wc -l < "${PANGU_BENCH_CSV}")
+    if [ "${rows_after}" -gt "${rows_before}" ]; then
+        echo "--> ${label}: row written"
+    else
+        echo "--> ${label}: NO ROW (rc=${rc}) — OOM or failure"
+    fi
+    echo
+done
+
+echo "=============================================================="
+echo "PANGU SWEEP SUMMARY"
+echo "=============================================================="
+python - "${PANGU_BENCH_CSV}" <<'PY'
+import csv, sys
+rows = {r["run_num"]: r for r in csv.DictReader(open(sys.argv[1]))}
+grid = ["ckpt3_zero0", "ckpt2_zero0", "ckpt1_zero0",
+        "ckpt3_zero1", "ckpt2_zero1", "ckpt1_zero1"]
+base = rows.get("ckpt3_zero0")
+b = float(base["step_med"]) if base else None
+print(f"{'config':14s} {'step_med':>9s} {'vs base':>8s} {'peak_GB':>8s} {'peak_GiB':>9s} "
+      f"{'headroom_GiB':>13s}")
+for label in grid:
+    r = rows.get(label)
+    if not r:
+        print(f"{label:14s} {'--- OOM / failed ---':>32s}")
+        continue
+    s = float(r["step_med"])
+    gb = float(r["peak_mem_gb_max_rank"])          # decimal GB — see header
+    gib = gb * 1e9 / 1024 ** 3
+    rel = f"{b/s:.3f}x" if b else "--"
+    print(f"{label:14s} {s:9.4f} {rel:>8s} {gb:8.2f} {gib:9.2f} {39.49 - gib:13.2f}")
+ok = [(rows[l], l) for l in grid if l in rows]
+if ok and b:
+    best, bl = min(ok, key=lambda t: float(t[0]["step_med"]))
+    gib = float(best["peak_mem_gb_max_rank"]) * 1e9 / 1024 ** 3
+    print(f"\nFASTEST THAT FITS: {bl}  {b/float(best['step_med']):.3f}x vs today's "
+          f"config, peak {gib:.2f} GiB ({39.49 - gib:.2f} GiB headroom)")
+    print("  Headroom is OPTIMISTIC: PANGU_BENCH skips the per-iteration")
+    print("  diagnostics block that production runs. Leave margin.")
+    print("  Not adopted: needs the §4 gate before it goes into a 280-330 h run.")
+PY
+echo
+echo "PANGU_SWEEP_DONE -> ${PANGU_BENCH_CSV}"
