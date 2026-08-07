@@ -93,7 +93,7 @@ run_phase () {   # $1 = phase label, $2 = max_epochs
     echo "=============================================================="
     echo "PHASE $1 — max_epochs=$2, saving EVERY epoch, validation ON"
     echo "=============================================================="
-    /usr/bin/time -f "  phase $1 wall: %E" \
+    local _t0=${SECONDS}
     python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
         train.py \
         model=sfno_e3sm_parity dataset=e3sm_pangu_parity training=sfno_e3sm_parity \
@@ -105,6 +105,13 @@ run_phase () {   # $1 = phase label, $2 = max_epochs
         dataset.batch_size=1 dataset.num_workers=1 \
         checkpoint_save_interval=1 seed=0 \
         run_name="${RUN_NAME}" hydra.run.dir="${RUN_DIR}" wandb.mode=disabled
+    local _rc=$?
+    # Bash-native timing: Polaris has no /usr/bin/time, and `time` is a shell
+    # keyword that cannot wrap a pipeline the way this is used. The wall time
+    # matters here — it is what shows whether consolidate_state_dict is anywhere
+    # near the 10-minute NCCL watchdog.
+    echo "  phase $1 wall: $(( SECONDS - _t0 )) s"
+    return ${_rc}
 }
 
 run_phase 1 2 2>&1 | tee "${RUN_DIR}/phase1.log"; rc1=${PIPESTATUS[0]}
