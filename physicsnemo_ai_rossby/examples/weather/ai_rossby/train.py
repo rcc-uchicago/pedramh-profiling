@@ -1043,6 +1043,24 @@ def main(cfg: DictConfig) -> None:
     #
     # PanguWeather restores its equivalent (train.py:3737).
     ckpt_meta: dict = {}
+    # --- resume memory attribution (AI_ROSSBY_MEM_PROBE=1) -------------------
+    # The resume path peaks ~4.3 GiB above a fresh run (jobs 7366945/7368057),
+    # cutting headroom to ~3.2 GiB on every resumed link. Two fixes were guessed:
+    # staging the OPTIMIZER state on CPU recovered ~1.05 GiB; staging the MODEL
+    # state_dict on CPU changed nothing. Rather than guess a third time, measure
+    # each phase. Off by default; costs two cuda syncs when on.
+    _memprobe = os.environ.get("AI_ROSSBY_MEM_PROBE") == "1" and torch.cuda.is_available()
+    def _mem(label: str) -> None:
+        if not _memprobe:
+            return
+        torch.cuda.synchronize()
+        g = 1024 ** 3
+        logger.info(
+            "MEMPROBE %-28s allocated=%7.3f GiB  reserved=%7.3f GiB  peak=%7.3f GiB",
+            label, torch.cuda.memory_allocated() / g,
+            torch.cuda.memory_reserved() / g, torch.cuda.max_memory_allocated() / g,
+        )
+    _mem("before load_checkpoint")
     loaded_epoch = load_checkpoint(
         str(ckpt_dir),
         models=inner_model,
@@ -1050,8 +1068,22 @@ def main(cfg: DictConfig) -> None:
         metadata_dict=ckpt_meta,
         device=dist.device,
     )
+    _mem("after load_checkpoint")
+    if _memprobe:
+        # Attribute what the returned metadata itself costs: the EMA blob is a
+        # full model's worth of tensors and, if load_checkpoint mapped it to the
+        # GPU, it is resident RIGHT NOW in addition to the live EMA.
+        _ema_blob = ckpt_meta.get("ema") or {}
+        _n_cuda = _sz = 0
+        for _v in (_ema_blob.get("avg_model_state") or {}).values():
+            if torch.is_tensor(_v) and _v.is_cuda:
+                _n_cuda += 1
+                _sz += _v.numel() * _v.element_size()
+        logger.info("MEMPROBE ema-metadata-on-gpu tensors=%d bytes=%.3f GiB",
+                    _n_cuda, _sz / 1024 ** 3)
     if ema is not None and ckpt_meta.get("ema"):
         ema.load_state_dict(ckpt_meta["ema"])
+        _mem("after ema.load_state_dict")
         logger.info(
             f"EMA restored from checkpoint (n_averaged="
             f"{getattr(ema.avg_model, 'n_averaged', None)}) — it must CONTINUE "

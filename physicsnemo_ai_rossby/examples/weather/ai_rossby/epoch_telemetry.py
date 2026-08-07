@@ -80,7 +80,12 @@ COLUMNS = [
     "samples_per_s",    # global: n_steps * batch_per_gpu * n_gpus / epoch_wall_s
     "epoch_wall_s",
     "gpu_busy_frac",    # sum(step_ms)/1000 / epoch_wall_s; 1 - this is loader/other idle
-    "peak_mem_gb",      # run-to-date, max over ranks (same semantic as the bench CSV)
+    # run-to-date, max over ranks, in GiB (bytes/1024**3).
+    # ⚠ NOT the same unit as PanguWeather's bench CSV `peak_mem_gb_max_rank`,
+    # which is bytes/1e9 (decimal GB, train.py:1344) and therefore ~7.4% higher
+    # — about 2.4 GiB on a 32 GiB figure. An earlier comment here claimed they
+    # shared a semantic; they do not. CONVERT before comparing the two.
+    "peak_mem_gb",
     # 1 when the EMA parameter sweep RAN on every step this epoch. The two
     # harnesses gate this differently, and that is itself one of the findings:
     # PanguWeather skips `update_ema` entirely until `ema_warmup_epochs`, so its
@@ -171,8 +176,9 @@ class EpochTelemetry:
         if not self._recording():
             return
         # Deliberately NO reset_peak_memory_stats() here. `peak_mem_gb` is
-        # run-to-date, the same semantic as the bench CSV's
-        # `peak_mem_gb_max_rank` — and resetting would silently lower the peak a
+        # run-to-date, which is the same ACCUMULATION semantic as the bench CSV's
+        # `peak_mem_gb_max_rank` (though NOT the same unit — see COLUMNS above:
+        # GiB here, decimal GB there) — and resetting would silently lower a
         # concurrently-enabled PANGU_BENCH row reports. The growth signal
         # survives anyway: a run-to-date peak is monotone, so a footprint jump
         # when the optimizer state or EMA shadow lands still shows as a step up.

@@ -1072,7 +1072,13 @@ class Trainer():
             self._epoch_telemetry = EpochTelemetry(
                 prefix="PANGU",
                 harness="panguweather",
-                run_name=str(getattr(self.params, 'run_num', 'unknown')),
+                # params has no `run_num` (it lives on args), so the old
+                # getattr defaulted to "unknown" and every row in a shared CSV
+                # was unattributable. experiment_dir ends with the run_num.
+                run_name=str(getattr(self.params, 'run_num', None)
+                             or os.path.basename(
+                                 str(getattr(self.params, 'experiment_dir', '')).rstrip('/'))
+                             or 'unknown'),
                 n_gpus=int(self.params['world_size']),
                 batch_per_gpu=int(self.params.batch_size),
                 amp_dtype=str(getattr(self, 'amp_dtype', 'none')),
