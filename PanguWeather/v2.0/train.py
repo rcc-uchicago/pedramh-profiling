@@ -3861,7 +3861,16 @@ def setup_distributed(params: YParams, args: argparse.Namespace) -> tuple[int, i
     script is launched with ``torchrun`` or plain ``python``.
     """
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        # timeout: PyTorch's default NCCL watchdog is 600 s, but each epoch
+        # boundary here has rank 0 writing an 18.9 GB checkpoint ALONE while
+        # ranks 1-3 block in the next collective. The measured boundary cost is
+        # 17.2 min (validation + save); the save alone has survived every epoch
+        # so far, so it is under 600 s — but the margin is unmeasured and Lustre
+        # write speed varies with cluster load. 30 min keeps a genuine hang
+        # detectable while removing a slow-filesystem false positive that would
+        # kill a 168 h job at an epoch boundary.
+        dist.init_process_group(backend='nccl', init_method='env://',
+                                timeout=timedelta(minutes=30))
         rank = dist.get_rank()
         device = rank % torch.cuda.device_count()
         seed = args.global_seed * dist.get_world_size() + rank
