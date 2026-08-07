@@ -34,6 +34,10 @@ Launch multi-GPU with torchrun (Delta convention):
 
 from __future__ import annotations
 
+# `os` is used by the AI_ROSSBY_MEM_PROBE instrumentation below. It was NOT
+# imported here, and the probe line runs unconditionally at startup — so every
+# run raised NameError before training began (job 7368488).
+import os
 import warnings
 from pathlib import Path
 
