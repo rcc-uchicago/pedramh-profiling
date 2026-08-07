@@ -168,6 +168,73 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-07** — **BOTH PRODUCTION RUNS LAUNCHED. Read the QUEUE ROTATION below
+  before touching anything in `qstat`.**
+
+  | run | jobs | queue | config |
+  |---|---|---|---|
+  | PanguWeather | **7368237** → 7368539-41 | capacity 168 h → preemptable 3×72 h | `checkpointing: 2`, no ZeRO, wandb online |
+  | ai-rossby | **7368547**-51 | preemptable 5×72 h | **`checkpointing: 3`, no ZeRO**, wandb online, `CKPT_INTERVAL=2` |
+  | ai-rossby (reserved) | **7368536** | capacity 168 h | **USER-HELD — see below** |
+
+  ### ⚠ QUEUE ROTATION — the one thing not reconstructable from the code
+  `capacity` allows **one running job per PROJECT**. PanguWeather holds it now.
+  `7368536` is ai-rossby's capacity reservation, held on `afterany:7368237` **plus a
+  USER HOLD (`Hold_Types = ud`)**. The user hold is deliberate: both ai-rossby chains
+  use `RUN_NAME=sfno_e3sm_parity01` and therefore the same `RUN_DIR`, so if the
+  capacity job auto-started while the preemptable one was still running, **two
+  processes would write checkpoints into the same directory and corrupt the run.**
+  To hand ai-rossby the capacity slot, in this order:
+  ```
+  qdel 7368547 7368548 7368549 7368550 7368551   # stop the preemptable chain FIRST
+  qrls 7368536                                    # then release the capacity job
+  ```
+  PanguWeather's continuation (7368539-41) auto-releases onto `preemptable` when
+  7368237 ends — no action needed, and that queue suits it (`-r y`, per-epoch
+  checkpoints, a header documenting the requeue contract).
+
+  ### Measured on the live run (per-epoch telemetry, not a bench)
+  `step_med` **755 / 776 / 767 ms** (stable ±1.4%), `peak` **32.63 GiB** fresh,
+  `gpu_busy` **0.82-0.84**, epoch wall 3.23 / 2.99 / **2.79 h** ⇒ **~299 h projected**
+  for 100 epochs. EMA switches on at **epoch 6** and its cost is still unmeasured.
+  The remaining ~16-18% non-GPU wall is the biggest unclaimed lever (~30 h over the
+  run); Fable's read is cold random zarr I/O over 2.15 TB, which the short
+  cache-warm bench windows structurally could not see.
+
+  ### RESUME SPIKES — measured on both harnesses, both fixed
+  `peak_mem_gb` is run-to-date, so a resume spike cannot hide.
+  * **PanguWeather +1.94 GiB** (32.63 → 34.57, headroom 6.86 → 4.92). Cause:
+    `restore_checkpoint` loaded the 18.9 GB file with `map_location='cuda:N'`.
+    Fixed → `'cpu'` (b039c483); `_migrate_optimizer_state_to_device()` already
+    existed for exactly this. Every chain link paid it, and the run is 3-6 links.
+  * **ai-rossby +5.32 GiB**, of which staging the optimizer on CPU recovered 1.05.
+    The remaining **+4.28 GiB is still UNATTRIBUTED** — two hypotheses were wrong
+    (the second, `Module.load`'s `map_location`, changed nothing). Does not block
+    anything now that ai-rossby runs at `ckpt3` with ~13.6 GiB headroom.
+
+  ### ai-rossby runs at `checkpointing: 3` — decision, and why
+  `ckpt2` is ~1.26× faster but **OOMs without ZeRO**, so adopting it there is TWO
+  changes behind ONE gate — and ZeRO's §4 result was withdrawn as confounded and
+  never re-run. `ckpt3` is the config's own default, has zero ungated changes, and
+  removes ZeRO from the critical path. A cold Fable review found no third option
+  worth the work (hybrid per-block checkpointing buys ~1.12× for more new gating
+  than ZeRO itself; EMA offload costs +30-60% step time or changes the deliverable).
+  **Cost: ~47 h. Revisit only if the ZeRO bitwise gate passes.**
+
+  ### Bugs found and fixed today (all mine, all would have bitten later)
+  * **`import os` missing** in ai-rossby `train.py` — my probe instrumentation ran
+    unconditionally at startup, so **every** ai-rossby run raised `NameError`. The
+    queued production chain would have crashed ~30 h out and cascaded 4 dependents.
+    Surfaced only because a measurement job hit the path first.
+  * **`datetime.timedelta`** where line 8 binds `datetime` to the CLASS — would have
+    crashed every future PanguWeather link at startup. Caught pre-commit.
+  * **NCCL timeout 600 s → 30 min** — each epoch boundary costs 17.2 min with rank 0
+    writing 18.9 GB alone while ranks 1-3 block in the next collective.
+  * **`/usr/bin/time` does not exist on Polaris** (rc=127 killed a gate before it ran).
+  * **`eligible_time` substring trap** — I quoted §1b about it, then wrote an
+    unanchored `/eligible_time/` match into my own monitor, which reported the
+    priority exponent `4` as a time. Anchor it.
+
 - **2026-08-06** — **SFNO apples-to-apples: ARCHITECTURE GATE PASSED (job 7364984) — the
   two implementations are BITWISE identical, not merely same-sized.** Parity config,
   gate, per-epoch telemetry and group-write all in.
