@@ -344,7 +344,52 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       `sfno_plasim.yaml` comment calling it "safe to enable here" is not true at low
       checkpointing. Untested at ckpt2/ckpt3, where there is headroom.
     - **`batch_size` > 1 is unavailable** at any fast setting; even bs=2 at ckpt1 OOMs.
-  - **⚠ THE SWEEP'S MEMORY NUMBERS UNDERSTATE PRODUCTION BY ~4.4 GB — and it flips the
+  - **ZeRO-1 SWEEP — job 7366778, real `train.py` (EMA on), 8 configs, one node.
+    ZeRO is REQUIRED, not optional: without it the entire speedup is unreachable.**
+    Predictions were written into the script before it ran; **6 of 8 exact**.
+
+    | config | step | vs base | peak GB | predicted |
+    |---|---|---|---|---|
+    | `ckpt3` no-ZeRO | 711.5 ms | 1.000× | 25.91 | ~25.8 ✅ |
+    | `ckpt2` no-ZeRO | — | — | **OOM** | "marginal ~38.4" ❌ |
+    | `ckpt1` no-ZeRO | — | — | **OOM** | OOM ✅ |
+    | `ckpt3` + ZeRO | 724.1 ms | 0.983× | **19.46** | fits ✅ |
+    | `ckpt2` + ZeRO | 574.1 ms | **1.239×** | 32.02 | ~31.8 ✅ |
+    | `ckpt1` + ZeRO | 561.0 ms | **1.268×** | 34.12 | ~33.9 ✅ |
+    | `ckpt0` + ZeRO | 559.6 ms | 1.271× | 34.17 | ~33.9 ✅ |
+    | `ckpt1` + ZeRO, bs=2 | — | — | OOM | "may now fit" ❌ |
+
+    - **ZeRO-1 saves 6.45 GB** (25.91 → 19.46 at ckpt3; predicted 6.6) and costs
+      **1.7%** in step time — the all-gather plus losing the fused AdamW kernel.
+    - **Without ZeRO, ckpt2 and ckpt1 both OOM**, so on plain DDP this model is
+      pinned at ckpt3 and none of the 1.24-1.27× is reachable. That makes ZeRO
+      the enabling change, not a memory nicety.
+    - **The EMA accounting is now empirically anchored**: `ckpt3` real training
+      measured **25.91 GB** vs the bench's 21.40 GB and the earlier smoke's
+      25.89 GB — a 0.02 GB reproduction. Bench peaks understate production by
+      the 4.4 GB EMA copy, as derived.
+    - **Bench step times also understate production by ~9%**: same `ckpt3`
+      config, 651.7 ms in the bench vs 711.5 ms in the real trainer — the EMA
+      sweep over 1.18 B params plus DDP metric reduction and logging.
+    - **The one wrong prediction is the useful one.** `ckpt2`/no-ZeRO was called
+      "marginal ~38.4 GB" and OOM'd ⇒ **these estimates run ~1-2 GB optimistic.**
+      Do not trust a margin under ~2 GB.
+    - **Not fragmentation.** The OOM reports 38.29 GiB allocated with only
+      57.76 MiB reserved-but-unallocated, so `expandable_segments` would not have
+      helped — these are genuine capacity limits. (The `PYTORCH_CUDA_ALLOC_CONF`
+      vs torch-2.10 `PYTORCH_ALLOC_CONF` naming question is therefore hygiene,
+      not a live defect.)
+  - **RECOMMENDED ai-rossby production config: `model.checkpointing: 2` +
+    `use_zero_optimizer: true`** — 1.239× at 32.02 GB (7.47 GB headroom), over
+    `ckpt1`'s 1.268× at 34.12 GB (5.37 GB). `ckpt1` buys 2.3% for 2.1 GB less
+    headroom, and the estimates just proved ~1-2 GB optimistic; a 170 h run that
+    dies at hour 100 costs far more than 2.3%. `ckpt0` is strictly worse than
+    `ckpt1` (same speed, more memory) — as the first sweep also found.
+    At 1.75 h/epoch + 0.09 validation, 100 epochs ≈ **184 h**, down from ~225 h.
+    **Still not adopted**: needs the §4 equivalence gate, and a validation-inclusive
+    smoke (a 2-epoch/20-step run suffices — `peak_mem_gb` is run-to-date, so
+    epoch 2's row already includes epoch 1's validation).
+  - **⚠ THE BENCH SWEEP'S MEMORY NUMBERS UNDERSTATE PRODUCTION BY ~4.4 GB — and it flips the
     recommendation.** `profile_train.py` builds **no EMA**; `train.py` does, and
     `ModelEMA` holds a full fp32 shadow copy = 1,182,108,160 × 4 B = **4.40 GB**.
     Confirmed against the smoke: train.py peak 25.89 GB vs bench peak 21.40 GB, a
