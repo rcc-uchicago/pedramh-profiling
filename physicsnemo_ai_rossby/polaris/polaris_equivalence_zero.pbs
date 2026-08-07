@@ -14,23 +14,32 @@
 # (`_wrap_zero` falls back to plain AdamW). So the single-rank gate is silent on
 # ZeRO no matter how it is invoked. This runs the 4-rank instrument instead.
 #
-# THE METHOD — and why a plain A/B would prove nothing
-# ----------------------------------------------------
-# ZeRO changes the gradient REDUCTION: DDP all-reduces then each rank runs the
-# full optimizer; ZeRO reduce-scatters, each rank updates its shard, then the
-# parameters are all-gathered. Identical in exact arithmetic, different summation
-# ORDER in floating point — and float addition is not associative.
+# THE METHOD — CORRECTED 2026-08-07 after the first run was found confounded
+# --------------------------------------------------------------------------
+# The original version of this header claimed ZeRO "reduce-scatters ... different
+# summation ORDER" and therefore that a bitwise test would be wrong. THAT WAS
+# FALSE. ZeroRedundancyOptimizer does not touch gradient reduction: DDP's
+# all-reduce runs unchanged, each rank runs the local optimizer over its shard,
+# and the updated parameters are BROADCAST (zero_redundancy_optimizer.py,
+# step() -> _local_step() + _sync_params()). No reduce-scatter exists.
 #
-# Multi-rank DDP is therefore not reproducible against ITSELF. Comparing one DDP
-# run to one ZeRO run cannot distinguish "ZeRO is wrong" from "DDP ran twice".
-# So:
+# So after the all-reduce every rank holds bit-identical gradients, AdamW is
+# elementwise, and which rank computes a given update cannot change it:
+# CORRECT ZeRO-1 IS BITWISE IDENTICAL TO PLAIN DDP. The bar is 0.000e+00.
 #
-#   1. plain DDP, seed 0            -> ddp_a
-#   2. plain DDP, seed 0 (identical)-> ddp_b     |ddp_a - ddp_b| = NOISE FLOOR
-#   3. DDP + ZeRO-1, seed 0         -> zero      |ddp_a - zero|  = deviation
+# ⚠ AND THE KERNEL MUST BE HELD FIXED. train_loop.py:175 drops `fused=True`
+# because the wrapper rejects it, while conf/training/sfno_e3sm_parity.yaml:90
+# sets it — so the first run compared FUSED AdamW against EAGER AdamW and
+# measured 6.675e-06 of kernel difference, not sharding. Every arm now passes
+# `training.optimizer.fused=false`.
 #
-# PASS when the deviation sits inside the floor (x3). That is the strongest
-# honest claim available here — a bitwise claim would be false.
+#   1. plain DDP, seed 0             -> ddp_a
+#   2. plain DDP, seed 0 (identical) -> ddp_b   control: is the harness reproducible?
+#   3. DDP + ZeRO-1, seed 0          -> zero    must equal ddp_a BITWISE
+#
+# The capture also now checks CROSS-RANK parameter agreement every step, which
+# the averaged scalars structurally could not see — replica divergence from a
+# missed/stale broadcast is ZeRO-1's characteristic failure.
 #
 # `checkpointing` is held at 3 throughout: this isolates ZeRO. The checkpointing
 # change is gated separately, at world size 1, by polaris_validate_and_gate.pbs.
@@ -105,6 +114,7 @@ for spec in "ddp_a|false" "ddp_b|false" "zero|true"; do
         training=sfno_e3sm_parity loss=raw_l2 \
         training.amp=bf16 model.checkpointing="${CKPT}" \
         training.optimizer.use_zero_optimizer="${zero}" \
+        training.optimizer.fused=false \
         dataset.batch_size=1 dataset.num_workers=1 seed=0 \
         hydra.run.dir="${RUN_ROOT}/${label}" wandb.mode=disabled \
         || { echo "ERROR EQUIV_DDP_CAPTURE_FAILED ${label}"; rc=4; break; }
@@ -115,7 +125,7 @@ if [ "${rc}" -eq 0 ]; then
     echo "=============================================================="
     python "${AR_ROOT}/polaris/compare_zero_equivalence.py" \
         "${BASE_DIR}/ddp_a.json" "${BASE_DIR}/ddp_b.json" "${BASE_DIR}/zero.json" \
-        --factor "${FACTOR}"
+        --require-bitwise
     rc=$?
 fi
 

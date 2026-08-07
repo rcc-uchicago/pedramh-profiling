@@ -13,24 +13,32 @@ when the change touches DDP"*. This is that.
 Why ZeRO forces the issue
 -------------------------
 ZeRO Stage 1 is a **no-op at world size 1** — ``_wrap_zero`` falls back to plain
-AdamW — so the single-rank gate can say nothing about it. Its entire effect is
-the changed gradient reduction: DDP all-reduces then every rank runs the full
-optimizer, whereas ZeRO reduce-scatters, each rank updates its shard, and the
-parameters are all-gathered. Same arithmetic in exact math; different summation
-ORDER in floating point, and float addition is not associative.
+AdamW — so the single-rank gate can say nothing about it.
 
-So a bitwise test is the wrong test — it would fail on a correct implementation.
+⚠ CORRECTED 2026-08-07. An earlier version of this file claimed ZeRO
+"reduce-scatters ... different summation ORDER", and concluded a bitwise test
+would be wrong. **That was false.** ``ZeroRedundancyOptimizer`` does not touch
+gradient reduction at all: DDP's all-reduce runs unchanged, each rank then runs
+the local optimizer over its own shard and **broadcasts** the updated parameters
+(``torch/distributed/optim/zero_redundancy_optimizer.py``: ``step()`` ->
+``_local_step()`` + ``_sync_params()``). There is no reduce-scatter.
 
-The method: compare against a noise floor
------------------------------------------
-Run plain DDP **twice** at one seed. Any difference between those two runs is
-the reduction's own run-to-run nondeterminism — the noise floor. Then run ZeRO
-and ask whether its deviation from DDP sits **inside** that floor. If it does,
-ZeRO is doing what DDP does, to the precision DDP itself offers. If ZeRO deviates
-by much more, that is signal, not float noise.
+The consequence inverts the test. After DDP's all-reduce every rank holds
+bit-identical gradients, and AdamW is elementwise — so which rank computes a
+given parameter's update cannot change the result. **Correct ZeRO-1 is bitwise
+identical to plain DDP.** Anything else is a defect, not float noise.
 
-A single DDP-vs-ZeRO comparison proves nothing, because DDP is not reproducible
-against *itself*. That control is the whole point.
+The method: hold everything else fixed and demand ZERO
+------------------------------------------------------
+Two plain-DDP runs still serve as a control — they establish that the harness
+itself is reproducible (they came out bitwise equal, so it is). The real
+requirement is that the ZeRO arm match them exactly.
+
+⚠ THE KERNEL MUST BE HELD FIXED. ``_wrap_zero`` drops ``fused=True`` because
+``ZeroRedundancyOptimizer`` rejects it, so a naive comparison runs FUSED AdamW
+against EAGER AdamW and measures the kernel swap, not the sharding. The first
+run of this test did exactly that and produced 6.675e-06 — entirely explained
+by the kernel difference. The launcher now forces ``fused=false`` on every arm.
 
 Two things this deliberately does differently from ``equivalence.py``:
 
@@ -170,6 +178,29 @@ def main(cfg: DictConfig) -> None:
     epsilon_factor = float(cfg_train.get("epsilon_factor", 0.0))
 
     traj: list[dict] = []
+    lr_trace: list[float] = []
+    # ZeRO-1's characteristic failure is REPLICA DIVERGENCE: a missed or stale
+    # parameter broadcast leaves ranks holding different weights. The averaged
+    # scalars below cannot see it — averaging is exactly what hides cross-rank
+    # disagreement — so check the replicas directly.
+    max_rank_delta = 0.0
+
+    def _cross_rank_param_delta() -> float:
+        """Max spread of a per-rank parameter checksum. 0.0 == replicas agree.
+
+        Cheap (one scalar, two all-reduces) and direct: if any rank's parameters
+        differ after the optimizer step, MIN and MAX of the checksum diverge.
+        """
+        chk = torch.zeros((), dtype=torch.float64, device=dist.device)
+        for prm in inner_model.parameters():
+            chk += prm.detach().double().sum()
+        lo = chk.clone()
+        hi = chk.clone()
+        torch.distributed.all_reduce(lo, op=torch.distributed.ReduceOp.MIN)
+        torch.distributed.all_reduce(hi, op=torch.distributed.ReduceOp.MAX)
+        denom = max(abs(float(hi)), 1e-30)
+        return abs(float(hi) - float(lo)) / denom
+
     for batch in datapipe:
         if len(traj) >= STEPS:
             break
@@ -188,10 +219,18 @@ def main(cfg: DictConfig) -> None:
         gnorm = torch.sqrt(sum(p.grad.double().square().sum()
                                for p in inner_model.parameters() if p.grad is not None))
         torch.distributed.all_reduce(gnorm, op=torch.distributed.ReduceOp.AVG)
+        # Per-step LR, because the whole 20-step window can sit inside warmup:
+        # with num_warmup_epochs=5 the warmup is 5*STEPS steps, so a 20-step
+        # capture never leaves it. A discrepancy in the OPTIMIZER path scales
+        # with step size, so a test run at 4% of peak LR understates it. Record
+        # the LR so any reader can see which regime was actually exercised.
+        lr_trace.append(float(optimizer.param_groups[0]["lr"]))
+        max_rank_delta = max(max_rank_delta, _cross_rank_param_delta())
         traj.append({
             "loss": float(vec[0]), "surface": float(vec[1]),
             "upper_air": float(vec[2]), "diagnostic": float(vec[3]),
             "grad_norm": float(gnorm),
+            "lr": lr_trace[-1],
         })
 
     if dist.rank != 0:
@@ -199,6 +238,14 @@ def main(cfg: DictConfig) -> None:
 
     record = {
         "tag": TAG, "git_sha": _git_sha(), "seed": seed, "steps": STEPS,
+        # Witness the ACTUAL optimizer, not what the config asked for:
+        # _wrap_zero has a silent fallback to plain AdamW, and it drops `fused`.
+        # Without these the JSON cannot show which kernel or wrapper ran.
+        "optimizer_class": type(optimizer).__name__,
+        "optimizer_fused": bool(optimizer.param_groups[0].get("fused", False)),
+        "lr_first": lr_trace[0] if lr_trace else None,
+        "lr_last": lr_trace[-1] if lr_trace else None,
+        "max_cross_rank_param_delta": max_rank_delta,
         "mode": MODE, "world_size": dist.world_size,
         "use_zero_optimizer": use_zero,
         "checkpointing": int(cfg.model.get("checkpointing", 0)),
@@ -222,7 +269,15 @@ def main(cfg: DictConfig) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{TAG}.json"
     path.write_text(json.dumps(record, indent=2) + "\n")
+    if max_rank_delta > 0.0:
+        print(f"ERROR REPLICA_DIVERGENCE max_cross_rank_param_delta="
+              f"{max_rank_delta:.3e} — ranks hold DIFFERENT weights. This is a "
+              f"ZeRO sharding/broadcast defect, not float noise.")
     print(f"EQUIV_DDP_CAPTURE_OK {path}")
+    print(f"  optimizer={type(optimizer).__name__} "
+          f"fused={bool(optimizer.param_groups[0].get('fused', False))} "
+          f"lr[0]={lr_trace[0]:.3e} lr[-1]={lr_trace[-1]:.3e} "
+          f"cross_rank_delta={max_rank_delta:.3e}")
     print(f"  tag={TAG} world_size={dist.world_size} zero={use_zero} "
           f"steps={STEPS} seed={seed} loss[0]={traj[0]['loss']:.8e} "
           f"loss[-1]={traj[-1]['loss']:.8e}")
