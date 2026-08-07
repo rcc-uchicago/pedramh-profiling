@@ -1,0 +1,128 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_equiv_zero
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# §4 EQUIVALENCE FOR ZeRO — the gap polaris_validate_and_gate.pbs cannot fill.
+#
+# `equivalence.py` requires world_size 1, and ZeRO-1 is a NO-OP at world size 1
+# (`_wrap_zero` falls back to plain AdamW). So the single-rank gate is silent on
+# ZeRO no matter how it is invoked. This runs the 4-rank instrument instead.
+#
+# THE METHOD — and why a plain A/B would prove nothing
+# ----------------------------------------------------
+# ZeRO changes the gradient REDUCTION: DDP all-reduces then each rank runs the
+# full optimizer; ZeRO reduce-scatters, each rank updates its shard, then the
+# parameters are all-gathered. Identical in exact arithmetic, different summation
+# ORDER in floating point — and float addition is not associative.
+#
+# Multi-rank DDP is therefore not reproducible against ITSELF. Comparing one DDP
+# run to one ZeRO run cannot distinguish "ZeRO is wrong" from "DDP ran twice".
+# So:
+#
+#   1. plain DDP, seed 0            -> ddp_a
+#   2. plain DDP, seed 0 (identical)-> ddp_b     |ddp_a - ddp_b| = NOISE FLOOR
+#   3. DDP + ZeRO-1, seed 0         -> zero      |ddp_a - zero|  = deviation
+#
+# PASS when the deviation sits inside the floor (x3). That is the strongest
+# honest claim available here — a bitwise claim would be false.
+#
+# `checkpointing` is held at 3 throughout: this isolates ZeRO. The checkpointing
+# change is gated separately, at world size 1, by polaris_validate_and_gate.pbs.
+# ckpt3 also fits without ZeRO (25.91 GiB), so run 1 and 2 cannot OOM.
+#
+# ⚠ A ZERO noise floor is a FAILED TEST, not a clean pass — it means the two DDP
+# runs agreed bitwise, which normally indicates the ranks saw identical batches
+# and the reduction was never exercised. The comparator says so explicitly.
+#
+# Submit:  qsub polaris/polaris_equivalence_zero.pbs
+#
+# PASS = "ZERO_EQUIVALENCE_OK". Read the floor and the ratio, not just the token.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"; exit 3; fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"; exit 3; fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+if [ "${NPROC}" -lt 2 ]; then
+    echo "ERROR NEEDS_MULTIRANK: ZeRO is a no-op at world size 1."; exit 3; fi
+
+# §4.1 determinism, minus the part that cannot hold: reduction order.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+export AI_ROSSBY_EQUIV_STEPS="${STEPS:-20}"
+export AI_ROSSBY_EQUIV_MODE=train
+BASE_DIR="${REPO}/baselines/ai_rossby_sfno"
+export AI_ROSSBY_EQUIV_DIR="${BASE_DIR}"
+unset AI_ROSSBY_BENCH AI_ROSSBY_NVTX AI_ROSSBY_EPOCH_TELEMETRY TORCH_COMPILE_MODE
+CKPT="${CKPT:-3}"
+FACTOR="${FACTOR:-3}"
+RUN_ROOT="${MEMBER_ROOT}/runs/ai_rossby_equiv_zero/${PBS_JOBID%%.*}"
+mkdir -p "${BASE_DIR}" "${RUN_ROOT}"
+
+polaris_env_report
+echo "--- zero equivalence ---"
+echo "  ranks=${NPROC}  checkpointing=${CKPT} (held fixed to isolate ZeRO)"
+echo "  steps=${AI_ROSSBY_EQUIV_STEPS}  factor=${FACTOR}x noise floor"
+echo
+
+cd "${RECIPE}" || exit 2
+rc=0
+# label|use_zero
+for spec in "ddp_a|false" "ddp_b|false" "zero|true"; do
+    IFS='|' read -r label zero <<< "${spec}"
+    echo "=============================================================="
+    echo "capture ${label}  (use_zero_optimizer=${zero}, seed 0)"
+    echo "=============================================================="
+    AI_ROSSBY_EQUIV_TAG="${label}" \
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        equivalence_ddp.py \
+        model=sfno_e3sm_parity dataset=e3sm_pangu_parity \
+        training=sfno_e3sm_parity loss=raw_l2 \
+        training.amp=bf16 model.checkpointing="${CKPT}" \
+        training.optimizer.use_zero_optimizer="${zero}" \
+        dataset.batch_size=1 dataset.num_workers=1 seed=0 \
+        hydra.run.dir="${RUN_ROOT}/${label}" wandb.mode=disabled \
+        || { echo "ERROR EQUIV_DDP_CAPTURE_FAILED ${label}"; rc=4; break; }
+    echo
+done
+
+if [ "${rc}" -eq 0 ]; then
+    echo "=============================================================="
+    python "${AR_ROOT}/polaris/compare_zero_equivalence.py" \
+        "${BASE_DIR}/ddp_a.json" "${BASE_DIR}/ddp_b.json" "${BASE_DIR}/zero.json" \
+        --factor "${FACTOR}"
+    rc=$?
+fi
+
+echo
+if [ "${rc}" -eq 0 ]; then
+    echo "AI_ROSSBY_ZERO_EQUIV_GATE_OK — ZeRO-1 is equivalent within the DDP noise floor"
+else
+    echo "ERROR AI_ROSSBY_ZERO_EQUIV_GATE_FAILED rc=${rc} — do NOT adopt ZeRO."
+fi
+exit "${rc}"
