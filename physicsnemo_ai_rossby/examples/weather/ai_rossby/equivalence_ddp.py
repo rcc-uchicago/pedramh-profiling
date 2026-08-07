@@ -135,8 +135,11 @@ def main(cfg: DictConfig) -> None:
         sys.exit(2)
 
     seed = int(cfg.seed)
-    torch.manual_seed(seed)
-    torch.cuda.manual_seed_all(seed)
+    # + rank, as production does (train.py:808-810). Seeding every rank
+    # identically made all four draw the SAME epsilon_factor perturbation — a
+    # per-rank correlation the real run does not have.
+    torch.manual_seed(seed + dist.rank)
+    torch.cuda.manual_seed_all(seed + dist.rank)
 
     cfg_train = cfg.training
     stages = list(cfg_train.stages)
@@ -157,11 +160,18 @@ def main(cfg: DictConfig) -> None:
     )
     inner_model = build_model(cfg.model).to(dist.device)
     n_params = sum(p.numel() for p in inner_model.parameters())
+    # These kwargs MUST match production (train.py:934-943). In particular
+    # gradient_as_bucket_view=True makes p.grad a view into the all-reduce
+    # bucket — precisely the memory ZeRO's bucketing interacts with — so a
+    # capture using the default would certify a configuration nobody runs.
     model = DistributedDataParallel(
         inner_model,
         device_ids=[dist.local_rank],
-        output_device=dist.local_rank,
-        find_unused_parameters=False,
+        output_device=dist.device,
+        broadcast_buffers=dist.broadcast_buffers,
+        find_unused_parameters=dist.find_unused_parameters,
+        gradient_as_bucket_view=True,
+        static_graph=bool(cfg_train.get("ddp_static_graph", False)),
     )
 
     loss_fn = build_loss(cfg).to(dist.device)
@@ -179,6 +189,7 @@ def main(cfg: DictConfig) -> None:
 
     traj: list[dict] = []
     lr_trace: list[float] = []
+    last_batch = None
     # ZeRO-1's characteristic failure is REPLICA DIVERGENCE: a missed or stale
     # parameter broadcast leaves ranks holding different weights. The averaged
     # scalars below cannot see it — averaging is exactly what hides cross-rank
@@ -191,11 +202,14 @@ def main(cfg: DictConfig) -> None:
         Cheap (one scalar, two all-reduces) and direct: if any rank's parameters
         differ after the optimizer step, MIN and MAX of the checksum diverge.
         """
+        # SUM OF SQUARES, not a signed sum: a signed total is invariant under
+        # permutation and under sign-cancelling differences, so it would miss a
+        # wrong shard->parameter mapping. Squares are strictly positive, so the
+        # normaliser is also well-conditioned (a signed sum is near zero).
         chk = torch.zeros((), dtype=torch.float64, device=dist.device)
         for prm in inner_model.parameters():
-            chk += prm.detach().double().sum()
-        lo = chk.clone()
-        hi = chk.clone()
+            chk += prm.detach().double().square().sum()
+        lo, hi = chk.clone(), chk.clone()
         torch.distributed.all_reduce(lo, op=torch.distributed.ReduceOp.MIN)
         torch.distributed.all_reduce(hi, op=torch.distributed.ReduceOp.MAX)
         denom = max(abs(float(hi)), 1e-30)
@@ -204,6 +218,7 @@ def main(cfg: DictConfig) -> None:
     for batch in datapipe:
         if len(traj) >= STEPS:
             break
+        last_batch = batch
         losses = train_step(
             model=model, loss_fn=loss_fn, optimizer=optimizer, scheduler=scheduler,
             batch=batch, has_diagnostic=has_diagnostic,
@@ -232,6 +247,22 @@ def main(cfg: DictConfig) -> None:
             "grad_norm": float(gnorm),
             "lr": lr_trace[-1],
         })
+
+    # One extra forward on the last batch, recording summary stats only (never
+    # tensors — DESIGN §4.2/§7), mirroring equivalence.py:286.
+    final_out_stats = {}
+    if last_batch is not None:
+        with torch.no_grad():
+            amp_ctx = (torch.amp.autocast(device_type="cuda", dtype=amp_dtype)
+                       if amp_dtype is not None else contextlib.nullcontext())
+            with amp_ctx:
+                o = inner_model(last_batch["surface_in"], last_batch["constant_boundary"],
+                                last_batch["varying_boundary"], last_batch["upper_air_in"])
+        for nm, t in (("surface", o[0]), ("upper_air", o[1])):
+            f = t.detach().float()
+            final_out_stats[nm] = {"mean": float(f.mean()), "std": float(f.std()),
+                                   "min": float(f.min()), "max": float(f.max()),
+                                   "shape": list(t.shape)}
 
     if dist.rank != 0:
         return
@@ -263,21 +294,40 @@ def main(cfg: DictConfig) -> None:
         "config_yaml_sha256": hashlib.sha256(
             OmegaConf.to_yaml(cfg, resolve=True).encode()).hexdigest()[:16],
         "loss_trajectory": traj,
-        "forward_output_stats": {},
+        # NOT {} — an empty dict makes compare_baselines.py silently compare
+        # nothing (it iterates set(base) & set(cand)). It also adds the one
+        # thing the scalars cannot give: grad_norm is a Euclidean norm over the
+        # whole parameter vector, hence invariant under permutation or sign
+        # flip, so a wrong shard->parameter mapping barely moves it. Output
+        # tensor stats are not invariant that way.
+        "forward_output_stats": final_out_stats,
     }
     out_dir = Path(OUT_DIR)
     out_dir.mkdir(parents=True, exist_ok=True)
     path = out_dir / f"{TAG}.json"
     path.write_text(json.dumps(record, indent=2) + "\n")
-    if max_rank_delta > 0.0:
-        print(f"ERROR REPLICA_DIVERGENCE max_cross_rank_param_delta="
-              f"{max_rank_delta:.3e} — ranks hold DIFFERENT weights. This is a "
-              f"ZeRO sharding/broadcast defect, not float noise.")
-    print(f"EQUIV_DDP_CAPTURE_OK {path}")
     print(f"  optimizer={type(optimizer).__name__} "
           f"fused={bool(optimizer.param_groups[0].get('fused', False))} "
           f"lr[0]={lr_trace[0]:.3e} lr[-1]={lr_trace[-1]:.3e} "
           f"cross_rank_delta={max_rank_delta:.3e}")
+
+    # (a) ZeRO must actually be a ZeRO optimizer. _wrap_zero silently falls back
+    #     to plain AdamW when distributed is not initialised, and under a BITWISE
+    #     bar that fallback reproduces the control arms EXACTLY — so the strictest
+    #     possible test would pass the one case where ZeRO never ran. Assert it.
+    if use_zero and type(optimizer).__name__ != "ZeroRedundancyOptimizer":
+        print(f"ERROR ZERO_NOT_ACTUALLY_USED — use_zero_optimizer=True but the "
+              f"optimizer is {type(optimizer).__name__}. _wrap_zero fell back "
+              f"silently; this run proves nothing about ZeRO.")
+        sys.exit(5)
+    # (b) Replica divergence must FAIL, not merely print — the launcher keys on
+    #     the exit code, so a bare print would have been invisible to the gate.
+    if max_rank_delta > 0.0:
+        print(f"ERROR REPLICA_DIVERGENCE max_cross_rank_param_delta="
+              f"{max_rank_delta:.3e} — ranks hold DIFFERENT weights. That is a "
+              f"ZeRO sharding/broadcast defect, not float noise.")
+        sys.exit(6)
+    print(f"EQUIV_DDP_CAPTURE_OK {path}")
     print(f"  tag={TAG} world_size={dist.world_size} zero={use_zero} "
           f"steps={STEPS} seed={seed} loss[0]={traj[0]['loss']:.8e} "
           f"loss[-1]={traj[-1]['loss']:.8e}")

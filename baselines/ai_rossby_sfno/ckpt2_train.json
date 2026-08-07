@@ -1,6 +1,6 @@
 {
   "tag": "ckpt2_train",
-  "git_sha": "3a1bdab7edcf",
+  "git_sha": "281c08483458",
   "seed": 0,
   "steps": 20,
   "mode": "train",

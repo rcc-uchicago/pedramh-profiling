@@ -136,6 +136,23 @@ def main(argv=None) -> int:
         ratio = dev / floor if floor > 0 else float("inf")
         print(f"  deviation / floor        : {ratio:.2f}x")
 
+    # A run that silently fell back to plain AdamW reproduces the controls
+    # EXACTLY, so under a bitwise bar it is the most certain thing to pass.
+    # Refuse it here too — the capture asserts this as well, but a stale or
+    # hand-made JSON must not slip past the comparator.
+    zrec = _j.loads(a.zero.read_text())
+    if zrec.get("use_zero_optimizer") and zrec.get("optimizer_class") not in (
+            "ZeroRedundancyOptimizer", None):
+        print(f"ERROR ZERO_NOT_ACTUALLY_USED — zero arm's optimizer_class is "
+              f"{zrec.get('optimizer_class')!r}, not ZeroRedundancyOptimizer.")
+        return 3
+    for nm, pth in (("ddp_a", a.ddp_a), ("ddp_b", a.ddp_b), ("zero", a.zero)):
+        d = _j.loads(pth.read_text()).get("max_cross_rank_param_delta")
+        if d:
+            print(f"ERROR REPLICA_DIVERGENCE in {nm}: {d:.3e} — ranks held "
+                  f"different weights. Fix that before reading any deviation.")
+            return 4
+
     if a.require_bitwise:
         # A zero floor is the EXPECTED control result here, not a red flag: it
         # says the harness is reproducible, which is what makes an exact bar
@@ -156,6 +173,11 @@ def main(argv=None) -> int:
         print("  max_cross_rank_param_delta for replica divergence.")
         return 1
 
+    if floor == 0.0:
+        print("ERROR ZERO_FLOOR_IN_NOISE_MODE — the control has no spread, so "
+              "this mode's bound is just --abs-floor and the ddp_b run carries "
+              "no information. Use --require-bitwise.")
+        return 5
     if dev <= bound:
         print(f"ZERO_EQUIVALENCE_OK — ZeRO reproduces DDP to within the "
               f"reduction's own run-to-run spread")

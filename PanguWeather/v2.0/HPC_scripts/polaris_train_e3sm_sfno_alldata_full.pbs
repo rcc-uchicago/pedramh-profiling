@@ -201,6 +201,19 @@ MAX_CKPTS_KEEP="${MAX_CKPTS_KEEP:-10}"
 # to match: here seed = global_seed * world_size + rank (train.py:3817); there it
 # is cfg.seed + rank. → polaris_sfno_comparison_handoff.md §1
 SEED="${SEED:-0}"
+# Activation checkpointing level. The template ships 3 (checkpoint every block,
+# most recompute). 2 is §4-CERTIFIED BITWISE EQUIVALENT — job 7366931 measured
+# 0.000e+00 max relative error over 108 quantities in both MODE=fixed and
+# MODE=train — and the sweep (7366921) measured it substantially faster at
+# 32.63 GiB (6.86 GiB headroom).
+#
+# ⚠ The gate was run on the AI-ROSSBY stack. That transfers because the SFNO
+# implementation is bitwise identical between the two trees (proven by
+# compare_sfno_parity.py, job 7364984: 0.000e+00 on outputs, loss and grad_norm
+# at fixed weights) and `checkpointing` only gates torch.utils.checkpoint calls
+# inside that shared code. It is a transfer argument, not a PanguWeather-side
+# gate — recorded here rather than assumed.
+CKPT_LEVEL="${CKPT_LEVEL:-2}"   # NB: `CKPT` below is the resume PATH, do not reuse
 
 CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS_ALLDATA.yaml"
 EXP_DIR="${MEMBER_ROOT}/runs/pangu_sfno_alldata_full"
@@ -209,7 +222,7 @@ mkdir -p "${EXP_DIR}"
 
 echo "=== pangu_e3sm_sfno_alldata_full: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
-echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}  max_ckpts_keep=${MAX_CKPTS_KEEP}  seed=${SEED}"
+echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}  max_ckpts_keep=${MAX_CKPTS_KEEP}  seed=${SEED}  checkpointing=${CKPT_LEVEL}"
 nvidia-smi -L
 polaris_env_report
 
@@ -217,7 +230,7 @@ sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" 
     "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}" || exit 2
 
 # Full-run overrides on the rendered copy (never the template — the smoke reads it too).
-python - "${CONFIG_FILE}" "${TRAIN_YEAR_START}" "${TRAIN_YEAR_END}" "${EXP_DIR}" "${MAX_CKPTS_KEEP}" <<'PY' || exit 2
+python - "${CONFIG_FILE}" "${TRAIN_YEAR_START}" "${TRAIN_YEAR_END}" "${EXP_DIR}" "${MAX_CKPTS_KEEP}" "${CKPT_LEVEL}" <<'PY' || exit 2
 import sys, re
 path, y0, y1, exp_dir, max_ckpts = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 src = open(path).read()
@@ -238,9 +251,13 @@ for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", e
         print("ERROR CONFIG_PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
         sys.exit(2)
     src = new
+ck = sys.argv[6]
+src, n = re.subn(r"(?m)^(\s*checkpointing:\s*)\S+.*$", lambda m: m.group(1) + ck, src)
+if n < 1:
+    print("ERROR CONFIG_PATCH_FAILED: checkpointing matched 0 times"); sys.exit(2)
 open(path, "w").write(src)
-print("config patched: train_year_start=%s train_year_end=%s exp_dir=%s max_checkpoints_to_keep=%s"
-      % (y0, y1, exp_dir, max_ckpts))
+print("config patched: train_year_start=%s train_year_end=%s exp_dir=%s max_checkpoints_to_keep=%s checkpointing=%s (%d places)"
+      % (y0, y1, exp_dir, max_ckpts, ck, n))
 PY
 
 # val years are deliberately NOT patched (header #3) — echo them from the rendered

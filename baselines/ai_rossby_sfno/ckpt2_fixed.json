@@ -1,6 +1,6 @@
 {
   "tag": "ckpt2_fixed",
-  "git_sha": "3a1bdab7edcf",
+  "git_sha": "04447417fde0",
   "seed": 0,
   "steps": 20,
   "mode": "fixed",
