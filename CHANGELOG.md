@@ -390,6 +390,53 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       helped — these are genuine capacity limits. (The `PYTORCH_CUDA_ALLOC_CONF`
       vs torch-2.10 `PYTORCH_ALLOC_CONF` naming question is therefore hygiene,
       not a live defect.)
+  - **PANGUWEATHER PRODUCTION LAUNCHED — 7366939 → 7366940, `capacity`, 2 × 168 h,
+    100 epochs, `checkpointing: 2`, ZeRO OFF.** Pre-flight verified, not assumed:
+    51,100 h5 files (1460/yr; train 2015–2044 = 43,800 samples ⇒ 10,950 steps/epoch
+    at 4 ranks; val 2045–2048); corrected stats confirmed by value —
+    `SST` **8.4407/12.0659**, `TSOI_10CM` **271.1259/16.3902**, and **no zero stds**
+    anywhere (`PRECT` is 2.89e-08/8.30e-08, tiny but real); config dry-rendered and
+    inspected (`embed_dim 512`, `epsilon_factor 0.01`, `checkpointing 2` in both
+    places, batch 1, workers 1, 100 epochs, `train.py`). ZeRO is off because its
+    gate is not rebuilt — an ungated change does not go into a 300 h run.
+    At 0.4667 s/step ⇒ **1.42 h/epoch** training; link 1 alone likely finishes.
+  - **⚠ COLD-START CONTAMINATION — the Pangu sweep's RATIOS were inflated
+    (repeat job 7366932).** Four samples of the identical `ckpt3_zero0` config:
+    **0.8965, 0.8916, 0.6014, 0.6014** — bimodal, 49% spread, while every other
+    config held to **≤0.1%**. Tracing by job: both slow samples were the **first
+    config of their job**; both fast ones came later *within* a job. It is a
+    **per-job cold start** (first CUDA context / clock ramp), not the
+    position-in-sequence effect predicted. Corrected against the warm 0.6014:
+    | config | sweep said | **actual** |
+    |---|---|---|
+    | `ckpt2` no-ZeRO | 1.909× | **1.288×** |
+    | `ckpt1` no-ZeRO | 1.958× | **1.321×** |
+    | `ckpt3` + ZeRO | 1.465× | **0.988×** |
+    That now matches ai-rossby's independent 1.27–1.31×, and **ZeRO costs ~1.2% at
+    every level on both harnesses** — the "1.47× ZeRO speedup" never existed.
+    Absolute step times are unaffected (0.1% spread), so the production budget
+    stands. **Discard each job's first config as warm-up**; and note that
+    median-of-repeats *failed* here — the median of a bimodal sample picked a cold
+    outlier. Printing every pass is what caught it.
+  - **⚠ ai-rossby EMA WAS NEVER RESTORED ON RESUME — silent, and it degraded the
+    DELIVERABLE.** `train.py` called `load_checkpoint()` without `metadata_dict=`,
+    so the EMA written into every checkpoint (~4.4 GB) was never read back
+    (`checkpoint.py:1164-1165` only surfaces metadata through that argument). And
+    `ModelEMA` is built *before* the resume, so it deep-copied the random init and
+    then self-healed to the live weights — no crash, no NaN, just a **reset decay
+    warmup at every job boundary**. Since `validate_with_ema: True` and
+    `inference.py` runs `use_ema=true`, **the delivered model is the EMA**: across a
+    2-link chain it would have averaged only over link 2. PanguWeather restores its
+    equivalent (`train.py:3737`); ai-rossby did not. Fixed, with a log line showing
+    `n_averaged` so a regression is visible. **Gate: `polaris_resume_gate.pbs`** —
+    the save→consolidate→resume path had **never executed once** (every ZeRO run set
+    `checkpoint_save_interval=1000000`).
+  - **ZeRO provenance, for the record:** it was added to PanguWeather by
+    **Alexander Wikner on 2026-05-15** and has sat dormant since — **no config in
+    the repo ever enabled it**, and **DESIGN §5's ladder does not list sharding at
+    all** (it starts at `torch.compile`). It surfaced only because the memory
+    question was asked; the ladder assumed compute was the lever, which the profile
+    supported. ai-rossby had none until this session.
   - **⚠ ZeRO EQUIVALENCE: RESULT WITHDRAWN, TEST WAS CONFOUNDED (job 7366891).**
     An adversarial review refuted it. Two independent defects, both in the test:
     1. **The premise was false.** The instrument was built on "ZeRO reduce-scatters,
