@@ -1026,12 +1026,42 @@ def main(cfg: DictConfig) -> None:
     # resume the scheduler exactly, the per-stage iteration count is replayed
     # in-loop below.
     ckpt_dir = Path("./checkpoints")
+    # ⚠ metadata_dict is REQUIRED to get the EMA back. Without it, save_checkpoint
+    # writes `metadata={"ema": ...}` every epoch (~4.4 GB) and load_checkpoint
+    # never returns it — checkpoint.py:1164-1165 only surfaces metadata through
+    # this argument. That was the behaviour until 2026-08-07, and it was silent:
+    #
+    #   * ModelEMA is constructed ABOVE this call, so it deep-copies the RANDOM
+    #     init; AveragedModel then self-heals on the first update() by copying
+    #     the live weights. No crash, no NaN — the EMA just RESETS and restarts
+    #     its decay warmup (eff = min(0.999, (1+epoch)/7)) at every job boundary.
+    #   * `validate_with_ema: True`, so val_loss for ~6 epochs after each resume
+    #     is effectively the raw-weight loss.
+    #   * inference.py consumes ckpt_meta["ema"] and the reference runs
+    #     use_ema=true, so THE DELIVERED MODEL IS THE EMA. Across a 2-link chain
+    #     it would have averaged only over link 2, from a restarted warmup.
+    #
+    # PanguWeather restores its equivalent (train.py:3737).
+    ckpt_meta: dict = {}
     loaded_epoch = load_checkpoint(
         str(ckpt_dir),
         models=inner_model,
         optimizer=optimizer,
+        metadata_dict=ckpt_meta,
         device=dist.device,
     )
+    if ema is not None and ckpt_meta.get("ema"):
+        ema.load_state_dict(ckpt_meta["ema"])
+        logger.info(
+            f"EMA restored from checkpoint (n_averaged="
+            f"{getattr(ema.avg_model, 'n_averaged', None)}) — it must CONTINUE "
+            f"across a resume, not restart its warmup."
+        )
+    elif ema is not None and loaded_epoch > 0:
+        logger.warning(
+            "resumed at epoch %d but the checkpoint carried no EMA state; the "
+            "EMA will restart its decay warmup.", loaded_epoch
+        )
     start_global_epoch = max(int(cfg.start_epoch), loaded_epoch + 1)
 
     # --- Per-batch loss TSV (benchmarking) --------------------------------

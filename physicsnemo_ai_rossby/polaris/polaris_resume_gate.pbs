@@ -1,0 +1,186 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_resume_gate
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# ai-rossby SMOKE REDO + the CHECKPOINT RESUME GATE that has never been run.
+#
+# WHY THIS EXISTS
+# ---------------
+# Every ZeRO run so far set `checkpoint_save_interval=1000000`, i.e. never
+# saved. So the save -> consolidate -> resume path that the 2-link production
+# chain completely depends on has NEVER EXECUTED ONCE. Three known hazards live
+# in it, and all three would fire ~9 h into a 168 h job having written nothing,
+# so link 2 would restart from scratch and die identically:
+#
+#   1. `consolidate_state_dict` moves 2.36 GB/rank through
+#      pickle -> bytearray -> ByteTensor -> NCCL broadcast
+#      (zero_redundancy_optimizer.py::_broadcast_object). Every rank pays the
+#      transient, not just rank 0. Against ~7.4 GB of headroom, unmeasured.
+#      If any rank spends >10 min there the default NCCL watchdog aborts the job.
+#   2. Rank 0 then writes ~19 GB alone while ranks 1-3 block in the next
+#      all-reduce — same watchdog exposure.
+#   3. The EMA was never restored on resume (train.py, fixed 2026-08-07). It is
+#      silent: the EMA resets to the live weights and restarts its decay warmup
+#      at every job boundary, and since inference runs use_ema=true, THE
+#      DELIVERED MODEL is what degrades.
+#
+# It also re-runs the ai-rossby smoke, which is due regardless: the epsilon=0.01
+# input perturbation changed what the model computes, so the recorded smoke
+# losses (2.947 / val 2.995) no longer describe this code.
+#
+# WHAT IT DOES
+# ------------
+# PHASE 1  2 epochs, CKPT_INTERVAL=1, ZeRO on, ckpt2, validation ON.
+# PHASE 2  the SAME run dir + run name, so train.py must resume from phase 1.
+# PHASE 3  assertions on the artifacts.
+#
+# PASS = "RESUME_GATE_OK". Every assertion is named; read them, not the rc.
+#
+# Submit:  qsub polaris/polaris_resume_gate.pbs
+#          qsub -v USE_ZERO=false polaris/polaris_resume_gate.pbs   # isolate ZeRO
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"; exit 3; fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+[ "${VENV_PN}" = "${THIS_PN}" ] || { echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"; exit 3; }
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+USE_ZERO="${USE_ZERO:-true}"
+CKPT="${CKPT:-2}"
+STEPS_PER_EPOCH="${STEPS_PER_EPOCH:-20}"
+SAMPLES=$(( STEPS_PER_EPOCH * NPROC ))     # num_samples_per_epoch is GLOBAL
+RUN_NAME="resume_gate_${PBS_JOBID%%.*}"
+RUN_DIR="${MEMBER_ROOT}/runs/ai_rossby_resume_gate/${RUN_NAME}"
+TEL_CSV="${MEMBER_ROOT}/bench/ai_rossby_resume_gate.csv"
+export AI_ROSSBY_EPOCH_TELEMETRY=1 AI_ROSSBY_EPOCH_TELEMETRY_EPOCHS=0
+export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${TEL_CSV}"
+unset AI_ROSSBY_BENCH AI_ROSSBY_NVTX
+mkdir -p "${RUN_DIR}" "$(dirname "${TEL_CSV}")"
+
+polaris_env_report
+echo "--- resume gate ---"
+echo "  ranks=${NPROC} zero=${USE_ZERO} ckpt=${CKPT} steps/epoch=${STEPS_PER_EPOCH} run=${RUN_NAME}"
+echo
+
+python "${REPO}/compare_sfno_parity.py" --static || { echo "ERROR PREFLIGHT_FAILED"; exit 4; }
+cd "${RECIPE}" || exit 2
+
+run_phase () {   # $1 = phase label, $2 = max_epochs
+    echo "=============================================================="
+    echo "PHASE $1 — max_epochs=$2, saving EVERY epoch, validation ON"
+    echo "=============================================================="
+    /usr/bin/time -f "  phase $1 wall: %E" \
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        train.py \
+        model=sfno_e3sm_parity dataset=e3sm_pangu_parity training=sfno_e3sm_parity \
+        loss=raw_l2 training.amp=bf16 \
+        training.max_epochs="$2" \
+        dataset.num_samples_per_epoch="${SAMPLES}" \
+        model.checkpointing="${CKPT}" \
+        training.optimizer.use_zero_optimizer="${USE_ZERO}" \
+        dataset.batch_size=1 dataset.num_workers=1 \
+        checkpoint_save_interval=1 seed=0 \
+        run_name="${RUN_NAME}" hydra.run.dir="${RUN_DIR}" wandb.mode=disabled
+}
+
+run_phase 1 2 2>&1 | tee "${RUN_DIR}/phase1.log"; rc1=${PIPESTATUS[0]}
+echo "--- phase 1 rc=${rc1} ---"; echo
+[ "${rc1}" -eq 0 ] || { echo "ERROR PHASE1_FAILED rc=${rc1} — nothing to resume from."; exit 5; }
+
+# PHASE 2: identical invocation, same run dir. train.py must find ./checkpoints
+# and resume; max_epochs=4 so it has somewhere to go.
+run_phase 2 4 2>&1 | tee "${RUN_DIR}/phase2.log"; rc2=${PIPESTATUS[0]}
+echo "--- phase 2 rc=${rc2} ---"; echo
+[ "${rc2}" -eq 0 ] || { echo "ERROR PHASE2_FAILED rc=${rc2} — resume path is broken."; exit 6; }
+
+echo "=============================================================="
+echo "PHASE 3 — assertions"
+echo "=============================================================="
+python - "${RUN_DIR}" "${TEL_CSV}" "${RUN_NAME}" <<'PY'
+import csv, re, sys
+from pathlib import Path
+run_dir, tel_csv, run_name = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+p1 = (run_dir / "phase1.log").read_text()
+p2 = (run_dir / "phase2.log").read_text()
+fails = []
+
+def chk(name, ok, detail=""):
+    print(f"  [{'PASS' if ok else 'FAIL'}] {name}{('  ' + detail) if detail else ''}")
+    if not ok:
+        fails.append(name)
+
+# 1. Phase 2 actually resumed rather than starting over. If it silently started
+#    from scratch the whole chain design is void.
+m = re.search(r"start(?:ing)?[_ ]?global[_ ]?epoch\s*=?\s*(\d+)", p2) or \
+    re.search(r"starting at global_epoch=(\d+)", p2)
+chk("phase 2 RESUMED (global_epoch > 1)", bool(m) and int(m.group(1)) > 1,
+    f"global_epoch={m.group(1) if m else '?'}")
+
+# 2. The EMA continued instead of restarting its warmup — the silent bug.
+chk("EMA restored on resume", "EMA restored from checkpoint" in p2,
+    "" if "EMA restored from checkpoint" in p2 else
+    "no restore line; EMA would restart its decay warmup")
+chk("no 'checkpoint carried no EMA state' warning",
+    "carried no EMA state" not in p2)
+
+# 3. Consolidate + save survived, and we can see what it cost.
+chk("phase 1 wrote checkpoints", (run_dir / "checkpoints").is_dir() and
+    any((run_dir / "checkpoints").iterdir()))
+ck = run_dir / "checkpoints"
+if ck.is_dir():
+    mdl = sorted(int(x) for f in ck.glob("*.mdlus")
+                 for x in re.findall(r"\.(\d+)\.mdlus$", f.name))
+    pt = sorted(int(x) for f in ck.glob("checkpoint.*.pt")
+                for x in re.findall(r"\.(\d+)\.pt$", f.name))
+    # 4. Model file and training-state file must agree on the latest index —
+    #    they are resolved INDEPENDENTLY by max(), so a kill between the two
+    #    writes silently pairs weights@N with optimizer@N-1.
+    chk("model/optimizer checkpoint indices agree",
+        bool(mdl) and bool(pt) and max(mdl) == max(pt),
+        f"mdlus max={max(mdl) if mdl else None} pt max={max(pt) if pt else None}")
+
+# 5. Loss is continuous across the boundary — catches lost optimizer state.
+rows = [r for r in csv.DictReader(open(tel_csv)) if r["run_name"] == run_name]
+chk("telemetry has >= 3 epochs (2 pre + >=1 post resume)", len(rows) >= 3,
+    f"n={len(rows)}")
+if len(rows) >= 3:
+    peaks = [float(r["peak_mem_gb"]) for r in rows]
+    print(f"       peak_mem_gb per epoch: {[f'{p:.2f}' for p in peaks]}")
+    print(f"       headroom after consolidate+save: {39.49 - max(peaks):.2f} GiB")
+    chk("peak stayed under 39.49 GiB (consolidate fits)", max(peaks) < 39.49,
+        f"max={max(peaks):.2f}")
+
+print()
+if fails:
+    print("ERROR RESUME_GATE_FAILED: " + "; ".join(fails))
+    sys.exit(1)
+print("RESUME_GATE_OK — save, consolidate, resume and EMA continuity all hold")
+PY
+rc=$?
+echo
+[ "${rc}" -eq 0 ] && echo "AI_ROSSBY_RESUME_GATE_OK" || echo "ERROR AI_ROSSBY_RESUME_GATE_FAILED rc=${rc}"
+exit "${rc}"
