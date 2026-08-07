@@ -1,0 +1,183 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_val_gate
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Two questions the ZeRO sweep left open, in one job.
+#
+# PHASE A — does the recommended config survive VALIDATION?
+#   The sweep ran with validation off, so its 32.02 GB peak is training-only.
+#   Exploits the fact that `peak_mem_gb` is RUN-TO-DATE and `epoch_end` fires
+#   BEFORE validation:
+#       epoch 1 row -> training peak only
+#       epoch 2 row -> max(training, epoch-1 VALIDATION)
+#   So two short epochs measure the validation peak exactly, for ~11 min of
+#   validation instead of 2 x 2.2 h of real epochs.
+#   PASS = two telemetry rows, epoch 2's peak not materially above epoch 1's.
+#
+#   Expectation on record (so it can be wrong): validation should peak LOWER
+#   than training. It runs under no_grad, so it trades ~16 GB of retained
+#   activations for the 4.4 GB backup copy `ema.apply_to` clones (ema.py:128).
+#
+# PHASE B — §4 equivalence gate for the CHECKPOINTING change (ckpt3 -> ckpt2).
+#   Activation checkpointing is recompute-vs-store, so it should be identical:
+#   drop_rate and drop_path_rate are both 0.0, hence no RNG inside a
+#   checkpointed region. "Should be" is the reason to test it — torch.compile
+#   also should have been fine and failed this gate at 5.3% on grad_norm.
+#   PASS = EQUIVALENCE_OK at the stated tolerance, both modes.
+#
+# ⚠ WHAT THIS JOB DELIBERATELY DOES **NOT** TEST: ZeRO.
+#   `equivalence.py:128` hard-requires world_size == 1 — §4.1 pins single-rank
+#   to keep reduction order deterministic. But ZeRO-1 is a NO-OP at one rank
+#   (`_wrap_zero` falls back to plain AdamW): its entire effect is the changed
+#   multi-rank gradient reduction. So this gate cannot say anything about it,
+#   and claiming otherwise would be worse than not testing.
+#   Testing ZeRO properly needs a different instrument: at world_size 4, run
+#   plain DDP TWICE at one seed to establish the reduction's own run-to-run
+#   noise floor, then check ZeRO's deviation sits inside it. Comparing a single
+#   DDP run to a single ZeRO run proves nothing, because DDP is not bitwise
+#   reproducible against itself across reduction orders. Not built yet.
+#
+# Submit:  qsub polaris/polaris_validate_and_gate.pbs
+#          qsub -v CKPT_CAND=1 polaris/polaris_validate_and_gate.pbs   # test ckpt1 instead
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"; exit 3; fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"; echo "  venv: ${VENV_PN}"; echo "  job:  ${THIS_PN}"; exit 3; fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+CKPT_BASE="${CKPT_BASE:-3}"          # what production runs today
+CKPT_CAND="${CKPT_CAND:-2}"          # the recommended candidate
+MAX_ITERS="${MAX_ITERS:-20}"
+TOLERANCE="${TOLERANCE:-1e-2}"       # §4.1: bf16. NEVER loosen to pass (CLAUDE.md #1/#11).
+RUN_ROOT="${MEMBER_ROOT}/runs/ai_rossby_val_gate/${PBS_JOBID%%.*}"
+TEL_CSV="${MEMBER_ROOT}/bench/ai_rossby_sfno_validation_smoke.csv"
+BASE_DIR="${REPO}/baselines/ai_rossby_sfno"
+mkdir -p "${RUN_ROOT}" "$(dirname "${TEL_CSV}")" "${BASE_DIR}"
+
+polaris_env_report
+echo "--- val + gate ---"
+echo "  ranks=${NPROC}  baseline ckpt=${CKPT_BASE}  candidate ckpt=${CKPT_CAND}"
+echo "  steps/epoch=${MAX_ITERS}  tolerance=${TOLERANCE}"
+echo
+
+python "${REPO}/compare_sfno_parity.py" --static || { echo "ERROR PREFLIGHT_FAILED"; exit 4; }
+echo
+
+cd "${RECIPE}" || exit 2
+
+# =========================== PHASE A: validation ============================
+echo "=============================================================="
+echo "PHASE A — validation-inclusive smoke (ckpt=${CKPT_CAND} + ZeRO, 2 epochs)"
+echo "=============================================================="
+export AI_ROSSBY_EPOCH_TELEMETRY=1
+export AI_ROSSBY_EPOCH_TELEMETRY_EPOCHS=0
+export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${TEL_CSV}"
+unset AI_ROSSBY_BENCH AI_ROSSBY_NVTX
+
+# validation is NOT overridden off here — that is the entire point of Phase A.
+python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+    train.py \
+    model=sfno_e3sm_parity dataset=e3sm_pangu_parity training=sfno_e3sm_parity loss=raw_l2 \
+    training.amp=bf16 training.max_epochs=2 \
+    training.stages.0.max_iterations="${MAX_ITERS}" \
+    model.checkpointing="${CKPT_CAND}" \
+    training.optimizer.use_zero_optimizer=true \
+    dataset.batch_size=1 dataset.num_workers=1 \
+    checkpoint_save_interval=1000000 seed=0 \
+    run_name="valsmoke_ckpt${CKPT_CAND}_zero" \
+    hydra.run.dir="${RUN_ROOT}/phaseA" wandb.mode=disabled
+rc_a=$?
+echo "--- phase A rc=${rc_a} ---"
+python - "${TEL_CSV}" <<'PY'
+import csv, sys
+rows = [r for r in csv.DictReader(open(sys.argv[1]))
+        if r["run_name"].startswith("valsmoke_")]
+if len(rows) < 2:
+    print(f"ERROR PHASE_A_INCOMPLETE — got {len(rows)} telemetry row(s), need 2")
+    print("  Without epoch 2 the validation peak is not observable.")
+    raise SystemExit(1)
+e1, e2 = rows[-2], rows[-1]
+p1, p2 = float(e1["peak_mem_gb"]), float(e2["peak_mem_gb"])
+print(f"  epoch 1 peak (training only)          : {p1:.2f} GB")
+print(f"  epoch 2 peak (incl. epoch-1 VALIDATION): {p2:.2f} GB")
+print(f"  validation added                       : {p2 - p1:+.2f} GB")
+print(f"  headroom vs 39.49 GiB usable           : {39.49 - p2:.2f} GB")
+print("PHASE_A_OK — validation does not raise the peak"
+      if p2 <= p1 + 0.5 else
+      f"PHASE_A_NOTE — validation RAISED the peak by {p2 - p1:.2f} GB; "
+      "re-check the production headroom")
+PY
+echo
+
+# ====================== PHASE B: §4 checkpointing gate ======================
+echo "=============================================================="
+echo "PHASE B — §4 equivalence: checkpointing ${CKPT_BASE} vs ${CKPT_CAND}"
+echo "  (world_size 1 — ZeRO is NOT and CANNOT be tested here; see header)"
+echo "=============================================================="
+# §4.1 determinism requirements.
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+export AI_ROSSBY_EQUIV_STEPS="${MAX_ITERS}"
+export AI_ROSSBY_EQUIV_DIR="${BASE_DIR}"
+unset AI_ROSSBY_EPOCH_TELEMETRY TORCH_COMPILE_MODE
+
+rc_b=0
+for MODE in fixed train; do
+    export AI_ROSSBY_EQUIV_MODE="${MODE}"
+    for CK in "${CKPT_BASE}" "${CKPT_CAND}"; do
+        echo "--- capture: mode=${MODE} checkpointing=${CK} ---"
+        # NOT torchrun: equivalence.py requires world_size 1.
+        AI_ROSSBY_EQUIV_TAG="ckpt${CK}_${MODE}" python equivalence.py \
+            model=sfno_e3sm_parity dataset=e3sm_pangu_parity \
+            training=sfno_e3sm_parity loss=raw_l2 \
+            training.amp=bf16 model.checkpointing="${CK}" \
+            dataset.batch_size=1 dataset.num_workers=1 seed=0 \
+            hydra.run.dir="${RUN_ROOT}/equiv_ckpt${CK}_${MODE}" wandb.mode=disabled \
+            || { echo "ERROR EQUIV_CAPTURE_FAILED mode=${MODE} ckpt=${CK}"; rc_b=4; }
+    done
+    if [ "${rc_b}" -eq 0 ]; then
+        echo "--- compare (mode=${MODE}, tolerance=${TOLERANCE}) ---"
+        python "${AR_ROOT}/polaris/compare_baselines.py" \
+            "${BASE_DIR}/ckpt${CKPT_BASE}_${MODE}.json" \
+            "${BASE_DIR}/ckpt${CKPT_CAND}_${MODE}.json" \
+            --tolerance "${TOLERANCE}" || rc_b=5
+    fi
+    echo
+done
+
+echo "=============================================================="
+if [ "${rc_b}" -eq 0 ]; then
+    echo "PHASE_B_OK — checkpointing ${CKPT_BASE}->${CKPT_CAND} equivalent within ${TOLERANCE}"
+else
+    echo "ERROR PHASE_B_FAILED rc=${rc_b} — do NOT adopt, and do NOT raise the tolerance."
+    echo "  A checkpointing level that changes the result means recompute is not"
+    echo "  reproducing the forward pass. Find the cause (CLAUDE.md #1/#11)."
+fi
+echo "ZeRO equivalence remains UNTESTED — needs a world_size-4 noise-floor"
+echo "comparison, which this gate cannot express. See the header."
+exit "${rc_b}"
