@@ -1108,7 +1108,14 @@ def load_checkpoint(
             continue
 
         if isinstance(inner, physicsnemo.core.Module):
-            inner.load(file_name)
+            # map_location="cpu", NOT the default None. `Module.load`'s default
+            # is "the model's device", which stages the ENTIRE saved state_dict
+            # on the GPU while the live model is already resident there — a
+            # second full copy of the weights. Measured on a 1.18 B-param SFNO
+            # (job 7368057): resume peaked +4.27 GiB above a fresh run, against
+            # a 4.40 GiB parameter set. load_state_dict copies into the existing
+            # GPU tensors, so staging on CPU is free and removes the spike.
+            inner.load(file_name, map_location="cpu")
         else:
             file_to_load = _cache_if_needed(file_name)
             missing_keys, unexpected_keys = model.load_state_dict(
