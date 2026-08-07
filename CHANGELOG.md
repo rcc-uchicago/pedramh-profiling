@@ -314,7 +314,56 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     which does NOT fit one 168 h `capacity` job. PanguWeather **2.55 h/epoch** training
     + production validation (129 ICs × 60-step rollouts, est. 0.2–0.7 h) ⇒ 100 epochs
     ≈ **275–325 h**, i.e. 4–5 uninterrupted 72 h `preemptable` links at best.
-  - **PRODUCTION RUNS QUEUED — 100 epochs each, to CONVERGENCE (owner's call: the goal
+  - **BEST-CONFIG SWEEP for ai-rossby SFNO — job 7365119, 12 configs, ONE node
+    (`x3109c0s19b1n0`), back-to-back.** These ratios are same-node/same-job and are
+    therefore trustworthy in a way the cross-job parity ratio is not.
+
+    | config | cls | step_med | samp/s | vs ckpt3 | peak GB |
+    |---|---|---|---|---|---|
+    | `ckpt3` (current) | N | 0.6517 | 6.138 | 1.000× | 21.40 |
+    | `ckpt2` | N | 0.5116 | 7.819 | **1.274×** | 33.96 |
+    | `ckpt1` | N | 0.4986 | 8.023 | **1.307×** | 36.06 |
+    | `ckpt0` | N | 0.4987 | 8.020 | 1.307× | 36.11 |
+    | `ckpt1`+static_graph | N | — | — | **CUDA OOM** | — |
+    | `ckpt0`+static_graph | N | — | — | **CUDA OOM** | — |
+    | `ckpt3`+workers=8 | N | 0.6579 | 6.080 | **0.991×** | 21.40 |
+    | `ckpt1`+workers=8 | N | 0.5013 | 7.980 | 0.997× | 36.06 |
+    | any `batch_size` 2 or 4 | C | — | — | **CUDA OOM** | — |
+
+    - **`checkpointing` is the only lever that pays.** The expensive branch is `>=3`
+      (checkpoint every block); dropping to 2 recovers 1.274× of the 1.307× available.
+      **`ckpt0` and `ckpt1` are indistinguishable** (0.4986 vs 0.4987 s, 36.06 vs
+      36.11 GB), so the `>=1` encoder/decoder branch costs and saves nothing — 1 is
+      the sensible floor and there is no reason to run 0.
+    - **`num_workers` is worthless here, and slightly negative** (0.991×, 0.997×) —
+      exactly as the measured `data_idle_frac` of 0.0068 predicted. **The old "+9%
+      throughput at 8 workers" does NOT transfer**: that was PanguPlasim at 449 ms/step;
+      at ~500-650 ms with a 1.18 B model the loader is already fully hidden and extra
+      workers only add startup cost. Do not re-try this knob on SFNO.
+    - **`ddp_static_graph` OOMs** at ckpt1/ckpt0 — it retains extra state. The
+      `sfno_plasim.yaml` comment calling it "safe to enable here" is not true at low
+      checkpointing. Untested at ckpt2/ckpt3, where there is headroom.
+    - **`batch_size` > 1 is unavailable** at any fast setting; even bs=2 at ckpt1 OOMs.
+  - **⚠ THE SWEEP'S MEMORY NUMBERS UNDERSTATE PRODUCTION BY ~4.4 GB — and it flips the
+    recommendation.** `profile_train.py` builds **no EMA**; `train.py` does, and
+    `ModelEMA` holds a full fp32 shadow copy = 1,182,108,160 × 4 B = **4.40 GB**.
+    Confirmed against the smoke: train.py peak 25.89 GB vs bench peak 21.40 GB, a
+    **4.49 GB** delta. Adding it back, against 39.49 GiB usable:
+    | config | bench peak | + EMA | verdict (before validation) |
+    |---|---|---|---|
+    | ckpt3 | 21.40 | ~25.8 | fine — matches the smoke's 25.89 |
+    | ckpt2 | 33.96 | ~38.4 | **~1 GB margin — marginal** |
+    | ckpt1 | 36.06 | ~40.5 | **would OOM** |
+    So the fastest configs are **not actually reachable in production**. `ckpt2` is the
+    only candidate and it is borderline before validation is even counted. **Nothing is
+    adopted**: this needs a real short training run (EMA + validation) at ckpt2, then
+    the §4 equivalence gate vs ckpt3, before it goes anywhere near a production run.
+  - **Worth a cheap check:** torch 2.10 documents the allocator knob as
+    `PYTORCH_ALLOC_CONF`, while `polaris_env.sh` exports `PYTORCH_CUDA_ALLOC_CONF`. If
+    the old name is no longer honored in the ai-rossby venv, `expandable_segments:True`
+    is silently inactive there — which would change every OOM verdict above.
+
+  - **PRODUCTION RUNS (CANCELLED, pending the best-config decision) — 100 epochs each, to CONVERGENCE (owner's call: the goal
     is trained models, not only parity/profiling).** Both pre-chained with
     `polaris_submit_chain.sh`, so neither needs daily human resubmission; every link
     re-runs its script from the top and resumes from the run's checkpoint.
