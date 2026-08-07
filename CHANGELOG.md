@@ -390,6 +390,39 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       helped — these are genuine capacity limits. (The `PYTORCH_CUDA_ALLOC_CONF`
       vs torch-2.10 `PYTORCH_ALLOC_CONF` naming question is therefore hygiene,
       not a live defect.)
+  - **⚠ ZeRO EQUIVALENCE: RESULT WITHDRAWN, TEST WAS CONFOUNDED (job 7366891).**
+    An adversarial review refuted it. Two independent defects, both in the test:
+    1. **The premise was false.** The instrument was built on "ZeRO reduce-scatters,
+       so summation order changes, so a bitwise test would be wrong."
+       `ZeroRedundancyOptimizer` does **not** touch gradient reduction — DDP's
+       all-reduce runs unchanged, each rank runs the local optimizer over its
+       shard, and updated parameters are **broadcast** (`step()` →
+       `_local_step()` + `_sync_params()`). No reduce-scatter exists. So every
+       rank holds bit-identical gradients after the all-reduce, AdamW is
+       elementwise, and **correct ZeRO-1 must be BITWISE identical**. The whole
+       noise-floor apparatus tolerated a difference that should not exist.
+    2. **The arms used different kernels.** `sfno_e3sm_parity.yaml:90` sets
+       `fused: True`; `_wrap_zero` (train_loop.py:175) drops it because the
+       wrapper rejects it. So the DDP arms ran **fused** AdamW and the ZeRO arm
+       ran **eager** AdamW. The measured **6.675e-06 is the kernel swap**, not
+       sharding — the test compared fused-vs-eager and called it ZeRO-vs-DDP.
+    Also wrong, from the same review: the "below one bf16 ulp" defence was a
+    **category error** (the compared quantities are fp32 loss and **fp64**
+    grad_norm; bf16 appears only in matmul intermediates); the 20-step window sat
+    entirely inside LR warmup so it measured at **~4% of production peak LR**,
+    where optimizer-path discrepancies are smallest; and recording only
+    rank-**averaged** scalars structurally hides ZeRO-1's characteristic failure,
+    replica divergence from a missed/stale broadcast.
+    **Fixed** (commit 04447417): `--require-bitwise`, `fused=false` forced on all
+    arms, per-step cross-rank parameter checksum, and the JSON now witnesses
+    `optimizer_class` / `optimizer_fused` / `lr_first` / cross-rank delta so a
+    confounded run is visible in the artifact. **Rerun pending. ZeRO is NOT
+    cleared for adoption.**
+  - **Lesson, and it is the fourth of its kind today** (after the cross-node
+    parity ratio, the missing EMA, and the GB-vs-GiB mix-up): every one of these
+    made a change look better or more different than it was, and every one was
+    caught by a control or an outside check rather than by the measurement
+    itself. **A number from an instrument nobody attacked is not a result.**
   - **RECOMMENDED ai-rossby production config: `model.checkpointing: 2` +
     `use_zero_optimizer: true`** — 1.239× at 32.02 GB (7.47 GB headroom), over
     `ckpt1`'s 1.268× at 34.12 GB (5.37 GB). `ckpt1` buys 2.3% for 2.1 GB less
