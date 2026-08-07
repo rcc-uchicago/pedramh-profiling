@@ -3668,7 +3668,16 @@ class Trainer():
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         logging.info(f'Restoring from checkpoint: {checkpoint_path}')
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        # map_location='cpu', NOT the local CUDA device. This file is ~18.9 GB
+        # (model + optimizer + EMA); loading it straight onto the GPU stages the
+        # whole thing alongside the already-resident model and EMA. MEASURED on
+        # job 7368237: the first post-resume epoch peaked at 34.57 GiB against
+        # 32.63 GiB for a fresh run — +1.94 GiB, cutting headroom from 6.86 to
+        # 4.92 GiB. Every chain link pays it, and the run is 3-6 links.
+        # Safe because load_state_dict copies into the existing GPU tensors, and
+        # _migrate_optimizer_state_to_device() below exists precisely to move
+        # CPU-loaded optimizer state back for the fused kernel.
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         
         # Get model state dict keys (accounting for DDP wrapper)
         model_state_dict = self.model.state_dict()
