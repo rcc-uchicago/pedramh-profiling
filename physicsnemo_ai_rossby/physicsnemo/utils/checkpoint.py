@@ -1136,7 +1136,15 @@ def load_checkpoint(
         return 0
 
     file_to_load = _cache_if_needed(checkpoint_filename)
-    checkpoint_dict = torch.load(file_to_load, map_location=device, weights_only=False)
+    # map_location="cpu", NOT `device`: this file holds the FULL optimizer state,
+    # and under ZeRO that is the whole consolidated global state — every rank
+    # would materialise all of it on its GPU before the wrapper selects its own
+    # shard and drops the rest. Measured on a 1.18 B-param SFNO (job 7366945):
+    # the resume epochs peaked at 37.37 GiB against 32.05 GiB for a fresh run,
+    # i.e. +5.3 GiB of pure transient, cutting headroom from 7.47 to 2.12 GiB.
+    # `Optimizer.load_state_dict` moves each state tensor to its parameter's
+    # device anyway, so staging on CPU costs nothing and removes the spike.
+    checkpoint_dict = torch.load(file_to_load, map_location="cpu", weights_only=False)
     checkpoint_logging.success(
         f"Loaded checkpoint file {checkpoint_filename} to device {device}"
     )

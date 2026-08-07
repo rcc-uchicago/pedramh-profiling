@@ -180,6 +180,16 @@ if len(rows) >= 3:
     print(f"       headroom after consolidate+save: {39.49 - max(peaks):.2f} GiB")
     chk("peak stayed under 39.49 GiB (consolidate fits)", max(peaks) < 39.49,
         f"max={max(peaks):.2f}")
+    # The RESUME epochs are the expensive ones: load_checkpoint used to stage the
+    # whole consolidated optimizer state on every GPU (+5.3 GiB, job 7366945).
+    # Fixed with map_location="cpu"; this pins it so it cannot come back.
+    fresh, resumed = max(peaks[:2]), max(peaks[2:])
+    print(f"       fresh-run peak {fresh:.2f} GiB | post-resume peak {resumed:.2f} GiB"
+          f" | delta {resumed - fresh:+.2f} GiB")
+    chk("resume does not spike the peak (<= +1.0 GiB)", resumed - fresh <= 1.0,
+        f"delta={resumed - fresh:+.2f} GiB")
+    chk("post-resume headroom >= 4 GiB", 39.49 - resumed >= 4.0,
+        f"headroom={39.49 - resumed:.2f} GiB")
 
 print()
 if fails:
