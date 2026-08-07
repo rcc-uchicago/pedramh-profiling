@@ -167,7 +167,7 @@ PLASIM: &PLASIM
   patch_size: [2, 2, 2]
   updown_scale_factor: 2
   window_size: [2, 2, 4]
-  epsilon_factor: 0.1
+  epsilon_factor: 0.01   # science owner 2026-08-06: 0.01 for ALL models (was 0.1)
   perturbation_type: gaussian_noise
   upper_air_boundary: False
   subpixel_deconv: True

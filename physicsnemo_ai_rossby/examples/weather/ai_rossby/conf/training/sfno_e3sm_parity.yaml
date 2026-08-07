@@ -27,6 +27,28 @@ grad_clip_norm: 0.0
 
 max_epochs: 100                 # the reference config's own value; override per run
 
+# --- Input perturbation — PanguWeather's `epsilon_factor` -------------------
+# Gaussian noise added to the INPUT state only (never targets, boundaries or
+# diagnostics), in NORMALIZED units: sigma = epsilon_factor.
+#
+# Set to 0.01 by the science owner on 2026-08-06, for ALL models. Two things
+# that decision fixed:
+#   1. Our Polaris PanguWeather configs carried 0.1 (inherited from
+#      E3SM_SFNO_H5_DERECHO_jsw.yaml) while E3SM_SFNO_H5_STAMPEDE_jsw.yaml
+#      carried 0.01 — the two references disagreed by 10x. Both Polaris configs
+#      are now 0.01.
+#   2. ai-rossby had NO perturbation at all, so the same bytes on disk reached
+#      the two models as DIFFERENT inputs. This closes that gap.
+#
+# Why sigma is just epsilon_factor: PanguWeather scales by
+# (ff_std / std), and both resolve to the SAME file
+# (data_2015-2050_std_corr.nc), so the ratio is exactly 1.0.
+#
+# ⚠ This CHANGES WHAT THE MODEL COMPUTES — deliberately, on the science owner's
+# instruction. It is not an optimization and must never be treated as one; a
+# §4 equivalence baseline captured before this change will not reproduce after.
+epsilon_factor: 0.01
+
 ddp_bucket_cap_mb: null         # PyTorch's 25 MB default
 ddp_static_graph: False
 # torch.compile stays OFF. It was measured at 1.40x on this recipe and FAILED

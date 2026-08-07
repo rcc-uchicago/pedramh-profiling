@@ -223,6 +223,9 @@ def main(cfg: DictConfig) -> None:
     )
     has_diagnostic = inner_model.has_diagnostic
     vae_kl_weight = float(cfg.loss.get("vae_kl_weight", 0.0))
+    # Benched WITH the perturbation the production run pays (two randn draws
+    # per step); negligible on GPU but measured rather than assumed.
+    epsilon_factor = float(cfg_train.get("epsilon_factor", 0.0))
 
     # --- the measured loop ------------------------------------------------
     step_times: list[float] = []
@@ -282,6 +285,7 @@ def main(cfg: DictConfig) -> None:
                 scheduler=scheduler, batch=batch, has_diagnostic=has_diagnostic,
                 vae_kl_weight=vae_kl_weight, amp_dtype=amp_dtype,
                 grad_scaler=grad_scaler,
+                epsilon_factor=epsilon_factor,
             )
             if unroll_steps > 1:
                 kwargs["unroll_steps"] = unroll_steps

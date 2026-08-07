@@ -1057,6 +1057,10 @@ def main(cfg: DictConfig) -> None:
     if rollout_validator is not None:
         rollout_validator.has_diagnostic = has_diagnostic
     grad_clip_norm = float(cfg_train.get("grad_clip_norm", 0.0))
+    # PanguWeather-parity input perturbation (its `epsilon_factor`). 0.0 = off,
+    # so every config that does not set it is unchanged. Science owner set 0.01
+    # for ALL models on 2026-08-06.
+    epsilon_factor = float(cfg_train.get("epsilon_factor", 0.0))
     vae_kl_weight = float(cfg.loss.get("vae_kl_weight", 0.0))
     use_static_capture = bool(cfg_train.get("use_static_capture", False))
     if use_static_capture and vae_kl_weight > 0.0:
@@ -1198,6 +1202,7 @@ def main(cfg: DictConfig) -> None:
                             vae_kl_weight=vae_kl_weight,
                             amp_dtype=amp_dtype,
                             grad_scaler=grad_scaler,
+                            epsilon_factor=epsilon_factor,
                         )
                     else:
                         losses = train_step(
@@ -1210,6 +1215,7 @@ def main(cfg: DictConfig) -> None:
                             vae_kl_weight=vae_kl_weight,
                             amp_dtype=amp_dtype,
                             grad_scaler=grad_scaler,
+                            epsilon_factor=epsilon_factor,
                         )
                     # Gradient clipping: StaticCapture handles it inside the
                     # graph; eager path applies it here after backward.

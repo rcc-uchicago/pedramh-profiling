@@ -235,6 +235,38 @@ def _resolve_amp_dtype(amp: str | bool | None) -> Optional[torch.dtype]:
     return _AMP_DTYPES.get(str(amp).lower())
 
 
+def perturb_inputs(surface, upper_air, epsilon_factor: float):
+    """PanguWeather-parity Gaussian perturbation of the INPUT state.
+
+    PanguWeather adds this in its data loader
+    (``data_loader_multifiles.py:1102-1112``), gated on ``epsilon_factor > 0``:
+
+        surface_t   += randn(surface_t.shape)   * eps * (surface_ff_std / surface_std)
+        upper_air_t += randn(upper_air_t.shape) * eps * (upper_air_ff_std / upper_air_std)
+
+    Both std files are the SAME file in the E3SM configs
+    (``data_2015-2050_std_corr.nc``), so those ratios are exactly 1.0 and the
+    perturbation reduces to ``randn * epsilon_factor`` in NORMALIZED units.
+    That is why this needs no stats and can live here.
+
+    Applied to the input timestep only — never the targets, boundaries or
+    diagnostics, matching PanguWeather.
+
+    Deliberately done here (on device, per batch) rather than in the dataset:
+    PanguWeather draws it inside DataLoader workers from the global RNG with no
+    ``worker_init_fn``, which makes its ``num_data_workers`` an output-CHANGING
+    knob (CHANGELOG next-action #4). Drawing it here uses the per-rank-seeded
+    global RNG instead, so the noise is reproducible from ``cfg.seed`` and
+    independent of worker count. Same distribution, no trap.
+    """
+    if not epsilon_factor or epsilon_factor <= 0.0:
+        return surface, upper_air
+    return (
+        surface + torch.randn_like(surface) * epsilon_factor,
+        upper_air + torch.randn_like(upper_air) * epsilon_factor,
+    )
+
+
 def train_step(
     *,
     model: torch.nn.Module,
@@ -246,6 +278,7 @@ def train_step(
     vae_kl_weight: float = 0.0,
     amp_dtype: Optional[torch.dtype] = None,
     grad_scaler: Optional["torch.amp.GradScaler"] = None,
+    epsilon_factor: float = 0.0,
 ) -> dict[str, torch.Tensor]:
     """One optimizer step: forward + backward + step + scheduler tick.
 
@@ -274,6 +307,13 @@ def train_step(
     from loss import vae_kl_loss  # local import keeps train_loop / loss decoupled at import time
 
     optimizer.zero_grad(set_to_none=True)
+
+    # PanguWeather-parity input perturbation. Before autocast so it is drawn in
+    # fp32, matching PanguWeather (which perturbs in its fp32 loader). A shallow
+    # copy so the caller's batch is untouched; no-op at the default 0.0.
+    if epsilon_factor and epsilon_factor > 0.0:
+        s, u = perturb_inputs(batch["surface_in"], batch["upper_air_in"], epsilon_factor)
+        batch = {**batch, "surface_in": s, "upper_air_in": u}
 
     # Autocast context — no-op when amp_dtype is None.
     if amp_dtype is None:
@@ -371,6 +411,7 @@ def multistep_train_step(
     vae_kl_weight: float = 0.0,
     amp_dtype: Optional[torch.dtype] = None,
     grad_scaler: Optional["torch.amp.GradScaler"] = None,
+    epsilon_factor: float = 0.0,
 ) -> dict[str, torch.Tensor]:
     r"""K-step rollout training with per-step loss accumulation.
 
@@ -415,9 +456,12 @@ def multistep_train_step(
     diag_seq = batch.get("diagnostic_seq") if has_diagnostic else None
     const_boundary = batch.get("constant_boundary")     # (C, H, W) or (B, C, H, W)
 
-    # Initial state = first frame.
+    # Initial state = first frame. Perturbed like the single-step path — and
+    # ONLY here: PanguWeather perturbs the loaded input sample, not each
+    # autoregressive state the model produces during the rollout.
     state_surface = surface_seq[:, 0]
     state_upper = upper_seq[:, 0]
+    state_surface, state_upper = perturb_inputs(state_surface, state_upper, epsilon_factor)
 
     accum_components = {
         "surface": torch.zeros((), device=state_surface.device, dtype=state_surface.dtype),
