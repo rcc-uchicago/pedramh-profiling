@@ -399,7 +399,24 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     inspected (`embed_dim 512`, `epsilon_factor 0.01`, `checkpointing 2` in both
     places, batch 1, workers 1, 100 epochs, `train.py`). ZeRO is off because its
     gate is not rebuilt — an ungated change does not go into a 300 h run.
-    At 0.4667 s/step ⇒ **1.42 h/epoch** training; link 1 alone likely finishes.
+    At 0.4667 s/step ⇒ 1.42 h/epoch training — **WRONG, see below**.
+  - **⚠ BENCH STEP TIMES DO NOT PREDICT PRODUCTION, AND THE CAUSE IS UNKNOWN.**
+    Live production at `ckpt2` measures **754.9 / 776.1 ms/step** (telemetry,
+    epochs 1-2) against the bench's **466.7 ms** — a **1.62×** gap, and ~2.27× on
+    epoch wall-clock. Real budget: **~3.4 h/epoch ⇒ ~340 h for 100 epochs**, so the
+    2 × 168 h chain is ~4 h short and **needs a third link**.
+    **A previous entry blamed the per-iteration diagnostics block. That was wrong
+    and this repo's own code refutes it**: `train.py:1216-1222` closes the
+    telemetry window *deliberately before* that block, precisely so a telemetry
+    row and a PANGU_BENCH row span the same work. Both windows exclude it.
+    Ruled out so far: the diagnostics block (above); EMA (`ema_active=0` in both
+    epochs, warmup is 6); node variance (~10%, not 62%). Still open — candidates
+    are the measurement method itself (bench uses `cuda.synchronize()` +
+    `perf_counter`, telemetry uses CUDA events) and sustained-vs-burst clock
+    behaviour over 10,950 steps rather than 50. **Until it is explained, treat
+    every bench-derived step time in this document as a lower bound** — including
+    the older 0.602 s/step. Bench MEMORY figures remain trustworthy (bench and
+    production agree exactly at 32.63).
   - **⚠ COLD-START CONTAMINATION — the Pangu sweep's RATIOS were inflated
     (repeat job 7366932).** Four samples of the identical `ckpt3_zero0` config:
     **0.8965, 0.8916, 0.6014, 0.6014** — bimodal, 49% spread, while every other
