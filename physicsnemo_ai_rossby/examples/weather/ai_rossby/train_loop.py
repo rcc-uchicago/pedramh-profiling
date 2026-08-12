@@ -338,6 +338,7 @@ def train_step(
     amp_dtype: Optional[torch.dtype] = None,
     grad_scaler: Optional["torch.amp.GradScaler"] = None,
     epsilon_factor: float = 0.0,
+    capture_outputs: Optional[dict] = None,
 ) -> dict[str, torch.Tensor]:
     """One optimizer step: forward + backward + step + scheduler tick.
 
@@ -345,6 +346,15 @@ def train_step(
     entry. Compatible with both PanguPlasimLegacy (5- or 7-tuple output with
     zero latent placeholders — `vae_kl` stays ~0) and PanguPlasim with VAE
     (6- or 7-tuple with real ``mu``/``logvar``).
+
+    ``capture_outputs``: when given a dict, it is populated in-place with the
+    detached (normalized-space) prediction/target tensors — ``out_surface``,
+    ``out_upper_air``, ``out_diagnostic``, ``target_surface``,
+    ``target_upper_air``, ``target_diagnostic`` (the last of each pair,
+    ``out_diagnostic``/``target_diagnostic``, is ``None`` when the model has
+    no diagnostic head) — for a caller-side per-variable diagnostic (e.g.
+    PanguWeather-style per-var/per-level wandb logging). ``None`` (default)
+    skips this — existing callers are unaffected.
 
     Mixed-precision support
     -----------------------
@@ -413,14 +423,25 @@ def train_step(
             out_diag = None
             latent_offset = 2
 
+        target_diag = batch.get("diagnostic") if has_diagnostic else None
         losses = loss_fn(
             out_surface,
             out_upper_air,
             batch["target_surface"],
             batch["target_upper_air"],
             out_diagnostic=out_diag,
-            target_diagnostic=batch.get("diagnostic") if has_diagnostic else None,
+            target_diagnostic=target_diag,
         )
+
+        if capture_outputs is not None:
+            capture_outputs.update(
+                out_surface=out_surface.detach(),
+                out_upper_air=out_upper_air.detach(),
+                out_diagnostic=out_diag.detach() if out_diag is not None else None,
+                target_surface=batch["target_surface"].detach(),
+                target_upper_air=batch["target_upper_air"].detach(),
+                target_diagnostic=target_diag.detach() if target_diag is not None else None,
+            )
 
         # The VAE-KL branch fires only when (a) KL weight > 0, (b) the model
         # returned at least four latent slots, AND (c) those slots are torch

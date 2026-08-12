@@ -71,9 +71,10 @@ from physicsnemo.utils.logging import LaunchLogger, PythonLogger
 from typing import Optional
 
 from data_staging import _STAGEABLE_KEYS, resolve_stage_root, stage_store
+from diagnostics import pangu_style_lwrmse_logs, per_channel_lat_weighted_rmse
 from ema import ModelEMA
 from epoch_telemetry import EpochTelemetry
-from loss import ArchesWeatherLoss, PanguPlasimLoss
+from loss import ArchesWeatherLoss, PanguPlasimLoss, cos_lat_weights
 from train_loop import (
     _resolve_amp_dtype,
     make_optimizer,
@@ -1141,6 +1142,19 @@ def main(cfg: DictConfig) -> None:
         )
         use_static_capture = False
 
+    # --- PanguWeather-parity per-var/per-level wandb diagnostics ----------
+    # (ai_rossby_finegrained_wandb_handoff.md) `_diag_lat_weights` is built
+    # ONCE here (num_lat is fixed for the run) and reused every iteration
+    # rather than recomputed per-step. Variable-name lists mirror build_loss's
+    # (`_surface_channel_names` folds land/ocean into the surface tensor, same
+    # order the model/loss walk it in).
+    _diag_lat_weights = cos_lat_weights(
+        int(cfg.model.horizontal_resolution[0]), dist.device, torch.float32
+    )
+    _diag_surface_variables = _surface_channel_names(cfg.model)
+    _diag_upper_air_variables = list(cfg.model.upper_air_variables)
+    _diag_diagnostic_variables = list(cfg.model.get("diagnostic_variables", []) or [])
+
     global_epoch = 1
     for stage_idx, stage in enumerate(stages):
         stage_num_epochs = int(stage.num_epochs)
@@ -1243,6 +1257,11 @@ def main(cfg: DictConfig) -> None:
                     # backward -> optimizer -> EMA. Loader wait falls between
                     # windows and surfaces as `gpu_busy_frac` < 1.
                     telemetry.step_start()
+                    # Populated only by the eager single-step `train_step` path
+                    # below (see its `capture_outputs` docstring) -- stays empty
+                    # under StaticCapture/multistep, where the per-var wandb
+                    # diagnostics block after telemetry.step_end() is a no-op.
+                    _diag_capture: dict = {}
                     if captured_train_fn is not None:
                         # StaticCaptureTraining-wrapped path: returns scalar
                         # loss only. The decorator handles backward + step +
@@ -1287,6 +1306,7 @@ def main(cfg: DictConfig) -> None:
                             amp_dtype=amp_dtype,
                             grad_scaler=grad_scaler,
                             epsilon_factor=epsilon_factor,
+                            capture_outputs=_diag_capture,
                         )
                     # Gradient clipping: StaticCapture handles it inside the
                     # graph; eager path applies it here after backward.
@@ -1301,6 +1321,57 @@ def main(cfg: DictConfig) -> None:
                     # (~4.7 GB of elementwise traffic), and attributing it
                     # elsewhere would understate the step.
                     telemetry.step_end()
+
+                    # PanguWeather-parity per-var/per-level wandb diagnostics
+                    # (ai_rossby_finegrained_wandb_handoff.md). Deliberately
+                    # AFTER telemetry.step_end(), mirroring PanguWeather
+                    # train.py: "this block is per-iteration diagnostics
+                    # (RMSE + wandb)... it has no counterpart inside
+                    # ai-rossby's window, and including it here would make
+                    # the two harnesses' step times incomparable." Runs on
+                    # EVERY rank unconditionally (no `wandb.enabled` gate,
+                    # no frequency gate) so the all-reduce below stays a
+                    # collective all ranks join, matching PanguWeather's own
+                    # `dist.all_reduce` in `diagnostic_log_per_iter` -- only
+                    # the final `wandb.log` is rank-0-only. `_diag_capture`
+                    # is empty under StaticCapture/multistep (see above), so
+                    # this is a no-op there.
+                    if _diag_capture:
+                        with torch.no_grad():
+                            surface_lwrmse = per_channel_lat_weighted_rmse(
+                                _diag_capture["out_surface"],
+                                _diag_capture["target_surface"],
+                                _diag_lat_weights,
+                            )
+                            upper_air_lwrmse = per_channel_lat_weighted_rmse(
+                                _diag_capture["out_upper_air"],
+                                _diag_capture["target_upper_air"],
+                                _diag_lat_weights,
+                            )
+                            diagnostic_lwrmse = None
+                            if _diag_capture["out_diagnostic"] is not None:
+                                diagnostic_lwrmse = per_channel_lat_weighted_rmse(
+                                    _diag_capture["out_diagnostic"],
+                                    _diag_capture["target_diagnostic"],
+                                    _diag_lat_weights,
+                                )
+                            pangu_logs = pangu_style_lwrmse_logs(
+                                surface_lwrmse=surface_lwrmse,
+                                upper_air_lwrmse=upper_air_lwrmse,
+                                diagnostic_lwrmse=diagnostic_lwrmse,
+                                surface_variables=_diag_surface_variables,
+                                upper_air_variables=_diag_upper_air_variables,
+                                diagnostic_variables=_diag_diagnostic_variables,
+                                surface_std=stage_datapipe.normalizer.surface_std,
+                                upper_air_std=stage_datapipe.normalizer.upper_air_std,
+                                diagnostic_std=stage_datapipe.normalizer.diagnostic_std,
+                            )
+                            pangu_logs = _ddp_mean_scalars(pangu_logs, dist=dist)
+                            if dist.rank == 0 and wandb_active:
+                                import wandb  # deferred: only importable/needed when wandb is active
+
+                                wandb.log(pangu_logs)
+
                     # Aggregate the per-GPU minibatch losses to a global mean
                     # before logging, so the single wandb run's per-step series
                     # reflects all ranks (not just rank 0's local batch). On-

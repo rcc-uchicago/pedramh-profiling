@@ -168,6 +168,61 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-11** — **Implemented `ai_rossby_finegrained_wandb_handoff.md`: ai-rossby now
+  emits PanguWeather-identical per-var/per-level wandb keys.** Both production jobs
+  (Pangu `7368237` on `capacity`, ai-rossby `7368547` on `preemptable`) are still RUNNING
+  — nothing was launched; this lands in the working tree for the next queue-rotation
+  restart per the handoff's own instruction. **Not yet GPU-verified** — see below.
+  - New `physicsnemo_ai_rossby/examples/weather/ai_rossby/diagnostics.py`:
+    `per_channel_lat_weighted_rmse` (mirrors Pangu's `weighted_rmse_torch_channels`/
+    `_3D` exactly, keeping the channel/level axis) + `pangu_style_lwrmse_logs`
+    (denormalize-and-key-format to Pangu's literal strings).
+  - `train_loop.py::train_step` gained an opt-in `capture_outputs` dict param (default
+    `None`, zero behavior change for the 4 existing callers) so `train.py` can read back
+    the normalized-space output/target tensors after the timed step window.
+  - `train.py`: new block after `telemetry.step_end()` (mirrors Pangu's placement +
+    comment verbatim), runs on **every rank unconditionally** (no `wandb.enabled` gate,
+    no frequency gate — matches Pangu's "whenever not BENCH"), calls `wandb.log(...)`
+    directly (bypassing `LaunchLogger`, which both prefixes keys `train/` AND throttles
+    to `mini_batch_log_freq=100` by default — either would have broken parity). Only
+    rank 0 executes the final `wandb.log`; the `_ddp_mean_scalars` all-reduce before it
+    is still a collective every rank joins, matching Pangu's own `dist.all_reduce`.
+  - **Corrected a wrong claim in the handoff (§4.2):** it asserted ai-rossby's
+    `cfg.model.levels` would format identically to Pangu's key strings. Traced instead —
+    Pangu's `data_loader_multifiles.py:527-528` sets `self.levels = params['levels']`
+    (the ROUNDED nominal list `[5, 10, 20, ..., 1000]`) UNCONDITIONALLY; `use_sigma_levels`
+    only controls which list `load_mean_std` indexes stats with. ai-rossby's
+    `cfg.model.levels` holds the OTHER list (full-precision hybrid values, needed for the
+    normalizer's by-value matching) — using it directly would emit
+    `train_T_level4.7150_lwrmse`, never merging with Pangu's `train_T_level5.0000_lwrmse`.
+    Fixed with a hardcoded `PANGU_UPPER_AIR_LEVEL_LABELS` constant in `diagnostics.py`,
+    pinned by a test asserting it equals Pangu's literal `SFNO.levels:` list.
+  - **§3 latitude-grid check: DONE, reuse `cos_lat_weights` as-is (no new lat_values
+    path needed).** Diffed Pangu's real production `lat:` array (180 cell-centered
+    points, -89.5→89.5°, read from the live job's rendered config, not the template)
+    against `cos_lat_weights`'s synthesized `phi` grid: agree to 1.4e-14° (float noise)
+    after accounting for the ascending-vs-descending order. The `N·w/sum(w)` vs
+    `w/mean(w)` normalization forms also agree to 6.9e-16.
+  - New `physicsnemo_ai_rossby/test/recipes/ai_rossby/test_diagnostics.py` (the
+    canonical test location — mirrors `test_loss.py`/`test_train_loop.py`'s
+    `sys.path.insert` pattern to reach `examples/weather/ai_rossby/`; picked up by the
+    existing `polaris/polaris_recipe_tests.pbs` runner via `TESTS=...`, not a new
+    mechanism): 14 tests (shape, exact Pangu-formula match, the §3 grid check as a
+    durable regression test, key-string parity, the FULL 101-channel E3SM variable
+    contract — 8 surface + 5×18 upper-air + 3 diagnostic, matching `out_chans` — not
+    just a toy 2-var example, de-normalization units, `train_step` capture wiring
+    end-to-end). **RUN AND GREEN**: job 7413433 (13 tests, after fixing 3 self-inflicted
+    test bugs — a dtype-strict `assert_close` against a function that's documented to
+    always reduce in float32, and two `set(losses)` checks missing the always-present
+    `vae_kl` placeholder key) then job 7413472 (14/14 after adding the full-contract
+    test). `13 passed in 7.82s` / `14 passed in 1.73s`. Re-run with:
+    `qsub -v TESTS="test/recipes/ai_rossby/test_diagnostics.py"
+    physicsnemo_ai_rossby/polaris/polaris_recipe_tests.pbs`.
+  - Left out of scope on purpose: `multistep_train_step`/`StaticCaptureTraining` paths
+    (production runs `unroll_steps: 1`, `use_static_capture: False` — both dead code
+    today); validation-side per-var metrics (handoff explicitly scopes these out, Pangu's
+    own `long_validation` is off in production).
+
 - **2026-08-07** — **BOTH PRODUCTION RUNS LAUNCHED. Read the QUEUE ROTATION below
   before touching anything in `qstat`.**
 
