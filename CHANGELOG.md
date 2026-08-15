@@ -168,6 +168,45 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-14** — **Fixed: Pangu's `best_ckpt.tar` silently stops meaning "best" across any
+  resume, and the true-best epoch's numbered checkpoint is already unrecoverable on the live
+  run.** Found while answering "have we reached a best checkpoint" for the live production
+  run (job chain 7368237 → 7368539 → ...).
+  - **Root cause**: `best_valid_loss` and `early_stopping_counter` (`train.py`, `Trainer.train()`)
+    were plain local variables, reset to `1.e6` / `0` on every call — and `train()` is called
+    fresh every process start, while `restore_checkpoint()` (which runs once, in `__init__`,
+    before `train()`) had no way to hand a resumed value into that local scope. Every resume's
+    first validated epoch trivially satisfied `valid_loss <= 1.e6` and overwrote
+    `best_ckpt.tar`, regardless of whether it was actually better than history.
+  - **Measured on the live run**: `best_ckpt.tar`'s mtime matched epoch 42 (val_loss
+    0.02690) — the first epoch validated after the most recent resume — not the run's true
+    minimum, **epoch 27, val_loss 0.026548** (verified against the exact
+    `Saved numbered checkpoint: ckpt_epoch_27.tar` log line). Epoch 27's own numbered
+    checkpoint has since rotated out of the 10-file retention window (`_cleanup_old_checkpoints`)
+    — **that checkpoint is gone**; this fix prevents recurrence, it does not recover it.
+  - **Fix**: both become `self.` attributes, seeded via `getattr(self, ..., default)` in
+    `train()` (fresh runs still start at 1.e6/0; a value already set by
+    `restore_checkpoint()` survives), persisted in `save_checkpoint()`'s `checkpoint_data`
+    dict, restored via `checkpoint.get(..., default)` (not `checkpoint[...]`) in
+    `restore_checkpoint()` — `.get()` specifically so every checkpoint saved *before* this fix
+    (which lacks the key) degrades to the old default instead of raising `KeyError` on load.
+  - **Test**: `PanguWeather/v2.0/test/best_checkpoint_resume_test.py` — static AST analysis
+    (no torch import, matches `bench_instrumentation_test.py`'s convention; this login node's
+    `python3` is 3.6, so the test's own constant-node check has to handle the pre-3.8
+    `ast.Str`/`ast.Num` split, not just `ast.Constant`). 6/6 `BEST_CKPT_RESUME_OK`, run
+    directly on the login node (pure AST, no GPU/data needed).
+  - **ai-rossby has no equivalent "best" mechanism at all** (`grep` for
+    `is_best`/`best_checkpoint`/`best_valid_loss` in its `train.py`: zero hits) — only fixed
+    interval-based numbered checkpoints, no best-selection logic, so this specific bug class
+    doesn't apply there. Its own true-best epoch (~24-25, val_loss≈0.03258) happens to still be
+    recoverable anyway, because of the OTHER known bug on that side
+    (`max_checkpoints_to_keep` declared but never read — checkpoints accumulate unbounded,
+    confirmed 50 files on disk back to epoch 2).
+  - Not yet committed — this touches the live run's own source file
+    (`PanguWeather/v2.0/train.py`); editing it is safe (the running process already has it
+    loaded in memory, same reasoning as every other train.py edit this session), and the fix
+    takes effect on Pangu's *next* resume, whenever that next queue rotation happens.
+
 - **2026-08-11** — **Implemented `ai_rossby_finegrained_wandb_handoff.md`: ai-rossby now
   emits PanguWeather-identical per-var/per-level wandb keys.** Both production jobs
   (Pangu `7368237` on `capacity`, ai-rossby `7368547` on `preemptable`) are still RUNNING

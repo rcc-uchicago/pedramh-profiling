@@ -881,8 +881,20 @@ class Trainer():
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
-        best_valid_loss = 1.e6
-        early_stopping_counter = 0
+        # `getattr` default lets a fresh run start at 1.e6/0 as before, but if
+        # restore_checkpoint() already set self.best_valid_loss /
+        # self.early_stopping_counter from a resumed checkpoint (it runs in
+        # __init__, before train() is ever called), that value survives here
+        # instead of being silently reset. Previously these were plain local
+        # variables: every resume reset best_valid_loss to 1.e6, so the first
+        # validated epoch after ANY resume trivially satisfied
+        # `valid_loss <= best_valid_loss` and overwrote best_ckpt.tar with a
+        # worse epoch — confirmed on the live run (best_ckpt.tar held epoch 42
+        # at val_loss 0.02690, while the true minimum was epoch 27 at
+        # 0.026548, whose own numbered checkpoint had already rotated off
+        # disk by the time this was caught).
+        self.best_valid_loss = getattr(self, 'best_valid_loss', 1.e6)
+        self.early_stopping_counter = getattr(self, 'early_stopping_counter', 0)
         early_stop_epoch_triggered = False
 
         for epoch in range(self.startEpoch, self.params.max_epochs):
@@ -981,13 +993,13 @@ class Trainer():
             
             # Early stopping logic should be outside of world_rank check
             # Check if validation improved BEFORE updating best_valid_loss
-            is_best = valid_logs['valid_loss'] <= best_valid_loss
-            
+            is_best = valid_logs['valid_loss'] <= self.best_valid_loss
+
             if is_best:
-                best_valid_loss = valid_logs['valid_loss']
-                early_stopping_counter = 0  # Reset the counter
+                self.best_valid_loss = valid_logs['valid_loss']
+                self.early_stopping_counter = 0  # Reset the counter
             else:
-                early_stopping_counter += 1  # Increment the counter
+                self.early_stopping_counter += 1  # Increment the counter
 
             self.model.eval() # important! This disables randomized embedding dropout
 
@@ -1007,9 +1019,9 @@ class Trainer():
                         logging.info(f'Find best checkpoint at {epoch}.')
             if self.params.log_to_wandb and self.world_rank == 0:
                 self.log_wandb_epoch(epoch)
-                self.log_screen_epoch(epoch, start, train_logs, valid_logs, early_stopping_counter)
+                self.log_screen_epoch(epoch, start, train_logs, valid_logs, self.early_stopping_counter)
             # Early stopping check
-            if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
+            if self.params.early_stopping and self.early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen and world_rank == 0:
                     logging.info('Early stopping triggered. Terminating training.')
                 break # Exit the train method
@@ -3620,6 +3632,11 @@ class Trainer():
             'wandb_step': self.wandb_step,
             'ema_state': self.ema.state_dict() if self.ema is not None else None,
             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
+            # Must round-trip across a resume, or the first validated epoch of
+            # every new process trivially looks "best" against a fresh 1.e6 —
+            # see the comment at the top of train().
+            'best_valid_loss': getattr(self, 'best_valid_loss', 1.e6),
+            'early_stopping_counter': getattr(self, 'early_stopping_counter', 0),
         }
         if hasattr(self, 'finetune_startEpoch'):
             checkpoint_data['finetune_startEpoch'] = self.finetune_startEpoch
@@ -3763,6 +3780,19 @@ class Trainer():
             
         # Restore optimizer and scheduler state only when resuming training (not finetuning)
         self.epoch = checkpoint['epoch']
+        # `.get(..., default)`, not `checkpoint[...]`: checkpoints saved before this fix
+        # (every ckpt_latest.tar / ckpt_epoch_N.tar / best_ckpt.tar written prior to
+        # 2026-08-14) have neither key, and must fall back to the pre-fix defaults
+        # rather than KeyError. Once a checkpoint saved AFTER this fix is resumed from,
+        # the real value round-trips correctly from here on.
+        self.best_valid_loss = checkpoint.get('best_valid_loss', 1.e6)
+        self.early_stopping_counter = checkpoint.get('early_stopping_counter', 0)
+        if self.world_rank == 0:
+            logging.info(
+                f"Restored best_valid_loss={self.best_valid_loss} "
+                f"early_stopping_counter={self.early_stopping_counter} from checkpoint "
+                f"(1.e6/0 means the checkpoint predates this fix or truly had no prior best)"
+            )
         # Restore wandb_step from checkpoint if available, otherwise use iters
         if 'wandb_step' in checkpoint:
             self.wandb_step = checkpoint['wandb_step']
