@@ -179,7 +179,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     `midway_smoke_train.sh` (`ACE2_SMOKE_OK`) and `midway_bench_nsys.sh` (`ACE2_NSYS_OK`),
     beside the untouched Delta `train.sh` (rule #7).
   - **GREEN on 4×A100**: job **53478978** `ACE2_SMOKE_OK` train 35.783 / valid 36.213 (5:55);
-    job **53478979** `ACE2_NSYS_OK`, 275 MB report (4:24). Job 53479120 = windowed re-capture.
+    job **53478979** `ACE2_NSYS_OK`, 275 MB report (4:24); job **53479120** windowed
+    re-capture `ACE2_NSYS_OK` (205 MB, 4:00).
   - **The model is 455,831,040 params** (455.8 M) — record it before anyone assumes otherwise,
     as happened with Pangu (1.18 B, not ~79 M).
   - **`tf32=True` is logged at startup** ⇒ the vendored `67242e348` perf commit is **live**,
@@ -191,7 +192,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     so 45.8% is an upper bound on "not computing", not wire time; the capture includes
     startup + validation; and `batch_size=4` inflates the per-step all-reduce share.
     Surviving signal: **elementwise-bound** (same shape as PanguWeather) and fp32 gradient
-    all-reduce is expensive on **A100-PCIE** (no NVLink).
+    all-reduce is expensive on **A100-PCIE** (no NVLink). The windowed re-capture puts the
+    training-only split at **NCCL 40.6% / elementwise 35.4% / GEMM 11.3%** — stable across
+    all three views, so it is not an artifact of where the window fell.
+  - **Validation is CPU-bound, not GPU-bound** — 280.2 s of the windowed capture's 282.5 s
+    of kernel time falls in its first 71 s, so validation burns ~40% of the window's
+    wall-clock (and ~80% of a cold epoch) for **~1% of GPU kernel time**. The aggregators,
+    not the GPU, are what make an ACE2 epoch long ⇒ optimizing only the training step
+    addresses the smaller half of the epoch.
   - **`fme` has ZERO instrumentation** — no `cudaProfilerApi`, no `torch.profiler`, no NVTX
     in the SFNO lat-lon path. So the house `--capture-range=cudaProfilerApi` flags would
     capture **nothing**, and `midway_bench_nsys.sh` uses a time window instead (its one

@@ -93,6 +93,32 @@ kernel time ⇒ **~59% GPU-busy**, and only **~32%** once NCCL is removed.
    all-reduce a larger share of the step. Expect the NCCL fraction to fall at
    production batch size.
 
+### Windowed re-capture — job 53479120 (`ACE2_NSYS_DELAY=45 ACE2_NSYS_DURATION=110`)
+
+205 MB report, 100.5 s trace span. The window covers ~71 s of training plus the
+trailing validation, so it is the training-dominated view the unbounded capture
+could not give:
+
+| bucket | whole window | **first 71 s (training)** | unbounded (53478979) |
+|---|---|---|---|
+| NCCL (comm + wait) | 40.9% | **40.6%** | 45.8% |
+| elementwise / copy | 35.2% | **35.4%** | 32.2% |
+| GEMM | 11.2% | **11.3%** | 10.4% |
+| norm / cudnn | 4.7% | 4.7% | 4.4% |
+| optimizer | 4.1% | 4.2% | 3.8% |
+| FFT / SHT | 2.4% | 2.4% | 2.2% |
+
+The shape is stable across all three views, so it is not an artifact of where
+the capture window fell. GPU-busy here is 282.5 s of kernel time against
+100.5 s × 4 ranks = 402 GPU-seconds ⇒ **70% busy, 41% excluding NCCL**.
+
+**New finding — validation is CPU-bound, not GPU-bound.** 280.2 s of the
+window's 282.5 s of kernel time falls in the first 71 s. Validation therefore
+contributes **~1% of GPU kernel time while consuming ~40% of the window's
+wall-clock** (and ~80% of a cold epoch, above). The aggregators, not the GPU,
+are what make an ACE2 epoch long. Any "speed up ACE2" work that only touches
+the training step is optimizing the smaller half of the epoch.
+
 Even discounted, two things look real: this is an **elementwise-bound** model
 (32% of kernel time, 1.7 M launches, versus 10% GEMM) — the same shape the
 PanguWeather profile found — and **fp32 gradient all-reduce over PCIe** is
@@ -126,7 +152,9 @@ names must match the existing contract, not invent new ones.
   `midway_smoke_train.sh` and `midway_bench_nsys.sh` added beside the untouched
   `train.sh`. Jobs **53478978** `ACE2_SMOKE_OK` (train 35.783 / valid 36.213,
   5:55) and **53478979** `ACE2_NSYS_OK` (275 MB report, 4:24). Numbers above.
-  Job **53479120** (windowed capture) submitted.
+  Job **53479120** windowed capture `ACE2_NSYS_OK` (205 MB, 4:00) — confirms the
+  bucket shape is stable and shows **validation is CPU-bound** (~1% of GPU kernel
+  time for ~40% of the window's wall-clock).
   - Smoke/bench shorten the production config with `--override` rather than
     forking a second config, so every deviation is visible in the script.
   - A pre-flight `python -m fme.ace.validate_config` runs before the GPU work:
