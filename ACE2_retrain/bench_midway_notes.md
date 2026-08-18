@@ -144,6 +144,61 @@ Adding `ACE2_*` bench knobs + NVTX that emits the **shared** range names is the
 follow-up that makes ACE2 comparable to the other models. Per CLAUDE.md #10 the
 names must match the existing contract, not invent new ones.
 
+## 2-node (8-GPU) — submitted, NOT yet green
+
+`midway_smoke_train_2node.sh` (→ `ACE2_SMOKE_2NODE_OK`) and
+`midway_bench_nsys_2node.sh` (→ `ACE2_NSYS_2NODE_OK`), jobs **53483263** and
+**53483265** (the latter chained `afterok`). Both **queued as of 2026-08-18**;
+no result yet. They are siblings — the single-node scripts are untouched.
+
+**The launcher had to change, which is why these are separate scripts.**
+`torchrun --standalone` binds rendezvous to localhost and *cannot* span nodes.
+Multi-node needs one launcher per node sharing a c10d rendezvous — the shape the
+Delta `train.sh` already proved for this codebase:
+
+```
+--ntasks-per-node=1   # ONE launcher per node; torch.distributed.run forks the 4 local ranks
+srun python -m torch.distributed.run --nnodes 2 --nproc_per_node 4 \
+     --rdzv_id $SLURM_JOB_ID --rdzv_backend c10d --rdzv_endpoint <head_ip>:29500
+```
+
+`--ntasks-per-node=4` here would start 4 launchers per node = 16 ranks, not 8.
+
+**H100, not H200** — measured with `sbatch --test-only` on 2026-08-18:
+
+| constraint | est. start | nodes |
+|---|---|---|
+| **H100** | **08-18 09:44** | `midway3-[0372,0423]` |
+| H200 | 08-18 20:45 | mixed flavours |
+| `H200&gold-6542Y` | 08-19 08:31 | homogeneous |
+| `H200&epyc-9335` | 08-20 03:34 | homogeneous |
+
+H100 was both soonest *and* automatically homogeneous: `--constraint=H100` with
+`--gres=gpu:4` can only match `gold-6346,512g` 32-core nodes, because the other
+H100 box (`midway3-0432`, Gold-6448Y/1TB) has `gpu:2` and is excluded by the
+4-GPU request. Homogeneity is not cosmetic here — the single-node profile showed
+NCCL ring kernels spin while waiting for peers, so a slower partner node gets
+recorded as communication cost that does not exist. Retarget without editing:
+`sbatch --constraint=H200 ...` (then prefer `"H200&gold-6542Y"` to measure).
+
+**Batch size 16 — the production value — runs for the first time here.** fme
+requires `batch_size % world_size == 0`; world size is 8, so 16 gives 2/rank.
+The A100 runs had to drop to 4 for 40 GB. `ACE2_BATCH_SIZE=8` gives 1/rank, the
+like-for-like weak-scaling comparison against the 4-GPU A100 runs.
+
+**What this is meant to answer.** The single-node profile put NCCL at 40.6% of
+GPU kernel time on **A100-PCIE, which has no NVLink**. Two nodes of H100 change
+both variables at once — NVLink within a node, and an inter-node hop across
+InfiniBand (`ib0`). So expect the split to move; the useful question is whether
+the elementwise 35.4% share holds, since that is the part no interconnect can
+fix. nsys writes **one report per node** (`_node0`/`_node1`); read them together
+or inter-node imbalance is invisible.
+
+Open risk: `NCCL_SOCKET_IFNAME=^lo,docker0` is inherited from the repo's legacy
+`midway_training.sh`, not confirmed against a working Midway multi-node NCCL
+run. If job 53483263 hangs at startup, that is the first thing to suspect —
+re-run with `ACE2_NCCL_DEBUG=INFO`.
+
 ## Decisions / changes log
 
 - **2026-08-18** — First ACE2 bring-up and profile on Midway. Env built at
