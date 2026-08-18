@@ -168,6 +168,46 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-18** — **ACE2 runs on Midway and has its first profile.** Detail +
+  caveats: `ACE2_retrain/bench_midway_notes.md`. Run on **`--account=rcc-staff -p test`**
+  as requested, not the usual `pi-pedramh`/`pedramh-gpu`.
+  - **Built the env** — `/project/rcc/mehta5/envs/fme` (torch 2.7.1+cu126, fme 2026.5.1),
+    from `ace_exp/Makefile::create_environment` minus `[docs,graphcast]`/healpix. The Delta
+    config's env (`/scratch/midway3/krucker01/envs/fme`) is **permission-denied to us**.
+  - **Added** `config_midway.yaml` (port of the Delta `config_nsight.yaml`: only paths and
+    wandb differ — model/loss/optimizer/variable lists are byte-identical), plus
+    `midway_smoke_train.sh` (`ACE2_SMOKE_OK`) and `midway_bench_nsys.sh` (`ACE2_NSYS_OK`),
+    beside the untouched Delta `train.sh` (rule #7).
+  - **GREEN on 4×A100**: job **53478978** `ACE2_SMOKE_OK` train 35.783 / valid 36.213 (5:55);
+    job **53478979** `ACE2_NSYS_OK`, 275 MB report (4:24). Job 53479120 = windowed re-capture.
+  - **The model is 455,831,040 params** (455.8 M) — record it before anyone assumes otherwise,
+    as happened with Pangu (1.18 B, not ~79 M).
+  - **`tf32=True` is logged at startup** ⇒ the vendored `67242e348` perf commit is **live**,
+    still with no equivalence baseline. Now confirmed by a run, not inferred from the diff.
+  - **First profile (whole-run capture, batch 4, 4 ranks)**: NCCL **45.8%** of GPU kernel
+    time, elementwise/copy **32.2%** (1.7 M launches), GEMM 10.4%, FFT/SHT 2.2%. GPU-busy
+    ~59%, and ~32% excluding NCCL. **Read the three caveats in the notes before quoting
+    these** — NCCL ring kernels spin while waiting (max instance 4.16 s vs 11.2 ms median),
+    so 45.8% is an upper bound on "not computing", not wire time; the capture includes
+    startup + validation; and `batch_size=4` inflates the per-step all-reduce share.
+    Surviving signal: **elementwise-bound** (same shape as PanguWeather) and fp32 gradient
+    all-reduce is expensive on **A100-PCIE** (no NVLink).
+  - **`fme` has ZERO instrumentation** — no `cudaProfilerApi`, no `torch.profiler`, no NVTX
+    in the SFNO lat-lon path. So the house `--capture-range=cudaProfilerApi` flags would
+    capture **nothing**, and `midway_bench_nsys.sh` uses a time window instead (its one
+    deliberate departure from the s2s/SI/port scripts). `parse_nsys.py` yields nothing for
+    ACE2 — the tables above come from querying the sqlite directly. Adding `ACE2_*` knobs +
+    NVTX emitting the **shared** range names (#10) is the follow-up.
+  - **`test` partition facts** (now in the notes): `AllowQos=test` makes `--qos=test`
+    mandatory; `DefaultTime` is **5 minutes**; the partition is **hardware-mixed**
+    (beagle3=A100, midway3-02xx=V100, 0320=A30) so **`--constraint=a100` is load-bearing**.
+  - **Page cache dominates wall-clock again** (same lesson as the Pangu bench-vs-production
+    gap): the warm re-run trained **8× more samples in half the wall-clock**. And **~80% of
+    a cold epoch is validation**, not training.
+  - **Open**: production `batch_size=16` unvalidated on 40 GB A100; no equivalence baseline
+    for ACE2; `logging.metrics_log_dir` should be set — `GlobalTimer`'s category breakdown
+    only reaches wandb, which the house rule disables.
+
 - **2026-08-18** — **ACE2 (ai2cm `fme`) vendored into the repo** on branch `A2C` (off
   `fix/tsoi-fill-270`). Bring-up has not started; this is the code landing only.
   - **Provenance** (recorded here because the vendoring drops the nested `.git`):
