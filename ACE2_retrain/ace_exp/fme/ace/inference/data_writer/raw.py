@@ -1,0 +1,316 @@
+import copy
+import dataclasses
+import datetime
+from collections.abc import Iterable, Mapping, Sequence
+from pathlib import Path
+from typing import Literal
+
+import cftime
+import numpy as np
+import numpy.typing as npt
+import torch
+import xarray as xr
+from netCDF4 import Dataset
+
+from fme.ace.inference.data_writer.dataset_metadata import DatasetMetadata
+from fme.ace.inference.data_writer.utils import (
+    DIM_INFO_HEALPIX,
+    DIM_INFO_LATLON,
+    get_all_names,
+)
+from fme.core.cloud import is_local
+from fme.core.dataset.data_typing import VariableMetadata
+from fme.core.writer import DATETIME_ENCODING_UNITS, TIMEDELTA_ENCODING_UNITS
+
+LEAD_TIME_DIM = "time"
+IC_DIM = "sample"
+INIT_TIME = "init_time"
+VALID_TIME = "valid_time"
+
+
+@dataclasses.dataclass
+class NetCDFWriterConfig:
+    name: Literal["netcdf"] = "netcdf"  # defined for yaml+dacite ease of use
+    suffix: str = "nc"
+
+
+class PairedRawDataWriter:
+    """
+    Wrapper over RawDataWriter to write both target and prediction data.
+
+    Gives the same interface as for our other writers.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        initial_condition_times: npt.NDArray[cftime.datetime],
+        save_names: Sequence[str] | None,
+        variable_metadata: Mapping[str, VariableMetadata],
+        coords: Mapping[str, np.ndarray],
+        dataset_metadata: DatasetMetadata,
+    ):
+        self._target_writer = RawDataWriter(
+            path=path,
+            label="autoregressive_target",
+            initial_condition_times=initial_condition_times,
+            save_names=save_names,
+            variable_metadata=variable_metadata,
+            coords=coords,
+            dataset_metadata=dataset_metadata,
+        )
+        self._prediction_writer = RawDataWriter(
+            path=path,
+            label="autoregressive_predictions",
+            initial_condition_times=initial_condition_times,
+            save_names=save_names,
+            variable_metadata=variable_metadata,
+            coords=coords,
+            dataset_metadata=dataset_metadata,
+        )
+
+    def append_batch(
+        self,
+        target: dict[str, torch.Tensor],
+        prediction: dict[str, torch.Tensor],
+        batch_time: xr.DataArray,
+    ):
+        self._target_writer.append_batch(
+            data=target,
+            batch_time=batch_time,
+        )
+        self._prediction_writer.append_batch(
+            data=prediction,
+            batch_time=batch_time,
+        )
+
+    def flush(self):
+        self._target_writer.flush()
+        self._prediction_writer.flush()
+
+    def finalize(self):
+        self._target_writer.finalize()
+        self._prediction_writer.finalize()
+
+
+class RawDataWriter:
+    """
+    Write raw data to a netCDF file.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        label: str,
+        initial_condition_times: npt.NDArray[cftime.datetime],
+        save_names: Sequence[str] | None,
+        variable_metadata: Mapping[str, VariableMetadata],
+        coords: Mapping[str, np.ndarray],
+        dataset_metadata: DatasetMetadata,
+    ):
+        """
+        Args:
+            path: Directory within which to write the file.
+            label: Name of the file to write.
+            initial_condition_times: 1D array of initial condition times
+                (start time for each inference run).
+            save_names: Names of variables to save in the output file.
+                If None, all provided variables will be saved.
+            variable_metadata: Metadata for each variable to be written to the file.
+            coords: Coordinate data to be written to the file.
+            dataset_metadata: Metadata for the dataset.
+        """
+        if not is_local(path):
+            raise ValueError(
+                "The RawDataWriter only supports local file systems. Consider "
+                "using the ZarrWriter instead, which supports writing to a "
+                "non-local filesystem."
+            )
+        filename = str(Path(path) / f"{label}.nc")
+        calendar = infer_calendar(initial_condition_times)
+        n_initial_conditions = len(initial_condition_times)
+        self._save_names = save_names
+        self.initial_condition_times = initial_condition_times
+        self.variable_metadata = variable_metadata
+        self.coords = coords
+        self.dataset = Dataset(filename, "w", format="NETCDF4")
+        self.dataset.createDimension(LEAD_TIME_DIM, None)  # unlimited dimension
+        self.dataset.createVariable(LEAD_TIME_DIM, "i8", (LEAD_TIME_DIM,))
+        self.dataset.variables[LEAD_TIME_DIM].units = TIMEDELTA_ENCODING_UNITS
+        self.dataset.createDimension(IC_DIM, n_initial_conditions)
+        self.dataset.createVariable(INIT_TIME, "i8", (IC_DIM,))
+        self.dataset.variables[INIT_TIME].units = DATETIME_ENCODING_UNITS
+        self.dataset.variables[INIT_TIME].calendar = calendar
+        self.dataset.variables[INIT_TIME][:] = cftime.date2num(
+            self.initial_condition_times,
+            units=self.dataset.variables[INIT_TIME].units,
+            calendar=self.dataset.variables[INIT_TIME].calendar,
+        )
+        self.dataset.createVariable(VALID_TIME, "i8", (IC_DIM, LEAD_TIME_DIM))
+        self.dataset.variables[VALID_TIME].units = DATETIME_ENCODING_UNITS
+        self.dataset.variables[VALID_TIME].calendar = calendar
+        self._dataset_dims_created = False
+        dataset_metadata = copy.copy(dataset_metadata)
+        dataset_metadata.title = f"ACE {label.replace('_', ' ')} data file"
+        for key, value in dataset_metadata.as_flat_str_dict().items():
+            self.dataset.setncattr(key, value)
+
+    def _get_variable_names_to_save(
+        self, *data_varnames: Iterable[str]
+    ) -> Iterable[str]:
+        return get_all_names(*data_varnames, allowlist=self._save_names)
+
+    def append_batch(
+        self,
+        data: dict[str, torch.Tensor],
+        batch_time: xr.DataArray,
+    ):
+        """
+        Append a batch of data to the file.
+
+        Args:
+            data: Data to be written to file.
+            batch_time: Time coordinate for each sample in the batch.
+        """
+        if self.dataset is None:
+            return
+        n_samples_data = list(data.values())[0].shape[0]
+        n_samples_time = batch_time.sizes["sample"]
+        if n_samples_data != n_samples_time:
+            raise ValueError(
+                f"Batch size mismatch, data has {n_samples_data} samples "
+                f"and times has {n_samples_time} samples."
+            )
+        n_times_data = list(data.values())[0].shape[1]
+        n_times_time = batch_time.sizes["time"]
+        if n_times_data != n_times_time:
+            raise ValueError(
+                f"Batch time dimension mismatch, data has {n_times_data} times "
+                f"and time has {n_times_time} times."
+            )
+
+        if not self._dataset_dims_created:
+            _dim_info = DIM_INFO_HEALPIX if "face" in self.coords else DIM_INFO_LATLON
+            _ordered_names = []
+            for dim in _dim_info:
+                dim_size = data[next(iter(data.keys()))].shape[dim.index]
+                self.dataset.createDimension(dim.name, dim_size)
+                if dim.name in self.coords:
+                    self.dataset.createVariable(dim.name, "f4", (dim.name,))
+                    self.dataset.variables[dim.name][:] = self.coords[dim.name]
+                _ordered_names.append(dim.name)
+            dims = (IC_DIM, LEAD_TIME_DIM, *_ordered_names)
+            self._dataset_dims_created = True
+
+        save_names = self._get_variable_names_to_save(data.keys())
+        current_lead_time_size = self.dataset.dimensions[LEAD_TIME_DIM].size
+        for variable_name in save_names:
+            # define the variable if it doesn't exist
+            if variable_name not in self.dataset.variables:
+                self.dataset.createVariable(
+                    variable_name,
+                    "f4",
+                    dims,
+                    fill_value=np.nan,
+                )
+                if variable_name in self.variable_metadata:
+                    self.dataset.variables[
+                        variable_name
+                    ].units = self.variable_metadata[variable_name].units
+                    self.dataset.variables[
+                        variable_name
+                    ].long_name = self.variable_metadata[variable_name].long_name
+                self.dataset.variables[variable_name].coordinates = " ".join(
+                    [INIT_TIME, VALID_TIME]
+                )
+
+            data_numpy = data[variable_name].detach().cpu().numpy()
+            # Append the data to the variables
+            self.dataset.variables[variable_name][
+                :,
+                current_lead_time_size : current_lead_time_size + data_numpy.shape[1],
+                :,
+            ] = data_numpy
+
+        lead_time_microseconds = get_batch_lead_time_microseconds(
+            self.initial_condition_times,
+            batch_time.values,
+        )
+        self.dataset.variables[LEAD_TIME_DIM][
+            current_lead_time_size : current_lead_time_size
+            + lead_time_microseconds.shape[0]
+        ] = lead_time_microseconds
+
+        valid_times_numeric: np.ndarray = cftime.date2num(
+            batch_time.values,
+            units=self.dataset.variables[VALID_TIME].units,
+            calendar=self.dataset.variables[VALID_TIME].calendar,
+        )
+        self.dataset.variables[VALID_TIME][
+            :,
+            current_lead_time_size : current_lead_time_size
+            + lead_time_microseconds.shape[0],
+        ] = valid_times_numeric
+
+        self.dataset.sync()  # Flush the data to disk
+
+    def flush(self):
+        """
+        Flush the data to disk.
+        """
+        self.dataset.sync()
+
+    def finalize(self):
+        self.flush()
+        self.dataset.close()
+
+
+def get_batch_lead_time_microseconds(
+    init_time: npt.NDArray[cftime.datetime], batch_time: npt.NDArray[cftime.datetime]
+) -> npt.NDArray[np.int64]:
+    """
+    Get the lead time in seconds for the batch.
+    Assert that they are the same for each sample.
+
+    Args:
+        init_time: Initialization time for each sample in the batch.
+        batch_time: Array of time coordinates for each sample in the batch.
+
+    Returns:
+        Lead time in microseconds for the batch
+    """
+    if init_time.shape[0] != batch_time.shape[0]:
+        raise ValueError(
+            f"Number of init times ({len(init_time)}) must "
+            f"match number of batch times ({len(batch_time)})"
+        )
+    # Carry out timedelta arithmetic in NumPy arrays to avoid xarray's automatic
+    # casting of datetime.timedelta objects to timedelta64[ns] values, which would
+    # unnecessarily limit the lead time coordinate to containing values less than
+    # ~292 years. See
+    # https://numpy.org/doc/stable/reference/arrays.datetime.html#datetime-units
+    # for more details on the limits of various precision timedeltas.
+    lead_time: npt.NDArray[datetime.timedelta] = (  # type: ignore
+        batch_time - init_time[:, None]
+    )
+    lead_time_microseconds: npt.NDArray[np.int64] = (
+        lead_time // datetime.timedelta(microseconds=1)
+    ).astype(np.int64)
+    if not np.all(lead_time_microseconds == lead_time_microseconds[0, :]):
+        raise ValueError("Lead times are not the same for each sample in the batch.")
+    return lead_time_microseconds[0, :]
+
+
+def infer_calendar(array: npt.NDArray[cftime.datetime]) -> str:
+    """Infer the calendar of an array of cftime.datetime objects.
+
+    Assumes that all the datetime objects in the array have the same calendar,
+    and that the array is not empty.
+
+    Args:
+        array: Array of cftime.datetime objects.
+
+    Returns:
+        Calendar of the array.
+    """
+    return array.ravel()[0].calendar

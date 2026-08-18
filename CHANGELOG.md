@@ -168,6 +168,50 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-18** — **ACE2 (ai2cm `fme`) vendored into the repo** on branch `A2C` (off
+  `fix/tsoi-fill-270`). Bring-up has not started; this is the code landing only.
+  - **Provenance** (recorded here because the vendoring drops the nested `.git`):
+    `cp -r /project/pedramh/shared/ACE2_retrain` (staged by krucker01). `ace_exp` was a
+    clone of `https://github.com/ai2cm/ace.git` at **`1c3ebad80`** (2026-08-17), **4 commits
+    ahead** of the fetched upstream `main` (merge-base `709c4c370e`).
+  - ⚠️ **One of those 4 is a hot-path change that arrives already applied and has never been
+    equivalence-checked**: `67242e348` "Perf: TF32, native SHT, spectral no-op copy, foreach
+    EMA, DDP flags" (Katharine Rucker, 2026-08-14). **TF32 alone changes numerics.** Per
+    DESIGN §4 this needs a baseline *before* it is trusted — and note the baseline would have
+    to be captured against a build with it reverted, since it is already in the vendored tree.
+  - **Vendored, not a submodule** — matches `makani_sfno`/`physicsnemo_*`/`PanguWeather`; the
+    repo has no `.gitmodules`. `ace_exp/.git` was **moved, not deleted**, to
+    `/project/rcc/mehta5/ace_exp_dotgit_backup_2026-08-18` (55 MB) — the 4 local commits are
+    recoverable from there and nowhere else.
+  - **`.gitignore` trap found and fixed (repo-wide).** Line 39's `core*` (intended for core
+    dumps) also matches a **directory** named `core` at any depth, so it silently swallowed
+    **`fme/core/` — 293 files / 13 MB, the heart of the `fme` package** — from a commit that
+    otherwise looked clean at 686 files. It also defeated the `.npy` carve-out below, since git
+    will not descend into an excluded directory. Replaced with `/core` + `core.[0-9]*`.
+    The 26+26 already-tracked files under `physicsnemo_{ai_rossby,sfno}/**/core/` were
+    unaffected (ignore rules don't apply to tracked files) — which is why this hid so long.
+    **Any future vendored repo with a `core/` dir would have hit the same silent drop.**
+  - **Second-ever `.gitignore` carve-out** (after `s2s-lightning/data/constant_mask/*.npy`):
+    `!ACE2_retrain/ace_exp/fme/core/hpx/data/*.npy` — 7.5 MB of HEALPix reorder tables, without
+    which the vendored `fme.core.hpx` is non-functional.
+  - **70 scripts had lost their exec bit** (644 in the shared staging dir, 755 in `ace_exp`'s
+    own index — so it was lost *before* this copy, not by it). Restored from the index so the
+    vendored copy matches upstream; they are committed 100755.
+  - **Deliberately NOT committed** (rule #8): `ace_training/merged_ACE2_ERA5_final.nc`
+    (**2.39 TB**), `normalization/*.nc` (21 MB), and 36 `*.pt` regression fixtures (1.4 MB).
+    ⇒ **`ace_exp`'s regression tests cannot run from a fresh clone** — re-copy the fixtures from
+    `/project/pedramh/shared/ACE2_retrain`. Commit is 947 files / 20 MB.
+  - **2.4 TB of data now lives in the repo working tree** at `ACE2_retrain/ace_training/`
+    (ignored, so invisible to git). `/project` had 146 T free at the time. Worth relocating +
+    symlinking if this becomes the pattern.
+  - **`train.sh` targets a third cluster — Delta/NCSA**, not Midway or Polaris:
+    `--account=bdiu-dtai-gh`, `--partition=ghx4` (GH200), `--qos=bdiu-dtai-gh`, `hsn0`/Slingshot
+    NCCL vars, and mixed paths (`/project/pedramh/shared`, `/scratch/midway3/krucker01/envs/fme`,
+    `/work/nvme/bdiu/...`). **Not runnable as-is on either of our clusters**; a Midway/Polaris
+    sibling is the first bring-up task (rule #7: add beside it, don't edit in place).
+  - **No smoke was run** — nothing of ours executes in this commit. Env, data paths and a
+    scheduler script are the next steps before any PASS token exists to key on.
+
 - **2026-08-14** — **Fixed: Pangu's `best_ckpt.tar` silently stops meaning "best" across any
   resume, and the true-best epoch's numbered checkpoint is already unrecoverable on the live
   run.** Found while answering "have we reached a best checkpoint" for the live production

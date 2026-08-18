@@ -1,0 +1,342 @@
+import os
+import pathlib
+import subprocess
+import unittest.mock
+from collections.abc import Sequence
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import dacite
+import pytest
+import torch
+import yaml
+
+from fme.core.testing.model import compare_restored_parameters
+from fme.core.testing.wandb import mock_wandb
+from fme.downscaling.test_utils import create_test_data_on_disk, data_paths_helper
+from fme.downscaling.train import (
+    Trainer,
+    TrainerConfig,
+    _get_complement_percentile_prefix,
+    main,
+    restore_checkpoint,
+)
+from fme.downscaling.typing_ import FineResCoarseResPair
+
+NUM_TIMESTEPS = 4
+
+
+def test_trainer(tmp_path):
+    """Tests the trainer class using mock objects."""
+    mock_config = MagicMock()
+    mock_config.experiment_dir = str(tmp_path / "experiment_dir")
+    mock_config.checkpoint_dir = str(tmp_path / "checkpoint_dir")
+
+    mock_data = MagicMock()
+    mock_data.coarse_shape = [64, 64]
+
+    mock_model = MagicMock()
+    mock_model.coarse_shape = [16, 16]
+    mock_model.downscale_factor = 2
+
+    trainer = Trainer(
+        model=mock_model,
+        optimization=MagicMock(),
+        train_data=mock_data,
+        validation_data=mock_data,
+        config=mock_config,
+    )
+
+    with pytest.raises(RuntimeError):
+        trainer.train_one_epoch()
+
+
+@pytest.fixture
+def train_data_paths(tmp_path):
+    path = tmp_path / "train"
+    path.mkdir()
+    return data_paths_helper(path, num_timesteps=NUM_TIMESTEPS)
+
+
+@pytest.fixture
+def validation_data_paths(tmp_path):
+    path = tmp_path / "validation"
+    path.mkdir()
+    return data_paths_helper(path, num_timesteps=NUM_TIMESTEPS)
+
+
+@pytest.fixture
+def stats_data_paths(tmp_path):
+    variable_names = ["var0", "var1"]
+    mean_path = create_test_data_on_disk(
+        tmp_path / "stats-mean.nc", {}, variable_names, {}
+    )
+    std_path = create_test_data_on_disk(
+        tmp_path / "stats-std.nc", {}, variable_names, {}
+    )
+    return mean_path, std_path
+
+
+def _create_config_dict(
+    train_paths: FineResCoarseResPair[str],
+    valid_paths: FineResCoarseResPair[str],
+    stats_paths: tuple[Path],
+    tmp_path: Path,
+):
+    # load from file containing all test default values
+    file_path = (
+        f"{os.path.dirname(os.path.abspath(__file__))}/configs/test_train_config.yaml"
+    )
+    with open(file_path) as file:
+        config = yaml.safe_load(file)
+
+    experiment_dir = tmp_path / "output"
+    experiment_dir.mkdir()
+    config["static_inputs"] = {
+        "HGTsfc": str(train_paths.fine) + "/data.nc",
+    }
+    config["train_data"]["fine"] = [{"data_path": str(train_paths.fine)}]
+    config["train_data"]["coarse"] = [{"data_path": str(train_paths.coarse)}]
+    config["validation_data"]["fine"] = [
+        {"data_path": str(valid_paths.fine), "subset": {"stop": 2}}
+    ]
+    config["validation_data"]["coarse"] = [
+        {"data_path": str(valid_paths.coarse), "subset": {"stop": 2}}
+    ]
+
+    config["experiment_dir"] = str(experiment_dir)
+    config["save_checkpoints"] = True
+
+    for res in ("fine", "coarse"):
+        for key, path in zip(("global_means_path", "global_stds_path"), stats_paths):
+            config["model"]["normalization"][res][key] = str(path)
+
+    return config
+
+
+def _update_in_out_names(
+    trainer_config: dict, in_names: Sequence[str], out_names: Sequence[str]
+):
+    """Inplace update of trainer_config input and output variables"""
+    trainer_config["model"]["in_names"] = in_names
+    trainer_config["model"]["out_names"] = out_names
+    return trainer_config
+
+
+def _store_config(
+    tmp_path: Path, trainer_config: dict, filename: str = "train-config.yaml"
+) -> str:
+    outpath = tmp_path / filename
+    with open(outpath, "w") as f:
+        yaml.dump(trainer_config, f)
+    return str(outpath)
+
+
+@pytest.fixture
+def default_trainer_config(
+    train_data_paths, validation_data_paths, stats_data_paths, tmp_path
+):
+    """Fixture to reduce incoming parameters for tests."""
+    config = _create_config_dict(
+        train_data_paths, validation_data_paths, stats_data_paths, tmp_path
+    )
+    model_config_kwargs = {
+        "num_diffusion_generation_steps": 2,
+        "churn": 0.0,
+        "training_noise_distribution": {"p_mean": -1.2, "p_std": 1.2},
+        "predict_residual": True,
+        "sigma_max": 80.0,
+        "sigma_min": 0.002,
+    }
+    config["model"].update(model_config_kwargs)
+    config["generate_n_samples"] = 2
+    config["model"]["module"]["type"] = "unet_diffusion_song"
+    return config
+
+
+@pytest.mark.parametrize(
+    "in_names, out_names",
+    [
+        (["var0"], ["var0", "var1"]),
+        (["var0", "var1"], ["var1"]),
+        (["var0", "var1"], ["var0", "var1"]),
+    ],
+    ids=[
+        "single_input_multiple_out",
+        "multiple_input_single_out",
+        "multiple_input_multiple_out",
+    ],
+)
+def test_train_main_only(
+    in_names,
+    out_names,
+    default_trainer_config,
+    tmp_path,
+    very_fast_only: bool,
+):
+    """Check that the training loop runs without errors."""
+
+    if very_fast_only:
+        pytest.skip("Skipping non-fast tests")
+
+    config = _update_in_out_names(default_trainer_config, in_names, out_names)
+    config["max_epochs"] = 1
+    config_path = _store_config(tmp_path, config)
+
+    with mock_wandb():
+        main(config_path=config_path)
+
+
+def test_train_main_logs(default_trainer_config, tmp_path, very_fast_only: bool):
+    """Check that training loop records the appropriate logs."""
+    if very_fast_only:
+        pytest.skip("Skipping non-fast tests")
+
+    with mock_wandb() as wandb:
+        train_config_path = _store_config(tmp_path, default_trainer_config)
+        main(config_path=train_config_path)
+        logs = wandb.get_logs()
+
+    num_gradient_descent_updates_per_epoch = (
+        NUM_TIMESTEPS // default_trainer_config["train_data"]["batch_size"]
+    )
+
+    assert (
+        len(logs)
+        == 1  # validation is run once before training
+        + default_trainer_config["max_epochs"] * num_gradient_descent_updates_per_epoch
+    )
+    for step in range(len(logs)):
+        keys = set(logs[step].keys())
+        # if validation takes place during this step, check that at least some
+        # number of metrics were logged (e.g. 5).
+        assert len(keys) > 5 or keys == set(["train/batch_loss"])
+
+
+def test_restore_checkpoint(default_trainer_config, tmp_path, very_fast_only: bool):
+    if very_fast_only:
+        pytest.skip("Skipping non-fast tests")
+
+    config = dacite.from_dict(data_class=TrainerConfig, data=default_trainer_config)
+    trainer1 = config.build()
+    trainer2 = config.build()
+
+    # Random initialization should result in two different sets of parameters
+    # for the same configuration.
+    assert any(
+        not torch.equal(p1, p2)
+        for p1, p2 in zip(
+            trainer1.model.modules.parameters(), trainer2.model.modules.parameters()
+        )
+    )
+    trainer1.startEpoch = 3
+    tmp_path.mkdir(exist_ok=True)
+    trainer1.train_one_epoch()
+    trainer1.save_epoch_checkpoints()
+    restore_checkpoint(trainer2)
+    assert all(
+        torch.equal(p1, p2)
+        for p1, p2 in zip(
+            trainer1.model.modules.parameters(), trainer2.model.modules.parameters()
+        )
+    )
+    assert trainer2.startEpoch == 3
+
+    compare_restored_parameters(
+        trainer1.model.modules.parameters(),
+        trainer2.model.modules.parameters(),
+        trainer1.optimization.optimizer,
+        trainer2.optimization.optimizer,
+    )
+
+
+def test_resume(default_trainer_config, tmp_path, very_fast_only: bool):
+    """Make sure the training is resumed from a checkpoint when restarted."""
+    if very_fast_only:
+        pytest.skip("Skipping non-fast tests")
+
+    trainer_config_segment_one = dict(default_trainer_config)
+    trainer_config_segment_one["max_epochs"] = 2
+    trainer_config_segment_one["segment_epochs"] = 1
+
+    trainer_config_segment_two = dict(default_trainer_config)
+    trainer_config_segment_two["max_epochs"] = 2
+    trainer_config_segment_two["segment_epochs"] = None
+
+    config_segment_one_path = _store_config(
+        tmp_path, trainer_config_segment_one, "config-segment-one.yaml"
+    )
+
+    config_segment_two_path = _store_config(
+        tmp_path, trainer_config_segment_two, "config-segment-two.yaml"
+    )
+
+    mock = unittest.mock.MagicMock(side_effect=restore_checkpoint)
+    with unittest.mock.patch("fme.downscaling.train.restore_checkpoint", new=mock):
+        with mock_wandb() as wandb:
+            main(config_segment_one_path)
+            assert 1 == len(
+                [log["epoch"] for log in wandb.get_logs() if "epoch" in log]
+            )
+            mock.assert_not_called()
+            # need to persist the id since mock_wandb doesn't
+            id = wandb.get_id()
+    with unittest.mock.patch("fme.downscaling.train.restore_checkpoint", new=mock):
+        with mock_wandb() as wandb:
+            # set the id so that we can check it matches what's in the experiment dir
+            wandb.set_id(id)
+            main(config_segment_two_path)
+            # resumes at epoch 1 since epoch 0 completed in previous segment
+            assert 1 == len(
+                [log["epoch"] for log in wandb.get_logs() if "epoch" in log]
+            )
+            mock.assert_called()
+
+
+@pytest.mark.serial
+def test_resume_two_workers(default_trainer_config, tmp_path, skip_slow: bool):
+    """Make sure the training is resumed from a checkpoint when restarted, using
+    torchrun with NPROC_PER_NODE set to 2."""
+    if skip_slow:
+        # script is slow as everything is re-imported when it runs
+        pytest.skip("Skipping slow tests")
+
+    default_trainer_config["logging"]["log_to_wandb"] = False
+    default_trainer_config["max_epochs"] = 1
+    train_config_path = _store_config(tmp_path, default_trainer_config)
+
+    file_dir = pathlib.PurePath(__file__).parent
+    train_script_path = file_dir / "train.py"
+    command = [
+        "torchrun",
+        "--nproc_per_node",
+        "2",
+        str(train_script_path),
+        train_config_path,
+    ]
+    initial_process = subprocess.run(command)
+    initial_process.check_returncode()
+    resume_process = subprocess.run(command)
+    resume_process.check_returncode()
+
+
+@pytest.mark.parametrize(
+    "prefix, expected",
+    [
+        (
+            "histogram/prediction_frac_of_target/99.99th-percentile/var0",
+            "histogram/prediction_frac_of_target/0.01th-percentile/var0",
+        ),
+        (
+            "some_metric/percentile/99.9999/var0",
+            "some_metric/percentile/0.0001/var0",
+        ),
+        (
+            "no_percentile_here/some_metric",
+            None,
+        ),
+    ],
+)
+def test_get_complement_percentile_prefix(prefix, expected):
+    result = _get_complement_percentile_prefix(prefix)
+    assert result == expected

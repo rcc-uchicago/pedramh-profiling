@@ -19,6 +19,9 @@ env/
 *.tar.gz
 # Exception: the small land/soil/topography boundary constants the port needs.
 !s2s-lightning/data/constant_mask/*.npy
+# Exception: ACE2's HEALPix reorder tables (7.5 MB) — upstream-tracked, and the
+# vendored fme.core.hpx module is non-functional without them.
+!ACE2_retrain/ace_exp/fme/core/hpx/data/*.npy
 
 # --- Profiling artifacts (large binary captures) ---
 *.nsys-rep
@@ -36,7 +39,10 @@ outs/
 gif_out/
 acc_plots/
 spectra_out/
-core*
+# Core dumps only. NOT bare `core*` — that also matches a `core/` source
+# directory at any depth, which silently swallowed ACE2's 293-file fme/core/.
+/core
+core.[0-9]*
 
 # --- Editor / OS ---
 .idea/

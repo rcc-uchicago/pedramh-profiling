@@ -1,0 +1,57 @@
+experiment_dir: /will/be/overwritten
+static_inputs:
+  HGTsfc: /will/be/overwritten
+max_epochs: 2
+validate_using_ema: true
+logging:
+  log_to_screen: true
+  log_to_wandb: true
+  log_to_file: true
+  project: ace-downscaling
+  entity: ai2cm
+optimization:
+  lr: 0.0001
+train_data:
+  fine:
+    - data_path: /will/be/overwritten
+  coarse:
+    - data_path: /will/be/overwritten
+  batch_size: 2
+  num_data_workers: 0
+  strict_ensemble: False
+  lat_extent:
+    start: 1
+    stop: 6
+validation_data:
+  fine:
+    - data_path: /will/be/overwritten
+  coarse:
+    - data_path: /will/be/overwritten
+  batch_size: 2
+  num_data_workers: 0
+  strict_ensemble: False
+model:
+  loss:
+    type: "MSE"
+  module:
+    type: unet_regression_song
+    config:
+      model_channels: 4
+      channel_mult: [1]
+      channel_mult_emb: 1
+      num_blocks: 1
+      attn_resolutions: []
+  normalization:
+    fine:
+      global_means_path: /will/be/overwritten
+      global_stds_path: /will/be/overwritten
+    coarse:
+      global_means_path: /will/be/overwritten
+      global_stds_path: /will/be/overwritten
+  in_names:
+    - "x"
+    - "y"
+  out_names:
+    - "x"
+    - "y"
+  use_fine_topography: true

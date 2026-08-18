@@ -1,0 +1,112 @@
+import datetime
+import warnings
+
+from fme.core.coordinates import HorizontalCoordinates, VerticalCoordinate
+from fme.core.dataset.data_typing import VariableMetadata
+from fme.core.device import get_device
+from fme.core.mask_provider import MaskProvider
+
+
+class DatasetProperties:
+    def __init__(
+        self,
+        variable_metadata: dict[str, VariableMetadata],
+        vertical_coordinate: VerticalCoordinate,
+        horizontal_coordinates: HorizontalCoordinates,
+        mask_provider: MaskProvider,
+        timestep: datetime.timedelta | None,
+        is_remote: bool,
+        all_labels: set[str] | None,
+    ):
+        self.variable_metadata = variable_metadata
+        self.vertical_coordinate = vertical_coordinate
+        self.horizontal_coordinates = horizontal_coordinates
+        self.mask_provider = mask_provider
+        self.timestep = timestep
+        self.is_remote = is_remote
+        self.all_labels = all_labels
+
+    def to_device(self) -> "DatasetProperties":
+        device = get_device()
+        return DatasetProperties(
+            self.variable_metadata,
+            self.vertical_coordinate.to(device),
+            self.horizontal_coordinates.to(device),
+            self.mask_provider.to(device),
+            self.timestep,
+            self.is_remote,
+            self.all_labels,
+        )
+
+    def localize(self) -> "DatasetProperties":
+        """Return a copy with coordinates and masks sliced to the local
+        spatial chunk based on the current distributed layout.
+        """
+        return DatasetProperties(
+            self.variable_metadata,
+            self.vertical_coordinate,
+            self.horizontal_coordinates.localize(),
+            self.mask_provider.localize(),
+            self.timestep,
+            self.is_remote,
+            self.all_labels,
+        )
+
+    def update(self, other: "DatasetProperties", strict: bool = True):
+        try:
+            if self.timestep != other.timestep:
+                raise ValueError("Inconsistent timesteps between datasets")
+            if self.variable_metadata != other.variable_metadata:
+                raise ValueError("Inconsistent metadata between datasets")
+            if self.vertical_coordinate != other.vertical_coordinate:
+                raise ValueError("Inconsistent vertical coordinates between datasets")
+            if self.horizontal_coordinates != other.horizontal_coordinates:
+                raise ValueError("Inconsistent horizontal coordinates between datasets")
+            if self.mask_provider != other.mask_provider:
+                raise ValueError("Inconsistent mask providers between datasets")
+        except ValueError as e:
+            if strict:
+                raise e
+            else:
+                warnings.warn(
+                    f"Metadata for each ensemble member are not the same: {e}"
+                )
+        self.is_remote = self.is_remote or other.is_remote
+        self._update_labels(other)
+
+    def _update_labels(self, other: "DatasetProperties"):
+        if (self.all_labels is None) != (other.all_labels is None):
+            raise ValueError(
+                "Inconsistent labels between datasets, must all provide labels "
+                "or none provide labels. Provide an explicit empty list "
+                "for datasets with no labels."
+            )
+        if self.all_labels is not None:
+            if other.all_labels is None:
+                raise RuntimeError("Checks above should prevent this case.")
+            self.all_labels.update(other.all_labels)
+
+    def update_merged_dataset(self, other: "DatasetProperties"):
+        if isinstance(self.variable_metadata, dict):
+            self.variable_metadata.update(other.variable_metadata)
+        self.mask_provider.update(other.mask_provider)
+        self.is_remote = self.is_remote or other.is_remote
+        if self.timestep != other.timestep:
+            raise ValueError("Inconsistent timesteps between datasets")
+        if self.horizontal_coordinates != other.horizontal_coordinates:
+            raise ValueError("Inconsistent horizontal coordinates between datasets")
+        self._update_labels(other)
+
+    def update_mask_provider(self, mask_provider: MaskProvider):
+        self.mask_provider.update(mask_provider)
+
+    def copy(self) -> "DatasetProperties":
+        return DatasetProperties(
+            self.variable_metadata,
+            self.vertical_coordinate,
+            self.horizontal_coordinates,
+            self.mask_provider,
+            self.timestep,
+            self.is_remote,
+            self.all_labels,
+        )
