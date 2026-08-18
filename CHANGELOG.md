@@ -186,8 +186,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **`tf32=True` is logged at startup** ⇒ the vendored `67242e348` perf commit is **live**,
     still with no equivalence baseline. Now confirmed by a run, not inferred from the diff.
   - **First profile (whole-run capture, batch 4, 4 ranks)**: NCCL **45.8%** of GPU kernel
-    time, elementwise/copy **32.2%** (1.7 M launches), GEMM 10.4%, FFT/SHT 2.2%. GPU-busy
-    ~59%, and ~32% excluding NCCL. **Read the three caveats in the notes before quoting
+    time, elementwise/copy **32.2%** (1.7 M launches), GEMM 10.4%, FFT/SHT 2.2%. **Occupancy
+    is per-phase, not one number**: **91% during training, 3.3% during validation** (union of
+    kernel intervals per device). An across-phase average (~59-70%) is meaningless and is NOT
+    comparable to PanguWeather's "0.7% loader idle", which is `loader_wait_frac` over the
+    training loop, a different quantity. The 9% training idle is **launch latency, not a
+    stall** - 326k gaps, largest 9.76 ms, 7,222 kernel launches/s on one device. **Read the three caveats in the notes before quoting
     these** — NCCL ring kernels spin while waiting (max instance 4.16 s vs 11.2 ms median),
     so 45.8% is an upper bound on "not computing", not wire time; the capture includes
     startup + validation; and `batch_size=4` inflates the per-step all-reduce share.

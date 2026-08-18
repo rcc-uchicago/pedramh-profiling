@@ -76,8 +76,10 @@ Bucketed from `CUPTI_ACTIVITY_KIND_KERNEL` over all 4 ranks
 Memory traffic: HtoD **29.9 GiB / 2.08 s**, DtoH 0.31 GiB / 0.03 s,
 DtoD **5,665 GiB / 10.14 s**.
 
-Occupancy: 148.6 s wall × 4 ranks = 594.6 GPU-seconds available; 352.3 s of
-kernel time ⇒ **~59% GPU-busy**, and only **~32%** once NCCL is removed.
+Occupancy: **do not read one off this capture** — it spans startup, training and
+validation, and a summed-kernel-time average across those phases (~59%) is not a
+quantity that means anything. See the per-phase occupancy under the windowed
+capture below: 91% during training, 3.3% during validation.
 
 ### How to read this — three caveats that change the conclusion
 
@@ -109,8 +111,33 @@ could not give:
 | FFT / SHT | 2.4% | 2.4% | 2.2% |
 
 The shape is stable across all three views, so it is not an artifact of where
-the capture window fell. GPU-busy here is 282.5 s of kernel time against
-100.5 s × 4 ranks = 402 GPU-seconds ⇒ **70% busy, 41% excluding NCCL**.
+the capture window fell.
+
+**Occupancy — do NOT quote a whole-window average.** Summing kernel time over
+the whole window gives "70% busy", which is meaningless: it averages a busy
+training phase with an idle validation tail. Measured properly (union of kernel
+intervals per device, so multi-stream overlap is not double-counted, in 5 s
+bins):
+
+| phase | GPU occupancy |
+|---|---|
+| training (steady, ~0–58 s) | **91%** |
+| validation tail | **3.3%** |
+
+The 9% idle during training is **launch latency, not a stall**: 326,176 idle
+gaps totalling 4.74 s over 55 s on device 0, largest single gap **9.76 ms**, no
+sync bubble. Device 0 issues **397,207 kernels in 55 s = 7,222 launches/s**, one
+every ~138 µs. 38% of the idle sits in 0.1–1 ms gaps and 32% in 1–10 ms gaps.
+Same root cause as the 35% elementwise share — ~2,900 tiny elementwise kernels
+per step per rank cannot keep the launch queue ahead of the GPU — so fusion
+(`torch.compile`, CUDA graphs) would attack both at once.
+
+**This is NOT comparable to PanguWeather's "0.7% loader idle"**
+(`polaris_bench_report.md`). That is `loader_wait_frac` — the fraction of
+*training-loop* wall time blocked on the data loader — not kernel occupancy over
+a capture window. ACE2 has no instrumentation, so its loader-wait equivalent is
+unmeasured. `polaris_bench_report.md` records this exact trap already
+("`cpu_prep_frac` is not loader idle; built `loader_wait_*`").
 
 **New finding — validation is CPU-bound, not GPU-bound.** 280.2 s of the
 window's 282.5 s of kernel time falls in the first 71 s. Validation therefore
