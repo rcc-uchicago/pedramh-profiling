@@ -84,6 +84,47 @@ hardware the baseline was captured on. Note for contrast that the ai-rossby
 `torch.compile` failure was 4.02e-01 — four orders of magnitude above even the
 cross-arch floor, so that verdict is nowhere near these limits and stands.
 
+## H100 windowed profile — job 53524918, and a CORRECTION
+
+Window `ACE2_NSYS_DELAY=18 ACE2_NSYS_DURATION=55`, re-derived from the H100
+smoke (the A100-era 45/110 would have opened after training ended). 52.9 s span,
+130.8 s kernel time over 4 ranks, batch 4 (1/rank).
+
+| bucket | A100 batch 4 | **H100 batch 4** | H200 batch 16 (8 GPU) |
+|---|---|---|---|
+| NCCL | 40.6% | **52.1%** | 18.6% |
+| elementwise / copy | 35.4% | **26.8%** | 47.9% |
+| GEMM | 11.3% | 7.6% | 11.9% |
+
+**CORRECTION to the 8x H200 entry below.** That entry reads the -22pp NCCL drop
+as confirmation that "the NCCL share really was the PCIe interconnect". This
+H100 point refutes it: at the **same batch size**, moving A100 -> H100 pushed
+NCCL's share *up* (40.6% -> 52.1%), because compute got faster while the
+per-step gradient all-reduce did not. So the H200 improvement came mostly from
+**batch 16 vs 4** -- 4x more compute per all-reduce -- not from NVLink/IB. The
+original entry flagged that hardware and batch moved together and could not be
+separated; this run separates them, and batch is the dominant term.
+
+⇒ **The lever on communication is batch size, not interconnect.** Raising the
+per-rank batch does more for the comm share than better hardware does, and it
+costs nothing numerically (it changes optimisation dynamics, which is jesswan's
+call, but not the arithmetic of a step).
+
+Copies alone are 14.5% of GPU kernel time here, versus 28% on H200-at-batch-16 —
+consistent, since NCCL's dominance at batch 4 compresses every other share.
+
+### Script bug found and fixed: windowed captures were marked FAILED
+
+Job 53524918 wrote a valid 217 MB report and SLURM still recorded **FAILED**.
+When `--duration` expires, nsys **SIGTERMs the target**, so torchrun's elastic
+agent dies with `SignalException: got signal: 15` and exits non-zero; with
+`set -eo pipefail` the script aborted before its own PASS gate could run. That
+is exactly the trap CLAUDE.md #14 warns about — gate on the artifact, not the
+exit code. `midway_bench_nsys.sh` now captures the return code, treats non-zero
+as expected **only** when a duration window is set (and still a hard error when
+it is not), and tolerates a missing epoch-end loss since a windowed run is cut
+short by design.
+
 ## Cluster facts confirmed on-node 2026-08-18
 
 Run on `--account=rcc-staff -p test`, as requested — **not** the project's usual

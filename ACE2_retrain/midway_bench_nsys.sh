@@ -137,6 +137,13 @@ python -m fme.ace.validate_config "${CONFIG}" --config_type train \
     --override "${OVERRIDES[@]}" \
     || { echo "ERROR ACE2_CONFIG_INVALID ${CONFIG}"; exit 1; }
 
+# NOTE the `|| nsys_rc=$?`. When --duration expires, nsys SIGTERMs the target,
+# so torchrun's elastic agent dies with SignalException(signal 15) and exits
+# non-zero. That is the EXPECTED outcome of a windowed capture, not a failure --
+# job 53524918 wrote a valid 217 MB report and was still marked FAILED because
+# `set -e` aborted here before the gate could run. Rule #14: gate on the
+# artifact, never on the exit code.
+nsys_rc=0
 nsys profile \
     --trace=cuda,nvtx,cudnn,cublas \
     --cuda-memory-usage=true \
@@ -144,7 +151,15 @@ nsys profile \
     --force-overwrite=true \
     "${WINDOW_ARGS[@]}" \
     torchrun --standalone --nproc_per_node="${NUM_GPUS}" \
-        -m fme.ace.train "${CONFIG}" --override "${OVERRIDES[@]}"
+        -m fme.ace.train "${CONFIG}" --override "${OVERRIDES[@]}" || nsys_rc=$?
+if [ "${nsys_rc}" -ne 0 ]; then
+    if [ "${NSYS_DURATION}" != "0" ]; then
+        echo "note: rc=${nsys_rc} is expected -- nsys terminates the app when --duration ends"
+    else
+        echo "ERROR ACE2_NSYS_APP_FAILED rc=${nsys_rc} with no --duration set, so this is a real failure"
+        exit 1
+    fi
+fi
 
 # --- PASS gate ------------------------------------------------------------
 REPORT="${NSYS_OUT}.nsys-rep"
@@ -154,11 +169,14 @@ rep_bytes=$(stat -c %s "${REPORT}")
 
 LOG="${EXP_DIR}/out.log"
 train_loss=$(awk -F'Train loss: ' '/Train loss: /{v=$2} END{print v}' "${LOG}" 2>/dev/null)
+# An epoch-end loss only exists if the run got that far. A windowed capture is
+# killed mid-epoch by design, so absence is fine -- but a NaN/Inf never is.
 case "${train_loss}" in
-    ""|*[nN][aA][nN]*|*[iI][nN][fF]*)
-        echo "ERROR ACE2_NSYS_LOSS_NOT_FINITE train=${train_loss:-<none>} (report kept at ${REPORT})"
+    *[nN][aA][nN]*|*[iI][nN][fF]*)
+        echo "ERROR ACE2_NSYS_LOSS_NOT_FINITE train=${train_loss} (report kept at ${REPORT})"
         exit 1
         ;;
+    "") train_loss="<run windowed, no epoch-end loss>" ;;
 esac
 
 echo "ACE2_NSYS_OK train_loss=${train_loss} report_mb=$((rep_bytes / 1048576)) n_gpus=${NUM_GPUS}"
