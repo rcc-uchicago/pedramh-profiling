@@ -45,6 +45,45 @@ that boundary — only shapes are. The `ACE2_NSYS_DELAY`/`DURATION` defaults wer
 also measured on A100 and will sit in the wrong place on a faster node; check
 them against a fresh smoke timeline before trusting a windowed capture.
 
+## H100 baseline — job 53524865, pedramh-gpu (midway3-0423, 4x H100 NVL)
+
+First run under the pedramh-gpu-only policy. Same config, same seed (3), same
+`batch_size=4` (1/rank) as the A100 baseline, so this is a clean hardware swap.
+
+| | 4x A100-PCIE (53478978) | 4x H100 NVL (53524865) |
+|---|---|---|
+| samples/s/rank | 1.84 | **2.97** (1.61x) |
+| training, 16 steps | 48 s | **19.2 s** |
+| validation | ~183 s | **32.2 s** |
+| epoch | 231 s | **51.2 s** |
+| wall | 5:55 | **2:03** |
+
+**Validation is 63% of the epoch here** (32.2 s of 51.2 s) — training sped up
+1.6x and validation still dominates, exactly as on A100 and H200. The
+`log_snapshots=false` result applies directly: halving 32.2 s takes this epoch
+to ~35 s, **-31% for a config flag with no numerical risk**.
+
+### Cross-hardware reproducibility: ~1e-5
+
+Same config and seed, A100 vs H100:
+
+| | A100 | H100 | relative |
+|---|---|---|---|
+| train_loss | 35.78267288208008 | 35.782554626464844 | **3.3e-6** |
+| valid_loss | 36.21318817138672 | 36.212799072265625 | **1.1e-5** |
+
+Together with the same-hardware floor of 2.5e-7 (jobs 53483666/667), that gives
+two tolerance floors for DESIGN §4:
+
+- **same GPU, same node: 2.5e-7** — the run-to-run nondeterminism floor
+- **across GPU architectures: ~1e-5** — a baseline captured on one arch and
+  checked on another cannot be tightened past this
+
+An ACE2 equivalence gate must sit above whichever applies, and must record which
+hardware the baseline was captured on. Note for contrast that the ai-rossby
+`torch.compile` failure was 4.02e-01 — four orders of magnitude above even the
+cross-arch floor, so that verdict is nowhere near these limits and stands.
+
 ## Cluster facts confirmed on-node 2026-08-18
 
 Run on `--account=rcc-staff -p test`, as requested — **not** the project's usual
