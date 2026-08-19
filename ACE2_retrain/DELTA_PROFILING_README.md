@@ -34,7 +34,25 @@ You need the two things you already use to train ACE2 on Delta:
    ```
    module load python/miniforge3_pytorch && source activate <your env>
    ```
-2. **Your config yaml** — whichever one you normally train with.
+2. **Where your ACE2 data lives on Delta** — the directory containing
+   `ace_training/` and `normalization/`. `train.sh` hints it was staged under
+   `/work/nvme/bdiu/jlandsberg/`.
+
+`config_nsight.yaml` in this repo points at **Midway** paths
+(`/project/pedramh/shared/ACE2_retrain/...`), so it will not work on Delta
+unchanged. Generate a Delta version:
+
+```bash
+cd ACE2_retrain
+python make_cluster_config.py \
+    --data-root /work/nvme/bdiu/jlandsberg \
+    --experiment-dir $SCRATCH/ace2_profile \
+    --out config_delta.yaml
+```
+
+It prints every path it wrote and whether each exists — check that list before
+step 3. It cannot be done with `--override`: three training paths live inside a
+`concat:` list and OmegaConf's dotlist cannot index into lists.
 
 If you do not have an env yet, see the Appendix.
 
@@ -48,7 +66,7 @@ From the repo root:
 cd ACE2_retrain
 
 ACE2_ACTIVATE='module load python/miniforge3_pytorch && source activate /path/to/your/fme/env' \
-ACE2_CONFIG=/path/to/your/config.yaml \
+ACE2_CONFIG=$PWD/config_delta.yaml \
   sbatch delta_bench_nsys.sh
 ```
 
