@@ -125,6 +125,66 @@ as expected **only** when a duration window is set (and still a hard error when
 it is not), and tolerates a missing epoch-end loss since a windowed run is cut
 short by design.
 
+## torch.compile: where it can go, and why it is not the lever
+
+Seven arms on 4x H100 (`midway_compile_probe.sh` + `ace2_compile_probe.py`),
+batch 4, 64 steps, median of the last 30 inter-step gaps so compile warmup is
+excluded rather than averaged in.
+
+| arm | step_med | vs control | loss drift | verdict |
+|---|---|---|---|---|
+| `none` (control) | 0.3425 s | — | — | baseline |
+| `corrector` | 0.3350 s | **-2.2%** | 2.0e-5 | **the only winner** |
+| `all` (norm+corr) | 0.3345 s | -2.3% | 8.9e-3 | gain is corrector's, drift is normalizer's |
+| `normalizer` | 0.3420 s | -0.15% | **8.4e-3** | reject |
+| `safe` (mlp+corr) | 0.3450 s | +0.7% | 1.2e-5 | MLP cancels the corrector |
+| `mlp` | 0.3540 s | **+3.4% slower** | 3.6e-6 | reject |
+| `network` (whole SFNO) | FAILED | — | — | **impossible** |
+
+Self-consistency: predicting `safe` from the individual effects gives 0.3465 s
+vs 0.3450 s measured, and `all` (0.3345) reproduces `corrector` (0.3350). The
+measurements are good to about +/-0.5%, so the 2-3% differences are real.
+
+### The three findings that matter
+
+1. **The SFNO cannot be compiled at all.**
+   `torch._inductor.exc.InductorError: KeyError: 'complex64'`. The spherical
+   harmonic transform path is complex-valued and Inductor has no complex64
+   lowering. This is a backend limitation, not a tuning problem — 92 dynamo
+   mentions confirm compilation ran and then failed in codegen. Note also that
+   fme hands DDP to the compiler here (`self.module._module` is a
+   `DistributedDataParallel`), which is the wrong order for a real adoption.
+2. **Compiling the normalizer is actively bad.** Zero speedup (0.15%, inside
+   noise) for **8.4e-3** relative loss drift — 4 orders above the 2.5e-7
+   same-hardware floor and ~400x the run-to-run drift over the same 64 steps.
+   It was the top-ranked candidate on kernel-count reasoning (~100 tiny kernels
+   per call); that reasoning was right about launches and wrong about payoff.
+3. **Compiling the MLP blocks makes it slower** (+3.4%). The blocks are small
+   and called many times, so guard and wrapper overhead exceeds whatever fusion
+   buys. Combining it with the corrector nets out worse than the corrector alone.
+
+### Verdict
+
+**torch.compile is not the lever for ACE2.** The entire reachable gain is the
+corrector's **2.2%**, against an estimated ~20% ceiling for fusion. The estimate
+was too optimistic because it assumed the fusable pointwise work was contiguous
+enough to fuse; in practice it is spread across many small call sites, and the
+one big contiguous region (the SFNO) is complex-valued and off-limits.
+
+The measured alternatives are far larger and carry less numerical risk:
+
+| lever | measured | numerics |
+|---|---|---|
+| `log_snapshots=false` | **~30% off the epoch** | none (output is discarded when wandb is off) |
+| raise batch size | NCCL 52.1% -> 18.6% | none in the step arithmetic |
+| stop dict<->tensor round trips | targets 28% of GPU time | none if done correctly |
+| `torch.compile` corrector | 2.2% | 2.0e-5 |
+
+⇒ Pursue the copies (`stacker.py:121`) and the config-level wins. If the
+corrector's 2.2% is wanted anyway it is cheap, but it needs a DESIGN 4 baseline
+first, and 2.0e-5 drift puts it above the same-hardware floor — so it is a
+gated change, not a free one.
+
 ## Cluster facts confirmed on-node 2026-08-18
 
 Run on `--account=rcc-staff -p test`, as requested — **not** the project's usual
