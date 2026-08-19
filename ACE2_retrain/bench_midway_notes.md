@@ -204,7 +204,77 @@ which binds the step to one core), NOT what training ran with: `sacct` shows
 step `.2` with AllocCPUS=96 over 2 nodes = 48/node, and the throughput confirms
 it. Fixed in both scripts.
 
+## 8-GPU H200 profile — job 53483668, 2 reports / 166 MB
+
+Both node reports combined (83.4 s kernel time, 41.9 s span each), batch 16.
+**This is the profile that matters** — it is the target hardware, at the
+production batch size.
+
+| bucket | 8x H200 | 4x A100-PCIe | delta |
+|---|---|---|---|
+| **elementwise / copy** | **47.9%** | 35.4% | **+12.5pp** |
+| NCCL (comm + wait) | **18.6%** | 40.6% | **-22.0pp** |
+| GEMM | 11.9% | 11.3% | +0.6 |
+| other | 6.4% | 0.4% | +6.0 |
+| norm / cudnn | 5.3% | 4.7% | +0.6 |
+| FFT / SHT | 4.2% | 2.4% | +1.8 |
+| optimizer | 3.0% | 4.2% | -1.2 |
+| reduction | 2.8% | 1.0% | +1.8 |
+
+**Both A100-era hypotheses are confirmed.** The 40.6% NCCL share *was* largely
+the PCIe interconnect: NVLink inside a node plus IB between them, together with
+4x the batch (fewer all-reduces per sample), more than halved it. And the
+elementwise share is what survives better hardware — it is now the largest
+bucket by a wide margin.
+
+Caveat: two variables moved at once (hardware **and** batch 4 -> 16), so the
+-22pp on NCCL cannot be attributed to interconnect alone. `ACE2_BATCH_SIZE=8`
+on H200 would separate them.
+
+### Inside the 47.9%: it is mostly COPIES, not math
+
+| | share of bucket | share of all GPU time | launches |
+|---|---|---|---|
+| **copies** (`direct_copy`, `bfloat16_copy`) | **58.2%** | **28%** | 400,712 |
+| add | 20.1% | 9.6% | 194,856 |
+| other pointwise math | 10.0% | 4.8% | 214,376 |
+| unary (scale/cast-like) | 7.7% | 3.7% | 89,528 |
+| fill | 4.1% | 2.0% | 96,408 |
+
+**ACE2 spends 2.4x more GPU time copying tensors (28%) than doing matrix
+multiplies (11.9%).** Copies are the single largest identifiable cost on the
+target hardware — larger than NCCL.
+
+This sharpens the `torch.compile` question decisively:
+
+- **Fusion reaches ~20% of GPU time** (add + unary + fill + other pointwise),
+  plus some of the launch-latency idle. Real, worth doing, individually gateable
+  region by region.
+- **Fusion does NOT reach the 28%.** Those copies are structural: fme stores
+  state as `dict[str, Tensor]` and round-trips it through
+  `stacker.py:121 torch.stack([data[name] for name in names], dim=-1)` for ~43
+  inputs and `unstack()` for ~50 outputs, every step, for each of the 3
+  timesteps in the `n_forward_steps=2` window — plus AMP casts. `torch.compile`
+  cannot make a gather of 50 separate tensors free.
+- ⇒ **Keeping state stacked is the bigger lever**, and it is pure data movement:
+  no numerics change if done correctly, so it is not gated on jesswan's sign-off
+  the way the corrector or TF32 are. It is an upstream-shaped change to fme.
+
+Still unmeasured: *which* module emits those 400k copies. There is no NVTX in
+the SFNO path, so the attribution above is from kernel names plus code reading.
+The `ACE2_*` NVTX follow-up is what would prove it.
+
+### Run-to-run reproducibility floor
+
+Jobs 53483666 and 53483667 ran the **same config, same seed (3), same two
+nodes** and returned `train_loss` 60.24342346191406 vs 60.243438720703125 —
+a **2.5e-7 relative** difference. Not bitwise reproducible (TF32, atomics, NCCL
+reduction order). **Any future ACE2 equivalence baseline must set its tolerance
+above this floor**, and the floor should be re-measured on the hardware the
+baseline is captured on. → DESIGN §4.
+
 ## Still queued
+
 
 
 `midway_smoke_train_2node.sh` (→ `ACE2_SMOKE_2NODE_OK`) and
