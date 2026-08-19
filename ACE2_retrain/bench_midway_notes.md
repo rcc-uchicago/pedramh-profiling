@@ -87,6 +87,54 @@ generation, CPU, filesystem and data all at once.
 penalty is unavoidable here; the H200 nodes (NV6 full mesh) are the fix, at the
 cost of the `test` partition and its queue.
 
+## ⭐ REVERSE TRANSFER: ACE2 has a spectral fix PanguWeather and ai-rossby lack
+
+ACE2's vendored perf commit `67242e348` guards the no-op copy in
+`SpectralConvS2.forward`:
+
+```python
+if self.modes_lat_local >= x.shape[-2] and self.modes_lon_local >= x.shape[-1]:
+    # the slices below cover the whole tensor (e.g. when
+    # hard_thresholding_fraction == 1.0), so the zeros_like plus
+    # slice-assign is a full no-op copy; contract directly instead.
+    x = self._contract(...).contiguous()
+else:
+    xp = torch.zeros_like(x)   # only when the slices are partial
+```
+
+**PanguWeather and ai-rossby have the unguarded version** — both at
+`.../modulus_sfno/s2convolutions.py:196`, straight to `zeros_like` + slice-assign
+with no fast path.
+
+**And the guard would always fire for them**: every PanguWeather config sets
+`hard_thresholding_fraction: 1.0` (`E3SM_SFNO_H5_POLARIS.yaml`,
+`..._DERECHO_jsw`, `..._STAMPEDE_jsw`, `..._ALLDATA`, `tiny_baseline`,
+`SFNO_PLASIM_..._5411`), which is exactly the condition that makes the slices
+cover the whole tensor.
+
+Scale of the waste, per forward pass:
+
+| | layers | embed_dim | guarded? |
+|---|---|---|---|
+| PanguWeather (`E3SM_SFNO_H5_POLARIS`) | **12** | 512 | ❌ no |
+| ai-rossby | same tree | — | ❌ no |
+| ACE2 | 8 | 384 | ✅ yes |
+
+So Pangu performs **12 × (allocate + zero-fill + full copy) of a complex64
+tensor** (8 bytes/element) per forward, per unroll step, for no result — the
+commit message for the ACE2 fix calls it "a full no-op copy of a complex tensor
+per block per unroll step". ACE2 pays none of it.
+
+This is consistent with PanguWeather profiling at **61% pointwise vs 15% GEMM**
+(`polaris_bench_report.md`) — a higher elementwise share than ACE2's 47.9%.
+
+**Adoption note**: unlike the `FourierNeuralOperatorBlock` norm sites (where
+ACE2's dtype differs and a cast must be kept), this one is a straight lift — the
+guard is the author's own, already running in ACE2. It is still a hot-path
+change and needs the DESIGN 4 gate. PanguWeather is a **fork** (no propagation)
+and `physicsnemo_ai_rossby` is a **subtree** (edits can conflict on a future
+pull), so each needs its own patch.
+
 ## Partition policy — pedramh-gpu ONLY (from 2026-08-19)
 
 All ACE2 runs go to **`pedramh-gpu`** and no other nodes. Every script's SBATCH
