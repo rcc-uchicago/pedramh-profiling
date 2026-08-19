@@ -163,10 +163,45 @@ measurements are good to about +/-0.5%, so the 2-3% differences are real.
    and called many times, so guard and wrapper overhead exceeds whatever fusion
    buys. Combining it with the corrector nets out worse than the corrector alone.
 
+### torch 2.8.0 re-test: the complex64 wall is still there, it just stopped shouting
+
+Built `/project/rcc/mehta5/envs/fme-torch28` as a single-variable copy of the
+2.7.1 env — same cu126 wheels, same `torch_harmonics==0.8.0`, same fme; only
+torch moves. Jobs 53531456/457/459.
+
+| arm | torch 2.7.1 | torch 2.8.0 |
+|---|---|---|
+| control | 0.3425 s | 0.3510 s (**baseline 2.5% slower**) |
+| `corrector` | 0.3350 s (-2.2%) | 0.3420 s (**-2.6%**) |
+| `network` | **hard fail**: `InductorError: KeyError: 'complex64'` | **runs, +3.4% slower** |
+
+The network arm no longer crashes on 2.8 — but it did not compile either:
+
+    torch/_inductor/lowering.py:1890: UserWarning: Torchinductor does not
+    support code generation for complex operators. Performance may be worse
+    than eager.
+
+**torch 2.8 downgraded the hard error to a warning and falls back to eager.**
+Corroborated three ways: zero graph breaks (a lowering fallback, not a break),
+warmup only +0.6 s over control (nothing substantial was compiled), and a 3.4%
+slowdown from dynamo guard overhead with no fusion in return — precisely what
+torch's own warning predicts.
+
+⇒ **Inductor still cannot fuse the SFNO's spectral path on either torch.** The
+2.7.1-vs-2.8 difference is error-vs-warning, not capability. This also resolves
+the ai-rossby tension recorded earlier: its working `torch.compile` is a torch
+version difference in *error handling*, and whatever 1.40x it measured did not
+come from fusing the complex-valued transform.
+
+Incidental but worth knowing: **the torch 2.8 baseline is 2.5% slower** than
+2.7.1 for this workload. An upgrade taken for other reasons costs about as much
+as the corrector arm gains.
+
 ### Verdict
 
-**torch.compile is not the lever for ACE2.** The entire reachable gain is the
-corrector's **2.2%**, against an estimated ~20% ceiling for fusion. The estimate
+**torch.compile is not the lever for ACE2** — confirmed on two torch versions.
+The entire reachable gain is the corrector's **2.2%** (2.6% on torch 2.8),
+against an estimated ~20% ceiling for fusion. The estimate
 was too optimistic because it assumed the fusable pointwise work was contiguous
 enough to fuse; in practice it is spread across many small call sites, and the
 one big contiguous region (the SFNO) is complex-valued and off-limits.

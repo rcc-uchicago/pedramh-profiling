@@ -49,7 +49,10 @@ set -eo pipefail
 
 ACE2_DIR=/project/rcc/mehta5/pedramh-profiling/ACE2_retrain
 CONFIG="${ACE2_DIR}/config_midway.yaml"
-FME_ENV=/project/rcc/mehta5/envs/fme
+# ACE2_FME_ENV lets an arm run against a different env (e.g. the torch 2.8
+# build) without editing this script, so the torch 2.7.1 baseline stays
+# reproducible from the same file.
+FME_ENV="${ACE2_FME_ENV:-/project/rcc/mehta5/envs/fme}"
 TARGET="${ACE2_COMPILE_TARGET:-none}"
 CMODE="${ACE2_COMPILE_MODE:-default}"
 
@@ -83,6 +86,7 @@ EXP_DIR="${ACE2_DIR}/outs/midway_compile_${TARGET}_${SLURM_JOB_ID}"
 
 echo "=== midway_compile_probe.sh: $(date -Iseconds) ==="
 echo "JOB_ID=${SLURM_JOB_ID}  NODE=${SLURM_NODELIST}  gpus=${NUM_GPUS}  target=${TARGET}  mode=${CMODE}"
+python -c "import torch, torch_harmonics; print(f'ENV torch={torch.__version__} torch_harmonics={torch_harmonics.__version__} env=${FME_ENV}')"
 
 OVERRIDES=(
     experiment_dir="${EXP_DIR}"
