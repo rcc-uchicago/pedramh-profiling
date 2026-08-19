@@ -65,8 +65,23 @@ unset TORCH_DISTRIBUTED_DEBUG
 # so the capture window is exactly the measured steps and the phase breakdown is
 # directly comparable to the Midway captures.
 export ACE2_NVTX=1
-export ACE2_NVTX_WARMUP="${ACE2_NVTX_WARMUP:-10}"
-export ACE2_NVTX_STEPS="${ACE2_NVTX_STEPS:-30}"
+export ACE2_NVTX_WARMUP="${ACE2_NVTX_WARMUP:-5}"
+export ACE2_NVTX_STEPS="${ACE2_NVTX_STEPS:-1000000}"   # effectively never stop
+
+# FULL TRACE by default. --capture-range=cudaProfilerApi stops collecting when
+# the measured steps end, which would put VALIDATION outside the capture -- and
+# validation is the main thing we want to see (61% of an epoch on Midway, ~52%
+# of that rendering snapshots that get discarded). Set ACE2_NSYS_WINDOWED=1 for
+# a training-only capture instead.
+CAPTURE_ARGS=()
+if [ "${ACE2_NSYS_WINDOWED:-0}" = "1" ]; then
+    CAPTURE_ARGS=(--capture-range=cudaProfilerApi --capture-range-end=stop)
+    export ACE2_NVTX_WARMUP="${ACE2_NVTX_WARMUP:-10}"
+    export ACE2_NVTX_STEPS="${ACE2_NVTX_STEPS:-30}"
+    echo "capture: windowed (training only)"
+else
+    echo "capture: FULL RUN (startup + training + validation)"
+fi
 
 NUM_GPUS=$(nvidia-smi -L | wc -l)
 OUT_DIR="${ACE2_DIR}/outs/delta_nsys_${SLURM_JOB_ID:-manual}"
@@ -84,10 +99,16 @@ OVERRIDES=(
     checkpoint_save_epochs=null
     inference=null
     train_loader.batch_size="${ACE2_BATCH_SIZE:-4}"
-    train_loader.sample_with_replacement=256
+    train_loader.sample_with_replacement="${ACE2_SAMPLES:-128}"
     validation_loader.batch_size="${ACE2_BATCH_SIZE:-4}"
     train_evaluation_samples=16
     log_train_every_n_batches=1
+    # Bound validation so the trace stays a sane size -- the config validates
+    # over 1996-1997 (~2900 samples) by default, which would dwarf the run.
+    validation_loader.dataset.subset.stop_time="${ACE2_VAL_STOP:-1996-01-05}"
+    # fme's GlobalTimer category breakdown only ever reaches wandb; this puts it
+    # on disk so train/valid/inference split is readable without a profiler.
+    logging.metrics_log_dir="${OUT_DIR}/metrics"
 )
 
 python -m fme.ace.validate_config "${CONFIG}" --config_type train \
@@ -98,8 +119,7 @@ rc=0
 "${NSYS_BIN}" profile \
     --trace=cuda,nvtx,cudnn,cublas \
     --cuda-memory-usage=true \
-    --capture-range=cudaProfilerApi \
-    --capture-range-end=stop \
+    "${CAPTURE_ARGS[@]}" \
     --output="${NSYS_OUT}" \
     --force-overwrite=true \
     torchrun --standalone --nproc_per_node="${NUM_GPUS}" \

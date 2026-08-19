@@ -114,6 +114,33 @@ the capture window closes. The gate is the `ACE2_DELTA_NSYS_OK` line.
 
 ---
 
+## What the trace contains
+
+By default it captures the **whole run** — startup, training, and validation —
+because validation is the main suspect and a windowed capture would cut it out.
+NVTX ranges are emitted throughout, so the trace is broken down by phase:
+
+| range | what it is |
+|---|---|
+| `step_{N}` | one training step (outer) |
+| `forward_loss` / `backward` / `optimizer` | the shared phase names, comparable to other models |
+| `spectral_filter`, `sfno_block`, `sfno_mlp`, `sfno_net` | inside the SFNO |
+| `amp_region` | where AMP is switched on |
+| `stack`, `normalize`, `denormalize` | the dict/tensor and normalisation work |
+
+It also writes fme's `GlobalTimer` category totals to `outs/.../metrics` as
+JSONL — that breakdown normally only reaches wandb, so it is otherwise invisible
+in an offline run. Send that directory too if it is small.
+
+Knobs if the first run is the wrong size:
+
+| variable | default | effect |
+|---|---|---|
+| `ACE2_SAMPLES` | 128 | training samples (÷ batch = steps) |
+| `ACE2_VAL_STOP` | `1996-01-05` | end of the validation window |
+| `ACE2_BATCH_SIZE` | 4 | global batch |
+| `ACE2_NSYS_WINDOWED` | 0 | set to 1 for a training-only capture (smaller, no validation) |
+
 ## What this measures, and why
 
 ACE2 was profiled on Midway (H100/H200). Three findings there are properties of
