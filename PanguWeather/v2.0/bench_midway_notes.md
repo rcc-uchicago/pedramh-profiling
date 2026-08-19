@@ -111,6 +111,39 @@ Consequences for reading this profile:
 Polaris or on an H200 node (NV6 full mesh)**. On this node the signal is buried
 under communication.
 
+## ⭐ NCCL_PROTO=LL128 is a free 12.9% for Pangu
+
+Jobs 53546942/943/944/945, 4x H100 NVL, `PANGU_BENCH_WARMUP=40`, no nsys.
+
+| arm | step_med | vs control | samples/s |
+|---|---|---|---|
+| control (`RING_LL`) | 1.2870 s | — | 3.108 |
+| `NCCL_PROTO=Simple` | 1.1872 s | **-7.8%** | 3.369 |
+| **`NCCL_PROTO=LL128`** | **1.1205 s** | **-12.9%** | **3.570** |
+| `NCCL_ALGO=Tree` | FAILED — Tree has no AllGather, which DDP needs | | |
+
+Peak memory identical at 26.966 GB across all arms, so nothing else moved.
+
+**This is the opposite of ACE2 on the same node.** ACE2 measured LL128 at **+27%
+SLOWER** (jobs 53546801-805) while Simple was a null. Same hardware, same
+topology, same NCCL build.
+
+The plausible mechanism is message size: Pangu all-reduces **4.73 GB** of
+gradients against ACE2's 1.82 GB. LL128's ~94% wire efficiency beats LL's ~50%
+once buckets are large enough to amortise its 128-byte granularity; ACE2's
+smaller buckets fall the other side of that threshold. ACE2's vendored perf
+commit also sets `gradient_as_bucket_view=True` and `broadcast_buffers=False`,
+which changes the message profile again.
+
+⇒ **Sweep the protocol per model. Do not generalise either result.** A single
+env var is worth 12.9% here and -27% there.
+
+**Not adopted yet.** It changes no numerics (encoding only, not arithmetic), but
+it is an environment change to a benchmarked configuration: re-run the bench and
+record the protocol in the CSV before making it a default. Also verify on
+Polaris independently -- its A100 nodes have a different topology and the
+protocol choice may differ again.
+
 ## Port notes — three environment differences, none of them code faults
 
 1. **`tensorly` missing.** `sfnonet.py` imports it for factorizations; the S2S

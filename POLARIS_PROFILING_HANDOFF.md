@@ -53,6 +53,20 @@ bandwidth is 15.5 GB/s of user bytes on an 18.3 GB/s link, i.e. the link is
 One job, one env var per arm, zero code change, targeting 35.7% of wall-clock.
 Arms: default, `NCCL_PROTO=Simple`, `NCCL_PROTO=LL128`, `NCCL_ALGO=Tree`.
 
+**MEASURED SINCE, on 4x H100 NVL — and it is model-dependent:**
+
+| arm | ACE2 (1.82 GB grads) | PanguWeather (4.73 GB grads) |
+|---|---|---|
+| `NCCL_PROTO=Simple` | -0.15% (noise) | **-7.8%** |
+| `NCCL_PROTO=LL128` | **+27% SLOWER** | **-12.9% FASTER** |
+| `NCCL_ALGO=Tree` | fails (no AllGather) | fails (no AllGather) |
+
+So the sweep is worth running **per model**, and neither result generalises. For
+ACE2 the protocol is not the lever and the link is simply saturated; for Pangu
+LL128 is a free 12.9%. LL128's dependence on 128-byte store atomicity (an NVLink
+property this node's cross-pair PCIe hop lacks) plausibly explains the ACE2
+regression, and message size the Pangu gain.
+
 This applies to **Polaris too, and has never been checked there.** Pangu's
 Polaris profile reports NCCL at 10.5% — low enough that protocol choice was
 never questioned, but the check is nearly free and the gradient volume is
