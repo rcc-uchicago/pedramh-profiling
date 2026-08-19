@@ -273,7 +273,61 @@ reduction order). **Any future ACE2 equivalence baseline must set its tolerance
 above this floor**, and the floor should be re-measured on the hardware the
 baseline is captured on. → DESIGN §4.
 
+## Validation: NOT a dataloading problem — it is snapshot rendering
+
+Jobs 53524580/581/674/675/752 on `midway3-0423` (4x H100, `pedramh-gpu`).
+64-sample validation window, 2 epochs each; the cross-arm comparison uses
+**epoch 2**, warm in every arm. Everything else held identical.
+
+| arm | change | warm validation | vs baseline |
+|---|---|---|---|
+| A | baseline (batch 4, 8 workers) | 34.20 s | — |
+| B | batch 16 (4x fewer batches) | 33.86 s | **-1%** |
+| C | 1 data worker | 43.88 s | +28% |
+| D | 16 data workers | 34.43 s | +1% |
+| **E** | **`log_snapshots=false`** | **16.45 s** | **-52%** |
+
+Read in order, this is conclusive:
+
+1. **Not per-batch overhead.** 4x fewer batches changed nothing (arm B). Rules
+   out aggregator call overhead, python per-batch cost, launch counts.
+2. **Not loader-bound.** Loader parallelism helps only from 1 -> 8 workers
+   (~10 s) and then **saturates**: 16 workers gains nothing (arm D). The config's
+   existing `num_data_workers: 8` is already the right value; raising it is
+   pointless. So data loading contributes ~10 s of a 44 s serial-loader case and
+   is fully hidden at the default.
+3. **It is snapshot image rendering.** Turning off `log_snapshots` halves
+   validation outright (arm E).
+
+### The images have no consumer in our configuration
+
+`fme/ace/aggregator/one_step/snapshot.py:91 get_logs()` calls
+`plot_paneled_data(...)` to build wandb `Image` objects. The `_enabled` guard
+lives *inside* `WandB.log()` (`fme/core/wandb.py:144/164/174`), so the panels are
+**rendered first and discarded afterwards** whenever wandb is off. With the house
+`log_to_wandb: false` / `WANDB_MODE=offline`, plus `save_per_epoch_diagnostics`
+at its default `false`, nothing reads them.
+
+⇒ For offline runs, `validation_aggregator.log_snapshots=false` removes work
+whose output is thrown away. **It changes no numerics**, and with wandb disabled
+it changes no observable output either. It is NOT free if you turn wandb back on
+or enable `save_per_epoch_diagnostics` — then it is a real reporting change and
+jesswan's call.
+
+### Epoch-level impact
+
+On 8x H200, validation was 30 s of a 49 s epoch (61%). Halving it takes the
+epoch to roughly 34 s — about **30% faster epochs for a config-flag change with
+no numerical risk**. That is larger than anything `torch.compile` offers on the
+training step (~20% of GPU time, gated on an equivalence baseline that does not
+yet exist), and it is available today.
+
+Caveat: measured on a 64-sample validation window. The production config
+validates over 1996-1997 (~2900 samples), so the absolute seconds scale but the
+*proportions* are what transfer.
+
 ## Still queued
+
 
 
 

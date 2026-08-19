@@ -43,6 +43,13 @@
 # 4x with the same bytes. Training is deliberately trivial (4 steps/epoch): this
 # probe measures validation, not throughput.
 #
+# SECOND DISCRIMINATOR (ACE2_VAL_WORKERS): the batch-size arm above separates
+# per-BATCH overhead from per-SAMPLE cost, but loader I/O and per-sample
+# aggregator math are BOTH per-sample, so it cannot tell those apart. Varying
+# validation_loader.num_data_workers does:
+#   validation time scales with workers -> loader-bound (dataloading issue)
+#   validation time flat                -> aggregator-bound (main process)
+#
 # PASS = `ACE2_VALPROBE_OK` plus the per-epoch numbers on stdout.
 
 set -eo pipefail
@@ -52,6 +59,10 @@ ACE2_DIR=/project/rcc/mehta5/pedramh-profiling/ACE2_retrain
 CONFIG="${ACE2_DIR}/config_midway.yaml"
 FME_ENV=/project/rcc/mehta5/envs/fme
 VAL_BATCH="${ACE2_VAL_BATCH:-4}"
+VAL_WORKERS="${ACE2_VAL_WORKERS:-8}"
+# Arbitrary extra dotlist overrides, space separated, e.g.
+#   ACE2_VAL_EXTRA="validation_aggregator.log_snapshots=false"
+VAL_EXTRA="${ACE2_VAL_EXTRA:-}"
 
 module load python/miniforge-25.3.0
 
@@ -80,7 +91,7 @@ NUM_GPUS=$(nvidia-smi -L | wc -l)
 EXP_DIR="${ACE2_DIR}/outs/midway_valprobe_b${VAL_BATCH}_${SLURM_JOB_ID}"
 
 echo "=== midway_validation_probe.sh: $(date -Iseconds) ==="
-echo "JOB_ID=${SLURM_JOB_ID}  NODE=${SLURM_NODELIST}  gpus=${NUM_GPUS}  val_batch=${VAL_BATCH}"
+echo "JOB_ID=${SLURM_JOB_ID}  NODE=${SLURM_NODELIST}  gpus=${NUM_GPUS}  val_batch=${VAL_BATCH}  val_workers=${VAL_WORKERS}  extra=${VAL_EXTRA:-none}"
 nvidia-smi -L | head -1
 
 OVERRIDES=(
@@ -93,10 +104,12 @@ OVERRIDES=(
     train_loader.batch_size=4
     train_loader.sample_with_replacement=16
     validation_loader.batch_size="${VAL_BATCH}"
+    validation_loader.num_data_workers="${VAL_WORKERS}"
     validation_loader.dataset.subset.stop_time=1996-01-17
     train_evaluation_samples=16
     log_train_every_n_batches=100
 )
+[ -n "${VAL_EXTRA}" ] && OVERRIDES+=( ${VAL_EXTRA} )
 
 python -m fme.ace.validate_config "${CONFIG}" --config_type train \
     --override "${OVERRIDES[@]}" \
@@ -112,9 +125,9 @@ torchrun --standalone --nproc_per_node="${NUM_GPUS}" \
 LOG="${EXP_DIR}/out.log"
 [ -f "${LOG}" ] || { echo "ERROR ACE2_VALPROBE_NO_LOG expected ${LOG}"; exit 1; }
 
-python3 - "${LOG}" "${VAL_BATCH}" <<'PYEOF'
+python3 - "${LOG}" "${VAL_BATCH}" "${VAL_WORKERS}" <<'PYEOF'
 import sys, re, datetime
-log, vb = sys.argv[1], int(sys.argv[2])
+log, vb, wk = sys.argv[1], int(sys.argv[2]), sys.argv[3]
 ts = lambda l: datetime.datetime.strptime(l[:23], "%Y-%m-%d %H:%M:%S,%f")
 starts, ends = [], []
 for line in open(log):
@@ -128,7 +141,7 @@ if not starts or len(ends) < len(starts):
 durs = [(e - s).total_seconds() for s, e in zip(starts, ends)]
 n_samples = 64
 n_batches = -(-n_samples // (vb))
-print(f"VALPROBE val_batch={vb} n_val_samples~{n_samples} n_batches~{n_batches}")
+print(f"VALPROBE val_batch={vb} workers={wk} n_val_samples~{n_samples} n_batches~{n_batches}")
 for i, d in enumerate(durs, 1):
     tag = "cold" if i == 1 else "warm"
     print(f"VALPROBE epoch={i} ({tag}) validation_s={d:.2f} per_batch_s={d/n_batches:.2f} per_sample_s={d/n_samples:.3f}")
