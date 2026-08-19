@@ -148,14 +148,44 @@ def install():
     _opt.Optimization.autocast = _cm_range("amp_region")(_opt.Optimization.autocast)
     applied.append("amp_region")
 
+    # Patch torch_harmonics' OWN classes, not fme.sht_fix's. The perf commit
+    # 67242e348 stopped monkeypatching the 2022 fork over the installed 0.8.0,
+    # so fme.sht_fix.RealSHT is dead code on this path -- patching it recorded
+    # ZERO events in job 53533290 while the transform ran happily elsewhere.
+    # The banner confirms which is live: "RealSHT from torch_harmonics.sht".
     try:
-        import fme.sht_fix as _sht
+        import torch_harmonics as _th
 
-        _sht.RealSHT.forward = _range("sht_fwd")(_sht.RealSHT.forward)
-        _sht.InverseRealSHT.forward = _range("sht_inv")(_sht.InverseRealSHT.forward)
+        _th.RealSHT.forward = _range("sht_fwd")(_th.RealSHT.forward)
+        _th.InverseRealSHT.forward = _range("sht_inv")(_th.InverseRealSHT.forward)
         applied += ["sht_fwd", "sht_inv"]
     except (ImportError, AttributeError) as err:
-        print(f"ACE2_NVTX WARNING: sht_fix ranges not installed: {err}", flush=True)
+        print(f"ACE2_NVTX WARNING: torch_harmonics ranges not installed: {err}", flush=True)
+
+    # --- per-variable loops: one kernel per NAMED VARIABLE ------------------
+    # These are the kernel-count multipliers. The corrector iterates over 16
+    # force_positive names, the loss over 17 weights, normalize over ~50 -- each
+    # a separate tiny kernel where one batched op would do. Ranges here let the
+    # analysis report LAUNCHES per site, which is what matters when the goal is
+    # fewer kernels rather than less time.
+    try:
+        from fme.core.corrector.atmosphere import AtmosphereCorrector
+
+        AtmosphereCorrector.__call__ = _range("corrector")(AtmosphereCorrector.__call__)
+        applied.append("corrector")
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: corrector range not installed: {err}", flush=True)
+
+    # EMA: the perf commit notes it kept "a per-step device sync at the decay
+    # min()". A sync stalls the launch pipeline, and an unattributed stall looks
+    # exactly like launch latency -- which is what the 9% idle was blamed on.
+    try:
+        from fme.core.ema import EMATracker
+
+        EMATracker.__call__ = _range("ema")(EMATracker.__call__)
+        applied.append("ema")
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: ema range not installed: {err}", flush=True)
 
     # --- inside the SFNO --------------------------------------------------
     try:
