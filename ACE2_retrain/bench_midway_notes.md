@@ -125,6 +125,65 @@ as expected **only** when a duration window is set (and still a hard error when
 it is not), and tolerates a missing epoch-end loss since a windowed run is cut
 short by design.
 
+## NVTX instrumentation, and a CORRECTION it forced
+
+`ace2_nvtx.py` injects the shared range names without editing the vendored
+subtree, and `midway_bench_nsys.sh` with `ACE2_NVTX=1` now uses the house
+`--capture-range=cudaProfilerApi --capture-range-end=stop` flags -- the
+hand-derived `--delay/--duration` window is no longer needed. First capture:
+job **53533290**, 127 MB.
+
+### ⚠ The "copies come from the dict<->tensor round trip" claim was WRONG
+
+Earlier entries attribute the copy traffic (28% of GPU kernel time on H200) to
+fme's `dict[str, Tensor]` state being stacked and unstacked around the network,
+and recommend ending that round trip as the largest available lever. **That was
+inferred from kernel names plus code reading. Measured, it does not hold:**
+
+| | measured |
+|---|---|
+| GPU time launched from inside `stack` | **0.03%** |
+| `normalize` + `denormalize` | 0.3% |
+| `unstack` | **never called** -- no callers in the training path |
+| copy kernels overall (this H100 capture) | 18.5% of GPU kernel time |
+| ...launched from autograd/backward threads | **58%** |
+| ...launched from the forward path | 42% |
+
+So the copies are real and large, but they are **spread across forward and
+backward**, not concentrated at a gather site. That pattern fits AMP fp32<->bf16
+autocast conversions and internal `.contiguous()` calls throughout the model.
+`Stacker._stack_levels` is 10 calls per step at 0.07 ms of launch cost -- it is
+not the problem, and refactoring it would buy approximately nothing.
+
+**Do not act on the stacker recommendation.** The remaining copy sources are
+unattributed; finding them needs ranges inside the SFNO blocks and around the
+autocast boundaries, which is the next instrumentation step, not a refactor.
+
+### Method note: an NVTX range bounds CPU time, not GPU time
+
+This is why the first read was misleading. CUDA is async, so a range around a
+launch site does not contain the GPU time of the kernels it launches -- `stack`
+shows 0.07 ms of launch cost while its kernels execute later. GPU attribution
+requires joining `CUPTI_ACTIVITY_KIND_RUNTIME` to `CUPTI_ACTIVITY_KIND_KERNEL`
+on `correlationId` and finding the range enclosing the **launch**. And backward
+kernels are launched from autograd worker threads, so they sit outside any range
+pushed on the main thread -- 81% of GPU time lands "outside any range" for that
+reason alone, not because it is unaccounted for.
+
+### Two instrumentation bugs the first capture exposed
+
+1. **`backward` and `optimizer` were mapped by method name, not behaviour.**
+   With `use_gradient_accumulation: false`, fme's `accumulate_loss` only does
+   `_accumulated_loss += loss`; the real backward runs inside `step_weights`.
+   The capture showed `backward` = 0.12 ms and `optimizer` = 263 ms (76% of the
+   step) -- `optimizer` was swallowing the backward. Under CLAUDE.md #10 that is
+   worse than having no range: the same name would mean something different here
+   than in every other project. Now wrapped on `_backward` and `_step_weights`.
+2. **`unstack` never fired**, because nothing calls it. Range dropped.
+
+Step totals from the capture, for scale: **median 348 ms/step**, `forward_loss`
+27.8 ms x2 per step (16.7% of GPU time by correlation).
+
 ## torch.compile: where it can go, and why it is not the lever
 
 Seven arms on 4x H100 (`midway_compile_probe.sh` + `ace2_compile_probe.py`),

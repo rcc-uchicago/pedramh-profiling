@@ -24,36 +24,27 @@
 # PASS = the line `ACE2_NSYS_OK` in the .out (a non-trivial .nsys-rep on disk
 # AND a finite loss). Key on the token, not the exit code.
 #
-# READ THIS BEFORE COMPARING IT TO ANY OTHER MODEL'S PROFILE
-# ---------------------------------------------------------
-# The house nsys scripts (s2s, port, SI) all use
-#     --capture-range=cudaProfilerApi --capture-range-end=stop
-# because their training loops call cudaProfilerStart() at the first measured
-# step, which makes the capture window exactly the steady-state steps.
+# TWO CAPTURE MODES
+# -----------------
+# ACE2_NVTX=1  -- the house mode. ace2_nvtx.py injects the shared NVTX range
+#   names and calls cudaProfilerStart/Stop around the steady-state steps, so
+#   this uses the same
+#       --capture-range=cudaProfilerApi --capture-range-end=stop
+#   flags as s2s/SI/port, the window is exactly the measured steps, and
+#   parse_nsys.py produces a real phase breakdown. Prefer this.
 #
-# **fme has no such hooks.** There is no cudaProfilerApi call, no torch.profiler
-# and no NVTX anywhere in the SFNO lat-lon training path (the only NVTX in the
-# tree is in the HEALPix layers and the downscaling module, neither of which
-# this config touches). Using the house flags here would capture NOTHING.
+# ACE2_NVTX=0 (default) -- legacy fallback for a stock fme, which ships NO
+#   cudaProfilerApi, torch.profiler or NVTX in the SFNO lat-lon path. The house
+#   capture-range flags would capture nothing, so a hand-derived time window is
+#   the only option:
+#     ACE2_NSYS_DELAY     seconds to skip before collecting (default 0)
+#     ACE2_NSYS_DURATION  seconds to collect (default 0 = until exit)
+#   Those must be re-derived per hardware -- the A100-era 45/110 opened AFTER
+#   training had finished on H100 (the working H100 pair is 18/55). A window
+#   capture also includes startup and validation, and nothing marks where warmup
+#   ends. This mode exists so an uninstrumented tree can still be profiled; it is
+#   not the one to reach for.
 #
-# Two consequences, both deliberate:
-#   1. This traces the WHOLE short run by default, so the report includes
-#      process start, dataset open and allocator growth. Steps at the head of
-#      the timeline are warmup and must be excluded when reading it -- there is
-#      no marker that does it for you.
-#   2. parse_nsys.py will NOT produce a useful NVTX summary here; it keys on
-#      range names (data_prep/forward_loss/backward/optimizer) this model does
-#      not emit. Read the kernel, memcpy and NCCL tables instead:
-#          nsys export --type=sqlite <report>.nsys-rep
-#      Adding ACE2_NVTX instrumentation that emits the SHARED range names is the
-#      follow-up that makes this model comparable to the others; until then this
-#      profile answers "where does GPU time go", not "how does it split by
-#      phase" (CLAUDE.md #10: range names are a cross-project contract -- when
-#      they are added they must match, not invent new ones).
-#
-# Window knobs, for a second pass once step time is known from the smoke:
-#   ACE2_NSYS_DELAY     seconds to skip before collecting (default 0 = from t0)
-#   ACE2_NSYS_DURATION  seconds to collect (default 0 = until the run exits)
 # osrt is dropped from --trace (the house scripts keep it) purely to keep an
 # unwindowed report to a sane size; add it back for a windowed capture.
 #
@@ -105,6 +96,8 @@ EXP_DIR="${ACE2_DIR}/outs/midway_nsys_${SLURM_JOB_ID}"
 NSYS_OUT="${EXP_DIR}/nsys_ace2_eager_${SLURM_JOB_ID}"
 mkdir -p "${EXP_DIR}"
 
+ACE2_NVTX="${ACE2_NVTX:-0}"
+export ACE2_NVTX
 NSYS_DELAY="${ACE2_NSYS_DELAY:-0}"
 NSYS_DURATION="${ACE2_NSYS_DURATION:-0}"
 WINDOW_ARGS=()
@@ -144,14 +137,27 @@ python -m fme.ace.validate_config "${CONFIG}" --config_type train \
 # `set -e` aborted here before the gate could run. Rule #14: gate on the
 # artifact, never on the exit code.
 nsys_rc=0
+# With ACE2_NVTX=1 the injector emits the shared range names AND calls
+# cudaProfilerStart/Stop around the steady-state steps, so we can finally use
+# the house capture-range flags instead of a hand-derived time window. Without
+# it, fall back to --delay/--duration, which is all an uninstrumented fme allows.
+if [ "${ACE2_NVTX}" = "1" ]; then
+    CAPTURE_ARGS=(--capture-range=cudaProfilerApi --capture-range-end=stop)
+    ENTRY=("${ACE2_DIR}/ace2_nvtx.py")
+    echo "capture: cudaProfilerApi (NVTX enabled, warmup=${ACE2_NVTX_WARMUP:-20} steps=${ACE2_NVTX_STEPS:-80})"
+else
+    CAPTURE_ARGS=("${WINDOW_ARGS[@]}")
+    ENTRY=(-m fme.ace.train)
+fi
+
 nsys profile \
     --trace=cuda,nvtx,cudnn,cublas \
     --cuda-memory-usage=true \
     --output="${NSYS_OUT}" \
     --force-overwrite=true \
-    "${WINDOW_ARGS[@]}" \
+    "${CAPTURE_ARGS[@]}" \
     torchrun --standalone --nproc_per_node="${NUM_GPUS}" \
-        -m fme.ace.train "${CONFIG}" --override "${OVERRIDES[@]}" || nsys_rc=$?
+        "${ENTRY[@]}" "${CONFIG}" --override "${OVERRIDES[@]}" || nsys_rc=$?
 if [ "${nsys_rc}" -ne 0 ]; then
     if [ "${NSYS_DURATION}" != "0" ]; then
         echo "note: rc=${nsys_rc} is expected -- nsys terminates the app when --duration ends"
