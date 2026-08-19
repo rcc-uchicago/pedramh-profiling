@@ -218,6 +218,67 @@ same names, with a comment saying they must track each other. Corrected output:
 The `backward` (102.6 ms) and `optimizer` (5.1 ms) figures also confirm the
 mapping fix from the previous capture, where they read 0.12 ms and 263 ms.
 
+### The backward side, and what actually creates the copies — job 53535415
+
+`ACE2_NVTX_AUTOGRAD=1` (emit_nvtx) names the autograd ops, so the 57% of copy
+time that previously showed as `(outside)` is now attributed. **Timings from
+this run are void** -- emit_nvtx wraps every autograd op -- so read the shares,
+not the seconds, and take magnitudes from the clean capture (53534648).
+
+By the nearest *informative* enclosing op (leaf `aten::copy_` stripped, since
+"the copy was caused by a copy" says nothing):
+
+| cause | share of copy time |
+|---|---|
+| **`aten::clone`** | **45.3%** |
+| `aten::select_backward` | 6.5% |
+| `AddBackward0` | 2.7% |
+| `aten::bmm` / `fill_` / `nccl:all_reduce` / `convolution_backward` | ~1% each |
+
+**One operation, `aten::clone`, causes nearly half the copy traffic.**
+
+### The code behind it
+
+`SpectralConvS2.forward` (`fme/ace/models/modulus/s2convolutions.py`), under AMP:
+
+```python
+x = x.float()                        # 165: bf16 -> fp32, full-tensor copy
+with torch.amp.autocast("cuda", enabled=False):
+    x = self.forward_transform(x)    # the SHT must run in fp32
+    x = x.contiguous()               # 171: layout materialisation
+    residual = residual.to(dtype)    # 173: fp32 -> bf16 back
+x = self._contract(...).contiguous() # 185: our path (hard_thresholding_fraction 1.0)
+```
+
+Every AMP boundary crossing around the transform is a full-tensor dtype
+conversion, and the SHT's layout requirement forces `.contiguous()`. This is the
+autocast-boundary hypothesis, confirmed in code rather than assumed.
+
+### ⭐ An actionable fix the perf commit already validated elsewhere
+
+`FourierNeuralOperatorBlock.forward` (`sfnonet.py:217`) does this **twice per
+block**, and there are 8 blocks:
+
+```python
+x_norm = torch.zeros_like(x)                       # full alloc + zero fill
+x_norm[..., :H, :W] = self.norm0(x[..., :H, :W])   # slice-assign it all back
+```
+
+When the slice covers the whole tensor -- which it does without spatial
+parallelism, i.e. our configuration -- that is a **full no-op copy**, 16 per
+forward pass. The vendored perf commit `67242e348` fixed **exactly this pattern**
+in `s2convolutions.py`, and even left the comment explaining it ("the slices
+below cover the whole tensor ... so the zeros_like plus slice-assign is a full
+no-op copy; contract directly instead") -- but the two instances in
+`FourierNeuralOperatorBlock.forward` were not touched.
+
+Applying the same treatment there is **bitwise identical when the slice is
+full** (it is the same guard the author already used), needs no science
+sign-off, and removes 16 full-tensor allocate+fill+copy round trips per forward.
+It still requires a DESIGN 4 baseline before adoption -- ACE2 has none -- but it
+is the first optimisation this project has found for ACE2 that is both
+measured and numerically free.
+
 ### Method note: an NVTX range bounds CPU time, not GPU time
 
 This is why the first read was misleading. CUDA is async, so a range around a
