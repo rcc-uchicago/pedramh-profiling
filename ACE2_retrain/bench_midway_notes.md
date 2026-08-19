@@ -159,6 +159,65 @@ not the problem, and refactoring it would buy approximately nothing.
 unattributed; finding them needs ranges inside the SFNO blocks and around the
 autocast boundaries, which is the next instrumentation step, not a refactor.
 
+### WHERE THE COPIES ACTUALLY ARE: the spectral filter — job 53534648
+
+Ranges added around the autocast boundaries and inside the SFNO, then GPU time
+attributed by joining RUNTIME -> KERNEL on correlationId and taking the
+**innermost** enclosing range.
+
+**Copy-kernel GPU time (7.91 s = 13.4% of GPU in this capture):**
+
+| range | share of copy time |
+|---|---|
+| `(outside)` — backward, on autograd threads | 57.1% |
+| **`spectral_filter`** | **35.6%** |
+| `sfno_block` | 3.1% |
+| `sfno_mlp` | 3.0% |
+| `stack` | **0.2%** |
+
+**Of everything attributable to the forward path, `SpectralFilterLayer` owns
+83% of the copies.** Same ordering for GPU time overall: `spectral_filter` 9.1%,
+`sfno_block` 3.3%, `sfno_mlp` 2.6%.
+
+That is a coherent story rather than a coincidence: the spectral path is where
+complex tensors live, where FFT/SHT impose layout (contiguity) requirements, and
+where AMP is switched **off** and back on around the transform — so every entry
+and exit is a candidate fp32<->bf16 conversion. It is also **the same path
+Inductor refuses to compile** (`KeyError: 'complex64'`). One region accounts for
+the largest copy source, the compile blocker, and the FFT/SHT work.
+
+Two ranges recorded **zero** events, both informative:
+
+- `sht_fwd`/`sht_inv` — patched onto `fme.sht_fix.RealSHT`/`InverseRealSHT`,
+  which are **not the classes in use**. The startup banner says
+  `RealSHT from torch_harmonics.sht`: the vendored perf commit switched to the
+  native 0.8.0 transform, so `sht_fix`'s versions are dead code on this path.
+  The transform still runs, inside `spectral_filter`, via torch_harmonics.
+- `amp_region` — nonzero as a *range* (median 28.1 ms) but ~zero under innermost
+  attribution, because everything inside it is covered by a deeper range. That
+  is the attribution working as intended, not a miss.
+
+**Still unattributed: the 57% launched from autograd threads.** `ACE2_NVTX=1
+ACE2_NVTX_AUTOGRAD=1` turns on `emit_nvtx` and will name those, at the cost of
+timings that must not be quoted.
+
+### parse_nsys.py had a silent-drop bug
+
+The name list exists **twice** — once in the SQL and once in the print loop.
+Extending only the query fetched the new ranges and then never printed them,
+which looked exactly like "the ranges did not fire". Both lists now carry the
+same names, with a comment saying they must track each other. Corrected output:
+
+    forward_loss     240   27.9 ms      amp_region       240   28.1 ms
+    backward         120  102.6 ms      sfno_net         240   19.7 ms
+    optimizer        120    5.1 ms      sfno_block      1920    2.3 ms
+    stack           1200    0.1 ms      spectral_filter 1920    1.3 ms
+    normalize        720    1.3 ms      sfno_mlp        1920    0.3 ms
+    denormalize      240    1.7 ms      step total       120  346.2 ms
+
+The `backward` (102.6 ms) and `optimizer` (5.1 ms) figures also confirm the
+mapping fix from the previous capture, where they read 0.12 ms and 263 ms.
+
 ### Method note: an NVTX range bounds CPU time, not GPU time
 
 This is why the first read was misleading. CUDA is async, so a range around a

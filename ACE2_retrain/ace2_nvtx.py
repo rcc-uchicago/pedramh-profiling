@@ -79,6 +79,31 @@ def _range(name):
     return decorate
 
 
+def _cm_range(name):
+    """Wrap a @contextmanager method so the NVTX range spans the `with` BODY.
+
+    The plain _range decorator is wrong for these: it would pop as soon as the
+    context manager object is returned, giving a range of microseconds around
+    the setup instead of the region it guards.
+    """
+
+    def decorate(fn):
+        import contextlib
+
+        @contextlib.contextmanager
+        def wrapper(*args, **kwargs):
+            torch.cuda.nvtx.range_push(name)
+            try:
+                with fn(*args, **kwargs):
+                    yield
+            finally:
+                torch.cuda.nvtx.range_pop()
+
+        return wrapper
+
+    return decorate
+
+
 def install():
     if not ENABLED:
         return []
@@ -115,6 +140,42 @@ def install():
     _norm._denormalize = _range("denormalize")(_norm._denormalize)
     applied += ["stack", "normalize", "denormalize"]
 
+    # --- autocast boundaries ---------------------------------------------
+    # Where AMP is turned ON (Optimization.autocast, used by the stepper) and
+    # where it is turned OFF again around the spherical transform (sht_fix's
+    # `with torch.autocast("cuda", enabled=False)` guards). Every crossing is a
+    # candidate fp32<->bf16 conversion, i.e. a candidate copy.
+    _opt.Optimization.autocast = _cm_range("amp_region")(_opt.Optimization.autocast)
+    applied.append("amp_region")
+
+    try:
+        import fme.sht_fix as _sht
+
+        _sht.RealSHT.forward = _range("sht_fwd")(_sht.RealSHT.forward)
+        _sht.InverseRealSHT.forward = _range("sht_inv")(_sht.InverseRealSHT.forward)
+        applied += ["sht_fwd", "sht_inv"]
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: sht_fix ranges not installed: {err}", flush=True)
+
+    # --- inside the SFNO --------------------------------------------------
+    try:
+        import fme.ace.models.modulus.layers as _layers
+        import fme.ace.models.modulus.sfnonet as _sfno
+
+        _sfno.SphericalFourierNeuralOperatorNet.forward = _range("sfno_net")(
+            _sfno.SphericalFourierNeuralOperatorNet.forward
+        )
+        _sfno.FourierNeuralOperatorBlock.forward = _range("sfno_block")(
+            _sfno.FourierNeuralOperatorBlock.forward
+        )
+        _sfno.SpectralFilterLayer.forward = _range("spectral_filter")(
+            _sfno.SpectralFilterLayer.forward
+        )
+        _layers.MLP.forward = _range("sfno_mlp")(_layers.MLP.forward)
+        applied += ["sfno_net", "sfno_block", "spectral_filter", "sfno_mlp"]
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: SFNO ranges not installed: {err}", flush=True)
+
     # --- outer step_{N} + the cudaProfilerApi capture window --------------
     _orig_train_on_batch = TrainStepper.train_on_batch
 
@@ -146,8 +207,22 @@ def install():
 
 
 if __name__ == "__main__":
+    import contextlib
     import runpy
 
     install()
-    # argv is already (config, --override ...) as fme.ace.train expects.
-    runpy.run_module("fme.ace.train", run_name="__main__")
+    # 58% of copy-kernel time is launched from autograd worker threads, which
+    # sit outside any range pushed on the main thread. emit_nvtx annotates every
+    # autograd op -- including backward -- so those kernels finally land inside
+    # a named range. It is verbose and slows the run down, so it is opt-in and
+    # must NOT be used for timing numbers.
+    _autograd = (
+        torch.autograd.profiler.emit_nvtx(record_shapes=False)
+        if os.environ.get("ACE2_NVTX_AUTOGRAD", "0") == "1" and ENABLED
+        else contextlib.nullcontext()
+    )
+    if os.environ.get("ACE2_NVTX_AUTOGRAD", "0") == "1" and ENABLED:
+        print("ACE2_NVTX autograd annotation ON -- timings are NOT valid", flush=True)
+    with _autograd:
+        # argv is already (config, --override ...) as fme.ace.train expects.
+        runpy.run_module("fme.ace.train", run_name="__main__")

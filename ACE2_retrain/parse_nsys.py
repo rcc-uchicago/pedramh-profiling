@@ -78,7 +78,9 @@ def nvtx_summary(cur):
         WHERE text IN ('preprocess','data_prep','forward_loss',
                        'backward','optimizer',
                        'vae_encoder1','vae_encoder2','ema',
-                       'stack','unstack','normalize','denormalize')
+                       'stack','unstack','normalize','denormalize',
+                       'amp_region','sht_fwd','sht_inv',
+                       'sfno_net','sfno_block','spectral_filter','sfno_mlp')
           AND end IS NOT NULL AND end > start
         ORDER BY text
     """)
@@ -95,9 +97,15 @@ def nvtx_summary(cur):
         by_name[name].append(dur_ns / 1e6)  # → ms
 
     out = []
+    # NOTE this list must track the SQL above -- extending only the query is
+    # a silent drop: the rows are fetched and then never printed. Shared
+    # contract names first, in contract order, then ACE2's own.
     for name in ('preprocess', 'data_prep', 'forward_loss',
                  'backward', 'optimizer',
-                 'vae_encoder1', 'vae_encoder2'):
+                 'vae_encoder1', 'vae_encoder2', 'ema',
+                 'stack', 'normalize', 'denormalize',
+                 'amp_region', 'sht_fwd', 'sht_inv',
+                 'sfno_net', 'sfno_block', 'spectral_filter', 'sfno_mlp'):
         vals = by_name.get(name, [])
         if not vals:
             continue
