@@ -171,7 +171,41 @@ Adding `ACE2_*` bench knobs + NVTX that emits the **shared** range names is the
 follow-up that makes ACE2 comparable to the other models. Per CLAUDE.md #10 the
 names must match the existing contract, not invent new ones.
 
-## 2-node (8-GPU) — submitted, NOT yet green
+## 8 GPUs (2 nodes x 4 H200) — **GREEN**, job 53483666
+
+`ACE2_SMOKE_2NODE_OK train_loss=60.243 valid_loss=57.124 world=8 batch=16`, 2:26
+wall, on `midway3-[0603,0604]` — both `gold-6542Y`, so homogeneous by luck
+despite the smoke's loose `--constraint=H200`.
+
+| | 4x A100-PCIE (batch 4) | 8x H200, 2 nodes (batch 16) |
+|---|---|---|
+| samples/s/rank | 1.84 | **6.82** (3.7x) |
+| aggregate samples/s | 7.4 | **54.2** (7.4x) |
+| per-rank batch | 1 | 2 |
+
+The 3.7x is **not** a pure per-GPU comparison: H200 ran 2 samples/rank against
+A100's 1, so part of it is better utilisation at larger per-rank batch.
+`ACE2_BATCH_SIZE=8` gives the like-for-like 1/rank number.
+
+Three things this settles:
+
+- **Multi-node NCCL works on Midway.** `NCCL_SOCKET_IFNAME=^lo,docker0`, flagged
+  as inherited-and-unverified, is now confirmed — no hang, no fallback.
+- **The production `batch_size=16` fits**, exercised for the first time in this
+  project. The A100s had to drop to 4 for 40 GB.
+- **Validation gets *worse* on faster hardware, as predicted.** Training ended
+  21:46:21 and the epoch ended 21:46:52: **30 s of a 49 s epoch (61%) is
+  validation**, up from ~40% on A100. Speeding up the training step raises
+  validation's share of the epoch — it does not shrink it.
+
+`nproc` reads "2 cores" in that job's banner. That is an artifact of the
+node-info probe (an `srun` overriding `--ntasks` without `--cpus-per-task`,
+which binds the step to one core), NOT what training ran with: `sacct` shows
+step `.2` with AllocCPUS=96 over 2 nodes = 48/node, and the throughput confirms
+it. Fixed in both scripts.
+
+## Still queued
+
 
 `midway_smoke_train_2node.sh` (→ `ACE2_SMOKE_2NODE_OK`) and
 `midway_bench_nsys_2node.sh` (→ `ACE2_NSYS_2NODE_OK`), jobs **53483263** and

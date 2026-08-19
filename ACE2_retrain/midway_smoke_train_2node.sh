@@ -3,7 +3,7 @@
 #SBATCH --time=01:00:00
 #SBATCH -p test
 #SBATCH --qos=test
-#SBATCH --constraint=H100
+#SBATCH --constraint=H200
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
@@ -13,7 +13,7 @@
 #SBATCH -o ace2_smoke_2node_%x_%j.out
 #SBATCH -e ace2_smoke_2node_%x_%j.err
 #
-# ACE2 2-node (8-GPU) bring-up smoke on H100. Sibling of midway_smoke_train.sh,
+# ACE2 8-GPU (2 node x 4) bring-up smoke on H200. Sibling of midway_smoke_train.sh,
 # which is single-node; that script is left untouched.
 #
 # PASS = `ACE2_SMOKE_2NODE_OK` in the .out. Key on the token, not the exit code.
@@ -28,20 +28,25 @@
 # torch.distributed.run forks the 4 local ranks itself. Setting
 # --ntasks-per-node=4 here would start 4 launchers per node = 16 ranks.
 #
-# WHY H100 AND NOT H200: measured with `sbatch --test-only` on 2026-08-18, H100
-# was both the soonest start (~7 h vs ~18 h for H200, ~30 h for homogeneous
-# H200) AND automatically homogeneous. `--constraint=H100` together with
-# `--gres=gpu:4` can only match gold-6346/512G/32-core nodes, because the one
-# other H100 box (midway3-0432, Gold-6448Y/1TB) has gpu:2 and is excluded by the
-# 4-GPU request. That matters: the single-node profile showed this workload is
-# straggler-sensitive (NCCL ring kernels spin while waiting -- largest AllReduce
-# instance 4.16 s vs an 11.2 ms median), so a mismatched partner node would be
-# recorded as communication cost that does not exist.
+# WHY 2 NODES: this cluster has NO node with more than 4 GPUs (checked across
+# every partition), so 8 GPUs necessarily means 2 nodes x 4. That is a real
+# difference from the AI2 reference run this is meant to compare against: if
+# theirs is an 8-GPU HGX box, all 8 of its GPUs share NVLink/NVSwitch, whereas
+# here the two groups of 4 are joined by an InfiniBand hop. Since the
+# single-node profile already found NCCL to be the largest bucket (40.6% of GPU
+# kernel time), that topology gap is exactly where our number will diverge from
+# theirs -- report it alongside any comparison rather than as a footnote.
 #
-# To retarget without editing this file: `sbatch --constraint=H200 ...`. H200
-# gives ~141 GB/GPU vs H100's ~94 GB, but in `test` its 7 nodes come in two
-# flavours (epyc-9335/64-core and gold-6542Y/48-core), so for a MEASUREMENT you
-# then want `--constraint="H200&gold-6542Y"` and a much longer queue wait.
+# NODE HOMOGENEITY: bare --constraint=H200 admits both H200 flavours in `test`
+# (epyc-9335/64-core/768G and gold-6542Y/48-core/1T) and will currently land on
+# one of each. For a functional smoke that is fine. For a TIMING number you
+# intend to compare against AI2, use `--constraint="H200&gold-6542Y"` -- the
+# profile showed NCCL ring kernels spin while waiting for peers (largest
+# AllReduce instance 4.16 s vs an 11.2 ms median), so a slower partner node is
+# recorded as communication cost that does not exist. Measured with
+# `sbatch --test-only` on 2026-08-18: bare H200 starts ~18 h out, homogeneous
+# gold-6542Y ~30 h. The script prints each node's GPU model and core count --
+# check that line before trusting a timing.
 #
 # BATCH SIZE: fme requires batch_size % world_size == 0. World size here is 8,
 # so the default is the PRODUCTION batch_size of 16 (2/rank) -- the first time
@@ -102,7 +107,11 @@ EXP_DIR="${ACE2_DIR}/outs/midway_smoke2n_${SLURM_JOB_ID}"
 echo "=== midway_smoke_train_2node.sh: $(date -Iseconds) ==="
 echo "JOB_ID=${SLURM_JOB_ID}  NODES=${SLURM_NNODES} (${SLURM_JOB_NODELIST})"
 echo "head=${head_node} (${head_ip})  gpus/node=${NUM_GPUS}  world=${WORLD_SIZE}  batch=${BATCH_SIZE}"
-srun --nodes="${SLURM_NNODES}" --ntasks="${SLURM_NNODES}" bash -c \
+# --cpus-per-task must be repeated here: this srun overrides --ntasks, which
+# starts a fresh step, and without it the step is bound to a single core and
+# `nproc` reports a misleading 2 that has nothing to do with what training gets.
+srun --nodes="${SLURM_NNODES}" --ntasks="${SLURM_NNODES}" \
+     --cpus-per-task="${SLURM_CPUS_PER_TASK}" bash -c \
     'echo "  $(hostname): $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1) x$(nvidia-smi -L | wc -l), $(nproc) cores"'
 
 if [ $(( BATCH_SIZE % WORLD_SIZE )) -ne 0 ]; then

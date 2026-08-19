@@ -3,7 +3,7 @@
 #SBATCH --time=01:30:00
 #SBATCH -p test
 #SBATCH --qos=test
-#SBATCH --constraint=H100
+#SBATCH --constraint=H200&gold-6542Y
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
@@ -13,7 +13,7 @@
 #SBATCH -o ace2_bench_nsys_2node_%x_%j.out
 #SBATCH -e ace2_bench_nsys_2node_%x_%j.err
 #
-# ACE2 2-node (8-GPU) nsys capture on H100. This is the run that answers what
+# ACE2 8-GPU (2 node x 4) nsys capture on H200. This is the run that answers what
 # the single-node A100 profile could not: whether the 40.6% NCCL share is
 # PCIe-bound gradient all-reduce, and what it becomes when the all-reduce has
 # to cross a node boundary as well.
@@ -25,19 +25,18 @@
 # nsys_ace2_2node_<jobid>_node<N>.nsys-rep. Analyse them together -- a
 # single-node report cannot show inter-node imbalance, which is the whole point.
 #
-# HOMOGENEOUS NODES ARE REQUIRED HERE, and --constraint=H100 + --gres=gpu:4
-# gives that for free: the only other H100 box in `test` (midway3-0432,
-# Gold-6448Y/1TB) has gpu:2, so a 4-GPU request can only land on
-# gold-6346/512G/32-core nodes. The single-node profile showed NCCL ring kernels
-# spin while waiting for peers -- largest AllReduce instance 4.16 s against an
-# 11.2 ms median -- so a slower partner node would be recorded as communication
-# cost that does not exist.
+# HOMOGENEOUS NODES ARE REQUIRED HERE, hence --constraint=H200&gold-6542Y
+# (5 nodes: 48-core gold-6542Y/1T) rather than the bare H200 the smoke uses,
+# which also admits 64-core epyc-9335 boxes and currently lands on one of each.
+# The single-node profile showed NCCL ring kernels spin while waiting for peers
+# -- largest AllReduce instance 4.16 s against an 11.2 ms median -- so a slower
+# partner node is recorded as communication cost that does not exist.
 #
-# Retargeting to H200 (`sbatch --constraint=H200`) is legitimate but is NOT
-# automatically homogeneous: `test` has two H200 flavours (64-core epyc-9335 and
-# 48-core gold-6542Y). For a measurement use `--constraint="H200&gold-6542Y"`,
-# or report both nodes' CPU counts alongside the numbers. The script prints the
-# per-node GPU model and core count for exactly this reason -- check it.
+# 8 GPUs here is 2 nodes x 4: no node on this cluster has more than 4 GPUs. If
+# the AI2 reference run is an 8-GPU HGX box, its 8 GPUs share NVLink/NVSwitch
+# while ours cross InfiniBand between the two groups of 4. NCCL was already the
+# largest bucket single-node, so that is where the two will diverge -- this
+# capture is the measurement of exactly that gap.
 #
 # Same no-instrumentation caveat as the single-node script: fme has no
 # cudaProfilerApi/NVTX in the SFNO path, so this is a time-windowed capture, not
@@ -105,7 +104,11 @@ echo "=== midway_bench_nsys_2node.sh: $(date -Iseconds) ==="
 echo "JOB_ID=${SLURM_JOB_ID}  NODES=${SLURM_NNODES} (${SLURM_JOB_NODELIST})"
 echo "head=${head_node} (${head_ip})  gpus/node=${NUM_GPUS}  world=${WORLD_SIZE}  batch=${BATCH_SIZE}"
 echo "capture: delay=${NSYS_DELAY}s duration=${NSYS_DURATION}s (0 = unbounded)"
-srun --nodes="${SLURM_NNODES}" --ntasks="${SLURM_NNODES}" bash -c \
+# --cpus-per-task must be repeated here: this srun overrides --ntasks, which
+# starts a fresh step, and without it the step is bound to a single core and
+# `nproc` reports a misleading 2 that has nothing to do with what training gets.
+srun --nodes="${SLURM_NNODES}" --ntasks="${SLURM_NNODES}" \
+     --cpus-per-task="${SLURM_CPUS_PER_TASK}" bash -c \
     'echo "  $(hostname): $(nvidia-smi --query-gpu=name --format=csv,noheader | head -1) x$(nvidia-smi -L | wc -l), $(nproc) cores"'
 
 if [ $(( BATCH_SIZE % WORLD_SIZE )) -ne 0 ]; then
