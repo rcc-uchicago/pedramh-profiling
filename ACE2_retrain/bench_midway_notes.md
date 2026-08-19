@@ -272,12 +272,53 @@ below cover the whole tensor ... so the zeros_like plus slice-assign is a full
 no-op copy; contract directly instead") -- but the two instances in
 `FourierNeuralOperatorBlock.forward` were not touched.
 
-Applying the same treatment there is **bitwise identical when the slice is
-full** (it is the same guard the author already used), needs no science
-sign-off, and removes 16 full-tensor allocate+fill+copy round trips per forward.
-It still requires a DESIGN 4 baseline before adoption -- ACE2 has none -- but it
-is the first optimisation this project has found for ACE2 that is both
-measured and numerically free.
+**CORRECTION to an earlier draft of this entry**, which called the fix "bitwise
+identical" and "numerically free". Removing the buffer outright is NOT
+equivalent in ACE2: `zeros_like(x)` inherits x's dtype, which under ACE2's AMP
+is **bfloat16** (`Optimization.autocast` sets `dtype=torch.bfloat16`), while
+`norm0` returns fp32 under autocast. The slice-assign therefore performs an
+fp32 -> bf16 **downcast**, and dropping the buffer would leave the result in
+fp32 -- more precision, different numbers.
+
+The bitwise-identical formulation keeps the cast and drops only the allocation
+and zero-fill:
+
+```python
+x_norm = self.norm0(x).to(x.dtype)   # same rounding, no zeros_like, no fill
+```
+
+That still removes an allocation and a fill kernel per site (16 per forward),
+just not the copy itself. Adoption remains gated on a DESIGN 4 baseline, which
+ACE2 does not have.
+
+### The same pattern is in PanguWeather and ai-rossby -- and they differ
+
+All three Modulus-lineage SFNOs carry it. A grep for `zeros_like` finds only
+ACE2 because the other two spell it differently:
+
+| tree | buffer | effect under AMP |
+|---|---|---|
+| ACE2 | `torch.zeros_like(x)` -> **bf16** | norm output is **downcast** fp32 -> bf16 |
+| PanguWeather | `torch.zeros(x.shape, dtype=torch.float32)` | no downcast |
+| ai-rossby | identical to PanguWeather | no downcast |
+
+Both non-ACE2 trees carry the comment: *"Use float32 for zero tensor to avoid
+implicit float16 downcast from norm layers (norm layers return float32 under AMP
+autocast; assigning into float16 can overflow)."* Someone hit that and fixed it
+in those two trees only.
+
+**So the three are not numerically equivalent at this point in the network.**
+ACE2 rounds normalised activations to bf16; the others keep fp32. The overflow
+motivation in the comment concerns fp16, and ACE2 uses **bf16**, which has
+fp32's exponent range -- so ACE2 is unlikely to overflow. But it does lose
+mantissa (8 bits vs 24) where the other two do not. Worth raising with jesswan:
+it is a real precision difference between our SFNO implementations, not a
+performance detail.
+
+**The fix is cleaner for the other two than for ACE2.** Their buffer is already
+fp32 and `norm0` already returns fp32, so `x_norm = self.norm0(x)` is bitwise
+identical and removes the allocation, the fill AND the copy. In ACE2 the cast
+must be kept.
 
 ### Method note: an NVTX range bounds CPU time, not GPU time
 
