@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --account=rcc-staff
+#SBATCH --account=pi-pedramh
 #SBATCH --time=01:00:00
-#SBATCH -p test
-#SBATCH --qos=test
-#SBATCH --constraint=H200
+#SBATCH -p pedramh-gpu
+#SBATCH --qos=pedramh-gpu
+#SBATCH --constraint=H100
 #SBATCH --nodes=2
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
@@ -53,6 +53,18 @@
 # it is exercised at all; the A100 runs had to drop to 4 for 40 GB. Override
 # with ACE2_BATCH_SIZE=8 for 1/rank, which is the like-for-like weak-scaling
 # comparison against the 4-GPU A100 runs (also 1/rank).
+
+# ############################################################################
+# PARKED as of 2026-08-19: runs are restricted to pedramh-gpu, which has
+# exactly ONE node (midway3-0423). --nodes=2 CANNOT be satisfied there, so
+# sbatch rejects this script outright rather than queueing. That rejection is
+# deliberate -- it is better than silently taking nodes from another partition.
+#
+# The 8-GPU results already captured (jobs 53483666/667/668 on 2x4 H200) stand;
+# see bench_midway_notes.md. To run this again you must consciously go back to
+# a multi-node partition, e.g.
+#     sbatch --account=rcc-staff -p test --qos=test --constraint=H200 <this>
+# ############################################################################
 
 set -eo pipefail
 # No `set -u`: the gxx_linux-64 activate.d hook dereferences CONDA_BUILD_SYSROOT.

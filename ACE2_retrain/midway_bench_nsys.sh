@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --account=rcc-staff
+#SBATCH --account=pi-pedramh
 #SBATCH --time=01:30:00
-#SBATCH -p test
-#SBATCH --qos=test
-#SBATCH --constraint=a100
+#SBATCH -p pedramh-gpu
+#SBATCH --qos=pedramh-gpu
+#SBATCH --constraint=H100
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
@@ -13,8 +13,13 @@
 #SBATCH -o ace2_bench_nsys_%x_%j.out
 #SBATCH -e ace2_bench_nsys_%x_%j.err
 #
-# ACE2 (ai2cm `fme`) nsys capture on 4×A100. First profile this model has ever
-# had on an RCC cluster.
+# ACE2 (ai2cm `fme`) nsys capture on 4x H100 (pedramh-gpu, midway3-0423).
+#
+# NOTE the A100-PCIE profile in bench_midway_notes.md was taken in the `test`
+# partition before the 2026-08-19 restriction to pedramh-gpu. H100 numbers are
+# not directly comparable to it -- and the ACE2_NSYS_DELAY/DURATION defaults
+# were measured on A100, where startup and the training window sit later. Check
+# them against a smoke's timeline on this node before trusting a capture.
 #
 # PASS = the line `ACE2_NSYS_OK` in the .out (a non-trivial .nsys-rep on disk
 # AND a finite loss). Key on the token, not the exit code.

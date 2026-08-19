@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --account=rcc-staff
+#SBATCH --account=pi-pedramh
 #SBATCH --time=01:00:00
-#SBATCH -p test
-#SBATCH --qos=test
-#SBATCH --constraint=a100
+#SBATCH -p pedramh-gpu
+#SBATCH --qos=pedramh-gpu
+#SBATCH --constraint=H100
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
@@ -31,9 +31,11 @@
 # stepper_training.n_forward_steps.
 # DELIBERATELY SHORTENED below via --override, so every deviation is visible
 # here rather than hidden in a forked config:
-#   batch_size 16 -> 4    40 GB A100 headroom is unmeasured; 16 was sized for
-#                         96 GB GH200s. Raise this once the smoke reports peak
-#                         memory, and re-run the bench before comparing numbers.
+#   batch_size 16 -> 4    kept at 4 for continuity with the 4x A100 baseline
+#                         (1 sample/rank), NOT because 16 does not fit -- job
+#                         53483666 proved 16 fits on H200 at world size 8.
+#                         Changing it invalidates comparison with every earlier
+#                         number, so change it deliberately, not casually.
 #   epoch -> 64 samples   sample_with_replacement; a real epoch is ~10^5 samples
 #   validation -> 4 days  the config validates over 1996-1997 (~2900 samples)
 #   inference -> null     the config's inline inference is 7300 forward steps
@@ -43,9 +45,12 @@
 # torch.distributed), so --ntasks-per-node=1 + torchrun --nproc_per_node=4,
 # the S2S shape -- NOT the srun-per-rank shape the Lightning models need.
 #
-# NOTE the `test` partition is hardware-mixed (beagle3=A100, midway3-02xx=V100,
-# midway3-0320=A30). --constraint=a100 is load-bearing: without it a run can
-# land on a V100, where AMP behaves differently and the memory budget changes.
+# PARTITION: pedramh-gpu, per the 2026-08-19 restriction to that partition only.
+# It is a ONE node partition (midway3-0423, 4x H100) that we share with nobody,
+# so no --constraint is strictly needed; H100 is kept as documentation of what
+# the numbers were taken on. NOTE this is H100, while the profile baseline in
+# bench_midway_notes.md was taken on A100-PCIE in `test` -- step times are NOT
+# comparable across that boundary, only shapes are.
 
 set -eo pipefail
 # Deliberately no `set -u`: the env's gxx_linux-64 activate.d hook dereferences

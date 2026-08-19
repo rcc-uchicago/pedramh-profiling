@@ -20,6 +20,31 @@ us, which is why a Midway env had to be built from
 `ace_exp/Makefile::create_environment` (minus `[docs,graphcast]` and the
 healpix/analysis extras — not needed for ERA5 lat-lon).
 
+## Partition policy — pedramh-gpu ONLY (from 2026-08-19)
+
+All ACE2 runs go to **`pedramh-gpu`** and no other nodes. Every script's SBATCH
+block now defaults to it:
+
+    --account=pi-pedramh  -p pedramh-gpu  --qos=pedramh-gpu  --constraint=H100
+
+`--qos=pedramh-gpu` is mandatory (the partition's `AllowQos`), and `DefaultTime`
+is NONE so `--time` must be explicit. The partition is **one node**,
+`midway3-0423`, 4x H100, 32 cores — shared with nobody, so `--exclusive` costs
+no one else.
+
+**Consequence: multi-node work is over.** 8 GPUs needs 2 nodes and this
+partition has one, so `midway_{smoke_train,bench_nsys}_2node.sh` are **parked**.
+They are pointed at pedramh-gpu deliberately, which makes `sbatch` reject them
+outright ("More processors requested than permitted") rather than silently
+taking nodes from another partition. The 8-GPU H200 results already captured
+(53483666/667/668) stand; re-running needs a conscious override back to `test`.
+
+**Consequence: the hardware baseline moves A100 -> H100.** The profile tables
+below were taken on A100-PCIE in `test`. Step times are not comparable across
+that boundary — only shapes are. The `ACE2_NSYS_DELAY`/`DURATION` defaults were
+also measured on A100 and will sit in the wrong place on a faster node; check
+them against a fresh smoke timeline before trusting a windowed capture.
+
 ## Cluster facts confirmed on-node 2026-08-18
 
 Run on `--account=rcc-staff -p test`, as requested — **not** the project's usual

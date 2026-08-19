@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --account=rcc-staff
+#SBATCH --account=pi-pedramh
 #SBATCH --time=01:00:00
-#SBATCH -p test
-#SBATCH --qos=test
-#SBATCH --constraint=a100
+#SBATCH -p pedramh-gpu
+#SBATCH --qos=pedramh-gpu
+#SBATCH --constraint=H100
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
