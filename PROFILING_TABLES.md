@@ -155,6 +155,27 @@ Jobs 53538838/53538839, `midway3-0423`.
 
 ---
 
+**Delta (DeltaAI `ghx4`, gh121) — measured pairwise GPU copy bandwidth (GB/s), 256 MiB.**
+4x GH200 120GB, `nvidia-smi topo -m` reports NV6 between all pairs.
+
+| | cuda:0 | cuda:1 | cuda:2 | cuda:3 |
+|---|---|---|---|---|
+| **cuda:0** | — | 132.0 | 131.9 | 126.3 |
+| **cuda:1** | 132.1 | — | 132.1 | 126.3 |
+| **cuda:2** | 132.1 | 132.0 | — | 126.0 |
+| **cuda:3** | 132.1 | 132.1 | 126.4 | — |
+
+---
+
+**GPU interconnect by node, slowest hop in a 4-GPU ring.**
+
+| node | GPUs | topology | fastest link | slowest hop |
+|---|---|---|---|---|
+| `midway3-0423` | 4x H100 NVL | NV12 pairs only | 261 GB/s | **18 GB/s** |
+| Delta `gh121` | 4x GH200 120GB | NV6 full mesh | 132 GB/s | **126 GB/s** |
+
+---
+
 **PanguWeather — Midway vs Polaris, same model and shape.**
 Jobs 53539872 (Midway), 7255410 (Polaris).
 
