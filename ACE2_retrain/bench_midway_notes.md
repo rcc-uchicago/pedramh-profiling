@@ -135,6 +135,44 @@ change and needs the DESIGN 4 gate. PanguWeather is a **fork** (no propagation)
 and `physicsnemo_ai_rossby` is a **subtree** (edits can conflict on a future
 pull), so each needs its own patch.
 
+## NCCL protocol sweep — the RING_LL hypothesis is REFUTED (ACE2)
+
+The adversarial profiling pass found NCCL had selected `RING_LL` for ~165 MB
+buckets and recommended an `NCCL_PROTO`/`NCCL_ALGO` sweep as the single highest
+lever, "worth up to ~2x" against 35.7% of wall-clock. Measured, jobs
+53546801/802/804/805, 4x H100 NVL:
+
+| arm | step_med | vs control |
+|---|---|---|
+| control (`RING_LL`) | 0.3420 s | — |
+| `NCCL_PROTO=Simple` | 0.3415 s | **-0.15% (noise)** |
+| `NCCL_PROTO=LL128` | 0.4350 s | **+27% SLOWER** |
+| `NCCL_ALGO=Tree` | FAILED | not applicable |
+
+**The protocol is not the lever.** Switching off LL's inline-flag encoding
+changes nothing measurable.
+
+**The env vars WERE honoured** -- LL128's +27% is the control that proves it. A
+null result from `Simple` alone would have been ambiguous ("did the setting even
+apply?"); LL128 moving the number removes that reading. LL128 slowing things is
+itself consistent: it relies on 128-byte store atomicity that NVLink provides and
+this node's cross-pair PCIe hop does not.
+
+`NCCL_ALGO=Tree` errors outright: *"no algorithm/protocol available for function
+AllGather with datatype ncclInt8"*. Tree is a reduction tree with no AllGather,
+which DDP requires.
+
+⇒ The 35.7% exposed all-reduce is **real but not addressable by protocol
+selection**. The link is saturated in whatever encoding is used. That leaves the
+comm levers as: fewer/larger buckets, bf16 gradient compression (changes
+numerics -- jesswan's call), or **larger batch** (fewer all-reduces per sample),
+which the H200 data already showed is the effective one.
+
+**Method note.** The workflow's recommendation carried an internal arithmetic
+tension -- LL cannot both double the wire bytes and deliver the measured
+15.5 GB/s of user data on an 18.3 GB/s link. That tension was the tell, and one
+job settled it. Detailed reasoning is not evidence.
+
 ## Partition policy — pedramh-gpu ONLY (from 2026-08-19)
 
 All ACE2 runs go to **`pedramh-gpu`** and no other nodes. Every script's SBATCH
