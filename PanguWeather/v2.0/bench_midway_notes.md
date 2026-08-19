@@ -50,6 +50,39 @@ NVTX phases (median over the captured steps):
 | `optimizer` | 160 | 4.5 ms | 3.4 | 6.3 |
 | step total | 156 | 995.5 ms (std 278.3) | | |
 
+### The backward's 9x swing is two regimes, not noise — and the bench under-reports
+
+Within a single rank the backward is rock-steady at ~114 ms for 10 steps, then
+jumps and stays high:
+
+    first 12: 114, 128, 115, 115, 115, 114, 114, 115, 116, 117, 552, 869
+    last 6:   746, 656, 664, 809, 354, 807
+
+| phase | early (1-10) | late (11+) | ratio |
+|---|---|---|---|
+| step total | 563 ms | **1166 ms** | 2.07x |
+| `backward` | 115 ms | **734 ms** | **6.39x** |
+| `forward_loss` | 62 ms | 43.5 ms | 0.70x |
+
+Real added time, not attribution moving between phases: the step total itself
+doubles. `forward_loss` gets *faster* (ordinary warm-up), so it is not a general
+slowdown — the whole +620 ms lands in the backward. Time outside any NVTX range
+is ~380 ms in both regimes.
+
+**Mechanism: all-reduce back-pressure.** DDP issues gradient all-reduces
+asynchronously, so early backwards return without waiting — the exchange is only
+queued. Once the queue saturates, every backward blocks until prior exchanges
+drain, and the steady state is the interconnect's throughput. The arithmetic
+agrees: a ring all-reduce of 4.73 GB moves 1.5 x 4.73 = **7.1 GB per rank per
+step**, and 7.1 GB / 0.62 s of added time = **11.5 GB/s** — the cross-pair PCIe
+path (measured 18 GB/s) after ring inefficiency.
+
+⇒ **`PANGU_BENCH_WARMUP=20` is too short on this node.** The fill period outlasts
+the warmup because the link is slow, so the bench averaged fill steps into its
+result. The CSV's `step_med 1.100 s` is contaminated; **steady state is ~1.17 s**,
+i.e. ~1.8x slower than Polaris, not 1.7x. Raise the warmup before quoting a step
+time from this node.
+
 ### ⚠ Read this before quoting any of the above
 
 **Three-quarters of GPU time is gradient exchange, because of this node's
