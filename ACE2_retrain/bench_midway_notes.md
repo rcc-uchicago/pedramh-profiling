@@ -55,6 +55,38 @@ all-reduce bandwidth is consistent with that.
 model. On the H200 nodes the same code spends 18.6%. Any ACE2 scaling number
 taken on pedramh-gpu should say so.
 
+### PROVEN on-node: the split NVLink costs +29% per step
+
+`midway_topology_probe.sh`, jobs **53538838 / 53538839**. Identical 2-rank job
+run twice, changing only which two GPUs are used. `batch_size=2` on 2 ranks
+keeps 1 sample/rank, matching the 4-GPU baseline, so per-rank compute is
+unchanged and the only variable is the gradient path.
+
+| arm | GPUs | link | step_med | vs NVLink |
+|---|---|---|---|---|
+| A | 0,1 | **NVLink (NV12)** | **0.2250 s** | — |
+| B | 0,2 | **SYS** (PCIe + NUMA hop) | **0.2900 s** | **+28.9%** |
+
+**+65 ms per step for crossing the pair boundary**, on an otherwise identical
+workload. Sanity check: a 2-GPU ring all-reduce moves 1.82 GB per rank, so 65 ms
+of extra time implies ~**26 GB/s** on the cross-pair path -- essentially the
+~27 GB/s PCIe Gen4 sequential figure `s2s/v2.0/bench_report.md` measured
+independently on this host. Two different methods, same answer.
+
+It also explains the 4-GPU baseline (0.3425 s/step): a 4-GPU ring crosses that
+boundary **twice**, so it is slower than either 2-GPU arm.
+
+⇒ ACE2's 52% NCCL share on this node is the interconnect, demonstrated rather
+than argued. No Polaris run was needed -- and ACE2's 2.39 TB dataset is not
+staged on eagle anyway (per `polaris_pbs_notes.md` even plain ERA5 is not), so a
+Polaris comparison would have cost a Globus stage and still changed GPU
+generation, CPU, filesystem and data all at once.
+
+**Practical consequence**: for 2-GPU work on this node, pin to one NVLink pair
+(`CUDA_VISIBLE_DEVICES=0,1` or `2,3`) and get 29% for free. For 4-GPU work the
+penalty is unavoidable here; the H200 nodes (NV6 full mesh) are the fix, at the
+cost of the `test` partition and its queue.
+
 ## Partition policy — pedramh-gpu ONLY (from 2026-08-19)
 
 All ACE2 runs go to **`pedramh-gpu`** and no other nodes. Every script's SBATCH
