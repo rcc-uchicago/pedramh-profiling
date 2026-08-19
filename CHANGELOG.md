@@ -168,6 +168,32 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-19** — **ACE2 on H100/`pedramh-gpu`: `torch.compile` is NOT the lever; three
+  bigger levers measured instead.** Detail: `ACE2_retrain/bench_midway_notes.md`.
+  - **All runs restricted to `pedramh-gpu`** (midway3-0423, 4x H100). Every script
+    retargeted; the two 2-node scripts are **parked** — that partition has one node, so
+    `sbatch` now refuses them rather than silently taking nodes elsewhere.
+  - **`torch.compile` swept across 7 regional targets. Best result: 2.2%** (the corrector,
+    at 2.0e-5 drift). The **whole SFNO cannot be compiled at all** —
+    `InductorError: KeyError: 'complex64'`, because the spherical-harmonic path is
+    complex-valued. Compiling the **normalizer is actively bad** (no speedup, **8.4e-3**
+    drift), and the **MLP blocks are 3.4% slower** (guard overhead beats fusion on small,
+    frequently-called blocks). My ~20% estimate was too optimistic: it assumed the fusable
+    pointwise work was contiguous, and it is not.
+  - **Three larger, safer levers, all measured**: `validation_aggregator.log_snapshots=false`
+    is **~30% off the epoch** with no numerics change (the rendered panels are discarded
+    when wandb is off); **raising batch size** moves NCCL from 52.1% to 18.6%; and ending
+    the `dict<->tensor` round trips (`stacker.py:121`) targets **28% of GPU kernel time**.
+  - **CORRECTION to the 2026-08-18 entry**: the 8x H200 NCCL drop was read as proof the
+    share "really was the PCIe interconnect". A H100 run at the *same* batch size refutes
+    that — NCCL went **up**, 40.6% -> 52.1%. The H200 gain was mostly **batch 16 vs 4**.
+    ⇒ the lever on communication is batch size, not interconnect.
+  - **Two equivalence-tolerance floors measured** for DESIGN §4: **2.5e-7** same GPU/node,
+    **~1e-5** across GPU architectures. A baseline must record which hardware captured it.
+  - **Script bug fixed (rule #14)**: a windowed nsys capture was marked FAILED despite
+    writing a valid 217 MB report — nsys SIGTERMs the target when `--duration` expires, and
+    `set -e` aborted before the PASS gate. Now gated on the artifact.
+
 - **2026-08-18** — **ACE2 runs on Midway and has its first profile.** Detail +
   caveats: `ACE2_retrain/bench_midway_notes.md`. Run on **`--account=rcc-staff -p test`**
   as requested, not the usual `pi-pedramh`/`pedramh-gpu`.
