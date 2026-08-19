@@ -20,6 +20,41 @@ us, which is why a Midway env had to be built from
 `ace_exp/Makefile::create_environment` (minus `[docs,graphcast]` and the
 healpix/analysis extras — not needed for ERA5 lat-lon).
 
+## Why ACE2's NCCL share is 52% here — ALREADY DOCUMENTED in s2s/v2.0/bench_report.md
+
+`nvidia-smi topo -m` on midway3-0423 (job 53537121):
+
+    GPU0  X    NV12  SYS   SYS       GPU0<->GPU1 NVLink (12 links)
+    GPU1  NV12  X    SYS   SYS       GPU2<->GPU3 NVLink
+    GPU2  SYS  SYS    X    NV12      across the pairs: SYS = PCIe + NUMA hop
+    GPU3  SYS  SYS   NV12   X        GPU0/1 on NUMA 0, GPU2/3 on NUMA 1
+
+This **reproduces** `s2s/v2.0/bench_report.md` footnote 6, which already recorded
+it: *"NVLink is NV12 within socket-pairs only (GPU0<->1, GPU2<->3; cross-pair =
+SYS/UPI, no NVLink) -- unlike Midway H200's NV6 full mesh."* Treat the above as
+independent confirmation on current hardware, not a new finding.
+
+**Midway H200 nodes ARE fully meshed (NV6).** It is specifically this H100 NVL
+node that is pair-only -- which is why the same ACE2 code measured NCCL at
+**18.6% on 8x H200** versus **52.1% here**.
+
+**Why S2S never surfaced this**: the S2S profiles contain **no NCCL at all**
+(bench_report.md: *"No NCCL collective kernels appear in any profile ... verified:
+count = 0. These are data-parallel inference runs with no gradient
+synchronisation."*). S2S was profiled doing inference, so it never used the
+cross-pair link for collectives; its analysis targets CPU->GPU handoff latency.
+**ACE2 is the first training workload on this node to do heavy gradient
+all-reduce, and so the first to stress that path.**
+
+The transfer-side weakness was already measured there too: under concurrent load
+GPU0/1 sustain ~27 GB/s while **GPU2/3 collapse to ~14 GB/s (-42%, NUMA-aligned)**,
+against an Ice Lake PCIe Gen4 ceiling of ~32 GB/s. Our ~15 GB/s effective
+all-reduce bandwidth is consistent with that.
+
+⇒ ACE2's 52% NCCL share is a property of **this node's topology**, not of the
+model. On the H200 nodes the same code spends 18.6%. Any ACE2 scaling number
+taken on pedramh-gpu should say so.
+
 ## Partition policy — pedramh-gpu ONLY (from 2026-08-19)
 
 All ACE2 runs go to **`pedramh-gpu`** and no other nodes. Every script's SBATCH
