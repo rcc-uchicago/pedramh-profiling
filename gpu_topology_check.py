@@ -27,21 +27,40 @@ MB = 256  # per transfer; large enough to be bandwidth- not latency-bound
 
 
 def main():
+    print(f"host:  {subprocess.getoutput('hostname')}")
+    print(f"torch: {torch.__version__}  cuda_built={torch.version.cuda}  "
+          f"available={torch.cuda.is_available()}")
+    print(f"arch:  {subprocess.getoutput('uname -m')}")
+    if not torch.cuda.is_available():
+        print("ERROR torch.cuda.is_available() is False -- run this INSIDE a GPU "
+              "allocation, and check CUDA_VISIBLE_DEVICES is not empty")
+        return
     n = torch.cuda.device_count()
-    print(f"host: {subprocess.getoutput('hostname')}")
-    print(f"GPUs: {n}")
+    print(f"GPUs:  {n}")
     for i in range(n):
-        p = torch.cuda.get_device_properties(i)
-        print(f"  cuda:{i}  {p.name}  {p.total_memory / 2**30:.0f} GiB")
+        try:
+            p = torch.cuda.get_device_properties(i)
+            print(f"  cuda:{i}  {p.name}  {p.total_memory / 2**30:.0f} GiB")
+        except Exception as err:                     # noqa: BLE001
+            print(f"  cuda:{i}  <properties unavailable: {type(err).__name__}: {err}>")
     print()
-    print(subprocess.getoutput("nvidia-smi topo -m").split("Legend")[0])
+    topo = subprocess.getoutput("nvidia-smi topo -m")
+    print(topo.split("Legend")[0] if topo else "(nvidia-smi topo -m produced nothing)")
 
     if n < 2:
-        print("only one GPU visible -- nothing to measure")
+        print(f"only {n} GPU(s) visible -- nothing to measure")
         return
 
-    elems = MB * 1024 * 1024 // 4
-    print(f"measured pairwise copy bandwidth, {MB} MiB per transfer (GB/s):")
+    # Shrink the transfer if any visible GPU is small or already busy: a fixed
+    # 256 MiB x 2 allocation is fine on a 94 GiB card but can OOM on a shared or
+    # smaller one, and an OOM here looks like a tool bug rather than a full GPU.
+    free = min((torch.cuda.mem_get_info(i)[0] for i in range(n)), default=0)
+    mb = MB if free > 4 * MB * 1024 * 1024 else max(16, int(free / 4 / 1024 / 1024))
+    if mb != MB:
+        print(f"note: reducing transfer to {mb} MiB -- least-free GPU has "
+              f"{free / 2**30:.1f} GiB free")
+    elems = mb * 1024 * 1024 // 4
+    print(f"measured pairwise copy bandwidth, {mb} MiB per transfer (GB/s):")
     print("      " + "".join(f"{j:>9}" for j in range(n)))
     for i in range(n):
         row = f"cuda:{i}"
@@ -50,7 +69,12 @@ def main():
             if i == j:
                 row += f"{'-':>9}"
                 continue
-            dst = torch.empty(elems, dtype=torch.float32, device=f"cuda:{j}")
+            try:
+                dst = torch.empty(elems, dtype=torch.float32, device=f"cuda:{j}")
+            except Exception as err:                 # noqa: BLE001
+                # one unusable pair must not kill the whole matrix
+                row += f"{type(err).__name__[:8]:>9}"
+                continue
             for _ in range(3):                      # warm up the path
                 dst.copy_(src)
             # BOTH devices: torch.cuda.synchronize() with no argument syncs only
