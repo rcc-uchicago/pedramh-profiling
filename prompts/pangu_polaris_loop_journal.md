@@ -64,12 +64,42 @@ Entry shape (keep it):
     81% of the A100's 1555 GB/s**, all four devices within 2 points. Intra-device HBM only — it does
     **not** close the interconnect/topology cell (item 6). It does kill the "81% is unreachable on
     this node" reading of §0d's estimated 17-27%, so it narrows item 7 without replacing it.
-- **gauntlet:** drift auditor **returned** — 27 items; it independently re-derived every §4.3 number
-  from the capture and reproduced all of them. Three were real defects in §4.3 (bytes column mixed
-  per-rank-step with all-rank; a dropped `forward_loss` row so 128 != 131 launches; "26 points"
-  mixed denominators — it is 46.5% of the step CPU-side vs 77.4% GPU-side) — **all six of its §4.3
-  strikes applied.** Adversary **still running** at the time of writing; §4.3's commit is
-  deliberately held until it returns, so no unreviewed number lands in the shared memory.
+- **gauntlet: CLEARED — both roles returned, 42 findings between them, all triaged.** Ran on the
+  inherited tier, not Fable 5: **`claude-fable-5` is out of credits on this account** (both first
+  attempts died with "Usage credits are required for this model"). Worth knowing before the next tick
+  plans a subagent.
+  - **Drift auditor:** 27 items. It independently re-derived **every** §4.3 number from the capture and
+    reproduced all of them. Three were real defects in my §4.3 (bytes column mixed per-rank-step with
+    all-rank totals; a dropped `forward_loss` row so 128 != 131 launches; "26 points" mixed
+    denominators). Two were interpretation errors (item 17 -> item **16**; "comfortably inside the
+    ceiling" when ai-rossby's ladder actually sits 1.4 points under it). All applied.
+  - **Adversary: 2 FATAL + 5 MATERIAL + 8 MINOR, and both FATALs held up.**
+    1. **The removable/non-removable buckets were INVERTED.** Recompute happens *inside* `backward`, so
+       `backward`'s 197.58 ms is the bucket that shrinks and `forward_loss`'s 73.61 ms is the one no
+       checkpointing level can remove. My sentence said the opposite. The 27% magnitude was right only
+       by coincidence (recompute ~ forward). **A reader would have concluded "73% is untouchable, skip
+       the ckpt ladder" — the exact wrong decision.**
+    2. **"Recompute cannot exceed the forward's GPU time" is not a bound.** Kernels with equal fwd/bwd
+       launch counts run at **1.0136x, never below 1.0**, and recompute selects *different* GEMMs
+       (+15%/call). So it is an estimate of ~150 ms. It also caught that my section contradicted itself
+       in six lines: header said ESTIMATED, bullet said "measured bound".
+    3. **My "backward is 77.4% of the step" was the sum-vs-union confusion** — the very framing the
+       driver's §0 lists as already-refuted. Union is **408.63 ms = 67.7%**; only `backward` self-overlaps
+       (12.5%, NCCL on `streamId 19`). I verified this myself by adding a union column to the tool: it
+       reproduces the adversary's figure exactly.
+    4. Also confirmed by my own re-derivation: the `2 x bytes` rule fails sub-L2 (**two** buckets compute
+       to >100% of peak, 124.7% and 110.0% — the proof); the D2D stream claim (all on `streamId 7`, so
+       serialized with compute, not concurrent — my hedge was the wrong hedge); 960 of 962 H2D, not 100%;
+       step-30 comms stall worth -12.0% on the NCCL mean; and the `conj` warrant must come from **source**
+       (no `conj` in `networks/modulus_sfno`, einsum over `view_as_complex`, 24/rs = 2 x `num_layers`),
+       not from the phase split, since a recompute-only kernel would look identical.
+    5. **Two claims it tried and could not break:** the +29.4% phantom join and the guard dropping
+       nothing (it checked for orphaned/graph-launched kernels and found none), and `(outside)` = 0.0%
+       (it went further and found the CPU inside `cudaDeviceSynchronize` for 10.72 s on rank 0).
+  - **Strike 15 was a process finding against me:** the bandwidth table had **no committed code behind
+    it** — it came from an ad-hoc heredoc, violating "analysis code that produces a load-bearing number
+    must be re-runnable from the repo". Fixed by adding `--memcpy`, `--per-step` and the union column to
+    the tool, so §4.3h now lists a command for every table in the section.
 - **also landed this tick (commit 99378811), found by the new tool's test:** `parse_nsys.py` could
   not run on a Polaris login node **at all** — `sqlite3.connect(PosixPath)` needs Python >= 3.7 and
   the login default is **3.6.15**, and `statistics.fmean` is 3.8+. Both fixed with regression tests;
@@ -98,9 +128,15 @@ Entry shape (keep it):
     worker thread** (`...2d149f`) while **all 201 NVTX events are on the main thread** (`...2d139d`). Same-thread
     attribution would therefore credit `(outside)` for the whole of `backward`. Attribution must be scoped to
     the **process** (globalPid), not the thread. — measured, plan item 4
-- **next:** wait for the adversary; apply any un-refuted strike; then commit §4.3 + the drift fixes,
-  tick plan item 1's checkbox, and write the CHANGELOG entry. After that, plan item **4** (fix
-  `kernel_census.py` by importing the guarded, process-scoped join rather than re-deriving it).
+- **STAGE_LANDED — plan items 1 AND 5, both ticked.** Item 5 fell out of the adversary's warmup
+  attack: no warmup regime (first step 640.26 vs 634.36 ms median), but step index 30 is a comms stall
+  worth -12.0% on the NCCL mean. Commits: `985214b5` (prereg) -> `17d2baf1` (tool+test) -> `99378811`
+  (parse_nsys 3.6 fixes) -> `66572846` (verdict) -> `dfb36132` (item 1, §4.3) -> `5b48b176` (drift
+  repair across 6 docs).
+- **next:** plan item **2** — re-derive §0d on the **second** capture, job **7255557**, as a true n=2.
+  The drift auditor was explicit that item 2 is **NOT** closed by this tick: §4.3 is an independent
+  *query path* on the *same* capture. Then item **3** (analytic bytes model) and item **4**
+  (`kernel_census.py`). Tier 0 remains `qsub`-free; the first submission request will be item **6**.
 - **infra-failure count:** 0/5
 
 ---
