@@ -50,6 +50,19 @@ import sys
 # An nsys globalTid packs the tid into the low 24 bits of the globalPid.
 PID_MASK = ~0xFFFFFF
 
+# Collectives with a distinguished ROOT, whose own time is ~0 regardless of skew.
+# Parsed by name rather than pattern-matched, because rootedness does not follow
+# from the substring: AllReduce and ReduceScatter are NOT rooted while Reduce is,
+# and AllGather is NOT rooted while Gather is. A regex on `Reduce` gets AllReduce
+# wrong, which silently empties the straggler ranking.
+_ROOTED_OPS = frozenset(('broadcast', 'reduce', 'gather', 'scatter'))
+
+
+def _is_rooted(kernel_name):
+    m = re.search(r'ncclDevKernel_(\w+?)_', kernel_name) or \
+        re.search(r'nccl\w*Kernel_?(\w+)', kernel_name)
+    return bool(m) and m.group(1).lower() in _ROOTED_OPS
+
 # The shared NVTX phase contract, imported rather than copied -- a fourth copy
 # is how `unstack` drifted out of one of parse_nsys.py's two lists. The
 # per-step `step_N` markers are deliberately NOT in it: they ENCLOSE these and
@@ -240,12 +253,23 @@ def report(agg, union=None, kernel_regex=None, top=12, rank_steps=None):
 
 
 def per_step_report(cur, by_pid, top_outliers=3):
-    """Per-rank-step GPU time, to expose a regime change or a one-step stall.
+    """Per-rank-step GPU time, split COMPUTE vs NCCL, because they behave differently.
 
-    Every aggregate in a capture is a mean over its steps; a single stalled step
-    can move a sub-total by double digits while leaving the phase shares almost
-    unchanged. Print the spread and name the outliers rather than trusting the
-    mean (plan item 5).
+    Two distinct things inflate a step and they must not be conflated:
+
+    * **compute warmup** — cudnn autotune, allocator growth, lazy init. Shows up in
+      the non-NCCL kernels, decays over the first few steps, and is what a
+      `bench_warmup` setting exists to skip.
+    * **comms noise** — a rank arriving late makes every other rank *wait inside*
+      an NCCL collective. Shows up only in NCCL, does not decay, and is not work.
+
+    Judging warmup on the TOTAL confuses the two: on Pangu job 7255557 step 0 is
+    **+6.7% on the median total** (685.09 vs 641.95 ms/rank-step), which clears a 3%
+    threshold and reads as a warmup regime — but it is **+61.1% NCCL and only +0.5%
+    compute**, so there is no compute warmup at all. Hence the verdict below keys on
+    compute only, and comms is reported separately.
+    (An earlier note here said "+20%". That was wrong: it compared ONE rank's step 0
+    against the all-rank median. Fixed with the rest of this function.)
     """
     rows = list(cur.execute("""
         SELECT r.start, k.end - k.start, k.globalPid, s.value
@@ -255,50 +279,250 @@ def per_step_report(cur, by_pid, top_outliers=3):
          AND k.globalPid = (r.globalTid & ?)
         JOIN StringIds s ON s.id = k.demangledName
     """, (PID_MASK,)))
-    # index each rank's phase windows so a launch maps to (step, phase)
     steps = collections.defaultdict(list)
     for pid, iv in by_pid.items():
         n = -1
         for start, end, name in iv:
             if name in ('data_prep', 'preprocess'):
                 n += 1
-            steps[pid].append((start, end, n, name))
-    per = collections.defaultdict(lambda: collections.Counter())
+            steps[pid].append((start, end, n))
+    comp = collections.Counter()
+    comm = collections.Counter()
     for ts, dur, pid, name in rows:
         arr = steps.get(pid, ())
-        i = bisect.bisect_right(arr, (ts, float('inf'), 0, '')) - 1
+        i = bisect.bisect_right(arr, (ts, float('inf'), 0)) - 1
         if i < 0 or not (arr[i][0] <= ts <= arr[i][1]):
             continue
-        _, _, n, phase = arr[i]
-        per[(pid, n)][phase] += dur
-        per[(pid, n)]['TOTAL'] += dur
-        if 'nccl' in short_label(name):
-            per[(pid, n)]['nccl'] += dur
-    tot = sorted(v['TOTAL'] / 1e6 for v in per.values())
-    med = tot[len(tot) // 2]
-    print(f"\n  {len(per)} rank-steps: median {med:.2f} ms, "
-          f"min {tot[0]:.2f}, max {tot[-1]:.2f}, spread {tot[-1] / tot[0]:.3f}x")
-    print(f"  first vs median: {sorted(per.items(), key=lambda kv: kv[0][1])[0][1]['TOTAL'] / 1e6:.2f} "
-          f"vs {med:.2f} ms  ⇒ "
-          + ("NO warmup regime" if abs(sorted(per.items(), key=lambda kv: kv[0][1])[0][1]['TOTAL'] / 1e6 / med - 1) < 0.03
-             else "WARMUP REGIME PRESENT"))
-    worst = sorted(per.items(), key=lambda kv: -kv[1]['TOTAL'])[:top_outliers]
-    print(f"  worst {top_outliers} rank-steps (GPU kernel sum):")
-    for (pid, n), c in worst:
-        print(f"    step index {n:>3} pid {pid:#x}: {c['TOTAL'] / 1e6:8.2f} ms "
-              f"({c['TOTAL'] / 1e6 / med:.2f}x median), of which nccl "
-              f"{c['nccl'] / 1e6:7.2f} ms")
-    excl = {k: v for k, v in per.items() if k[1] != worst[0][0][1]}
-    if excl:
-        s_all = sum(v['TOTAL'] for v in per.values()) / len(per)
-        s_ex = sum(v['TOTAL'] for v in excl.values()) / len(excl)
-        n_all = sum(v['nccl'] for v in per.values()) / len(per)
-        n_ex = sum(v['nccl'] for v in excl.values()) / len(excl)
-        print(f"  excluding step index {worst[0][0][1]} (all ranks): "
-              f"total {s_all / 1e6:.2f} -> {s_ex / 1e6:.2f} ms/rank-step "
-              f"({100 * (s_ex / s_all - 1):+.1f}%), "
-              f"nccl {n_all / 1e6:.2f} -> {n_ex / 1e6:.2f} ms "
-              f"({100 * (n_ex / n_all - 1):+.1f}%)")
+        n = arr[i][2]
+        (comm if name.startswith('nccl') else comp)[n] += dur
+    if not comp:
+        print("  no attributable kernels for a per-step series")
+        return
+    nranks = max(1, len(by_pid))
+    nsteps = max(comp) + 1
+
+    def stats(counter):
+        v = sorted(x / nranks / 1e6 for x in counter.values())
+        return v[len(v) // 2], v[0], v[-1]
+
+    c_med, c_min, c_max = stats(comp)
+    n_med, n_min, n_max = stats(comm) if comm else (0, 0, 0)
+    print(f"\n  {nsteps} steps x {nranks} ranks, ms/rank-step:")
+    print(f"    {'COMPUTE (non-NCCL)':<20} median {c_med:8.2f}  min {c_min:8.2f}  "
+          f"max {c_max:8.2f}  spread {c_max / c_min:5.3f}x")
+    if comm:
+        print(f"    {'NCCL':<20} median {n_med:8.2f}  min {n_min:8.2f}  "
+              f"max {n_max:8.2f}  spread {n_max / n_min:5.1f}x")
+
+    # Warmup verdict on COMPUTE only -- see the docstring.
+    c0 = comp[0] / nranks / 1e6
+    n0 = (comm[0] / nranks / 1e6) if comm else 0
+    dc, dn = 100 * (c0 / c_med - 1), (100 * (n0 / n_med - 1) if n_med else 0)
+    print(f"    step 0: compute {c0:.2f} ({dc:+.1f}% vs median), "
+          f"nccl {n0:.2f} ({dn:+.1f}%)")
+    print("    ⇒ " + ("COMPUTE WARMUP REGIME PRESENT — the warmup setting is too short"
+                      if abs(dc) >= 3 else
+                      "no compute warmup regime (the warmup setting was long enough)")
+          + (f"; step 0's excess is COMMS, not warmup" if abs(dc) < 3 and dn > 10 else ""))
+
+    worst = sorted(((comp[n] + comm[n], n) for n in comp), reverse=True)[:top_outliers]
+    print(f"  worst {len(worst)} steps by total:")
+    for tot, n in worst:
+        print(f"    step {n:>3}: {tot / nranks / 1e6:8.2f} ms/rank-step  = compute "
+              f"{comp[n] / nranks / 1e6:7.2f} + nccl {comm[n] / nranks / 1e6:7.2f}")
+    if worst:
+        drop = worst[0][1]
+        keep = [n for n in comp if n != drop]
+        f = lambda c, ks: sum(c[n] for n in ks) / len(ks) / nranks / 1e6
+        allk = list(comp)
+        print(f"  excluding step {drop}: compute {f(comp, allk):.2f} -> "
+              f"{f(comp, keep):.2f} ms/rank-step "
+              f"({100 * (f(comp, keep) / f(comp, allk) - 1):+.1f}%), "
+              f"nccl {f(comm, allk):.2f} -> {f(comm, keep):.2f} "
+              f"({100 * (f(comm, keep) / f(comm, allk) - 1) if f(comm, allk) else 0:+.1f}%)")
+    print(f"\n  >>> COMPUTE-only total is the reproducible denominator: "
+          f"{f(comp, allk):.2f} ms/rank-step. Shares taken against the FULL kernel\n"
+          f"      total move run-to-run because NCCL wait sits in the denominator.")
+    return {'compute_median_ms': c_med, 'nccl_median_ms': n_med,
+            'compute_mean_ms': f(comp, allk), 'nccl_mean_ms': f(comm, allk),
+            'step0_compute_pct': dc, 'step0_nccl_pct': dn,
+            'compute_warmup': abs(dc) >= 3, 'n_steps': nsteps}
+
+
+def per_rank_report(cur, by_pid, stall_factor=1.5):
+    """Per-step, per-DEVICE NCCL vs compute — the direct straggler test.
+
+    A collective makes every rank wait for the last arrival, so the straggler is
+    the rank with the *lowest* NCCL time while the others are high: it did not
+    wait, everyone waited for it. That signature is invisible in any aggregate
+    that averages over ranks, which is why this is its own report.
+
+    `stall_factor` counts steps whose mean NCCL exceeds this multiple of the
+    per-step median — a stalled step is a balance event, not work.
+
+    **Rooted collectives are excluded from the ranking, and that matters.** In a
+    broadcast the ROOT does not wait by construction, so its time is near-zero on
+    every step whether or not it is late: on both Pangu captures dev0's total
+    `ncclBroadcast` is ~9 ms against 23-1884 ms for the non-roots. Ranking on
+    all-NCCL therefore hands the root a spurious "always the straggler" credit.
+    Arrival order is judged on the non-rooted collectives (all-reduce) only; the
+    rooted total is reported separately so the root is visible rather than hidden.
+    """
+    steps = collections.defaultdict(list)
+    for pid, iv in by_pid.items():
+        n = -1
+        for start, end, name in iv:
+            if name in ('data_prep', 'preprocess'):
+                n += 1
+            steps[pid].append((start, end, n))
+    comp = collections.defaultdict(int)
+    comm = collections.defaultdict(int)      # non-rooted only -- see below
+    rooted = collections.defaultdict(int)    # broadcast/gather: root is ~0 by design
+    for ts, dur, pid, name in cur.execute("""
+        SELECT r.start, k.end - k.start, k.globalPid, s.value
+        FROM CUPTI_ACTIVITY_KIND_RUNTIME r
+        JOIN CUPTI_ACTIVITY_KIND_KERNEL k
+          ON k.correlationId = r.correlationId
+         AND k.globalPid = (r.globalTid & ?)
+        JOIN StringIds s ON s.id = k.demangledName
+    """, (PID_MASK,)):
+        arr = steps.get(pid, ())
+        i = bisect.bisect_right(arr, (ts, float('inf'), 0)) - 1
+        if i < 0 or not (arr[i][0] <= ts <= arr[i][1]):
+            continue
+        key = (pid, arr[i][2])
+        if not name.startswith('nccl'):
+            comp[key] += dur
+        elif _is_rooted(name):
+            rooted[key] += dur
+        else:
+            comm[key] += dur
+    if not comm:
+        print("  no NCCL kernels — single-rank capture?")
+        return
+    pids = sorted({p for p, _ in comp})
+    dev = {p: d for p, d in cur.execute(
+        "SELECT DISTINCT globalPid, deviceId FROM CUPTI_ACTIVITY_KIND_KERNEL")}
+    nsteps = max(n for _, n in comp) + 1
+    step_mean = {n: sum(comm[(p, n)] for p in pids) / len(pids)
+                 for n in range(nsteps)}
+    med = sorted(step_mean.values())[nsteps // 2]
+    stalled = sorted(n for n in step_mean if step_mean[n] > stall_factor * med)
+    vals = sorted(step_mean.values())
+    print(f"\n  per-step mean NON-ROOTED NCCL: median {med / 1e6:.2f} ms, "
+          f"min {vals[0] / 1e6:.2f}, max {vals[-1] / 1e6:.2f} "
+          f"(spread {vals[-1] / max(vals[0], 1):.1f}x)")
+    print(f"  **{len(stalled)} of {nsteps} steps > {stall_factor}x median**"
+          + (f" -> {stalled}" if stalled else ""))
+    if len(stalled) > 0.4 * nsteps:
+        print(f"  ⚠ {100 * len(stalled) / nsteps:.0f}% of steps are 'stalled', so the "
+              f"MEDIAN itself is near the stalled population — this count is\n"
+              f"    unstable at this fraction. Quote the distribution above, not the count.")
+    if rooted:
+        r_tot = {p: sum(rooted[(p, n)] for n in range(nsteps)) / 1e6 for p in pids}
+        lo = min(r_tot, key=r_tot.get)
+        print(f"  rooted (broadcast) totals, EXCLUDED from the ranking: "
+              + ', '.join(f"dev{dev.get(p, '?')}={r_tot[p]:.0f}ms" for p in pids)
+              + f"  <- dev{dev.get(lo, '?')} is the root")
+
+    hdr = f"  {'step':>5}" + ''.join(f"  dev{dev.get(p, '?')}_nccl" for p in pids)
+    print(f"\n  NCCL ms per device, worst {min(5, len(stalled) or 1)} steps "
+          f"(the LOWEST cell is the straggler — it never waited):")
+    print(hdr)
+    for n in sorted(stalled or [max(step_mean, key=step_mean.get)],
+                    key=lambda k: -step_mean[k])[:5]:
+        cells = [comm[(p, n)] / 1e6 for p in pids]
+        lo = min(range(len(cells)), key=lambda i: cells[i])
+        print(f"  {n:>5}" + ''.join(
+            (f"  {c:>9.0f}*" if i == lo else f"  {c:>10.0f}")
+            for i, c in enumerate(cells)) + f"   <- dev{dev.get(pids[lo], '?')}")
+
+    # Which device is the straggler most often, across ALL stalled steps?
+    tally = collections.Counter()
+    for n in stalled:
+        cells = {p: comm[(p, n)] for p in pids}
+        tally[dev.get(min(cells, key=cells.get), '?')] += 1
+    if tally:
+        print(f"\n  straggler tally over the {len(stalled)} stalled steps: "
+              + ', '.join(f"dev{d}={c}" for d, c in sorted(tally.items())))
+        top, n_top = tally.most_common(1)[0]
+        print(f"  >>> dev{top} is the straggler in {n_top}/{len(stalled)} "
+              f"({100 * n_top / len(stalled):.0f}%) of stalled steps")
+
+    print(f"\n  compute (non-NCCL) ms/step per device. ⚠ NOT a clean control: a "
+          f"spinning NCCL kernel shares SMs with\n     the compute it overlaps, so a "
+          f"WAITING rank's compute inflates too (~+5% observed).")
+    print(f"  {'':>5}" + ''.join(f"  dev{dev.get(p, '?')}_comp" for p in pids))
+    tot = [sum(comp[(p, n)] for n in range(nsteps)) / nsteps / 1e6 for p in pids]
+    print(f"  {'mean':>5}" + ''.join(f"  {c:>10.2f}" for c in tot)
+          + f"   spread {max(tot) / min(tot):.4f}x")
+
+
+def stall_cause_report(cur, by_pid, phase='forward_loss', factor=3.0, top=6):
+    """For each abnormally long PHASE window, what was the CPU actually doing?
+
+    A rank that arrives late at a collective makes every other rank wait, and the
+    GPU tables can only show you the *waiting* — never the cause. nsys's CPU
+    sampling can: this joins COMPOSITE_EVENTS to SAMPLING_CALLCHAINS and prints
+    the top leaf symbols inside the elongated window, on the thread that owns it.
+
+    On both Pangu captures this is what identifies the step-30 stall as **CPython
+    generation-2 garbage collection** (`gc_collect_main`, `visit_reachable`,
+    `dict_traverse`, `func_traverse`) rather than a NUMA or affinity problem --
+    which also explains why it recurs at the SAME iteration on two different
+    nodes, since the gen-2 threshold is a function of allocation count, not of
+    hardware. A NUMA lottery cannot reproduce an iteration index.
+    """
+    if not (_table_exists(cur, 'COMPOSITE_EVENTS')
+            and _table_exists(cur, 'SAMPLING_CALLCHAINS')):
+        print("  no CPU sampling in this capture — re-capture with "
+              "`nsys profile --sample=process-tree` to get stall causes")
+        return
+    windows = []
+    for pid, iv in by_pid.items():
+        n = -1
+        for start, end, name in iv:
+            if name in ('data_prep', 'preprocess'):
+                n += 1
+            if name == phase:
+                windows.append((pid, n, start, end, end - start))
+    if not windows:
+        print(f"  no `{phase}` ranges found")
+        return
+    med = sorted(w[4] for w in windows)[len(windows) // 2]
+    hot = sorted((w for w in windows if w[4] > factor * med), key=lambda w: -w[4])
+    dev = {p: d for p, d in cur.execute(
+        "SELECT DISTINCT globalPid, deviceId FROM CUPTI_ACTIVITY_KIND_KERNEL")}
+    print(f"\n  `{phase}` median {med / 1e6:.1f} ms; "
+          f"**{len(hot)} of {len(windows)} windows > {factor}x median**")
+    for pid, n, start, end, dur in hot[:top]:
+        print(f"\n  dev{dev.get(pid, '?')} step {n}: {phase} = {dur / 1e6:.1f} ms "
+              f"({dur / med:.1f}x median) — top CPU leaf symbols:")
+        best = None
+        # list() first: reusing `cur` for the inner query would invalidate this
+        # iteration and silently return no samples at all.
+        tids = [r[0] for r in cur.execute(
+            "SELECT DISTINCT globalTid FROM COMPOSITE_EVENTS "
+            "WHERE (globalTid & ?) = ?", (PID_MASK, pid))]
+        for tid in tids:
+            rows = list(cur.execute("""
+                SELECT s.value, COUNT(*) FROM COMPOSITE_EVENTS ce
+                JOIN SAMPLING_CALLCHAINS sc ON sc.id = ce.id
+                JOIN StringIds s ON s.id = sc.symbol
+                WHERE ce.globalTid = ? AND ce.start BETWEEN ? AND ?
+                  AND sc.stackDepth = 0
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 5""", (tid, start, end)))
+            if rows and (best is None or rows[0][1] > best[0][1]):
+                best = rows
+        if not best:
+            print("      (no samples in this window)")
+            continue
+        for sym, cnt in best:
+            print(f"      {cnt:>5}  {sym[:64]}")
+        if any('gc_' in s or 'traverse' in s or 'reachable' in s for s, _ in best):
+            print("      ⇒ CPython GARBAGE COLLECTION. Output-neutral fix to try: "
+                  "`gc.freeze()` after\n         model/optimizer construction, or "
+                  "`gc.disable()` around the bench loop.")
 
 
 def memcpy_report(cur, by_pid, rank_steps=None):
@@ -407,10 +631,13 @@ def memcpy_report(cur, by_pid, rank_steps=None):
 
 
 def _human(b):
-    for u in ('B', 'KB', 'MB', 'GB', 'TB'):
-        if b < 1024 or u == 'TB':
+    """SI units (1e3), NOT binary. The bandwidth figures divide bytes by 1e9, so a
+    1024-based helper made one table mix '302.57 MiB' with '1279 GB/s' -- and it
+    printed the D2D volume as 12.56 'GB' when 1e9-based it is 13.48 GB."""
+    for u in ('B', 'kB', 'MB', 'GB', 'TB'):
+        if b < 1000 or u == 'TB':
             return f"{b:.2f} {u}" if u != 'B' else f"{b:.0f} B"
-        b /= 1024.0
+        b /= 1000.0
 
 
 def main(argv=None):
@@ -426,6 +653,10 @@ def main(argv=None):
                     help='memcpy/memset bandwidth, bucketed against L2 capacity')
     ap.add_argument('--per-step', action='store_true',
                     help='per-rank-step series: warmup regime and stall outliers')
+    ap.add_argument('--per-rank', action='store_true',
+                    help='per-step per-device NCCL: the direct straggler test')
+    ap.add_argument('--stall-cause', action='store_true',
+                    help='CPU leaf symbols inside abnormally long phase windows')
     ap.add_argument('--rank-steps', type=int, default=None,
                     help='normalise to this many rank-steps (default: derived)')
     ap.add_argument('--top', type=int, default=12)
@@ -451,6 +682,10 @@ def main(argv=None):
     report(agg, union, a.kernel_regex, a.top, rank_steps)
     if a.per_step:
         per_step_report(con.cursor(), by_pid)
+    if a.per_rank:
+        per_rank_report(con.cursor(), by_pid)
+    if a.stall_cause:
+        stall_cause_report(con.cursor(), by_pid)
     if a.memcpy:
         print()
         memcpy_report(con.cursor(), by_pid, rank_steps)

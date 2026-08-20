@@ -9,6 +9,7 @@ the real one: two processes whose `correlationId` spaces COLLIDE, and backward
 kernels launched from a thread that carries no NVTX ranges.
 """
 import collections
+import io
 import os
 import sqlite3
 import sys
@@ -57,6 +58,135 @@ def build(path):
                        (ts, ts + 1, tid, cid))
             db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (?,?,?,?,1)",
                        (ts + 2, ts + 2 + dur, cid, pid))
+    db.commit()
+    db.close()
+
+
+def build_stall_cause_case(path):
+    """One forward_loss window 10x the others, with GC frames sampled inside it."""
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE StringIds (id INTEGER PRIMARY KEY, value TEXT);
+        CREATE TABLE NVTX_EVENTS (start INT, end INT, eventType INT, text TEXT,
+                                  globalTid INT, textId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME (start INT, end INT,
+                                  globalTid INT, correlationId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL (start INT, end INT,
+                                  correlationId INT, globalPid INT,
+                                  demangledName INT, deviceId INT);
+        CREATE TABLE COMPOSITE_EVENTS (id INTEGER PRIMARY KEY, start INT,
+                                  globalTid INT);
+        CREATE TABLE SAMPLING_CALLCHAINS (id INT, stackDepth INT, symbol INT);
+    """)
+    for i, v in ((1, 'gc_collect_main'), (2, 'visit_reachable'),
+                 (3, '_PyEval_EvalFrameDefault'), (9, 'compute_kernel')):
+        db.execute("INSERT INTO StringIds VALUES (?,?)", (i, v))
+    tid = MAIN_A
+    ev = 0
+    for step in range(4):
+        base = step * 1_000_000
+        db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,'data_prep',?,NULL)",
+                   (base, base + 10, tid))
+        # step 2's forward_loss is 10x longer and full of GC samples
+        span = 100_000 if step == 2 else 10_000
+        db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,'forward_loss',?,NULL)",
+                   (base + 20, base + 20 + span, tid))
+        db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES (?,?,?,?)",
+                   (base + 30, base + 31, tid, step + 1))
+        db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES "
+                   "(?,?,?,?,9,0)", (base + 40, base + 140, step + 1, PID_A))
+        for k in range(20 if step == 2 else 2):
+            ev += 1
+            sym = 1 if step == 2 and k % 2 == 0 else (2 if step == 2 else 3)
+            db.execute("INSERT INTO COMPOSITE_EVENTS VALUES (?,?,?)",
+                       (ev, base + 50 + k * 100, tid))
+            db.execute("INSERT INTO SAMPLING_CALLCHAINS VALUES (?,0,?)", (ev, sym))
+    db.commit()
+    db.close()
+
+
+def build_straggler_case(path):
+    """2 ranks... 4 ranks: one stalled step where dev1 waits far LESS than the rest.
+
+    Shaped like Pangu job 7255503 step 30 (251/65/612/614 ms): the straggler's
+    own NCCL time is near-median while the others' balloons.
+    """
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE StringIds (id INTEGER PRIMARY KEY, value TEXT);
+        CREATE TABLE NVTX_EVENTS (start INT, end INT, eventType INT, text TEXT,
+                                  globalTid INT, textId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME (start INT, end INT,
+                                  globalTid INT, correlationId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL (start INT, end INT,
+                                  correlationId INT, globalPid INT,
+                                  demangledName INT);
+    """)
+    db.execute("INSERT INTO StringIds VALUES (1, 'compute_kernel')")
+    db.execute("INSERT INTO StringIds VALUES (2, 'ncclDevKernel_AllReduce_Sum_f32')")
+    pids = [0x100000000 * (i + 1) for i in range(4)]
+    cid = 0
+    for rank, pid in enumerate(pids):
+        tid = pid | 0x10
+        for step in range(4):
+            base = step * 100_000
+            db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,'data_prep',?,NULL)",
+                       (base, base + 10, tid))
+            db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,'backward',?,NULL)",
+                       (base + 20, base + 90_000, tid))
+            # step 2 stalls: everyone waits 600 except rank 1, which waits 65
+            nccl = 100 if step != 2 else (65 if rank == 1 else 600)
+            for name_id, dur in ((1, 500), (2, nccl)):
+                cid += 1
+                ts = base + 30 + name_id
+                db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES (?,?,?,?)",
+                           (ts, ts + 1, tid, cid))
+                db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (?,?,?,?,?)",
+                           (ts + 2, ts + 2 + dur, cid, pid, name_id))
+    # deviceId mapping, which per_rank_report reads back for its labels
+    db.execute("ALTER TABLE CUPTI_ACTIVITY_KIND_KERNEL ADD COLUMN deviceId INT")
+    for rank, pid in enumerate(pids):
+        db.execute("UPDATE CUPTI_ACTIVITY_KIND_KERNEL SET deviceId=? WHERE globalPid=?",
+                   (rank, pid))
+    db.commit()
+    db.close()
+
+
+def build_warmup_case(path):
+    """4 steps, flat compute, and step 0 carrying 3x the NCCL of the others.
+
+    Deliberately shaped like Pangu job 7255557: nothing about the compute is
+    special about step 0, but its collective waits far longer.
+    """
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE StringIds (id INTEGER PRIMARY KEY, value TEXT);
+        CREATE TABLE NVTX_EVENTS (start INT, end INT, eventType INT, text TEXT,
+                                  globalTid INT, textId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME (start INT, end INT,
+                                  globalTid INT, correlationId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL (start INT, end INT,
+                                  correlationId INT, globalPid INT,
+                                  demangledName INT);
+    """)
+    db.execute("INSERT INTO StringIds VALUES (1, 'compute_kernel')")
+    db.execute("INSERT INTO StringIds VALUES (2, "
+               "'ncclDevKernel_AllReduce_Sum_f32_RING_LL(ncclDevKernelArgsStorage)')")
+    cid = 0
+    for step in range(4):
+        base = step * 10_000
+        # every step opens with data_prep (the step delimiter) then backward
+        db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,'data_prep',?,NULL)",
+                   (base, base + 10, MAIN_A))
+        db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,'backward',?,NULL)",
+                   (base + 20, base + 9_000, MAIN_A))
+        for name_id, dur in ((1, 100), (2, 300 if step == 0 else 100)):
+            cid += 1
+            ts = base + 30 + name_id
+            db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES (?,?,?,?)",
+                       (ts, ts + 1, MAIN_A, cid))
+            db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (?,?,?,?,?)",
+                       (ts + 2, ts + 2 + dur, cid, PID_A, name_id))
     db.commit()
     db.close()
 
@@ -156,6 +286,78 @@ def main():
         else:
             check(False, "nested/overlapping ranges were not refused")
 
+    # -- a step whose NCCL is inflated but whose COMPUTE is flat is comms noise,
+    # NOT a warmup regime. Judging warmup on the total confuses the two, which is
+    # what made --per-step print "WARMUP REGIME PRESENT" for Pangu job 7255557
+    # when step 0 there is +0.5% compute and +61% NCCL.
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "warmup.sqlite")
+        build_warmup_case(path)
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        out, sys.stdout = sys.stdout, open(os.devnull, 'w')
+        try:
+            st = npa.per_step_report(con.cursor(), npa.load_phases(con.cursor()))
+        finally:
+            sys.stdout.close()
+            sys.stdout = out
+        check(st['n_steps'] == 4, f"step indexing wrong: {st['n_steps']} != 4")
+        check(st['compute_warmup'] is False,
+              f"comms noise on step 0 was misread as a compute warmup regime: {st}")
+        check(st['step0_nccl_pct'] > 50,
+              f"step 0's NCCL inflation was not detected: {st}")
+        check(abs(st['step0_compute_pct']) < 1,
+              f"compute was reported as inflated when it is flat: {st}")
+
+    # -- the straggler is the rank with the LOWEST NCCL time on a stalled step:
+    # it never waited, everyone waited for it. Getting that backwards would
+    # accuse the wrong rank, so it is pinned here.
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "straggler.sqlite")
+        build_straggler_case(path)
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        buf = io.StringIO()
+        out, sys.stdout = sys.stdout, buf
+        try:
+            npa.per_rank_report(con.cursor(), npa.load_phases(con.cursor()))
+        finally:
+            sys.stdout = out
+        txt = buf.getvalue()
+        check("1 of 4 steps" in txt, f"stall count wrong:\n{txt}")
+        check("dev1 is the straggler in 1/1" in txt,
+              f"named the wrong rank as straggler (dev1 has the LOWEST nccl):\n{txt}")
+
+    # -- stall_cause_report must actually return samples. It silently returned
+    # NONE for every window until a cursor-reuse bug was fixed (the inner query
+    # invalidated the outer globalTid iteration) -- a failure mode that looks
+    # exactly like "this capture has no sampling data".
+    with tempfile.TemporaryDirectory() as d:
+        path = os.path.join(d, "stall.sqlite")
+        build_stall_cause_case(path)
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        buf = io.StringIO()
+        out, sys.stdout = sys.stdout, buf
+        try:
+            npa.stall_cause_report(con.cursor(), npa.load_phases(con.cursor()))
+        finally:
+            sys.stdout = out
+        txt = buf.getvalue()
+        check("no samples in this window" not in txt,
+              f"cursor reuse regression — samples silently lost:\n{txt}")
+        check("gc_collect_main" in txt, f"leaf symbol not surfaced:\n{txt}")
+        check("GARBAGE COLLECTION" in txt,
+              f"GC signature not recognised, so the fix hint is missing:\n{txt}")
+
+    # -- rootedness does NOT follow from substring matching: a regex on `Reduce`
+    # classifies AllReduce as rooted, which silently empties the straggler ranking.
+    for name, rooted in (
+            ('ncclDevKernel_AllReduce_Sum_f32_RING_LL(x)', False),
+            ('ncclDevKernel_Broadcast_RING_LL(x)', True),
+            ('ncclDevKernel_ReduceScatter_Sum_f32_RING_LL(x)', False),
+            ('ncclDevKernel_AllGather_RING_LL(x)', False),
+            ('ncclDevKernel_Reduce_Sum_f32_RING_LL(x)', True)):
+        check(npa._is_rooted(name) is rooted,
+              f"_is_rooted({name.split('(')[0]}) should be {rooted}")
+
     # -- the range-name contract has ONE source of truth (CLAUDE.md #10).
     import parse_nsys
     check(npa.PHASES is parse_nsys.RANGE_NAMES,
@@ -168,8 +370,10 @@ def main():
           "a second literal range list reappeared in parse_nsys.py — the "
           "drift that silently dropped 'unstack' is back")
 
-    print("PASS nvtx_phase_attribution: pid guard + process-scoped windows "
-          "+ dtype labels + overlap refusal + one-source range contract")
+    print("PASS nvtx_phase_attribution: pid guard + process-scoped windows + dtype\n"
+          "     labels + overlap refusal + one-source range contract + union arithmetic\n"
+          "     + comms-noise-is-not-warmup + straggler id + stall-cause sampling\n"
+          "     + rooted-collective classification")
 
 
 if __name__ == '__main__':

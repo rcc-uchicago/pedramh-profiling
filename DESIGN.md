@@ -215,8 +215,11 @@ shared storage, path recorded in the living doc.
 Phase 2 starts only after the model is up (Phase 1) and **profiled**. Two
 independent profiles agree on the thesis: Midway H100 (`s2s/v2.0/bench_report.md`
 — elementwise ops the largest GPU-time consumer, matmul 6th) and Polaris 4×A100
-(PanguWeather SFNO: **GPU-bound**, loader idle 0.7%; 61% of GPU time pointwise
-vs 15% GEMM ⇒ fusion-starved — `polaris_bench_report.md`). Highest leverage
+(PanguWeather SFNO: **GPU-bound**, loader idle 0.7%; **68% of *compute* time
+pointwise vs 17% GEMM** — 392 vs 97 ms/rank-step — ⇒ fusion-starved
+— `polaris_bench_report.md`. Quote share-of-*compute*, not share-of-total: a
+share of the full kernel total moves with rank balance, §4.4b; the **ratio**
+of 4.0× that this rung rests on is invariant either way). Highest leverage
 first. **Several knobs already exist — enable, don't re-implement:**
 
 1. **`torch.compile`** — plumbed as `TORCH_COMPILE_MODE=reduce-overhead|max-autotune`
@@ -229,6 +232,10 @@ first. **Several knobs already exist — enable, don't re-implement:**
    through the learned bias).
 3. **bf16 DDP communication hook** — compress all-reduce. (Precision itself is
    already selectable: `S2S_AMP_DTYPE` in s2s; the YAML `amp_dtype` in PanguWeather.)
+   ⚠ **Single-node ceiling is ~1.2% of wall-clock, not the ~5% an NCCL share
+   suggests** (`polaris_bench_report.md` §4.2, plan §0b) — and on Polaris NCCL time
+   is mostly *wait*, which halving the bytes cannot recover (§4.4c). **This is a
+   multi-node rung, and only after rank placement is settled** (plan item 6b).
 4. **Fused AdamW.**
 5. **Vectorize the CRPS pairwise/ensemble loop** — last, and only if it profiles hot.
 

@@ -3,6 +3,15 @@
 Tables only. Detail: `ACE2_retrain/bench_midway_notes.md`,
 `PanguWeather/v2.0/bench_midway_notes.md`, `polaris_bench_report.md`.
 
+> ### ⚠ Read this before quoting any percentage in this file
+> **Almost every table here is a table of shares, one capture per column** — and a share
+> of a GPU-kernel total is **not a reproducible quantity**, because NCCL *wait* sits in the
+> denominator. `polaris_bench_report.md` §4.4b measures one such share moving **4.77 points**
+> between two runs of an **identical config** (42.2% → 37.4%) while its numerator moved
+> **0.09%**. Prefer **ms/rank-step**, or **share-of-compute** (non-NCCL), which held to 0.34
+> points across the same pair. Compute itself is reproducible to **0.27% across 8 devices on
+> two different nodes**; anything containing NCCL is not.
+
 ---
 
 **ACE2 — GPU kernel time by bucket, three hardware/batch configurations.**
@@ -224,6 +233,11 @@ time.** → `polaris_bench_report.md` §4.3b.
 | `data_prep` | **0** | 0.00 | 0.00 | 0.0% | — |
 | `(outside)` | **0** | 0.00 | 0.00 | 0.0% | — |
 
+n=2 (job 7255557, identical config, different node): `launches/step` and the compute
+`ms/rs` are **identical/stable**, but `% of union` and `self-overlap` move with rank
+balance — `backward` reads **69.9% / 12.5%** (7255503) and **67.4% / 18.5%** (7255557).
+Quote the ms, not those two columns.
+
 ---
 
 **PanguWeather — the 42.2% copy time, split by phase.** Job **7255503**. Union-safe (all
@@ -253,6 +267,8 @@ recompute inside `backward`, ≈74.6 ms/rs (est.).
 ⚠ Sub-L2 transfers reach **124.7% of peak** under the `2 × bytes` rule, which is how you
 know the rule does not apply to them — quote the above-L2 population only. This is
 **intra-device HBM**, not the interconnect: it does not close the topology cell.
+**n=2:** job 7255557 (different node) gives **1281 GB/s = 82%**, byte-identical volumes —
+reproduces to **0.2%**. This is the most reproducible number in the file.
 
 ---
 
@@ -272,6 +288,13 @@ the sub-ranges do not sum to the step. → `polaris_bench_report.md` §4.1/§4.3
 ---
 
 **NCCL share vs gradient volume, identical node (`midway3-0423`).**
+
+> ⚠ **SUPERSEDED — do not quote. The "share ∝ gradient volume" thesis is refuted twice.**
+> (1) `POLARIS_PROFILING_HANDOFF.md` §2 already records that on a like-for-like all-reduce
+> basis Pangu is **41.1%** against ACE2's **51.4%** — the *opposite* ordering. That
+> correction never reached this table. (2) The Pangu cell is a **straggler capture**
+> (per-device broadcast 534/509/4/498 ms), so it is largely rank-imbalance wait, not
+> transfer. §4.4c: the same collective reads 0.11% and 4.0% on two runs of one config.
 
 | model | params | gradients (fp32) | NCCL share |
 |---|---|---|---|

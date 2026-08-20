@@ -29,21 +29,34 @@ spent.** This closes handoff Tier A items 3 and 5-adjacent for Polaris.
 
 `polaris_bench_report.md` §4.2 inferred saturation from `sum/span > 100%`, which is
 an artifact of NCCL running on its own stream. The **union** confirms it anyway:
-3.5–4.4% idle. There is no idle to reclaim, no launch-latency story, and nothing for
+3.5–4.4% idle — and that is **kernels only**; counting memcpy and memset (GPU work on the
+same stream, absent from the kernel table) idle is **1.4–1.5%**
+(`polaris_bench_report.md` §4.3f), which makes this conclusion stronger. There is no idle to reclaim, no launch-latency story, and nothing for
 CUDA Graphs — consistent with handoff §6 dead end 1, now on Polaris evidence.
 
-### 0b. Communication is NOT the problem on Polaris — the handoff's §2 agenda is worth ≤1.2% here
+### 0b. Communication is not the problem on Polaris **when the ranks are balanced** — and balance is not guaranteed
 
-| quantity | dev0, job 7255503 |
-|---|---|
-| NCCL kernel union | 2.671 s of a 24.35 s span (11.0%) |
-| **overlapped with compute** | **2.369 s = 88.7% of all NCCL** |
-| **exposed (GPU running only NCCL)** | **0.302 s = 1.2% of span** |
+⚠ **REVISED 2026-08-20 by the item-2 n=2.** The original form of this section read
+"comms are essentially free, deprioritize" off **one** capture. The identical config on a
+**different node** swings the number 7×, so the deprioritization is conditional.
 
-Compare Midway's 35.7% exposed on `midway3-0423`. **On Polaris, DDP gradient exchange
-is essentially free**, and the entire `NCCL_PROTO`/`NCCL_ALGO` line of work — handoff
-§2 and Tier B item 6 — has at most 1.2% of wall-clock to win on one node. Deprioritize
-it here; it only becomes interesting multi-node (§3 item 10).
+| quantity | job **7255503** (dev0…dev3) | job **7255557** (dev0…dev3) |
+|---|---|---|
+| NCCL kernel union | 2.67 / 2.34 / 2.87 / 2.98 s | **10.14 / 3.46 / 4.64 / 5.08 s** |
+| overlapped with compute | **88.7 / 88.3 / 83.7 / 84.0%** | **79.0 / 62.4 / 54.4 / 54.0%** |
+| **exposed (GPU running only NCCL)** | **1.2 / 1.1 / 1.9 / 2.0% of span** | **8.0 / 4.9 / 7.9 / 8.8% of span** |
+| stalled steps (NCCL > 1.5× median) | **1 of 40** | **19 of 40** |
+| compute union (the control) | 23.01 / 23.00 / 23.03 / 23.02 s | 23.52 / 23.02 / 23.06 / 23.04 s |
+
+**Compute is invariant to 0.27% across 7 of 8 devices on two different nodes; NCCL is
+not.** So: exposed comms is **1.1–2.0% of span on a balanced run and 4.9–8.8% on an
+unbalanced one**, at identical config. Compare Midway's 35.7% exposed on `midway3-0423`.
+
+⇒ **The `NCCL_PROTO`/`NCCL_ALGO` agenda (handoff §2, Tier B item 6) is still deprioritized
+— but for a sharper reason: what varies is not the protocol, it is rank placement.** A
+protocol change cannot recover time the GPU spends *waiting* for a late rank. The lever for
+the unbalanced case is item 6b; the protocol only becomes interesting multi-node (item 12).
+Reproduce: `nvtx_phase_attribution.py --per-rank`.
 
 ### 0c. The handoff's "largest single item on the project" does not transfer
 
@@ -69,8 +82,15 @@ Top kernels by GPU time, all four ranks, full `demangledName`, 102.9 s total:
 | `cutlass_80_tensorop_c1688gemm_64x64_16x4_nt_align1` | 3.9% | 25 | 696 | — | — |
 | `cudnn::bn_fw_tr_1C11_kernel_NCHW` ⟨fp32⟩ | 2.5% | 16 | 329 | — | — |
 
-**42.2% of all GPU kernel time — 271 ms of a 603 ms step — is `direct_copy` + `conj`:
-kernels that perform zero arithmetic.** They move bytes and nothing else.
+**271 ms/rank-step — 47% of compute time — is `direct_copy` + `conj`: kernels that
+perform zero arithmetic.** They move bytes and nothing else.
+
+⚠ **Quote it that way, not as "42.2% of all GPU kernel time."** Item 2 measured the same
+quantity on an identical config and got **42.2% / 37.4%** — a **4.77-point** move with a
+numerator that moved **0.09%**. A share of the full kernel total is not reproducible
+because NCCL *wait* sits in the denominator. The absolute (271 ms/rank-step, reproduced to
+0.09%) and the share-of-compute (47.1% / 46.8%) are the durable forms.
+→ `polaris_bench_report.md` §4.4b.
 
 And they move them badly. **≈97%** of that time runs on the **non-vectorized**
 `elementwise_kernel<128,2>` / `gpu_kernel_impl_nocast` path (the TensorIterator
@@ -125,9 +145,19 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       needs item **16**. What it gives is an estimate: recompute ≈ 148–152 ms/rank-step
       (measurably ~1.4% *more* than the forward, so not a bound), ⇒ ckpt-off ≈ 1.34×,
       of which production at `ckpt2` has already banked most (residual ≈ 4%).
-- [ ] **2. Re-derive §0d from the second capture, job 7255557**, as an n=2. Confirm the
-      config differs or does not; nothing in this repo should rest on one capture
-      (CHANGELOG: "a cross-JOB ratio on Polaris is not a measurement").
+- [x] **2. DONE (2026-08-20)** — `polaris_bench_report.md` **§4.4**. Prereg `952fcb8d`,
+      **5/5 hit**. The config does **not** differ (identical per-kernel launch counts,
+      byte-identical D2D volumes), and the two jobs ran on **different nodes**
+      (`x3001c0s19b0n0` vs `x3001c0s1b1n0`, disjoint GPU UUIDs) — so this is a
+      node-to-node n=2, not just run-to-run.
+      **The finding is bigger than the gate asked for:** compute is reproducible
+      (**+0.63%**; copy time **−0.09%**; the backward/forward split **−0.03 pt**) but
+      **NCCL is not (+114.8%)** — so **a share of the full GPU-kernel total is not a
+      reproducible quantity** (copies: 42.2% → 37.4%, **−4.77 pt**, numerator −0.09%).
+      Quote absolute ms/rank-step or share-of-compute. §0b and §0d revised above.
+      ⇒ This also resolves the "a cross-JOB ratio on Polaris is not a measurement" rule
+      into something sharper: **cross-job *compute* comparisons are fine (0.27% across 8
+      devices, 2 nodes); cross-job comparisons of anything containing NCCL are not.**
 - [ ] **3. Build an analytic bytes-per-step model** from the config (`embed_dim: 512`,
       `num_layers: 12`, `num_blocks: 16`, 180×360, 18 levels, complex64 spectral) and
       check it against the launch-geometry estimate in §0d. Agreement turns "25% of
@@ -145,12 +175,15 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       `nvtx_phase_attribution.py --per-step`. **Warmup 20 was enough: there is no warmup
       regime.** First measured step **640.26 ms** vs a **634.36 ms** median (+0.9%), and
       `forward_loss` GPU time spans only 150.20–150.52 ms across all 40 steps.
-      **But one step is contaminated for a different reason:** step index **30** hits
-      1222 ms on two ranks, of which **614 ms is NCCL** against a ~59 ms norm at identical
-      launch counts — a straggler *wait*. Excluding it, total 643.19 → **634.57**
-      ms/rank-step (−1.3%) and **NCCL 67.82 → 59.67 ms (−12.0%)**. Phase shares move
-      ≤0.4 points, so §0a/§0d stand; **§4.2's NCCL row carries the stall** and any sizing
-      derived from it should use ~59.7 ms.
+      **Confirmed on n=2** by item 2 (7255557's step 0 is +6.7% on the total but only
+      **+0.5% on compute** — judge warmup on **compute**, never the total).
+      **But one step is contaminated for a different reason:** step index **30** — the same
+      training iteration in *both* captures — costs ~600 ms of NCCL against a ~59 ms norm at
+      identical launch counts. Item 2 identified the cause from CPU sampling: **a CPython
+      generation-2 garbage collection** (`gc_collect_main` 116/88/88 samples; nothing else
+      in either capture exceeds 5), which is why it lands on the same iteration on two
+      different nodes. Excluding it, NCCL **67.82 → 59.67 ms/rank-step (−12.0%)** while
+      phase shares move ≤0.4 points; **§4.2's NCCL row carries the stall.**
 
 ## 2. Tier 1 — cheap `debug`-queue jobs (≤1 h). Ask before submitting.
 
@@ -158,6 +191,32 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       the only unmeasured cell in handoff §4 — "A100" is a device name, not a topology,
       and this repo's own `beagle3-0012` was A100-**PCIe** with no NVLink. §0b's 88.7%
       overlap strongly implies real NVLink, but paste the matrix and close it.
+- [ ] **6b. Two host-CPU stalls, one of which is already diagnosed. ADDED 2026-08-20 by
+      item 2 (§4.4e); not in the frozen list.**
+      **(A) FREE, no `qsub`, and diagnosed: CPython gen-2 GC.** The reproducible stall at
+      the same training iteration on two different nodes is `gc_collect_main`, measured from
+      CPU sampling (`--stall-cause`). Fix to try: `gc.freeze()` after model/optimizer
+      construction, or `gc.set_threshold()`/`gc.disable()` around the bench loop.
+      **Output-neutral — no arithmetic changes, so outside the DESIGN §4 gate and no
+      jesswan sign-off.** It is a *global* cost: every other rank waits at the collective.
+      **(B) NOT diagnosed — the other stall pattern.** On 16 of 7255557's 17 stalled steps
+      **dev0 alone waits ~600 ms** while the other three sit at 60–70 ms (dev0 out of phase
+      with the group, not one rank straggling), with the late work in the **inter-step gap**
+      and `_PyEval_EvalFrameDefault`/`__libc_malloc` frames. **Candidate, unestablished** —
+      an A/B, one `debug` job, interleaved. Arms: (i) as-shipped — `OMP_NUM_THREADS=8`
+      (`PanguWeather/v2.0/HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs:51`), bare
+      `torchrun`, **no CPU binding at all**; (ii) `OMP_NUM_THREADS=1` (one line, zero
+      risk — what torchrun pins when the var is unset); (iii) `mpiexec --cpu-bind depth
+      -d 8`. Rationale: 4 unbound ranks × 8 OpenMP threads = 32 threads on 32 physical
+      cores, *plus* 4 main threads and the loader workers.
+      **Verdict on per-rank NCCL spread and stalled-step count (`--per-rank`), NOT on step
+      time** — step time is too noisy to resolve this (item 10's method note).
+      **Output-neutral:** a launcher change, so it is outside the DESIGN §4 equivalence
+      gate and needs no jesswan sign-off.
+      **Cheaper first:** `ACE2_retrain/PROFILING_PLAN.md:224` already scopes the *direct*
+      straggler test — `TORCH_NCCL_TRACE_BUFFER_SIZE=20000 TORCH_NCCL_ENABLE_TIMING=1` +
+      `_dump_nccl_trace_json`, which times the same collective on all four ranks without
+      an nsys capture at all.
 - [ ] **7. ⭐ ncu on the top six kernels, single rank (`--nproc_per_node=1`), explicit
       metric list — this is the measurement that settles "are we at the maximum".**
       Metrics: `dram__bytes_read.sum`, `dram__bytes_write.sum`,
@@ -200,6 +259,15 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       `ckpt3 → ckpt2` delta measures **block-minus-MLP** recompute, not "blocks" — the
       MLP, encoder and decoder stay checkpointed at `ckpt2`. And `ckpt0` may be
       **unreachable**: it projects to ~41.7 GB > 40 GB for Pangu.
+      **⚠ METHOD, from item 2 — read before writing the script.** The predicted effect
+      (`ckpt2 → ckpt0` ≈ **1.045×**, i.e. 4.5%) is **smaller than the same-config
+      run-to-run spread of total step time**, which item 2 measured at **+12.7%**
+      (7255557's own CSV has `step_mean/step_med` = 1.149×). Interleaving A/B/A/B does not
+      fix this on its own, because a comms stall lands in whichever arm draws it.
+      ⇒ **Measure on the compute-only median** (`nvtx_phase_attribution.py --per-step`
+      reports it), report per-arm NCCL ms/rank-step separately, and **reject any arm whose
+      per-rank NCCL is imbalanced > 1.5×** (`--per-rank`). A ratio taken on mean total
+      step time cannot resolve 4.5% on this cluster.
 - [ ] **11. Verify the EMA/`ckpt2` memory margin for the live production config.**
       `ckpt2` no-ZeRO OOM'd for ai-rossby, EMA adds ~4.4 GB, and Pangu's EMA switches
       on at epoch 6. Read `peak_mem_gb_max_rank` from the production logs across the
@@ -207,7 +275,12 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
 
 ## 3. Tier 2 — the axes nobody has profiled at all. This is where "the maximum" is most likely false.
 
-- [ ] **12. ⭐ Multi-node scaling.** Every Polaris number in this repo is single-node
+- [ ] **12. ⭐ Multi-node scaling. ⚠ Fix rank placement FIRST (item 6b) or this measures
+      the wrong thing.** Item 2 found a same-local-rank straggler already present **on one
+      node** and on **two different nodes** (§4.4d), invisible in the kernel table except
+      as the other ranks' wait. An unbound straggler at 1 node becomes a 4-node scaling
+      loss that reads as a Slingshot problem. **Record per-rank NCCL at every node count**
+      (`--per-rank`), not just the aggregate. Every Polaris number in this repo is single-node
       4× A100. §0b's "comms are free" holds *inside* a node; across Slingshot 11 it
       will not, and NCCL's 11% becomes the term that decides whether 100 epochs is
       reachable at all (current arithmetic: 275–325 h single-node ⇒ 4–5 chained

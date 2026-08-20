@@ -183,7 +183,10 @@ drain, measured, not inferred — the CPU is inside `cudaDeviceSynchronize`), an
 CPU-side reading *understates* `backward`. Like-for-like against the 603.5 ms step:
 **46.5% read CPU-side vs 67.7% read GPU-side** (`backward`'s 408.6 ms/rank-step **union**;
 its summed kernel time of 467.0 ms is 72.6% of kernel time but overlaps itself 12.5% on
-NCCL's stream, so it must not be divided into a step time — see §4.3b/§4.3d). The CPU
+NCCL's stream, so it must not be divided into a step time — see §4.3b/§4.3d). Both shares
+carry NCCL **wait**, so their magnitude is run-dependent: on the n=2 `backward`'s union
+share moves 69.9% → 67.4% with self-overlap 12.5% → 18.5% (§4.4b). The *direction* — the
+CPU-side reading understates `backward` — is unaffected. The CPU
 issues forward work **3.8×** faster than the GPU retires it.
 
 `ema` does not appear: `ema_warmup_epochs: 6` and these are 1-epoch runs, so EMA never
@@ -210,6 +213,14 @@ rank-step (**102.9 s of kernel time over 354,720 launches / 160 rank-steps**):
 643 ms of kernel time against a 603 ms step ⇒ **the GPU is saturated** (>100% because NCCL
 overlaps compute on its own stream). Consistent with the loader verdict from the other
 direction.
+
+> ### ⚠ The `% GPU` column is not reproducible — quote `ms / rank-step`
+> Every share above is taken against the full kernel total, **which contains NCCL wait**.
+> §4.4c measures that denominator moving **+12.7%** between two runs of an identical config
+> (on different nodes), which rescales all eight compute rows: the copies row alone reads
+> **42.2% and 37.4%**. The `ms / rank-step` column is the durable one. Re-normalised to
+> compute-only (575.4 ms/rank-step): elementwise **68.1%**, GEMM **16.9%**, copies
+> **47.1%** — and note NCCL's own row is *mostly wait*, not transfer.
 
 **The elementwise fraction is the story.** 61% of GPU time in pointwise kernels, 4× the
 matmul time, at ~260 µs average — these are not launch-overhead-bound micro-kernels, they
@@ -510,10 +521,13 @@ total 643.19 → **634.57** ms/rank-step (−1.3%), NCCL 67.82 → **59.67** ms 
 phase shares move ≤0.4 points, so §4.3b is unaffected — but §4.2's "NCCL = 67.8 ms/step
 (10.5%)" carries the stall, and any sizing derived from it should use the ~59.7 ms figure.
 
-**3. Warmup 20 was enough — plan item 5's question, answered here.** The first measured step
-is **640.26 ms against a 634.36 ms median** (+0.9%), and `forward_loss` GPU time spans only
-150.20–150.52 ms across all 40 steps. There is no warmup regime in this capture. §4.1's
-`forward_loss` max of 268.4 ms is a **CPU-side** outlier that does not appear on the GPU.
+**3. Warmup 20 was enough — plan item 5's question. Judge it on COMPUTE, not the total.**
+The first measured step is +0.9% on the total and **+0.1% on compute** (compute median
+**574.89 ms**), and `forward_loss` GPU time spans only 150.20–150.52 ms across all 40 steps.
+No compute warmup regime — **confirmed on n=2** (§4.4b: 7255557's step 0 is +6.7% on the
+total but only **+0.5% on compute**, the excess being NCCL). Judging this on the total is
+exactly the tool bug §4.4e records. §4.1's `forward_loss` max of 268.4 ms is a **CPU-side**
+outlier — §4.4e identifies it as a CPython gen-2 GC pause, not a warmup effect.
 
 #### 4.3h Reproducing every table above
 
@@ -530,6 +544,225 @@ python3 ACE2_retrain/test_nvtx_phase_attribution.py                             
 Runs on a Polaris **login node** — pure sqlite, `mode=ro`, no torch import, no allocation.
 (`parse_nsys.py` could not, before the same commit fixed it: `sqlite3.connect(PosixPath)`
 needs Python ≥ 3.7 and the login default is 3.6.15.)
+
+---
+
+### 4.4 The n=2 (job 7255557) — which numbers are stable, and which are not
+
+Plan item 2. Job **7255557** is the clean re-run of 7255503 after a clock-placement fix:
+7255503 sampled `elapsed` *after* `cudaProfilerStop()` and its bench row was refused by the
+self-check (CHANGELOG 2026-07-15). Ten minutes apart, and — as it turns out — **on
+different nodes**: `x3001c0s19b0n0` vs `x3001c0s1b1n0`, with four disjoint GPU UUIDs. So
+this is a **node-to-node** n=2, which makes it more useful than the gate asked for.
+
+**Preregistered before any query against the second capture** (commit `952fcb8d`): that the
+*absolute* copy time would reproduce within ±5% while its *share* would fall, because
+7255557's CSV shows `step_std` = 39% of the median against 7255503's 5.3%. **5/5 hit.**
+
+An adversarial pass then landed 11 strikes, four of them FATAL, and **found the actual
+cause of the stall that §4.4d originally mis-diagnosed**. Everything below is the
+post-review text; §4.4f records what was withdrawn.
+
+#### 4.4a Config identity — established structurally, not by sha
+
+**There is no env file for job 7255503** (only `bench_env_polaris_nsys_7255557.txt`
+exists), so the two runs **cannot** be compared by `git_sha` or yaml hash, and no claim
+here rests on one. What establishes identity:
+
+| check | result |
+|---|---|
+| total kernel launches | **354,720 in both** |
+| per-name launch counts | identical for **62 of 64** names (see below) |
+| all D2D memcpy bytes | **2,157,110,906,880 B — byte-identical** |
+| NVTX phase rows | 160 each of `data_prep`/`forward_loss`/`backward`/`optimizer`, both |
+| `(outside)` launches | **0 in both**, so total = compute + NCCL exactly |
+| provenance | CHANGELOG 2026-07-15: only the `elapsed` sample *site* changed |
+
+**Kernel selection is not bit-reproducible, and that is worth knowing.** 7255503 has **64**
+distinct kernel names, 7255557 has **63**. One `cutlass__5x_cudnn` implicit-GEMM
+`Conv2dWgrad` variant (40 launches) appears only in 7255503, and its sibling runs 120 vs
+160 launches — cuDNN picked a `GemmShape<128,128,64>` tile on one rank of 7255503 where
+7255557 used `<128,128,32>` everywhere. H2D count differs by 2 (962 vs 960; 16 bytes).
+Total impact: **3.2 ms of 102.9 s ≈ 2e-5%**. So the denominators *are* like-for-like — but
+"every launch count identical" would be false, and an autotune-sensitive config could
+plausibly show a warmup effect this pair does not.
+
+#### 4.4b The comparison
+
+| quantity | 7255503 | 7255557 | delta |
+|---|---|---|---|
+| **COMPUTE-only kernel time** (ms/rank-step, mean) | 575.37 | 579.00 | +0.63% |
+| — median | 574.89 | 575.67 | +0.14% |
+| — **mean over non-stalled steps** | **574.90** | **575.35** | **+0.08%** |
+| **NCCL** (ms/rank-step) | 67.82 | 145.65 | **+114.8%** |
+| total kernel time (ms/rank-step) | 643.19 | 724.64 | +12.7% |
+| **`direct_copy`+`conj`, absolute** | 271.19 | 270.94 | **−0.09%** |
+| copies as % of **all** kernel time | 42.16% | 37.39% | **−4.77 pt** |
+| copies as % of compute | 47.13% | 46.79% | −0.34 pt |
+| **copy split, `backward` share** | 72.86% | 72.83% | **−0.03 pt** |
+| D2D above L2 | 1279 GB/s (82.2%) | 1281 GB/s (82.4%) | +0.2% |
+| memset | 317.21 MB/rs | 317.16 MB/rs | −0.02% |
+
+**Quote the quiet-step figure for compute: +0.08%.** The headline +0.63% is itself
+contaminated — 79% of that rise is the widening mean−median gap, and dev0 alone (mean
+587.87 vs its own median 576.10) accounts for 88% of 7255557's gap. Compute-only
+*union* is even tighter: **22.997–23.059 s on 7 of 8 devices across the two nodes, 0.27%**.
+
+**The copy row is the strongest in the section** and survives every estimator: −0.09% on
+the mean, −0.07% on the median, −0.05% on quiet steps; the `backward` share −0.03 pt.
+
+#### 4.4c The finding: a share of the full kernel total is not a reproducible quantity
+
+**The same measurement, on two runs of one config, moved 4.77 points** (42.16% → 37.39%)
+while its numerator moved 0.09%. All of it is denominator: NCCL more than doubled, and NCCL
+time is largely *waiting*.
+
+⇒ **Quote `direct_copy`+`conj` as 271 ms/rank-step. Do not quote "42.2% of GPU kernel
+time".** The same caution applies to every row of §4.2's category table and to plan §0d.
+
+**Share-of-compute is better, but not for the reason the first draft gave.** Its −0.34 pt
+is **algebraically forced**, not independent evidence: Δ(C/T)/(C/T) = ΔC/C − ΔT/T =
+−0.09% − 0.63%. The numerator is 47% of its own denominator, which damps sensitivity
+**1.88×**; against an external denominator (copies ÷ *non-copy* compute) the same pair
+moves **−1.20 pt**. And had non-copy compute moved 10%, share-of-compute would move
+−2.37 pt. **So share-of-compute is stable exactly to the extent the compute total is
+stable — the same conditional the share-of-total failed, just with a much better-behaved
+denominator.** The absolute ms/rank-step is the only form with no denominator to drift.
+
+**The compute/NCCL split is also not perfectly clean.** NCCL wait leaks into the *compute*
+column through SM contention: a spinning ring kernel shares SMs with the compute it
+overlaps, and on the stalled step the **waiting** ranks' non-NCCL time inflates ~+5%
+(7255503 dev2: 607.27 vs a 575.02 median). This is why dev0 — which waits most — shows the
+highest compute mean, and it means dev0's +2.1% is a *consequence* of waiting, not a cause.
+
+#### 4.4d Where the extra NCCL went, and the `broadcast_buffers` question reopens slightly
+
+| | 7255503 | 7255557 | delta |
+|---|---|---|---|
+| `ncclAllReduce` (in `backward`) | 67.12 ms/rs | 116.75 ms/rs | +73.9% |
+| `ncclBroadcast` (in `forward_loss`) | **0.70 ms/rs** | **28.90 ms/rs** | **×41.3** |
+| non-broadcast `forward_loss` compute | 149.62 | 149.67 | **+0.03%** |
+| steps with non-rooted NCCL > 1.5× median | **1 of 40** | **17 of 40** |  |
+
+`forward_loss`'s entire rise (+28.25 ms/rank-step) **is** the broadcast (+28.20), at an
+unchanged **160 launches** in both. The broadcast's kernel cost did not change; it absorbed
+skew. Per-rank, dev0 is the **root** at 0.23 ms/step in both captures while the non-roots
+absorb 26.1 / 42.2 / 47.1 ms in 7255557 against 0.58 / 1.00 / 1.00 in 7255503.
+
+**The attribution retraction stands: a large broadcast number is never a broadcast cost.**
+Midway's 33.14% was ranks waiting (plan §0c, handoff §1), and this is the same mechanism
+caught on Polaris at 0.11% → 4.0% with nothing broadcast changing.
+
+**But the first draft went one step too far.** It claimed `broadcast_buffers=False` "would
+only move the wait to the next collective." §4.3b's own union column refutes that:
+`forward_loss` self-overlap is **0.0% in both captures** — the broadcast wait is **100%
+exposed** — whereas `backward`'s NCCL is **83–87% overlapped** with compute. Skew that
+lands at a backward all-reduce is mostly *hidden*; skew at the forward broadcast is not.
+⇒ **On this capture's own statistics, removing the broadcast could hide the majority of
+that 28.9 ms/rank-step rather than conserve it.** That is an argument about where skew
+lands, not a measurement — and the change is still **jesswan-gated** (BN running
+statistics). It does not revive the Midway framing; it means the *sizing* is open where the
+first draft called it closed.
+
+#### 4.4e The reproducible stall is CPython garbage collection — not NUMA, not affinity
+
+**One event reproduces across the two nodes, and it is the section's best finding.** At
+step index **30** — the same training iteration (`step_50`) in both captures — a rank's
+`forward_loss` window blows out to ~7× the median. CPU sampling names the cause outright
+(`--stall-cause`):
+
+| capture | rank | `forward_loss` | top CPU leaf symbols in the window |
+|---|---|---|---|
+| 7255503 | dev1 | **268.4 ms** (7.4×) | `gc_collect_main` **116**, `visit_reachable` 37, `dict_traverse` 21, `subtype_traverse` 15, `func_traverse` 14 |
+| 7255503 | dev0 | **247.5 ms** (6.8×) | `gc_collect_main` **88**, `visit_reachable` 39, `dict_traverse` 24 |
+| 7255557 | dev1 | **259.3 ms** (7.0×) | `gc_collect_main` **88**, `visit_reachable` 35, `dict_traverse` 19 |
+
+Nothing else in either capture exceeds 5 GC samples in a window. Thread state is `Running`
+throughout; blocking-syscall time in the 247 ms window is **0.6 ms** and CUDA API time is
+normal. **The rank is not descheduled and not waiting on memory or I/O — it is burning CPU
+in the collector.**
+
+**This is why it recurs at the same iteration on different hardware.** A CPython gen-2
+collection triggers on a *deterministic function of allocation count*, and its pause scales
+with the tracked object graph — so the same training loop reaches it at the same step
+regardless of node. **No NUMA or affinity hypothesis can predict an iteration index.**
+
+⇒ **Actionable, cheap, and output-neutral:** `gc.freeze()` after model/optimizer
+construction (moves the permanent object graph out of gen-2 tracking), or
+`gc.set_threshold()` / `gc.disable()` around the bench loop. It changes no arithmetic, so
+it is **outside the DESIGN §4 equivalence gate and needs no jesswan sign-off**. Worth
+~0.5% of mean step time here — but on a 100-epoch run it is a recurring multi-hundred-ms
+hit, and it is a *global* barrier cost because every other rank waits.
+
+**A second, distinct mechanism accounts for 7255557's other stalls, and it is not
+diagnosed.** On 16 of its 17 stalled steps the pattern is different: **dev0 alone waits
+~600 ms** at the all-reduce while the other three sit at 60–70 ms. That is dev0 out of
+phase with the group, not one rank straggling — and the argmin margins between the other
+three are 1–2 ms, i.e. noise. The late work is in the **inter-step gap** (`optimizer` end →
+next `data_prep`), median 266 ms → 335–579 ms, with `_PyEval_EvalFrameDefault` /
+`__libc_malloc` / `_int_free` frames: host-CPU-bound work at the step boundary. Candidate,
+**unestablished**: the Pangu nsys script sets `OMP_NUM_THREADS=8`
+(`polaris_bench_nsys_e3sm_sfno.pbs:51`) and **no CPU binding**, so 4 unbound ranks put ~32
+OpenMP threads plus 4 main threads plus loader workers on 32 physical cores; the ai-rossby
+single-node script leaves torchrun to pin `OMP_NUM_THREADS=1`. → plan item **6b**.
+
+**Consequence for plan item 12 (multi-node).** The single-node "comms are essentially free"
+result (§0b: 88.7% overlapped, 1.2% exposed) was measured on the *quiet* capture. On
+7255557, identical config, exposed NCCL is **4.9–8.8% of span** and 17 of 40 steps stall.
+Comms are free **when the ranks are balanced**; balance is a per-run property. Note the GC
+mechanism is **node-count independent** — it will neither hide inside NVLink nor grow with
+nodes — so multi-node work must separate it from genuine interconnect effects.
+
+#### 4.4f What was withdrawn from the first draft of this section
+
+Recorded so it is not re-derived, and because two of these were confidently wrong:
+
+1. **"`deviceId 1` is the straggler in both captures." WITHDRAWN.** It is one event
+   (step 30) in each, not a rank property. Over 7255503's other 39 steps no straggler
+   exists (spread 1.0–1.1×); over 7255557's 17 stalls the late rank rotates. The original
+   per-rank ranking also **summed the rooted broadcast**, where the root's time is ~0 by
+   construction — that handed dev0 a spurious "late" credit on every step. `--per-rank` now
+   excludes rooted collectives and `_is_rooted()` parses the collective name, because a
+   regex on `Reduce` misclassifies `AllReduce`.
+2. **"The delay is CPU-side and invisible in the kernel table." HALF WRONG.** CPU-side is
+   right; invisible is not — the *waiting* ranks' compute inflates ~5% via SM contention.
+3. **"The other three burn ~610 ms."** In 7255503 **dev0 was itself stalled** (247.5 ms of
+   GC), which its own 251 ms cell in the first draft's table already contradicted.
+4. **The NUMA/affinity hypothesis as the explanation for step 30. WITHDRAWN** — superseded
+   by the GC measurement. It survives only as a candidate for the *other* stall pattern.
+5. **"+20% warmup on the total" for 7255557.** The real figure is **+6.7%** vs the median
+   total (685.09 vs 641.95 ms/rank-step); the +20% came from comparing one rank's step 0
+   against the all-rank median. The verdict is unaffected — +6.7% clears a 3% threshold, so
+   the old total-based test really would have misfired — and the tool's docstring is fixed.
+6. **"Same `git_sha`."** No env file exists for 7255503; identity is structural (§4.4a).
+7. **"D2D bytes 2129.50 GB."** That is the **above-L2 subset** (98.7%); all D2D is
+   **2157.11 GB**, byte-identical in both. And `memset 302.57 MB` was really MiB — the
+   tool's unit helper was 1024-based while its bandwidth figures divide by 1e9. Fixed.
+
+#### 4.4g Scope — what these two captures do NOT establish
+
+Both are **1 node, 4 ranks, `checkpointing: 3`, batch 1/rank, bf16, `num_data_workers: 1`,
+warmup 20, eager, `use_ema: True` with EMA never firing** (`ema` appears 0 times in both).
+
+* **The 72.86 / 27.14 copy split is a `checkpointing: 3` property, not a model property.**
+  Activation checkpointing is precisely what relocates work from forward into backward, so
+  this row cannot be quoted at another level. Plan item 9 re-captures at `ckpt2`.
+* "Warmup 20 was long enough" is established for **this** config only — and §4.4a shows
+  cuDNN's kernel choice was *not* stable across the pair, so an autotune-sensitive config
+  can still warm up.
+* Node-to-node variation is n=2 on **two** nodes; the repo's 10.5% figure is for wall time.
+  What this pair adds: **compute is reproducible node-to-node (0.08–0.27%); anything
+  containing NCCL is not (+114.8%).** That refines the standing rule "a cross-job ratio on
+  Polaris is not a measurement" into: *cross-job **compute** comparisons are sound;
+  cross-job comparisons of any quantity containing NCCL are not.*
+
+```bash
+CAP=$MEMBER_ROOT/bench/nsys_pangu_sfno_7255557.sqlite
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --per-step      # compute vs NCCL, warmup verdict
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --per-rank      # straggler test, rooted excluded
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --stall-cause   # the GC diagnosis
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --memcpy        # bandwidth, L2-aware
+```
 
 ---
 
@@ -550,7 +783,9 @@ Two things follow, both **unmeasured hypotheses, flagged as such**:
    **§4.3 now sizes the prize, and it is smaller than "61% elementwise" suggests.**
    Recompute at `ckpt3` is **≈148–152 ms/rank-step (estimated** — measurably ~1.4% *more*
    than the forward it replaces, not bounded by it), so removing it entirely would be worth
-   **≈25% of the step (≈1.34×)**. But `ckpt0` projects to **~41.7 GB > 40 GB** for Pangu and
+   **≈25% of a stall-free step (≈1.34×)** — a run carrying comms stalls realises less,
+   and §4.4b's method note applies: measure this on the compute-only median, not on mean
+   total step time. But `ckpt0` projects to **~41.7 GB > 40 GB** for Pangu and
    is likely unreachable, and production already ships `checkpointing: 2`, which banks most
    of it — **residual headroom against the config we actually run is ≈4%, not ≈25%.** And
    `conj`, 14.1% of the copy time, is adjoint (warranted from source, §4.3c) and no
