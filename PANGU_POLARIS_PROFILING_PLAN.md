@@ -72,10 +72,15 @@ Top kernels by GPU time, all four ranks, full `demangledName`, 102.9 s total:
 **42.2% of all GPU kernel time — 271 ms of a 603 ms step — is `direct_copy` + `conj`:
 kernels that perform zero arithmetic.** They move bytes and nothing else.
 
-And they move them badly. The three copy/conj kernels run on the **non-vectorized**
+And they move them badly. **≈97%** of that time runs on the **non-vectorized**
 `elementwise_kernel<128,2>` / `gpu_kernel_impl_nocast` path (the TensorIterator
 fallback taken for non-contiguous or awkwardly-strided operands) at **17–27% of A100
-HBM2e peak**, while a *vectorized* bf16 add in the same capture reaches **52%**.
+HBM2e peak**, while a *vectorized* bf16 add in the same capture reaches **52%**. (Not
+100%: a vectorized `conj`⟨complex64⟩ and an unrolled/cast `direct_copy`⟨float⟩ account for
+the other **2.7%** — §4.3c. Better still, item 1 found a **measured** ceiling in the same
+capture: D2D memcpy above L2 sustains **1279 GB/s = 82% of peak**, so the hardware plainly
+delivers and the 17–27% is about the path these kernels take. That narrows item 7 without
+replacing it.)
 
 > **⇒ We are at maximum GPU *time* occupancy and nowhere near maximum *bandwidth*.**
 > The ceiling we are hitting is our own data movement, not the A100. That is why the
@@ -104,15 +109,22 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
 
 ## 1. Tier 0 — free. No GPU, no queue. Do these first.
 
-- [ ] **1. Fix the NVTX↔kernel join, then attribute the 42% copy time to phase.**
-      A `globalPid`-guarded join is mandatory (handoff §1), *and* on this capture the
-      naive `NVTX_EVENTS.textId → StringIds` join returns only NCCL's own registered
-      ranges (`ncclAllReduce` ×600, `ncclBroadcast` ×40) — the house ranges
-      (`data_prep`/`forward_loss`/`backward`/`optimizer`) do not surface through it.
-      Resolve which NVTX text path the harness uses before any attribution claim.
-      **Deliverable:** the copy time split forward vs backward. That single split says
-      how much of the 271 ms/step is activation *recompute* — i.e. how much of §0d
-      `ckpt2`/`ckpt1` already deletes.
+- [x] **1. DONE (2026-08-20)** — `polaris_bench_report.md` **§4.3**,
+      `ACE2_retrain/nvtx_phase_attribution.py` (+ passing test, no GPU needed).
+      **Text path:** the house ranges are in the inline `NVTX_EVENTS.text` column
+      (`domainId 0`, `eventType 59`), 160 rows each = 40 steps × 4 ranks; the
+      `textId → StringIds` path holds **only** NCCL's registered strings (all-rank
+      `ncclAllReduce` 2402, `ncclBroadcast` 160 — the ×600/×40 above were per-rank).
+      Nothing of ours was ever missing. **Join:** the `globalPid` guard is
+      `k.globalPid = (r.globalTid & ~0xFFFFFF)`; unguarded it inflates **+29.4%** here.
+      A second bug mattered as much — attribution must be scoped to the **process**, not
+      the launching thread, or `backward` reads as `(outside)`.
+      **Result:** copy time is `backward` **72.9%** (197.58 ms/rank-step) /
+      `forward_loss` **27.1%** (73.61); `(outside)` **0.0%**.
+      **⚠ It does NOT isolate recompute** — the split cannot see inside `backward`; that
+      needs item **16**. What it gives is an estimate: recompute ≈ 148–152 ms/rank-step
+      (measurably ~1.4% *more* than the forward, so not a bound), ⇒ ckpt-off ≈ 1.34×,
+      of which production at `ckpt2` has already banked most (residual ≈ 4%).
 - [ ] **2. Re-derive §0d from the second capture, job 7255557**, as an n=2. Confirm the
       config differs or does not; nothing in this repo should rest on one capture
       (CHANGELOG: "a cross-JOB ratio on Polaris is not a measurement").
@@ -121,14 +133,24 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       check it against the launch-geometry estimate in §0d. Agreement turns "25% of
       peak" into a bound; disagreement localises which copies are larger than any
       tensor in the model, which is itself the finding.
-- [ ] **4. Fix `ACE2_retrain/kernel_census.py` before using it on Polaris** — line 57
-      joins on `correlationId` with no `globalPid` guard (+30.8% phantom rows, handoff
-      §5). Reuse it for per-range kernel counts once item 1 lands.
-- [ ] **5. Re-check the warmup-20 contamination question for Polaris.** The Midway
-      capture at warmup 20 straddles a 560→1090 ms regime change and its own notes
-      call it contaminated. Polaris step std is 31.9 ms on a 603 ms median (tight), so
-      this is probably clean — but plot the per-step series from the capture and say so
-      on evidence, since every §0 number inherits it.
+- [ ] **4. Fix `ACE2_retrain/kernel_census.py` before using it on Polaris — TWO bugs,
+      not one.** (a) line **58** joins on `correlationId` with no `globalPid` guard:
+      **+29.4%** phantom rows on this capture (+30.8% on ACE2's, handoff §5). (b) lines
+      37-49 look the NVTX range up on the **launching thread**, so `backward` — 62,680 of
+      88,680 rank-0 launches, from `pt_autograd_*` — falls to `(outside)` *even with the
+      guard*. Item 1 has landed, so the direction inverts: **import the join from
+      `ACE2_retrain/nvtx_phase_attribution.py`** rather than re-deriving it, and keep the
+      census's own contribution (per-range launch **counts**).
+- [x] **5. DONE (2026-08-20)** — `polaris_bench_report.md` §4.3g, from
+      `nvtx_phase_attribution.py --per-step`. **Warmup 20 was enough: there is no warmup
+      regime.** First measured step **640.26 ms** vs a **634.36 ms** median (+0.9%), and
+      `forward_loss` GPU time spans only 150.20–150.52 ms across all 40 steps.
+      **But one step is contaminated for a different reason:** step index **30** hits
+      1222 ms on two ranks, of which **614 ms is NCCL** against a ~59 ms norm at identical
+      launch counts — a straggler *wait*. Excluding it, total 643.19 → **634.57**
+      ms/rank-step (−1.3%) and **NCCL 67.82 → 59.67 ms (−12.0%)**. Phase shares move
+      ≤0.4 points, so §0a/§0d stand; **§4.2's NCCL row carries the stall** and any sizing
+      derived from it should use ~59.7 ms.
 
 ## 2. Tier 1 — cheap `debug`-queue jobs (≤1 h). Ask before submitting.
 
@@ -153,6 +175,10 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       shares only, per handoff's ACE2 precedent, where `aten::clone` was 45.3% of copy
       time). **Deliverable:** the three or four call sites responsible for 42% of GPU
       time. Without this, "fuse the elementwise work" has no target.
+      **Scope, from item 1 (§4.3c):** only **27.1%** of the copy time is in
+      `forward_loss` — **72.9% is in `backward`**, and `conj` (14.1%) has **zero** forward
+      launches. So a forward-only `with_stack` census can reach at most a quarter of the
+      target; budget for autograd-node attribution (`emit_nvtx`) or the recompute path.
 - [ ] **9. Re-capture nsys at the production config** — `checkpointing: 2`, ZeRO as
       shipped, **warmup ≥ 40**, and long enough that **EMA is active**. Everything in
       §0 is `ckpt3` with EMA never fired; production pays an every-step sweep over
@@ -165,6 +191,15 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       benched **26.98 GB** at `ckpt3` where ai-rossby benched 21.40 GB, so Pangu's
       `ckpt2` headroom is ~5.6 GB tighter than the sweep suggests, and the ZeRO sweep
       showed these estimates run 1–2 GB optimistic.
+      **Prereg, from item 1 (§4.3d) — write these into the script before it runs:**
+      Pangu's `ckpt3 → ckpt0` should be **≈1.34×**, and materially above that falsifies
+      either the recompute estimate or the phase attribution; if `ckpt3 → ckpt2` is
+      ~1.274× then `ckpt2 → ckpt0` must be **≈1.045×**. Note ai-rossby's *full* ladder
+      (1.307× = 23.5% of the step) already sits within **1.8 points** of the estimate, so
+      there is very little slack. Also: because the levels are **cumulative**, a
+      `ckpt3 → ckpt2` delta measures **block-minus-MLP** recompute, not "blocks" — the
+      MLP, encoder and decoder stay checkpointed at `ckpt2`. And `ckpt0` may be
+      **unreachable**: it projects to ~41.7 GB > 40 GB for Pangu.
 - [ ] **11. Verify the EMA/`ckpt2` memory margin for the live production config.**
       `ckpt2` no-ZeRO OOM'd for ai-rossby, EMA adds ~4.4 GB, and Pangu's EMA switches
       on at epoch 6. Read `peak_mem_gb_max_rank` from the production logs across the

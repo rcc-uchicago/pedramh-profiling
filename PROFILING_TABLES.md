@@ -51,6 +51,15 @@ Jobs 53479120 (A100), 53524918 (H100), 53483668 (H200).
 | `sfno_mlp` | 3.0% |
 | `stack` | 0.2% |
 
+> ⚠ **SUPERSEDED — do not quote this table.** It was derived with (a) an unguarded
+> `correlationId` join (**+30.8% phantom rows**; the `sfno_block` and `sfno_mlp` rows are
+> cross-rank phantoms and collapse to 0.0% with the guard) **and** (b) a thread-scoped
+> range lookup, which is the *entire* reason `(outside)` reads 57.1% — backward launches
+> come from autograd worker threads while the ranges sit on the main thread. It is not an
+> NVTX limitation. With attribution scoped to the **process**, `(outside)` → **0.0%**
+> (measured on Pangu job 7255503). Re-derive with
+> `ACE2_retrain/nvtx_phase_attribution.py`; see `polaris_bench_report.md` §4.3a.
+
 ---
 
 **ACE2 — copy-kernel time by causing operation, autograd-annotated.** Job 53535415.
@@ -202,7 +211,55 @@ Jobs 53539872 (Midway), 7255410 (Polaris).
 
 ---
 
+**PanguWeather — GPU kernel time by NVTX phase, 4× A100 (Polaris).** Job **7255503**,
+launch-time attributed, pid-guarded + process-scoped, /160 rank-steps. `sum` counts a
+kernel per stream; **`union` is wall-clock occupancy and is the one to divide into a step
+time.** → `polaris_bench_report.md` §4.3b.
+
+| phase | launches/step | sum ms/rs | union ms/rs | % of union | self-overlap |
+|---|---|---|---|---|---|
+| `backward` | 1568 | 466.95 | **408.63** | 69.9% | **12.5%** (NCCL on its own stream) |
+| `forward_loss` | 590 | 150.32 | 150.32 | 25.7% | 0.0% |
+| `optimizer` | 59 | 25.93 | 25.93 | 4.4% | 0.0% |
+| `data_prep` | **0** | 0.00 | 0.00 | 0.0% | — |
+| `(outside)` | **0** | 0.00 | 0.00 | 0.0% | — |
+
+---
+
+**PanguWeather — the 42.2% copy time, split by phase.** Job **7255503**. Union-safe (all
+90,240 kernels on one stream). → §4.3c.
+
+| phase | ms/rank-step | % of copy time |
+|---|---|---|
+| `backward` | **197.58** | **72.9%** |
+| `forward_loss` | 73.61 | 27.1% |
+| total | 271.19 | 100% (= 42.2% of all GPU kernel time) |
+
+`conj` (38.30 ms/rs, 14.1%) fires **only** in `backward` — the adjoint of the complex
+einsum, warranted from source. Removable by lowering `checkpointing`: **only** the
+recompute inside `backward`, ≈74.6 ms/rs (est.).
+
+---
+
+**PanguWeather — achieved DRAM bandwidth, 4× A100 (Polaris).** Job **7255503**. Peak
+(1555.2 GB/s) and L2 (40 MiB) read from `TARGET_INFO_GPU`. → §4.3e.
+
+| path | ms/rank-step | achieved | % of peak |
+|---|---|---|---|
+| D2D memcpy, **above L2** (98.7% of D2D bytes) | 20.82 | **1279 GB/s** | **82%** |
+| `direct_copy`/`conj` kernels | 271.19 | — | **17–27% (estimated)** |
+| H2D (loader, 100% in `data_prep`) | 2.18 | 24 GB/s | host link, not HBM |
+
+⚠ Sub-L2 transfers reach **124.7% of peak** under the `2 × bytes` rule, which is how you
+know the rule does not apply to them — quote the above-L2 population only. This is
+**intra-device HBM**, not the interconnect: it does not close the topology cell.
+
+---
+
 **PanguWeather — NVTX phase durations, 4× H100 NVL.** Job 53539872.
+⚠ **CPU-side *launch* time, not GPU time.** On the A100 capture the CPU-side reading of
+`backward` understates its GPU share by **~21 points** (46.5% of the step vs 67.7%), and
+the sub-ranges do not sum to the step. → `polaris_bench_report.md` §4.1/§4.3.
 
 | range | n | median | min | max |
 |---|---|---|---|---|

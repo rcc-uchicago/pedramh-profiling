@@ -182,16 +182,22 @@ gradient volume" story in `PROFILING_TABLES.md`.
 
 **Tier B — cheap jobs.**
 
-5. **Measure `broadcast_buffers=False` for Pangu — the largest single item
-   found on this project, and it is one line.** `PanguWeather/v2.0/train.py:298-303`
+5. **`broadcast_buffers=False` — Midway only; it DOES NOT TRANSFER to Polaris.**
+   ⚠ **Superseded 2026-08-20 — do not spend a job on this.** The check this item asked
+   for has now been run twice: `PANGU_POLARIS_PROFILING_PLAN.md` §0c measures the
+   broadcast at **112 ms of 102.9 s = 0.11%** of GPU kernel time on Polaris, and
+   `polaris_bench_report.md` §4.3c confirms it is present exactly once per rank-step and
+   **100% inside `forward_loss`** at 0.7 ms/rank-step. Midway's 33.14% was three ranks
+   *waiting* on a straggler, not the broadcast itself. Opening a jesswan science gate (BN
+   running statistics) for 0.1% is not worth it. The code pointers below stay accurate.
+   `PanguWeather/v2.0/train.py:298-303`
    constructs `DistributedDataParallel` without `broadcast_buffers`, so it
    defaults to `True` and DDP broadcasts every buffer on every forward; ACE2
    sets it `False` (`ace_exp/fme/core/distributed/torch_distributed.py:192`,
    comment "no per-step buffer broadcast"). That broadcast is **33.14% of all
-   GPU kernel time** on Midway job 53539872 — larger than every row in §4
-   combined. Check whether the same Broadcast appears on Polaris
-   (`ncclDevKernel_Broadcast_*` in the kernel census) before assuming it
-   transfers. **Gate it:** buffers are BN running statistics, so this changes
+   GPU kernel time** on Midway job 53539872 — but **0.11% on Polaris** (see above), so
+   the "larger than every row in §4 combined" framing is Midway-specific and must not be
+   carried across. **Gate it:** buffers are BN running statistics, so this changes
    what the model computes across ranks — it needs an equivalence check and
    jesswan's sign-off (DESIGN §4.1, CLAUDE.md "Division of labor"), not a
    silent flip.
@@ -234,7 +240,8 @@ gradient volume" story in `PROFILING_TABLES.md`.
 | tool | what it does | needs |
 |---|---|---|
 | `gpu_topology_check.py` | measures real pairwise GPU bandwidth; distinguishes full mesh from pair bridges. **Run this first — Polaris topology is the one unmeasured cell in §4, and "A100" is a device name, not a topology** (this repo's own `beagle3-0012` was A100-**PCIE**, no NVLink; Polaris reports A100-**SXM4**, which is the NVLink form factor, but that has never been confirmed by a bandwidth measurement here). | torch, a GPU allocation |
-| `ACE2_retrain/kernel_census.py` | attributes kernel **count** per NVTX range — **BROKEN, fix before use.** Line 57 joins `ON k.correlationId = r.correlationId` with no `globalPid` guard, which §1 says is mandatory: on `n.sqlite` that yields **630,428 rows against 481,841 kernels (+30.8%)**, and the guarded join returns exactly 481,841. The published copy-attribution table has never been re-derived with the guard — with it, the `sfno_block` and `sfno_mlp` rows collapse to 0.0%; they are cross-rank phantoms. Its docstring (lines 4-6) also still teaches the refuted "launches wreck the pipeline / ~9% idle" story. | any nsys sqlite with NVTX |
+| `ACE2_retrain/nvtx_phase_attribution.py` | GPU kernel **time** per NVTX phase — pid-guarded **and process-scoped** join, launch-time bucketing, `--by-exec` sensitivity check, `--memcpy` (L2-aware bandwidth), `--per-step` (stall/warmup series), sum **and** union columns. Refuses nested ranges rather than double-counting. Ships a passing test needing no capture. This is the tool to reach for; it produced `polaris_bench_report.md` §4.3. | nsys sqlite (runs on a login node) |
+| `ACE2_retrain/kernel_census.py` | attributes kernel **count** per NVTX range — **BROKEN, TWO independent bugs; prefer `nvtx_phase_attribution.py`.** (a) Line **58** joins `ON k.correlationId = r.correlationId` with no `globalPid` guard, which §1 says is mandatory: on `n.sqlite` that yields **630,428 rows against 481,841 kernels (+30.8%)**, and the guarded join returns exactly 481,841. The published copy-attribution table has never been re-derived with the guard — with it, the `sfno_block` and `sfno_mlp` rows collapse to 0.0%; they are cross-rank phantoms. (b) `enclosing(rs, tid)` (lines 37-49) looks the NVTX range up on the **launching thread**, but PyTorch's autograd engine launches from its own worker: on Pangu job 7255503 rank 0, **62,680 of 88,680 launches** come from `pt_autograd_*` while all the house NVTX ranges are on the main thread — so it credits `(outside)` for the whole of `backward` *even after the guard lands*. This is the real origin of the "57% / 81% outside any range" rows, and it was never an NVTX limitation. Fix by importing the join from `nvtx_phase_attribution.py`, not by re-deriving it. Its docstring (lines 4-6) also still teaches the refuted "launches wreck the pipeline / ~9% idle" story. | any nsys sqlite with NVTX |
 | `ACE2_retrain/ace2_nvtx.py` | injects NVTX without editing the tree — the pattern to copy for Pangu/ai-rossby | — |
 | `ACE2_retrain/parse_nsys.py` | house-format NVTX summary, ACE2 range names added | nsys sqlite |
 | `ACE2_retrain/PROFILING_PLAN.md` | the full ranked plan, with dead ends called out | — |

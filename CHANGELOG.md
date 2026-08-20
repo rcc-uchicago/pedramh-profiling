@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| **Profiling (PanguWeather SFNO on A100)** | ✅ **DONE — see `polaris_bench_report.md`.** Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (61% of GPU time pointwise vs 15% GEMM) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
+| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (20 items; **1, 5 done**) — 42.2% of GPU time is `direct_copy`+`conj`, kernels that compute nothing, and the phase split is now measured (§4.3). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (61% of GPU time pointwise vs 15% GEMM) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
@@ -49,6 +49,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 > profiled here, where the single-node "comms are free" result (1.2% exposed) will not
 > hold. Deprioritized on new evidence: `broadcast_buffers=False` (0.11%, not 33%) and
 > the single-node `NCCL_PROTO` sweep (<=1.2% available).
+>
+> **Updated 2026-08-20 (items 1 and 5 done, no GPU time):** all three of the top three survive — item (2),
+> ncu, is *narrowed* by a measured in-capture ceiling (D2D memcpy reaches **82% of HBM peak**, so the
+> hardware is not the limit) but not replaced. Two things are now sized rather than guessed: the copy time
+> is **72.9% `backward`**, and **checkpointing headroom against the shipped `ckpt2` config is ≈4%, not
+> ≈25%** — so the `ckpt` ladder (item 10) is worth *measuring* but is not the prize the "61% elementwise"
+> share suggests. Next unchecked: item **2** (n=2 on job 7255557), then **3**, **4**.
 
 0. **FOCUS (2026-07-15): the work is on `PanguWeather/`, not `s2s/v2.0`.** They are
    95%-identical forks (DESIGN §2c) — but **copies, not shared imports**, so nothing
@@ -177,6 +184,91 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-20** — **Pangu-on-Polaris plan items 1 and 5 are DONE, from captures already on disk: the
+  42.2% copy time is `backward` 72.9% / `forward_loss` 27.1%, and warmup 20 was clean.** No GPU time, no
+  queue, no `qsub`. Written up as `polaris_bench_report.md` **§4.3** (a new subsection joining §4.1's
+  CPU-side ranges to §4.2's GPU kernel time for the first time); tool
+  `ACE2_retrain/nvtx_phase_attribution.py` + passing test. Job **7255503**, 40 measured steps × 4 ranks.
+  **Preregistered at `985214b5` before the number existed — 3/3 predictions hit.**
+  - **The join had to be fixed first, and it had TWO bugs, not one.** (a) `correlationId` is unique per
+    **process**, so on a 4-rank capture the bare join cross-products the ranks: **459,088 rows for 354,720
+    kernels, +29.4% phantom**. The guard `k.globalPid = (r.globalTid & ~0xFFFFFF)` returns **exactly one row
+    per kernel**, nothing orphaned (all rows `launchType = REGULAR`, `graphNodeId IS NULL`). Independently
+    reproduces the **+30.8%** measured on ACE2's Midway capture. (b) attribution must be scoped to the
+    **process, not the launching thread** — 62,680 of rank 0's 88,680 launches come from `pt_autograd_*`
+    while all the house NVTX ranges sit on the main thread. **This is the whole origin of the "57% / 81% of
+    GPU time lands outside any range" rows in `PROFILING_TABLES.md` and `ACE2_retrain/bench_midway_notes.md`
+    — it was never an NVTX limitation.** Process-scoped, `(outside)` is **0.0%**. Both docs corrected in
+    this commit; `ACE2_retrain/kernel_census.py:58` still carries both bugs (plan item 4).
+  - **The NVTX text path is settled, and nothing of ours was ever missing.** House ranges are in the inline
+    `NVTX_EVENTS.text` column (`domainId 0`, `eventType 59`), 160 rows each; the `textId → StringIds` path
+    holds **only** NCCL's registered strings (`domainId 1`). `parse_nsys.py` was already on the right path.
+  - **Result — measured.** `backward` **197.58** ms/rank-step (72.9%) / `forward_loss` **73.61** (27.1%) of
+    **271.19** ms/rank-step. Union-safe: all 90,240 copy kernels are on one stream, so sum = union.
+    `conj` (38.30 ms/rs, 14.1%) fires **only** in `backward`; the warrant is the **source**, not the split —
+    there is no `conj` anywhere in `networks/modulus_sfno`, the contraction is `einsum` over
+    `view_as_complex`, and it fires 24/rank-step = **2 × `num_layers`**. `ncclAllReduce` is 100% in
+    `backward`, `ncclBroadcast` 100% in `forward_loss`, with **zero** cross-boundary leakage.
+  - **`(outside)` = 0.0% closes §4.1's open question.** The step's "missing" ~268 ms contains **zero kernel
+    launches**; the CPU is blocked in `cudaDeviceSynchronize` (119 calls, 10.72 s on rank 0). It is drain,
+    not unaccounted work — measured, not inferred.
+  - **What checkpointing is actually worth — ESTIMATED, and smaller than "61% elementwise" suggests.**
+    Recompute lives *inside* `backward`, so that is the bucket that shrinks: ≈**74.6 ms/rs** of copy time
+    (≈27%) is removable, and `forward_loss`'s 73.61 ms is removable by **no** level. Whole-forward recompute
+    ≈**148–152 ms/rs** ⇒ ckpt-off ≈**1.34×**. **Not a bound:** kernels with equal fwd/bwd launch counts (the
+    pure-recompute signature) run at **1.0136×, never below 1.0**, and recompute selects *different* GEMMs
+    (+15%/call). Three qualifiers: `ckpt0` projects to **~41.7 GB > 40 GB** for Pangu (likely unreachable),
+    production already ships **`ckpt2`**, and the levels are **cumulative** so a `ckpt3→ckpt2` delta measures
+    **block-minus-MLP**. ⇒ **against the config we actually run, checkpointing headroom is ≈4%, not ≈25%.**
+    Cross-check: ai-rossby's full ladder (1.307× = 23.5% of the step) sits within **1.8 points** of the
+    estimate — two unrelated measurements agreeing, and very little slack. Prereg written into plan item 10.
+  - **A measured HBM ceiling, which narrows plan item 7 without replacing it.** D2D memcpy **above L2** —
+    16,000 copies, 98.7% of D2D bytes — sustains **1279 GB/s = 82% of peak** (per device 81.3–82.6%; peak
+    and L2 read from `TARGET_INFO_GPU`). ⇒ the hardware plainly delivers, so §0d's *estimated* 17–27% for the
+    copy kernels is about **the path those kernels take**, not an unreachable peak. **The `2 × bytes` rule
+    only holds above L2:** sub-L2 buckets compute to **124.7% of peak**, which is the proof it fails there —
+    quote the above-L2 population only. ⚠ **Intra-device HBM, NOT the interconnect** — it does **not** close
+    the OPEN topology cell (handoff §4) or substitute for plan item 6.
+  - **Item 5 (warmup) — DONE, and it found a different contamination.** No warmup regime: first measured step
+    **640.26 ms** vs **634.36 ms** median (+0.9%). **But step index 30 is a comms stall** — 1222 ms on two
+    ranks, **614 ms of NCCL** against a ~59 ms norm at identical launch counts. Excluding it, NCCL
+    **67.82 → 59.67 ms/rs (−12.0%)** while phase shares move ≤0.4 points. ⇒ **§4.2's NCCL row carries the
+    stall**; any sizing off it should use ~59.7 ms.
+  - **Two published numbers in `polaris_bench_report.md` CORRECTED in the same commit.** (i) §4.2's "NCCL
+    10.5% ⇒ §5 rung 3 targets ≈5% of the step" — NCCL is **88.7% overlapped / 1.2% exposed** (plan §0b), so
+    rung 3's single-node ceiling is **~1.2%, not 5%**; it only becomes interesting multi-node (item 12).
+    (ii) **§0a's "3.5–4.4% idle" counted kernels only** — memcpy and memset are GPU work on the *same*
+    stream and are absent from the 643.2 ms kernel total; counting all GPU work, busy is **98.5–98.6%** and
+    idle **1.4–1.5%**. §0a's conclusion (no idle to reclaim, nothing for CUDA Graphs) gets **stronger**.
+    Full data-movement bill: **294.97 ms/rank-step**, not 271.19.
+  - **Also RETRACTED as a Polaris item: handoff Tier B 5, "`broadcast_buffers=False` — the largest single
+    item found on this project".** It is **0.11%** here (plan §0c) and §4.3c confirms it is 0.7 ms/rank-step,
+    100% inside `forward_loss`. Midway's 33.14% was three ranks *waiting* on a straggler. **Do not open the
+    jesswan BN-buffer gate for 0.1%.**
+  - **An adversarial pass landed 15 strikes on the first draft of §4.3; all folded in.** The two that
+    mattered: the removable/non-removable buckets were **inverted** (recompute is inside `backward`; the 27%
+    magnitude was right only because recompute ≈ forward), and "backward is 77.4% of the step" was the
+    **sum-vs-union confusion that plan §0 already lists as refuted** — the union is 408.63 ms = **67.7%**,
+    and only `backward` self-overlaps (12.5%, NCCL on `streamId 19`). §4.3b now prints sum **and** union, and
+    the test covers the union arithmetic. A drift auditor found 27 stale/contradicting passages across 8
+    docs; the high-risk ones are fixed here.
+  - **`parse_nsys.py` could not run on a Polaris login node at all** (commit `99378811`) —
+    `sqlite3.connect(PosixPath)` needs Python ≥ 3.7 and the login default is **3.6.15**; `statistics.fmean`
+    is 3.8+. Both fixed with regression tests. Also repaired the live **CLAUDE.md #10** drift: `unstack` was
+    in the SQL but missing from the print loop, so its rows were fetched and **silently never printed** —
+    the two lists are now one `RANGE_NAMES` constant, and the test asserts there is only one.
+  - **⚠ FLAGGED, NOT FIXED — needs its own change with both smokes.** `s2s/v2.0/HPC_scripts/parse_nsys.py`
+    is a **different copy carrying only 8 of the 19** range names, and it is the one the Polaris PBS scripts
+    and `physicsnemo_ai_rossby/polaris/bench_instrumentation_test.py` actually invoke. So when **plan item
+    16** adds SFNO-internal ranges, the Polaris analysis path will print **nothing** and look like the
+    instrumentation never fired. Fixing it touches the **live-coupled** s2s pair, which this profiling loop
+    must not do.
+  - **Next:** plan item **2** (re-derive §0d on the second capture, job 7255557, as an n=2 — §4.3 is an
+    independent *query path* on the *same* capture, so it does **not** close item 2), then item **3**
+    (analytic bytes model) and item **4** (fix `kernel_census.py` by importing the guarded join). Tier 0 is
+    still `qsub`-free; the first submission request will be item **6** (`gpu_topology_check.py`, `debug`,
+    ~1 min).
 
 - **2026-08-20** — **Live-session cluster loop for the Pangu-on-Polaris profiling plan.** Ported the hardened
   RCC/Midway autonomous-loop pattern (`L2LGWAS_DFE:prompts/_TEMPLATE_cluster_autonomous_loop.md` +

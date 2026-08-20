@@ -581,6 +581,14 @@ kernels are launched from autograd worker threads, so they sit outside any range
 pushed on the main thread -- 81% of GPU time lands "outside any range" for that
 reason alone, not because it is unaccounted for.
 
+⚠ **FIXED 2026-08-20 — this is not inherent, and the 81% is recoverable.** The fix is to
+scope attribution to the **process** (`globalPid`), not the launching thread: the phase
+windows are non-overlapping per rank, so a launch timestamp inside a window belongs to
+that phase whichever thread issued it. On Pangu Polaris job 7255503 that takes
+`(outside)` from ~42% to **0.0%** and gives `backward` 72.6% of GPU kernel time. Re-derive
+this table with `ACE2_retrain/nvtx_phase_attribution.py` (which also fixes the missing
+`globalPid` guard); see `polaris_bench_report.md` §4.3a.
+
 ### Two instrumentation bugs the first capture exposed
 
 1. **`backward` and `optimizer` were mapped by method name, not behaviour.**

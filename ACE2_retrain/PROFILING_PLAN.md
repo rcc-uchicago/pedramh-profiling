@@ -212,7 +212,7 @@ Sorted by (evidence gained) / (effort + risk). **Tier A costs no GPU time at all
 
 **C3. `TorchDispatchMode` + `ModuleTracker` copy census.** *(~30 lines, 1 short job)*
 - Blind to: whether `.contiguous()` at `s2convolutions.py:171,185` actually copies. `contiguous()` on an already-contiguous tensor returns `self` for free; that `aten::clone` is 45.3% of copy time means the inputs are **not** contiguous — and *which* stride pattern arrives there is the difference between "structural" and "one einsum output layout away from free".
-- `torch.utils.module_tracker.ModuleTracker` installs **backward** hooks, so it names modules during backward — the exact thing NVTX structurally cannot do and the reason 57% reads as `(outside)`.
+- `torch.utils.module_tracker.ModuleTracker` installs **backward** hooks, so it names **modules** during backward, which phase-level NVTX ranges cannot resolve. ⚠ **Corrected 2026-08-20:** the 57%/81% `(outside)` was **not** an NVTX limitation — it was thread-scoped attribution (autograd launches from its own worker; the ranges are on the main thread). Scope the join to the *process* and `(outside)` goes to **0.0%** (`ACE2_retrain/nvtx_phase_attribution.py`, `polaris_bench_report.md` §4.3a). What survives is the narrower claim: NVTX phases cannot name *which module* runs in backward.
 - Record `(tracker.parents, tracker.is_bw, shape, stride(), dtype, nbytes)` for `aten::{clone,copy_,_to_copy,contiguous}`; sum bytes per key. Cross-check the two `torch.zeros_like` + slice-assign sites at `sfnonet.py:218,234` (16 no-op copies per forward, currently an estimate).
 - 2–5× slowdown: attribution only, never quote seconds. Also feeds the channels_last decision (§3.4) for free. **GH200: yes.**
 
