@@ -18,6 +18,54 @@ Entry shape (keep it):
 
 ---
 
+## tick 4 — 2026-08-20 — stage T0 item 4 — prereg for the kernel_census fix
+
+- **in flight:** none (Tier 0 needs no `qsub`); **this is the last free item**
+- **the broken behaviour, captured BEFORE the fix** (`kernel_census.py` as committed, on
+  `nsys_pangu_sfno_7255503.sqlite`) — this is the bug the fix must reproduce-then-remove:
+
+  | range | launches | % count | % time | avg µs |
+  |---|---|---|---|---|
+  | `(outside)` | 319,466 | **69.6%** | **71.4%** | 301.2 |
+  | `forward_loss` | 124,595 | 27.1% | 23.8% | 258.0 |
+  | `optimizer` | 14,753 | 3.2% | 4.7% | 433.3 |
+  | **`backward`** | **203** | **0.0%** | **0.0%** | 10.2 |
+  | `data_prep` | 71 | 0.0% | 0.0% | 426.0 |
+
+  Header: "**459,088** kernel launches over ~**156** steps (2,943 per step), **134.8 s** GPU time".
+  Three independent errors visible at once: the total is the **+29.4% phantom** join (true 354,720)
+  and the time is **+31%** (true 102.911 s); **`backward` — 72.6% of GPU time — reads as 0.0%**
+  because its launches come from `pt_autograd_*` and the tool looks the range up on the launching
+  thread; and `data_prep`, which launches **zero** kernels, shows 71.
+- **prereg (written BEFORE the fix was implemented):**
+  - **P1.** Fixed, the header reads **354,720 launches** and **102.911 s** — identical to
+    `nvtx_phase_attribution.py`, because it will be the *same* join, not a re-derivation.
+  - **P2.** `(outside)` → **0.0%**. `backward` → **250,880** (1568/rank-step), `forward_loss` →
+    **94,400** (590), `optimizer` → **9,440** (59), `data_prep` → **0** and absent.
+  - **P3.** The "per step" denominator is also wrong: it counts distinct `step_%` **start**
+    timestamps and gets **156** where the correct normaliser is **160 rank-steps** (40 × 4). Predict
+    the fix has to change that too, and that nobody noticed because it is only a 2.5% error.
+  - **P4 — the sharp one.** The census's own thesis is that a range with a **high launch share and a
+    low time share** is a batching target ("many tiny kernels… fusing those buys launch-pipeline
+    headroom"). **Predict it finds NO target on this capture:** every range's %count will sit within
+    ~3 points of its %time, because §0d already established ~260 µs average kernels. That would make
+    the tool's own headline advice inapplicable here — consistent with the **already-refuted** "~9%
+    idle is launch latency" story its docstring still teaches, and the honest output is to say so
+    rather than print the advice unconditionally.
+  - **Decision rule.** P1+P2 are the gate: if the fixed census does not agree with
+    `nvtx_phase_attribution.py` to the row, the two tools disagree and one is wrong — that is a
+    blocker, not a pass. If P4 holds, the docstring's launch-pipeline framing is retired in the same
+    commit and the heuristic is made conditional. If P4 *fails* — some range really is launch-heavy
+    and time-light — that is a new finding and the batching advice earns its place.
+  - **Stated limit:** this fixes attribution, not the underlying question. Per-range launch *counts*
+    are what the census adds over §4.3; it does not localise a call site (item 8) or say anything
+    about coalescing (item 7).
+- **result:** OPEN — measured after this commit.
+- **next:** implement, then compare against §4.3b row by row.
+- **infra-failure count:** 0/5
+
+---
+
 ## tick 3 — 2026-08-20 — stage T0 item 3 — prereg for the analytic bytes model
 
 - **in flight:** none (Tier 0 needs no `qsub`)
