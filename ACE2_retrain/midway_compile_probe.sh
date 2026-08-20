@@ -71,6 +71,15 @@ python -c "import torch, fme" 2>/dev/null || {
 
 unset NCCL_DEBUG
 unset TORCH_DISTRIBUTED_DEBUG
+# sbatch --export=ALL carries the submitting shell's environment in, so an
+# inherited NCCL tuning var silently changes what is being measured -- or kills
+# the run. Job 53546805 died on `NCCL_ALGO=Tree` ("no algorithm/protocol
+# available for AllGather with datatype ncclInt8"), and the 27% step-time
+# outlier in 53546804 is consistent with the same pollution on a run where Tree
+# merely worked badly rather than failing. A timing harness must define its own
+# collective environment, not inherit one.
+unset NCCL_ALGO NCCL_PROTO NCCL_NTHREADS NCCL_MAX_NCHANNELS NCCL_MIN_NCHANNELS
+unset NCCL_P2P_DISABLE NCCL_SHM_DISABLE NCCL_IB_DISABLE NCCL_NET_GDR_LEVEL
 export WANDB_MODE=offline
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_CUDNN_V8_API_ENABLED=1
@@ -86,6 +95,7 @@ EXP_DIR="${ACE2_DIR}/outs/midway_compile_${TARGET}_${SLURM_JOB_ID}"
 
 echo "=== midway_compile_probe.sh: $(date -Iseconds) ==="
 echo "JOB_ID=${SLURM_JOB_ID}  NODE=${SLURM_NODELIST}  gpus=${NUM_GPUS}  target=${TARGET}  mode=${CMODE}"
+echo "REP=${ACE2_REP:-1}  surviving NCCL_* env: $(env | grep -c '^NCCL_') var(s): $(env | grep '^NCCL_' | tr '\n' ' ')"
 python -c "import torch, torch_harmonics; print(f'ENV torch={torch.__version__} torch_harmonics={torch_harmonics.__version__} env=${FME_ENV}')"
 
 OVERRIDES=(
