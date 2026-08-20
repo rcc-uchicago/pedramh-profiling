@@ -134,5 +134,60 @@ REPORT="${NSYS_OUT}.nsys-rep"
     --output="${NSYS_OUT}.sqlite" "${REPORT}" || {
         echo "ERROR ACE2_SQLITE_EXPORT_FAILED -- scp the .nsys-rep instead"; exit 1; }
 
+# --- bundle everything into ONE file, with a manifest ------------------------
+# The run scatters artifacts across three directories: the trace, fme's python
+# log, the GlobalTimer metrics, the resolved config, and the scheduler's own
+# .out/.err. Sending them one at a time is how a set arrives incomplete and
+# nobody notices until the analysis is half done. One tarball plus per-file
+# checksums makes "did it all get here, intact?" answerable at the far end.
+JOB="${SLURM_JOB_ID:-manual}"
+STAGE="${OUT_DIR}/bundle"
+BUNDLE="${ACE2_DIR}/outs/ace2_delta_${JOB}.tar.gz"
+mkdir -p "${STAGE}"
+
+cp "${NSYS_OUT}.sqlite"         "${STAGE}/" 2>/dev/null
+cp "${OUT_DIR}/run/out.log"     "${STAGE}/fme_out.log" 2>/dev/null
+cp "${OUT_DIR}/run/config.yaml" "${STAGE}/resolved_config.yaml" 2>/dev/null
+[ -d "${OUT_DIR}/metrics" ] && cp -r "${OUT_DIR}/metrics" "${STAGE}/metrics" 2>/dev/null
+# SLURM is still appending to these, so the copy stops here: the final
+# ACE2_DELTA_NSYS_OK line will be absent from the captured slurm.out.
+cp "${SLURM_SUBMIT_DIR:-.}/ace2_delta_nsys_${JOB}.out" "${STAGE}/slurm.out" 2>/dev/null
+cp "${SLURM_SUBMIT_DIR:-.}/ace2_delta_nsys_${JOB}.err" "${STAGE}/slurm.err" 2>/dev/null
+# .nsys-rep is hundreds of MB and the .sqlite is derived from it; ship it only on
+# request (the raw report is needed to open the timeline in the Nsight GUI).
+[ "${ACE2_BUNDLE_REP:-0}" = "1" ] && cp "${REPORT}" "${STAGE}/" 2>/dev/null
+
+MAN="${STAGE}/MANIFEST.txt"
+{
+  echo "ACE2 Delta profiling bundle"
+  echo "job_id      : ${JOB}"
+  echo "host        : $(hostname)"
+  echo "created_utc : $(date -u -Iseconds)"
+  echo "nodelist    : ${SLURM_JOB_NODELIST:-<none>}"
+  echo "gpus        : ${NUM_GPUS} x $(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
+  echo "config      : ${CONFIG}"
+  echo "batch_size  : ${ACE2_BATCH_SIZE:-4}   samples: ${ACE2_SAMPLES:-128}   windowed: ${ACE2_NSYS_WINDOWED:-0}"
+  echo "git_commit  : $(git -C "${ACE2_DIR}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+  echo "python      : $(command -v python)"
+  echo "versions    : $(python -c 'import torch,fme;print("torch",torch.__version__,"nccl",".".join(map(str,torch.cuda.nccl.version())),"fme",fme.__version__)' 2>/dev/null || echo unknown)"
+  echo
+  echo "topology:"
+  nvidia-smi topo -m 2>/dev/null | head -7 | sed 's/^/  /'
+  echo
+  echo "files (sha256  bytes  name):"
+  ( cd "${STAGE}" && find . -type f ! -name MANIFEST.txt -print0 \
+      | xargs -0 -r sha256sum 2>/dev/null \
+      | while read -r sum path; do printf "  %s  %s  %s\n" "${sum}" "$(stat -c %s "${path}")" "${path#./}"; done )
+} > "${MAN}"
+
+tar -czf "${BUNDLE}" -C "${STAGE}" . || {
+    echo "ERROR ACE2_BUNDLE_FAILED -- artifacts remain in ${OUT_DIR}"; exit 1; }
+cp "${MAN}" "${ACE2_DIR}/outs/ace2_delta_${JOB}.MANIFEST.txt" 2>/dev/null
+
+BSUM=$(sha256sum "${BUNDLE}" | cut -d" " -f1)
 echo "ACE2_DELTA_NSYS_OK rep_mb=$(( $(stat -c %s "${REPORT}") / 1048576 )) sqlite_mb=$(( $(stat -c %s "${NSYS_OUT}.sqlite") / 1048576 )) gpus=${NUM_GPUS}"
-echo "SCP THIS: ${NSYS_OUT}.sqlite"
+echo "ACE2_DELTA_BUNDLE_OK files=$(tar -tzf "${BUNDLE}" | grep -c .) size_mb=$(( $(stat -c %s "${BUNDLE}") / 1048576 ))"
+echo "SCP THIS: ${BUNDLE}"
+echo "sha256:   ${BSUM}"
+echo "verify at the far end:  sha256sum ace2_delta_${JOB}.tar.gz   # expect ${BSUM}"
+echo "manifest without extracting: ${ACE2_DIR}/outs/ace2_delta_${JOB}.MANIFEST.txt"

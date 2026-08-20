@@ -23,6 +23,18 @@ git checkout fix/tsoi-fill-270
 git pull
 ```
 
+**You submit one script, but three files must be present in `ACE2_retrain/`:**
+
+| file | why |
+|---|---|
+| `delta_bench_nsys.sh` | the only thing you `sbatch` |
+| `ace2_nvtx.py` | the script above launches **this**, not `fme.ace.train` — it injects the NVTX ranges that give the trace its phase labels |
+| a config (step 2) | `config_delta.yaml`, or your own |
+
+Copying only `delta_bench_nsys.sh` to Delta produces a job that dies at
+`torchrun` with a missing-file error that does not obviously point at
+`ace2_nvtx.py`. Clone the repo; do not cherry-pick the script.
+
 ---
 
 ## Step 2 — find your two paths
@@ -77,22 +89,56 @@ nothing outside `ACE2_retrain/outs/`.
 
 ---
 
-## Step 4 — send the file back
+## Step 4 — send the bundle back
 
-When the job finishes, the last line of `ace2_delta_nsys_<jobid>.out` reads:
+The run produces artifacts in three different directories — the trace, fme's
+python log, the GlobalTimer metrics, the resolved config, and SLURM's own
+`.out`/`.err`. The script collects all of them into **one tarball** so a
+partial transfer is detectable rather than silent.
+
+The last lines of `ace2_delta_nsys_<jobid>.out` read:
 
 ```
-ACE2_DELTA_NSYS_OK rep_mb=... sqlite_mb=... gpus=4
-SCP THIS: /.../outs/delta_nsys_<jobid>/nsys_ace2_delta_<jobid>.sqlite
+ACE2_DELTA_NSYS_OK   rep_mb=... sqlite_mb=... gpus=4
+ACE2_DELTA_BUNDLE_OK files=7 size_mb=...
+SCP THIS: /.../ACE2_retrain/outs/ace2_delta_<jobid>.tar.gz
+sha256:   3f9c...
+verify at the far end:  sha256sum ace2_delta_<jobid>.tar.gz   # expect 3f9c...
+manifest without extracting: /.../outs/ace2_delta_<jobid>.MANIFEST.txt
 ```
 
-Copy that one file:
+Copy it and check it arrived intact:
 
 ```bash
-scp <delta>:/.../nsys_ace2_delta_<jobid>.sqlite .
+scp <delta>:/.../ACE2_retrain/outs/ace2_delta_<jobid>.tar.gz .
+sha256sum ace2_delta_<jobid>.tar.gz      # compare against the sha256 printed above
+tar -xzf ace2_delta_<jobid>.tar.gz
+cat MANIFEST.txt                          # per-file sha256 + byte sizes
 ```
 
-Also useful, if it is short: the `.out` file itself.
+**What's in it:**
+
+| file | what it is |
+|---|---|
+| `nsys_ace2_delta_<jobid>.sqlite` | the trace — all analysis reads this; needs no nsys at the far end |
+| `fme_out.log` | fme's own python log: per-step losses, epoch timings |
+| `metrics/` | GlobalTimer category breakdown (train / valid / inference split) |
+| `resolved_config.yaml` | the config **after** `--override`, i.e. what actually ran |
+| `slurm.out`, `slurm.err` | scheduler logs, including the NCCL/topology banner |
+| `MANIFEST.txt` | job id, node, GPU model, git commit, torch/NCCL/fme versions, topology, and a sha256 + size for every file above |
+
+Two things worth knowing:
+
+- The **`.nsys-rep` is deliberately excluded** — it is hundreds of MB and the
+  `.sqlite` is derived from it. Set `ACE2_BUNDLE_REP=1` if you need the raw
+  report to open the timeline in the Nsight GUI.
+- **`slurm.out` in the bundle is truncated by one line.** SLURM is still writing
+  to it when the tarball is made, so the final `ACE2_DELTA_NSYS_OK` line is not
+  in the captured copy. The manifest says so; nothing is wrong.
+
+A checksum mismatch means re-transfer. A missing entry — most often an empty
+`metrics/` — means that part of the run did not produce output, which is worth
+knowing *before* the analysis rather than halfway through it.
 
 ---
 
@@ -151,8 +197,13 @@ the model rather than the machine, so they should reproduce on Delta:
    cores.
 2. **~28% of GPU time is tensor copies**, at the fp32/bf16 boundary around the
    spherical harmonic transform.
-3. **~9% of training time is kernel-launch latency**, from ~2,900 tiny kernels
-   per step per rank.
+3. **~19% of training time is GPU idle, and it is host synchronisation, not
+   launch latency.** An earlier version of this file said launch latency, from
+   ~2,900 tiny kernels per step per rank. That was refuted: the CPU runs
+   thousands of kernels ahead (median launch→execute queue depth **8.87 ms**)
+   and spends only 7.5% of the window in `cudaLaunchKernel`. The cost is
+   **`cudaStreamSynchronize` — ~7 calls per step, 163 ms of a 346 ms step.**
+   Expect the Delta capture to test this, not confirm it.
 
 A fourth, communication cost, was 52% on one Midway node because its GPUs are
 only NVLink-paired. Delta's GH200s should not have that, and this capture
