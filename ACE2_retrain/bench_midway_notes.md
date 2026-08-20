@@ -573,6 +573,27 @@ that sweep into a repeat of the control. Scrubbing is now opt-in behind
 `ACE2_NCCL_CLEAN=1`, and the surviving `NCCL_*` env is logged in every run so an
 arm is self-describing.
 
+## torch.compile sweep — COUNTERBALANCED (n=8 per arm, two orders)
+
+A flaw in the first replication that the handoff's critique did not catch: arm
+order within each replicate was **fixed** (`none, corrector, mlp`), so arm and
+slot were confounded — `mlp` was always last. A second series (jobs
+53707930-941) reverses it to `mlp, corrector, none`.
+
+| arm | block A (none 1st) | block B (mlp 1st) | shift |
+|---|---|---|---|
+| `none` | 0.3427 s (pos 1) | 0.3417 s (pos 3) | -0.29% |
+| `corrector` | 0.3357 s (pos 2) | 0.3350 s (pos 2) | -0.22% |
+| `mlp` | 0.3540 s (pos 3) | 0.3528 s (pos 1) | -0.35% |
+
+Effect vs control, computed independently inside each block:
+**corrector -2.04% / -1.98%**, **mlp +3.28% / +3.22%** — agreeing to 0.06 pp.
+Per-**position** medians move between blocks (position 1: 0.3427 -> 0.3528,
+position 3: 0.3540 -> 0.3417), so position predicts nothing and the arm predicts
+everything. Both DVFS drift and warm-up order are excluded.
+
+⇒ corrector **-2.0%** and mlp **+3.25%** are settled at n=8.
+
 ## torch.compile sweep — REPLICATED (n=4 per arm, interleaved)
 
 The single-run sweep below is confirmed. Four replicates per arm, interleaved
