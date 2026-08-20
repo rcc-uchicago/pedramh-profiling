@@ -115,6 +115,21 @@ def main():
         check(rollup(npa.attribute(con.cursor(), by_pid, by_exec=True)) == r,
               "by-exec disagreed on a capture with no CPU run-ahead")
 
+        # -- parse_nsys.py must run on a Path under Python 3.6 (the Polaris
+        # login node's default), where sqlite3.connect() rejects os.PathLike.
+        import parse_nsys
+        argv, out = sys.argv, sys.stdout
+        try:
+            sys.argv = ['parse_nsys.py', path]
+            sys.stdout = open(os.devnull, 'w')
+            parse_nsys.main()
+        except TypeError as exc:
+            sys.stdout = out
+            check(False, f"parse_nsys.py cannot open a Path: {exc}")
+        finally:
+            sys.stdout.close() if sys.stdout is not out else None
+            sys.argv, sys.stdout = argv, out
+
         # -- overlapping ranges must be refused, not silently double-counted.
         con2 = sqlite3.connect(path)
         con2.execute("INSERT INTO NVTX_EVENTS VALUES (0,300,59,'ema',?,NULL)",
@@ -127,8 +142,20 @@ def main():
         else:
             check(False, "nested/overlapping ranges were not refused")
 
+    # -- the range-name contract has ONE source of truth (CLAUDE.md #10).
+    import parse_nsys
+    check(npa.PHASES is parse_nsys.RANGE_NAMES,
+          "PHASES is a copy of the contract, not the contract itself")
+    check('unstack' in parse_nsys.RANGE_NAMES,
+          "'unstack' fell out of the contract again")
+    src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            'parse_nsys.py')).read()
+    check(src.count("('preprocess',") == 1,
+          "a second literal range list reappeared in parse_nsys.py — the "
+          "drift that silently dropped 'unstack' is back")
+
     print("PASS nvtx_phase_attribution: pid guard + process-scoped windows "
-          "+ dtype labels + overlap refusal")
+          "+ dtype labels + overlap refusal + one-source range contract")
 
 
 if __name__ == '__main__':

@@ -42,6 +42,7 @@ script reads them, it must never rename them.
 import argparse
 import bisect
 import collections
+import os
 import re
 import sqlite3
 import sys
@@ -49,13 +50,12 @@ import sys
 # An nsys globalTid packs the tid into the low 24 bits of the globalPid.
 PID_MASK = ~0xFFFFFF
 
-# The shared NVTX phase contract (parse_nsys.py's list, minus the per-step
-# `step_N` markers, which ENCLOSE these and would double-count).
-PHASES = ('preprocess', 'data_prep', 'forward_loss', 'backward', 'optimizer',
-          'vae_encoder1', 'vae_encoder2', 'ema',
-          'stack', 'unstack', 'normalize', 'denormalize',
-          'amp_region', 'sht_fwd', 'sht_inv',
-          'sfno_net', 'sfno_block', 'spectral_filter', 'sfno_mlp')
+# The shared NVTX phase contract, imported rather than copied -- a fourth copy
+# is how `unstack` drifted out of one of parse_nsys.py's two lists. The
+# per-step `step_N` markers are deliberately NOT in it: they ENCLOSE these and
+# would trip the overlap check in load_phases().
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from parse_nsys import RANGE_NAMES as PHASES  # noqa: E402
 
 # Ordered: first match wins. Collapses PyTorch's templated names to something
 # a table can hold, keeping the dtype -- `direct_copy` over complex64 and over

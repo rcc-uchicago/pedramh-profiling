@@ -24,6 +24,29 @@ import statistics
 import sys
 from pathlib import Path
 
+# statistics.fmean is 3.8+; the Polaris login node's default python3 is 3.6.15,
+# and login-node re-analysis of an existing capture is the whole point of the
+# no-GPU workflow. sum/len is what fmean computes, so 3.8+ output is unchanged.
+_fmean = getattr(statistics, 'fmean', None) or (lambda v: sum(v) / len(v))
+
+# The NVTX range contract (CLAUDE.md #10): SHARED names first, in contract
+# order, then each project's own. Never rename, never remove -- a dropped name
+# silently invalidates every prior comparison. ONE list, read by both the query
+# and the print loop; `nvtx_phase_attribution.py` imports it rather than
+# keeping a fourth copy.
+#
+# NOTE there are three other copies of this parser in the repo, and they do NOT
+# agree: `s2s/v2.0/HPC_scripts/parse_nsys.py` carries only the first 8 names,
+# and it is the one the Polaris PBS scripts and
+# `physicsnemo_ai_rossby/polaris/bench_instrumentation_test.py` actually run.
+# Adding a range here does not make that copy print it. See CHANGELOG 2026-08-20.
+RANGE_NAMES = ('preprocess', 'data_prep', 'forward_loss',
+               'backward', 'optimizer',
+               'vae_encoder1', 'vae_encoder2', 'ema',
+               'stack', 'unstack', 'normalize', 'denormalize',
+               'amp_region', 'sht_fwd', 'sht_inv',
+               'sfno_net', 'sfno_block', 'spectral_filter', 'sfno_mlp')
+
 
 def _table_exists(cur, name):
     cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (name,))
@@ -72,18 +95,10 @@ def nvtx_summary(cur):
     # SI emits: preprocess, forward_loss (from train_module.py),
     # backward, optimizer (from bench_callback.py when SI_NVTX=1).
     # data_prep / vae_* are kept for backwards-compat with S2S traces.
-    cur.execute("""
-        SELECT text, (end - start) AS dur_ns
-        FROM NVTX_EVENTS
-        WHERE text IN ('preprocess','data_prep','forward_loss',
-                       'backward','optimizer',
-                       'vae_encoder1','vae_encoder2','ema',
-                       'stack','unstack','normalize','denormalize',
-                       'amp_region','sht_fwd','sht_inv',
-                       'sfno_net','sfno_block','spectral_filter','sfno_mlp')
-          AND end IS NOT NULL AND end > start
-        ORDER BY text
-    """)
+    cur.execute(
+        "SELECT text, (end - start) AS dur_ns FROM NVTX_EVENTS "
+        f"WHERE text IN ({','.join('?' * len(RANGE_NAMES))}) "
+        "AND end IS NOT NULL AND end > start ORDER BY text", RANGE_NAMES)
     rows = cur.fetchall()
     if not rows:
         print("  No bench NVTX ranges found "
@@ -97,15 +112,11 @@ def nvtx_summary(cur):
         by_name[name].append(dur_ns / 1e6)  # → ms
 
     out = []
-    # NOTE this list must track the SQL above -- extending only the query is
-    # a silent drop: the rows are fetched and then never printed. Shared
-    # contract names first, in contract order, then ACE2's own.
-    for name in ('preprocess', 'data_prep', 'forward_loss',
-                 'backward', 'optimizer',
-                 'vae_encoder1', 'vae_encoder2', 'ema',
-                 'stack', 'normalize', 'denormalize',
-                 'amp_region', 'sht_fwd', 'sht_inv',
-                 'sfno_net', 'sfno_block', 'spectral_filter', 'sfno_mlp'):
+    # Both the query and this loop read RANGE_NAMES, so a new range cannot be
+    # added to one and forgotten in the other -- which is exactly what had
+    # happened to `unstack`: it was in the SQL, absent here, so its rows were
+    # fetched and then silently never printed.
+    for name in RANGE_NAMES:
         vals = by_name.get(name, [])
         if not vals:
             continue
@@ -113,7 +124,7 @@ def nvtx_summary(cur):
             name,
             len(vals),
             f"{statistics.median(vals):.1f}",
-            f"{statistics.fmean(vals):.1f}",
+            f"{_fmean(vals):.1f}",
             f"{min(vals):.1f}",
             f"{max(vals):.1f}",
         ))
@@ -131,7 +142,7 @@ def nvtx_summary(cur):
         step_ms = [dur / 1e6 for _, dur in step_rows]
         print(f"\n  Step totals from NVTX ({len(step_ms)} steps):")
         print(f"    median {statistics.median(step_ms):.1f} ms  "
-              f"mean {statistics.fmean(step_ms):.1f} ms  "
+              f"mean {_fmean(step_ms):.1f} ms  "
               f"std {statistics.pstdev(step_ms):.1f} ms")
 
 
@@ -191,7 +202,7 @@ def nccl_summary(cur):
     total_ms = sum(durations_us) / 1000.0
     print(f"  Calls: {len(durations_us)}")
     print(f"  Total time: {total_ms:.1f} ms  "
-          f"avg: {statistics.fmean(durations_us):.0f} µs  "
+          f"avg: {_fmean(durations_us):.0f} µs  "
           f"max: {max(durations_us):.0f} µs")
 
 
@@ -246,7 +257,11 @@ def main():
 
     print(f"\nNsight Systems analysis: {path.name}")
 
-    con = sqlite3.connect(path)
+    # str(), not the Path: sqlite3.connect only grew os.PathLike support in
+    # Python 3.7, and the Polaris login node's default python3 is 3.6.15 --
+    # where this raised TypeError and made login-node re-analysis of a capture
+    # (the whole no-GPU-needed workflow) impossible.
+    con = sqlite3.connect(str(path))
     cur = con.cursor()
 
     available_tables(cur)
