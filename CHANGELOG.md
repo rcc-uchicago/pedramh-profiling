@@ -40,6 +40,16 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Next actions (pick from the top)
 
+> **2026-08-20 — Pangu-on-Polaris profiling to-do list lives in
+> `PANGU_POLARIS_PROFILING_PLAN.md`.** Tiered by cost, with what each item unblocks.
+> Top three, in order: (1) **capture the missing PanguWeather §4.1 baseline** — it gates
+> every hot-path change; (2) **ncu single-rank on the top six kernels** — settles whether
+> the 42%-of-GPU-time copies are bandwidth-bound or contiguity-bound, i.e. whether
+> "we're at the maximum" is even true; (3) **multi-node scaling**, the one axis never
+> profiled here, where the single-node "comms are free" result (1.2% exposed) will not
+> hold. Deprioritized on new evidence: `broadcast_buffers=False` (0.11%, not 33%) and
+> the single-node `NCCL_PROTO` sweep (<=1.2% available).
+
 0. **FOCUS (2026-07-15): the work is on `PanguWeather/`, not `s2s/v2.0`.** They are
    95%-identical forks (DESIGN §2c) — but **copies, not shared imports**, so nothing
    propagates between them. Both consequences the earlier handoff listed here are now
@@ -167,6 +177,101 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-20** — **Live-session cluster loop for the Pangu-on-Polaris profiling plan.** Ported the hardened
+  RCC/Midway autonomous-loop pattern (`L2LGWAS_DFE:prompts/_TEMPLATE_cluster_autonomous_loop.md` +
+  `scripts/_TEMPLATE_cluster_loop.sbatch`) to Polaris. Three files:
+  `prompts/_live_session_pangu_polaris_loop.md` (driver), `prompts/_live_session_loop_README.md` (setup +
+  submission policy), `prompts/pangu_polaris_loop_journal.md` (the loop's durable state). Frozen plan =
+  `PANGU_POLARIS_PROFILING_PLAN.md`. **Nothing submitted.**
+  - **A batch orchestrator does NOT work on Polaris, and this is the design finding.** The Midway pattern runs a
+    cheap `--partition=build` orchestrator that submits gate compute as nested `sbatch` jobs. Here `debug` is
+    **`max_run 1` AND `max_queued 1` per USER** (a second `qsub` is rejected; a `-W depend=` job is rejected too,
+    since a held job still counts) — so a PBS orchestrator on `debug` is its own competitor and cannot submit the
+    jobs it exists to submit. `capacity` is **`max_run 1` per PROJECT**, so a nested design would consume
+    `lighthouse-uchicago`'s only long slot twice, and `preemptable` started 0/9 jobs in 11.5 h. There is no
+    `build`-equivalent queue. ⇒ **the live session is the orchestrator**, which is also exactly what
+    `polaris_pbs_notes.md` §1b prescribes for `debug` ("a driver that submits chunk N+1 when chunk N finishes")
+    and puts a human in front of every submission.
+  - **Guardrails carried verbatim:** branch guard (never `main`, never push/amend), the per-change commit ratchet
+    with reset-to-last-green, the **hashed pre-result prereg** (predictions committed before the job runs — the
+    pattern that made the ZeRO sweep credible at 6/8 exact), explicit staging (**never `git add -A`** — each
+    capture here is >120 MB), the infra-failure ≤5 ratchet, the stage-scoped reference fence, and the
+    **completion-honesty rule**.
+  - **Submission policy is absolute and not configurable: the loop NEVER submits without explicit
+    per-submission approval.** No standing-approval mode exists. Starting the loop is not approval; approving a
+    stage or a prediction is not approval; approving one `qsub` does not cover the next one or a resubmit of the
+    same script. The loop prepares fully (script, static checks, node-hour arithmetic, prereg) and then stops on
+    the literal `qsub` line. Consequence that makes this cheap: **the plan's whole Tier 0 needs no `qsub`** — it
+    is re-analysis of captures already on disk, so the loop runs unattended to the end of Tier 0 before asking
+    for anything.
+  - **Guardrails added for this cluster:** at most **one job in flight** (the `debug` limit); **diagnose before
+    ANY resubmit** — a `queue_tags` comment means the queue has no nodes and resubmitting destroys accrued
+    `eligible_time` (CLAUDE.md #12, cost a day on 2026-08-05); key on the **PASS token / CSV row, never `rc`**
+    (nsys writes a report file even when it captured nothing); science fenced to **jesswan**; one-tree
+    `PYTHONPATH`; instrumentation-name contract; caches on `/eagle`.
+  - **Three Midway guardrails deliberately dropped, each with its reason recorded** (§R of the driver): the batch
+    orchestrator + `USR1` chain, the nested-job wait-loop with the name filter (**PBS truncates job names in
+    `qstat`** — persisted job ids are authoritative instead), and the transient-`squeue` retry (a live session
+    cannot double-submit while waiting on a human).
+  - **Unverified, flagged in the README rather than assumed:** `qsub`-from-a-compute-node has never been
+    exercised by this project, so a future headless variant must verify it before relying on a self-chain
+    (fallback: `qsub -W depend=afterany:<jobid>` from a login node). PBS also has no `--signal` equivalent — a
+    headless port needs a self-timer off `qstat -f $PBS_JOBID` → `Resource_List.walltime`.
+  - **Next:** tick 1 = cut `profile/pangu-polaris-profiling` off `fix/tsoi-fill-270`, then plan item 1 (fix the
+    NVTX↔kernel join). Tier 0 needs no GPU and no `qsub` at all.
+
+- **2026-08-20** — **Polaris Pangu: 96% GPU-busy but only ~25% of HBM peak — the
+  ceiling is our own data movement, not the A100.** Derived from the capture already on
+  disk (job **7255503**), **zero GPU time spent**; plan and to-do list in
+  **`PANGU_POLARIS_PROFILING_PLAN.md`**.
+  - **GPU-busy union = 95.6-96.5%** across the four ranks (span 24.35 s). This
+    *confirms* `polaris_bench_report.md` §4.2's saturation verdict, which had inferred
+    it from `sum/span = 105%` — an NCCL-on-its-own-stream artifact. 3.5-4.4% idle ⇒ no
+    launch-latency story, nothing for CUDA Graphs, on Polaris evidence now.
+  - **Comms are NOT the Polaris problem: NCCL is 88.7% overlapped, exposed only 1.2% of
+    span** (2.671 s union, 2.369 s overlapped, 0.302 s exposed, dev0). Against Midway's
+    35.7% exposed. ⇒ **the `NCCL_PROTO`/`NCCL_ALGO` agenda in
+    `POLARIS_PROFILING_HANDOFF.md` §2 has at most 1.2% to win on one node.** Deferred to
+    the multi-node work, where it becomes interesting again.
+  - **`ncclDevKernel_Broadcast_RING_LL` IS present** — 160 launches = exactly 1 per
+    rank-step, confirming `broadcast_buffers=True` (`train.py:298-303`) — **but it is
+    112 ms of 102.9 s = 0.11% of GPU kernel time.** Midway's 33.14% was three ranks
+    *waiting* on a straggler, not the broadcast itself. ⇒ the handoff's "largest single
+    item on the project" **does not transfer**; `broadcast_buffers=False` is a 0.1%
+    change here and no longer worth opening the BN-buffer science gate for.
+  - **42.2% of all GPU kernel time is `direct_copy` + `conj` — kernels that do zero
+    arithmetic**: `direct_copy`(float) **18.9%** (121 ms/rank-step), `direct_copy`
+    (complex64) **17.3%** (111 ms), `conj`(complex64) **6.0%** (38 ms). 271 ms of a
+    603 ms step. All three take the **non-vectorized** `elementwise_kernel<128,2>` /
+    `gpu_kernel_impl_nocast` TensorIterator path.
+  - **Estimated 17-27% of A100 HBM2e peak (1555 GB/s) on those three, where a
+    *vectorized* bf16 add in the same capture reaches 52%.** ⇒ **maximum GPU *time*
+    occupancy and nowhere near maximum *bandwidth*, simultaneously** — which is exactly
+    why the profile "looks maxed" and yet is unclear. **OPEN, method-limited:** bytes
+    are estimated from CUPTI launch geometry (`grid x block x elts/thread x dtype x 2`),
+    i.e. *useful* bytes. If access is uncoalesced, real DRAM traffic is higher and the
+    defect is wasted traffic rather than unused bandwidth. Same class of fix, different
+    mechanism. **Settle with ncu `dram__bytes_*` + sectors/request, single-rank only**
+    (kernel replay deadlocks on `ncclDevKernel`). Do not quote "25% of peak" until then.
+  - **The complex64 spectral island is 30.3% of GPU time** (complex64 copy + conj +
+    `MulFunctor` + `cutlass_80_tensorop_c1688gemm_64x64_16x4_nt_**align1**`). The
+    cutlass kernel's `align1` is unvectorized *loads* — **alignment is not precision**,
+    so align4/align8 needs no science sign-off, unlike the deliberate fp32 SHT island.
+  - **⚠ The only Polaris Pangu capture is `checkpointing: 3`; production ships
+    `checkpointing: 2`** (jobs 7366939→7366940). On the same-model ai-rossby sweep
+    `ckpt3 → ckpt2` is 1.274×, and recompute traffic is precisely what dominates the
+    42% above. **Every percentage here is a `ckpt3` percentage** — re-capture at the
+    production config, warmup >= 40, and long enough for **EMA to be active** (it has
+    never fired in any capture in this repo).
+  - **The NVTX join needs fixing before any phase attribution**: on this capture the
+    naive `NVTX_EVENTS.textId -> StringIds` join surfaces only NCCL's own registered
+    ranges (`ncclAllReduce` x600, `ncclBroadcast` x40) — the house ranges do not appear.
+    So "how much of the 42% is activation recompute" is not yet answerable.
+  - **Biggest structural blocker restated:** `baselines/` holds only
+    `ai_rossby_pangu_plasim/` and `ai_rossby_sfno/`. **There is no PanguWeather
+    baseline, so the DESIGN §4.1 gate cannot be closed for any Pangu hot-path change** —
+    every optimization above is queued behind capturing it.
 
 - **2026-08-19** — **ACE2 on H100/`pedramh-gpu`: `torch.compile` is NOT the lever; three
   bigger levers measured instead.** Detail: `ACE2_retrain/bench_midway_notes.md`.

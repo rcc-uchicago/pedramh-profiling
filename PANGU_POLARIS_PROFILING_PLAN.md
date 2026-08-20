@@ -1,0 +1,263 @@
+# PanguWeather on Polaris — profiling plan and to-do list
+
+Written 2026-08-20. Companion to `POLARIS_PROFILING_HANDOFF.md` (the Midway/Delta
+handoff this re-scopes for Polaris), `polaris_bench_report.md` (the existing A100
+profile), and `PROFILING_TABLES.md`.
+
+**The question this plan answers:** the Polaris profile reads as "saturated — 643 ms
+of kernel time in a 603 ms step, 61% elementwise, loader 0.7%", which looks like
+there is nothing left to find. That reading is **half right, and the half that is
+wrong is where all the remaining headroom is.**
+
+---
+
+## 0. What is now measured, from captures already on disk
+
+Derived today from `$MEMBER_ROOT/bench/nsys_pangu_sfno_7255503.sqlite` (job 7255503:
+4× A100-SXM4-40GB, `sfno_plasim` E3SM, 1,182,108,160 params, batch 1/rank, bf16
+autocast, `checkpointing: 3`, eager, 40 measured steps × 4 ranks). **No GPU time
+spent.** This closes handoff Tier A items 3 and 5-adjacent for Polaris.
+
+### 0a. Time occupancy really is maxed — this part of "we're at the maximum" is true
+
+| device | kernel sum / span | **kernel union / span (GPU-busy)** |
+|---|---|---|
+| dev0 | 105.5% | **95.7%** |
+| dev1 | 104.0% | **95.6%** |
+| dev2 | 106.4% | **96.5%** |
+| dev3 | 106.5% | **96.5%** |
+
+`polaris_bench_report.md` §4.2 inferred saturation from `sum/span > 100%`, which is
+an artifact of NCCL running on its own stream. The **union** confirms it anyway:
+3.5–4.4% idle. There is no idle to reclaim, no launch-latency story, and nothing for
+CUDA Graphs — consistent with handoff §6 dead end 1, now on Polaris evidence.
+
+### 0b. Communication is NOT the problem on Polaris — the handoff's §2 agenda is worth ≤1.2% here
+
+| quantity | dev0, job 7255503 |
+|---|---|
+| NCCL kernel union | 2.671 s of a 24.35 s span (11.0%) |
+| **overlapped with compute** | **2.369 s = 88.7% of all NCCL** |
+| **exposed (GPU running only NCCL)** | **0.302 s = 1.2% of span** |
+
+Compare Midway's 35.7% exposed on `midway3-0423`. **On Polaris, DDP gradient exchange
+is essentially free**, and the entire `NCCL_PROTO`/`NCCL_ALGO` line of work — handoff
+§2 and Tier B item 6 — has at most 1.2% of wall-clock to win on one node. Deprioritize
+it here; it only becomes interesting multi-node (§3 item 10).
+
+### 0c. The handoff's "largest single item on the project" does not transfer
+
+`ncclDevKernel_Broadcast_RING_LL` **is present** — 160 launches = exactly 1 per
+rank-step, confirming `broadcast_buffers=True` at `PanguWeather/v2.0/train.py:298-303`
+— but it costs **112 ms of 102.9 s = 0.11% of GPU kernel time**, 0.7 ms/rank-step.
+Midway's 33.14% was three ranks *waiting* on a straggler, not the broadcast itself.
+**`broadcast_buffers=False` is a ~0.1% change on Polaris.** It still needs jesswan's
+sign-off (BN buffers), so the cost/benefit no longer justifies opening that gate.
+
+### 0d. Where the step actually goes — and the finding that reopens the ceiling
+
+Top kernels by GPU time, all four ranks, full `demangledName`, 102.9 s total:
+
+| kernel | % all GPU time | ms/rank-step | µs/call | est. GB/s | % of 1555 GB/s |
+|---|---|---|---|---|---|
+| `direct_copy_kernel_cuda` ⟨float⟩ | **18.9%** | 121 | 266 | 415 | **27%** |
+| `direct_copy_kernel_cuda` ⟨complex64⟩ | **17.3%** | 111 | 1327 | 359 | **23%** |
+| `conj_kernel_cuda` ⟨complex64⟩ | **6.0%** | 38 | 1596 | 257 | **17%** |
+| `MulFunctor` ⟨complex64⟩ | 3.1% | 20 | 235 | 461 | 30% |
+| `CUDAFunctor_add` ⟨bf16⟩ *(vectorized path)* | 2.2% | 14 | 219 | **810** | **52%** |
+| `FusedAdamMathFunctor` | 4.0% | 26 | 455 | — | — |
+| `cutlass_80_tensorop_c1688gemm_64x64_16x4_nt_align1` | 3.9% | 25 | 696 | — | — |
+| `cudnn::bn_fw_tr_1C11_kernel_NCHW` ⟨fp32⟩ | 2.5% | 16 | 329 | — | — |
+
+**42.2% of all GPU kernel time — 271 ms of a 603 ms step — is `direct_copy` + `conj`:
+kernels that perform zero arithmetic.** They move bytes and nothing else.
+
+And they move them badly. The three copy/conj kernels run on the **non-vectorized**
+`elementwise_kernel<128,2>` / `gpu_kernel_impl_nocast` path (the TensorIterator
+fallback taken for non-contiguous or awkwardly-strided operands) at **17–27% of A100
+HBM2e peak**, while a *vectorized* bf16 add in the same capture reaches **52%**.
+
+> **⇒ We are at maximum GPU *time* occupancy and nowhere near maximum *bandwidth*.**
+> The ceiling we are hitting is our own data movement, not the A100. That is why the
+> profile "looks maxed" and why it is unclear — 96% busy and 25% of peak bandwidth are
+> both true at once.
+
+**Method, and its OPEN caveat.** Bytes are estimated as
+`grid × block × elements_per_thread × sizeof(dtype) × 2` (read+write) from the CUPTI
+launch geometry and the kernel's template parameters. That is *useful* bytes. If the
+access pattern is uncoalesced, real DRAM traffic is **higher**, so achieved DRAM
+bandwidth would be closer to peak and the defect would be *wasted* traffic rather than
+unused bandwidth. **Both diagnoses point at the same class of fix (move fewer, better
+laid-out bytes) but at different mechanisms**, so do not quote "25% of peak" as a
+measurement until item 7 runs. It is an estimate with a stated method.
+
+### 0e. The capture does not match what production runs
+
+Job 7255503 is `checkpointing: 3`, EMA never fired (`ema_warmup_epochs: 6`), warmup
+20, no ZeRO. **Pangu production launched at `checkpointing: 2`, ZeRO OFF** (CHANGELOG
+2026-08-07, jobs 7366939→7366940). On the same-model ai-rossby sweep (job 7365119, one
+node, back-to-back) `ckpt3 → ckpt2` is **1.274×** — so the profiled config is ~27%
+slower than the one we ship, and the recompute traffic that dominates §0d is exactly
+what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage.**
+
+---
+
+## 1. Tier 0 — free. No GPU, no queue. Do these first.
+
+- [ ] **1. Fix the NVTX↔kernel join, then attribute the 42% copy time to phase.**
+      A `globalPid`-guarded join is mandatory (handoff §1), *and* on this capture the
+      naive `NVTX_EVENTS.textId → StringIds` join returns only NCCL's own registered
+      ranges (`ncclAllReduce` ×600, `ncclBroadcast` ×40) — the house ranges
+      (`data_prep`/`forward_loss`/`backward`/`optimizer`) do not surface through it.
+      Resolve which NVTX text path the harness uses before any attribution claim.
+      **Deliverable:** the copy time split forward vs backward. That single split says
+      how much of the 271 ms/step is activation *recompute* — i.e. how much of §0d
+      `ckpt2`/`ckpt1` already deletes.
+- [ ] **2. Re-derive §0d from the second capture, job 7255557**, as an n=2. Confirm the
+      config differs or does not; nothing in this repo should rest on one capture
+      (CHANGELOG: "a cross-JOB ratio on Polaris is not a measurement").
+- [ ] **3. Build an analytic bytes-per-step model** from the config (`embed_dim: 512`,
+      `num_layers: 12`, `num_blocks: 16`, 180×360, 18 levels, complex64 spectral) and
+      check it against the launch-geometry estimate in §0d. Agreement turns "25% of
+      peak" into a bound; disagreement localises which copies are larger than any
+      tensor in the model, which is itself the finding.
+- [ ] **4. Fix `ACE2_retrain/kernel_census.py` before using it on Polaris** — line 57
+      joins on `correlationId` with no `globalPid` guard (+30.8% phantom rows, handoff
+      §5). Reuse it for per-range kernel counts once item 1 lands.
+- [ ] **5. Re-check the warmup-20 contamination question for Polaris.** The Midway
+      capture at warmup 20 straddles a 560→1090 ms regime change and its own notes
+      call it contaminated. Polaris step std is 31.9 ms on a 603 ms median (tight), so
+      this is probably clean — but plot the per-step series from the capture and say so
+      on evidence, since every §0 number inherits it.
+
+## 2. Tier 1 — cheap `debug`-queue jobs (≤1 h). Ask before submitting.
+
+- [ ] **6. `gpu_topology_check.py`, one allocation, ~1 minute.** Polaris topology is
+      the only unmeasured cell in handoff §4 — "A100" is a device name, not a topology,
+      and this repo's own `beagle3-0012` was A100-**PCIe** with no NVLink. §0b's 88.7%
+      overlap strongly implies real NVLink, but paste the matrix and close it.
+- [ ] **7. ⭐ ncu on the top six kernels, single rank (`--nproc_per_node=1`), explicit
+      metric list — this is the measurement that settles "are we at the maximum".**
+      Metrics: `dram__bytes_read.sum`, `dram__bytes_write.sum`,
+      `dram__throughput.avg.pct_of_peak_sustained_elapsed`,
+      `sm__throughput.avg.pct_of_peak_sustained_elapsed`,
+      `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` (sectors/request ⇒ coalescing),
+      `launch__occupancy_limit_*`. **Never under real DDP** — kernel replay re-executes
+      `ncclDevKernel`, which spins on peer flags → deadlock (handoff Tier C / dead end
+      5). Not `--set full`. **Decision it unblocks:** if the copies are at ~90% of DRAM
+      peak, the only lever is *fewer* bytes (fusion, dtype, not materialising); if they
+      are at ~25% with poor sectors/request, the lever is *contiguity* — a layout fix,
+      possibly with no change to what is computed.
+- [ ] **8. Attribute `direct_copy`/`conj` to source lines.** `torch.profiler` with
+      `with_stack=True`, or `emit_nvtx` for autograd-op names (timings void by design —
+      shares only, per handoff's ACE2 precedent, where `aten::clone` was 45.3% of copy
+      time). **Deliverable:** the three or four call sites responsible for 42% of GPU
+      time. Without this, "fuse the elementwise work" has no target.
+- [ ] **9. Re-capture nsys at the production config** — `checkpointing: 2`, ZeRO as
+      shipped, **warmup ≥ 40**, and long enough that **EMA is active**. Everything in
+      §0 is `ckpt3` with EMA never fired; production pays an every-step sweep over
+      1.18 B params that no capture in this repo contains. `ema` is already
+      instrumented and waiting.
+- [ ] **10. Confirm the `ckpt` ladder in Pangu's own harness, one job, interleaved
+      A/B/A/B.** The 1.274×/1.307× ladder is ai-rossby's trainer on the identical model
+      shape, not Pangu's. Same model ≠ same harness, and cross-job Polaris ratios are
+      not measurements (CHANGELOG 2026-08-06). Watch `peak_mem_gb_max_rank`: Pangu
+      benched **26.98 GB** at `ckpt3` where ai-rossby benched 21.40 GB, so Pangu's
+      `ckpt2` headroom is ~5.6 GB tighter than the sweep suggests, and the ZeRO sweep
+      showed these estimates run 1–2 GB optimistic.
+- [ ] **11. Verify the EMA/`ckpt2` memory margin for the live production config.**
+      `ckpt2` no-ZeRO OOM'd for ai-rossby, EMA adds ~4.4 GB, and Pangu's EMA switches
+      on at epoch 6. Read `peak_mem_gb_max_rank` from the production logs across the
+      epoch-6 boundary. Free if the logs exist; a smoke if they do not.
+
+## 3. Tier 2 — the axes nobody has profiled at all. This is where "the maximum" is most likely false.
+
+- [ ] **12. ⭐ Multi-node scaling.** Every Polaris number in this repo is single-node
+      4× A100. §0b's "comms are free" holds *inside* a node; across Slingshot 11 it
+      will not, and NCCL's 11% becomes the term that decides whether 100 epochs is
+      reachable at all (current arithmetic: 275–325 h single-node ⇒ 4–5 chained
+      `preemptable` links). `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs`
+      is sitting untracked in the working tree — the scaffolding exists. Profile
+      1→2→4 nodes: exposed/overlapped NCCL, samples/s/rank, and *then* the
+      `NCCL_PROTO`/`NCCL_ALGO` sweep (§0b defers it to exactly here), verified by
+      kernel name, ≥3 interleaved reps.
+- [ ] **13. ⭐ A whole-epoch profile, not an 80-step window.** The bench window is
+      known to understate production by ~9% (EMA + metric reduction + logging), and
+      the bench-vs-production gap was already traced to **cold page cache**
+      (CHANGELOG 2026-08-07). Nothing profiled covers: first-epoch I/O, validation
+      (129 ICs × 60-step rollouts), checkpoint write, or the epoch boundary. At
+      2.55 h/epoch these are the terms that actually set time-to-model.
+- [ ] **14. ⭐ Memory profile — `torch.cuda.memory._record_memory_history` + snapshot.**
+      Memory is the *binding constraint on the only lever that pays*: `batch_size` 2
+      OOMs at every fast `ckpt` setting, `ddp_static_graph` OOMs, and ZeRO-1 was
+      required to reach `ckpt2` at all. Nobody has asked **what holds the 36 GB**. If a
+      few GB are recoverable, batch 2 unlocks and the whole §0d picture changes (the
+      handoff's own lesson: batch size moves these numbers more than the interconnect
+      does). The OOMs are genuine capacity, not fragmentation — 38.29 GiB allocated
+      vs 57.76 MiB reserved-unallocated — so this is an accounting question, not an
+      allocator-flag question.
+- [ ] **15. Quantify the fp32-complex64 spectral island.** `direct_copy`⟨complex64⟩ +
+      `conj`⟨complex64⟩ + `MulFunctor`⟨complex64⟩ + `c1688gemm_..._align1` = **30.3%**
+      of GPU time, all in the complex64 SHT/spectral path, and the cutlass kernel is
+      `align1` — unvectorized loads on a 64×64 tile. **Alignment is not precision:**
+      making that GEMM `align4`/`align8` changes no arithmetic and needs no science
+      sign-off, whereas the fp32 island around the SHT is deliberate and must not be
+      pushed to bf16 (`si/bench_midway_notes.md` §3–4). Separate the two before
+      proposing anything.
+- [ ] **16. Add SFNO-internal NVTX ranges** — `spectral_filter`, `sfno_block`,
+      `sfno_mlp`, `sht_fwd`/`sht_inv`. Pangu emits the shared phase names only, so
+      §0d's 42% cannot be attributed to a layer. Use an injector on the
+      `ACE2_retrain/ace2_nvtx.py` pattern — **do not edit the trees**: PanguWeather is
+      a fork (no propagation) and `physicsnemo_ai_rossby` is a subtree (conflicts on
+      pull). When extending `parse_nsys.py`, **edit both range lists** (SQL line ~83
+      and the print loop ~line 100) or hoist them to one constant; the drift is still
+      live (`unstack`).
+- [ ] **17. `nsys --python-sampling=true`** on the step. NVTX `backward` is 280 ms of
+      *CPU enqueue* in a 603 ms step; with the GPU 96% busy that is not a bottleneck,
+      but it is also completely unattributed, and it is one flag.
+
+## 4. Tier 3 — gated. List, do not run yet.
+
+- [ ] **18. Capture the missing PanguWeather equivalence baseline.** `baselines/` holds
+      only `ai_rossby_pangu_plasim/` and `ai_rossby_sfno/`. **There is no Pangu
+      baseline, so the DESIGN §4.1 gate cannot be closed for any Pangu hot-path
+      change** — every optimization above is blocked behind this one item, including
+      `torch.compile` (§5 rung 1) and the `FourierNeuralOperatorBlock` fill removal.
+      Fixed seed, world size 1, K=20 loss trajectory + output stats. Tolerance floors:
+      2.5e-7 same GPU/node, ~1e-5 cross-architecture. **Highest-leverage single job in
+      this plan** — it is the gate, not an optimization.
+- [ ] **19. `torch.compile` (rung 1)** — the wired-but-never-exercised knob
+      (`TORCH_COMPILE_MODE`). Right lever for §0d's fusion-starved copies, and ACE2's
+      evidence says expect the *regional* win (corrector ≈ −2%) not a whole-network
+      one (`InductorError: KeyError: 'complex64'` on the full SFNO — likely to bite
+      here too, this model's hot path *is* complex64). After item 18.
+- [ ] **20. `broadcast_buffers=False`** — **deprioritized on Polaris evidence**: 0.11%
+      here (§0c), not the 33% the handoff estimated from Midway. Needs jesswan's
+      sign-off for BN buffers; not worth opening that gate for 0.1%.
+
+## 5. Confirmed dead on Polaris — do not re-spend time
+
+From the same-model ai-rossby sweep (job 7365119, one node, back-to-back) and §0:
+
+| knob | verdict |
+|---|---|
+| `num_data_workers` 1→8 | **0.991× — slightly negative.** `data_idle_frac` is 0.0068. The old "+9%" was PanguPlasim at 449 ms/step and does **not** transfer to a 1.18 B SFNO. |
+| `ddp_static_graph` | **CUDA OOM** at `ckpt1`/`ckpt0`; the `sfno_plasim.yaml` comment calling it "safe to enable here" is wrong at low checkpointing. |
+| `batch_size` > 1 | **CUDA OOM** at every fast setting — reopens only via item 14. |
+| CUDA Graphs / launch-latency work | GPU-busy is 95.7% (§0a). No launch bottleneck exists. |
+| Grid-size tuning, `channels_last` | handoff §6 dead ends 3–4; `torch_harmonics` wants NCHW. |
+| single-node `NCCL_PROTO`/`NCCL_ALGO` | ≤1.2% available (§0b). Defer to item 12. |
+
+---
+
+## Method rules this plan inherits
+
+1. **One node, one job, interleaved A/B/A/B** — a cross-job Polaris ratio is not a
+   measurement (node-to-node spread is 10.5%, the same order as the effects we chase).
+2. **`globalPid`-guard every correlationId join**, or kernels land on the wrong rank.
+3. **Bucket by `demangledName`** with an explicit pattern list and an
+   `(unclassified)` bucket gated at ~2%. (`nvjet_*` is sm90-only ⇒ 0.000% on A100, so
+   the Hopper blind spot cannot reach Polaris — but the discipline still applies.)
+4. **Verify env-var arms by kernel name**, not by the variable being set.
+5. **No optimization lands without a passing smoke and an equivalence check** — which
+   for Pangu means item 18 first.
