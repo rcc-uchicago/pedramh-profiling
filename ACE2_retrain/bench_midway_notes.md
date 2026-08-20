@@ -135,6 +135,59 @@ change and needs the DESIGN 4 gate. PanguWeather is a **fork** (no propagation)
 and `physicsnemo_ai_rossby` is a **subtree** (edits can conflict on a future
 pull), so each needs its own patch.
 
+## CORRECTION to the NCCL protocol sweep: the `Simple` arm never applied
+
+The sweep below concludes "the protocol is not the lever" for ACE2, resting on
+`NCCL_PROTO=Simple` measuring -0.15%. **That arm did not measure Simple.**
+
+Verified by kernel name, which is ground truth (job 53588040, an nsys capture
+with `NCCL_PROTO=Simple` requested):
+
+| kernel | calls |
+|---|---|
+| `ncclDevKernel_AllReduce_Sum_f32_RING_LL` | 2,776 |
+| `ncclDevKernel_AllReduce_Sum_f32_TREE_LL` | 112 |
+| `ncclDevKernel_Broadcast_RING_LL` | 32 |
+| **`*_RING_SIMPLE`** | **0** |
+
+NCCL kept using LL. The sweep's stated proof — *"the env vars WERE honoured,
+LL128's +27% is the control that proves it"* — does not cover this: LL128 and
+Simple are separate paths, and honouring one says nothing about the other. A
+null result from an arm that never applied is not evidence.
+
+### This dissolves the ACE2-vs-Pangu contradiction
+
+There was never a real model difference to reconcile. Pangu's `Simple` -7.8% is
+what a working protocol switch looks like; ACE2's -0.15% is what a no-op looks
+like. The two are not in conflict, and the topology explanation offered for the
+split (cross-pair PCIe lacking 128-byte atomicity) cannot be it in any case —
+**both models ran on the same 4x H100 NVL node**, so a topology effect would hit
+both.
+
+### What the trace does establish about ACE2's all-reduce
+
+From job 53524918 (H100 NVL, batch 4, default settings):
+
+| property | measurement | reading |
+|---|---|---|
+| protocol in use | `RING_LL` (kernel name) | default really is LL |
+| large-population spread | 19.6 ms median -> 21.2 ms p90 | tight ⇒ **bandwidth-bound** |
+| per-rank totals | 16.24-17.14 s (within 5%) | balanced ⇒ **not straggler-bound** |
+| exposed vs overlapped | **76% exposed** | on the critical path, not hidden behind compute |
+| implied rate | ~17.4 GB/s user ≈ 35 GB/s wire under LL | at cross-pair PCIe Gen5 saturation |
+
+A bandwidth-bound collective running a 50%-efficient encoding on the critical
+path is exactly the case where `Simple` should be worth close to 2x. **So the
+protocol question for ACE2 is open, not closed**, and worth re-running once the
+setting can be shown to apply (job 53707483 captures NCCL's own INIT/TUNING log
+to find out why it was ignored).
+
+Two dead ends recorded so they are not re-walked: comm is **not** hidden behind
+compute (76% exposed refutes it), and the all-reduce is **not** straggler-bound
+(tight spread, balanced ranks). An earlier draft of this analysis claimed 99.4%
+of all-reduce time was "waiting" — that was a misread of a bimodal distribution,
+comparing small collectives against large ones rather than like against like.
+
 ## NCCL protocol sweep — the RING_LL hypothesis is REFUTED (ACE2)
 
 The adversarial profiling pass found NCCL had selected `RING_LL` for ~165 MB
@@ -519,6 +572,25 @@ control at 0.3425 s. Between-run variance is small; the compile sweep's
 that sweep into a repeat of the control. Scrubbing is now opt-in behind
 `ACE2_NCCL_CLEAN=1`, and the surviving `NCCL_*` env is logged in every run so an
 arm is self-describing.
+
+## torch.compile sweep — REPLICATED (n=4 per arm, interleaved)
+
+The single-run sweep below is confirmed. Four replicates per arm, interleaved
+round-robin so any drift over time hits every arm equally, jobs 53586889-900:
+
+| arm | n | median | range | spread | vs control |
+|---|---|---|---|---|---|
+| `none` | 4 | 0.3427 s | 0.3410-0.3455 | 1.3% | — |
+| `corrector` | 4 | 0.3357 s | 0.3345-0.3360 | 0.4% | **-2.04%** |
+| `mlp` | 4 | 0.3540 s | 0.3530-0.3550 | 0.6% | **+3.28%** |
+
+The three ranges do not overlap, so both effects are real: the corrector is
+genuinely ~2% faster and compiling the MLP blocks is genuinely ~3% slower.
+Original single-run figures were -2.2% and +3.4%.
+
+Run-to-run variance is **1.3% at worst**, which retires the earlier scare that
+it might be 27% — that number came from misreading the NCCL protocol sweep's
+LL128 arm as a repeated control.
 
 ## torch.compile: where it can go, and why it is not the lever
 
