@@ -108,7 +108,7 @@ protocol-verified. Treat every cell as provisional:**
 
 | arm | ACE2 (1.82 GB grads) | PanguWeather (4.73 GB grads) |
 |---|---|---|
-| `NCCL_PROTO=Simple` | **UNMEASURED — the arm never applied** (job 53588040 requested `Simple` and ran 2,776 `RING_LL` kernels, zero `RING_SIMPLE`) | -7.8% *(n=1, arm unverified)* |
+| `NCCL_PROTO=Simple` | **-0.15% — real, and expected** (`Simple` and the default are within 1% on this node: 23.76 vs 23.55 ms on a standalone 256 MB all-reduce, jobs 53724297/300) | -7.8% *(n=1)* |
 | `NCCL_PROTO=LL128` | +27% slower *(n=1, arm unverified)* | -12.9% faster *(n=1, arm unverified)* |
 | `NCCL_ALGO=Tree` | fails (no AllGather) | fails (no AllGather) |
 

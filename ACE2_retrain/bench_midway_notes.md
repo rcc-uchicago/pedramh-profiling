@@ -135,6 +135,50 @@ change and needs the DESIGN 4 gate. PanguWeather is a **fork** (no propagation)
 and `physicsnemo_ai_rossby` is a **subtree** (edits can conflict on a future
 pull), so each needs its own patch.
 
+## ⚠ RETRACTED: "the `Simple` arm never applied" — it did, and it was right
+
+The section below claims ACE2's `NCCL_PROTO=Simple` arm never took effect,
+because the nsys kernel names stayed `RING_LL`. **That premise is false.** In
+NCCL 2.26.2 the kernel name does not encode the protocol.
+
+Direct test (jobs 53723617/618 and 53724297/300/302): a standalone 4-rank
+256 MB all-reduce on midway3-0423, nothing from fme involved.
+
+| requested | NCCL log line | kernel name | median | busbw |
+|---|---|---|---|---|
+| *(default)* | — | `RING_LL` | 23.55 ms | 15.2 GB/s |
+| `Simple` | "NCCL_PROTO set by environment to Simple" | `RING_LL` | **23.76 ms** | 15.0 GB/s |
+| `LL128` | "NCCL_PROTO set by environment to LL128" | `RING_LL` | **37.29 ms** | 9.6 GB/s |
+
+Three things follow, and they overturn a chain of conclusions:
+
+1. **`NCCL_PROTO` is honoured.** LL128 is 58% slower on the collective — a
+   setting that did nothing could not do that. The env var works.
+2. **Kernel names are useless for protocol attribution here.** All three arms
+   emit `ncclDevKernel_AllReduce_Sum_f32_RING_LL`. Verify a protocol by
+   **timing**, never by name. The name is a compile-time specialisation, not a
+   record of what ran.
+3. **ACE2's `Simple` = -0.15% was correct.** `Simple` and the default are within
+   1% at this message size on this node, so measuring no change is the right
+   answer, not a failed experiment. The original sweep's conclusion — for ACE2
+   the protocol is not the lever — **stands**.
+
+⇒ ACE2's LL128 +27% at step level is also **real**, and consistent: +58% on the
+collective, diluted by the rest of the step.
+
+⇒ And the ACE2-vs-Pangu split needs no exotic mechanism. At ACE2's sizes on
+NCCL **2.26.2** the default is already as good as Simple. Pangu runs NCCL
+**2.27.5** with 2.6x the gradient volume; a different version choosing a
+different default at a different message size is sufficient to explain a -7.8%
+there and ~0% here.
+
+**What I got wrong and how**: I treated the kernel name as ground truth, wrote
+that into this file, into POLARIS_PROFILING_HANDOFF.md, and into the instructions
+given to the audit agents — so the audit inherited the same false premise and
+"confirmed" it. One 5-second standalone job would have caught it at any point.
+Evidence has to be tested against an experiment that can falsify it, not against
+a second reading of the same artifact.
+
 ## CORRECTION to the NCCL protocol sweep: the `Simple` arm never applied
 
 The sweep below concludes "the protocol is not the lever" for ACE2, resting on
