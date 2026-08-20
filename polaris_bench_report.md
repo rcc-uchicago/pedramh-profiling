@@ -224,8 +224,13 @@ direction.
 
 **The elementwise fraction is the story.** 61% of GPU time in pointwise kernels, 4× the
 matmul time, at ~260 µs average — these are not launch-overhead-bound micro-kernels, they
-are **large memory-bound passes**. The lever is **fusion** (fewer round-trips to HBM), not
-faster matmul. That is `torch.compile`'s core competency and it is §5 rung 1.
+are **large memory-bound passes**. The lever is **fewer round-trips to HBM**, not
+faster matmul. ⚠ **But only half of it is a fusion target.** For the activation half,
+fusion is the instrument (`torch.compile`, §5 rung 1); for the weight half — **133
+ms/rank-step, ~21% of the step, §4.5c** — fusion does not apply and the lever is *hoisting a
+layout* (DESIGN §5 rung 1b). ACE2 also measured `InductorError: KeyError: 'complex64'` on the
+whole SFNO, so Inductor cannot reach this model's complex64 hot path, which is exactly where
+the dominant copies live.
 
 Also measured:
 * **NCCL = 67.8 ms/step (10.5%)** over 16 calls — DDP gradient sync on a 1.18 B model.
@@ -1145,8 +1150,13 @@ PanguWeather? **Two independent reasons the answer is "the question doesn't bite
 (`bench_report.md` §3/§5: element-wise ops "the single largest GPU-time consumer … launched
 as hundreds of small kernels", matmul ranks 6th) and this A100 SFNO (§4.2: **61%** elementwise
 over ~1506 launches/step, GEMM 15%) are **different architectures that profile the same way** —
-memory-bandwidth bound and fusion-starved. Two independent measurements, one conclusion:
-`torch.compile` is rung 1. That is now reachable on PanguWeather.
+memory-bandwidth bound. ⚠ **They agree on *memory-bound*, not on *mechanism* — and the
+"one conclusion" framing was overstated.** The ViT/Swin finding is *activation* layout (the
+model flipping between channel-first and channel-last between layers); §4.5 shows this SFNO's
+largest single item is a **weight** in the wrong layout, 133 ms/rank-step. Different
+mechanisms reaching the same adjective. `torch.compile` is still rung 1 — cheap and already
+wired, and now reachable on PanguWeather — but it is not the instrument for the weight half,
+and ACE2 measured Inductor failing outright on the complex64 SFNO.
 
 Status of the three DESIGN §4.0 prerequisites **for PanguWeather** (they were tracked for
 `s2s/v2.0`; the trees are forks and share nothing, DESIGN §2c):
@@ -1236,6 +1246,11 @@ Stated plainly so nothing below reads as done:
   s2s (unmeasured in isolation, and it needs a dead-module freeze PanguWeather lacks).
 * **The `workers=8` +9% is a bench result, not an endorsement** — see the `epsilon_factor`
   box in §3. It changes the loss trajectory.
+* **The mechanism producing the weight copies is NOT established.** §4.5c's candidate (the
+  einsum permuting `(i,o,x) → (x,i,o)` for `bmm`) is source-plausible but untested, its first
+  two rivals were refuted from source (`spectral_layers`, `view_as_complex`), and the
+  `assert factorization == "ComplexDense"` contradiction means we do not even know whether
+  the weight is an `nn.Parameter` or a `FactorizedTensor`. Plan item 8, and it is free.
 * **Single-run numbers.** Each sweep point is one job. The step distributions are tight
   (`workers=8` std = 0.3 ms) so within-run precision is high. **Partly superseded:** the
   nsys capture is now **n=2 across two nodes** (§4.4b) — **compute** reproduces to
@@ -1307,3 +1322,17 @@ Stated plainly so nothing below reads as done:
   training iteration on both nodes is **CPython gen-2 GC** (`gc_collect_main`), not NUMA —
   output-neutral to fix. Plan item 2. Preregistered `952fcb8d`, 5/5 hit. An adversarial pass
   landed 4 FATAL strikes on the first draft; §4.4f records all seven withdrawals.
+* **2026-08-20** — **§4.5 added: 133 ms/rank-step is one weight in the wrong layout.** The
+  `dhconv` spectral weight is `[in, out, lmax]` complex = **377.49 MB/layer**, and 12 layers
+  are **95.8%** of the 1.18 B params — the largest tensor in the model. It is moved in
+  **four** places, all from one mismatch (stored `(in,out,lmax)`, contracted by
+  `einsum("bixy,iox->boxy")` which permutes to `(x,i,o)` for `bmm`): forward permute 35.60,
+  `ckpt3` recompute 35.61, adjoint `conj` 35.93, and **`grad_w` → DDP bucket 26.01** — the
+  last of which is **not invariant**, so invariant movement is **107.14 ms = 17.8% of the
+  step**, not the 22.0% first published. **VERDICT: fusing pointwise activation ops touches
+  none of these four rows**, so the standing "61% elementwise ⇒ fuse" read covers only half
+  the copy time; DESIGN §5 gains rung **1b**. Scoped: weight:activation is `E/(B·mmax)`, so
+  the finding **inverts at batch 4**. Plan item **3**. Preregistered `45cbd7de`, **0/4 size
+  predictions hit — and the miss is the deliverable.** An adversarial pass landed 2 FATAL
+  strikes and two tool bugs (a 4× launch-path under-count, and `C_in`); §4.5d records all
+  seven withdrawals.

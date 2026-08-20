@@ -61,8 +61,51 @@ Entry shape (keep it):
     only removed in case (a).**
   - **Stated limit:** this bounds *useful* bytes. It cannot distinguish "unused bandwidth" from
     "wasted uncoalesced traffic" — that is still item 7 (ncu), unchanged.
-- **result:** OPEN — measured after this commit.
-- **next:** run `--match` on both captures (n=2 comes free now).
+- **result:** **0/4 size predictions hit — and the prereg pre-registered that outcome as the
+  deliverable (case b).** Prereg `45cbd7de` verified as an ancestor of HEAD and byte-identical before
+  this line was written.
+  - **P1** complex64 copy ≈ 133.45 MB → **MISS on the dominant kernel.** That copy exists and matches
+    exactly, but it is 5.3% of copy time; the dominant complex64 copy is **377.49 MB** — the *weight*.
+  - **P2** conj ≈ 133.45 MB, 24/rank-step = 2 × num_layers → **count HIT, size MISS**, and the stated
+    rationale ("one conjugate per operand per contraction") was **also wrong**: 12 weight conj @377.49
+    MB + 12 activation conj @66.72 MB.
+  - **P3** float copy ≈ 132.71 MB (latent) → **MISS.** The dominant float copy is **66.72 MB** = one
+    part (real or imag) of the complex spectral field.
+  - **P4** nothing exceeds 265.42 MB → **MISS**, and the bound itself was wrong: 265.42 MB was the
+    largest tensor *I had enumerated*.
+  - **Why all four missed: the inventory omitted the weights.** For `dhconv` the spectral weight is
+    `[in, out, modes_lat]` complex = **377.49 MB/layer**, and 12 of them are **95.8%** of the 1.18 B
+    params. It is the largest tensor in the model. **Decision rule case (b) fired exactly as written.**
+  - **The finding, after review:** **133.15 ms/rank-step** moves that weight in **four** places —
+    forward permute 35.60, `ckpt3` recompute 35.61, adjoint `conj` 35.93, **`grad_w` → DDP bucket
+    26.01** — all from one mismatch (stored `(in,out,lmax)`, contracted by `einsum("bixy,iox->boxy")`
+    which permutes to `(x,i,o)` for `bmm`). **Invariant movement is 107.14 ms = 17.8% of the step.**
+- **gauntlet: CLEARED, and it corrected my headline twice.** Both roles on the inherited tier
+  (`claude-fable-5` still out of credits). **Both agents independently found the same refutation** —
+  `spectral_layers` never reaches this module — which is the strongest signal yet that the gauntlet is
+  not just echoing me.
+  - **Adversary: 12 strikes, 2 FATAL.** (i) the `spectral_layers` mechanism was numerology; it then
+    *measured* the real decomposition (12/12/12 by duration and phase). (ii) **26.01 ms of the 133 is
+    the gradient, not an invariant weight** — proven by a **0.871 ms median gap to the next NCCL kernel
+    with a 9 µs p10–p90 spread**, against 20.5 ms and scattered for the other population. I reproduced
+    both before adopting them.
+  - **It also found two bugs in my own tool:** elements-per-block is **launch-path dependent** and I
+    under-counted the non-legacy paths by **exactly 4×** (a published "1.185×, no clean tensor" row is
+    the fp32 latent exactly); and `C_in` was 108 when the parameter total forces **105**.
+  - **Drift auditor: 16 items.** Highest-value: the handoff had shelved the spectral no-op-copy guard
+    as "sub-1% class" on a figure that counted only the zero-fills against a 74.2%-NCCL denominator —
+    §4.5b sizes the copy it removes at **2.4% of the step**, so it is **re-ranked as one of the
+    cheapest levers**. And it established that the weight finding is **structural**: ACE2 has the same
+    weight class (~93% of its params) and has never been checked.
+  - **What I found that neither did:** with `factorization: None`, `use_tensorly=False` lands on
+    `assert factorization == "ComplexDense"` (`s2convolutions.py:151`) — that assert **must** fire, yet
+    both jobs ran 40 steps. So we do not actually know whether this weight is an `nn.Parameter` or a
+    `FactorizedTensor`, and every *mechanism* claim depends on it. Recorded as OPEN; no measured number
+    depends on it.
+- **next:** plan item **4** (`kernel_census.py` — import the guarded, process-scoped join rather than
+  re-deriving it). **That is the last free item; Tier 0 is then exhausted** and the next tick should
+  prepare the first submission request (item **6**, `gpu_topology_check.py`, `debug`, ~1 min) and
+  **stop for approval**. **Nothing has been submitted in this loop.**
 - **infra-failure count:** 0/5
 
 ---

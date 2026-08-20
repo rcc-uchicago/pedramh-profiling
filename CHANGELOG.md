@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 5 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
+| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 5 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
@@ -55,7 +55,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 > hardware is not the limit) but not replaced. Two things are now sized rather than guessed: the copy time
 > is **72.9% `backward`**, and **checkpointing headroom against the shipped `ckpt2` config is ≈4%, not
 > ≈25%** — so the `ckpt` ladder (item 10) is worth *measuring* but is not the prize the "61% elementwise"
-> share suggests. Next unchecked: item **3**, then **4**, then the new **6b**.
+> share suggests. Next unchecked: item **4**, then the new **6b**.
+>
+> **Updated again 2026-08-20 (item 3 done, no GPU time):** the copy problem is **half a weight problem**.
+> **133 ms/rank-step (~21% of the step) moves one 377 MB spectral weight in four places**, all from a
+> single layout mismatch, and **`torch.compile` reaches none of it** (Inductor fails outright on the
+> complex64 SFNO). DESIGN §5 gains rung **1b** — store the parameter pre-permuted — gated on item 18.
+> ⚠ The finding is **batch-1 specific**: weight:activation = `E/(B·mmax)` inverts at batch 4.
 >
 > **Updated again 2026-08-20 (item 2 done, no GPU time):** **stop quoting shares of GPU-kernel time.** On
 > two identical-config runs the copies read **42.2% and 37.4%** while the absolute moved **0.09%** (§4.4c)
@@ -191,6 +197,71 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-20** — **The largest single line item in the Pangu step is one weight in the wrong layout:
+  133.15 ms/rank-step moves a 377 MB spectral weight in four places, and fusing pointwise ops touches
+  none of them.** Plan item **3**, from captures already on disk. No GPU time, no queue, no `qsub`.
+  Written up as `polaris_bench_report.md` **§4.5**.
+  **Preregistered at `45cbd7de` before `--match` was run — 0/4 size predictions hit, and the miss is the
+  deliverable: the inventory omitted the weights.**
+  - **What the copies move.** For `operator_type: dhconv` the spectral weight is
+    `[in_channels, out_channels, modes_lat]` complex = **512×512×180 = 377.49 MB per layer**, and 12
+    layers are **1,132,462,080 of 1,182,108,160 params = 95.8%** — the **largest tensor in the model**,
+    1.42× the largest activation. `num_blocks: 16` is vestigial and does **not** block-diagonalise it
+    (checked, not assumed). Nine kernels covering **~99.6%** of copy time now match an analytic tensor.
+  - **The finding: four copies, one root cause.** Splitting the `gridX=184320` population by duration
+    and NVTX phase (both captures agree to **0.04 ms**): forward permute **35.60**, its `ckpt3`
+    recompute **35.61**, adjoint `conj` **35.93**, and **`grad_w` → DDP bucket 26.01** ms/rank-step.
+    So **36 = 2 × `num_layers` + 1 × `num_layers`**. All four follow from one mismatch — stored
+    `(in,out,lmax)`, contracted by `einsum("bixy,iox->boxy")` which must permute to `(x,i,o)` for
+    `bmm`. ⇒ **`gradient_as_bucket_view=True` is already set** (`train.py:302`), which is precisely
+    what makes the *layout* the culprit rather than the DDP config.
+  - **⇒ The optimisation picture reorders.** ~71.5 ms is addressable by storing the parameter
+    pre-permuted (hot-path **and checkpoint-format** change ⇒ full DESIGN §4 gate, blocked on item 18);
+    **35.61 ms exists only because `ckpt3` re-runs the block**, i.e. **47.7%** of what §4.3d calls
+    "removable recompute" is weight re-permutation, not activation recompute; 26.01 ms is gradient
+    movement. **DESIGN §5 gains rung 1b**, because rung 1 (`torch.compile`) cannot reach any of it —
+    and ACE2 already measured `InductorError: KeyError: 'complex64'` on the whole SFNO.
+  - **⚠ Scoped, because the headline inverts.** weight:activation = `E/(B·mmax)` = **2.83 at batch 1**
+    and **0.71 at batch 4** — the base config's own commented default (`batch_size: 1 #4`) — where the
+    weight share of copy time falls to ~19%. "This model *is* its spectral weights" is a batch-1
+    statement. `hard_thresholding_fraction < 1` makes it *worse* (weight ∝ thf, activation ∝ thf²).
+  - **⚠ OPEN, and it blocks every mechanism claim.** With `factorization: None` (and `YParams.py:20`
+    converts `'None'` → `None` for every key), `use_tensorly=False` lands on
+    `assert factorization == "ComplexDense"` (`s2convolutions.py:151`) — **that assert must fail, yet
+    both jobs ran 40 measured steps.** Until it is resolved we do not know whether the weight is an
+    `nn.Parameter` or a `FactorizedTensor`, and the layout argument depends on which. **No measured
+    number depends on it.** Free to answer; folded into item 8.
+  - **Two FATAL strikes, both mine, both held.** (i) I attributed the 3 copies/layer to
+    `spectral_layers: 3`. **It never reaches this module** — `filter_type: 'linear'` builds
+    `SpectralConvS2`, which is not passed it and does not accept it; the agreement with 3 was
+    numerology. (ii) **26.01 ms of the 133 is the GRADIENT, not an invariant weight** — a distinct
+    operation: 27% faster at identical grid, `backward`-only, and each call followed by an
+    `ncclDevKernel` at a **0.871 ms median gap with a 9 µs p10–p90 spread**. A 377 MB parameter
+    exceeds DDP's 25 MB bucket cap, so each gets its own bucket (15 all-reduces + 1 broadcast = the 16
+    NCCL kernels/rank-step §4.2 already recorded).
+  - **Also withdrawn** (§4.5d lists all seven): the `view_as_complex` explanation (a fresh
+    `nn.Parameter(…,2)` is contiguous, so that view is **free** — the *permutation* is the strided
+    thing); "2.8× the largest activation" (that is 2.83× the *spectral* activation; vs the MLP hidden
+    it is **1.42×**); `C_in = 108` (it is **105** — the parameter total forces `2·in + out = 311`);
+    and "22.0% of the step" quoted on a single basis when the report's own bases give **20.7–23.1%**.
+  - **Two tool bugs, both found by review, both now tested.** Elements-per-block is **launch-path
+    dependent**: reading `vectorized_elementwise_kernel<(int)vec,…>`'s leading `(int)` as `nt`
+    under-counted the non-legacy paths by **exactly 4×** — with it fixed, a row published as
+    "1.185×, no clean tensor" is the **fp32 latent exactly**. And the channel counts now come from the
+    loader and are pinned by a test against the logged parameter total.
+  - **Docs corrected in the same commit.** `POLARIS_PROFILING_HANDOFF.md` §4's spectral no-op-copy
+    guard was shelved as "sub-1% class" on a **0.18%** figure that counted only the zero-fills and used
+    a 74.2%-NCCL denominator; §4.5b sizes the *copy* it removes at **5.3% of copy time ≈ 2.4% of the
+    step** ⇒ **re-ranked as one of the cheapest levers.** And the weight finding is **structural, not
+    Pangu-specific**: ACE2's SFNO has the same `dhconv` weight class (384×384×180 = **212.34
+    MB/layer**, ~93% of its params) and **has never been checked** — its `aten::clone` = 45.3%
+    autocast-boundary story now has a competitor that reports as the same op, distinguishable for free
+    by shape (26,542,080 = weight vs 12,510,720 = activation).
+  - **Next:** plan item **4** (`kernel_census.py`) is the last free item. Tier 0 is then exhausted and
+    the first submission request will be item **6** (`gpu_topology_check.py`, `debug`, ~1 min) or
+    **6b**. Item **8** gains three free targets, the largest being the **42.7%** row — still the only
+    dominant kernel with no mechanism at all.
 
 - **2026-08-20** — **A share of the GPU-kernel total is not a reproducible quantity: the same measurement
   moved 4.77 points between two runs of an identical config while its numerator moved 0.09%.** Plan item

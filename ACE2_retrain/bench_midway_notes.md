@@ -507,7 +507,15 @@ x = self._contract(...).contiguous() # 185: our path (hard_thresholding_fraction
 
 Every AMP boundary crossing around the transform is a full-tensor dtype
 conversion, and the SHT's layout requirement forces `.contiguous()`. This is the
-autocast-boundary hypothesis, confirmed in code rather than assumed.
+autocast-boundary **hypothesis** — the sites exist in code, but their *share* was
+never attributed. ⚠ **Since 2026-08-20 it has a competitor with exact evidence:**
+`polaris_bench_report.md` §4.5 attributes **49% of Pangu's copy time** to
+materialising the *permuted* 377 MB `dhconv` spectral weight for
+`einsum("bixy,iox->boxy")`, which **also reports as `aten::clone`** — so this
+measurement cannot distinguish the two. ACE2 has the same weight class
+(384×384×180 = **212.34 MB/layer**, ~93% of its params) and it has **never been
+checked here**. They separate for free, by shape: **26,542,080 complex elements =
+weight; 12,510,720 = activation.**
 
 ### ⭐ An actionable fix the perf commit already validated elsewhere
 

@@ -158,11 +158,27 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       ⇒ This also resolves the "a cross-JOB ratio on Polaris is not a measurement" rule
       into something sharper: **cross-job *compute* comparisons are fine (0.27% across 8
       devices, 2 nodes); cross-job comparisons of anything containing NCCL are not.**
-- [ ] **3. Build an analytic bytes-per-step model** from the config (`embed_dim: 512`,
-      `num_layers: 12`, `num_blocks: 16`, 180×360, 18 levels, complex64 spectral) and
-      check it against the launch-geometry estimate in §0d. Agreement turns "25% of
-      peak" into a bound; disagreement localises which copies are larger than any
-      tensor in the model, which is itself the finding.
+- [x] **3. DONE (2026-08-20)** — `polaris_bench_report.md` **§4.5**,
+      `ACE2_retrain/sfno_bytes_model.py` (+ test). Prereg `45cbd7de`: **0/4 size
+      predictions hit**, and per this item's own wording the mismatch *is* the finding.
+      **What the copies move:** the `dhconv` spectral weight is `[in, out, modes_lat]`
+      complex = **512×512×180 = 377.49 MB/layer**, and 12 layers are **95.8%** of the
+      1,182,108,160 params — the largest tensor in the model, 1.42× the largest
+      activation. Nine kernels covering **~99.6%** of copy time match an analytic tensor.
+      **The finding:** **133.15 ms/rank-step** moves that weight in **four** places —
+      forward permute (35.60), its `ckpt3` recompute (35.61), the adjoint `conj` (35.93),
+      and **`grad_w` → DDP bucket (26.01, not invariant)** — all traceable to one layout
+      mismatch: the parameter is stored `(in, out, lmax)` but `_contract_dhconv` is
+      `einsum("bixy,iox->boxy")`, which must permute it to `(x, i, o)` for `bmm`.
+      **Invariant movement is 107.14 ms = 17.8% of the step.** `num_blocks: 16` is
+      vestigial and does **not** block-diagonalise this weight.
+      **⚠ Scope:** weight:activation is `E/(B·mmax)` — 2.83 at batch 1, **0.71 at batch 4**
+      (the base config's commented default), where the weight share of copy time falls to
+      ~19%. **⚠ OPEN, blocks every mechanism claim:** with `factorization: None`,
+      `use_tensorly=False` lands on `assert factorization == "ComplexDense"`
+      (`s2convolutions.py:151`), which must fail — yet both jobs ran. Until that is
+      resolved we do not know whether the weight is an `nn.Parameter` or a
+      `FactorizedTensor`. No *measured* number depends on it.
 - [ ] **4. Fix `ACE2_retrain/kernel_census.py` before using it on Polaris — TWO bugs,
       not one.** (a) line **58** joins on `correlationId` with no `globalPid` guard:
       **+29.4%** phantom rows on this capture (+30.8% on ACE2's, handoff §5). (b) lines
@@ -223,6 +239,12 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       `dram__throughput.avg.pct_of_peak_sustained_elapsed`,
       `sm__throughput.avg.pct_of_peak_sustained_elapsed`,
       `l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum` (sectors/request ⇒ coalescing),
+      **Name the kernels rather than "top six" (§4.5b):** `direct_copy`⟨float,nocast⟩
+      @66.72 MB (42.7%), `direct_copy`⟨complex64,nocast⟩ @377.49 MB (35.8%),
+      `conj`⟨complex64,nocast⟩ @377.49 MB (13.2%), `direct_copy`⟨complex64,nocast⟩
+      @133.45 MB (5.3%). **The two 377 MB rows are the same tensor**, so one ncu pass
+      answers both — and `sectors/request` on a permuted `(E,E,lmax)` operand is the direct
+      test of §4.5c's mechanism.
       `launch__occupancy_limit_*`. **Never under real DDP** — kernel replay re-executes
       `ncclDevKernel`, which spins on peer flags → deadlock (handoff Tier C / dead end
       5). Not `--set full`. **Decision it unblocks:** if the copies are at ~90% of DRAM
@@ -238,6 +260,15 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       `forward_loss` — **72.9% is in `backward`**, and `conj` (14.1%) has **zero** forward
       launches. So a forward-only `with_stack` census can reach at most a quarter of the
       target; budget for autograd-node attribution (`emit_nvtx`) or the recompute path.
+      **Targets, from item 3 (§4.5), in priority order:** (1) the **42.7%** row —
+      `direct_copy`⟨float,nocast⟩, 348 calls/rank-step at 66.72 MB = one part of the
+      complex spectral field — is the **largest single kernel and the only dominant one
+      with no mechanism at all** (348 does not factor cleanly over 12 layers); (2) the
+      weight permutation behind the 35.8% + 13.2% rows, where the question is *which* call
+      permutes and whether the parameter can be stored `(lmax, in, out)`; (3) the
+      **`assert factorization == "ComplexDense"`** contradiction above — a source question,
+      free to answer, and it gates the mechanism. **Note the target for the weight rows is
+      not fusion, it is hoisting.**
 - [ ] **9. Re-capture nsys at the production config** — `checkpointing: 2`, ZeRO as
       shipped, **warmup ≥ 40**, and long enough that **EMA is active**. Everything in
       §0 is `ckpt3` with EMA never fired; production pays an every-step sweep over

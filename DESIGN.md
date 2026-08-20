@@ -236,6 +236,27 @@ first. **Several knobs already exist — enable, don't re-implement:**
    suggests** (`polaris_bench_report.md` §4.2, plan §0b) — and on Polaris NCCL time
    is mostly *wait*, which halving the bytes cannot recover (§4.4c). **This is a
    multi-node rung, and only after rank placement is settled** (plan item 6b).
+
+⚠ **The pointwise share is not all fusable, and the largest single item is not a
+fusion target at all.** `polaris_bench_report.md` §4.5 attributes **133 ms/rank-step
+(~21% of the step)** to moving one 377 MB spectral *weight* in four places, all from a
+single layout mismatch — operator fusion touches none of it. And ACE2 measured
+`InductorError: KeyError: 'complex64'` on the whole SFNO, i.e. Inductor cannot reach
+this model's complex64 hot path (`ACE2_retrain/PROFILING_PLAN.md:238`) — and the
+dominant copies *are* complex64. **Rung 1 stays first because it is wired and cheap,
+not because it targets the largest item.** Hence:
+
+**1b. Stop re-materialising the spectral weight.** The parameter is stored
+`(in, out, modes_lat)` but `_contract_dhconv` is `einsum("bixy,iox->boxy")`, which
+permutes it to `(x, i, o)` for `bmm` — once in the forward, again in the `ckpt3`
+recompute, again for the adjoint `conj`, and once more because `grad_w` emerges in that
+layout and so does not match its DDP bucket view (`gradient_as_bucket_view=True` is
+already set). Candidate: store the parameter pre-permuted as `(modes_lat, in, out)`.
+Plausibly bit-identical (same `bmm` operands, same reduction order) but it is a hot-path
+**and checkpoint-format** change ⇒ full §4 gate. **Size it with plan item 8 before
+writing any code**, and resolve the `assert factorization == "ComplexDense"` question
+first (plan item 3's OPEN note) — it decides whether the weight is even an
+`nn.Parameter`.
 4. **Fused AdamW.**
 5. **Vectorize the CRPS pairwise/ensemble loop** — last, and only if it profiles hot.
 
