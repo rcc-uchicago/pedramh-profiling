@@ -498,6 +498,28 @@ reason alone, not because it is unaccounted for.
 Step totals from the capture, for scale: **median 348 ms/step**, `forward_loss`
 27.8 ms x2 per step (16.7% of GPU time by correlation).
 
+## Retraction: the "27% baseline variance" claim was wrong
+
+Briefly recorded here, then corrected, because it nearly invalidated a good
+result. Reading jobs 53546801/02/04/05 without their context — all four report
+`target=none`, since the swept variable was `NCCL_PROTO`, not the compile target
+— they looked like four identical controls with one 27% outlier, and that was
+written up as environment pollution making the compile sweep unreliable.
+
+They are the **NCCL protocol sweep** (see its section): control `RING_LL`
+0.3420 s, `NCCL_PROTO=Simple` 0.3415 s, `NCCL_PROTO=LL128` 0.4350 s (a real
++27%), `NCCL_ALGO=Tree` erroring by design.
+
+⇒ The true control pair agrees to **±0.15%**, consistent with this file's own
+control at 0.3425 s. Between-run variance is small; the compile sweep's
+±0.5% claim stands and the corrector's 2.2% did **not** need retracting.
+
+⇒ The harness must NOT strip `NCCL_PROTO`/`NCCL_ALGO`. An earlier version of
+`midway_compile_probe.sh` did, which would have silently turned every arm of
+that sweep into a repeat of the control. Scrubbing is now opt-in behind
+`ACE2_NCCL_CLEAN=1`, and the surviving `NCCL_*` env is logged in every run so an
+arm is self-describing.
+
 ## torch.compile: where it can go, and why it is not the lever
 
 Seven arms on 4x H100 (`midway_compile_probe.sh` + `ace2_compile_probe.py`),

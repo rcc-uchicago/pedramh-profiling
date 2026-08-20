@@ -71,15 +71,19 @@ python -c "import torch, fme" 2>/dev/null || {
 
 unset NCCL_DEBUG
 unset TORCH_DISTRIBUTED_DEBUG
-# sbatch --export=ALL carries the submitting shell's environment in, so an
-# inherited NCCL tuning var silently changes what is being measured -- or kills
-# the run. Job 53546805 died on `NCCL_ALGO=Tree` ("no algorithm/protocol
-# available for AllGather with datatype ncclInt8"), and the 27% step-time
-# outlier in 53546804 is consistent with the same pollution on a run where Tree
-# merely worked badly rather than failing. A timing harness must define its own
-# collective environment, not inherit one.
-unset NCCL_ALGO NCCL_PROTO NCCL_NTHREADS NCCL_MAX_NCHANNELS NCCL_MIN_NCHANNELS
-unset NCCL_P2P_DISABLE NCCL_SHM_DISABLE NCCL_IB_DISABLE NCCL_NET_GDR_LEVEL
+# DO NOT unset NCCL_PROTO / NCCL_ALGO here. They are swept deliberately by the
+# NCCL protocol work on this branch (see bench_midway_notes.md, "NCCL protocol
+# sweep"): NCCL_PROTO=LL128 is a real +27% slowdown and NCCL_ALGO=Tree is
+# expected to error out. Stripping them would silently turn those arms into
+# repeats of the control. An earlier version of this file did exactly that.
+#
+# Instead: record whatever NCCL_* is in effect, so a run is always self-describing
+# and a polluted environment is visible in the output rather than inferred later.
+# Set ACE2_NCCL_CLEAN=1 to opt into a scrubbed collective environment.
+if [ "${ACE2_NCCL_CLEAN}" = "1" ]; then
+    unset NCCL_ALGO NCCL_PROTO NCCL_NTHREADS NCCL_MAX_NCHANNELS NCCL_MIN_NCHANNELS
+    unset NCCL_P2P_DISABLE NCCL_SHM_DISABLE NCCL_IB_DISABLE NCCL_NET_GDR_LEVEL
+fi
 export WANDB_MODE=offline
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export TORCH_CUDNN_V8_API_ENABLED=1
