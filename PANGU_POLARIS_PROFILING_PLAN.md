@@ -179,14 +179,20 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       (`s2convolutions.py:151`), which must fail — yet both jobs ran. Until that is
       resolved we do not know whether the weight is an `nn.Parameter` or a
       `FactorizedTensor`. No *measured* number depends on it.
-- [ ] **4. Fix `ACE2_retrain/kernel_census.py` before using it on Polaris — TWO bugs,
-      not one.** (a) line **58** joins on `correlationId` with no `globalPid` guard:
-      **+29.4%** phantom rows on this capture (+30.8% on ACE2's, handoff §5). (b) lines
-      37-49 look the NVTX range up on the **launching thread**, so `backward` — 62,680 of
-      88,680 rank-0 launches, from `pt_autograd_*` — falls to `(outside)` *even with the
-      guard*. Item 1 has landed, so the direction inverts: **import the join from
-      `ACE2_retrain/nvtx_phase_attribution.py`** rather than re-deriving it, and keep the
-      census's own contribution (per-range launch **counts**).
+- [x] **4. DONE (2026-08-20)** — `ACE2_retrain/kernel_census.py` rewritten to **delegate**
+      attribution to `nvtx_phase_attribution.py` instead of re-deriving it (+ its own test).
+      Prereg `a336c6fc`, **4/4 hit**. It had **three** bugs, not two: the missing `globalPid`
+      guard (**+29.4%** phantom rows, and **+31%** on time), the thread-scoped range lookup —
+      which reported **`backward` as 203 launches and 0.0% of GPU time** where the truth is
+      250,880 and 72.6%, and is the true origin of the `(outside) 69.6%` row several docs had
+      recorded as an NVTX limitation — and a normaliser that counted distinct `step_%` starts
+      (**156**) instead of **160 rank-steps**. It now agrees with §4.3b row for row.
+      **⇒ Its own thesis fails here, and it now says so from the data.** The premise is that a
+      range with a high launch share and a low time share is a batching target; the largest
+      count-minus-time skew measures **+3.2 pt** (A) and **+2.0 pt** (B) against a +10 pt bar,
+      so **there is no launch-pipeline headroom for batching to recover** — consistent with
+      GPU-busy 98.5–98.6% (§0a). The "~9% idle is launch latency" framing in its docstring is
+      **retired as refuted**, and the advice is now conditional on the data.
 - [x] **5. DONE (2026-08-20)** — `polaris_bench_report.md` §4.3g, from
       `nvtx_phase_attribution.py --per-step`. **Warmup 20 was enough: there is no warmup
       regime.** First measured step **640.26 ms** vs a **634.36 ms** median (+0.9%), and

@@ -60,8 +60,79 @@ Entry shape (keep it):
   - **Stated limit:** this fixes attribution, not the underlying question. Per-range launch *counts*
     are what the census adds over §4.3; it does not localise a call site (item 8) or say anything
     about coalescing (item 7).
-- **result:** OPEN — measured after this commit.
-- **next:** implement, then compare against §4.3b row by row.
+- **result:** **4/4 predictions HIT.** Prereg `a336c6fc` verified as an ancestor of HEAD and
+  byte-identical before this line was written.
+  - **P1** header → **354,720 launches / 102.911 s**, identical to `nvtx_phase_attribution.py`. HIT.
+  - **P2** `(outside)` → **absent (0.0%)**; `backward` **250,880** (1568/rank-step), `forward_loss`
+    **94,400** (590), `optimizer` **9,440** (59), `data_prep` absent. **Agrees with §4.3b row for
+    row**, because it is now the same join and not a second implementation. HIT.
+  - **P3** the per-step denominator was **also** wrong (156 distinct `step_%` starts vs **160**
+    rank-steps) and had to be fixed. HIT — a third bug, predicted before it was looked for.
+  - **P4** the census's own thesis finds **no batching target**: largest count-minus-time skew
+    **+3.2 pt** (7255503) and **+2.0 pt** (7255557) against a +10 pt bar. HIT. ⇒ the docstring's
+    "~9% of training time is idle gaps between launches" framing is **retired as refuted**, and the
+    advice is now printed **conditionally on the data** rather than unconditionally.
+  - **Decision rule fired:** P1+P2 were the gate and the two tools agree, so no blocker. P4 held, so
+    the launch-pipeline framing was retired in the same commit.
+- **gauntlet:** ONE focused adversary, not the pair — **deliberately proportionate.** Item 4's
+  numbers are *reproductions* of §4.3b values already adversarially verified twice; the only
+  genuinely new claim is the **negative** result (no batching target), which retires advice in three
+  docs. The drift surface is 4 known files, so I swept it myself rather than spending an auditor.
+- **result of the sweep:** plan item 4 ticked; `POLARIS_PROFILING_HANDOFF.md` §5 flipped from "BROKEN,
+  TWO independent bugs" to FIXED, keeping the old numbers on the record *because three docs had cited
+  them as an NVTX limitation*; `PROFILING_TABLES.md`'s superseded ACE2 table now says either tool can
+  re-derive it — **and that nobody has yet run it on an ACE2 capture**, so it is superseded but not
+  replaced.
+
+---
+
+## tick 4b — 2026-08-20 — **TIER 0 COMPLETE** — item 6 prepared, AWAITING SUBMISSION APPROVAL
+
+- **in flight:** none. **Nothing has been submitted in this loop.**
+- **Tier 0 is exhausted:** plan items **1, 2, 3, 4, 5 all done**, all from two captures already on
+  disk, **zero GPU time and zero queue time spent**. Every remaining item needs compute.
+- **prepared, not submitted — `polaris_topology_check.pbs`** (plan item **6**, plus the NUMA rows
+  item **6b** needs):
+  - **Static checks run:** `bash -n` clean; the PBS header matches the loop's required set (with
+    walltime **00:10:00** rather than the template's 00:55:00 — the work is ~60 s and an honest
+    request is better for queue position); the PASS gate was **dry-run against three synthetic
+    matrices** (good / zero-cell / torch-unavailable) and catches all three.
+  - **Design notes:** no `torchrun`/`mpiexec`/`srun` — `gpu_topology_check.py` is a single process
+    that walks the device pairs itself. **`PYTHONPATH` is explicitly `unset`** (this job imports
+    neither tree, and a stray entry could resolve `utils` to the wrong one). **No
+    `$POLARIS_TOPUPS` and no `polaris_require_topups`** — it imports only `torch` from base conda,
+    and `polaris_env.sh:139` reserves that gate for the 8 base-conda model jobs.
+  - **Node-hour arithmetic:** 1 node × 10 min = **0.167 node-h requested**; realistic use ~3 min
+    including `module load`/`conda activate` ≈ **0.05 node-h**, against **17,128 node-h available**
+    — ~**0.001%** of the allocation. Queue: `debug`, currently 9 running / 3 queued; historically
+    9/9 started with a median 19 s wait. `debug` is `max_run 1`/`max_queued 1` **per user**, so this
+    would be the only job in flight.
+- **prereg for item 6 (written BEFORE any submission):**
+  - **P1.** 4 GPUs, all `NVIDIA A100-SXM4-40GB`.
+  - **P2.** The measured matrix is **uniformly fast** — no 2×2 block structure, no pair at
+    PCIe class (~20–30 GB/s), and all 12 off-diagonal cells within **±20%** of each other.
+  - **P3.** Per-pair unidirectional bandwidth **80–200 GB/s**. Reasoning: A100 SXM4 has 12 NVLink3
+    lanes at 25 GB/s; in a 4-GPU direct-connect mesh a pair gets ~4 lanes ⇒ ~100 GB/s per direction,
+    and `copy_` measures one direction.
+  - **P4.** This **confirms** the handoff §4 inference rather than overturning it: every pair
+    measures **≥ 70 GB/s**, so a PCIe-class cross-pair hop is excluded. (Note §4.4's correction that
+    the right NCCL anchor is the *minimum*, 59.67 ms ⇒ ≥79 GB/s, not the stall-carrying mean.)
+  - **P5.** `numactl --hardware` reports **4 or 8** NUMA nodes (NPS4 is the common Polaris setting on
+    a 32-core EPYC Milan, `nproc=64`), and the GPU→NUMA map is **not** the identity — the ai-rossby
+    multinode script records that the ALCF helper assigns GPUs in *reverse* local-rank order. A
+    non-identity map is what makes item 6b's affinity question real rather than hypothetical.
+  - **Decision rule.** If P2+P3 hold, handoff §4's OPEN topology cell **closes with a measurement**
+    and §0b's "comms are free inside a node" acquires a mechanism (real NVLink), leaving item 12's
+    multi-node framing intact. **If any pair comes in at PCIe class, that is a major finding** — DDP's
+    ring would be limited by the slow hop and §0b would partly re-open. P5 is a recorded cluster fact
+    either way and feeds item 6b.
+  - **Stated limit:** this measures *pairwise device-to-device copy*, which is the path a ring
+    all-reduce uses, but it is **not** an all-reduce benchmark and says nothing about multi-node
+    (item 12) or about the 1279 GB/s **intra**-device HBM figure of §4.3e, which is a different path.
+- **next:** **STOP. Await explicit operator approval for the single `qsub` shown in the report.**
+  Per the driver §0 there is no standing approval and approving the plan is not approving the
+  submission.
+- **infra-failure count:** 0/5
 - **infra-failure count:** 0/5
 
 ---

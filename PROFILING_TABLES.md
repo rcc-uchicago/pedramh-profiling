@@ -66,8 +66,11 @@ Jobs 53479120 (A100), 53524918 (H100), 53483668 (H200).
 > range lookup, which is the *entire* reason `(outside)` reads 57.1% — backward launches
 > come from autograd worker threads while the ranges sit on the main thread. It is not an
 > NVTX limitation. With attribution scoped to the **process**, `(outside)` → **0.0%**
-> (measured on Pangu job 7255503). Re-derive with
-> `ACE2_retrain/nvtx_phase_attribution.py`; see `polaris_bench_report.md` §4.3a.
+> (measured on Pangu job 7255503). Re-derive with **either**
+> `ACE2_retrain/nvtx_phase_attribution.py` **or** `ACE2_retrain/kernel_census.py` — the
+> census was fixed 2026-08-20 (plan item 4) and now delegates to the same join, so the two
+> agree row for row. **Nobody has run it on an ACE2 capture yet**, so this table is
+> superseded but not yet replaced. See `polaris_bench_report.md` §4.3a.
 
 ---
 
