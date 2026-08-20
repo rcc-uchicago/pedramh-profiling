@@ -18,6 +18,52 @@ Entry shape (keep it):
 
 ---
 
+## tick 2 — 2026-08-20 — stage T0 item 2 — prereg for the n=2 re-derivation on job 7255557
+
+- **in flight:** none (Tier 0 needs no `qsub`)
+- **preconditions established from FILES, not from the capture** (so they are not part of the prediction):
+  - `bench/bench_env_polaris_nsys_7255557.txt` records **the same workload** as 7255503's §0 description:
+    `nettype: sfno_plasim`, `checkpointing: 3`, `world_size: 4`, `bench_warmup: 20`, `bench_steps: 40`,
+    `num_data_workers: 1`, batch 1/GPU, bf16, `ddp_find_unused: false`, `use_ema: True`,
+    `yaml_sha256_16: 47d632f85c84353a`, `git_sha: 9c3122e67d71`, torch 2.8.0 / CUDA 12.9, A100-SXM4-40GB.
+    **There is no env file for 7255503**, so the two configs cannot be compared by sha — the structural
+    check has to come from the captures themselves (rank count, phase-row count, kernel set).
+  - **7255557 is the clean RE-RUN of 7255503, and the fix was to the clock, not the model** (CHANGELOG
+    2026-07-15): `elapsed` was sampled *after* `cudaProfilerStop()`, so 7255503 read `elapsed=51.8 s` vs
+    `sum=25.7 s` and its bench row was **refused** by the self-check. 7255557 records cleanly at rc=0.
+    ⇒ the two should be the same workload; that is exactly what makes this a usable n=2.
+  - **7255557 is much noisier at the harness level.** Its CSV row: `step_med 0.606010`, `step_p90 0.812770`,
+    `step_mean 0.695946`, **`step_std 0.235865` = 39% of the median** — against 7255503's capture-side step
+    std of **31.9 ms on 603.5 ms = 5.3%** (§4.1). `step_mean >> step_med` says there are outlier steps.
+    Also `peak_mem_gb_max_rank` **28.762 GB** vs the sweep's 26.98 GB (§5) — the nsys run costs ~1.8 GB more.
+- **prereg (written BEFORE any query against `nsys_pangu_sfno_7255557.sqlite`):**
+  - **P1 (structure).** 4 ranks; `data_prep`/`forward_loss`/`backward`/`optimizer` at **160 rows each**;
+    `(outside)` = **0.0%** again; the pid-guarded join returns exactly one row per kernel.
+  - **P2 (the one that matters — ABSOLUTE work reproduces, SHARES may not).** `direct_copy`+`conj` should
+    reproduce in **absolute ms/rank-step within ±5% of 271.19**, because that is config-determined compute.
+    Its **share** of GPU kernel time may come in **below 42.2%**, because a stall inflates NCCL and therefore
+    the denominator. Predicting the share moves *down*, not up.
+  - **P3 (the split).** `backward` / `forward_loss` of the copy time reproduces **within ±2 points** of
+    **72.9 / 27.1** — this is a ratio of two compute buckets and should be the most stable number here.
+  - **P4 (stalls).** Given `step_std` = 39% and `step_mean >> step_med`, 7255557 contains **more or larger
+    comms stalls than 7255503's single step-30 event**, and its NCCL ms/rank-step will exceed 7255503's
+    67.82. Total GPU kernel time per rank-step will therefore come in **above** 643.19.
+  - **P5 (bandwidth).** D2D above L2 within **±3 points of 82%** of peak.
+  - **Decision rule.** If P2+P3 hold while P4 also holds, then **§0d's percentages are stall-sensitive and
+    §0's numbers should be quoted as absolute ms/rank-step (or stall-excluded), not as shares** — that is a
+    methodological finding worth landing in the plan, and it makes the n=2 stronger rather than weaker. If
+    the *absolute* copy time does **not** reproduce within ±5%, then the two captures are not the same
+    workload despite the matching env, and item 2's answer is "no usable n=2 exists" — a recorded null, not
+    a failure. If P3 fails, the split from item 1 is not a property of the model and §4.3c must be
+    de-generalised to job 7255503 alone.
+  - **Stated limit:** this is n=2 on the **same node type, same day, same git sha**. It tests
+    run-to-run reproducibility, **not** node-to-node (spread 10.5%) and not config sensitivity.
+- **result:** OPEN — measured after this commit.
+- **next:** run the re-derivation.
+- **infra-failure count:** 0/5
+
+---
+
 ## tick 1 — 2026-08-20 — stage T0 item 1 — NVTX text path resolved; prereg for the fwd/bwd copy split
 
 - **in flight:** none (Tier 0 needs no `qsub`)
