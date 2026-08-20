@@ -156,7 +156,20 @@ Entry shape (keep it):
   - **Stated limit:** this measures *pairwise device-to-device copy*, which is the path a ring
     all-reduce uses, but it is **not** an all-reduce benchmark and says nothing about multi-node
     (item 12) or about the 1279 GB/s **intra**-device HBM figure of §4.3e, which is a different path.
-- **next:** **STOP. Await explicit operator approval for the single `qsub` shown in the report.**
+- **SUBMITTED 2026-08-20 21:20:04, on explicit operator approval — job `7531456`**
+  (`pploop-topo`, `debug`, walltime 00:10:00, 1 node). **This is the loop's first submission.**
+  - **`qstat` comment at submit+43 s: `Not Running: Insufficient amount of resource: queue_tags`.**
+    Diagnostic run **once**, per CLAUDE.md #12: `eligible_time = 00:00:43` (i.e. tiny — this is the
+    *benign* reading, a queue with no free nodes right now, not the pathological
+    large-and-growing case that cost a day on 2026-08-05). `debug` at the time: **14 running / 9
+    queued / 3 held**. ⇒ **WAIT. Do not resubmit** — a resubmit resets accrued `eligible_time` and
+    is strictly harmful.
+  - **New cluster fact, worth recording if it persists:** `polaris_pbs_notes.md` §1b has `debug` as
+    "9/9 started, median 19 s wait" (queried 2026-08-05). Today it queued behind 14 running jobs.
+    The median-19 s figure is not wrong, but it is not a guarantee — re-check before assuming a
+    `debug` job starts immediately.
+- **next:** poll `qstat` on the next tick; **do not resubmit under any circumstance**. On completion,
+  key on the **`TOPO_OK`** token and a ≥2-row matrix, never on `rc`, then score the item-6 prereg.
   Per the driver §0 there is no standing approval and approving the plan is not approving the
   submission.
 - **infra-failure count:** 0/5
