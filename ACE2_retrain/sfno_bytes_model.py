@@ -33,9 +33,15 @@ import sys
 CFG = dict(
     batch=1, embed_dim=512, num_layers=12, h=180, w=360,
     hard_thresholding_fraction=1.0, mlp_ratio=2.0, scale_factor=1,
-    # channels: upper_air 5 x 18 levels + surface 6 + diagnostic 3 + land 2,
-    # plus boundary (constant 4 + varying 3) on the input side.
-    n_prognostic=5 * 18 + 6 + 3 + 2, n_boundary=4 + 3,
+    # Channels, from data_loader_multifiles.py:457,641-655 -- NOT re-counted from
+    # the YAML variable lists, which is how the first version got 108. `surface`
+    # absorbs `land` (6+2=8); the 3 diagnostics are OUTPUT-only; `varying_boundary`
+    # (3) is input-only alongside `constant_boundary` (4):
+    #   in_chans  = 90 upper-air + 8 surface + 3 varying + 4 constant = 105
+    #   out_chans = 90 + 8 + 3 diagnostic                             = 101
+    # Cross-check that pins it: reconstructing the parameter count forces
+    # 2*in + out = 311 = 2(105) + 101 against the logged 1,182,108,160.
+    in_chans=105, out_chans=101,
 )
 DTYPE_BYTES = {'float': 4, 'fp32': 4, 'bf16': 2, 'fp16': 2, 'complex64': 8}
 
@@ -46,19 +52,33 @@ def inventory(cfg=CFG):
     thf = cfg['hard_thresholding_fraction']
     modes_lat, modes_lon = int(h * thf), int((w // 2 + 1) * thf)
     hidden = int(e * cfg['mlp_ratio'])
-    c_in = cfg['n_prognostic'] + cfg['n_boundary']
+    c_in, c_out = cfg['in_chans'], cfg['out_chans']
     out = [
-        ('input/output field  (B,C_in,h,w)', b * c_in * h * w, f'{c_in}x{h}x{w}'),
-        ('latent              (B,E,h,w)', b * e * h * w, f'{e}x{h}x{w}'),
-        ('big_skip cat        (B,E+C_in,h,w)', b * (e + c_in) * h * w,
-         f'{e + c_in}x{h}x{w}'),
-        ('MLP hidden          (B,E*ratio,h,w)', b * hidden * h * w, f'{hidden}x{h}x{w}'),
-        ('spectral            (B,E,lmax,mmax)', b * e * modes_lat * modes_lon,
-         f'{e}x{modes_lat}x{modes_lon}'),
-        ('spectral as_real    (B,E,lmax,mmax,2)', b * e * modes_lat * modes_lon * 2,
-         f'{e}x{modes_lat}x{modes_lon}x2'),
+        # --- activations (per step) ---
+        ('act  input             (B,C_in,h,w)', b * c_in * h * w, f'{c_in}x{h}x{w}', 4),
+        ('act  output            (B,C_out,h,w)', b * c_out * h * w, f'{c_out}x{h}x{w}', 4),
+        ('act  latent            (B,E,h,w)', b * e * h * w, f'{e}x{h}x{w}', 4),
+        ('act  big_skip cat      (B,E+C_in,h,w)', b * (e + c_in) * h * w,
+         f'{e + c_in}x{h}x{w}', 4),
+        ('act  MLP hidden        (B,E*r,h,w)', b * hidden * h * w, f'{hidden}x{h}x{w}', 4),
+        ('act  spectral          (B,E,lmax,mmax)', b * e * modes_lat * modes_lon,
+         f'{e}x{modes_lat}x{modes_lon}', 8),
+        ('act  spectral 1 part   (B,E,lmax,mmax)', b * e * modes_lat * modes_lon,
+         f'{e}x{modes_lat}x{modes_lon}', 4),
+        ('act  spectral as_real  (...,2)', b * e * modes_lat * modes_lon * 2,
+         f'{e}x{modes_lat}x{modes_lon}x2', 4),
+        # --- WEIGHTS. Omitting these was the flaw in the first version of this
+        # model, and it is the whole finding: for dhconv the spectral weight is
+        # [in_channels, out_channels, modes_lat] complex (s2convolutions.py:107-135),
+        # which at E=512 is 377 MB -- almost 3x the largest activation -- and 12 of
+        # them are 95.8% of this model's 1,182,108,160 parameters.
+        ('WGT  spectral / layer   (E,E,lmax)', e * e * modes_lat, f'{e}x{e}x{modes_lat}', 8),
+        ('WGT  spectral as_real   (E,E,lmax,2)', e * e * modes_lat * 2,
+         f'{e}x{e}x{modes_lat}x2', 4),
+        ('WGT  MLP fc1/fc2        (E*r,E,1,1)', hidden * e, f'{hidden}x{e}', 4),
     ]
-    return out, dict(modes_lat=modes_lat, modes_lon=modes_lon, hidden=hidden, c_in=c_in)
+    return out, dict(modes_lat=modes_lat, modes_lon=modes_lon, hidden=hidden, c_in=c_in,
+                     n_spectral_params=2 * e * e * modes_lat * cfg['num_layers'])
 
 
 def show_inventory():
@@ -67,22 +87,46 @@ def show_inventory():
           f"grid={CFG['h']}x{CFG['w']} num_layers={CFG['num_layers']} "
           f"modes={meta['modes_lat']}x{meta['modes_lon']} "
           f"mlp_hidden={meta['hidden']} C_in={meta['c_in']}\n")
-    print(f"{'tensor':<38}{'shape':>22}{'elements':>14}"
-          f"{'bf16 MB':>10}{'fp32 MB':>10}{'cplx64 MB':>11}")
-    print("  " + "-" * 103)
-    for name, n, shape in inv:
-        print(f"{name:<38}{shape:>22}{n:>14,}"
-              f"{n * 2 / 1e6:>10.2f}{n * 4 / 1e6:>10.2f}{n * 8 / 1e6:>11.2f}")
-    big = max(n * 8 for _, n, _ in inv)
-    print(f"\n  largest single tensor at any dtype in this config: "
-          f"**{big / 1e6:.2f} MB**")
-    print(f"  a copy whose per-call payload exceeds that is NOT moving one tensor.")
+    print(f"{'tensor':<40}{'shape':>22}{'elements':>14}{'dtype':>10}{'MB':>10}")
+    print("  " + "-" * 96)
+    for name, n, shape, sz in inv:
+        dt = {4: 'fp32', 8: 'complex64', 2: 'bf16'}[sz]
+        print(f"{name:<40}{shape:>22}{n:>14,}{dt:>10}{n * sz / 1e6:>10.2f}")
+    big_name, big = max(((nm, n * sz) for nm, n, _, sz in inv), key=lambda kv: kv[1])
+    print(f"\n  largest single tensor: **{big / 1e6:.2f} MB** ({big_name.strip()})")
+    print(f"  a copy whose per-call payload exceeds that is not moving one tensor.")
+    print(f"  spectral weights are {meta['n_spectral_params']:,} params over "
+          f"{CFG['num_layers']} layers = "
+          f"{100 * meta['n_spectral_params'] / 1182108160:.1f}% of the 1,182,108,160 total.")
     return inv, meta
 
 
 # --- the geometry side -------------------------------------------------------
-# elementwise_kernel<nt, vt, ...>: each block handles nt*vt elements.
-_ELEMS_PER_BLOCK = re.compile(r'elementwise_kernel<\(int\)(\d+), \(int\)(\d+)')
+# Elements per block, per launch path. Getting this wrong silently rescales every
+# byte figure, and it did: the first version matched only the legacy pattern and
+# fell back to `blockX` for the other two, under-counting them by exactly 4x and
+# turning an exact match to the fp32 latent into a spurious "1.185x, no clean
+# tensor" row.
+#
+#   legacy      `elementwise_kernel<(int)nt, (int)vt, ...>`
+#               launch_legacy_kernel: grid = ceil(N / (nt*vt))  => nt*vt per block
+#   vectorized  `vectorized_elementwise_kernel<(int)vec_size, ...>`
+#   unrolled    `unrolled_elementwise_kernel<..., (int)elems_per_thread, ...>`
+#               both from launch_vectorized_kernel: grid = ceil(N / (num_threads *
+#               thread_work_size)) => blockX * 4 per block. NOTE the leading (int)
+#               on the vectorized name is vec_size, NOT nt -- reading it as nt is
+#               how the 4x error happens.
+_LEGACY = re.compile(r'(?<!unrolled_)(?<!vectorized_)elementwise_kernel<\(int\)(\d+), \(int\)(\d+)')
+_THREAD_WORK_SIZE = 4
+
+
+def _elems_per_block(name, block_threads):
+    m = _LEGACY.search(name)
+    if m:
+        return int(m.group(1)) * int(m.group(2))
+    if 'vectorized_elementwise_kernel' in name or 'unrolled_elementwise_kernel' in name:
+        return block_threads * _THREAD_WORK_SIZE
+    return block_threads
 
 
 def _dtype_of(name):
@@ -100,7 +144,10 @@ def _dtype_of(name):
 def match(path, regex='direct_copy|conj', top=10):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     rx = re.compile(regex)
-    rows = collections.defaultdict(lambda: [0, 0, set()])
+    # Key on the GEOMETRY too. Grouping only by (name, dtype) and printing every
+    # distinct geometry against the GROUP's aggregate call count and us/call is
+    # actively misleading -- you cannot tell which geometry carries the time.
+    rows = collections.defaultdict(lambda: [0, 0])
     for name, gx, gy, gz, bx, by, bz, n, ns in con.execute("""
             SELECT s.value, k.gridX, k.gridY, k.gridZ, k.blockX, k.blockY, k.blockZ,
                    COUNT(*), SUM(k.end - k.start)
@@ -109,40 +156,38 @@ def match(path, regex='direct_copy|conj', top=10):
             GROUP BY s.value, k.gridX, k.gridY, k.gridZ, k.blockX, k.blockY, k.blockZ"""):
         if not rx.search(name):
             continue
-        m = _ELEMS_PER_BLOCK.search(name)
-        # nt*vt per block for the TensorIterator path; a vectorized kernel still
-        # covers nt*vt elements per block, the vectorization is within a thread.
-        per_block = (int(m.group(1)) * int(m.group(2))) if m else bx * by * bz
+        per_block = _elems_per_block(name, bx * by * bz)
         elems = gx * gy * gz * per_block
-        dt = _dtype_of(name)
-        key = (_short(name), dt)
-        cell = rows[key]
+        cell = rows[(_short(name), _dtype_of(name), elems, gx * gy * gz, per_block)]
         cell[0] += n
         cell[1] += ns
-        cell[2].add(elems)
 
     inv, meta = inventory()
-    print(f"\n{'kernel':<34}{'calls':>7}{'elem/call':>13}{'payload MB':>12}"
-          f"{'r+w MB':>9}{'us/call':>9}  best analytic match")
-    print("  " + "-" * 118)
-    for (lbl, dt), (n, ns, elemset) in sorted(rows.items(), key=lambda kv: -kv[1][1]):
-        for elems in sorted(elemset, reverse=True):
-            sz = DTYPE_BYTES.get(dt, 4)
-            payload = elems * sz
-            # the closest tensor in the inventory, by element count
-            best, ratio = None, None
-            for nm, ne, shape in inv:
-                r = elems / ne
-                if best is None or abs(r - 1) < abs(ratio - 1):
-                    best, ratio = (nm, shape), r
-            verdict = (f"{best[0].split()[0]} x{ratio:.3f}"
-                       if abs(ratio - 1) < 0.02 else
-                       f"{best[0].split()[0]} x{ratio:.3f}  <-- NOT a clean tensor")
-            print(f"{lbl + '<' + str(dt) + '>':<34}{n:>7}{elems:>13,}"
-                  f"{payload / 1e6:>12.2f}{2 * payload / 1e6:>9.1f}"
-                  f"{ns / n / 1000:>9.1f}  {verdict}")
-    biggest = max(ne * 8 for _, ne, _ in inv)
-    over = [(lbl, dt, e) for (lbl, dt), (_, _, es) in rows.items() for e in es
+    tot_ns = sum(v[1] for v in rows.values())
+    print(f"\n{'kernel':<28}{'calls':>7}{'blocks':>9}{'elem/call':>13}"
+          f"{'MB/call':>9}{'us/call':>9}{'% copy':>8}  analytic match")
+    print("  " + "-" * 116)
+    for (lbl, dt, elems, blocks, per_block), (n, ns) in sorted(
+            rows.items(), key=lambda kv: -kv[1][1])[:top]:
+        sz = DTYPE_BYTES.get(dt, 4)
+        best, ratio = None, None
+        for nm, ne, shape, nsz in inv:
+            if nsz != sz:      # a float copy is not a match for a complex tensor
+                continue
+            r = elems / ne
+            if best is None or abs(r - 1) < abs(ratio - 1):
+                best, ratio = nm.strip(), r
+        if best is None:
+            print(f"{lbl:<28}{n:>7}  (no inventory tensor at dtype {dt})")
+            continue
+        verdict = (f"= {best}" if abs(ratio - 1) < 0.001
+                   else f"{ratio:.4f} x {best}  <-- no clean tensor")
+        print(f"{lbl + '<' + str(dt) + '>':<28}{n:>7}{blocks:>9,}{elems:>13,}"
+              f"{elems * sz / 1e6:>9.2f}{ns / n / 1000:>9.1f}"
+              f"{100 * ns / tot_ns:>7.1f}%  {verdict}")
+
+    biggest = max(ne * nsz for _, ne, _, nsz in inv)
+    over = [(lbl, dt, e) for (lbl, dt, e, _, _) in rows
             if e * DTYPE_BYTES.get(dt, 4) > biggest]
     print(f"\n  largest analytic tensor: {biggest / 1e6:.2f} MB. "
           f"Copies exceeding it: {len(over)}")

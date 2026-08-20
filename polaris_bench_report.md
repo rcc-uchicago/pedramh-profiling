@@ -351,9 +351,11 @@ union-safe and is not damaged by §4.3d:
   returns **nothing**, the spectral contraction is `torch.einsum` over `view_as_complex`
   operands (`contractions.py:29-31,59`; `s2convolutions.py:159,197`), and the backward of a
   complex einsum needs `x.conj()`/`w.conj()`. Corroborating: 24/rank-step = **2 ×
-  `num_layers` (12)**, one conjugate per operand per contraction. So no checkpointing level
-  removes it — and note a recompute-only kernel would merely be *relocated* by lowering
-  checkpointing, not removed either.
+  `num_layers` (12)**. ⚠ **Not for the reason first given here:** §4.5b splits those 24 into
+  **12 conjugates of the 377 MB spectral *weight*** and 12 of a small 16.68 MB activation, so
+  it is *not* "one conjugate per operand per contraction" — that rationale is retracted
+  (§4.5d). The conclusion holds: no checkpointing level removes it — and note a
+  recompute-only kernel would merely be *relocated* by lowering checkpointing, not removed.
 * **NCCL confirms the DDP model:** `ncclAllReduce` **100%** in `backward`, `ncclBroadcast`
   **100%** in `forward_loss` (0.7 ms/rank-step, the 0.11% `broadcast_buffers` cost of plan
   §0c). Cross-tabulated, there is **zero** cross-boundary leakage: `pt_autograd_*` →
@@ -382,6 +384,17 @@ carefully, because the first draft of this section had it backwards:
 
 So **≈27% of the 271.19 ms is removable and it is all inside `backward`'s 197.58 ms**; the
 27% headline is unchanged from the first draft but the phase it names is now the right one.
+
+> **⚠ What "recompute" contains — from §4.5, and it changes the class, not the number.**
+> **35.61** of those 74.6 ms/rank-step (**47.7%**, measured — §4.5c) is the `ckpt3` pass
+> **re-permuting the invariant 377 MB spectral weight**, not recomputing activations. The
+> ≈27% stands
+> arithmetically. But the converse is the more useful reading: **lowering `checkpointing`
+> removes one of the two invariant weight permutes, whereas storing the parameter
+> pre-permuted would remove both plus the gradient-side copy** — ≈97 ms/rank-step, ~16% of
+> the step — at **no memory cost**, and the two compose. That candidate is not on the
+> DESIGN §5 ladder; it is a hot-path *and* checkpoint-format change, so it is fully §4-gated
+> and blocked on item 18.
 
 **And "recompute ≤ the forward's GPU time" is NOT a bound — recompute is measurably more
 expensive.** Isolating the kernels whose `forward_loss` and `backward` launch counts are
@@ -766,6 +779,272 @@ python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --memcpy        # bandwidth,
 
 ---
 
+### 4.5 What the copies are actually moving — a weight in the wrong layout
+
+Plan item 3: build an analytic bytes-per-step model from the config and check it against
+§0d's launch-geometry estimate. `ACE2_retrain/sfno_bytes_model.py` (+ test, no capture
+needed). n=2 on both captures; no GPU time.
+
+**Preregistered at `45cbd7de`, and all four size predictions were wrong — which is the
+deliverable.** The prereg enumerated every *activation* the step touches and predicted the
+dominant copies would land on the spectral activation (133.45 MB) and the fp32 latent
+(132.71 MB). **The inventory omitted the weights**, and for this model at batch 1 that
+omission is the whole story.
+
+**Headline, after an adversarial pass that landed two FATAL strikes on the first draft:**
+**133.15 ms/rank-step — 20.7–23.1% of the step depending on the basis — is spent moving a
+377 MB spectral weight, in four places, all traceable to one layout mismatch.** Of that,
+**107.14 ms (17.8% of a 603.5 ms step) moves invariant values** and **26.01 ms is the
+gradient**, which is not invariant — the first draft counted it as such and claimed 22.0%.
+§4.5c has the decomposition; §4.5d records every withdrawal.
+
+#### 4.5a The tensor inventory, weights included
+
+Shapes grounded in source, not assumed: `modes_lat = int(h·thf) = 180`,
+`modes_lon = int((w//2+1)·thf) = 181` (`sfnonet.py:481-482`); for `operator_type: dhconv`
+the spectral weight is `[in_channels, out_channels, modes_lat]` complex
+(`s2convolutions.py:107-136`). **Channel counts come from the loader, not from re-counting
+the YAML variable lists** — that is how the first version of this table got 108:
+`surface_variables` absorbs `land_variables` (6+2 = 8), the 3 diagnostics are *output*-only,
+and `varying_boundary` (3) is input-only alongside `constant_boundary` (4), giving
+`in_chans = 90+8+3+4 = 105` and `out_chans = 90+8+3 = 101`
+(`data_loader_multifiles.py:457,641-655`). **The parameter total pins it independently:**
+reconstructing the count forces `2·in + out = 311 = 2(105) + 101` against the logged
+1,182,108,160, and the test asserts that.
+
+| tensor | shape | elements | dtype | MB |
+|---|---|---|---|---|
+| act input | 105×180×360 | 6,804,000 | fp32 | 27.22 |
+| act output | 101×180×360 | 6,544,800 | fp32 | 26.18 |
+| act latent | 512×180×360 | 33,177,600 | fp32 | 132.71 |
+| act big_skip cat | 617×180×360 | 39,981,600 | fp32 | 159.93 |
+| **act MLP hidden** | 1024×180×360 | 66,355,200 | fp32 | **265.42** |
+| act spectral | 512×180×181 | 16,680,960 | complex64 | 133.45 |
+| act spectral, one part | 512×180×181 | 16,680,960 | fp32 | 66.72 |
+| **WGT spectral, per layer** | **512×512×180** | **47,185,920** | **complex64** | **377.49** |
+| WGT MLP fc1/fc2 | 1024×512 | 524,288 | fp32 | 2.10 |
+
+**The largest tensor in this model is a weight: 377.49 MB, which is 1.42× the largest
+activation (the MLP hidden, 265.42 MB) and 2.83× the spectral activation.** Twelve of them
+are **1,132,462,080 of the model's 1,182,108,160 parameters — 95.8%.** (⚠ At batch 1. The
+weight:activation ratio is `E/(B·mmax)` and it inverts at batch 4 — §4.5c-scope.)
+
+**The weight is dense, not block-diagonal — `num_blocks: 16` does not apply here.** That is
+the obvious objection (16 blocks of 32×32×180 would be 1/16th the size), so it is checked
+rather than assumed: `weight_shape` is built as `[in_channels]` → `+= [out_channels]`
+(`separable: False`) → `+= [modes_lat_local]` (`operator_type: dhconv`) at
+`s2convolutions.py:107-136`, and **`num_blocks` appears nowhere in it.** It is read into
+`self.num_blocks` at `sfnonet.py:415-416` and never read again — a vestigial knob. Three
+independent lines agree on the dense shape: the source, the launch geometry (exactly
+47,185,920 elements), and the parameter total.
+
+#### 4.5b Every dominant copy lands on a tensor exactly
+
+Launch geometry → elements. **Elements per block depends on the launch path**, and getting
+that wrong rescales everything: `elementwise_kernel<(int)nt,(int)vt,…>` is
+`launch_legacy_kernel` with `grid = ceil(N/(nt·vt))`, so `nt·vt = 256` per block; but
+`unrolled_elementwise_kernel<…,(int)4,…>` and `vectorized_elementwise_kernel<(int)vec,…>`
+both come from `launch_vectorized_kernel` with `blockX × thread_work_size = 512` per block —
+and the vectorized name's leading `(int)` is `vec_size`, **not** `nt`. Reading it as `nt`
+under-counts those rows by exactly 4×, which is what the first version of this table did.
+Matched against the inventory **at the same dtype**, so a float copy is never credited to a
+complex tensor. Job 7255503; 7255557 is geometry-identical and within **0.19 points** on
+every share.
+
+| kernel | calls/rank-step | MB/call | µs/call | % copy | tensor |
+|---|---|---|---|---|---|
+| `direct_copy`⟨float,nocast⟩ | **348** | 66.72 | 332.7 | **42.7%** | **= act spectral, one part** |
+| `direct_copy`⟨complex64,nocast⟩ | **36** | **377.49** | 2700.5 | **35.8%** | **= WGT spectral** |
+| `conj`⟨complex64,nocast⟩ | **12** | **377.49** | 2994.3 | **13.2%** | **= WGT spectral** |
+| `direct_copy`⟨complex64,nocast⟩ | 48 | 133.45 | 297.4 | 5.3% | = act spectral |
+| `direct_copy`⟨float,unrolled⟩ | 24 | 132.71 | 179.6 | 1.6% | = act latent |
+| `conj`⟨complex64,vec⟩ | 12 | 66.72 | 197.4 | 0.9% | **0.5000×** act spectral — unidentified |
+| `direct_copy`⟨float,nocast⟩ | 2 | 132.71 | 304.7 | 0.2% | = act latent |
+| `direct_copy`⟨float,unrolled⟩ | 1 | 159.93 | 216.0 | 0.1% | = act big_skip cat |
+| `direct_copy`⟨float,unrolled⟩ | 24 | 2.10 | 6.8 | 0.1% | = WGT MLP fc1/fc2 |
+
+**Nine kernels covering ~99.6% of copy time match an analytic tensor**, eight of them
+exactly. There are 18 distinct (kernel, geometry) groups in total; the 9 not shown carry
+**0.25%** of copy time, so this is not a top-N crop hiding a mismatch.
+
+**Three caveats on "exactly", all real:**
+
+1. **"×1.0000" is a threshold, not a printed measurement.** The tool prints `= <tensor>`
+   when `|ratio−1| < 0.001`. The underlying products *are* exact
+   (`184320×256 = 47,185,920`, `65160×256 = 16,680,960`, `64800×512 = 33,177,600`), but
+   geometry only pins `N` to the interval `(elems − per_block, elems]` — up to 512 elements
+   of block rounding. The big_skip row is visibly that case: 78,090 blocks × 512 =
+   39,982,080 against a true 39,981,600.
+2. **The match is not injective.** `w`, `conj(w)` and `grad_w` all have 47,185,920 complex
+   elements, so element count alone cannot tell a parameter from its gradient — §4.5c
+   separates them by duration, phase and NCCL adjacency instead. Likewise at `thf = 1.0` the
+   pre-truncation rfft field and the post-truncation spectral field both have 16,680,960
+   elements because `lmax = nlat`, so the 42.7% row cannot be distinguished from geometry
+   alone (its identification as one *part* of the complex field rests on the stride-2
+   signature of `xout[..., 0] = …` / `torch.stack((rl, im), -1)` in torch-harmonics).
+3. **The two sides are less independent than "completely independent" suggests.** Both read
+   the same `gridX`/`blockX` from the same CUPTI table; only the *interpretation* is
+   independent. And the model covers `direct_copy|conj` **kernels** only — §4.3f's
+   13.48 GB/rank-step of D2D **memcpy** is a further ~21% of total movement and is not joined
+   to this inventory at all.
+
+⚠ **What this does and does not do to §0d.** It corroborates §0d's byte estimate for the
+legacy path (97.06% of copy time) and **re-introduced then fixed** an error on the other two
+paths (the 4× above). It does **not** remove §0d's coalescing caveat: these are still
+*useful* bytes, and whether real DRAM traffic is higher is item 7 (ncu), untouched.
+
+⚠ **This is a post-hoc consistency check, not the preregistered confirmation, and the
+prereg's own decision rule said so.** `45cbd7de` pre-committed that §0d's byte caveat is
+removed "only in case (a)" — if P1–P3 held. They did not; case (b) obtained. **The weight
+row was added to the inventory *after* the mismatch was seen.** What remains is still strong
+— many independent kernels landing on analytic tensors at matched dtype on two captures —
+but it is evidence, not a fulfilled prediction, and the house standard (§4.4f) is to say so.
+
+⚠ **Units.** §4.3e reports these tensors in **MiB** (127.27, 126.56) and §4.5a/b in decimal
+**MB** (133.45, 132.71). Same capture, same tensors. Per CLAUDE.md #10 the columns are a
+contract: **§4.5 uses decimal MB throughout** (bytes ÷ 1e6), matching the GB/s figures.
+
+#### 4.5c The finding: one layout decision costs 133 ms/rank-step, in four places
+
+The 36 weight-sized copies are **not** one operation repeated. Splitting the
+`gridX = 184320` population by duration and by NVTX phase separates them cleanly, and both
+captures agree to 0.04 ms:
+
+| population | calls/rank-step | µs/call | ms/rank-step | phase | invariant? |
+|---|---|---|---|---|---|
+| weight permute, forward | **12** = 1 × `num_layers` | 2967 | **35.60** | `forward_loss` | yes |
+| weight permute, **checkpoint recompute** | **12** | 2967 | **35.61** | `backward` | yes |
+| `conj(w)` — the adjoint | **12** | 2994 | **35.93** | `backward` | yes |
+| **`grad_w` → DDP bucket** | **12** | **2168** | **26.01** | `backward` | **NO** |
+| total | 48 | | **133.15** | | |
+
+**So `36 = 2 × num_layers + 1 × num_layers`, not `3 × num_layers`** — two forward
+*executions* (because `checkpointing: 3` re-runs the block) plus a gradient-side copy. With
+checkpointing off it would be 24.
+
+**The fourth row is the gradient, and it is not invariant.** It is a distinct operation, not
+the same copy: identical grid and identical 377.49 MB, but **27% faster** (348 vs 254 GB/s),
+**`backward` only**, and each one is followed by an `ncclDevKernel` at a median gap of
+**0.871 ms with p10–p90 = 0.867–0.876 ms** — a 9 µs spread, i.e. deterministic adjacency.
+The slow population's next-NCCL gap is 20.5 ms and scattered. There are **15 all-reduces + 1
+broadcast = 16 NCCL kernels/rank-step** (§4.2), and a 377 MB parameter far exceeds DDP's
+25 MB default bucket cap, so **each spectral weight gets its own bucket**. This is DDP's
+`Reducer::mark_variable_ready_dense` copying `grad_w` into the flat bucket immediately
+before its all-reduce.
+
+⇒ **Invariant-valued movement is 107.14 ms/rank-step = 17.8% of the 603.5 ms step, not
+22.0%; 13.59 GB, not 18.12 GB.** The earlier figure counted the gradient as invariant.
+
+#### The four are one root cause, and the obvious fix is already applied
+
+The parameter is stored `(in, out, modes_lat)` (`s2convolutions.py:107-136`) but
+`_contract_dhconv` is `torch.einsum("bixy,iox->boxy", ac, bc)` (`contractions.py:185-196`).
+The weight is indexed `iox` with `x` shared by both operands and the output, so einsum must
+move `x` to the batch position for the underlying `bmm`: the weight is permuted
+`(i,o,x) → (x,i,o)`, which is non-contiguous, and `bmm` materialises it. That single
+mismatch produces all four rows — the forward permute, its recompute, the conjugate
+(materialised in the same permuted layout), and the gradient (which emerges in that layout
+and therefore does **not** match its DDP bucket view).
+
+**And `gradient_as_bucket_view=True` is already set** (`train.py:302`). That is the flag
+that would normally eliminate the bucket copy, so its presence is what makes the layout the
+culprit rather than the DDP configuration: with the flag on, `param.grad` *is* a view into
+the bucket, and a copy is still needed only because the gradient's layout differs from the
+view's. **Inference, not measurement** — labelled as such; item 8 names the call site.
+
+**⚠ Retracted from the first draft of this subsection.** It attributed the 3 copies/layer to
+`spectral_layers: 3`. **`spectral_layers` never reaches this module:** `filter_type:
+'linear'` builds `SpectralConvS2` (`sfnonet.py:100-118`), which is not passed it and does
+not accept it (`s2convolutions.py:57-72`) — it goes only to the `non-linear` branch's
+`SpectralAttentionS2`. It is inert in this config, and `SpectralConvS2` holds exactly **one**
+weight per layer, which §4.5a's `12 × 94,371,840 = 95.8%` already implies. The agreement
+with 3 was numerology. Also retracted: the claim that `view_as_complex` on the parameter
+forces the copy — a freshly-allocated `nn.Parameter(…, 2)` is born contiguous with last-dim
+stride 1, which is exactly what `view_as_complex` wants, so that view is **free**. The
+strided operand is the *permutation*, not the view.
+
+**⚠ An unresolved contradiction, which must be settled before anyone reasons about this
+weight's storage.** With `factorization: None` — and `YParams.py:20` converts the YAML
+string `'None'` to Python `None` for every key — `use_tensorly = False if factorization is
+None else True` is **False**, which lands on `s2convolutions.py:150-152`:
+`assert factorization == "ComplexDense"`. That assert must fail. **Yet jobs 7255503 and
+7255557 both ran 40 measured steps.** So one of these is true and none is verified: the SFNO
+config block does not reach this constructor through that conversion, asserts are disabled
+in the job environment, or `factorization` is not `None` there — in which case
+`use_tensorly` is **True** and the weight is a `FactorizedTensor`, not the
+`nn.Parameter(…, 2)` assumed above. **No measured number in §4.5 depends on this** (geometry,
+parameter total and the n=2 identify the tensor regardless), but every *mechanism* claim
+does.
+
+#### What this changes about the levers
+
+* **~71.5 ms/rank-step** (forward permute + adjoint conj) is addressable by **storing the
+  parameter pre-permuted as `(modes_lat, in, out)`** — plausibly bit-identical (same `bmm`
+  operands, same reduction order) but it is a hot-path **and checkpoint-format** change, so
+  fully DESIGN §4-gated and blocked on the missing baseline (plan item 18).
+* **35.61 ms/rank-step exists only because `checkpointing: 3` re-runs the block.** That is
+  ≈43% of the ≈74.6 ms §4.3d calls "removable recompute" — so a *part* of the ckpt prize is
+  weight re-permutation, not activation recompute. The two levers compose: the layout fix
+  removes all three invariant permutes, ckpt removes one.
+* **26.01 ms/rank-step is gradient movement** and is not touched by either — it needs the
+  gradient's layout to match the bucket, which follows from the same storage change.
+* **Fusing pointwise activation ops (DESIGN §5 rung 1) touches none of these four rows.**
+  That is the substantive correction to the standing "61% elementwise ⇒ fuse" read, and it is
+  reinforced by evidence already in the repo: ACE2 measured
+  `InductorError: KeyError: 'complex64'` on the whole SFNO, so Inductor cannot reach this
+  model's complex64 hot path at all (`ACE2_retrain/PROFILING_PLAN.md:238`).
+
+#### 4.5c-scope This is a batch-1, 180×360 result and inverts at batch 4
+
+Weight bytes are `8·E²·lmax`; spectral-activation bytes are `8·B·E·lmax·mmax`. The ratio is
+therefore **`E / (B · mmax)`** — here `512 / (1 × 181) = 2.83`. Weight copies are
+**batch-independent**; activation copies scale with `B`. Consequences the headline must carry:
+
+* At **`batch_size: 4`** — the base config's own commented-out default (`batch_size: 1 #4`)
+  — the ratio is `512/(4×181) = 0.71`: the spectral activation and MLP hidden become the
+  largest tensors and the weight share of copy time falls to roughly **~19%**. **"This model
+  *is* its spectral weights" is a batch-1 statement.**
+* At a 721×1440 grid the ratio is 0.71 even at `B = 1`.
+* `hard_thresholding_fraction < 1` makes it **worse**: weight ∝ `thf`, activation ∝ `thf²`,
+  so at `thf = 0.5` the ratio doubles to ~5.7×. §4.5a's 377.49 MB is a `thf = 1.0` figure.
+* 12 of the 48 exist only because of `checkpointing: 3`; 12 only because DDP is on 4 ranks.
+  Single-GPU or checkpointing-off changes the count.
+
+#### 4.5d What the prereg got wrong, and why it is recorded
+
+| prediction | outcome |
+|---|---|
+| P1 complex64 copy ≈ 133.45 MB (act spectral) | **MISS on the dominant kernel.** That copy exists and matches exactly — but it is 5.3% of copy time. The dominant complex64 copy is **377.49 MB**, the weight. |
+| P2 `conj` ≈ 133.45 MB, 24 calls/rank-step = 2 × `num_layers` | **count HIT** (24 across both variants), **size MISS** (377.49 MB weight + 16.68 MB activation). The stated rationale — "one conjugate per operand per contraction" — was also wrong: it is 12 weight conj + 12 small activation conj. |
+| P3 float copy ≈ 132.71 MB (act latent) | **MISS.** The dominant float copy is **66.72 MB** = *one part* (real or imaginary) of the complex spectral activation. The 132.71 MB latent copy exists at 0.2%. |
+| P4 no copy exceeds 265.42 MB | **MISS**, and the bound itself was wrong — 265.42 MB was the largest tensor *I had enumerated*. With weights included the largest is 377.49 MB and nothing exceeds it (this survives the 4× launch-path correction). |
+
+**Also withdrawn after review, beyond the four predictions:** the `spectral_layers`
+mechanism (refuted from source — it never reaches this module); the `view_as_complex`
+explanation for the strided operand (a fresh `nn.Parameter(…, 2)` is contiguous, so that
+view is free; the permutation is the strided thing); "18.12 GB of invariant payload" and
+"22.0% of the step" (26.01 ms of it is the gradient — 13.59 GB and 17.8%); "2.8× the largest
+activation" (that is 2.83× the *spectral* activation; vs the MLP hidden it is **1.42×**);
+`C_in = 108` (it is **105**, and the parameter total pins it); and a **1.185× "no clean
+tensor"** row that was a tool bug, not a mismatch — reading the vectorized kernel's leading
+`(int)` as `nt` under-counted the non-legacy launch paths by 4×, and with it fixed that row
+is the fp32 latent exactly. All are folded in above.
+
+The prereg's decision rule anticipated this branch ("if they miss high, the excess is the
+finding: name the multiple and say what could produce it"). The multiple was **2.83× the
+spectral activation**, and what produced it was a tensor class the model omitted. Worth
+noting the prereg also recorded, before measuring, that §0d's published `GB/s × µs/call`
+implied ~238 MB and ~55 MB rather than the predicted clean tensors — so the mismatch was
+visible in advance and is not being re-narrated as a hit.
+
+```bash
+python3 ACE2_retrain/sfno_bytes_model.py                                   # inventory
+python3 ACE2_retrain/sfno_bytes_model.py --match $MEMBER_ROOT/bench/nsys_pangu_sfno_7255503.sqlite
+python3 ACE2_retrain/test_sfno_bytes_model.py                              # PASS, no capture
+```
+
+---
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move
@@ -788,8 +1067,9 @@ Two things follow, both **unmeasured hypotheses, flagged as such**:
    total step time. But `ckpt0` projects to **~41.7 GB > 40 GB** for Pangu and
    is likely unreachable, and production already ships `checkpointing: 2`, which banks most
    of it — **residual headroom against the config we actually run is ≈4%, not ≈25%.** And
-   `conj`, 14.1% of the copy time, is adjoint (warranted from source, §4.3c) and no
-   checkpointing level removes it.
+   `conj` (14.1% of the copy time) **and ~2/3 of the 35.8% weight-copy row** are immune to
+   every checkpointing level (§4.5c) — the adjoint is warranted from source (§4.3c), and two
+   of the three weight materialisations per layer are not recompute.
 
 ---
 
