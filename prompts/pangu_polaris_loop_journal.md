@@ -39,7 +39,49 @@ Entry shape (keep it):
     not recompute. Either way the number is recorded; neither outcome edits a gate.
   - **Stated limit, pre-committed:** this split cannot separate *recompute* from *adjoint* inside `backward` —
     there is no NVTX range between them. That separation is plan item 17, not this item.
-- **result:** OPEN — the split is computed in tick 1's second half, after this commit.
+- **result:** **3/3 predictions HIT.** Prereg integrity asserted *before* writing this line:
+  `985214b5` is an ancestor of HEAD, and the prereg text above is byte-identical to that commit
+  (`git diff --quiet 985214b5 HEAD -- prompts/pangu_polaris_loop_journal.md` was clean at the time
+  of measurement; re-check against `985214b5`, not against a later HEAD, since this `result:` line
+  was added afterwards by design).
+  - **P1** `(outside)` < 2% → **0.0%** (measured). Stronger than predicted: **all** 354,720 launches
+    fall inside a house phase, so the step's "missing" 268 ms contains zero launches — it is pure
+    GPU drain, which closes an open question in `polaris_bench_report.md` §4.1.
+  - **P2** `backward` >= 65% of copy time → **72.9%** (measured; 197.6 ms/rank-step of 271.2).
+  - **P3** `forward_loss` 15-30% → **27.1%**; `optimizer` < 5% → **0.0%** of copies; `data_prep`
+    < 1% → **0.0%** (it launches zero kernels at all; its GPU cost is 2.18 ms/rank-step of H2D).
+  - **Decision rule fired (P2 held):** activation recompute is first-order, so the `ckpt` ladder
+    (plan item 10) is the highest-value Tier-1 item after item 7. The split gives a **ceiling**, not
+    a decomposition: recompute <= forward's own 150.3 ms/rank-step ⇒ ckpt-off <= **24.9% of the
+    step (<= 1.33x)** — and ai-rossby's measured full ladder (1.307x = 23.5%) sits **1.4 points**
+    under it, so the ceiling is nearly saturated and essentially the whole forward is recomputed at
+    `ckpt3`.
+  - **Correction to the prereg's own pointer:** the recompute-vs-adjoint separation is plan item
+    **16** (SFNO-internal NVTX ranges re-fire inside `backward` during checkpoint recompute), not
+    item 17 (`--python-sampling`, which samples CPU stacks and cannot partition GPU time). The
+    prereg text above is left unedited — it is frozen; this is the correction of record.
+  - **Extra, not preregistered:** D2D `cudaMemcpyAsync` in the same capture sustains **1265 GB/s =
+    81% of the A100's 1555 GB/s**, all four devices within 2 points. Intra-device HBM only — it does
+    **not** close the interconnect/topology cell (item 6). It does kill the "81% is unreachable on
+    this node" reading of §0d's estimated 17-27%, so it narrows item 7 without replacing it.
+- **gauntlet:** drift auditor **returned** — 27 items; it independently re-derived every §4.3 number
+  from the capture and reproduced all of them. Three were real defects in §4.3 (bytes column mixed
+  per-rank-step with all-rank; a dropped `forward_loss` row so 128 != 131 launches; "26 points"
+  mixed denominators — it is 46.5% of the step CPU-side vs 77.4% GPU-side) — **all six of its §4.3
+  strikes applied.** Adversary **still running** at the time of writing; §4.3's commit is
+  deliberately held until it returns, so no unreviewed number lands in the shared memory.
+- **also landed this tick (commit 99378811), found by the new tool's test:** `parse_nsys.py` could
+  not run on a Polaris login node **at all** — `sqlite3.connect(PosixPath)` needs Python >= 3.7 and
+  the login default is **3.6.15**, and `statistics.fmean` is 3.8+. Both fixed with regression tests;
+  the NVTX range list hoisted to one `RANGE_NAMES` constant, which also repairs the live CLAUDE.md
+  #10 drift (`unstack` was in the SQL but not the print loop, so its rows were fetched and silently
+  dropped). Verified behaviour-preserving: the NVTX table now reproduces §4.1 exactly.
+- **FLAGGED FOR THE OPERATOR, not fixed:** `s2s/v2.0/HPC_scripts/parse_nsys.py` is a *different*
+  copy carrying only **8 of the 19** range names, and it is the one the Polaris PBS scripts and
+  `physicsnemo_ai_rossby/polaris/bench_instrumentation_test.py` actually invoke. So when plan item
+  16 adds SFNO-internal ranges, the Polaris analysis path will print **nothing** and look like the
+  instrumentation never fired. Fixing it touches the **live-coupled** s2s pair, which this loop must
+  not do (driver §3.4) — it needs its own change with both S2S and s2s-lightning smokes run.
 - **measured this tick already (not part of the prereg):**
   - **The NVTX text path is the inline `text` column, `domainId=0`, `eventType=59` (push/pop).** All four house
     ranges are present in `nsys_pangu_sfno_7255503.sqlite`: `data_prep`/`forward_loss`/`backward`/`optimizer`
@@ -56,8 +98,9 @@ Entry shape (keep it):
     worker thread** (`...2d149f`) while **all 201 NVTX events are on the main thread** (`...2d139d`). Same-thread
     attribution would therefore credit `(outside)` for the whole of `backward`. Attribution must be scoped to
     the **process** (globalPid), not the thread. — measured, plan item 4
-- **next:** compute the split with a process-scoped, pid-guarded, launch-time attribution; then land item 4's
-  fix to `kernel_census.py` reusing the same join.
+- **next:** wait for the adversary; apply any un-refuted strike; then commit §4.3 + the drift fixes,
+  tick plan item 1's checkbox, and write the CHANGELOG entry. After that, plan item **4** (fix
+  `kernel_census.py` by importing the guarded, process-scoped join rather than re-deriving it).
 - **infra-failure count:** 0/5
 
 ---
