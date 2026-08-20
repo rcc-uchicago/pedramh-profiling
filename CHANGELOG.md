@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (20 items; **1, 5 done**) — 42.2% of GPU time is `direct_copy`+`conj`, kernels that compute nothing, and the phase split is now measured (§4.3). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (61% of GPU time pointwise vs 15% GEMM) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
+| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 5 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
@@ -55,7 +55,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 > hardware is not the limit) but not replaced. Two things are now sized rather than guessed: the copy time
 > is **72.9% `backward`**, and **checkpointing headroom against the shipped `ckpt2` config is ≈4%, not
 > ≈25%** — so the `ckpt` ladder (item 10) is worth *measuring* but is not the prize the "61% elementwise"
-> share suggests. Next unchecked: item **2** (n=2 on job 7255557), then **3**, **4**.
+> share suggests. Next unchecked: item **3**, then **4**, then the new **6b**.
+>
+> **Updated again 2026-08-20 (item 2 done, no GPU time):** **stop quoting shares of GPU-kernel time.** On
+> two identical-config runs the copies read **42.2% and 37.4%** while the absolute moved **0.09%** (§4.4c)
+> — quote **271 ms/rank-step**. And the single-node "comms are free" result (1.2% exposed) is
+> **conditional on rank balance**: the same config on another node gives **4.9–8.8% exposed** with 17 of 40
+> steps stalled. ⇒ fix rank placement *before* attributing a multi-node scaling loss to Slingshot. One
+> stall is already diagnosed and **output-neutral to fix**: CPython gen-2 GC (item 6b(A)).
 
 0. **FOCUS (2026-07-15): the work is on `PanguWeather/`, not `s2s/v2.0`.** They are
    95%-identical forks (DESIGN §2c) — but **copies, not shared imports**, so nothing
@@ -184,6 +191,75 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-20** — **A share of the GPU-kernel total is not a reproducible quantity: the same measurement
+  moved 4.77 points between two runs of an identical config while its numerator moved 0.09%.** Plan item
+  **2**, from captures already on disk. No GPU time, no queue, no `qsub`. Jobs **7255557** vs **7255503** —
+  and they ran on **different nodes** (`x3001c0s19b0n0` / `x3001c0s1b1n0`, disjoint GPU UUIDs), so this is
+  node-to-node. Written up as `polaris_bench_report.md` **§4.4**.
+  **Preregistered at `952fcb8d` before the second capture was queried — 5/5 predictions hit.**
+  - **What moved and what did not.** `direct_copy`+`conj` **271.19 → 270.94 ms/rank-step (−0.09%)**, its
+    `backward` share **72.86 → 72.83% (−0.03 pt)**, compute-only **+0.08%** on quiet steps (union **0.27%**
+    across 8 devices on 2 nodes). But **NCCL 67.82 → 145.65 ms/rank-step (+114.8%)**, so the denominator
+    moved **+12.7%** and the copies read **42.2%** then **37.4%**. ⇒ **quote 271 ms/rank-step, never "42.2%
+    of GPU kernel time."** §4.2's category table and every share table in `PROFILING_TABLES.md` now say so.
+  - **This refines the repo's own rule.** "A cross-JOB ratio on Polaris is not a measurement" (2026-08-06)
+    becomes: **cross-job *compute* comparisons are sound; cross-job comparisons of anything containing NCCL
+    are not.** The standing 10.5% node-to-node figure is a *wall-time* spread — it is comms, not compute.
+  - **The reproducible stall is CPython generation-2 garbage collection — not NUMA, not affinity.** At the
+    **same training iteration** in both captures a rank's `forward_loss` blows out to ~7× its median, and
+    CPU sampling names it: **`gc_collect_main` 116 / 88 / 88 samples**, then `visit_reachable`,
+    `dict_traverse`; nothing else in either capture exceeds **5**. Thread state `Running`; blocking-syscall
+    time **0.6 ms** of 247 ms. A gen-2 collection fires on a deterministic function of **allocation count**,
+    which is exactly why it lands on the same iteration on different hardware — **no affinity hypothesis can
+    predict an iteration index.** ⇒ **Output-neutral fix to try** (no arithmetic changes, so outside the
+    DESIGN §4 gate and **no jesswan sign-off**): `gc.freeze()` after model/optimizer construction, or
+    `gc.disable()` around the bench loop. It is a **global** cost — every other rank waits at the
+    collective. Plan item **6b(A)**.
+  - **A second stall pattern is NOT diagnosed.** On 16 of 7255557's 17 stalled steps **dev0 alone waits
+    ~600 ms** while the other three sit at 60–70 ms — dev0 *out of phase with the group*, not one rank
+    straggling — with the late work in the **inter-step gap** and `_PyEval_EvalFrameDefault` /
+    `__libc_malloc` frames. **Candidate, unestablished:** the Pangu nsys script sets `OMP_NUM_THREADS=8`
+    and **no CPU binding**, so 4 unbound ranks put ~32 OpenMP threads plus 4 main threads plus loader
+    workers on 32 physical cores. Plan item **6b(B)**.
+  - **"Comms are essentially free on Polaris" is conditional on rank balance — plan §0b retitled.** The
+    88.7%-overlapped / **1.2%-exposed** result came from the capture with **1 stalled step of 40**. On
+    7255557, identical config, exposed NCCL is **4.9–8.8% of span** with **17 of 40** stalled. The
+    `NCCL_PROTO`/`NCCL_ALGO` agenda stays deprioritized, but for a sharper reason: **what varies is
+    placement, not protocol**, and no protocol change recovers time spent waiting for a late rank.
+  - **`broadcast_buffers`: the attribution retraction STANDS, its sizing does NOT.** `ncclBroadcast` went
+    **0.70 → 28.90 ms/rank-step (×41)** at an unchanged **160 launches** — same Midway mechanism, so a big
+    broadcast number is still never a broadcast *cost*. But my claim that removing it "would only move the
+    wait" is **refuted by our own union column**: `forward_loss` self-overlap is **0.0%** (that wait is 100%
+    exposed) while `backward`'s NCCL is **83–87% overlapped**, so moving the skew would **hide** most of it.
+    Sizing is **OPEN**; the change is still jesswan-gated (BN running statistics).
+  - **Two more published numbers corrected.** §0a's "3.5–4.4% idle" counted **kernels only** — memcpy and
+    memset are GPU work on the same stream, absent from the 643.2 ms kernel total; counting all GPU work
+    idle is **1.4–1.5%**, which makes §0a's conclusion *stronger*. DESIGN §5 rung 1 restated as **68% of
+    compute pointwise vs 17% GEMM** — the 4.0× ratio the rung rests on is invariant either way.
+  - **An adversarial pass landed 11 strikes, 4 FATAL, and it found the GC cause.** §4.4f records all
+    **seven** withdrawals rather than quietly dropping them. Mine, named: **"`deviceId 1` is the straggler
+    in both captures" — WITHDRAWN.** It is one event per capture, not a rank property, and my per-rank
+    ranking summed the **rooted** broadcast, whose root is ~0 by construction — handing dev0 a spurious
+    "late" credit on every step. Also withdrawn: **"same `git_sha`"** (no env file exists for 7255503 —
+    **my own prereg said exactly that and the write-up asserted the opposite**), "every launch count
+    identical" (cuDNN chose a different wgrad tile: 64 vs 63 distinct kernels), "+20% warmup" (really
+    **+6.7%**), "D2D bytes 2129.50 GB" (that is the above-L2 subset; all D2D is **2157.11 GB**), and
+    "invisible in the kernel table" (a *waiting* rank's compute inflates ~5% via SM contention with the
+    spinning ring kernel).
+  - **New cluster facts in `polaris_pbs_notes.md` §1**, including a measured **9.1×** multi-node result
+    (`mpiexec --cpu-bind depth -d 8` is mandatory; **4.08 vs 36.93 GB/s** busbw, colleague's job
+    **7368993**, and it **fails silently**) that was living only in an **untracked** script comment.
+    Single-node binding and the GPU↔NUMA map are recorded as **OPEN**.
+  - **Tooling — every §4.4 table now has committed code behind it.** `nvtx_phase_attribution.py` gains
+    `--per-rank` (straggler test, rooted collectives excluded) and `--stall-cause` (CPU leaf symbols inside
+    elongated windows — this is what found the GC). Three of its own bugs fixed: a regex on `Reduce`
+    misclassified `AllReduce` as rooted and silently emptied the ranking; SI and binary units were mixed in
+    one table; and a **cursor-reuse** bug made `--stall-cause` return no samples at all, which reads exactly
+    like "this capture has no sampling data." All three ship regression tests.
+  - **Next:** plan item **3** (analytic bytes-per-step model, free), then **4** (`kernel_census.py`, free).
+    Tier 0 is then exhausted and the first submission request will be item **6** (`gpu_topology_check.py`,
+    `debug`, ~1 min) or **6b**.
 
 - **2026-08-20** — **Pangu-on-Polaris plan items 1 and 5 are DONE, from captures already on disk: the
   42.2% copy time is `backward` 72.9% / `forward_loss` 27.1%, and warmup 20 was clean.** No GPU time, no

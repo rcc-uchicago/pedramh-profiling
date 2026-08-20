@@ -216,7 +216,7 @@ From job 53524918 (H100 NVL, batch 4, default settings):
 |---|---|---|
 | protocol in use | `RING_LL` (kernel name) | default really is LL |
 | large-population spread | 19.6 ms median -> 21.2 ms p90 | tight ⇒ **bandwidth-bound** |
-| per-rank totals | 16.24-17.14 s (within 5%) | balanced ⇒ **not straggler-bound** |
+| per-rank totals | 16.24-17.14 s (within 5%) | balanced ⇒ not straggler-bound **in this capture** (per-run, not a property — see below) |
 | exposed vs overlapped | **76% exposed** | on the critical path, not hidden behind compute |
 | implied rate | ~17.4 GB/s user ≈ 35 GB/s wire under LL | at cross-pair PCIe Gen5 saturation |
 
@@ -227,8 +227,13 @@ setting can be shown to apply (job 53707483 captures NCCL's own INIT/TUNING log
 to find out why it was ignored).
 
 Two dead ends recorded so they are not re-walked: comm is **not** hidden behind
-compute (76% exposed refutes it), and the all-reduce is **not** straggler-bound
-(tight spread, balanced ranks). An earlier draft of this analysis claimed 99.4%
+compute (76% exposed refutes it), and the all-reduce was **not** straggler-bound
+**in job 53534648** (tight spread, balanced ranks). ⚠ **The second is demoted from
+"dead end" to a per-capture observation, 2026-08-20.** Balance is a per-run draw, not a
+property: `polaris_bench_report.md` §4.4 finds **1 vs 17 stalled steps of 40** across two
+runs of an identical config (NCCL **+114.8%**), and names the reproducible stall as a
+**CPython gen-2 GC pause**. Re-check per-rank balance in every capture
+(`nvtx_phase_attribution.py --per-rank`, rooted collectives excluded). An earlier draft of this analysis claimed 99.4%
 of all-reduce time was "waiting" — that was a misread of a bimodal distribution,
 comparing small collectives against large ones rather than like against like.
 

@@ -58,8 +58,45 @@ Entry shape (keep it):
     de-generalised to job 7255503 alone.
   - **Stated limit:** this is n=2 on the **same node type, same day, same git sha**. It tests
     run-to-run reproducibility, **not** node-to-node (spread 10.5%) and not config sensitivity.
-- **result:** OPEN — measured after this commit.
-- **next:** run the re-derivation.
+- **result:** **5/5 predictions HIT.** Prereg `952fcb8d` verified as an ancestor of HEAD and
+  byte-identical before this line was written.
+  - **P1 structure** → 4 ranks, 160 rows each phase, `(outside)` **0.0%**, exactly one join row per
+    kernel. HIT.
+  - **P2 absolute reproduces / share falls** → copies **271.19 → 270.94 ms/rank-step (−0.09%)**; share
+    **42.16% → 37.39%**. HIT, both halves, and the share fell in the predicted direction.
+  - **P3 the split ±2 pt** → **72.86 → 72.83%**, i.e. **0.03 pt**. HIT.
+  - **P4 more stalls, higher total** → NCCL **+114.8%**, total **+12.7%**, stalled steps **1 → 17 of 40**.
+    HIT.
+  - **P5 bandwidth ±3 pt** → **82.2% → 82.4%** of peak. HIT.
+  - **Decision rule fired as written:** §0d's percentages are stall-sensitive ⇒ the plan and the tables now
+    say quote **ms/rank-step**, not a share. Also **stronger than predicted**: the two jobs ran on
+    **different nodes**, so this is node-to-node, and it refines the repo's standing rule into *cross-job
+    **compute** comparisons are sound; anything containing NCCL is not.*
+- **gauntlet: CLEARED, and it changed the conclusion.** Both roles ran on the inherited tier again
+  (`claude-fable-5` still out of credits).
+  - **Drift auditor: 27 items.** Two mattered most: (a) I claimed "same `git_sha`" when **my own prereg
+    two paragraphs above says no env file exists for 7255503** — a self-contradiction I should have caught;
+    (b) §4.4d's per-rank table and the stall count had **no committed code behind them** (ad-hoc SQL), the
+    same process violation as last tick's strike 15. Both fixed; `--per-rank` and `--stall-cause` now exist.
+  - **Adversary: 11 strikes, 4 FATAL — and it found the actual cause I had mis-diagnosed.** The step-30
+    stall is **CPython gen-2 GC** (`gc_collect_main`, 116/88/88 samples), not NUMA. I verified it myself
+    before adopting it. It explains what my hypothesis could not: why the stall lands on the **same
+    training iteration on two different nodes** — a gen-2 collection fires on allocation count, which is
+    hardware-independent.
+  - **What I got wrong, recorded so it is not re-derived** (full list in §4.4f): "dev1 is the straggler in
+    both captures" (one event per capture, not a rank property — and my ranking summed the **rooted**
+    broadcast, whose root is ~0 by construction, biasing every step); "`broadcast_buffers=False` would only
+    move the wait" (refuted by **my own union column** — the forward broadcast wait is 0% overlapped while
+    backward NCCL is 83–87% overlapped, so moving it would *hide* most of it); "same `git_sha`"; "every
+    launch count identical" (cuDNN picked a different wgrad tile); "+20% warmup" (really +6.7% — I had
+    compared one rank's step 0 against the all-rank median).
+  - **Three tool bugs found by the review, all now tested:** the `Reduce` regex matched `AllReduce` and
+    silently emptied the straggler ranking; SI and binary units were mixed in one table (12.56 "GB" was
+    GiB); and a **cursor-reuse** bug made `--stall-cause` return no samples at all — indistinguishable from
+    "this capture has no sampling data".
+- **next:** plan item **3** (analytic bytes-per-step model — free, no `qsub`), then item **4**
+  (`kernel_census.py`, free). Tier 0 is then exhausted; the first submission request will be item **6**
+  (`gpu_topology_check.py`, `debug`, ~1 min) or the new **6b**. **Nothing has been submitted in this loop.**
 - **infra-failure count:** 0/5
 
 ---

@@ -88,8 +88,14 @@ cd <repo>/s2s
 PYTHONPATH=$(pwd)/v2.0 torchrun --standalone --nproc_per_node=4 \
     v2.0/train.py --yaml_config=v2.0/config/exp2.yaml --run_num=0100
 ```
-No `mpiexec`, no affinity script needed for a single node (torchrun's local ranks
-bind fine). Only the PBS wrap + module/env + repointed paths change.
+No `mpiexec` or affinity script is *required* for a single node. Only the PBS wrap
++ module/env + repointed paths change.
+⚠ **But "torchrun's local ranks bind fine" was never measured.**
+`polaris_bench_report.md` §4.4e finds an undiagnosed host-CPU stall pattern on
+unbound single-node runs (one rank out of phase, late work in the inter-step
+gap). Treat CPU binding as an **open A/B** (plan item 6b), not a settled
+non-issue. Note the *reproducible* stall there turned out to be **CPython gen-2
+GC**, not affinity — do not attribute every host stall to binding.
 
 **S2S-Lightning (`srun` + Lightning SLURM launcher) — needs a rewrite.** The
 Midway bench (`midway_bench_nsys_port.sh`) uses `srun --ntasks-per-node=4` because

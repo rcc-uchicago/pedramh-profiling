@@ -957,8 +957,12 @@ Stated plainly so nothing below reads as done:
 * **The `workers=8` +9% is a bench result, not an endorsement** — see the `epsilon_factor`
   box in §3. It changes the loss trajectory.
 * **Single-run numbers.** Each sweep point is one job. The step distributions are tight
-  (`workers=8` std = 0.3 ms) so within-run precision is high, but run-to-run variance across
-  *nodes* was not measured.
+  (`workers=8` std = 0.3 ms) so within-run precision is high. **Partly superseded:** the
+  nsys capture is now **n=2 across two nodes** (§4.4b) — **compute** reproduces to
+  0.08–0.27%, **NCCL does not (+114.8%)**, and total step time moves **12.7%**. So a
+  cross-job compute comparison is sound and a cross-job comparison of anything containing
+  NCCL is not. The *sweep* points remain n=1 each, and their deltas (notably
+  `num_data_workers` +9%) are inside that 12.7% spread.
 * **The nsys numbers are eager and 40 steps**, vs the CSV bench's 80. The step medians agree
   (603.5 ms NVTX vs 602–652 ms CSV), which is the cross-check.
 * **`ema` never fired** (`ema_warmup_epochs: 6`). Full training pays a per-step sweep over
@@ -1003,4 +1007,23 @@ Stated plainly so nothing below reads as done:
   gaussian noise inside the workers (`epsilon_factor: 0.1`) with no `worker_init_fn`, so the
   worker count changes the noise realization and moves the loss. The `1 → 8` (+9%, and 10×
   less jitter) is recorded as a **finding, not a recommendation**; the clean fix is a seeded
-  `worker_init_fn`.
+  `worker_init_fn`. ⚠ **The +9% is NOT established** — it is a **cross-job** delta (7255410
+  vs 7255480), n=1 per point, and §4.4b measures two identical-config jobs differing 12.7%
+  in total per-rank-step GPU time. Plan §5 measures **0.991×** for the same knob in a
+  *within-job* sweep. Treat +9% as unmeasured until it is re-run interleaved.
+* **2026-08-20** — **§4.3 added: the §4.1↔§4.2 join, done correctly.** The 42.2% copy time
+  splits `backward` **72.9%** / `forward_loss` **27.1%**; `(outside)` is **0.0%**, so the
+  step's "missing" ~268 ms holds zero launches and is pure drain. Two join bugs fixed first
+  (a missing `globalPid` guard, **+29.4%** phantom; and thread- rather than process-scoped
+  attribution, which had been credited to an NVTX limitation for months). D2D memcpy above
+  L2 sustains **82% of HBM peak**, so §0d's estimated 17–27% for the copy kernels is about
+  the path they take. Plan items 1 and 5. Preregistered `985214b5`, 3/3 hit.
+* **2026-08-20** — **§4.4 added: a share of the GPU-kernel total is not a reproducible
+  quantity.** On two identical-config runs (**different nodes**) the copies read 42.2% and
+  37.4% — **4.77 points** — while the numerator moved **0.09%**. Compute reproduces
+  (+0.08% on quiet steps); NCCL does not (**+114.8%**). ⇒ quote **271 ms/rank-step**, not a
+  share. **VERDICT: cross-job *compute* comparisons on Polaris are sound; cross-job
+  comparisons of anything containing NCCL are not.** The reproducible stall at the same
+  training iteration on both nodes is **CPython gen-2 GC** (`gc_collect_main`), not NUMA —
+  output-neutral to fix. Plan item 2. Preregistered `952fcb8d`, 5/5 hit. An adversarial pass
+  landed 4 FATAL strikes on the first draft; §4.4f records all seven withdrawals.
