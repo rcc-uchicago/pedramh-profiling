@@ -55,7 +55,7 @@ PID_MASK = ~0xFFFFFF
 # per-step `step_N` markers are deliberately NOT in it: they ENCLOSE these and
 # would trip the overlap check in load_phases().
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from parse_nsys import RANGE_NAMES as PHASES  # noqa: E402
+from parse_nsys import RANGE_NAMES as PHASES, _table_exists  # noqa: E402
 
 # Ordered: first match wins. Collapses PyTorch's templated names to something
 # a table can hold, keeping the dtype -- `direct_copy` over complex64 and over
@@ -139,6 +139,25 @@ def _enclosing(intervals, ts):
     return '(outside)'
 
 
+def _union_ns(intervals):
+    """Total time covered by [start, end) intervals, counting overlap once.
+
+    A phase's SUMMED kernel duration is not its GPU occupancy: NCCL runs on its
+    own stream, so `backward` overlaps itself and its sum exceeds its span. This
+    project has already had to retract one conclusion built on sum-vs-union, so
+    both are always reported side by side.
+    """
+    total = 0
+    cur_s = cur_e = None
+    for s, e in sorted(intervals):
+        if cur_e is None or s > cur_e:
+            total += 0 if cur_e is None else cur_e - cur_s
+            cur_s, cur_e = s, e
+        elif e > cur_e:
+            cur_e = e
+    return total + (cur_e - cur_s if cur_e is not None else 0)
+
+
 def attribute(cur, by_pid, by_exec=False):
     """(phase, label) -> [n_launches, gpu_ns], via the pid-guarded join."""
     cur.execute("""
@@ -150,29 +169,53 @@ def attribute(cur, by_pid, by_exec=False):
         JOIN StringIds s ON s.id = k.demangledName
     """, (PID_MASK,))
     agg = collections.defaultdict(lambda: [0, 0])
+    spans = collections.defaultdict(list)
     for launch_ts, exec_ts, dur, pid, name in cur.fetchall():
         intervals = by_pid.get(pid, ())
         phase = _enclosing(intervals, exec_ts if by_exec else launch_ts)
         cell = agg[(phase, short_label(name))]
         cell[0] += 1
         cell[1] += dur
-    return agg
+        spans[(pid, phase)].append((exec_ts, exec_ts + dur))
+    # Union per (rank, phase), then summed over ranks so it is comparable with
+    # the summed column. Per-rank first: two ranks' kernels are on different
+    # devices and must never be unioned together.
+    union = collections.Counter()
+    for (pid, phase), iv in spans.items():
+        union[phase] += _union_ns(iv)
+    return agg, dict(union)
 
 
-def report(agg, kernel_regex=None, top=12):
+def report(agg, union=None, kernel_regex=None, top=12, rank_steps=None):
     total_ns = sum(v[1] for v in agg.values())
     total_n = sum(v[0] for v in agg.values())
     by_phase = collections.defaultdict(lambda: [0, 0])
     for (phase, _), (n, ns) in agg.items():
         by_phase[phase][0] += n
         by_phase[phase][1] += ns
+    rs = rank_steps or 1
+    per = f"/{rank_steps} rank-steps" if rank_steps else ""
     print(f"{total_n:,} launches, {total_ns / 1e9:.3f} s GPU kernel time "
-          f"(all ranks, pid-guarded join)\n")
-    print(f"{'phase':<16}{'launches':>10}{'% count':>9}{'gpu_s':>10}{'% time':>8}")
-    print("  " + "-" * 51)
+          f"(all ranks, pid-guarded join){per}\n")
+    hdr = (f"{'phase':<16}{'launches':>10}{'% count':>9}{'sum_ms/rs':>11}"
+           f"{'% of sum':>10}")
+    if union:
+        hdr += f"{'UNION_ms/rs':>13}{'% of union':>12}{'overlap':>9}"
+    print(hdr)
+    print("  " + "-" * (len(hdr) - 2))
+    total_u = sum(union.values()) if union else 0
     for phase, (n, ns) in sorted(by_phase.items(), key=lambda kv: -kv[1][1]):
-        print(f"{phase:<16}{n:>10,}{100 * n / total_n:>8.1f}%"
-              f"{ns / 1e9:>10.3f}{100 * ns / total_ns:>7.1f}%")
+        line = (f"{phase:<16}{n:>10,}{100 * n / total_n:>8.1f}%"
+                f"{ns / 1e6 / rs:>11.2f}{100 * ns / total_ns:>9.1f}%")
+        if union:
+            u = union.get(phase, 0)
+            line += (f"{u / 1e6 / rs:>13.2f}{100 * u / total_u:>11.1f}%"
+                     f"{100 * (1 - u / ns) if ns else 0:>8.1f}%")
+        print(line)
+    if union:
+        print("\n  sum counts a kernel on every stream it runs on; UNION counts "
+              "wall-clock\n  occupancy (per rank, then summed). Quote the UNION "
+              "against a step time.")
 
     if kernel_regex is None:
         return
@@ -196,6 +239,180 @@ def report(agg, kernel_regex=None, top=12):
         print(f"{phase:<16}{ns / 1e9:>10.3f}{100 * ns / sel_ns:>9.1f}%")
 
 
+def per_step_report(cur, by_pid, top_outliers=3):
+    """Per-rank-step GPU time, to expose a regime change or a one-step stall.
+
+    Every aggregate in a capture is a mean over its steps; a single stalled step
+    can move a sub-total by double digits while leaving the phase shares almost
+    unchanged. Print the spread and name the outliers rather than trusting the
+    mean (plan item 5).
+    """
+    rows = list(cur.execute("""
+        SELECT r.start, k.end - k.start, k.globalPid, s.value
+        FROM CUPTI_ACTIVITY_KIND_RUNTIME r
+        JOIN CUPTI_ACTIVITY_KIND_KERNEL k
+          ON k.correlationId = r.correlationId
+         AND k.globalPid = (r.globalTid & ?)
+        JOIN StringIds s ON s.id = k.demangledName
+    """, (PID_MASK,)))
+    # index each rank's phase windows so a launch maps to (step, phase)
+    steps = collections.defaultdict(list)
+    for pid, iv in by_pid.items():
+        n = -1
+        for start, end, name in iv:
+            if name in ('data_prep', 'preprocess'):
+                n += 1
+            steps[pid].append((start, end, n, name))
+    per = collections.defaultdict(lambda: collections.Counter())
+    for ts, dur, pid, name in rows:
+        arr = steps.get(pid, ())
+        i = bisect.bisect_right(arr, (ts, float('inf'), 0, '')) - 1
+        if i < 0 or not (arr[i][0] <= ts <= arr[i][1]):
+            continue
+        _, _, n, phase = arr[i]
+        per[(pid, n)][phase] += dur
+        per[(pid, n)]['TOTAL'] += dur
+        if 'nccl' in short_label(name):
+            per[(pid, n)]['nccl'] += dur
+    tot = sorted(v['TOTAL'] / 1e6 for v in per.values())
+    med = tot[len(tot) // 2]
+    print(f"\n  {len(per)} rank-steps: median {med:.2f} ms, "
+          f"min {tot[0]:.2f}, max {tot[-1]:.2f}, spread {tot[-1] / tot[0]:.3f}x")
+    print(f"  first vs median: {sorted(per.items(), key=lambda kv: kv[0][1])[0][1]['TOTAL'] / 1e6:.2f} "
+          f"vs {med:.2f} ms  ⇒ "
+          + ("NO warmup regime" if abs(sorted(per.items(), key=lambda kv: kv[0][1])[0][1]['TOTAL'] / 1e6 / med - 1) < 0.03
+             else "WARMUP REGIME PRESENT"))
+    worst = sorted(per.items(), key=lambda kv: -kv[1]['TOTAL'])[:top_outliers]
+    print(f"  worst {top_outliers} rank-steps (GPU kernel sum):")
+    for (pid, n), c in worst:
+        print(f"    step index {n:>3} pid {pid:#x}: {c['TOTAL'] / 1e6:8.2f} ms "
+              f"({c['TOTAL'] / 1e6 / med:.2f}x median), of which nccl "
+              f"{c['nccl'] / 1e6:7.2f} ms")
+    excl = {k: v for k, v in per.items() if k[1] != worst[0][0][1]}
+    if excl:
+        s_all = sum(v['TOTAL'] for v in per.values()) / len(per)
+        s_ex = sum(v['TOTAL'] for v in excl.values()) / len(excl)
+        n_all = sum(v['nccl'] for v in per.values()) / len(per)
+        n_ex = sum(v['nccl'] for v in excl.values()) / len(excl)
+        print(f"  excluding step index {worst[0][0][1]} (all ranks): "
+              f"total {s_all / 1e6:.2f} -> {s_ex / 1e6:.2f} ms/rank-step "
+              f"({100 * (s_ex / s_all - 1):+.1f}%), "
+              f"nccl {n_all / 1e6:.2f} -> {n_ex / 1e6:.2f} ms "
+              f"({100 * (n_ex / n_all - 1):+.1f}%)")
+
+
+def memcpy_report(cur, by_pid, rank_steps=None):
+    """Memcpy/memset bandwidth, bucketed by size against the L2 capacity.
+
+    A memcpy's DRAM traffic is `2 x bytes` ONLY if the transfer misses L2 --
+    read the source, write the destination. A transfer that fits in L2 can be
+    serviced without touching DRAM twice, and applying the 2x rule to it yields
+    a bandwidth ABOVE the device peak, which is how you know the rule does not
+    apply there. So the population above L2 is reported separately and is the
+    only one whose bandwidth may be quoted.
+    """
+    rs = rank_steps or 1
+    if not _table_exists(cur, 'CUPTI_ACTIVITY_KIND_MEMCPY'):
+        print("  no MEMCPY table in this capture")
+        return
+    peak = l2 = None
+    if _table_exists(cur, 'TARGET_INFO_GPU'):
+        cols = {r[1] for r in cur.execute("PRAGMA table_info(TARGET_INFO_GPU)")}
+        want = [c for c in ('memoryBandwidth', 'l2CacheSize', 'name') if c in cols]
+        rows = list(cur.execute(f"SELECT {','.join(want)} FROM TARGET_INFO_GPU"))
+        if rows:
+            d = dict(zip(want, rows[0]))
+            peak, l2 = d.get('memoryBandwidth'), d.get('l2CacheSize')
+            print(f"  device: {d.get('name', '?')}  peak {peak / 1e9:.0f} GB/s  "
+                  f"L2 {l2 / 2**20:.0f} MiB   (read from the capture)")
+    KINDS = {1: 'H2D', 2: 'D2H', 8: 'D2D', 10: 'P2P'}
+
+    print(f"\n{'kind':<6}{'n':>8}{'ms/rank-step':>14}{'bytes/rank-step':>18}"
+          f"{'GB/s DRAM':>12}{'% peak':>9}")
+    print("  " + "-" * 65)
+    for ck, n, ns, b in cur.execute(
+            "SELECT copyKind, COUNT(*), SUM(end-start), SUM(bytes) "
+            "FROM CUPTI_ACTIVITY_KIND_MEMCPY GROUP BY 1 ORDER BY 3 DESC"):
+        mult = 2 if ck in (8,) else 1  # D2D touches DRAM twice; H2D/D2H once
+        bw = mult * b / (ns / 1e9)
+        print(f"{KINDS.get(ck, ck):<6}{n:>8,}{ns / 1e6 / rs:>14.2f}"
+              f"{_human(b / rs):>18}{bw / 1e9:>12.0f}"
+              f"{100 * bw / peak if peak else 0:>8.0f}%")
+
+    print(f"\n  D2D by transfer size (the 2x-DRAM rule only holds above L2):")
+    print(f"  {'size':>12}{'n':>8}{'GB':>10}{'s':>9}{'GB/s':>10}{'% peak':>9}  note")
+    for size, n, ns, b in cur.execute(
+            "SELECT bytes, COUNT(*), SUM(end-start), SUM(bytes) "
+            "FROM CUPTI_ACTIVITY_KIND_MEMCPY WHERE copyKind=8 "
+            "GROUP BY 1 ORDER BY 4 DESC"):
+        bw = 2 * b / (ns / 1e9)
+        pct = 100 * bw / peak if peak else 0
+        note = ('SUB-L2 — 2x rule INVALID' if l2 and size <= l2 else 'above L2')
+        if pct > 100:
+            note += ', >100% of peak PROVES it'
+        print(f"  {_human(size):>12}{n:>8,}{b / 1e9:>10.2f}{ns / 1e9:>9.4f}"
+              f"{bw / 1e9:>10.1f}{pct:>8.1f}%  {note}")
+
+    if l2:
+        row = list(cur.execute(
+            "SELECT COUNT(*), SUM(end-start), SUM(bytes) "
+            "FROM CUPTI_ACTIVITY_KIND_MEMCPY WHERE copyKind=8 AND bytes > ?",
+            (l2,)))[0]
+        n, ns, b = row
+        tot_b = list(cur.execute("SELECT SUM(bytes) FROM "
+                                 "CUPTI_ACTIVITY_KIND_MEMCPY WHERE copyKind=8"))[0][0]
+        bw = 2 * b / (ns / 1e9)
+        print(f"\n  >>> QUOTABLE: D2D above L2 = {n:,} copies, {b / 1e9:.2f} GB "
+              f"({100 * b / tot_b:.1f}% of all D2D bytes), {bw / 1e9:.0f} GB/s = "
+              f"{100 * bw / peak:.0f}% of peak")
+
+        print(f"\n  per device, above L2 only:")
+        for pid, dev, n, ns, b in cur.execute(
+                "SELECT globalPid, deviceId, COUNT(*), SUM(end-start), SUM(bytes) "
+                "FROM CUPTI_ACTIVITY_KIND_MEMCPY WHERE copyKind=8 AND bytes > ? "
+                "GROUP BY 1,2 ORDER BY 2", (l2,)):
+            bw = 2 * b / (ns / 1e9)
+            print(f"    dev{dev}  n={n:>6,}  {b / 1e9:>8.2f} GB  {bw / 1e9:>7.0f} GB/s"
+                  f"  {100 * bw / peak:>5.1f}% of peak")
+
+    # Which stream? Concurrency changes what the number means.
+    print(f"\n  streams: ", end='')
+    print(', '.join(f"{KINDS.get(ck, ck)} on stream {sid} (n={n:,})" for ck, sid, n
+                    in cur.execute("SELECT copyKind, streamId, COUNT(*) FROM "
+                                   "CUPTI_ACTIVITY_KIND_MEMCPY GROUP BY 1,2 "
+                                   "ORDER BY 3 DESC LIMIT 4")))
+
+    if _table_exists(cur, 'CUPTI_ACTIVITY_KIND_MEMSET'):
+        n, ns, b = list(cur.execute(
+            "SELECT COUNT(*), SUM(end-start), SUM(bytes) FROM "
+            "CUPTI_ACTIVITY_KIND_MEMSET"))[0]
+        print(f"\n  memset: n={n:,}  {ns / 1e6 / rs:.2f} ms/rank-step  "
+              f"{_human((b or 0) / rs)}/rank-step  (NOT in the kernel total either)")
+
+    # Phase attribution, launch-time, with the by-exec sensitivity spelled out.
+    for by_exec in (False, True):
+        agg = collections.Counter()
+        for ts, ets, ns, pid, ck in cur.execute(
+                "SELECT r.start, m.start, m.end-m.start, m.globalPid, m.copyKind "
+                "FROM CUPTI_ACTIVITY_KIND_RUNTIME r "
+                "JOIN CUPTI_ACTIVITY_KIND_MEMCPY m "
+                "  ON m.correlationId = r.correlationId "
+                " AND m.globalPid = (r.globalTid & ?)", (PID_MASK,)):
+            ph = _enclosing(by_pid.get(pid, ()), ets if by_exec else ts)
+            agg[(ph, KINDS.get(ck, ck))] += ns
+        tag = 'KERNEL-EXEC time' if by_exec else 'LAUNCH time'
+        print(f"\n  memcpy by phase, bucketed on {tag}:")
+        for (ph, k), ns in agg.most_common(6):
+            print(f"    {ph:<14}{k:<5}{ns / 1e6 / rs:>8.2f} ms/rank-step")
+
+
+def _human(b):
+    for u in ('B', 'KB', 'MB', 'GB', 'TB'):
+        if b < 1024 or u == 'TB':
+            return f"{b:.2f} {u}" if u != 'B' else f"{b:.0f} B"
+        b /= 1024.0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('sqlite')
@@ -205,6 +422,12 @@ def main(argv=None):
                     help='comma-separated NVTX names; default = the shared contract')
     ap.add_argument('--by-exec', action='store_true',
                     help='bucket by kernel execution time instead of launch time')
+    ap.add_argument('--memcpy', action='store_true',
+                    help='memcpy/memset bandwidth, bucketed against L2 capacity')
+    ap.add_argument('--per-step', action='store_true',
+                    help='per-rank-step series: warmup regime and stall outliers')
+    ap.add_argument('--rank-steps', type=int, default=None,
+                    help='normalise to this many rank-steps (default: derived)')
     ap.add_argument('--top', type=int, default=12)
     a = ap.parse_args(argv)
     # mode=ro: a capture is a primary artifact and is never written to.
@@ -219,7 +442,18 @@ def main(argv=None):
                       for t in names
                       if any(r[2] == t for v in by_pid.values() for r in v))
           + (" [by KERNEL EXEC time]" if a.by_exec else " [by LAUNCH time]") + "\n")
-    report(attribute(con.cursor(), by_pid, a.by_exec), a.kernel_regex, a.top)
+    # rank-steps = phase-window count per rank, so every table is per-rank-step.
+    anchor = next((n for n in ('data_prep', 'preprocess')
+                   if any(r[2] == n for v in by_pid.values() for r in v)), None)
+    rank_steps = a.rank_steps or (
+        sum(1 for v in by_pid.values() for r in v if r[2] == anchor) if anchor else None)
+    agg, union = attribute(con.cursor(), by_pid, a.by_exec)
+    report(agg, union, a.kernel_regex, a.top, rank_steps)
+    if a.per_step:
+        per_step_report(con.cursor(), by_pid)
+    if a.memcpy:
+        print()
+        memcpy_report(con.cursor(), by_pid, rank_steps)
 
 
 if __name__ == '__main__':

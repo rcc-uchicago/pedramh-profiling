@@ -177,6 +177,15 @@ So: **do not read `backward = 280 ms` as "backward is 47% of GPU time."** It is 
 CPU *launch* work. Attributing GPU time requires the kernel table (§4.2), which is why both
 are reported.
 
+**§4.3 now does that attribution, and it confirms this paragraph while correcting its
+number in the other direction:** the ~268 ms gap contains **zero kernel launches** (pure
+drain, measured, not inferred — the CPU is inside `cudaDeviceSynchronize`), and the
+CPU-side reading *understates* `backward`. Like-for-like against the 603.5 ms step:
+**46.5% read CPU-side vs 67.7% read GPU-side** (`backward`'s 408.6 ms/rank-step **union**;
+its summed kernel time of 467.0 ms is 72.6% of kernel time but overlaps itself 12.5% on
+NCCL's stream, so it must not be divided into a step time — see §4.3b/§4.3d). The CPU
+issues forward work **3.8×** faster than the GPU retires it.
+
 `ema` does not appear: `ema_warmup_epochs: 6` and these are 1-epoch runs, so EMA never
 fired. **A full training run will pay it** — an every-step sweep over 1.18 B parameters —
 and it is instrumented and waiting.
@@ -208,13 +217,319 @@ are **large memory-bound passes**. The lever is **fusion** (fewer round-trips to
 faster matmul. That is `torch.compile`'s core competency and it is §5 rung 1.
 
 Also measured:
-* **NCCL all-reduce = 67.8 ms/step (10.5%)** over 16 calls — DDP gradient sync on a 1.18 B
-  model. §5 rung 3 (bf16 comm hook) targets roughly half of this ≈ 5% of the step.
+* **NCCL = 67.8 ms/step (10.5%)** over 16 calls — DDP gradient sync on a 1.18 B model.
+  §4.3 splits it: **all-reduce 67.1 ms, 100% inside `backward`**, plus the 0.7 ms
+  `broadcast_buffers` broadcast in `forward_loss`. A comm hook touches only the all-reduce.
+  **Corrected sizing:** this 10.5% is a share of *kernel* time on NCCL's own stream, and
+  plan §0b measures that stream as **88.7% overlapped with compute / 1.2% exposed** — so
+  §5 rung 3's ceiling on one node is **~1.2% of wall-clock, not 5%**. It becomes interesting
+  multi-node (plan item 12), not here.
 * **cuFFT = 21.0 ms (3.3%)** — the spherical-harmonic transform is *not* a hotspot. Note
   `si/bench_midway_notes.md` §3–4's standing warning: the fp32 island around the SHT is
   deliberate and must not be "optimized" to bf16.
 * **H2D: 962 transfers, 348.8 ms total, 8.38 GB** across the window ≈ 2.2 ms/rank-step,
   i.e. **~0.4% of the step**. Input transfer is not a problem.
+
+---
+
+### 4.3 Which phase owns the GPU time — the §4.1↔§4.2 join, done correctly
+
+§4.1 gives CPU-side range times, §4.2 gives GPU kernel time, and until now nothing
+connected them: the report could say "61% elementwise" and "backward is 280 ms of
+*launch*" without being able to say **how much of the GPU time backward owns.** This
+closes that, on the same capture, with no new GPU time
+(`ACE2_retrain/nvtx_phase_attribution.py`, plan item 1).
+
+Every number below was re-derived independently by an adversarial review pass, which
+landed 15 strikes on the first draft of this section; the corrections are folded in and
+the two it could not break are marked. **Read §4.3d before quoting any share against a
+step time** — the first draft of this section made the sum-vs-union error that
+`PANGU_POLARIS_PROFILING_PLAN.md` §0 lists as already-refuted, and got caught.
+
+#### 4.3a Two things make this join wrong if done naively, and both had to be fixed
+
+1. **`correlationId` is unique per PROCESS, not per capture.** One sqlite holds all four
+   ranks, so the bare `RUNTIME.correlationId = KERNEL.correlationId` join cross-products
+   them: **459,088 rows for 354,720 kernels, +29.4% phantom.** The guard is
+   `KERNEL.globalPid = RUNTIME.globalTid & ~0xFFFFFF` (an nsys `globalTid` is
+   `globalPid | tid` with the tid in the low 24 bits; verified — masking every RUNTIME
+   `globalTid` reproduces the four KERNEL `globalPid`s exactly). With the guard the join
+   returns **exactly 354,720 rows = one per kernel**, `COUNT(DISTINCT k.rowid)` = 354,720
+   (nothing duplicated), and nothing is orphaned: all 354,720 rows are
+   `launchType = REGULAR` with `graphNodeId IS NULL`, so there are no graph-launched or
+   CDP kernels to fall out. Summed duration over the join equals `SUM(end-start)` over the
+   whole KERNEL table to the nanosecond (102,910,943,542 ns). This independently
+   reproduces the **+30.8%** measured on the Midway ACE2 capture (handoff §5), and it is
+   the bug still live in `ACE2_retrain/kernel_census.py:58`.
+2. **The launching thread is not the thread the NVTX range is on.** PyTorch's autograd
+   engine launches from its own worker thread, so a range pushed on the main thread never
+   contains the backward launches by thread identity: on rank 0, **62,680 of 88,680
+   launches** come from `pt_autograd_*`. Thread-scoped attribution therefore credits
+   `(outside)` for *the whole of backward* — which is exactly the origin of the "81% of GPU
+   time lands outside any range" figure in `ACE2_retrain/bench_midway_notes.md`, and it was
+   never an NVTX limitation. Attribution is scoped to the **process** instead, sound here
+   because the four phase windows are non-overlapping per rank (asserted at load; nested
+   ranges are refused rather than silently double-counted).
+
+**Also settled: the NVTX text path.** The house ranges live in the inline
+`NVTX_EVENTS.text` column (`domainId = 0`, `eventType = 59`), at 160 rows each = 40 steps ×
+4 ranks. The `textId → StringIds` path holds **only** NCCL's registered strings
+(`ncclAllReduce` 2402, `ncclBroadcast` 160, `domainId = 1`). Nothing of ours was ever
+missing from the capture, and `parse_nsys.py`'s `WHERE text IN (…)` was already on the
+right path. (Precisely: rank 0 carries **841** NVTX events in total; the **201** with
+non-NULL `text` are all on the main thread, and 600 of the remainder are NCCL's own ranges
+on the autograd worker. The conclusion — the *house* ranges carry no backward launches by
+thread identity — is what matters and is unaffected.)
+
+#### 4.3b GPU kernel time by phase — with sum AND union, because they differ
+
+Launch-time attribution, all 4 ranks, normalised over 160 rank-steps. **`sum` counts a
+kernel once per stream it runs on; `union` is wall-clock occupancy**, computed per rank and
+then added across ranks (never unioned across devices):
+
+| phase | launches/step | sum ms/rs | % of sum | **union ms/rs** | % of union | self-overlap |
+|---|---|---|---|---|---|---|
+| `backward` | 1568 | 466.95 | 72.6% | **408.63** | **69.9%** | **12.5%** |
+| `forward_loss` | 590 | 150.32 | 23.4% | 150.32 | 25.7% | 0.0% |
+| `optimizer` | 59 | 25.93 | 4.0% | 25.93 | 4.4% | 0.0% |
+| `data_prep` | **0** | 0.00 | 0.0% | 0.00 | 0.0% | — |
+| `(outside)` | **0** | 0.00 | 0.0% | 0.00 | 0.0% | — |
+| total | 2217 | 643.19 | 100% | 584.88 | 100% | 9.1% |
+
+The `sum` column reconciles with §4.2 exactly (2217 launches/step, 643.2 ms, 102.911 s), so
+this is a **partition** of §4.2, not a second estimate of it.
+
+**Only `backward` overlaps itself**, and the reason is measured: it carries 67.1
+ms/rank-step of `ncclAllReduce` on `streamId 19` while compute runs on `streamId 7`. So
+`forward_loss` and `optimizer` are union-safe and their numbers may be quoted directly;
+**`backward`'s may not.**
+
+**`(outside)` is 0.0% — every one of the 354,720 launches falls inside one of the four
+phases.** That closes §4.1's open question about the "missing" 45% of the step: the ~268 ms
+between `optimizer` ending and `step_N` ending (median 265.8 ms) contains **zero kernel
+launches**, and on rank 0 the CPU spends 10.72 s of the capture inside
+`cudaDeviceSynchronize` (119 calls) — it is a blocking drain, exactly as §4.1 argued, now
+measured rather than inferred.
+
+#### 4.3c The deliverable: the 42.2% copy time, split by phase
+
+`direct_copy` + `conj` = **43.390 s = 42.2% of all GPU kernel time = 271.19 ms/rank-step**,
+reproducing §0d of `PANGU_POLARIS_PROFILING_PLAN.md` exactly through an independent query
+path (§0d's 121 / 111 / 38 ms rows re-derive as 121.40 / 111.50 / 38.30). **All 90,240 of
+these kernels are on `streamId 7`, so their summed time IS their union** — this split is
+union-safe and is not damaged by §4.3d:
+
+| phase | kernel | launches/step | ms/rank-step | % of the copy time |
+|---|---|---|---|---|
+| `backward` | `direct_copy`⟨float, nocast⟩ | 246 | 82.28 | 30.3% |
+| `backward` | `direct_copy`⟨complex64, nocast⟩ | 60 | 72.05 | 26.6% |
+| `backward` | `conj`⟨complex64⟩ *(nocast + vectorized)* | 24 | 38.30 | 14.1% |
+| `backward` | `direct_copy`⟨float, unrolled⟩ | 103 | 4.95 | 1.8% |
+| `forward_loss` | `direct_copy`⟨complex64, nocast⟩ | 24 | 39.44 | 14.5% |
+| `forward_loss` | `direct_copy`⟨float, nocast⟩ | 104 | 34.12 | 12.6% |
+| `forward_loss` | `direct_copy`⟨float, unrolled⟩ | 3 | 0.05 | 0.0% |
+| **`backward` total** | | **433** | **197.58** | **72.9%** |
+| **`forward_loss` total** | | **131** | **73.61** | **27.1%** |
+| `optimizer` / `data_prep` | | 0 | 0.00 | 0.0% |
+
+**`backward` owns 72.9% of the copy time.** Two facts fall out:
+
+* **`conj` fires only in `backward`** — 24/rank-step, 38.30 ms. **The warrant for calling it
+  the adjoint is the source, not this table** (a kernel that only ran during *recompute*
+  would look identical here): `grep -rn conj PanguWeather/v2.0/networks/modulus_sfno/`
+  returns **nothing**, the spectral contraction is `torch.einsum` over `view_as_complex`
+  operands (`contractions.py:29-31,59`; `s2convolutions.py:159,197`), and the backward of a
+  complex einsum needs `x.conj()`/`w.conj()`. Corroborating: 24/rank-step = **2 ×
+  `num_layers` (12)**, one conjugate per operand per contraction. So no checkpointing level
+  removes it — and note a recompute-only kernel would merely be *relocated* by lowering
+  checkpointing, not removed either.
+* **NCCL confirms the DDP model:** `ncclAllReduce` **100%** in `backward`, `ncclBroadcast`
+  **100%** in `forward_loss` (0.7 ms/rank-step, the 0.11% `broadcast_buffers` cost of plan
+  §0c). Cross-tabulated, there is **zero** cross-boundary leakage: `pt_autograd_*` →
+  `backward` 250,720 of 250,720 launches; main thread → `forward_loss` 94,400, `optimizer`
+  9,440, `backward` 160 (1/rank-step). No stream-callback or other launcher exists.
+
+#### 4.3d What this bounds — ESTIMATED throughout, and the buckets are not the phases
+
+At `checkpointing: 3` every SFNO block is wrapped
+(`PanguWeather/v2.0/networks/modulus_sfno/sfnonet.py:692`); the levels are **cumulative**,
+so `>= 2` *also* keeps the MLP wrapped (`…/layers.py:137`) and `>= 1` the encoder and
+decoder (`sfnonet.py:704,731`). `backward`'s GPU time is therefore *recompute + adjoint*,
+with no NVTX range between them — separating them is plan item **16** (SFNO-internal ranges
+re-fire inside `backward` when `torch.utils.checkpoint` re-executes the wrapped module's
+Python forward), **not** this item, and not item 17 (`--python-sampling` samples CPU stacks
+and cannot partition GPU time at all).
+
+**The recompute lives inside `backward`, so `backward` is the bucket that shrinks.** Stated
+carefully, because the first draft of this section had it backwards:
+
+| bucket | ms/rank-step of copy time | removable by lowering `checkpointing`? |
+|---|---|---|
+| `forward_loss` copies | 73.61 | **No** — the forward always runs |
+| `backward`: recompute copies | **≈ 74.6 (est.)** | **Yes** — this is the only removable bucket |
+| `backward`: adjoint copies | ≈ 123.0 (est.) | No |
+
+So **≈27% of the 271.19 ms is removable and it is all inside `backward`'s 197.58 ms**; the
+27% headline is unchanged from the first draft but the phase it names is now the right one.
+
+**And "recompute ≤ the forward's GPU time" is NOT a bound — recompute is measurably more
+expensive.** Isolating the kernels whose `forward_loss` and `backward` launch counts are
+*equal* (the pure-recompute signature, no adjoint counterpart — `cudnn::bn_fw_tr`,
+`regular_fft_c2r`, `GeluCUDAKernelImpl`, 7 kernels, 16.54 → 16.77 ms) gives a
+backward/forward ratio of **1.0136 mean, 1.0105 median, min 1.0076 — never below 1.0**.
+Recompute does not even run the same kernels: `cutlass_80_tensorop_bf16_s16816gemm_relu…`
+runs 12/step in `forward_loss` and **0** in `backward`, while `ampere_s16816gemm_bf16_128x256…`
+runs 0 in `forward_loss` and 12/step in `backward` at **+15% per call**. (A nested
+double-recompute of the MLP was tested for and refuted: `GeluCUDAKernelImpl` runs 26/step
+in each phase, so `use_reentrant=False` recomputes once.)
+
+⇒ **Recompute at `ckpt3` ≈ 148–152 ms/rank-step (ESTIMATED, ≈150.3 × 1.014).** Removing it
+entirely would be worth **≈25% of the 603.5 ms step (≈1.34×)** — an estimate, not a
+measured bound.
+
+**Three qualifiers, all of which shrink the actionable number:**
+
+1. **`ckpt0` is almost certainly not reachable on a 40 GB A100.** ai-rossby's `ckpt0` peaked
+   at **36.11 GB** (CHANGELOG 2026-08-06, job 7365119) and Pangu runs **+5.58 GB** higher at
+   `ckpt3` (26.98 vs 21.40 GB, §5), projecting Pangu's `ckpt0` to **~41.7 GB > 40 GB**. The
+   ≈25% is the size of a prize that cannot be collected in full.
+2. **Production already banks most of it.** Pangu ships `checkpointing: 2` (plan §0e,
+   CHANGELOG 2026-08-07, jobs 7366939→7366940), and ai-rossby's `ckpt3 → ckpt2` is 1.274×.
+   Residual `ckpt2 → ckpt0` is therefore **≈1.045×** — so measured against **the config we
+   actually run**, checkpointing headroom is **≈4%, not ≈25%.** Plan §0e's warning that
+   "every percentage in §0d is a `ckpt3` percentage" applies to this number too.
+3. **A `ckpt3 → ckpt2` delta does not measure "blocks".** Because the levels are cumulative,
+   it measures **block-minus-MLP** recompute; the MLP, encoder and decoder are still
+   checkpointed at `ckpt2`.
+
+**Consistency check (not a measurement), and it nearly saturates the estimate.** ai-rossby's
+ladder on the identical model shape is `ckpt3 → ckpt2` **1.274×** and `ckpt3 → ckpt1/ckpt0`
+**1.307×** — converted to step share, 21.5% and **23.5%**, against this capture's
+independently derived **≈25%**. Two completely different measurements (an nsys phase
+attribution on Pangu at `ckpt3` vs an A/B timing sweep on ai-rossby) agree to **1.8
+points**, which says essentially the *whole* forward is recomputed at `ckpt3`. Different
+harness and a cross-job ratio, so it stays a check — plan item 10 measures it in Pangu's own
+harness, one job, interleaved. **Pre-registerable consequences:** a Pangu `ckpt3 → ckpt0`
+materially above **1.34×** falsifies either this estimate or the phase attribution; and if
+Pangu's `ckpt3 → ckpt2` is ~1.274×, `ckpt2 → ckpt0` must be **≈1.045×**.
+
+#### 4.3e The bandwidth reference nobody had — 82% of peak, above L2 only
+
+The same capture contains a **measured** answer to "can this node reach HBM peak at all",
+which is what makes §0d's *estimated* 17–27% interesting rather than possibly-an-artifact.
+The device's own peak and L2 size are read **from the capture** (`TARGET_INFO_GPU`:
+`memoryBandwidth = 1,555,200,000,000` B/s, `l2CacheSize = 40 MiB`, `NVIDIA A100-SXM4-40GB`
+×4), not assumed.
+
+A D2D memcpy's DRAM traffic is `2 × bytes` — read the source, write the destination — **only
+if the transfer misses L2.** Bucketing the 33,920 D2D copies by size shows the rule failing
+where it must:
+
+| transfer size | n | GB | GB/s (2×) | % of peak | |
+|---|---|---|---|---|---|
+| 127.27 MB | 8,320 | 1110.28 | 1193.0 | 76.7% | above L2 |
+| 126.56 MB | 7,680 | 1019.22 | 1386.8 | 89.2% | above L2 |
+| 22.37 MB | 640 | 15.01 | 1187.5 | 76.4% | sub-L2, rule invalid |
+| **12.48 MB** | 480 | 6.28 | 1939.5 | **124.7%** | sub-L2 — **>100% proves the rule fails** |
+| **11.12 MB** | 480 | 5.60 | 1710.8 | **110.0%** | sub-L2 — same |
+| 1012.50 KB | 480 | 0.50 | 638.3 | 41.0% | sub-L2, rule invalid |
+| 379.69 KB | 480 | 0.19 | 337.1 | 21.7% | sub-L2, rule invalid |
+| 2.00 KB | 15,360 | 0.03 | 1.7 | 0.1% | sub-L2, rule invalid |
+
+**Quote only the population above L2: 16,000 copies, 2129.50 GB = 98.7% of all D2D bytes,
+1279 GB/s = 82% of peak** — per device 81.3 / 82.6 / 82.6 / 82.4%, so within 1.3 points and
+not noise. Every row is `copyKind = 8` with `srcKind = dstKind = Device`; there is **zero**
+`copyKind = 10` (peer-to-peer), so no NVLink traffic is masquerading as local HBM.
+
+| path | ms/rank-step | bytes/rank-step | achieved DRAM bandwidth |
+|---|---|---|---|
+| D2D memcpy, **above L2** | 20.82 | 13.31 GB | **1279 GB/s = 82% of peak** |
+| `direct_copy`/`conj` kernels | 271.19 | — | **17–27% (estimated, §0d)** |
+| H2D (loader) | 2.18 | 49.9 MB | 24 GB/s (host link, not HBM) |
+
+**The A100s in this run demonstrably sustain ~82% of HBM peak**, so the copy *kernels* are
+slow because of the path they take, not because the hardware cannot deliver. This **narrows
+but does not replace** plan item 7: ncu still has to say whether the kernels are at ~25% of
+peak (⇒ fix contiguity) or near peak on inflated traffic (⇒ move fewer bytes). It removes
+the third possibility, "82% is unreachable here."
+
+> **⚠ Two things this is NOT.** (i) It is **intra-device HBM** — `cudaMemcpyAsync` D2D
+> within one GPU's own memory. It says nothing about NVLink/PCIe *between* the four devices,
+> so it does **not** close the OPEN topology cell in `POLARIS_PROFILING_HANDOFF.md` §4 and
+> does **not** substitute for plan item 6 (`gpu_topology_check.py`). (ii) It is **not** a
+> concurrency-inflated figure: all 33,920 D2D copies and all 962 H2D copies are on
+> `streamId 7`, the same stream as the compute kernels, so they are serialized with compute
+> and with each other. It is nonetheless a **lower** bound, for a different reason than the
+> first draft claimed — **30.2% of rank 0's D2D copy time (0.2604 of 0.8622 s) overlaps
+> `ncclDevKernel` on `streamId 19`**, which is consuming HBM at the same time.
+
+#### 4.3f The data-movement bill is larger than the kernel table shows, and §0a's idle is smaller
+
+Memcpy and memset are GPU work that **is not in §4.2's 643.2 ms kernel total at all**, yet
+they sit on the same `streamId 7` as compute. Adding them:
+
+| | ms/rank-step |
+|---|---|
+| `direct_copy` + `conj` kernels | 271.19 |
+| D2D memcpy | 21.31 |
+| H2D memcpy | 2.18 |
+| memset (7,840 ops, 302.6 MB/rank-step) | 0.29 |
+| **total data movement** | **294.97** |
+
+And the consequence for plan §0a, which reported GPU-busy from kernels alone:
+
+| device | kernel union / kernel span | **all GPU work / work span** | idle |
+|---|---|---|---|
+| dev0 | 95.7% | **98.6%** | **1.4%** |
+| dev1 | 95.6% | **98.5%** | **1.5%** |
+| dev2 | 96.5% | **98.5%** | **1.5%** |
+| dev3 | 96.5% | **98.5%** | **1.5%** |
+
+The kernel-only column reproduces plan §0a exactly (95.7 / 95.6 / 96.5 / 96.5 — the
+per-device differences are a span definition: on dev2/dev3 memcpy extends the work span
+0.22 s beyond the kernel span). **§0a's "3.5–4.4% idle" is therefore an overstatement;
+counting all GPU work, idle is 1.4–1.5%.** This makes §0a's conclusion *stronger*: there is
+even less idle to reclaim, and still nothing for CUDA Graphs.
+
+#### 4.3g Method notes — three ways to get this wrong
+
+**1. Do not bucket by kernel execution time.** Attribution here is by **launch** time (the
+phase that *requested* the work — causal, and unaffected by CUDA being async). Bucketing by
+**execution** time instead puts **42.4% of launches and 46.1% of GPU time in `(outside)`**
+and drops `forward_loss` from 23.4% to 5.4%. That is not a competing answer, it is §4.1's
+run-ahead showing up as an artifact: the CPU has left the phase window long before the GPU
+reaches those kernels. `--by-exec` exists to expose that, not to be quoted. The same applies
+to the memcpy rows: by execution time only 0.96 of the 2.18 ms/rank-step of H2D lands in
+`data_prep` and 7.76 ms of D2D lands in `(outside)`.
+
+**2. One of the 40 steps is a comms stall, and it moves the NCCL number by 12%.** The
+per-rank-step series (`--per-step`) is otherwise flat — median **634.36 ms**, min 631.28 —
+but **step index 30** reaches 1222.34 ms on two ranks, of which **614 ms is NCCL** against a
+~59 ms norm at identical launch counts. That is a straggler *wait*, not work. Excluding it:
+total 643.19 → **634.57** ms/rank-step (−1.3%), NCCL 67.82 → **59.67** ms (**−12.0%**). The
+phase shares move ≤0.4 points, so §4.3b is unaffected — but §4.2's "NCCL = 67.8 ms/step
+(10.5%)" carries the stall, and any sizing derived from it should use the ~59.7 ms figure.
+
+**3. Warmup 20 was enough — plan item 5's question, answered here.** The first measured step
+is **640.26 ms against a 634.36 ms median** (+0.9%), and `forward_loss` GPU time spans only
+150.20–150.52 ms across all 40 steps. There is no warmup regime in this capture. §4.1's
+`forward_loss` max of 268.4 ms is a **CPU-side** outlier that does not appear on the GPU.
+
+#### 4.3h Reproducing every table above
+
+```bash
+CAP=$MEMBER_ROOT/bench/nsys_pangu_sfno_7255503.sqlite
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP                                # 4.3b
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --kernel-regex 'direct_copy|conj'  # 4.3c
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --memcpy                       # 4.3e/f
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --per-step                     # 4.3g
+python3 ACE2_retrain/nvtx_phase_attribution.py $CAP --by-exec                      # 4.3g note 1
+python3 ACE2_retrain/test_nvtx_phase_attribution.py                                # PASS, no GPU
+```
+
+Runs on a Polaris **login node** — pure sqlite, `mode=ro`, no torch import, no allocation.
+(`parse_nsys.py` could not, before the same commit fixed it: `sqlite3.connect(PosixPath)`
+needs Python ≥ 3.7 and the login default is 3.6.15.)
 
 ---
 
@@ -232,6 +547,14 @@ Two things follow, both **unmeasured hypotheses, flagged as such**:
    it. Turning it down would trade the 13 GB of headroom for step time. This is a real
    candidate lever — but it is a **hot-path change** and therefore gated on DESIGN §4,
    which is not yet executable. **Not attempted.**
+   **§4.3 now sizes the prize, and it is smaller than "61% elementwise" suggests.**
+   Recompute at `ckpt3` is **≈148–152 ms/rank-step (estimated** — measurably ~1.4% *more*
+   than the forward it replaces, not bounded by it), so removing it entirely would be worth
+   **≈25% of the step (≈1.34×)**. But `ckpt0` projects to **~41.7 GB > 40 GB** for Pangu and
+   is likely unreachable, and production already ships `checkpointing: 2`, which banks most
+   of it — **residual headroom against the config we actually run is ≈4%, not ≈25%.** And
+   `conj`, 14.1% of the copy time, is adjoint (warranted from source, §4.3c) and no
+   checkpointing level removes it.
 
 ---
 
@@ -433,7 +756,8 @@ Stated plainly so nothing below reads as done:
 * **2026-07-15** — **VERDICT: elementwise-bound, not matmul-bound.** 61% of GPU time in
   pointwise kernels over ~1506 launches/step vs 15% in GEMM (job 7255503). Memory-bandwidth
   bound and fusion-starved ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on
-  evidence rather than assumption. NCCL is 10.5% (⇒ §5 rung 3 ≈ 5%); cuFFT/SHT is only 3.3%.
+  evidence rather than assumption. NCCL is 10.5% of kernel time but only **1.2% exposed** (plan §0b), so §5 rung 3 is
+  worth ~1.2% on one node, not ≈5%; cuFFT/SHT is only 3.3%.
 * **2026-07-15** — **The model is 1,182,108,160 params**, not the ~79M the docs assume — that
   figure is the Pangu/Swin model, not the E3SM SFNO. 26.98 GB peak of 40 GB.
 * **2026-07-15** — **PanguWeather already has a seed knob** (`--global_seed` → `seed_torch`,

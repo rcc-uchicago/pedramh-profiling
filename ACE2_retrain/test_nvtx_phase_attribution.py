@@ -95,7 +95,7 @@ def main():
         check(set(by_pid) == {PID_A, PID_B},
               f"pid mask wrong: got {[hex(p) for p in by_pid]}")
 
-        agg = npa.attribute(con.cursor(), by_pid)
+        agg, union = npa.attribute(con.cursor(), by_pid)
         # -- bug 1 fixed: exactly one row per kernel, no phantom time.
         check(sum(v[0] for v in agg.values()) == n_kernels,
               "guarded join did not return exactly one row per kernel")
@@ -112,8 +112,22 @@ def main():
               f"label lost dtype or path: {labels}")
 
         # -- exec-time bucketing is the sensitivity check, and here agrees.
-        check(rollup(npa.attribute(con.cursor(), by_pid, by_exec=True)) == r,
+        check(rollup(npa.attribute(con.cursor(), by_pid, by_exec=True)[0]) == r,
               "by-exec disagreed on a capture with no CPU run-ahead")
+
+        # -- union == sum here (the synthetic kernels do not overlap), which is
+        # what makes the overlapping case below a real test rather than a tautology.
+        check(union == r, f"union != sum on non-overlapping kernels: {union} vs {r}")
+
+        # -- and the union must count overlap ONCE. This is the arithmetic that
+        # caught a sum-vs-union error in polaris_bench_report.md §4.3: a phase
+        # whose kernels run concurrently on two streams has sum > union.
+        check(npa._union_ns([(0, 10), (5, 20), (30, 40)]) == 30,
+              "union mis-handles overlapping intervals")
+        check(npa._union_ns([(0, 10), (10, 20)]) == 20, "union drops a touching pair")
+        check(npa._union_ns([(0, 100), (10, 20)]) == 100, "union mis-handles nesting")
+        check(npa._union_ns([(50, 60), (0, 10)]) == 20, "union requires pre-sorted input")
+        check(npa._union_ns([]) == 0, "union of nothing is not 0")
 
         # -- parse_nsys.py must run on a Path under Python 3.6 (the Polaris
         # login node's default), where sqlite3.connect() rejects os.PathLike.
