@@ -70,17 +70,38 @@ without her sign-off (CLAUDE.md §Division of labor).
 
 - **Never `find /`, `/eagle`, `/project`, or scan outside the repo.** Millions of files; it hangs. `grep`/`Grep`
   inside `.` only. (CLAUDE.md #2.)
-- **NEVER SUBMIT A JOB WITHOUT EXPLICIT PER-SUBMISSION APPROVAL FROM THE OPERATOR.** This is absolute and has
-  no standing-approval mode. Starting the loop is not approval. Approving a stage, a plan, or a prediction is
-  not approval. Approving one `qsub` is not approval of the next one, **even for the identical script**, and
-  **especially not for a resubmit**. When a stage is ready for compute, present the literal `qsub` line, the
-  script, the queue/walltime/node count with its node-hour arithmetic, and the prediction it tests — then
-  **stop and wait**. A `debug` job is still a submission; a short walltime does not make it free. Never
-  self-widen this: no "the plan already said so", no "this is the same as the approved one", no batching.
-  **Why:** a submission spends shared allocation and takes queue position that cannot be handed back —
-  `capacity` is one running job per *project* (168 h of blocking for every other member), `debug` is one
-  running / one queued per *user*, and cancelling to undo destroys accrued `eligible_time`.
-  ⇒ **Tier 0 of the plan needs no `qsub` at all.** Run all of it before asking for anything.
+- **SUBMISSION AUTHORITY — narrowed by the operator on 2026-08-20, after Tier 0 completed.** The original
+  rule here was "never submit without explicit per-submission approval, absolute, no standing-approval mode."
+  **The operator explicitly replaced it** (this is an authorised change, not drift — do not "restore" it):
+
+  | scope | authority |
+  |---|---|
+  | **`debug`, 1 node, ≤1 h** | ✅ **auto-submit. No approval needed, per submission or otherwise.** |
+  | `capacity` (any size) | ⛔ **stop and ask, every time** |
+  | `preemptable` (any size) | ⛔ **stop and ask, every time** |
+  | **multi-node**, any queue | ⛔ **stop and ask, every time** |
+
+  **Why the split, so it is not widened by accident.** `debug` is `max_run 1`/`max_queued 1` **per user** and
+  capped at 1 h, so a `debug` job cannot block another project member — the worst case is one wasted hour of
+  my own slot. `capacity` is `max_run 1` **per PROJECT**: taking it blocks every other member of
+  `lighthouse-uchicago` for up to 168 h, and cancelling to undo destroys accrued `eligible_time`, so a
+  submission there cannot be handed back. `preemptable` started **0/9** jobs in 11.5 h on 2026-08-05 — cheap
+  but it may never run, which is the operator's call, not mine. Multi-node multiplies the allocation per job.
+
+  **What still holds inside the auto-submit scope, unchanged:**
+  * **Still write the prereg first, and commit it before submitting** (§2). Auto-submit removes the approval
+    gate, not the pre-registration gate.
+  * **Still at most ONE job in flight** — `debug`'s per-user limits make a second `qsub` a rejection anyway.
+  * **Still never resubmit on `queue_tags`.** That is a queue-has-no-nodes signal; resubmitting resets accrued
+    `eligible_time` and is strictly harmful (CLAUDE.md #12). Auto-submit authority is **not** retry authority:
+    the ≤5 infra-failure ratchet stands, and a *crashing* job's re-submit still gets diagnosed first.
+  * **Still report every submission** with its job id, queue, walltime, node-hour arithmetic and the prediction
+    it tests — the operator reads verdicts, so the accounting does not go away just because the gate did.
+  * **Still no `qsub` outside the plan.** Auto-submit covers jobs the frozen plan calls for, not exploratory
+    ones I invent.
+
+  ⇒ **Tier 0 of the plan needed no `qsub` at all** and is now complete (items 1–5), so from here every item
+  costs compute.
 - **Never run training/inference on a login node or bypass the scheduler.** The live session drives; every
   measurement is a `qsub`. Importing torch on a login node can hang or core-dump — so **not even a "quick
   check"** goes there. Pure-CPU sqlite/JSON re-analysis of an existing capture is the one exception and is
