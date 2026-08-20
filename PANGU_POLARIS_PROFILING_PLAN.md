@@ -187,12 +187,22 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       250,880 and 72.6%, and is the true origin of the `(outside) 69.6%` row several docs had
       recorded as an NVTX limitation — and a normaliser that counted distinct `step_%` starts
       (**156**) instead of **160 rank-steps**. It now agrees with §4.3b row for row.
-      **⇒ Its own thesis fails here, and it now says so from the data.** The premise is that a
-      range with a high launch share and a low time share is a batching target; the largest
-      count-minus-time skew measures **+3.2 pt** (A) and **+2.0 pt** (B) against a +10 pt bar,
-      so **there is no launch-pipeline headroom for batching to recover** — consistent with
-      GPU-busy 98.5–98.6% (§0a). The "~9% idle is launch latency" framing in its docstring is
-      **retired as refuted**, and the advice is now conditional on the data.
+      **⇒ Batching is retired — but NOT for the reason first published, and the correction
+      matters.** The first version said the phase-level skew was small (+3.2 pt / +2.0 pt vs a
+      +10 pt bar) and concluded "no launch-pipeline headroom". **That sentence was false about
+      the capture**, and an adversarial pass caught it: there ARE **73,251 kernels under 10 µs
+      = 20.7% of all launches** (458/rank-step, none of them NCCL), skewing **+20.4 pt** —
+      twice the bar. The phase metric could never have seen them: `skew_r = pc_r·(1 −
+      avg_r/avg_all)` is a *count-weighted relative* mean-duration test, so a range holding
+      2.7% of launches cannot skew past 2.7 pt however tiny its kernels are, and this harness
+      emits only **3** non-empty phase ranges. **The right reason to retire batching is the
+      prize and the queue:** fusing **all** 73,251 recovers at most **0.27% of GPU time**
+      (0.280 s of 102.9 s) against a launch queue **220 ms deep** (median launch→execute; n=2
+      227 ms), i.e. the CPU runs ~⅓ of a step ahead and an ~8 µs launch call cannot starve it.
+      Also corrected: the "~9% idle is launch latency" reading was **already** retired on its
+      own turf by handoff §6 dead ends 1–2 (stream/DDP-bucket dependency) — this capture is
+      *consistent with* that and does **not** refute the ACE2/Midway number, which is a
+      different model on different hardware.
 - [x] **5. DONE (2026-08-20)** — `polaris_bench_report.md` §4.3g, from
       `nvtx_phase_attribution.py --per-step`. **Warmup 20 was enough: there is no warmup
       regime.** First measured step **640.26 ms** vs a **634.36 ms** median (+0.9%), and

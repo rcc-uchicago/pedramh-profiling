@@ -68,16 +68,43 @@ Entry shape (keep it):
     row**, because it is now the same join and not a second implementation. HIT.
   - **P3** the per-step denominator was **also** wrong (156 distinct `step_%` starts vs **160**
     rank-steps) and had to be fixed. HIT — a third bug, predicted before it was looked for.
-  - **P4** the census's own thesis finds **no batching target**: largest count-minus-time skew
-    **+3.2 pt** (7255503) and **+2.0 pt** (7255557) against a +10 pt bar. HIT. ⇒ the docstring's
-    "~9% of training time is idle gaps between launches" framing is **retired as refuted**, and the
-    advice is now printed **conditionally on the data** rather than unconditionally.
+  - **P4 — HIT on the number, WRONG on the conclusion. Scored honestly, because a clean "4/4" would
+    misrepresent it.** The prediction (every range's %count within ~3 pt of its %time; largest skew
+    **+3.2 pt** / **+2.0 pt** vs a +10 pt bar) was numerically exact. But the *inference* I drew from
+    it — "so there is no launch-pipeline headroom for batching to recover" — is **false about the
+    capture**, and the focused adversary caught it as a FATAL strike. There ARE **73,251 kernels
+    under 10 µs = 20.7% of all launches** for 0.27% of GPU time, skewing **+20.4 pt** — twice my own
+    bar, 458/rank-step, and **none of them NCCL**. I reproduced it before accepting it.
+    - **Why the metric was blind:** `skew_r = pc_r·(1 − avg_r/avg_all)` — a *count-weighted
+      relative* mean-duration test. A range holding 2.7% of launches can never skew past 2.7 pt
+      however tiny its kernels are, and this harness emits only **3** non-empty phase ranges, so the
+      partition was the only one available. **The negative result was about the instrument, not the
+      model** — which is exactly the thing a prereg cannot catch and an adversary can.
+    - **The decision survives, on better evidence:** fusing all 73,251 recovers ≤**0.27% of GPU
+      time** against a launch queue **220 ms deep** (median launch→execute, p25 120 ms, zero
+      negatives; n=2 227 ms). The CPU runs ~⅓ of a step ahead, so an ~8 µs launch call cannot starve
+      it. The tool now says the population **exists** and retires batching on the prize.
+    - **Three more strikes, all real:** the hardcoded "GPU-busy 98.5–98.6%" is **false on 7255557**
+      (dev1 is **93.94%** — it is the unbalanced-placement node), and busy-ness bounds *idle*, not
+      launch efficiency, so the citation was wrong twice over — dropped for the queue depth.
+      `(outside)` was an **eligible batching target** (advice to fuse a bucket that is not a code
+      site — the exact shape the pre-fix tool produced at 69.6%) — now excluded. And the retirement
+      of the "~9% idle" reading was **borrowed**: it originated on ACE2/Midway and was already
+      retired by handoff §6 dead ends 1–2; this capture corroborates and does **not** refute it.
+    - **Test gaps it found:** mutation-testing showed my suite pinned the threshold only to
+      **(0, 39.0]** — 10 was untested, 1/5/25 equally green — and the "skewed" fixture did not build
+      what its comment claimed (240 of 400 tiny launches landed in the wrong phase). The suite now
+      brackets the verdict on both sides of the prize bar, exercises `main()` and the rank-step
+      derivation, and asserts the no-anchor case **errors** instead of silently substituting the rank
+      count (a 40× error, and live: `ace2_nvtx.py:30` records that ACE2 emits no `data_prep`).
   - **Decision rule fired:** P1+P2 were the gate and the two tools agree, so no blocker. P4 held, so
     the launch-pipeline framing was retired in the same commit.
-- **gauntlet:** ONE focused adversary, not the pair — **deliberately proportionate.** Item 4's
-  numbers are *reproductions* of §4.3b values already adversarially verified twice; the only
-  genuinely new claim is the **negative** result (no batching target), which retires advice in three
-  docs. The drift surface is 4 known files, so I swept it myself rather than spending an auditor.
+- **gauntlet:** ONE focused adversary, not the pair — **deliberately proportionate, and it still
+  found a FATAL strike.** Item 4's numbers are *reproductions* of §4.3b values already adversarially
+  verified twice; the only genuinely new claim was the **negative** result. Narrowing the adversary
+  to exactly that claim is what let it go deep enough to find the tiny-kernel population my metric
+  could not see — a full-surface review would probably have missed it. **Lesson for later ticks: for
+  a negative result, point the adversary at the *instrument*, not the number.**
 - **result of the sweep:** plan item 4 ticked; `POLARIS_PROFILING_HANDOFF.md` §5 flipped from "BROKEN,
   TWO independent bugs" to FIXED, keeping the old numbers on the record *because three docs had cited
   them as an NVTX limitation*; `PROFILING_TABLES.md`'s superseded ACE2 table now says either tool can
