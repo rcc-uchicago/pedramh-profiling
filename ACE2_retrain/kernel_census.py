@@ -1,79 +1,108 @@
 """Rank NVTX ranges by KERNEL LAUNCH COUNT, not by time.
 
-When the goal is "fewer kernels so the GPU runs efficiently", time-per-range is
-the wrong ranking. A site launching 2,000 kernels of 3 us each costs little GPU
-time but wrecks the launch pipeline -- ACE2 issues ~7,222 launches/second on one
-device, one every ~138 us, and ~9% of training time is idle gaps between them.
-Those sites are invisible in a time-sorted profile and obvious here.
+    python3 kernel_census.py <nsys.sqlite>
 
-Attribution uses the RUNTIME -> KERNEL correlationId join, so a kernel is
-credited to the range that LAUNCHED it. An NVTX range bounds CPU time and CUDA
-is async, so the naive "kernels inside the range's time window" is wrong.
+Time-per-range answers "where does the GPU spend its time"; this answers "which
+range *issues the most work*". They differ when a site launches many small
+kernels: that costs little GPU time but occupies the launch pipeline, and a
+time-sorted profile hides it.
 
-    python kernel_census.py <nsys.sqlite>
+**Whether that pattern is present is an empirical question, and on this project
+it has so far been absent** -- see the closing note, which is printed from the
+data rather than asserted. An earlier version of this docstring taught that ~9%
+of training time was idle gaps between launches and that batching would recover
+it; that reading is **refuted** (`PANGU_POLARIS_PROFILING_PLAN.md` §0a: GPU-busy
+union is 95.6-96.5% on kernels alone and 98.5-98.6% counting memcpy/memset, so
+there is no launch-latency headroom to recover). The tool is still useful for the
+count ranking; it just must not be read as evidence for a conclusion it cannot
+reach.
+
+Attribution is delegated to `nvtx_phase_attribution.py` rather than re-derived,
+because getting it right needs two things this file used to get wrong:
+
+1. a **`globalPid` guard** on the `correlationId` join -- `correlationId` is
+   unique per process, so on a multi-rank capture the bare join cross-products
+   the ranks (+29.4% phantom rows on `nsys_pangu_sfno_7255503.sqlite`);
+2. **process-scoped**, not thread-scoped, range lookup -- PyTorch's autograd
+   engine launches from its own worker thread, so looking the range up on the
+   launching thread put *the whole of `backward`* outside every range. This file
+   reported `backward` as **203 launches and 0.0% of GPU time** where the truth
+   is 250,880 and 72.6%.
 """
-
-import bisect
 import collections
-import re
+import os
 import sqlite3
 import sys
 
-UNINFORMATIVE = {"aten::copy_", "aten::to", "aten::_to_copy"}
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import nvtx_phase_attribution as npa  # noqa: E402
+
+
+def census(cur, by_pid, rank_steps):
+    """{range: (launches, gpu_ns)} — rolled up from the pid-guarded join."""
+    agg, _ = npa.attribute(cur, by_pid)
+    out = collections.defaultdict(lambda: [0, 0])
+    for (phase, _label), (n, ns) in agg.items():
+        out[phase][0] += n
+        out[phase][1] += ns
+    return out
+
+
+def report(rows, rank_steps):
+    total_n = sum(v[0] for v in rows.values())
+    total_t = sum(v[1] for v in rows.values())
+    print(f"{total_n:,} kernel launches over {rank_steps} rank-steps "
+          f"({total_n / rank_steps:,.0f} per rank-step), "
+          f"{total_t / 1e9:.3f} s GPU time\n")
+    print(f"{'range':<26}{'launches':>11}{'per rank-step':>15}{'% count':>9}"
+          f"{'% time':>8}{'avg us':>9}{'count-time':>12}")
+    print("  " + "-" * 88)
+    skew = []
+    for r, (n, t) in sorted(rows.items(), key=lambda kv: -kv[1][0]):
+        pc, pt = 100 * n / total_n, 100 * t / total_t
+        skew.append((pc - pt, r, pc, pt))
+        print(f"{r:<26}{n:>11,}{n / rank_steps:>15,.0f}{pc:>8.1f}%"
+              f"{pt:>7.1f}%{t / n / 1000:>9.1f}{pc - pt:>+11.1f} pt")
+
+    # The tool's thesis, tested rather than asserted.
+    worst = max(skew) if skew else (0, None, 0, 0)
+    print(f"\n  NOTE `% time` is a share of the kernel total, which CONTAINS NCCL wait and "
+          f"is not\n  reproducible run-to-run (§4.4c: one such share moved 4.77 pt between "
+          f"identical\n  configs). The `launches` and `per rank-step` columns are the durable "
+          f"ones. The skew\n  below inherits that: it read +3.2 pt and +2.0 pt on the two "
+          f"Pangu captures.")
+    print()
+    if worst[0] >= 10:
+        print(f"  BATCHING TARGET: `{worst[1]}` issues {worst[2]:.1f}% of launches for "
+              f"only {worst[3]:.1f}% of\n  GPU time (+{worst[0]:.1f} pt). That is many "
+              f"small kernels -- fusing or batching\n  them buys launch-pipeline headroom "
+              f"a time-sorted profile hides.")
+    else:
+        print(f"  NO batching target on this capture: the largest count-minus-time skew is "
+              f"{worst[0]:+.1f} pt\n  (`{worst[1]}`), well under the +10 pt that would mark a "
+              f"launch-bound site. Every range\n  issues roughly as much of the work as it "
+              f"consumes of the time, so there is no\n  launch-pipeline headroom for batching "
+              f"to recover here -- consistent with GPU-busy\n  of 98.5-98.6% (plan §0a). Do "
+              f"not quote this tool as evidence for fusion.")
 
 
 def main(path):
-    db = sqlite3.connect(path)
-    strip = lambda t: re.sub(r",\s*op_id\s*=\s*\d+", "", t).strip()
-    by = collections.defaultdict(list)
-    for t, s, e, g in db.execute(
-        "SELECT text,start,end,globalTid FROM NVTX_EVENTS "
-        "WHERE text IS NOT NULL AND end IS NOT NULL AND text NOT LIKE 'step_%'"
-    ):
-        by[g].append((s, e, strip(t)))
-    for g in by:
-        by[g].sort()
-
-    def enclosing(ts, tid):
-        arr = by.get(tid)
-        if not arr:
-            return "(outside)"
-        i = bisect.bisect_right(arr, (ts, float("inf"), "")) - 1
-        seen = 0
-        while i >= 0 and seen < 5000:
-            s, e, t = arr[i]
-            if s <= ts <= e and t not in UNINFORMATIVE:
-                return t
-            i -= 1
-            seen += 1
-        return "(outside)"
-
-    n_steps = len({s for (s,) in db.execute(
-        "SELECT start FROM NVTX_EVENTS WHERE text LIKE 'step_%'")}) or 1
-    count = collections.Counter()
-    time_ns = collections.Counter()
-    for rs, tid, dur in db.execute(
-        "SELECT r.start, r.globalTid, k.end-k.start "
-        "FROM CUPTI_ACTIVITY_KIND_RUNTIME r "
-        "JOIN CUPTI_ACTIVITY_KIND_KERNEL k ON k.correlationId = r.correlationId"
-    ):
-        e = enclosing(rs, tid)
-        count[e] += 1
-        time_ns[e] += dur
-
-    total_n = sum(count.values())
-    total_t = sum(time_ns.values())
-    print(f"{total_n:,} kernel launches over ~{n_steps} steps "
-          f"({total_n / n_steps:,.0f} per step), {total_t / 1e9:.1f} s GPU time\n")
-    print(f"{'range':<26}{'launches':>11}{'per step':>10}{'% count':>9}"
-          f"{'% time':>8}{'avg us':>9}")
-    for r, n in count.most_common(16):
-        t = time_ns[r]
-        print(f"{r:<26}{n:>11,}{n / n_steps:>10,.0f}{100 * n / total_n:>8.1f}%"
-              f"{100 * t / total_t:>7.1f}%{t / n / 1000:>9.1f}")
-    print("\nHigh launch share + low time share = a batching target: many tiny")
-    print("kernels, typically one per named variable. Fusing or batching those")
-    print("buys launch-pipeline headroom that a time-sorted profile hides.")
+    # mode=ro: a capture is a primary artifact and is never written to.
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    by_pid = npa.load_phases(con.cursor())
+    if not by_pid:
+        sys.exit("ERROR no NVTX phase ranges in NVTX_EVENTS.text — was the harness "
+                 "instrumented and --trace=nvtx passed?")
+    # Normalise per RANK-STEP, not per step: counting distinct `step_%` starts
+    # gives 156 on a 40-step x 4-rank capture (one step's range predates
+    # cudaProfilerStart), and dividing 4 ranks' launches by that is wrong twice.
+    anchor = next((n for n in ('data_prep', 'preprocess')
+                   if any(r[2] == n for v in by_pid.values() for r in v)), None)
+    rank_steps = sum(1 for v in by_pid.values() for r in v
+                     if r[2] == anchor) if anchor else len(by_pid)
+    print(f"{len(by_pid)} rank(s), {rank_steps} rank-steps "
+          f"(pid-guarded, process-scoped join)\n")
+    report(census(con.cursor(), by_pid, rank_steps), rank_steps)
 
 
 if __name__ == "__main__":
