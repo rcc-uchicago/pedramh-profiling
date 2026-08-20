@@ -18,6 +18,50 @@ Entry shape (keep it):
 
 ---
 
+## tick 1 — 2026-08-20 — stage T0 item 1 — NVTX text path resolved; prereg for the fwd/bwd copy split
+
+- **in flight:** none (Tier 0 needs no `qsub`)
+- **prereg (written BEFORE the split was computed):**
+  - **P1.** Launches falling **outside** all four house phases will be **< 2%** of all launches on rank 0.
+    Rationale: the four phase windows sum to ~335 ms of a 603 ms step, but the missing ~266 ms sits between
+    `optimizer` end and `step_N` end, which reads as the CPU blocking on a sync while the GPU drains — a wait,
+    not a launch site. If instead >10% of launches land outside, there is an unranged launch site (EMA? logging
+    sync? validation?) and the phase attribution is incomplete — that becomes the finding.
+  - **P2.** `backward` will hold **>= 65%** of the `direct_copy` + `conj` GPU time. Rationale: `checkpointing: 3`
+    recomputes the forward inside backward, so backward pays recompute (~1x forward) plus the adjoint
+    (~1.5-2x forward) while forward pays 1x.
+  - **P3.** `forward_loss` **15-30%**, `optimizer` **< 5%** (FusedAdam is its own kernel; EMA never fired),
+    `data_prep` **< 1%** (0.16 ms/step of CPU window).
+  - **Decision rule.** If P2 holds, activation **recompute** is a first-order share of the 271 ms/step and the
+    `ckpt3 -> ckpt2 -> ckpt1` ladder (plan item 10) directly deletes a measurable part of §0d — the ladder is
+    then the highest-value Tier-1 item after item 7. If instead `backward` < 50%, the copies are intrinsic to
+    the SFNO spectral path (SHT transpose/`conj`), checkpointing barely touches them, and the lever is layout,
+    not recompute. Either way the number is recorded; neither outcome edits a gate.
+  - **Stated limit, pre-committed:** this split cannot separate *recompute* from *adjoint* inside `backward` —
+    there is no NVTX range between them. That separation is plan item 17, not this item.
+- **result:** OPEN — the split is computed in tick 1's second half, after this commit.
+- **measured this tick already (not part of the prereg):**
+  - **The NVTX text path is the inline `text` column, `domainId=0`, `eventType=59` (push/pop).** All four house
+    ranges are present in `nsys_pangu_sfno_7255503.sqlite`: `data_prep`/`forward_loss`/`backward`/`optimizer`
+    at **160 rows each** = 40 steps x 4 ranks, plus `step_20..step_59`. The `textId -> StringIds` path holds
+    **only** NCCL's registered strings (`ncclAllReduce` 2402, `ncclBroadcast` 160, `domainId=1`). So the plan
+    §1 item-1 symptom is explained, not merely worked around: nothing is missing from the capture.
+    `parse_nsys.py`'s `WHERE text IN (...)` was already on the correct path.
+  - **The `correlationId` join inflates by +29.4% on this capture** (naive 459,088 rows vs guarded 354,720 =
+    exactly one row per kernel). The guard is `k.globalPid = (r.globalTid & -16777216)`; verified that clearing
+    the low 24 bits of every RUNTIME `globalTid` reproduces the four KERNEL `globalPid` values exactly.
+    Independently confirms the handoff §5 figure of +30.8% on a different capture. — measured
+  - **`kernel_census.py` has a second, independent bug** beyond the missing guard: `enclosing(rs, tid)` looks up
+    the NVTX range on the *launching* thread, but on rank 0 **62,680 of 88,680 launches come from the autograd
+    worker thread** (`...2d149f`) while **all 201 NVTX events are on the main thread** (`...2d139d`). Same-thread
+    attribution would therefore credit `(outside)` for the whole of `backward`. Attribution must be scoped to
+    the **process** (globalPid), not the thread. — measured, plan item 4
+- **next:** compute the split with a process-scoped, pid-guarded, launch-time attribution; then land item 4's
+  fix to `kernel_census.py` reusing the same join.
+- **infra-failure count:** 0/5
+
+---
+
 ## tick 0 — 2026-08-20 — setup — loop machinery written; nothing submitted
 
 - **in flight:** none
