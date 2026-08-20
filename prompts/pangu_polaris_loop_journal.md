@@ -18,6 +18,55 @@ Entry shape (keep it):
 
 ---
 
+## tick 3 — 2026-08-20 — stage T0 item 3 — prereg for the analytic bytes model
+
+- **in flight:** none (Tier 0 needs no `qsub`)
+- **built first, from the config + source only — not from the capture** (`ACE2_retrain/sfno_bytes_model.py`).
+  Config `pangu_e3sm_sfno.nsys.rendered.yaml`: `horizontal_resolution: [180, 360]`, `embed_dim: 512`,
+  `num_layers: 12`, `mlp_ratio: 2.0`, `hard_thresholding_fraction: 1.0`, `big_skip: True`, batch 1.
+  Spectral shape grounded in source, not assumed: `modes_lat = int(h*thf) = 180`,
+  `modes_lon = int((w//2+1)*thf) = 181` (`networks/modulus_sfno/sfnonet.py:481-482`).
+  The tensor inventory (payload, one tensor, batch 1):
+
+  | tensor | shape | elements | fp32 MB | complex64 MB |
+  |---|---|---|---|---|
+  | input/output field | 108x180x360 | 6,998,400 | 27.99 | — |
+  | **latent** | 512x180x360 | 33,177,600 | **132.71** | — |
+  | big_skip cat | 620x180x360 | 40,176,000 | 160.70 | — |
+  | **MLP hidden** | 1024x180x360 | 66,355,200 | **265.42** | — |
+  | **spectral** | 512x180x181 | 16,680,960 | — | **133.45** |
+
+- **prereg (written BEFORE `--match` was run against either capture):**
+  - **P1.** `direct_copy<complex64,nocast>` per-call payload ≈ **133.45 MB**, the spectral tensor
+    (±5%). It is the only complex tensor at that scale.
+  - **P2.** `conj<complex64>` per-call payload ≈ **133.45 MB** as well, and its **24 calls/rank-step
+    = 2 x num_layers** — one conjugate per operand per spectral contraction.
+  - **P3.** `direct_copy<float,nocast>` per-call payload ≈ **132.71 MB**, the fp32 latent (±5%).
+  - **P4.** **No copy kernel's per-call payload exceeds 265.42 MB** (the largest real tensor, the MLP
+    hidden at fp32). A copy above that is not moving one tensor.
+  - **⚠ P1 and P3 are the ones I expect to be at risk.** Backing bytes out of §0d's published
+    `est GB/s x us/call` gives ~**238 MB** for the complex64 copy (1.78x the spectral tensor) and
+    ~**55 MB** for the float copy (0.41x the latent). If the geometry confirms those, **P1, P3 and
+    possibly P4 all MISS** — and per the plan that mismatch *is* the deliverable: it localises a copy
+    that does not correspond to any single tensor, which means either a fused/concatenated copy or a
+    broken geometry estimate. I am predicting the clean-tensor case anyway, because that is what the
+    model says should be there; recording the alternative so the miss cannot be re-narrated as a hit.
+  - **Decision rule.** (a) If P1/P2/P3 hold, §0d's launch-geometry bytes are validated against an
+    independent source and "17-27% of peak" becomes a **bound** rather than an estimate — and each copy
+    has a named tensor, which is item 8's target handed over for free. (b) If they miss *high* (a copy
+    bigger than its tensor), the excess is the finding: name the multiple and say what could produce it
+    (a `cat`, a batched/strided copy over several tensors, or the `<128,2>` elements-per-block
+    assumption being wrong for this kernel). (c) If they miss *low*, the copies are partial/tiled and
+    the per-call figure is not a tensor at all. **Either way the number is recorded; §0d's caveat is
+    only removed in case (a).**
+  - **Stated limit:** this bounds *useful* bytes. It cannot distinguish "unused bandwidth" from
+    "wasted uncoalesced traffic" — that is still item 7 (ncu), unchanged.
+- **result:** OPEN — measured after this commit.
+- **next:** run `--match` on both captures (n=2 comes free now).
+- **infra-failure count:** 0/5
+
+---
+
 ## tick 2 — 2026-08-20 — stage T0 item 2 — prereg for the n=2 re-derivation on job 7255557
 
 - **in flight:** none (Tier 0 needs no `qsub`)
