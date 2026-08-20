@@ -48,7 +48,42 @@ def census(cur, by_pid, rank_steps):
     return out
 
 
-def report(rows, rank_steps):
+SMALL_US = 10          # "tiny" = shorter than ~1 launch call (~8 us measured)
+SKEW_BAR = 10.0        # pt of count-share minus time-share; see the note in report()
+
+
+def small_kernel_census(cur, threshold_us=SMALL_US, top=5):
+    """The tiny-kernel population, and the two numbers that decide whether it matters.
+
+    The phase-level skew CANNOT see this population -- see report()'s note -- so
+    the thesis has to be tested at the granularity where tiny kernels live. What
+    settles it is not the count but the **prize**: how much GPU time perfect
+    fusion would recover, against how deep the launch queue already is.
+    """
+    n, tot = cur.execute(
+        "SELECT COUNT(*), SUM(end - start) FROM CUPTI_ACTIVITY_KIND_KERNEL"
+    ).fetchone()
+    sn, st = cur.execute(
+        "SELECT COUNT(*), SUM(end - start) FROM CUPTI_ACTIVITY_KIND_KERNEL "
+        "WHERE end - start < ?", (threshold_us * 1000,)).fetchone()
+    rows = cur.execute("""
+        SELECT s.value, COUNT(*), SUM(k.end - k.start)
+        FROM CUPTI_ACTIVITY_KIND_KERNEL k JOIN StringIds s ON s.id = k.demangledName
+        WHERE k.end - k.start < ? GROUP BY 1 ORDER BY 2 DESC LIMIT ?""",
+        (threshold_us * 1000, top)).fetchall()
+    # Launch -> execute queue depth. A queue this deep cannot be starved by an
+    # 8 us launch call, which is the direct refutation of the launch-latency
+    # reading -- far better evidence than a GPU-busy percentage.
+    depths = sorted(k - r for r, k in cur.execute(
+        "SELECT r.start, k.start FROM CUPTI_ACTIVITY_KIND_RUNTIME r "
+        "JOIN CUPTI_ACTIVITY_KIND_KERNEL k ON k.correlationId = r.correlationId "
+        "AND k.globalPid = (r.globalTid & ?)", (npa.PID_MASK,)))
+    return dict(n=n, tot=tot, small_n=sn or 0, small_ns=st or 0, top=rows,
+                depth_med=depths[len(depths) // 2] if depths else 0,
+                depth_p25=depths[len(depths) // 4] if depths else 0)
+
+
+def report(rows, rank_steps, small=None):
     total_n = sum(v[0] for v in rows.values())
     total_t = sum(v[1] for v in rows.values())
     print(f"{total_n:,} kernel launches over {rank_steps} rank-steps "
@@ -57,33 +92,58 @@ def report(rows, rank_steps):
     print(f"{'range':<26}{'launches':>11}{'per rank-step':>15}{'% count':>9}"
           f"{'% time':>8}{'avg us':>9}{'count-time':>12}")
     print("  " + "-" * 88)
+    avg_all = total_t / total_n
     skew = []
     for r, (n, t) in sorted(rows.items(), key=lambda kv: -kv[1][0]):
         pc, pt = 100 * n / total_n, 100 * t / total_t
-        skew.append((pc - pt, r, pc, pt))
+        if r != '(outside)':          # not a code site; cannot be "batched"
+            skew.append((pc - pt, r, pc, pt))
         print(f"{r:<26}{n:>11,}{n / rank_steps:>15,.0f}{pc:>8.1f}%"
               f"{pt:>7.1f}%{t / n / 1000:>9.1f}{pc - pt:>+11.1f} pt")
+    if '(outside)' in rows:
+        print(f"\n  ⚠ `(outside)` is present: {rows['(outside)'][0]:,} launches fall in no "
+              f"NVTX range. That is an\n    instrumentation-coverage gap, not a code site — "
+              f"it is excluded from the skew below.")
 
-    # The tool's thesis, tested rather than asserted.
+    print(f"\n  NOTE on `count-time`: it has a closed form, `skew_r = pc_r x (1 - avg_r/avg_all)`,"
+          f"\n  so it is a COUNT-WEIGHTED RELATIVE mean-duration test, not an absolute one. Two"
+          f"\n  consequences: a range holding {rows and 100 * min(v[0] for v in rows.values()) / total_n:.1f}%"
+          f" of launches can never skew past that share no\n  matter how tiny its kernels are, and"
+          f" `% time` here contains NCCL wait, which is not\n  reproducible run-to-run (§4.4c). "
+          f"**The phase-level skew cannot see a tiny-kernel\n  population at all** — that is what "
+          f"the section below is for.")
     worst = max(skew) if skew else (0, None, 0, 0)
-    print(f"\n  NOTE `% time` is a share of the kernel total, which CONTAINS NCCL wait and "
-          f"is not\n  reproducible run-to-run (§4.4c: one such share moved 4.77 pt between "
-          f"identical\n  configs). The `launches` and `per rank-step` columns are the durable "
-          f"ones. The skew\n  below inherits that: it read +3.2 pt and +2.0 pt on the two "
-          f"Pangu captures.")
-    print()
-    if worst[0] >= 10:
-        print(f"  BATCHING TARGET: `{worst[1]}` issues {worst[2]:.1f}% of launches for "
-              f"only {worst[3]:.1f}% of\n  GPU time (+{worst[0]:.1f} pt). That is many "
-              f"small kernels -- fusing or batching\n  them buys launch-pipeline headroom "
-              f"a time-sorted profile hides.")
+    print(f"\n  largest phase skew: {worst[0]:+.1f} pt (`{worst[1]}`) vs a {SKEW_BAR:+.0f} pt bar"
+          f" — but see below before concluding anything.")
+
+    if not small:
+        return
+    sn, snt, n, tot = small['small_n'], small['small_ns'], small['n'], small['tot']
+    pc, pt = 100 * sn / n, 100 * snt / tot
+    print(f"\n  --- tiny kernels (< {SMALL_US} us, i.e. shorter than ~1 launch call) ---")
+    print(f"  {sn:,} launches = **{pc:.1f}% of all launches** for **{pt:.2f}% of GPU time** "
+          f"(skew {pc - pt:+.1f} pt),\n  {sn / rank_steps:,.0f} per rank-step. Top contributors:")
+    for v, cnt, ns in small['top']:
+        print(f"    {cnt:>7,}  {ns / cnt / 1000:>6.2f} us  {npa.short_label(v)[:52]}")
+    print(f"\n  queue depth (launch -> execute): median "
+          f"**{small['depth_med'] / 1e6:.0f} ms**, p25 {small['depth_p25'] / 1e6:.0f} ms")
+    prize = 100 * snt / tot
+    if prize >= 5:
+        print(f"\n  BATCHING TARGET: perfectly fusing these would recover up to {prize:.1f}% of "
+              f"GPU time.\n  Worth sizing properly.")
     else:
-        print(f"  NO batching target on this capture: the largest count-minus-time skew is "
-              f"{worst[0]:+.1f} pt\n  (`{worst[1]}`), well under the +10 pt that would mark a "
-              f"launch-bound site. Every range\n  issues roughly as much of the work as it "
-              f"consumes of the time, so there is no\n  launch-pipeline headroom for batching "
-              f"to recover here -- consistent with GPU-busy\n  of 98.5-98.6% (plan §0a). Do "
-              f"not quote this tool as evidence for fusion.")
+        print(f"\n  VERDICT: a tiny-kernel population EXISTS and is large by count "
+              f"({pc:.1f}% of launches),\n  but batching is not worth funding — perfectly fusing "
+              f"**all** of it recovers at most\n  **{prize:.2f}% of GPU time** "
+              f"({snt / 1e9:.3f} s of {tot / 1e9:.1f} s), against a launch queue already\n  "
+              f"**{small['depth_med'] / 1e6:.0f} ms deep** — the CPU runs roughly a third of a step "
+              f"ahead, so an ~8 us\n  launch call cannot starve it. Do NOT read a small phase skew "
+              f"as evidence for this;\n  the phase metric is blind here (see the NOTE above). The "
+              f"launch-latency reading was\n  already retired on its own turf by "
+              f"POLARIS_PROFILING_HANDOFF.md §6 dead ends 1-2\n  (stream/DDP-bucket dependency, "
+              f"not launch starvation); this adds a Polaris queue-depth\n  datum and does not by "
+              f"itself refute the ACE2/Midway measurement, which is a different\n  model on "
+              f"different hardware.")
 
 
 def main(path):
@@ -98,11 +158,18 @@ def main(path):
     # cudaProfilerStart), and dividing 4 ranks' launches by that is wrong twice.
     anchor = next((n for n in ('data_prep', 'preprocess')
                    if any(r[2] == n for v in by_pid.values() for r in v)), None)
-    rank_steps = sum(1 for v in by_pid.values() for r in v
-                     if r[2] == anchor) if anchor else len(by_pid)
+    if anchor is None:
+        # Falling back to len(by_pid) would silently report the RANK count as the
+        # rank-STEP count -- a 40x error with no warning. `ace2_nvtx.py:30` records
+        # that ACE2 deliberately emits no `data_prep`, so this path is live.
+        sys.exit("ERROR NO_STEP_ANCHOR: no `data_prep` or `preprocess` range, so "
+                 "rank-steps cannot be\n  derived. Pass a per-rank-step count "
+                 "explicitly rather than letting this guess.")
+    rank_steps = sum(1 for v in by_pid.values() for r in v if r[2] == anchor)
     print(f"{len(by_pid)} rank(s), {rank_steps} rank-steps "
           f"(pid-guarded, process-scoped join)\n")
-    report(census(con.cursor(), by_pid, rank_steps), rank_steps)
+    report(census(con.cursor(), by_pid, rank_steps), rank_steps,
+           small_kernel_census(con.cursor()))
 
 
 if __name__ == "__main__":

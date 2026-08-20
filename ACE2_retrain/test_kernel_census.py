@@ -67,6 +67,49 @@ def build(path, fwd_kernels=1, bwd_kernels=3, bwd_us=10, fwd_us=10):
     db.close()
 
 
+def build_prize(path, small_time_share):
+    """One phase; N tiny kernels holding `small_time_share` of total GPU time.
+
+    Sizes the tiny population's TIME share directly, because that -- not the
+    launch count -- is what the verdict is driven by.
+    """
+    db = sqlite3.connect(path)
+    db.executescript("""
+        CREATE TABLE StringIds (id INTEGER PRIMARY KEY, value TEXT);
+        CREATE TABLE NVTX_EVENTS (start INT, end INT, eventType INT, text TEXT,
+                                  globalTid INT, textId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_RUNTIME (start INT, end INT,
+                                  globalTid INT, correlationId INT);
+        CREATE TABLE CUPTI_ACTIVITY_KIND_KERNEL (start INT, end INT,
+                                  correlationId INT, globalPid INT,
+                                  demangledName INT);
+    """)
+    db.execute("INSERT INTO StringIds VALUES (1, 'tiny_kernel')")
+    db.execute("INSERT INTO StringIds VALUES (2, 'big_kernel')")
+    n_tiny, tiny_ns = 100, 5_000              # 5 us each => under the 10 us bar
+    # big kernel absorbs the rest of the time so the tiny share is as requested
+    big_ns = int(n_tiny * tiny_ns * (1 - small_time_share) / small_time_share)
+    for pid in (PID_A,):
+        main = pid | 0x10
+        for text, s, e in (('data_prep', 0, 5), ('forward_loss', 10, 10**9)):
+            db.execute("INSERT INTO NVTX_EVENTS VALUES (?,?,59,?,?,NULL)",
+                       (s, e, text, main))
+        cid = 0
+        for k in range(n_tiny):
+            cid += 1
+            db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES (?,?,?,?)",
+                       (100 + k, 101 + k, main, cid))
+            db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (?,?,?,?,1)",
+                       (200 + k, 200 + k + tiny_ns, cid, pid))
+        cid += 1
+        db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_RUNTIME VALUES (?,?,?,?)",
+                   (500, 501, main, cid))
+        db.execute("INSERT INTO CUPTI_ACTIVITY_KIND_KERNEL VALUES (?,?,?,?,2)",
+                   (600, 600 + big_ns, cid, pid))
+    db.commit()
+    db.close()
+
+
 def run(path):
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     by_pid = npa.load_phases(con.cursor())
@@ -124,25 +167,94 @@ def main():
         check(sum(n for n, _ in agg.values()) == sum(v[0] for v in rows.values()),
               "census disagrees with nvtx_phase_attribution -- one of them is wrong")
 
-        # -- the thesis is CONDITIONAL. Here every kernel is the same duration, so
-        # count-share EQUALS time-share by construction and the skew is 0 --
-        # exactly the situation on the real capture (+3.2 pt), where the advice
-        # must not print.
-        check('NO batching target' in txt, f"expected no target on a balanced capture:\n{txt}")
+        # -- the phase skew is reported but must NOT carry the verdict. Here every
+        # kernel is the same duration, so count-share EQUALS time-share by
+        # construction (skew_r = pc_r*(1 - 1) = 0 identically) -- which is why the
+        # skewed fixture below is what pins the sign, not this one.
         check('+0.0 pt' in txt, f"balanced capture should show zero skew:\n{txt}")
+        check('cannot see a tiny-kernel' in txt,
+              f"the report must warn that the phase metric is blind to tiny kernels:\n{txt}")
 
-    # -- and it fires when a range really is launch-heavy / time-light.
+        # -- `(outside)` is an instrumentation gap, not a code site, and must never
+        # be offered as a batching target. The PRE-FIX version of this tool
+        # reported it at 69.6%, so this is the exact shape that would have fired.
+        rows2 = dict(rows)
+        rows2['(outside)'] = [10_000, 1]
+        buf2, out2 = io.StringIO(), sys.stdout
+        sys.stdout = buf2
+        try:
+            kc.report(rows2, 2)
+        finally:
+            sys.stdout = out2
+        t2 = buf2.getvalue()
+        check('instrumentation-coverage gap' in t2,
+              f"(outside) must be flagged as a coverage gap:\n{t2}")
+        check('(outside)' not in t2.split('largest phase skew:')[1][:40],
+              f"(outside) must be excluded from the skew candidates:\n{t2}")
+
+    # -- the VERDICT is driven by the prize (share of GPU time recoverable), not
+    # by the phase skew. Brackets on both sides of the 5%-of-GPU-time bar, so the
+    # constant is pinned rather than merely non-zero.
+    for share_pct, expect_target in ((0.5, False), (40.0, True)):
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "prize.sqlite")
+            build_prize(path, small_time_share=share_pct / 100.0)
+            con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            by_pid = npa.load_phases(con.cursor())
+            small = kc.small_kernel_census(con.cursor())
+            buf, out = io.StringIO(), sys.stdout
+            sys.stdout = buf
+            try:
+                kc.report(kc.census(con.cursor(), by_pid, 2), 2, small)
+            finally:
+                sys.stdout = out
+            txt = buf.getvalue()
+            got = 'BATCHING TARGET' in txt
+            check(got == expect_target,
+                  f"prize {share_pct}% of GPU time: expected target={expect_target}, "
+                  f"got {got}\n{txt}")
+            if not expect_target:
+                check('EXISTS and is large by count' in txt,
+                      f"a small prize must still ADMIT the population exists:\n{txt}")
+
+    # -- the rank-step normaliser: main() derives it, and must ERROR rather than
+    # silently substitute the rank count when there is no step anchor. (ACE2
+    # deliberately emits no `data_prep` -- ace2_nvtx.py:30 -- so this path is live.)
     with tempfile.TemporaryDirectory() as d:
-        path = os.path.join(d, "skewed.sqlite")
-        build(path, fwd_kernels=200, bwd_kernels=1, fwd_us=1, bwd_us=10_000)
-        _, txt = run(path)
-        check('BATCHING TARGET' in txt,
-              f"a 200-launch/1us range vs a 1-launch/10ms range must trip it:\n{txt}")
-        check('forward_loss' in txt.split('BATCHING TARGET')[1][:80],
-              f"named the wrong range as the target:\n{txt}")
+        path = os.path.join(d, "anchored.sqlite")
+        build(path)
+        buf, out = io.StringIO(), sys.stdout
+        sys.stdout = buf
+        try:
+            kc.main(path)
+        finally:
+            sys.stdout = out
+        txt = buf.getvalue()
+        check('2 rank-steps' in txt,
+              f"main() should derive 2 rank-steps from the 2 data_prep ranges:\n{txt}")
+
+        noanchor = os.path.join(d, "noanchor.sqlite")
+        build(noanchor)
+        db = sqlite3.connect(noanchor)
+        db.execute("UPDATE NVTX_EVENTS SET text='sfno_net' WHERE text='data_prep'")
+        db.commit(); db.close()
+        try:
+            buf, out = io.StringIO(), sys.stdout
+            sys.stdout = buf
+            try:
+                kc.main(noanchor)
+            finally:
+                sys.stdout = out
+        except SystemExit as exc:
+            check('NO_STEP_ANCHOR' in str(exc),
+                  f"wrong error for a missing step anchor: {exc}")
+        else:
+            check(False, "a capture with no step anchor must ERROR, not guess")
 
     print("PASS kernel_census: both attribution bugs reproduced then fixed,\n"
-          "     agrees with nvtx_phase_attribution, thesis is conditional both ways")
+          "     agrees with nvtx_phase_attribution, (outside) excluded from targets,\n"
+          "     verdict bracketed on both sides of the prize bar,\n"
+          "     rank-step anchor derived and its absence ERRORs")
 
 
 if __name__ == '__main__':
