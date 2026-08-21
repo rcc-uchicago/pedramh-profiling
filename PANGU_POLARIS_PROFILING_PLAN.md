@@ -219,10 +219,21 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
 
 ## 2. Tier 1 — cheap `debug`-queue jobs (≤1 h). Ask before submitting.
 
-- [ ] **6. `gpu_topology_check.py`, one allocation, ~1 minute.** Polaris topology is
-      the only unmeasured cell in handoff §4 — "A100" is a device name, not a topology,
-      and this repo's own `beagle3-0012` was A100-**PCIe** with no NVLink. §0b's 88.7%
-      overlap strongly implies real NVLink, but paste the matrix and close it.
+- [x] **6. DONE (2026-08-20) — job 7533457, `TOPO_OK`.** Prereg `5063d221`: **5/5 hit.**
+      **Polaris is a full NVLink mesh: `NV4` between every pair, measured 82.9–83.1 GB/s
+      uniform (spread 0.24%)** on 4× A100-SXM4-40GB. No 2×2 block structure, no PCIe-class
+      pair. ⇒ handoff §4's OPEN topology cell is **closed with a measurement**, and §0b's
+      "comms are free inside a node when balanced" now has a mechanism rather than an
+      inference. Sharp corroboration of the §4.4 method fix: the *minimum*-NCCL anchor
+      implied ≥79 GB/s against a measured **83.0** (within **5%**), so on the balanced
+      capture the all-reduce runs at essentially link speed — whereas the stall-carrying
+      *mean* would have implied ~32 GB/s and "found" a PCIe hop that does not exist.
+      **Bonus (item 6b's key input):** `nvidia-smi`'s own CPU-Affinity column independently
+      confirms the **reversed** GPU→NUMA map — GPU0→NUMA 3 (cores 24-31,56-63), GPU1→2,
+      GPU2→1, GPU3→0 — matching the sysfs reading from job 7531456. See
+      `polaris_pbs_notes.md` §1.
+      **Cost: 4 attempts, 3 of them infra/self-inflicted** — see the journal; the blocker
+      was a cluster-side conda breakage, not this item.
 - [ ] **6b. Two host-CPU stalls, one of which is already diagnosed. ADDED 2026-08-20 by
       item 2 (§4.4e); not in the frozen list.**
       **(A) FREE, no `qsub`, and diagnosed: CPython gen-2 GC.** The reproducible stall at

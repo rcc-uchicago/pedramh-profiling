@@ -258,6 +258,28 @@ recompute inside `backward`, ≈74.6 ms/rs (est.).
 
 ---
 
+**Polaris node — measured pairwise GPU bandwidth.** Job **7533457** on `x3204c0s13b1n0`,
+`gpu_topology_check.py`, 256 MiB per transfer, unidirectional `copy_`. → plan item 6.
+
+| | GPU0 | GPU1 | GPU2 | GPU3 |
+|---|---|---|---|---|
+| **cuda:0** | — | 83.0 | 83.0 | 83.0 |
+| **cuda:1** | 83.0 | — | 83.0 | 83.1 |
+| **cuda:2** | 83.0 | 83.0 | — | 83.0 |
+| **cuda:3** | 82.9 | 83.0 | 83.1 | — |
+
+**Full NVLink mesh — `NV4` on every pair, 82.9–83.1 GB/s, spread 0.24%.** No 2×2 block
+structure (that is the H100-NVL pair-bridge pattern) and no PCIe-class pair (~25 GB/s).
+`nvidia-smi topo -m` agrees: `NV4` in all 12 cells. ⇒ this is **intra-node device-to-device**;
+it is not the §4.3e figure (1279 GB/s, *intra-device* HBM) and says nothing about multi-node.
+
+**GPU↔NUMA is REVERSED** — from `nvidia-smi`'s CPU-Affinity column, independently matching
+sysfs on a different node (job 7531456): GPU0→NUMA **3** (cores 24-31,56-63), GPU1→**2**,
+GPU2→**1**, GPU3→**0**. A naive `--cpu-bind depth -d 8` therefore puts local rank 0 on cores
+0-7 = NUMA 0, whose GPU is GPU3 — **every rank maximally far from its own GPU** (plan item 6b).
+
+---
+
 **PanguWeather — achieved DRAM bandwidth, 4× A100 (Polaris).** Job **7255503**. Peak
 (1555.2 GB/s) and L2 (40 MiB) read from `TARGET_INFO_GPU`. → §4.3e.
 

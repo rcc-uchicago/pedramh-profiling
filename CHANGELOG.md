@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 5 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
+| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 4, 5, 6 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
@@ -55,7 +55,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 > hardware is not the limit) but not replaced. Two things are now sized rather than guessed: the copy time
 > is **72.9% `backward`**, and **checkpointing headroom against the shipped `ckpt2` config is ≈4%, not
 > ≈25%** — so the `ckpt` ladder (item 10) is worth *measuring* but is not the prize the "61% elementwise"
-> share suggests. Next unchecked: item **4**, then the new **6b**.
+> share suggests. Next unchecked: **6b**, then **7** — but see the blocker.
+>
+> **🚨 2026-08-20 — BLOCKED: `module load conda` AND the base-conda torch are both broken cluster-side.**
+> Every PBS script here uses the plain module bootstrap. Item 6 landed only because it needs *torch alone*
+> and could borrow the ai-rossby venv; **items 7-17 need the real Pangu env and cannot run.** Details and
+> the three failed workarounds: `polaris_pbs_notes.md` §1. Needs a decision: port the proven torch-aware
+> bootstrap to the Pangu scripts, or file an ALCF ticket and wait.
 >
 > **Updated again 2026-08-20 (item 3 done, no GPU time):** the copy problem is **half a weight problem**.
 > **133 ms/rank-step (~21% of the step) moves one 377 MB spectral weight in four places**, all from a
@@ -197,6 +203,50 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-20** — **Polaris is a full NVLink mesh: `NV4` on every pair, 82.9-83.1 GB/s uniform. Plan item
+  6 done — but the real story of the tick is that `module load conda` and the base-conda torch are BOTH
+  broken cluster-side, which blocks every other GPU job in this repo.** Job **7533457**, `TOPO_OK`.
+  Preregistered at `5063d221` before submission — **5/5 hit**. First submissions of the loop; operator
+  narrowed submission authority mid-tick so single-node `debug` jobs are now auto.
+  - **The measurement.** 4× A100-SXM4-40GB, 256 MiB unidirectional `copy_`, all 12 off-diagonal cells
+    **82.9-83.1 GB/s (spread 0.24%)**; `nvidia-smi topo -m` agrees with `NV4` in every cell. No 2×2 block
+    structure (the H100-NVL pair-bridge pattern) and no PCIe-class pair. ⇒ **handoff §4's OPEN topology
+    cell closes with a measurement**, and §0b's "comms are free inside a node *when balanced*" now has a
+    mechanism instead of an inference.
+  - **It validates the §4.4 method fix sharply, which is worth more than the number itself.** The
+    *minimum*-NCCL anchor implied **≥79 GB/s** against a measured **83.0** — within **5%**, so on the
+    balanced capture DDP's all-reduce runs at essentially link speed. The stall-carrying **mean** would
+    have implied ~32 GB/s and "discovered" a PCIe hop that does not exist. Quoting the minimum was the
+    right call.
+  - **Item 6b's key input, measured twice on two different nodes: the GPU↔NUMA map is REVERSED.**
+    GPU0→NUMA **3** (cores 24-31,56-63), GPU1→**2**, GPU2→**1**, GPU3→**0** — from sysfs on job 7531456
+    and independently from `nvidia-smi`'s CPU-Affinity column on job 7533457. ⇒ **a naive
+    `--cpu-bind depth -d 8` puts local rank 0 on cores 0-7 = NUMA 0, whose GPU is GPU3, so every rank
+    lands maximally far from its own GPU.** That is a concrete candidate mechanism for the *undiagnosed*
+    host-CPU stall of §4.4e. Recorded in `polaris_pbs_notes.md` §1, which had it as NOT CAPTURED.
+  - **🚨 BLOCKER, and it is bigger than this item.** (i) **All `conda/*` modulefiles are stale**: they pin
+    `cray-hdf5-parallel/1.14.3.5` and `gcc-native/14.2`, and the live Cray PE ships only **1.14.3.9** and
+    **14**, so Lmod errors and `python` never appears. (ii) **The base-conda torch is separately broken**:
+    `ldd` on its `libtorch_global_deps.so` shows it links **both** `libcudart.so.12` and `libcudart.so.13`
+    (only 12 exists), so `import torch` fails **even with a working module** — no `LD_LIBRARY_PATH` fix
+    exists. Both ALCF-side; broke between **2026-08-07** (jobs 7366939/7366940 fine) and today. **Every
+    PBS script in this repo uses the plain module bootstrap**, so items 7-17 cannot run: item 6 only got
+    through because it needs *torch alone* and could borrow the ai-rossby venv (torch 2.10.0+cu129 with
+    bundled `nvidia/*/lib` wheels — `ldd`: 0 unresolved).
+  - **Workarounds tried and FAILED, recorded so they are not re-tried:** `module --ignore_cache load
+    conda`; the older `conda/2024-04-29` and `conda/2024-10-30-workshop`; and pre-loading the dependency
+    versions that do exist (the modulefile pins exact patch versions). **The fix that worked** was found
+    from **repo state, not by probing `/soft`** — the venv `bin/python` symlinks the project's own setup
+    scripts created.
+  - **Cost, stated plainly: 4 attempts, 3 wasted — and one was mine, not the cluster's.** 7531456 (conda
+    module), 7533451 (base torch), **7533454 — my error: an edit script aborted on an assertion before
+    writing and I submitted the unmodified file in the same command**. Fix adopted: edits and submissions
+    are separate steps, and the file is verified changed before any `qsub`. Infra-failure count **3/5**.
+  - **Next:** the torch-aware bootstrap is proven and would port to the other PBS scripts, **but most live
+    in `git subtree`s**, so mass-editing them is the operator's call. Either (a) port it to the Pangu
+    scripts only, or (b) file the ALCF ticket and wait. Until then items **7-17 are blocked**; item **6b**
+    now has a specific hypothesis to test rather than "maybe affinity".
 
 - **2026-08-20** — **The largest single line item in the Pangu step is one weight in the wrong layout:
   133.15 ms/rank-step moves a 377 MB spectral weight in four places, and fusing pointwise ops touches

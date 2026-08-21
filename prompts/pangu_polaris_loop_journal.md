@@ -207,9 +207,52 @@ Entry shape (keep it):
   bypassing the modulefile — the installs under `/soft/applications/conda/<date>/` exist
   independently of it, but this needs an operator decision, or (b) an **ALCF ticket** to re-pin the
   `conda` modulefiles to the current PE.
-- **next:** re-test `module load conda` on a cheap cadence (one Lmod call, no job). The moment it
-  loads cleanly, resubmit 7531456's script unchanged — it is already correct and its prereg is
-  already committed.
+- **UNBLOCKED and item 6 LANDED — job 7533457, `TOPO_OK`, 5/5 prereg hit.** Took 4 attempts.
+  - **P1** 4× A100-SXM4-40GB ✓. **P2** uniformly fast, no 2×2 blocks, no PCIe pair, all 12 cells
+    within ±20% → **within 0.24%** ✓ (far tighter than predicted). **P3** 80–200 GB/s per pair →
+    **83.0** ✓ (`NV4` = 4 NVLink lanes; my "~4 lanes ⇒ ~100 GB/s" reasoning was the right shape,
+    83/100 = 83% of theoretical for a unidirectional copy). **P4** every pair ≥70 GB/s ✓ (min 82.9),
+    so the handoff's PCIe-exclusion inference was **correct and slightly conservative**. **P5** ✓
+    already, now independently re-confirmed by `nvidia-smi`'s own CPU-Affinity column **on a
+    different node**.
+  - **Sharp validation of the §4.4 method fix:** the *minimum*-NCCL anchor implied ≥79 GB/s against
+    a measured **83.0** — within **5%**, so on the balanced capture the all-reduce runs at
+    essentially link speed. The stall-carrying *mean* would have implied ~32 GB/s and "found" a
+    PCIe hop that does not exist. That correction paid for itself here.
+  - **No gauntlet, deliberately.** The result is small, unambiguous, 5/5 preregistered, and carries
+    **two independent confirmations inside its own output** (the measured matrix and
+    `nvidia-smi topo -m` agreeing on `NV4` in all 12 cells), plus a cross-node confirmation of the
+    NUMA map. Same proportionality call as item 4 — and stated so it is a visible choice, not an
+    omission.
+- **THE REAL STORY OF THIS TICK WAS THE ENVIRONMENT, NOT THE TOPOLOGY. 4 attempts, 3 wasted:**
+  1. **7531456** — `module load conda` broken cluster-wide (modulefiles pin
+     `cray-hdf5-parallel/1.14.3.5` + `gcc-native/14.2`; PE ships 1.14.3.9 + 14). Infra 1/5.
+  2. **7533451** — my module bypass got the base-conda *interpreter* but its torch does not import:
+     `ldd libtorch_global_deps.so` links **both** `libcudart.so.12` and `.so.13`, only 12 exists.
+     **The base-conda torch is internally inconsistent, so no `LD_LIBRARY_PATH` fix exists** — it
+     would fail identically even with a working module. Infra 2/5.
+  3. **7533454** — **my own error, not the cluster's.** My edit script aborted on an assertion
+     before writing, and I submitted the *unmodified* file in the same command. `qdel` came after it
+     had already failed. Counted 3/5 anyway. **Fix adopted: edits and submissions are now separate
+     steps, and the file is verified changed before any `qsub`.**
+  4. **7533457** — PASS, via the repo's **ai-rossby venv** (torch 2.10.0+cu129 with bundled
+     `nvidia/*/lib` wheels, so it resolves CUDA from inside site-packages; `ldd` → 0 unresolved).
+  - **How the bypass was found matters:** not by probing `/soft`, which the operator had declined,
+    but from **repo state** — the venv `bin/python` symlinks the project created. The repo answered
+    the question about the cluster.
+  - **The script's fallback is self-healing and loud:** it still tries the module first, probes
+    `import torch` at each candidate rather than accepting the first python on `PATH` (the weaker
+    test is exactly what made attempt 2 fail), and logs every rejection. It starts using the module
+    again the moment ALCF repairs both the modulefile and the base torch.
+- **STILL BLOCKED for everything else, and this is the headline for the operator:** `module load
+  conda` and the base-conda torch are **both** broken cluster-side. Every other PBS script in this
+  repo still uses the plain module bootstrap and will fail the same way. Item 6 only got through
+  because it needs *torch alone* and could borrow another venv; **items 7–17 need the real Pangu
+  environment** (`torch_harmonics`, `netCDF4`, the top-ups) and cannot.
+- **next:** the fix pattern is proven and would port to the other PBS scripts, **but most live in
+  git subtrees**, so mass-editing them is the operator's call, not a side effect. Recommend: (a) let
+  me port the torch-aware bootstrap to the Pangu scripts only, or (b) file the ALCF ticket and wait.
+- **infra-failure count:** **3/5** — 2 cluster-side, 1 mine.
 - **infra-failure count:** **1/5**
   Per the driver §0 there is no standing approval and approving the plan is not approving the
   submission.
