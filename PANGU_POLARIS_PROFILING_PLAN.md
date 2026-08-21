@@ -525,6 +525,18 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       Fixed seed, world size 1, K=20 loss trajectory + output stats. Tolerance floors:
       2.5e-7 same GPU/node, ~1e-5 cross-architecture. **Highest-leverage single job in
       this plan** — it is the gate, not an optimization.
+      **⚠ SCOPE CORRECTED 2026-08-21 (tick 23): this is NOT a "job", it is a BUILD.** There
+      is no Pangu equivalence *capture harness* to submit. The machinery that produced
+      `baselines/ai_rossby_*/` lives entirely in the **ai-rossby subtree**
+      (`physicsnemo_ai_rossby/examples/weather/ai_rossby/equivalence.py`, **305 lines**,
+      Hydra `DictConfig`-driven) and is wired to that tree's training loop.
+      **`PanguWeather/v2.0/train.py` has no baseline hook at all** — one comment at line 693
+      mentions the gate and nothing implements it. A Pangu twin must be written against
+      Pangu's YAML-config/`train.py` structure. `compare_baselines.py` *is* reusable as-is
+      (it only reads two JSONs and a tolerance).
+      **CHANGELOG's "baseline capture is no longer blocked on building anything" refers to
+      the three §4.0 PREREQUISITES (seed knob, VAE hook, tiny config) — it does not mean the
+      capture script exists.** It does not.
 - [ ] **19. `torch.compile` (rung 1)** — the wired-but-never-exercised knob
       (`TORCH_COMPILE_MODE`). Right lever for §0d's fusion-starved copies, and ACE2's
       evidence says expect the *regional* win (corrector ≈ −2%) not a whole-network

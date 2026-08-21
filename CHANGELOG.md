@@ -212,6 +212,27 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+2026-08-21 — **`SelectBackward0`'s 30.8% (§4.10) traced to `ComplexReLU(mode="real")`** —
+`activations.py:65-68`, the only `select` in the SFNO path, active by config
+(`complex_activation: 'real'`). Activating only the real component costs **three
+full-tensor traversals of 66.4 MB**: a `clone` existing solely to preserve the imaginary
+half, a strided half-write, and a backward that embeds the gradient in zeros of the full
+base shape. Math-preserving alternative listed and **explicitly not measured**.
+`mode="real"` itself is jesswan's modelling choice; the candidate does not change it. →
+`polaris_bench_report.md` §4.11.
+
+2026-08-21 — ⚠ **item 18 (the PanguWeather equivalence baseline) is a BUILD, not a job —
+and it is now the critical path.** The profiling loop has produced **three** math-preserving
+optimization candidates (§4.9 weight layout — two lines in-repo; §4.9 zero-pad buffer;
+§4.11 activation) and **none can be adopted**, because DESIGN §4 gates every hot-path change
+on an equivalence baseline that does not exist for Pangu. The blocker is sharper than
+recorded: the capture machinery lives **only** in the ai-rossby subtree (`equivalence.py`,
+305 lines, Hydra-driven), and **`PanguWeather/v2.0/train.py` has no baseline hook
+whatsoever**. The status-row phrasing that Pangu's §4.0 prerequisites are all met so
+"baseline capture is no longer blocked on building anything" is true of the *prerequisites*
+(seed knob, VAE hook, tiny config) and **false of the capture script**.
+`compare_baselines.py` is reusable as-is.
+
 2026-08-21 — **PanguWeather profiling item 7 (ncu) — CLOSED, prereg 4/4: the copy
 kernels are CONTIGUITY-bound, not bandwidth-bound** — job 7550715, single rank, 80
 launches, 11 metrics. Store side sits at **exactly** the ideal sectors/request (4.00 /
