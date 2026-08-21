@@ -51,13 +51,21 @@ def _short(name):
     return name.split("(")[0][:44]
 
 
+# ncu AUTO-SCALES units per row: the same metric comes back as "Mbyte" on one launch
+# and "Gbyte" on the next. A parser that reads only Metric Value silently adds 1.5 (GB)
+# to 132.72 (MB) and reports nonsense. Normalise everything to base units at load.
+_UNIT_SCALE = {"": 1.0, "byte": 1.0, "Kbyte": 1e3, "Mbyte": 1e6, "Gbyte": 1e9,
+               "Tbyte": 1e12, "sector": 1.0, "%": 1.0, "nsecond": 1e-9,
+               "usecond": 1e-6, "msecond": 1e-3, "second": 1.0}
+
+
 def load(path):
-    """[(kernel_label, {metric: float})] — one entry per profiled launch."""
+    """[(kernel_label, {metric: float})] — one entry per profiled launch, base units."""
     with open(path, newline="") as fh:
         # ncu prefixes the CSV with ==PROF== banner lines; find the real header.
         lines = [ln for ln in fh if not ln.startswith("==")]
     rdr = csv.DictReader(lines)
-    kcol = mcol = vcol = idcol = None
+    kcol = mcol = vcol = idcol = ucol = None
     for c in (rdr.fieldnames or []):
         lc = c.lower()
         if kcol is None and "kernel name" in lc:
@@ -66,6 +74,8 @@ def load(path):
             mcol = c
         elif vcol is None and "metric value" in lc:
             vcol = c
+        elif ucol is None and "metric unit" in lc:
+            ucol = c
         elif idcol is None and lc.strip() == "id":
             idcol = c
     if not (kcol and mcol and vcol):
@@ -78,7 +88,11 @@ def load(path):
             val = float(str(row[vcol]).replace(",", ""))
         except (TypeError, ValueError):
             continue
-        launches.setdefault(key, {})[row[mcol]] = val
+        unit = (row.get(ucol) or "").strip() if ucol else ""
+        if unit not in _UNIT_SCALE:
+            sys.exit("ERROR NCU_UNKNOWN_UNIT: %r on %s — refusing to guess a scale"
+                     % (unit, row[mcol]))
+        launches.setdefault(key, {})[row[mcol]] = val * _UNIT_SCALE[unit]
     return [(_short(k[1]), m) for k, m in launches.items()]
 
 

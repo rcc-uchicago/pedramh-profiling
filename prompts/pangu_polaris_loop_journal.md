@@ -18,6 +18,85 @@ Entry shape (keep it):
 
 ---
 
+## tick 19 — 2026-08-21 — **item 7 CLOSED. 4/4. The lever is CONTIGUITY, not fewer bytes.**
+
+- **in flight:** none. Job **7550715** completed; 80 launches profiled, 11 metrics, all collected.
+- **prereg:** `491453a9` (amended in tick 18 for instrument availability; **P1–P4 untouched**).
+
+- **result — 4/4 hit**, scored against the 377 MB complex64 rows the prereg named:
+
+  | # | prediction | measured | |
+  |---|---|---|---|
+  | **P1** | sec/req **load** ≥ 12 (≥1.5× the c64 ideal of 8) | **32.00** — the hardware maximum, zero spread over 9 launches | **HIT** |
+  | **P2** | sec/req **store** ≈ 8 (at ideal) | **8.00** exactly | **HIT** |
+  | **P3** | DRAM bytes > 755 MB (2 × 377.5) | **2419.8 MB** = 3.21× | **HIT** |
+  | **P4** | `sm__throughput` < 20% | **4.7%** | **HIT** |
+
+  The **P1/P2 asymmetry was the substantive claim, not a hedge**, and it confirmed to two
+  decimals: on *every* population the store side sits at exactly the ideal (4.00 / 8.00 /
+  8.20) and the load side at or near 32 — one distinct 32 B sector per lane, the worst the
+  counter can report. `TensorIterator` reorders iteration to make the **output** contiguous,
+  so a layout-changing copy pays the entire cost on the **read**.
+
+- **the finding, in one line:** the copies are **contiguity-bound, not bandwidth-bound**, and
+  whether the scatter costs *bandwidth* depends on fitting in A100's 40 MB L2 — 66/133 MB
+  tensors hit 82% in L2 and pay ~1.0–1.46× DRAM (their cost is request-issue latency, SM
+  6.4%); the **377 MB spectral weight** hits only 61% and reads **2043 MB to move 377 MB**.
+  Nothing is saturated: DRAM 24–51% of peak, SM 5–20%, occupancy 84–90%. **§0d was right
+  that DRAM is not the limit, and right for the wrong reason.**
+
+- **two bonus results:**
+  1. **§4.5's open question is closed.** The f32/66 MB row — "the largest single kernel and
+     the only dominant one with **no mechanism at all**" — has one: sec/req **31.50** against
+     an ideal of **4**, the worst ratio of the three (7.9×).
+  2. **The middle population is bimodal, 7.19–31.99.** The *same kernel at the same geometry*
+     is sometimes perfectly coalesced. The scatter is **not intrinsic** — some call sites
+     already do it right, so a layout fix is feasible rather than hypothetical.
+
+- **an open risk is retired:** **GPU counter access on Polaris works.** No `ERR_NVGPUCTRPERM`.
+  Tick 18 correctly refused to claim this from attempt 1, where ncu profiled nothing.
+
+- **errors I made and caught while reading this table** (both would have published wrong
+  numbers):
+  1. **Unit blindness.** ncu **auto-scales units per row** — `dram__bytes_read.sum` came back
+     as `Mbyte` on some launches and `Gbyte` on others. A parser reading only `Metric Value`
+     adds 1.5 (GB) to 132.72 (MB). Fixed in `ncu_summarize.py` with a unit table that
+     **exits rather than guess** an unknown unit; two tests pin it.
+  2. **Wrong denominator.** My first table divided DRAM traffic by *one* tensor's worth. A
+     copy's logical traffic is read **+** write, so the denominator is `2 × tensor`. The
+     uncorrected column overstated amplification ~2×.
+  Also: the first aggregate grouped only by dtype, which **averaged the 377 MB weight
+  together with the 133 MB field** and hid the whole structure. Grouping by launch geometry
+  is what surfaced the three distinct populations.
+
+- **adversarial pass (run inline, not delegated).** The one challenge that landed:
+  **`--cache-control` defaults to `all`**, so every replay pass starts with flushed caches
+  ⇒ the DRAM byte counts and L2 hit rates are **cold-cache**, and cross-kernel reuse in a
+  real step can only *reduce* DRAM traffic. **3.21× is therefore an upper bound.** It does
+  not touch the verdict: **sectors/request is fixed by the access pattern, not by cache
+  state**, and that is the metric the contiguity conclusion rests on. Challenges that did
+  not land: sec/req = 32 cannot exceed 32 (32 lanes, distinct sectors) so it is a genuine
+  ceiling, not an artifact; a broadcast would read 1, not 32; ncu serialises and isolates
+  profiled kernels, so no concurrent-kernel contamination.
+
+- **drift check vs prior sections:** 184,320 × 256 × 8 B = **377.5 MB**, independently
+  reproducing §4.5's 377 MB spectral weight from launch geometry alone (0.1%). The f32 row's
+  66.4 MB matches §4.5's 66.72 MB to 0.5%. `--clock-control=base` locks clocks; **no timing
+  is quoted from this job**, and the warm-up arm's single-rank `step_med=0.619s` is **not**
+  comparable to §4.6's 4-rank baseline.
+
+- **stated limits:** `conj` was **0 of 80** launches sampled and remains unmeasured (14.1% of
+  copy time, §4.3); 80 *consecutive* launches ≈ 14% of one rank-step, not a random sample;
+  single rank (DDP deadlocks under kernel replay); n=1 job.
+
+- **next:** item **8** — source-line attribution, with the recipe tick 17 established
+  (`--cudabacktrace=kernel --python-backtrace=cuda --python-sampling=true`). Item 7 gives it
+  a sharper target: find the call site that produces the **32.00 sec/req** load on the 377 MB
+  weight, and the one that already produces **7.19** on the same kernel shape.
+- **infra-failure count:** 1/5 (unchanged — tick 18's, self-inflicted).
+
+---
+
 ## tick 18 — 2026-08-21 — item 7 attempt 1 FAILED (job 7550606). Five bugs, all mine.
 
 - **in flight:** none at time of writing; attempt 2 about to be submitted.

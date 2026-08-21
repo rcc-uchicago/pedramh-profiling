@@ -35,7 +35,11 @@ def _csv(rows):
     out.write(HDR + "\n")
     for lid, kname, metrics in rows:
         for mname, mval in metrics.items():
-            out.write(f'"{lid}","12345","{kname}","{mname}","","{mval}"\n')
+            unit = ("Mbyte" if "dram__bytes" in mname else
+                    "%" if mname.endswith((".pct", "_elapsed", "_active")) else
+                    "sector" if "sectors" in mname else "")
+            val = mval / 1e6 if "dram__bytes" in mname else mval
+            out.write(f'"{lid}","12345","{kname}","{mname}","{unit}","{val}"\n')
     return out.getvalue()
 
 
@@ -129,6 +133,25 @@ class TestParse(unittest.TestCase):
         # And the reader is told to check L2 first, since %peak alone misleads here.
         self.assertIn("READ L2hit% BEFORE %peak", oc)
 
+
+    def test_units_are_normalised_not_ignored(self):
+        # ncu auto-scales per row: the SAME metric returns Mbyte on one launch and
+        # Gbyte on the next. Reading Metric Value alone adds 1.5 (GB) to 132.72 (MB).
+        # This is the bug that would have silently corrupted item 7's headline number.
+        hdr = HDR + "\n"
+        body = (f'"0","1","{KC}","dram__bytes_read.sum","Mbyte","500"\n'
+                f'"0","1","{KC}","dram__bytes_write.sum","Gbyte","1.5"\n')
+        launches = ns.load(_write("==PROF== x\n" + hdr + body))
+        m = launches[0][1]
+        self.assertEqual(m["dram__bytes_read.sum"], 500e6)
+        self.assertEqual(m["dram__bytes_write.sum"], 1.5e9)
+
+    def test_unknown_unit_refuses_to_guess(self):
+        hdr = HDR + "\n"
+        body = f'"0","1","{KC}","dram__bytes_read.sum","furlong","500"\n'
+        with self.assertRaises(SystemExit) as cm:
+            ns.load(_write(hdr + body))
+        self.assertIn("NCU_UNKNOWN_UNIT", str(cm.exception))
 
     def test_no_python38_only_calls(self):
         # statistics.fmean is 3.8+; the Polaris login node is 3.6.15. This exact

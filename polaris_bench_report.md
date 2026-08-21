@@ -1267,6 +1267,88 @@ capture for kernel attribution; do not mix them.
 
 ---
 
+### 4.8 ⭐ ncu settles it: the copies are **contiguity-bound, not bandwidth-bound**
+
+*Job 7550715, `debug`, single rank, torch 2.10, A100-40GB. Prereg `491453a9` (amended for
+instrument availability, predictions untouched): **4/4 hit.** 80 launches profiled, 11
+metrics, all collected — **GPU counter access on Polaris works**, which until this job was
+an open risk, not a known.*
+
+Plan item 7 existed because §0d could not distinguish two readings that imply **opposite
+fixes**: copies that move their bytes efficiently but too often (⇒ lever = *fewer bytes*),
+versus copies whose traffic is *inflated* by a strided access pattern (⇒ lever =
+*contiguity*). §0d's "17–27% of HBM peak" is computed from launch geometry, so it describes
+**useful** bytes and cannot arbitrate. ncu measures real traffic and coalescing directly.
+
+An L1TEX sector is 32 B, so a fully-coalesced warp request is **4 sectors for fp32**
+(32 lanes × 4 B = 128 B) and **8 for complex64** (32 × 8 B = 256 B).
+
+| dtype | blocks | n | tensor MB | logical MB | DRAM rd | DRAM wr | **DRAM×** | **sec/req ld** | ideal | sec/req st | L2 hit | DRAM %peak | SM% | occ% |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| f32 | 64,800 | 36 | 66.4 | 132.7 | 132.7 | 61.3 | 1.46× | **31.50** | 4 | 4.00 | 81.8% | 49.2% | 19.9% | 90.0% |
+| c64 | 64,800 | 35 | 132.7 | 265.4 | 141.0 | 125.4 | **1.00×** | 31.14 | 8 | 8.20 | 82.5% | 23.9% | 6.4% | — |
+| c64 | **184,320** | 9 | **377.5** | 755.0 | **2043.3** | 376.5 | **3.21×** | **32.00** | 8 | 8.00 | 61.1% | 51.4% | 4.7% | 84.0% |
+
+A copy's *logical* traffic is read **+** write, so `2 × tensor` is the denominator for
+`DRAM×`. Dividing by one tensor's worth double-counts — an error made and corrected while
+reading this table.
+
+**The mechanism, and it is not a partial answer.** On **every** population the **store side
+is at exactly the ideal** (4.00 where 4 is ideal; 8.00 and 8.20 where 8 is) and the **load
+side is at or near the hardware maximum of 32** — one distinct 32 B sector per lane, the
+worst value the counter can take. That asymmetry was the prereg's substantive claim (P1/P2)
+rather than a hedge: **`TensorIterator` reorders its iteration so the *output* is
+contiguous, so a layout-changing copy pays the entire cost on the read side.** Confirmed to
+two decimal places.
+
+**Whether that scatter costs DRAM bandwidth depends on fitting in L2 (40 MB on A100)** —
+which is why the L2 metric was added to the list and why it is load-bearing:
+- the 66 MB and 133 MB tensors get **82% L2 hit**, so the cache absorbs the scatter and DRAM
+  traffic is **1.00–1.46×** of logical. Their cost is *request issue and latency*, not
+  bandwidth — SM throughput 6.4% and 19.9%.
+- the **377 MB spectral weight** (§4.5's finding, independently reproduced here to 0.1%:
+  184,320 × 256 × 8 B = 377.5 MB) gets only **61.1%**, so the scatter reaches DRAM:
+  **2043.3 MB read to read 377.5 MB — 5.4× read amplification, 3.21× overall.**
+
+**Nothing is saturated.** DRAM 23.9–51.4% of peak, SM 4.7–19.9%, occupancy 84–90%. These
+kernels are bound by neither bandwidth nor compute nor occupancy, but by the **memory
+request path** issuing 4–8× the necessary sectors. §0d was right that DRAM is not the limit;
+it was right for the wrong reason.
+
+⇒ **Decision rule fires unambiguously: the lever is CONTIGUITY.** The largest single prize is
+the 377 MB weight, at ~1.66 GB of wasted DRAM traffic *per launch*.
+
+**§4.5's open question is closed.** §4.5 called the f32/66 MB row "the largest single kernel
+and **the only dominant one with no mechanism at all**." It has one now: **sec/req 31.50
+against an ideal of 4 — 7.9×, the worst ratio of the three.**
+
+**The middle row is bimodal, and that is the encouraging part.** Its per-launch sec/req
+spans **7.19 – 31.99**: the *same kernel at the same geometry* is sometimes perfectly
+coalesced and sometimes fully scattered. The scatter is therefore **not intrinsic to the
+kernel** — some call sites already do it right. A layout fix is feasible, not hypothetical.
+
+#### Trust bounds — read these before quoting the numbers
+
+- **`--cache-control` defaults to `all`: every replay pass starts with flushed caches.** So
+  the DRAM byte counts and L2 hit rates are **cold-cache**, and cross-kernel reuse in a real
+  step can only *reduce* DRAM traffic. **The 3.21× is an upper bound.** Crucially, the
+  conclusion does not rest on it: **sectors/request is determined by the access pattern, not
+  by cache state**, and that is the metric the contiguity verdict turns on.
+- **`conj` was not sampled at all — 0 of 80 launches.** It is 14.1% of copy time (§4.3) and
+  remains unmeasured. The 80-launch window is ~14% of one rank-step.
+- **Single rank, by necessity, not preference:** under DDP, ncu kernel replay re-executes
+  `ncclDevKernel`, which spins on peer flags that no longer advance → deadlock. Access
+  patterns are rank-invariant; **per-step counts are not**, and none should be read off this.
+- **80 *consecutive* launches starting 3 steps in** (`--launch-skip 1680`, derived from the
+  measured 560 matching launches per rank-step) — a contiguous window, not a random sample.
+- `tensor MB` uses the nt·vt = 128·2 = 256 elements/block rule (§4.5). The measured DRAM and
+  sector figures do not depend on it. It is corroborated: the 377.5 MB it predicts matches
+  §4.5's independently-derived 377 MB weight.
+- `--clock-control=base` locks clocks; no timing is quoted from this job.
+- One job, n=1. The warm-up arm's own row (`BENCH n=40 step_med=0.619s peak_mem=27.78GB`,
+  single rank) is **not** comparable to §4.6's 4-rank baseline.
+
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move

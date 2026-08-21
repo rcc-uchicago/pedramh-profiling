@@ -300,6 +300,27 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       straggler test — `TORCH_NCCL_TRACE_BUFFER_SIZE=20000 TORCH_NCCL_ENABLE_TIMING=1` +
       `_dump_nccl_trace_json`, which times the same collective on all four ranks without
       an nsys capture at all.
+- [x] **7. DONE (2026-08-21) — job 7550715, prereg `491453a9`: 4/4 hit. ⇒ THE LEVER IS
+      CONTIGUITY, not fewer bytes.** Store side at exactly the ideal sectors/request
+      (4.00 / 8.00), load side at the hardware maximum of **32.00** — the whole cost of a
+      layout-changing copy falls on the read, exactly as P1/P2 predicted. The 377 MB
+      spectral weight reads **2043 MB to move 377 MB** (5.4× read amplification, 3.21×
+      overall) because at 61% L2 hit it does not fit A100's 40 MB L2; the 66/133 MB tensors
+      hit 82% in L2 and pay ~1.0–1.46×, so their cost is request-issue latency, not
+      bandwidth. Nothing is saturated (DRAM 24–51% of peak, SM 5–20%, occupancy 84–90%).
+      **§4.5's "only dominant kernel with no mechanism" now has one** (sec/req 31.50 vs an
+      ideal of 4). The middle population is **bimodal, 7.19–31.99** — the same kernel at the
+      same geometry is sometimes perfectly coalesced, so the fix is feasible, not
+      hypothetical. **Counter permission on Polaris works** — that risk is retired.
+      Caveats that must travel with the numbers: `--cache-control` defaults to flushing, so
+      DRAM figures are cold-cache and 3.21× is an **upper bound** (sectors/request is
+      cache-independent, and that is what the verdict rests on); **`conj` was 0 of 80
+      launches sampled**; single rank; 80 consecutive launches ≈ 14% of one rank-step.
+      Full table and trust bounds → `polaris_bench_report.md` §4.8.
+      **Cost: 2 attempts, both self-inflicted** (see journal ticks 18–19).
+
+  <details><summary>original item text</summary>
+
 - [ ] **7. ⭐ ncu on the top six kernels, single rank (`--nproc_per_node=1`), explicit
       metric list — this is the measurement that settles "are we at the maximum".**
       Metrics: `dram__bytes_read.sum`, `dram__bytes_write.sum`,
@@ -318,6 +339,8 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       peak, the only lever is *fewer* bytes (fusion, dtype, not materialising); if they
       are at ~25% with poor sectors/request, the lever is *contiguity* — a layout fix,
       possibly with no change to what is computed.
+  </details>
+
 - [ ] **8. Attribute `direct_copy`/`conj` to source lines.** `torch.profiler` with
       `with_stack=True`, or `emit_nvtx` for autograd-op names (timings void by design —
       shares only, per handoff's ACE2 precedent, where `aten::clone` was 45.3% of copy
