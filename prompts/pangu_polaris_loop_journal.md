@@ -18,6 +18,53 @@ Entry shape (keep it):
 
 ---
 
+## tick 25 — 2026-08-21 — item 18 PREREG — is the §4 gate even USABLE for Pangu?
+
+- **in flight:** `polaris_equiv_baseline.pbs` written; hook committed (`321bfa89`).
+- **the question this job actually asks.** Item 18 says "capture the baseline". But a
+  baseline is only worth capturing if **two identical runs agree** — otherwise every future
+  "the optimization changed the numbers" verdict is indistinguishable from run-to-run noise.
+  So the job runs the **same config twice** (seed 0, world_size 1, K=20) and compares the two
+  records **against each other**. No optimization is being tested. **This measures the floor.**
+
+- **prereg:**
+
+  | # | prediction | confidence |
+  |---|---|---|
+  | **P1** | the two identical runs compare at **≤ 2.5e-7** (item 18's same-GPU/node floor) | ~45% |
+  | **P2** | failing that, they compare at **≤ 1e-5** | ~75% |
+  | **P3** | both JSONs are written and pass `validate_record` | ~85% |
+
+  P1 is a genuine coin-flip and I want to say why rather than hedge: `seed_torch()` seeds
+  numpy/torch/CUDA and forces `cudnn.deterministic`, but this model's hot path is **cuFFT
+  plus scatter/atomic backward** (§4.10 found `SelectBackward0` and `ToCopyBackward0` in the
+  top four), and neither is bitwise-reproducible by default.
+
+- **decision rule:**
+  - **P1 holds** ⇒ the gate is usable at DESIGN §4's tight floor. Record and move on.
+  - **P1 fails, P2 holds** ⇒ **the achievable floor for Pangu is ~1e-5, and that must be
+    recorded as a MEASURED reproducibility floor.** This is a finding, not a failure — but it
+    has teeth: **every optimization must then beat 1e-5, not 2.5e-7**, and any future result
+    quoted against the tighter number is invalid. It does **not** license loosening a
+    tolerance to make a change pass (CLAUDE.md #1/#11) — the floor is a property of the
+    model, measured once, not a per-change dial.
+  - **both fail** ⇒ Pangu training is **not run-to-run reproducible at world_size 1**, and the
+    §4.1 gate as written cannot be applied to it. That would be the most consequential finding
+    of this loop, because it invalidates the *plan's* assumption, not just a measurement — and
+    the gate would need reformulating (fixed batch, eval-mode forward only).
+
+- **why the job is built the way it is:** `PANGU_BENCH=1 WARMUP=0 STEPS=20` is used **only to
+  bound the run at K=20** (`bench_done` breaks the loop); its timings are irrelevant and its
+  timer self-check may exit(3) — which is precisely why `finalize()` runs **before**
+  `_bench_finalize`. The PASS token is `EQUIV_FLOOR_MEASURED`, never `rc` (CLAUDE.md #14).
+  `compare_baselines.py` is invoked with the **venv** interpreter, since it needs 3.7+.
+
+- **result:** OPEN.
+- **next:** submit; read the floor against P1/P2.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 24 — 2026-08-21 — item 18 BUILD started: the capture side exists and is proven comparable
 
 - **in flight:** none (no GPU needed yet).
