@@ -18,6 +18,72 @@ Entry shape (keep it):
 
 ---
 
+## tick 18 — 2026-08-21 — item 7 attempt 1 FAILED (job 7550606). Five bugs, all mine.
+
+- **in flight:** none at time of writing; attempt 2 about to be submitted.
+- **result: job 7550606 produced NO measurement.** `ncu rc=1`, CSV contained only
+  `==PROF==` banners. Two independent causes, plus three latent ones the post-mortem found:
+
+  1. **PRIMARY — ncu profiled ZERO kernels.** `--kernel-name-base` defaults to
+     **`function`**, which is the demangled name *without template arguments*:
+     `at::native::vectorized_elementwise_kernel`. `direct_copy_kernel_cuda` appears **only
+     inside those template args**, so my regex could never match anything, ever. Tell:
+     4 steps ran in 6 s — untraced speed. Fix: `--kernel-name-base mangled` (the substring
+     is guaranteed present in the mangled symbol, and `--rename-kernels`, on by default,
+     does not rewrite it).
+  2. **`PANGU_BENCH_STEPS=2` tripped the bench harness's own integrity guard** — `elapsed`
+     2.230 s vs `sum(steps)+loader_waits)` 1.375 s = **38.3%** against a **10%** threshold
+     (`train.py:1413`), so it refused to record a row and exited 3. **The guard was right
+     and my step count was the bug:** ~0.86 s of fixed startup cost is 38% of a 2.2 s
+     window and 5% of a 45-step one. I shortened the run to make ncu cheap and broke the
+     harness's premise. Fix: 5 warmup + 40 steps. *Not* a threshold change — that would be
+     the fudge factor CLAUDE.md #11 forbids, and the guard is doing exactly its job.
+  3. **`| tail -3` on the warm-up arm discarded the traceback**, so the log showed only
+     `error_file: <N/A>`. That cost a whole diagnostic round-trip on a failure the job had
+     already explained. Fix: `tail -25`. "Read the `.err` first" only works if the `.err`
+     is still there.
+  4. **The PASS gate passed on garbage.** `[ -s "${OUT}.csv" ]` saw 5 banner lines, called
+     the file non-empty, and handed it to the parser. Exactly the CLAUDE.md #14 failure in
+     a new costume. **What actually caught it was `ncu_summarize.py` refusing to guess** —
+     `ERROR NCU_CSV_UNRECOGNISED`. Fix: gate on *data* rows (`grep -cvE '^(==|$)'`).
+  5. **Four of my twelve metrics do not exist.** `launch__occupancy_limit_registers`,
+     `launch__occupancy_limit_shared_mem`, `launch__grid_size`, `launch__block_size` are
+     **absent from all 4,625 metrics** in `ncu --query-metrics --chip ga100` — verified
+     offline, no GPU needed. One bad name aborts the entire ncu run, so this would have
+     burned attempt 2 even with bug 1 fixed. **Checking this offline saved a job.**
+
+- **`--launch-skip` is now derived, not guessed.** From the §4.6 capture 7545291
+  (4 ranks, 160 `forward_loss` ranges = 40 steps/rank): **560 matching `direct_copy`/`conj`
+  launches per rank-step.** So attempt 1's `--launch-skip 120` sat **0.2 steps in**, inside
+  step 0's init-time copies. Attempt 2 uses **1680 = exactly 3 steps in**, with ~13,500
+  matching launches left to sample from in a 45-step single-rank run.
+
+- **a trap I walked into while deriving it, worth recording:** my first ad-hoc query read
+  `forward_loss = 0` on **all four** captures — because it joined only `textId`→`StringIds`.
+  The bench ranges live in `NVTX_EVENTS.text`. This is precisely the NVTX text-path trap
+  **tick 1 already fixed inside `nvtx_phase_attribution.py`**; I hit it again by writing
+  fresh SQL instead of using the tool. `COALESCE(e.text, s.value)` is the path.
+
+- **PREREG AMENDMENT (instrument only — P1–P4 are UNCHANGED).** The decision rule's third
+  branch cited `launch__occupancy_limit_*`, which does not exist. Replaced with two verified
+  metrics, and this is an **improvement, not a substitute**:
+  `sm__warps_active.avg.pct_of_peak_sustained_active` (achieved occupancy) and
+  **`lts__t_sector_hit_rate.pct`**. The L2 one is load-bearing: **a copy served out of L2
+  never reaches DRAM**, so a low `dram__throughput` can mean "the cache absorbed it" rather
+  than "the kernel is idle" — two of my three branches would have been indistinguishable
+  without it. The original metric list could not have told them apart. Same L2-awareness
+  §4.3d already needed for the memcpy analysis.
+
+- **what this job did NOT establish, and must not be read as establishing:** counter
+  permission. No `ERR_NVGPUCTRPERM` appeared — but ncu never profiled a single kernel, so
+  the permission question is **still untested**, not answered.
+
+- **next:** submit attempt 2. Then read the table against P1–P4.
+- **infra-failure count:** **1/5** — and it is *self-inflicted*, not cluster. The cluster
+  did everything right: it scheduled the job in 3 minutes and ran it.
+
+---
+
 ## tick 17 — 2026-08-21 — item 7 PREREG — are the copies bandwidth-bound or contiguity-bound?
 
 - **in flight:** none yet — `polaris_ncu_copies.pbs` written, **not submitted**. Prereg first.

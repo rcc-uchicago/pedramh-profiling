@@ -39,7 +39,7 @@ def _csv(rows):
     return out.getvalue()
 
 
-def _metrics(sec_ld, req_ld, sec_st, req_st, pk, sm, rd, wr):
+def _metrics(sec_ld, req_ld, sec_st, req_st, pk, sm, rd, wr, l2=12.5, occ=40.0):
     return {
         "dram__bytes_read.sum": rd,
         "dram__bytes_write.sum": wr,
@@ -49,6 +49,8 @@ def _metrics(sec_ld, req_ld, sec_st, req_st, pk, sm, rd, wr):
         "l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum": req_ld,
         "l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum": sec_st,
         "l1tex__t_requests_pipe_lsu_mem_global_op_st.sum": req_st,
+        "lts__t_sector_hit_rate.pct": l2,
+        "sm__warps_active.avg.pct_of_peak_sustained_active": occ,
     }
 
 
@@ -106,6 +108,27 @@ class TestParse(unittest.TestCase):
         self.assertIn("32.00", ob, ob)    # 256/8 == 4x ideal
         self.assertIn("24.0%", og)
         self.assertIn("88.0%", ob)
+
+    def test_l2_hit_rate_is_reported_and_disambiguates_a_low_dram_peak(self):
+        # The case this column exists for: identical LOW dram %peak, opposite meanings.
+        # High L2hit% = the cache absorbed the traffic (DRAM %peak is the wrong
+        # denominator). Low L2hit% = the kernel really is not moving bytes.
+        cached = _write(_csv([("0", KC, _metrics(64, 8, 64, 8, 9.0, 3.0, 4e7, 4e7,
+                                                l2=94.0, occ=55.0))]))
+        idle = _write(_csv([("0", KC, _metrics(64, 8, 64, 8, 9.0, 3.0, 4e7, 4e7,
+                                              l2=3.0, occ=12.0))]))
+        run = lambda p: subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "ncu_summarize.py"), p],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, check=True).stdout
+        oc, oi = run(cached), run(idle)
+        self.assertIn("L2hit%", oc)
+        self.assertIn("94.0%", oc, oc)
+        self.assertIn("3.0%", oi, oi)
+        self.assertIn("55.0%", oc)      # occupancy column present too
+        # And the reader is told to check L2 first, since %peak alone misleads here.
+        self.assertIn("READ L2hit% BEFORE %peak", oc)
+
 
     def test_no_python38_only_calls(self):
         # statistics.fmean is 3.8+; the Polaris login node is 3.6.15. This exact

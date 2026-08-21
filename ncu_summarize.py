@@ -97,14 +97,16 @@ def report(launches):
         return None
 
     mean = lambda v: sum(v) / len(v) if v else float("nan")
-    print(f"{'kernel':<34}{'n':>3}{'DRAM MB':>10}{'%peak':>8}"
-          f"{'SM%':>7}{'sec/req ld':>12}{'sec/req st':>12}{'ideal':>7}")
-    print("  " + "-" * 92)
+    print(f"{'kernel':<34}{'n':>3}{'DRAM MB':>10}{'%peak':>7}{'L2hit%':>8}"
+          f"{'SM%':>6}{'Occ%':>6}{'sec/req ld':>11}{'sec/req st':>11}{'ideal':>6}")
+    print("  " + "-" * 104)
     for label, ms in sorted(by.items(), key=lambda kv: -len(kv[1])):
         rd = [g(m, "dram__bytes_read.sum") or 0 for m in ms]
         wr = [g(m, "dram__bytes_write.sum") or 0 for m in ms]
         pk = [g(m, "dram__throughput.avg.pct_of_peak_sustained_elapsed") for m in ms]
         sm = [g(m, "sm__throughput.avg.pct_of_peak_sustained_elapsed") for m in ms]
+        l2 = [g(m, "lts__t_sector_hit_rate.pct") for m in ms]
+        oc = [g(m, "sm__warps_active.avg.pct_of_peak_sustained_active") for m in ms]
         sl = [g(m, "l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum") for m in ms]
         rl = [g(m, "l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum") for m in ms]
         ss = [g(m, "l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum") for m in ms]
@@ -114,14 +116,15 @@ def report(launches):
                               if any(x for x in b if x) else float("nan"))
         dt = label.split("<")[-1].rstrip(">").split(",")[-1]
         ideal = IDEAL_SECTORS.get(dt, 4)
+        avg = lambda v: mean([x for x in v if x is not None])
         print(f"{label:<34}{len(ms):>3}"
               f"{(mean(rd) + mean(wr)) / 1e6:>10.1f}"
-              f"{mean([x for x in pk if x is not None]):>7.1f}%"
-              f"{mean([x for x in sm if x is not None]):>6.1f}%"
-              f"{ratio(sl, rl):>12.2f}{ratio(ss, rs):>12.2f}{ideal:>7}")
+              f"{avg(pk):>6.1f}%{avg(l2):>7.1f}%{avg(sm):>5.1f}%{avg(oc):>5.1f}%"
+              f"{ratio(sl, rl):>11.2f}{ratio(ss, rs):>11.2f}{ideal:>6}")
     print("\n  sec/req materially above `ideal` = uncoalesced, i.e. the traffic is")
     print("  inflated by the access pattern -> the lever is CONTIGUITY.")
     print("  sec/req at ideal with a LOW %peak = efficient but unnecessary copies")
+    print("  READ L2hit% BEFORE %peak: a copy served out of L2 never reaches DRAM, so\n  a low %peak beside a HIGH L2hit% means the cache absorbed the traffic — not that\n  the kernel was idle. DRAM %peak is the wrong denominator in that case.")
     print("  -> the lever is FEWER bytes. See plan item 7's decision rule.")
 
 

@@ -68,7 +68,7 @@ sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" 
     "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
 export S2S_YAML="${CONFIG_FILE}"
 export PANGU_BENCH=1 PANGU_NVTX=0
-export PANGU_BENCH_WARMUP=2 PANGU_BENCH_STEPS=2
+export PANGU_BENCH_WARMUP=5 PANGU_BENCH_STEPS=40
 export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_ncu_t210.csv"
 mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
 
@@ -76,7 +76,7 @@ echo "=== warm-up arm (untraced, single rank) — §4.7's rule ==="
 S2S_RUN_NUM="ncuW_${PBS_JOBID%%.*}" "${PY}" -m torch.distributed.run \
     --standalone --nproc_per_node=1 "${V20_DIR}/train.py" \
     --yaml_config="${CONFIG_FILE}" --run_num="ncuW_${PBS_JOBID%%.*}" \
-    --config=SFNO --fresh_start --epochs 1 2>&1 | tail -3
+    --config=SFNO --fresh_start --epochs 1 2>&1 | tail -25
 
 OUT="${MEMBER_ROOT}/bench/ncu_copies_${PBS_JOBID%%.*}"
 METRICS="dram__bytes_read.sum,dram__bytes_write.sum"
@@ -86,22 +86,31 @@ METRICS="${METRICS},l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum"
 METRICS="${METRICS},l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum"
 METRICS="${METRICS},l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum"
 METRICS="${METRICS},l1tex__t_requests_pipe_lsu_mem_global_op_st.sum"
-METRICS="${METRICS},launch__occupancy_limit_registers"
-METRICS="${METRICS},launch__occupancy_limit_shared_mem"
-METRICS="${METRICS},launch__grid_size,launch__block_size"
+# NOT launch__occupancy_limit_* / launch__grid_size / launch__block_size: verified
+# absent from `ncu --query-metrics --chip ga100` (4,625 metrics, zero launch__*), and
+# one bad name aborts the whole ncu run. Grid/block geometry is already known from the
+# nsys captures (§4.5), so ncu is not needed for it.
+METRICS="${METRICS},sm__warps_active.avg.pct_of_peak_sustained_active"   # achieved occupancy
+# L2 hit rate is load-bearing, not a nice-to-have: a copy served out of L2 never
+# reaches DRAM, so a LOW dram__bytes can mean "L2 absorbed it" rather than "the kernel
+# is idle". Without this the third branch of the decision rule cannot be told apart
+# from the second. Same L2-awareness §4.3d already needed for the memcpy analysis.
+METRICS="${METRICS},lts__t_sector_hit_rate.pct,lts__t_sectors.sum"
 
 echo
 echo "=== ncu arm: single rank, copy/conj kernels only ==="
 set +e
 "${NCU}" --target-processes all \
+    --kernel-name-base mangled \
     --kernel-name 'regex:direct_copy_kernel_cuda|conj_kernel_cuda' \
-    --launch-skip 120 --launch-count 80 \
+    --launch-skip 1680 --launch-count 80 \
+    --export "${OUT}" --force-overwrite \
     --metrics "${METRICS}" \
     --csv --log-file "${OUT}.csv" \
-    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
-        "${V20_DIR}/train.py" \
-        --yaml_config="${CONFIG_FILE}" --run_num="ncuP_${PBS_JOBID%%.*}" \
-        --config=SFNO --fresh_start --epochs 1 > "${OUT}.stdout" 2>&1
+    bash -c "'${PY}' -m torch.distributed.run --standalone --nproc_per_node=1 \
+        '${V20_DIR}/train.py' --yaml_config='${CONFIG_FILE}' \
+        --run_num='ncuP_${PBS_JOBID%%.*}' --config=SFNO --fresh_start --epochs 1; \
+        echo \"CHILD_RC=\$?\"; exit 0" > "${OUT}.stdout" 2>&1
 rc=$?
 set -e
 echo "ncu rc=${rc}"
@@ -114,9 +123,14 @@ if grep -qE "ERR_NVGPUCTRPERM|permission|not permitted|insufficient" "${OUT}.std
     echo "  ⇒ fall back to the analytic model (item 3, §4.5) and SAY SO."
     exit 6
 fi
-[ -s "${OUT}.csv" ] || { echo "ERROR NCU_NO_CSV — see ${OUT}.stdout"; tail -25 "${OUT}.stdout"; exit 5; }
-grep -cE "^\"?ID" "${OUT}.csv" >/dev/null || true
-echo "csv rows: $(wc -l < "${OUT}.csv")"
+echo "child exit (bench guard verdict, masked from ncu): $(grep -o "CHILD_RC=[0-9]*" "${OUT}.stdout" | tail -1)"
+DATA_ROWS=$(grep -cvE '^(==|$)' "${OUT}.csv" 2>/dev/null || echo 0)
+echo "csv data rows (excluding ==PROF== banners): ${DATA_ROWS}"
+if [ "${DATA_ROWS}" -lt 2 ]; then
+    echo "ERROR NCU_NO_METRICS — ncu profiled nothing. Check the kernel-name filter"
+    echo "  first: --kernel-name-base must be 'mangled' or the regex cannot match."
+    tail -30 "${OUT}.stdout"; exit 5
+fi
 echo
 echo "=== summary ==="
 "${PY}" "${REPO}/ncu_summarize.py" "${OUT}.csv" || { echo "ERROR SUMMARY_FAILED"; tail -30 "${OUT}.csv"; exit 5; }
