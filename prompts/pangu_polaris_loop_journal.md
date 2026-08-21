@@ -113,6 +113,54 @@ Entry shape (keep it):
 
 ---
 
+## tick 6 — 2026-08-21 — still BLOCKED on the env; spending the tick on the one FREE open question
+
+- **in flight:** none. **Blocker re-tested and UNCHANGED:** `module load conda` still errors
+  (`errlines=1`), and the base-conda torch still has **2 unresolved libs**. Both halves ALCF-side.
+- **Everything GPU-side stays blocked** — items 7-17 need the real Pangu env (`torch_harmonics`,
+  `netCDF4`, the top-ups) through the plain module bootstrap. Item 6 only landed because it needs
+  *torch alone*.
+- **So: spend the tick on the §4.5c OPEN question, which needs no GPU and blocks every mechanism
+  claim about the weight.** Traced the whole chain by source this tick, and it is airtight:
+  `--config=SFNO` (PBS `:145`) → `YParams(yaml, "SFNO")` (`train.py:4010`) → `YParams.py:20`
+  converts the YAML string `'None'` to Python `None` → `sfnonet.py:442` sets
+  `self.factorization = None` → the block passes it through (`sfnonet.py:175`) →
+  `SpectralFilterLayer` computes `use_tensorly = False if factorization is None else True`
+  (`sfnonet.py:115`) → `SpectralConvS2` takes the `else` at `s2convolutions.py:150` →
+  **`assert factorization == "ComplexDense"` must raise.** Also checked and ruled out: no
+  `PYTHONOPTIMIZE`/`-O` anywhere, and `factorization` is never overwritten in `train.py`.
+  **Yet jobs 7255503 / 7255557 / 7366939 / 7366940 all ran 40+ steps.** My reading and reality
+  disagree, so reading harder is the wrong move — execute it.
+- **prereg (written BEFORE the probe ran):**
+  - **P1.** `params.factorization` **is Python `None`** and `type(...).__name__ == 'NoneType'`.
+    I am confident in this link specifically; YAML 1.2 parses unquoted `None` as the *string*
+    `"None"`, which `YParams.py:20` then converts.
+  - **P2.** Asserts **are** active in the job interpreter (no `-O`, no `PYTHONOPTIMIZE`).
+  - **P3 — the one that matters.** Given P1+P2 the assert should raise, **but I predict it does NOT**,
+    because four jobs demonstrably ran. ⇒ **I am predicting that my own source chain has a flaw I
+    could not find by reading, and the probe's value is in localising WHICH link differs.** Recording
+    it that way round on purpose: predicting "the assert fires" would be predicting that reality is
+    wrong.
+  - **P4.** If the net does construct, `type(weight)` is **`nn.Parameter`** (not a `FactorizedTensor`)
+    with shape `(512, 512, 180, 2)` = **47,185,920 complex elements**, matching §4.5a — because that
+    is what the launch geometry measured, and the geometry is not in doubt.
+  - **Decision rule.** If P4 holds, §4.5c's layout argument stands as written (a contiguous
+    `nn.Parameter`, so `view_as_complex` is free and the *permutation* is the strided thing) and the
+    OPEN flag comes off. If the weight is a `FactorizedTensor`, **§4.5c's mechanism paragraph must be
+    rewritten** — a factorized weight has different contiguity and the einsum-permutation story may
+    not hold. If the assert *does* fire, then the four running jobs used a different code path than
+    the one I traced and **that** becomes the finding.
+  - **Stated limit:** this settles the weight's *type and layout*, not the copy mechanism. Item 8
+    still owns the call site.
+- **probe:** `polaris_factorization_probe.py` + `.pbs`. CPU-only, meta-device construction (no
+  memory, no GPU), `PYTHONPATH` set to **exactly one tree** (`PanguWeather/v2.0`), run through the
+  ai-rossby venv since that is the only working torch. Prints each link of the chain separately so
+  the answer localises the flaw rather than just passing or failing.
+- **result:** OPEN — submitted this tick.
+- **infra-failure count:** 3/5
+
+---
+
 ## tick 4b — 2026-08-20 — **TIER 0 COMPLETE** — item 6 prepared, AWAITING SUBMISSION APPROVAL
 
 - **in flight:** none. **Nothing has been submitted in this loop.**

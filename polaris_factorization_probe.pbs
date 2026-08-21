@@ -1,0 +1,151 @@
+#!/bin/bash -l
+#PBS -N pploop-fact
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:10:00
+#PBS -j oe
+# ============================================================================
+# Plan item 6 (+ the NUMA rows item 6b needs): measure the REAL pairwise GPU
+# bandwidth on a Polaris node, and record the CPU/NUMA topology while we are
+# there. ~1 minute of compute on 1 node.
+#
+# Walltime is 10 min, not the loop template's 55: the work is ~60 s and an
+# honest request is strictly better for queue position. `debug` is max_run 1 /
+# max_queued 1 per USER, so this must be the only job in flight.
+#
+# WHY item 6: "A100" is a device name, not a topology. This repo's own
+# `beagle3-0012` was an A100-PCIe with no NVLink at all, and on `midway3-0423`
+# (H100 NVL) GPU0<->GPU1 is NVLink while GPU0<->GPU2 crosses PCIe and a NUMA
+# boundary — worth +29% per training step. Polaris reports A100-SXM4, which is
+# the NVLink form factor, but that has never been confirmed here by a bandwidth
+# measurement. It is the one unmeasured cell in POLARIS_PROFILING_HANDOFF.md §4.
+#
+# WHY the NUMA half: `polaris_pbs_notes.md` §1 records the GPU<->NUMA map and
+# the node's NUMA domain count as "NOT CAPTURED", and plan item 6b needs them —
+# `polaris_bench_report.md` §4.4e found an undiagnosed host-CPU stall pattern on
+# unbound single-node runs. This is free to collect in the same allocation.
+#
+# NO torchrun / mpiexec / srun: gpu_topology_check.py is a single process that
+# walks the device pairs itself. (On Polaris never `srun`; makani/physicsnemo
+# need `python -m torch.distributed.run` — neither applies to this job.)
+#
+# NO $POLARIS_TOPUPS and no polaris_require_topups: this script imports only
+# `torch` (base conda) and `subprocess`. The top-ups carry
+# netCDF4/torch_harmonics/tensorly/natsort, none of which is used here, and
+# polaris_env.sh:139 reserves that gate for the 8 base-conda model jobs.
+#
+# PASS = the token `TOPO_OK` in the log AND a 4x4 bandwidth matrix with no
+# zero/NaN cell. NOT rc=0: a torch import failure or an OOM still exits 0 from
+# some paths, and this whole loop keys on tokens (CLAUDE.md #14).
+#
+# Submit:  qsub polaris_topology_check.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                     # submit from the repo root
+REPO="${PBS_O_WORKDIR}"
+
+# ---- Polaris env — bootstrap block copied verbatim from
+# ---- PanguWeather/v2.0/HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs, minus the
+# ---- PYTHONPATH/topups lines (see the header note).
+module use /soft/modulefiles
+module load conda 2>&1 || true
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+# ---- conda-module fallback, added 2026-08-20 after job 7531456 ---------------
+# `module load conda` is currently BROKEN cluster-wide: every conda/* modulefile
+# pins cray-hdf5-parallel/1.14.3.5 and gcc-native/14.2, and the live Cray PE
+# ships only 1.14.3.9 and 14, so Lmod errors and `python` never appears. The
+# INSTALL is fine — only the modulefile is stale (an ALCF-side regression; the PE
+# looks freshly rolled). See polaris_pbs_notes.md §1.
+#
+# So: prefer the module (this block self-heals the moment ALCF re-pins it), and
+# fall back to the interpreter the repo's own SFNO venv already symlinks to.
+# Deriving it from repo state rather than hardcoding a dated path means the
+# fallback follows whatever install the project is actually built against.
+# Fallback ORDER matters, and it is not the obvious one. The base-conda
+# interpreter runs, but its torch is internally inconsistent right now:
+# `libtorch_global_deps.so` links BOTH libcudart.so.12 and libcudart.so.13, and
+# only 12 exists under CUDA_HOME, so `import torch` dies whether or not the
+# module loaded. No LD_LIBRARY_PATH change fixes that. The ai-rossby venv's torch
+# (2.10.0+cu129) ships its own nvidia/*/lib wheels and resolves every CUDA dep
+# from inside site-packages -- verified with ldd: 0 unresolved. Prefer it.
+#
+# Safe despite being another model's venv: gpu_topology_check.py imports ONLY
+# torch, no repo modules, and PYTHONPATH is unset above -- so none of the
+# physicsnemo/makani editable-install coupling (CLAUDE.md) is in play.
+#
+# Every candidate is probed with a real `import torch`, not just "is there a
+# python on PATH" -- that weaker test is what made attempt 2 fail.
+PY_BIN=""
+for cand in "$(command -v python || true)" \
+            "${AI_ROSSBY_VENV}/bin/python" \
+            "${SFNO_VENV}/bin/python" \
+            "/soft/applications/conda/2025-09-25/mconda3/bin/python"; do
+    [ -n "${cand}" ] && [ -x "${cand}" ] || continue
+    if "${cand}" -c 'import torch' 2>/dev/null; then
+        PY_BIN="${cand}"; echo "usable interpreter (import torch OK): ${cand}"; break
+    fi
+    echo "  rejected, torch unimportable: ${cand}"
+done
+if [ -z "${PY_BIN}" ]; then
+    echo "ERROR NO_PYTHON_WITH_TORCH: no candidate interpreter could import torch."
+    echo "  See polaris_pbs_notes.md §1 — the conda module AND the base-conda torch"
+    echo "  are both broken cluster-side as of 2026-08-20."
+    exit 7
+fi
+echo "python: ${PY_BIN}"
+"${PY_BIN}" -c 'import sys; print("python", sys.version.split()[0])' || exit 7
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg
+unset NCCL_DEBUG
+unset TORCH_DISTRIBUTED_DEBUG
+ulimit -l unlimited
+
+# PYTHONPATH is deliberately NOT set. `s2s/v2.0` and `PanguWeather/v2.0` export
+# the same top-level module names, so a stray entry here could resolve `utils`
+# to the wrong tree (CLAUDE.md §Repo architecture). This job imports neither.
+unset PYTHONPATH
+
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/bench/topology_${JOBID}.txt"
+mkdir -p "$(dirname "${OUT}")"
+
+{
+  echo "=== job ${JOBID} on $(hostname) at $(date -Is) ==="
+  echo
+  echo "=== factorization probe (§4.5c OPEN question) ==="
+  PYTHONPATH="${REPO}/PanguWeather/v2.0" "${PY_BIN}" "${REPO}/polaris_factorization_probe.py" "${MEMBER_ROOT}/pangu_e3sm_sfno.nsys.rendered.yaml"
+  echo
+  # (gpu_topology_check.py already prints `nvidia-smi topo -m` itself — the
+  # CLAIMED topology — right above its MEASURED matrix, which is the comparison
+  # that matters. Not duplicated here.)
+  echo "=== 2. NUMA: numactl --hardware (polaris_pbs_notes.md §1, item 6b) ==="
+  (numactl --hardware || echo "WARN numactl unavailable") 2>&1
+  echo
+  echo "=== 3. GPU -> NUMA affinity, straight from sysfs ==="
+  for d in /sys/class/drm/card*/device /sys/bus/pci/devices/*; do
+    [ -r "${d}/numa_node" ] || continue
+    cls="$(cat "${d}/class" 2>/dev/null || true)"
+    case "${cls}" in 0x030000|0x030200) ;; *) continue ;; esac
+    echo "  $(basename "$(readlink -f "${d}")")  numa_node=$(cat "${d}/numa_node")"
+  done
+  echo
+  echo "=== 4. what the launcher would see ==="
+  echo "  nproc            = $(nproc)"
+  echo "  OMP_NUM_THREADS  = ${OMP_NUM_THREADS:-<unset, torchrun would pin 1>}"
+  echo "  CUDA_VISIBLE_DEV = ${CUDA_VISIBLE_DEVICES:-<unset>}"
+} 2>&1 | tee "${OUT}"
+
+# ---- gate: a matrix with a zero/NaN cell means the measurement failed even if
+# ---- python exited 0. Key on the token, never on rc.
+if ! grep -q "FACTORIZATION_PROBE_OK" "${OUT}"; then
+  echo "ERROR PROBE_INCOMPLETE — no FACTORIZATION_PROBE_OK token; see ${OUT}"
+  exit 5
+fi
+echo "TOPO_OK  (probe complete) -> ${OUT}"
