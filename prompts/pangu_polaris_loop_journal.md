@@ -158,9 +158,51 @@ Entry shape (keep it):
   - **Stated limit:** `gc.disable()` is the *diagnostic* arm, not the shipping fix. If it works, the
     production change is `gc.freeze()` after model construction (keeps collection, moves the
     permanent object graph out of gen-2) — a smaller, safer edit that this A/B does not test.
-- **result:** OPEN — submitted.
-- **infra-failure count:** 5/5 nominal; the discovery loop is closed (tick 10's static scan) and this
-  job reuses the now-proven env recipe unchanged.
+- **result: INCONCLUSIVE, and the GC hypothesis is WEAKENED. Job 7549941, `GC_AB_OK`, 7m19s.**
+  `gc.disable()` fired in the B arms (11 log lines) and not the A arms, so the lever worked.
+
+  | arm | GC | step_med | step_p90 | step_std | loader_wait_frac | peak_mem |
+  |---|---|---|---|---|---|---|
+  | **A1** | **on** | 0.6508 | **0.8321** | **0.0770** | **0.0056** | 27.777 |
+  | B1 | off | 0.6516 | 0.6524 | 0.00081 | 0.0002 | 27.777 |
+  | **A2** | **on** | 0.6537 | 0.6542 | **0.00058** | 0.0001 | 27.777 |
+  | B2 | off | 0.6525 | 0.6532 | 0.0012 | 0.0002 | 27.777 |
+
+  - **THE INTERLEAVING SAVED ME FROM A FALSE POSITIVE, and this is the tick's real lesson.** On the
+    aggregates the result looks like a clean win — `step_p90` B/A = **0.8785**, `step_std` B/A =
+    **0.0261**, and the stall signature drops 1.139 → 1.001. Run plain A-then-B and I would have
+    published "gc.disable() removes the stall: −12% p90, −97% std." **But the entire effect is arm
+    A1 alone.** Arm **A2 ran with GC ON and was clean** (step_std 0.00058, 130× tighter than A1;
+    p90/med **1.001**, identical to the B arms). A control arm with the treatment absent behaved
+    like the treated arms ⇒ **the treatment is not what changed A1.**
+  - **Prereg scored honestly, overriding my own decision rule.** P1: A1 gives 1.279 ✓ but A2 gives
+    1.001, so the signature is **not** a property of "arm A". P2: its *numbers* are satisfied
+    (1.001 < 1.10, B/A 0.8785 < 0.90) but **the inference is invalid**, so I am **not** recording it
+    as a hit — the rule said "P2 holding ⇒ the stall IS the collector", and the control arm
+    contradicts the mechanism, so the rule is overridden rather than followed. **P3 HIT** —
+    `step_med` B/A = **0.9997**, so nothing systematic moved. **P4 MISS** — peak memory is
+    **identical to three decimals** in both arms, i.e. `gc.disable()` freed *nothing measurable*,
+    which independently argues the collector was not doing significant work.
+  - **What A1 actually was, partially:** cold-cache I/O. `loader_wait_frac` is **0.0056** in A1
+    against 0.0001–0.0002 in the other three — 28–56×. But quantified, that explains only **9%**:
+    A1's excess is **1655 ms** over 40 steps and loader wait accounts for **146 ms**. **1509 ms is
+    unattributed** by any CSV column, and A1's *median* compute is if anything slightly lower than
+    A2's, so the excess is purely tail.
+  - **Why the experiment is underpowered, stated plainly:** the stall occurred **once**, in the
+    **first** arm, and the first arm was an A arm. With two A arms and the event in the first, I
+    cannot separate "GC causes it" from "first arm in the job causes it". Interleaving *revealed*
+    the confound; it did not resolve it.
+  - **Status of §4.4e's GC attribution:** the torch-2.8 symbol evidence stands as an observation —
+    the CPU demonstrably *was* inside `gc_collect_main` for ~180 of ~300 samples in that window.
+    What this A/B undermines is the **causal** reading, and the recurrence story: peak memory
+    unchanged with the collector off, and a GC-enabled control arm that did not stall. Downgrade
+    §4.4e from "the stall is GC" to "on torch 2.8 the stalled window was spent in GC; whether GC
+    *causes* the stall class is untested."
+- **next:** re-run with a **throwaway warm-up arm first**, then A/B/A/B, so both A arms are warm and
+  the first-arm confound is removed by construction. Cheap, and it turns an inconclusive result into
+  a clean one.
+- **infra-failure count:** 5/5 nominal — but this job **completed and returned a verdict**, so it is
+  a result, not a failure. The discovery loop stays closed.
 
 ---
 
