@@ -28,7 +28,8 @@ this doc discharges.
 | CPU | AMD EPYC Milan, **nproc=64** (32 cores × 2 SMT) | probe `nproc` |
 | **CPU binding, MULTI-node** | **`mpiexec --cpu-bind depth -d 8` is MANDATORY.** Without it aws-ofi-nccl's CPU-side progress engine starves and inter-node all-reduce drops **9.1×** — **4.08 vs 36.93 GB/s** busbw. It **fails silently**: no error, just a slow job. `4 ranks × 8 = 32 = the physical core count.` | measured, colleague's job **7368993** |
 | **CPU binding, SINGLE node** | ⚠ **OPEN — never tested, and `polaris_handoff_prompt.md` asserts without measurement that "torchrun's local ranks bind fine".** `polaris_bench_report.md` §4.4e finds a **second, undiagnosed** host-CPU stall pattern on unbound single-node runs (dev0 out of phase, late work in the inter-step gap). Note the *reproducible* stall on those runs turned out to be **CPython gen-2 GC**, not affinity — so do not attribute every host stall to binding. Note `PanguWeather/v2.0/HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs:51` sets **`OMP_NUM_THREADS=8`** → 4 unbound ranks × 8 OpenMP threads = 32 threads on 32 physical cores, *plus* 4 main threads and the loader workers. The ai-rossby single-node script sets none, so torchrun pins it to **1**. | ⚠️ unverified |
-| **NUMA domains / GPU↔NUMA map** | ⚠ **NOT CAPTURED.** Needs `nvidia-smi topo -m` + `numactl --hardware` on a compute node. The ALCF helper assigns GPUs in *reverse* local-rank order, so a forward rank→GPU mapping may be wrong — do not assume it. | ⚠️ unverified |
+| **NUMA domains** | **4 nodes (NPS4)**, 16 CPUs each = 8 physical + 8 SMT. node0 cpus 0-7,32-39; node1 8-15,40-47; node2 16-23,48-55; node3 24-31,56-63. ~128 GB each. Inter-node distance uniform at 12 (local 10). | measured, job **7531456** on `x3001c0s1b0n0` |
+| **GPU↔NUMA map — REVERSED. Do not assume identity.** | `dev0`=`0000:07:00.0`→**NUMA 3**; `dev1`=`0000:46:00.0`→**NUMA 2**; `dev2`=`0000:85:00.0`→**NUMA 1**; `dev3`=`0000:c7:00.0`→**NUMA 0**. ⇒ **a naive `--cpu-bind depth -d 8` puts local rank 0 on cores 0-7 = NUMA 0, whose GPU is `dev3` — i.e. every rank lands maximally far from its own GPU.** This is a concrete candidate mechanism for the undiagnosed host-CPU stall pattern in `polaris_bench_report.md` §4.4e, and it confirms the warning in `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs` that the ALCF helper assigns GPUs in reverse local-rank order. | measured, job **7531456** (bus IDs cross-checked against `TARGET_INFO_GPU` in the nsys captures) |
 | Node RAM | **not captured** — the probe's `free -g` line had a shell-quoting bug (fixed in `polaris_probe.pbs` after job 7251974); re-run the probe to record it | ⚠️ unverified |
 | **Node-local scratch** | **`/local/scratch` = 2.8 TB free** (also `/tmp` = 252 GB) | probe |
 | Queue (smoke) | `debug` (1–2 nodes, ≤1 h, 1 running job/user) | `qstat -Q` |
@@ -38,6 +39,27 @@ this doc discharges.
 | Submit dir | `$PBS_O_WORKDIR` (PBS analog of `$SLURM_SUBMIT_DIR`) | probe |
 | Nodefile | `$PBS_NODEFILE`; `NNODES=$(wc -l < $PBS_NODEFILE)` | probe |
 | Project storage | `/eagle/projects/lighthouse-uchicago` = `/eagle/lighthouse-uchicago` (both → `/lus/eagle/projects/lighthouse-uchicago`) | `readlink -f` |
+
+> ### 🚨 BLOCKER 2026-08-20 — `module load conda` is BROKEN on Polaris, and it stops every job in this repo
+> Every PBS script here does `module load conda`. It now fails: **all** `conda/*` modulefiles pin
+> `cray-hdf5-parallel/**1.14.3.5**` and `gcc-native/**14.2**`, and the current Cray PE ships only
+> **1.14.3.9** and **14** — so Lmod errors `The following module(s) are unknown` and `conda` never
+> lands, giving `conda: command not found` then `python: command not found`. Observed on compute node
+> `x3001c0s1b0n0`, job **7531456**, 2026-08-20 21:25. The PE looks freshly rolled
+> (`cray-mpich/9.1.0`, `cray-libsci/26.03.0`, `perftools-base/26.03.0`) and the conda modulefiles
+> were not updated with it — **an ALCF-side breakage, not ours.** It broke between **2026-08-07**
+> (jobs 7366939/7366940 ran fine) and **2026-08-20**.
+>
+> **Workarounds tried and FAILED — do not re-try these:**
+> 1. `module --ignore_cache load conda` (what Lmod's own error suggests) — still errors.
+> 2. Older modules `conda/2024-04-29`, `conda/2024-10-30-workshop` — same pinned deps, same failure.
+> 3. Pre-loading the versions that *do* exist (`gcc-native/14` + `cray-hdf5-parallel/1.14.3.9`) then
+>    `module load conda` — the modulefile pins exact patch versions, so this does not satisfy it.
+>
+> **What would unblock it** (untested, needs a decision): activate the conda install directly,
+> bypassing the modulefile — the installs under `/soft/applications/conda/<date>/` exist independently
+> of the broken module. Otherwise it is an **ALCF ticket**: the `conda` modulefiles need re-pinning
+> to the current PE.
 
 **Compute-node networking — CORRECTED 2026-07-14.** Several places in this repo said
 "compute nodes have no outbound network". **That is wrong.** Per ALCF's docs the proxy is the

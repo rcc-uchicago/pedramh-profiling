@@ -168,8 +168,49 @@ Entry shape (keep it):
     "9/9 started, median 19 s wait" (queried 2026-08-05). Today it queued behind 14 running jobs.
     The median-19 s figure is not wrong, but it is not a guarantee — re-check before assuming a
     `debug` job starts immediately.
-- **next:** poll `qstat` on the next tick; **do not resubmit under any circumstance**. On completion,
-  key on the **`TOPO_OK`** token and a ≥2-row matrix, never on `rc`, then score the item-6 prereg.
+- **RESULT: job 7531456 FAILED — infra failure 1/5. The gate worked.** It ran at 21:25 on
+  `x3001c0s1b0n0` and PBS reports `job_state = F` with a comment beginning "Job run ... and fa"
+  (truncated). **`TOPO_OK` count is 0**, so this is a FAIL keyed on the token, exactly as CLAUDE.md
+  #14 requires — `qstat` alone would have read as "it ran".
+  - **Root cause, and it is far bigger than this job: `module load conda` is broken cluster-wide.**
+    All `conda/*` modulefiles pin `cray-hdf5-parallel/1.14.3.5` and `gcc-native/14.2`; the current
+    Cray PE ships only **1.14.3.9** and **14**. Lmod errors, `conda` never lands, then
+    `conda: command not found` → `python: command not found`. **Every PBS script in this repo does
+    `module load conda`**, so every GPU job is blocked. ALCF-side, not ours: the PE looks freshly
+    rolled (`cray-mpich/9.1.0`, `cray-libsci/26.03.0`, `perftools-base/26.03.0`) and the conda
+    modulefiles were not re-pinned with it. Broke between **2026-08-07** (7366939/7366940 fine) and
+    today.
+  - **Three workarounds tried, all failed** (recorded so they are not re-tried): `--ignore_cache`;
+    the older `conda/2024-04-29` and `conda/2024-10-30-workshop`; and pre-loading the versions that
+    do exist then loading conda — the modulefile pins exact patch versions.
+  - **⇒ NOT resubmitted.** The same script would fail identically; auto-submit authority is not
+    retry authority and the driver requires diagnosing a crash before any re-submit. Nothing is
+    gained by spending another slot until the env is fixed.
+- **BUT THE JOB DELIVERED HALF OF WHAT IT WAS FOR, and it is the more surprising half.** Everything
+  after the failed `python` call still ran, so the NUMA section completed:
+  - **4 NUMA nodes (NPS4)**, 16 CPUs each (8 physical + 8 SMT), ~128 GB each, uniform inter-node
+    distance 12.
+  - **The GPU→NUMA map is REVERSED:** `dev0`→NUMA **3**, `dev1`→NUMA **2**, `dev2`→NUMA **1**,
+    `dev3`→NUMA **0** (bus IDs cross-checked against `TARGET_INFO_GPU` in both nsys captures).
+  - ⇒ **A naive `--cpu-bind depth -d 8` puts local rank 0 on cores 0-7 = NUMA 0, whose GPU is
+    `dev3`. Every rank lands maximally far from its own GPU.** That is a concrete, measured candidate
+    mechanism for the **undiagnosed** host-CPU stall pattern of §4.4e — the one where dev0 alone
+    waits ~600 ms while the other three sit at 60-70 ms. Item **6b** now has a specific hypothesis
+    to test rather than "maybe affinity". Both facts are now in `polaris_pbs_notes.md` §1, which had
+    them as "NOT CAPTURED".
+- **item-6 prereg scored honestly:** **P5 HIT** (predicted 4 or 8 NUMA nodes → **4**; predicted a
+  non-identity GPU→NUMA map → **exactly reversed**). **P1-P4 UNMEASURED** — torch never ran, so the
+  bandwidth matrix does not exist. They are **not** misses; they are untested, and the prereg stands
+  unmodified for the re-run.
+- **BLOCKED.** Every remaining plan item needs python+torch on a compute node, so there is no
+  independent stage to move to. **What unblocks it:** either (a) activate the conda install directly,
+  bypassing the modulefile — the installs under `/soft/applications/conda/<date>/` exist
+  independently of it, but this needs an operator decision, or (b) an **ALCF ticket** to re-pin the
+  `conda` modulefiles to the current PE.
+- **next:** re-test `module load conda` on a cheap cadence (one Lmod call, no job). The moment it
+  loads cleanly, resubmit 7531456's script unchanged — it is already correct and its prereg is
+  already committed.
+- **infra-failure count:** **1/5**
   Per the driver §0 there is no standing approval and approving the plan is not approving the
   submission.
 - **infra-failure count:** 0/5
