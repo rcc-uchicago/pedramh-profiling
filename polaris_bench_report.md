@@ -1072,6 +1072,88 @@ python3 ACE2_retrain/test_sfno_bytes_model.py                              # PAS
 
 ---
 
+### 4.6 Re-baseline on torch 2.10 — what survived a major version bump, and what did not
+
+The base conda that produced every number above (**torch 2.8.0**) is orphaned by a Cray PE
+migration and is not returning in that form: its torch and h5py link `*_gnu_123.*` sonames
+the PE roll removed, and hdf5 moved soversion **200 → 310** — an ABI break, not a rename
+(`polaris_pbs_notes.md` §1). Work now runs in the ai-rossby venv, **torch 2.10.0+cu129**.
+Job **7545291**, `REBASE_OK`, same knobs as 7255503 (warmup 20, 40 steps, 4 ranks, eager,
+`checkpointing: 3`). Preregistered before submission.
+
+**⚠ Do not table a 2.8.0 row next to a 2.10 row.** Captures are named `..._t210_*` and the
+CSV is separate for exactly this reason.
+
+#### 4.6a The comparison
+
+| quantity (ms/rank-step) | torch 2.8.0 (7255503) | torch 2.10 (7545291) | delta |
+|---|---|---|---|
+| **COMPUTE-only, mean** | 575.37 | 623.08 | **+8.29%** |
+| — median | 574.89 | 620.74 | **+7.98%** |
+| — spread across steps | 1.033× | **1.015×** | tighter |
+| `direct_copy`+`conj` | 271.19 | **277.49** | **+2.32%** |
+| — as % of compute | 47.1% | 44.5% | −2.6 pt |
+| **weight copies, calls/rank-step** | **36** | **36** | **identical** |
+| **weight `conj`, calls/rank-step** | **12** | **12** | **identical** |
+| weight bytes/call | 377.49 MB | **377.49 MB** | identical |
+| **weight share of copy time** | **49.0%** | **49.5%** | **+0.5 pt** |
+| NCCL | 67.82 (quiet) / 145.65 | 217.22 | *not comparable* |
+| `(outside)` | 0.0% | **0.0%** | identical |
+
+#### 4.6b What survived: the weight finding, exactly
+
+**§4.5's headline is version-robust.** The spectral weight is still copied **36 times** and
+conjugated **12 times** per rank-step, still **377.49 MB** per call (47,185,920 complex
+elements), and still **≈49% of all copy time**. Those are not approximate matches — the call
+counts and the per-call geometry are *identical* across a major torch version. That is what
+you would expect if the mechanism is what §4.5c says it is: a **layout mismatch in the source**
+(`weight` stored `(in, out, lmax)` vs `einsum("bixy,iox->boxy")` wanting `(x, i, o)`), not an
+artefact of a particular kernel library.
+
+`(outside)` is again **0.0%**, and the phase partition again reconciles to the kernel total
+(271,520 + 103,040 + 9,440 = 384,000), so §4.3's attribution method holds unchanged.
+
+#### 4.6c What did not: the activation-side copies restructured
+
+| | torch 2.8.0 | torch 2.10 |
+|---|---|---|
+| activation spectral copies | 48/rank-step @ 16,680,960 elem (512×180×**181**) | **146**/rank-step @ 16,588,800 (512×180×**180**) + 12 @ the old shape |
+| `direct_copy`⟨float,nocast⟩ | 350/rank-step | 236/rank-step, and 66.36 MB/call not 66.72 |
+| total copy **bytes** | — | **within 2.3%** |
+
+So torch 2.10 moves *the same bytes* through *differently shaped and differently counted*
+kernels — one longitude mode narrower, and roughly three times as many calls on the
+activation side. ⇒ **The per-call sizes and call counts in §4.5b/§4.5c's activation rows are
+torch-2.8.0 facts. The byte totals, and everything about the weight, are not.** Quote
+accordingly.
+
+#### 4.6d torch 2.10 is ~8% slower in compute on this model
+
+**623.08 vs 575.37 ms/rank-step of compute, +8.29% (medians +7.98%)**, with step spreads of
+1.015× and 1.033× — i.e. both tight, so this is a real difference and not a noisy draw. Copy
+time grew only 2.32%, so the regression is in the **non-copy** compute: 345.6 → 345.6 ms is
+what it would be if flat, and instead the non-copy remainder went 304.2 → 345.6 ms
+(**+13.6%**). Worth knowing before reading any 2.10 number as an improvement, and worth an
+n=2 before treating the 8% as settled.
+
+#### 4.6e A prereg miss that was my own methodology, not a surprise
+
+Five of six predictions hit: the gate, `(outside)` = 0.0%, the weight counts (**exactly**),
+the copy time within ±10% (+2.32%), and "some kernel geometries will differ".
+
+The miss: I preregistered total kernel time within **±15%** of 643.19 and it came in at
+**840.3 (+30.6%)**. But **that band was the wrong thing to predict, and §4.4c says so in this
+same document** — a total containing NCCL *wait* is not a reproducible quantity, and here NCCL
+was a 217 ms draw against 67.82 on the quiet 2.8 capture. The compute-only figure I should
+have banded moved **+8.3%**. Recording it as a methodology error rather than a model finding:
+the lesson §4.4c exists to teach was available to me and I still predicted against a
+contaminated denominator.
+
+**Status:** this capture is the reference for plan items **9** and **10**. It is **n=1** on
+this env, so per §4.4 anything comms-containing stays provisional until there is a second.
+
+---
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move

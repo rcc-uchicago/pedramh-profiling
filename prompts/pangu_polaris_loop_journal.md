@@ -170,7 +170,33 @@ Entry shape (keep it):
   `apex` (guarded try/except, `sfnonet.py:40-42`) and `transformer_engine` (`use_transformer_engine:
   False`) are optional; `YParams` was my filter missing a local module. **That scan is the fix for
   the spiral — no further dependency surprises should be possible.**
-- **result:** OPEN — attempt 2 submitted.
+- **result: attempt 2 (job 7545291) PASSED, `REBASE_OK`, 4m25s. 5 of 6 predictions hit, and the
+  one miss was my own methodology.** Written up as `polaris_bench_report.md` **§4.6**.
+  - **P1 gate** → 160 NVTX rows per house range, 384,000 kernels. HIT.
+  - **P2 structure** → `(outside)` **0.0%**; partition reconciles (271,520+103,040+9,440 = 384,000).
+    HIT.
+  - **P3 — the sharp one — HIT EXACTLY.** The spectral weight is still copied **36/rank-step** and
+    conjugated **12/rank-step** at **377.49 MB/call** (47,185,920 complex elements), and still
+    **49.5%** of copy time vs 49.0% before. Not approximate — the call counts and per-call geometry
+    are *identical* across a major torch version. ⇒ §4.5c's mechanism really is a **source-level
+    layout mismatch**, not a kernel-library artefact. That is the strongest confirmation §4.5 has.
+    ⚠ I nearly mis-scored this: the raw phase table merges geometries under one label and *looked*
+    like a 2× change. The bytes model separates them. **Read the geometry, not the label.**
+  - **P4a copy time ±10%** → **+2.32%** (271.19 → 277.49 ms/rank-step). HIT.
+  - **P4b total kernel time ±15% → MISS (+30.6%), and it was a bad prediction, not a surprise.**
+    §4.4c — in this same document — establishes that a total containing NCCL *wait* is not
+    reproducible. NCCL here was a **217.22 ms** draw against 67.82 on the quiet 2.8 capture. The
+    quantity I should have banded is **compute-only: +8.29%**. Recorded as a methodology error: the
+    lesson was already written down and I predicted against a contaminated denominator anyway.
+  - **P5 geometries differ** → HIT, and informatively: the **activation** copies restructured from
+    48/rank-step at 512×180×**181** to **146**/rank-step at 512×180×**180**, same total bytes. ⇒ the
+    per-call sizes and counts in §4.5b/c's *activation* rows are torch-2.8 facts; the byte totals
+    and everything about the weight are not.
+  - **New finding worth its own line: torch 2.10 is ~8% slower in compute on this model** — 623.08
+    vs 575.37 ms/rank-step (medians 620.74 vs 574.89), both with tight step spreads (1.015× /
+    1.033×), so it is real rather than a noisy draw. Copies grew only 2.3%, so the regression is in
+    the **non-copy** compute (+13.6%). Needs n=2 before it is settled.
+- **⇒ Items 9 and 10 now have their reference.** Items 6b/7/8/12 never needed it.
 - **infra-failure count:** 5/5 nominal, but see above: distinct diagnosed gaps, and the discovery
   loop is now closed by static analysis rather than by more jobs.
 
