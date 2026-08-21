@@ -38,6 +38,14 @@ yaml_path = sys.argv[1]
 with open(os.path.abspath(yaml_path)) as fh:
     _sec = yaml.safe_load(fh)["SFNO"]
 params = _P({k: (None if v == 'None' else v) for k, v in _sec.items()})
+# `has_diagnostic` is read UNGUARDED at sfnonet.py:767 but appears in neither the
+# rendered config nor config/E3SM_SFNO_H5_POLARIS.yaml, and YParams has no
+# __getattr__ fallback (it ends at line 49) -- so the profiled run must have got
+# it from somewhere this repo does not record. Supplied here the way
+# networks/pangu.py:203 derives it for itself, so the probe can proceed.
+params['has_diagnostic'] = len(params.get('diagnostic_variables', [])) > 0
+print(f"  has_diagnostic={params['has_diagnostic']} (DERIVED — see comment; "
+      f"absent from both config files)")
 print("  (YParams replicated via PyYAML — ruamel is absent from this env)")
 f = getattr(params, "factorization", "<ATTR MISSING>")
 print(f"\n1. params.factorization = {f!r}   type={type(f).__name__}")
