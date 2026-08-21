@@ -113,6 +113,53 @@ Entry shape (keep it):
 
 ---
 
+## tick 9 — 2026-08-21 — **UNBLOCKED.** Loop restarted; re-baseline capture submitted
+
+- **The BLOCKED call from tick 7 was WRONG, and the operator was right twice.** I rejected the
+  working env over torch-version comparability and declared a terminal state. Both parts were
+  overreach: (a) only items 9/10 are ratio-comparability-sensitive — 6b/7/8/12 ask mechanism
+  questions a minor torch bump does not change; (b) the base conda is **orphaned by a Cray PE
+  migration**, not temporarily sick, so "wait for it" was waiting for something that is not
+  coming back. **Re-baselining is the normal scientific response to a toolchain move; refusing to
+  measure was not.**
+- **The env is settled — job 7541487, `BAD: none`.** ai-rossby venv (torch **2.10.0+cu129**, CUDA
+  available, 4 devices) + `$PANGU_SHIM` holding only `cartopy`, `natsort`, `pyproj`, `shapely`,
+  `pyshp`. Three probe rounds to find that chain, because each missing dep only surfaces once the
+  previous resolves. `pyshp` needed the *base* conda's pip — the venv has none.
+- **§4.5c's OPEN flag is off — job 7541613.** Constructed the real net: the spectral weight is a
+  **contiguous `nn.Parameter`** of shape `(512, 512, 180, 2)` = **47,185,920 complex elements**,
+  matching §4.5a exactly. ⇒ `view_as_complex` is free and the strided operand is the einsum's
+  **permutation** — §4.5c's mechanism stands as written. The `assert` route remains unexplained
+  (a curiosity now, not a gate; five candidates eliminated and recorded).
+- **prereg for the re-baseline (written BEFORE submission):**
+  - **P1 (gate).** The run completes and the capture has a non-empty NVTX table with the four
+    house ranges at **160 rows each** (40 steps × 4 ranks).
+  - **P2 (structure is version-robust).** `(outside)` = **0.0%**; the phase partition still
+    reconciles to the kernel total.
+  - **P3 (the mechanism is source-driven, so it should survive the version bump).** The spectral
+    weight is still **47,185,920 complex elements**, still copied **36/rank-step** and conjugated
+    **12/rank-step**. This is the sharpest prediction here: if the *counts* change, §4.5c's
+    four-copies-one-root-cause story is torch-specific and must be re-derived.
+  - **P4 (absolute compute work should be close, not identical).** `direct_copy`+`conj` within
+    **±10%** of **271.19 ms/rank-step**. Total GPU kernel time within **±15%** of 643.19 — looser,
+    because 2.10 may select different GEMM/cuDNN kernels, which §4.4a showed happens even *within*
+    one version.
+  - **P5.** Some kernel *names* will differ (cutlass/cudnn selection). Not a failure; expected.
+  - **Decision rule.** If P2+P3 hold, §4.3 and §4.5's structural findings are version-robust and
+    this capture becomes the reference for items 9/10 — the milestone continues with one clearly
+    labelled discontinuity. If P3 fails, §4.5c is re-scoped to torch 2.8.0 and the weight-layout
+    analysis must be redone here before items 9/10 mean anything.
+  - **Stated limit:** this is n=1 on the new env. §4.4 established that a *single* capture's
+    shares are not reproducible, so treat comms-containing numbers as provisional until n=2.
+- **artefact hygiene:** writes to `nsys_pangu_sfno_t210_<jobid>` and a separate
+  `..._nsys_t210.csv`. **Never let two torch versions share a results file** — §4.4c is the whole
+  reason that rule exists.
+- **result:** OPEN — submitted.
+- **infra-failure count:** 4/5 (unchanged; the probe rounds returned verdicts, they did not crash
+  before one).
+
+---
+
 ## tick 8 — 2026-08-21 — env probe: is Pangu actually blocked, or just missing a lib path?
 
 - **Operator corrected me twice this tick, and both corrections were right:**

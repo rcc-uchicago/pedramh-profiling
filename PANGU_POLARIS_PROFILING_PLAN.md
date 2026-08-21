@@ -217,6 +217,26 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       different nodes. Excluding it, NCCL **67.82 → 59.67 ms/rank-step (−12.0%)** while
       phase shares move ≤0.4 points; **§4.2's NCCL row carries the stall.**
 
+> ### ✅ UNBLOCKED 2026-08-21 — but on a DIFFERENT torch, and that is load-bearing
+> The base conda that produced every number in §0 (torch **2.8.0**) is orphaned by a Cray PE
+> migration: its torch and h5py link `*_gnu_123.*` sonames the roll removed, and hdf5 moved
+> soversion **200 → 310** — an ABI break, not a rename. It is not coming back in that form.
+> **Work now runs in the ai-rossby venv (torch 2.10.0+cu129)** plus `$PANGU_SHIM`, which holds
+> only the five packages that venv lacks (`cartopy`, `natsort`, `pyproj`, `shapely`, `pyshp`) —
+> a shim with only those cannot shadow the venv's `torch`/`torch_harmonics`, which putting the
+> whole top-ups on `PYTHONPATH` would. Job **7541487** confirmed Pangu's full import set green.
+> **Recipe:** `polaris_rebaseline_nsys.pbs`.
+>
+> **Consequence for these items, and do not blur it:** items **6b, 7, 8, 12** ask mechanism
+> questions that are not torch-version-sensitive (host-side stalls, per-kernel access patterns,
+> source call sites, comms scaling) and can proceed directly. Items **9, 10** produce *ratios*
+> against §0d and therefore need a **re-baseline capture on this env first**. **Any table must
+> state which torch it used** — §4.4c already showed how fast incomparable numbers get tabled
+> together.
+>
+> ⚠ Submission authority changed 2026-08-20: single-node `debug` jobs are **auto**; `capacity`,
+> `preemptable` and multi-node still stop and ask. The heading below predates that.
+
 ## 2. Tier 1 — cheap `debug`-queue jobs (≤1 h). Ask before submitting.
 
 - [x] **6. DONE (2026-08-20) — job 7533457, `TOPO_OK`.** Prereg `5063d221`: **5/5 hit.**
