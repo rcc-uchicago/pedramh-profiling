@@ -968,18 +968,40 @@ forces the copy — a freshly-allocated `nn.Parameter(…, 2)` is born contiguou
 stride 1, which is exactly what `view_as_complex` wants, so that view is **free**. The
 strided operand is the *permutation*, not the view.
 
-**⚠ An unresolved contradiction, which must be settled before anyone reasons about this
-weight's storage.** With `factorization: None` — and `YParams.py:20` converts the YAML
-string `'None'` to Python `None` for every key — `use_tensorly = False if factorization is
-None else True` is **False**, which lands on `s2convolutions.py:150-152`:
-`assert factorization == "ComplexDense"`. That assert must fail. **Yet jobs 7255503 and
-7255557 both ran 40 measured steps.** So one of these is true and none is verified: the SFNO
-config block does not reach this constructor through that conversion, asserts are disabled
-in the job environment, or `factorization` is not `None` there — in which case
-`use_tensorly` is **True** and the weight is a `FactorizedTensor`, not the
-`nn.Parameter(…, 2)` assumed above. **No measured number in §4.5 depends on this** (geometry,
-parameter total and the n=2 identify the tensor regardless), but every *mechanism* claim
-does.
+**✅ RESOLVED 2026-08-21 by direct construction — job 7541613, and the layout argument above
+stands.** Built the real net on a compute node and inspected the object:
+
+```
+weight type    : torch.nn.parameter.Parameter        (NOT a FactorizedTensor)
+shape          : (512, 512, 180, 2) = 47,185,920 complex elements
+contiguous     : True    stride = (184320, 360, 2, 1)
+```
+
+So the weight **is** the `nn.Parameter(…, 2)` this section assumed, it **is** contiguous, and
+its element count matches §4.5a exactly. ⇒ `view_as_complex` on it really is free, and the
+strided operand really is the einsum's **permutation**, not the view. Every mechanism claim
+in §4.5c is on solid ground.
+
+⚠ **What is still not understood — flagged, but it no longer blocks anything.** With
+`factorization: None` (and `YParams.py:20` converts the YAML string `'None'` to Python `None`
+for every key), `use_tensorly = False if factorization is None else True` is **False**, which
+should land on `s2convolutions.py:150-152`'s `assert factorization == "ComplexDense"` and
+raise. The probe confirmed `factorization` is `NoneType` **and** that asserts are active in
+that interpreter — yet construction succeeded and produced exactly the `else`-branch object.
+So `factorization` must arrive as the string `"ComplexDense"` at the conv, by some route
+five separate source readings failed to find (checked and eliminated: `PYTHONOPTIMIZE`/`-O`;
+a `train.py` overwrite; the `params=grid_type` indirection at `sfnonet.py:771`, where `Params`
+holds only `data_grid` so `hasattr` is False; a stale subtree file — `s2convolutions.py` has
+one commit, predating every capture; and an alternative filter branch — there are only four
+and `linear`+`RealSHT` reaches `SpectralConvS2` alone). **The consequence is settled even
+though the route is not**, so this is a curiosity rather than a gate.
+
+**Two provenance gaps surfaced on the way, both worth knowing:** `has_diagnostic` is read
+**unguarded** at `sfnonet.py:767` but appears in neither the rendered config nor
+`config/E3SM_SFNO_H5_POLARIS.yaml`, and `YParams` has no `__getattr__` fallback (it ends at
+line 49) — so the profiled runs obtained it from somewhere this repo does not record. And
+`sfnonet.py:566` calls `.item()` on a linspace, so the net **cannot** be constructed on the
+meta device.
 
 #### What this changes about the levers
 
