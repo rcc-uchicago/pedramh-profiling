@@ -113,6 +113,56 @@ Entry shape (keep it):
 
 ---
 
+## tick 7 — 2026-08-21 — **BLOCKED (terminal).** The available workaround would invalidate the profile
+
+- **in flight:** none. Blocker re-tested, **unchanged**: `module load conda` errors, base-conda torch
+  has 2 unresolved libs, no newer conda module has appeared.
+- **I had been about to port the proven torch-aware bootstrap to the PanguWeather PBS scripts** — the
+  operator did not answer the port question across two ticks but kept re-firing the loop and had said
+  "allow jobs to be submitted automatically", so continuing to ask a third time was the wrong move
+  and I treated it as a routine judgment call to make.
+- **Checking whether the port would even help stopped it, and this is the finding of the tick:**
+
+  | environment | torch | usable? |
+  |---|---|---|
+  | base conda (what every capture used) | **2.8.0** / cu12.9 | ⛔ libs broken |
+  | ai-rossby venv (the only working one) | **2.10.0**+cu129 | ✅ imports fine |
+  | captures 7255503 / 7255557 | **2.8.0** | — |
+
+  **Every number in the profile — §0d, §4.3, §4.4, §4.5 — was measured on torch 2.8.0.** Items 7-10
+  exist to *refine that same picture* (ncu on the top six kernels, source-line attribution, a `ckpt2`
+  re-capture, the `ckpt` ladder), so they must be comparable to it. A minor-version torch bump can
+  change kernel selection wholesale — and **§4.4a already measured that kernel selection is not even
+  bit-reproducible within one torch version** (cuDNN picked a different `Conv2dWgrad` tile between
+  two runs of the identical config). Running items 7-10 on 2.10 would produce numbers that **cannot
+  be compared to anything already recorded**, which defeats their purpose.
+- ⇒ **The port is REJECTED on my own analysis, not deferred.** Doing it would have produced
+  plausible-looking numbers that silently broke comparability — exactly the failure mode this
+  project's §4 discipline exists to prevent. Recording the reversal explicitly because I had already
+  told the operator twice that porting was one of the two options; it is not.
+- **Why item 6 was legitimately fine on that venv, and items 7-17 are not:** a *topology* measurement
+  is torch-independent — it measures hardware link bandwidth, not model kernels. Any working torch
+  gives the same 83 GB/s. The distinction is whether the quantity depends on the framework's kernel
+  choices; item 6's does not, items 7-10's are *entirely* that.
+- **TERMINAL STATE: BLOCKED** (driver §9/§10). No independent stage remains: every unchecked plan item
+  needs the Pangu environment at torch 2.8.0, and the only substitute is disqualified above.
+- **What unblocks it — and it is now a single ask, not a choice:** the **base conda must be repaired**,
+  i.e. an **ALCF ticket** covering both halves —
+  1. the `conda/*` modulefiles pin `cray-hdf5-parallel/1.14.3.5` and `gcc-native/14.2`; the live PE
+     ships **1.14.3.9** and **14**;
+  2. that install's `torch/lib/libtorch_global_deps.so` links **both** `libcudart.so.12` and
+     `libcudart.so.13`, and only 12 is present — so `import torch` fails **even with a working
+     module**.
+  Substituting a different torch is not an acceptable workaround for the reason above. Broke between
+  **2026-08-07** (jobs 7366939/7366940 fine) and **2026-08-20**.
+- **State on stopping — 6 of 21 plan items done, all Tier 0 plus item 6, zero optimisations
+  attempted:** items **1, 2, 3, 4, 5, 6** complete; **7-17** blocked on the environment; **18-20**
+  were always listed-not-run. Branch `profile/pangu-polaris-profiling`, **21 commits, not pushed, no
+  PR** — a solo session cannot self-approve (CLAUDE.md #9).
+- **infra-failure count:** 4/5 (3 cluster-side, 1 mine). Stopping *before* the 5th, deliberately.
+
+---
+
 ## tick 6 — 2026-08-21 — still BLOCKED on the env; spending the tick on the one FREE open question
 
 - **in flight:** none. **Blocker re-tested and UNCHANGED:** `module load conda` still errors
