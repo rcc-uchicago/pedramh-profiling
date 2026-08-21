@@ -26,6 +26,8 @@ tl.set_backend("pytorch")
 import torch_harmonics as th
 import torch_harmonics.distributed as thd
 
+from .contractions import dhconv_weight_is_xio
+
 # from tensorly.plugins import use_opt_einsum
 # use_opt_einsum('optimal')
 from tltorch.factorized_tensors.core import FactorizedTensor
@@ -149,7 +151,16 @@ class SpectralConvS2(nn.Module):
             self.weight.normal_(0, scale)
         else:
             assert factorization == "ComplexDense"
-            self.weight = nn.Parameter(scale * torch.randn(*weight_shape, 2))
+            _w = scale * torch.randn(*weight_shape, 2)
+            if self.operator_type == "dhconv" and dhconv_weight_is_xio():
+                # §4.9's layout fix. Draw in the ORIGINAL [i, o, x] order and permute,
+                # rather than drawing straight into [x, i, o]: torch.randn consumes the
+                # same RNG values either way but would place them at DIFFERENT positions,
+                # so the initial weights would differ and the §4.12 gate would fail for a
+                # reason having nothing to do with layout. Same draw, same values, new
+                # memory layout.
+                _w = _w.permute(2, 0, 1, 3).contiguous()
+            self.weight = nn.Parameter(_w)
             if self.operator_type == "dhconv":
                 self.weight.is_shared_mp = ["matmul", "w"]
             else:

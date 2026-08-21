@@ -18,6 +18,62 @@ Entry shape (keep it):
 
 ---
 
+## tick 27 — 2026-08-21 — §4.9's layout fix implemented and PREREG'd — the loop's first testable optimization
+
+- **in flight:** `polaris_equiv_dhconv.pbs` written; code behind `PANGU_DHCONV_XIO`, default **off**.
+- **why this and not item 19:** the gate (§4.12) was built to validate *this*. `torch.compile`
+  is the plan's next number, but §4.9's fix is the loop's own measured finding and testing it
+  needs no checkpoint conversion (`--fresh_start`).
+
+- **two traps hit while implementing, both of which fail late or silently:**
+  1. **`_contract_dhconv` is `@torch.jit.script`.** A knob check reading `os.environ` inside
+     it does not compile — and TorchScript fails at **import**, not first use. Restructured as
+     **two scripted variants selected by an unscripted caller** (`_contract_dense_pytorch`).
+  2. **`torch.randn(*weight_shape, 2)` with a reordered shape changes the initial weights.**
+     It consumes the same RNG draws either way but places them at **different positions**, so
+     the gate would have failed for a reason with nothing to do with layout — and would have
+     read as *"the optimization changes what the model computes"*. Fixed by drawing in the
+     original `[i,o,x]` order and permuting afterwards.
+  Also found: `bixy,iox->boxy` appears **twice** in `contractions.py`; the second is
+  `_contract_localconv_fwd` (`# TODO remove`), not the live path. A blind replace-all would
+  have edited dead code and looked fine.
+
+- **prereg — and P1 is genuinely uncertain for an interesting reason:**
+
+  | # | prediction | confidence |
+  |---|---|---|
+  | **P1** | the gate passes at the measured floor (**2.5e-7**) | ~50% |
+  | **P2** | failing that, max rel err ≤ 1e-5 | ~85% |
+  | **P3** | `step_med` improves by **≥3%** | ~60% |
+  | **P4** | the run completes (shapes line up, einsum accepts `xio`) | ~85% |
+
+  P1 is a coin-flip **not** because the change might be wrong, but because **a memory-layout
+  change can legitimately alter the bmm's internal blocking and hence floating-point
+  accumulation order.** Identical inputs, identical arithmetic, different summation order —
+  a genuine tiny difference that is not a bug in the usual sense.
+
+- **decision rule, including the branch I must not decide alone:**
+  - **P1 ∧ P3** ⇒ bitwise-equivalent *and* faster. Recommend adoption, with the
+    checkpoint-conversion caveat (95.8% of parameters change shape).
+  - **¬P1 ∧ P2** ⇒ the fix is ~1e-6 non-bitwise via accumulation order. **I do not adopt it
+    and I do not loosen the tolerance** (CLAUDE.md #1/#11). I report the trade — *N% faster
+    for a 1e-6 numerical change* — and it is the **owner's** call. Recording a "pass" by
+    widening the floor would destroy the gate one tick after building it.
+  - **¬P3** ⇒ the permute was not on the critical path, and §4.9's inference from **sector
+    counts to wall-clock** was wrong. That would be a real correction to §4.8/§4.9 and I
+    should say so plainly rather than hunting for a configuration where it wins.
+
+- **tests:** `test/dhconv_layout_test.py` — **DHCONV_LAYOUT_OK (6)**, AST-only, pinning both
+  traps structurally (knob never inside a scripted fn; `randn` never called on a reordered
+  shape; permute materialised contiguous; default off). It needs **3.8+** because
+  `factorizations.py` contains `f"{implementation=}"`, so it refuses clearly on the login
+  node's 3.6 instead of dying with a SyntaxError three frames deep. **Fifth 3.6 landmine.**
+
+- **result:** OPEN.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 26 — 2026-08-21 — **item 18 CLOSED. The §4.1 gate exists and its floor is 0.000e+00.**
 
 - **in flight:** none. Jobs 7551401 / 7551411 / 7551439.

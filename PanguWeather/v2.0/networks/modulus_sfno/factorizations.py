@@ -25,6 +25,8 @@ from tltorch.factorized_tensors.core import FactorizedTensor
 
 from .contractions import (
     _contract_dhconv,
+    _contract_dhconv_xio,
+    dhconv_weight_is_xio,
     _contract_diagonal,
     _contract_sep_dhconv,
     _contract_sep_diagonal,
@@ -208,7 +210,12 @@ def _contract_dense_pytorch(
         if operator_type == "diagonal":
             x = _contract_diagonal(x, weight)
         elif operator_type == "dhconv":
-            x = _contract_dhconv(x, weight)
+            # Selected here, not inside the contraction: both variants are
+            # @torch.jit.script and TorchScript cannot read os.environ (§4.9).
+            if dhconv_weight_is_xio():
+                x = _contract_dhconv_xio(x, weight)
+            else:
+                x = _contract_dhconv(x, weight)
         else:
             raise ValueError(f"Unkonw operator type {operator_type}")
 

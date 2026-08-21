@@ -1,0 +1,111 @@
+#!/bin/bash -l
+#PBS -N pploop-dhconv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# §4.9's dhconv layout fix, run against the §4.12 gate — the first optimization
+# this loop can actually test.
+#
+#   arm A  PANGU_DHCONV_XIO=0  weight stored [in, out, modes_lat]  (today)
+#   arm B  PANGU_DHCONV_XIO=1  weight stored [modes_lat, in, out]
+#
+# Identical arithmetic and identical initial weights by construction: the draw
+# happens in the original order and is permuted afterwards, because torch.randn
+# consumes the same RNG values either way but would place them at DIFFERENT
+# positions if given the reordered shape.
+#
+# ⚠ A layout change CAN legitimately alter floating-point accumulation order
+#   inside the bmm, so a tiny non-bitwise difference would not be a "bug" in the
+#   usual sense — but the §4.12 floor is 0.000e+00 and CLAUDE.md #1/#11 forbid
+#   loosening a tolerance to let a faster version through. If it fails the floor,
+#   that is a TRADE for the owner to judge, not something to wave past here.
+#
+# WARMUP=5/STEPS=20 for both arms: equivalence stays valid (same shape both
+# sides) while step_med is measured over warm steps. These records are therefore
+# NOT comparable to the committed 20-step eager.json — only to each other.
+#
+# PASS = DHCONV_AB_DONE plus both records. Never rc.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || true
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+export PYTHONPATH="${V20_DIR}:${SHIM}"
+
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.equiv.rendered.yaml"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+# config_sha256_from_env() reads this and REFUSES to write a record without it:
+# two records both hashing "unknown" would compare clean across different configs.
+export S2S_YAML="${CONFIG_FILE}"
+
+export PANGU_BENCH=1 PANGU_NVTX=0
+export PANGU_BENCH_WARMUP=5 PANGU_BENCH_STEPS=20     # warm step_med + K=25 record
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_equiv_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+OUT_DIR="${REPO}/baselines/pangu_sfno_e3sm"
+mkdir -p "${OUT_DIR}"
+
+run_arm () {   # $1 = record name
+    echo "=== arm $1 (seed 0, world_size 1, K=20) ==="
+    PANGU_EQUIV_JSON="${OUT_DIR}/$1.json" PANGU_DHCONV_XIO="${PANGU_DHCONV_XIO:-0}" \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
+        --run_num="equiv_$1_${PBS_JOBID%%.*}" --config=SFNO --fresh_start \
+        --epochs 1 --global_seed 0 2>&1 | tail -18
+    echo "arm $1 child rc=${PIPESTATUS[0]} (bench guard may exit 3 AFTER a good capture)"
+}
+
+PANGU_DHCONV_XIO=0 run_arm dhconv_iox
+PANGU_DHCONV_XIO=1 run_arm dhconv_xio
+
+for f in dhconv_iox dhconv_xio; do
+    [ -s "${OUT_DIR}/${f}.json" ] || { echo "ERROR EQUIV_NO_RECORD ${f}.json"; exit 5; }
+done
+
+echo
+echo "=== §4.12 gate: layout fix vs today, at the MEASURED floor ==="
+# compare_baselines.py needs python 3.7+ (`from __future__ import annotations`);
+# the login node's python3 is 3.6.15, so use the venv interpreter. It imports no
+# torch — pure json/argparse.
+CMP="${REPO}/physicsnemo_ai_rossby/polaris/compare_baselines.py"
+for TOL in 2.5e-7 1e-5 1e-2; do
+    echo "--- tolerance ${TOL} ---"
+    "${PY}" "${CMP}" "${OUT_DIR}/dhconv_iox.json" "${OUT_DIR}/dhconv_xio.json" \
+        --tolerance "${TOL}" && { echo "FLOOR<=${TOL}"; break; }
+done
+
+echo
+echo "=== speedup: step_med, both arms (bench CSV) ==="
+"${PY}" - "${PANGU_BENCH_CSV}" <<'PY'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))[-2:]
+if len(rows) == 2:
+    a, b = (float(r["step_med"]) for r in rows)
+    print("  arm A (iox) step_med = %.4f s" % a)
+    print("  arm B (xio) step_med = %.4f s" % b)
+    print("  speedup = %.4fx  (%.1f%%)" % (a / b, 100.0 * (a - b) / a))
+else:
+    print("  ERROR ONLY %d CSV ROWS — cannot compare" % len(rows))
+PY
+echo "DHCONV_AB_DONE  ${OUT_DIR}/"
