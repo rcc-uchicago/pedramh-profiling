@@ -47,8 +47,24 @@ this doc discharges.
 > lands, giving `conda: command not found` then `python: command not found`. Observed on compute node
 > `x3001c0s1b0n0`, job **7531456**, 2026-08-20 21:25. The PE looks freshly rolled
 > (`cray-mpich/9.1.0`, `cray-libsci/26.03.0`, `perftools-base/26.03.0`) and the conda modulefiles
-> were not updated with it — **an ALCF-side breakage, not ours.** It broke between **2026-08-07**
-> (jobs 7366939/7366940 ran fine) and **2026-08-20**.
+> were not updated with it — **an ALCF-side breakage, not ours.** **Window: 2026-08-14 → 2026-08-20.**
+> `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs` is dated **Aug 14** and opens with a
+> bare `module load conda`, so the module still worked then. (An earlier note said Aug 07, from Pangu
+> jobs 7366939/7366940 — that is the last *Pangu* run, not the last working module load.)
+>
+> **The working env recipe, for reference — that script's lines 137-206:** `module load conda` +
+> `conda activate base` (for the CUDA/NCCL env vars only) → `source polaris_env.sh` →
+> `source "${AI_ROSSBY_VENV}/bin/activate"` → `PYTHONNOUSERSITE=1` → three `LD_LIBRARY_PATH` prepends
+> (aws-ofi-nccl, hwloc, libfabric) → invoke the venv python by **absolute path, never bare `python`**.
+> Two traps its own comments record: do **not** switch to a `conda/*-aws-nccl-*` variant to get the
+> libfabric plugin (they point at a nonexistent plugin dir and NCCL dies with `ncclInvalidUsage` — the
+> plugin is injected via `LD_LIBRARY_PATH` instead), and `physicsnemo` is an **editable** install in
+> that venv so it imports from whichever checkout built it.
+>
+> ⚠ **That recipe does not rescue PanguWeather**, for two independent reasons: it still needs step 1
+> (`module load conda`) to succeed — the failing step, and it fails on *compute* nodes too, per job
+> 7531456, not just from a login shell — and it carries **torch 2.10** where Pangu needs base-conda
+> **2.8.0** plus `$POLARIS_TOPUPS`.
 >
 > **Workarounds tried and FAILED — do not re-try these:**
 > 1. `module --ignore_cache load conda` (what Lmod's own error suggests) — still errors.
