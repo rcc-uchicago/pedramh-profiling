@@ -18,6 +18,67 @@ Entry shape (keep it):
 
 ---
 
+## tick 21 — 2026-08-21 — item 8 PREREG — who launches the f32 / 66.4 MB scattered copy?
+
+- **in flight:** `polaris_attrib_nsys.pbs` written, tests green, **not yet submitted**.
+- **the one remaining target.** §4.9 closed targets (2) and (3) from source for free. Target
+  (1) resisted: §4.8 measured the **f32 / 66.4 MB** population at **31.50 sectors/request
+  against an ideal of 4** — §4.5's "only dominant kernel with no mechanism at all" — and a
+  full-extent contiguous assign would measure ≈4, so source reading cannot close it.
+  Its element count (**16,588,800 floats**) is exactly the spectral field
+  `[1, 512, 180, 90]` complex **viewed as real**, which is why the kernel is f32 at all.
+
+- **prereg — four predictions, on the `--grid 64800` f32 population:**
+
+  | # | prediction | confidence |
+  |---|---|---|
+  | **P1** | the single top call site accounts for **≥40%** of attributed launches (concentrated, not smeared) | ~65% |
+  | **P2** | **`contractions.py`** (the `einsum` in `_contract_dhconv`) appears in the top-3 sites' frames | ~70% |
+  | **P3** | **>50% of attributed launches come from BACKWARD** (autograd frames, not the forward Python stack) | ~60% |
+  | **P4** | `s2convolutions.py` appears in the top 3 (the `zeros_like`/masked-assign block) | ~45% |
+
+  P2 is the substantive claim: that the f32 row is the **twin of §4.9's weight permute** —
+  `einsum("bixy,iox->boxy")` must reorder *both* operands, and §4.9 only accounted for the
+  weight. P3 follows from §4.3c's measured **72.9% of copy time in `backward`**. P4 is the
+  one I genuinely cannot call: §4.9 argued that block is contiguous at
+  `hard_thresholding_fraction: 1.0` and therefore *shouldn't* be the 31.50 population — so
+  if it dominates, **my §4.9 reasoning is incomplete and I want to know that.**
+
+- **decision rule:**
+  - **P2 holds** ⇒ one coherent story: `_contract_dhconv` owns essentially all of the 42.2%
+    copy time, both operands, and the §4.9 layout fix family covers both.
+  - **`s2convolutions.py`'s zero-pad block dominates instead** ⇒ §4.9's listed *candidate*
+    is promoted to the finding, and the fix is to drop the buffer at fraction 1.0.
+  - **P1 fails (smeared across many sites)** ⇒ report plainly that the copies have **no
+    single owner** and that "fuse the elementwise work" has no target. That is a real result
+    and it must not be dressed up as a partial success.
+
+- **trust bounds, stated up front:**
+  - **ATTRIBUTION-ONLY capture. Read *where*, never *how long*.** nsys warns of significant
+    overhead with these flags; nothing here may be tabled against §4.6's re-baseline. Same
+    discipline as `emit_nvtx`'s "timings void by design" — the failure mode §4.7 caught once.
+  - **No threshold on `--cudabacktrace`.** `kernel:<ns>` filters on **host-side API
+    duration**, so it would preferentially sample *queue-stalled* launches — biasing the
+    exact population under attribution, given §4.4's 220 ms queue depth.
+  - **4 ranks here, unlike §4.8's single-rank ncu job.** nsys does not replay kernels, so the
+    `ncclDevKernel` deadlock does not apply, and P3 needs the real DDP backward graph.
+  - `PANGU_BENCH_WARMUP=20/STEPS=20` keeps the bench guard's premise intact (job 7550606 died
+    because a 2-step window makes fixed startup 38% of elapsed against a 10% threshold), while
+    `--capture-range=cudaProfilerApi` bounds backtrace volume to the 20 measured steps.
+
+- **the known partial outcome:** if the Python unwinder cannot attach, `--python-backtrace`
+  yields native frames only (`at::native::…`, `torch::autograd::…`). That still answers P2/P3
+  and is a **partial result to report as such**, not a failure.
+- **the known blocker:** if `callchainId` comes back all-zero again, `--cudabacktrace` did not
+  take effect and item 8 is blocked on a tooling question, not a profiling one. The job gates
+  on the column being **populated** — tick 17's trap was treating its existence as evidence.
+
+- **result:** OPEN — nothing measured this tick.
+- **next:** submit, then read the call sites against P1–P4.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 20 — 2026-08-21 — item 8 targets (2) and (3) answered FROM SOURCE, free — the 377 MB copy is `einsum` permuting a parameter
 
 - **in flight:** none. No job this tick — the free route came first, and it paid.

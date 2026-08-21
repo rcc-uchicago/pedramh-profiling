@@ -1,0 +1,121 @@
+#!/bin/bash -l
+#PBS -N pploop-attrib
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Plan item 8, remaining target — attribute the f32 / 66.4 MB copy population
+# (§4.8: sec/req 31.50 against an ideal of 4; §4.5: "the only dominant kernel
+# with no mechanism at all") to the Python line that launches it.
+#
+# §4.9 closed the OTHER two targets from source for free. This one resisted:
+# the element count matches the spectral field [1,512,180,90] viewed as real,
+# but a full-extent contiguous assign would measure ~4 sectors/request, not
+# 31.50. Only attribution settles where the scatter comes from.
+#
+# ⚠ Tick 17 established that NO capture on disk can do this: callchainId is 0
+# for all 551,346 RUNTIME rows (--cudabacktrace was never on) and the sampled
+# frames are CPython internals (_PyEval_EvalFrameDefault) because
+# --python-sampling was off. Hence a NEW capture with all three flags.
+#
+# ⚠ NO THRESHOLD on --cudabacktrace. `kernel:<ns>` filters on HOST-SIDE CUDA API
+#   duration, not kernel duration; launch calls only get slow when the launch
+#   queue is full, so a threshold preferentially samples queue-stalled launches
+#   — biasing exactly the population under attribution, given §4.4's 220 ms
+#   queue depth. Pay the overhead instead.
+#
+# ⚠ ATTRIBUTION-ONLY CAPTURE. nsys warns of significant overhead with these
+#   flags. Read WHERE, never HOW LONG. Nothing here may be tabled against
+#   §4.6's re-baseline. Same discipline as emit_nvtx's "timings void by design",
+#   and the same failure mode §4.7 caught once already.
+#
+# 4 ranks here, unlike §4.8's ncu job: nsys does not replay kernels, so the
+# ncclDevKernel deadlock that forced single-rank does not apply, and item 1
+# measured 72.9% of the copy time in BACKWARD — which needs the real DDP graph.
+#
+# PASS = ATTRIB_OK: a sqlite whose RUNTIME rows carry NON-ZERO callchainId.
+# A .nsys-rep that exists proves nothing (CLAUDE.md #14) — nsys writes one even
+# when it captured nothing, and "callchainId column exists" is exactly the trap
+# tick 17 fell into.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || true
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+export PYTHONPATH="${V20_DIR}:${SHIM}"
+NSYS=/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys
+[ -x "${NSYS}" ] || { echo "ERROR NSYS_NOT_FOUND"; exit 2; }
+echo "nsys: $(${NSYS} --version | head -1)"
+
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.attrib.rendered.yaml"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+export S2S_YAML="${CONFIG_FILE}"
+export PANGU_BENCH=1 PANGU_NVTX=1
+# 20 warmup keeps the bench guard's premise intact (train.py:1413 trips above 10%
+# elapsed-vs-sum deviation; a short window is what broke job 7550606). The
+# capture range covers only the 20 measured steps, so backtrace volume stays
+# bounded even though the run is longer.
+export PANGU_BENCH_WARMUP=20 PANGU_BENCH_STEPS=20
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_attrib_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+OUT="${MEMBER_ROOT}/bench/nsys_pangu_attrib_${PBS_JOBID%%.*}"
+echo "=== attribution capture (4 ranks; timings VOID by design) ==="
+set +e
+"${NSYS}" profile \
+    --trace=cuda,nvtx,osrt \
+    --sample=process-tree \
+    --cudabacktrace=kernel \
+    --python-backtrace=cuda \
+    --python-sampling=true \
+    --capture-range=cudaProfilerApi --capture-range-end=stop \
+    --output="${OUT}" --force-overwrite=true \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=4 \
+        "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
+        --run_num="attrib_${PBS_JOBID%%.*}" --config=SFNO --fresh_start --epochs 1
+rc=$?
+set -e
+echo "nsys rc=${rc}"
+[ -s "${OUT}.nsys-rep" ] || { echo "ERROR NO_NSYS_REP"; exit 4; }
+
+echo "--- exporting sqlite ---"
+"${NSYS}" export --type=sqlite --force-overwrite=true \
+    --output="${OUT}.sqlite" "${OUT}.nsys-rep" || { echo "ERROR NSYS_EXPORT_FAILED"; exit 4; }
+
+# The gate tick 17 would have wanted: the column existing is NOT the point.
+"${PY}" - "${OUT}.sqlite" <<'PY' || exit 4
+import sqlite3, sys
+db = sqlite3.connect("file:%s?mode=ro" % sys.argv[1], uri=True)
+c = db.cursor()
+tot, nz = c.execute("SELECT COUNT(*), SUM(CASE WHEN callchainId IS NOT NULL AND "
+                    "callchainId != 0 THEN 1 ELSE 0 END) "
+                    "FROM CUPTI_ACTIVITY_KIND_RUNTIME").fetchone()
+print("RUNTIME rows=%d  with callchain=%d (%.1f%%)" % (tot, nz or 0, 100.0*(nz or 0)/max(tot,1)))
+if not nz:
+    print("ERROR NO_CALLCHAINS — --cudabacktrace did not take effect. The column "
+          "existing proves nothing (tick 17); it must be POPULATED.")
+    sys.exit(4)
+PY
+
+echo "--- attribution summary ---"
+"${PY}" "${REPO}/attrib_copies.py" "${OUT}.sqlite" || { echo "ERROR ATTRIB_FAILED"; exit 5; }
+echo "ATTRIB_OK  ${OUT}.sqlite"
