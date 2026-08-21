@@ -255,7 +255,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     `makani/utils/comm.py` delegates to *physicsnemo's* `DistributedManager`),
     `polaris_makani_env_probe.pbs` (3 stages → `MAKANI_ENV_OK`),
     `polaris_makani_multinode_scaling.pbs` (**one file for 1/2/4 nodes** — `NNODES` from
-    `$PBS_NODEFILE`), `parse_makani_scaling.py` + **9 passing tests**
+    `$PBS_NODEFILE`), `parse_makani_scaling.py` + **11 passing tests**
     (`MAKANI_SCALING_PARSE_OK`).
   - **Prereg recorded before any job** (plan §4, 5 falsifiable predictions). The load-bearing one:
     arm C (4 nodes) `step_ms` ≥ **10%** above arm A (1 node) — i.e. §0b's single-node "comms are

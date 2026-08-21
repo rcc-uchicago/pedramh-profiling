@@ -93,7 +93,14 @@ def parse_log(text: str) -> dict:
     # is "AWS Libfabric" -- two words. A \S+ capture silently records it as
     # "AWS", which reads as a different transport than the one that ran.
     nets = sorted({m.strip() for m in re.findall(r"Using network (.+)$", text, re.M)})
-    world_sizes = sorted({int(x) for x in re.findall(r"world_size[=:]\s*(\d+)", text)})
+    # `\s*` on BOTH sides of the separator. train_plasim's "DDP launch summary"
+    # column-pads its keys -- "world_size                = 16" -- so a pattern
+    # anchored as `world_size[=:]` matches nothing and this guard, which exists
+    # to catch N independent world_size=1 trainers, would silently never fire.
+    # The looser form also still catches physicsnemo-style "world_size=16".
+    world_sizes = sorted(
+        {int(x) for x in re.findall(r"\bworld_size\s*[=:]\s*(\d+)", text)}
+    )
     return {
         "step_ms": _last_float(text, r"Average step time after step \d+:\s*([0-9.]+)\s*ms"),
         "io_gbs": _last_float(

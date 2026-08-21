@@ -150,6 +150,45 @@ def test_schema_drift_refuses_to_append():
             raise AssertionError("appending to a drifted schema must raise")
 
 
+# The fork's real output, copied from train_plasim._log_ddp_launch_summary --
+# column-padded, which is exactly what a naive `world_size[=:]` regex misses.
+REAL_SUMMARY_LOG = """\
+Communicators wireup time: 5.11s
+[3] NCCL INFO NET/OFI Using network AWS Libfabric
+===== DDP launch summary =====
+world_size                = 16
+data_parallel_size        = 16
+global_batch_size         = 16
+per_rank_batch_size       = 1
+num_data_workers          = 8
+amp_mode                  = bf16
+==============================
+Average step time after step 10: 604.2 ms
+Average effective io rate after step 10: 2.10 GB/s
+Total training time is 38.10 sec
+"""
+
+
+def test_padded_ddp_summary_is_parsed():
+    """The real log pads its keys; the guard must still see the world size."""
+    with tempfile.TemporaryDirectory() as td:
+        rc, rows, _ = _run(REAL_SUMMARY_LOG, td)
+        assert rc == 0, "the padded 16-rank summary should pass a 16-rank launch"
+        assert rows[0]["world_sizes_seen"] == "16", rows[0]["world_sizes_seen"]
+        assert rows[0]["step_ms"] == "604.2"
+
+
+def test_padded_summary_still_catches_the_solo_trainer():
+    """Same padded format, but world_size=1 on a 16-rank launch must fail."""
+    solo = REAL_SUMMARY_LOG.replace(
+        "world_size                = 16", "world_size                = 1"
+    ).replace("data_parallel_size        = 16", "data_parallel_size        = 1")
+    with tempfile.TemporaryDirectory() as td:
+        rc, rows, _ = _run(solo, td)
+        assert rc == 4, "padded world_size=1 must still be rejected, got rc=%s" % rc
+        assert rows[0]["world_sizes_seen"] == "1"
+
+
 def test_nsys_row_is_flagged_and_may_lack_total_time():
     """An nsys run ends at capture_range_stop, so it is not a clean timing row.
 

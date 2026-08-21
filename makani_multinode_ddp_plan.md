@@ -212,7 +212,7 @@ PASS is **`MAKANI_MN_SCALING_OK`** plus a new row in
 - [x] env blocker cleared — `polaris_makani_env.sh`, 0 dangling libs (static check)
 - [x] h5py overlay built and green — `MAKANI_H5PY_OVERLAY_OK`
 - [x] launcher written — `polaris_makani_multinode_scaling.pbs`, 1/2/4 nodes, one file
-- [x] result parser + 9 tests green — `MAKANI_SCALING_PARSE_OK`
+- [x] result parser + 11 tests green — `MAKANI_SCALING_PARSE_OK`
 - [x] prereg recorded (§4) — **before** any job
 - [ ] `MAKANI_ENV_OK` — needs the probe job (`debug`, ~10 min)
 - [ ] arms A/B/C × 3 reps

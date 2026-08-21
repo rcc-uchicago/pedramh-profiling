@@ -405,7 +405,7 @@ echo "--- train rc=${rc} ---"
 
 # ---- results ----------------------------------------------------------------
 # Delegated to parse_makani_scaling.py rather than an inline heredoc so it can be
-# tested without an allocation (test_parse_makani_scaling.py, 9 tests). That is
+# tested without an allocation (test_parse_makani_scaling.py, 11 tests). That is
 # not tidiness: the two guards it applies -- world_size sanity and which
 # transport NCCL chose -- are the difference between a scaling number and a
 # plausible-looking number, and both are cheap to get subtly wrong.
