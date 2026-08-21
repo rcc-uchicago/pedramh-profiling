@@ -1349,6 +1349,84 @@ kernel** — some call sites already do it right. A layout fix is feasible, not 
   single rank) is **not** comparable to §4.6's 4-rank baseline.
 
 
+### 4.9 The 377 MB copy, identified in source — and it is `einsum` permuting a parameter
+
+*Free follow-on to §4.8; no job. Source reading, pinned to §4.8's measured launch geometry.*
+
+§4.8 measured a 184,320-block complex64 copy at **sec/req = 32.00, zero spread**. That grid
+implies **184,320 × 256 = 47,185,920 complex elements**, and the config
+(`embed_dim: 512`, `hard_thresholding_fraction: 1.0`) fixes the only consistent shape:
+
+> **`[in=512, out=512, modes_lat=180]` complex64 = 377.5 MB — the `dhconv` spectral weight.**
+> `modes_lat = 47,185,920 / 512² = 180` exactly. (An earlier 768×768×80 reading is *also* a
+> valid factorization of that element count; `embed_dim: 512` is what settles it. Never
+> factor a element count without a second constraint.)
+
+**These 12 weights are 95.8% of the model's 1,182,108,160 parameters**
+(12 × 512 × 512 × 180 × 2 = 1,132,462,080). The model is, by parameter count, almost
+entirely this one tensor repeated twelve times.
+
+**The copy site.** `s2convolutions.py:133,152` declares the parameter in the order
+`[in_channels, out_channels, modes_lat, 2]`:
+
+```python
+weight_shape += [self.modes_lat_local]                       # -> [i, o, x]
+self.weight = nn.Parameter(scale * torch.randn(*weight_shape, 2))
+```
+
+and `contractions.py:194` contracts it as
+
+```python
+resc = torch.einsum("bixy,iox->boxy", ac, bc)                # bc is [i, o, x]
+```
+
+Here `x` is a **batch** index (it appears in both operands and the output) and `i` is
+contracted, so `einsum` lowers this to a batched matmul and needs `bc` **x-major** —
+`[x, i, o]`. The stored order is `[i, o, x]`, so it must permute, and a permute of a
+377 MB tensor is materialised.
+
+**The stride arithmetic predicts the measurement exactly.** Stored `[i, o, x]` is contiguous
+with strides `(512·180, 180, 1) = (92160, 180, 1)` complex elements. The permuted read walks
+`o` fastest, which is **stride 180 complex = 1440 B** in the source. 1440 B ≫ the 32 B
+sector, so **every lane of every warp lands in a distinct sector ⇒ 32 sectors/request**, the
+counter's ceiling — matching §4.8's 32.00 with zero spread across all 9 launches. The store
+side writes the contiguous destination, which is why it measured exactly 8.00.
+
+**The fix is a layout change with no change to what is computed:** store the parameter as
+`[modes_lat, in, out]` and write the contraction `"bixy,xio->boxy"`. The permute disappears.
+
+**Why this is recorded and not done.** The code edit is small; the cost is not.
+- **Every existing checkpoint breaks.** 95.8% of parameters change layout, so adoption needs
+  a conversion pass, not just a patch.
+- `PanguWeather/` is a **`git subtree`** — edits can conflict on a future subtree pull.
+- It is an optimization, so **DESIGN §4 requires an equivalence gate against a captured
+  baseline, and plan item 18 records that no PanguWeather baseline exists.** It cannot be
+  committed until that exists.
+- It changes *storage layout*, not the computed function, so it is **not** a jesswan
+  sign-off item — but the checkpoint break is a coordination item.
+
+**A second, independent candidate found in the same read.** With `hard_thresholding_fraction:
+1.0`, `modes_lat_local == lmax`, so the mode slice in `s2convolutions.py:198-203` covers the
+**full** extent and the zero-padding buffer has nothing to zero:
+
+```python
+xp = torch.zeros_like(x)
+xp[..., :modes_lat_local, :modes_lon_local] = self._contract(...)   # full extent at 1.0
+x = xp.contiguous()                                                  # xp already contiguous
+```
+
+At this config the `zeros_like` + masked assign is a full-tensor copy that could collapse to
+using the contraction result directly. **Not yet measured** — listed as a candidate, not a
+finding.
+
+**What this does NOT settle.** §4.8's **f32 / 66.4 MB row at sec/req 31.50** — the one §4.5
+called "the only dominant kernel with no mechanism at all". Its element count
+(16,588,800 floats) matches the spectral field `[1, 512, 180, 90]` complex viewed as real,
+and `einsum` must permute *that* operand too. But a full-extent contiguous assign would
+measure ≈4, not 31.50, so the scattered f32 population is **not** explained by source reading
+alone. That is what item 8's attribution capture is for.
+
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move

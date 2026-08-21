@@ -18,6 +18,56 @@ Entry shape (keep it):
 
 ---
 
+## tick 20 — 2026-08-21 — item 8 targets (2) and (3) answered FROM SOURCE, free — the 377 MB copy is `einsum` permuting a parameter
+
+- **in flight:** none. No job this tick — the free route came first, and it paid.
+- **prereg:** n/a (source reading, not a measurement).
+
+- **result.** §4.8's 184,320-block c64 launch implies **47,185,920 complex elements**, and
+  `embed_dim: 512` fixes the shape to **`[512, 512, 180]` = the `dhconv` spectral weight**
+  (`modes_lat = 47,185,920/512² = 180`). **These 12 weights are 95.8% of the model's
+  1,182,108,160 parameters.**
+  - **The copy site:** `s2convolutions.py:133,152` stores the parameter `[in, out, modes_lat]`;
+    `contractions.py:194` contracts it `einsum("bixy,iox->boxy")`, where `x` is a *batch*
+    index and `i` is contracted, so the lowering to batched matmul needs the weight
+    **x-major** and must permute 377 MB.
+  - **The stride arithmetic reproduces §4.8's measurement exactly.** Stored strides are
+    `(92160, 180, 1)` complex; the permuted read walks `o` fastest = **1440 B** apart in the
+    source ⇒ every lane in a distinct 32 B sector ⇒ **32 sectors/request**, the ceiling.
+    Measured: **32.00, zero spread, 9/9 launches.** Store side writes contiguously ⇒ 8.00.
+    That is a source-level prediction meeting a hardware counter to two decimals.
+  - **The fix:** store `[modes_lat, in, out]`, contract `"bixy,xio->boxy"`. No math change.
+  - **Not done, deliberately.** 95.8% of parameters change layout ⇒ **every checkpoint
+    breaks**; `PanguWeather/` is a subtree; and DESIGN §4 gates adoption on an equivalence
+    baseline that item 18 records as **non-existent**. Recorded as a finding, not a patch.
+  - **Target (3) closed too:** `assert factorization == "ComplexDense"` is no contradiction —
+    `s2convolutions.py:92-96` defaults to `"Dense"` then prefixes `Complex`, so the default
+    path always arrives as `ComplexDense`.
+
+- **a mistake I caught mid-derivation, worth recording as method:** I first factored
+  47,185,920 as **768×768×80** and it is a perfectly valid factorization — but `embed_dim: 512`
+  says the answer is 512×512×180. **An element count alone does not identify a shape; it needs
+  a second constraint.** I had already stated the 768 reading before checking the config.
+
+- **second candidate found in the same read (NOT measured):** with
+  `hard_thresholding_fraction: 1.0` the mode slice is full-extent, so the
+  `xp = torch.zeros_like(x)` / masked-assign / `.contiguous()` block
+  (`s2convolutions.py:198-203`) has nothing to zero and is a whole-tensor copy that could
+  collapse to using the contraction result directly. Listed as a candidate.
+
+- **what is still open:** §4.8's **f32/66.4 MB row at sec/req 31.50** — §4.5's "only dominant
+  kernel with no mechanism". Its element count matches the spectral field `[1,512,180,90]`
+  viewed as real, and `einsum` must permute that operand too, but a full-extent contiguous
+  assign would measure ≈4, not 31.50. **Source reading cannot close it; the attribution
+  capture can.** That is now the sole remaining job for item 8.
+
+- **next:** prereg + submit item 8's attribution capture
+  (`--cudabacktrace=kernel --python-backtrace=cuda --python-sampling=true`, tick 17's recipe),
+  targeted at the f32/66.4 MB population.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 19 — 2026-08-21 — **item 7 CLOSED. 4/4. The lever is CONTIGUITY, not fewer bytes.**
 
 - **in flight:** none. Job **7550715** completed; 80 launches profiled, 11 metrics, all collected.

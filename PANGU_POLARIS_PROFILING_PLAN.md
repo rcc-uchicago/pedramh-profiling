@@ -360,6 +360,26 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       free to answer, and it gates the mechanism. **Note the target for the weight rows is
       not fusion, it is hoisting.**
 
+      **✅ TARGETS (2) AND (3) ANSWERED 2026-08-21 FROM SOURCE — free, no capture
+      (→ §4.9).** (2) The 377 MB copy is **`torch.einsum("bixy,iox->boxy")`
+      (`contractions.py:194`) permuting the `dhconv` weight**, which
+      `s2convolutions.py:133,152` stores as `[in, out, modes_lat]` = **`[512, 512, 180]`
+      complex64** while the batched matmul needs it **x-major**. Stride arithmetic predicts
+      §4.8's measurement exactly: consecutive output elements are **1440 B** apart in the
+      source, so every lane lands in a distinct 32 B sector ⇒ **sec/req = 32.00**, which is
+      what was measured, with zero spread. **Yes, the parameter can be stored
+      `(modes_lat, in, out)`** — with the contraction rewritten `"bixy,xio->boxy"` the
+      permute disappears and nothing computed changes. **But the cost is not the code
+      edit:** these 12 weights are **95.8% of all 1.18 B parameters**, so every existing
+      checkpoint would need conversion — and DESIGN §4 blocks adoption until item 18's
+      baseline exists. (3) The `assert factorization == "ComplexDense"` is **not a
+      contradiction**: `s2convolutions.py:92-96` defaults `factorization` to `"Dense"` and
+      then prefixes any non-`complex*` value with `Complex`, so the default path always
+      arrives as `ComplexDense` and the weight is a plain contiguous `nn.Parameter`.
+      **Target (1) — the f32/66.4 MB row at sec/req 31.50 — is NOT answered by source
+      reading** (a full-extent contiguous assign would measure ≈4), and is now the sole
+      remaining job for this item.
+
       **⚠ PREREQUISITE ESTABLISHED 2026-08-21 (tick 17, free check on the warm capture
       `nsys_pangu_warm_7550368.sqlite`): NO EXISTING CAPTURE CAN DO THIS.** Two facts, both
       queried, not assumed:
