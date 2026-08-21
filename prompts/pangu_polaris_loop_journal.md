@@ -113,6 +113,52 @@ Entry shape (keep it):
 
 ---
 
+## tick 14 — 2026-08-21 — item 6b(A) CLOSED with a recorded null: GC is not the cause
+
+- **Job 7550007, `GC_AB_OK`, 8m27s. Five arms: W/A1/B1/A2/B2, warm-up discarded.**
+
+  | arm | GC | step_med | step_p90 | step_std | loader_wait_frac |
+  |---|---|---|---|---|---|
+  | **W (discarded)** | on | 0.65052 | **0.80562** | **0.06102** | 0.0008 |
+  | A1 | on | 0.65022 | 0.65107 | 0.00069 | 0.0002 |
+  | B1 | off | 0.65021 | 0.65117 | 0.00072 | 0.0002 |
+  | A2 | on | 0.65319 | 0.65509 | 0.00118 | 0.0003 |
+  | B2 | off | 0.65148 | 0.65255 | 0.00117 | 0.0002 |
+
+  **A (gc ON) vs B (gc OFF): `step_std` B/A = 1.0102, `step_p90` 0.9981, `step_med` 0.9987,
+  peak memory 1.0000. No effect, on any metric.**
+- **⇒ RECORDED NULL: GC does not cause the stall.** And the design change proved the alternative
+  by construction: **the stall moved.** It was in A1 last job (`step_std` 0.0770); with a
+  throwaway arm placed first, it appeared *there* (0.0610, **65×** the later arms, p90/med
+  **1.2384**). **It follows the first arm, not the GC setting.**
+- **prereg scored:** **P1 MISS** (A arms show p90/med 1.0021, not >1.25 — because the signature
+  belongs to the *first* arm, and with a throwaway first no A arm stalls). **P2 MISS** (nothing to
+  remove; B/A p90 = 0.9981, nowhere near the predicted <0.90). **P3 HIT** (`step_med` within
+  0.13%). **P4 MISS** (peak memory identical, no rise). **1 of 4** — and the null is the result,
+  not a failure to get one.
+- **Three retractions, all now written into the docs rather than left to rot:**
+  1. **§4.4e's `gc.freeze()` recommendation — WITHDRAWN.** It was presented as an output-neutral
+     lever worth ~0.5% of step time. It is worth nothing measurable.
+  2. **"A recurring multi-hundred-ms hit on a 100-epoch run" — WRONG.** A first-run effect is paid
+     **once per job**, not per epoch. That materially downgrades the finding.
+  3. **The causal GC reading — REFUTED**, while the *observation* stands: on torch 2.8 the CPU
+     demonstrably was in `gc_collect_main` for ~180 of ~300 samples in that window. GC time was
+     *present* in the pause; disabling GC does not prevent the pause class. Those are different
+     claims and only the second is dead.
+- **⚠ Kept distinct, because collapsing them would lose a real open problem:** this closes the
+  **first-arm** stall only. Job 7255557's pattern was **19 of 40** steps stalling *mid-run* with
+  dev0 out of phase — not a first-arm effect, still unexplained, still item **6b(B)** with the
+  `OMP_NUM_THREADS=8` / no-CPU-binding hypothesis and the measured **reversed GPU→NUMA map**.
+- **Two script bugs fixed for reproducibility:** my warm-up print block was inserted at the wrong
+  indentation (IndentationError killed the in-job summary — the data survived in the CSV, so no
+  re-run was needed), and `statistics.fmean` is 3.8+ while the login node runs 3.6, the same trap
+  already fixed once in `parse_nsys.py`. **That is twice now; `fmean` is a login-node landmine.**
+- **next:** item **6b(B)** — the `OMP_NUM_THREADS`/CPU-binding A/B, now with a warm-up arm as
+  standard practice, testing whether the reversed GPU→NUMA map explains 7255557's mid-run stalls.
+- **infra-failure count:** 5/5 nominal; both A/B jobs completed and returned verdicts.
+
+---
+
 ## tick 12 — 2026-08-21 — item 6b(A): test the GC diagnosis by disabling GC
 
 - **in flight:** none. Re-baseline landed last tick (§4.6).

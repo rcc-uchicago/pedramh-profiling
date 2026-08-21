@@ -256,12 +256,21 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       was a cluster-side conda breakage, not this item.
 - [ ] **6b. Two host-CPU stalls, one of which is already diagnosed. ADDED 2026-08-20 by
       item 2 (§4.4e); not in the frozen list.**
-      **(A) FREE, no `qsub`, and diagnosed: CPython gen-2 GC.** The reproducible stall at
-      the same training iteration on two different nodes is `gc_collect_main`, measured from
-      CPU sampling (`--stall-cause`). Fix to try: `gc.freeze()` after model/optimizer
-      construction, or `gc.set_threshold()`/`gc.disable()` around the bench loop.
-      **Output-neutral — no arithmetic changes, so outside the DESIGN §4 gate and no
-      jesswan sign-off.** It is a *global* cost: every other rank waits at the collective.
+      **(A) ✅ CLOSED 2026-08-21 with a RECORDED NULL — GC is not the cause.** Tested
+      directly on torch 2.10 (jobs 7549941, 7550007): interleaved A/B/A/B with a throwaway
+      warm-up arm, `gc.disable()` injected via `sitecustomize.py` on `PYTHONPATH` so both
+      arms ran byte-identical code. **Turning the collector off changes nothing measurable**
+      — `step_std` B/A = **1.0102**, `step_p90` B/A = 0.9981, peak memory identical to three
+      decimals. **The stall is a FIRST-RUN effect:** it sat in the first arm of 7549941
+      (`step_std` 0.0770) and *moved to the throwaway arm* in 7550007 (0.0610, **65×** the
+      later arms), i.e. it follows the first arm, not the GC setting. ⇒ **the `gc.freeze()`
+      lever is withdrawn** (§4.4e retracted), and the "recurring multi-hundred-ms hit on a
+      100-epoch run" framing is wrong — a first-run cost is paid **once per job**.
+      **The first A/B nearly produced a false positive** and only the interleaving caught it:
+      on aggregates it read as −12% p90 / −97% std, all of which was the first arm.
+      ⚠ **This closes only the first-arm stall.** Job 7255557's pattern — **19 of 40** steps
+      stalling mid-run with dev0 out of phase — is *not* a first-arm effect and stays open
+      under (B).
       **(B) NOT diagnosed — the other stall pattern.** On 16 of 7255557's 17 stalled steps
       **dev0 alone waits ~600 ms** while the other three sit at 60–70 ms (dev0 out of phase
       with the group, not one rank straggling), with the late work in the **inter-step gap**

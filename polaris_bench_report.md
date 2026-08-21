@@ -705,12 +705,33 @@ collection triggers on a *deterministic function of allocation count*, and its p
 with the tracked object graph — so the same training loop reaches it at the same step
 regardless of node. **No NUMA or affinity hypothesis can predict an iteration index.**
 
-⇒ **Actionable, cheap, and output-neutral:** `gc.freeze()` after model/optimizer
-construction (moves the permanent object graph out of gen-2 tracking), or
-`gc.set_threshold()` / `gc.disable()` around the bench loop. It changes no arithmetic, so
-it is **outside the DESIGN §4 equivalence gate and needs no jesswan sign-off**. Worth
-~0.5% of mean step time here — but on a 100-epoch run it is a recurring multi-hundred-ms
-hit, and it is a *global* barrier cost because every other rank waits.
+⇒ ⚠ **RETRACTED 2026-08-21 — the `gc.freeze()` recommendation is WITHDRAWN, and the
+"recurring" framing with it.** An interleaved A/B on torch 2.10 (jobs 7549941, 7550007)
+tested it directly: with a throwaway warm-up arm absorbing the first-run effect, **turning
+the collector off changes nothing measurable** — `step_std` B/A = **1.0102**, `step_p90` B/A
+= **0.9981**, `step_med` B/A = 0.9987, and peak memory **identical to three decimals** (so
+the collector was not freeing anything significant either). Both GC-ON arms were as clean as
+both GC-OFF arms.
+
+**What the stall actually is, on this evidence: a FIRST-RUN effect.** It appeared in the
+first arm of job 7549941 (`step_std` 0.0770) and, when a throwaway arm was placed first in
+7550007, **it moved there** (0.0610, **65×** the later arms' 0.00094). It follows the *first
+arm*, not the GC setting. Partially cold-cache I/O — `loader_wait_frac` 0.0056 vs
+0.0001–0.0002 — though that quantifies to only ~9% of the excess, so the remainder is
+unattributed.
+
+**The material correction:** this section said the cost was "a recurring multi-hundred-ms
+hit" on a 100-epoch run. If it is a first-run effect it is paid **once per job**, not per
+epoch — so it is a cold-start cost, not a recurring one, and far less interesting than
+written.
+
+**What still stands, and what does not.** The torch-2.8 sampling evidence below is an
+*observation* and is not retracted: the CPU demonstrably was inside `gc_collect_main` for
+~180 of ~300 samples in that window. What is refuted is the **causal** reading — GC time
+was present in that pause, but disabling GC does not prevent the pause class. ⚠ **And note
+this A/B addresses only the FIRST-ARM stall. Job 7255557's pattern was different — 19 of 40
+steps stalling mid-run, with dev0 out of phase — which is not a first-arm effect and remains
+unexplained** (plan item 6b(B)).
 
 **A second, distinct mechanism accounts for 7255557's other stalls, and it is not
 diagnosed.** On 16 of its 17 stalled steps the pattern is different: **dev0 alone waits
