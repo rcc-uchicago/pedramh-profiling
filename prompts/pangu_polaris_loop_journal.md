@@ -113,6 +113,57 @@ Entry shape (keep it):
 
 ---
 
+## tick 12 — 2026-08-21 — item 6b(A): test the GC diagnosis by disabling GC
+
+- **in flight:** none. Re-baseline landed last tick (§4.6).
+- **Prerequisite checked first: the stall REPRODUCES on torch 2.10** — 4 `forward_loss` windows
+  above 3× median (dev1/dev3 at steps 12 and 18, ~623 ms against a 170.6 ms median). **But the
+  symbol evidence is unavailable here:** the venv python has no symbol table, so nsys reports raw
+  addresses (`0x14a841c5bb3e`) where the torch-2.8 captures gave `gc_collect_main`. So §4.4e's
+  *diagnosis* cannot be re-confirmed by symbols on this env.
+  - Two other differences worth noting: the stall moved from step **30** (both 2.8 captures) to
+    steps **12/18**, and `forward_loss`'s CPU-side median went **36.3 → 170.6 ms**. A moving index
+    is *consistent* with an allocation-count trigger (2.10 allocates differently) but is not
+    evidence for it.
+- **⇒ Test it directly instead, which is better evidence than a symbol name:** disable the collector
+  and see whether the stall disappears. If it does, it was GC; if not, §4.4e's diagnosis needs
+  revisiting on this env.
+- **The lever needs NO code edit.** A `sitecustomize.py` on `PYTHONPATH` calls `gc.disable()` when
+  `PANGU_GC_OFF=1`. `site` imports it at interpreter startup, before `train.py`. So both arms run
+  **byte-identical code** and differ only by an environment variable — and
+  `PanguWeather/v2.0/train.py` (a git subtree) stays untouched. Verified on the login node:
+  `gc.isenabled()` is `False` with the var and `True` without.
+  **Output-neutral:** disabling the cyclic collector changes *when* unreachable cycles are freed,
+  not any arithmetic — no tensor value, RNG draw or reduction order moves. Outside the DESIGN §4
+  gate, so no jesswan sign-off. It does raise peak memory, which the A/B measures.
+- **Method: four arms A/B/A/B in ONE job on ONE node**, per the plan's own rule that a cross-job
+  ratio on Polaris is not a measurement. Interleaving guards against thermal/placement drift being
+  read as an effect.
+- **Metric: the bench CSV, not a trace.** A stall inflates `step_p90`/`step_std`/`step_max` while
+  leaving `step_med` alone — exactly the signature under test. nsys would double the runtime and add
+  nothing the CSV does not show.
+- **prereg (written BEFORE submission):**
+  - **P1.** Arm A (gc as shipped) shows the stall signature: `step_p90/step_med` **> 1.25**.
+  - **P2 — the one that matters.** Arm B (gc off) removes it: `step_p90/step_med` **< 1.10**, and
+    **B/A on `step_p90` < 0.90**.
+  - **P3.** `step_med` is **unchanged within ±2%** between arms. GC pauses are a tail phenomenon; if
+    the *median* moves, something other than stall-removal is going on and the result is confounded.
+  - **P4.** `peak_mem_gb_max_rank` **rises** in arm B — with no automatic collection, cyclic garbage
+    accumulates. If it does *not* rise, that is mild evidence the collector was not doing much,
+    which would sit oddly with a large pause.
+  - **Decision rule.** P2 holding ⇒ the stall **is** the collector, `gc.disable()`/`gc.freeze()` is a
+    real output-neutral lever, and item 6b(A) closes with a measured effect size. P2 failing ⇒ the
+    stall is something else, §4.4e's GC attribution is **torch-2.8-specific at best**, and the
+    remaining candidate is 6b(B)'s host-CPU/binding story.
+  - **Stated limit:** `gc.disable()` is the *diagnostic* arm, not the shipping fix. If it works, the
+    production change is `gc.freeze()` after model construction (keeps collection, moves the
+    permanent object graph out of gen-2) — a smaller, safer edit that this A/B does not test.
+- **result:** OPEN — submitted.
+- **infra-failure count:** 5/5 nominal; the discovery loop is closed (tick 10's static scan) and this
+  job reuses the now-proven env recipe unchanged.
+
+---
+
 ## tick 9 — 2026-08-21 — **UNBLOCKED.** Loop restarted; re-baseline capture submitted
 
 - **The BLOCKED call from tick 7 was WRONG, and the operator was right twice.** I rejected the

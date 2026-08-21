@@ -1,0 +1,130 @@
+#!/bin/bash -l
+#PBS -N pploop-gcab
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Plan item 6b(A): is the recurring step stall CPython's cyclic GC?
+#
+# §4.4e diagnosed it as gen-2 GC on the torch-2.8 captures from CPU-sampled leaf
+# symbols (`gc_collect_main`, 116/88/88 samples, nothing else above 5). On the
+# torch-2.10 re-baseline the stall STILL happens -- 4 forward_loss windows above
+# 3x median -- but the venv python has no symbol table, so nsys reports raw
+# addresses and the symbol evidence is unavailable here.
+#
+# So test it directly instead, which is better evidence than a symbol name:
+# disable the collector and see whether the stall disappears.
+#
+# METHOD, per the plan's own rule (ratios from ONE job on ONE node, interleaved):
+# four arms A/B/A/B in a single job on a single node. Interleaving guards against
+# thermal/placement drift being read as an effect.
+#   A = gc as shipped        B = PANGU_GC_OFF=1 -> gc.disable()
+#
+# The lever is a `sitecustomize.py` on PYTHONPATH, NOT an edit to
+# PanguWeather/v2.0/train.py -- that is a git subtree, and this way both arms run
+# byte-identical code and differ only by an environment variable.
+#
+# OUTPUT-NEUTRAL: disabling the cyclic collector changes WHEN unreachable cycles
+# are freed, not any arithmetic -- no tensor value, RNG draw or reduction order
+# moves. Outside the DESIGN §4 gate. It does raise peak memory, so the arms are
+# compared on peak_mem_gb_max_rank too.
+#
+# METRIC: the bench CSV, not a trace. A stall inflates step_p90/step_std/step_max
+# while leaving step_med alone, which is exactly the signature to test. No nsys
+# here -- it would double the runtime and add nothing the CSV does not show.
+#
+# PASS = GC_AB_OK plus 4 new CSV rows. Never rc.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || true
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+GCSHIM="${MEMBER_ROOT}/conda-envs/pangu-gcshim"
+[ -x "${PY}" ] || { echo "ERROR VENV_MISSING"; exit 3; }
+
+export PANGU_BENCH=1 PANGU_NVTX=0
+export PANGU_BENCH_WARMUP=20 PANGU_BENCH_STEPS=40
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_gc_ab_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.gcab.rendered.yaml"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+
+echo "=== gc A/B: $(date -Iseconds)  host=$(hostname) ==="
+"${PY}" -c "import torch;print('torch',torch.__version__)"
+
+run_arm () {                    # run_arm <label> <gc_off:0|1>
+    local label="$1" gcoff="$2"
+    local run="gc${label}_${PBS_JOBID%%.*}"
+    echo
+    echo "########## arm ${label}  (PANGU_GC_OFF=${gcoff})  run_num=${run} ##########"
+    if [ "${gcoff}" = "1" ]; then
+        export PYTHONPATH="${V20_DIR}:${SHIM}:${GCSHIM}"
+        export PANGU_GC_OFF=1
+    else
+        export PYTHONPATH="${V20_DIR}:${SHIM}"
+        unset PANGU_GC_OFF
+    fi
+    export S2S_YAML="${CONFIG_FILE}" S2S_RUN_NUM="${run}"
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=4 \
+        "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
+        --run_num="${run}" --config=SFNO --fresh_start --epochs 1 2>&1 \
+        | grep -E "gc.disable|BENCH|ERROR|Error|Traceback" | head -20
+    echo "  arm ${label} rc=$?"
+}
+
+run_arm A1 0
+run_arm B1 1
+run_arm A2 0
+run_arm B2 1
+
+echo
+echo "=== CSV rows for this job ==="
+"${PY}" - "${PANGU_BENCH_CSV}" "${PBS_JOBID%%.*}" <<'_PY'
+import csv, sys, statistics
+path, jid = sys.argv[1], sys.argv[2]
+rows = [r for r in csv.DictReader(open(path)) if jid in r["run_num"]]
+if not rows:
+    print("ERROR NO_CSV_ROWS"); sys.exit(4)
+cols = ["run_num", "step_med", "step_p90", "step_mean", "step_std",
+        "peak_mem_gb_max_rank", "n_steps_counted"]
+w = [max(len(c), 12) for c in cols]
+print("  " + "".join(f"{c:>{n+2}}" for c, n in zip(cols, w)))
+for r in rows:
+    print("  " + "".join(f"{r.get(c,'?'):>{n+2}}" for c, n in zip(cols, w)))
+def agg(pred, key):
+    v = [float(r[key]) for r in rows if pred(r["run_num"])]
+    return statistics.fmean(v) if v else float("nan")
+A = lambda n: "gcA" in n
+B = lambda n: "gcB" in n
+print()
+for key in ("step_med", "step_p90", "step_std", "peak_mem_gb_max_rank"):
+    a, b = agg(A, key), agg(B, key)
+    print(f"  {key:22} A(gc on)={a:9.4f}  B(gc off)={b:9.4f}  "
+          f"B/A={b/a if a else float('nan'):.4f}")
+print("\n  A stall signature: step_p90/step_med = "
+      f"{agg(A,'step_p90')/agg(A,'step_med'):.3f}   "
+      f"B: {agg(B,'step_p90')/agg(B,'step_med'):.3f}")
+_PY
+
+echo "GC_AB_OK"
