@@ -76,9 +76,29 @@ Entry shape (keep it):
   and the fallback is to say so and lean on the analytic model (item 3 / §4.5) — explicitly labelled
   as an estimate, per the completion-honesty rule.
 
-- **result:** OPEN — nothing measured this tick.
-- **next:** submit `polaris_ncu_copies.pbs` (1 node, `debug`, ≤55 min — inside the granted
-  auto-submit authority), then read the table against P1–P4.
+- **result (item 7):** OPEN — job **7550606** submitted and **running** (`debug`, 1 node, ≤55 min,
+  inside the granted auto-submit authority). Nothing measured yet.
+
+- **result (free side-check while 7550606 runs — item 8's prerequisite): MEASURED, and it is a
+  negative that changes item 8's recipe.** Queried `nsys_pangu_warm_7550368.sqlite` read-only:
+  - `CUPTI_ACTIVITY_KIND_RUNTIME` **has** a `callchainId` column but it is **0 for all 551,346
+    rows** ⇒ `--cudabacktrace` was never enabled, so **no capture on disk can trace a single
+    kernel launch to its caller.** I had guessed the column would be absent; it is present and
+    empty, which is why this was worth querying rather than reasoning about.
+  - `SAMPLING_CALLCHAINS` has 1,919,781 frames, but the top ones are `_PyEval_EvalFrameDefault`
+    (182k), `method_vectorcall` (87k), `_PyObject_FastCallDictTstate` (56k) — **CPython
+    interpreter internals, not Python source lines.** CPU sampling was on; `--python-sampling`
+    was not.
+  ⇒ item 8 needs a **new** capture: `--cudabacktrace=kernel --python-backtrace=cuda
+  --python-sampling=true` (all three verified present in the Polaris nsys 2025.1.3). This route
+  is *better* than the plan's `with_stack`, because it reaches the **backward** launches that are
+  72.9% of the target — which a forward-only `torch.profiler` census cannot. Two traps recorded
+  in the plan: the `kernel:<ns>` threshold is on **host-side API duration**, so it preferentially
+  samples *queue-stalled* launches (biasing the very population under attribution, given §4.4's
+  220 ms queue depth); and the capture is **attribution-only** — nsys warns of significant
+  overhead, so its timings must never be tabled with §4.6's re-baseline.
+
+- **next:** read job 7550606's table against P1–P4. Then item 8 with the recipe above.
 - **infra-failure count:** 0/5
 
 ---

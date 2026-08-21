@@ -336,6 +336,37 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       **`assert factorization == "ComplexDense"`** contradiction above — a source question,
       free to answer, and it gates the mechanism. **Note the target for the weight rows is
       not fusion, it is hoisting.**
+
+      **⚠ PREREQUISITE ESTABLISHED 2026-08-21 (tick 17, free check on the warm capture
+      `nsys_pangu_warm_7550368.sqlite`): NO EXISTING CAPTURE CAN DO THIS.** Two facts, both
+      queried, not assumed:
+      - `CUPTI_ACTIVITY_KIND_RUNTIME` *has* a `callchainId` column, but it is **0 for all
+        551,346 rows** — `--cudabacktrace` was never enabled, so not one kernel launch in
+        any capture on disk can be traced to its caller. The column's *existence* is what
+        made this worth querying instead of assuming either way.
+      - `SAMPLING_CALLCHAINS` is well populated (1,919,781 frames), but its top frames are
+        `_PyEval_EvalFrameDefault` (182k), `method_vectorcall` (87k),
+        `_PyObject_FastCallDictTstate` (56k) — **CPython interpreter internals, not Python
+        source lines.** CPU sampling was on; `--python-sampling` was not. ~5% of frames are
+        `[Broken backtraces]`/`0x0` besides.
+      **Executable recipe (a third route, and better than `with_stack` — it reaches the
+      *backward* launches that are 72.9% of the target, which a forward-only
+      `torch.profiler` census cannot):**
+      `--cudabacktrace=kernel --python-backtrace=cuda --python-sampling=true`, keeping the
+      existing CPU sampling (`--python-backtrace` **requires** it — nsys's own help:
+      "tracing and backtraces of the selected API *and CPU sampling* must be enabled").
+      All three flags verified present in the Polaris nsys (2025.1.3, cuda-12.9.1).
+      **Two traps this recipe carries:**
+      1. **Do not use `--cudabacktrace=kernel:<ns>`.** The threshold is on the **host-side
+         CUDA API call duration**, not the kernel's. Launch calls are ~µs and only get
+         *slow* when the launch queue is full — so a threshold preferentially samples
+         *queue-stalled* launches. Given §4.4's 220 ms queue depth, that biases exactly the
+         population being attributed. Take the overhead instead.
+      2. **Attribution-only capture: read *where*, never *how long*.** nsys warns
+         "significant runtime overhead may occur," so its timings are not comparable to
+         §4.6's re-baseline and must never be tabled with them. Same discipline as
+         `emit_nvtx`'s "timings void by design", and the same failure mode §4.7 caught once
+         already.
 - [ ] **9. Re-capture nsys at the production config** — `checkpointing: 2`, ZeRO as
       shipped, **warmup ≥ 40**, and long enough that **EMA is active**. Everything in
       §0 is `ckpt3` with EMA never fired; production pays an every-step sweep over
