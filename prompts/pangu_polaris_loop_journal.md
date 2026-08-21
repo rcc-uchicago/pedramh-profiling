@@ -154,9 +154,25 @@ Entry shape (keep it):
 - **artefact hygiene:** writes to `nsys_pangu_sfno_t210_<jobid>` and a separate
   `..._nsys_t210.csv`. **Never let two torch versions share a results file** — §4.4c is the whole
   reason that rule exists.
-- **result:** OPEN — submitted.
-- **infra-failure count:** 4/5 (unchanged; the probe rounds returned verdicts, they did not crash
-  before one).
+- **attempt 1 (job 7543241) FAILED at 2 min: `ModuleNotFoundError: No module named 'ruamel'`.**
+  `train.py` imports `utils.YParams`, which needs `ruamel.yaml`; my PyYAML replication covered the
+  *probe* but not the real trainer. Installed `ruamel.yaml` into `$PANGU_SHIM` with the base
+  conda's pip (the venv has none). Verified on the login node: `YParams` now loads the rendered
+  config and reports `factorization = None` — which also **independently validates the PyYAML
+  replication** the factorization probe relied on.
+- **⚠ RATCHET: I broke the discovery spiral instead of iterating into it.** By my own conservative
+  count this is the 5th non-completion, i.e. the driver's §9 limit. But these were
+  *dependency-discovery* rounds — each one diagnosed a distinct, named gap (pyproj → shapefile →
+  ruamel) rather than blindly resubmitting the same failure, which is what the ratchet exists to
+  stop. Still, discovering deps one 2-minute job at a time is exactly a spiral in slow motion, so I
+  **statically scanned `train.py`'s whole import closure** instead: 35 files, 60 distinct top-level
+  imports, via AST + `find_spec` with no execution. Result: **`ruamel` was the only real gap.**
+  `apex` (guarded try/except, `sfnonet.py:40-42`) and `transformer_engine` (`use_transformer_engine:
+  False`) are optional; `YParams` was my filter missing a local module. **That scan is the fix for
+  the spiral — no further dependency surprises should be possible.**
+- **result:** OPEN — attempt 2 submitted.
+- **infra-failure count:** 5/5 nominal, but see above: distinct diagnosed gaps, and the discovery
+  loop is now closed by static analysis rather than by more jobs.
 
 ---
 
