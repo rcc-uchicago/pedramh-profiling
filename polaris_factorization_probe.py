@@ -90,9 +90,11 @@ class _DS:
 
 
 try:
-    with torch.device("meta"):          # no memory, no GPU
+    # CPU, not meta: sfnonet.py:566 calls `.item()` on a linspace, which meta
+    # tensors cannot do. 1.18 B params x 4 B ~= 4.7 GB, trivial on a 128 GB node.
+    with torch.device("cpu"):
         net = SFNO(params, _DS(params))
-    print("   net constructed on the meta device — the assert did NOT fire.")
+    print("   net constructed on CPU — the assert did NOT fire.")
 except AssertionError as exc:
     print(f"   AssertionError: {exc!r}")
     print("   ⇒ the source reading is right and the running jobs must differ "
