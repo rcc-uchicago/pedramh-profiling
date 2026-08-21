@@ -113,6 +113,46 @@ Entry shape (keep it):
 
 ---
 
+## tick 8 — 2026-08-21 — env probe: is Pangu actually blocked, or just missing a lib path?
+
+- **Operator corrected me twice this tick, and both corrections were right:**
+  1. **"You have to activate the correct environment."** I had concluded BLOCKED after testing far
+     too little. Re-diagnosis found `libcudart.so.13` **does exist** (`cuda-13.0.1/lib64`), so my
+     recorded claim "no `LD_LIBRARY_PATH` fix exists" was **half wrong** — retracted in `ea89e3e3`.
+  2. **"Check the previous submission scripts... they would date to the last two weeks."** The
+     newest is `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs`, **Aug 14** (and still
+     untracked). It opens with a bare `module load conda`, so the module worked then ⇒ **break window
+     narrows from Aug 07-20 to Aug 14-20.** My Aug 07 figure was the last *Pangu* run, which is not
+     the same thing. Recipe and its two traps recorded in `8f6982c4`.
+- **What I got wrong structurally:** I declared a terminal BLOCKED state on a *partial* sweep — three
+  module variants and one venv. The full sweep (14 variants × 2 PrgEnv trees, 5 venvs) came only
+  after being pushed. **The completion-honesty rule cuts both ways: a premature BLOCKED is as
+  dishonest as a premature COMPLETE**, and I called this one too early.
+- **prereg (written BEFORE the probe ran):**
+  - **P1.** Probe A (base python, no extra lib paths) **fails** — the baseline that reproduces the
+    problem.
+  - **P2 — the hypothesis.** Probe B (+ `cuda-13.0.1/lib64`) **succeeds at `import torch`**. Reason:
+    the only genuinely missing lib is `libmpi_gnu_123.so.12`, and torch's `_load_global_deps`
+    *catches* the `global_deps` OSError and falls through to `_preload_cuda_deps` — so the mpi soname
+    should not be fatal once cudart resolves.
+  - **P3.** If import succeeds, `torch.cuda.is_available()` is **True** and a 1024² matmul runs — the
+    import succeeding but CUDA being dead would be the nastier outcome.
+  - **P4.** Probe F: `torch_harmonics`, `netCDF4`, `tensorly`, `h5py` all import from
+    `$POLARIS_TOPUPS` against the base python. `natsort` I expect **OK** here (it is one of the four
+    the top-ups exist to supply) even though it is absent from the ai-rossby venv.
+  - **Decision rule.** If P2+P3+P4 hold, **Pangu is NOT blocked** — it needs one `LD_LIBRARY_PATH`
+    line, items 7-17 proceed at **torch 2.8.0** with comparability to the whole profile intact, and
+    my BLOCKED call was simply wrong. If P2 fails, the base torch is genuinely unusable and the ALCF
+    ticket stands. Probes C-E localise *which* path element matters, so a failure still tells us
+    something.
+  - **Stated limit:** this tests import + CUDA init + one matmul, **not** a training step. A working
+    import does not prove the full Pangu stack runs.
+- **result:** OPEN — submitted.
+- **infra-failure count:** 4/5 (a probe that imports cleanly and reports a negative is a RESULT, not
+  an infra failure; only a crash before any verdict would count).
+
+---
+
 ## tick 7 — 2026-08-21 — **BLOCKED (terminal).** The available workaround would invalidate the profile
 
 - **in flight:** none. Blocker re-tested, **unchanged**: `module load conda` errors, base-conda torch

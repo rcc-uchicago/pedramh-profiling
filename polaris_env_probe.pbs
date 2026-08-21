@@ -1,0 +1,101 @@
+#!/bin/bash -l
+#PBS -N pploop-envprobe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:15:00
+#PBS -j oe
+# ============================================================================
+# Is PanguWeather actually blocked, or does the base-conda torch just need a
+# CUDA-13 lib path?
+#
+# Background (polaris_pbs_notes.md §1): `module load conda` fails on all 14
+# variants under both PrgEnv trees, AND that install's torch 2.8.0 has two
+# unresolved DT_NEEDED libs -- `libcudart.so.13` (which DOES exist, under
+# /soft/compilers/cudatoolkit/cuda-13.0.1) and `libmpi_gnu_123.so.12` (absent
+# from every installed mpich). But torch's `_load_global_deps` CATCHES the
+# OSError from a failed global_deps load and falls through to
+# `_preload_cuda_deps`, so the missing mpi soname may not be fatal at all.
+#
+# Only a real import settles it, and it must run on a compute node (CLAUDE.md
+# #3 forbids importing torch on a login node). This walks a matrix of candidate
+# library paths and reports each outcome independently, so one job answers
+# several questions instead of one.
+#
+# torch 2.8.0 matters specifically: every number in the profile (§0d, §4.3,
+# §4.4, §4.5) was measured on it. The working ai-rossby venv carries 2.10, which
+# would break comparability -- so "use the other venv" is not a substitute.
+#
+# PASS = the token ENV_PROBE_OK. The verdict is in the VERDICT lines, not rc.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+
+echo "=== host $(hostname)  $(date -Is) ==="
+
+# The Aug-14 recipe's step 1, exactly as polaris_sfno_e3sm_multinode.pbs:143-145
+# does it. Expected to fail right now; captured rather than hidden.
+module use /soft/modulefiles
+echo "--- module load conda ---"
+if module load conda 2>&1 | grep -qE "error|unknown"; then
+    echo "RESULT module_load_conda = FAILED (as expected since ~2026-08-14)"
+else
+    echo "RESULT module_load_conda = OK  *** the cluster has been repaired ***"
+fi
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1
+
+BASE_PY=/soft/applications/conda/2025-09-25/mconda3/bin/python
+CU129=/soft/compilers/cudatoolkit/cuda-12.9.1/lib64
+CU130=/soft/compilers/cudatoolkit/cuda-13.0.1/lib64
+NCCL=/soft/libraries/nccl/nccl_2.28.3-1+cuda12.9_x86_64/lib
+WHEELS="$(ls -d "${AI_ROSSBY_VENV}"/lib/python3*/site-packages/nvidia/*/lib 2>/dev/null | tr '\n' ':')"
+
+probe () {                       # probe <label> <LD_LIBRARY_PATH> [PYTHONPATH]
+    local label="$1" ldp="$2" pyp="${3:-}"
+    echo
+    echo "--- probe: ${label}"
+    LD_LIBRARY_PATH="${ldp}" PYTHONPATH="${pyp}" "${BASE_PY}" - <<'_PY' 2>&1 | sed 's/^/    /'
+import sys
+try:
+    import torch
+except Exception as exc:
+    print(f"IMPORT_FAIL {type(exc).__name__}: {str(exc)[:180]}")
+    sys.exit(0)
+print(f"IMPORT_OK torch {torch.__version__} cuda_built={torch.version.cuda}")
+try:
+    print(f"CUDA_AVAILABLE {torch.cuda.is_available()}  devices={torch.cuda.device_count()}")
+    if torch.cuda.is_available():
+        a = torch.ones(1024, 1024, device="cuda:0")
+        print(f"MATMUL_OK  sum={(a @ a).sum().item():.0f}")
+except Exception as exc:
+    print(f"CUDA_FAIL {type(exc).__name__}: {str(exc)[:180]}")
+_PY
+}
+
+probe "A baseline: no extra lib paths (expect fail)"            ""
+probe "B + cuda-13.0.1/lib64  <- THE HYPOTHESIS"                "${CU130}"
+probe "C + cuda-13.0.1 + cuda-12.9.1"                           "${CU130}:${CU129}"
+probe "D + cuda-13 + cuda-12.9 + nccl"                          "${CU130}:${CU129}:${NCCL}"
+probe "E + those + ai-rossby nvidia wheel dirs"                 "${CU130}:${CU129}:${NCCL}:${WHEELS}"
+
+# What Pangu actually needs on top of a working torch: the top-ups.
+echo
+echo "--- probe: F  Pangu's real import set (torch + top-ups), best lib path"
+LD_LIBRARY_PATH="${CU130}:${CU129}:${NCCL}" \
+PYTHONPATH="${REPO}/PanguWeather/v2.0:${POLARIS_TOPUPS}" "${BASE_PY}" - <<'_PY' 2>&1 | sed 's/^/    /'
+for m in ("torch", "torch_harmonics", "netCDF4", "tensorly", "natsort", "h5py"):
+    try:
+        __import__(m)
+        print(f"  {m:16} OK")
+    except Exception as exc:
+        print(f"  {m:16} FAIL {type(exc).__name__}: {str(exc)[:110]}")
+_PY
+
+echo
+echo "ENV_PROBE_OK  (read the RESULT/IMPORT_/CUDA_ lines above for the verdict)"
