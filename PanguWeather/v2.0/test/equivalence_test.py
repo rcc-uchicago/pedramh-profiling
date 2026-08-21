@@ -198,6 +198,38 @@ class TestRecorder(unittest.TestCase):
         s = tensor_stats(_FakeTensor([0.0, 2.0], [2]))
         self.assertEqual(s["mean"], 1.0)
 
+    def test_diagnostics_are_recorded_but_NOT_gated(self):
+        # batch_grad_norm differed on 17/20 steps at up to 1.255e-06 across jobs
+        # 7551401/7551411 while every model quantity was bitwise stable. Gating on it
+        # would impose a ~1.3e-6 noise floor and mask a real 5e-7 change.
+        r = EquivalenceRecorder(path=os.path.join(self.d, "d.json"))
+        r.record_step(train_batch_loss=1.0)
+        r.record_diagnostic(batch_grad_norm=2.0)
+        r.finalize(**CFG)
+        rec = json.loads(Path(os.path.join(self.d, "d.json")).read_text())
+        self.assertEqual(rec["diagnostics_non_gating"], [{"batch_grad_norm": 2.0}])
+        # The point: it must NOT be inside loss_trajectory, the only per-step key
+        # compare_baselines reads.
+        self.assertNotIn("batch_grad_norm", rec["loss_trajectory"][0])
+
+    def test_a_non_gating_difference_does_not_fail_the_gate(self):
+        # End-to-end proof against the real tool, not just structural.
+        if not (COMPARE.exists() and _py37()):
+            self.skipTest("needs compare_baselines.py and a 3.7+ interpreter")
+        paths = []
+        for i, gn in enumerate((2.0, 2.0 * (1 + 1.3e-6))):
+            q = os.path.join(self.d, "ng%d.json" % i)
+            r = EquivalenceRecorder(path=q)
+            r.record_step(train_batch_loss=1.0)
+            r.record_diagnostic(batch_grad_norm=gn)
+            r.finalize(**CFG)
+            paths.append(q)
+        out = subprocess.run([_py37(), str(COMPARE)] + paths + ["--tolerance", "2.5e-7"],
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             universal_newlines=True)
+        self.assertEqual(out.returncode, 0, out.stdout)
+        self.assertIn("EQUIVALENCE_OK", out.stdout)
+
     def test_config_sha256_changes_with_the_file(self):
         a = os.path.join(self.d, "a.yaml")
         Path(a).write_text("lr: 1\n")

@@ -125,12 +125,39 @@ class EquivalenceRecorder:
         self.path = path or os.environ.get("PANGU_EQUIV_JSON") or None
         self.enabled = bool(self.path)
         self.trajectory = []
+        self.diagnostics = []
         self.output_stats = {}
 
     def record_step(self, **metrics):
+        """Gating quantities — anything here is compared by `compare_baselines`."""
         if not self.enabled:
             return
         self.trajectory.append({k: float(v) for k, v in sorted(metrics.items())})
+
+    def record_diagnostic(self, **metrics):
+        """Recorded but NOT gated. Lands outside `loss_trajectory`, which is the only
+        per-step key `compare_baselines` reads.
+
+        Exists for exactly one measured reason. Across jobs 7551401/7551411 (4 runs of
+        an identical config, seed 0, world_size 1), every quantity describing the model
+        was **bitwise** reproducible — `train_batch_loss` 0/20 differing,
+        `batch_grad_max` 0/20, all 12 output stats 0/12 — while **`batch_grad_norm`
+        differed on 17 of 20 steps, up to 1.255e-06**.
+
+        The mechanism is visible in the contrast with its own control: `grad_norm` is a
+        **sum of squares** over 1.18 B gradients, whose accumulation order varies between
+        runs, whereas `grad_max` is a **max** reduction and is order-independent. Same
+        tensors, same traversal, different operator — only the order-dependent one moves.
+
+        So gating on it would impose a ~1.3e-6 NOISE floor on the whole comparison and
+        mask a genuine 5e-7 change in what the model computes. Keeping the number while
+        marking it non-gating is not loosening a tolerance (CLAUDE.md #11): it is
+        declining to gate on a statistic that is provably a property of floating-point
+        reduction order rather than of the model.
+        """
+        if not self.enabled:
+            return
+        self.diagnostics.append({k: float(v) for k, v in sorted(metrics.items())})
 
     def record_output(self, group, tensor):
         if not self.enabled:
@@ -145,6 +172,7 @@ class EquivalenceRecorder:
         rec["steps"] = len(self.trajectory)
         rec["loss_trajectory"] = self.trajectory
         rec["forward_output_stats"] = self.output_stats
+        rec["diagnostics_non_gating"] = self.diagnostics
         validate_record(rec)
         d = os.path.dirname(self.path)
         if d:

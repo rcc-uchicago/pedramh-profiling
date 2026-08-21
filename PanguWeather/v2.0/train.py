@@ -1301,8 +1301,12 @@ class Trainer():
                         # equivalence run is not a timing run.
                         self._equiv.record_step(
                             train_batch_loss=float(loss),
-                            batch_grad_norm=float(grad_norm(self.model)),
                             batch_grad_max=float(grad_max(self.model)))
+                        # NOT gated — measured non-deterministic at ~1.3e-6 (17/20
+                        # steps) because it is an order-dependent sum-of-squares
+                        # reduction. See EquivalenceRecorder.record_diagnostic.
+                        self._equiv.record_diagnostic(
+                            batch_grad_norm=float(grad_norm(self.model)))
                         # Item 18 asks for a trajectory AND output stats. These three
                         # are bound unconditionally by cal_loss() above; the dict is
                         # overwritten each step, so the record holds the FINAL step's
