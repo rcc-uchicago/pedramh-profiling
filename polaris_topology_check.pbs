@@ -67,16 +67,35 @@ source "${REPO}/polaris_env.sh" || exit 2
 # fall back to the interpreter the repo's own SFNO venv already symlinks to.
 # Deriving it from repo state rather than hardcoding a dated path means the
 # fallback follows whatever install the project is actually built against.
-PY_BIN="$(command -v python || true)"
+# Fallback ORDER matters, and it is not the obvious one. The base-conda
+# interpreter runs, but its torch is internally inconsistent right now:
+# `libtorch_global_deps.so` links BOTH libcudart.so.12 and libcudart.so.13, and
+# only 12 exists under CUDA_HOME, so `import torch` dies whether or not the
+# module loaded. No LD_LIBRARY_PATH change fixes that. The ai-rossby venv's torch
+# (2.10.0+cu129) ships its own nvidia/*/lib wheels and resolves every CUDA dep
+# from inside site-packages -- verified with ldd: 0 unresolved. Prefer it.
+#
+# Safe despite being another model's venv: gpu_topology_check.py imports ONLY
+# torch, no repo modules, and PYTHONPATH is unset above -- so none of the
+# physicsnemo/makani editable-install coupling (CLAUDE.md) is in play.
+#
+# Every candidate is probed with a real `import torch`, not just "is there a
+# python on PATH" -- that weaker test is what made attempt 2 fail.
+PY_BIN=""
+for cand in "$(command -v python || true)" \
+            "${AI_ROSSBY_VENV}/bin/python" \
+            "${SFNO_VENV}/bin/python" \
+            "/soft/applications/conda/2025-09-25/mconda3/bin/python"; do
+    [ -n "${cand}" ] && [ -x "${cand}" ] || continue
+    if "${cand}" -c 'import torch' 2>/dev/null; then
+        PY_BIN="${cand}"; echo "usable interpreter (import torch OK): ${cand}"; break
+    fi
+    echo "  rejected, torch unimportable: ${cand}"
+done
 if [ -z "${PY_BIN}" ]; then
-    echo "WARN CONDA_MODULE_BROKEN: 'module load conda' gave no python — falling back."
-    for cand in "$(readlink -f "${SFNO_VENV}/bin/python" 2>/dev/null)"                 "/soft/applications/conda/2025-09-25/mconda3/bin/python"; do
-        if [ -n "${cand}" ] && [ -x "${cand}" ]; then PY_BIN="${cand}"; break; fi
-    done
-fi
-if [ -z "${PY_BIN}" ] || [ ! -x "${PY_BIN}" ]; then
-    echo "ERROR NO_PYTHON: neither the conda module nor the fallback interpreter"
-    echo "  resolved. Check polaris_pbs_notes.md §1 for the module breakage."
+    echo "ERROR NO_PYTHON_WITH_TORCH: no candidate interpreter could import torch."
+    echo "  See polaris_pbs_notes.md §1 — the conda module AND the base-conda torch"
+    echo "  are both broken cluster-side as of 2026-08-20."
     exit 7
 fi
 echo "python: ${PY_BIN}"
