@@ -1448,6 +1448,95 @@ measure ≈4, not 31.50, so the scattered f32 population is **not** explained by
 alone. That is what item 8's attribution capture is for.
 
 
+### 4.10 Who launches the scattered f32 copy — four owners, 60% of them in backward
+
+*Job 7551282, `debug`, 4 ranks, `--cudabacktrace=kernel --python-backtrace=cuda
+--python-sampling=true`. Prereg `37bbcf89`. **ATTRIBUTION-ONLY: read where, never how long.***
+
+`--cudabacktrace` took effect — **189,359 of 465,518 RUNTIME rows (40.7%) carry a
+callchain**, against 0 of 551,346 in every prior capture (tick 17). For the f32 /
+`gridX=64800` population (§4.8's **31.50 sectors/request** row, §4.5's "only dominant kernel
+with no mechanism at all"): **20,800 attributed launches — 260 per rank-step — resolving to
+just FOUR distinct stacks.**
+
+| # | launches | share | owner | thread |
+|---|---|---|---|---|
+| 1 | 8,320 | **40.0%** | an explicit **Python `.contiguous()`** — `THPVariable_contiguous` ← `method_vectorcall` → `at::native::contiguous` → `clone` | main (forward) |
+| 2 | 6,400 | **30.8%** | **`SelectBackward0`** → `select_backward_symint` | autograd engine |
+| 3 | 4,160 | **20.0%** | **`BmmBackward0`** → `structured_bmm_out_cuda` → `baddbmm_out_cuda_impl` → **`prepare_batch_matrix_for_cublas`** → `clone` | autograd engine |
+| 4 | 1,920 | **9.2%** | **`ToCopyBackward0`** → `_to_copy_backward` → `_to_copy` | autograd engine |
+
+**Stacks 2–4 run on `torch::autograd::Engine::thread_main` ⇒ 60.0% of these copies are
+backward**, against 40.0% forward. Consistent in direction with §4.3c's 72.9% backward, and
+not identical — a different, narrower population.
+
+**Row 3 corroborates §4.9 directly and catches it in the act.**
+`prepare_batch_matrix_for_cublas` is precisely the function that **clones a bmm operand into
+contiguous layout**, and it is reached from `BmmBackward0` — i.e. the `einsum` lowering's
+operand preparation, in backward. §4.9 derived that mechanism from source and stride
+arithmetic; here it is, owning 20.0% of the population. **The §4.9 layout fix would delete
+this row.**
+
+**Row 2 is new and unexplained.** `SelectBackward0` is the backward of a *single-index*
+`select`, which scatters a gradient into a freshly zeroed tensor — a natural source of
+scattered writes. Nothing in §4.5/§4.8/§4.9 predicted it, and at **30.8%** it is the second
+largest owner. It deserves its own item.
+
+#### Prereg scored honestly — 2 verified, 2 not verifiable
+
+| # | prediction | outcome |
+|---|---|---|
+| **P1** | top site ≥40% of launches | **HIT — 40.0% exactly (8,320/20,800).** Zero margin; it landed on the boundary. The stronger true statement is that there are only **four** stacks at all, and the top two are 70.8% |
+| **P2** | `contractions.py` in the top-3 sites' frames | **NOT VERIFIABLE AS WORDED** — see below. Underlying mechanism **confirmed at 20.0%, rank 3** (row 3) |
+| **P3** | >50% of launches from backward | **HIT — 60.0%** |
+| **P4** | `s2convolutions.py` in the top 3 | **NOT VERIFIABLE AS WORDED.** A Python `.contiguous()` *is* the single largest owner (40.0%), which is P4's substance, but no file or line can be named |
+
+**Why P2/P4 are unverifiable, and it is not a wording quibble: `--python-backtrace=cuda`
+produced ZERO Python frames.** Of every frame in these chains, **none** has a module ending
+in `.py`; the interpreter appears only as `_PyEval_EvalFrameDefault` / `method_vectorcall`.
+The flag was accepted and the capture succeeded, but Python-level attribution did not
+materialise. So this capture resolves owners to the **aten/autograd level, not the source
+line** — which is most of item 8's value, but not all of it.
+
+**Refinement: row 1 is TWO call sites, not one.** At finer signature depth (keeping the
+CPython `method_vectorcall`/`slot_tp_call` tail instead of truncating it) the 8,320
+`.contiguous()` launches split cleanly into **two distinct call paths of 4,160 each**. So the
+largest owner is not a single Python line but two, contributing equally — 20.0% of the
+population apiece, which would drop them below row 2 individually.
+
+**A tool bug found while confirming these numbers, worth recording because it produced
+confident nonsense.** `attrib_copies.py` originally chose its callchain table by *id
+overlap*. On a real capture that is worthless: **every `*_CALLCHAINS` table numbers its own
+chains from 1**, so `CUDA_CALLCHAINS`, `OSRT_CALLCHAINS` and `SAMPLING_CALLCHAINS` all
+contain ids `1..N`, all overlap any sample 100%, and the tie broke on set-iteration order —
+selecting `OSRT_CALLCHAINS` and reporting `ProcessGroupNCCL::Watchdog` and `_pickle_loads`
+as kernel launch sites. No sample size fixes that. The synthetic decoy test had passed only
+because its ids were *disjoint*, which no real capture is. Now: prefer `CUDA_CALLCHAINS` by
+name (it is the table `--cudabacktrace` creates), corroborate on cardinality
+(**189,360 ids vs 189,359 referenced**), and **refuse rather than fall back** to a
+CPU-sampling table. The §4.10 numbers above were derived against `CUDA_CALLCHAINS`
+explicitly and are unaffected; the fixed tool reproduces them.
+
+**A correction to §4.9.** §4.9 implied the Python `.contiguous()` candidates were the two in
+`s2convolutions.py:189,203`. There are **at least twelve** across `s2convolutions.py` and
+`layers.py`, and `scale_residual` (which gates line 189) is condition-derived rather than
+configured. **Row 1's 40.0% therefore cannot be attributed to a specific line**, and §4.9's
+narrower framing was wrong.
+
+#### Trust bounds
+
+- **Timings are void by design.** nsys warns of significant overhead with these flags;
+  nothing here may be tabled against §4.6's re-baseline.
+- **No threshold was used on `--cudabacktrace`**, deliberately: `kernel:<ns>` filters on
+  host-side API duration and would preferentially sample queue-stalled launches.
+- **40.7% of RUNTIME rows carry a callchain, not 100%** — the unattributed remainder is not
+  characterised, so the four shares are shares *of the attributed subset*.
+- The `correlationId` join carries the `k.globalPid = (r.globalTid & ~0xFFFFFF)` process
+  guard; without it a 4-rank capture over-counts (`test_attrib_copies.py` reproduces the
+  4-rows-for-2-launches failure before asserting the fix).
+- 20 measured steps × 4 ranks, one job.
+
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move

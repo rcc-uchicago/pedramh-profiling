@@ -18,6 +18,66 @@ Entry shape (keep it):
 
 ---
 
+## tick 22 — 2026-08-21 — item 8 target (1) answered at the ATEN level: four owners, 60% backward
+
+- **in flight:** none. Job **7551282** completed `ATTRIB_OK`.
+- **prereg:** `37bbcf89`. **Honest score: 2 verified, 2 not verifiable — NOT 4/4.**
+
+  | # | prediction | outcome |
+  |---|---|---|
+  | **P1** | top site ≥40% | **HIT — 40.0% exactly (8,320/20,800). Zero margin.** |
+  | **P2** | `contractions.py` in top-3 frames | **NOT VERIFIABLE AS WORDED** — mechanism confirmed at 20.0%, rank 3 |
+  | **P3** | >50% from backward | **HIT — 60.0%** |
+  | **P4** | `s2convolutions.py` in top 3 | **NOT VERIFIABLE AS WORDED** — a Python `.contiguous()` *is* the top owner |
+
+- **result.** `--cudabacktrace` worked: **189,359/465,518 RUNTIME rows (40.7%) carry a
+  callchain**, vs **0 of 551,346** in every prior capture. The f32/`gridX=64800` population
+  (§4.8's 31.50 sec/req row) = **20,800 launches, 260/rank-step, FOUR stacks**:
+  **40.0%** an explicit Python `.contiguous()` (→ `at::native::contiguous` → `clone`);
+  **30.8%** `SelectBackward0` → `select_backward_symint`;
+  **20.0%** `BmmBackward0` → `baddbmm_out_cuda_impl` → **`prepare_batch_matrix_for_cublas`** →
+  `clone`; **9.2%** `ToCopyBackward0`. Stacks 2–4 run on `autograd::Engine::thread_main` ⇒
+  **60.0% backward**, 40.0% forward.
+- **§4.9 corroborated in the act:** `prepare_batch_matrix_for_cublas` is literally the
+  function that clones a bmm operand contiguous, reached from `BmmBackward0` — the einsum
+  lowering's operand prep. **The §4.9 layout fix would delete that 20.0% row.**
+- **NEW, predicted by nothing:** `SelectBackward0` at **30.8%** — the backward of a
+  single-index `select`, scattering a gradient into a zeroed tensor. Second largest owner,
+  unexplained. Logged as a sub-target.
+
+- **why P2/P4 could not be scored, and it is not a wording quibble:**
+  `--python-backtrace=cuda` was accepted and produced **zero Python frames** — not one frame
+  in these chains has a module ending `.py`; the interpreter shows only as
+  `_PyEval_EvalFrameDefault`/`method_vectorcall`. **The Python source line is still unknown.**
+
+- **a correction to my own §4.9:** it implied the Python `.contiguous()` candidates were the
+  two at `s2convolutions.py:189,203`. There are **at least twelve** across `s2convolutions.py`
+  and `layers.py`, and `scale_residual` (gating 189) is condition-derived, not configured. So
+  row 1 **cannot** be pinned to a line. §4.9's narrower framing was wrong.
+
+- **a tool bug that produced confident nonsense, and how it was caught.** `attrib_copies.py`
+  chose its callchain table by **id overlap**. That is worthless on a real capture: **every
+  `*_CALLCHAINS` table numbers its chains from 1**, so all three contain ids `1..N`, all tie
+  at 100% overlap on any sample, and the tie broke on set-iteration order — selecting
+  `OSRT_CALLCHAINS` and printing `ProcessGroupNCCL::Watchdog` and `_pickle_loads` as *kernel
+  launch sites*. **My decoy test had passed only because its synthetic ids were disjoint,
+  which no real capture is** — the test was testing a situation that cannot occur. Caught
+  because the tool's first real run printed a **61.4% group with an empty stack**, and
+  because §4.10's numbers had been derived against `CUDA_CALLCHAINS` explicitly and
+  disagreed. Now: prefer the named table, corroborate on cardinality (189,360 vs 189,359),
+  and **refuse rather than fall back**. Regression test uses **colliding** ids.
+  Also fixed: grouping by `callchainId` gave "44,800 launches across 44,800 sites" — a ratio
+  of **exactly 1.0**, which is a bug signal, not a finding. Grouping is now by resolved stack.
+
+- **next:** two candidates. (a) the Python-line gap — retry attribution with a working Python
+  unwinder, or fall back to `torch.profiler` `with_stack` for the **forward** 40% (it cannot
+  reach the backward 60%); (b) **`SelectBackward0` at 30.8%**, which nothing predicted.
+  Also flagged: **item 18 (no PanguWeather baseline) is now the critical path** — §4.9's
+  two-line fix cannot be adopted without it.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 21 — 2026-08-21 — item 8 PREREG — who launches the f32 / 66.4 MB scattered copy?
 
 - **in flight:** `polaris_attrib_nsys.pbs` written, tests green, **not yet submitted**.

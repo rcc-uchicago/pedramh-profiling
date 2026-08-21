@@ -103,11 +103,50 @@ class T(unittest.TestCase):
         self.assertIn("attributed launches: 1", run(db, "--grid", "64800").stdout)
         self.assertIn("attributed launches: 2", run(db).stdout)
 
+    def test_a_too_small_cuda_table_refuses_rather_than_falling_back(self):
+        # Falling back to a CPU-sampling table would produce confident nonsense.
+        db = tmpdb()
+        rows = [(P0, 11, i, F32, 64800, i) for i in range(1, 21)]
+        build(db, rows, [(1, "forward", "x.py", 0)])   # 1 chain for 20 referenced ids
+        r = run(db)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("CUDA_CALLCHAINS_TOO_SMALL", r.stdout)
+
     def test_frames_print_in_stack_order(self):
         db = tmpdb()
         build(db, [(P0, 11, 1, F32, 64800, 7)], CHAIN)
         out = run(db).stdout
         self.assertLess(out.index("forward"), out.index("_contract_dhconv"))
+
+    def test_distinct_callchain_ids_with_the_SAME_stack_collapse_to_one_site(self):
+        # nsys mints a fresh callchainId per API CALL. Grouping on it printed
+        # "44800 launches across 44800 call sites" on job 7551282 — a ratio of 1.0,
+        # which reads as "attribution is hopelessly smeared" when the truth was FOUR
+        # stacks. Grouping must be on the resolved stack.
+        db = tmpdb()
+        chains = [(7, "forward", "s2convolutions.py", 0),
+                  (8, "forward", "s2convolutions.py", 0)]   # same symbol, different id
+        build(db, [(P0, 11, 1, F32, 64800, 7), (P0, 11, 2, F32, 64800, 8)], chains)
+        out = run(db).stdout
+        self.assertIn("attributed launches: 2 across 1 distinct stacks", out, out)
+
+    def test_backward_stacks_are_labelled_as_such(self):
+        db = tmpdb()
+        build(db, [(P0, 11, 1, F32, 64800, 7)],
+              [(7, "torch::autograd::Engine::thread_main(x)", "libtorch.so", 1),
+               (7, "at::native::select_backward_symint(x)", "libtorch.so", 0)])
+        self.assertIn("BACKWARD", run(db).stdout)
+
+    def test_dispatcher_boilerplate_is_filtered_from_the_signature(self):
+        # Without this, every stack shares its first ~8 frames and they all look alike.
+        db = tmpdb()
+        build(db, [(P0, 11, 1, F32, 64800, 7)],
+              [(7, "cudaLaunchKernel", "libcudart.so", 0),
+               (7, "at::native::copy_(a, b, c)", "libtorch.so", 1),
+               (7, "at::native::prepare_batch_matrix_for_cublas(x)", "libtorch.so", 2)])
+        out = run(db).stdout
+        self.assertIn("prepare_batch_matrix_for_cublas", out)
+        self.assertNotIn("cudaLaunchKernel", out)
 
     def test_zero_callchains_fails_loudly_not_silently(self):
         # tick 17's exact trap: the column exists, and is all zeros.
@@ -117,14 +156,19 @@ class T(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("NO_CALLCHAINS", r.stdout)
 
-    def test_decoy_callchain_table_is_rejected_by_key_overlap(self):
-        # SAMPLING_CALLCHAINS has an identical schema but holds CPU samples. Picking
-        # it would print plausible-looking frames that are simply the wrong data.
+    def test_decoy_table_with_COLLIDING_ids_is_still_rejected(self):
+        # The regression from job 7551282. Every *_CALLCHAINS table numbers its chains
+        # from 1, so a real capture has ids 1..N in ALL of them and id-overlap ties at
+        # 100% for every candidate — the old selector then broke the tie on set order
+        # and chose OSRT_CALLCHAINS, printing ProcessGroupNCCL::Watchdog frames as if
+        # they were kernel launch sites. The decoy here uses the SAME id, which is what
+        # the previous version of this test failed to do.
         db = tmpdb()
         build(db, [(P0, 11, 1, F32, 64800, 7)], CHAIN,
-              extra_table=[(999, 1, 1, 0)])
+              extra_table=[(7, 1, 1, 0)])          # SAME id as the real chain
         out = run(db).stdout
         self.assertIn("callchain table: CUDA_CALLCHAINS", out, out)
+        self.assertIn("named table for --cudabacktrace", out)
 
 
 if __name__ == "__main__":

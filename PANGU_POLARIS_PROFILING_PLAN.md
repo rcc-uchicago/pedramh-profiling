@@ -341,7 +341,21 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       possibly with no change to what is computed.
   </details>
 
-- [ ] **8. Attribute `direct_copy`/`conj` to source lines.** `torch.profiler` with
+- [~] **8. PARTIALLY DONE (2026-08-21).** Targets **(2)** and **(3)** closed from source
+      (§4.9). Target **(1)** answered **at the aten/autograd level** by job 7551282 (§4.10):
+      the f32/66.4 MB population has **four owners** — a Python `.contiguous()` **40.0%**
+      (itself two distinct call paths of 20.0% each), **`SelectBackward0` 30.8%**,
+      **`BmmBackward0` → `prepare_batch_matrix_for_cublas` 20.0%** (the einsum's cuBLAS
+      operand clone — §4.9's mechanism caught in the act), **`ToCopyBackward0` 9.2%**;
+      **60.0% run on the autograd engine thread.** Prereg `37bbcf89`: **P1 hit at exactly
+      40.0%, P3 hit at 60.0%, P2 and P4 NOT VERIFIABLE as worded** because
+      `--python-backtrace=cuda` produced **zero Python frames** (both underlying mechanisms
+      confirmed). **STILL OPEN: the Python source line.** Needs a working Python unwinder;
+      `--python-sampling=true` was accepted but yielded no `.py` frames. **NEW SUB-TARGET:
+      `SelectBackward0` at 30.8% was predicted by nothing and is unexplained.**
+      → `polaris_bench_report.md` §4.10.
+
+- [ ] **8-original. Attribute `direct_copy`/`conj` to source lines.** `torch.profiler` with
       `with_stack=True`, or `emit_nvtx` for autograd-op names (timings void by design —
       shares only, per handoff's ACE2 precedent, where `aten::clone` was 45.3% of copy
       time). **Deliverable:** the three or four call sites responsible for 42% of GPU
