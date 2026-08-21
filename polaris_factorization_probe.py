@@ -18,10 +18,27 @@ import sys
 print(f"python: {sys.executable}")
 print(f"PYTHONPATH: {os.environ.get('PYTHONPATH', '<unset>')}")
 
-from utils.YParams import YParams                                  # noqa: E402
+# YParams is REPLICATED, not imported: it needs `ruamel.yaml`, which the only
+# working torch env (the ai-rossby venv) does not have — that cost attempt 4.
+# The three lines that matter are YParams.py:18-23, read directly: load the named
+# section, convert the string 'None' to Python None, expose as attributes. The
+# conversion is what makes `factorization` None, and it is verified below.
+import yaml                                                        # noqa: E402
+
+
+class _P(dict):
+    def __getattr__(self, k):
+        try:
+            return self[k]
+        except KeyError:
+            raise AttributeError(k)
+
 
 yaml_path = sys.argv[1]
-params = YParams(os.path.abspath(yaml_path), "SFNO")
+with open(os.path.abspath(yaml_path)) as fh:
+    _sec = yaml.safe_load(fh)["SFNO"]
+params = _P({k: (None if v == 'None' else v) for k, v in _sec.items()})
+print("  (YParams replicated via PyYAML — ruamel is absent from this env)")
 f = getattr(params, "factorization", "<ATTR MISSING>")
 print(f"\n1. params.factorization = {f!r}   type={type(f).__name__}")
 print(f"   is None? {f is None}")
@@ -46,9 +63,22 @@ from networks.modulus_sfno.sfnonet import (                         # noqa: E402
 
 
 class _DS:
-    """Minimal stand-in for the dataset arg the net's __init__ takes."""
+    """Stand-in for the dataset arg. The net reads exactly three attributes off
+    it (sfnonet.py:762-766): variable_list_in, constant_boundary_variables and
+    variable_list_out — used only to size in_chans/out_chans. §4.5a established
+    those as 105 and 101, pinned by the logged 1,182,108,160 parameter total."""
+
     def __init__(self, p):
-        self.img_shape = tuple(p.horizontal_resolution)
+        n_upper = len(p['upper_air_variables']) * p['num_levels']
+        self.variable_list_in = ['x'] * (n_upper + len(p['surface_variables'])
+                                         + len(p['land_variables'])
+                                         + len(p['varying_boundary_variables']))
+        self.constant_boundary_variables = list(p['constant_boundary_variables'])
+        self.variable_list_out = ['y'] * (n_upper + len(p['surface_variables'])
+                                          + len(p['land_variables'])
+                                          + len(p['diagnostic_variables']))
+        print(f"  in_chans={len(self.variable_list_in) + len(self.constant_boundary_variables)}"
+              f"  out_chans={len(self.variable_list_out)}  (§4.5a: 105 / 101)")
 
 
 try:

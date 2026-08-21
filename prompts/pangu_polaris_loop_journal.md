@@ -156,8 +156,46 @@ Entry shape (keep it):
   memory, no GPU), `PYTHONPATH` set to **exactly one tree** (`PanguWeather/v2.0`), run through the
   ai-rossby venv since that is the only working torch. Prints each link of the chain separately so
   the answer localises the flaw rather than just passing or failing.
-- **result:** OPEN — submitted this tick.
-- **infra-failure count:** 3/5
+- **result: NOT RESOLVED — and I am stopping rather than spending the last ratchet attempt on it.**
+  - **P1 CONFIRMED, and without a job:** loading the `SFNO` section with PyYAML on the login node
+    (pure parsing, no torch) gives `factorization = None` (Python `NoneType`), `filter_type='linear'`,
+    `operator_type='dhconv'`, `separable=False`, `spectral_transform='sht'`. So `use_tensorly` really
+    is `False` and the `assert factorization == "ComplexDense"` really is on the taken path.
+  - **The probe job (7533512) failed: `ModuleNotFoundError: No module named 'ruamel'`.** The only
+    working torch env (the ai-rossby venv) has no `ruamel.yaml`, which `utils/YParams.py` imports.
+    **Infra failure 4/5.**
+  - **FIVE candidate explanations traced and ELIMINATED this tick, all free:**
+    1. **Asserts disabled** (`-O`/`PYTHONOPTIMIZE`) — not set anywhere in the PBS script or
+       `polaris_env.sh`.
+    2. **`factorization` overwritten in the trainer** — it appears nowhere in `train.py`.
+    3. **The `params=grid_type` indirection** — `sfnonet.py:771` passes a `Params('equiangular')` to
+       the base class, so `sfnonet.py:442`'s `params.factorization if hasattr(...)` reads a *grid*
+       object. But `Params` defines only `self.data_grid` (`:739-741`), so `hasattr` is **False** and
+       it falls back to the keyword — which is `params_trainer.factorization` = **None**. Same answer.
+    4. **A stale subtree file** — plausible, since `PanguWeather/` is a `git subtree`. Refuted:
+       `s2convolutions.py` has a **single** commit, `92b68cf9` (2026-07-14, the subtree import),
+       predating every capture. The jobs ran this exact code.
+    5. **An alternative filter branch** — `SpectralFilterLayer` has only four, and
+       `filter_type='linear'` + `RealSHT` reaches `SpectralConvS2` with no other route.
+  - ⇒ **The contradiction is real and stands: by source, that assert must fire; four jobs
+    demonstrably ran 40+ steps.** I could not close it by reading, and the remaining step is
+    execution.
+  - **Why I am NOT submitting the fixed probe:** I am at **4/5** on the infra ratchet, and the
+    guardrail exists precisely to stop a spiral. This is a *mechanism* detail explicitly flagged as
+    one that **no measured number depends on** (§4.5c), so the cost of leaving it OPEN is low. And
+    the env blocker means a fresh attempt is needed regardless once conda is repaired — at which
+    point the probe can ride along with real work instead of consuming a scarce slot now. **Judgment
+    call near a guardrail, recorded as one.**
+  - **The work is preserved, not discarded:** `polaris_factorization_probe.{py,pbs}` are committed and
+    ready. The probe now replicates `YParams`' three relevant lines via PyYAML instead of importing
+    it, and its dataset shim supplies the three attributes the net actually reads
+    (`sfnonet.py:762-766`). De-risked as far as possible without importing torch: the YAML load, the
+    key resolution and the channel arithmetic all verified locally — **in = 5x18+6+2+3 = 101, +4
+    constant = 105; out = 101**, independently reproducing §4.5a's corrected channel counts.
+- **next:** when `module load conda` is repaired, run the probe alongside the first real job. Until
+  then the loop cannot advance: items 7-17 all need the Pangu env.
+- **infra-failure count:** **4/5** — 3 cluster-side, 1 mine. **One left before the driver's §9
+  blocker fires.**
 
 ---
 
