@@ -18,6 +18,47 @@ Entry shape (keep it):
 
 ---
 
+## tick 28 — 2026-08-21 — job 7551491 HUNG, and my own logging hid where. Infra failure 2/5.
+
+- **in flight:** none (7551491 `qdel`'d after diagnosis); corrected job about to go.
+- **what happened:** 27 minutes of walltime at **`resources_used.cput = 00:00:05`** — five
+  seconds of CPU, i.e. blocked, not slow. No run directory was ever created. Comparable jobs
+  (7551411, 7551439) finished **both** arms in ~100 s.
+- **what the log said:** `=== arm dhconv_iox (seed 0, world_size 1, K=20) ===` and **nothing
+  else**, 52 bytes.
+
+- **why it told me nothing, which is the actual lesson.** The arm was piped through
+  `| tail -18`. **A pipe buffers until the pipeline ENDS**, so a hang prints exactly nothing.
+  I diagnosed and fixed this *same trap* in tick 18 (bug 3, the ncu warm-up arm) — and then
+  **reintroduced it here by inheriting the line from `polaris_equiv_baseline.pbs`**, where it
+  was harmless only because that job always completed. A fix applied to one script is not a
+  fix applied to the pattern.
+
+- **what the evidence does establish:** **arm A runs the UNCHANGED default path**
+  (`PANGU_DHCONV_XIO=0`), so the hang is **not** my einsum change taking a wrong branch. The
+  one way my change could still cause it: **`@torch.jit.script` compiles `_contract_dhconv_xio`
+  at import time regardless of the knob**, so an import-time problem would stall both arms
+  identically. Not yet distinguished from a bad node or a filesystem stall — and I am not
+  going to guess between them again.
+
+- **the corrected job separates those in seconds, instead of 27 minutes:**
+  1. a **bounded import preflight** (`timeout 300`, both knob values) that prints how long
+     the import took — the first place a TorchScript problem would show;
+  2. arms write to a **file** (`tee`-style, not a pipe) so output survives a kill, are bounded
+     by `timeout 900`, and report `rc=124` explicitly as a timeout;
+  3. the arm log path is printed, so a killed job still leaves something readable.
+
+- **judgement call recorded:** I `qdel`'d a *running* job. CLAUDE.md #12 is about resubmitting
+  **queue-stuck** jobs without diagnosis (which destroys accrued eligible time); this was a
+  running job proven idle at 5 s CPU, killed **after** diagnosis and specifically to recover
+  its spooled log. I read that log before changing anything.
+
+- **result:** no measurement. Prereg `2f491734` (P1–P4) is **untouched and still open** — the
+  job produced no data, so nothing about the layout fix is confirmed or refuted.
+- **infra-failure count:** **2/5.**
+
+---
+
 ## tick 27 — 2026-08-21 — §4.9's layout fix implemented and PREREG'd — the loop's first testable optimization
 
 - **in flight:** `polaris_equiv_dhconv.pbs` written; code behind `PANGU_DHCONV_XIO`, default **off**.

@@ -66,14 +66,37 @@ mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
 OUT_DIR="${REPO}/baselines/pangu_sfno_e3sm"
 mkdir -p "${OUT_DIR}"
 
+echo "=== preflight: import the model modules (bounded) ==="
+# Job 7551491 hung for 27 min at 5 s of CPU with only the arm banner in the log, and
+# nothing distinguished "import deadlock" from "training stall". This separates them in
+# seconds. @torch.jit.script compiles BOTH contraction variants at import time whatever
+# the knob says, so this is the first place a TorchScript problem would appear.
+for KNOB in 0 1; do
+    echo "--- PANGU_DHCONV_XIO=${KNOB} ---"
+    PANGU_DHCONV_XIO=${KNOB} timeout 300 "${PY}" -c "
+import time, sys
+t0 = time.time()
+import networks.modulus_sfno.contractions as C
+import networks.modulus_sfno.s2convolutions as S
+print('  import OK in %.1fs  xio=%s' % (time.time() - t0, C.dhconv_weight_is_xio()))
+" || { echo "ERROR IMPORT_HUNG_OR_FAILED at knob=${KNOB} (rc=$?)"; exit 6; }
+done
+
 run_arm () {   # $1 = record name
     echo "=== arm $1 (seed 0, world_size 1, K=20) ==="
+    local LOG="${MEMBER_ROOT}/bench/arm_$1_${PBS_JOBID%%.*}.log"
+    # NOT `| tail`: a pipe buffers until the pipeline ends, so a hang prints NOTHING —
+    # which is exactly how job 7551491 burned 27 minutes and told us nothing. Write to a
+    # file, bound the arm, then tail the FILE (readable even if this is killed).
     PANGU_EQUIV_JSON="${OUT_DIR}/$1.json" PANGU_DHCONV_XIO="${PANGU_DHCONV_XIO:-0}" \
-    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+    timeout 900 "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
         "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
         --run_num="equiv_$1_${PBS_JOBID%%.*}" --config=SFNO --fresh_start \
-        --epochs 1 --global_seed 0 2>&1 | tail -18
-    echo "arm $1 child rc=${PIPESTATUS[0]} (bench guard may exit 3 AFTER a good capture)"
+        --epochs 1 --global_seed 0 > "${LOG}" 2>&1
+    local RC=$?
+    tail -20 "${LOG}"
+    echo "arm $1 rc=${RC} (124 = timed out; bench guard exits 3 AFTER a good capture)"
+    [ "${RC}" = "124" ] && { echo "ERROR ARM_TIMEOUT $1 — full log: ${LOG}"; exit 7; }
 }
 
 PANGU_DHCONV_XIO=0 run_arm dhconv_iox
