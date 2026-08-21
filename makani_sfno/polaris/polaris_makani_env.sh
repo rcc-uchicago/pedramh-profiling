@@ -173,7 +173,16 @@ makani_env_report() {
     echo "mpi shim dir           = ${MAKANI_LIB_SHIMS}"
     echo "h5py overlay           = ${MAKANI_H5PY_OVERLAY:-<absent, base conda h5py will fail>}"
     local _t _missing
-    _t="$(python -c 'import sysconfig,os;print(os.path.join(sysconfig.get_paths()["purelib"],"torch","lib","libtorch_global_deps.so"))' 2>/dev/null)"
+    # Search sys.path rather than sysconfig's purelib: purelib is the VENV's
+    # site-packages, but torch lives in the BASE conda's, so the old form printed
+    # "<could not locate ...>" on every run -- a check that silently answers
+    # nothing is worse than no check. Still does NOT import torch: this must stay
+    # callable on a login node (CLAUDE.md #3).
+    _t="$(python -c 'import os,sys
+for d in sys.path:
+    p = os.path.join(d, "torch", "lib", "libtorch_global_deps.so")
+    if os.path.exists(p):
+        print(p); break' 2>/dev/null)"
     if [ -n "${_t}" ] && [ -e "${_t}" ]; then
         _missing="$(ldd "${_t}" 2>/dev/null | grep -c 'not found')"
         echo "libtorch dangling libs = ${_missing}"

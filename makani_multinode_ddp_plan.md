@@ -262,7 +262,11 @@ unknown by seven.
 - [x] launcher written — `polaris_makani_multinode_scaling.pbs`, 1/2/4 nodes, one file
 - [x] result parser + 11 tests green — `MAKANI_SCALING_PARSE_OK`
 - [x] prereg recorded (§4) — **before** any job
-- [ ] `MAKANI_ENV_OK` — needs the probe job (`debug`, ~10 min)
+- [x] **`MAKANI_ENV_OK` — job 7551240, 84 s.** torch 2.8.0 / CUDA 12.9 / NCCL 2.28.3 imports,
+      `device_count=4`, cuBLAS + `RealSHT(180,360)` run, h5py from the overlay, `torch_harmonics`
+      from the venv, and **4/4 ranks up through the PALS shim** (`world_size=4`, all-reduce
+      correct) ⇒ makani is no longer confined to `--standalone`. Single-node, so prediction 2 is
+      untested.
 - [ ] arms A/B/C × 3 reps
 - [ ] arms D/E, then optional F
 - [ ] per-rank NCCL (`NSYS=1`), then the `NCCL_PROTO`/`NCCL_ALGO` sweep §0b defers to here

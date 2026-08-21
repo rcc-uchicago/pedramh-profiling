@@ -105,10 +105,24 @@ this doc discharges.
 > `marshal-train` and `decrypto-serve` 2.6.0+cu124. `SHARED_ROOT` is the same directory, so there are
 > no others.
 >
-> **⚠ STILL OPEN — whether `import torch` actually succeeds with CUDA 13 on the path is UNTESTED.**
-> `libtorch_global_deps.so` failing to load is *caught* by torch's `_load_global_deps`, which then
-> falls through to `_preload_cuda_deps` — so the missing mpi soname may not be fatal. Settling it
-> needs one real import, i.e. a job (importing torch on a login node is forbidden, CLAUDE.md #3).
+> **✅ CLOSED 2026-08-21 — job 7551240, `MAKANI_ENV_OK`. `import torch` SUCCEEDS.** Not merely
+> "caught and survived": with the `cuda-13.0.1` path and the `libmpi_gnu_123.so.12` symlink,
+> `ldd` reports **0** dangling libs and a compute node gives
+> **torch 2.8.0 / CUDA 12.9 / NCCL 2.28.3, `cuda.is_available()=True`, `device_count=4`**, a
+> working cuBLAS matmul, and `torch_harmonics.RealSHT(180,360)` → `(1,58,90,90) complex64`.
+> 84 s of walltime on `x3006c0s13b0n0`. Recipe: `makani_sfno/polaris/polaris_makani_env.sh`.
+> Also green in the same job: **h5py 3.16.0 out of the overlay** (base-conda h5py stays broken and
+> is now shadowed), `torch_harmonics 0.9.2a` from the venv (not the top-ups' 0.7.4), `makani 0.2.0`,
+> and `physicsnemo 2.2.0a0` resolving from the **editable `physicsnemo_sfno/` checkout** — a live
+> demonstration of the coupling CLAUDE.md flags, since an edit there changes what makani executes.
+> **And the PALS rank shim works:** 4/4 ranks up via `mpiexec` + `polaris_rank_env.sh`,
+> `world_size=4`, `data_group=4`, all-reduce numerically correct — so makani no longer needs
+> `torch.distributed.run --standalone` and can span nodes.
+> ⚠️ Single-node only. Whether the ported NCCL/CXI fabric block selects `AWS Libfabric` under
+> **2.8.0**'s NCCL (its values were measured on 2.10.0+cu129) is still open — that needs ≥2 nodes.
+> ⚠️ This does **not** un-break `module load conda`, and the ALCF ticket is still the right fix:
+> the seven pre-existing makani launchers, both E3SM packers included, still open with the bare
+> module and still fail. → `makani_multinode_ddp_plan.md` §7.
 
 **Compute-node networking — CORRECTED 2026-07-14.** Several places in this repo said
 "compute nodes have no outbound network". **That is wrong.** Per ALCF's docs the proxy is the

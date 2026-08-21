@@ -212,6 +212,37 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-21** — **`MAKANI_ENV_OK` — job 7551240, 84 s. The env repair WORKS on hardware, and
+  makani can span nodes.** The one thing a login node could not settle is settled: with the
+  `cuda-13.0.1` path + the `libmpi_gnu_123.so.12` symlink, **`import torch` succeeds** —
+  torch 2.8.0 / CUDA 12.9 / **NCCL 2.28.3**, `is_available()=True`, `device_count=4`, a working
+  cuBLAS matmul and `RealSHT(180,360)` → `(1,58,90,90) complex64`. Not "caught and survived":
+  `ldd` reports **0** dangling libs.
+  - **The PALS rank shim works: 4/4 ranks, `world_size=4`, `data_group=4`, all-reduce numerically
+    correct.** ⇒ makani is no longer confined to `torch.distributed.run --standalone`, which is the
+    single thing that made every green makani run on Polaris single-node-only.
+  - Also green in the same job: **h5py 3.16.0 from the overlay** (the base conda's stays broken and
+    is now shadowed), `torch_harmonics 0.9.2a` from the venv — *not* the top-ups' 0.7.4 — `makani
+    0.2.0`, and **`physicsnemo 2.2.0a0` resolving out of the editable `physicsnemo_sfno/`
+    checkout**, i.e. a live demonstration of the coupling CLAUDE.md flags: an edit there changes
+    what makani jobs execute.
+  - ⚠️ **Single-node.** Prereg prediction 2 — that the ported NCCL/CXI block still selects
+    `AWS Libfabric` under 2.8.0's NCCL rather than the 2.10.0+cu129 it was measured on — is
+    **untouched by this job** and needs ≥2 nodes. Predictions 1, 3, 4, 5 likewise unscored.
+  - ⚠️ **`module load conda` is still broken and the ALCF ticket is still the right fix.** This
+    unblocks *makani*, not the cluster: the seven pre-existing makani launchers (**both E3SM
+    packers included**) still open with the bare module and still fail, so the full E3SM pack
+    cannot be built today and the recorded greens (7253465, `CONVERT_OK` 7252728) are not
+    reproducible until the two-line bootstrap swap lands. → `makani_multinode_ddp_plan.md` §7.
+  - **Two of my own bugs found and fixed this tick, neither by a test run:** the probe's stage 3
+    fed its rank script over **stdin**, which PALS delivers to one rank only (ranks 1-3 would have
+    exited without calling `comm.init`, and the job would have hung or "passed" proving nothing) —
+    caught while re-reading the launcher, so 7551222 was cancelled *queued* rather than wasted; and
+    `makani_env_report`'s libtorch check looked in `sysconfig`'s **purelib**, the venv's
+    site-packages, while torch lives in the base conda's — so it printed
+    `<could not locate libtorch_global_deps.so>` on every run. A check that silently answers
+    nothing is worse than no check. Now `0`.
+
 - **2026-08-21** — **makani multi-node DDP: harness built, and the env blocker is CLEARED for
   makani** (plan item 12, on a different model). Target is the parallel decomposition of
   **FourCastNet 3** (arXiv:2507.12144 §E.2) — makani's *own* paper. No GPU time spent; nothing
