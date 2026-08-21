@@ -32,6 +32,37 @@ def config_sha256(path):
         return hashlib.sha256(fh.read()).hexdigest()
 
 
+def config_sha256_from_env(var="S2S_YAML"):
+    """Hash the rendered config named by `$var`, or raise.
+
+    Deliberately fatal rather than defaulting to `"unknown"`: `config_yaml_sha256` is a
+    `MUST_MATCH` field, so two records both carrying `"unknown"` would compare *clean*
+    across two genuinely different configs — the exact apples-to-oranges comparison the
+    field exists to prevent.
+    """
+    path = os.environ.get(var)
+    if not path or not os.path.exists(path):
+        raise ValueError("ERROR EQUIV_NO_CONFIG $%s unset or missing (%r) — two records "
+                         "are only comparable at identical config, so a baseline "
+                         "without a config hash is not a baseline" % (var, path))
+    return config_sha256(path)
+
+
+def effective_seed():
+    """The seed actually applied, recovered from `PYTHONHASHSEED`.
+
+    `train.py`'s `seed_torch()` sets `os.environ['PYTHONHASHSEED'] = str(seed)` as its
+    first act (train.py:3886), and the effective per-rank seed
+    (`global_seed * world_size + rank`) never reaches `params` — so this is the only
+    in-process record of what was actually seeded.
+    """
+    raw = os.environ.get("PYTHONHASHSEED")
+    if raw is None or not raw.lstrip("-").isdigit():
+        raise ValueError("ERROR EQUIV_NO_SEED PYTHONHASHSEED=%r — seed_torch() sets it; "
+                         "if it is unset the run was not deterministically seeded" % raw)
+    return int(raw)
+
+
 def tensor_stats(t):
     """{shape, mean, std, min, max} — summary only, never tensors (DESIGN §7)."""
     import torch                                    # lazy: see module docstring

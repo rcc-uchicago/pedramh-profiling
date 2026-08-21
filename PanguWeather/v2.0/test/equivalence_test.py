@@ -22,7 +22,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from utils.equivalence import (EquivalenceRecorder, REQUIRED_CONFIG,  # noqa: E402
-                               config_sha256, validate_record)
+                               config_sha256, config_sha256_from_env,
+                               effective_seed, validate_record)
 
 REPO = Path(__file__).resolve().parents[3]
 COMPARE = REPO / "physicsnemo_ai_rossby" / "polaris" / "compare_baselines.py"
@@ -120,6 +121,24 @@ class TestRecorder(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             r.finalize(**CFG)
         self.assertIn("EQUIV_RECORD_EMPTY_TRAJECTORY", str(cm.exception))
+
+    def test_missing_config_hash_is_fatal_not_defaulted(self):
+        # Two records both carrying "unknown" would compare CLEAN across two genuinely
+        # different configs — the apples-to-oranges case MUST_MATCH exists to prevent.
+        os.environ.pop("S2S_YAML", None)
+        with self.assertRaises(ValueError) as cm:
+            config_sha256_from_env()
+        self.assertIn("EQUIV_NO_CONFIG", str(cm.exception))
+
+    def test_effective_seed_comes_from_what_seed_torch_actually_set(self):
+        os.environ["PYTHONHASHSEED"] = "7"
+        try:
+            self.assertEqual(effective_seed(), 7)
+        finally:
+            os.environ.pop("PYTHONHASHSEED")
+        with self.assertRaises(ValueError) as cm:
+            effective_seed()
+        self.assertIn("EQUIV_NO_SEED", str(cm.exception))
 
     def test_config_sha256_changes_with_the_file(self):
         a = os.path.join(self.d, "a.yaml")

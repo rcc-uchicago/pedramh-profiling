@@ -224,6 +224,11 @@ class Trainer():
         if world_rank == 0:
             logging.info(f"Initialized wandb_step: {self.wandb_step}")
         self.startEpoch = 0
+        # DESIGN §4.1 equivalence baseline (plan item 18). Inert unless
+        # PANGU_EQUIV_JSON names an output path, so a normal run pays nothing —
+        # this rides inside the bench-instrumented step (CLAUDE.md #10).
+        from utils.equivalence import EquivalenceRecorder
+        self._equiv = EquivalenceRecorder()
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         #################################################
         self.run_uuid = str(uuid.uuid4())
@@ -1289,6 +1294,15 @@ class Trainer():
                                 wandb.log(diagnostic_logs, step=self.wandb_step)
                                 self.wandb_step += 1
 
+                    if self._equiv.enabled:
+                        # §4.1 trajectory, from the REAL step — the same `loss` the
+                        # optimizer just consumed. float() syncs; acceptable because
+                        # this path is off unless PANGU_EQUIV_JSON is set, and an
+                        # equivalence run is not a timing run.
+                        self._equiv.record_step(
+                            train_batch_loss=float(loss),
+                            batch_grad_norm=float(grad_norm(self.model)),
+                            batch_grad_max=float(grad_max(self.model)))
                     # torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
 
@@ -1313,6 +1327,22 @@ class Trainer():
             lr=self.optimizer.param_groups[0]['lr'],
             ema_active=self._ema_active(),
         )
+
+        # Written BEFORE _bench_finalize on purpose: its timer self-check can
+        # exit(3) (it did, on job 7550606), and losing the §4.1 baseline to a
+        # *timing* guard would be absurd. Rank 0 only — the trajectory is
+        # replicated, and four ranks racing one path is a corrupt file.
+        if self._equiv.enabled and self.world_rank == 0:
+            from utils.equivalence import config_sha256_from_env, effective_seed
+            _p = self._equiv.finalize(
+                seed=effective_seed(),
+                world_size=dist.get_world_size() if dist.is_initialized() else 1,
+                n_params=self.count_parameters(),
+                batch_size=int(self.params.batch_size),
+                amp_dtype=str(getattr(self, 'amp_dtype', 'none')),
+                config_yaml_sha256=config_sha256_from_env(),
+                mode=str(self.params.mode))
+            logging.info("EQUIV_BASELINE_WRITTEN %s", _p)
 
         if BENCH:
             self._bench_finalize(
