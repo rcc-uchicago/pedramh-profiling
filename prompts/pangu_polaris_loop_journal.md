@@ -157,7 +157,7 @@ Entry shape (keep it):
   **2026-08-07** (jobs 7366939/7366940 fine) and **2026-08-20**.
 - **State on stopping — 6 of 21 plan items done, all Tier 0 plus item 6, zero optimisations
   attempted:** items **1, 2, 3, 4, 5, 6** complete; **7-17** blocked on the environment; **18-20**
-  were always listed-not-run. Branch `profile/pangu-polaris-profiling`, **21 commits, not pushed, no
+  were always listed-not-run. Branch `profile/pangu-polaris-profiling`, **28 commits, not pushed, no
   PR** — a solo session cannot self-approve (CLAUDE.md #9).
 - **infra-failure count:** 4/5 (3 cluster-side, 1 mine). Stopping *before* the 5th, deliberately.
 

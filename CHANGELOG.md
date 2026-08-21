@@ -63,6 +63,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 > the three failed workarounds: `polaris_pbs_notes.md` §1. Needs a decision: port the proven torch-aware
 > bootstrap to the Pangu scripts, or file an ALCF ticket and wait.
 >
+> **RESOLVED 2026-08-21 — it is not a choice: the base conda must be REPAIRED (ALCF ticket).**
+> Substituting the one working environment is **disqualified**, not merely unattractive: it carries
+> torch **2.10.0+cu129** where every number in the profile (§0d, §4.3, §4.4, §4.5) was measured on
+> **2.8.0**, and items 7-10 exist to refine that same picture. §4.4a already measured that kernel
+> selection is not bit-reproducible even within one torch version, so a minor-version bump would
+> silently break comparability. (Item 6 was fine on that env because a *topology* measurement is
+> torch-independent — it measures hardware links, not model kernels.)
+>
 > **Updated again 2026-08-20 (item 3 done, no GPU time):** the copy problem is **half a weight problem**.
 > **133 ms/rank-step (~21% of the step) moves one 377 MB spectral weight in four places**, all from a
 > single layout mismatch, and **`torch.compile` reaches none of it** (Inductor fails outright on the
@@ -203,6 +211,35 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-08-21** — **BLOCKED, terminally — and the available workaround is DISQUALIFIED rather than
+  merely unattractive: it would silently break comparability with every number in the profile.** No
+  GPU time spent this tick.
+  - **Environment blocker unchanged** — `module load conda` errors on every modulefile, and that
+    install's torch has 2 unresolved libs. Both ALCF-side; broke between **2026-08-07** and
+    **2026-08-20**.
+  - **I was about to port the proven torch-aware bootstrap to the PanguWeather PBS scripts** — the
+    operator had not answered across two ticks but kept re-firing the loop and had said to
+    auto-submit, so a third round of asking was the wrong move and I treated it as a routine call.
+    **Checking whether it would help stopped it:** the only working environment carries **torch
+    2.10.0+cu129**, while the captures — and therefore **§0d, §4.3, §4.4, §4.5** — were all measured
+    on **torch 2.8.0**. Items 7-10 exist to refine that *same* picture, and **§4.4a already measured
+    that kernel selection is not bit-reproducible even within one torch version** (cuDNN chose a
+    different `Conv2dWgrad` tile between two runs of an identical config). ⇒ **the port is rejected
+    on analysis, not deferred.** Recorded as a reversal, because two earlier entries offered it as a
+    live option.
+  - **Why item 6 was legitimately fine on that env and items 7-17 are not:** a *topology* measurement
+    is torch-independent — it measures hardware link bandwidth, not model kernels, so any working
+    torch yields the same 83 GB/s. The test is whether the quantity depends on the framework's kernel
+    choices. Item 6's does not; items 7-10's are entirely that.
+  - **⇒ One ask: an ALCF ticket for the base conda**, both halves — the modulefiles pin
+    `cray-hdf5-parallel/1.14.3.5` + `gcc-native/14.2` against a PE shipping **1.14.3.9** + **14**,
+    **and** `libtorch_global_deps.so` links both `libcudart.so.12` and `.so.13` with only 12 present,
+    so `import torch` fails **even with a working module**.
+  - **State: 6 of 21 items done** (**1-6** — all of Tier 0 plus the topology); **7-17 blocked**;
+    18-20 always listed-not-run. **Zero optimisations attempted; nothing pushed.** Branch
+    `profile/pangu-polaris-profiling`, **28 commits**, left for review — a solo session cannot
+    self-approve (CLAUDE.md #9). Infra-failure count **4/5**, stopped deliberately before the 5th.
 
 - **2026-08-20** — **Polaris is a full NVLink mesh: `NV4` on every pair, 82.9-83.1 GB/s uniform. Plan item
   6 done — but the real story of the tick is that `module load conda` and the base-conda torch are BOTH
