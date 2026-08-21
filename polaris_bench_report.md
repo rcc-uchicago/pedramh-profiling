@@ -1405,6 +1405,27 @@ side writes the contiguous destination, which is why it measured exactly 8.00.
 - It changes *storage layout*, not the computed function, so it is **not** a jesswan
   sign-off item — but the checkpoint break is a coordination item.
 
+**Blast radius of the layout change — enumerated, not estimated.** Every consumer of the
+`dhconv` weight in `PanguWeather/v2.0` was checked:
+
+| consumer | layout-dependent? |
+|---|---|
+| `s2convolutions.py:133,152` — construction | **yes** — the line to change |
+| `contractions.py:194` — `einsum("bixy,iox->boxy")` | **yes** — the line to change |
+| `s2convolutions.py:160` → `factorizations.py:220` `get_contract_fun` | **no** — dispatches on `torch.is_tensor(weight)`; **no shape inspection at all** |
+| `s2convolutions.py:154-156` `is_shared_mp = ["matmul", "w"]` | **no** — the values are parallel-group *names*, not dim indices, and the attribute has **no reader anywhere in the tree** |
+| `s2convolutions.py:265,291` | **n/a** — a different class's weight (`nradius`), not this one |
+
+The config pins the single active path: `operator_type: 'dhconv'`, `factorization: None`
+(⇒ `use_tensorly=False`, the plain-`nn.Parameter` branch), `separable: False`. So
+`_contract_sep_dhconv`, `_contract_dense`, and the tensorly factorized paths are all dead
+code here.
+
+⇒ **Inside the repo the change is two lines.** The cost is entirely outside it: existing
+checkpoints fail `load_state_dict` on a shape mismatch covering 95.8% of parameters, so
+adoption needs a conversion pass — and DESIGN §4 still requires the equivalence gate that
+item 18 records as non-existent.
+
 **A second, independent candidate found in the same read.** With `hard_thresholding_fraction:
 1.0`, `modes_lat_local == lmax`, so the mode slice in `s2convolutions.py:198-203` covers the
 **full** extent and the zero-padding buffer has nothing to zero:
