@@ -18,6 +18,71 @@ Entry shape (keep it):
 
 ---
 
+## tick 17 — 2026-08-21 — item 7 PREREG — are the copies bandwidth-bound or contiguity-bound?
+
+- **in flight:** none yet — `polaris_ncu_copies.pbs` written, **not submitted**. Prereg first.
+- **why this is item 7 and not a detail:** every finding so far says the same thing in different
+  words — `direct_copy` + `conj` is 42.2% of GPU kernel time, 271 ms/rank-step, and 133 ms of that
+  is **one 377 MB spectral weight** copied 36× + conj'd 12× per step (§4.5). What none of it says
+  is *why those copies are slow*, and the two candidate answers imply **opposite fixes**:
+  - the copies move their bytes efficiently but there are too many → the lever is **fewer bytes**
+    (hoist the weight transform out of the step);
+  - the copies move *inflated* traffic because the access pattern is strided → the lever is
+    **contiguity** (change the layout), and the byte count is a symptom, not the cause.
+  §0d's "17–27% of HBM peak" cannot separate them: it is computed from **launch geometry**, so it
+  describes *useful* bytes. §4.3e measured `cudaMemcpyAsync` D2D on these same A100s at **82%** of
+  peak, so the hardware is not the limit. ncu reads real DRAM traffic and coalescing directly.
+
+- **prereg — four predictions, written before the job ran.** An L1TEX sector is 32 B, so a
+  fully-coalesced warp request is **8 sectors for complex64** (32 lanes × 8 B = 256 B) and 4 for fp32.
+  For the complex64 `direct_copy…gpu_kernel_impl_nocast` rows (the 377 MB weight):
+
+  | # | prediction | confidence |
+  |---|---|---|
+  | **P1** | `sectors/request` on the **load** side ≥ **12** (≥1.5× the complex64 ideal of 8) | ~60% |
+  | **P2** | `sectors/request` on the **store** side ≈ **8** (at ideal) | ~70% |
+  | **P3** | `dram__bytes_read + write` for a 377 MB copy **> 755 MB** (= 2 × 377) | ~60% |
+  | **P4** | `sm__throughput` < 20% of peak — memory-bound, not compute-bound | ~90% |
+
+  P1-vs-P2 asymmetry is the substantive claim, not a hedge: **TensorIterator coalesces and reorders
+  its iteration to make the *output* contiguous**, so a layout-changing copy pays on the read side.
+  If both sides come back at ideal, my model of these kernels is wrong.
+
+- **decision rule (binding, so the answer cannot be read either way after the fact):**
+  - **P1 ∧ P3** → the lever is **CONTIGUITY**. §0d's 17–27% is *useful* bytes while the DRAM is busy
+    moving waste; the weight hoist gets *more* valuable (it removes wasted traffic, not just bytes).
+  - **¬P1 ∧ `dram__throughput` ≈ 25%** → the copies are **efficient but unnecessary**; the lever is
+    **fewer bytes**, §0d's estimate stands as genuine unused bandwidth, and the next question is what
+    *does* cap them — which `launch__occupancy_limit_*` answers **in this same capture**.
+  - **¬P1 ∧ high `dram__throughput`** → the copies are already near-optimal and removing them is the
+    *only* lever.
+  Any outcome closes item 7. There is no result here that leaves it open.
+
+- **trust bounds, stated up front:**
+  - **single rank.** Not a preference: under real DDP, ncu's kernel replay re-executes
+    `ncclDevKernel`, which spins on peer flags that no longer advance → deadlock (handoff Tier C,
+    dead end 5). The copies are per-rank ops, so their **access pattern** is rank-invariant; their
+    **count** is not, and nothing about per-step totals should be read off this job.
+  - **warmup 2, steps 2.** A `direct_copy`'s access pattern does not depend on how many steps
+    preceded it, and these are TensorIterator kernels with deterministic selection — unlike cudnn,
+    which autotunes. This shortcut would be invalid for a convolution.
+  - An untraced **warm-up arm runs first** (§4.7's rule: every prior capture was a cold single-arm
+    run, which is what made §4.4's tail metrics artifacts).
+  - `--launch-skip 120` counts launches **matching the filter**, clearing step 0's init-time copies.
+
+- **the known way this tick fails, and it is not a result:** ncu needs GPU performance-counter
+  access, which is often restricted on shared clusters (`ERR_NVGPUCTRPERM`). The script greps for it
+  and exits 6 with the verbatim message. That is a **BLOCKER to report to ALCF**, not a measurement,
+  and the fallback is to say so and lean on the analytic model (item 3 / §4.5) — explicitly labelled
+  as an estimate, per the completion-honesty rule.
+
+- **result:** OPEN — nothing measured this tick.
+- **next:** submit `polaris_ncu_copies.pbs` (1 node, `debug`, ≤55 min — inside the granted
+  auto-submit authority), then read the table against P1–P4.
+- **infra-failure count:** 0/5
+
+---
+
 ## tick 4 — 2026-08-20 — stage T0 item 4 — prereg for the kernel_census fix
 
 - **in flight:** none (Tier 0 needs no `qsub`); **this is the last free item**

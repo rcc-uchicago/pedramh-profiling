@@ -1,0 +1,123 @@
+#!/bin/bash -l
+#PBS -N pploop-ncu
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Plan item 7 ⭐ — the measurement that settles "are we at the maximum".
+#
+# §0d estimates the copy kernels at 17-27% of HBM peak from launch geometry,
+# i.e. USEFUL bytes. §4.3e measured cudaMemcpyAsync D2D on the same GPUs at 82%
+# of peak, so the hardware plainly delivers. Two readings remain and they imply
+# different fixes:
+#   (a) genuinely ~25% of peak, coalesced  -> the lever is FEWER bytes
+#   (b) near peak on INFLATED traffic      -> the lever is CONTIGUITY/layout
+# ncu distinguishes them directly: dram__bytes_* gives real traffic, and
+# sectors/request gives coalescing.
+#
+# ⚠ SINGLE RANK, and this is not a preference. Under real DDP, ncu's kernel
+# replay re-executes ncclDevKernel, which spins on peer flags that no longer
+# advance -> deadlock (handoff Tier C, dead end 5). --nproc_per_node=1.
+# The copy kernels are per-rank operations, so their access pattern is unchanged
+# by dropping DDP; only their COUNT would differ.
+#
+# ⚠ Explicit metric list, NOT --set full: full is ~30x slower and collects
+# hundreds of counters we would not read.
+#
+# ⚠ sectors/request needs BOTH sectors and requests. The plan's item 7 lists
+# only l1tex__t_sectors_*; requesting the ratio's denominator too, or the number
+# cannot be computed.
+#
+# Short run on purpose: warmup 2, steps 2. A copy kernel's ACCESS PATTERN does
+# not depend on how many steps preceded it, and these are TensorIterator kernels
+# whose selection is deterministic (unlike cudnn, which autotunes).
+#
+# PASS = NCU_OK plus a non-empty CSV. If counters are permission-denied
+# (ERR_NVGPUCTRPERM), that is a BLOCKER to report with the exact error, not a
+# gate failure -- the plan says so.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || true
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+export PYTHONPATH="${V20_DIR}:${SHIM}"
+NCU=/soft/compilers/cudatoolkit/cuda-12.9.1/bin/ncu
+[ -x "${NCU}" ] || { echo "ERROR NCU_NOT_FOUND: ${NCU}"; exit 2; }
+echo "ncu: $(${NCU} --version | head -1)"
+
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.ncu.rendered.yaml"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+export S2S_YAML="${CONFIG_FILE}"
+export PANGU_BENCH=1 PANGU_NVTX=0
+export PANGU_BENCH_WARMUP=2 PANGU_BENCH_STEPS=2
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_ncu_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+echo "=== warm-up arm (untraced, single rank) — §4.7's rule ==="
+S2S_RUN_NUM="ncuW_${PBS_JOBID%%.*}" "${PY}" -m torch.distributed.run \
+    --standalone --nproc_per_node=1 "${V20_DIR}/train.py" \
+    --yaml_config="${CONFIG_FILE}" --run_num="ncuW_${PBS_JOBID%%.*}" \
+    --config=SFNO --fresh_start --epochs 1 2>&1 | tail -3
+
+OUT="${MEMBER_ROOT}/bench/ncu_copies_${PBS_JOBID%%.*}"
+METRICS="dram__bytes_read.sum,dram__bytes_write.sum"
+METRICS="${METRICS},dram__throughput.avg.pct_of_peak_sustained_elapsed"
+METRICS="${METRICS},sm__throughput.avg.pct_of_peak_sustained_elapsed"
+METRICS="${METRICS},l1tex__t_sectors_pipe_lsu_mem_global_op_ld.sum"
+METRICS="${METRICS},l1tex__t_requests_pipe_lsu_mem_global_op_ld.sum"
+METRICS="${METRICS},l1tex__t_sectors_pipe_lsu_mem_global_op_st.sum"
+METRICS="${METRICS},l1tex__t_requests_pipe_lsu_mem_global_op_st.sum"
+METRICS="${METRICS},launch__occupancy_limit_registers"
+METRICS="${METRICS},launch__occupancy_limit_shared_mem"
+METRICS="${METRICS},launch__grid_size,launch__block_size"
+
+echo
+echo "=== ncu arm: single rank, copy/conj kernels only ==="
+set +e
+"${NCU}" --target-processes all \
+    --kernel-name 'regex:direct_copy_kernel_cuda|conj_kernel_cuda' \
+    --launch-skip 120 --launch-count 80 \
+    --metrics "${METRICS}" \
+    --csv --log-file "${OUT}.csv" \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${V20_DIR}/train.py" \
+        --yaml_config="${CONFIG_FILE}" --run_num="ncuP_${PBS_JOBID%%.*}" \
+        --config=SFNO --fresh_start --epochs 1 > "${OUT}.stdout" 2>&1
+rc=$?
+set -e
+echo "ncu rc=${rc}"
+
+# The permission failure is the one the plan told us to expect and report verbatim.
+if grep -qE "ERR_NVGPUCTRPERM|permission|not permitted|insufficient" "${OUT}.stdout" "${OUT}.csv" 2>/dev/null; then
+    echo "ERROR NCU_COUNTERS_PERMISSION_DENIED — the exact message:"
+    grep -hE "ERR_NVGPUCTRPERM|permission|not permitted|insufficient" "${OUT}.stdout" "${OUT}.csv" 2>/dev/null | head -5
+    echo "  ⇒ plan item 7 BLOCKER: ncu needs GPU counter access; ask ALCF."
+    echo "  ⇒ fall back to the analytic model (item 3, §4.5) and SAY SO."
+    exit 6
+fi
+[ -s "${OUT}.csv" ] || { echo "ERROR NCU_NO_CSV — see ${OUT}.stdout"; tail -25 "${OUT}.stdout"; exit 5; }
+grep -cE "^\"?ID" "${OUT}.csv" >/dev/null || true
+echo "csv rows: $(wc -l < "${OUT}.csv")"
+echo
+echo "=== summary ==="
+"${PY}" "${REPO}/ncu_summarize.py" "${OUT}.csv" || { echo "ERROR SUMMARY_FAILED"; tail -30 "${OUT}.csv"; exit 5; }
+echo "NCU_OK  ${OUT}.csv"
