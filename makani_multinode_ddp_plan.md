@@ -207,7 +207,55 @@ PASS is **`MAKANI_MN_SCALING_OK`** plus a new row in
 * **Schema drift in the CSV.** Columns are a cross-run contract (CLAUDE.md #10);
   appending under a changed header is refused rather than silently done.
 
-## 7. Status
+## 7. Consequence not in scope here: every *existing* makani launcher is dead
+
+Deliberately **not fixed in this change** — flagging it beats silently touching
+seven files inside a `git subtree` (CLAUDE.md: keep subtree edits minimal and
+contiguous), and none of them is on the multi-node path. But nobody should
+discover it by submitting one:
+
+```
+makani_sfno/polaris/polaris_sfno_smoke.pbs
+makani_sfno/polaris/polaris_sfno_full.pbs
+makani_sfno/polaris/polaris_sfno_full_probe.pbs
+makani_sfno/polaris/polaris_sfno_alldata_smoke.pbs
+makani_sfno/polaris/polaris_sfno_alldata_full.pbs
+makani_sfno/polaris/polaris_pack_e3sm_full.pbs
+makani_sfno/polaris/polaris_pack_e3sm_alldata_full.pbs
+```
+
+All seven open with the bare `module load conda` / `conda activate base` pair and
+therefore fail immediately with `conda: command not found` → `python: command not
+found`. **This includes the two data packers**, so the full E3SM pack that
+`polaris_sfno_full.pbs` needs cannot currently be built either — worth knowing
+before planning around it. It also means the green results they produced
+(**7253465**, `CONVERT_OK` 7252728) are not reproducible today without this fix.
+
+The revival is mechanical once `MAKANI_ENV_OK` is recorded — replace
+
+```bash
+module use /soft/modulefiles
+module load conda
+conda activate base
+source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2
+```
+
+with
+
+```bash
+source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2          # FIRST: defines MEMBER_ROOT
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+```
+
+— note the **order flip**, which is load-bearing (§2, and the header of
+`polaris_makani_env.sh`). Each of the seven also needs the h5py-overlay
+precondition, since they all import makani and therefore h5py.
+
+Do this **after** the probe is green, not before: patching seven launchers against
+an environment that has not yet been shown to import torch would just multiply one
+unknown by seven.
+
+## 8. Status
 
 - [x] env blocker cleared — `polaris_makani_env.sh`, 0 dangling libs (static check)
 - [x] h5py overlay built and green — `MAKANI_H5PY_OVERLAY_OK`
