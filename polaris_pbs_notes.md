@@ -79,9 +79,24 @@ this doc discharges.
 >   `/soft/compilers/cudatoolkit/cuda-13.0.1/lib64/`, and adding that dir to `LD_LIBRARY_PATH` drops
 >   the unresolved count from 2 to 1. ⚠ **An earlier version of this note said "no `LD_LIBRARY_PATH`
 >   fix exists" — that was wrong for this half.**
-> * `libmpi_gnu_123.so.12` — **not present anywhere.** Only `mpich/9.1.0` is installed and it ships
->   `libmpi_gnu.so.12`; the `_123` soname (gcc 12.3) came from an older cray-mpich that the PE roll
->   removed. Searched `/opt/cray/pe/mpich/*/ofi/gnu/*/lib`.
+> * `libmpi_gnu_123.so.12` — **⚠️ CORRECTED 2026-08-21: RESOLVABLE.** The earlier text here said
+>   "not present anywhere", which is true of the **filename** and false of the **library**. Only
+>   `mpich/9.1.0` is installed and it ships `libmpi_gnu.so.12` — and `_123` was simply the old
+>   cray-mpich's way of spelling **that same gcc-12.3 build**, which lives at
+>   `/opt/cray/pe/mpich/9.1.0/ofi/gnu/12.3/lib/libmpi_gnu.so.12`. `objdump -p` gives it
+>   `SONAME libmpi_gnu.so.12`, i.e. **soversion 12 either way**, so a symlink under the former
+>   name is a *rename*, not an ABI substitution. Corroboration: the conda modulefile's own last
+>   line is a commented-out hotfix naming this exact soname
+>   (*"hotfix for PyTorch picking up non-GTL libmpi_gnu_123.so.12"*).
+>   With this symlink plus `/soft/compilers/cudatoolkit/cuda-13.0.1/lib64` on `LD_LIBRARY_PATH`,
+>   **`ldd .../torch/lib/libtorch_global_deps.so` reports 0 unresolved.** Implemented in
+>   `makani_sfno/polaris/polaris_makani_env.sh`; it creates the symlink under
+>   `$MEMBER_ROOT/lib-shims/polaris-mpich-compat/`.
+>   ⚠️ This is a **link** check done on a login node. Whether `import torch` then succeeds still
+>   needs a job (CLAUDE.md #3) — `polaris_makani_env_probe.pbs` stage 1/2 is that job.
+>   **Do NOT generalise the trick to hdf5.** `libhdf5_parallel_gnu_123.so.200` (1.14.3.5) vs
+>   `libhdf5_parallel_gnu.so.310` (1.14.3.9) is soversion **200 → 310**, a real ABI break; that
+>   one needs a self-contained PyPI h5py instead (→ `polaris_setup_makani_h5py_overlay.sh`).
 >
 > **Tested and failed, do not re-try:** all **14** `conda/*` module variants (including every
 > `-aws-nccl-*` and `-xalt`), under **both** the default `PrgEnv-nvidia` and `PrgEnv-gnu` trees — the
