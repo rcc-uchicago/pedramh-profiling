@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 4, 5, 6 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
+| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 4, 5, 6, 6b, 7 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. **2026-08-21 (item 7, job 7550715, prereg 4/4): those copies are CONTIGUITY-bound, not bandwidth-bound** — store side at exactly the ideal sectors/request, load side at the hardware maximum of 32.00, and the 377 MB spectral weight reads **2043 MB to move 377 MB**. Nothing is saturated (DRAM 24–51% of peak, SM 5–20%). ⇒ the lever is a **layout fix**, and §4.5's "only dominant kernel with no mechanism" now has one (§4.8). Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo **not yet profiled**. |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
 | **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converter **unaudited**; Pangu's stats prep audited (clean, metadata-only). |
@@ -211,6 +211,39 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+2026-08-21 — **PanguWeather profiling item 7 (ncu) — CLOSED, prereg 4/4: the copy
+kernels are CONTIGUITY-bound, not bandwidth-bound** — job 7550715, single rank, 80
+launches, 11 metrics. Store side sits at **exactly** the ideal sectors/request (4.00 /
+8.00 / 8.20); load side at or near the hardware maximum of **32.00** — one distinct 32 B
+sector per lane. `TensorIterator` reorders iteration to make the *output* contiguous, so a
+layout-changing copy pays the entire cost on the **read**. Whether that scatter costs
+bandwidth depends on fitting A100's 40 MB L2: the 66/133 MB tensors hit 82% in L2 and pay
+~1.0–1.46× DRAM (cost is request-issue latency, SM 6.4%); the **377 MB spectral weight**
+hits only 61% and reads **2043 MB to move 377 MB** (3.21× overall). Nothing is saturated —
+DRAM 24–51% of peak, SM 5–20%, occupancy 84–90%. ⇒ **the lever is a layout fix, not
+"fewer bytes"**; §4.5's "only dominant kernel with no mechanism at all" now has one
+(sec/req 31.50 vs an ideal of 4); the middle population is **bimodal (7.19–31.99)**, so the
+same kernel at the same geometry is sometimes already perfectly coalesced and the fix is
+feasible rather than hypothetical. **GPU counter access on Polaris works** (open risk
+retired). Caveats that must travel with the numbers: `--cache-control` defaults to
+flushing, so DRAM figures are cold-cache and 3.21× is an **upper bound** — the verdict
+rests on sectors/request, which is cache-independent; **`conj` was 0 of 80 launches
+sampled**; single rank (DDP deadlocks under ncu kernel replay); n=1. Cost 2 attempts, both
+self-inflicted (`--kernel-name-base` defaults to `function`, which strips the template args
+the regex needed). → `polaris_bench_report.md` §4.8, journal ticks 17–19.
+
+2026-08-21 — **profiling item 8 is NOT executable on any capture on disk** — checked free
+while 7550606 ran. `CUPTI_ACTIVITY_KIND_RUNTIME` *has* a `callchainId` column and it is **0
+for all 551,346 rows** (`--cudabacktrace` was never enabled), and `SAMPLING_CALLCHAINS`'
+top frames are `_PyEval_EvalFrameDefault`/`method_vectorcall` — CPython internals, not
+Python source lines (`--python-sampling` was off). Replacement recipe, all flags verified
+present in the Polaris nsys 2025.1.3: `--cudabacktrace=kernel --python-backtrace=cuda
+--python-sampling=true`, keeping CPU sampling. **Better** than the plan's `with_stack`: it
+reaches the *backward* launches that are 72.9% of the target. Two traps recorded — never
+use the `kernel:<ns>` threshold (it is on **host-side API duration**, so it preferentially
+samples queue-stalled launches, biasing the population under attribution), and the capture
+is **attribution-only**: read *where*, never *how long*.
 
 - **2026-08-21** — **BLOCKED, terminally — and the available workaround is DISQUALIFIED rather than
   merely unattractive: it would silently break comparability with every number in the profile.** No
