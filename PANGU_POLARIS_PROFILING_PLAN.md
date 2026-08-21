@@ -271,7 +271,18 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       ⚠ **This closes only the first-arm stall.** Job 7255557's pattern — **19 of 40** steps
       stalling mid-run with dev0 out of phase — is *not* a first-arm effect and stays open
       under (B).
-      **(B) NOT diagnosed — the other stall pattern.** On 16 of 7255557's 17 stalled steps
+      **(B) ✅ CLOSED 2026-08-21 — the phenomenon was a COLD-START ARTIFACT, so there is
+      nothing to A/B.** Job **7550368** ran an untraced warm-up arm and *then* a traced arm —
+      which no prior capture in this project had done — and the pattern vanishes: NCCL spread
+      **1.6×** (vs **8.4×** cold), no step above **1.44×** the NCCL median, and the median
+      itself **82.34** vs 156.77 ms/rank-step. **Every NCCL figure in §4.4 came from a cold
+      single-arm capture** (67.82 / 145.65 / 217.22), so the >2× swing attributed to rank
+      balance was first-run variance. ⇒ **the reversed GPU→NUMA map stays a real, measured
+      cluster fact with no measured symptom**, and the binding A/B below is **not worth a job**
+      until some warm measurement actually shows imbalance.
+      **Methodological rule this establishes, worth more than the item: every future capture
+      runs an untraced warm-up arm first.** Original text follows for the record.
+      **(B-original) NOT diagnosed — the other stall pattern.** On 16 of 7255557's 17 stalled steps
       **dev0 alone waits ~600 ms** while the other three sit at 60–70 ms (dev0 out of phase
       with the group, not one rank straggling), with the late work in the **inter-step gap**
       and `_PyEval_EvalFrameDefault`/`__libc_malloc` frames. **Candidate, unestablished** —

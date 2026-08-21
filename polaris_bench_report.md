@@ -655,6 +655,13 @@ highest compute mean, and it means dev0's +2.1% is a *consequence* of waiting, n
 
 #### 4.4d Where the extra NCCL went, and the `broadcast_buffers` question reopens slightly
 
+> ⚠ **SUPERSEDED by §4.7 — read that before using any NCCL number here.** A warm traced
+> capture (job 7550368) gives NCCL **82.34 ms/rank-step** at **1.6×** spread with no step above
+> 1.44× the median, against **8.4×** on the cold captures. **Every NCCL figure in this
+> subsection came from a cold single-arm run**, so the ×41 broadcast blow-up and the 17-of-40
+> stalled steps are first-run variance, not workload properties. The *mechanism* argument — a
+> big broadcast number is ranks waiting, not broadcast cost — survives; its magnitudes do not.
+
 | | 7255503 | 7255557 | delta |
 |---|---|---|---|
 | `ncclAllReduce` (in `backward`) | 67.12 ms/rs | 116.75 ms/rs | +73.9% |
@@ -683,6 +690,15 @@ statistics). It does not revive the Midway framing; it means the *sizing* is ope
 first draft called it closed.
 
 #### 4.4e The reproducible stall is CPython garbage collection — not NUMA, not affinity
+
+> ⚠ **TWICE SUPERSEDED — this heading is now wrong on both halves. Do not build on it.**
+> (1) The **causal** GC claim was refuted by an interleaved A/B (jobs 7549941, 7550007): with a
+> warm-up arm absorbing the first-run effect, disabling the collector changes nothing —
+> `step_std` B/A = **1.0102**, peak memory identical to three decimals. (2) The **stall itself**
+> is a cold-start artifact per **§4.7**: warm, NCCL spread is 1.6× and no step exceeds 1.44× the
+> median. What survives is only the narrow observation that on torch 2.8 the CPU *was* inside
+> `gc_collect_main` during that particular window. Retained as the record of what a cold
+> capture shows.
 
 **One event reproduces across the two nodes, and it is the section's best finding.** At
 step index **30** — the same training iteration (`step_50`) in both captures — a rank's
@@ -1172,6 +1188,82 @@ contaminated denominator.
 
 **Status:** this capture is the reference for plan items **9** and **10**. It is **n=1** on
 this env, so per §4.4 anything comms-containing stays provisional until there is a second.
+
+---
+
+### 4.7 ⚠ Every capture above is a COLD single-arm run — and that is what §4.4's NCCL story was measuring
+
+Job **7550368** ran an untraced warm-up arm and *then* a traced arm, which no previous capture
+in this project had done. The GPU-side tail changes completely:
+
+| | cold traced (7545291) | **warm traced (7550368)** |
+|---|---|---|
+| compute spread across steps | 1.015× | **1.003×** |
+| NCCL median (ms/rank-step) | 156.77 | **82.34** |
+| **NCCL spread** | **8.4×** | **1.6×** |
+| worst step's NCCL | 530.48 (3.4× median) | **118.36 (1.44× median)** |
+| effect of excluding the worst step | NCCL −3.7% | **−1.0%** |
+
+**Every NCCL figure in §4.4 came from a cold, single-arm capture:**
+
+| capture | NCCL ms/rank-step | state |
+|---|---|---|
+| 7255503 (torch 2.8) | 67.82 | cold, traced |
+| 7255557 (torch 2.8) | 145.65 | cold, traced |
+| 7545291 (torch 2.10) | 217.22 | cold, traced |
+| **7550368 (torch 2.10)** | **84.43** (median 82.34) | **warm, traced** |
+
+⇒ **The >2× NCCL swing §4.4 attributed to "rank balance is a per-run draw" is cold-start
+variance.** Warm, within a single capture, NCCL is stable at 1.6× spread with no step above
+1.44× the median. The 3.20× spread across the cold captures is a property of *first-run
+measurement*, not of the workload.
+
+#### What this retracts
+
+* **§4.4d's straggler analysis** — "dev1 is the modal straggler", the per-rank NCCL tables,
+  the 19-of-40 stalled steps on 7255557 — is **downgraded to a cold-start artifact.** Warm,
+  there is no straggler to find. (§4.4f had already withdrawn the stronger "dev1 in both
+  captures" claim on other grounds; this removes the residue.)
+* **§4.4e's "undiagnosed host-CPU stall pattern"** — the dev0-out-of-phase pattern that plan
+  item **6b(B)** exists to explain — is the same artifact. **Item 6b(B) closes:** the
+  phenomenon is not reproducible on a warm capture, so there is nothing for a CPU-binding A/B
+  to fix. **The reversed GPU→NUMA map remains a real, measured cluster fact
+  (`polaris_pbs_notes.md` §1) with no measured symptom.**
+* **The "+3.7% median step from tracing"** I attributed to nsys in §4.6 is wrong: warm traced
+  is 0.6547 s against warm untraced 0.6515, i.e. **nsys costs +0.5% on the median**. The
+  +3.7% was cold start.
+
+#### What survives, and it is most of the substance
+
+Everything §4.4 established about **compute** is untouched, and this strengthens it:
+
+* Compute reproducibility — **0.08–0.63%** across captures, and **1.003×** step spread warm.
+* The copy time — **0.09%** across the torch-2.8 pair, **+2.32%** across the version bump.
+* The **weight counts** — 36 copies + 12 conj, identical on 2.8 and 2.10 (§4.6b).
+* **§4.4c's headline is still correct, and now better explained.** "A share of the full
+  kernel total is not reproducible" holds — the denominator moves because NCCL moves. What
+  changes is *why* NCCL moves: cold start, not rank placement. The rule to quote
+  ms/rank-step or share-of-compute is unaffected.
+
+#### The methodological rule this establishes
+
+**Every capture from here runs an untraced warm-up arm first.** Not a preference — a
+measured requirement:
+
+| capture class | `step_std / step_med` | GPU NCCL spread |
+|---|---|---|
+| single-arm + nsys (7255557, 7545291) | 39–41% | 8.4× |
+| first arm in a job, untraced | 9–15% | — |
+| warm arms, untraced | **0.09–0.19%** | — |
+| **warm + nsys (7550368)** | 34% *(host-side, see below)* | **1.6×** |
+
+**One caveat, because the warm traced row looks bad and is not:** its CSV `step_std` is 34%
+while its `step_p90` is 0.6569 — p90/median **1.003**. Low median, low p90, huge std means a
+*few* enormous outliers, and the GPU series shows compute at 1.003× and NCCL at 1.6× — so
+those outliers are **host-side, not GPU-side**, and the obvious candidate is nsys flushing its
+trace buffer. Consequence: **a traced run's wall-clock `step_std` is not comparable to an
+untraced one's, but its GPU-kernel analysis is sound.** Use the CSV for untraced A/Bs and the
+capture for kernel attribution; do not mix them.
 
 ---
 

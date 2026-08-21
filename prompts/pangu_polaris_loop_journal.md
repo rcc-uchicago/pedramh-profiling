@@ -154,7 +154,39 @@ Entry shape (keep it):
     re-taking, though the compute medians survive either way.
   - **Stated limit:** n=1 on one node. It distinguishes cold-vs-nsys; it does not prove the *cause*
     of the cold-start cost (only ~9% of it was loader wait, per tick 13).
-- **result:** OPEN — submitted.
+- **result: job 7550368, `WARMTRACE_OK`, 5m32s. The answer is COLD START, and it retracts a chunk
+  of §4.4.** Written up as **§4.7**.
+  - **GPU-side, warm vs cold traced:** compute spread **1.003×** (vs 1.015×); **NCCL spread 1.6×
+    (vs 8.4×)**; NCCL median **82.34 vs 156.77** ms/rank-step; worst step's NCCL **118.36 = 1.44×
+    median** (vs 530.48 = 3.4×); excluding the worst step moves NCCL **−1.0%** (vs −3.7%).
+  - **Every NCCL figure in §4.4 came from a cold single-arm capture:** 67.82 (7255503), 145.65
+    (7255557), 217.22 (7545291) — a **3.20×** spread across captures. Warm: **84.43**, stable.
+    ⇒ **the ">2× NCCL swing = rank balance is a per-run draw" reading is cold-start variance.**
+  - **prereg scored: 1 of 3, and the misses are informative.** **P1 MISS** — warm+traced CSV
+    `step_std/med` is **34%**, not <2%. **P2 MISS** — median **0.6547**, *below* the predicted
+    0.665-0.690: nsys costs **+0.5%** on the median, and the **+3.7% I attributed to tracing in
+    §4.6 was cold start**. **P3 HIT** — NCCL spread 1.6% < 3× and no step above 2× median.
+  - **P1's miss is the subtle bit and I nearly misread it as "nsys is the contaminant".** The warm
+    traced arm has `step_med` 0.6547, `step_p90` **0.6569** (p90/med **1.003**) and `step_std`
+    **0.223**. Low median + low p90 + huge std = **a few enormous outliers**, and the GPU series is
+    clean (compute 1.003×, NCCL 1.6×) — so those outliers are **host-side**, the obvious candidate
+    being nsys flushing its trace buffer. ⇒ **a traced run's wall-clock `step_std` is not comparable
+    to an untraced one's, but its GPU-kernel analysis is sound.** Two different instruments, two
+    different contaminations; don't mix them.
+- **Retractions written into the docs:** §4.4d and §4.4e now carry SUPERSEDED banners at the top so
+  a reader stopping there is not misled; §4.4d's magnitudes and §4.4e's stall are cold-start
+  artifacts (§4.4e's *causal GC* claim was already dead from tick 14 — it is now wrong on both
+  halves). **Item 6b(B) CLOSED**: the phenomenon it exists to explain is measurement artifact, so
+  the binding A/B is not worth a job; the reversed GPU→NUMA map stays a real cluster fact with **no
+  measured symptom**.
+- **What survives, and it is the substance:** compute reproducibility (0.08-0.63%, and **1.003×**
+  warm), the copy time (0.09% within 2.8, +2.32% across the bump), the **weight counts identical on
+  both torch versions**, and **§4.4c's headline** — a share of the full kernel total still is not
+  reproducible, because the denominator still moves; we now just know *why* (cold start, not rank
+  placement). The rule to quote ms/rank-step or share-of-compute is untouched.
+- **⇒ The methodological rule, now measured rather than asserted: every future capture runs an
+  untraced warm-up arm first.** That is worth more than item 6b(B) was.
+- **next:** plan item **7** (ncu on the top kernels) — and it must use a warm-up arm.
 - **infra-failure count:** 5/5 nominal; recent jobs all completed with verdicts.
 
 ---
