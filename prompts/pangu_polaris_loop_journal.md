@@ -113,6 +113,52 @@ Entry shape (keep it):
 
 ---
 
+## tick 15 — 2026-08-21 — item 6b(B)'s premise may be an ARTIFACT; testing that instead
+
+- **in flight:** none. Set out to build 6b(B)'s CPU-binding A/B and stopped, because the
+  prerequisite check undermined the premise.
+- **Three tiers of step-time variance are now on record, and they stack:**
+
+  | capture class | `step_std / step_med` |
+  |---|---|
+  | **single-arm + nsys** — 7255557 (38.92%), 7545291 (40.56%) | **39-41%** |
+  | first arm in a job, untraced — gcA1 (11.83%), gcW (9.38%) | **9-12%** |
+  | **warm arms, untraced** — six of them | **0.09-0.19%** |
+
+  Median step time separates them too: warm untraced sits at **0.650-0.653 s**, the traced
+  re-baseline at **0.677 (+3.7%)**.
+- **⇒ The uncomfortable implication: EVERY nsys capture in this project is a single-arm, COLD,
+  TRACED run.** So every *tail* metric §4.4 rests on — NCCL 67.82 vs 145.65 ms/rank-step, "19 of 40
+  steps stalled", dev0 out of phase, the 8.4× NCCL spread — may be **measurement artifact rather
+  than a property of the workload**. And §4.4d/§4.4e built the "undiagnosed host-CPU stall" story on
+  exactly that, which is what plan item **6b(B)** exists to explain. **A/B-ing rank binding against
+  a phenomenon that might be my own measurement setup would be the wrong experiment.**
+- **What this does NOT touch, and I want to be precise:** §4.4's *compute* numbers are unaffected —
+  it already measured compute reproducing to **0.08-0.63%** and the copy time to **0.09%**, and the
+  §4.6 re-baseline reproduced the weight counts exactly. The contaminated quantities are precisely
+  the ones §4.4c already labelled non-reproducible. So §4.4's **conclusions** stand; what changes is
+  that we may now know **why**, and the cause is more mundane than rank placement.
+- **prereg (written BEFORE submission):**
+  - **P1.** A **warm + traced** arm has `step_std/step_med` **< 2%** — i.e. the 39-41% was
+    overwhelmingly **cold start**, not nsys.
+  - **P2.** Its median step time still shows the tracing cost: **0.665-0.690 s**, above the
+    0.650-0.653 of warm untraced runs (~+2-6%).
+  - **P3.** Its per-step NCCL spread is **< 3×** (against 8.4× on the cold traced re-baseline), and
+    no step exceeds 2× the NCCL median.
+  - **Decision rule.** P1 holding ⇒ **the stall pattern is cold start**, item **6b(B)'s premise
+    dissolves** (it closes as "phenomenon not reproducible; the reversed NUMA map remains a real
+    cluster fact with no measured symptom"), §4.4d/§4.4e's stall narrative is downgraded to a
+    measurement note, and **every future capture must run a warm-up arm first** — a methodological
+    fix worth more than the item it replaces. P1 failing (still ~30-40%) ⇒ **nsys itself is the
+    contaminant**, which is worse: every capture's tail metric in this repo is suspect and needs
+    re-taking, though the compute medians survive either way.
+  - **Stated limit:** n=1 on one node. It distinguishes cold-vs-nsys; it does not prove the *cause*
+    of the cold-start cost (only ~9% of it was loader wait, per tick 13).
+- **result:** OPEN — submitted.
+- **infra-failure count:** 5/5 nominal; recent jobs all completed with verdicts.
+
+---
+
 ## tick 14 — 2026-08-21 — item 6b(A) CLOSED with a recorded null: GC is not the cause
 
 - **Job 7550007, `GC_AB_OK`, 8m27s. Five arms: W/A1/B1/A2/B2, warm-up discarded.**
