@@ -23,7 +23,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from utils.equivalence import (EquivalenceRecorder, REQUIRED_CONFIG,  # noqa: E402
                                config_sha256, config_sha256_from_env,
-                               effective_seed, validate_record)
+                               effective_seed, tensor_stats, validate_record)
 
 REPO = Path(__file__).resolve().parents[3]
 COMPARE = REPO / "physicsnemo_ai_rossby" / "polaris" / "compare_baselines.py"
@@ -59,6 +59,39 @@ def _rec(path, losses, **over):
     cfg.update(over)
     r.finalize(**cfg)
     return json.loads(Path(path).read_text())
+
+
+class _FakeTensor:
+    """Duck-types just enough of a tensor. Keeps this test off torch entirely, which
+    CLAUDE.md #3 forbids importing on a login node — even for a quick check."""
+
+    def __init__(self, vals, shape):
+        self.vals, self.shape = vals, shape
+
+    def detach(self):
+        return self
+
+    def float(self):
+        return self
+
+    def numel(self):
+        return len(self.vals)
+
+    def _s(self, v):
+        return type("S", (), {"item": lambda _s, _v=v: _v})()
+
+    def mean(self):
+        return self._s(sum(self.vals) / len(self.vals))
+
+    def std(self):
+        m = sum(self.vals) / len(self.vals)
+        return self._s((sum((x - m) ** 2 for x in self.vals) / (len(self.vals) - 1)) ** 0.5)
+
+    def min(self):
+        return self._s(min(self.vals))
+
+    def max(self):
+        return self._s(max(self.vals))
 
 
 class TestRecorder(unittest.TestCase):
@@ -139,6 +172,31 @@ class TestRecorder(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             effective_seed()
         self.assertIn("EQUIV_NO_SEED", str(cm.exception))
+
+    def test_output_stats_are_recorded_and_complete(self):
+        # item 18 asks for a trajectory AND output stats; the first baseline
+        # (job 7551401) shipped with forward_output_stats EMPTY because the hook
+        # recorded only the trajectory. compare_baselines silently compares zero
+        # output quantities in that case.
+        r = EquivalenceRecorder(path=os.path.join(self.d, "o.json"))
+        r.record_step(train_batch_loss=1.0)
+        r.record_output("output_surface", _FakeTensor([1.0, 2.0, 3.0, 4.0], [2, 2]))
+        r.finalize(**CFG)
+        rec = json.loads(Path(os.path.join(self.d, "o.json")).read_text())
+        st = rec["forward_output_stats"]["output_surface"]
+        self.assertEqual(st["shape"], [2, 2])
+        self.assertAlmostEqual(st["mean"], 2.5)
+        self.assertEqual(st["min"], 1.0)
+        self.assertEqual(st["max"], 4.0)
+        for k in ("shape", "mean", "std", "min", "max"):
+            self.assertIn(k, st, "compare_baselines reads %s" % k)
+
+    def test_tensor_stats_needs_no_torch(self):
+        self.assertNotIn("import torch",
+                         (Path(__file__).resolve().parents[1]
+                          / "utils" / "equivalence.py").read_text())
+        s = tensor_stats(_FakeTensor([0.0, 2.0], [2]))
+        self.assertEqual(s["mean"], 1.0)
 
     def test_config_sha256_changes_with_the_file(self):
         a = os.path.join(self.d, "a.yaml")

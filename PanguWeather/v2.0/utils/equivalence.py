@@ -64,15 +64,18 @@ def effective_seed():
 
 
 def tensor_stats(t):
-    """{shape, mean, std, min, max} — summary only, never tensors (DESIGN §7)."""
-    import torch                                    # lazy: see module docstring
-    with torch.no_grad():
-        f = t.detach().float()
-        return {"shape": list(t.shape),
-                "mean": f.mean().item(),
-                "std": f.std().item() if f.numel() > 1 else 0.0,
-                "min": f.min().item(),
-                "max": f.max().item()}
+    """{shape, mean, std, min, max} — summary only, never tensors (DESIGN §7).
+
+    Duck-typed rather than importing torch: this module must stay importable on a
+    login node, where importing torch can hang or core-dump (CLAUDE.md #3). `.detach()`
+    already severs autograd, so `torch.no_grad()` would add nothing here.
+    """
+    f = t.detach().float()
+    return {"shape": list(t.shape),
+            "mean": f.mean().item(),
+            "std": f.std().item() if f.numel() > 1 else 0.0,
+            "min": f.min().item(),
+            "max": f.max().item()}
 
 
 def validate_record(rec):

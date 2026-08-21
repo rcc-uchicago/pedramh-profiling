@@ -1303,6 +1303,15 @@ class Trainer():
                             train_batch_loss=float(loss),
                             batch_grad_norm=float(grad_norm(self.model)),
                             batch_grad_max=float(grad_max(self.model)))
+                        # Item 18 asks for a trajectory AND output stats. These three
+                        # are bound unconditionally by cal_loss() above; the dict is
+                        # overwritten each step, so the record holds the FINAL step's
+                        # outputs — deterministic, since the code path does not vary.
+                        for _n, _t in (("output_surface", output_surface),
+                                       ("output_upper_air", output_upper_air),
+                                       ("output_diagnostic", output_diagnostic)):
+                            if _t is not None and hasattr(_t, "shape"):
+                                self._equiv.record_output(_n, _t)
                     # torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
 
