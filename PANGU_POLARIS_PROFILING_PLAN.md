@@ -351,8 +351,13 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       40.0%, P3 hit at 60.0%, P2 and P4 NOT VERIFIABLE as worded** because
       `--python-backtrace=cuda` produced **zero Python frames** (both underlying mechanisms
       confirmed). **STILL OPEN: the Python source line.** Needs a working Python unwinder;
-      `--python-sampling=true` was accepted but yielded no `.py` frames. **NEW SUB-TARGET:
-      `SelectBackward0` at 30.8% was predicted by nothing and is unexplained.**
+      `--python-sampling=true` was accepted but yielded no `.py` frames. **SUB-TARGET CLOSED same day (§4.11):
+      `SelectBackward0`'s 30.8% is `ComplexReLU(mode="real")` at `activations.py:65-68`** —
+      `zr[..., 0]`, the only `select` in the SFNO path, active by config
+      (`complex_activation: 'real'`). Activating only the real component costs **three
+      full-tensor traversals of 66.4 MB** (clone, strided half-write, and a backward that
+      scatters into zeros of the full base shape). Math-preserving alternative listed,
+      **not measured.**
       → `polaris_bench_report.md` §4.10.
 
 - [ ] **8-original. Attribute `direct_copy`/`conj` to source lines.** `torch.profiler` with

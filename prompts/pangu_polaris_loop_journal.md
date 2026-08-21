@@ -18,6 +18,50 @@ Entry shape (keep it):
 
 ---
 
+## tick 23 — 2026-08-21 — §4.10's unexplained 30.8% CLOSED, free: `ComplexReLU(mode="real")`
+
+- **in flight:** none. No job — the free route again, and again it paid.
+- **prereg:** n/a (source, pinned to config).
+
+- **result.** §4.10's second-largest owner, `SelectBackward0` at **30.8%** — which nothing in
+  §4.5/§4.8/§4.9 predicted — is **`activations.py:65-68`**:
+  `zr = torch.view_as_real(z); outr = zr.clone(); outr[..., 0] = self.act(zr[..., 0])`.
+  `zr[..., 0]` is a **select on the size-2 last dim** (the real/imag split) and is the **only
+  `select` anywhere in the SFNO path** — no other integer indexing, no `unbind`. The branch is
+  **active by config**: `complex_activation: 'real'` (line 237). Base tensor = the field as
+  real = **16,588,800 floats = 66.4 MB**, exactly §4.10's population.
+- **why it costs what it costs:** activating *only the real component* takes **three
+  full-tensor traversals of 66.4 MB** — the `clone` (which exists solely to preserve the
+  imaginary half), the strided half-write, and a backward that must embed the gradient in
+  **zeros of the full base shape**, so half that traffic is provably zeros. Step 3 is inherent
+  to differentiating `select`; **the lever is to avoid the select, not to fight autograd.**
+- **candidate, NOT measured:** `torch.stack([act(zr[...,0]), zr[...,1]], -1)` drops the
+  clone-then-overwrite and hands autograd a `stack` instead of a `select`. **`stack` also
+  allocates** — whether it wins is empirical, and I am not quoting it as a speedup.
+- **an ownership line I want kept sharp:** `mode="real"` (activate only the real part) **is a
+  modelling choice and is jesswan's**. The candidate does not change it — same function,
+  fewer traversals — so it is an optimization under DESIGN §4, not a science change. Blurring
+  those two is how a benchmark quietly changes what the model computes.
+
+- **method note:** I nearly claimed this from `activations.py:67` before checking the mode.
+  `ComplexReLU.forward` has **four** branches and three of them contain no select at all; only
+  `complex_activation: 'real'` in the config makes this one live. Same failure shape as tick
+  20's 768×768×80 — a plausible source match that needs a second constraint before it counts.
+
+- **where item 8 now stands:** targets (2) and (3) closed from source (§4.9); target (1)
+  answered at the aten level (§4.10) with **two of its four owners now traced to source**
+  — 20.0% `BmmBackward0`→`prepare_batch_matrix_for_cublas` (= §4.9's einsum permute) and
+  30.8% this. **Still open: the 40.0% Python `.contiguous()`** (≥12 candidate lines; needs a
+  working Python unwinder) and the 9.2% `ToCopyBackward0`.
+
+- **next:** the loop has now produced three math-preserving optimization candidates
+  (§4.9 weight layout, §4.11 activation, §4.9's zero-pad buffer) and **none can be adopted**:
+  DESIGN §4 gates every one on an equivalence baseline that **item 18 records as
+  non-existent**. That, not another capture, is the critical path.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 22 — 2026-08-21 — item 8 target (1) answered at the ATEN level: four owners, 60% backward
 
 - **in flight:** none. Job **7551282** completed `ATTRIB_OK`.

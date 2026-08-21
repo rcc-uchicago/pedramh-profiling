@@ -1537,6 +1537,53 @@ narrower framing was wrong.
 - 20 measured steps × 4 ranks, one job.
 
 
+### 4.11 §4.10's unexplained 30.8% is `ComplexReLU(mode="real")` — three traversals to activate half a tensor
+
+*Free follow-on to §4.10; no job. Source, pinned to the config.*
+
+§4.10's second-largest owner — **`SelectBackward0` → `select_backward_symint`, 30.8%** — was
+predicted by nothing in §4.5, §4.8 or §4.9. It is `activations.py:65-68`:
+
+```python
+elif self.mode == "real":
+    zr = torch.view_as_real(z)
+    outr = zr.clone()                      # (1) full-tensor copy
+    outr[..., 0] = self.act(zr[..., 0])    # (2) select + (3) strided write to half
+    out = torch.view_as_complex(outr)
+```
+
+`zr[..., 0]` is a **`select` on the size-2 last dimension** — the real/imaginary split of
+`view_as_real`. It is the **only `select` anywhere in the SFNO path** (no other integer
+indexing, no `unbind`), and the branch is **active by configuration**:
+`complex_activation: 'real'` (config line 237), matching `ComplexReLU`'s own default. The
+base tensor is the spectral field as real — **16,588,800 floats = 66.4 MB**, exactly §4.10's
+population.
+
+**Why it is expensive.** Applying an activation to only the real component costs **three
+full-tensor traversals of 66.4 MB**:
+
+| # | op | when | cost |
+|---|---|---|---|
+| 1 | `zr.clone()` | forward | full copy, existing solely to preserve the imaginary half |
+| 2 | `outr[..., 0] = …` | forward | strided write over half the elements |
+| 3 | `SelectBackward0` | **backward** | allocates **zeros of the full base shape** and scatters the gradient into `[..., 0]` — **§4.10's 30.8%** |
+
+Step 3 is inherent to how autograd differentiates `select`: the gradient must be embedded in
+a zero tensor of the *base* shape, so half the traffic is provably zeros. **The lever is to
+avoid the select, not to change autograd.**
+
+**A math-preserving alternative exists** — e.g. `torch.stack([act(zr[..., 0]), zr[..., 1]],
+dim=-1)`, which drops the clone-then-overwrite and gives autograd a `stack` rather than a
+`select`. **This is NOT yet measured and must not be quoted as a speedup**: `stack` also
+allocates, and whether it wins is an empirical question. Listed as a candidate.
+
+**Ownership note:** `mode="real"` — activating only the real component — *is* a modelling
+choice and belongs to jesswan. The candidate above **does not change it**; it computes the
+same function with fewer traversals, so it is an optimization under DESIGN §4 (equivalence
+gate required) rather than a science change (sign-off required). That distinction matters
+here and should not be blurred.
+
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move
