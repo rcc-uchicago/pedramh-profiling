@@ -56,10 +56,28 @@ this doc discharges.
 > 3. Pre-loading the versions that *do* exist (`gcc-native/14` + `cray-hdf5-parallel/1.14.3.9`) then
 >    `module load conda` — the modulefile pins exact patch versions, so this does not satisfy it.
 >
-> **What would unblock it** (untested, needs a decision): activate the conda install directly,
-> bypassing the modulefile — the installs under `/soft/applications/conda/<date>/` exist independently
-> of the broken module. Otherwise it is an **ALCF ticket**: the `conda` modulefiles need re-pinning
-> to the current PE.
+> **Second, separate breakage in the same install (found 2026-08-20, refined 2026-08-21).** That
+> conda's torch **2.8.0** — the version every Pangu measurement used — has two unresolved
+> `DT_NEEDED` libs in `torch/lib/libtorch_global_deps.so`:
+> * `libcudart.so.13` — **resolvable.** It exists at
+>   `/soft/compilers/cudatoolkit/cuda-13.0.1/lib64/`, and adding that dir to `LD_LIBRARY_PATH` drops
+>   the unresolved count from 2 to 1. ⚠ **An earlier version of this note said "no `LD_LIBRARY_PATH`
+>   fix exists" — that was wrong for this half.**
+> * `libmpi_gnu_123.so.12` — **not present anywhere.** Only `mpich/9.1.0` is installed and it ships
+>   `libmpi_gnu.so.12`; the `_123` soname (gcc 12.3) came from an older cray-mpich that the PE roll
+>   removed. Searched `/opt/cray/pe/mpich/*/ofi/gnu/*/lib`.
+>
+> **Tested and failed, do not re-try:** all **14** `conda/*` module variants (including every
+> `-aws-nccl-*` and `-xalt`), under **both** the default `PrgEnv-nvidia` and `PrgEnv-gnu` trees — the
+> pinned `1.14.3.5` / `14.2` exist in neither. All five envs under `$MEMBER_ROOT/conda-envs/`:
+> `sfno-venv` and `polaris-topups` inherit the broken base torch; `ai-rossby-venv` has 2.10.0+cu129,
+> `marshal-train` and `decrypto-serve` 2.6.0+cu124. `SHARED_ROOT` is the same directory, so there are
+> no others.
+>
+> **⚠ STILL OPEN — whether `import torch` actually succeeds with CUDA 13 on the path is UNTESTED.**
+> `libtorch_global_deps.so` failing to load is *caught* by torch's `_load_global_deps`, which then
+> falls through to `_preload_cuda_deps` — so the missing mpi soname may not be fatal. Settling it
+> needs one real import, i.e. a job (importing torch on a login node is forbidden, CLAUDE.md #3).
 
 **Compute-node networking — CORRECTED 2026-07-14.** Several places in this repo said
 "compute nodes have no outbound network". **That is wrong.** Per ALCF's docs the proxy is the
