@@ -18,6 +18,54 @@ Entry shape (keep it):
 
 ---
 
+## tick 24 — 2026-08-21 — item 18 BUILD started: the capture side exists and is proven comparable
+
+- **in flight:** none (no GPU needed yet).
+- **result: `PanguWeather/v2.0/utils/equivalence.py` + 10 passing tests (`EQUIV_RECORDER_OK`).**
+  The half of item 18 that had nothing at all now exists.
+
+- **design decision, and the reason matters.** I did *not* write a standalone harness that
+  drives `Trainer`'s pieces. A harness that re-implements the training step measures
+  something subtly different from what `train.py` computes — and `compare_baselines.py`'s own
+  header warns that comparing two captures which "measure different things" yields "a number
+  that looks valid and means nothing". **The real step loop already computes
+  `train_batch_loss`, `batch_grad_norm` and `batch_grad_max` per step** (train.py:1279,
+  1681-1682), so the recorder only *records* them. Home is `utils/equivalence.py`, following
+  the `utils/vae_noise.py` precedent, so `train.py` imports it naturally and the subtree edit
+  stays minimal.
+
+- **the guard I care most about — a baseline that can pass by OMISSION.**
+  `compare_baselines` iterates `sorted(set(baseline_step) & set(candidate_step))` — the
+  **intersection**. So a record that silently drops a metric mid-run still compares clean on
+  whatever remains and prints `EQUIVALENCE_OK`. `validate_record` therefore rejects an
+  unstable key set outright (`EQUIV_UNSTABLE_KEYS`), plus missing `MUST_MATCH` keys,
+  non-finite values, empty trajectories and length mismatches. **A gate that can pass by
+  omission is worse than no gate.**
+
+- **proven against the real tool, not just my own tests.** Two end-to-end tests feed
+  recorder-produced records to the actual `compare_baselines.py`: identical → `EQUIVALENCE_OK`
+  with a non-zero quantity count; 1% drift → `EQUIVALENCE_FAILED` rc=1. The comparison tool
+  lives in a **different subtree with its own lifecycle**, so blessing our own format without
+  running it would have been self-referential.
+
+- **cluster fact found the hard way, worth recording:** `compare_baselines.py` opens with
+  `from __future__ import annotations`, which is **Python 3.7+**, while the Polaris login
+  node's `python3` is **3.6.15**. **The §4 gate tool cannot be run with the login node's
+  default interpreter.** The tests pick the ai-rossby venv (3.12) instead — safe, because
+  `compare_baselines` is pure `json`/`argparse` and imports no torch. Third time 3.6 has bitten
+  this repo (after `fmean` twice and `subprocess.run(capture_output=)`).
+
+- **still to do for item 18:** the *hook* — a small, contiguous, env-gated call in
+  `train_one_epoch` that feeds `EquivalenceRecorder` and calls `finalize()`, plus the PBS job
+  that runs it at fixed seed / world_size 1 / K=20 and writes `baselines/pangu_sfno_e3sm/`.
+  The recorder is inert unless `PANGU_EQUIV_JSON` is set, so the hook cannot perturb a normal
+  run — deliberate, since it rides inside the bench-instrumented step (CLAUDE.md #10).
+
+- **next:** the `train_one_epoch` hook + its test, then the baseline job.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 23 — 2026-08-21 — §4.10's unexplained 30.8% CLOSED, free: `ComplexReLU(mode="real")`
 
 - **in flight:** none. No job — the free route again, and again it paid.
