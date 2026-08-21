@@ -212,6 +212,66 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-21** — **makani multi-node DDP: harness built, and the env blocker is CLEARED for
+  makani** (plan item 12, on a different model). Target is the parallel decomposition of
+  **FourCastNet 3** (arXiv:2507.12144 §E.2) — makani's *own* paper. No GPU time spent; nothing
+  submitted. → `makani_multinode_ddp_plan.md`.
+  - **The paper's stage-1 rank budget factorises exactly: 16 batch × 16 ensemble × 4 spatial =
+    1024 H100.** All three are the same `makani/utils/comm.py::init` machinery. Of the three we
+    can run **batch/data parallelism** (4 nodes × 4 A100 = 16 ranks at 1 sample/GPU = **global
+    batch 16**, numerically the paper's value) and, untested, **spatial** (`HPAR`/`WPAR`).
+    **Ensemble parallelism we cannot** — FCN3 is probabilistic (`ensemble_trainer`, CRPS) and our
+    fork runs the *deterministic* trainer, so that group is size 1. Different model, different
+    data, 1/64 the scale ⇒ **scaling behaviour transfers, absolute numbers do not. Not an FCN3
+    reproduction**, and the plan says so in the table rather than in a footnote.
+  - **`module load conda` re-confirmed BROKEN today** (same `cray-hdf5-parallel/1.14.3.5` +
+    `gcc-native/14.2` pins; only `1.14.3.9` and `14` installed). `$SFNO_VENV` has **no torch of
+    its own** — `--system-site-packages` inheriting the base conda's 2.8.0 — so makani was as
+    blocked as Pangu items 7-17.
+  - **⚠️ CORRECTION to `polaris_pbs_notes.md` §1: `libmpi_gnu_123.so.12` is NOT "not present
+    anywhere".** That is true of the *filename* and false of the *library*. `_123` was the old
+    cray-mpich's spelling of the **gcc-12.3** build, and `mpich/9.1.0` ships that build as
+    `libmpi_gnu.so.12` under `.../ofi/gnu/12.3/lib`. SONAME and soversion both stay `12`, so a
+    symlink under the former name is a **rename, not an ABI substitution** — and the conda
+    modulefile's own last line names that soname in a commented-out PyTorch hotfix. With that
+    plus `cuda-13.0.1` for `libcudart.so.13`, **`ldd libtorch_global_deps.so` → 0 unresolved**
+    (login-node link check; an *import* still needs the probe job).
+  - **h5py is a separate problem and is NOT shimmable:** 1.14.3.5's
+    `libhdf5_parallel_gnu_123.so.200` → 1.14.3.9's `...gnu.so.310` is a real soversion bump.
+    And it cannot be dodged — `makani/utils/metric.py:19` is a bare `import h5py`, so it is on
+    the import path of *every* makani entrypoint **including `--enable_synthetic_data`**.
+    Fixed with a minimal PyPI overlay (h5py 3.16.0, vendored `libhdf5-*.so.320`), the same
+    `$POLARIS_TOPUPS` pattern, **h5py only** because PYTHONPATH outranks site-packages.
+    `MAKANI_H5PY_OVERLAY_OK`.
+  - **Why substituting an env is legitimate here but not for Pangu:** the 2026-08-21 entry below
+    disqualifies substitution *because every Pangu number was measured on torch 2.8.0*. **makani
+    has no prior profile at all**, so that constraint does not bind it. 2.8.0 was kept anyway —
+    for the opposite reason: it is what the green makani run 7253465 used, so the 1-node arm stays
+    comparable to the only makani evidence that exists. Every CSV row records `torch` and
+    `env_source`.
+  - **Shipped:** `polaris_makani_env.sh` (tries `module load conda` FIRST, reports which path it
+    took, so it self-heals when ALCF fixes the modulefile), `polaris_setup_makani_h5py_overlay.sh`,
+    `polaris_rank_env.sh` (PALS `PMI_*` → `RANK/WORLD_SIZE/LOCAL_RANK`; applies to makani because
+    `makani/utils/comm.py` delegates to *physicsnemo's* `DistributedManager`),
+    `polaris_makani_env_probe.pbs` (3 stages → `MAKANI_ENV_OK`),
+    `polaris_makani_multinode_scaling.pbs` (**one file for 1/2/4 nodes** — `NNODES` from
+    `$PBS_NODEFILE`), `parse_makani_scaling.py` + **9 passing tests**
+    (`MAKANI_SCALING_PARSE_OK`).
+  - **Prereg recorded before any job** (plan §4, 5 falsifiable predictions). The load-bearing one:
+    arm C (4 nodes) `step_ms` ≥ **10%** above arm A (1 node) — i.e. §0b's single-node "comms are
+    free" (1.2% exposed) does *not* survive Slingshot. The one most likely to fail for a boring
+    reason: that the ported fabric block, whose values were measured on **torch 2.10.0+cu129**,
+    still selects `AWS Libfabric` under **2.8.0**'s different bundled NCCL.
+  - **Two guards the harness enforces, because both produce plausible numbers that mean nothing:**
+    (a) N independent `world_size=1` trainers if the rank shim is missing — pinned to a hard error
+    via `PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV` *and* rejected by the parser;
+    (b) an epoch that **wraps**, re-serving cached samples — and the wrap point moves with the
+    global batch, i.e. *along the scaling axis*, so it would bias the result in its own direction.
+    Gated on the real sample count read from the pack.
+  - **Still needed:** `MAKANI_ENV_OK` from the probe job, then arms A/B/C. **Nothing submitted —
+    multi-node and any `qsub` need explicit approval.** Note only smoke-sized makani packs exist
+    (`e3sm_makani`: 1 train year, 18 GB, ~1460 samples), which caps `STEPS × global_batch`.
+
 - **2026-08-21** — **BLOCKED, terminally — and the available workaround is DISQUALIFIED rather than
   merely unattractive: it would silently break comparability with every number in the profile.** No
   GPU time spent this tick.

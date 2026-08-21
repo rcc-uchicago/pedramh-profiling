@@ -1,0 +1,444 @@
+#!/bin/bash -l
+#PBS -N makani_mn_scaling
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=2:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r n
+# ^ `-r n` EXPLICITLY. PBS defaults to rerunnable, and a silent re-run under the
+#   same job id would append a SECOND set of rows to the scaling CSV from a
+#   different allocation, with nothing in the file saying so.
+#PBS -j oe
+# ============================================================================
+# Makani SFNO on E3SM -- MULTI-NODE DDP SCALING PROFILE.
+#
+# The one axis nobody in this repo has ever profiled.  Every Polaris number here
+# is single-node 4x A100, where PANGU_POLARIS_PROFILING_PLAN.md item 6 measured a
+# full NVLink mesh (NV4 between every pair, 82.9-83.1 GB/s, spread 0.24%) and
+# §0b concluded "comms are free" (1.2% exposed).  Across Slingshot 11 that
+# conclusion has no reason to hold, and it is the term that decides whether the
+# 100-epoch arithmetic closes at all.  -> plan item 12.
+#
+# ONE SCRIPT, ANY NODE COUNT.  NNODES is derived from $PBS_NODEFILE, so the
+# whole 1 -> 2 -> 4 sweep is the same file submitted three times:
+#     qsub                    -l select=1:system=polaris polaris/polaris_makani_multinode_scaling.pbs
+#     qsub                    -l select=2:system=polaris polaris/polaris_makani_multinode_scaling.pbs
+#     qsub -q debug-scaling   -l select=4:system=polaris polaris/polaris_makani_multinode_scaling.pbs
+# A command-line `-l select` overrides the directive above.  `debug` allows 1-2
+# nodes; 4 nodes needs `debug-scaling` (<=1 h, one running job per user).
+#
+# RELATION TO THE PAPER (arXiv:2507.12144, FourCastNet 3 -- makani's own paper).
+# §E.2 pre-training stage 1 is 1024 H100 with batch size 16, ensemble size 16 and
+# a 4-fold spatial split.  16 x 16 x 4 = 1024 exactly, so that run's rank budget
+# is a three-way product of batch-, ensemble- and spatial-parallelism -- all three
+# of which are the same makani comm machinery this script drives
+# (makani/utils/comm.py init(model_parallel_sizes=[h,w,fin,fout],
+# data_parallel_sizes=[ensemble,batch])).
+# What we can and cannot mirror, stated plainly rather than implied:
+#   * batch/data parallelism  -- YES. 4 nodes x 4 A100 = 16 ranks at 1 sample/GPU
+#     is GLOBAL BATCH 16, numerically the paper's stage-1 batch size.
+#   * spatial parallelism     -- the mechanism is here (HPAR/WPAR below) and 4-fold
+#     is the paper's stage-1 value, but it has never been exercised in this repo.
+#     Default OFF: an untested model-parallel path must not be able to fail the
+#     DDP scaling measurement, which is the actual deliverable.
+#   * ensemble parallelism    -- NO. FCN3 is a probabilistic model trained with an
+#     ensemble CRPS loss (makani's train_stochastic / ensemble_trainer). This fork
+#     trains a DETERMINISTIC SFNO on E3SM through sfno_training.train_plasim ->
+#     PlasimTrainer -> deterministic_trainer, so the ensemble group is size 1.
+#   * the model and the data  -- NO. FCN3 is a different architecture on ERA5 at
+#     0.25 deg (721x1440); this is SFNO embed_dim 384 / 8 layers on E3SM at
+#     180x360, 58-in/53-out. Scaling BEHAVIOUR transfers; absolute numbers do not.
+# So: this reproduces the paper's parallel DECOMPOSITION at 1/64 scale, on our
+# model. Do not quote it as an FCN3 reproduction.
+#
+# WHAT IT MEASURES, and why weak scaling
+#   Local batch is held at 1 sample/GPU and the global batch grows with the rank
+#   count (4 -> 8 -> 16).  Per-GPU work is therefore CONSTANT and every change in
+#   step time is communication plus load imbalance -- which is the question.
+#   Strong scaling (fixed global batch, shrinking local batch) would instead move
+#   the per-GPU arithmetic and confound the two.  -v LOCAL_BATCH=2 if 40 GB allows.
+#
+# PREREQUISITES (each fails loudly below)
+#   1. bash <repo>/polaris_setup_sfno_venv.sh                     # SFNO_VENV_OK
+#   2. bash polaris/polaris_setup_makani_h5py_overlay.sh          # MAKANI_H5PY_OVERLAY_OK
+#   3. qsub polaris/polaris_makani_env_probe.pbs                  # MAKANI_ENV_OK
+#      Do not skip 3. `module load conda` is broken cluster-side and this script
+#      runs on a hand-reconstructed environment; the probe is what proves it.
+#
+# PASS = MAKANI_MN_SCALING_OK plus a new row in $SCALING_CSV.  Per CLAUDE.md #14,
+# rc=0 is not the pass signal -- a rank that died after the timing print still
+# leaves a plausible-looking log.
+#
+# Knobs:
+#   -v STEPS=60          timed steps (default 60)
+#   -v LOCAL_BATCH=1     samples per GPU (global batch = LOCAL_BATCH * ranks)
+#   -v DATA=real         real | synthetic  (synthetic removes the shared-FS confound)
+#   -v HPAR=1 -v WPAR=1  spatial model parallelism (see the paper note above)
+#   -v NSYS=1            per-rank nsys capture of the NCCL window
+#   -v GPU_ORDER=reverse pair each rank with the GPU on its OWN NUMA node
+#   -v NCCL_DEBUG=WARN   quiet the fabric once the transport is a recorded fact
+#   -v REP=2             label a repetition; interleave reps, never batch them
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# ---- environment ------------------------------------------------------------
+# polaris_env.sh FIRST (it defines MEMBER_ROOT, which the makani bootstrap
+# anchors its shim paths on), then the interpreter/library bootstrap that
+# replaces the broken `module load conda`.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node:  bash ${REPO}/polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+if [ ! -d "${MAKANI_H5PY_OVERLAY:-/nonexistent}" ]; then
+    echo "ERROR MAKANI_H5PY_OVERLAY_MISSING: ${MAKANI_H5PY_OVERLAY:-<unset>}"
+    echo "  makani/utils/metric.py does a bare 'import h5py' and the base conda's h5py is"
+    echo "  linked against the deleted hdf5 1.14.3.5. Build the overlay on a LOGIN node:"
+    echo "      bash ${MAKANI_ROOT}/polaris/polaris_setup_makani_h5py_overlay.sh"
+    exit 3
+fi
+
+# sfno_training lives under <root>/src -- NOT <root>.
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+# NOTE: never add $POLARIS_TOPUPS here -- its torch_harmonics 0.7.4 shadows the
+# venv's 0.9.x because PYTHONPATH outranks site-packages. Gate below catches it.
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# ---- allocation shape -------------------------------------------------------
+NODEFILE="${PBS_NODEFILE:-}"
+if [ ! -s "${NODEFILE}" ]; then echo "ERROR NO_NODEFILE"; exit 2; fi
+NNODES=$(sort -u "${NODEFILE}" | wc -l)
+export GPUS_PER_NODE=4
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+
+STEPS="${STEPS:-60}"
+LOCAL_BATCH="${LOCAL_BATCH:-1}"
+HPAR="${HPAR:-1}"
+WPAR="${WPAR:-1}"
+DATA="${DATA:-real}"
+NSYS="${NSYS:-0}"
+GPU_ORDER="${GPU_ORDER:-default}"
+REP="${REP:-1}"
+SAVE_CKPT="${SAVE_CKPT:-legacy}"
+JOBID="${PBS_JOBID%%.*}"
+
+MODEL_PAR=$(( HPAR * WPAR ))
+if [ $(( NRANKS % MODEL_PAR )) -ne 0 ]; then
+    echo "ERROR MODEL_PARALLEL_INDIVISIBLE: HPAR*WPAR=${MODEL_PAR} must divide ${NRANKS} ranks."
+    exit 2
+fi
+DATA_RANKS=$(( NRANKS / MODEL_PAR ))
+GLOBAL_BATCH=$(( LOCAL_BATCH * DATA_RANKS ))
+
+# EXPORTED, not merely set: the result-parsing python below runs as a child
+# process and reads every one of these out of the environment. A plain shell
+# assignment would leave it writing empty columns into the scaling CSV.
+export NNODES NRANKS LOCAL_BATCH GLOBAL_BATCH DATA_RANKS HPAR WPAR DATA REP \
+       GPU_ORDER STEPS JOBID MODEL_PAR
+# makani's --batch_size is GLOBAL and is split across the DATA group, not the
+# world: train_plasim._resolve_batch_sizes(params, comm.get_size("data")).
+if [ $(( GLOBAL_BATCH % DATA_RANKS )) -ne 0 ]; then
+    echo "ERROR BATCH_NOT_DIVISIBLE: global batch ${GLOBAL_BATCH} vs ${DATA_RANKS} data ranks."
+    exit 2
+fi
+
+EXP_DIR="${MEMBER_ROOT}/runs/makani_mn_scaling"
+RUN_NUM="mn${NNODES}n_b${GLOBAL_BATCH}_h${HPAR}w${WPAR}_${DATA}_rep${REP}_${JOBID}"
+RUN_DIR="${EXP_DIR}/e3sm_mn_scaling/${RUN_NUM}"
+SCALING_CSV="${MAKANI_SCALING_CSV:-${MEMBER_ROOT}/bench/makani_multinode_scaling.csv}"
+mkdir -p "${EXP_DIR}" "$(dirname "${SCALING_CSV}")" || exit 2
+
+echo "=== makani_mn_scaling: $(date -Iseconds) ==="
+echo "jobid=${JOBID}  nodes=${NNODES}  ranks=${NRANKS}  gpus/node=${GPUS_PER_NODE}"
+echo "local_batch=${LOCAL_BATCH}  global_batch=${GLOBAL_BATCH}  data_ranks=${DATA_RANKS}"
+echo "h_par=${HPAR}  w_par=${WPAR}  steps=${STEPS}  data=${DATA}  rep=${REP}"
+echo "run_num=${RUN_NUM}"
+echo "--- nodes in this allocation ---"
+sort -u "${NODEFILE}" | sed 's/^/  /'
+nvidia-smi -L
+polaris_env_report
+makani_env_report
+echo
+
+# ---- import gates -----------------------------------------------------------
+"${PY}" - <<'PY' || { echo "ERROR MAKANI_IMPORT_FAILED"; exit 3; }
+import os, sys
+try:
+    import torch, h5py, torch_harmonics, makani, physicsnemo   # noqa: F401
+    import sfno_training.train_plasim                          # noqa: F401
+except Exception as exc:                                       # noqa: BLE001
+    print("ERROR IMPORT: %r" % (exc,)); sys.exit(3)
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(torch_harmonics.__file__)
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED: %s not under %s" % (got, venv))
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(3)
+print("torch %s / torch_harmonics %s / makani %s / h5py %s"
+      % (torch.__version__, torch_harmonics.__version__,
+         getattr(makani, "__version__", "?"), h5py.__version__))
+PY
+
+# ---- data -------------------------------------------------------------------
+OUTPUT_ROOT="${MAKANI_DATA:-${MEMBER_ROOT}/data/e3sm_makani}"
+if [ "${DATA}" = "real" ]; then
+    if [ ! -f "${OUTPUT_ROOT}/metadata/data.json" ] || [ ! -d "${OUTPUT_ROOT}/train" ]; then
+        echo "ERROR MAKANI_PACK_MISSING: ${OUTPUT_ROOT}"
+        echo "  Either build a pack or re-submit with -v DATA=synthetic (which needs no"
+        echo "  files but still needs the stats/metadata paths below to exist)."
+        exit 2
+    fi
+    _ntrain=$(find "${OUTPUT_ROOT}/train" -name '*.h5' 2>/dev/null | wc -l)
+    echo "data: ${OUTPUT_ROOT}  (${_ntrain} train h5)"
+    # A weak-scaling sweep needs enough DISTINCT samples that the epoch does not
+    # wrap: re-reading samples already in the page cache makes a rank look fast,
+    # and the wrap point moves with the global batch -- i.e. it moves with the
+    # very axis being swept. That would put a systematic bias in exactly the
+    # direction of the result. Gate on the real sample count, not on file count.
+    "${PY}" - "${OUTPUT_ROOT}" "$(( STEPS * GLOBAL_BATCH ))" <<'PY' || exit 2
+import glob, os, sys
+import h5py
+root, need = sys.argv[1], int(sys.argv[2])
+total = 0
+for p in sorted(glob.glob(os.path.join(root, "train", "*.h5"))):
+    with h5py.File(p, "r") as f:
+        total += f["fields_state"].shape[0]
+print("  train samples available: %d ; required: %d" % (total, need))
+if total < need:
+    print("ERROR NOT_ENOUGH_SAMPLES: %d < %d." % (total, need))
+    print("  The epoch would wrap and re-serve cached samples, biasing the step time")
+    print("  low by an amount that grows with the global batch -- i.e. along the")
+    print("  scaling axis. Lower -v STEPS, lower -v LOCAL_BATCH, or pack more years.")
+    sys.exit(2)
+PY
+else
+    echo "data: SYNTHETIC (--enable_synthetic_data): no dataset reads, so the shared"
+    echo "  filesystem and the page cache are removed from the measurement. This is the"
+    echo "  control arm for a scaling loss that might be I/O rather than comms."
+fi
+
+# ---- render the config ------------------------------------------------------
+# Only three things change vs the green e3sm_full.yaml: the epoch is cut to
+# STEPS*GLOBAL_BATCH samples, max_epochs is 1, and print_timings_frequency is on.
+# Model dims, channels and losses are untouched -- this measures the shipped
+# model, not a proxy for it.
+BASE_CFG="${MAKANI_ROOT}/polaris/e3sm_full.yaml"
+RENDERED="${EXP_DIR}/e3sm_mn_scaling.${RUN_NUM}.yaml"
+if [ ! -f "${BASE_CFG}" ]; then echo "ERROR BASE_CONFIG_MISSING: ${BASE_CFG}"; exit 2; fi
+sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
+    -e "s|^e3sm_full:|e3sm_mn_scaling:|" \
+    "${BASE_CFG}" > "${RENDERED}" || exit 2
+"${PY}" - "${RENDERED}" "$(( STEPS * GLOBAL_BATCH ))" <<'PY' || exit 2
+import re, sys
+path, nsamp = sys.argv[1], int(sys.argv[2])
+src = open(path).read()
+def setkey(text, key, val):
+    pat = re.compile(r"^(\s*)%s:.*$" % re.escape(key), re.M)
+    if pat.search(text):
+        return pat.sub(lambda m: "%s%s: %s" % (m.group(1), key, val), text, count=1)
+    return text.rstrip("\n") + "\n    %s: %s\n" % (key, val)
+for k, v in (("n_train_samples_per_epoch", nsamp),
+             ("max_epochs", 1),
+             ("print_timings_frequency", 10),
+             ("log_to_wandb", "!!bool False")):
+    src = setkey(src, k, v)
+open(path, "w").write(src)
+print("rendered %s: n_train_samples_per_epoch=%d max_epochs=1 print_timings_frequency=10"
+      % (path, nsamp))
+PY
+
+# ---- NCCL over Slingshot/CXI ------------------------------------------------
+# Ported value-for-value from physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs,
+# which took it from awikner/physicsnemo @ ai-rossby-amip-v2. Every path below was
+# ls-verified on Polaris 2026-08-14. NOTE these values were measured on that
+# project's torch 2.10.0+cu129; this job runs the base conda's torch 2.8.0, which
+# is a DIFFERENT bundled NCCL -- which is exactly why NCCL_DEBUG stays at INFO
+# below until the transport is a recorded fact for THIS env.
+export NCCL_NET_GDR_LEVEL=PHB
+export NCCL_CROSS_NIC=1
+# Inert with the plugin pinned below (`nm -D` on v1.9.1-aws's libnccl-net.so
+# exports ncclNetPlugin_v2..v8 and no ncclCollNetPlugin_v*), retained so this
+# block stays a faithful copy. Do not read it as evidence CollNet is in play.
+export NCCL_COLLNET_ENABLE=1
+export NCCL_NET="AWS Libfabric"
+export LD_LIBRARY_PATH=/soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/soft/libraries/hwloc/lib/:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/opt/cray/libfabric/2.2.0rc1/lib64:$LD_LIBRARY_PATH
+export FI_CXI_DISABLE_HOST_REGISTER=1
+export FI_MR_CACHE_MONITOR=userfaultfd
+export FI_CXI_DEFAULT_CQ_SIZE=131072
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+
+# torch/distributed/run.py sets OMP_NUM_THREADS=1 when unset; under `mpiexec bash
+# SHIM python` nothing does, and libgomp would default to the 8 CPUs of the rank's
+# affinity mask -- putting 8 OpenMP threads on the same 8 cores as aws-ofi-nccl's
+# progress engine, the very resource --cpu-bind exists to protect. Pin it so the
+# 1-vs-2-vs-4-node comparison stays a comparison.
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+
+# ---- rank -> GPU pairing ----------------------------------------------------
+# polaris_pbs_notes.md §1 measured the GPU<->NUMA map to be REVERSED
+# (dev0->NUMA3 ... dev3->NUMA0, job 7531456). Under `--cpu-bind depth -d 8`
+# local rank 0 gets cores 0-7 = NUMA 0, whose GPU is dev3 -- so the default
+# pairing puts every rank maximally far from its own GPU. Listing the devices
+# in reverse makes logical device r resolve to physical device 3-r, which is
+# the NUMA-local one, and it composes with set_device(local_rank) because every
+# rank still sees all four devices.
+# Default OFF: this is a HYPOTHESIS about §4.4e's undiagnosed host stall, and a
+# scaling baseline should not silently carry an unmeasured change.
+if [ "${GPU_ORDER}" = "reverse" ]; then
+    export CUDA_VISIBLE_DEVICES=3,2,1,0
+    echo "GPU_ORDER=reverse -> CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} (NUMA-local pairing)"
+else
+    echo "GPU_ORDER=default -> stock device order (rank is NOT NUMA-local to its GPU; see notes §1)"
+fi
+
+# ---- distributed wireup -----------------------------------------------------
+export MASTER_ADDR="$(head -1 "${NODEFILE}")"
+export MASTER_PORT="${MASTER_PORT:-29500}"
+# Pinning ENV takes manager.py's `elif` branch, which has no try/except. With it
+# unset, initialize_env() runs inside `except TypeError`, finds no SLURM_PROCID
+# and no OMPI_COMM_WORLD_RANK (PALS exports only PMI_*), and falls through to
+# warn("Assuming this is a single process job") -- i.e. NRANKS independent
+# world_size=1 trainers that all "succeed" and produce a meaningless scaling row.
+export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
+SHIM="${MAKANI_ROOT}/polaris/polaris_rank_env.sh"
+if [ ! -f "${SHIM}" ]; then echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 2; fi
+
+TRAIN_ARGS=(
+    -m sfno_training.train_plasim
+    --yaml_config "${RENDERED}"
+    --config e3sm_mn_scaling
+    --run_num "${RUN_NUM}"
+    --batch_size "${GLOBAL_BATCH}"
+    --multistep_count 1
+    --amp_mode bf16
+    --h_parallel_size "${HPAR}"
+    --w_parallel_size "${WPAR}"
+    --print_timings_frequency 10
+    --skip_validation
+    --save_checkpoint "${SAVE_CKPT}"
+)
+[ "${DATA}" = "synthetic" ] && TRAIN_ARGS+=( --enable_synthetic_data )
+
+# ---- optional per-rank nsys -------------------------------------------------
+# Rank 0 is the only rank makani logs from (train_plasim sets log_to_screen =
+# (world_rank == 0)), so the aggregate log CANNOT answer plan item 12's actual
+# question -- per-rank exposed NCCL. nsys per rank can. `%q{PMI_RANK}` gives each
+# rank its own report; --capture_type cupti makes makani's CUDAProfiler drive
+# cudaProfilerStart/Stop so only the requested step window is captured.
+NSYS_PREFIX=()
+NSYS_DIR="${MEMBER_ROOT}/bench/nsys_makani_mn_${RUN_NUM}"
+if [ "${NSYS}" = "1" ]; then
+    NSYS_BIN="${NSYS_BIN:-/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys}"
+    if [ ! -x "${NSYS_BIN}" ]; then echo "ERROR NSYS_MISSING: ${NSYS_BIN}"; exit 2; fi
+    mkdir -p "${NSYS_DIR}"
+    CAP_START=$(( STEPS / 2 ))
+    CAP_STOP=$(( CAP_START + 10 ))
+    echo "nsys: ${NSYS_DIR}  capture steps ${CAP_START}..${CAP_STOP}  (all ${NRANKS} ranks)"
+    echo "  nsys=$("${NSYS_BIN}" --version | head -1)"
+    # Flag set copied from the proven polaris_rebaseline_nsys.pbs recipe.
+    NSYS_PREFIX=(
+        "${NSYS_BIN}" profile
+        --trace=cuda,nvtx,cudnn,cublas,osrt
+        --capture-range=cudaProfilerApi
+        --capture-range-end=stop
+        --output="${NSYS_DIR}/rank_%q{PMI_RANK}"
+        --force-overwrite=true
+    )
+    TRAIN_ARGS+=(
+        --capture_type cupti
+        --capture_mode training
+        --capture_range_start "${CAP_START}"
+        --capture_range_stop "${CAP_STOP}"
+        --capture_prefix "${NSYS_DIR}/trace"
+        --capture_ranks $(seq -s ' ' 0 $(( NRANKS - 1 )))
+    )
+fi
+
+# ---- launch -----------------------------------------------------------------
+#  * `--cpu-bind depth -d 8` IS MANDATORY. Without it aws-ofi-nccl's CPU-side
+#    progress engine starves and inter-node all-reduce drops 9.1x (4.08 vs
+#    36.93 GB/s busbw; colleague's job 7368993). It fails SILENTLY -- no error,
+#    just a slow run -- so on a scaling study it would masquerade as the very
+#    result being measured. 4 ranks/node x depth 8 = 32 = the physical cores.
+#  * `--label --line-buffer`: PALS defaults to neither, so without them 16 ranks'
+#    stdout arrives unlabelled and fully buffered, the ordering in a `-j oe` log
+#    is a flush artifact rather than causality, and a walltime kill loses the tail
+#    entirely (CLAUDE.md #14: a truncated log is not a result).
+#  * `bash ${SHIM}` maps PALS' PMI_* onto RANK/WORLD_SIZE/LOCAL_RANK.
+#  * absolute interpreter, never bare `python`/`torchrun`: the bare names resolve
+#    to the base conda's, whose shebang pins the wrong interpreter.
+cd "${MAKANI_ROOT}" || exit 2
+LOG="${EXP_DIR}/${RUN_NUM}.log"
+echo "--- launching (log tee'd to ${LOG}) ---"
+set -o pipefail
+mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${SHIM}" \
+    "${NSYS_PREFIX[@]}" "${PY}" "${TRAIN_ARGS[@]}" 2>&1 | tee "${LOG}"
+rc=$?
+set +o pipefail
+echo "--- train rc=${rc} ---"
+
+# ---- results ----------------------------------------------------------------
+# Delegated to parse_makani_scaling.py rather than an inline heredoc so it can be
+# tested without an allocation (test_parse_makani_scaling.py, 9 tests). That is
+# not tidiness: the two guards it applies -- world_size sanity and which
+# transport NCCL chose -- are the difference between a scaling number and a
+# plausible-looking number, and both are cheap to get subtly wrong.
+if [ ! -s "${LOG}" ]; then echo "ERROR NO_LOG"; exit 4; fi
+
+"${PY}" "${MAKANI_ROOT}/polaris/parse_makani_scaling.py" \
+    --log "${LOG}" --csv "${SCALING_CSV}" \
+    --jobid "${JOBID}" \
+    --nodes "${NNODES}" --ranks "${NRANKS}" \
+    --local-batch "${LOCAL_BATCH}" --global-batch "${GLOBAL_BATCH}" \
+    --h-par "${HPAR}" --w-par "${WPAR}" \
+    --data "${DATA}" --rep "${REP}" --gpu-order "${GPU_ORDER}" \
+    --nsys "${NSYS}" --steps "${STEPS}" \
+    --env-source "${MAKANI_ENV_SOURCE}" --omp-threads "${OMP_NUM_THREADS}"
+csv_rc=$?
+
+if [ "${NSYS}" = "1" ]; then
+    _n=$(find "${NSYS_DIR}" -name '*.nsys-rep' 2>/dev/null | wc -l)
+    echo "nsys reports written: ${_n} (expected ${NRANKS})"
+    [ "${_n}" -eq "${NRANKS}" ] || echo "WARN NSYS_INCOMPLETE: fewer reports than ranks."
+    echo "  Export one with:  ${NSYS_BIN:-nsys} export --type=sqlite --output=X.sqlite X.nsys-rep"
+fi
+
+echo
+echo "TRAIN_DONE nodes=${NNODES} ranks=${NRANKS} global_batch=${GLOBAL_BATCH} \
+h_par=${HPAR} w_par=${WPAR} data=${DATA} rep=${REP} gpu_order=${GPU_ORDER} rc=${rc}"
+if [ ${rc} -eq 0 ] && [ ${csv_rc} -eq 0 ]; then
+    echo "MAKANI_MN_SCALING_OK  run_dir=${RUN_DIR}  csv=${SCALING_CSV}"
+    echo "  Before comparing node counts: confirm the transport line above, and remember"
+    echo "  the single-node arm is the only one where NCCL never leaves NVLink."
+else
+    echo "ERROR MAKANI_MN_SCALING_FAILED train_rc=${rc} csv_rc=${csv_rc}"
+    echo "  Read the FIRST rank's error, not the last: a fabric problem surfaces as"
+    echo "  ${NRANKS} stacks of which only the first is the cause."
+fi
+exit $(( rc | csv_rc ))
