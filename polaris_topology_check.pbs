@@ -51,10 +51,36 @@ REPO="${PBS_O_WORKDIR}"
 # ---- PanguWeather/v2.0/HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs, minus the
 # ---- PYTHONPATH/topups lines (see the header note).
 module use /soft/modulefiles
-module load conda
-conda activate base
+module load conda 2>&1 || true
+conda activate base 2>/dev/null || true
 # shellcheck disable=SC1091
 source "${REPO}/polaris_env.sh" || exit 2
+
+# ---- conda-module fallback, added 2026-08-20 after job 7531456 ---------------
+# `module load conda` is currently BROKEN cluster-wide: every conda/* modulefile
+# pins cray-hdf5-parallel/1.14.3.5 and gcc-native/14.2, and the live Cray PE
+# ships only 1.14.3.9 and 14, so Lmod errors and `python` never appears. The
+# INSTALL is fine — only the modulefile is stale (an ALCF-side regression; the PE
+# looks freshly rolled). See polaris_pbs_notes.md §1.
+#
+# So: prefer the module (this block self-heals the moment ALCF re-pins it), and
+# fall back to the interpreter the repo's own SFNO venv already symlinks to.
+# Deriving it from repo state rather than hardcoding a dated path means the
+# fallback follows whatever install the project is actually built against.
+PY_BIN="$(command -v python || true)"
+if [ -z "${PY_BIN}" ]; then
+    echo "WARN CONDA_MODULE_BROKEN: 'module load conda' gave no python — falling back."
+    for cand in "$(readlink -f "${SFNO_VENV}/bin/python" 2>/dev/null)"                 "/soft/applications/conda/2025-09-25/mconda3/bin/python"; do
+        if [ -n "${cand}" ] && [ -x "${cand}" ]; then PY_BIN="${cand}"; break; fi
+    done
+fi
+if [ -z "${PY_BIN}" ] || [ ! -x "${PY_BIN}" ]; then
+    echo "ERROR NO_PYTHON: neither the conda module nor the fallback interpreter"
+    echo "  resolved. Check polaris_pbs_notes.md §1 for the module breakage."
+    exit 7
+fi
+echo "python: ${PY_BIN}"
+"${PY_BIN}" -c 'import sys; print("python", sys.version.split()[0])' || exit 7
 export WANDB_MODE="${WANDB_MODE:-offline}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export MPLBACKEND=Agg
@@ -75,7 +101,7 @@ mkdir -p "$(dirname "${OUT}")"
   echo "=== job ${JOBID} on $(hostname) at $(date -Is) ==="
   echo
   echo "=== 1. measured pairwise GPU bandwidth (plan item 6) ==="
-  python "${REPO}/gpu_topology_check.py"
+  "${PY_BIN}" "${REPO}/gpu_topology_check.py"
   echo
   # (gpu_topology_check.py already prints `nvidia-smi topo -m` itself — the
   # CLAIMED topology — right above its MEASURED matrix, which is the comparison
