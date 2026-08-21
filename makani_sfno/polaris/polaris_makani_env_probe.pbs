@@ -163,9 +163,13 @@ export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
 export OMP_NUM_THREADS=1
 SHIM="${MAKANI_ROOT}/polaris/polaris_rank_env.sh"
 
-mpiexec -n 4 --ppn 4 --hostfile "${NODEFILE}" \
-    --cpu-bind depth -d 8 --label --line-buffer \
-    bash "${SHIM}" "${PY}" - <<'PY'
+# The rank script goes in a FILE, not a heredoc on stdin. PALS mpiexec forwards
+# stdin to ONE rank (rank 0 by default), so `python -` would leave ranks 1-3
+# reading an empty stdin: they would exit without ever calling comm.init and the
+# job would either hang in rank 0's collective or "pass" having proved nothing.
+# The ai-rossby multi-node script passes a path for the same reason.
+RANK_PY="${TMPDIR:-/tmp}/makani_probe_stage3_${PBS_JOBID%%.*}.py"
+cat > "${RANK_PY}" <<'PY'
 import os, sys, torch
 from makani.utils import comm
 
@@ -191,7 +195,12 @@ if rank == 0:
     print("STAGE3_OK")
 comm.cleanup()
 PY
+
+mpiexec -n 4 --ppn 4 --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 --label --line-buffer \
+    bash "${SHIM}" "${PY}" "${RANK_PY}"
 rc=$?
+rm -f "${RANK_PY}"
 echo "--- stage 3 rc=${rc} ---"
 if [ ${rc} -ne 0 ]; then
     echo "ERROR STAGE3_NCCL_FAILED rc=${rc}"
