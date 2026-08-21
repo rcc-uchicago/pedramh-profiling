@@ -93,6 +93,12 @@ run_arm () {                    # run_arm <label> <gc_off:0|1>
     echo "  arm ${label} rc=$?"
 }
 
+# W = throwaway WARM-UP arm, discarded. Job 7549941 showed the whole apparent
+# effect was the FIRST arm: A1 stalled (step_std 0.0770, loader_wait_frac 0.0056)
+# while A2 -- same GC state, same node -- was clean at 0.00058. Without a warm-up
+# arm the treatment and "first in the job" are confounded, and the plain A-then-B
+# ordering would have published a false positive.
+run_arm W  0
 run_arm A1 0
 run_arm B1 1
 run_arm A2 0
@@ -104,12 +110,19 @@ echo "=== CSV rows for this job ==="
 import csv, sys, statistics
 path, jid = sys.argv[1], sys.argv[2]
 rows = [r for r in csv.DictReader(open(path)) if jid in r["run_num"]]
+# Drop the warm-up arm from the comparison, but PRINT it, so the discard is
+# visible rather than silent.
+warm = [r for r in rows if r["run_num"].startswith("gcW")]
+rows = [r for r in rows if not r["run_num"].startswith("gcW")]
 if not rows:
     print("ERROR NO_CSV_ROWS"); sys.exit(4)
 cols = ["run_num", "step_med", "step_p90", "step_mean", "step_std",
         "peak_mem_gb_max_rank", "n_steps_counted"]
 w = [max(len(c), 12) for c in cols]
 print("  " + "".join(f"{c:>{n+2}}" for c, n in zip(cols, w)))
+    for r in warm:
+        print("  " + "".join(f"{r.get(c,'?'):>{n+2}}" for c, n in zip(cols, w))
+              + "   <- WARM-UP, discarded")
 for r in rows:
     print("  " + "".join(f"{r.get(c,'?'):>{n+2}}" for c, n in zip(cols, w)))
 def agg(pred, key):
