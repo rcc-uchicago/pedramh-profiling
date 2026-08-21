@@ -517,7 +517,22 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
 
 ## 4. Tier 3 — gated. List, do not run yet.
 
-- [ ] **18. Capture the missing PanguWeather equivalence baseline.** `baselines/` holds
+- [x] **18. DONE (2026-08-21) — jobs 7551401/7551411/7551439. THE GATE EXISTS AND ITS
+      FLOOR IS 0.000e+00.** `EQUIVALENCE_OK 0.000e+00 <= 2.5e-07 (52 quantities)`: two
+      independent runs of the 1.18 B-param bf16 model are **bitwise identical** over 20
+      steps (20/20 distinct losses, so non-trivial). Artifact:
+      `baselines/pangu_sfno_e3sm/{eager,eager_repeat}.json`; capture side is
+      `PanguWeather/v2.0/utils/equivalence.py` + a 3-insertion hook in `train.py`;
+      comparison reuses `compare_baselines.py` unchanged. **`batch_grad_norm` is recorded
+      but NOT gated** — a sum-of-squares reduction over 1.18 B gradients that drifted
+      17/20 steps at 1.255e-06 in one job and 0/20 in two others, while its own control
+      `grad_max` (a `max`, order-independent) was bitwise stable throughout. ⇒ **items 19,
+      §4.9 and §4.11 are unblocked, and the bar is absolute: any movement in a gating
+      quantity is a real change.** → `polaris_bench_report.md` §4.12.
+
+  <details><summary>original item text</summary>
+
+- [ ] **18-original. Capture the missing PanguWeather equivalence baseline.** `baselines/` holds
       only `ai_rossby_pangu_plasim/` and `ai_rossby_sfno/`. **There is no Pangu
       baseline, so the DESIGN §4.1 gate cannot be closed for any Pangu hot-path
       change** — every optimization above is blocked behind this one item, including
@@ -537,6 +552,8 @@ what `checkpointing` changes. **Every percentage in §0d is a `ckpt3` percentage
       **CHANGELOG's "baseline capture is no longer blocked on building anything" refers to
       the three §4.0 PREREQUISITES (seed knob, VAE hook, tiny config) — it does not mean the
       capture script exists.** It does not.
+  </details>
+
 - [ ] **19. `torch.compile` (rung 1)** — the wired-but-never-exercised knob
       (`TORCH_COMPILE_MODE`). Right lever for §0d's fusion-starved copies, and ACE2's
       evidence says expect the *regional* win (corrector ≈ −2%) not a whole-network

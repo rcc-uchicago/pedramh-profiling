@@ -18,6 +18,66 @@ Entry shape (keep it):
 
 ---
 
+## tick 26 — 2026-08-21 — **item 18 CLOSED. The §4.1 gate exists and its floor is 0.000e+00.**
+
+- **in flight:** none. Jobs 7551401 / 7551411 / 7551439.
+- **prereg `c7d0ca23`: P1 HIT (≤2.5e-7), P2 moot, P3 HIT.** I gave P1 ~45%.
+
+- **result:** `EQUIVALENCE_OK 0.000e+00 <= 2.5e-07 (52 quantities)` — two independent runs of
+  the 1.18 B-param bf16 model are **bitwise identical** over 20 steps. Non-trivial: 20/20
+  distinct losses spanning 0.4675, three real output groups
+  (`[1,8,180,360]`, `[1,5,18,180,360]`, `[1,3,180,360]` — the 180×360 grid independently
+  corroborates §4.11's `h = 180`). Artifact committed as text JSON.
+
+- **the part that took three jobs: separating model behaviour from instrumentation noise.**
+
+  | metric | differing | max rel err | gated |
+  |---|---|---|---|
+  | `train_batch_loss` | 0/20 | 0.000e+00 | ✅ |
+  | `batch_grad_max` | 0/20 | 0.000e+00 | ✅ |
+  | output stats (12) | 0/12 | 0.000e+00 | ✅ |
+  | **`batch_grad_norm`** | **17/20** | **1.255e-06** | ❌ |
+
+  `grad_norm` is a **sum of squares over 1.18 B gradients** (order-dependent accumulation);
+  `grad_max` is a **max** (order-independent) and never moved. Same tensors, same traversal,
+  different operator — that contrast is what settles the mechanism rather than leaving it a
+  guess. It now goes to `diagnostics_non_gating`, outside the only per-step key
+  `compare_baselines` reads. **Not a loosened tolerance (CLAUDE.md #11)** — gating on it
+  would impose a ~1.3e-6 *noise* floor and mask a real 5e-7 change, inverting the gate's
+  purpose. And the drift is **intermittent (0/20, 17/20, 0/20 across the three jobs)**: a
+  consistent noise source could be bounded, an intermittent one produces flaky failures that
+  teach people to re-run until green.
+
+- **three of my own errors this tick, all caught before they became record:**
+  1. **The first baseline (7551401) was incomplete against item 18's own spec** —
+     `forward_output_stats` was **empty**, because I wired the trajectory and forgot the
+     outputs. It reported `0.000e+00` over 60 quantities and *would have closed the item.*
+  2. **n=1.** In 7551401 `grad_norm` happened to agree, so a single job would have recorded
+     "bitwise reproducible, output stats included" — **both halves false.**
+  3. **My stated hypothesis for the 1.255e-06 was wrong.** I predicted bf16 was quantizing
+     away real output differences; the output stats matched *exactly* and the offender was a
+     gradient metric. I checked instead of publishing the guess.
+  Also: a verification script of mine printed "grad_norm drift is still present" when its own
+  data said 0/20 — a wrong inference in my own tooling, corrected on the spot.
+
+- **what this unblocks:** §4.9's weight layout (two lines in-repo), §4.9's zero-pad buffer,
+  §4.11's activation, and item 19 (`torch.compile`). **The bar is now absolute:** with a floor
+  of `0.000e+00`, *any* movement in a gating quantity is a real change in what the model
+  computes. No grey band.
+
+- **trust bounds:** n=3 jobs / 6 runs, **one GPU model, one node, world_size 1, 20 steps**.
+  Item 18's ~1e-5 cross-architecture floor is **not** measured. Multi-rank reproducibility is
+  untested and NCCL ordering is a plausible extra source (§4.4 already showed rank-dependent
+  behaviour).
+
+- **next:** the loop's original mandate (profile) has produced its findings; the natural next
+  item is **19 (`torch.compile`)**, now gated-and-testable — but note the plan's own warning
+  that `InductorError: KeyError: 'complex64'` is likely, since this model's hot path *is*
+  complex64. Alternatively apply §4.9's two-line layout fix behind the new gate.
+- **infra-failure count:** 1/5.
+
+---
+
 ## tick 25 — 2026-08-21 — item 18 PREREG — is the §4 gate even USABLE for Pangu?
 
 - **in flight:** `polaris_equiv_baseline.pbs` written; hook committed (`321bfa89`).

@@ -1584,6 +1584,74 @@ gate required) rather than a science change (sign-off required). That distinctio
 here and should not be blurred.
 
 
+### 4.12 ⭐ The §4.1 gate now EXISTS for PanguWeather — and its floor is **0.000e+00**
+
+*Jobs 7551401 / 7551411 / 7551439 (`debug`, 1 rank, seed 0, K=20). Prereg `c7d0ca23`:
+**P1 hit, P2 moot, P3 hit.** Artifact: `baselines/pangu_sfno_e3sm/{eager,eager_repeat}.json`.*
+
+Plan item 18 asked for a baseline. The question worth asking first was whether a baseline
+is *usable* — if two identical runs disagree, every future "the optimization changed the
+numbers" verdict is indistinguishable from run-to-run noise. So each job ran the **same
+config twice** and compared the records against **each other**.
+
+> **`EQUIVALENCE_OK 0.000e+00 <= 2.5e-07 (52 quantities)`** — two independent runs of a
+> 1.18 B-parameter bf16 model are **bitwise identical** over 20 training steps.
+
+The result is not trivial: the trajectory has **20/20 distinct loss values spanning 0.4675**,
+so the model is genuinely training, and the three output groups are real
+(`output_surface [1,8,180,360]`, `output_upper_air [1,5,18,180,360]`,
+`output_diagnostic [1,3,180,360]`). *(The 180×360 grid independently corroborates §4.11's
+`h = 180`.)*
+
+**Getting there required separating model behaviour from instrumentation noise.** The
+per-metric decomposition, over 4 runs:
+
+| metric | steps differing | max rel err | gated? |
+|---|---|---|---|
+| `train_batch_loss` | 0/20 | 0.000e+00 | ✅ |
+| `batch_grad_max` | 0/20 | 0.000e+00 | ✅ |
+| forward output stats (12) | 0/12 | 0.000e+00 | ✅ |
+| **`batch_grad_norm`** | **17/20** | **1.255e-06** | ❌ **no** |
+
+`batch_grad_norm` is a **sum of squares over 1.18 B gradients**, whose accumulation order
+varies between runs. Its own control settles the mechanism: **`grad_max` is a `max`
+reduction — order-independent — and is bitwise stable across every run.** Same tensors, same
+traversal, different operator; only the order-dependent one moves.
+
+It is therefore recorded in `diagnostics_non_gating` rather than `loss_trajectory` (the only
+per-step key `compare_baselines` reads). **This is not loosening a tolerance
+(CLAUDE.md #11):** it declines to gate on a statistic that is provably a property of
+floating-point reduction order rather than of the model. Gating on it would impose a
+**~1.3e-6 noise floor on the entire comparison**, masking a genuine 5e-7 change in what the
+model computes — the exact opposite of what the gate is for.
+
+**The drift is intermittent, which is why it had to be excluded rather than tolerated.**
+`grad_norm` differed on **0/20, 17/20, 0/20** steps across the three jobs. A consistent noise
+source could be bounded; an intermittent one produces **flaky gate failures**, which teach
+people to re-run until green.
+
+#### What this unblocks, and what it now demands
+
+Three math-preserving candidates were blocked behind item 18 — §4.9's weight layout (two
+lines in-repo), §4.9's zero-pad buffer, and §4.11's activation. Each is now testable. And
+because the floor is **0.000e+00**, the bar is absolute: **any change that moves a single
+gating quantity at all is a real change in what the model computes**, not noise. There is no
+grey band to argue inside.
+
+#### Trust bounds
+
+- **n = 3 jobs, 6 runs, one GPU model (A100-40GB), one node.** Item 18's ~1e-5
+  cross-architecture floor is **not** measured here and must not be inferred from this.
+- **20 steps.** Divergence that needs hundreds of steps to appear would not show up.
+- **world_size 1.** Multi-rank reproducibility is untested; NCCL all-reduce ordering is a
+  plausible additional source and §4.4 already showed rank-dependent behaviour.
+- **A near-miss worth recording:** job 7551401 reported `0.000e+00` over 60 quantities and
+  would have closed this item — but its `forward_output_stats` were **empty** (the hook
+  recorded only the trajectory), and `batch_grad_norm` happened to agree in that job. **An
+  n=1 check would have recorded "bitwise reproducible, output stats included" as established
+  fact.** Both halves of that were wrong.
+
+
 ## 5. Memory
 
 **26.98 GB peak of 40 GB**, identical across all three sweep runs (loader workers don't move

@@ -212,6 +212,22 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+2026-08-21 — ⭐ **PanguWeather §4.1 equivalence gate NOW EXISTS, floor = 0.000e+00**
+(plan item 18 CLOSED; jobs 7551401/7551411/7551439). Two independent runs of the 1.18 B-param
+bf16 model are **bitwise identical** over 20 steps —
+`EQUIVALENCE_OK 0.000e+00 <= 2.5e-07 (52 quantities)`, with 20/20 distinct losses so the
+model is genuinely training. Capture side is new
+(`PanguWeather/v2.0/utils/equivalence.py` + a 3-insertion hook in `train.py`, 16 tests);
+comparison reuses `compare_baselines.py` unchanged. Artifact:
+`baselines/pangu_sfno_e3sm/{eager,eager_repeat}.json`. **`batch_grad_norm` is recorded but
+NOT gated** — a sum-of-squares reduction over 1.18 B gradients that drifted 17/20 steps at
+1.255e-06 in one job and 0/20 in two others, while its order-independent control `grad_max`
+was bitwise stable throughout; gating on it would impose a ~1.3e-6 *noise* floor and mask a
+real 5e-7 change. ⇒ **unblocks §4.9's weight-layout fix, §4.9's zero-pad buffer, §4.11's
+activation, and item 19 (`torch.compile`)** — and the bar is absolute: any movement in a
+gating quantity is a real change. Not measured: cross-architecture (~1e-5) or multi-rank
+reproducibility. → `polaris_bench_report.md` §4.12.
+
 2026-08-21 — **`SelectBackward0`'s 30.8% (§4.10) traced to `ComplexReLU(mode="real")`** —
 `activations.py:65-68`, the only `select` in the SFNO path, active by config
 (`complex_activation: 'real'`). Activating only the real component costs **three
