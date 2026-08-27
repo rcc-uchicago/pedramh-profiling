@@ -179,3 +179,29 @@ reads as fork-owned but is not. Keep such edits minimal and contiguous. → note
 `s2s-lightning/LIGHTNING_PORT.md`; SI knobs → `si/CLAUDE.md` (auto-loads under `si/`);
 ai-rossby → `physicsnemo_ai_rossby/CLAUDE.md`; Polaris bring-up →
 `polaris_pbs_notes.md`.
+
+<!-- >>> claude-hpc polaris shell rules >>> -->
+## Shell rules — ALCF Polaris login node (shared, process-capped)
+
+Exceeding the per-user process cap kills this session mid-task.
+
+MUST:
+- Never use the Task or Agent tools or spawn parallel agents here.
+- Never run compute, builds, or I/O-heavy work on login nodes.
+  Submit via qsub. For short jobs only, `qsub -W block=true` as a
+  single blocking call (debug queue, walltime under the Bash tool
+  timeout); otherwise submit, report the job ID, and stop. Check
+  `qstat -x <id>` at most once per user request — never in a loop.
+- Never search or list files outside this project directory.
+
+PREFER:
+- Read/Grep/Glob tools over shelling out to cat, grep, find, ls.
+- One Bash call per logical step: chain with && or write a script
+  with the Write tool and run it once.
+- `conda run -n <env>` over `conda activate`.
+
+Example — inspect job output:
+BAD:  `ls out/` then `head out/run.log` then `qstat` (3 calls)
+GOOD: Read tool on out/run.log, or
+      `ls out/ && tail -20 out/run.log && qstat -x 12345` (1 call)
+<!-- <<< claude-hpc polaris shell rules <<< -->
