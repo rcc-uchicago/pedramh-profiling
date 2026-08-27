@@ -2,10 +2,12 @@
 
 Wires three pieces into stock Makani **without editing core**:
 
-1. ``_install_plasim_patches()`` — rebinds three module attributes:
+1. ``_install_plasim_patches()`` — rebinds four module attributes:
      - ``makani.models.model_registry.SingleStepWrapper`` → ``PlasimSingleStepWrapper``
      - ``makani.models.model_registry.MultiStepWrapper``  → ``PlasimMultiStepWrapper``
      - ``makani.utils.training.deterministic_trainer.get_dataloader`` → ``_plasim_get_dataloader``
+     - ``makani.utils.training.deterministic_trainer.sync_params`` → ``_serialized_sync_params``
+       (multi-node model-parallel setup deadlock/IMA; see the function's docstring)
 
    These are ``from X import Y`` module-scope bindings in their importers,
    which are mutable Python module attributes. Rebinding takes effect on
@@ -50,6 +52,7 @@ from sfno_training import compat  # noqa: F401  side-effect: shim install
 from sfno_training.data import PlasimForcingDataset
 from sfno_training.models import PlasimMultiStepWrapper, PlasimSingleStepWrapper
 from sfno_training.trainer.ema import EMAModel
+from sfno_training.trainer import wandb_diagnostics
 
 from makani.models import model_registry
 from makani.utils import comm
@@ -215,6 +218,57 @@ def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
     return dataloader, dataset, sampler
 
 
+def _serialized_sync_params(model, mode="broadcast"):
+    """``makani.mpu.helpers.sync_params`` with NO cross-communicator overlap.
+
+    Stock ``sync_params`` interleaves per-parameter broadcasts across DIFFERENT
+    process groups — ``data`` first, then each group in ``param.is_shared_mp``
+    (helpers.py:82-90). With model parallelism off, every non-``data`` group is
+    size 1 and it degenerates to a single-communicator storm, which is fine.
+    With ``h/w > 1`` on MULTIPLE NODES the alternation deadlocks: NCCL forbids
+    un-ordered concurrent collectives on different communicators, and the lazy
+    per-communicator connection setup makes launch order rank-dependent.
+    Measured on Polaris (2026-08-24, 4 nodes × 4 A100, h=2 w=2): IMA inside
+    NCCL transport.cc with GDRDMA on (job 7554253), a watchdog-timeout hang on
+    these very broadcasts with it off (7554367) — while the SAME config trains
+    clean on one node (7554351), where every group is NVLink and nothing is
+    lazy. Upstream knows something is off here: the call site carries
+    ``# DEBUG: this also needs to be fixed in NCCL``
+    (deterministic_trainer.py:142).
+
+    Semantics are byte-identical to stock — same groups, same order, same
+    roots, same complex-view handling; ``mode="mean"`` still delegates. The
+    only delta is a ``torch.cuda.synchronize()`` after each broadcast, so no
+    two communicators ever have kernels in flight at once. Setup-time only —
+    the training step never runs through here.
+    """
+    if mode != "broadcast":
+        from makani.mpu.helpers import sync_params as _stock_sync_params
+        return _stock_sync_params(model, mode=mode)
+
+    with torch.no_grad():
+        for param in model.parameters():
+            if not hasattr(param, "is_shared_mp"):
+                param.is_shared_mp = ["model"]
+            for group in ["data"] + list(param.is_shared_mp):
+                if comm.get_size(group) < 2:
+                    continue
+                buf = (
+                    torch.view_as_real(param).clone()
+                    if param.is_complex()
+                    else param.clone()
+                )
+                dist.broadcast(
+                    buf, src=comm.get_root(group), group=comm.get_group(group)
+                )
+                torch.cuda.synchronize()
+                param.copy_(
+                    torch.view_as_complex(buf) if param.is_complex() else buf
+                )
+    if dist.is_initialized():
+        torch.cuda.synchronize()
+
+
 # ---------------------------------------------------------------------------
 # Patch installer
 # ---------------------------------------------------------------------------
@@ -222,7 +276,7 @@ _PATCHES_INSTALLED: bool = False
 
 
 def _install_plasim_patches() -> None:
-    """Rebind the three Makani module attributes. Idempotent."""
+    """Rebind the four Makani module attributes. Idempotent."""
     global _PATCHES_INSTALLED
     if _PATCHES_INSTALLED:
         return
@@ -230,6 +284,7 @@ def _install_plasim_patches() -> None:
     model_registry.SingleStepWrapper = PlasimSingleStepWrapper
     model_registry.MultiStepWrapper = PlasimMultiStepWrapper
     deterministic_trainer.get_dataloader = _plasim_get_dataloader
+    deterministic_trainer.sync_params = _serialized_sync_params
 
     _PATCHES_INSTALLED = True
     logger.info("installed PlaSim trainer patches")
@@ -276,6 +331,14 @@ class PlasimTrainer(Trainer):
         self.logger = logging.getLogger()
 
         super().__init__(params, world_rank, device)
+
+        # Pangu-parity per-iteration wandb diagnostics (metrics contract:
+        # wandb_metrics_report.md / ai_rossby_finegrained_wandb_handoff.md).
+        # log_to_wandb is already rank-0-gated by train_plasim, and every
+        # bench/scaling render forces it False, so the profiling path never
+        # executes this -- CLAUDE.md #10.
+        if self.log_to_wandb:
+            wandb_diagnostics.install(self)
 
         # ---- Warm-start load (plan: 2026-05-14_v11_clip_warmstart_continuation_plan §4.1) ----
         # Must run AFTER super().__init__ (so self.model exists with the
@@ -721,7 +784,32 @@ class PlasimTrainer(Trainer):
         base.setdefault("validation steps", 0)
         base.setdefault("validation loss", float("nan"))
         valid_logs.setdefault("metrics", {})
-        return super().log_epoch(train_logs, valid_logs, timing_logs)
+        result = super().log_epoch(train_logs, valid_logs, timing_logs)
+
+        # Flat epoch keys for the cross-project contract (`valid_loss` /
+        # `train_loss` epoch marks + learning rate), logged WITHOUT `step=`.
+        # Context: makani's native epoch logging uses `step=self.epoch`
+        # (deterministic_trainer.py:725-731, :386), which wandb DROPS as
+        # out-of-order once the per-iteration diagnostics advance the auto
+        # step counter into the thousands. This block re-logs that content
+        # flat so nothing is lost; the makani-named epoch panels are replaced
+        # by these, not silently missing.
+        if self.log_to_wandb:
+            import wandb
+
+            flat = {
+                "train_loss_epoch": float(train_logs.get("loss", float("nan"))),
+                "valid_loss": float(base.get("validation loss", float("nan"))),
+                "learning_rate": float(self.optimizer.param_groups[0]["lr"]),
+                "epoch": int(self.epoch),
+            }
+            flat.update({k: v for k, v in train_logs.items() if np.isscalar(v)})
+            flat.update({k: v for k, v in base.items() if np.isscalar(v)})
+            flat.update(
+                {k: v for k, v in valid_logs["metrics"].items() if np.isscalar(v)}
+            )
+            wandb.log(flat)
+        return result
 
     def _save_best_ema_checkpoint(self, epoch: int, ema_loss: float) -> None:
         """Emit ``best_ckpt_ema_mp{mp_rank}.tar`` (plan §7.2(e)).
