@@ -289,9 +289,13 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     now give the identical answer, so the ALCF ticket §4b can state the ENOSYS root cause as
     **CXI-provider-side and NCCL-version-independent** rather than as one env's observation.
     ⚠ Still single-node: this proves the domain opens, NOT that inter-node traffic flows.
-  - ⚠ **`debug` rejects a second QUEUED job per user** ("would exceed queue generic's per-user
-    limit of jobs in 'Q' state"), so the handoff §0.8 recipe of pre-submitting a whole
-    `-W depend=` chain **does not work in this queue** — links must go in one at a time.
+  - ⚠ **CLUSTER FACT, and a correction to the first version of this entry: the limit is ONE
+    JOB PER QUEUE in Q/H state, not "no dependency chains".** First reading was wrong. A
+    second `debug` submission is refused ("would exceed queue generic's per-user limit of jobs
+    in 'Q' state") — but a `-W depend=afterany:` job lands in **`H`**, and a `debug-scaling`
+    job in `Q` **plus** a `debug` job in `H` is accepted (measured: 7568641 Q + 7568642 H).
+    ⇒ the handoff §0.8 dependency-chain recipe **does work**, one link per queue, and the
+    ladder can be driven two-queues-deep rather than strictly one job at a time.
   - **Blocker found and fixed: the SFNO parity gate was failing, so PREFLIGHT 1 of BOTH
     ai-rossby multi-node launchers was dead** — the pre-existing 4-node test as well as the
     new ladder. `compare_sfno_parity.py --static` reported `SFNO_SOURCE_DIVERGED 3/7`, and all
@@ -312,17 +316,31 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **Both launcher preflights verified from a login node before any trainer allocation:**
     PREFLIGHT 1 `SFNO_PARITY_OK`; PREFLIGHT 2 `VARIABLE_PARITY_OK 19/19` on
     `train/2015.zarr` in **0.13 s** — so the 30-store loop costs ~4 s, not a reason to trim it.
-  - **▶ RESUME HERE** (session paused 2026-08-27 after the two 1-node probes; nothing is
-    running, no job is queued, working tree clean on `feat/multinode-ddp-port`):
-    ```bash
-    cd physicsnemo_ai_rossby          # qsub resolves the script relative to cwd
-    qsub -q debug-scaling polaris/polaris_ai_rossby_nccl_mn_probe.pbs   # MN_NCCL_PROBE_OK, 4 nodes
-    qsub -l select=1:system=polaris polaris/polaris_ai_rossby_multinode_scaling.pbs  # 1n smoke
-    qsub -l select=2:system=polaris polaris/polaris_ai_rossby_multinode_scaling.pbs  # 2n smoke
-    ```
-    Operator approved scope was: three probes + the 1n/2n smokes, then stop before the ladder.
-    Two of the three probes are done and green. ⚠ `debug`/`debug-scaling` take **one job at a
-    time** per user (see above), so these go in singly, not as a `-W depend=` chain.
+  - **▶ IN FLIGHT — submitted 2026-08-27 21:09 to run unattended, ANALYSE THESE FIRST:**
+    | job | what | queue | PASS token | reads |
+    |---|---|---|---|---|
+    | **7568641** | 4-node app-free NCCL probe, v1.21.1+AUTO | `debug-scaling` | `MN_NCCL_PROBE_OK ranks=16` | `physicsnemo_ai_rossby/ai_rossby_nccl_mn_probe.o7568641` |
+    | **7568642** | **1-node ladder smoke (arm A)** — held on 7568641 | `debug` | `AI_ROSSBY_MN_SCALING_OK` + a CSV row | `.../ai_rossby_mn_scaling.o7568642` |
+    | *pending* | **2-node smoke (arm B)** — held on 7568642 | `debug` | same | see the helper log below |
+    - **7568641 is the gate that matters.** Everything measured so far is single-node, i.e. it
+      proves the CXI domain OPENS; this is the first evidence that inter-node traffic actually
+      FLOWS under torch 2.10. A wedge here blocks the ladder and is ticket-grade (§4b).
+    - **7568642 is the first ai-rossby scaling row ever** and the anchor for prereg
+      prediction 3: arm B − arm A should land in **190–750 ms**.
+    - The 2-node arm could not be queued immediately (one job per queue, above). A detached
+      one-shot helper retries `qsub` every 15 min, up to 10 tries, always with
+      `-W depend=afterany:7568642` so the arms cannot overlap and contend for nodes:
+      `physicsnemo_ai_rossby/polaris/submit_2n_smoke_when_slot_frees.sh`, log at
+      `$MEMBER_ROOT/polaris_logs/submit_2n_smoke.log` (`SMOKE_2N_QUEUED` = it got in).
+      It retries **qsub**, never `qstat` — CLAUDE.md forbids a qstat poll loop on a login
+      node. If it gave up, the fallback command is printed in its log.
+    Approved scope was three probes + the 1n/2n smokes, **then stop before the ladder**. Two
+    probes are done and green; these three close it out.
+  - **Reading the results when they land:** PASS is the token, never `rc` (#14). For the
+    smokes also check, in the log: `transport` = `AWS Libfabric`, `world_sizes_seen` = 4 then
+    8, `ranks_reporting` = the same, `n_steps` = 60, and the wrap-guard line. The parser
+    refuses a row that fails any of these, so a written CSV row with `csv_rc=0` already
+    carries them — the CSV lives at `$MEMBER_ROOT/bench/ai_rossby_multinode_scaling.csv`.
   - **Open:** ≥2-node NCCL probe → 1n then 2n launcher smokes → the
     ladder. Prereg prediction 3 is the one that matters: makani paid a roughly *constant*
     +375 ms whenever the fabric was touched, so ai-rossby should pay a similar absolute
