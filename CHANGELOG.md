@@ -212,6 +212,70 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-27 (cont. 3)** — **MULTI-NODE DDP PORT, HARNESS 1 OF 3: ai-rossby bring-up BUILT
+  and committed; measurement started.** Branch `feat/multinode-ddp-port`, stacked on the
+  unmerged `profile/pangu-polaris-profiling` (**merge order: `profile/pangu-polaris-profiling`
+  FIRST, then this** — the repo has been burned by silent stacking before). Working from
+  `polaris_multinode_ddp_port_handoff.md` §3a; prereg in the new
+  `ai_rossby_multinode_ddp_plan.md`, committed **before** the first ladder job.
+  - **Two dead spots found in `polaris_sfno_e3sm_multinode.pbs`, not one.** The handoff flags
+    it as the origin of the stale fabric block. It was *also* opening with a bare
+    `module load conda`, broken cluster-side since the 2026-08 PE roll (notes §1) — i.e. the
+    script could not start at all, and back-porting only the fabric block would have produced
+    a launcher that still failed. New `polaris/polaris_ai_rossby_env.sh` (sibling of
+    `polaris_makani_env.sh`) tries the sanctioned module first, reconstructs `2025-09-25.lua`
+    by hand when it fails, and reports which path it took in `AI_ROSSBY_ENV_SOURCE` so two runs
+    from different sources are never tabled together. **Verified on a login node: it lands on
+    `manual-reconstruction`**, i.e. the modulefile is still broken today.
+    Three deliberate deltas vs the makani file, all documented in its header: **no** torch-2.8
+    `DT_NEEDED` repair (this venv's torch 2.10 ships the whole nvidia stack as wheels), **no**
+    h5py overlay (zarr harness; `include-system-site-packages=false`), and **no**
+    `/soft/libraries/nccl` prepend — that last one would put NCCL 2.28.3 ahead of the venv's
+    own bundled NCCL, i.e. silently change the comm library under a scaling measurement.
+  - **Fabric block corrected in place** (§3a sanctions the back-port here): the shipped pin was
+    `v1.9.1-aws` + `/opt/cray/libfabric/2.2.0rc1`, both `ls`-verified 2026-08-14 and both gone
+    by 2026-08-23. A nonexistent dir on `LD_LIBRARY_PATH` is IGNORED, not honoured — the
+    original 7553811 defect. Now the measured pin (self-built **v1.21.1 +
+    `OFI_NCCL_PROGRESS_MODEL=AUTO`** + cray 2.3.1) **plus a hard exit on any missing path**,
+    which is the half that makes the failure class impossible rather than fixing one instance.
+    Explicitly NOT v1.6.0+Simple: handoff §1 forbids it for a new model (its progress engine
+    drops small broadcasts *by tensor size*, job 7565896, and DDP's initial parameter broadcast
+    on 1.18 B params is exactly that traffic).
+  - **New:** `polaris_ai_rossby_multinode_scaling.pbs` — one script, any node count, carrying
+    MASTER provisioning, the corrected fabric block, the `TARGET_NODES`+spare GPU preflight,
+    `--cpu-bind depth -d 8`, `OMP_NUM_THREADS=1`, `TMPDIR=/tmp`, write-side isolation from the
+    production run (all `realpath -m`-normalised, because `/eagle` is a symlink), and an
+    **exact** wrap guard: the condition is `steps_per_epoch < STEPS`, and `steps_per_epoch` is
+    the loader's own per-rank count after sharding — the real sample count, not a proxy.
+  - **Parser + 24 tests green with no allocation** (`AI_ROSSBY_SCALING_PARSE_OK`). Guards kept
+    from makani, grammar replaced. Two are new and earn their keep: `world_size` is read
+    **only** off `train.py`'s own per-rank banner (a launcher that echoed `world_size=16` in
+    its header would otherwise satisfy, by construction, the guard that exists to catch N
+    independent world_size=1 trainers — and an absent banner is an ERROR, not a silent pass);
+    and `ranks_reporting` counts distinct PALS labels, because world_size can be right while
+    four ranks are missing. Timings come from the **epoch-telemetry CSV**, an existing
+    cross-project contract, not from its printed line (rounded to 0.1 ms, no p90/mean/std/wall).
+  - **Store decided, on the handoff's own criterion:** `$AI_ROSSBY_DATA/e3sm`, the **per-year**
+    lineage (30 train stores 2015–2044), read off the production run's
+    `.hydra/config.yaml` and cross-checked against its log (`steps_per_epoch=10950` ×
+    world 4 = **43,800 samples**). Largest ladder arm needs 1,920 — 22× headroom.
+  - **Three places the handoff contradicts the repo** (its own instruction: trust the repo,
+    log it) — detail in `ai_rossby_multinode_ddp_plan.md` §6: (a) the store verifier it names
+    (`polaris_verify_store.pbs`, `SEQZARR_VERIFIED`) is for the **SeqZarr** lineage, not this
+    one; the matching verifier is `ai_rossby_variable_contract.py --check-artifacts`, already
+    wired as PREFLIGHT 2; (b) the `module load conda` breakage above is absent from its asset
+    table; (c) "rerun the probes per venv" needed an addition — makani's fabric probe tests six
+    `/soft` pairings and does **not** contain the self-built v1.21.1 the handoff mandates, so
+    the sibling adds combo **G**.
+  - **Measurement started: job 7568561** (`polaris_ai_rossby_fabric_probe.pbs`, debug, 1 node).
+    ⚠ **`debug` rejects a second queued job per user** ("would exceed queue generic's per-user
+    limit of jobs in 'Q' state"), so the handoff §0.8 recipe of pre-submitting a whole
+    `-W depend=` chain **does not work in this queue** — links must go in one at a time.
+  - **Open:** probe results and the pins they record; 1n then 2n smokes; then the ladder.
+    Prereg prediction 3 is the one that matters — makani paid a roughly *constant* +375 ms
+    whenever the fabric was touched, so ai-rossby should pay a similar absolute penalty on a
+    ~4× longer step and scale visibly better for no better reason than step length.
+
 - **2026-08-24** — **The paper's parallel layouts are IN the official repo, and the 512-A100 run
   factorizes exactly — plan §1's inference is now upstream-confirmed fact.** Cloned
   NVIDIA/makani to `${MEMBER_ROOT}/external/makani-upstream` (outside the git tree; the pip
