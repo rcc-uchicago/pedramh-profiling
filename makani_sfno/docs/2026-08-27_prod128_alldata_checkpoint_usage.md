@@ -22,10 +22,10 @@ rollout wrapper adds it to the input state.
 | piece | path |
 |---|---|
 | **weights** | `/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/prod128_alldata_v2/training_checkpoints/best_ckpt_mp0.tar` (1.77 GB; = epoch 100; `ckpt_mp0_v0.tar` is the same epoch, `v2`/`v1` are epochs 99/98) |
-| config | `pedramh-profiling/makani_sfno/polaris/e3sm_alldata_full.yaml` |
+| config | `/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/makani_sfno/polaris/e3sm_alldata_full.yaml` |
 | normalization stats | `/eagle/projects/lighthouse-uchicago/members/mehta5/data/e3sm_makani_alldata_production/stats/*.npy` (z-score means/stds + time means for the 101 targets and 7 forcings) |
 | channel contract | same pack root, `metadata/data.json` (channel names + order, level table, fill conventions) |
-| code | `pedramh-profiling/makani_sfno/src/sfno_training/` + `makani==0.2.0`, `torch>=2.8`, `torch_harmonics>=0.9` |
+| code | `/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/makani_sfno/src/sfno_training/` + `makani==0.2.0`, `torch>=2.8`, `torch_harmonics>=0.9` |
 
 **No HPC-specific software is required.** The aws-ofi-nccl / libfabric fabric
 stack this repo documents exists only to carry NCCL traffic BETWEEN nodes
@@ -37,7 +37,8 @@ during multi-node runs; single-GPU or single-node inference never touches it
 ```bash
 pip install torch torch_harmonics
 pip install makani==0.2.0            # or the group's pinned build
-export PYTHONPATH=/path/to/pedramh-profiling/makani_sfno/src:$PYTHONPATH
+export PYTHONPATH=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/makani_sfno/src:$PYTHONPATH
+# (off-Polaris: replace with the path of your copy of the repo's makani_sfno/src)
 ```
 
 ## 3. Inspect / load the raw weights (works anywhere, CPU-only)
@@ -87,7 +88,7 @@ Three semantics you MUST respect if you bypass the wrappers:
 ## 5. Validation on Polaris (internal users — one command, debug node)
 
 ```bash
-cd pedramh-profiling/makani_sfno
+cd /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/makani_sfno
 qsub -l select=2:system=polaris \
   -v RUN_NUM=prod128_alldata_v2,TARGET_NODES=1,SKIP_TRAIN=1,FULL=1,\
 EVAL_SAMPLES=4380,WANDB=1,CONFIG_YAML=e3sm_alldata_full.yaml,\
