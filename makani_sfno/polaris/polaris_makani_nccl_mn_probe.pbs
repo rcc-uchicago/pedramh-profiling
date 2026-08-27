@@ -1,0 +1,164 @@
+#!/bin/bash -l
+#PBS -N makani_nccl_mn_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug-scaling
+#PBS -l select=4:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# App-free NCCL broadcast/all-reduce probe across N nodes -- does the fabric
+# stack itself wedge at 16 ranks, or is the trainer implicated?
+#
+# WHY.  Three 4-node makani runs deadlocked in setup BROADCASTs (7553891 pure
+# DDP, 7554129 h2w2, 7554143 pure DDP + NCCL_ALGO=Ring), all on the one plugin
+# pairing that survives ALCF's libfabric 2.3.1 (aws-ofi-nccl
+# v1.6.0-libfabric-1.22.0 -- job 7553823).  The flight recorder (7554143) put
+# the stall in torch DDP's `_sync_params_and_buffers` weight broadcast on the
+# DEFAULT process group -- the same broadcast that completed fine at 2 nodes
+# (7553897, step_ms 174.6).  Tree vs Ring made no difference, spatial vs pure
+# DDP made no difference.  What has never been separated is: 16-rank NCCL
+# broadcast over this fabric stack WITHOUT makani/physicsnemo/DDP on top.
+#
+# This job is that separation, and it mimics what hangs: a storm of small
+# broadcasts followed by a DDP-sized (100 MB) one, then an all-reduce with a
+# checkable answer.  3-minute collective timeout + async error handling, so a
+# wedge fails in minutes, not walltime.
+#
+#   * MN_NCCL_PROBE_OK (all ranks report)  => fabric fine at this scale;
+#     the trainer path is implicated -- look at makani's grouped comms next.
+#   * a hang/abort here                    => ticket-ready: the only working
+#     plugin pairing on Polaris wedges NCCL broadcast at 4 nodes, app-free.
+#
+# One node count per submission; override with -l select=N.  Knobs pass
+# through qsub -v unchanged: NCCL_ALGO, NCCL_CROSS_NIC, NCCL_NET_GDR_LEVEL --
+# this is deliberately the cheap vehicle for single-variable fabric probes, so
+# knob roulette stops costing a full trainer bring-up per data point.
+#
+# PASS = "MN_NCCL_PROBE_OK ranks=<N>" -- counted from per-rank OK lines, not rc
+# (CLAUDE.md #14).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+NODEFILE="${PBS_NODEFILE:?}"
+NNODES=$(sort -u "${NODEFILE}" | wc -l)
+export GPUS_PER_NODE=4
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+MASTER_ADDR="$(head -1 "${NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29517
+
+# Same fabric pin as the scaling launcher -- measured by 7553823, the only
+# working pairing. Existence-checked for the same reason it is there: a
+# missing dir on LD_LIBRARY_PATH is ignored, not honoured.
+OFI_PLUGIN="${OFI_PLUGIN:-/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib}"
+OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
+for _d in "${OFI_PLUGIN}" "${OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
+    [ -d "${_d}" ] || { echo "ERROR OFI_PATH_MISSING: ${_d}"; exit 3; }
+done
+export LD_LIBRARY_PATH="${OFI_LIBFABRIC}:${OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+export NCCL_NET="AWS Libfabric"
+export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-PHB}"
+export NCCL_CROSS_NIC="${NCCL_CROSS_NIC:-1}"
+export FI_CXI_DISABLE_HOST_REGISTER=1
+export FI_MR_CACHE_MONITOR=userfaultfd
+export FI_CXI_DEFAULT_CQ_SIZE=131072
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+# Fail fast on a wedged collective instead of hanging to walltime.
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-2000}"
+
+OUT="${MEMBER_ROOT}/runs/makani_nccl_mn_probe/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+echo "=== makani_nccl_mn_probe: $(date -Iseconds) ==="
+echo "jobid=${PBS_JOBID%%.*}  nodes=${NNODES}  ranks=${NRANKS}"
+sort -u "${NODEFILE}" | sed 's/^/  /'
+echo "plugin    = ${OFI_PLUGIN}"
+echo "libfabric = ${OFI_LIBFABRIC}"
+echo "knobs: NCCL_ALGO=${NCCL_ALGO:-<default>} NCCL_CROSS_NIC=${NCCL_CROSS_NIC} NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL}"
+echo
+
+# Rank program in a FILE, never stdin (PALS gives stdin to rank 0 only --
+# the env-probe lesson, kept).
+RANKPY="${OUT}/mn_bcast.py"
+cat > "${RANKPY}" <<'PY'
+import datetime, os, sys
+import torch
+import torch.distributed as dist
+
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+# 3-minute collective timeout: with ASYNC_ERROR_HANDLING=1 a wedge aborts the
+# process, so a stuck broadcast costs minutes, not the 50-minute walltime the
+# trainer runs burned.
+dist.init_process_group("nccl", timeout=datetime.timedelta(minutes=3))
+r, n = dist.get_rank(), dist.get_world_size()
+
+# 1. Small-broadcast storm: the trainer wedged on 384-element broadcasts too.
+for i in range(20):
+    t = torch.full((96,), float(i), device="cuda")
+    dist.broadcast(t, 0)
+
+# 2. DDP-sized broadcast: _sync_params_and_buffers moves the whole model from
+#    rank 0; 25M floats = 100 MB is that shape of traffic.
+big = torch.arange(25_000_000, dtype=torch.float32, device="cuda")
+if r != 0:
+    big.zero_()
+dist.broadcast(big, 0)
+ok = bool((big[-1] == 24_999_999).item()) and bool((big[1_000_000] == 1_000_000).item())
+
+# 3. All-reduce with a checkable answer.
+a = torch.ones(1024, 1024, device="cuda")
+dist.all_reduce(a)
+ok = ok and abs(a[0, 0].item() - n) < 1e-3
+
+print("rank %d: %s" % (r, "MN_NCCL_RANK_OK" if ok else "MN_NCCL_RANK_BAD"), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+LOG="${OUT}/probe.log"
+mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${MAKANI_ROOT}/polaris/polaris_rank_env.sh" "${PY}" "${RANKPY}" \
+    2>&1 | tee "${LOG}"
+rc=$?
+echo "--- rc=${rc} ---"
+
+nok=$(grep -c "MN_NCCL_RANK_OK" "${LOG}")
+transport=$(grep -m1 "NCCL INFO Using network" "${LOG}" | sed 's/.*Using network //')
+echo "ranks OK: ${nok}/${NRANKS}   transport: ${transport:-<none reported>}"
+if [ "${nok}" -eq "${NRANKS}" ] && [ ${rc} -eq 0 ]; then
+    echo "MN_NCCL_PROBE_OK ranks=${NRANKS} nodes=${NNODES}"
+    echo "  The fabric stack passes app-free at this scale => the trainer-path"
+    echo "  hang is NOT a raw-broadcast failure. Suspect the interaction of"
+    echo "  makani's many process groups (comm.init builds ~10) with this"
+    echo "  plugin -- e.g. concurrent communicator traffic."
+else
+    echo "ERROR MN_NCCL_PROBE_FAILED ok=${nok}/${NRANKS} rc=${rc}"
+    echo "  App-free reproduction: NCCL broadcast wedges at ${NNODES} nodes on"
+    echo "  aws-ofi-nccl v1.6.0-libfabric-1.22.0 + libfabric 2.3.1 -- the ONLY"
+    echo "  pairing that initializes at all (7553823). This plus the broken"
+    echo "  conda modulefile is an ALCF ticket, not a config hunt."
+fi
+echo "=== done $(date -Iseconds) ==="

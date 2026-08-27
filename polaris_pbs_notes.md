@@ -852,3 +852,15 @@ smokes additionally require the §6 installs.
   ABI-breaks on torch 2.8). **Probe `7251974` = `PROBE_OK`** (gate 1 green): 4 GPUs +
   all 4 in-repo models import. Found ERA5 is **not** staged (S2S/port blocked on a
   Globus stage); E3SM AMIP data **is** staged (SI/SFNO path is runnable).
+
+### ⚠ `resources_used.cput` is NOT a liveness signal on Polaris
+
+Measured 2026-08-21 (job 7551521): sampled six times across **8.5 minutes of real
+training work**, `qstat -f` reported `resources_used.cput = 00:00:05` **every time** —
+identical to what a genuinely hung job (7551491) reported over 27 minutes.
+
+It tracks the job script's own shell, not the compute children. **Do not use it to decide
+whether a job is progressing** — that inference was made once here and had to be retracted.
+Use instead: an arm/output log written to a **file** (not through a pipe, which buffers
+until the pipeline ends), the presence of expected artifacts, or `resources_used.walltime`
+against a known-good duration for the same job shape.

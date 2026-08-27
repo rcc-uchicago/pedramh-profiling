@@ -1,0 +1,134 @@
+#!/bin/bash -l
+#PBS -N makani_pack_scaling
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Pack FULL years of E3SM into the makani "multifiles" contract, so the
+# multi-node scaling sweep stops being sample-starved.
+#
+# WHY.  The pack the sweep has been using, ${MEMBER_ROOT}/data/e3sm_makani,
+# is a SMOKE pack: `2015.h5` holds **400 samples**, not the 1460 a full year
+# has -- it was built with --max-samples-per-year 400. That is enough for arm A
+# (60 steps x global batch 4 = 240) and NOT enough for arm B (480) or arm C
+# (960), both of which the sweep's wrap guard correctly refused:
+#     ERROR NOT_ENOUGH_SAMPLES: 400 < 960
+# So the missing piece is not fabric, model or launcher -- it is data volume,
+# and the data has been on disk the whole time: ${E3SM_ROOT}/h5/plev_data holds
+# 51,104 per-sample files covering 2015-2049 (1460/yr). This is a REPACK, not
+# an acquisition.
+#
+# WHY A NEW LAUNCHER rather than polaris_pack_e3sm_full.pbs: that script (and
+# six siblings) still opens with the bare `module load conda` / `conda activate
+# base` pair, which has been broken cluster-side since ~2026-08-20 and was
+# re-confirmed broken 2026-08-23. This applies the two-line bootstrap swap that
+# makani_multinode_ddp_plan.md §7 specifies, without editing seven files inside
+# a git subtree. Nothing here is new logic -- the converter is unchanged.
+#
+# WRITES TO A NEW ROOT. The existing e3sm_makani pack is the provenance of the
+# green run 7253465 and of arm A (7553836); it is not overwritten.
+#
+# SIZE / TIME. convert_e3sm_to_makani.py documents ~5-10 min and ~22 GB per
+# full year. Default here is 4 years (2 train + 1 valid + 1 test) to stay
+# inside the debug queue's 1 h. Eagle had 32 T free on 2026-08-23.
+#
+# Knobs:
+#   -v TRAIN_FROM=2015 -v TRAIN_TO=2016     inclusive train range
+#   -v VALID_YEAR=2017  -v TEST_YEAR=2018
+#   -v PACK_NAME=e3sm_makani_scaling        output dir under $MEMBER_ROOT/data
+#
+# PASS = CONVERT_OK (printed by the converter, with --validate) plus
+# PACK_SCALING_OK below. Per CLAUDE.md #14, rc=0 is not the signal.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Order is load-bearing: polaris_env.sh FIRST (defines MEMBER_ROOT, which the
+# makani bootstrap anchors its shim paths on), then the bootstrap that replaces
+# the broken `module load conda`.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+TRAIN_FROM="${TRAIN_FROM:-2015}"
+TRAIN_TO="${TRAIN_TO:-2016}"
+VALID_YEAR="${VALID_YEAR:-2017}"
+TEST_YEAR="${TEST_YEAR:-2018}"
+PACK_NAME="${PACK_NAME:-e3sm_makani_scaling}"
+OUT="${MEMBER_ROOT}/data/${PACK_NAME}"
+
+echo "=== makani_pack_scaling: $(date -Iseconds) ==="
+echo "jobid=${PBS_JOBID%%.*}  node=$(hostname)"
+polaris_env_report
+makani_env_report
+echo
+echo "train ${TRAIN_FROM}..${TRAIN_TO}  valid ${VALID_YEAR}  test ${TEST_YEAR}"
+echo "out   ${OUT}"
+echo
+
+if [ ! -d "${E3SM_ROOT}/h5/plev_data" ]; then
+    echo "ERROR E3SM_SOURCE_MISSING: ${E3SM_ROOT}/h5/plev_data"
+    exit 2
+fi
+if [ -e "${OUT}" ]; then
+    echo "ERROR PACK_EXISTS: ${OUT}"
+    echo "  Refusing to overwrite. Choose another -v PACK_NAME=, or remove it"
+    echo "  deliberately -- a half-rewritten pack is worse than no pack, and the"
+    echo "  sweep cannot tell the difference from the sample count alone."
+    exit 2
+fi
+
+df -h /eagle 2>/dev/null | tail -1
+echo
+
+# NOTE: no --max-samples-per-year. That flag is exactly what made the existing
+# pack a 400-sample smoke and is the reason arms B and C could not run.
+time "${PY}" "${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py" \
+    --e3sm-root   "${E3SM_ROOT}" \
+    --output-root "${OUT}" \
+    --train-years "${TRAIN_FROM}" "${TRAIN_TO}" \
+    --valid-years "${VALID_YEAR}" "${VALID_YEAR}" \
+    --test-years  "${TEST_YEAR}"  "${TEST_YEAR}" \
+    --validate
+rc=$?
+echo "--- convert rc=${rc} ---"
+[ ${rc} -eq 0 ] || { echo "ERROR PACK_SCALING_FAILED rc=${rc}"; exit ${rc}; }
+
+# Report the real sample count, because that -- not the file count -- is what
+# the sweep's wrap guard gates on, and it is the number that decides how many
+# nodes this pack can support.
+"${PY}" - "${OUT}" <<'PY'
+import glob, os, sys
+import h5py
+root = sys.argv[1]
+total = 0
+for p in sorted(glob.glob(os.path.join(root, "train", "*.h5"))):
+    with h5py.File(p, "r") as f:
+        n = f["fields_state"].shape[0]
+        total += n
+        print("  %s: %d samples" % (os.path.basename(p), n))
+print("train samples total: %d" % total)
+# STEPS=60 at 1 sample/GPU: global batch = 4 * nodes, so nodes = total/(60*4).
+print("supports STEPS=60 up to global batch %d  => %d nodes at 4 GPUs/node"
+      % (total // 60, total // 240))
+PY
+
+echo
+echo "PACK_SCALING_OK ${OUT}"
+echo "  Use it:  qsub -v PACK=${OUT} ... polaris/polaris_makani_multinode_scaling.pbs"
+echo "=== done $(date -Iseconds) ==="

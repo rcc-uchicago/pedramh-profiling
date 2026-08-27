@@ -316,6 +316,22 @@ def main() -> None:
     p.add_argument("--max-samples-per-year", type=int, default=None)
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--validate", action="store_true")
+    # --- chunked packing (production-size packs exceed one 1 h debug job) ----
+    # Chunk mode: pack ONLY this invocation's year ranges and dump the raw
+    # stats accumulator + the train years that fed it to an .npz; write NO
+    # stats/metadata (they would cover a subset — the very bug the
+    # partial-train guard above exists to stop). Merge mode: sum the chunk
+    # accumulators, verify the train years covered are EXACTLY the requested
+    # range (no gap, no overlap — an overlap would double-count a year in the
+    # moments), then write stats+metadata. Summing accumulators is
+    # bit-for-bit the arithmetic the single-pass mode does, just reordered.
+    p.add_argument("--chunk-accum-out", type=str, default=None,
+                   help="pack this invocation's years, dump accumulator npz, skip stats")
+    p.add_argument("--merge-accums", type=str, nargs="+", default=None,
+                   help="chunk npz files: verify coverage, write stats+metadata, no packing")
+    p.add_argument("--timestamp-offset-samples", type=int, default=0,
+                   help="samples before this chunk in its split (train chunks: "
+                        "1460 x preceding years) so /timestamp stays split-global")
     args = p.parse_args()
 
     split_years = {
@@ -323,15 +339,42 @@ def main() -> None:
         "valid": list(range(args.valid_years[0], args.valid_years[1] + 1)),
         "test": list(range(args.test_years[0], args.test_years[1] + 1)),
     }
+
+    if args.merge_accums is not None:
+        covered = []
+        accum = None
+        for path in args.merge_accums:
+            z = np.load(path)
+            covered += [int(y) for y in z["packed_train_years"]]
+            part = {k: z[k] for k in ("n", "t_count", "sum_t", "sumsq_t",
+                                      "tsum_t", "sum_f", "sumsq_f", "tsum_f")}
+            if accum is None:
+                accum = {k: (int(v) if v.ndim == 0 else v.astype(np.float64))
+                         for k, v in part.items()}
+            else:
+                for k, v in part.items():
+                    accum[k] = accum[k] + (int(v) if v.ndim == 0 else v)
+        if sorted(covered) != split_years["train"]:
+            sys.exit(f"ERROR merge coverage mismatch: chunks cover {sorted(covered)} "
+                     f"but --train-years requests {split_years['train']} — a gap means "
+                     f"missing moments, a duplicate means a double-counted year.")
+        _write_stats(os.path.join(args.output_root, "stats"), accum)
+        _write_metadata(args.output_root, {**split_years, "source_root": args.e3sm_root})
+        if args.validate:
+            _validate(args.output_root)
+        print("CONVERT_OK")
+        return
+
     accum = {
         "n": 0, "t_count": 0,
         "sum_t": np.zeros(53), "sumsq_t": np.zeros(53), "tsum_t": np.zeros((53, H, W)),
         "sum_f": np.zeros(6), "sumsq_f": np.zeros(6), "tsum_f": np.zeros((6, H, W)),
     }
     skipped_train = []
+    packed_train_years = []
     for split, years in split_years.items():
         os.makedirs(os.path.join(args.output_root, split), exist_ok=True)
-        offset = 0
+        offset = args.timestamp_offset_samples * STEP_SECONDS if split == "train" else 0
         for year in years:
             out_path = os.path.join(args.output_root, split, f"{year}.h5")
             if os.path.exists(out_path) and not args.overwrite:
@@ -345,6 +388,22 @@ def main() -> None:
                             args.max_samples_per_year,
                             accum if split == "train" else None)
             offset += T * STEP_SECONDS
+            if split == "train":
+                packed_train_years.append(year)
+
+    if args.chunk_accum_out is not None:
+        # A skipped-existing train year is a hard error here too: its moments are
+        # in NO chunk's accumulator, and the merge-side coverage check would only
+        # catch it if the operator remembers which chunk owned it. Fail loudly now.
+        if skipped_train:
+            sys.exit(f"ERROR chunk skipped existing train year(s) {skipped_train}: "
+                     f"their moments are in no accumulator. Rerun this chunk with "
+                     f"--overwrite.")
+        np.savez(args.chunk_accum_out,
+                 packed_train_years=np.array(packed_train_years, dtype=np.int64),
+                 **accum)
+        print(f"CHUNK_OK {args.chunk_accum_out} train_years={packed_train_years}")
+        return
 
     if accum["t_count"] == 0:
         sys.exit("ERROR no train samples processed (all train files existed? "

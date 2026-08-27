@@ -1,0 +1,119 @@
+#!/bin/bash -l
+#PBS -N makani_pack_alldata
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Build the ALLDATA production pack (101-channel Pangu/ai-rossby channel
+# parity: 100 state + PRECT + 7 forcing, all 18 hybrid levels) -- ~1.4 TB,
+# canonical split train 2015-2044 / valid 2045-2047 / test 2048-2049.
+#
+# Two stages, each inside one 1-h debug job (chain them):
+#   -v STAGE=pack   (default)  12 parallel converter workers, --skip-stats:
+#                              10 x 3 train years + 1 x valid + 1 x test.
+#                              Data-safe by design (atomic .tmp renames,
+#                              skip-existing) -- a rerun finishes the remainder.
+#   -v STAGE=finish            --stats-only (refuses subset stats if any train
+#                              year is missing) + --validate read-back, then
+#                              audit_makani_pack_vs_reference.py vs the
+#                              corrected Pangu moments (TSOI/SOILWATER reported
+#                              informational: mask-aware ref vs filled pack).
+#
+# PASS = CONVERT_ALLDATA_OK + MAKANI_PACK_AUDIT_OK + PACK_ALLDATA_OK (finish
+# stage). rc=0 is not the signal.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+CONV="${MAKANI_ROOT}/polaris/convert_e3sm_to_makani_alldata.py"
+
+TRAIN_Y0=2015; TRAIN_Y1=2044
+VALID_Y0=2045; VALID_Y1=2047
+TEST_Y0=2048;  TEST_Y1=2049
+OUT="${MEMBER_ROOT}/data/${PACK_NAME:-e3sm_makani_alldata_production}"
+LOGS="${OUT}/.pack_logs"
+mkdir -p "${LOGS}" || exit 2
+STAGE="${STAGE:-pack}"
+
+echo "=== makani_pack_alldata stage=${STAGE}: $(date -Iseconds) on $(hostname) ==="
+echo "out: ${OUT}"
+df -h /eagle 2>/dev/null | tail -1
+[ -d "${E3SM_ROOT}/h5/plev_data" ] || { echo "ERROR E3SM_SOURCE_MISSING"; exit 2; }
+
+if [ "${STAGE}" = "pack" ]; then
+    pids=(); labels=()
+    for i in 0 1 2 3 4 5 6 7 8 9; do
+        y0=$(( TRAIN_Y0 + i * 3 )); y1=$(( y0 + 2 ))
+        "${PY}" "${CONV}" \
+            --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+            --train-years "${y0}" "${y1}" --valid-years 1 0 --test-years 1 0 \
+            --skip-stats \
+            > "${LOGS}/train_${y0}_${y1}.log" 2>&1 &
+        pids+=($!); labels+=("train_${y0}_${y1}")
+    done
+    "${PY}" "${CONV}" --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+        --train-years 1 0 --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+        --test-years 1 0 --skip-stats > "${LOGS}/valid.log" 2>&1 &
+    pids+=($!); labels+=("valid")
+    "${PY}" "${CONV}" --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+        --train-years 1 0 --valid-years 1 0 \
+        --test-years "${TEST_Y0}" "${TEST_Y1}" --skip-stats > "${LOGS}/test.log" 2>&1 &
+    pids+=($!); labels+=("test")
+
+    rc_all=0
+    for idx in "${!pids[@]}"; do
+        if wait "${pids[$idx]}"; then echo "chunk ${labels[$idx]}: OK"
+        else echo "ERROR chunk ${labels[$idx]} FAILED:"; tail -4 "${LOGS}/${labels[$idx]}.log"; rc_all=1; fi
+    done
+    n_train=$(ls "${OUT}/train/"*.h5 2>/dev/null | wc -l)
+    echo "train years packed: ${n_train}/30"
+    if [ ${rc_all} -eq 0 ] && [ "${n_train}" -eq 30 ]; then
+        echo "PACK_ALLDATA_STAGE_PACK_OK -- submit STAGE=finish next"
+    else
+        echo "ERROR PACK_ALLDATA_STAGE_PACK_INCOMPLETE -- rerun STAGE=pack (skip-existing resumes)"
+        exit 3
+    fi
+
+elif [ "${STAGE}" = "finish" ]; then
+    "${PY}" "${CONV}" \
+        --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+        --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
+        --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+        --test-years "${TEST_Y0}" "${TEST_Y1}" \
+        --stats-only --validate || { echo "ERROR PACK_ALLDATA_FAILED (stats)"; exit 3; }
+
+    # No pipe here: `audit | tail` reports TAIL's exit status, which masked a
+    # crashed audit into a printed PACK_ALLDATA_OK on 2026-08-27 (job 7565734).
+    # Write to a file, check the audit's own rc, then show the tail.
+    AUDIT_LOG="${LOGS}/audit.log"
+    if ! "${PY}" "${MAKANI_ROOT}/polaris/audit_makani_pack_vs_reference.py" \
+            --pack "${OUT}" \
+            --moments "${SHARED_ROOT}/pangu_polaris_data/moments_2015-2050.json" \
+            > "${AUDIT_LOG}" 2>&1; then
+        tail -8 "${AUDIT_LOG}"
+        echo "ERROR PACK_ALLDATA_FAILED (audit)"; exit 3
+    fi
+    tail -5 "${AUDIT_LOG}"
+    echo "PACK_ALLDATA_OK ${OUT}"
+else
+    echo "ERROR UNKNOWN_STAGE ${STAGE}"; exit 2
+fi
+echo "=== done $(date -Iseconds) ==="

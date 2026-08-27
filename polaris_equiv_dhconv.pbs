@@ -33,14 +33,36 @@
 # ============================================================================
 set -u
 cd "${PBS_O_WORKDIR}"
+
+# ---- LIVE progress, written to a FILE from the first line -------------------
+# Jobs 7551491 and 7551521 both hung and both told us nothing: PBS only returns
+# the .o file at job end, so a hang leaves no readable trace at all. Mirroring
+# everything to /eagle makes the hang point observable WHILE it hangs.
+# Prime suspect is the env bootstrap (`conda activate` has stalled on this
+# cluster before), NOT the model code — arm A runs the unchanged path, and
+# contractions.py already scripts the identical "bixy,xio->boxy" einsum at
+# line 130, so TorchScript is not the problem.
+PROG="/eagle/projects/lighthouse-uchicago/members/mehta5/bench/progress_${PBS_JOBID%%.*}.log"
+mkdir -p "$(dirname "${PROG}")" 2>/dev/null || true
+exec > >(tee -a "${PROG}") 2>&1
+mark () { echo "[$(date +%H:%M:%S)] $*"; }
+mark "job ${PBS_JOBID} started on $(hostname); live log -> ${PROG}"
 REPO="${PBS_O_WORKDIR}"
 V20_DIR="${REPO}/PanguWeather/v2.0"
 
+mark "-> module use"
 module use /soft/modulefiles
+mark "   module use done"
+mark "-> module load conda"
 module load conda 2>/dev/null || true
+mark "   module load conda done"
+mark "-> conda activate base"
 conda activate base 2>/dev/null || true
+mark "   conda activate base done"
 # shellcheck disable=SC1091
+mark "-> source polaris_env.sh"
 source "${REPO}/polaris_env.sh" || exit 2
+mark "   source polaris_env.sh done"
 export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
 export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
@@ -73,7 +95,7 @@ echo "=== preflight: import the model modules (bounded) ==="
 # the knob says, so this is the first place a TorchScript problem would appear.
 for KNOB in 0 1; do
     echo "--- PANGU_DHCONV_XIO=${KNOB} ---"
-    PANGU_DHCONV_XIO=${KNOB} timeout 300 "${PY}" -c "
+    PANGU_DHCONV_XIO=${KNOB} timeout -k 30 300 "${PY}" -c "
 import time, sys
 t0 = time.time()
 import networks.modulus_sfno.contractions as C
@@ -89,7 +111,7 @@ run_arm () {   # $1 = record name
     # which is exactly how job 7551491 burned 27 minutes and told us nothing. Write to a
     # file, bound the arm, then tail the FILE (readable even if this is killed).
     PANGU_EQUIV_JSON="${OUT_DIR}/$1.json" PANGU_DHCONV_XIO="${PANGU_DHCONV_XIO:-0}" \
-    timeout 900 "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+    timeout -k 30 900 "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
         "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
         --run_num="equiv_$1_${PBS_JOBID%%.*}" --config=SFNO --fresh_start \
         --epochs 1 --global_seed 0 > "${LOG}" 2>&1

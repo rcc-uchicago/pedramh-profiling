@@ -432,6 +432,20 @@ def main() -> None:
     p.add_argument("--max-samples-per-year", type=int, default=None)
     p.add_argument("--overwrite", action="store_true")
     p.add_argument("--validate", action="store_true")
+    # Parallel chunked packing (a 1.4 TB pack in 1 h debug jobs needs ~8
+    # concurrent workers). The second-pass stats design makes this trivially
+    # safe for the DATA (skip-existing + atomic .tmp renames), but NOT for the
+    # STATS: every invocation unconditionally re-runs the stats pass over
+    # whatever train files exist at its finish time, so concurrent workers
+    # would race and an early finisher could leave subset stats in place.
+    #   workers:  --skip-stats            (pack only)
+    #   finisher: --stats-only            (no packing; stats over ALL packed
+    #                                      train files + metadata + --validate)
+    # --stats-only verifies the train split is COMPLETE for the requested year
+    # range first — subset stats are the silent-wrong-normalization bug the
+    # locked converter's guard exists to stop.
+    p.add_argument("--skip-stats", action="store_true")
+    p.add_argument("--stats-only", action="store_true")
     args = p.parse_args()
 
     split_years = {
@@ -439,6 +453,22 @@ def main() -> None:
         "valid": list(range(args.valid_years[0], args.valid_years[1] + 1)),
         "test": list(range(args.test_years[0], args.test_years[1] + 1)),
     }
+    if args.stats_only:
+        have = sorted(int(os.path.basename(f)[:-3]) for f in
+                      glob.glob(os.path.join(args.output_root, "train", "*.h5")))
+        if have != split_years["train"]:
+            sys.exit(f"ERROR STATS_ONLY_INCOMPLETE: packed train years {have} != "
+                     f"requested {split_years['train']} — stats over a subset are "
+                     f"silently wrong normalization. Finish packing first.")
+        print("stats pass over packed train split ...", flush=True)
+        accum = _accumulate_stats_from_packed(os.path.join(args.output_root, "train"))
+        zero_var = _write_stats(os.path.join(args.output_root, "stats"), accum)
+        _write_metadata(args.output_root,
+                        {**split_years, "source_root": args.e3sm_root}, zero_var)
+        if args.validate:
+            _validate(args.output_root)
+        print("CONVERT_ALLDATA_OK")
+        return
     for split, years in split_years.items():
         os.makedirs(os.path.join(args.output_root, split), exist_ok=True)
         offset = 0
@@ -459,6 +489,10 @@ def main() -> None:
             T = _write_year(out_path, args.e3sm_root, year, offset,
                             args.max_samples_per_year)
             offset += T * STEP_SECONDS
+
+    if args.skip_stats:
+        print("CHUNK_ALLDATA_OK (packed; stats deferred to a --stats-only pass)")
+        return
 
     print("stats pass over packed train split ...", flush=True)
     accum = _accumulate_stats_from_packed(os.path.join(args.output_root, "train"))

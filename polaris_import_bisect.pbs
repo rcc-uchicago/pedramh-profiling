@@ -1,0 +1,72 @@
+#!/bin/bash -l
+#PBS -N pploop-bisect
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -j oe
+# ============================================================================
+# Jobs 7551491 and 7551521 both hung. 7551521's preflight localised it: the hang
+# is in a BARE MODULE IMPORT at PANGU_DHCONV_XIO=0 — the default path — after the
+# env bootstrap, config render and everything else succeeded.
+#
+# I have now guessed the cause twice (TorchScript; conda bootstrap) and been
+# wrong twice. This bisects it instead: import the SAME modules from
+#   arm PRISTINE : the three files as of HEAD~1 (before §4.9's layout fix)
+#   arm CURRENT  : the working tree (with the fix)
+# Both bounded with `timeout -k`, both reported. One of them hangs, or neither
+# does and the hang is environmental.
+#
+# ⚠ `timeout` WITHOUT `-k` never killed the 300 s preflight — it was still
+#   running at 18 minutes, because a torch process can ignore SIGTERM.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+PROG="/eagle/projects/lighthouse-uchicago/members/mehta5/bench/bisect_${PBS_JOBID%%.*}.log"
+mkdir -p "$(dirname "${PROG}")" 2>/dev/null || true
+exec > >(tee -a "${PROG}") 2>&1
+mark () { echo "[$(date +%H:%M:%S)] $*"; }
+mark "start on $(hostname); live log -> ${PROG}"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || true
+conda activate base 2>/dev/null || true
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1 MPLBACKEND=Agg
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+mark "env ready; PY=${PY}"
+
+V20="${REPO}/PanguWeather/v2.0"
+SCRATCH="${MEMBER_ROOT}/bench/bisect_pristine_${PBS_JOBID%%.*}"
+rm -rf "${SCRATCH}"; mkdir -p "${SCRATCH}"
+# A pristine copy: same tree, but the three changed files reverted to HEAD~1.
+cp -r "${V20}/networks" "${V20}/utils" "${V20}/config" "${SCRATCH}/" 2>/dev/null
+for f in contractions.py factorizations.py s2convolutions.py; do
+    git show "HEAD~1:PanguWeather/v2.0/networks/modulus_sfno/${f}" \
+        > "${SCRATCH}/networks/modulus_sfno/${f}" || { echo "ERROR GIT_SHOW_FAILED ${f}"; exit 3; }
+done
+mark "pristine copy built at ${SCRATCH}"
+
+probe () {   # $1 = label, $2 = tree root
+    mark "-> import from $1"
+    PYTHONPATH="$2:${SHIM}" PANGU_DHCONV_XIO=0 \
+    timeout -k 20 180 "${PY}" -c "
+import time; t0=time.time()
+import networks.modulus_sfno.contractions as C
+print('    contractions OK %.1fs' % (time.time()-t0), flush=True)
+import networks.modulus_sfno.factorizations as F
+print('    factorizations OK %.1fs' % (time.time()-t0), flush=True)
+import networks.modulus_sfno.s2convolutions as S
+print('    s2convolutions OK %.1fs' % (time.time()-t0), flush=True)
+"
+    local rc=$?
+    mark "   $1 rc=${rc} $([ "${rc}" = "124" ] && echo '*** TIMED OUT (hang reproduced) ***')"
+}
+
+probe PRISTINE "${SCRATCH}"
+probe CURRENT  "${V20}"
+mark "BISECT_DONE"

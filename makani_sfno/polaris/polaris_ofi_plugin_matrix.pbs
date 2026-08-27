@@ -1,0 +1,150 @@
+#!/bin/bash -l
+#PBS -N ofi_plugin_matrix
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:25:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Which runtime knobs let the FRESH aws-ofi-nccl v1.21.1 open a CXI domain?
+#
+# 7563854 proved the build is sound (compiles, ldd clean, plugin loads and
+# announces v1.21.1) and that fi_domain still returns -38 ENOSYS -- the same
+# failure as every /soft plugin >= v1.9, including ALCF's own 2025-09 rebuild.
+# So the domain rejection is about WHAT NEWER PLUGINS REQUEST, not binary
+# staleness.  The two requests that changed and are runtime-switchable:
+#   * progress model: sendrecv_get_hints() sets domain_attr {control,data}
+#     _progress from OFI_NCCL_PROGRESS_MODEL (default UNSPEC), and the source
+#     comments "at least one provider has an issue with progress manual and
+#     internal" -- CXI historically wants MANUAL data progress;
+#   * protocol: OFI_NCCL_PROTOCOL = SENDRECV | RDMA, two different domain
+#     constructors with different hints.
+# Also varied: the inherited FI_CXI_* trio (measured for the OLD plugin, never
+# for this one) -- one arm runs with them cleared.
+#
+# PASS = OFI_MATRIX_OK with >=1 WORKS combo; every combo is a 4-rank NCCL
+# all-reduce with a verified answer, DEFAULT NCCL protocol (no Simple pin --
+# lifting that pin is half the value of a modern plugin).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+VER="${VER:-1.21.1}"
+PREFIX="${MEMBER_ROOT}/sw/aws-ofi-nccl-${VER}"
+LIBFABRIC_DIR=/opt/cray/libfabric/2.3.1
+[ -e "${PREFIX}/lib/libnccl-net.so" ] || { echo "ERROR PLUGIN_MISSING ${PREFIX} (run polaris_build_aws_ofi_nccl.pbs)"; exit 2; }
+
+export GPUS_PER_NODE=4
+MASTER_ADDR="$(head -1 "${PBS_NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29521
+
+OUT="${MEMBER_ROOT}/runs/ofi_plugin_matrix/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}"
+RANKPY="${OUT}/allreduce.py"
+cat > "${RANKPY}" <<'PY'
+import os, sys, torch, torch.distributed as dist
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+dist.init_process_group("nccl")
+t = torch.full((1024, 1024), float(dist.get_rank() + 1), device="cuda")
+dist.all_reduce(t)
+n = dist.get_world_size()
+ok = abs(t[0, 0].item() - float(n * (n + 1) // 2)) < 1e-3
+if dist.get_rank() == 0:
+    print("ALLREDUCE %s world=%d" % ("OK" if ok else "WRONG", n), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+LD_BASE="${LIBFABRIC_DIR}/lib64:${PREFIX}/lib:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+
+# name|extra env (';'-separated KEY=VAL; 'CLEARCXI' clears the FI_CXI trio)
+CAND=(
+"A_default|"
+"B_progress_manual|OFI_NCCL_PROGRESS_MODEL=MANUAL"
+"C_progress_auto|OFI_NCCL_PROGRESS_MODEL=AUTO"
+"D_proto_rdma|OFI_NCCL_PROTOCOL=RDMA"
+"E_rdma_manual|OFI_NCCL_PROTOCOL=RDMA;OFI_NCCL_PROGRESS_MODEL=MANUAL"
+"F_manual_clean_cxi|OFI_NCCL_PROGRESS_MODEL=MANUAL;CLEARCXI"
+)
+
+echo "=== ofi_plugin_matrix v${VER}: $(date -Iseconds) on $(hostname) ==="
+WORKED=""
+for entry in "${CAND[@]}"; do
+    name="${entry%%|*}"; extras="${entry#*|}"
+    log="${OUT}/${name}.log"
+    echo "---------------------------------------------------------------"
+    echo "COMBO ${name}   extras='${extras}'"
+
+    # Rebuilt per combo, never layered on the previous one's leftovers.
+    env_args=(
+        LD_LIBRARY_PATH="${LD_BASE}"
+        NCCL_NET="AWS Libfabric"
+        NCCL_NET_GDR_LEVEL=PHB
+        NCCL_CROSS_NIC=1
+        NCCL_DEBUG=INFO
+        NCCL_DEBUG_SUBSYS=INIT,NET
+        FI_CXI_DISABLE_HOST_REGISTER=1
+        FI_MR_CACHE_MONITOR=userfaultfd
+        FI_CXI_DEFAULT_CQ_SIZE=131072
+    )
+    IFS=';' read -ra kvs <<< "${extras}"
+    for kv in "${kvs[@]}"; do
+        [ -z "${kv}" ] && continue
+        if [ "${kv}" = "CLEARCXI" ]; then
+            env_args=( "${env_args[@]/FI_CXI_DISABLE_HOST_REGISTER=1}" )
+            env_args=( "${env_args[@]/FI_MR_CACHE_MONITOR=userfaultfd}" )
+            env_args=( "${env_args[@]/FI_CXI_DEFAULT_CQ_SIZE=131072}" )
+        else
+            env_args+=( "${kv}" )
+        fi
+    done
+
+    mpiexec -n 4 --ppn 4 --hostfile "${PBS_NODEFILE}" --cpu-bind depth -d 8 \
+        env "${env_args[@]}" \
+        bash "${MAKANI_ROOT}/polaris/polaris_rank_env.sh" "${PY}" "${RANKPY}" \
+        > "${log}" 2>&1
+    rc=$?
+    dom_fail=$(grep -c "Couldn't create domain\|Couldn't open a fabric access domain" "${log}")
+    allred=$(grep -c "ALLREDUCE OK" "${log}")
+    used=$(grep -m1 "NCCL INFO Using network" "${log}" | sed 's/.*Using network //')
+    echo "  rc=${rc} domain_errors=${dom_fail} allreduce_ok=${allred} network=${used:-<none>}"
+    if [ ${rc} -eq 0 ] && [ "${allred}" -ge 1 ] && [ "${dom_fail}" -eq 0 ]; then
+        echo "  => WORKS"; WORKED="${WORKED} ${name}"
+    else
+        echo "  => FAILS"
+        grep -m2 "NCCL WARN" "${log}" | sed 's/^/     /'
+    fi
+    echo "  log: ${log}"
+done
+
+echo "==============================================================="
+if [ -n "${WORKED}" ]; then
+    echo "OFI_MATRIX_OK working combos:${WORKED}"
+    echo "  Next: mn probe at 4 nodes with the first combo's env + OFI_PLUGIN=${PREFIX}/lib,"
+    echo "  DEFAULT proto first (does the LL deadlock also die?), then arm F."
+else
+    echo "ERROR OFI_MATRIX_NO_WORKING_COMBO"
+    echo "  v1.21.1 cannot open a CXI domain under any runtime knob. Ticket ALCF with"
+    echo "  the full matrix: their own 2025-09 rebuild fails identically, so the fix"
+    echo "  is theirs (plugin<->CXI provider), and v1.6.0+Simple stays the only path."
+fi
+echo "=== done $(date -Iseconds) ==="

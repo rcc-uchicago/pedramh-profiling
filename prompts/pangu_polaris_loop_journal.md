@@ -18,12 +18,78 @@ Entry shape (keep it):
 
 ---
 
+## tick 29 — 2026-08-22 — **BLOCKED: Polaris compute-node jobs hang since ~22:00. My change is EXONERATED.**
+
+- **in flight:** none. 7551491, 7551521, 7551543 all `qdel`'d after diagnosis. **Not submitting
+  again until this clears.**
+- **result: no measurement.** Prereg `2f491734` (P1–P4 on §4.9's layout fix) is **untouched and
+  still open.** Nothing about the layout fix is confirmed or refuted.
+
+- **the finding that ends the debugging.** Job 7551543 (the bisect) hung **on a plain `cp -r`
+  of three directories — before a single line of Python ran.** No torch, no import, no model
+  code. **§4.9's layout change cannot be the cause of that**, and it is the same hang shape as
+  the other two.
+
+- **and it is not a bad node:**
+
+  | job | time | node | outcome |
+  |---|---|---|---|
+  | 7551401 | 21:47 | `x3005c0s37b1n0` | ✅ |
+  | 7551411 | 21:49 | `x3005c0s37b1n0` | ✅ |
+  | 7551439 | 21:55 | `x3003c0s19b0n0` | ✅ |
+  | 7551491 | 22:25 | `x3109c0s1b1n0` | ⛔ hung |
+  | 7551521 | 22:35 | `x3003c0s19b1n0` | ⛔ hung |
+  | 7551543 | 23:51 | `x3005c0s37b1n0` | ⛔ hung |
+
+  **`x3005c0s37b1n0` succeeded twice at 21:47/21:49 and hung at 23:51.** Same node, opposite
+  outcomes — so it is **time-dependent, not node-dependent**. Everything before ~22:00 worked;
+  everything from 22:25 hangs.
+
+- **corroborating signal from outside the jobs:** while a hung job was running, `git add` on two
+  files took **>90 s**; the moment it was killed, the identical command took **0.045 s**. A
+  hung job was loading shared infrastructure heavily. Login-node `/eagle` probes (stat, `ls -R`
+  over torch, 4 MB read, write+delete) are all **instant**, so this is specific to compute-node
+  access, not `/eagle` as seen from the login node.
+
+- **three hypotheses I held and had to drop, in order:** (1) TorchScript compiling the new
+  scripted variant — refuted, `contractions.py` already scripts the identical
+  `"bixy,xio->boxy"` einsum at line 130; (2) the conda bootstrap — refuted, 7551521's log shows
+  bootstrap, config render and everything else *succeeding*; (3) a bad node — refuted by the
+  table above. **Each one felt sufficient and each was wrong.** The instrumentation, not the
+  reasoning, is what settled it.
+
+- **tooling lessons banked (all cost real time):**
+  - **`timeout` without `-k` cannot kill a torch process.** A 300 s bound was still running at
+    18 minutes; two orphaned wrappers survived 31 minutes with zombie children.
+  - **Backgrounded Bash calls collapse heredoc newlines.** Inspecting the orphan's `eval`
+    showed my commit turned into `cd <dir> git add … git commit …`. It silently never ran. Use
+    a message file.
+  - **PBS returns the `.o` file only at job end**, so a hang leaves nothing readable. Mirroring
+    to a file on `/eagle` from line one is what localised 7551521 and 7551543.
+  - `resources_used.cput` is not a liveness signal (tick 28 retraction).
+
+- **what a next session should do FIRST:** re-run `polaris_import_bisect.pbs` unchanged. If it
+  completes, the environment recovered and the layout fix can be tested as prereg'd. If it
+  hangs again on `cp -r`, this is an ALCF-side issue worth reporting, and no amount of local
+  debugging will move it.
+- **infra-failure count:** **4/5.** Three of the four are this same environmental hang.
+
+---
+
 ## tick 28 — 2026-08-21 — job 7551491 HUNG, and my own logging hid where. Infra failure 2/5.
 
 - **in flight:** none (7551491 `qdel`'d after diagnosis); corrected job about to go.
-- **what happened:** 27 minutes of walltime at **`resources_used.cput = 00:00:05`** — five
-  seconds of CPU, i.e. blocked, not slow. No run directory was ever created. Comparable jobs
-  (7551411, 7551439) finished **both** arms in ~100 s.
+- **what happened:** 27 minutes of walltime with **no run directory ever created**, against
+  comparable jobs (7551411, 7551439) that finished **both** arms in ~100 s, and no arm record
+  written. The job was hung.
+
+  > **⚠ RETRACTED (tick 29), and the conclusion survives without it.** I originally wrote
+  > *"`resources_used.cput = 00:00:05` — five seconds of CPU, i.e. blocked, not slow"*.
+  > **That evidence is worthless.** Sampling a *healthy* job (7551521) six times over 8.5
+  > minutes of real work gave `cput = 00:00:05` **every single time** — Polaris's
+  > `resources_used.cput` tracks only the job script's own shell, not the compute children.
+  > It is **useless as a liveness signal**. The hang was real, but on the other evidence
+  > (52-byte log, no run dir, 27 min vs ~100 s, no arm record) — not on that number.
 - **what the log said:** `=== arm dhconv_iox (seed 0, world_size 1, K=20) ===` and **nothing
   else**, 52 bytes.
 

@@ -1,0 +1,129 @@
+#!/bin/bash -l
+#PBS -N makani_pack_prod
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Build the FULL production makani pack (canonical split: train 2015-2044,
+# valid 2045-2047, test 2048-2049 -- the same 30-year train span the
+# PanguWeather/ai-rossby production runs use) in ONE 1-hour debug job.
+#
+# 35 years x ~6 min/yr sequential (measured: 4 yr in 23m36s) does not fit an
+# hour, so the years are packed by 7 PARALLEL converter invocations (chunk
+# mode, --chunk-accum-out) and their raw stats accumulators are then SUMMED
+# (merge mode) -- bit-for-bit the same arithmetic as a single pass, verified
+# by a coverage check that refuses gaps and double-counted years.  Train
+# chunks carry --timestamp-offset-samples (1460/yr, uniform 365-day years) so
+# /timestamp stays split-global despite parallel packing; the dataset would
+# tolerate resets anyway (PlasimForcingDataset synthesizes a continuous axis)
+# but exact is better than tolerated.
+#
+# PASS = CONVERT_OK (merge, with --validate read-back) + MAKANI_PACK_AUDIT_OK
+# (the new pack's stats vs the corrected Pangu moments -- the same audit that
+# cleared the scaling pack) + PACK_PRODUCTION_OK.  rc=0 is not the signal.
+#
+# Size: ~35 x 22 GB ~ 770 GB under $MEMBER_ROOT/data/e3sm_makani_production.
+# If the job dies mid-pack: rerun; finished chunks are re-packed (--overwrite)
+# rather than trusted, because a truncated .h5 and a finished one look alike
+# from the filename. Cheap insurance at ~6 min/yr/worker.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+CONV="${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py"
+
+TRAIN_Y0=2015; TRAIN_Y1=2044
+VALID_Y0=2045; VALID_Y1=2047
+TEST_Y0=2048;  TEST_Y1=2049
+PACK_NAME="${PACK_NAME:-e3sm_makani_production}"
+OUT="${MEMBER_ROOT}/data/${PACK_NAME}"
+ACCUMS="${OUT}/.chunk_accums"
+mkdir -p "${ACCUMS}" || exit 2
+
+echo "=== makani_pack_prod: $(date -Iseconds) on $(hostname) ==="
+echo "out: ${OUT}   train ${TRAIN_Y0}-${TRAIN_Y1}  valid ${VALID_Y0}-${VALID_Y1}  test ${TEST_Y0}-${TEST_Y1}"
+df -h /eagle 2>/dev/null | tail -1
+[ -d "${E3SM_ROOT}/h5/plev_data" ] || { echo "ERROR E3SM_SOURCE_MISSING"; exit 2; }
+
+# ---- 7 parallel chunks: 6 x 5 train years + 1 x (valid+test) ---------------
+# `--valid-years 1 0` is an EMPTY range (range(1, 1)) -- train chunks must not
+# also pack the default valid/test years.
+pids=(); labels=()
+for i in 0 1 2 3 4 5; do
+    y0=$(( TRAIN_Y0 + i * 5 )); y1=$(( y0 + 4 ))
+    off=$(( i * 5 * 1460 ))
+    "${PY}" "${CONV}" \
+        --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+        --train-years "${y0}" "${y1}" --valid-years 1 0 --test-years 1 0 \
+        --timestamp-offset-samples "${off}" --overwrite \
+        --chunk-accum-out "${ACCUMS}/train_${y0}_${y1}.npz" \
+        > "${ACCUMS}/chunk_${y0}_${y1}.log" 2>&1 &
+    pids+=($!); labels+=("train_${y0}_${y1}")
+done
+"${PY}" "${CONV}" \
+    --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+    --train-years 1 0 --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+    --test-years "${TEST_Y0}" "${TEST_Y1}" --overwrite \
+    --chunk-accum-out "${ACCUMS}/validtest.npz" \
+    > "${ACCUMS}/chunk_validtest.log" 2>&1 &
+pids+=($!); labels+=("validtest")
+
+rc_all=0
+for idx in "${!pids[@]}"; do
+    if wait "${pids[$idx]}"; then
+        echo "chunk ${labels[$idx]}: OK"
+    else
+        echo "ERROR chunk ${labels[$idx]} FAILED -- tail of its log:"
+        tail -5 "${ACCUMS}/chunk_${labels[$idx]#train_}.log" 2>/dev/null \
+            || tail -5 "${ACCUMS}"/chunk_*"${labels[$idx]}"*.log 2>/dev/null
+        rc_all=1
+    fi
+done
+[ ${rc_all} -eq 0 ] || { echo "ERROR PACK_PRODUCTION_FAILED (chunks)"; exit 3; }
+
+# ---- merge accumulators -> stats + metadata + read-back validation ----------
+"${PY}" "${CONV}" \
+    --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+    --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
+    --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+    --test-years "${TEST_Y0}" "${TEST_Y1}" \
+    --merge-accums "${ACCUMS}"/train_*.npz "${ACCUMS}/validtest.npz" \
+    --validate || { echo "ERROR PACK_PRODUCTION_FAILED (merge)"; exit 3; }
+
+# ---- normalization audit vs the corrected Pangu reference -------------------
+"${PY}" "${MAKANI_ROOT}/polaris/audit_makani_pack_vs_reference.py" \
+    --pack "${OUT}" \
+    --moments "${SHARED_ROOT}/pangu_polaris_data/moments_2015-2050.json" \
+    | tail -3 || { echo "ERROR PACK_PRODUCTION_FAILED (audit)"; exit 3; }
+
+total=$("${PY}" - "${OUT}" <<'PYEOF'
+import glob, sys
+import h5py
+tot = 0
+for p in sorted(glob.glob(sys.argv[1] + "/train/*.h5")):
+    with h5py.File(p, "r") as f:
+        tot += f["fields_state"].shape[0]
+print(tot)
+PYEOF
+)
+echo "train samples total: ${total}"
+echo "PACK_PRODUCTION_OK ${OUT}"
+echo "=== done $(date -Iseconds) ==="
