@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import difflib
+import os
 import re
 import sys
 from pathlib import Path
@@ -142,10 +143,83 @@ ALLOWED_DIFF_LINES = {
 }
 
 
+# --- the §4.9 dhconv-XIO layout knob: CONDITIONALLY allowed -----------------
+# PanguWeather gained an env-gated experimental weight layout during the §4.9
+# profiling work (`PANGU_DHCONV_XIO`, default "0"); ai-rossby's vendored copy did
+# not. With the knob OFF the selected code path is byte-for-byte the pre-knob
+# one, so the two implementations compute the same thing and the difference is
+# textual only -- which is what this set records.
+#
+# With the knob ON they are DIFFERENT MODELS: the dhconv weight is stored
+# `[modes_lat, in, out]` instead of `[in, out, modes_lat]`, changing the SHAPE of
+# 95.8% of the parameters. So this is not an unconditional entry in
+# ALLOWED_DIFF_LINES -- it is allowed only while the knob is off, and setting the
+# knob turns this gate into a hard failure with its own error token.
+#
+# Listed line by line, exactly like ALLOWED_DIFF_LINES, so the set FAILS CLOSED:
+# any edit inside the knob -- including a reworded docstring -- makes the gate
+# fire rather than silently widen. If it fires after a comment-only change to the
+# knob, the fix is to update this set in the same commit, not to relax it.
+XIO_ENV = "PANGU_DHCONV_XIO"
+XIO_KNOB_DIFF_LINES = {
+    # -- s2convolutions.py: the permute at parameter construction --
+    "from .contractions import dhconv_weight_is_xio",
+    "_w = scale * torch.randn(*weight_shape, 2)",
+    'if self.operator_type == "dhconv" and dhconv_weight_is_xio():',
+    "_w = _w.permute(2, 0, 1, 3).contiguous()",
+    "self.weight = nn.Parameter(_w)",
+    "self.weight = nn.Parameter(scale * torch.randn(*weight_shape, 2))",
+    # -- contractions.py: the knob itself --
+    "import os",
+    "def dhconv_weight_is_xio():",
+    '"""True when the dhconv weight is stored `[modes_lat, in, out]` '
+    "(§4.9's layout fix).",
+    "Off by default and deliberately so: flipping it changes the **shape** of 95.8% of the",
+    "model's parameters, so every existing checkpoint would fail `load_state_dict`.",
+    "Adoption needs a conversion pass; this knob makes the change *testable* against the",
+    "§4.12 gate first.",
+    "Read in plain Python, never inside the scripted contraction: `_contract_dhconv` is",
+    "`@torch.jit.script`, and TorchScript cannot compile `os.environ`. Hence two scripted",
+    "variants selected by the (unscripted) caller rather than one branching function.",
+    '"""',
+    'return os.environ.get("PANGU_DHCONV_XIO", "0") == "1"',
+    # -- contractions.py: the x-major contraction, identical arithmetic --
+    "def _contract_dhconv_xio(",
+    "a: torch.Tensor, b: torch.Tensor",
+    ") -> torch.Tensor:  # pragma: no cover",
+    '"""`_contract_dhconv` with the weight stored x-major — §4.9\'s layout fix.',
+    "Identical arithmetic to `_contract_dhconv`; the ONLY difference is that `b` arrives as",
+    "`[modes_lat, in, out]` instead of `[in, out, modes_lat]`, so `einsum`'s lowering to a",
+    "batched matmul (`x` is a batch index, `i` is contracted) needs no permute. Stored",
+    "`[i, o, x]` that permute moves 377 MB per call at **32.00 sectors/request** — the",
+    "counter's ceiling — reading 2043 MB to move 377 MB (§4.8).",
+    "ac = torch.view_as_complex(a)",
+    "bc = torch.view_as_complex(b)",
+    'resc = torch.einsum("bixy,xio->boxy", ac, bc)',
+    "res = torch.view_as_real(resc)",
+    "return res",
+    "@torch.jit.script",
+    # -- factorizations.py: the caller-side selection --
+    "_contract_dhconv_xio,",
+    "dhconv_weight_is_xio,",
+    "if dhconv_weight_is_xio():",
+    "x = _contract_dhconv_xio(x, weight)",
+    "x = _contract_dhconv(x, weight)",
+}
+
+
+def _xio_knob_on() -> bool:
+    """Whether the run this gate is guarding would take the XIO path."""
+    return os.environ.get(XIO_ENV, "0") == "1"
+
+
 def _is_allowed(line: str) -> bool:
     """Comments and blanks are always inert; everything else must be listed."""
     s = line.strip()
-    return not s or s.startswith("#") or s in ALLOWED_DIFF_LINES
+    if not s or s.startswith("#") or s in ALLOWED_DIFF_LINES:
+        return True
+    # Conditional: textual-only while the knob is off, a real divergence when on.
+    return s in XIO_KNOB_DIFF_LINES and not _xio_knob_on()
 
 SFNO_FILES = [
     "sfnonet.py",
@@ -171,6 +245,17 @@ def _changed_lines(a: str, b: str) -> list[str]:
 
 def check_source() -> int:
     print("=== source parity: vendored modulus_sfno vs PanguWeather ===")
+    if _xio_knob_on():
+        # Not merely "stricter": with the knob on, PanguWeather stores the dhconv
+        # weight [modes_lat, in, out] and ai-rossby stores it [in, out,
+        # modes_lat]. 95.8% of the parameters change SHAPE, so the two sides are
+        # not the same model and no throughput or loss comparison between them
+        # means anything. Said here rather than left to 40 line-level failures.
+        print(f"ERROR SFNO_XIO_KNOB_SET: {XIO_ENV}=1 — the two trees are different")
+        print("  models under this knob (dhconv weight [modes_lat,in,out] vs")
+        print("  [in,out,modes_lat]: 95.8% of parameters change shape). Either unset")
+        print(f"  {XIO_ENV}, or port the layout to ai-rossby and re-baseline both.")
+        return 1
     failed = 0
     for name in SFNO_FILES:
         pangu, ar = PANGU_SFNO_DIR / name, AR_SFNO_DIR / name
