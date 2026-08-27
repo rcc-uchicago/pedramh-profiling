@@ -319,12 +319,17 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **▶ IN FLIGHT — submitted 2026-08-27 21:09 to run unattended, ANALYSE THESE FIRST:**
     | job | what | queue | PASS token | reads |
     |---|---|---|---|---|
-    | **7568641** | 4-node app-free NCCL probe, v1.21.1+AUTO | `debug-scaling` | `MN_NCCL_PROBE_OK ranks=16` | `physicsnemo_ai_rossby/ai_rossby_nccl_mn_probe.o7568641` |
+    | ✅ **7568641** | 4-node app-free NCCL probe, v1.21.1+AUTO | `debug-scaling` | **`MN_NCCL_PROBE_OK ranks=16 nodes=4`, 16/16 ranks, `transport: AWS Libfabric`, rc=0** | `physicsnemo_ai_rossby/ai_rossby_nccl_mn_probe.o7568641` |
     | **7568642** | **1-node ladder smoke (arm A)** — held on 7568641 | `debug` | `AI_ROSSBY_MN_SCALING_OK` + a CSV row | `.../ai_rossby_mn_scaling.o7568642` |
     | *pending* | **2-node smoke (arm B)** — held on 7568642 | `debug` | same | see the helper log below |
-    - **7568641 is the gate that matters.** Everything measured so far is single-node, i.e. it
-      proves the CXI domain OPENS; this is the first evidence that inter-node traffic actually
-      FLOWS under torch 2.10. A wedge here blocks the ladder and is ticket-grade (§4b).
+    - ⭐ **7568641 GREEN — the fabric gate is fully cleared.** `MN_NCCL_PROBE_OK ranks=16
+      nodes=4`, 16/16 ranks, `AWS Libfabric`, rc=0, in ~1 min. This is the first evidence that
+      inter-node traffic actually **flows** under torch 2.10 — the two 1-node probes only
+      proved the CXI domain opens. Note what it passed *without*: the small-broadcast storm,
+      the 100 MB DDP-sized broadcast and the checked all-reduce all completed at **the default
+      NCCL protocol, no `NCCL_PROTO=Simple` pin** — the workaround makani needed at ≥3 nodes
+      on the old plugin, and which handoff §4 says not to port. **All three ai-rossby fabric
+      probes are now green and the ladder is unblocked on the transport side.**
     - **7568642 is the first ai-rossby scaling row ever** and the anchor for prereg
       prediction 3: arm B − arm A should land in **190–750 ms**.
     - The 2-node arm could not be queued immediately (one job per queue, above). A detached
