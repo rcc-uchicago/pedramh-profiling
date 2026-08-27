@@ -277,9 +277,18 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     NCCL-version-side, i.e. the ALCF ticket's premise (§4b) holds beyond the env it was found
     in. Single-node, so it proves the domain OPENS, not that inter-node traffic flows —
     that is the ≥2-node probe.
-    **Prereg prediction 2 is half-scored: the transport half is confirmed; the "AUTO and only
-    AUTO" half needs the knob matrix (7568618), which asks whether AUTO is NECESSARY here or
-    merely sufficient — on NCCL 2.27.5 the default might already ask for auto progress.**
+  - ⭐ **KNOB MATRIX, job 7568618 — `OFI_MATRIX_OK working combos: C_progress_auto`, ALONE.**
+    Six combos, one winner, and it is the same single winner makani got on NCCL 2.28.3
+    (7563894). Everything else fails `fi_domain` with **RC −38 ENOSYS** — default, MANUAL,
+    RDMA, RDMA+MANUAL — with 8 domain errors each. ⇒ **`OFI_NCCL_PROGRESS_MODEL=AUTO` is
+    NECESSARY here, not merely sufficient**, which is the question the fabric probe could not
+    answer and the one that decides whether the pin may be dropped anywhere.
+    **PREREG PREDICTION 2 — SCORED, HIT** (both halves: `C_progress_auto` alone, and
+    `transport = AWS Libfabric` on every working combo).
+    Two independent environments (torch 2.8.0/NCCL 2.28.3 and torch 2.10.0+cu129/NCCL 2.27.5)
+    now give the identical answer, so the ALCF ticket §4b can state the ENOSYS root cause as
+    **CXI-provider-side and NCCL-version-independent** rather than as one env's observation.
+    ⚠ Still single-node: this proves the domain opens, NOT that inter-node traffic flows.
   - ⚠ **`debug` rejects a second QUEUED job per user** ("would exceed queue generic's per-user
     limit of jobs in 'Q' state"), so the handoff §0.8 recipe of pre-submitting a whole
     `-W depend=` chain **does not work in this queue** — links must go in one at a time.
@@ -303,7 +312,18 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **Both launcher preflights verified from a login node before any trainer allocation:**
     PREFLIGHT 1 `SFNO_PARITY_OK`; PREFLIGHT 2 `VARIABLE_PARITY_OK 19/19` on
     `train/2015.zarr` in **0.13 s** — so the 30-store loop costs ~4 s, not a reason to trim it.
-  - **Open:** knob matrix (7568618) → ≥2-node NCCL probe → 1n then 2n launcher smokes → the
+  - **▶ RESUME HERE** (session paused 2026-08-27 after the two 1-node probes; nothing is
+    running, no job is queued, working tree clean on `feat/multinode-ddp-port`):
+    ```bash
+    cd physicsnemo_ai_rossby          # qsub resolves the script relative to cwd
+    qsub -q debug-scaling polaris/polaris_ai_rossby_nccl_mn_probe.pbs   # MN_NCCL_PROBE_OK, 4 nodes
+    qsub -l select=1:system=polaris polaris/polaris_ai_rossby_multinode_scaling.pbs  # 1n smoke
+    qsub -l select=2:system=polaris polaris/polaris_ai_rossby_multinode_scaling.pbs  # 2n smoke
+    ```
+    Operator approved scope was: three probes + the 1n/2n smokes, then stop before the ladder.
+    Two of the three probes are done and green. ⚠ `debug`/`debug-scaling` take **one job at a
+    time** per user (see above), so these go in singly, not as a `-W depend=` chain.
+  - **Open:** ≥2-node NCCL probe → 1n then 2n launcher smokes → the
     ladder. Prereg prediction 3 is the one that matters: makani paid a roughly *constant*
     +375 ms whenever the fabric was touched, so ai-rossby should pay a similar absolute
     penalty on a ~4× longer step and scale visibly better for no better reason than step
