@@ -212,6 +212,566 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-08-24** — **The paper's parallel layouts are IN the official repo, and the 512-A100 run
+  factorizes exactly — plan §1's inference is now upstream-confirmed fact.** Cloned
+  NVIDIA/makani to `${MEMBER_ROOT}/external/makani-upstream` (outside the git tree; the pip
+  wheel ships no `config/`).
+  - **`config/fourcastnet3.yaml` states the decompositions in comments:** pretrain1 =
+    `ensemble 16 × batch 16` + *"requires a model-parallelism of h=2, w=2"* → 16·16·4 = **1024
+    H100** ✓; **pretrain2 (the 512-A100 stage)** = `ensemble 2 × batch 32` + *"h=2, w=4 to fit
+    into memory on 80GB GPUs"* → 32·2·8 = **512** ✓; finetune = `ensemble 4 × batch 4` × 16-fold
+    spatial = **256** ✓. There is deliberately **no "512-GPU config file"** — YAML carries
+    batch/ensemble, the spatial split is CLI (`--h_parallel_size/--w_parallel_size`), which is
+    exactly the shape our `-v HPAR=/WPAR=` harness already has.
+  - **Deterministic SFNO at scale, per upstream's README:** 256 GPUs = `--h_parallel_size=4
+    --w_parallel_size=1 --batch_size=64` bf16 → **1 sample per data group, split 4-way spatially**.
+    NVIDIA's scale-out lever for our trainer class is spatial parallelism at small per-GPU batch,
+    not bigger local batches. (README's named config `sfno_linear_73chq_sc3_layers8_edim384_asgl2`
+    no longer exists in `sfnonet.yaml` — the base config, batch 64, is the surviving recipe.)
+  - **Operator correction accepted:** the per-rank=1 under-utilisation doc
+    (`docs/2026-05-08_ddp_throughput_fix_resolution.md`) is **other-cluster H100 evidence**, not
+    Polaris — and upstream's own recipe runs at fractional samples/GPU. The planned
+    `LOCAL_BATCH` arm is dropped as the next move; the paper-faithful axis is `h/w`.
+  - **Ensemble parallelism needs `ensemble.py`** (stochastic path); upstream's deterministic
+    `train.py` inits comm without a data split, same as our 0.2.0. ⚠ Upstream renamed the
+    model-parallel axes `[h,w,fin,fout]` → `[h,w,matmul]` — a venv upgrade is API drift and
+    must not be done casually against the 7253465 comparability baseline.
+  - **Submitted 7554129 — arm F: 4 nodes, `HPAR=2,WPAR=2`, scaling pack.** One job, three
+    questions: (a) the paper's pretrain1 spatial layout, first exercise of the spatial path in
+    this repo; (b) the arm-C deadlock hypothesis — h2w2 makes the currently-degenerate
+    spatial/model groups real, so if the setup BROADCAST deadlock is a degenerate-group
+    problem, this run dodges it; (c) whether spatial parallelism works at all on our
+    E3SM-shaped SFNO.
+
+- **2026-08-24 (cont.)** — ⭐ **4-NODE DEADLOCK DIAGNOSED AND FIXED: `NCCL_PROTO=Simple`. Arm C
+  is GREEN (7554216, step_ms 199.5) and the full A/B/C ladder is being re-run under the pin.**
+  The diagnosis chain, because each refuted hypothesis is a fact about this stack:
+  - **7554129 (arm F, h2w2) HUNG the same way** ⇒ degenerate-group hypothesis **refuted** —
+    making the spatial groups real changes nothing. (Also: first-ever exercise of makani's
+    spatial path here reached setup; whether it *trains* is still unknown.)
+  - **7554143 (arm C + `NCCL_ALGO=Ring`) HUNG** ⇒ tree-algorithm hypothesis **refuted**. But the
+    newly-enabled flight recorder (`TORCH_NCCL_TRACE_BUFFER_SIZE=2000`) produced the first
+    stack: torch DDP `_sync_params_and_buffers` → the initial weight broadcast on the DEFAULT
+    PG — the same broadcast that succeeds at 2 nodes.
+  - **7554170 `MN_NCCL_PROBE_OK` — the fabric passes APP-FREE at 16 ranks / 4 nodes** on the
+    same chassis that hung (new `polaris_makani_nccl_mn_probe.pbs`: 20-broadcast storm +
+    100 MB DDP-shaped broadcast + verified all-reduce, 3-min fail-fast timeout). ⇒ not a raw
+    fabric failure; the trainer's *usage pattern* is implicated. This probe is now the cheap
+    vehicle for fabric knob tests — minutes per data point instead of a trainer bring-up.
+  - **7554185 (arm C + `FI_CXI_RX_MATCH_MODE=software`) HUNG** ⇒ CXI match-entry exhaustion
+    **refuted**. Flight recorder: this time makani's own `sync_params` (`mpu/helpers.py:84`,
+    ~86 per-parameter broadcasts on PG 5) — *earlier* than the Ring run's wedge point. Pattern
+    across all four hangs: setup broadcast storms of **small (384-float, LL-eligible)**
+    messages, wedging nondeterministically partway (18–23 of ~86 complete), on varying PGs.
+  - **7554216 (arm C + `NCCL_PROTO=Simple`) → `MAKANI_MN_SCALING_OK`.** Root cause: the
+    **LL/LL128 small-message protocol paths of the 2024-era `v1.6.0-libfabric-1.22.0` plugin
+    wedge against NCCL 2.28.3 at ≥3 nodes** — the classic aws-ofi-nccl version-mismatch
+    failure. Not guessable from any single hang; the probe + flight-recorder narrowing bought
+    it in 5 jobs.
+  - **Pin landed in the launcher** (default `NCCL_PROTO=Simple`, overridable, printed in every
+    log header — a launcher pin, not a CSV column, per #10). ⚠️ **The pin is itself a
+    measurement config:** arm A reads **114.9 ms under default proto** vs **144.7 ms under
+    Simple** (7554222) — ~26% at 1 node, where LL actually works and helps. So pre-pin rows
+    (7553890 A, 7553897 B) are **protocol-confounded vs any 4-node row** and both were re-run
+    under the pin.
+  - ⭐ **Rep-1 ladder complete under the pin — and the pin REWRITES the scaling story:**
+    | arm | job | nodes | step_ms | vs A | samples/s total | weak-scaling eff | wireup_s |
+    |---|---|---|---|---|---|---|---|
+    | A | 7554222 | 1 | 144.7 | — | 27.6 | 100% | 2.76 |
+    | B | 7554241 | 2 | **145.7** | **+0.7%** | 54.9 | 99.3% | 8.54 |
+    | C | 7554216 | 4 | **199.5** | **+37.9%** | 80.2 | 72.5% | 21.38 |
+    Under default proto the story read "first Slingshot hop costs +52%" (114.9 → 174.6). Under
+    the uniform Simple pin **the first hop is free (+0.7%) and the cost concentrates at 4
+    nodes** — i.e. the +52% was substantially a protocol artifact (LL helping the 1-node arm,
+    unavailable-or-neutral at 2). Wireup grows ~linearly in nodes (2.8 → 8.5 → 21.4 s).
+    **Prereg scored (rep 1): prediction 1 CONFIRMED at 4 nodes (+38% ≥ 10%) but REFUTED at 2;
+    prediction 3 CONFIRMED (7.7× ≥ 2×).** The 2→4 cliff (free → −27% efficiency) is the next
+    question: more-peers ring latency vs dragonfly-group crossing vs plugin Simple-path
+    degradation — reps 2–3 first, then arm D separates I/O from comms.
+  - **Consequence for the ALCF ticket:** the only initializable plugin pairing needs its LL
+    paths avoided — one more line of evidence that `/soft/libraries/aws-ofi-nccl` needs a
+    rebuild against libfabric 2.3.1 / current NCCL. The app-free probe (7554170 pass, and its
+    hang mode under default proto is reproducible in minutes) is the ticket artifact.
+  - 🚨 **Arm F under the pin (7554253): the spatial path CRASHES for real — `CUDA illegal
+    memory access` on rank 1 during the FIRST model-parallel collectives** (mid P2P connection
+    setup on the h/w groups; wireup itself clean: 22.01 s, 16 ranks, AWS Libfabric). CSV
+    refused the row (`NO_STEP_TIMING`), correctly.
+  - **Arm F DIAGNOSED by a 4-way split, then FIXED in the fork (pending verification):**
+    | probe | config | outcome |
+    |---|---|---|
+    | 7554253 | 4 nodes h2w2, Simple + GDR on | **IMA** in NCCL `transport.cc` during setup |
+    | 7554283 | + `CUDA_LAUNCH_BLOCKING=1` | silent CPU-side wedge, no stack (expected — blocking launch legitimately deadlocks NCCL); qdel'd |
+    | 7554351 | **1 node** h2w2 (NVLink only) | ✅ **TRAINS** — 60 steps complete ⇒ makani's spatial kernels + torch_harmonics 0.9.2a on our grid are EXONERATED |
+    | 7554367 | 4 nodes h2w2, Simple + **GDR off** (`NCCL_NET_GDR_LEVEL=LOC`, launcher's hard-coded PHB made overridable) | **hang** in `sync_params` broadcasts (31/88 on PG 5) — same wedge shape as the LL deadlock, different knob |
+    ⇒ works on NVLink, fails over the fabric under every knob ⇒ not a kernel bug, a
+    **collective-ordering bug**. Reading the code closed it:
+    `makani/mpu/helpers.py:82-90` — ``sync_params`` **interleaves per-parameter broadcasts
+    across DIFFERENT communicators** (``data`` first, then each ``param.is_shared_mp`` group).
+    Pure DDP degenerates to one communicator (model groups size 1 → skipped) → fine, which is
+    why arms A–C never saw it. With h2w2 multi-node, the alternation violates NCCL's
+    concurrent-collectives ordering constraint, with rank-dependent lazy connection setup —
+    IMA or hang depending on timing. **Upstream knows:** the call site carries
+    ``# DEBUG: this also needs to be fixed in NCCL`` (`deterministic_trainer.py:142`).
+    Single-node dodges it because every group is NVLink and nothing is lazy.
+  - **Fix: `_serialized_sync_params` in `plasim_trainer.py`** — the fork's existing
+    patch-installer pattern (4th rebind, alongside the dataloader/wrapper rebinds), NOT a venv
+    edit. Byte-identical semantics (same groups, order, roots, complex handling); the only
+    delta is `torch.cuda.synchronize()` after each broadcast so no two communicators ever have
+    kernels in flight at once. Setup-path only — the training step never runs through it, so it
+    is output-neutral and adds seconds at startup.
+
+- **2026-08-26** — **Arm F VERDICT: the serialization patch is correct but NOT sufficient — the
+  wedge is a transport-level progress loss in the old plugin, and arm F is now BLOCKED on a
+  plugin rebuild, not on anything ours.**
+  - **7563723 (4 nodes h2w2, patch active) still hung — but its flight recorder is the
+    decisive evidence:** rank 11 wedged with `last enqueued 84, last completed 83` inside
+    `_serialized_sync_params`. Under full serialization there is no ordering freedom left:
+    **83 broadcasts on that same subgroup communicator succeeded, then one identical 384-float
+    broadcast never completed.** Not first-use connection setup (83 worked), not ordering
+    (serialized), not LL (Simple pinned), not GDR (both settings tried). ⇒ the
+    `v1.6.0-libfabric-1.22.0` plugin **loses progress under sustained small-message load on
+    multiple subgroup communicators** at ≥3 nodes. No application-side change can reach that.
+  - **7563780 (1 node h2w2, patch active): `MAKANI_MN_SCALING_OK`** — 219.5 ms at global
+    batch 1, the repo's **first working spatial-parallel measurement**, and the patch's
+    regression smoke: the working case is unharmed. Patch kept as NCCL-contract hygiene
+    (upstream's own `# DEBUG: this also needs to be fixed in NCCL` concedes the stock
+    interleaving is wrong), explicitly documented as *not* the fix for 4 nodes.
+  - **Where this leaves the axes:** pure-DDP scaling (arms A–E) fully working under the Simple
+    pin — the A/B/C ladder stands. **Spatial parallelism multi-node is blocked on system
+    software**: the fix is a CURRENT aws-ofi-nccl (v1.9+/1.16 era) built against libfabric
+    2.3.1 + NCCL 2.28 — either via the ALCF ticket (their `/soft` builds are 2024-vintage and
+    the newest predates the current libfabric) or a self-build in a debug job into
+    `$MEMBER_ROOT` (feasible: autotools + libfabric headers + CUDA, all present). A modern
+    plugin would likely also lift the Simple pin and its ~26% single-node cost.
+  - **Untried knobs, noted for completeness, low prior:** `NCCL_CROSS_NIC=0`,
+    `NCCL_MAX_NCHANNELS`. Neither addresses a mid-storm progress loss.
+
+- **2026-08-26 (cont.)** — ⭐⭐ **ARM F IS GREEN. Self-built aws-ofi-nccl v1.21.1 +
+  `OFI_NCCL_PROGRESS_MODEL=AUTO` unblocks multi-node spatial parallelism — job 7564035,
+  `MAKANI_MN_SCALING_OK`, 4 nodes h2w2, 569.9 ms @ global batch 4, world 16.** The identical
+  config that survived no workaround on the old plugin trains end-to-end. Chain:
+  - **Build (7563854):** v1.21.1 source tarball → `$MEMBER_ROOT/sw/aws-ofi-nccl-1.21.1`
+    (autotools vs libfabric 2.3.1/CUDA 12.9/hwloc, ~2 min in a debug job;
+    `polaris_build_aws_ofi_nccl.pbs`). Loads (net API v11), ldd clean — **and still fails
+    `fi_domain` with the same ENOSYS as every /soft build ≥v1.9.** So staleness was never the
+    mechanism.
+  - **The actual unlock (7563894, `polaris_ofi_plugin_matrix.pbs`): ONE env var.** Six-combo
+    matrix; only **`OFI_NCCL_PROGRESS_MODEL=AUTO`** works. libfabric 2.3.1's CXI provider
+    refuses domain creation unless the caller requests **auto progress**; newer plugins default
+    to hints CXI rejects, and 2024's v1.6 happened to ask for the right thing. **This is
+    almost certainly why ALCF's own 2025-09 plugin rebuilds sit broken on /soft — hand them
+    this in the ticket.**
+  - **Verification ladder:** 7563925 `MN_NCCL_PROBE_OK` 16 ranks/4 nodes app-free under the
+    **DEFAULT protocol** (no Simple pin — the LL deadlock is at least absent app-free); then
+    arm F real training, green. One transient en route: node `x3111c0s37b1n0` failed NCCL init
+    twice (`CUDA device busy` — zombie GPU state; report to ALCF), dodged by parking a
+    throwaway `host=`-pinned holder job on it while arm F took healthy nodes.
+  - **Measurement config note:** the plugin is now part of the config. Old-plugin rows
+    (A/B/C ladder, Simple pin) and new-plugin rows must never be mixed in one table; the log
+    header records the pin (`fabric pin:` lines + `OFI_PLUGIN` override).
+
+- **2026-08-26 (cont. 2)** — **8-node pure DDP GREEN (first 32-rank row ever) + the new-plugin
+  ladder re-measured — and it exposes a real TRADE-OFF, not a win.**
+  - **Sick-node epidemic + the harness answer.** Three distinct nodes with zombie GPU state
+    (`CUDA-capable device(s) is/are busy or unavailable` at init) killed four runs:
+    `x3111c0s37b1n0` (**3 strikes** — 7563960, 7563991, then arm B 7564227), `x3201c0s1b1n0`
+    (7564075), `x3109c0s1b0n0` (7564123). A fast-failing node returns to the idle pool
+    immediately, so the scheduler re-deals it — per-node holder jobs don't scale. **New
+    launcher capability:** `-v TARGET_NODES=N` with `-l select=N+1` runs a per-node 4-GPU
+    touch, names sick hosts in the log, prunes them, and runs on the first N healthy nodes
+    (no TARGET_NODES → prior behaviour). Proven by 7564137: pruned `x3109c0s1b0n0`, ran clean.
+    At 100 nodes a bad draw is near-certain, so `select=101,TARGET_NODES=100` becomes standard.
+    **Report all three nodes to ALCF.** ⚠ A 2-node arm cannot carry a spare inside `debug`'s
+    2-node cap — run arm B as `debug-scaling select=3,TARGET_NODES=2` (7564264 submitted).
+  - **New-plugin ladder (v1.21.1 + AUTO + Simple pin), rep 1:**
+    | nodes | job | step_ms | per-rank s/s | weak-scaling eff | total s/s | wireup_s |
+    |---|---|---|---|---|---|---|
+    | 1 | 7564184 | 115.3 | 8.67 | 100% | 34.7 | 3.2 |
+    | 4 | 7564185 | 460.5 | 2.17 | 25% | 34.7 | 12.5 |
+    | 8 | 7564137 | 545.0 | 1.83 | 21% | 58.7 | 13.4 |
+  - **8-node analysis:** the cliff **saturates rather than compounds** (4→8 = +18% after the
+    ×4.0 at 4 nodes), wireup flattens (12.5→13.4 s), I/O is exonerated (io_gbs rose 0.88→1.49
+    while per-rank throughput fell). But the plateau is bad: per-GPU compute is ~115 ms, so
+    **~430 ms ≈ 79% of the 8-node step is exposed comms** — 16 GPUs deliver exactly 4 GPUs'
+    throughput at 4 nodes. Signature matches progress-engine CPU starvation: the new plugin's
+    forced `FI_PROGRESS_AUTO` runs libfabric's own progress threads, which the
+    `--cpu-bind depth -d 8` layout (tuned for the old plugin's manual progress) never
+    accounted for. Tuning problem, plausibly recoverable — not an architectural wall.
+  - **The trade-off, stated plainly:** old plugin (v1.6+Simple) = fast pure-DDP
+    (199.5 ms / 80.2 s/s at 4 nodes) but spatial-parallel broken and 8-node untested; new
+    plugin (v1.21.1+AUTO) = everything *works* (incl. spatial: arm F 569.9 ms) and fastest
+    single-node (115.3), but inter-node throughput ~2.3× worse. Old-plugin 4 nodes currently
+    out-delivers new-plugin 8 nodes. **Cross-plugin rows must never share a table** — arm A is
+    now measured at 196.5 (smoke pack) / 114.9 (default proto) / 144.7 (Simple) / 115.3 (new
+    plugin): four "arm A"s, four configs, which is the whole point of recording config per row.
+  - **Queue geography (verified `qstat -Qf`):** `debug-scaling` max **10 nodes** / 1 h /
+    1 job per user. Beyond: `prod` routes ~16→`small`, 25–99→`medium`, **100–496→`large`**.
+    Settle all tuning at ≤10 nodes; climb prod with the settled config only.
+  - **Open next:** (a) 8-node on the OLD plugin — one cheap job that decides which stack
+    carries the pure-DDP study; (b) progress-thread/cpu-bind tuning sweep for the new plugin
+    at 4 nodes; (c) reps 2–3 of the chosen ladder; (d) ALCF ticket (ENOSYS root cause +
+    `OFI_NCCL_PROGRESS_MODEL=AUTO` fix + 3 sick nodes).
+  - **(a) ANSWERED — arm B new-plugin completes its ladder, then the old plugin takes 8 nodes
+    decisively:**
+    - 7564264 (arm B, new plugin, `debug-scaling select=3,TARGET_NODES=2`): **490.7 ms** ⇒ on
+      the new plugin the collapse is at the FIRST hop (×4.3 at 2 nodes, then flat 460–545
+      through 8). A large, roughly constant per-step cost whenever the fabric is touched —
+      progress-model overhead, not a bandwidth wall.
+    - **7564288 — OLD plugin, 8 nodes pure DDP: `MAKANI_MN_SCALING_OK`, step_ms 215.3,**
+      148.6 samples/s total, world 32, preflight 9/9 healthy. **v1.6+Simple survives 32 ranks**
+      (its known defects need multi-communicator small-message storms, which pure DDP never
+      creates). Completed rep-1 ladder: 144.7 / 145.7 / 199.5 / **215.3** — the 4-node cliff
+      **saturates** (4→8 = +8%), efficiency 72.5%→67.2%, wireup sublinear (21.4→25.1 s).
+    - ⇒ **STACK DECISION: old plugin + Simple carries the pure-DDP scaling study; the
+      self-built v1.21.1+AUTO is reserved for spatial parallelism** until its progress tuning
+      is solved (it is 2.5× slower at 8 nodes: 545.0 vs 215.3). If the plateau holds, naive
+      100-node weak scaling projects ~65% efficiency ≈ 1,800 samples/s — the *shape* supports
+      the climb; reps 2–3 must confirm before any prod-queue rung is bought.
+
+- **2026-08-26 (cont. 3)** — ⭐ **makani now logs the Pangu/ai-rossby wandb metrics contract —
+  built, smoke-run, and verified from the offline datastore (7564401) before any production
+  launch.** Contract: `wandb_metrics_report.md` + `ai_rossby_finegrained_wandb_handoff.md` —
+  per-variable(-level) lat-weighted RMSE in physical units, every iteration, flat keys.
+  - **What "same metrics" means here, precisely:** makani-E3SM trains a different channel
+    contract (53 ch, 10 plev levels) than the Pangu/ai-rossby pair (101 ch, 18 hybrid levels),
+    so identical keys are impossible where variables differ. What is matched is the **scheme**
+    — Pangu's exact formula (`N·cos(lat)/Σ` weights, lat/lon-only reduction, `×std`
+    denormalization), cadence (every iteration), flat naming (`train_{var}_lwrmse`,
+    `train_{var}_level{level:.4f}_lwrmse`), and the same project (`pedramh-profiling`) — plus
+    Pangu's base names where the physics is shared: channels `RH{p}`→`RELHUM`, `Z{p}`→`Z3`.
+  - **Mechanics** (`sfno_training/trainer/wandb_diagnostics.py` + 3 wiring points in
+    `plasim_trainer.py`): a **forward hook on `trainer.loss_obj`** — the one per-step site
+    holding the normalized `(pred, tar)` (deterministic_trainer.py:493). A hook, not a
+    wrapper, because `loss_obj` is checkpointed (lines 252/281/399) and a wrapper would change
+    state-dict keys. Gated `module.training ∧ torch.is_grad_enabled()` (validation never
+    fires) and installed only under `log_to_wandb` — which every bench render forces False, so
+    **the scaling-CSV path executes zero new instructions** (#10). fp32 math under
+    `autocast(enabled=False)`; shape/std-length mismatches disable LOUDLY, never mislabel.
+  - **wandb step-axis conflict handled:** makani natively logs epochs with `step=self.epoch`,
+    which wandb drops as out-of-order once per-iteration auto-steps run ahead. The existing
+    `log_epoch` override now re-logs everything flat (`train_loss_epoch`, `valid_loss`,
+    `learning_rate`, `epoch`, + all native scalars) — verified present in the datastore.
+  - **Launcher:** `-v WANDB=1` renders `log_to_wandb True` + the four `wandb_*` identity keys
+    `Driver._init_wandb` hard-requires (project pinned to `pedramh-profiling`). ⚠ A wandb'd
+    row's `step_ms` includes the diagnostics overhead — never table it against non-wandb rows.
+  - **Verification (handoff §5, all passed):** smoke 7564401 green; datastore readback via
+    `wandb_local_history.py`: **53/53 keys, 60/60 iterations**, physical magnitudes sane
+    (TREFHT 17→5 K, PS 7860→1949 Pa, Z3 O(100 m), RELHUM O(10 %)) — i.e. no missed-`std` bug;
+    `train_loss` ×60 flat; `valid_loss` == native "validation loss". Handoff §3's
+    lat-weighting equivalence: makani reads the pack's real lat grid (the same 1° E3SM grid
+    Pangu's `params.lat` carries) and uses Pangu's formula verbatim.
+  - Key-scheme unit test run pre-submit (53 keys, no dupes, exact `.4f` formatting).
+    **Production note:** launch with `WANDB=1` (or set `log_to_wandb`+identity keys in the
+    production config); without it the contract silently stays off.
+
+- **2026-08-26 (cont. 4)** — **"Does makani need the Pangu/ai-rossby variable regeneration?"
+  — AUDITED against the corrected artifacts: NO, and now proven numerically, not just
+  argued structurally. `MAKANI_PACK_AUDIT_OK`, all 53 channels.**
+  - **What "most current data" turned out to be:** the regeneration did NOT produce new source
+    variables. `${E3SM_ROOT}/h5/plev_data` is unchanged since 2026-07-08; what regenerated
+    (2026-08-05, in `$PANGU_AUX`) is the **normalization**: `moments_2015-2050.json` +
+    `data_2015-2050_{mean,std_corr}.nc`, computed **mask-aware** (moments over valid pixels
+    only — SST/ICE over ocean, TSOI/SOILWATER over land; per-var shifts for stability), with
+    the pre-fix files preserved under `pre_fix/`. ⇒ makani's packs, built from the same
+    archive, are already "the most current data" at the variable level.
+  - **The audit** (`polaris/audit_makani_pack_vs_reference.py`, new, reusable): every channel
+    makani trains on, compared against stats reconstructed from the corrected moments —
+    surface/diagnostic direct, upper-air by mapping makani's 10 plev channels onto the LAST 10
+    of the reference's 18 hybrid levels (~200..1000 hPa; verified the level lists coincide).
+    **Result: all 53 stds within 2.14%** (2-year pack vs 35-year reference window — pure
+    sampling drift), **all means within 0.02 std**. Near-zero-mean wind channels show huge
+    *percent* mean deltas (U1000 "−970%") that are 0.01σ absolute — the script therefore
+    scores means in std units, not percent, so nobody re-trips over that.
+  - **Why makani was immune** (2026-08-04 audit, now confirmed against the fix): the defect
+    class needs an externally-precomputed stats file that can disagree with a
+    separately-configured fill. makani computes stats **in-stream from the packed data**
+    (cannot disagree by construction), already fills SST with **−1.8 °C** (the audit's
+    "unifies all three pipelines" option), and **has no TSOI_10CM/SOILWATER_10CM channels at
+    all** — the 8.2×-underweighted-loss defect cannot map onto its contract. SST/ICE are
+    forcings (inputs, never scored) in makani.
+  - **Remaining convention question (jesswan's call, not blocking):** the corrected reference
+    is mask-aware for masked fields; makani's forcing stats are filled-field stats. Self-
+    consistent and input-only, so not a defect — but if a single cross-pipeline convention is
+    mandated (or SST fill moves to 0.0), the response is one constant + a repack (~5–10
+    min/yr), then re-run this audit. Same procedure if the SOURCE archive is ever regenerated.
+  - ⚠ Standing caveat unchanged: `convert_e3sm_to_makani_alldata.py` (the 154-ch ALLDATA
+    path) was never fully audited — finish that before building a production pack with it.
+
+- **2026-08-27 (cont. 2)** — 🏁 **PRODUCTION COMPLETE: `prod128_alldata_v2` (7566145) ran ALL
+  100 EPOCHS to `MAKANI_MN_SCALING_OK`, rc=0 — the first full makani-E3SM production training
+  ever, at 128 nodes / 512 ranks, on the Pangu/ai-rossby-parity 101-channel contract.**
+  - **Numbers:** ~1 h 40 m wall ≈ **~215 node-hours** (vs 774 cap); step_ms 576.5 avg
+    (incl. warmup; marginal ~440–510), **888 samples/s** total, io 43.1 GB/s aggregate,
+    `world_sizes_seen=512`, AWS Libfabric (v1.21.1+AUTO), wireup 315.7 s.
+  - **Training result: final train loss 0.0160, validation 0.0183 — and epoch 100 IS the
+    validation minimum: still improving at the schedule bound, no overfit onset** (contrast
+    the Pangu/ai-rossby runs' plateau-then-drift at ~epoch 25 — though absolute loss values
+    are NOT cross-harness comparable; the shared per-channel lwrmse panels are the comparison
+    vehicle, which is exactly why the key parity mattered). ⚠ batch-512 convergence quality
+    remains jesswan's read.
+  - **Artifacts:** `best_ckpt_mp0.tar` (= epoch 100) + last 3 versioned checkpoints (1.77 GB
+    each; cap worked); 100 epoch summaries in `prod128_alldata_v2.log`; production CSV row;
+    wandb run synced to `pedramh-profiling` with the 102-key contract (102/102 byte-match to
+    Pangu, superset of ai-rossby).
+
+- **2026-08-27 (cont.)** — ⚠→✅ **OPERATOR CAUGHT A KEY-SCHEMA MISS ON THE LIVE RUN; fixed,
+  byte-verified against BOTH reference datastores, and production restarted clean as
+  `prod128_alldata_v2` (job 7566145; v1 7566045 qdel'd ~50 min in, ~110 node-hours).**
+  - **The miss:** makani's upper-air wandb keys formatted the archive's ACTUAL hybrid level
+    values (`train_RELHUM_level849.6612_lwrmse`) while Pangu/ai-rossby format **NOMINAL
+    round-hPa labels** (`train_Z3_level300.0000_lwrmse`) — every one of the 90 upper-air
+    panels silently failed to overlay. My assumption ("configs share the literal level list")
+    was wrong at the alldata level set; the surface + 53-ch nominal keys had matched, which
+    masked it. **Lesson recorded: verify key parity against the reference DATASTORE, not
+    against documentation** — assumptions about a contract are not the contract.
+  - **The fix + proof:** `_NOMINAL_LEVELS` (5..1000, Pangu's 18 labels; index↔label per the
+    archive's level_table) + Pangu's 102nd key `train_mean_norm_lwrmse` (channel-mean
+    normalized rmse). Byte-comparison of generated keys vs the REAL datastores:
+    **Pangu 102/102 exact, ai-rossby 101/101** (its schema lacks mean_norm; makani is now a
+    strict superset = identical where defined). This comparison is the new gate for any
+    future key change.
+  - v1's local wandb data (hybrid-float keys) remains on eagle + the early-synced snapshot
+    run 5lkf6o1c on wandb.ai — mark it superseded; v2 is the run of record.
+
+- **2026-08-27** — 🚀🚀 **PIVOT TO ALLDATA (operator call: full channel parity with
+  Pangu/ai-rossby) EXECUTED END-TO-END; 128-node ALLDATA production submitted: job 7566045.**
+  7565573 (53-ch) was qdel'd before start — zero node-hours spent on the superseded contract.
+  - **The contract:** ALLDATA = the **108-field set all three pipelines agree on** (100 state
+    incl. U10/RHREFHT/PSL/TMQ/FSNT/FSNTOA/SOILWATER/TSOI + all 18 hybrid levels of
+    T/U/V/Z3/RELHUM, PRECT diag, 7 forcings; clouds excluded per science owner). Converter
+    audit (the standing caveat) resolved clean: Pangu's fills verbatim (SST −1.8, TSOI 270,
+    SOILWATER 0), honest index-named levels, **resumable second-pass stats**.
+  - **~1.4 TB production pack in two 1-h debug jobs** (7565605 pack: 12 parallel workers,
+    30/30 train years; 7565734 finish): new `--skip-stats`/`--stats-only` converter flags with
+    a completeness guard. `CONVERT_ALLDATA_OK` + (after fixes below)
+    **`MAKANI_PACK_AUDIT_OK 101 channels`** vs the corrected Pangu moments — every level of
+    every var within 5%/0.05σ; worst = TOA RELHUM −4.6% std; TSOI/SOILWATER informational
+    (mask-aware ref vs filled pack, convention not defect).
+  - **Two of my own bugs caught by token discipline, not luck** (#14: the finish job printed
+    `PACK_ALLDATA_OK` while the audit had CRASHED): (a) `audit | tail` masked the audit's exit
+    code — pipe removed, rc checked directly; (b) **`U10` misparsed as upper-air "U at 10 hPa"
+    by the nominal-hPa regex** — in the audit script AND in `wandb_diagnostics.build_keys`
+    (the 7565972 datastore check showed `train_U_level10.0000_lwrmse` where
+    `train_U10_lwrmse` belonged). Fixed both with exact-surface-name-first dispatch;
+    unit-tested on both contracts.
+  - **⚠ STACK DECISION REVERSED FOR PRODUCTION: the old plugin is DISQUALIFIED, not just
+    slower.** The first ALLDATA smoke (7565896, old plugin+Simple) wedged at **SeqNum=2 on a
+    41,088-element broadcast = 384×107, the ALLDATA encoder weight** — the known
+    small-message progress defect at a message size the 53-ch model (384×58) happened to
+    dodge. The plugin's "working" regime is message-size lottery. Production runs on
+    **v1.21.1+AUTO** (correct everywhere, measured cost accepted).
+  - **8-node ALLDATA FULL smoke on the new plugin (7565972): GREEN.** 492.7 ms/step steady
+    (2×1,368 full-pass steps), 512-sample validations, `valid_loss` 0.0323→0.0264, and the
+    wandb datastore shows **101 lwrmse keys × 2,736 iterations** with hybrid-level keys
+    formatted character-identical to Pangu's (`train_RELHUM_level145.0428_lwrmse`, ...).
+  - **RUNNING (started 05:23, ~7 min queue wait; preflight 129/129 healthy). Epoch-1 facts:**
+    wireup at 512 ranks = **299 s** (once-per-job; 18 s at 32 ranks); marginal step time
+    **~509 ms — statistically identical to the 8-node smoke's 492.7 ms**, i.e. **~96%
+    weak-scaling efficiency 8→128 nodes** on the new plugin (its per-step overhead is
+    ~constant, so its relative cost shrinks at scale; ~1,000 samples/s at 512 ranks).
+    Epoch 1 = 73.6 s incl. warmup; validation 14.5 s; steady-state epoch ~60–65 s ⇒
+    **projected completion ≈ 2 h total ≈ 260 node-hours** (walltime cap 6 h). Monitor left
+    running: waits for job end, records the tail, syncs the wandb run so the 101 panels are
+    live in `pedramh-profiling` alongside Pangu/ai-rossby.
+  - **7566045 = `prod`→`large`, 129 nodes (spare+preflight), 6 h walltime,
+    `RUN_NUM=prod128_alldata_v1`** (pinned ⇒ requeue auto-resumes, same wandb run), FULL=1
+    ⇒ 43,520-sample full-pass epochs (85 steps @ global batch 512) × ≤100 epochs,
+    EVAL_SAMPLES=512, WANDB on, rows → `makani_production.csv`. Estimate **~3.5–4.5 h ≈
+    450–580 node-hours** (cap 774). ⚠ Batch 512 at shipped LR remains the flagged science
+    question — the 101 per-channel panels vs Pangu/ai-rossby are how jesswan judges it.
+
+- **2026-08-26 (cont. 6)** — 🚀 **128-NODE PRODUCTION TRAINING SUBMITTED: job 7565573, `large`
+  queue (routed from `prod`), 129 nodes (1 spare + preflight), 6 h walltime.** Every gate
+  passed first; nothing here is untested machinery:
+  - **Production pack built in ONE 1-h debug job (7564621): `PACK_PRODUCTION_OK`.** Canonical
+    split (train 2015–2044 = **43,800 samples**, valid 2045–2047, test 2048–2049) via **7
+    parallel chunk workers + exact accumulator merge** — new converter modes
+    (`--chunk-accum-out` / `--merge-accums` / `--timestamp-offset-samples`) whose merge is
+    bit-for-bit the single-pass arithmetic, with a coverage check refusing gaps/double-counts.
+    `CONVERT_OK` (read-back validation) + **`MAKANI_PACK_AUDIT_OK`** vs the corrected Pangu
+    reference (PRECT std within 0.08% — the 30-yr window nearly matches the 35-yr reference).
+  - **FULL mode added to the launcher and smoked at 8 nodes (7564631, green):** `-v FULL=1`
+    makes an epoch the whole train split (trimmed to a global-batch multiple — 43,800→43,520
+    at batch 512), `EPOCHS` bounds the schedule, `EVAL_SAMPLES=512` production validation;
+    wrap guard correctly bypassed (epochs re-serve by design).
+  - **Requeue = resume, verified:** per-epoch versioned checkpoints (measured 1.77 GB each:
+    model+optimizer+scheduler+counters) + `best_ckpt`; `-v RUN_NUM=` now pins the experiment
+    dir (default embeds the jobid — right for scaling reps, wrong for production) so a
+    resubmission auto-resumes, including the same wandb run (`makani_restart.yaml`).
+    `checkpoint_num_versions: 3` capped for `EPOCHS>2` (100 uncapped epochs ≈ 177 GB of tars).
+  - **The run:** `RUN_NUM=prod128_full_v1`, old-plugin stack (v1.6 + Simple — the fast, proven
+    pure-DDP config), global batch 512 (1/GPU), ~85 steps/epoch × ≤100 epochs, W&B on
+    (Pangu-parity contract), rows → `makani_production.csv`. Expected ~2–3 h ≈ **300–450
+    node-hours** (774 worst case at the 6 h cap). ⚠ Global batch 512 vs the shipped config's
+    8 is a training-regime change made on operator instruction — LR left as shipped (no
+    unilateral scaling); convergence quality at this batch is jesswan's read, and the wandb
+    panels exist precisely so she can make it.
+  - Also synced the 4 functional-ladder runs to wandb.ai (`pedramh-profiling` project) at the
+    operator's request — links in session log; 8-node run: runs/45275krs.
+
+- **2026-08-26 (cont. 5)** — ✅ **Pre-production functional ladder COMPLETE: 1/2/4/8 nodes ×
+  2 epochs × validation × wandb — all four rungs green, all four datastores verified.** The
+  "does everything actually work end-to-end before we buy prod time" check the operator asked
+  for, run on the ladder-of-record stack (old plugin + Simple).
+  - **New launcher knobs:** `-v EPOCHS=` (multi-epoch renders exist for functional checks — a
+    multi-epoch step average spans dataloader re-warmup and must never sit in a scaling table)
+    and `-v EVAL_SAMPLES=` (default 8). These rows route to a **separate CSV**
+    (`makani_wandb_check.csv` via `-v MAKANI_SCALING_CSV=`) so wandb-overhead rows cannot
+    contaminate the scaling record.
+  - **Results (60 steps/epoch × 2 epochs, 32 eval samples w/ 3-step autoregressive rollout):**
+    | rung | job | ranks | wandb iters | valid_loss e1 → e2 |
+    |---|---|---|---|---|
+    | 1 node | 7564492 | 4 | 120 = 60×2 ✓ | 0.1476 → 0.1027 |
+    | 2 nodes | 7564493 | 8 | 120 ✓ | 0.1536 → 0.0981 |
+    | 4 nodes | 7564555 | 16 | 120 ✓ | 0.1488 → 0.0973 |
+    | 8 nodes | 7564566 | 32 | 120 ✓ | 0.1443 → 0.0941 |
+    All 53 lwrmse keys present on every iteration of both epochs at every rank count;
+    `valid_loss` ×2 each; epochs 1,2 logged.
+  - **What this proves for production:** the train dataloader survives the epoch boundary at
+    every world size; the validation dataloader + autoregressive rollout runs per epoch; the
+    ReduceLROnPlateau scheduler steps on real validation values; the Pangu-parity wandb
+    contract holds across epochs and node counts; and **validation loss genuinely decreases
+    epoch-over-epoch at every scale, with consistent values across world sizes** (e2 ≈
+    0.094–0.103 everywhere) — the loop is learning, not merely executing. En route, 7564493
+    sat through a `queue_tags` no-nodes window and was correctly left alone per rule #12
+    (eligible_time preserved; it ran).
+  - **Production-launch checklist now reads:** pack the production year range (audited
+    converter, ~5–10 min/yr) → `audit_makani_pack_vs_reference.py` on the new pack →
+    reps 2–3 of the timing ladder → prod rungs 16/32/64/128 (flag cost per rung) →
+    production job with `WANDB=1`, `TARGET_NODES=N` spare-node preflight, old-plugin pin.
+
+- **2026-08-23** — **makani multi-node work merged into the Pangu branch by FILE COPY, and the
+  DDP sweep is live: arm A rep 1 = job 7553811.**
+  - **The makani worktree is integrated and deleted.** Its 6 commits branched from an ancestor of
+    this branch and touched 10 files, of which **only `CHANGELOG.md` overlapped** — everything
+    else (8 new `makani_sfno/polaris/*` files, `makani_multinode_ddp_plan.md`,
+    `polaris_pbs_notes.md`) was disjoint, so a copy was exact rather than approximate. The
+    CHANGELOG block (91 contiguous lines) was spliced in date order: below the §4.1-gate entry
+    (Pangu jobs 7551401+), above `SelectBackward0` — makani's 7551240 sits between them.
+  - **⚠️ Why not `git merge`: working-tree git commands WEDGE on this repo's Lustre mount.**
+    `git status` / `diff-files` (and therefore `merge` / `checkout`) block in `cl_sync_io_wait`
+    **indefinitely** — while `log`, `show`, `diff <sha> <sha>`, `ls-files` and `merge-base` all
+    return normally, and stat'ing all 9,927 tracked files by hand takes <90 s. So it is neither
+    the object DB nor the working tree. Each wedged process **holds a login-node process slot
+    permanently**, and enough of them made **every `fork` fail** (`Resource temporarily
+    unavailable`) — no shell, no `qsub`, for ~2 h. `pkill -9` does **not** recover it: the signal
+    cannot be delivered until the blocked I/O returns. ⇒ **move files between worktrees with
+    `cp`; get the file list from `git diff --stat <base> <branch>`, which is safe.** Deleting a
+    worktree loses nothing — the commits live in the shared object DB under
+    `worktree-makani-multinode-ddp-profiling` (also on `origin`).
+  - **`module load conda` re-confirmed BROKEN for the third time** (2026-08-20, -21, -23): same
+    `gcc-native/14.2` + `cray-hdf5-parallel/1.14.3.5` dead pins, `which python` → none. The ALCF
+    ticket is unfixed 3 days on, so `polaris_makani_env.sh` is the path, not a stopgap.
+  - **New cluster fact: the login node's bare `python3` is 3.6.15** and dies on `from __future__
+    import annotations`. Repo tooling needs **`/usr/bin/python3.11`** (3.13 also present).
+    `MAKANI_SCALING_PARSE_OK 11 tests` re-confirmed green under it.
+  - **7553811 — arm A rep 1 FAILED, and the harness behaved exactly as designed:** `rc=139`,
+    every rank `NET/OFI Couldn't open a fabric access domain. RC: -38 (ENOSYS)`, rank 2 SIGSEGV.
+    No measurement row was written — `ERROR NO_STEP_TIMING` + `csv_rc=4`. A row that would have
+    read plausibly was refused, which is the whole point of §6.
+  - **⚠️ ROOT CAUSE — a third stale ALCF pin, and this one failed SILENTLY.**
+    `polaris_makani_multinode_scaling.pbs` pinned
+    `LD_LIBRARY_PATH=/opt/cray/libfabric/**2.2.0rc1**/lib64`, ls-verified 2026-08-14. ALCF has
+    since rolled libfabric to **2.3.1 only**. **A nonexistent directory on `LD_LIBRARY_PATH` is
+    ignored, not an error** — so the pin no-opped, `aws-ofi-nccl 1.9.1` (built 2024-04-30) bound
+    to libfabric 2.3.1, and `fi_domain` on `cxi` returned `ENOSYS`. Joins
+    `gcc-native/14.2`→`14` and `cray-hdf5-parallel/1.14.3.5`→`1.14.3.9`: **the PE moved and every
+    pinned path in this repo died quietly.**
+  - **7553823 `FABRIC_PROBE_OK` — all six installed pairings tested in one job**
+    (`polaris_makani_fabric_probe.pbs`, new). Exactly **one works**:
+    | plugin | libfabric | result |
+    |---|---|---|
+    | `v1.9.1-aws` (the repo's pin) | cray 2.3.1 | rc=139 segfault |
+    | `v1.9.1-aws-libfabric-1.22.0` | cray 2.3.1 | rc=139 segfault |
+    | `v1.9.1-aws` / `v1.6.0` | bundled "1.15.2.0" (really **1.18.2**) | `libjson-c.so.3` absent; OS ships `.so.5` |
+    | **`v1.6.0-libfabric-1.22.0`** | **cray 2.3.1** | **rc=0, `ALLREDUCE OK`, `Using network AWS Libfabric`** |
+    **The OLDER plugin is the working one.** Both `-libfabric-1.22.0` builds date 2025-09-03, but
+    only the v1.6.0 one survives libfabric 2.3.1 — not guessable, hence the probe.
+  - **Fix landed + the defect that allowed it.** Pin is now `v1.6.0-libfabric-1.22.0` + 2.3.1,
+    overridable via `-v OFI_PLUGIN=` / `-v OFI_LIBFABRIC=`, and **every fabric dir is now
+    existence-checked with a hard `exit 3`**. The stale path was not the real bug; the real bug
+    was that a load-bearing pin could vanish without stopping the run. **7553824** resubmitted.
+  - **Prereg prediction 2 scored — FALSIFIED as worded, capability intact.** It predicted the
+    *ported block* would still select `AWS Libfabric` under 2.8.0's NCCL. The ported block does
+    not work at all; a *corrected* pin does, and reports `AWS Libfabric`. Recorded as a miss —
+    the plan called this "the one most likely to fail for a boring reason", and it was right.
+  - **Two more launcher bugs, both found only by running:** (a) `--skip_validation` is
+    incompatible with the shipped config — `e3sm_full.yaml` sets `ReduceLROnPlateau` and
+    `makani/utils/driver.py:684` raises on the combination, killing 7553824 at trainer
+    construction. Fixed by **dropping the flag, not by swapping the scheduler**: validation runs
+    after the single timed epoch and contributes nothing to `step_ms`, so this keeps the training
+    config the shipped one (`n_eval_samples` trimmed 512→8 to bound the tail). (b) `num_data_workers=8`
+    makes torch share storage by **file descriptor**, whose `resource_sharer` opens a Unix socket
+    at `$TMPDIR/pymp-XXXXXXXX/listener-XXXXXXXX`; `polaris_env.sh` points TMPDIR at a 54-byte
+    eagle path and every worker died on `OSError: AF_UNIX path too long` (sun_path caps at 108).
+    Fixed **locally** with `export TMPDIR=/tmp` — that file is shared with every other model, so
+    it is not edited to suit this one, and the caches that must persist
+    (`TORCHINDUCTOR_CACHE_DIR`, `TRITON_CACHE_DIR`) are set separately and untouched.
+  - ✅ **7553836 — `MAKANI_MN_SCALING_OK`, the first makani scaling row this repo has ever had.**
+    1 node / 4 ranks / batch 4: `step_ms` **196.5**, `wireup_s` 2.77, `transport` **AWS Libfabric**,
+    `world_sizes_seen` **4** (i.e. genuinely one 4-rank job, not 4 solo trainers).
+  - **⚠️ Then the wrap guard refused arms B and C — and it was RIGHT, for a reason worth stating
+    plainly: the pack is a 400-sample SMOKE pack.** `train samples available: 400 ; required: 480`
+    (B) and `960` (C). Not 1460 — `2015.h5` was built with `--max-samples-per-year 400`. So the
+    blocker on the *deliverable itself* was never fabric, model or launcher; it was data volume.
+  - **The operator's correction was right and a prior draft of plan §9 was wrong.** §9 had framed
+    the 100-node ceiling as needing ~14 training years as if that were out of reach. **It is the
+    same E3SM data in a different format:** `${E3SM_ROOT}/h5/plev_data` holds **51,104 per-sample
+    files covering 2015–2049** (1460/yr) — exactly `convert_e3sm_to_makani.py`'s documented input.
+    The gap is a **repack**, at ~5–10 min and ~22 GB per year, against 32 T free on eagle. §9 rewritten.
+  - ✅ **7553851 `CONVERT_OK` + `PACK_SCALING_OK` — the repack works, and it proves §7's swap.**
+    New launcher `polaris_pack_e3sm_scaling.pbs` applies the two-line bootstrap swap §7 specifies
+    (rather than editing seven files inside a git subtree), and packed **4 full years in 23m36s**:
+    train 2015–2016 = **2,920 samples**, valid 2017, test 2018 → supports STEPS=60 to **12 nodes**.
+    Written to a **new root** (`data/e3sm_makani_scaling`); the pack behind 7253465 is untouched.
+    New `-v PACK=` knob selects it — `-v MAKANI_DATA=` cannot work, because `polaris_env.sh`
+    reassigns that variable via `_pick()` unconditionally and would silently overwrite it.
+  - ⚠️ **The pack changes the answer: arm A re-ran at 114.9 ms on the new pack vs 196.5 ms on the
+    smoke pack — 41%, from data alone** (`io_gbs` 0.52 → 0.88). Every arm in a comparison must
+    therefore share one pack, and arm A's first row is **not** comparable to B/C. Re-run as 7553890.
+  - **First real scaling numbers (rep 1, all on `e3sm_makani_scaling`, all `AWS Libfabric`, all
+    `world_size` correct):**
+    | arm | job | nodes | ranks | batch | step_ms | vs A | wireup_s | vs A | io_gbs |
+    |---|---|---|---|---|---|---|---|---|---|
+    | A | 7553890 | 1 | 4 | 4 | 114.9 | — | 2.78 | — | 0.88 |
+    | B | 7553897 | 2 | 8 | 8 | **174.6** | **+52%** | **17.85** | **6.4×** | 1.16 |
+    | C | 7553891 | 4 | 16 | 16 | *queued* | | | | |
+    **Prediction 1 (arm C ≥10% above arm A) is already exceeded at 2 nodes** — the single-node
+    "comms are free" result (1.2% exposed) does not survive the first Slingshot hop.
+    **Prediction 3 (wireup > 2×) is exceeded 3-fold at 2 nodes.** Both remain formally unscored
+    until C lands, and **all of this is rep 1 of ≥3** — §4.4c measured 42.2% vs 37.4% for two runs
+    of an identical config, so no single-rep number is a result yet.
+  - **Arm C waited ~1 h to start** — `comment = Not Running: Job would conflict with reservation
+    or top job`, `eligible_time` 00:40+. Backfill contention, **not** the `queue_tags` no-nodes
+    case, so it was left to accrue eligibility rather than resubmitted (CLAUDE.md #12).
+  - 🚨 **ARM C (4 nodes / 16 ranks) HUNG — new blocker, and the first thing here that 2 nodes did
+    not predict.** NCCL watchdog on ranks 1, 2, 9, 13:
+    `Watchdog caught collective operation timeout: WorkNCCL(SeqNum=23/24, OpType=BROADCAST,
+    NumelIn=384 / 294912, Timeout(ms)=600000) ran for 660091 ms`, with
+    `last enqueued work: 88, last completed work: 23` on `PG ID 5`. So ranks enqueued 88
+    operations and completed 23: a **deadlocked broadcast during setup**, not a slow one, and it
+    burned the 50 min walltime. Arm A (4 ranks, 1 node) and arm B (8 ranks, 2 nodes) are green on
+    the identical build, so this appears **only past 2 nodes**.
+  - **No arm C row was written, and that is correct** — the walltime kill pre-empted the parser
+    entirely, so the CSV has 5 rows and none of them claims to be a 4-node measurement. The two
+    failed single-node attempts (7553811, 7553824) do appear, with empty `step_ms` and
+    `transport UNKNOWN`/no timing — visibly non-measurements rather than absent history.
+  - **Not yet diagnosed. Candidates, cheapest first:** (a) the working plugin is
+    **`v1.6.0`**-vintage — it survives libfabric 2.3.1 at 4–8 ranks but may not at 16 across 4
+    NICs; (b) `FI_CXI_DEFAULT_CQ_SIZE=131072` and `FI_MR_CACHE_MONITOR=userfaultfd` are inherited
+    from the ported block and were never validated at this rank count; (c) a genuine ordering
+    deadlock in makani's group setup at 16 ranks (`PG ID 5` is a sub-group, not the world).
+    Next: re-run arm C with `NCCL_DEBUG=INFO` retained plus `TORCH_NCCL_TRACE_BUFFER_SIZE` set so
+    the stalled collective has a stack, and a 3-node arm to bracket where it starts.
+  - **⚠️ The 100-node target is capped by the DATA PACK, not the fabric** — new plan §9.
+    `e3sm_makani` is 1 train year / ~1460 samples, so at 100 nodes the global batch is 400 and an
+    epoch is **under 4 steps**: the loader wraps and re-serves cached samples. The wrap point
+    moves *along the scaling axis*, so it would manufacture a favourable curve; the harness
+    rejects such a row, meaning **no 100-node row is obtainable from this pack at all**. ~50
+    steps/epoch at batch 400 needs ≈**14 training years**, and the packers that would build it
+    are among the seven dead launchers (plan §7). Ladder: arms A–C now → revive packers → build a
+    multi-year pack → climb.
+
 2026-08-21 — ⭐ **PanguWeather §4.1 equivalence gate NOW EXISTS, floor = 0.000e+00**
 (plan item 18 CLOSED; jobs 7551401/7551411/7551439). Two independent runs of the 1.18 B-param
 bf16 model are **bitwise identical** over 20 steps —
@@ -227,6 +787,97 @@ real 5e-7 change. ⇒ **unblocks §4.9's weight-layout fix, §4.9's zero-pad buf
 activation, and item 19 (`torch.compile`)** — and the bar is absolute: any movement in a
 gating quantity is a real change. Not measured: cross-architecture (~1e-5) or multi-rank
 reproducibility. → `polaris_bench_report.md` §4.12.
+
+- **2026-08-21** — **`MAKANI_ENV_OK` — job 7551240, 84 s. The env repair WORKS on hardware, and
+  makani can span nodes.** The one thing a login node could not settle is settled: with the
+  `cuda-13.0.1` path + the `libmpi_gnu_123.so.12` symlink, **`import torch` succeeds** —
+  torch 2.8.0 / CUDA 12.9 / **NCCL 2.28.3**, `is_available()=True`, `device_count=4`, a working
+  cuBLAS matmul and `RealSHT(180,360)` → `(1,58,90,90) complex64`. Not "caught and survived":
+  `ldd` reports **0** dangling libs.
+  - **The PALS rank shim works: 4/4 ranks, `world_size=4`, `data_group=4`, all-reduce numerically
+    correct.** ⇒ makani is no longer confined to `torch.distributed.run --standalone`, which is the
+    single thing that made every green makani run on Polaris single-node-only.
+  - Also green in the same job: **h5py 3.16.0 from the overlay** (the base conda's stays broken and
+    is now shadowed), `torch_harmonics 0.9.2a` from the venv — *not* the top-ups' 0.7.4 — `makani
+    0.2.0`, and **`physicsnemo 2.2.0a0` resolving out of the editable `physicsnemo_sfno/`
+    checkout**, i.e. a live demonstration of the coupling CLAUDE.md flags: an edit there changes
+    what makani jobs execute.
+  - ⚠️ **Single-node.** Prereg prediction 2 — that the ported NCCL/CXI block still selects
+    `AWS Libfabric` under 2.8.0's NCCL rather than the 2.10.0+cu129 it was measured on — is
+    **untouched by this job** and needs ≥2 nodes. Predictions 1, 3, 4, 5 likewise unscored.
+  - ⚠️ **`module load conda` is still broken and the ALCF ticket is still the right fix.** This
+    unblocks *makani*, not the cluster: the seven pre-existing makani launchers (**both E3SM
+    packers included**) still open with the bare module and still fail, so the full E3SM pack
+    cannot be built today and the recorded greens (7253465, `CONVERT_OK` 7252728) are not
+    reproducible until the two-line bootstrap swap lands. → `makani_multinode_ddp_plan.md` §7.
+  - **Two of my own bugs found and fixed this tick, neither by a test run:** the probe's stage 3
+    fed its rank script over **stdin**, which PALS delivers to one rank only (ranks 1-3 would have
+    exited without calling `comm.init`, and the job would have hung or "passed" proving nothing) —
+    caught while re-reading the launcher, so 7551222 was cancelled *queued* rather than wasted; and
+    `makani_env_report`'s libtorch check looked in `sysconfig`'s **purelib**, the venv's
+    site-packages, while torch lives in the base conda's — so it printed
+    `<could not locate libtorch_global_deps.so>` on every run. A check that silently answers
+    nothing is worse than no check. Now `0`.
+
+- **2026-08-21** — **makani multi-node DDP: harness built, and the env blocker is CLEARED for
+  makani** (plan item 12, on a different model). Target is the parallel decomposition of
+  **FourCastNet 3** (arXiv:2507.12144 §E.2) — makani's *own* paper. No GPU time spent; nothing
+  submitted. → `makani_multinode_ddp_plan.md`.
+  - **The paper's stage-1 rank budget factorises exactly: 16 batch × 16 ensemble × 4 spatial =
+    1024 H100.** All three are the same `makani/utils/comm.py::init` machinery. Of the three we
+    can run **batch/data parallelism** (4 nodes × 4 A100 = 16 ranks at 1 sample/GPU = **global
+    batch 16**, numerically the paper's value) and, untested, **spatial** (`HPAR`/`WPAR`).
+    **Ensemble parallelism we cannot** — FCN3 is probabilistic (`ensemble_trainer`, CRPS) and our
+    fork runs the *deterministic* trainer, so that group is size 1. Different model, different
+    data, 1/64 the scale ⇒ **scaling behaviour transfers, absolute numbers do not. Not an FCN3
+    reproduction**, and the plan says so in the table rather than in a footnote.
+  - **`module load conda` re-confirmed BROKEN today** (same `cray-hdf5-parallel/1.14.3.5` +
+    `gcc-native/14.2` pins; only `1.14.3.9` and `14` installed). `$SFNO_VENV` has **no torch of
+    its own** — `--system-site-packages` inheriting the base conda's 2.8.0 — so makani was as
+    blocked as Pangu items 7-17.
+  - **⚠️ CORRECTION to `polaris_pbs_notes.md` §1: `libmpi_gnu_123.so.12` is NOT "not present
+    anywhere".** That is true of the *filename* and false of the *library*. `_123` was the old
+    cray-mpich's spelling of the **gcc-12.3** build, and `mpich/9.1.0` ships that build as
+    `libmpi_gnu.so.12` under `.../ofi/gnu/12.3/lib`. SONAME and soversion both stay `12`, so a
+    symlink under the former name is a **rename, not an ABI substitution** — and the conda
+    modulefile's own last line names that soname in a commented-out PyTorch hotfix. With that
+    plus `cuda-13.0.1` for `libcudart.so.13`, **`ldd libtorch_global_deps.so` → 0 unresolved**
+    (login-node link check; an *import* still needs the probe job).
+  - **h5py is a separate problem and is NOT shimmable:** 1.14.3.5's
+    `libhdf5_parallel_gnu_123.so.200` → 1.14.3.9's `...gnu.so.310` is a real soversion bump.
+    And it cannot be dodged — `makani/utils/metric.py:19` is a bare `import h5py`, so it is on
+    the import path of *every* makani entrypoint **including `--enable_synthetic_data`**.
+    Fixed with a minimal PyPI overlay (h5py 3.16.0, vendored `libhdf5-*.so.320`), the same
+    `$POLARIS_TOPUPS` pattern, **h5py only** because PYTHONPATH outranks site-packages.
+    `MAKANI_H5PY_OVERLAY_OK`.
+  - **Why substituting an env is legitimate here but not for Pangu:** the 2026-08-21 entry below
+    disqualifies substitution *because every Pangu number was measured on torch 2.8.0*. **makani
+    has no prior profile at all**, so that constraint does not bind it. 2.8.0 was kept anyway —
+    for the opposite reason: it is what the green makani run 7253465 used, so the 1-node arm stays
+    comparable to the only makani evidence that exists. Every CSV row records `torch` and
+    `env_source`.
+  - **Shipped:** `polaris_makani_env.sh` (tries `module load conda` FIRST, reports which path it
+    took, so it self-heals when ALCF fixes the modulefile), `polaris_setup_makani_h5py_overlay.sh`,
+    `polaris_rank_env.sh` (PALS `PMI_*` → `RANK/WORLD_SIZE/LOCAL_RANK`; applies to makani because
+    `makani/utils/comm.py` delegates to *physicsnemo's* `DistributedManager`),
+    `polaris_makani_env_probe.pbs` (3 stages → `MAKANI_ENV_OK`),
+    `polaris_makani_multinode_scaling.pbs` (**one file for 1/2/4 nodes** — `NNODES` from
+    `$PBS_NODEFILE`), `parse_makani_scaling.py` + **11 passing tests**
+    (`MAKANI_SCALING_PARSE_OK`).
+  - **Prereg recorded before any job** (plan §4, 5 falsifiable predictions). The load-bearing one:
+    arm C (4 nodes) `step_ms` ≥ **10%** above arm A (1 node) — i.e. §0b's single-node "comms are
+    free" (1.2% exposed) does *not* survive Slingshot. The one most likely to fail for a boring
+    reason: that the ported fabric block, whose values were measured on **torch 2.10.0+cu129**,
+    still selects `AWS Libfabric` under **2.8.0**'s different bundled NCCL.
+  - **Two guards the harness enforces, because both produce plausible numbers that mean nothing:**
+    (a) N independent `world_size=1` trainers if the rank shim is missing — pinned to a hard error
+    via `PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV` *and* rejected by the parser;
+    (b) an epoch that **wraps**, re-serving cached samples — and the wrap point moves with the
+    global batch, i.e. *along the scaling axis*, so it would bias the result in its own direction.
+    Gated on the real sample count read from the pack.
+  - **Still needed:** `MAKANI_ENV_OK` from the probe job, then arms A/B/C. **Nothing submitted —
+    multi-node and any `qsub` need explicit approval.** Note only smoke-sized makani packs exist
+    (`e3sm_makani`: 1 train year, 18 GB, ~1460 samples), which caps `STEPS × global_batch`.
 
 2026-08-21 — **`SelectBackward0`'s 30.8% (§4.10) traced to `ComplexReLU(mode="real")`** —
 `activations.py:65-68`, the only `select` in the SFNO path, active by config

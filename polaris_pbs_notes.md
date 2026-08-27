@@ -79,9 +79,24 @@ this doc discharges.
 >   `/soft/compilers/cudatoolkit/cuda-13.0.1/lib64/`, and adding that dir to `LD_LIBRARY_PATH` drops
 >   the unresolved count from 2 to 1. ⚠ **An earlier version of this note said "no `LD_LIBRARY_PATH`
 >   fix exists" — that was wrong for this half.**
-> * `libmpi_gnu_123.so.12` — **not present anywhere.** Only `mpich/9.1.0` is installed and it ships
->   `libmpi_gnu.so.12`; the `_123` soname (gcc 12.3) came from an older cray-mpich that the PE roll
->   removed. Searched `/opt/cray/pe/mpich/*/ofi/gnu/*/lib`.
+> * `libmpi_gnu_123.so.12` — **⚠️ CORRECTED 2026-08-21: RESOLVABLE.** The earlier text here said
+>   "not present anywhere", which is true of the **filename** and false of the **library**. Only
+>   `mpich/9.1.0` is installed and it ships `libmpi_gnu.so.12` — and `_123` was simply the old
+>   cray-mpich's way of spelling **that same gcc-12.3 build**, which lives at
+>   `/opt/cray/pe/mpich/9.1.0/ofi/gnu/12.3/lib/libmpi_gnu.so.12`. `objdump -p` gives it
+>   `SONAME libmpi_gnu.so.12`, i.e. **soversion 12 either way**, so a symlink under the former
+>   name is a *rename*, not an ABI substitution. Corroboration: the conda modulefile's own last
+>   line is a commented-out hotfix naming this exact soname
+>   (*"hotfix for PyTorch picking up non-GTL libmpi_gnu_123.so.12"*).
+>   With this symlink plus `/soft/compilers/cudatoolkit/cuda-13.0.1/lib64` on `LD_LIBRARY_PATH`,
+>   **`ldd .../torch/lib/libtorch_global_deps.so` reports 0 unresolved.** Implemented in
+>   `makani_sfno/polaris/polaris_makani_env.sh`; it creates the symlink under
+>   `$MEMBER_ROOT/lib-shims/polaris-mpich-compat/`.
+>   ⚠️ This is a **link** check done on a login node. Whether `import torch` then succeeds still
+>   needs a job (CLAUDE.md #3) — `polaris_makani_env_probe.pbs` stage 1/2 is that job.
+>   **Do NOT generalise the trick to hdf5.** `libhdf5_parallel_gnu_123.so.200` (1.14.3.5) vs
+>   `libhdf5_parallel_gnu.so.310` (1.14.3.9) is soversion **200 → 310**, a real ABI break; that
+>   one needs a self-contained PyPI h5py instead (→ `polaris_setup_makani_h5py_overlay.sh`).
 >
 > **Tested and failed, do not re-try:** all **14** `conda/*` module variants (including every
 > `-aws-nccl-*` and `-xalt`), under **both** the default `PrgEnv-nvidia` and `PrgEnv-gnu` trees — the
@@ -90,10 +105,24 @@ this doc discharges.
 > `marshal-train` and `decrypto-serve` 2.6.0+cu124. `SHARED_ROOT` is the same directory, so there are
 > no others.
 >
-> **⚠ STILL OPEN — whether `import torch` actually succeeds with CUDA 13 on the path is UNTESTED.**
-> `libtorch_global_deps.so` failing to load is *caught* by torch's `_load_global_deps`, which then
-> falls through to `_preload_cuda_deps` — so the missing mpi soname may not be fatal. Settling it
-> needs one real import, i.e. a job (importing torch on a login node is forbidden, CLAUDE.md #3).
+> **✅ CLOSED 2026-08-21 — job 7551240, `MAKANI_ENV_OK`. `import torch` SUCCEEDS.** Not merely
+> "caught and survived": with the `cuda-13.0.1` path and the `libmpi_gnu_123.so.12` symlink,
+> `ldd` reports **0** dangling libs and a compute node gives
+> **torch 2.8.0 / CUDA 12.9 / NCCL 2.28.3, `cuda.is_available()=True`, `device_count=4`**, a
+> working cuBLAS matmul, and `torch_harmonics.RealSHT(180,360)` → `(1,58,90,90) complex64`.
+> 84 s of walltime on `x3006c0s13b0n0`. Recipe: `makani_sfno/polaris/polaris_makani_env.sh`.
+> Also green in the same job: **h5py 3.16.0 out of the overlay** (base-conda h5py stays broken and
+> is now shadowed), `torch_harmonics 0.9.2a` from the venv (not the top-ups' 0.7.4), `makani 0.2.0`,
+> and `physicsnemo 2.2.0a0` resolving from the **editable `physicsnemo_sfno/` checkout** — a live
+> demonstration of the coupling CLAUDE.md flags, since an edit there changes what makani executes.
+> **And the PALS rank shim works:** 4/4 ranks up via `mpiexec` + `polaris_rank_env.sh`,
+> `world_size=4`, `data_group=4`, all-reduce numerically correct — so makani no longer needs
+> `torch.distributed.run --standalone` and can span nodes.
+> ⚠️ Single-node only. Whether the ported NCCL/CXI fabric block selects `AWS Libfabric` under
+> **2.8.0**'s NCCL (its values were measured on 2.10.0+cu129) is still open — that needs ≥2 nodes.
+> ⚠️ This does **not** un-break `module load conda`, and the ALCF ticket is still the right fix:
+> the seven pre-existing makani launchers, both E3SM packers included, still open with the bare
+> module and still fail. → `makani_multinode_ddp_plan.md` §7.
 
 **Compute-node networking — CORRECTED 2026-07-14.** Several places in this repo said
 "compute nodes have no outbound network". **That is wrong.** Per ALCF's docs the proxy is the
@@ -852,15 +881,3 @@ smokes additionally require the §6 installs.
   ABI-breaks on torch 2.8). **Probe `7251974` = `PROBE_OK`** (gate 1 green): 4 GPUs +
   all 4 in-repo models import. Found ERA5 is **not** staged (S2S/port blocked on a
   Globus stage); E3SM AMIP data **is** staged (SI/SFNO path is runnable).
-
-### ⚠ `resources_used.cput` is NOT a liveness signal on Polaris
-
-Measured 2026-08-21 (job 7551521): sampled six times across **8.5 minutes of real
-training work**, `qstat -f` reported `resources_used.cput = 00:00:05` **every time** —
-identical to what a genuinely hung job (7551491) reported over 27 minutes.
-
-It tracks the job script's own shell, not the compute children. **Do not use it to decide
-whether a job is progressing** — that inference was made once here and had to be retracted.
-Use instead: an arm/output log written to a **file** (not through a pipe, which buffers
-until the pipeline ends), the presence of expected artifacts, or `resources_used.walltime`
-against a known-good duration for the same job shape.
