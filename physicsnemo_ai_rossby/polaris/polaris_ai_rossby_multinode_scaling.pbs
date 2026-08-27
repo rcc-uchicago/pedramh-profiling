@@ -1,0 +1,579 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_mn_scaling
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=2:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r n
+# ^ `-r n` EXPLICITLY. PBS defaults to rerunnable, and a silent re-run under the
+#   same job id would append a SECOND set of rows to the scaling CSV from a
+#   different allocation, with nothing in the file saying so.
+#PBS -j oe
+# ============================================================================
+# ai-rossby SfnoPlasim on E3SM -- MULTI-NODE DDP WEAK-SCALING LADDER.
+#
+# This is the ladder driver.  Its sibling polaris_sfno_e3sm_multinode.pbs is a
+# fixed 4-node LAUNCH TEST and stays that; this file is the thing that produces
+# comparable rows at 1/2/4/8 nodes.
+#
+# ONE SCRIPT, ANY NODE COUNT.  NNODES is derived from $PBS_NODEFILE, so the whole
+# ladder is the same file submitted four times:
+#     qsub                  -l select=1:system=polaris polaris/polaris_ai_rossby_multinode_scaling.pbs
+#     qsub                  -l select=2:system=polaris polaris/polaris_ai_rossby_multinode_scaling.pbs
+#     qsub -q debug-scaling -l select=5:system=polaris -v TARGET_NODES=4 polaris/...
+#     qsub -q debug-scaling -l select=9:system=polaris -v TARGET_NODES=8 polaris/...
+# A command-line `-l select` overrides the directive above.  `debug` allows 1-2
+# nodes; 3-10 needs `debug-scaling` (<=1 h, ONE queued-or-running job per user).
+# ⚠ qsub resolves the script relative to cwd -- `cd physicsnemo_ai_rossby` first,
+# every time.
+#
+# WHAT IT MEASURES, AND WHY WEAK SCALING
+#   Local batch is held at 1 sample/GPU and the global batch grows with the rank
+#   count (4 -> 8 -> 16 -> 32).  Per-GPU work is therefore CONSTANT and every
+#   change in step time is communication plus load imbalance -- which is the
+#   question.  Strong scaling (fixed global batch, shrinking local batch) would
+#   instead move the per-GPU arithmetic and confound the two.
+#
+#   ⚠ Weak scaling GROWS THE GLOBAL BATCH, which for training is a science
+#   change, not an engineering one (handoff §0.5, CLAUDE.md "science is
+#   jesswan's").  This job trains 60 steps for TIMING and is thrown away; it is
+#   not a production configuration and its LR is not a proposal.  Production at
+#   a new batch/LR needs her sign-off.
+#
+# INTERLEAVE REPS, NEVER BATCH THEM: A,B,C,8n,A,B,C,8n,...  Two runs of an
+# IDENTICAL config once measured 42.2% vs 37.4% for the same quantity
+# (CHANGELOG §4.4c).  That is a validity requirement, not tidiness.
+#
+# PREREQUISITES (each fails loudly below, each keys on its own token)
+#   1. LOGIN, once:  bash <repo>/polaris_setup_ai_rossby_venv.sh  -> AI_ROSSBY_VENV_OK
+#   2. COMPUTE:      qsub polaris/polaris_e3sm_pangu_convert.pbs  -> CONVERT_ALL_OK
+#   3. COMPUTE:      qsub polaris/polaris_ai_rossby_fabric_probe.pbs      -> FABRIC_PROBE_OK
+#                    qsub polaris/polaris_ai_rossby_ofi_plugin_matrix.pbs -> OFI_MATRIX_OK
+#                    qsub polaris/polaris_ai_rossby_nccl_mn_probe.pbs     -> MN_NCCL_PROBE_OK
+#      Do not skip 3.  This venv is torch 2.10 with its own bundled NCCL; every
+#      fabric pin below was measured on makani's torch 2.8.0 (handoff §1).
+#
+# PASS = AI_ROSSBY_MN_SCALING_OK plus a new row in $SCALING_CSV.  Per CLAUDE.md
+# #14, rc=0 is not the pass signal -- a rank that died after the telemetry print
+# still leaves a plausible-looking log.
+#
+# Knobs:
+#   -v STEPS=60          timed steps (default 60)
+#   -v LOCAL_BATCH=1     samples per GPU (global batch = LOCAL_BATCH * ranks)
+#   -v REP=2             label a repetition; interleave reps, never batch them
+#   -v TARGET_NODES=N    with -l select=N+1: prune sick nodes, run on N healthy
+#   -v GPU_ORDER=reverse pair each rank with the GPU on its OWN NUMA node
+#   -v NCCL_DEBUG=WARN   quiet the fabric once the transport is a recorded fact
+#   -v OFI_PLUGIN=<dir>  another fabric stack -- ITS OWN CSV, never this one
+#   -v WANDB=1           enable wandb for this run -- ITS OWN CSV, never this one
+#   -v AI_ROSSBY_SCALING_CSV=<path>   route rows elsewhere (see the two above)
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then
+    AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+SHIM="${AR_ROOT}/polaris/polaris_rank_env.sh"
+
+# ---- environment ------------------------------------------------------------
+# polaris_env.sh FIRST (it defines MEMBER_ROOT and AI_ROSSBY_VENV), then the
+# interpreter bootstrap that survives the broken `conda` modulefile.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${AR_ROOT}/polaris/polaris_ai_rossby_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+# ALCF homes are mode 0700, so anything resolving from ~/.local makes the run
+# reproducible by exactly one person -- which is to say, not a result.
+export PYTHONNOUSERSITE=1
+PY="${AI_ROSSBY_VENV}/bin/python"
+
+[ -f "${SHIM}" ] || { echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 3; }
+
+# physicsnemo is EDITABLE in that venv, so it imports from whichever checkout
+# built it. Training from tree A against a store converted with tree B's channel
+# lists is the exact silent mismatch this pipeline exists to prevent.
+VENV_PN="$("${PY}" -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+# ---- allocation shape -------------------------------------------------------
+NODEFILE="${PBS_NODEFILE:-}"
+if [ ! -s "${NODEFILE}" ]; then echo "ERROR NO_NODEFILE"; exit 2; fi
+export GPUS_PER_NODE=4
+
+# ---- GPU health preflight (optional): -v TARGET_NODES=N with -l select=N+1 --
+# 2026-08-26: three DIFFERENT nodes handed to consecutive debug-scaling jobs had
+# a GPU stuck in 'CUDA-capable device(s) is/are busy or unavailable'
+# (x3111c0s37b1n0 THREE times, x3201c0s1b1n0, x3109c0s1b0n0 -- zombie state from
+# some earlier job; reported to ALCF). A sick node kills the whole run at init
+# and, worse, the fast failure puts the same node straight back in the free pool
+# for the retry. Per-node holder jobs don't scale past one bad node, so instead:
+# request one spare (`-l select=N+1`), touch every GPU on every node, run on the
+# first N healthy nodes, and name the sick ones in the log for the ticket.
+# Mandatory at >=8 nodes (handoff mistakes ledger #4).
+# TARGET_NODES unset -> all nodes, no preflight.
+# ⚠ A 2-node arm cannot carry a spare inside `debug`'s 2-node cap -- run it as
+#   `-q debug-scaling -l select=3 -v TARGET_NODES=2` if the epidemic recurs.
+if [ -n "${TARGET_NODES:-}" ]; then
+    _hc="$(mktemp -d)" || exit 2
+    cat > "${_hc}/gpucheck.py" <<'PY'
+import socket
+try:
+    import torch
+    for i in range(4):
+        torch.zeros(8, device="cuda:%d" % i)
+    print("GPUHEALTH OK %s" % socket.gethostname(), flush=True)
+except Exception as exc:  # noqa: BLE001
+    print("GPUHEALTH SICK %s %r" % (socket.gethostname(), exc), flush=True)
+PY
+    mpiexec -n "$(sort -u "${NODEFILE}" | wc -l)" --ppn 1 --hostfile "${NODEFILE}" \
+        "${PY}" "${_hc}/gpucheck.py" > "${_hc}/health.log" 2>&1
+    grep "GPUHEALTH SICK" "${_hc}/health.log" | sed 's/^/  /'
+    grep "GPUHEALTH OK" "${_hc}/health.log" | awk '{print $3}' | sort -u \
+        > "${_hc}/healthy_hosts"
+    n_ok=$(wc -l < "${_hc}/healthy_hosts")
+    echo "gpu preflight: ${n_ok} healthy of $(sort -u "${NODEFILE}" | wc -l) allocated (want ${TARGET_NODES})"
+    if [ "${n_ok}" -lt "${TARGET_NODES}" ]; then
+        echo "ERROR NOT_ENOUGH_HEALTHY_NODES: ${n_ok} < ${TARGET_NODES}."
+        echo "  Sick hosts above. Re-submit; with more than one spare if it recurs."
+        exit 2
+    fi
+    head -n "${TARGET_NODES}" "${_hc}/healthy_hosts" > "${_hc}/nodefile"
+    NODEFILE="${_hc}/nodefile"
+    echo "running on: $(paste -sd' ' "${NODEFILE}")"
+fi
+
+NNODES=$(sort -u "${NODEFILE}" | wc -l)
+case "${NNODES}" in
+    ''|*[!0-9]*|0) echo "ERROR PBS_NODEFILE_UNREADABLE: '${NODEFILE}' gave NNODES='${NNODES}'"; exit 3 ;;
+esac
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+
+# The head node must have the GPUs-per-node this script assumes, or NRANKS (and
+# therefore the global batch and the LR) is wrong from the start.
+HEAD_GPUS="$(nvidia-smi -L | wc -l)"
+if [ "${HEAD_GPUS}" != "${GPUS_PER_NODE}" ]; then
+    echo "ERROR GPUS_PER_NODE_MISMATCH: nvidia-smi sees ${HEAD_GPUS}, script assumes ${GPUS_PER_NODE}"
+    exit 3
+fi
+
+STEPS="${STEPS:-60}"
+LOCAL_BATCH="${LOCAL_BATCH:-1}"
+REP="${REP:-1}"
+GPU_ORDER="${GPU_ORDER:-forward}"
+LOADER_WORKERS="${LOADER_WORKERS:-1}"
+SEED="${SEED:-0}"
+WANDB="${WANDB:-0}"
+JOBID="${PBS_JOBID%%.*}"
+GLOBAL_BATCH=$(( NRANKS * LOCAL_BATCH ))
+# Effectively never: nothing here is meant to be resumed, and one save is ~14 GB
+# (4.7 GB fp32 weights + 9.4 GB AdamW moments on a 1.18 B model).
+CKPT_INTERVAL="${CKPT_INTERVAL:-1000000}"
+
+# ---- LR for this world size -------------------------------------------------
+#   lr = 2**loglr * global_batch_size / 16,  loglr = -13  -- the formula
+#   conf/training/sfno_e3sm_parity.yaml documents, so applying it is not
+#   guessing. The yaml's literal (3.0517578125e-05) is correct for 4 ranks only.
+# ⚠ With one partial epoch of STEPS iterations the whole run sits INSIDE the
+#   config's 5-epoch LinearLR warmup from warmup_start_lr=1e-8, so the peak LR
+#   below is never actually reached. It is set correctly so the run is a valid
+#   miniature of a real run at this world size, not because the test measures it.
+LR="${LR:-}"
+if [ -n "${LR}" ]; then
+    LR_SRC="user-supplied via -v LR (formula NOT checked)"
+else
+    LR="$("${PY}" -c "print(repr(2**-13 * ${GLOBAL_BATCH}/16))")" || {
+        echo "ERROR LR_DERIVATION_FAILED: global batch ${GLOBAL_BATCH}"
+        exit 3
+    }
+    LR_SRC="derived: 2**-13 * ${GLOBAL_BATCH}/16"
+fi
+
+# ---- run identity, isolated from the production run -------------------------
+# The default name embeds $PBS_JOBID precisely so reps DON'T collide.
+RUN_NAME="${RUN_NAME:-ar_mn${NNODES}n_b${GLOBAL_BATCH}_rep${REP}_${JOBID}}"
+EXP_DIR="${MEMBER_ROOT}/runs/ai_rossby_mn_scaling"
+RUN_DIR="${RUN_DIR:-${EXP_DIR}/${RUN_NAME}}"
+
+# ⚠ ISOLATION FROM THE PRODUCTION RUN -- a correctness requirement, not style.
+# All comparisons normalise with `realpath -m` first, because /eagle is a
+# symlink to /lus/eagle/projects -- the two spellings of the production run dir
+# are the SAME directory and a textual compare would miss one of them.
+PROD_RUN_NAME="sfno_e3sm_parity01"
+PROD_RUN_DIR="${MEMBER_ROOT}/runs/ai_rossby_sfno_e3sm/${PROD_RUN_NAME}"
+if [ "${RUN_NAME}" = "${PROD_RUN_NAME}" ]; then
+    echo "ERROR RUN_NAME_COLLIDES_WITH_LIVE_RUN: ${RUN_NAME}"
+    exit 3
+fi
+RUN_DIR_R="$(realpath -m "${RUN_DIR}")"
+PROD_RUN_DIR_R="$(realpath -m "${PROD_RUN_DIR}")"
+case "${RUN_DIR_R%/}/" in
+    "${PROD_RUN_DIR_R%/}/"*)
+        echo "ERROR RUN_DIR_COLLIDES_WITH_LIVE_RUN: ${RUN_DIR} -> ${RUN_DIR_R}"
+        echo "  ${PROD_RUN_DIR} holds the production run's checkpoints, hydra config"
+        echo "  and wandb run. A throwaway timing job must not write there."
+        exit 3 ;;
+esac
+
+# Job-scoped telemetry + per-batch TSV. Both are `:-` defaults, so an
+# inherited/-v-passed value wins -- which is exactly how a debugging session
+# would land scaling rows in the production run's shared CSV. Guard them the
+# same way, normalised the same way.
+export AI_ROSSBY_EPOCH_TELEMETRY=1
+export AI_ROSSBY_EPOCH_TELEMETRY_EPOCHS=0
+TELEMETRY_CSV="${AI_ROSSBY_EPOCH_TELEMETRY_CSV:-${MEMBER_ROOT}/bench/epoch_telemetry_ai_rossby_mn_scaling.csv}"
+BENCH_TSV="${BENCH_TSV:-${MEMBER_ROOT}/bench/per_batch_${RUN_NAME}.tsv}"
+PROD_TELEMETRY_CSV_R="$(realpath -m "${MEMBER_ROOT}/bench/epoch_telemetry_ai_rossby_sfno.csv")"
+for _pair in "TELEMETRY_CSV:${TELEMETRY_CSV}" "BENCH_TSV:${BENCH_TSV}"; do
+    _tag="${_pair%%:*}"; _path="${_pair#*:}"
+    _r="$(realpath -m "${_path}")"
+    if [ "${_r}" = "${PROD_TELEMETRY_CSV_R}" ]; then
+        echo "ERROR ${_tag}_COLLIDES_WITH_PRODUCTION_CSV: ${_path}"
+        exit 3
+    fi
+    case "${_r%/}/" in
+        "${PROD_RUN_DIR_R%/}/"*)
+            echo "ERROR ${_tag}_INSIDE_PRODUCTION_RUN_DIR: ${_path}"
+            exit 3 ;;
+    esac
+done
+export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${TELEMETRY_CSV}"
+
+# A wandb'd row's step path carries the diagnostics overhead, and a row from
+# another fabric stack is a different config -- neither may sit in the default
+# table (handoff rule #4; CSV schema is a contract, so config is NOT a column).
+SCALING_CSV="${AI_ROSSBY_SCALING_CSV:-${MEMBER_ROOT}/bench/ai_rossby_multinode_scaling.csv}"
+mkdir -p "${EXP_DIR}" "${RUN_DIR}" "$(dirname "${SCALING_CSV}")" \
+         "$(dirname "${TELEMETRY_CSV}")" "$(dirname "${BENCH_TSV}")" || exit 2
+
+DATA="${AI_ROSSBY_DATA}/e3sm"
+NORM="${DATA}/norm/normalization_2015-2050.zarr"
+for d in "${DATA}/train" "${NORM}"; do
+    [ -e "${d}" ] || {
+        echo "ERROR AI_ROSSBY_DATA_MISSING: ${d}"
+        echo "  Run the converter first:  qsub polaris/polaris_e3sm_pangu_convert.pbs"
+        exit 3
+    }
+done
+NSTORES=$(ls -d "${DATA}"/train/*.zarr 2>/dev/null | wc -l)
+[ "${NSTORES}" -gt 0 ] || { echo "ERROR AI_ROSSBY_TRAIN_STORE_EMPTY: ${DATA}/train"; exit 3; }
+
+echo "=== ai_rossby_mn_scaling: $(date -Iseconds) ==="
+echo "jobid=${JOBID}  nodes=${NNODES}  ranks=${NRANKS}  gpus/node=${GPUS_PER_NODE}"
+echo "local_batch=${LOCAL_BATCH}  global_batch=${GLOBAL_BATCH}  steps=${STEPS}  rep=${REP}"
+echo "run_name=${RUN_NAME}"
+echo "lr=${LR}   [${LR_SRC}]   (all ${STEPS} steps sit inside the 5-epoch warmup)"
+echo "data=${DATA}  (${NSTORES} train zarr stores)"
+echo "  ^ the store the PRODUCTION run trained on (runs/.../sfno_e3sm_parity01/"
+echo "    .hydra/config.yaml: dataset.zarr_path = \${AI_ROSSBY_DATA}/e3sm/train),"
+echo "    which is the criterion: ladder rows must be comparable to the only"
+echo "    production evidence this harness has."
+echo "csv=${SCALING_CSV}"
+echo "telemetry=${TELEMETRY_CSV}"
+echo "--- nodes in this allocation ---"
+sort -u "${NODEFILE}" | sed 's/^/  /'
+nvidia-smi -L
+polaris_env_report
+ai_rossby_env_report
+echo
+
+# ---- NCCL over Slingshot/CXI ------------------------------------------------
+# ⚠ EVERY VALUE BELOW WAS MEASURED ON makani's torch 2.8.0 / NCCL 2.28.3. This
+# venv is torch 2.10.0+cu129 with a different bundled NCCL. Run the three probes
+# under THIS venv before trusting any of it (handoff §1) -- the expectation is
+# that it holds, because the mechanism is CXI-side, but an expectation is not a
+# measurement and this file must not be the place that quietly assumes one.
+export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-PHB}"
+export NCCL_CROSS_NIC=1
+# Retained from the ported block so it stays a faithful copy; do not read it as
+# evidence CollNet is in play (the pinned plugin exports no ncclCollNetPlugin_v*).
+export NCCL_COLLNET_ENABLE=1
+export NCCL_NET="AWS Libfabric"
+
+# ---- plugin/libfabric pin -- MEASURED, not inherited -------------------------
+# The pin polaris_sfno_e3sm_multinode.pbs shipped with (v1.9.1-aws +
+# /opt/cray/libfabric/2.2.0rc1) was wrong in BOTH halves by 2026-08-23: 2.2.0rc1
+# no longer exists, and A NONEXISTENT DIR ON LD_LIBRARY_PATH IS SILENTLY
+# IGNORED -- so job 7553811 ran against 2.3.1, hit
+#   device_prepare_for_connection:2165 NCCL WARN NET/OFI
+#   Couldn't open a fabric access domain. RC: -38 (ENOSYS)
+# and died SIGSEGV, with the blame landing elsewhere. Hence: the corrected pin,
+# and a HARD EXIT on any missing path.
+#
+# WHY THIS PLUGIN AND NOT /soft's. Every /soft build >= v1.9 fails fi_domain
+# with ENOSYS against libfabric 2.3.1 -- including ALCF's own 2025-09 rebuilds --
+# because the CXI provider requires auto progress and newer plugin defaults do
+# not request it (job 7563894). The self-built v1.21.1 + OFI_NCCL_PROGRESS_MODEL
+# =AUTO is the one stack correct for every traffic pattern tested. The surviving
+# old /soft build (v1.6.0 + NCCL_PROTO=Simple) is NOT an alternative here:
+# handoff §1 forbids selecting it for a new model, because its progress engine
+# loses small-message broadcasts BY TENSOR SIZE (job 7565896) and DDP's initial
+# parameter broadcast on a 1.18 B model is exactly that traffic.
+OFI_PLUGIN="${OFI_PLUGIN:-${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib}"
+OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
+for _d in "${OFI_PLUGIN}" "${OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
+    if [ ! -d "${_d}" ]; then
+        echo "ERROR OFI_PATH_MISSING: ${_d}"
+        echo "  A fabric pin that does not exist is ignored, not honoured -- the job"
+        echo "  would silently fall back to another transport and the row would be a"
+        echo "  measurement of something else. Re-run the fabric probe."
+        exit 3
+    fi
+done
+# libfabric first so it outranks any system copy; hwloc because libnccl-net.so
+# needs libhwloc.so.0 and nothing on the default path provides it.
+export LD_LIBRARY_PATH="${OFI_LIBFABRIC}:${OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+PROGRESS_MODEL="${PROGRESS_MODEL-AUTO}"
+[ -n "${PROGRESS_MODEL}" ] && export OFI_NCCL_PROGRESS_MODEL="${PROGRESS_MODEL}"
+export FI_CXI_DISABLE_HOST_REGISTER=1
+export FI_MR_CACHE_MONITOR=userfaultfd
+export FI_CXI_DEFAULT_CQ_SIZE=131072
+# NOT the Simple pin. That was an old-plugin workaround for an LL deadlock, it
+# costs ~26% single-node, and it is unmeasured on this stack (handoff §4).
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+echo "fabric pin: plugin=${OFI_PLUGIN}"
+echo "            libfabric=${OFI_LIBFABRIC}"
+echo "            OFI_NCCL_PROGRESS_MODEL=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
+echo "            NCCL_PROTO=${NCCL_PROTO:-<default>}"
+
+# torch/distributed/run.py sets OMP_NUM_THREADS=1 when unset; under `mpiexec bash
+# SHIM python` nothing does, and libgomp would default to the 8 CPUs of the
+# rank's affinity mask -- putting 8 OpenMP threads on the same 8 cores as
+# aws-ofi-nccl's progress engine, the very resource --cpu-bind exists to protect.
+# Pin it so the 1-vs-2-vs-4-vs-8-node comparison stays a comparison.
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+
+# ---- rank -> GPU pairing ----------------------------------------------------
+# polaris_pbs_notes.md §1 measured the GPU<->NUMA map to be REVERSED
+# (dev0->NUMA3 ... dev3->NUMA0, job 7531456). Under `--cpu-bind depth -d 8`
+# local rank 0 gets cores 0-7 = NUMA 0, whose GPU is dev3 -- so the default
+# pairing puts every rank maximally far from its own GPU. Default stays FORWARD:
+# it is what the single-node baseline and the production run used, and a scaling
+# baseline must not silently carry an unmeasured change. Flip it deliberately,
+# as its own arm, with -v GPU_ORDER=reverse.
+# CUDA_VISIBLE_DEVICES gets the SAME reversed list on every rank (not one GPU
+# per rank as ALCF's helper does) because DistributedManager selects
+# cuda:{local_rank} and would fail if only one device were visible.
+case "${GPU_ORDER}" in
+    forward)
+        echo "GPU_ORDER=forward -> stock device order (rank is NOT NUMA-local to its GPU; notes §1)" ;;
+    reverse)
+        export CUDA_VISIBLE_DEVICES=3,2,1,0
+        echo "GPU_ORDER=reverse -> CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES} (NUMA-local pairing)" ;;
+    *)
+        echo "ERROR GPU_ORDER_INVALID: '${GPU_ORDER}' (expected forward|reverse)"; exit 3 ;;
+esac
+
+# ---- distributed wireup -----------------------------------------------------
+# The rank shim does NOT set these -- they are identical across ranks, so they
+# belong here -- and `env://` init hard-requires them. A launcher missing this
+# block fails at init_process_group on the first 2-node smoke.
+# Nodes are exclusive on Polaris, so a fixed port cannot collide with another job.
+export MASTER_ADDR
+MASTER_ADDR="$(head -n1 "${NODEFILE}")"
+export MASTER_PORT="${MASTER_PORT:-29500}"
+echo "rendezvous = ${MASTER_ADDR}:${MASTER_PORT}   launcher = PALS mpiexec + polaris_rank_env.sh"
+echo
+
+# ---- PREFLIGHT 1: the architecture is the one we certified ------------------
+# Static half of the gate (source + config parity), milliseconds, on the head
+# node before mpiexec -- a config edit made after the GPU gate last ran should
+# not cost 32 GPUs to discover.
+echo "=== preflight: SFNO architecture parity (static) ==="
+"${PY}" "${REPO}/compare_sfno_parity.py" --static || {
+    echo "ERROR PREFLIGHT_FAILED -- architecture diverged from PanguWeather."
+    exit 4
+}
+echo
+
+# ---- PREFLIGHT 2: the variable contract, against what will be read ----------
+# Channel order is a SILENT failure: ClimateZarrDataset stacks tensors in the
+# STORE's attrs order while the NaN fill and the loss are built from the MODEL
+# CONFIG's lists, and a permutation produces correctly-shaped tensors that
+# torch.cat cannot object to.
+# ⚠ This, not physicsnemo_sfno's polaris_verify_store.pbs (PASS SEQZARR_VERIFIED),
+# is the right verifier for THIS lineage: that one checks SeqZarr stores, and
+# these are the per-year zarr stores our fork's pangu_h5_to_zarr.py writes. The
+# handoff names the SeqZarr verifier; the repo disagrees, and per its own
+# instruction the repo wins. -> CHANGELOG.
+echo "=== preflight: variable contract (${NSTORES} train stores) ==="
+PREFLIGHT_RC=0
+for store in "${DATA}"/train/*.zarr; do
+    [ -e "${store}" ] || continue
+    "${PY}" "${REPO}/ai_rossby_variable_contract.py" \
+        --check-artifacts \
+        --model-config "${RECIPE}/conf/model/sfno_e3sm_parity.yaml" \
+        --dataset-config "${RECIPE}/conf/dataset/e3sm_pangu_parity.yaml" \
+        --converter "${AR_ROOT}/tools/data/e3sm/pangu_h5_to_zarr.py" \
+        --store "${store}" || PREFLIGHT_RC=1
+done
+if [ "${PREFLIGHT_RC}" -ne 0 ]; then
+    echo "ERROR PREFLIGHT_FAILED -- not launching training."
+    exit 4
+fi
+echo "PREFLIGHT_OK"
+echo
+
+# ---- TMPDIR: short, node-local, and NOT on Lustre ---------------------------
+# torch/multiprocessing's resource_sharer opens a Unix socket at
+# $TMPDIR/pymp-XXXXXXXX/listener-XXXXXXXX, and AF_UNIX caps the whole path at
+# 108 bytes (sun_path). polaris_env.sh points TMPDIR at ${MEMBER_ROOT}/tmp, which
+# is 54 bytes before the ~32-byte suffix -- and that file is shared with every
+# other model here, so it is NOT edited to suit this one. Overridden locally
+# instead. /tmp is per-node on Polaris and cleaned between jobs, exactly right
+# for ephemeral IPC; the caches that DO need to persist (TORCHINDUCTOR_CACHE_DIR,
+# TRITON_CACHE_DIR) are set separately by polaris_env.sh and are untouched.
+echo "TMPDIR inherited = ${TMPDIR:-<unset>}  (len ${#TMPDIR})"
+export TMPDIR=/tmp
+echo "TMPDIR for launch = ${TMPDIR}"
+
+# Make the rank-env contract FAIL LOUDLY rather than degrade. With this unset,
+# manager.py:406-418 calls initialize_env() inside `except TypeError` and,
+# finding no SLURM_PROCID and no OMPI_COMM_WORLD_RANK (PALS exports only PMI_*),
+# falls through to warn("Assuming this is a single process job") -- i.e. NRANKS
+# independent world_size=1 trainers that all "succeed" and produce a meaningless
+# scaling row. Pinning ENV takes the `elif` branch, which has no try/except.
+# Exported HERE, after the preflights: those run single-process on the head node
+# and must not be turned into hard failures.
+export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
+
+# ---- launch -----------------------------------------------------------------
+#  * `--cpu-bind depth -d 8` IS MANDATORY. Without it aws-ofi-nccl's CPU-side
+#    progress engine starves and inter-node all-reduce drops 9.1x (4.08 vs
+#    36.93 GB/s busbw; colleague's job 7368993). It fails SILENTLY -- no error,
+#    just a slow run -- so on a scaling study it would masquerade as the very
+#    result being measured. 4 ranks/node x depth 8 = 32 = the physical cores.
+#  * `--label --line-buffer`: PALS defaults to neither, so without them the
+#    ranks' stdout arrives unlabelled and fully buffered, ordering in a `-j oe`
+#    log is a flush artifact rather than causality, and a walltime kill loses the
+#    tail entirely (#14: a truncated log is not a result). The parser's
+#    ranks_reporting guard COUNTS those labels -- dropping the flag weakens it.
+#  * ABSOLUTE interpreter, never bare `python`: env propagation through mpiexec +
+#    a wrapper has resolved to the wrong interpreter on this cluster before
+#    (notes §6 trap 2).
+#  * PALS exports the whole environment by default (`--genvall`), which is what
+#    carries AI_ROSSBY_DATA (the dataset config interpolates ${oc.env:...}),
+#    MASTER_ADDR, the NCCL/FI vars and the telemetry knobs.
+#
+# Hydra overrides = the single-node parity set, with the timing-run differences:
+#   - training.optimizer.lr: this world size's value (see the LR block).
+#   - dataset.val_zarr_path=null: `validation=off` is ALREADY the config default
+#     and only disables the ROLLOUT; a single-step val_loss pass still runs over
+#     every val sample whenever val_zarr_path is set (train.py:832-842) -- 5,840
+#     samples, i.e. far longer than the 60-step arm it would follow. Nulling the
+#     path is what actually leaves val_datapipe None.
+#   - training.stages.0.max_iterations: the step cap. `num_epochs` needs no
+#     override -- the yaml interpolates it from ${training.max_epochs}.
+cd "${AR_ROOT}" || exit 2
+LOG="${EXP_DIR}/${RUN_NAME}.log"
+echo "--- launching (log tee'd to ${LOG}) ---"
+set -o pipefail
+mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${SHIM}" \
+    "${PY}" "${RECIPE}/train.py" \
+    --config-dir="${RECIPE}/conf" \
+    --config-name=config \
+    model=sfno_e3sm_parity \
+    dataset=e3sm_pangu_parity \
+    training=sfno_e3sm_parity \
+    loss=raw_l2 \
+    training.optimizer.lr="${LR}" \
+    training.max_epochs=1 \
+    "training.stages.0.max_iterations=${STEPS}" \
+    dataset.batch_size="${LOCAL_BATCH}" \
+    dataset.num_workers="${LOADER_WORKERS}" \
+    dataset.val_zarr_path=null \
+    seed="${SEED}" \
+    checkpoint_save_interval="${CKPT_INTERVAL}" \
+    run_name="${RUN_NAME}" \
+    hydra.run.dir="${RUN_DIR}" \
+    wandb.enabled="$( [ "${WANDB}" = "1" ] && echo true || echo false )" \
+    wandb.mode="${WANDB_MODE}" \
+    wandb.project="${WANDB_PROJECT}" \
+    wandb.name="${RUN_NAME}" \
+    "bench.per_batch_tsv=${BENCH_TSV}" 2>&1 | tee "${LOG}"
+rc=$?
+set +o pipefail
+echo "--- train rc=${rc} ---"
+
+if [ ! -s "${LOG}" ]; then echo "ERROR NO_LOG"; exit 4; fi
+
+# ---- WRAP GUARD (post-hoc, and exact) ---------------------------------------
+# A weak-scaling sweep needs enough DISTINCT samples that the arm does not wrap:
+# re-reading samples already in the page cache makes a rank look fast, and the
+# wrap point moves with the global batch -- i.e. it moves along the very axis
+# being swept, putting a systematic bias in exactly the direction of the result.
+# The condition is precisely `steps_per_epoch < STEPS`, and steps_per_epoch is
+# the LOADER's own count for this world size, printed by train.py:887. Reading
+# it from the log is therefore not a proxy for the real sample count -- it IS
+# the real sample count, per rank, after sharding. Checked after the fact
+# because it costs no allocation to do so and no zarr-reading code to maintain.
+SPE=$("${PY}" - "${LOG}" <<'PY'
+import re, sys
+vals = {int(m) for m in re.findall(r"steps_per_epoch\s*=\s*(\d+)", open(sys.argv[1], errors="replace").read())}
+print(min(vals) if vals else "")
+PY
+)
+if [ -z "${SPE}" ]; then
+    echo "WARN WRAP_GUARD_NO_STEPS_PER_EPOCH: could not read the loader's epoch length."
+    echo "  The parser's NO_TRAINER_BANNER check covers the same line and will fail below."
+elif [ "${SPE}" -lt "${STEPS}" ]; then
+    echo "ERROR EPOCH_WRAPPED: loader serves ${SPE} steps/rank/epoch, this arm timed ${STEPS}."
+    echo "  Samples were re-served from the page cache, biasing step time low by an"
+    echo "  amount that grows with the global batch. Lower -v STEPS or pack more years."
+    rc=1
+else
+    echo "wrap guard: ${SPE} steps/rank/epoch available >= ${STEPS} timed -- no wrap."
+fi
+
+# ---- results ----------------------------------------------------------------
+# Delegated to parse_ai_rossby_scaling.py rather than an inline heredoc so it can
+# be tested without an allocation (test_parse_ai_rossby_scaling.py, 24 checks).
+# That is not tidiness: its guards -- world_size, ranks reporting, telemetry
+# n_gpus, step count, transport -- are the difference between a scaling number
+# and a plausible-looking number.
+"${PY}" "${AR_ROOT}/polaris/parse_ai_rossby_scaling.py" \
+    --log "${LOG}" --csv "${SCALING_CSV}" \
+    --telemetry-csv "${TELEMETRY_CSV}" --run-name "${RUN_NAME}" \
+    --jobid "${JOBID}" \
+    --nodes "${NNODES}" --ranks "${NRANKS}" \
+    --local-batch "${LOCAL_BATCH}" --global-batch "${GLOBAL_BATCH}" \
+    --data real --rep "${REP}" --gpu-order "${GPU_ORDER}" \
+    --steps "${STEPS}" \
+    --env-source "${AI_ROSSBY_ENV_SOURCE}" --omp-threads "${OMP_NUM_THREADS}"
+csv_rc=$?
+
+echo
+echo "TRAIN_DONE nodes=${NNODES} ranks=${NRANKS} global_batch=${GLOBAL_BATCH} \
+lr=${LR} rep=${REP} gpu_order=${GPU_ORDER} omp=${OMP_NUM_THREADS} rc=${rc}"
+if [ ${rc} -eq 0 ] && [ ${csv_rc} -eq 0 ]; then
+    echo "AI_ROSSBY_MN_SCALING_OK  run_dir=${RUN_DIR}  csv=${SCALING_CSV}"
+    echo "  Before comparing node counts: confirm the transport line above, and remember"
+    echo "  the single-node arm is the only one where NCCL never leaves NVLink."
+else
+    echo "ERROR AI_ROSSBY_MN_SCALING_FAILED train_rc=${rc} csv_rc=${csv_rc}"
+    echo "  Read the FIRST rank's error, not the last: a fabric problem surfaces as"
+    echo "  ${NRANKS} stacks of which only the first is the cause."
+fi
+exit $(( rc | csv_rc ))
