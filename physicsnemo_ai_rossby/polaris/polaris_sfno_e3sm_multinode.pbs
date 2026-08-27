@@ -134,17 +134,23 @@ if [ "${NNODES}" -lt 1 ]; then
 fi
 NRANKS=$(( NNODES * GPUS_PER_NODE ))
 
-# --- env bootstrap (copied from polaris_sfno_e3sm.pbs — do not reorder) ------
-# Bare `module load conda`, matching polaris_setup_ai_rossby_venv.sh: the venv
-# was built against THIS module's python/CUDA. Do NOT switch to a
-# conda/*-aws-nccl-* variant to get the libfabric plugin — those point at a
-# plugin dir that does not exist and NCCL dies with ncclInvalidUsage. The plugin
-# is injected by LD_LIBRARY_PATH below instead.
-module use /soft/modulefiles
-module load conda
-conda activate base                                # CUDA/NCCL env
+# --- env bootstrap (do not reorder) -----------------------------------------
+# ⚠ 2026-08-27: this block WAS a bare `module load conda`, matching
+# polaris_setup_ai_rossby_venv.sh. That module has been BROKEN cluster-side
+# since the 2026-08 Cray PE roll (polaris_pbs_notes.md §1 BLOCKER): its
+# modulefile pins cray-hdf5-parallel/1.14.3.5 and gcc-native/14.2, neither of
+# which is installed any more, so Lmod aborts and `conda` never lands. This
+# script was therefore DEAD as written, not merely stale. polaris_ai_rossby_env.sh
+# tries the sanctioned module first and reconstructs the modulefile by hand when
+# it fails, reporting which path it took in AI_ROSSBY_ENV_SOURCE.
+# Do NOT switch to a conda/*-aws-nccl-* variant to get the libfabric plugin —
+# those point at a plugin dir that does not exist and NCCL dies with
+# ncclInvalidUsage. The plugin is injected by LD_LIBRARY_PATH below instead.
+# polaris_env.sh comes FIRST: it defines MEMBER_ROOT/AI_ROSSBY_VENV.
 # shellcheck disable=SC1091
 source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${AR_ROOT}/polaris/polaris_ai_rossby_env.sh" || exit 2
 
 if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
     echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
@@ -184,26 +190,58 @@ if [ "${HEAD_GPUS}" != "${GPUS_PER_NODE}" ]; then
     exit 3
 fi
 
-# --- NCCL over Slingshot/CXI (ported verbatim; values, not just names) -------
-# ALCF's documented setup, as used by the colleague's Polaris script. Every path
-# below was `ls`-verified to exist on Polaris on 2026-08-14:
-#   /soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib   (libnccl-net.so*)
-#   /soft/libraries/hwloc/lib/                    (libhwloc.so*)
-#   /opt/cray/libfabric/2.2.0rc1/lib64            (the only libfabric under /opt/cray)
-# ⚠ These values are MEASURED on his venv/torch, not yet on ours — the first
-#   submission of this script is what proves them here. A fabric problem shows up
-#   as an NCCL init error or a slow all-reduce, not as a wrong number.
-export NCCL_NET_GDR_LEVEL=PHB
+# --- NCCL over Slingshot/CXI — CORRECTED 2026-08-27, was measured elsewhere --
+# ⚠ THIS BLOCK USED TO BE WRONG IN BOTH HALVES, and it is the ORIGIN of the pin
+# that cost job 7553811. It pinned
+#     /soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib   +   /opt/cray/libfabric/2.2.0rc1/lib64
+# both `ls`-verified on 2026-08-14 and both gone by 2026-08-23: ALCF ships
+# libfabric 2.3.1 only. A NONEXISTENT DIRECTORY ON LD_LIBRARY_PATH IS SILENTLY
+# IGNORED, so the job did not stop — it ran v1.9.1-aws against 2.3.1, hit
+#     device_prepare_for_connection:2165 NCCL WARN NET/OFI
+#     Couldn't open a fabric access domain. RC: -38 (ENOSYS)
+# and died SIGSEGV with the blame landing elsewhere. Hence both changes below:
+# the measured pin, and a HARD EXIT on any path that is missing.
+#
+# WHY THIS PLUGIN. Every /soft build >= v1.9 fails fi_domain with ENOSYS against
+# libfabric 2.3.1 — including ALCF's own 2025-09 rebuilds — because the CXI
+# provider requires auto progress and newer plugin defaults do not request it
+# (six-combo matrix, job 7563894). The self-built v1.21.1 +
+# OFI_NCCL_PROGRESS_MODEL=AUTO is the one stack correct for every traffic
+# pattern tested. The surviving old build (v1.6.0 + NCCL_PROTO=Simple) is NOT an
+# alternative for this model: its progress engine loses small-message broadcasts
+# BY TENSOR SIZE (job 7565896), and DDP's initial parameter broadcast on a
+# 1.18 B-param model is exactly that traffic.
+# ⚠ Still MEASURED ON torch 2.8.0 / NCCL 2.28.3, not on this venv's 2.10.0+cu129.
+#   Run polaris_ai_rossby_{fabric_probe,ofi_plugin_matrix,nccl_mn_probe}.pbs
+#   before trusting it here. Expected to hold (the mechanism is CXI-side), but an
+#   expectation is not a measurement.
+export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-PHB}"
 export NCCL_CROSS_NIC=1
-# Inert with the plugin pinned below: `nm -D` on v1.9.1-aws's libnccl-net.so
-# exports ncclNetPlugin_v2..v8 and NO ncclCollNetPlugin_v* symbol, so there is no
-# CollNet implementation for NCCL to enable. Retained so this block stays a
-# faithful copy of the ported one; do not read it as evidence CollNet is in play.
+# Inert with the plugin pinned below (it exports no ncclCollNetPlugin_v* symbol,
+# so there is no CollNet implementation for NCCL to enable). Retained so this
+# block stays a faithful copy of the ported one; do not read it as evidence
+# CollNet is in play.
 export NCCL_COLLNET_ENABLE=1
 export NCCL_NET="AWS Libfabric"
-export LD_LIBRARY_PATH=/soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/soft/libraries/hwloc/lib/:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/opt/cray/libfabric/2.2.0rc1/lib64:$LD_LIBRARY_PATH
+OFI_PLUGIN="${OFI_PLUGIN:-${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib}"
+OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
+for _d in "${OFI_PLUGIN}" "${OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
+    if [ ! -d "${_d}" ]; then
+        echo "ERROR OFI_PATH_MISSING: ${_d}"
+        echo "  A fabric pin that does not exist is ignored, not honoured — the job"
+        echo "  would silently fall back to another transport. That is the exact"
+        echo "  defect this block was rewritten to make impossible."
+        exit 3
+    fi
+done
+# libfabric first so it outranks any system copy; hwloc because libnccl-net.so
+# needs libhwloc.so.0 and nothing on the default path provides it.
+export LD_LIBRARY_PATH="${OFI_LIBFABRIC}:${OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+PROGRESS_MODEL="${PROGRESS_MODEL-AUTO}"
+[ -n "${PROGRESS_MODEL}" ] && export OFI_NCCL_PROGRESS_MODEL="${PROGRESS_MODEL}"
+echo "fabric pin: plugin=${OFI_PLUGIN}"
+echo "            libfabric=${OFI_LIBFABRIC}"
+echo "            OFI_NCCL_PROGRESS_MODEL=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
 export FI_CXI_DISABLE_HOST_REGISTER=1
 export FI_MR_CACHE_MONITOR=userfaultfd
 export FI_CXI_DEFAULT_CQ_SIZE=131072
