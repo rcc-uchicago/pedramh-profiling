@@ -267,14 +267,48 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     table; (c) "rerun the probes per venv" needed an addition — makani's fabric probe tests six
     `/soft` pairings and does **not** contain the self-built v1.21.1 the handoff mandates, so
     the sibling adds combo **G**.
-  - **Measurement started: job 7568561** (`polaris_ai_rossby_fabric_probe.pbs`, debug, 1 node).
-    ⚠ **`debug` rejects a second queued job per user** ("would exceed queue generic's per-user
+  - ⭐ **FABRIC ANSWER, job 7568561 — `FABRIC_PROBE_OK`, and the AUTO pin DOES carry across
+    the NCCL version.** Under **torch 2.10.0+cu129 / NCCL 2.27.5** (makani measured
+    2.8.0 / 2.28.3), exactly two of seven combos work — **E** (`/soft` v1.6.0-libfabric-1.22.0
+    + cray 2.3.1) and **G** (self-built **v1.21.1 + `OFI_NCCL_PROGRESS_MODEL=AUTO`** + cray
+    2.3.1) — both reporting `Using network AWS Libfabric`. A–D and F fail, three of them with
+    `Failed to initialize any NET plugin`. **Same shape as makani's answer on a different
+    NCCL**, which is direct evidence the ENOSYS mechanism is CXI-provider-side rather than
+    NCCL-version-side, i.e. the ALCF ticket's premise (§4b) holds beyond the env it was found
+    in. Single-node, so it proves the domain OPENS, not that inter-node traffic flows —
+    that is the ≥2-node probe.
+    **Prereg prediction 2 is half-scored: the transport half is confirmed; the "AUTO and only
+    AUTO" half needs the knob matrix (7568618), which asks whether AUTO is NECESSARY here or
+    merely sufficient — on NCCL 2.27.5 the default might already ask for auto progress.**
+  - ⚠ **`debug` rejects a second QUEUED job per user** ("would exceed queue generic's per-user
     limit of jobs in 'Q' state"), so the handoff §0.8 recipe of pre-submitting a whole
     `-W depend=` chain **does not work in this queue** — links must go in one at a time.
-  - **Open:** probe results and the pins they record; 1n then 2n smokes; then the ladder.
-    Prereg prediction 3 is the one that matters — makani paid a roughly *constant* +375 ms
-    whenever the fabric was touched, so ai-rossby should pay a similar absolute penalty on a
-    ~4× longer step and scale visibly better for no better reason than step length.
+  - **Blocker found and fixed: the SFNO parity gate was failing, so PREFLIGHT 1 of BOTH
+    ai-rossby multi-node launchers was dead** — the pre-existing 4-node test as well as the
+    new ladder. `compare_sfno_parity.py --static` reported `SFNO_SOURCE_DIVERGED 3/7`, and all
+    40 differing lines were **one thing**: the §4.9 **dhconv-XIO layout knob**
+    (`PANGU_DHCONV_XIO`, default `"0"`) added to PanguWeather during the profiling work and
+    never vendored into ai-rossby's copy. With the knob OFF the selected path is the pre-knob
+    one, so the trees compute the same arithmetic and the difference is textual; with it ON
+    they are **different models** (dhconv weight `[modes_lat,in,out]` vs `[in,out,modes_lat]`
+    — 95.8% of parameters change shape). Hence a **conditional** carve-out, not an entry in
+    `ALLOWED_DIFF_LINES`: knob set ⇒ `check_source` returns early with its own token
+    `SFNO_XIO_KNOB_SET` and says *different models*, because reporting it as 40 line diffs is
+    what would tempt the next reader to widen the allowlist. Listed line by line so it fails
+    closed on any edit inside the knob. **Not a loosening** — nothing that is a real numerical
+    difference is accepted now that was rejected before. `compare_sfno_parity_test.py` pins
+    both directions (12 checks, `SFNO_PARITY_XIO_TEST_OK`, stdlib only), including the
+    invariant that the two sets stay disjoint (`ALLOWED_DIFF_LINES` is consulted first, so an
+    overlap would make the conditional half silently dead). `--static` now `SFNO_PARITY_OK`.
+  - **Both launcher preflights verified from a login node before any trainer allocation:**
+    PREFLIGHT 1 `SFNO_PARITY_OK`; PREFLIGHT 2 `VARIABLE_PARITY_OK 19/19` on
+    `train/2015.zarr` in **0.13 s** — so the 30-store loop costs ~4 s, not a reason to trim it.
+  - **Open:** knob matrix (7568618) → ≥2-node NCCL probe → 1n then 2n launcher smokes → the
+    ladder. Prereg prediction 3 is the one that matters: makani paid a roughly *constant*
+    +375 ms whenever the fabric was touched, so ai-rossby should pay a similar absolute
+    penalty on a ~4× longer step and scale visibly better for no better reason than step
+    length. A miss on the high side means the penalty tracks the 8× gradient volume, and
+    that is what would cap any climb to prod rungs.
 
 - **2026-08-24** — **The paper's parallel layouts are IN the official repo, and the 512-A100 run
   factorizes exactly — plan §1's inference is now upstream-confirmed fact.** Cloned
