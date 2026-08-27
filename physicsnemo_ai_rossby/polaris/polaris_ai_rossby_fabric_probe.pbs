@@ -1,0 +1,211 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_fabric_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:25:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Which (aws-ofi-nccl plugin, libfabric) PAIR opens a CXI domain UNDER THE
+# AI-ROSSBY VENV?
+#
+# Sibling of makani_sfno/polaris/polaris_makani_fabric_probe.pbs.  The rank
+# program and the combo loop are copied unchanged; the ONLY deltas are the
+# env-activation block (this venv, not $SFNO_VENV) and candidate G (below).
+# The makani file is NOT edited in place — CLAUDE.md #7 in spirit, and both
+# directories are git subtrees where a drive-by edit conflicts on the next
+# subtree pull.
+#
+# WHY RERUN A MATRIX THAT MAKANI ALREADY RAN.  makani's answers were measured on
+# the base conda's torch 2.8.0 / NCCL 2.28.3.  This venv carries torch
+# 2.10.0+cu129 and a DIFFERENT bundled NCCL, and the plugin<->NCCL net API
+# handshake is exactly what fails when they disagree.  The multi-node handoff
+# §1 makes this mandatory for any venv whose torch is not 2.8.0: rerun all three
+# probes before trusting ANY pin, including OFI_NCCL_PROGRESS_MODEL=AUTO.
+# The expectation is that AUTO still holds (the ENOSYS is CXI-side, not
+# NCCL-side) — but an expectation is not a measurement.
+#
+# ONE JOB, ALL COMBOS.  Each is a full 4-rank NCCL all-reduce with a checked
+# answer, because plugin init is where the failure lands and 4 ranks on 1 node
+# reach it.  A pair that passes here still has to be confirmed on >=2 nodes:
+# single-node NCCL can fall back to P2P/NVLink and never carry traffic over the
+# fabric at all, so PASS here means "the domain opens", NOT "inter-node works".
+# That confirmation is polaris_ai_rossby_nccl_mn_probe.pbs.
+#
+# PASS = FABRIC_PROBE_OK plus at least one combo marked WORKS.
+# Per CLAUDE.md #14 the token is the result, not rc.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then
+    AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# ---- environment (the one block that differs from the makani probe) ---------
+# polaris_env.sh FIRST: it defines MEMBER_ROOT and AI_ROSSBY_VENV, which the
+# bootstrap below anchors on.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${AR_ROOT}/polaris/polaris_ai_rossby_env.sh" || exit 2
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${AI_ROSSBY_VENV}/bin/python"
+
+export GPUS_PER_NODE=4
+NRANKS=4
+MASTER_ADDR="$(head -1 "${PBS_NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29511
+
+SHIM="${AR_ROOT}/polaris/polaris_rank_env.sh"
+[ -f "${SHIM}" ] || { echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 3; }
+
+# LD_LIBRARY_PATH as it stands BEFORE any fabric pin. Every combo below is
+# layered on this exact base, never on the previous combo's leftovers.
+LD_BASE="${LD_LIBRARY_PATH}"
+
+OUT="${MEMBER_ROOT}/runs/ai_rossby_fabric_probe/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+# ---- the rank program -------------------------------------------------------
+# Written to a FILE, never fed over stdin: PALS delivers the job script's stdin
+# to rank 0 only, so an mpiexec'd `python -` leaves ranks 1..3 with an empty
+# program. That bug was caught in the env probe and must not come back here.
+RANKPY="${OUT}/allreduce.py"
+cat > "${RANKPY}" <<'PY'
+import os, sys, torch, torch.distributed as dist
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+dist.init_process_group("nccl")
+t = torch.full((1024, 1024), float(dist.get_rank() + 1), device="cuda")
+dist.all_reduce(t)
+n = dist.get_world_size()
+want = float(n * (n + 1) // 2)
+ok = abs(t[0, 0].item() - want) < 1e-3
+if dist.get_rank() == 0:
+    print("ALLREDUCE %s world=%d got=%.1f want=%.1f"
+          % ("OK" if ok else "WRONG", n, t[0, 0].item(), want), flush=True)
+    print("TORCH %s NCCL %s" % (torch.__version__,
+          ".".join(map(str, torch.cuda.nccl.version()))), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+# ---- candidates -------------------------------------------------------------
+# name | plugin lib dir | libfabric lib dir | extra env (';'-separated KEY=VAL)
+# A-F are makani's six, verbatim, so the two harnesses' answers are comparable
+# row for row. G is the ADDITION: the self-built v1.21.1 + the one runtime knob
+# that unlocked it on torch 2.8.0. It is the stack the handoff mandates for all
+# new-harness bring-up, so the probe that decides the pin must contain it —
+# otherwise this job can only re-derive a pin nobody intends to use.
+PLUG_SELF="${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
+CAND=(
+"A_v1.9.1-aws__cray-2.3.1|/soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib|/opt/cray/libfabric/2.3.1/lib64|"
+"B_v1.9.1-lf1.22__cray-2.3.1|/soft/libraries/aws-ofi-nccl/v1.9.1-aws-libfabric-1.22.0/lib|/opt/cray/libfabric/2.3.1/lib64|"
+"C_v1.9.1-aws__bundled-1.18.2|/soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib|/soft/libraries/aws-ofi-nccl/libfabric_1.15.2.0/lib64|"
+"D_v1.9.1-lf1.22__bundled-1.18.2|/soft/libraries/aws-ofi-nccl/v1.9.1-aws-libfabric-1.22.0/lib|/soft/libraries/aws-ofi-nccl/libfabric_1.15.2.0/lib64|"
+"E_v1.6.0-lf1.22__cray-2.3.1|/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib|/opt/cray/libfabric/2.3.1/lib64|"
+"F_v1.6.0__bundled-1.18.2|/soft/libraries/aws-ofi-nccl/v1.6.0/lib|/soft/libraries/aws-ofi-nccl/libfabric_1.15.2.0/lib64|"
+"G_v1.21.1-self__cray-2.3.1__AUTO|${PLUG_SELF}|/opt/cray/libfabric/2.3.1/lib64|OFI_NCCL_PROGRESS_MODEL=AUTO"
+)
+
+echo "=== ai_rossby_fabric_probe: $(date -Iseconds) ==="
+echo "node=$(hostname)  ranks=${NRANKS}"
+polaris_env_report
+ai_rossby_env_report
+echo
+echo "system libfabric present:"
+ls -d /opt/cray/libfabric/*/ 2>/dev/null | sed 's/^/  /'
+echo
+
+WORKED=""
+for entry in "${CAND[@]}"; do
+    name="${entry%%|*}"; rest="${entry#*|}"
+    plug="${rest%%|*}"; rest="${rest#*|}"
+    fab="${rest%%|*}"; extras="${rest#*|}"
+    log="${OUT}/${name}.log"
+
+    echo "---------------------------------------------------------------"
+    echo "COMBO ${name}"
+    echo "  plugin    = ${plug}"
+    echo "  libfabric = ${fab}"
+    echo "  extra env = ${extras:-<none>}"
+    if [ ! -d "${plug}" ]; then echo "  SKIP missing plugin dir"; continue; fi
+    if [ ! -d "${fab}"  ]; then echo "  SKIP missing libfabric dir"; continue; fi
+
+    # Rebuilt from LD_BASE each iteration, and passed through `env` rather than
+    # exported, so combo N+1 cannot inherit combo N's extras. libfabric FIRST so
+    # it outranks the system copy; hwloc because libnccl-net.so needs
+    # libhwloc.so.0 and nothing else on the default path provides it.
+    env_args=(
+        LD_LIBRARY_PATH="${fab}:${plug}:/soft/libraries/hwloc/lib:${LD_BASE}"
+        NCCL_NET="AWS Libfabric"
+        NCCL_NET_GDR_LEVEL=PHB
+        NCCL_CROSS_NIC=1
+        FI_CXI_DISABLE_HOST_REGISTER=1
+        FI_MR_CACHE_MONITOR=userfaultfd
+        FI_CXI_DEFAULT_CQ_SIZE=131072
+        NCCL_DEBUG=INFO
+        NCCL_DEBUG_SUBSYS=INIT,NET
+    )
+    IFS=';' read -ra kvs <<< "${extras}"
+    for kv in "${kvs[@]}"; do
+        [ -n "${kv}" ] && env_args+=( "${kv}" )
+    done
+
+    mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${PBS_NODEFILE}" \
+        --cpu-bind depth -d 8 \
+        env "${env_args[@]}" \
+        bash "${SHIM}" "${PY}" "${RANKPY}" \
+        > "${log}" 2>&1
+    rc=$?
+
+    # Classify on the LOG, not on rc: a plugin that cannot open a domain still
+    # sometimes exits 0 after NCCL falls back, and that is a different result
+    # from working -- it must not be recorded as a pass.
+    dom_fail=$(grep -c "Couldn't open a fabric access domain\|Couldn't create domain" "${log}" 2>/dev/null)
+    allred=$(grep -c "ALLREDUCE OK" "${log}" 2>/dev/null)
+    used=$(grep -m1 "NCCL INFO Using network" "${log}" 2>/dev/null | sed 's/.*Using network //')
+
+    echo "  rc=${rc}  domain_errors=${dom_fail}  allreduce_ok=${allred}"
+    echo "  network  = ${used:-<none reported>}"
+    grep -m1 "^TORCH " "${log}" 2>/dev/null | sed 's/^/  /'
+    if [ "${rc}" -eq 0 ] && [ "${allred}" -ge 1 ] && [ "${dom_fail}" -eq 0 ]; then
+        echo "  => WORKS"
+        WORKED="${WORKED} ${name}"
+    else
+        echo "  => FAILS"
+        grep -m2 -E "NCCL WARN|Error|error:" "${log}" 2>/dev/null | sed 's/^/     /'
+    fi
+    echo "  log: ${log}"
+done
+
+echo
+echo "==============================================================="
+if [ -n "${WORKED}" ]; then
+    echo "FABRIC_PROBE_OK working combos:${WORKED}"
+    echo "  Expected shape of this answer, from the makani campaign on torch 2.8.0:"
+    echo "    E (v1.6.0 + cray 2.3.1) and G (self-built v1.21.1 + AUTO) work; A-D, F do not."
+    echo "  If G is absent from the list above, the AUTO pin does NOT carry to torch 2.10"
+    echo "  and the ladder is blocked on a fabric answer, not on the launcher."
+    echo "  Next: polaris_ai_rossby_ofi_plugin_matrix.pbs (which knob, under THIS venv),"
+    echo "  then polaris_ai_rossby_nccl_mn_probe.pbs at >=2 nodes (does traffic flow)."
+else
+    echo "ERROR FABRIC_PROBE_NO_WORKING_COMBO"
+    echo "  Every installed aws-ofi-nccl build fails against every installed libfabric"
+    echo "  under torch 2.10. Record it and run the knob matrix before concluding:"
+    echo "  on torch 2.8.0 the unlock was one env var, not a different plugin."
+fi
+echo "=== done $(date -Iseconds) ==="
