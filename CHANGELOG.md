@@ -459,7 +459,29 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       ⇒ **had the watchdog timeout not fired, training would have proceeded on gradients
       correct at one end of the tensor and stale at the other.** This belongs in the ALCF
       ticket as a correctness defect, not a performance one.
-      **Threshold is LOWER than either boundary I guessed** — not 2^32 bytes, not 2^31:
+      **🏁🏁🏁 IT IS THE TREE ALL-REDUCE PATH, NOT SIZE — AND `NCCL_ALGO=Ring` FIXES IT.**
+      Same size, same nodes, same everything, one env var apart:
+      | job | size | algorithm | result |
+      |---|---|---|---|
+      | 7569817 | 1000 MB | default (**Tree**) | ❌ `first=8 last=1 WRONG`, 2/8 ranks |
+      | **7569818** | **2000 MB** | **`NCCL_ALGO=Ring`** | ✅ `first=8.000 last=8.000 OK`, **8/8**, `MN_NCCL_PROBE_OK` |
+      A size that fails on the default algorithm completes CORRECTLY on Ring. Size mattered
+      only because NCCL switches Ring→Tree above a threshold; the defect lives in the tree
+      path of this plugin/NCCL combination. Consistent with the very first observation of the
+      hang, which nobody read correctly at the time: `Connected all rings` preceded the stage
+      banner (the broadcasts, which always worked) and `Connected all trees` followed it (the
+      all-reduce, which never did).
+      **This also explains makani without needing an NCCL-version theory** (operator's point:
+      makani reduced ~0.6 GB at 512 ranks for 100 epochs and was fine) — at that size its
+      all-reduce would stay on Ring and never enter the broken path. ⚠ The version confound
+      is still real and unretired: makani runs NCCL **2.28.3**, ai-rossby **2.27.5**, same
+      plugin/libfabric/progress model. Ring-vs-Tree is now the better-evidenced explanation,
+      but a cross-venv run at one size would settle it outright.
+      **Verifying now:** **7569831** — the TRAINER itself at 2 nodes with `NCCL_ALGO=Ring`
+      (the end-to-end test of the fix) — and **7569832**, the probe at the model's real
+      4700 MB with Ring.
+      **Threshold on the TREE path** (of interest for the ticket, not for the fix) — lower
+      than either boundary I guessed, not 2^32 bytes and not 2^31:
       | all-reduce | elements | bytes | result |
       |---|---|---|---|
       | 4700 / 4200 / 4000 MB | 1.23 G / 1.10 G / 1.05 G | 4.9–4.2 GB | ❌ |
