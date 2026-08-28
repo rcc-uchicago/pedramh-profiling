@@ -260,7 +260,47 @@ export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${TELEMETRY_CSV}"
 # A wandb'd row's step path carries the diagnostics overhead, and a row from
 # another fabric stack is a different config -- neither may sit in the default
 # table (handoff rule #4; CSV schema is a contract, so config is NOT a column).
-SCALING_CSV="${AI_ROSSBY_SCALING_CSV:-${MEMBER_ROOT}/bench/ai_rossby_multinode_scaling.csv}"
+# ---- production mode: multi-epoch / checkpointed / wandb'd -------------------
+# -v EPOCHS=N (default 1). >1 turns this into a PRODUCTION-SHAPED run: real
+# epoch boundaries, end-of-epoch checkpoint saves, and — with -v RUN_NAME=<name>
+# pinned — resume across submissions, because train.py loads ./checkpoints
+# relative to hydra.run.dir and RUN_NAME is what fixes that directory.
+#
+# ⚠ A MULTI-EPOCH OR WANDB'D ROW MUST NEVER SIT IN THE SCALING TABLE (rule #4).
+# Its step average spans dataloader re-warmup and epoch boundaries, and a wandb'd
+# row carries the per-iteration diagnostics overhead. The CSV has no column for
+# either — config lives in the log header, not in new columns (#10) — so the
+# routing is enforced HERE rather than left to whoever reads the file.
+EPOCHS="${EPOCHS:-1}"
+_prod=0
+[ "${EPOCHS}" -gt 1 ] && _prod=1
+[ "${WANDB}" = "1" ] && _prod=1
+if [ "${_prod}" = "1" ]; then
+    DEFAULT_CSV="${MEMBER_ROOT}/bench/ai_rossby_production.csv"
+    echo "PRODUCTION MODE: epochs=${EPOCHS} wandb=${WANDB} ckpt_every=${CKPT_INTERVAL}"
+    echo "  rows routed to a SEPARATE csv — a multi-epoch/wandb'd row is not a scaling point."
+    # ⚠ `max_iterations` is a TOTAL cap across the STAGE, not per epoch
+    # (train.py:1241 initialises stage_iter OUTSIDE the epoch loop, and :1514
+    # breaks the epoch loop on it too). So capping iterations would stop the run
+    # inside epoch 1 and never cross an epoch boundary — the one thing a
+    # production smoke exists to exercise. Shorten the EPOCH instead, which is
+    # what makani's launcher does with n_train_samples_per_epoch.
+    # A full epoch here is 5,475 steps/rank ≈ 3.2 h at 2 nodes, well past
+    # `debug`'s 1 h, so -v SAMPLES_PER_EPOCH is effectively required.
+    ITER_ARG=()
+    if [ -z "${SAMPLES_PER_EPOCH:-}" ]; then
+        echo "WARN PROD_FULL_EPOCH: SAMPLES_PER_EPOCH unset — each epoch is the WHOLE"
+        echo "  train split (43,800 samples). Fine in a long queue, guaranteed walltime"
+        echo "  kill in debug. Set -v SAMPLES_PER_EPOCH=<n> for a smoke."
+    fi
+else
+    DEFAULT_CSV="${MEMBER_ROOT}/bench/ai_rossby_multinode_scaling.csv"
+    ITER_ARG=( "training.stages.0.max_iterations=${STEPS}" )
+fi
+# Shortens the epoch itself (both modes). Unset leaves the config's null.
+SPE_ARG=()
+[ -n "${SAMPLES_PER_EPOCH:-}" ] && SPE_ARG=( "dataset.num_samples_per_epoch=${SAMPLES_PER_EPOCH}" )
+SCALING_CSV="${AI_ROSSBY_SCALING_CSV:-${DEFAULT_CSV}}"
 mkdir -p "${EXP_DIR}" "${RUN_DIR}" "$(dirname "${SCALING_CSV}")" \
          "$(dirname "${TELEMETRY_CSV}")" "$(dirname "${BENCH_TSV}")" || exit 2
 
@@ -609,8 +649,9 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     training=sfno_e3sm_parity \
     loss=raw_l2 \
     training.optimizer.lr="${LR}" \
-    training.max_epochs=1 \
-    "training.stages.0.max_iterations=${STEPS}" \
+    training.max_epochs="${EPOCHS}" \
+    "${ITER_ARG[@]}" \
+    "${SPE_ARG[@]}" \
     dataset.batch_size="${LOCAL_BATCH}" \
     dataset.num_workers="${LOADER_WORKERS}" \
     dataset.val_zarr_path=null \
@@ -671,7 +712,7 @@ fi
     --nodes "${NNODES}" --ranks "${NRANKS}" \
     --local-batch "${LOCAL_BATCH}" --global-batch "${GLOBAL_BATCH}" \
     --data real --rep "${REP}" --gpu-order "${GPU_ORDER}" \
-    --steps "${STEPS}" \
+    --steps "$( [ "${_prod}" = "1" ] && echo 0 || echo "${STEPS}" )" \
     --env-source "${AI_ROSSBY_ENV_SOURCE}" --omp-threads "${OMP_NUM_THREADS}"
 csv_rc=$?
 
