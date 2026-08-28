@@ -557,6 +557,35 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       a performance claim, and jesswan has NOT signed off on that batch/LR.** Surfaced to the
       operator before submitting; they chose to proceed.
       Still untested: **resume** (a second submission into the same pinned RUN_NAME).
+    - **TUNING SWEEP ATTEMPTED — blocked by a rendezvous stall, and one number firmed up.**
+      Two output-neutral arms at 2 nodes (`NCCL_BUFFSIZE=16 MiB`; `CPU_BIND_DEPTH=16`),
+      each one variable against the ladder baseline, routed to `bench/ai_rossby_tuning.csv`.
+      - ⚠ **THREE consecutive jobs stalled at exactly the same point** — imports complete,
+        then `init_process_group` never emits a line. Pinned by diffing against a GREEN run:
+        7569871 prints `NCCL INFO NCCL version` at line **718**, immediately after the last
+        import warning at 717; the stalled jobs stop dead at that boundary (720/721 lines).
+        ⇒ blocked in the TCPStore rendezvous, BEFORE NCCL — not in the collective this
+        campaign has been studying. Eagle was responsive throughout (0.00 s listdir,
+        0.01 s read from a login node), so it is not Lustre.
+      - **Correction to my own reasoning mid-episode:** I began explaining why a 16 MiB
+        buffer might be *slower*, when the job had never reached NCCL at all — it sat 34 min
+        inside `import physicsnemo`. Reading the raw log tail settled it in one look.
+        Attributing a wall-clock anomaly to the knob under test without checking where the
+        process actually was is the same error that cost this session its earlier detours.
+      - **Control (7570876), exact ladder config, no knobs: GREEN** — reached
+        `init_process_group` on all 8 ranks, 60/60 steps, `step_med 2336.4 ms`. So the
+        launcher is not broken by the tuning-knob commit. That leaves an uncomfortable
+        correlation (3/3 knobbed jobs stalled, 1/1 unknobbed passed) which n=3 cannot settle
+        and for which there is no plausible mechanism — `NCCL_BUFFSIZE` cannot stall a
+        rendezvous that runs before NCCL initialises. Re-running both arms (7570924/7570925)
+        rather than concluding from the correlation.
+      - 📉 **The control doubles as a 5th rep of arm B, and it widens the known weak spot:
+        2-node reps are now 2083 / 2025 / 2070 / 2294 / 2336 ms — spread 15.0% (was 13.0%),
+        and visibly bimodal.** P6's miss is firmer, and the headline **+1378 ms first-hop
+        penalty carries ~±11%**. It remains a P3 miss on any rep (worst case +1326 ms vs the
+        predicted 190-750), but it must not be quoted as a tight constant. The other arms
+        stay tight: 1n 0.1%, 4n 2.5%, 8n 4.0%.
+
     - **LADDER LAUNCHED (operator request): A/B/C/8n × 3 INTERLEAVED reps, one config.**
       Driver `physicsnemo_ai_rossby/polaris/run_ai_rossby_ladder.sh`, log at
       `$MEMBER_ROOT/polaris_logs/ai_rossby_ladder.log`. Every arm carries
