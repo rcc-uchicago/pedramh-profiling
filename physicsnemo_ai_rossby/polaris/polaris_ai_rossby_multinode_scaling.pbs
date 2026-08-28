@@ -355,6 +355,25 @@ fi
 # Shortens the epoch itself (both modes). Unset leaves the config's null.
 SPE_ARG=()
 [ -n "${SAMPLES_PER_EPOCH:-}" ] && SPE_ARG=( "dataset.num_samples_per_epoch=${SAMPLES_PER_EPOCH}" )
+
+# ---- -v FLAT_LR=1 : hold the LR constant, for an LR sweep --------------------
+# ⚠ WITHOUT THIS AN LR SWEEP MEASURES NOTHING. The config schedules
+# LinearWarmupCosineAnnealingLR with num_warmup_epochs=5 from
+# warmup_start_lr=1e-8, so a few-hundred-step run sits ENTIRELY inside the
+# warmup ramp and never reaches the LR under test — every arm would look
+# identical and the sweep would "prove" the LR does not matter.
+#
+# Implemented by setting warmup_start_lr TO the target LR rather than setting
+# num_warmup_epochs=0: a 0-epoch warmup risks a divide-by-zero in the scheduler,
+# whereas start == target makes the ramp flat by construction and touches one
+# well-defined value.
+# Pair with -v LR=<value> and a dedicated -v AI_ROSSBY_SCALING_CSV=<path>: these
+# rows are a hyperparameter probe, not scaling points and not fabric tuning.
+FLAT_LR_ARG=()
+if [ "${FLAT_LR:-0}" = "1" ]; then
+    FLAT_LR_ARG=( "training.stages.0.scheduler.warmup_start_lr=${LR}" )
+    echo "FLAT_LR=1 -> warmup_start_lr pinned to ${LR}; the LR under test is active from step 0"
+fi
 SCALING_CSV="${AI_ROSSBY_SCALING_CSV:-${DEFAULT_CSV}}"
 mkdir -p "${EXP_DIR}" "${RUN_DIR}" "$(dirname "${SCALING_CSV}")" \
          "$(dirname "${TELEMETRY_CSV}")" "$(dirname "${BENCH_TSV}")" || exit 2
@@ -719,6 +738,7 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${RUN_NAME}" \
     "${DDP_BUCKET_ARG[@]}" \
+    "${FLAT_LR_ARG[@]}" \
     "${BENCH_TSV_ARG}" 2>&1 | tee "${LOG}"
 rc=$?
 set +o pipefail
