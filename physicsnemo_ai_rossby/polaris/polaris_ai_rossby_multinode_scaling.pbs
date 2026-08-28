@@ -541,6 +541,31 @@ export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
 #     path is what actually leaves val_datapipe None.
 #   - training.stages.0.max_iterations: the step cap. `num_epochs` needs no
 #     override -- the yaml interpolates it from ${training.max_epochs}.
+# ---- rank-0-only per-step Lustre write: OFF by default ----------------------
+# `bench.per_batch_tsv` makes RANK 0 ALONE open the file with buffering=1 and
+# write one line PER STEP (train.py:1111-1118, `if dist.rank == 0`). Line
+# buffering means a write syscall per step, to Lustre, on one rank only.
+#
+# That is exactly the "asymmetric per-rank jitter" class this harness's own
+# docs blame for multi-node deadlocks —
+# docs/dev/context/sfno-ddp-requirements.md §2 and the DDP comment at
+# train.py:930-933: background work that stalls one rank inside CUDA/GIL
+# "desyncs DDP's NCCL collectives -> the gradient all-reduce deadlocks".
+# Within a node the collectives tolerate the skew; across nodes they may not.
+#
+# Default OFF, which is ALSO what the green production run used
+# (runs/.../sfno_e3sm_parity01/.hydra/config.yaml: `bench.per_batch_tsv: null`).
+# It is not needed for a scaling row either — step times come from the
+# epoch-telemetry CSV. `-v PER_BATCH_TSV=1` re-enables it as its own arm.
+PER_BATCH_TSV="${PER_BATCH_TSV:-0}"
+if [ "${PER_BATCH_TSV}" = "1" ]; then
+    BENCH_TSV_ARG="bench.per_batch_tsv=${BENCH_TSV}"
+    echo "per-batch TSV: ON -> ${BENCH_TSV}  (rank-0-only write every step)"
+else
+    BENCH_TSV_ARG="bench.per_batch_tsv=null"
+    echo "per-batch TSV: OFF (matches the green production config; -v PER_BATCH_TSV=1 to enable)"
+fi
+
 cd "${AR_ROOT}" || exit 2
 LOG="${EXP_DIR}/${RUN_NAME}.log"
 echo "--- launching (log tee'd to ${LOG}) ---"
@@ -570,7 +595,7 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     wandb.mode="${WANDB_MODE}" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${RUN_NAME}" \
-    "bench.per_batch_tsv=${BENCH_TSV}" 2>&1 | tee "${LOG}"
+    "${BENCH_TSV_ARG}" 2>&1 | tee "${LOG}"
 rc=$?
 set +o pipefail
 echo "--- train rc=${rc} ---"
