@@ -408,7 +408,32 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       at the END of a step, so rank 0 never reached it; the asymmetry never occurred before
       the hang and cannot be the trigger. (7569626 was already in flight testing it — kept as
       a control, expected to hang.) Five hypotheses, five refuted.
-    - **LEADING HYPOTHESIS NOW — DDP bucket count, and the codebase already says so.**
+    - ⭐⭐⭐ **THE STUCK COLLECTIVE, NAMED AT LAST — job 7569690's flight-recorder dumps.**
+      All 8 ranks are byte-identical:
+      ```
+      seq=14  nccl:broadcast    in=[[95687168]]     state=completed
+      seq=15  nccl:broadcast    in=[[1682432]]      state=completed
+      seq=16  nccl:all_reduce   in=[[1182108160]]   state=scheduled   <-- never started
+      ```
+      - **1,182,108,160 elements is EXACTLY `EXPECTED_PARAMS`** in `compare_sfno_parity.py`,
+        i.e. the whole model — **4.73 GB in fp32** — and its state is `scheduled`: enqueued
+        and never launched.
+      - **NOT a rank desync.** Every rank enqueued the SAME collective at the SAME seq with
+        the SAME size. That retires the whole "uneven steps / one rank never arrives" family
+        (the usual first answer for this error, and the one the community threads push).
+      - The 15 preceding broadcasts all `completed` ⇒ DDP setup is fine, again.
+    - **H7 DDP bucket count — REFUTED.** 7569690 ran `-v DDP_BUCKET_MB=5000` (one bucket,
+      makani's shape, the thing both working reference trainers do) and hung anyway, rc=134.
+      Seven hypotheses, seven refuted.
+    - **H8, the one shape never tested: an all-reduce whose byte count exceeds 2^32.**
+      4.73 GB > 4.29 GB. The app-free probe covered a >4 GB **broadcast** (passed, 7569520/1)
+      and **small** all-reduces (passed, 7569540) — it never covered a **>4 GB all-reduce**,
+      which is precisely the stuck op. ⚠ Caveat kept deliberately: 7569690 is the run where
+      **I forced one bucket**, so this giant all-reduce is partly my own doing; the
+      default-bucket runs (~190 × 25 MB) hung too and have no dump. Both gaps now queued —
+      **7569743** (app-free, ONE 4700 MB all-reduce) and **7569744** (trainer at DEFAULT
+      buckets, with dump capture working).
+    - **Superseded hypothesis — DDP bucket count, which the codebase itself pointed at:**
       `train.py:918-921`'s own comment records that **both** working reference trainers
       consolidate buckets: **makani uses ONE bucket** sized to the whole local parameter set,
       and the **PanguWeather-e3sm reference uses `bucket_cap_mb=250`**. This config leaves
