@@ -509,6 +509,54 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
         Side finding: OMP 64 vs 1 is worth ~nothing at 1 node, consistent with `OMP_THREADS=1`
         having failed to fix the 2-node hang. The `${OMP_NUM_THREADS:-1}` defect remains worth
         fixing for correctness of the record, but it was never a performance factor here.
+    - 🏁 **LADDER COMPLETE — the first ai-rossby multi-node scaling table that has ever
+      existed.** One config throughout (`NCCL_ALGO=Ring`, OMP=1, TSV off, 60 steps, one
+      store), interleaved reps, every row passing all five parser guards:
+      | nodes | ranks | step_med (reps) | samples/s total | wall s/s | weak-scaling eff | gpu_busy |
+      |---|---|---|---|---|---|---|
+      | 1 | 4 | **698.7** (4 reps) | 5.73 | 4.77 | 100% | 0.976 |
+      | 2 | 8 | **2076.5** (4) | 3.85 | 3.42 | 33.6% | 0.991 |
+      | 4 | 16 | **2484.0** (3) | 6.44 | 5.98 | 28.1% | 0.991 |
+      | 8 | 32 | **2867.2** (3) | 11.16 | 10.59 | 24.4% | 0.993 |
+      - ⚠ **CORRECTION to a claim I made from the 2-node point alone: multi-node is NOT a net
+        throughput loss.** It is a loss ONLY at 2 nodes (3.85 vs 5.73 samples/s). From 4 nodes
+        up it pays: 8 nodes delivers **11.16 samples/s, ~1.95× single-node**. The 2-node arm
+        is a trough, not a trend, and I should not have generalised a curve from one point.
+      - **The shape is makani's: the cliff is the FIRST HOP, then it saturates.**
+        1→2 = **×2.97**, 2→4 = ×1.20, 4→8 = ×1.15. Absolute penalty vs 1 node: **+1378 /
+        +1785 / +2169 ms** — i.e. a large fixed cost for touching the fabric at all, plus
+        modest growth. So prediction 3's *mechanism* (a roughly constant penalty) was right
+        and its *magnitude* was wrong: ai-rossby's constant is ~1.4 s against makani's
+        ~0.375 s, ≈3.7×, which tracks its ~8× gradient volume on ~2× the per-step compute
+        better than it tracks a shared constant.
+      - **`gpu_busy_frac` ≥ 0.976 on every arm and `peak_mem_gb` flat at 25.91** — the cost is
+        inside the timed step (the collective itself), not loader idle, and memory does not
+        move with node count.
+    - **PREREG SCORED — 4 HITS, 2 MISSES, misses first:**
+      - ❌ **P3 (the one that mattered): predicted arm B − arm A in 190–750 ms; measured
+        +1378 ms.** MISS, high side — the direction the prereg itself named as consequential,
+        i.e. the penalty tracks gradient volume rather than being a shared constant. This is
+        what caps the climb, and it was predicted-as-falsifiable rather than rationalised
+        afterwards.
+      - ❌ **P6: predicted <5% rep spread on every arm; the 2-node arm spread 13.0%**
+        (2083/2025/2070/**2294**, one outlier rep). 1n 0.1%, 4n 2.5%, 8n 4.0% all pass. The
+        failing arm is precisely the one carrying the biggest claim (the first-hop cliff), so
+        the +1378 ms figure deserves more reps before it is quoted as a constant.
+      - ✅ P1 multi-node is not free: +197% ≫ the predicted ≥10%.
+      - ✅ P2 `C_progress_auto` alone + `AWS Libfabric` on every row.
+      - ✅ P4 C→8n growth ≤25%: **+15.4%** — the cliff saturates rather than compounds.
+      - ✅ P5 `gpu_busy_frac` ≥0.85 on every arm: min **0.976**.
+    - **PRODUCTION SMOKE GREEN (7569892, 2 nodes, operator-requested).** 2 epochs ×
+      800 samples, `NCCL_ALGO=Ring`, wandb on all ranks, `RUN_NAME=ar_prod_smoke_2n` pinned:
+      checkpoints written at BOTH epoch boundaries (`SfnoPlasim.0.1.mdlus` +
+      `checkpoint.0.1.pt`, then `.0.2`), epoch 2 `step_med 2075.5 ms` matching the ladder's
+      2-node arm, `AI_ROSSBY_MN_SCALING_OK`, row routed to `bench/ai_rossby_production.csv`
+      and NOT the scaling table. ⇒ the production path (multi-epoch, checkpoint save,
+      resumable run dir, wandb) works multi-node.
+      ⚠ **Runs at global batch 8 / LR 1.22e-4 vs production's batch 4 — a MECHANICS test, not
+      a performance claim, and jesswan has NOT signed off on that batch/LR.** Surfaced to the
+      operator before submitting; they chose to proceed.
+      Still untested: **resume** (a second submission into the same pinned RUN_NAME).
     - **LADDER LAUNCHED (operator request): A/B/C/8n × 3 INTERLEAVED reps, one config.**
       Driver `physicsnemo_ai_rossby/polaris/run_ai_rossby_ladder.sh`, log at
       `$MEMBER_ROOT/polaris_logs/ai_rossby_ladder.log`. Every arm carries
