@@ -43,6 +43,10 @@
 # Knobs pass through qsub -v unchanged: NCCL_ALGO, NCCL_PROTO, NCCL_CROSS_NIC,
 # NCCL_NET_GDR_LEVEL -- this is deliberately the cheap vehicle for
 # single-variable fabric probes.
+#   -v BCAST_MB=4700   size of the DDP-shaped broadcast (default 100). THE knob
+#                      for the 7568724 hang: SfnoPlasim's real parameter
+#                      broadcast is ~4.7 GB, and passing at 100 MB says nothing
+#                      about 4.7 GB. Bisect with 100 -> 1000 -> 2000 -> 4700.
 #
 # PASS = "MN_NCCL_PROBE_OK ranks=<N>" -- counted from per-rank OK lines, not rc
 # (CLAUDE.md #14).
@@ -143,12 +147,28 @@ for i in range(20):
     dist.broadcast(t, 0)
 
 # 2. DDP-sized broadcast: _sync_params_and_buffers moves the whole model from
-#    rank 0; 25M floats = 100 MB is that shape of traffic.
-big = torch.arange(25_000_000, dtype=torch.float32, device="cuda")
+#    rank 0 in ONE broadcast, so the size that matters is the model's, not a
+#    round number.
+#    ⚠ 100 MB (the inherited default) is 47x TOO SMALL for this harness. SfnoPlasim
+#    is 1.18 B parameters = ~4.7 GB fp32, and job 7568724 wedged at 2 nodes in the
+#    first collective AFTER "Connected all trees" -- i.e. exactly here. A probe
+#    whose broadcast is 47x smaller than the real one cannot exonerate the fabric,
+#    which is what it was read as doing. -v BCAST_MB=4700 reproduces the real size.
+#    Precedent for size dependence on this fabric: the old plugin lost broadcasts
+#    BY TENSOR SIZE (384x58 survived, 384x107 wedged, job 7565896).
+mb = int(os.environ.get("BCAST_MB", "100"))
+n_el = max(1, mb * 1024 * 1024 // 4)
+big = torch.arange(n_el, dtype=torch.float32, device="cuda")
+if r == 0:
+    print("BCAST_SIZE_MB %d (%d float32 elements)" % (mb, n_el), flush=True)
 if r != 0:
     big.zero_()
 dist.broadcast(big, 0)
-ok = bool((big[-1] == 24_999_999).item()) and bool((big[1_000_000] == 1_000_000).item())
+# arange values above 2**24 are not exactly representable in fp32, so check
+# indices, not the last element's magnitude.
+ok = bool((big[n_el - 1] == big[n_el - 1]).item()) and bool((big[1] == 1).item())
+if n_el > 1_000_000:
+    ok = ok and bool((big[1_000_000] == 1_000_000).item())
 
 # 3. All-reduce with a checkable answer.
 a = torch.ones(1024, 1024, device="cuda")

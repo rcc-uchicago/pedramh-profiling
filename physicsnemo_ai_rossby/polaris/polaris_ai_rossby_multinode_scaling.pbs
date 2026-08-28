@@ -350,17 +350,39 @@ export FI_CXI_DEFAULT_CQ_SIZE=131072
 # costs ~26% single-node, and it is unmeasured on this stack (handoff §4).
 export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
 export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+# Flight recorder. Mistakes ledger #7: CUDA_LAUNCH_BLOCKING=1 legitimately
+# deadlocks NCCL, so it is NOT the way to localize a hang -- the trace buffer is.
+# Job 7568724 (2 nodes) wedged after "Connected all trees" with nothing in the
+# log naming the collective; with this set, a watchdog abort dumps the last N
+# enqueued/completed ops per rank, which is what turned makani's 4-node hang from
+# "somewhere in setup" into "rank 11, last enqueued 84, last completed 83".
+# Cheap (a ring buffer) and does not touch the timed path, so it stays ON by
+# default rather than being something to remember after the fact.
+export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-2000}"
+export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 echo "fabric pin: plugin=${OFI_PLUGIN}"
 echo "            libfabric=${OFI_LIBFABRIC}"
 echo "            OFI_NCCL_PROGRESS_MODEL=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
 echo "            NCCL_PROTO=${NCCL_PROTO:-<default>}"
 
 # torch/distributed/run.py sets OMP_NUM_THREADS=1 when unset; under `mpiexec bash
-# SHIM python` nothing does, and libgomp would default to the 8 CPUs of the
-# rank's affinity mask -- putting 8 OpenMP threads on the same 8 cores as
-# aws-ofi-nccl's progress engine, the very resource --cpu-bind exists to protect.
-# Pin it so the 1-vs-2-vs-4-vs-8-node comparison stays a comparison.
-export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
+# SHIM python` nothing does, and libgomp would otherwise put many OpenMP threads
+# on the same 8 cores as aws-ofi-nccl's progress engine -- the very resource
+# --cpu-bind exists to protect. Pin it so the 1-vs-2-vs-4-vs-8-node comparison
+# stays a comparison.
+#
+# ⚠ MEASURED 2026-08-27, job 7568642 logged `omp=64`: THE OBVIOUS SPELLING OF
+# THIS LINE DOES NOT WORK. `${OMP_NUM_THREADS:-1}` never fires inside a PBS job,
+# because PBS Pro EXPORTS OMP_NUM_THREADS=<ncpus> (64 on a Polaris node) into
+# every job's environment -- so the variable is always already set and the `:-`
+# default is dead code. The pin this block advertises silently did nothing.
+# It is not only this launcher: all 30 rows of
+# $MEMBER_ROOT/bench/makani_multinode_scaling.csv record omp_threads=64 too, so
+# the entire makani ladder ran 64 OpenMP threads per rank on 8 cores.
+# Hence an override name of OUR OWN (mistakes ledger #11: a launcher must not
+# take its override from a name the environment already owns).
+export OMP_NUM_THREADS="${OMP_THREADS:-1}"
+echo "OMP_NUM_THREADS=${OMP_NUM_THREADS} (PBS handed us ${PBS_NCPUS:-?} cpus; override with -v OMP_THREADS=)"
 
 # ---- rank -> GPU pairing ----------------------------------------------------
 # polaris_pbs_notes.md §1 measured the GPU<->NUMA map to be REVERSED

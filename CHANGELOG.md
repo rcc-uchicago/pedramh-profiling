@@ -321,7 +321,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     |---|---|---|---|---|
     | ✅ **7568641** | 4-node app-free NCCL probe, v1.21.1+AUTO | `debug-scaling` | **`MN_NCCL_PROBE_OK ranks=16 nodes=4`, 16/16 ranks, `transport: AWS Libfabric`, rc=0** | `physicsnemo_ai_rossby/ai_rossby_nccl_mn_probe.o7568641` |
     | **7568642** | **1-node ladder smoke (arm A)** — held on 7568641 | `debug` | `AI_ROSSBY_MN_SCALING_OK` + a CSV row | `.../ai_rossby_mn_scaling.o7568642` |
-    | *pending* | **2-node smoke (arm B)** — held on 7568642 | `debug` | same | see the helper log below |
+    | ⛔ **7568724** | 2-node smoke (arm B) | `debug` | **HUNG — NCCL watchdog, `train_rc=134`, row REFUSED (`csv_rc=4`)** | `.../ai_rossby_mn_scaling.o7568724` |
     - ⭐ **7568641 GREEN — the fabric gate is fully cleared.** `MN_NCCL_PROBE_OK ranks=16
       nodes=4`, 16/16 ranks, `AWS Libfabric`, rc=0, in ~1 min. This is the first evidence that
       inter-node traffic actually **flows** under torch 2.10 — the two 1-node probes only
@@ -330,8 +330,56 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       NCCL protocol, no `NCCL_PROTO=Simple` pin** — the workaround makani needed at ≥3 nodes
       on the old plugin, and which handoff §4 says not to port. **All three ai-rossby fabric
       probes are now green and the ladder is unblocked on the transport side.**
-    - **7568642 is the first ai-rossby scaling row ever** and the anchor for prereg
-      prediction 3: arm B − arm A should land in **190–750 ms**.
+    - ✅ **7568642 GREEN — the first ai-rossby scaling row ever.** `AI_ROSSBY_MN_SCALING_OK`,
+      1 node / 4 ranks / global batch 4: **step_med 698.9 ms**, p90 700.1, samples/s 1.43 per
+      rank (5.72 total), **gpu_busy 97.5%**, peak **25.91 GB**, `AWS Libfabric`,
+      `world_sizes_seen=4`, `ranks_reporting=4`, `n_steps=60`, wrap guard 10,950 ≥ 60.
+      Every guard fired and passed. (gpu_busy 97.5% already part-scores prereg
+      prediction 5 at 1 node: the loss is inside the step window, not the loader.)
+    - ⛔ **7568724 HUNG — arm B does not run, and the ladder is BLOCKED.** 2 nodes / 8 ranks.
+      All 8 ranks came up correctly (`world_sizes_seen=8`, `ranks_reporting=8`,
+      `Using network AWS Libfabric` ×8) and NCCL setup **completed** — `Connected all rings`
+      ×8, `Connected all trees` ×8. Last trainer line is
+      `stage 0 'default' starting at global_epoch=1` at 21:28:25; then **silence**. Heartbeat
+      monitor fired 21:44:06, watchdog terminated all ranks 21:52:06, `rank 2 died from
+      signal 6`, `train_rc=134`. ⇒ **the wedge is the FIRST collective after communicator
+      setup**, which for DDP is `_sync_params_and_buffers` broadcasting the whole model from
+      rank 0. **The guards worked exactly as designed**: `NO_TELEMETRY_ROW` → `csv_rc=4` →
+      `ERROR AI_ROSSBY_MN_SCALING_FAILED`, and the CSV row carries blank timings rather than
+      a plausible number (contrast CLAUDE.md #14 — `rc` alone would have said nothing useful).
+    - **LEAD HYPOTHESIS, and why the green 4-node probe does NOT exonerate the fabric:**
+      SfnoPlasim is **1.18 B params ⇒ ~4.7 GB** in that one broadcast. The app-free probe's
+      "DDP-sized" broadcast was **100 MB — 47× too small**, an inherited default sized for
+      makani's ~150 M-param model. So `MN_NCCL_PROBE_OK` at 4 nodes says nothing about 4.7 GB.
+      Precedent for size dependence on this fabric is already in the ledger: the OLD plugin
+      lost broadcasts **by tensor size** (384×58 survived, 384×107 wedged, job 7565896).
+      Probe now takes **`-v BCAST_MB=`** (default 100) so this is a single-variable,
+      app-free bisect — 100 → 1000 → 2000 → 4700 at 2 nodes — instead of a trainer bring-up
+      per data point. **Next job to run.**
+    - **Instrumentation added for the retry:** the scaling launcher now exports
+      `TORCH_NCCL_TRACE_BUFFER_SIZE=2000` + `TORCH_NCCL_ASYNC_ERROR_HANDLING=1` by default.
+      7568724's log named no collective; the flight recorder is what turned makani's 4-node
+      hang into "rank 11, last enqueued 84, last completed 83". Ledger #7: **not**
+      `CUDA_LAUNCH_BLOCKING=1`, which legitimately deadlocks NCCL.
+    - 🐛 **DEFECT, cross-project: `export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"` NEVER
+      PINNED ANYTHING.** The idiom reads and writes the same name, and **PBS Pro exports
+      `OMP_NUM_THREADS=<ncpus>` (64 on Polaris) into every job** — so the variable is always
+      already set, `:-1` is dead code, and the statement reduces to `export
+      OMP_NUM_THREADS=64`. Measured: 7568642 logged `omp=64`, and it is **unset** on a login
+      node after sourcing `polaris_env.sh` + the ai-rossby env script, so nothing of ours set
+      it. **This is not confined to the new launcher — all 30 rows of
+      `bench/makani_multinode_scaling.csv` record `omp_threads=64`, the 128-node production
+      run included.** Consequence, stated in two halves: **comparability is intact** (the
+      value was constant on every row of both ladders), but **the absolute numbers were taken
+      under 8× CPU oversubscription** — 64 OpenMP threads on the 8 cores `--cpu-bind depth
+      -d 8` reserves, which are the same cores aws-ofi-nccl's progress engine runs on, i.e.
+      exactly the resource the bind exists to protect. **No evidence it caused the hang; not
+      claimed.** Fixed here by taking the override from a name we own
+      (`export OMP_NUM_THREADS="${OMP_THREADS:-1}"`, ledger #11) and echoing the value.
+      ⚠ **makani's launcher deliberately NOT changed** — flipping it would make future rows
+      incomparable with the existing 30, which is the owner's call, not a drive-by fix.
+      ⇒ arm A rep1 (7568642) ran at omp=64 and is therefore a **different config** from
+      anything the fixed launcher produces (rule #4): **re-run it before tabling the ladder.**
     - The 2-node arm could not be queued immediately (one job per queue, above). A detached
       one-shot helper retries `qsub` every 15 min, up to 10 tries, always with
       `-W depend=afterany:7568642` so the arms cannot overlap and contend for nodes:
