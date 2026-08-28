@@ -557,6 +557,33 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       a performance claim, and jesswan has NOT signed off on that batch/LR.** Surfaced to the
       operator before submitting; they chose to proceed.
       Still untested: **resume** (a second submission into the same pinned RUN_NAME).
+    - ⭐ **TREE IS BROKEN AT EVERY SCALE TESTED, NOT JUST 2 NODES — 7571147: app-free,
+      8 nodes / 32 ranks, 4700 MB, `NCCL_ALGO=Tree` -> `ranks OK: 0/32`, FAILED.** Same
+      failure as at 2 nodes. ⇒ the defect is **node-count-independent**, so tree would still
+      break at 16, 48 or 64 nodes, and `NCCL_ALGO=Ring` is required at every rung rather than
+      being a 2-node workaround. Materially strengthens the ALCF ticket: "fails at 2 AND 8
+      nodes, app-free" rather than "fails at 2 nodes".
+      Consistent with why Ring escapes: ring's reduce-scatter gives each rank **S/N** (591 MB
+      at 8 ranks, 148 MB at 32, 18 MB at 256) which falls below the ~1 GB threshold and keeps
+      shrinking with scale, while tree's per-link message does not shrink with N. ⚠ That
+      mechanism is INFERENCE — what is measured is that tree fails at both 2 and 8 nodes and
+      ring succeeds at both.
+    - **TUNING ARMS, both green on the re-run — so the earlier 3/3 stall correlation was
+      COINCIDENCE, not the knobs** (which is why they were re-run rather than concluded from):
+      | arm | reps | vs baseline 2076.5 (range 2025-2336) |
+      |---|---|---|
+      | `NCCL_BUFFSIZE=16 MiB` | 1792.6, 2002.3 | median ~1897, **-8.7%** |
+      | `CPU_BIND_DEPTH=16` | 2205.4 | +6.2% — **inside the noise band, read as NO EFFECT** |
+      - ⚠ **The first BUFFSIZE sample (-13.7%) did NOT replicate**; rep 2 came in at 2002.3.
+        Both reps sit just below the baseline MINIMUM of 2025, so the effect is probably real
+        but is **~5-10%, not 14%**, and partly overlaps the noise. Not established.
+        `peak_mem_gb` unchanged at 25.912, so the larger buffer cost no measurable memory at
+        2 nodes (it will grow with connections at higher node counts).
+      - **This inverted my own ranking.** I predicted cpu-bind would be the large lever
+        (our 6.0 GB/s busbw sits near the documented 4.08 GB/s starved-progress figure) and
+        that BUFFSIZE would be incremental. The opposite held: the operator's linked knob
+        moved the number and my mechanism reasoning did not.
+
     - **TUNING SWEEP ATTEMPTED — blocked by a rendezvous stall, and one number firmed up.**
       Two output-neutral arms at 2 nodes (`NCCL_BUFFSIZE=16 MiB`; `CPU_BIND_DEPTH=16`),
       each one variable against the ladder baseline, routed to `bench/ai_rossby_tuning.csv`.
