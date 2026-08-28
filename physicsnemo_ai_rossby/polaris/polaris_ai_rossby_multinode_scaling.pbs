@@ -288,8 +288,40 @@ export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${TELEMETRY_CSV}"
 # row carries the per-iteration diagnostics overhead. The CSV has no column for
 # either — config lives in the log header, not in new columns (#10) — so the
 # routing is enforced HERE rather than left to whoever reads the file.
+# ---- fabric tuning knobs (each is OUTPUT-NEUTRAL; each gets its own table) ---
+# Motivated by the ladder's measured bandwidth: at 8 ranks the 4.73 GB
+# all-reduce achieves ~6.0 GB/s busbw against the 36.93 GB/s measured achievable
+# on this fabric (colleague job 7368993) — a 6.1x gap. ⚠ 6.0 sits far closer to
+# that same reference's 4.08 GB/s "no --cpu-bind, starved progress engine"
+# figure than to its healthy one, which is the clue these knobs chase.
+#
+#   -v NCCL_BUFFSIZE=16777216  per-channel staging buffer (NCCL default 4 MiB).
+#        A 4.73 GB collective pipelined through 4 MiB in NCCL_STEPS=8 chunks is
+#        ~512 KB per step, i.e. thousands of round-trips. Costs GPU memory
+#        (per channel per connection) — watch peak_mem_gb, which the CSV already
+#        carries. Passed through by PBS -v + PALS --genvall; echoed for the record.
+#   -v CPU_BIND_DEPTH=16       cores in each rank's affinity mask (default 8).
+#        `OFI_NCCL_PROGRESS_MODEL=AUTO` makes libfabric run its OWN progress
+#        threads, and CHANGELOG records from makani's campaign that the
+#        `depth -d 8` layout (tuned for the old plugin's MANUAL progress) never
+#        accounted for them. 4 ranks x 16 = 64 = the node's logical CPUs.
+#   -v CPU_BIND=none           remove binding entirely (the opposite extreme).
+CPU_BIND="${CPU_BIND:-depth}"
+CPU_BIND_DEPTH="${CPU_BIND_DEPTH:-8}"
+if [ "${CPU_BIND}" = "none" ]; then
+    CPU_BIND_ARGS=( --cpu-bind none )
+else
+    CPU_BIND_ARGS=( --cpu-bind depth -d "${CPU_BIND_DEPTH}" )
+fi
+echo "cpu-bind: ${CPU_BIND_ARGS[*]}   NCCL_BUFFSIZE=${NCCL_BUFFSIZE:-<default 4 MiB>}"
+
 EPOCHS="${EPOCHS:-1}"
 _prod=0
+# A tuned row is a DIFFERENT CONFIG and may not sit in the scaling table (#4).
+_tuned=0
+[ -n "${NCCL_BUFFSIZE:-}" ] && _tuned=1
+[ "${CPU_BIND}" != "depth" ] && _tuned=1
+[ "${CPU_BIND_DEPTH}" != "8" ] && _tuned=1
 [ "${EPOCHS}" -gt 1 ] && _prod=1
 [ "${WANDB}" = "1" ] && _prod=1
 if [ "${_prod}" = "1" ]; then
@@ -311,7 +343,13 @@ if [ "${_prod}" = "1" ]; then
         echo "  kill in debug. Set -v SAMPLES_PER_EPOCH=<n> for a smoke."
     fi
 else
-    DEFAULT_CSV="${MEMBER_ROOT}/bench/ai_rossby_multinode_scaling.csv"
+    if [ "${_tuned}" = "1" ]; then
+        DEFAULT_CSV="${MEMBER_ROOT}/bench/ai_rossby_tuning.csv"
+        echo "TUNING MODE: rows routed to a SEPARATE csv — a tuned row is not a"
+        echo "  point on the ladder, whose whole table is one config (#4)."
+    else
+        DEFAULT_CSV="${MEMBER_ROOT}/bench/ai_rossby_multinode_scaling.csv"
+    fi
     ITER_ARG=( "training.stages.0.max_iterations=${STEPS}" )
 fi
 # Shortens the epoch itself (both modes). Unset leaves the config's null.
@@ -655,7 +693,7 @@ LOG="${EXP_DIR}/${RUN_NAME}.log"
 echo "--- launching (log tee'd to ${LOG}) ---"
 set -o pipefail
 mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
-    --cpu-bind depth -d 8 \
+    "${CPU_BIND_ARGS[@]}" \
     --label --line-buffer \
     bash "${SHIM}" \
     "${PY}" "${RECIPE}/train.py" \
