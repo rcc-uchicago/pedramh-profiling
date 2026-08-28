@@ -584,6 +584,27 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
         that BUFFSIZE would be incremental. The opposite held: the operator's linked knob
         moved the number and my mechanism reasoning did not.
 
+    - ✅ **RESUME PROVEN (7571401) — the last blocker on a chained production run.**
+      Resubmitted into the pinned `RUN_NAME=ar_prod_smoke_2n`, epochs 2→4, reusing the
+      14.19 GB checkpoints the earlier smoke wrote. All three things that had to be true are:
+      `Loaded model state dictionary .../SfnoPlasim.0.2.mdlus`, `Loaded optimizer state
+      dictionary`, and **`EMA restored from checkpoint (n_averaged=200)`** — then
+      **`stage 0 'default' starting at global_epoch=3`**, i.e. it continued rather than
+      silently restarting at epoch 1.
+      - **Why the EMA line is the one that matters:** `validate_with_ema: True` and inference
+        consumes the EMA, so a silent reset would mean the DELIVERED MODEL averaged over only
+        the final link of a 4-link chain. The recipe's own comments record this as a past
+        silent bug; it is now verified fixed on the multi-node path.
+      - ⚠ **A resumed link's first epoch is ~28% idle:** `gpu_busy 71.8%` vs ~99% on a fresh
+        epoch (peak mem +0.53 GB). Checkpoint load + dataloader re-warmup fall inside the
+        timed window. Over a 4-link chain that is 4 epochs of ~112 — minor, but **do not
+        extrapolate a link's throughput from its first epoch.**
+      - ⇒ with `medium` capping at 6 h (≈28 epochs at 48 nodes), a 100-epoch run is a
+        **4-link `-W depend=afterany:` chain into one pinned RUN_NAME**, and that is now
+        mechanically proven rather than assumed.
+      - 🔑 **This was only reachable after the `MASTER_PORT` fix** — the previous attempt
+        (7571362) was one of the four rendezvous stalls.
+
     - **TUNING SWEEP ATTEMPTED — blocked by a rendezvous stall, and one number firmed up.**
       Two output-neutral arms at 2 nodes (`NCCL_BUFFSIZE=16 MiB`; `CPU_BIND_DEPTH=16`),
       each one variable against the ladder baseline, routed to `bench/ai_rossby_tuning.csv`.
