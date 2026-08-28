@@ -425,7 +425,34 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     - **H7 DDP bucket count — REFUTED.** 7569690 ran `-v DDP_BUCKET_MB=5000` (one bucket,
       makani's shape, the thing both working reference trainers do) and hung anyway, rc=134.
       Seven hypotheses, seven refuted.
-    - **H8, the one shape never tested: an all-reduce whose byte count exceeds 2^32.**
+    - 🏁🏁 **ROOT CAUSE FOUND, app-free and general: THIS STACK CANNOT COMPLETE AN INTER-NODE
+      `all_reduce` OF ~4.7 GB.** Two independent confirmations:
+      - **7569767 — app-free, `ranks OK: 0/8`.** One `all_reduce` of 1,232,076,800 fp32
+        elements (4.93 GB) at 2 nodes: `Watchdog caught collective operation timeout:
+        WorkNCCL(SeqNum=23, OpType=ALLREDUCE, NumelIn=1232076800, Timeout(ms)=180000)`. **No
+        trainer, no DDP, no physicsnemo** — just NCCL. (The earlier run of this same probe,
+        7569743, printed `ranks OK: 8/8` because MY correctness check was vacuous; fixed, and
+        with a real check it is 0/8. The first version would have let a broken collective
+        pass as green.)
+      - **7569744 — the trainer at DEFAULT 25 MB buckets hangs on the SAME collective.** All
+        8 ranks: `seq=16 nccl:all_reduce numel=[1182108160] state=scheduled`, fp32, 4.728 GB,
+        `timeout_ms=600000`, default_pg. Identical to the forced-one-bucket run 7569690 ⇒
+        **not an artifact of my `DDP_BUCKET_MB=5000` override**, and the bucket knob is not
+        what governs this collective.
+      **The discriminating table:**
+      | traffic | size | 2 nodes |
+      |---|---|---|
+      | broadcast | 4.7–4.9 GB | ✅ completes (7569520, 7569521 incl. 8 nodes) |
+      | all-reduce | 190 × 25 MB | ✅ completes (7569540) |
+      | **all-reduce** | **4.7–4.9 GB** | ❌ **never starts** (7569767 app-free; 7569690, 7569744 in-trainer) |
+      ⇒ ai-rossby's gradient reduction IS such an all-reduce (1.18 B params × fp32), so the
+      harness cannot train multi-node until the reduction is kept under the threshold or the
+      stack is fixed. **This also explains why makani was never affected:** its ~150 M-param
+      model reduces ~0.6 GB, an order of magnitude below the boundary.
+      **Open:** which code issues that single full-model all-reduce (the flight recorder
+      captured 0 Python frames), and the exact threshold — **7569794 (4000 MB, just under
+      2^32 bytes = 4096 MiB) and 7569795 (4200 MB, just over) are bracketing it now.**
+    - **Superseded framing — H8, the one shape never tested: an all-reduce above 2^32 bytes.**
       4.73 GB > 4.29 GB. The app-free probe covered a >4 GB **broadcast** (passed, 7569520/1)
       and **small** all-reduces (passed, 7569540) — it never covered a **>4 GB all-reduce**,
       which is precisely the stuck op. ⚠ Caveat kept deliberately: 7569690 is the run where
