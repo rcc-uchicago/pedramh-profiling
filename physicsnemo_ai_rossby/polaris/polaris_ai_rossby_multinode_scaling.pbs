@@ -557,6 +557,25 @@ export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
 # (runs/.../sfno_e3sm_parity01/.hydra/config.yaml: `bench.per_batch_tsv: null`).
 # It is not needed for a scaling row either — step times come from the
 # epoch-telemetry CSV. `-v PER_BATCH_TSV=1` re-enables it as its own arm.
+# ---- DDP bucket size -- the leading suspect for the 2-node first-step hang ---
+# `ddp_bucket_cap_mb: null` in the config means PyTorch's 25 MB default, which
+# for this 1.18 B-param model is ~190 buckets, each fired from inside autograd
+# as its gradients become ready and overlapped with backward compute.
+# BOTH working reference trainers consolidate instead (train.py:918-921):
+# makani uses ONE bucket sized to the whole local parameter set, and the
+# PanguWeather-e3sm reference uses bucket_cap_mb=250.
+# -v DDP_BUCKET_MB=250  -> ~19 buckets (the PanguWeather value)
+# -v DDP_BUCKET_MB=5000 -> effectively one bucket (the makani shape)
+# Unset leaves the config's null, i.e. the 25 MB default, unchanged.
+DDP_BUCKET_MB="${DDP_BUCKET_MB:-}"
+DDP_BUCKET_ARG=()
+if [ -n "${DDP_BUCKET_MB}" ]; then
+    DDP_BUCKET_ARG=( "training.ddp_bucket_cap_mb=${DDP_BUCKET_MB}" )
+    echo "ddp_bucket_cap_mb=${DDP_BUCKET_MB} MB (config default is null => PyTorch 25 MB => ~190 buckets)"
+else
+    echo "ddp_bucket_cap_mb=<config default null => PyTorch 25 MB => ~190 buckets>"
+fi
+
 PER_BATCH_TSV="${PER_BATCH_TSV:-0}"
 if [ "${PER_BATCH_TSV}" = "1" ]; then
     BENCH_TSV_ARG="bench.per_batch_tsv=${BENCH_TSV}"
@@ -595,6 +614,7 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     wandb.mode="${WANDB_MODE}" \
     wandb.project="${WANDB_PROJECT}" \
     wandb.name="${RUN_NAME}" \
+    "${DDP_BUCKET_ARG[@]}" \
     "${BENCH_TSV_ARG}" 2>&1 | tee "${LOG}"
 rc=$?
 set +o pipefail

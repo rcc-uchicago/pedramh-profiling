@@ -398,6 +398,31 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       multi-communicator ordering hazard of the mistakes ledger (#12, makani's
       `_serialized_sync_params` lesson) **does not apply here** and must not be ported on
       spec. Four hypotheses raised, four refuted.
+    - ⭐⭐ **THE DECISIVE NARROWING, and it was free — the per-batch TSV already on disk says
+      BOTH hung runs completed ZERO steps.** `bench/per_batch_ar_mn2n_b8_rep1_{7568724,
+      7569539}.tsv` contain the header and **nothing else**; the 1-node run's has all 60 rows.
+      ⇒ the wedge is in the **FIRST training step**, in its first gradient all-reduce (matching
+      `Connected all trees` immediately preceding the silence). I chased four fabric
+      hypotheses across five jobs before reading a file that was already sitting there.
+      **H5 asymmetric rank-0 write — REFUTED, and by this same file.** The TSV write happens
+      at the END of a step, so rank 0 never reached it; the asymmetry never occurred before
+      the hang and cannot be the trigger. (7569626 was already in flight testing it — kept as
+      a control, expected to hang.) Five hypotheses, five refuted.
+    - **LEADING HYPOTHESIS NOW — DDP bucket count, and the codebase already says so.**
+      `train.py:918-921`'s own comment records that **both** working reference trainers
+      consolidate buckets: **makani uses ONE bucket** sized to the whole local parameter set,
+      and the **PanguWeather-e3sm reference uses `bucket_cap_mb=250`**. This config leaves
+      `ddp_bucket_cap_mb: null` ⇒ PyTorch's 25 MB default ⇒ **~190 buckets** for 1.18 B
+      params, each fired from inside autograd as gradients become ready and **overlapped with
+      backward compute**. That last clause is why probe 7569540 passed while the trainer
+      hangs on the same pattern: the probe issued its 190 all-reduces **serially from the main
+      thread with no compute overlapping**, which is a materially easier case.
+      Test ready, `-v DDP_BUCKET_MB=250` (and `=5000` for the makani one-bucket shape);
+      **could not be submitted yet — both queue slots occupied.**
+    - ⚠ **Trade-off I introduced, worth knowing before queueing many arms:**
+      `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800` bought the diagnosis but **cost fail-fast** — a
+      hung arm no longer aborts at ~8 min, it sits until the 50-minute walltime. Fine for
+      single-variable debugging, wrong for a ladder. Revert it once the hang is understood.
     - 🐛 **MY INSTRUMENTATION WAS INCOMPLETE — the flight recorder captured nothing readable,
       and it took a wasted job to find out.** `TORCH_NCCL_TRACE_BUFFER_SIZE` alone is not
       enough; **two** further defaults defeat it, and both had to be overridden:
