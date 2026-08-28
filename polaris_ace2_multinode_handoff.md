@@ -12,9 +12,11 @@ set it from the first multi-node job as insurance.**
 **Whether ACE2 is actually exposed is UNKNOWN and is the first thing to
 measure, not assume.** Its largest gradient collective is ~165–212 MB (measured
 in this repo, §1a), which lands in a range nobody has probed. An earlier draft
-of this document asserted ACE2 "WILL hit this" by comparing its *total* 1.82 GB
-gradient volume against the threshold — that conflates total volume with
-per-collective size and is wrong. The correction is kept in §1a as a worked
+of this document asserted ACE2 "WILL hit this" by comparing its *total* gradient
+volume against the threshold — two errors at once: total volume is the wrong
+quantity (per-collective size is what matters), AND the volume itself was
+miscalculated as 1.82 GB by assuming fp32 throughout when the dhconv weights are
+complex64 (correct figure: **2.67 GB**). The correction is kept in §1a as a worked
 example, because it is the exact reasoning error most likely to be repeated.
 
 Definitions: `$MEMBER_ROOT` = `/eagle/projects/lighthouse-uchicago/members/mehta5`
@@ -48,9 +50,10 @@ continued on gradients correct at one end of the tensor and stale at the other.
   ⚠ State it as a *Tree* threshold, not a size threshold: in the table above
   size and algorithm covary (every failing row is Tree; the passing all-reduce
   rows are either small or Ring). A 4.7 GB *broadcast* passes, which a
-  size-only story cannot explain. Probe sizes are MiB (`mb*1024*1024/4`
-  elements); ACE2's "1.82 GB" is decimal = 1.70 GiB. At a claimed boundary that
-  ~7% ambiguity matters.
+  size-only story cannot explain. Probe sizes here are MiB
+  (`mb*1024*1024/4` elements) while model sizes elsewhere are quoted decimal —
+  ~7% apart, which matters when a number is compared against a claimed boundary.
+  State the base.
 * **Node-count independent** (jobs 7569817 vs 7571147): fails at 2 nodes and at
   8. Assume it fails at 16/48/64 too.
 * **Why Ring escapes:** ring's reduce-scatter gives each rank `S/N`, which falls
@@ -233,8 +236,14 @@ not a green-field bring-up.
   `srun python -m torch.distributed.run --nnodes N --rdzv_backend c10d`
   with `--ntasks-per-node=1`. So ACE2 already works multi-node **on Midway**;
   what is missing is the **Polaris/PBS** path.
-* **Model: 455,831,040 trainable parameters (455.8 M)** → **1.82 GB** fp32
-  gradient all-reduce. §1a applies.
+* **Model: 455,831,040 trainable parameters (455.8 M).** ⚠ Gradient *bytes* are
+  **2.67 GB, not 1.82 GB** — an earlier draft assumed every parameter is fp32.
+  The dhconv weights are **complex64 (8 B/element)**: 384×384×180 = 26,542,080
+  complex elements/layer × 8 layers = 212.3 M complex + 243.5 M real ⇒
+  212.3M×8 + 243.5M×4 = **2.67 GB**. (Also note `bench_midway_notes.md`'s
+  "~93% of its params" is a BYTE share, not a count.) This does not change the
+  conclusion in §1a — per-collective size is what matters, not total volume —
+  but every number derived from 1.82 GB was wrong and is corrected here.
 * **Data on Polaris (given by the operator):**
   ```
   /eagle/projects/lighthouse-uchicago/ace2/ace_training/merged_ACE2_ERA5_final.nc
@@ -293,9 +302,29 @@ eagle exceeds the 108-byte AF_UNIX `sun_path` limit and kills DataLoader workers
   nothing downstream objects to; that class of bug cost this project a
   ~110-node-hour restart on the wandb-key equivalent.
 
-**Budget it honestly:** 2.4 TB read + write is a multi-hour, I/O-bound job and
-roughly doubles the storage footprint until the `.nc` is retired. Check quota
-first, and confirm with the operator before deleting the original.
+**⚠ DO THIS LAST, AND ONLY IF MEASUREMENT JUSTIFIES IT.** An earlier draft put
+conversion first in the plan. That is backwards: it is the single biggest
+speculative spend in this document, and §2 already names the test that decides
+whether it is needed at all — **run the 1-node smoke on the existing `.nc` and
+read `gpu_busy_frac`.** ai-rossby held ≥0.976; if ACE2 lands there too, the
+loader is not the bottleneck and the whole 2.4 TB conversion is waste.
+Zero-allocation precursors: `lfs getstripe` on the `.nc`, and a timed read of N
+samples.
+
+**⚠ It also does not fit any queue this document lists (§1d).** `debug` and
+`debug-scaling` cap at 1 h; `prod` needs ≥10 nodes and a single-node 2.4 TB
+read+write is multi-hour. The queue that fits is **`capacity` (1-4 nodes,
+≤168 h)** — and its `max_run` is **per PROJECT**, i.e. it is the same single
+slot CHANGELOG earmarks for long ai-rossby runs. **Converting first can block a
+production run for the whole group.** Either take that decision explicitly with
+the operator, or chunk the conversion through `debug` with a driver.
+
+**Storage, actionably:** do not accept "roughly doubles". `.nc` compression
+means float32 zarr can be *several ×* larger, not 2×. Require: pasted
+`lfs quota -h -p <project> /eagle` output, a script-side precheck that aborts
+unless free ≥ 1.5 × estimated output, **per-year output stores** so a walltime
+kill costs one year rather than the whole job, and `#PBS -r y`. Confirm with the
+operator before deleting the original.
 * **Prior profiling context:** `ACE2_retrain/bench_midway_notes.md` already
   records that ACE2 is the first *training* workload profiled on those nodes
   with heavy gradient traffic, that its dhconv weight is 384×384×180 =
@@ -310,10 +339,20 @@ first, and confirm with the operator before deleting the original.
    ✅ **OPERATOR DECISION (2026-08-28): raising the batch is approved**, so the
    ladder is not capped at 4 nodes. Two things still follow from the constraint
    and must not be lost:
-   * the global batch must stay divisible by world size at **every** arm, so
-     pick a batch that divides 4/8/16/32/… (e.g. 32 or 64), not an arbitrary one
-     tuned per arm — a table whose arms use different batches is not a weak
-     scaling ladder;
+   * ⚠ **CORRECTED after review — the earlier advice here specified the WRONG
+     EXPERIMENT.** It said "pick a batch that divides 4/8/16/32 and use it at
+     every arm". `fme`'s `batch_size` is **GLOBAL**, not per-rank —
+     `fme/core/distributed/torch_distributed.py:110`:
+     `return batch_size // self.total_ranks`. So holding one batch fixed across
+     arms *shrinks per-rank work as nodes grow*, which is **STRONG scaling**,
+     not the weak scaling this ladder is supposed to measure, and it is not
+     comparable to ai-rossby's table (which held 1 sample/GPU and grew the
+     global batch).
+     **For weak scaling set `batch_size = local_batch × 4 × nodes` per arm**
+     (e.g. local 1 ⇒ 4/8/16/32 at 1/2/4/8 nodes). Divisibility is then satisfied
+     by construction, and per-GPU work is constant — which is the whole point.
+     If you deliberately want strong scaling instead, say so and label the table
+     accordingly; do not produce one and call it the other;
    * a larger batch is still a **numerics** change, so the LR moves with it.
      ai-rossby's lesson: the config's linear rule and the sqrt rule differed
      **7×** at large batch, and neither had been measured. Run a short flat-LR
@@ -341,9 +380,21 @@ first, and confirm with the operator before deleting the original.
 
 ## 4. Plan
 
-- [ ] **Convert the 2.4 TB NetCDF to zarr (§2a)** — operator-approved, fme reads
-      it natively. Reuse an existing converter, ship a verifier, and check the
-      channel order against the config before training on the output.
+- [ ] ⚠ **BUILD A POLARIS ACE2 ENV — this is the real day-one blocker, budget
+      1-2 DAYS, not "~1 h".** `ACE2_retrain/` contains **zero `polaris_*` files**;
+      the script being ported activates `FME_ENV=/project/rcc/mehta5/envs/fme`
+      (a *Midway* path); none of the five envs under `$MEMBER_ROOT/conda-envs/`
+      carries `fme`; and `module load conda` is broken. Login-node install +
+      fabric probe + knob matrix before any training job.
+- [ ] **Repoint the config — six Midway paths and four traps** in
+      `config_midway.yaml`: `data_path` (:53, :70, :73, :77, :84),
+      `time_mean_reference_data` (:57), `experiment_dir` (:19), wandb
+      `entity` (:63 — notes §5's W&B trap verbatim). Plus:
+      **`validation_loader.batch_size: 128` (:81)** is also divisibility-checked
+      AND will OOM a 40 GB A100; `inference.n_forward_steps: 7300` (:31) must be
+      disabled for a smoke; `FusedAdam` (:92) needs apex present in the venv.
+- [ ] **1-node smoke ON THE EXISTING `.nc`** → PASS token + `gpu_busy_frac`.
+      **This gates the conversion (below).**
 - [ ] **Survey, ~1 h, no allocation.** Locate `fme`'s `init_process_group`;
       confirm which venv/torch on Polaris (any torch ≠ 2.8.0 ⇒ re-run the three
       fabric probes under it, per the parent handoff §1); confirm the `.nc`
@@ -364,7 +415,7 @@ first, and confirm with the operator before deleting the original.
 - [ ] **Ladder** 1/2/4/8 nodes (the batch raise in §3.1 removes the old 4-node
       cap), ≥3 interleaved reps, one config, one store, one batch value that
       divides every arm's world size.
-- [ ] **Ticket material:** ACE2 hitting the same tree defect at 1.82 GB would be
+- [ ] **Ticket material:** ACE2 hitting the same tree defect would be
       a *third independent harness* confirming it — worth adding to the ALCF
       ticket alongside makani and ai-rossby.
 
@@ -381,15 +432,17 @@ Suggested predictions (falsifiable, with the condition stated):
    if the default works") which was misconceived: it conflated total gradient
    volume with per-collective size, so it would have been falsified for a reason
    that teaches nothing about the fabric, and — worse — a non-hang would have
-   been mis-scored as evidence the threshold is above 1.82 GB.
+   been mis-scored as evidence about where the threshold lies.
 1b. **Given ~165-212 MB collectives, the default algorithm does NOT hang** at
    2 nodes. *Falsified if* it does — which would pull the Tree threshold below
    212 MiB and is a genuinely new fabric result worth the ALCF ticket.
 2. **The AUTO pin carries again.** `C_progress_auto` alone in the knob matrix.
-3. **First-hop penalty.** ACE2's 1.82 GB is ~0.39× ai-rossby's 4.73 GB, so if
-   the penalty tracks gradient volume, expect arm B − arm A ≈ 0.39 × 1384 ms
-   ≈ **540 ms**, i.e. in 270–1080 ms. *Falsified outside that* — and a miss
-   high would say the cost is not volume-linear after all.
+3. **First-hop penalty.** ACE2's **2.67 GB** (complex64-corrected) is ~0.56×
+   ai-rossby's 4.73 GB, so if the penalty tracks gradient volume, expect
+   arm B − arm A ≈ 0.56 × 1384 ms ≈ **780 ms**, i.e. in 390–1560 ms.
+   *Falsified outside that.* ⚠ Weak basis, stated as such: ai-rossby's own
+   +1384 ms carries ~±11% (its 2-node arm spread 15% over 5 reps), and
+   "volume-linear" was itself inferred from a single makani comparison.
 4. **The cliff saturates:** 2→4 node growth ≤25%.
 5. `gpu_busy_frac` ≥ 0.85 on every arm.
 6. Rep spread < 5% per arm (ai-rossby missed this at 2 nodes: 15%).
