@@ -135,17 +135,34 @@ export GPUS_PER_NODE=4
 if [ -n "${TARGET_NODES:-}" ]; then
     _hc="$(mktemp -d)" || exit 2
     cat > "${_hc}/gpucheck.py" <<'PY'
-import socket
+import socket, sys
 try:
     import torch
     for i in range(4):
         torch.zeros(8, device="cuda:%d" % i)
-    print("GPUHEALTH OK %s" % socket.gethostname(), flush=True)
+    print("GPUHEALTH OK %s prefix=%s" % (socket.gethostname(), sys.prefix), flush=True)
 except Exception as exc:  # noqa: BLE001
-    print("GPUHEALTH SICK %s %r" % (socket.gethostname(), exc), flush=True)
+    # sys.prefix is printed on failure too: the first version of this check
+    # reported all 5 nodes SICK because it was importing the wrong torch, and
+    # without the prefix that is indistinguishable from real hardware failure.
+    print("GPUHEALTH SICK %s prefix=%s %r"
+          % (socket.gethostname(), sys.prefix, exc), flush=True)
 PY
+    # ⚠ `bash -c "exec ${PY} ..."`, NOT `${PY} ...` directly. MEASURED 2026-08-28,
+    # job 7569872: invoking the venv interpreter directly under PALS mpiexec
+    # loses the venv — every node reported
+    #   GPUHEALTH SICK ... libcublas.so.*[0-9] not found in the system path
+    #   [... '/soft/applications/conda/2025-09-25/mconda3/lib/python3.12/site-packages']
+    # i.e. sys.path was the BASE CONDA's, not the venv's. The venv's bin/python
+    # is a SYMLINK into that base conda, and a venv is detected from pyvenv.cfg
+    # next to argv[0]; PALS execs the resolved target, so the venv is never
+    # found and the base conda's (unrepaired) torch gets imported instead.
+    # An intermediate shell preserves the venv path — which is exactly why the
+    # training launch below (`bash ${SHIM} ${PY} ...`) was unaffected.
+    # ⇒ the preflight was testing the WRONG INTERPRETER and reporting healthy
+    # nodes as sick. Read as "5 sick nodes", it looks like an ALCF problem.
     mpiexec -n "$(sort -u "${NODEFILE}" | wc -l)" --ppn 1 --hostfile "${NODEFILE}" \
-        "${PY}" "${_hc}/gpucheck.py" > "${_hc}/health.log" 2>&1
+        bash -c "exec '${PY}' '${_hc}/gpucheck.py'" > "${_hc}/health.log" 2>&1
     grep "GPUHEALTH SICK" "${_hc}/health.log" | sed 's/^/  /'
     grep "GPUHEALTH OK" "${_hc}/health.log" | awk '{print $3}' | sort -u \
         > "${_hc}/healthy_hosts"
