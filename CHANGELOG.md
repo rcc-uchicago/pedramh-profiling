@@ -387,7 +387,34 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       Probe now takes **`-v BCAST_MB=`** (default 100) so this is a single-variable,
       app-free bisect — 100 → 1000 → 2000 → 4700 at 2 nodes — instead of a trainer bring-up
       per data point. **Next job to run.**
-    - **Instrumentation added for the retry:** the scaling launcher now exports
+    - ⭐ **REPRODUCED, and one more hypothesis killed: job 7569539** (2 nodes, arm-B repro with
+      `OMP_THREADS=64` so instrumentation was the ONLY change vs 7568724). Identical
+      signature: `stage 0` at 03:25:12, monitor fired 03:40:51, all 8 ranks. **So the hang is
+      deterministic, not a transient or a sick node** — which is what makes it worth chasing
+      rather than retrying (#12 in spirit: never resubmit without diagnosing).
+      **H4 extra process groups — REFUTED.** Every rank reports `PG ID 0 PG GUID
+      0(default_pg)`, and a scan of the whole 1,557-line log finds **exactly one** PG:
+      `[('0','0','default_pg')]`. ⇒ this is **pure DDP on one communicator**, so the
+      multi-communicator ordering hazard of the mistakes ledger (#12, makani's
+      `_serialized_sync_params` lesson) **does not apply here** and must not be ported on
+      spec. Four hypotheses raised, four refuted.
+    - 🐛 **MY INSTRUMENTATION WAS INCOMPLETE — the flight recorder captured nothing readable,
+      and it took a wasted job to find out.** `TORCH_NCCL_TRACE_BUFFER_SIZE` alone is not
+      enough; **two** further defaults defeat it, and both had to be overridden:
+      1. **The dump is a FILE, not a log line.** `TORCH_NCCL_DEBUG_INFO_TEMP_FILE` defaults to
+         `/tmp/nccl_trace_rank_<n>` — and `/tmp` is NODE-LOCAL and cleaned at job end (this
+         launcher deliberately sets `TMPDIR=/tmp` for the AF_UNIX path-length reason), so the
+         evidence died with the allocation. Now redirected to `${EXP_DIR}/nccl_trace/`.
+      2. **The informative message lost a race with the killer.** The text that NAMES the
+         stuck collective — `Watchdog caught collective operation timeout: WorkNCCL(SeqNum=..,
+         OpType=ALLREDUCE, NumelIn=..)` — comes from the **600 s collective timeout**, but the
+         **heartbeat monitor fires at 480 s** and kills the process first, leaving only the
+         opaque *"watchdog got stuck"* text. `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800` lets the
+         useful message win. Costs nothing: the 600 s collective timeout still aborts the job,
+         ~2 min later, with the diagnosis attached.
+      Both are now launcher defaults. **Lesson worth keeping: enabling a diagnostic is not the
+      same as capturing it** — verify the artifact exists before spending a job on it.
+    - **Superseded: instrumentation first added for the retry** — the scaling launcher now exports
       `TORCH_NCCL_TRACE_BUFFER_SIZE=2000` + `TORCH_NCCL_ASYNC_ERROR_HANDLING=1` by default.
       7568724's log named no collective; the flight recorder is what turned makani's 4-node
       hang into "rank 11, last enqueued 84, last completed 83". Ledger #7: **not**

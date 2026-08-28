@@ -360,6 +360,30 @@ export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
 # default rather than being something to remember after the fact.
 export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-2000}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
+# ⚠ THE BUFFER ALONE CAPTURES NOTHING YOU CAN READ. Job 7569539 had it set and
+# still produced no SeqNum, no OpType, no "last enqueued/completed" — because of
+# two separate defaults, both of which have to be overridden:
+#
+#  1. The dump is written to a FILE, not the log:
+#     TORCH_NCCL_DEBUG_INFO_TEMP_FILE defaults to /tmp/nccl_trace_rank_<n>, and
+#     /tmp is NODE-LOCAL and cleaned at job end (this launcher even sets
+#     TMPDIR=/tmp on purpose), so the evidence dies with the allocation. Point it
+#     at eagle.
+#  2. The message that NAMES the stuck collective ("Watchdog caught collective
+#     operation timeout: WorkNCCL(SeqNum=.., OpType=ALLREDUCE, NumelIn=..)")
+#     comes from the watchdog's 600 s COLLECTIVE timeout — but the HEARTBEAT
+#     MONITOR fires at 480 s and kills the process first, leaving only the
+#     opaque "watchdog got stuck" text. Pushing the monitor out past the
+#     collective timeout lets the informative message win the race.
+#     This does not make a hung job cost more: the 600 s collective timeout
+#     still aborts it, ~2 min later than the monitor would have, and with the
+#     diagnosis attached.
+NCCL_TRACE_DIR="${NCCL_TRACE_DIR:-${EXP_DIR}/nccl_trace}"
+mkdir -p "${NCCL_TRACE_DIR}" || exit 2
+export TORCH_NCCL_DEBUG_INFO_TEMP_FILE="${NCCL_TRACE_DIR}/${RUN_NAME}_rank_"
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1800}"
+echo "nccl flight recorder: ${TORCH_NCCL_DEBUG_INFO_TEMP_FILE}<rank>"
+echo "  heartbeat monitor ${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC}s (> the 600s collective timeout, on purpose)"
 echo "fabric pin: plugin=${OFI_PLUGIN}"
 echo "            libfabric=${OFI_LIBFABRIC}"
 echo "            OFI_NCCL_PROGRESS_MODEL=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
