@@ -171,8 +171,21 @@ not a green-field bring-up.
   /eagle/projects/lighthouse-uchicago/ace2/ace_training/merged_ACE2_ERA5_final.nc
   /eagle/projects/lighthouse-uchicago/ace2/normalization/{centering,scaling-full-field,scaling-residual,time-mean}.nc
   ```
-  Note this is a **single merged NetCDF**, not a per-year store — a different
-  I/O shape from ai-rossby's 30 zarr stores, and every rank reads the same file.
+  ⚠ **`merged_ACE2_ERA5_final.nc` is 2,388.77 GB — a single 2.4 TB NetCDF**,
+  not a per-year store. The normalization files are trivial (≤20 MB). This is a
+  fundamentally different I/O shape from ai-rossby's 30 zarr stores and it is
+  the biggest unknown in this port:
+  * **every rank reads the same file** — at 4 nodes that is 16 ranks against one
+    Lustre object set; ai-rossby's loader sharded across 30 separate stores.
+    Check the striping (`lfs getstripe`) before blaming NCCL for a slow step.
+  * `HDF5_USE_FILE_LOCKING=FALSE` is already exported by `polaris_env.sh` and is
+    **required** on Lustre — a bare netCDF/h5py open without it can hang.
+  * The wrap-guard arithmetic still applies but must be derived from this file's
+    real sample count, not from a file count.
+  * ⚠ It also means **`gpu_busy_frac` is the metric to watch first.** ai-rossby
+    ran ≥0.976 on every arm, so its penalty was provably inside the collective.
+    If ACE2 comes in materially lower, the loss is I/O and the whole
+    ring/tree/comms analysis is the wrong lens for it.
 * **Prior profiling context:** `ACE2_retrain/bench_midway_notes.md` already
   records that ACE2 is the first *training* workload profiled on those nodes
   with heavy gradient traffic, that its dhconv weight is 384×384×180 =
