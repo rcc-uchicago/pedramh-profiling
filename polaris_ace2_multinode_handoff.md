@@ -34,20 +34,80 @@ reduced, the end untouched at its input value, and *different ranks disagreeing*
 (`ranks OK: 1/8`, `3/8`). Had the watchdog not fired, training would have
 continued on gradients correct at one end of the tensor and stale at the other.
 
-* **Failure threshold:** between 25 MB and 1000 MB. Not 2³¹ or 2³² bytes — both
-  were tested and are not the boundary.
+* **Failure threshold: between 25 MiB and 1000 MiB, FOR THE TREE ALGORITHM.**
+  Not 2³¹ or 2³² bytes — both were tested and are not the boundary.
+  ⚠ State it as a *Tree* threshold, not a size threshold: in the table above
+  size and algorithm covary (every failing row is Tree; the passing all-reduce
+  rows are either small or Ring). A 4.7 GB *broadcast* passes, which a
+  size-only story cannot explain. Probe sizes are MiB (`mb*1024*1024/4`
+  elements); ACE2's "1.82 GB" is decimal = 1.70 GiB. At a claimed boundary that
+  ~7% ambiguity matters.
 * **Node-count independent** (jobs 7569817 vs 7571147): fails at 2 nodes and at
   8. Assume it fails at 16/48/64 too.
 * **Why Ring escapes:** ring's reduce-scatter gives each rank `S/N`, which falls
   under the threshold and *keeps shrinking with scale*; tree's per-link message
   does not shrink with N. (Mechanism is inference; the failures are measured.)
-* **Why makani never hit it:** its ~150 M-param model reduces ~0.6 GB, below the
-  threshold. Same cluster, same plugin, same NCCL.
+* **Why makani never hit it:** ⚠ an earlier draft said "its ~150 M-param model
+  reduces ~0.6 GB, below the threshold". That is the SAME total-volume error
+  corrected below — makani buckets too, so its largest *message* was never
+  0.6 GB. The conclusion (makani was unaffected) holds; the stated mechanism did
+  not, and it is left here as a worked example of the trap.
 
-**⇒ ACE2 is 455,831,040 parameters = 1.82 GB fp32 gradients. Above the
-threshold. Set `NCCL_ALGO=Ring` from the first multi-node job.** If you skip
-this you will spend a day rediscovering it, and the intermediate symptom is a
-`ProcessGroupNCCL watchdog got stuck` message that points nowhere.
+### ⚠ CORRECTED 2026-08-28 after adversarial review — READ THIS, the first
+### version of this section was WRONG
+
+An earlier draft said: *"ACE2 is 455,831,040 parameters = 1.82 GB fp32
+gradients. Above the threshold. It WILL hit this."* **That inference does not
+follow, and the error is instructive enough to keep.**
+
+The defect triggers on the size of an **individual collective**, not on total
+gradient volume. DDP buckets gradients and issues many all-reduces per step, so
+total volume is the wrong quantity entirely.
+
+What is actually established:
+
+* **fme wraps with stock DDP and never sets `bucket_cap_mb`** —
+  `ace_exp/fme/core/distributed/torch_distributed.py:182-193`:
+  `DistributedDataParallel(..., gradient_as_bucket_view=True,
+  broadcast_buffers=False)`. No `static_graph`, no comm hook, no FSDP/ZeRO, no
+  gradient accumulation. `bucket_cap_mb` appears **zero times** in all of
+  `ACE2_retrain/`.
+* **This repo already measured the answer** — `ACE2_retrain/PROFILING_PLAN.md:171`:
+  *"it is **11.4 buckets/step, ~165 MB each** — not the ~70 that a 25 MiB cap
+  predicts."*
+* DDP never splits a single parameter across buckets, so the dhconv weight
+  (384×384×180 = **212.34 MB**) gets its own bucket. **~212 MB is therefore the
+  largest single gradient collective in an ACE2 step.**
+
+**⇒ ACE2's exposure is UNKNOWN, not certain.** ~165–212 MB sits in the gap
+between our largest *passing* all-reduce probe (25 MB) and our smallest
+*failing* one (1000 MiB). Nobody has tested that range.
+
+**⚠ And the obvious counter-argument — "bucketing keeps every message small, so
+ACE2 is safe" — is ALSO not established.** ai-rossby's flight recorder showed a
+**single all-reduce of the entire 1.18 B-parameter model** (`numel=1182108160`),
+in BOTH the default-25 MB-bucket run (7569744) and the forced-one-bucket run
+(7569690) — byte-identical stuck collectives under a 200× difference in
+`bucket_cap_mb`. ai-rossby also uses `gradient_as_bucket_view=True`. Why DDP
+coalesced there is recorded in CHANGELOG as **still open**. Until that is
+understood, do not assume ACE2 buckets the way the config implies.
+
+**What to do about it (cheap, decisive, no new allocation):**
+1. Run the existing 2-node smoke with the flight recorder on and **read the
+   actual per-collective sizes** — `PROFILING_PLAN.md:240` already specifies
+   this dump. That single artifact settles exposure before any Polaris
+   multi-node allocation is spent.
+2. **Set `NCCL_ALGO=Ring` anyway.** It is one env var, it costs nothing
+   measurable at ≤32 ranks (ai-rossby's whole ladder ran on it), and it removes
+   the failure mode regardless of which way (1) lands. Insurance, not a
+   diagnosis.
+3. Probe the **25 MB → 1000 MiB gap** app-free with
+   `physicsnemo_ai_rossby/polaris/polaris_ai_rossby_nccl_mn_probe.pbs`
+   (`-v BUCKET_MB=165 -v N_BUCKETS=12`, then 212) if you want the threshold
+   pinned. Cheap, and it is the missing row in §1a's table.
+
+If it does hang anyway, the symptom is a `ProcessGroupNCCL watchdog got stuck`
+message that points nowhere — use the diagnosis kit below.
 
 **Diagnosis kit, if it happens anyway.** The flight recorder is what named the
 collective, and **three settings are needed together** — the buffer alone
@@ -292,8 +352,9 @@ first, and confirm with the operator before deleting the original.
       anything the launcher echoed), ranks-reporting from PALS labels, telemetry
       cross-check, step-count, transport. Absent banner = ERROR, not a pass.
 - [ ] **Prereg committed BEFORE the ladder**, scored honestly afterwards.
-- [ ] **Ladder** 1/2/4 nodes (see §3.1 on the 4-node cap), ≥3 interleaved reps,
-      one config, one store.
+- [ ] **Ladder** 1/2/4/8 nodes (the batch raise in §3.1 removes the old 4-node
+      cap), ≥3 interleaved reps, one config, one store, one batch value that
+      divides every arm's world size.
 - [ ] **Ticket material:** ACE2 hitting the same tree defect at 1.82 GB would be
       a *third independent harness* confirming it — worth adding to the ALCF
       ticket alongside makani and ai-rossby.
@@ -302,12 +363,19 @@ first, and confirm with the operator before deleting the original.
 
 Suggested predictions (falsifiable, with the condition stated):
 
-1. **ACE2 hits the tree defect.** With the default algorithm a 2-node run hangs
-   in the first gradient all-reduce; with `NCCL_ALGO=Ring` it trains.
-   *Falsified if* the default works — which would mean the threshold is above
-   1.82 GB and would usefully narrow it (we only know it is between 25 MB and
-   1000 MB… and ACE2 at 1.82 GB would then contradict that, so this is a real
-   test of our threshold, not a formality).
+1. **Largest gradient collective.** The flight-recorder dump of a 2-node run
+   shows ACE2's largest `all_reduce` at **150-250 MB** (predicted ~165 MB
+   bucket, ~212 MB for the standalone dhconv weight), NOT a single ~1.8 GB one.
+   *Falsified if* it shows one full-model collective — which is what ai-rossby
+   inexplicably did, and would make ACE2 exposed exactly as ai-rossby was.
+   ⚠ This REPLACES an earlier prediction ("ACE2 hits the tree defect, falsified
+   if the default works") which was misconceived: it conflated total gradient
+   volume with per-collective size, so it would have been falsified for a reason
+   that teaches nothing about the fabric, and — worse — a non-hang would have
+   been mis-scored as evidence the threshold is above 1.82 GB.
+1b. **Given ~165-212 MB collectives, the default algorithm does NOT hang** at
+   2 nodes. *Falsified if* it does — which would pull the Tree threshold below
+   212 MiB and is a genuinely new fabric result worth the ALCF ticket.
 2. **The AUTO pin carries again.** `C_progress_auto` alone in the knob matrix.
 3. **First-hop penalty.** ACE2's 1.82 GB is ~0.39× ai-rossby's 4.73 GB, so if
    the penalty tracks gradient volume, expect arm B − arm A ≈ 0.39 × 1384 ms
