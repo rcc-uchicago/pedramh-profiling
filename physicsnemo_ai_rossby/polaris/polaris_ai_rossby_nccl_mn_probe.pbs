@@ -197,10 +197,25 @@ if n_buckets > 0:
     buf = torch.ones(els, device="cuda")
     for i in range(n_buckets):
         dist.all_reduce(buf)
-        buf.fill_(1.0)
+        # ⚠ BUG FIXED 2026-08-28: this used to `fill_(1.0)` unconditionally and
+        # then assert `buf[0] == 1.0`, i.e. it overwrote the result and compared
+        # it against the value it had just written. The check was VACUOUS and
+        # every rank printed MN_NCCL_RANK_OK in job 7569743 while the watchdog
+        # was simultaneously reporting that same all-reduce timing out. Reset
+        # only BETWEEN iterations, and verify what the LAST one produced.
+        if i < n_buckets - 1:
+            buf.fill_(1.0)
     dist.barrier()
-    ok = ok and abs(buf[0].item() - 1.0) < 1e-3
+    # Every rank contributed 1.0, so a correct all-reduce leaves exactly n.
+    # Checked at both ends of the buffer: a partial transfer of a >4 GB tensor
+    # is exactly the failure this phase exists to catch, and index 0 alone
+    # would not see it.
+    got_first, got_last = buf[0].item(), buf[els - 1].item()
+    bucket_ok = abs(got_first - n) < 1e-3 and abs(got_last - n) < 1e-3
+    ok = ok and bucket_ok
     if r == 0:
+        print("GRAD_STORM_RESULT first=%.3f last=%.3f want=%d %s"
+              % (got_first, got_last, n, "OK" if bucket_ok else "WRONG"), flush=True)
         print("GRAD_STORM_DONE", flush=True)
 
 print("rank %d: %s" % (r, "MN_NCCL_RANK_OK" if ok else "MN_NCCL_RANK_BAD"), flush=True)
