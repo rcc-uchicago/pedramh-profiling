@@ -496,8 +496,35 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
         arm B (7569831) differ in **three** variables, not one: OMP 64 vs 1, per-batch TSV on
         vs off, and NCCL_ALGO default vs Ring. The +1384 ms is therefore CONFOUNDED, and Ring
         is being *forced*, so arm B may also carry a Ring penalty that Tree would not have.
-        **Arm A re-run under the matched config: job 7569856.** Do not quote the delta or the
-        efficiency until it lands.
+        **Arm A re-run under the matched config: job 7569856 → `AI_ROSSBY_MN_SCALING_OK`,
+        `step_med 699.103 ms`.** The original arm A read **698.868 ms**, so all three
+        variables together (OMP 64→1, TSV on→off, algo default→Ring) moved the 1-node step
+        time by **0.03%** — the confound is real in principle and NEGLIGIBLE in fact. ⇒ the
+        A↔B comparison is valid and **prediction 3's miss stands with matched configs**:
+        | arm | step_med | per-rank samples/s |
+        |---|---|---|
+        | A (1 node, 7569856) | 699.1 ms | 1.430 |
+        | B (2 nodes, 7569831) | 2082.6 ms | 0.480 |
+        | **penalty / efficiency** | **+1383.5 ms** | **33.6%** |
+        Side finding: OMP 64 vs 1 is worth ~nothing at 1 node, consistent with `OMP_THREADS=1`
+        having failed to fix the 2-node hang. The `${OMP_NUM_THREADS:-1}` defect remains worth
+        fixing for correctness of the record, but it was never a performance factor here.
+    - **LADDER LAUNCHED (operator request): A/B/C/8n × 3 INTERLEAVED reps, one config.**
+      Driver `physicsnemo_ai_rossby/polaris/run_ai_rossby_ladder.sh`, log at
+      `$MEMBER_ROOT/polaris_logs/ai_rossby_ladder.log`. Every arm carries
+      **`NCCL_ALGO=Ring`** (required, not tuning — the default tree path corrupts and hangs
+      above ~1 GB and this model reduces 4.73 GB), OMP=1, TSV off, 60 steps, one store.
+      Interleaved A,B,C,8n,A,B,C,8n,… per rule #16, never batched. C requests
+      `select=5 TARGET_NODES=4` and 8n `select=9 TARGET_NODES=8` so a zombie-GPU node is
+      pruned rather than killing the arm (mandatory at ≥8, ledger #4).
+      Ordering is enforced by PBS `-W depend=afterany`, not by the driver's timing; the driver
+      only retries **qsub** (never `qstat`) because Polaris allows one job per queue in Q/H.
+      ⚠ **Watch for at 4 and 8 nodes:** (a) 43,800 samples does NOT divide evenly at world 16
+      or 32 (2737.5 / 1368.75 per rank) — the sampler pads, but it is a real difference from
+      arms A/B; (b) **Ring's latency grows linearly with rank count where Tree's grows
+      logarithmically**, so the workaround that unblocked 2 nodes may itself cost throughput
+      at the upper rungs. Neither is a reason not to measure; both are reasons not to
+      extrapolate from arm B.
       **Threshold on the TREE path** (of interest for the ticket, not for the fix) — lower
       than either boundary I guessed, not 2^32 bytes and not 2^31:
       | all-reduce | elements | bytes | result |
