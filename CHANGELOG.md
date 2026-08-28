@@ -449,9 +449,37 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       harness cannot train multi-node until the reduction is kept under the threshold or the
       stack is fixed. **This also explains why makani was never affected:** its ~150 M-param
       model reduces ~0.6 GB, an order of magnitude below the boundary.
-      **Open:** which code issues that single full-model all-reduce (the flight recorder
-      captured 0 Python frames), and the exact threshold — **7569794 (4000 MB, just under
-      2^32 bytes = 4096 MiB) and 7569795 (4200 MB, just over) are bracketing it now.**
+      **⭐ SHARPENED: IT IS NOT A CLEAN STALL — THE ALL-REDUCE PARTIALLY COMPLETES, WHICH
+      MAKES THIS A SILENT-CORRUPTION BUG, NOT ONLY A HANG.** The repaired correctness check
+      earned its keep on its first run (7569805, 2000 MB):
+      `GRAD_STORM_RESULT first=8.000 last=1.000 want=8 WRONG` — the START of the buffer is
+      correctly reduced (8 ranks × 1.0), the END is still at its input value, untouched. And
+      it differs BY RANK: `ranks OK: 1/8` (7569805) and `3/8` (7569806). Signature of a
+      chunked transfer whose loop ends early or whose offset arithmetic overflows partway.
+      ⇒ **had the watchdog timeout not fired, training would have proceeded on gradients
+      correct at one end of the tensor and stale at the other.** This belongs in the ALCF
+      ticket as a correctness defect, not a performance one.
+      **Threshold is LOWER than either boundary I guessed** — not 2^32 bytes, not 2^31:
+      | all-reduce | elements | bytes | result |
+      |---|---|---|---|
+      | 4700 / 4200 / 4000 MB | 1.23 G / 1.10 G / 1.05 G | 4.9–4.2 GB | ❌ |
+      | **2100 MB** | 550,502,400 | 2.20 GB | ❌ |
+      | **2000 MB** | 524,288,000 | **1.95 GiB** | ❌ (partial, first=8 last=1) |
+      | 190 × 25 MB | 6.5 M each | 25 MB each | completed, no timeout (⚠ see caveat) |
+      Bisecting between 25 MB and 1.95 GiB: **7569817 (1000 MB)**. In parallel, **7569818**
+      re-runs the known-failing 2000 MB with **`NCCL_ALGO=Ring`** — the logs show broadcast
+      used RINGS and all-reduce used TREES (`Connected all rings` precedes the stage banner,
+      `Connected all trees` follows it), so if Ring survives where Tree fails the defect is
+      localised to the tree path and Ring is a candidate workaround needing no numerics change.
+      ⚠ **CAVEAT I MUST CARRY: the 190 × 25 MB result (7569540) was measured with the VACUOUS
+      check.** What survives is that it did not hang (rc=0, no watchdog timeout); its
+      NUMERICAL correctness was never verified and is now an open question of my own making.
+      Re-run it before treating "small all-reduces are fine" as established.
+      **Also open:** which code issues the single full-model all-reduce. `bucket_cap_mb` at 25
+      MB (7569744) and 5000 MB (7569690) produced BYTE-IDENTICAL stuck collectives, so either
+      the knob never reaches DDP's reducer or this is not DDP's gradient reduction at all —
+      and zero training steps completed, which argues for the latter. `TORCH_DISTRIBUTED_DEBUG
+      =DETAIL` prints the reducer's bucket layout with no code change and separates the two.
     - **Superseded framing — H8, the one shape never tested: an all-reduce above 2^32 bytes.**
       4.73 GB > 4.29 GB. The app-free probe covered a >4 GB **broadcast** (passed, 7569520/1)
       and **small** all-reduces (passed, 7569540) — it never covered a **>4 GB all-reduce**,
