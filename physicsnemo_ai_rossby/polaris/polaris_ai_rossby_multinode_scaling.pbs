@@ -378,6 +378,18 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 #     This does not make a hung job cost more: the 600 s collective timeout
 #     still aborts it, ~2 min later than the monitor would have, and with the
 #     diagnosis attached.
+#  3. The dump has to be ASKED FOR. TORCH_NCCL_DUMP_ON_TIMEOUT=1 is what makes
+#     the watchdog write the buffer out, and torch renamed the buffer knob
+#     (TORCH_NCCL_TRACE_BUFFER_SIZE -> TORCH_FR_BUFFER_SIZE) around 2.9/2.10.
+#     BOTH names are set rather than proving which one this build honours: they
+#     are free, and getting it wrong costs a whole job to discover (it already
+#     did once, 7569539).
+#     This recipe is the fork's own — docs/dev/context/sfno-ddp-requirements.md
+#     "Diagnosis tip" prescribes exactly TORCH_NCCL_DUMP_ON_TIMEOUT=1 +
+#     TORCH_FR_BUFFER_SIZE + a short heartbeat, then `pickle.load` the per-rank
+#     dump for each rank's last collective (op/size/state) and stack.
+export TORCH_FR_BUFFER_SIZE="${TORCH_FR_BUFFER_SIZE:-2000}"
+export TORCH_NCCL_DUMP_ON_TIMEOUT=1
 NCCL_TRACE_DIR="${NCCL_TRACE_DIR:-${EXP_DIR}/nccl_trace}"
 mkdir -p "${NCCL_TRACE_DIR}" || exit 2
 export TORCH_NCCL_DEBUG_INFO_TEMP_FILE="${NCCL_TRACE_DIR}/${RUN_NAME}_rank_"
