@@ -570,7 +570,17 @@ esac
 # Nodes are exclusive on Polaris, so a fixed port cannot collide with another job.
 export MASTER_ADDR
 MASTER_ADDR="$(head -n1 "${NODEFILE}")"
-export MASTER_PORT="${MASTER_PORT:-29500}"
+# ⚠ PORT DERIVED FROM THE JOB ID, not fixed. A hard-coded 29500 was pinned here
+# and FOUR jobs (7570758/7570830/7570759/7571362) hung with every rank blocked in
+# the TCPStore rendezvous — imports complete, then init_process_group never emits a
+# line (a green run prints "NCCL INFO NCCL version" immediately after the last
+# import warning). Intermittent, and unrelated to any knob: unknobbed jobs stalled
+# and knobbed ones passed. The mechanism that fits is a stale listener on 29500 —
+# an orphaned rank from a qdel'd job on a re-allocated node — which blocks the new
+# job's rendezvous silently and forever. Nodes are exclusive, so this can only ever
+# be OUR OWN leftovers, which is precisely what a day of qdels produces.
+# 20000 + jobid%20000 keeps it in the ephemeral range and unique per job.
+export MASTER_PORT="${MASTER_PORT:-$(( 20000 + JOBID % 20000 ))}"
 echo "rendezvous = ${MASTER_ADDR}:${MASTER_PORT}   launcher = PALS mpiexec + polaris_rank_env.sh"
 echo
 
