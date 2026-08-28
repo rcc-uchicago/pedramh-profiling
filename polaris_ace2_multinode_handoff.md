@@ -4,9 +4,18 @@ Third harness of `polaris_multinode_ddp_port_handoff.md` (makani → ai-rossby �
 **ACE2**). Read this, then CHANGELOG `2026-08-28` (the ai-rossby campaign this
 generalises), then `ai_rossby_multinode_ddp_plan.md` for the prereg method.
 
-**The one thing to read first (§1): a fabric defect on Polaris silently corrupts
-and then hangs `all_reduce` above ~1 GB. ACE2's gradient all-reduce is 1.82 GB.
-It WILL hit this. `NCCL_ALGO=Ring` is the fix and it is not optional.**
+**The one thing to read first (§1): a fabric defect on Polaris makes the NCCL
+TREE all-reduce silently return partially-reduced data and then hang, at sizes
+between 25 MiB and 1000 MiB. `NCCL_ALGO=Ring` avoids it and is one env var —
+set it from the first multi-node job as insurance.**
+
+**Whether ACE2 is actually exposed is UNKNOWN and is the first thing to
+measure, not assume.** Its largest gradient collective is ~165–212 MB (measured
+in this repo, §1a), which lands in a range nobody has probed. An earlier draft
+of this document asserted ACE2 "WILL hit this" by comparing its *total* 1.82 GB
+gradient volume against the threshold — that conflates total volume with
+per-collective size and is wrong. The correction is kept in §1a as a worked
+example, because it is the exact reasoning error most likely to be repeated.
 
 Definitions: `$MEMBER_ROOT` = `/eagle/projects/lighthouse-uchicago/members/mehta5`
 (exported by `polaris_env.sh`). "Ladder" = weak-scaling arms at 1/2/4/8 nodes,
