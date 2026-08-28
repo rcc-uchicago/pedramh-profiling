@@ -394,7 +394,12 @@ echo "=== ai_rossby_mn_scaling: $(date -Iseconds) ==="
 echo "jobid=${JOBID}  nodes=${NNODES}  ranks=${NRANKS}  gpus/node=${GPUS_PER_NODE}"
 echo "local_batch=${LOCAL_BATCH}  global_batch=${GLOBAL_BATCH}  steps=${STEPS}  rep=${REP}"
 echo "run_name=${RUN_NAME}"
-echo "lr=${LR}   [${LR_SRC}]   (all ${STEPS} steps sit inside the 5-epoch warmup)"
+if [ "${FLAT_LR:-0}" = "1" ]; then
+    echo "lr=${LR}   [${LR_SRC}]   FLAT_LR=1: warmup pinned flat, this LR IS active from step 0"
+else
+    echo "lr=${LR}   [${LR_SRC}]   (all ${STEPS} steps sit inside the 5-epoch warmup, so this"
+    echo "                          peak LR is NOT exercised — use -v FLAT_LR=1 to test an LR)"
+fi
 echo "data=${DATA}  (${NSTORES} train zarr stores)"
 echo "  ^ the store the PRODUCTION run trained on (runs/.../sfno_e3sm_parity01/"
 echo "    .hydra/config.yaml: dataset.zarr_path = \${AI_ROSSBY_DATA}/e3sm/train),"
