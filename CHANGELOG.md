@@ -347,7 +347,38 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       rank 0. **The guards worked exactly as designed**: `NO_TELEMETRY_ROW` → `csv_rc=4` →
       `ERROR AI_ROSSBY_MN_SCALING_FAILED`, and the CSV row carries blank timings rather than
       a plausible number (contrast CLAUDE.md #14 — `rc` alone would have said nothing useful).
-    - **LEAD HYPOTHESIS, and why the green 4-node probe does NOT exonerate the fabric:**
+    - ⭐ **THE FABRIC IS EXONERATED ON EVERY AXIS TESTED — three hypotheses raised and all
+      three REFUTED by app-free probes.** Recorded as misses, per the method:
+      | job | nodes | traffic | result |
+      |---|---|---|---|
+      | 7569520 | **2** | one **4700 MB** broadcast | ✅ `MN_NCCL_PROBE_OK` |
+      | 7569521 | **8** | one **4700 MB** broadcast | ✅ `MN_NCCL_PROBE_OK ranks=32` |
+      | 7569540 | **2** | **190 × 25 MB all-reduces** (DDP's real gradient traffic) | ✅ `MN_NCCL_PROBE_OK` |
+      - **H1 broadcast size — REFUTED.** 4.7 GB moves fine at the exact node count that hung.
+      - **H2 node count — REFUTED, and it never had legs:** the trainer wedged at **2** nodes
+        while the probe passed at **4**, i.e. the failing case had FEWER nodes than the
+        passing one. Node count was exonerated before the probe ran; 7569521 is coverage.
+      - **H3 all-reduce storm — REFUTED.** 190 × 25 MB back-to-back all-reduces, the DDP
+        bucket pattern for a 1.18 B-param model (`ddp_bucket_cap_mb: null` ⇒ PyTorch's 25 MB
+        default), completes app-free at 2 nodes.
+      ⇒ **the transport carries every traffic pattern the trainer needs, at the node count
+      that fails. The trainer's own path is implicated.**
+    - ⚠ **CORRECTION to the first version of this entry, twice over.** (a) "The fabric gate is
+      fully cleared" after 7568641 was **overclaimed**: that probe's broadcast was 100 MB
+      against this model's ~4.7 GB, 47× undersized, so it could not have exonerated the size.
+      (b) "The wedge is `_sync_params_and_buffers`" was **wrong**. The raw log ORDERING
+      settles it: `Connected all rings` at idx 1313-1320 (**before** the stage banner at
+      1338), `Connected all trees` at idx 1523-1530 (**after** it), first error at 1531. NCCL
+      builds rings for the broadcast — which therefore **succeeded** — and trees for
+      **all-reduce**. ⇒ the hang is the **first gradient all-reduce of the backward pass**,
+      not DDP setup. Ordering, not narrative, is what decided this.
+    - **The precise error is not a plain collective timeout:** *"ProcessGroupNCCL's watchdog
+      got stuck for 480 seconds without making progress in monitoring enqueued collectives.
+      This typically indicates a NCCL/CUDA API (e.g. CudaEventDestroy) hang blocking the
+      watchdog, and could be triggered by another thread holding..."* — the MONITOR thread
+      reporting the WATCHDOG thread stuck. Worth keeping distinct from "a collective timed
+      out": it admits causes on the CUDA/host side, not only the network.
+    - **Superseded hypothesis, kept because the method says to keep misses:**
       SfnoPlasim is **1.18 B params ⇒ ~4.7 GB** in that one broadcast. The app-free probe's
       "DDP-sized" broadcast was **100 MB — 47× too small**, an inherited default sized for
       makani's ~150 M-param model. So `MN_NCCL_PROBE_OK` at 4 nodes says nothing about 4.7 GB.

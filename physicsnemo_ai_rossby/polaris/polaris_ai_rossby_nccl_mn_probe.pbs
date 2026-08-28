@@ -175,6 +175,34 @@ a = torch.ones(1024, 1024, device="cuda")
 dist.all_reduce(a)
 ok = ok and abs(a[0, 0].item() - n) < 1e-3
 
+# 4. DDP GRADIENT TRAFFIC -- the collective that actually wedged.
+#    Job 7568724's log orders "Connected all rings" BEFORE the stage banner and
+#    "Connected all trees" AFTER it: NCCL builds rings for the parameter
+#    broadcast (which succeeded) and trees for ALL-REDUCE, so the hang is in the
+#    first gradient all-reduce of the backward pass, not in setup.
+#    Step 3 above is ONE 4 MB all-reduce and passes; DDP instead issues ~4.7 GB
+#    of gradients as a STORM of bucket-sized all-reduces (default bucket 25 MB
+#    => ~190 of them), which is a different traffic pattern in both size and
+#    count. That is what this phase reproduces, app-free.
+#    -v BUCKET_MB / -v N_BUCKETS override; 0 buckets skips the phase.
+bucket_mb = int(os.environ.get("BUCKET_MB", "25"))
+n_buckets = int(os.environ.get("N_BUCKETS", "190"))
+if n_buckets > 0:
+    if r == 0:
+        print("GRAD_STORM %d buckets x %d MB (= %d MB total)"
+              % (n_buckets, bucket_mb, n_buckets * bucket_mb), flush=True)
+    els = max(1, bucket_mb * 1024 * 1024 // 4)
+    # Allocated once and reused: allocating 190 live buckets would OOM a 40 GB
+    # A100 and turn a comms test into a memory test.
+    buf = torch.ones(els, device="cuda")
+    for i in range(n_buckets):
+        dist.all_reduce(buf)
+        buf.fill_(1.0)
+    dist.barrier()
+    ok = ok and abs(buf[0].item() - 1.0) < 1e-3
+    if r == 0:
+        print("GRAD_STORM_DONE", flush=True)
+
 print("rank %d: %s" % (r, "MN_NCCL_RANK_OK" if ok else "MN_NCCL_RANK_BAD"), flush=True)
 dist.destroy_process_group()
 sys.exit(0 if ok else 1)
