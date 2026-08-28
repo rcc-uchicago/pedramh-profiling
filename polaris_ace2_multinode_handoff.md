@@ -186,6 +186,47 @@ not a green-field bring-up.
     ran ≥0.976 on every arm, so its penalty was provably inside the collective.
     If ACE2 comes in materially lower, the loss is I/O and the whole
     ring/tree/comms analysis is the wrong lens for it.
+
+### 2a. ✅ CONVERT THE NetCDF TO ZARR — operator call, and fme supports it natively
+
+**Verified 2026-08-28: `fme` reads zarr for TRAINING data, not just inference
+output.** `XarrayDataConfig` takes `engine` and `file_pattern`, and the tests
+exercise exactly this:
+```python
+XarrayDataConfig(data_path="foo", file_pattern=".zarr", engine="zarr")
+```
+⇒ **no fme code change is needed** — conversion is a config change
+(`engine: "zarr"`, `file_pattern: "*.zarr"`) plus the conversion job.
+
+Why it is worth doing here specifically:
+* one 2.4 TB NetCDF read concurrently by every rank is the worst shape for
+  Lustre; per-year/per-chunk zarr stores let ranks touch disjoint objects, which
+  is what ai-rossby's loader does and part of why it held `gpu_busy_frac` ≥0.976;
+* zarr chunking can be matched to the sample/time access pattern, which a
+  monolithic `.nc` cannot;
+* it removes the `HDF5_USE_FILE_LOCKING` hazard class entirely.
+
+⚠ **One fme-specific gotcha already handled upstream, do not undo it:**
+`fme/ace/data_loading/getters.py:100` forces the **forkserver** multiprocessing
+start method whenever the zarr engine is used with `num_data_workers > 0`. Leave
+that alone, and keep `TMPDIR=/tmp` in the launcher — Polaris' default TMPDIR on
+eagle exceeds the 108-byte AF_UNIX `sun_path` limit and kills DataLoader workers
+(the exact failure recorded in the parent handoff's ledger #10).
+
+**Conversion precedent in this repo** — reuse rather than reinvent:
+* `physicsnemo_sfno/polaris/e3sm_h5_to_seqzarr.py` + `polaris_zarr_e3sm_*.pbs`
+  (chunked writes, PBS-shaped, PASS-token'd)
+* `physicsnemo_ai_rossby/tools/data/e3sm/pangu_h5_to_zarr.py` (per-year stores,
+  writes the variable metadata into each store's `attrs`)
+* `physicsnemo_sfno/polaris/verify_seqzarr.py` / `polaris_verify_store.pbs` —
+  **write a verifier and run it before training on the output.** A conversion
+  that silently permutes channel order produces correctly-shaped tensors that
+  nothing downstream objects to; that class of bug cost this project a
+  ~110-node-hour restart on the wandb-key equivalent.
+
+**Budget it honestly:** 2.4 TB read + write is a multi-hour, I/O-bound job and
+roughly doubles the storage footprint until the `.nc` is retired. Check quota
+first, and confirm with the operator before deleting the original.
 * **Prior profiling context:** `ACE2_retrain/bench_midway_notes.md` already
   records that ACE2 is the first *training* workload profiled on those nodes
   with heavy gradient traffic, that its dhconv weight is 384×384×180 =
@@ -194,13 +235,24 @@ not a green-field bring-up.
 
 ## 3. The three ACE2-specific blockers (none of which ai-rossby had)
 
-1. **⚠ `fme` requires `batch_size % world_size == 0`.** The Midway script
-   enforces it and aborts with `ACE2_BATCH_NOT_DIVISIBLE`. The production config
-   uses `batch_size: 16`, so **world_size cannot exceed 16 (4 nodes) without
-   changing the batch** — and changing it is a *science* change (jesswan).
-   This CAPS the ladder at 4 nodes on the shipped config. Decide early:
-   either ladder to 4 nodes only, or get sign-off for a larger batch. Do not
-   quietly bump it to make a scaling table look better.
+1. **`fme` requires `batch_size % world_size == 0`.** The Midway script enforces
+   it and aborts with `ACE2_BATCH_NOT_DIVISIBLE`. The production config uses
+   `batch_size: 16`, so at batch 16 world_size cannot exceed 16 (4 nodes).
+   ✅ **OPERATOR DECISION (2026-08-28): raising the batch is approved**, so the
+   ladder is not capped at 4 nodes. Two things still follow from the constraint
+   and must not be lost:
+   * the global batch must stay divisible by world size at **every** arm, so
+     pick a batch that divides 4/8/16/32/… (e.g. 32 or 64), not an arbitrary one
+     tuned per arm — a table whose arms use different batches is not a weak
+     scaling ladder;
+   * a larger batch is still a **numerics** change, so the LR moves with it.
+     ai-rossby's lesson: the config's linear rule and the sqrt rule differed
+     **7×** at large batch, and neither had been measured. Run a short flat-LR
+     sweep (see `-v FLAT_LR=1` in
+     `physicsnemo_ai_rossby/polaris/polaris_ai_rossby_multinode_scaling.pbs`)
+     before committing a long run — ~5% of the run's cost to find the
+     divergence boundary. Note ACE2 anneals its own LR, so pin the schedule flat
+     for the sweep or every arm will look identical.
 2. **Memory:** the config's own header says batch_size 16 is sized for Delta
    **GH200s** and is "NOT known to fit" a 40 GB A100. Polaris is 40 GB A100.
    Expect to need a smaller per-rank batch — which interacts with (1), since
@@ -220,6 +272,9 @@ not a green-field bring-up.
 
 ## 4. Plan
 
+- [ ] **Convert the 2.4 TB NetCDF to zarr (§2a)** — operator-approved, fme reads
+      it natively. Reuse an existing converter, ship a verifier, and check the
+      channel order against the config before training on the output.
 - [ ] **Survey, ~1 h, no allocation.** Locate `fme`'s `init_process_group`;
       confirm which venv/torch on Polaris (any torch ≠ 2.8.0 ⇒ re-run the three
       fabric probes under it, per the parent handoff §1); confirm the `.nc`
