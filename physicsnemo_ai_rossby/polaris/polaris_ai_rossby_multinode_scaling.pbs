@@ -369,15 +369,22 @@ export TORCH_NCCL_ASYNC_ERROR_HANDLING="${TORCH_NCCL_ASYNC_ERROR_HANDLING:-1}"
 #     /tmp is NODE-LOCAL and cleaned at job end (this launcher even sets
 #     TMPDIR=/tmp on purpose), so the evidence dies with the allocation. Point it
 #     at eagle.
-#  2. The message that NAMES the stuck collective ("Watchdog caught collective
-#     operation timeout: WorkNCCL(SeqNum=.., OpType=ALLREDUCE, NumelIn=..)")
-#     comes from the watchdog's 600 s COLLECTIVE timeout — but the HEARTBEAT
-#     MONITOR fires at 480 s and kills the process first, leaving only the
-#     opaque "watchdog got stuck" text. Pushing the monitor out past the
-#     collective timeout lets the informative message win the race.
-#     This does not make a hung job cost more: the 600 s collective timeout
-#     still aborts it, ~2 min later than the monitor would have, and with the
-#     diagnosis attached.
+#  2. ⚠ CORRECTED 2026-08-28. An earlier version of this block raised
+#     TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC to 1800 on the theory that the watchdog's
+#     600 s COLLECTIVE timeout would then "win the race" and print the message
+#     that names the stuck op (`WorkNCCL(SeqNum=.., OpType=ALLREDUCE, ..)`).
+#     THAT REASONING WAS WRONG: evaluating the collective timeout is the
+#     WATCHDOG's job, and in this failure the watchdog itself is what is stuck
+#     ("watchdog got stuck for N seconds without making progress in monitoring
+#     enqueued collectives"). A blocked watchdog never reaches its own timeout,
+#     so the collective message can NEVER fire and there was no race to win.
+#     Only the MONITOR thread can report this class of hang.
+#     Measured cost of the mistake: job 7569612 sat wedged for 36 minutes
+#     instead of aborting at 8, burning walltime for no extra information.
+#     So: keep the monitor SHORT — it is the only reporter, and a short fuse is
+#     also what docs/dev/context/sfno-ddp-requirements.md's diagnosis tip
+#     prescribes. The USEFUL artifact is the flight-recorder dump below, which
+#     the monitor writes on its way out.
 #  3. The dump has to be ASKED FOR. TORCH_NCCL_DUMP_ON_TIMEOUT=1 is what makes
 #     the watchdog write the buffer out, and torch renamed the buffer knob
 #     (TORCH_NCCL_TRACE_BUFFER_SIZE -> TORCH_FR_BUFFER_SIZE) around 2.9/2.10.
@@ -393,9 +400,10 @@ export TORCH_NCCL_DUMP_ON_TIMEOUT=1
 NCCL_TRACE_DIR="${NCCL_TRACE_DIR:-${EXP_DIR}/nccl_trace}"
 mkdir -p "${NCCL_TRACE_DIR}" || exit 2
 export TORCH_NCCL_DEBUG_INFO_TEMP_FILE="${NCCL_TRACE_DIR}/${RUN_NAME}_rank_"
-export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-1800}"
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-300}"
 echo "nccl flight recorder: ${TORCH_NCCL_DEBUG_INFO_TEMP_FILE}<rank>"
-echo "  heartbeat monitor ${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC}s (> the 600s collective timeout, on purpose)"
+echo "  heartbeat monitor ${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC}s — the ONLY reporter for a stuck"
+echo "  watchdog, so it is kept short: it writes the dump on its way out."
 echo "fabric pin: plugin=${OFI_PLUGIN}"
 echo "            libfabric=${OFI_LIBFABRIC}"
 echo "            OFI_NCCL_PROGRESS_MODEL=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
