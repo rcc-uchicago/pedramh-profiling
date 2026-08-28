@@ -477,9 +477,27 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
       is still real and unretired: makani runs NCCL **2.28.3**, ai-rossby **2.27.5**, same
       plugin/libfabric/progress model. Ring-vs-Tree is now the better-evidenced explanation,
       but a cross-venv run at one size would settle it outright.
-      **Verifying now:** **7569831** — the TRAINER itself at 2 nodes with `NCCL_ALGO=Ring`
-      (the end-to-end test of the fix) — and **7569832**, the probe at the model's real
-      4700 MB with Ring.
+      **✅✅ THE FIX WORKS END-TO-END. `AI_ROSSBY_MN_SCALING_OK` — job 7569831, 2 nodes,
+      8 ranks, `NCCL_ALGO=Ring`: the FIRST ai-rossby multi-node training run that has ever
+      completed in this project.** 60/60 steps, `step_med 2082.6 ms`, `gpu_busy 99.1%`,
+      peak 25.91 GB, `world_sizes_seen=8`, `ranks_reporting=8`, `transport AWS Libfabric`,
+      wrap guard clear, rc=0 — every guard passed and the row is in the CSV.
+      Confirmed first at the model's real size app-free (**7569832**: 4700 MB on Ring,
+      `first=8.000 last=8.000 OK`, 8/8) — larger than the 4.73 GB the model actually reduces.
+      - **PREREG PREDICTION 3 — SCORED, MISS, on the high side (the consequential
+        direction I flagged when writing it).** Predicted arm B − arm A in **190–750 ms** on
+        the theory that the multi-node penalty is a roughly CONSTANT cost (makani's +375 ms).
+        Measured **+1384 ms** (698.9 → 2082.6), ~3.7× the makani constant; weak-scaling
+        efficiency **33.6%** vs the predicted 50–70%. The prereg said a high miss "would mean
+        the penalty scales with the 8× gradient volume, i.e. bandwidth after all, and that is
+        what would cap the climb to prod rungs." That is what happened, and it stands as
+        written rather than being reinterpreted after the fact.
+      - ⚠ **BUT THOSE TWO NUMBERS MAY NOT SHARE A TABLE YET (rule #4).** Arm A (7568642) and
+        arm B (7569831) differ in **three** variables, not one: OMP 64 vs 1, per-batch TSV on
+        vs off, and NCCL_ALGO default vs Ring. The +1384 ms is therefore CONFOUNDED, and Ring
+        is being *forced*, so arm B may also carry a Ring penalty that Tree would not have.
+        **Arm A re-run under the matched config: job 7569856.** Do not quote the delta or the
+        efficiency until it lands.
       **Threshold on the TREE path** (of interest for the ticket, not for the fix) — lower
       than either boundary I guessed, not 2^32 bytes and not 2^31:
       | all-reduce | elements | bytes | result |
