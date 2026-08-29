@@ -584,6 +584,42 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
         that BUFFSIZE would be incremental. The opposite held: the operator's linked knob
         moved the number and my mechanism reasoning did not.
 
+    - 💥 **PRODUCTION DIVERGED AT EPOCH 11 — LR 1.46e-3 IS TOO HIGH AT GLOBAL BATCH 192.
+      Chain killed at epoch 43, restarted from the epoch-10 checkpoint at LR 5e-4.**
+      | epoch | lr | loss |
+      |---|---|---|
+      | 10 | 1.455e-3 | **0.0397** ← best |
+      | 11 | 1.450e-3 | 1.0670 ← **27× jump**, the moment warmup ended at peak LR |
+      | 14 | 1.433e-3 | 2.4420 ← peak |
+      | 22 | 1.352e-3 | 0.6946 ← second spike |
+      | 43 | 9.588e-4 | 0.2483 ← after 32 epochs of recovery, still **6× worse than ep 10** |
+      - **This is exactly the failure the abandoned LR sweep existed to catch**, and exactly
+        the shape the methodology critic predicted: *"a false PASS … at epoch 8 the grad norm
+        spikes"*. It arrived at epoch 11. A 200-300 step sweep would have seen only the
+        healthy epochs 1-10 and passed it.
+      - **What I got wrong, precisely:** I recommended skipping the sweep on the grounds that
+        per-epoch checkpoints bound the damage. That reasoning HELD — epoch 10 was recoverable
+        and only ~650 node-hours were spent past the divergence. What I under-weighted is that
+        the risk was not a NaN anyone would notice, but a **partial blow-up that keeps
+        training and looks superficially fine**: loss was still descending monotonically for
+        the last 20 epochs, `gpu_busy_frac` stayed 0.99, no error was ever raised. Only the
+        loss-vs-epoch SHAPE reveals it. ⇒ **a descending loss is not evidence of health;
+        compare against the pre-divergence minimum, not against the previous epoch.**
+      - **The instability boundary is now MEASURED, which the sweep never delivered:** stable
+        ramping to 1.455e-3, breaks at 1.450e-3 *sustained*, second spike at 1.352e-3,
+        monotone descent only at ≤1.339e-3 ⇒ boundary ≈ **1.35-1.45e-3**. This is real
+        evidence for jesswan on the batch-192 question, obtained the expensive way.
+      - **Restart: 7573280**, LR **5e-4** (2.7× below the last observed spike; still 2.4×
+        above sqrt scaling's 2.11e-4 so the large batch is not wasted), resuming from
+        `checkpoint.0.10.pt` copied ALONE into
+        `runs/ai_rossby_multi_ddp_lr5e4/checkpoints/` so the loader cannot pick up the
+        damaged epoch-43 state. Original run dir left intact as evidence.
+        **Link 1 only — NOT chained until it clears epoch 11.**
+      - ⚠ **`max_checkpoints_to_keep: 5` DID NOT PRUNE.** All 43 epochs were retained:
+        **92 files, 870 GB**. Lucky here (it is why epoch 10 was recoverable) but it is a
+        storage landmine at 100 epochs — that would be ~2 TB. Find out why the cap is not
+        honoured before the next long run.
+
     - 🚀 **PRODUCTION LAUNCHED: 48-node, 4-link chain — `multi_ddp`.** Jobs
       **7572289 → 7572338 → 7572339 → 7572340** (`-W depend=afterany`), each
       `-l select=50` / `TARGET_NODES=48` / 6 h in `medium`, all resuming into the pinned
