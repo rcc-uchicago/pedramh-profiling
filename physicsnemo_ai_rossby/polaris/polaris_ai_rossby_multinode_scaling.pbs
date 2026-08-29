@@ -369,6 +369,29 @@ SPE_ARG=()
 # well-defined value.
 # Pair with -v LR=<value> and a dedicated -v AI_ROSSBY_SCALING_CSV=<path>: these
 # rows are a hyperparameter probe, not scaling points and not fabric tuning.
+# ---- -v WARM_START=<path to .mdlus> : change the LR after a divergence -------
+# ⚠ MEASURED 2026-08-29 THE HARD WAY: **YOU CANNOT CHANGE THE LR BY RESUMING
+# FROM A CHECKPOINT.** `load_checkpoint(..., optimizer=optimizer, ...)`
+# (train.py:1069) restores the optimizer state INCLUDING param_groups[0]['lr']
+# and 'initial_lr'; the scheduler is then built on that optimizer and takes its
+# base_lrs from the restored value. Job 7573280 was launched with -v LR=5e-4 to
+# recover from a divergence and silently ran at the checkpoint's 1.450e-3 — the
+# same LR that caused the divergence — and collapsed to a flat loss of 3.0.
+# The launcher's own `lr=5e-4 [user-supplied]` echo was TRUE and MEANINGLESS:
+# it reports what was requested, not what the optimizer ended up with.
+#
+# warm_start loads WEIGHTS ONLY from a .mdlus (train.py:902-912, strict=False)
+# and applies only when ./checkpoints is empty — so the optimizer and scheduler
+# are fresh and the new LR + warmup genuinely take effect. Cost: Adam moments
+# and the EMA restart, which after a divergence is desirable anyway.
+# Use a FRESH RUN_DIR: warm_start is skipped if checkpoints already exist.
+WARM_START_ARG=()
+if [ -n "${WARM_START:-}" ]; then
+    [ -e "${WARM_START}" ] || { echo "ERROR WARM_START_MISSING: ${WARM_START}"; exit 3; }
+    WARM_START_ARG=( "training.warm_start_path=${WARM_START}" )
+    echo "WARM_START: weights from ${WARM_START} (no optimizer state -> the -v LR genuinely applies)"
+fi
+
 FLAT_LR_ARG=()
 if [ "${FLAT_LR:-0}" = "1" ]; then
     FLAT_LR_ARG=( "training.stages.0.scheduler.warmup_start_lr=${LR}" )
@@ -740,7 +763,7 @@ if [ "${DIVERGE_GUARD:-1}" = "1" ]; then
     "${PY}" "${AR_ROOT}/polaris/polaris_divergence_guard.py" \
         --log "${LOG}" --qdel-jobid "${PBS_JOBID}" \
         --factor "${DIVERGE_FACTOR:-3.0}" --patience "${DIVERGE_PATIENCE:-1}" \
-        --require-progress-s 3600 &
+        --expect-lr "${LR}" --require-progress-s 3600 &
     echo "divergence guard armed (factor ${DIVERGE_FACTOR:-3.0}); -v DIVERGE_GUARD=0 to disable"
 fi
 set -o pipefail
@@ -772,6 +795,7 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     wandb.name="${RUN_NAME}" \
     "${DDP_BUCKET_ARG[@]}" \
     "${FLAT_LR_ARG[@]}" \
+    "${WARM_START_ARG[@]}" \
     "${BENCH_TSV_ARG}" 2>&1 | tee "${LOG}"
 rc=$?
 set +o pipefail

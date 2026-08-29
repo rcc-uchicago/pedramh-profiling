@@ -50,7 +50,7 @@ import time
 # the guard go silent-but-visible (see --require-progress) rather than
 # silently never firing.
 EPOCH_RE = re.compile(
-    r"Epoch\s+(\d+)\s+Metrics:.*?\bloss\s*=\s*([0-9.eE+-]+)", re.S
+    r"Epoch\s+(\d+)\s+Metrics:\s*lr\s*=\s*([0-9.eE+-]+).*?\bloss\s*=\s*([0-9.eE+-]+)", re.S
 )
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -61,14 +61,16 @@ def scan(path: str) -> list[tuple[int, float]]:
         with open(path, errors="replace") as fh:
             text = ANSI_RE.sub("", fh.read())
     except FileNotFoundError:
-        return []
-    out = []
+        return [], {}
+    out, lrs = [], {}
     for m in EPOCH_RE.finditer(text):
         try:
-            out.append((int(m.group(1)), float(m.group(2))))
+            ep = int(m.group(1))
+            out.append((ep, float(m.group(3))))
+            lrs[ep] = float(m.group(2))
         except ValueError:
             continue
-    return out
+    return out, lrs
 
 
 def main(argv=None) -> int:
@@ -88,12 +90,22 @@ def main(argv=None) -> int:
                    help="consecutive bad epochs required before firing")
     p.add_argument("--min-epochs", type=int, default=3,
                    help="ignore the first N epochs; early loss is legitimately noisy")
+    p.add_argument("--expect-lr", type=float, default=0.0,
+                   help="if >0, FIRE when the first observed epoch LR differs from this "
+                        "by more than --lr-tol. Catches the 2026-08-29 failure where a "
+                        "checkpoint resume silently restored the OLD lr and the requested "
+                        "one never applied — the launcher echoed the requested value, which "
+                        "was true and meaningless.")
+    p.add_argument("--lr-tol", type=float, default=0.2,
+                   help="fractional tolerance for --expect-lr (default 20%%)")
     p.add_argument("--poll", type=float, default=60.0)
     p.add_argument("--require-progress-s", type=float, default=0.0,
                    help="if >0, warn when no new epoch is seen for this long "
                         "(catches a reworded log line silently disabling the guard)")
     args = p.parse_args(argv)
 
+    checked_lr = [False]
+    lrs: dict[int, float] = {}
     best = float("inf")
     best_ep = None
     bad = 0
@@ -103,10 +115,21 @@ def main(argv=None) -> int:
           % (args.factor, args.patience, args.min_epochs, args.log), flush=True)
 
     while True:
-        rows = scan(args.log)
+        rows, lrs = scan(args.log)
         if len(rows) > seen:
             last_new = time.time()
             for ep, loss in rows[seen:]:
+                if args.expect_lr > 0 and not checked_lr[0]:
+                    checked_lr[0] = True
+                    got = lrs.get(ep)
+                    if got is not None and abs(got - args.expect_lr) > args.lr_tol * args.expect_lr:
+                        print("ERROR LR_MISMATCH epoch=%d requested=%.4e observed=%.4e — the "
+                              "requested LR did NOT take effect (a checkpoint resume restores "
+                              "the optimizer's lr). Use warm_start instead of resume."
+                              % (ep, args.expect_lr, got), flush=True)
+                        return fire(args, ep, loss, best, best_ep)
+                    print("LR_CHECK_OK epoch=%d observed=%.4e (requested %.4e)"
+                          % (ep, got if got else float("nan"), args.expect_lr), flush=True)
                 if loss != loss:  # NaN
                     print("DIVERGENCE_GUARD_FIRED epoch=%d loss=NaN" % ep, flush=True)
                     return fire(args, ep, loss, best, best_ep)
