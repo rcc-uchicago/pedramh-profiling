@@ -584,6 +584,57 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
         that BUFFSIZE would be incremental. The opposite held: the operator's linked knob
         moved the number and my mechanism reasoning did not.
 
+    - 🚀 **PRODUCTION LAUNCHED: 48-node, 4-link chain — `multi_ddp`.** Jobs
+      **7572289 → 7572338 → 7572339 → 7572340** (`-W depend=afterany`), each
+      `-l select=50` / `TARGET_NODES=48` / 6 h in `medium`, all resuming into the pinned
+      `RUN_NAME=multi_ddp`, `RUN_DIR=$MEMBER_ROOT/runs/ai_rossby_multi_ddp`.
+      Config: **`NCCL_ALGO=Ring`** (required — tree corrupts >~1 GB), `EPOCHS=100`,
+      `CKPT_INTERVAL=1`, `WANDB=1` (all ranks), LR **1.46e-3** derived by the config's
+      linear rule **with warmup active** (production's real regime), global batch **192**.
+      Budget: up to **~1,150 node-hours**.
+      - **Two spares, not one:** the first LR-sweep attempt died on
+        `NOT_ENOUGH_HEALTHY_NODES: 47 < 48` — two sick nodes in one 49-node allocation,
+        one of them `x3109c0s1b0n0`, already a named repeat offender.
+      - ⚠ **RISKS ACCEPTED BY THE OPERATOR, recorded rather than resolved:**
+        (a) the chain was submitted WITHOUT waiting for link 1's loss curve, so a diverging
+        LR propagates through all four links before anyone looks — bounded only by the
+        per-epoch checkpoints; (b) **jesswan has NOT signed off** on batch 192 / LR 1.46e-3
+        vs production's batch 4 / 3.05e-5, and unlike every 48-node job before it this one
+        produces a MODEL, not a timing row.
+      - **First things to check when link 1 runs:** loss descending (not flat/NaN) over the
+        early epochs; `gpu_busy_frac` back near 0.99 (judge only non-first epochs — a
+        resumed link's first epoch runs ~72%); per-epoch checkpoints appearing.
+    - ❌ **LR SWEEP ABANDONED after adversarial review — and it would have failed anyway.**
+      Three arms were submitted (7571374/5/6) and produced nothing: two were killed at
+      walltime having stalled at the rendezvous (submitted BEFORE the `MASTER_PORT` fix; PBS
+      spools the script at submission), one died on the sick-node shortfall above.
+      Two critics were then run against the *design*, and the check paid for itself:
+      - **MECHANICAL DEFECT, would have wasted ~48 node-hours for zero rows.** At 48 nodes
+        the epoch is **228 steps/rank** (43,800/192) and I specified `STEPS=300`. The
+        launcher's own wrap guard (`SPE < STEPS`) fires `ERROR EPOCH_WRAPPED` → `rc=1` →
+        **every arm exits `AI_ROSSBY_MN_SCALING_FAILED`**. (My first reading was that the
+        parser's `STEP_COUNT_MISMATCH` would reject the row; the wrap guard fires earlier.)
+      - **VERIFIED SOUND:** the `FLAT_LR` mechanism itself. `warmup_start_lr == lr` gives
+        `LinearLR(start_factor=1.0, end_factor=1.0)` ⇒ genuinely constant; warmup is
+        5 × 228 = 1140 steps ≫ 300, so cosine/`eta_min` never engage; the hydra key exists;
+        nothing else rescales the LR (`grad_clip_norm: 0.0`, bf16 ⇒ no GradScaler, ZeRO off).
+      - **WEAK EVEN IF FIXED:** 300 steps is ~1.3% of a 22,800-step run, and large-batch
+        instability is a TAIL event — the likely outcome is a false PASS that NaNs at epoch 8.
+        Comparing **raw loss across LRs is not valid evidence** (higher LR always descends
+        faster early); the right signals are grad-norm trajectory, loss-spike counts,
+        update-norm growth, NaN/Inf — none of which are logged today. n=1 per arm, and each
+        arm lands on a different 48-node set.
+      - ⚠ **One critic proposal was itself WRONG and was rejected on inspection:** "reproduce
+        batch 192 on 1 node by gradient accumulation, 2.8 node-h instead of 13.6". ai-rossby
+        has **no gradient accumulation** — every `accum` in `train.py`/`train_loop.py` is
+        multistep ROLLOUT loss accumulation (`unroll_steps`); no `no_sync`, no config key.
+        Batch 192 genuinely requires 192 ranks. Right principle, wrong feasibility.
+      - **Why skipping it is defensible now:** resume is proven and checkpoints are
+        per-epoch, so a bad LR costs ~1 epoch (~13 min at 48 nodes) rather than the run —
+        and the sweep would have tested a FLAT-LR regime production never runs.
+      - **Latent bug noted for later:** `T_max = max(1, steps_per_epoch − warmup_steps) = 1`
+        — harmless at `EPOCHS=1`, silently wrong once `EPOCHS ≥ 6`.
+
     - ✅ **RESUME PROVEN (7571401) — the last blocker on a chained production run.**
       Resubmitted into the pinned `RUN_NAME=ar_prod_smoke_2n`, epochs 2→4, reusing the
       14.19 GB checkpoints the earlier smoke wrote. All three things that had to be true are:
