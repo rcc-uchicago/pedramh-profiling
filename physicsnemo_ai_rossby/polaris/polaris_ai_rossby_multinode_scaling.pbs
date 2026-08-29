@@ -725,6 +725,24 @@ fi
 cd "${AR_ROOT}" || exit 2
 LOG="${EXP_DIR}/${RUN_NAME}.log"
 echo "--- launching (log tee'd to ${LOG}) ---"
+
+# ---- divergence guard -------------------------------------------------------
+# 2026-08-29: the 48-node production run diverged at epoch 11 (loss 0.0397 ->
+# 2.442) and then trained for 32 MORE epochs, recovering only to 6x its own
+# minimum, before a human noticed — ~650 node-hours. Nothing flagged it: the
+# loss descended monotonically the whole time, gpu_busy stayed 0.99, rc=0.
+# The guard compares each epoch against the RUNNING MINIMUM (never the previous
+# epoch, which is exactly what looked healthy) and qdels the job when it
+# regresses past --factor. Replayed against that real log it fires at epoch 11,
+# ratio 26.9x, and leaves healthy logs alone.
+# -v DIVERGE_GUARD=0 disables; -v DIVERGE_FACTOR= changes the threshold.
+if [ "${DIVERGE_GUARD:-1}" = "1" ]; then
+    "${PY}" "${AR_ROOT}/polaris/polaris_divergence_guard.py" \
+        --log "${LOG}" --qdel-jobid "${PBS_JOBID}" \
+        --factor "${DIVERGE_FACTOR:-3.0}" --patience "${DIVERGE_PATIENCE:-1}" \
+        --require-progress-s 3600 &
+    echo "divergence guard armed (factor ${DIVERGE_FACTOR:-3.0}); -v DIVERGE_GUARD=0 to disable"
+fi
 set -o pipefail
 mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     "${CPU_BIND_ARGS[@]}" \
