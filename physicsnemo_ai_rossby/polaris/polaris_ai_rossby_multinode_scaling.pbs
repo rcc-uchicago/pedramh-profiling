@@ -388,7 +388,13 @@ SPE_ARG=()
 WARM_START_ARG=()
 if [ -n "${WARM_START:-}" ]; then
     [ -e "${WARM_START}" ] || { echo "ERROR WARM_START_MISSING: ${WARM_START}"; exit 3; }
-    WARM_START_ARG=( "training.warm_start_path=${WARM_START}" )
+    # NOTE the leading "+": hydra runs in STRUCT mode, and warm_start_path is NOT
+    # in conf/training/sfno_e3sm_parity.yaml — train.py only reads it via
+    # cfg.training.get(). Without the "+" every rank dies at config parse with
+    # "Could not override 'training.warm_start_path' ... Key is not in struct"
+    # (job 7573577). Reading a key with .get() does NOT mean hydra will let you
+    # SET it without adding it.
+    WARM_START_ARG=( "+training.warm_start_path=${WARM_START}" )
     echo "WARM_START: weights from ${WARM_START} (no optimizer state -> the -v LR genuinely applies)"
 fi
 
