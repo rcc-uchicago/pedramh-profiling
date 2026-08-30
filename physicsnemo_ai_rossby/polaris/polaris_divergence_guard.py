@@ -122,13 +122,23 @@ def main(argv=None) -> int:
                 if args.expect_lr > 0 and not checked_lr[0]:
                     checked_lr[0] = True
                     got = lrs.get(ep)
-                    if got is not None and abs(got - args.expect_lr) > args.lr_tol * args.expect_lr:
-                        print("ERROR LR_MISMATCH epoch=%d requested=%.4e observed=%.4e — the "
-                              "requested LR did NOT take effect (a checkpoint resume restores "
-                              "the optimizer's lr). Use warm_start instead of resume."
+                    # ONE-SIDED, and this matters: during warmup the LR is
+                    # LEGITIMATELY below the target (epoch 1 of a 5-epoch warmup
+                    # sits at peak/5). The first version compared |observed -
+                    # target| and killed a HEALTHY warm-started run at epoch 1
+                    # (job 7574158, loss 0.03449 — better than the checkpoint it
+                    # started from). The failure actually worth catching is the
+                    # opposite: a resume silently restoring a HIGHER lr than
+                    # requested (7573280: 1.45e-3 vs 5e-4). So fire only on
+                    # observed > target.
+                    if got is not None and got > args.expect_lr * (1.0 + args.lr_tol):
+                        print("ERROR LR_TOO_HIGH epoch=%d requested=%.4e observed=%.4e — the "
+                              "requested LR did NOT take effect; a checkpoint resume restores "
+                              "the optimizer's lr. Use warm_start instead of resume."
                               % (ep, args.expect_lr, got), flush=True)
                         return fire(args, ep, loss, best, best_ep)
-                    print("LR_CHECK_OK epoch=%d observed=%.4e (requested %.4e)"
+                    print("LR_CHECK_OK epoch=%d observed=%.4e <= requested %.4e "
+                          "(below-target is normal during warmup)"
                           % (ep, got if got else float("nan"), args.expect_lr), flush=True)
                 if loss != loss:  # NaN
                     print("DIVERGENCE_GUARD_FIRED epoch=%d loss=NaN" % ep, flush=True)
