@@ -322,6 +322,40 @@ _tuned=0
 [ -n "${NCCL_BUFFSIZE:-}" ] && _tuned=1
 [ "${CPU_BIND}" != "depth" ] && _tuned=1
 [ "${CPU_BIND_DEPTH}" != "8" ] && _tuned=1
+
+# ---- -v HP_ARM=<name> : named hyperparameter arms for the stability sweep ----
+# NAMED arms, not free-form overrides, for two reasons:
+#  * PBS `-v` cannot carry unquoted commas (ledger #8), and betas is a list —
+#    `training.optimizer.betas=[0.9,0.95]` would be truncated silently;
+#  * an arm name is what lands in the log and the CSV, so a row can always be
+#    traced back to the exact override set that produced it.
+#
+# WHY THESE ARMS. Two LRs a factor of 3 apart (1.46e-3, 5e-4) both diverged
+# ~6-7 epochs AFTER warmup ended (ep11, ep12). That is systematic, so LR alone
+# is unlikely to be the cause. Each arm changes one thing this config does
+# differently from every published SFNO recipe:
+#   grad_clip_norm: 0.0   <- clipping OFF; every large-batch recipe uses it
+#   betas: default 0.999  <- upstream makani/physicsnemo use beta2 = 0.95
+#   num_warmup_epochs: 5  <- Goyal's gradual warmup is longer at large batch
+# ⚠ clipping and betas CHANGE WHAT THE MODEL COMPUTES. Run at the operator's
+# explicit direction; jesswan has not signed off. Rows go to their own CSV.
+HP_ARM="${HP_ARM:-none}"
+HP_ARGS=()
+case "${HP_ARM}" in
+    none)     ;;
+    clip)     HP_ARGS=( "training.grad_clip_norm=1.0" ) ;;
+    beta)     HP_ARGS=( "training.optimizer.betas=[0.9,0.95]" ) ;;
+    clipbeta) HP_ARGS=( "training.grad_clip_norm=1.0" "training.optimizer.betas=[0.9,0.95]" ) ;;
+    warmup)   HP_ARGS=( "training.stages.0.scheduler.num_warmup_epochs=15" ) ;;
+    all)      HP_ARGS=( "training.grad_clip_norm=1.0" "training.optimizer.betas=[0.9,0.95]"
+                        "training.stages.0.scheduler.num_warmup_epochs=15" ) ;;
+    *) echo "ERROR HP_ARM_UNKNOWN: '${HP_ARM}' (none|clip|beta|clipbeta|warmup|all)"; exit 3 ;;
+esac
+if [ "${HP_ARM}" != "none" ]; then
+    echo "HP_ARM=${HP_ARM} -> ${HP_ARGS[*]}"
+    _tuned=1   # never let a numerics-changed row into the scaling table (#4)
+fi
+
 [ "${EPOCHS}" -gt 1 ] && _prod=1
 [ "${WANDB}" = "1" ] && _prod=1
 if [ "${_prod}" = "1" ]; then
@@ -801,6 +835,7 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     wandb.name="${RUN_NAME}" \
     "${DDP_BUCKET_ARG[@]}" \
     "${FLAT_LR_ARG[@]}" \
+    "${HP_ARGS[@]}" \
     "${WARM_START_ARG[@]}" \
     "${BENCH_TSV_ARG}" 2>&1 | tee "${LOG}"
 rc=$?
