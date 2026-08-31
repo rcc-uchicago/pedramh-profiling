@@ -337,6 +337,15 @@ _tuned=0
 #   grad_clip_norm: 0.0   <- clipping OFF; every large-batch recipe uses it
 #   betas: default 0.999  <- upstream makani/physicsnemo use beta2 = 0.95
 #   num_warmup_epochs: 5  <- Goyal's gradual warmup is longer at large batch
+#
+# ⚠ `betas` needs hydra's `+` (APPEND): conf/training/sfno_plasim.yaml's
+# `optimizer:` block has type/lr/weight_decay/fused and NO `betas` key, and the
+# config is in struct mode, so a bare `training.optimizer.betas=...` aborts every
+# rank at config parse ("Key 'betas' is not in struct"). That is exactly how job
+# 7575681 died in 3m56s. Same trap as `+training.warm_start_path`. The value IS
+# honored once appended — train_loop.make_optimizer reads `getattr(cfg, "betas")`
+# and forwards it to AdamW (train_loop.py:89-92), so this is not a silently
+# ignored key.
 # ⚠ clipping and betas CHANGE WHAT THE MODEL COMPUTES. Run at the operator's
 # explicit direction; jesswan has not signed off. Rows go to their own CSV.
 HP_ARM="${HP_ARM:-none}"
@@ -344,16 +353,36 @@ HP_ARGS=()
 case "${HP_ARM}" in
     none)     ;;
     clip)     HP_ARGS=( "training.grad_clip_norm=1.0" ) ;;
-    beta)     HP_ARGS=( "training.optimizer.betas=[0.9,0.95]" ) ;;
-    clipbeta) HP_ARGS=( "training.grad_clip_norm=1.0" "training.optimizer.betas=[0.9,0.95]" ) ;;
+    beta)     HP_ARGS=( "+training.optimizer.betas=[0.9,0.95]" ) ;;
+    clipbeta) HP_ARGS=( "training.grad_clip_norm=1.0" "+training.optimizer.betas=[0.9,0.95]" ) ;;
     warmup)   HP_ARGS=( "training.stages.0.scheduler.num_warmup_epochs=15" ) ;;
-    all)      HP_ARGS=( "training.grad_clip_norm=1.0" "training.optimizer.betas=[0.9,0.95]"
+    all)      HP_ARGS=( "training.grad_clip_norm=1.0" "+training.optimizer.betas=[0.9,0.95]"
                         "training.stages.0.scheduler.num_warmup_epochs=15" ) ;;
     *) echo "ERROR HP_ARM_UNKNOWN: '${HP_ARM}' (none|clip|beta|clipbeta|warmup|all)"; exit 3 ;;
 esac
 if [ "${HP_ARM}" != "none" ]; then
     echo "HP_ARM=${HP_ARM} -> ${HP_ARGS[*]}"
     _tuned=1   # never let a numerics-changed row into the scaling table (#4)
+fi
+
+# ---- -v GRAD_NORM_LOG=N : per-step gradient-norm diagnostic -----------------
+# Prints `GRAD_NORM epoch= iter= norm=` every N iterations plus one
+# `GRAD_NORM_EPOCH ... max=` line per epoch. Answers the question the batch-192
+# divergences turn on: does the gradient norm SPIKE (one outlier step -> clipping
+# / a lower beta2 is the remedy) or CREEP upward across epochs (something
+# accumulating -> a different problem)? Every hypothesis we have rests on this
+# quantity and it has never been measured.
+# OFF by default: the norm costs an extra pass over ~4.7 GB of gradients (~3 ms
+# a step, ~0.1%) and a scaling row must not be taken on a config that does extra
+# hot-path work.
+# MUST stay above the `_tuned` consumer below (the CSV routing at "TUNING MODE")
+# — setting it after that test is how the HP_ARM block first leaked numerics
+# rows into the scaling table.
+GRAD_NORM_LOG="${GRAD_NORM_LOG:-0}"
+export AI_ROSSBY_GRAD_NORM_LOG="${GRAD_NORM_LOG}"
+if [ "${GRAD_NORM_LOG}" != "0" ]; then
+    echo "grad-norm log: ON every ${GRAD_NORM_LOG} iters (+ per-epoch max)"
+    _tuned=1   # diagnostic hot-path work => keep the row out of the scaling table (#4)
 fi
 
 [ "${EPOCHS}" -gt 1 ] && _prod=1
