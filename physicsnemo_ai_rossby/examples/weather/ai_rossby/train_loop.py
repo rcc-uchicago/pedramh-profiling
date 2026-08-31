@@ -326,6 +326,69 @@ def perturb_inputs(surface, upper_air, epsilon_factor: float):
     )
 
 
+def clip_and_measure_grads(
+    model: torch.nn.Module,
+    *,
+    grad_clip_norm: float = 0.0,
+    grad_scaler: Optional["torch.amp.GradScaler"] = None,
+    optimizer: Optional[torch.optim.Optimizer] = None,
+    grad_stats: Optional[dict] = None,
+) -> None:
+    """Clip gradients (and/or record their norm) BETWEEN backward and step.
+
+    ⚠ WHY THIS FUNCTION EXISTS — a silent no-op that cost a 50-node sweep.
+
+    ``train.py`` used to apply ``clip_grad_norm_`` at its own call site, AFTER
+    ``train_step``/``multistep_train_step`` returned. But both of those run
+    ``optimizer.step()`` internally (train_loop.py:476, :618), so the clip ran
+    on gradients that had ALREADY been applied to the weights, and the next
+    iteration's ``optimizer.zero_grad(set_to_none=True)`` then discarded them.
+    ``training.grad_clip_norm`` therefore did nothing at all in the eager path.
+
+    It failed silently in the worst way: the knob parsed, logged, and appeared
+    in the run config, so job 7575680 (``HP_ARM=clip``) looked like a clean test
+    of gradient clipping. It wasn't — it was a rerun of the unclipped config,
+    which is exactly why it matched the unclipped run to within noise at the
+    epoch-12 divergence (0.1376 vs 0.1618).
+
+    Clipping must happen after backward and before the step, which is only
+    reachable from inside those functions. Hence this helper.
+
+    ``grad_stats``: when a dict is given it is populated in-place with
+    ``{"grad_norm": float, "clipped": bool}``. Requesting stats with clipping
+    OFF takes a READ-ONLY norm (``vector_norm``, never ``clip_grad_norm_``,
+    which would write ``grad.mul_(1.0)`` back) so the diagnostic cannot perturb
+    what it measures. Costs one extra pass over the gradients (~4.7 GB on this
+    model, ~3 ms) — hence opt-in, not always-on.
+    """
+    want_clip = bool(grad_clip_norm and grad_clip_norm > 0.0)
+    if not want_clip and grad_stats is None:
+        return
+
+    # fp16: gradients are still multiplied by the loss scale here, so both the
+    # clip threshold and the reported norm would be meaningless. unscale_ is
+    # idempotent per step, and grad_scaler.step() below detects it already ran.
+    if grad_scaler is not None and optimizer is not None:
+        grad_scaler.unscale_(optimizer)
+
+    if want_clip:
+        total_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+    else:
+        grads = [p.grad for p in model.parameters() if p.grad is not None]
+        total_norm = (
+            torch.linalg.vector_norm(
+                torch.stack([torch.linalg.vector_norm(g.detach(), 2) for g in grads]), 2
+            )
+            if grads
+            else torch.zeros(())
+        )
+
+    if grad_stats is not None:
+        norm = float(total_norm)
+        grad_stats["grad_norm"] = norm
+        grad_stats["clipped"] = bool(want_clip and norm > grad_clip_norm)
+
+
 def train_step(
     *,
     model: torch.nn.Module,
@@ -339,8 +402,10 @@ def train_step(
     grad_scaler: Optional["torch.amp.GradScaler"] = None,
     epsilon_factor: float = 0.0,
     capture_outputs: Optional[dict] = None,
+    grad_clip_norm: float = 0.0,
+    grad_stats: Optional[dict] = None,
 ) -> dict[str, torch.Tensor]:
-    """One optimizer step: forward + backward + step + scheduler tick.
+    """One optimizer step: forward + backward + clip + step + scheduler tick.
 
     Returns the loss dict from :class:`PanguPlasimLoss` plus a ``"vae_kl"``
     entry. Compatible with both PanguPlasimLegacy (5- or 7-tuple output with
@@ -466,12 +531,19 @@ def train_step(
     if grad_scaler is not None:
         with _nvtx_range("backward"):
             grad_scaler.scale(losses["loss"]).backward()
+        clip_and_measure_grads(
+            model, grad_clip_norm=grad_clip_norm, grad_scaler=grad_scaler,
+            optimizer=optimizer, grad_stats=grad_stats,
+        )
         with _nvtx_range("optimizer"):
             grad_scaler.step(optimizer)
             grad_scaler.update()
     else:
         with _nvtx_range("backward"):
             losses["loss"].backward()
+        clip_and_measure_grads(
+            model, grad_clip_norm=grad_clip_norm, grad_stats=grad_stats,
+        )
         with _nvtx_range("optimizer"):
             optimizer.step()
     if scheduler is not None:
@@ -492,6 +564,8 @@ def multistep_train_step(
     amp_dtype: Optional[torch.dtype] = None,
     grad_scaler: Optional["torch.amp.GradScaler"] = None,
     epsilon_factor: float = 0.0,
+    grad_clip_norm: float = 0.0,
+    grad_stats: Optional[dict] = None,
 ) -> dict[str, torch.Tensor]:
     r"""K-step rollout training with per-step loss accumulation.
 
@@ -608,12 +682,19 @@ def multistep_train_step(
     if grad_scaler is not None:
         with _nvtx_range("backward"):
             grad_scaler.scale(total).backward()
+        clip_and_measure_grads(
+            model, grad_clip_norm=grad_clip_norm, grad_scaler=grad_scaler,
+            optimizer=optimizer, grad_stats=grad_stats,
+        )
         with _nvtx_range("optimizer"):
             grad_scaler.step(optimizer)
             grad_scaler.update()
     else:
         with _nvtx_range("backward"):
             total.backward()
+        clip_and_measure_grads(
+            model, grad_clip_norm=grad_clip_norm, grad_stats=grad_stats,
+        )
         with _nvtx_range("optimizer"):
             optimizer.step()
     if scheduler is not None:

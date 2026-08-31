@@ -1129,6 +1129,17 @@ def main(cfg: DictConfig) -> None:
     if rollout_validator is not None:
         rollout_validator.has_diagnostic = has_diagnostic
     grad_clip_norm = float(cfg_train.get("grad_clip_norm", 0.0))
+    # AI_ROSSBY_GRAD_NORM_LOG=N -> record the pre-clip gradient norm and print it
+    # every N iterations, plus a per-epoch max. Diagnostic for the batch-192
+    # divergences: it distinguishes a sudden OUTLIER gradient (spike, argues for
+    # clipping / a lower beta2) from a slow CREEP over epochs (argues for
+    # something accumulating instead). Default 0 = off, because the norm costs an
+    # extra ~4.7 GB pass over the gradients on this model.
+    grad_norm_log_every = int(os.environ.get("AI_ROSSBY_GRAD_NORM_LOG", "0") or 0)
+    # Non-None only when there is something to record: `clip_and_measure_grads`
+    # keys the read-only measurement pass off `grad_stats is not None`, so
+    # leaving this None keeps the default hot path allocation- and work-free.
+    _grad_stats = {} if (grad_norm_log_every > 0 or grad_clip_norm > 0) else None
     # PanguWeather-parity input perturbation (its `epsilon_factor`). 0.0 = off,
     # so every config that does not set it is unchanged. Science owner set 0.01
     # for ALL models on 2026-08-06.
@@ -1242,6 +1253,8 @@ def main(cfg: DictConfig) -> None:
         for _ in range(epochs_remaining):
             stage_datapipe.set_epoch(global_epoch)
             model.train()
+            _grad_norm_max = 0.0
+            _grad_norm_clips = 0
             telemetry.epoch_start(global_epoch)
             with LaunchLogger(
                 "train",
@@ -1293,6 +1306,8 @@ def main(cfg: DictConfig) -> None:
                             amp_dtype=amp_dtype,
                             grad_scaler=grad_scaler,
                             epsilon_factor=epsilon_factor,
+                            grad_clip_norm=grad_clip_norm,
+                            grad_stats=_grad_stats,
                         )
                     else:
                         losses = train_step(
@@ -1307,13 +1322,33 @@ def main(cfg: DictConfig) -> None:
                             grad_scaler=grad_scaler,
                             epsilon_factor=epsilon_factor,
                             capture_outputs=_diag_capture,
+                            grad_clip_norm=grad_clip_norm,
+                            grad_stats=_grad_stats,
                         )
-                    # Gradient clipping: StaticCapture handles it inside the
-                    # graph; eager path applies it here after backward.
-                    if grad_clip_norm > 0 and captured_train_fn is None:
-                        torch.nn.utils.clip_grad_norm_(
-                            inner_model.parameters(), grad_clip_norm
-                        )
+                    # Gradient clipping now happens INSIDE the step functions,
+                    # between backward and optimizer.step(). It used to be
+                    # applied here, which was a silent no-op: both step
+                    # functions call optimizer.step() themselves, so this ran
+                    # after the weights had already been updated and before the
+                    # next iteration's zero_grad() threw the gradients away.
+                    # StaticCapture handles clipping inside its graph, so the
+                    # captured path passes grad_clip_norm at capture time and
+                    # reports no per-step norm here.
+                    # -> train_loop.clip_and_measure_grads
+                    if _grad_stats:
+                        _gn = _grad_stats.get("grad_norm", float("nan"))
+                        _grad_norm_max = max(_grad_norm_max, _gn)
+                        _grad_norm_clips += int(_grad_stats.get("clipped", False))
+                        if (
+                            grad_norm_log_every
+                            and batch_idx % grad_norm_log_every == 0
+                            and dist.rank == 0
+                        ):
+                            logger.info(
+                                "GRAD_NORM epoch=%d iter=%d norm=%.6e clip=%s"
+                                % (global_epoch, batch_idx, _gn,
+                                   grad_clip_norm if grad_clip_norm > 0 else "off")
+                            )
                     if ema is not None:
                         ema.update(inner_model, epoch=global_epoch)
                     # Closes the timed window here, with the EMA sweep INSIDE it:
@@ -1415,6 +1450,18 @@ def main(cfg: DictConfig) -> None:
                 lr=optimizer.param_groups[0]["lr"],
                 ema_active=(ema is not None),
             )
+            # One greppable per-epoch line. `max` is the number that matters:
+            # an outlier gradient is invisible in a mean, and the divergence we
+            # are chasing is a single-step event. Emitted on its own line rather
+            # than folded into the "Epoch N Metrics" line, which parse_nsys.py
+            # and polaris_divergence_guard.py both key on (cross-project
+            # contract -> DESIGN §2).
+            if _grad_stats and dist.rank == 0:
+                logger.info(
+                    "GRAD_NORM_EPOCH epoch=%d max=%.6e clips=%d clip_at=%s"
+                    % (global_epoch, _grad_norm_max, _grad_norm_clips,
+                       grad_clip_norm if grad_clip_norm > 0 else "off")
+                )
 
             # --- Validation (optional) ----------------------------------
             if val_datapipe is not None:
