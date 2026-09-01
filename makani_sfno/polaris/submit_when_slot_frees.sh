@@ -27,10 +27,16 @@
 # PASS token: ARM_QUEUED <tag> jobid=<id>
 set -u
 
-TAG="${1:?usage: submit_when_slot_frees.sh <tag> \"<vars>\" [select] [walltime]}"
+TAG="${1:?usage: submit_when_slot_frees.sh <tag> \"<vars>\" [select] [walltime] [csv]}"
 EXTRA="${2:?missing -v payload}"
 SELECT="${3:-5}"
 WALLTIME="${4:-00:50:00}"
+# Rows from different sweeps must not share a CSV -- a batch-64 row next to a
+# batch-32 row invites exactly the apples-to-oranges comparison §0 warns about.
+CSV="${5:-/eagle/projects/lighthouse-uchicago/members/mehta5/bench/makani_spatial.csv}"
+# `debug` (<=2 nodes) and `debug-scaling` (<=10) are SEPARATE per-user slots, so a
+# 1-node arm queued to `debug` runs concurrently with a multi-node arm.
+QUEUE="${6:-debug-scaling}"
 
 MEMBER_ROOT=/eagle/projects/lighthouse-uchicago/members/mehta5
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,7 +49,7 @@ SLEEP_S=300
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "${LOG}"; }
 
 COMMON="STEPS=60,EPOCHS=2"
-COMMON="${COMMON},MAKANI_SCALING_CSV=${MEMBER_ROOT}/bench/makani_spatial.csv"
+COMMON="${COMMON},MAKANI_SCALING_CSV=${CSV}"
 COMMON="${COMMON},CONFIG_YAML=e3sm_alldata_full.yaml"
 COMMON="${COMMON},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
 COMMON="${COMMON},OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
@@ -56,7 +62,7 @@ mkdir -p "${TRACE}" "$(dirname "${LOG}")"
 log "waiting for a slot: ${TAG} [${EXTRA}] select=${SELECT} walltime=${WALLTIME}"
 
 for ((i = 1; i <= MAX_TRIES; i++)); do
-    out=$(cd "${HERE}" && qsub -q debug-scaling \
+    out=$(cd "${HERE}" && qsub -q "${QUEUE}" \
               -l "select=${SELECT}:system=polaris" -l "walltime=${WALLTIME}" \
               -v "${EXTRA},${COMMON}" \
               polaris/polaris_makani_multinode_scaling.pbs 2>&1)
