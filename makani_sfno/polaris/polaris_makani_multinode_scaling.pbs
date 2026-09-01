@@ -371,7 +371,35 @@ if epochs > 2:
     # Long (production) runs: cap retained checkpoint versions. Measured 1.77 GB
     # per epoch-checkpoint (smoke 7564631); 100 uncapped epochs is ~177 GB of
     # tars for no resume value beyond the last few. best_ckpt is kept regardless.
-    keys += [("checkpoint_num_versions", 3)]
+    #
+    # -v CKPT_VERSIONS= raises the cap. REQUIRED for snapshot ensembling under
+    # CosineAnnealingWarmRestarts: the useful checkpoints are the cycle ENDS,
+    # which are T_0 epochs apart, and a rolling window of 3 deletes every one of
+    # them long before the run finishes.
+    import os
+    keys += [("checkpoint_num_versions", int(os.environ.get("CKPT_VERSIONS", "3")))]
+
+# Optional training-regime overrides, so a production run is reproducible from
+# its qsub line rather than from an edited config file.
+#
+# ⚠ UNITS: makani steps the scheduler ONCE PER EPOCH
+# (deterministic_trainer.py:377-380), so scheduler_T_0 and -- despite the name --
+# lr_warmup_steps are both in EPOCHS, not optimizer steps. Setting
+# lr_warmup_steps=500 would request 500 epochs of warmup.
+import os as _os
+_sched = {
+    "lr": "LR",
+    "scheduler": "SCHED",
+    "scheduler_T_0": "SCHED_T0",
+    "scheduler_T_mult": "SCHED_TMULT",
+    "scheduler_min_lr": "SCHED_MIN_LR",
+    "lr_warmup_steps": "WARMUP_EPOCHS",
+    "lr_start": "LR_START",
+}
+for _key, _env in _sched.items():
+    _val = _os.environ.get(_env)
+    if _val:
+        keys += [(_key, '"%s"' % _val if _key == "scheduler" else _val)]
 for k, v in keys:
     src = setkey(src, k, v)
 open(path, "w").write(src)
