@@ -257,37 +257,63 @@ collectives can never pair up. **This is an application-level divergence, not a 
 failure** — it is not size (283 MB broadcasts succeed elsewhere), not the plugin, not a
 desync of the usual "one rank never arrives" kind. 191 of 192 collectives on rank 0 completed.
 
-### 5c. Throughput at equal global batch — sharding wins per GPU
+### 5c. Throughput at equal global batch — the win is WORK PER GPU, not sharding
+
+⚠️ **CORRECTED 2026-09-01 by job 7580297.** The first version of this section claimed sharding
+beats pure DDP by 1.71× per GPU. **That was a confound**, and the controlled arm refutes it:
+the 4-node `h2w2` row carries *both* sharding *and* twice the per-GPU work, and only the second
+is doing the work. Recorded as a correction rather than edited away.
 
 All rows global batch 32, ALLDATA, new plugin, warmup-free (`step_ms` = final epoch).
-⚠ These totals are **post-fix**: `samples_s_total` previously multiplied by rank count instead
-of data-group count and overstated every spatial row by exactly `h_par·w_par` (§0 trap 4).
+⚠ Totals are **post-fix**: `samples_s_total` previously multiplied by rank count instead of
+data-group count and overstated every spatial row by exactly `h_par·w_par` (§0 trap 4).
 
-| config | job | nodes | GPUs | samples/GPU | sample-equiv/GPU | step_ms | samples/s | **per GPU** |
+| config | job | nodes | GPUs | samples/GPU | sample-equiv/GPU | step_ms | samples/s | per GPU |
 |---|---|---|---|---|---|---|---|---|
-| pure DDP | 7565972 | 8 | 32 | 1 | 1 | 492.7 | 64.9 | 2.03 |
-| **h2w2** | 7580162 | 4 | **16** | **8** | 2 | 576.6 | 55.5 | **3.47** |
+| **pure DDP** | 7565972 | 8 | 32 | 1 | **1** | **492.7** | 64.9 | 2.03 |
+| **h2w2** | 7580297 | 8 | 32 | 4 | **1** | **707.7** | 45.2 | 1.41 |
+| h2w2 | 7580162 | 4 | 16 | 8 | 2 | 576.6 | 55.5 | 3.47 |
 | h4w1 | 7580122 | 4 | 16 | 8 | 2 | 626.8 | 51.1 | 3.19 |
 
-**`h2w2` on half the GPUs delivers 85% of the throughput — 1.71× more per GPU.** Per
-sample-equivalent it is 288 ms against pure DDP's 493 ms. The mechanism is occupancy, not
-communication: at 1 sample/GPU a 60×120 trunk cannot fill an A100, and sharding is what lets
-each GPU hold 8 samples while the *global* batch stays at 32. Memory falls too (6.0-6.2 GB
-against the production run's 8.36), since each rank holds a quarter of the domain.
+**Rows 1-2 are the controlled pair** — same nodes, same GPUs, same global batch, same
+sample-equivalents per GPU, differing only in whether each GPU takes 4 samples over a quarter
+domain or 1 sample over the whole one. **Sharding costs +43.6%.** It is a tax, as expected of
+extra collectives; §5a's success only means `w ≤ 2` *works*, not that it pays.
+
+What actually pays is **work per GPU**. Compare rows 2 and 3, both sharded: halving the GPUs
+and doubling the per-GPU work made the step *faster* in absolute terms (707.7 → 576.6), i.e.
+**2× the work in 0.82× the time — 2.46× better per sample-equivalent.** Fixed per-step cost
+dominates this model at batch 32, so the lever is fewer GPUs each doing more, not more GPUs.
+
+⇒ **The best configuration is therefore predicted to be one nobody has run: plain DDP at
+4 nodes with `LOCAL_BATCH=2`** (16 GPUs × 2 samples = batch 32, 2 sample-equivalents per GPU,
+*no* sharding and so no 43.6% tax). Extrapolating 576.6 / 1.436 ⇒ **~400 ms**. That is a
+prediction, not a measurement, and it is the next arm to run.
+
+Memory is not the constraint anywhere here: 6.0-6.2 GB on the sharded arms against the
+production run's 8.36 GB, on 40 GB cards.
 
 ### 5d. What it costs to train 100 epochs at batch 32 (1,360 steps/epoch)
 
 | plan | nodes | step_ms | wall | **node-hours** | updates |
 |---|---|---|---|---|---|
 | what we actually ran — 128n, batch **512** | 128 | 576.5 | 1.6 h | **216** | **8,500** |
+| 8n h2w2, batch 32 | 8 | 707.7 | 26.7 h | 214 | 136,800 |
 | 8n pure DDP, batch 32 | 8 | 492.7 | 18.6 h | 149 | 136,800 |
-| **4n h2w2, batch 32** | **4** | 576.6 | 21.8 h | **87** | **136,800** |
 | 4n h4w1, batch 32 | 4 | 626.8 | 23.7 h | 95 | 136,800 |
+| **4n h2w2, batch 32** | **4** | 576.6 | 21.8 h | **87** | 136,800 |
+| *4n pure DDP, `LOCAL_BATCH=2` — **predicted**, not run* | *4* | *~400* | *~15 h* | *~61* | *136,800* |
 
 **16× more optimizer updates for 40% of the node-hours of the run we already did** — the
 128-node run spent its parallelism inflating the batch, which buys fewer updates rather than
-more work. Wall clock is the cost: ≥18 h exceeds `medium`'s 6 h cap, so any of these needs a
-4-link `-W depend` chain into a pinned `RUN_NUM` (proven for makani).
+more work. Every batch-32 row beats it on updates-per-node-hour, and the ordering among them
+tracks **work per GPU**, not decomposition. Wall clock is the cost: ≥15 h exceeds `medium`'s
+6 h cap, so any of these needs a 4-link `-W depend` chain into a pinned `RUN_NUM` (proven for
+makani).
+
+⚠ The last row is an extrapolation from §5c's 43.6% sharding tax and must be measured before
+it is planned around. If it holds, the production answer needs **no spatial parallelism at
+all**, which also sidesteps the `w=4` defect entirely.
 
 ### 5e. Older spatial rows, kept for the record
 

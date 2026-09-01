@@ -164,18 +164,30 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     rank 0 completed. ⇒ **application-level divergence in parameter sync under `w=4`**, not
     transport, not size, not the usual "one rank never arrives". Adding the recorder cost
     nothing and converted a second mystery into a located defect.
-  - ⭐⭐ **THE RESULT THAT CHANGES THE PRODUCTION PLAN: at equal global batch, `h2w2` on
-    HALF the GPUs delivers 85% of pure DDP's throughput — 1.71× more per GPU.**
-    | config | GPUs | samples/GPU | step_ms | samples/s | per GPU |
+  - ⚠️ **CORRECTION, same day, by the controlled arm 7580297 — I first wrote "sharding beats
+    pure DDP by 1.71× per GPU" and that was a CONFOUND.** The 4-node `h2w2` row carries *both*
+    sharding *and* 2× the per-GPU work; only the second is doing anything. The controlled pair
+    — same nodes, same GPUs, same global batch, same sample-equivalents per GPU — says the
+    opposite:
+    | config | GPUs | samples/GPU | sample-equiv/GPU | step_ms | per-GPU samples/s |
     |---|---|---|---|---|---|
-    | 8n pure DDP (7565972) | 32 | 1 | 492.7 | 64.9 | 2.03 |
-    | **4n h2w2 (7580162)** | **16** | **8** | 576.6 | 55.5 | **3.47** |
-    The mechanism is **occupancy, not communication**: at 1 sample/GPU a 60×120 trunk cannot
-    fill an A100, and sharding is what lets each GPU hold 8 samples while the global batch
-    stays at 32. Memory falls too (6.0 GB vs the production run's 8.36).
-    ⇒ 100 epochs at batch 32 costs **87 node-hours on 4 nodes h2w2** vs 149 on 8 nodes pure
-    DDP — and vs **216 node-hours for the 128-node run we actually did, which bought 8,500
-    updates against these 136,800.** 16× the updates for 40% of the cost.
+    | 8n pure DDP (7565972) | 32 | 1 | **1** | **492.7** | 2.03 |
+    | 8n h2w2 (**7580297**) | 32 | 4 | **1** | **707.7** | 1.41 |
+    | 4n h2w2 (7580162) | 16 | 8 | 2 | 576.6 | 3.47 |
+    ⇒ **sharding costs +43.6% at matched work.** §5a's success means `w ≤ 2` *works*, not that
+    it pays. I published the wrong attribution and the next job overturned it; the lesson is
+    that "half the GPUs, 85% of the throughput" compared two variables at once and I tabled it
+    anyway.
+  - ⭐⭐ **WHAT ACTUALLY PAYS IS WORK PER GPU.** Rows 2→3 above are both sharded: halving the
+    GPUs and doubling per-GPU work made the step *faster in absolute terms* (707.7 → 576.6),
+    i.e. **2× the work in 0.82× the time, 2.46× better per sample-equivalent.** Fixed per-step
+    cost dominates this model at batch 32, so the lever is **fewer GPUs each doing more**.
+    ⇒ the best configuration is one nobody has run: **plain DDP at 4 nodes with
+    `LOCAL_BATCH=2`** — batch 32, 2 sample-equivalents/GPU, no sharding and so no 43.6% tax.
+    Extrapolates to **~400 ms ⇒ ~61 node-hours** for 100 epochs, against 87 for 4n h2w2, 149
+    for 8n pure DDP, and **216 for the 128-node run we actually did — which bought 8,500
+    updates against these 136,800.** If it holds, production needs **no spatial parallelism at
+    all**, which also sidesteps the `w=4` defect. ⚠ Predicted, not measured.
   - **PREREG §7b SCORED — 3 hits, 1 partial, 1 miss, and the miss is the finding.** P5
     predicted all three arms would exceed a 985 ms "zero-overhead" reference (2× the 8-node
     pure-DDP step); both successes came in far **below** it. The reference assumed per-GPU cost
