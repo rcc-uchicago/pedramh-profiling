@@ -116,11 +116,23 @@ def parse_log(text: str) -> dict:
 
 def build_row(args, parsed: dict, torch_version: str = "") -> dict:
     step_ms = parsed["step_ms"]
-    # Weak scaling holds local_batch fixed, so per-rank throughput is the
+    # Weak scaling holds the per-GPU work fixed, so per-rank throughput is the
     # quantity that should stay flat as nodes grow; the total is what a user
     # feels. Report both -- quoting only the total hides a per-rank regression
     # behind the added hardware.
-    sps_rank = (args.local_batch / (step_ms / 1000.0)) if step_ms else ""
+    #
+    # DERIVE BOTH FROM global_batch, NOT from local_batch x ranks.
+    # makani's --batch_size is split across the DATA group, not the world
+    # (train_plasim._resolve_batch_sizes), so under model parallelism
+    # `local_batch` is per DATA GROUP and there are only ranks/(h_par*w_par)
+    # of them. The old `local_batch * ranks` therefore overstated throughput by
+    # exactly h_par*w_par on every spatial row -- h2w2 at global batch 32 read
+    # 222 samples/s where the truth is 55.5 (found 2026-09-01, jobs 7580122 /
+    # 7580162). It is an identity on pure-DDP rows (h_par=w_par=1 =>
+    # local_batch*ranks == global_batch), so every existing h1w1 row is
+    # unchanged and stays comparable.
+    sps_total = (args.global_batch / (step_ms / 1000.0)) if step_ms else ""
+    sps_rank = (sps_total / args.ranks) if sps_total != "" else ""
     row = {
         "jobid": args.jobid,
         "nodes": args.nodes,
@@ -136,7 +148,7 @@ def build_row(args, parsed: dict, torch_version: str = "") -> dict:
         "steps": args.steps,
         "step_ms": step_ms,
         "samples_s_rank": round(sps_rank, 4) if sps_rank != "" else "",
-        "samples_s_total": round(sps_rank * args.ranks, 4) if sps_rank != "" else "",
+        "samples_s_total": round(sps_total, 4) if sps_total != "" else "",
         "io_gbs": parsed["io_gbs"],
         "wireup_s": parsed["wireup_s"],
         "total_train_s": parsed["total_train_s"],

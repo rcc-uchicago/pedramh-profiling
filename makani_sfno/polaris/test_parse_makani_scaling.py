@@ -228,6 +228,42 @@ def test_spatial_parallel_row_records_the_decomposition():
         assert r["data"] == "synthetic" and r["gpu_order"] == "reverse" and r["rep"] == "3"
 
 
+def test_model_parallel_throughput_is_not_multiplied_by_the_spatial_factor():
+    """The defect that made every spatial row lie by exactly h_par*w_par.
+
+    makani's --batch_size is split across the DATA group, not the world, so
+    under model parallelism local_batch is per data group and there are only
+    ranks/(h_par*w_par) of them. Deriving the total as local_batch*ranks
+    overstated h2w2 at global batch 32 as 222 samples/s when the truth is 55.5
+    (jobs 7580122 / 7580162, 2026-09-01). Throughput must come from
+    global_batch, which is what the trainer actually consumes per step.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        rc, rows, _ = _run(
+            GOOD_LOG, td,
+            # 16 ranks, h2w2 => 4 data groups x local_batch 8 = global batch 32
+            extra=["--h-par", "2", "--w-par", "2",
+                   "--local-batch", "8", "--global-batch", "32"],
+        )
+        assert rc == 0
+        r = rows[0]
+        # 32 samples / 0.4983 s -- NOT 8 * 16 / 0.4983 = 256.9
+        assert abs(float(r["samples_s_total"]) - 64.218) < 1e-2, r["samples_s_total"]
+        assert abs(float(r["samples_s_rank"]) - 4.0136) < 1e-3, r["samples_s_rank"]
+
+
+def test_pure_ddp_throughput_is_unchanged_by_the_fix():
+    """The fix must be an identity where h_par=w_par=1, or it invalidates
+    every existing h1w1 row rather than correcting the spatial ones."""
+    with tempfile.TemporaryDirectory() as td:
+        _, rows, _ = _run(GOOD_LOG, td, extra=["--local-batch", "2",
+                                               "--global-batch", "32"])
+        r = rows[0]
+        # local_batch * ranks == global_batch here, so both formulas agree.
+        assert abs(float(r["samples_s_total"]) - 2 * 16 / 0.4983) < 1e-2
+        assert abs(float(r["samples_s_rank"]) - 2 / 0.4983) < 1e-3
+
+
 TESTS = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":
