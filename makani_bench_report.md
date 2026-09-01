@@ -293,27 +293,40 @@ prediction, not a measurement, and it is the next arm to run.
 Memory is not the constraint anywhere here: 6.0-6.2 GB on the sharded arms against the
 production run's 8.36 GB, on 40 GB cards.
 
-### 5d. What it costs to train 100 epochs at batch 32 (1,360 steps/epoch)
+### 5d. What it costs to train 100 epochs at batch 32 (**1,368** steps/epoch)
 
-| plan | nodes | step_ms | wall | **node-hours** | updates |
+**One methodology for every row**, because mixing two is how the earlier version of this table
+went wrong: `wall = steps/epoch × step_ms × epochs × 1.17`, `node-hours = nodes × wall`. The
+**1.17** is the measured per-epoch overhead of the 128-node production run (57.47 s epochs
+against 49.0 s of stepping) — it covers validation and checkpoint I/O, which `step_ms` excludes.
+
+⚠ **An earlier version quoted node-hours computed from `step_ms` alone while quoting wall clock
+with the overhead included.** At 1 node those two numbers are the *same quantity*, so "13.9
+node-hours, 16.2 h wall" was self-contradictory; the figure is **16.3**. Corrected throughout.
+⚠ The 1.17 factor is borrowed from a 512-GPU run where validation was amortised 128× more
+widely than it is at 1 node. Job **7582088** measures it directly — prefer that number.
+
+| plan | nodes | step_ms | **wall** | **node-hours** | updates |
 |---|---|---|---|---|---|
-| what we actually ran — 128n, batch **512** | 128 | 576.5 | 1.6 h | **216** | **8,500** |
-| 8n h2w2, batch 32 | 8 | 707.7 | 26.7 h | 214 | 136,800 |
-| 8n pure DDP, batch 32 | 8 | 492.7 | 18.6 h | 149 | 136,800 |
-| 4n h4w1, batch 32 | 4 | 626.8 | 23.7 h | 95 | 136,800 |
-| **4n h2w2, batch 32** | **4** | 576.6 | 21.8 h | **87** | 136,800 |
-| *4n pure DDP, `LOCAL_BATCH=2` — **predicted**, not run* | *4* | *~400* | *~15 h* | *~61* | *136,800* |
+| **1n pure DDP** | **1** | **365.4** | **16.3 h** | **16.3** | **136,800** |
+| 1n h2w2 | 1 | 660.6 | 29.4 h | 29.4 | 136,800 |
+| 2n pure DDP | 2 | 627.1 | 27.9 h | 55.8 | 136,800 |
+| 4n pure DDP | 4 | 409.5 | 18.2 h | 72.8 | 136,800 |
+| 4n h2w2 (`reverse`) | 4 | 536.3 | 23.8 h | 95.4 | 136,800 |
+| 4n h2w2 | 4 | 576.6 | 25.6 h | 102.5 | 136,800 |
+| 4n h4w1 | 4 | 626.8 | 27.9 h | 111.5 | 136,800 |
+| 8n pure DDP | 8 | 492.7 | 21.9 h | 175.2 | 136,800 |
+| 8n h2w2 | 8 | 707.7 | 31.5 h | 251.7 | 136,800 |
+| *what we actually ran — 128n, batch **512*** | *128* | *576.5* | *1.7 h* | ***216*** | ***8,500*** |
 
-**16× more optimizer updates for 40% of the node-hours of the run we already did** — the
+**16× the optimizer updates for 7.5% of the node-hours of the run we already did.** The
 128-node run spent its parallelism inflating the batch, which buys fewer updates rather than
-more work. Every batch-32 row beats it on updates-per-node-hour, and the ordering among them
-tracks **work per GPU**, not decomposition. Wall clock is the cost: ≥15 h exceeds `medium`'s
-6 h cap, so any of these needs a 4-link `-W depend` chain into a pinned `RUN_NUM` (proven for
-makani).
+more work. Note the ordering tracks **work per GPU**, not decomposition, and that 1-node pure
+DDP wins on *both* axes — it is simultaneously the cheapest and the fastest.
 
-⚠ The last row is an extrapolation from §5c's 43.6% sharding tax and must be measured before
-it is planned around. If it holds, the production answer needs **no spatial parallelism at
-all**, which also sidesteps the `w=4` defect entirely.
+Wall clock is the only cost: 16.3 h exceeds `debug` (1 h) and `prod` won't take a single node,
+so this needs the **`capacity`** queue (1-4 nodes, ≤168 h — it fits **unchained**, no
+`-W depend` chain required). ⚠ `capacity` is `max_run 1` per *project*.
 
 ### 5e. Older spatial rows, kept for the record
 
