@@ -285,6 +285,48 @@ been run here — only `h2w2` (§5).
 5. **`gpu_order=default`, deliberately** — this arm does not touch placement, so it stays
    comparable to arm F. The placement axis is a separate, still-unmeasured arm (§8).
 
+### 7b. Prereg — the three upstream-sanctioned shapes at batch 32 (2026-09-01, after 7580084)
+
+`h4w4` (7580084) **failed** — prereg 7a-P1 falsified, zero steps, wedged on a 20.5 MB
+all-reduce at `SeqNum=137` with all 16 ranks enqueued. Checking upstream afterwards (which
+should have come first): **`h4w4` appears nowhere in makani.** Documented shapes are `h4w1`
+(README, 256 GPUs, the *deterministic* trainer = ours), `h2w2` (FCN3 pretrain1) and `h2w4`
+(FCN3 pretrain2) — maximum spatial factor **8**, and we asked for 16. Worse, relative to grid:
+FCN3 splits 721×1440 at `scale_factor 2` by h2w4 ⇒ ~180×180 per rank; we split 180×360 at
+`scale_factor 3` (trunk **60×120**) by h4w4 ⇒ **15×30 per rank**, ~70× smaller tiles than the
+most aggressive split upstream ever uses.
+
+This set runs the three documented shapes, all at **global batch 32 on 4 nodes**, where the
+launcher's `GLOBAL_BATCH = LOCAL_BATCH × NRANKS/(HPAR·WPAR)` gives **identical per-GPU work
+(2 sample-equivalents)** in every arm ⇒ the only variable is communication topology.
+
+| arm | h×w | data ranks | LOCAL_BATCH | trunk tile |
+|---|---|---|---|---|
+| A | 4×1 | 4 | 8 | 15×120 |
+| B | 2×4 | 2 | 16 | 30×30 |
+| C | 2×2 | 4 | 8 | 30×60 |
+
+1. **`h4w1` trains** (120/120 steps over 2 epochs). It is upstream's own deterministic recipe.
+   *Falsified by* a hang — which would mean the `h` axis at 4 is the problem on a 60-row trunk,
+   i.e. **spatial parallelism is unusable at this resolution**, and 7580084 was not about `w`.
+2. **`h2w2` trains.** It is the one shape already proven here (arm F 7564035, 4 nodes, new
+   plugin) — at batch 4 on the 53-ch pack, so this re-tests it at batch 32 on ALLDATA.
+   *Falsified by* a hang ⇒ the batch-32/ALLDATA change broke a previously working shape.
+3. **At least one of the three trains.** *Falsified by* three hangs ⇒ drop spatial parallelism
+   for this model at this resolution and revisit only if the rollout stage forces it.
+4. **Cost ordering `h2w2` ≲ `h4w1` < `h2w4`** — same per-GPU work, so larger tiles and smaller
+   groups should win, and B pays an 8-way split for it. *Falsified* by any other ordering.
+5. **All three exceed the 985 ms zero-overhead reference** (2 × the 8-node pure-DDP batch-32
+   step, 492.7 ms, 7565972 — warmup-free on both sides now, since these run `EPOCHS=2`).
+   The number that decides whether sharding is worth using is the **ratio** to 985 ms, not the
+   raw step time; arm F's `h2w2` ratio on the 53-ch pack was ~5×.
+
+Flight recorder is on for all three (`TORCH_NCCL_TRACE_BUFFER_SIZE`, dumps to a persistent
+dir, `HEARTBEAT_TIMEOUT_SEC=1800` so the informative 600 s collective-timeout message wins the
+race) — its absence is why 7580084 cost a job and still could not name what else was in flight.
+Rows route to `bench/makani_spatial.csv`: these are 2-epoch rows and must not sit in the
+single-epoch scaling table (§0 trap 1).
+
 **Paper context, kept from the deleted plan:** FourCastNet 3 (arXiv:2507.12144 §E.2) trains
 pretrain-2 on **512 A100** as `ensemble 2 × batch 32 × h2w4`. The production run above is also
 512 A100 — but as **pure data parallelism** on a different model and dataset. It reproduces the
