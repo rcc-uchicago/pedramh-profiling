@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 *How to work here.* What & why → **DESIGN.md** (read it first). Where things stand
-→ **CHANGELOG.md**. Cluster detail → **`polaris_pbs_notes.md`**.
+→ **CHANGELOG.md**. What to do next, priority first → **TODO.md**. Cluster detail →
+**`polaris_pbs_notes.md`**.
 
 This file is deliberately short. When a rule needs evidence, the reference carries
 it — don't inline the evidence back here.
@@ -73,7 +74,7 @@ The ways to silently break this project.
 1. Read **CHANGELOG.md** — state, blockers, and failed approaches not to re-try.
 2. Confirm `/model`; note the cluster (`hostname`, `qstat -Q`).
 3. Run the relevant smoke (§Smokes) — or `pytest -q --fast` once that harness exists.
-4. Pick the next unchecked roadmap item (DESIGN §8).
+4. Pick the top open item in **TODO.md** (P0 first); DESIGN §8 is the roadmap behind it.
 5. **Before stopping, update CHANGELOG.md**: what you did, the measured result, what
    you learned, what's now blocked.
 
@@ -174,7 +175,8 @@ reads as fork-owned but is not. Keep such edits minimal and contiguous. → note
 > exists because the *port imports* `s2s/v2.0`) about a PanguWeather file is a
 > category error — it happened here and cost real work.
 
-**Where to look:** measured evidence → `polaris_bench_report.md`,
+**Where to look:** measured evidence → `makani_bench_report.md` (multi-node scaling +
+the 128-node production run), `polaris_bench_report.md` (Pangu, kernel-level),
 `s2s/v2.0/bench_report.md`, `si/bench_midway_notes.md`,
 `s2s-lightning/LIGHTNING_PORT.md`; SI knobs → `si/CLAUDE.md` (auto-loads under `si/`);
 ai-rossby → `physicsnemo_ai_rossby/CLAUDE.md`; Polaris bring-up →
