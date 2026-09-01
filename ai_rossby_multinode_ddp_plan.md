@@ -1,6 +1,7 @@
 # ai-rossby multi-node DDP scaling — plan and prereg
 
-Sibling of `makani_multinode_ddp_plan.md`, for the second harness in
+Sibling of the makani plan (deleted once that campaign finished — its results and
+scored prereg are `makani_bench_report.md`), for the second harness in
 `polaris_multinode_ddp_port_handoff.md`. Same method: **prereg → measure →
 score, misses included.** Written and committed **before the first ladder job**.
 

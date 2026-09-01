@@ -1,9 +1,9 @@
 # HANDOFF — port the makani multi-node DDP capability to PanguWeather, ai-rossby, and ACE2
 
 Read this whole file, then CHANGELOG.md entries 2026-08-23 → 2026-08-27 (the
-makani campaign this generalizes), then the plan file at repo root:
-`/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/makani_multinode_ddp_plan.md`
-(the method: prereg → measure → score, including the scored misses). Work in
+makani campaign this generalizes), then the makani results at repo root:
+`/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/makani_bench_report.md`
+(the method: prereg → measure → score, including the scored misses — §7). Work in
 that repo. **Definitions used throughout:** `$MEMBER_ROOT` =
 `/eagle/projects/lighthouse-uchicago/members/mehta5` (exported by
 `polaris_env.sh`, which every launcher sources); "the ladder" = weak-scaling

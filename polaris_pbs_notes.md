@@ -122,7 +122,7 @@ this doc discharges.
 > **2.8.0**'s NCCL (its values were measured on 2.10.0+cu129) is still open — that needs ≥2 nodes.
 > ⚠️ This does **not** un-break `module load conda`, and the ALCF ticket is still the right fix:
 > the seven pre-existing makani launchers, both E3SM packers included, still open with the bare
-> module and still fail. → `makani_multinode_ddp_plan.md` §7.
+> module and still fail. → `makani_bench_report.md` §9.
 
 **Compute-node networking — CORRECTED 2026-07-14.** Several places in this repo said
 "compute nodes have no outbound network". **That is wrong.** Per ALCF's docs the proxy is the

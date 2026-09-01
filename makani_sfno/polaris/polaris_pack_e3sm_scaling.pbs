@@ -27,7 +27,7 @@
 # six siblings) still opens with the bare `module load conda` / `conda activate
 # base` pair, which has been broken cluster-side since ~2026-08-20 and was
 # re-confirmed broken 2026-08-23. This applies the two-line bootstrap swap that
-# makani_multinode_ddp_plan.md §7 specifies, without editing seven files inside
+# makani_bench_report.md §9 specifies, without editing seven files inside
 # a git subtree. Nothing here is new logic -- the converter is unchanged.
 #
 # WRITES TO A NEW ROOT. The existing e3sm_makani pack is the provenance of the
