@@ -28,6 +28,13 @@ logs `makani_sfno/makani_mn_scaling.o<jobid>` (launcher header) and
    never share a table (§3a vs §3b differ by up to 3.4× at the same node count).
 3. **PASS is `MAKANI_MN_SCALING_OK` plus a CSV row with a timing**, never `rc`. Half the
    rows in the scaling CSV carry no timing on purpose (§6).
+4. **`samples_s_total` was wrong on model-parallel rows until 2026-09-01.** The parser used
+   `local_batch × ranks`, but makani splits `--batch_size` across the **data** group, so under
+   spatial parallelism `local_batch` is per data group and there are only `ranks/(h_par·w_par)`
+   of them — every spatial row overstated throughput by exactly `h_par·w_par`. Fixed to derive
+   from `global_batch`, which is an identity on `h1w1` rows: the 30-row scaling table and the
+   production row are bit-unchanged, and the 5 spatial rows were corrected in place. If you
+   have a copy of a spatial row taken before that date, **divide its throughput by `h_par·w_par`.**
 
 ## 1. What was measured
 
@@ -212,7 +219,77 @@ The ~591 MB reduction is also why makani never hit the tree-all-reduce corruptio
 blocked ai-rossby (which reduces 4.73 GB, above the ~1 GB threshold where NCCL switches
 Ring→Tree). makani needs **no `NCCL_ALGO=Ring` pin**; ai-rossby cannot run without it.
 
-## 5. Spatial (model) parallelism — works, barely exercised
+## 5. Spatial (model) parallelism — `w ≤ 2` works, and it BEATS pure DDP
+
+The headline reverses the assumption this section used to carry. Sharding was treated as a
+cost paid for memory; measured at equal global batch, it is **faster per GPU than pure data
+parallelism** on this model, because it is what lets a GPU hold more than one sample.
+
+### 5a. Which shapes work — the boundary is `w`, not the total split
+
+All four at global batch 32 on the ALLDATA pack, new plugin + Simple, `EPOCHS=2`.
+
+| job | nodes | h×w | spatial factor | trunk tile (of 60×120) | result |
+|---|---|---|---|---|---|
+| 7580122 | 4 | **4×1** | 4 | 15×120 | ✅ **trains**, 626.8 ms |
+| 7580162 | 4 | **2×2** | 4 | 30×60 | ✅ **trains**, 576.6 ms |
+| 7580127 | 4 | 2×**4** | 8 | 30×30 | ❌ hangs in **setup** |
+| 7580084 | 4 | 4×**4** | 16 | 15×30 | ❌ hangs in the **first step** |
+
+**Every arm with `w_parallel_size = 4` failed; every arm with `w ≤ 2` worked — including
+`h=4`.** So the broken axis is `w`, and the earlier guess that "h=4 on a 60-row trunk" was the
+problem is refuted by 7580122. Note also that upstream never ships `w=4` outside the
+*stochastic* trainer (FCN3 pretrain2); the only `w` value in its deterministic recipe is 1.
+
+### 5b. Why `w=4` fails — the ranks are not running the same program
+
+7580127's flight-recorder dumps (16/16 ranks, the instrumentation 7580084 lacked):
+
+| ranks | stuck on | group |
+|---|---|---|
+| 0, 1, 2, 4, 5, 6 | `nccl:broadcast` of `[35389440, 2]` — the **complex spectral weight**, 283 MB | 2-rank h-subgroup |
+| **3, 7, 11, 15** | `nccl:all_reduce_barrier`, seq 2 | **`default_pg`** (all 16) |
+| 8, 9, 10, 12, 13, 14 | nothing — every collective `completed` | — |
+
+Ranks 3, 7, 11, 15 are exactly the **last rank of each 4-member `w`-group** (`rank % 4 == 3`).
+One rank per `w`-group takes a different path through parameter sync than its peers, so the
+collectives can never pair up. **This is an application-level divergence, not a transport
+failure** — it is not size (283 MB broadcasts succeed elsewhere), not the plugin, not a
+desync of the usual "one rank never arrives" kind. 191 of 192 collectives on rank 0 completed.
+
+### 5c. Throughput at equal global batch — sharding wins per GPU
+
+All rows global batch 32, ALLDATA, new plugin, warmup-free (`step_ms` = final epoch).
+⚠ These totals are **post-fix**: `samples_s_total` previously multiplied by rank count instead
+of data-group count and overstated every spatial row by exactly `h_par·w_par` (§0 trap 4).
+
+| config | job | nodes | GPUs | samples/GPU | sample-equiv/GPU | step_ms | samples/s | **per GPU** |
+|---|---|---|---|---|---|---|---|---|
+| pure DDP | 7565972 | 8 | 32 | 1 | 1 | 492.7 | 64.9 | 2.03 |
+| **h2w2** | 7580162 | 4 | **16** | **8** | 2 | 576.6 | 55.5 | **3.47** |
+| h4w1 | 7580122 | 4 | 16 | 8 | 2 | 626.8 | 51.1 | 3.19 |
+
+**`h2w2` on half the GPUs delivers 85% of the throughput — 1.71× more per GPU.** Per
+sample-equivalent it is 288 ms against pure DDP's 493 ms. The mechanism is occupancy, not
+communication: at 1 sample/GPU a 60×120 trunk cannot fill an A100, and sharding is what lets
+each GPU hold 8 samples while the *global* batch stays at 32. Memory falls too (6.0-6.2 GB
+against the production run's 8.36), since each rank holds a quarter of the domain.
+
+### 5d. What it costs to train 100 epochs at batch 32 (1,360 steps/epoch)
+
+| plan | nodes | step_ms | wall | **node-hours** | updates |
+|---|---|---|---|---|---|
+| what we actually ran — 128n, batch **512** | 128 | 576.5 | 1.6 h | **216** | **8,500** |
+| 8n pure DDP, batch 32 | 8 | 492.7 | 18.6 h | 149 | 136,800 |
+| **4n h2w2, batch 32** | **4** | 576.6 | 21.8 h | **87** | **136,800** |
+| 4n h4w1, batch 32 | 4 | 626.8 | 23.7 h | 95 | 136,800 |
+
+**16× more optimizer updates for 40% of the node-hours of the run we already did** — the
+128-node run spent its parallelism inflating the batch, which buys fewer updates rather than
+more work. Wall clock is the cost: ≥18 h exceeds `medium`'s 6 h cap, so any of these needs a
+4-link `-W depend` chain into a pinned `RUN_NUM` (proven for makani).
+
+### 5e. Older spatial rows, kept for the record
 
 | job | nodes | h×w | global batch | plugin | step_ms |
 |---|---|---|---|---|---|
@@ -225,10 +302,27 @@ Ring→Tree). makani needs **no `NCCL_ALGO=Ring` pin**; ai-rossby cannot run wit
   serialized-and-still-hung 7563723 with `enqueued 84, completed 83`). The new plugin fixes it.
 * `_serialized_sync_params` (in `plasim_trainer.py`, setup-path only, output-neutral) is kept
   as NCCL-contract hygiene — upstream's own call site carries `# DEBUG: this also needs to be
-  fixed in NCCL`. It is **not** what unblocked 4 nodes.
+  fixed in NCCL`. It is **not** what unblocked 4 nodes, and it does **not** cover §5b's
+  divergence, which is in the same family but survives it.
 * ⚠ **371.5 vs 219.5 is a 1.69× spread between two runs whose recorded configuration is
-  identical** (same plugin, proto, pack, batch, GPU order). Both n=1. No spatial number here
-  should be quoted until this is reproduced.
+  identical** (same plugin, proto, pack, batch, GPU order). Both n=1, both at global batch 1,
+  and neither should be quoted.
+
+### 5f. Prereg §7b scored — 3 hits, 1 partial, 1 miss
+
+| # | prediction | verdict |
+|---|---|---|
+| 1 | `h4w1` trains | ✅ **HIT** — 120/120 steps, loss 0.414 → 0.116 |
+| 2 | `h2w2` trains | ✅ **HIT** — 120/120 steps, loss 0.398 → 0.111 |
+| 3 | at least one of the three trains | ✅ **HIT** — two did |
+| 4 | cost ordering `h2w2` ≲ `h4w1` < `h2w4` | ◐ **PARTIAL** — 576.6 < 626.8 as predicted; `h2w4` unscoreable |
+| 5 | all three exceed the 985 ms zero-overhead reference | ❌ **MISS** — both successes are far **below** it |
+
+**P5 is the miss that carries the result.** The 985 ms reference (2 × the 8-node pure-DDP
+step) assumed per-GPU cost scales with sample count independently of *local batch*. It does
+not: 8 samples per GPU is far more efficient than 1, which is precisely why sharding wins in
+§5c. The reference was built on the wrong invariant, and the prediction failing is how that
+surfaced.
 
 ## 6. What the refused rows say — 15 of 30 rows carry no timing, by design
 

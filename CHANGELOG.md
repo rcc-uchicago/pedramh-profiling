@@ -143,6 +143,64 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-01 (cont.)** — ⭐ **SHARDING BEATS PURE DDP AT EQUAL BATCH, AND THE BROKEN AXIS IS
+  `w`, NOT THE SPLIT SIZE.** Four spatial shapes at global batch 32 on the ALLDATA pack,
+  4 nodes, new plugin + Simple, `EPOCHS=2` so `step_ms` is warmup-free. Full analysis with
+  tables: `makani_bench_report.md` §5.
+  - **Two work, two hang, and the boundary is clean:**
+    | job | h×w | spatial factor | result |
+    |---|---|---|---|
+    | 7580122 | 4×1 | 4 | ✅ 626.8 ms |
+    | 7580162 | 2×2 | 4 | ✅ 576.6 ms |
+    | 7580127 | 2×**4** | 8 | ❌ hangs in setup |
+    | 7580084 | 4×**4** | 16 | ❌ hangs in the first step |
+    **Every `w=4` arm failed; `h=4` is fine.** That refutes the "h=4 on a 60-row trunk"
+    hypothesis I formed from 7580084 alone — 7580122 splits `h` by 4 and trains.
+  - 🔬 **The flight recorder named it, which is exactly what 7580084 could not do.** In
+    7580127 the ranks are **not running the same program**: ranks 0,1,2,4,5,6 sit in a 283 MB
+    broadcast of the complex spectral weight (`[35389440, 2]`) on their 2-rank h-subgroups,
+    while ranks **3, 7, 11, 15** — precisely `rank % 4 == 3`, the **last rank of each
+    `w`-group** — sit in an `all_reduce_barrier` on `default_pg`. 191 of 192 collectives on
+    rank 0 completed. ⇒ **application-level divergence in parameter sync under `w=4`**, not
+    transport, not size, not the usual "one rank never arrives". Adding the recorder cost
+    nothing and converted a second mystery into a located defect.
+  - ⭐⭐ **THE RESULT THAT CHANGES THE PRODUCTION PLAN: at equal global batch, `h2w2` on
+    HALF the GPUs delivers 85% of pure DDP's throughput — 1.71× more per GPU.**
+    | config | GPUs | samples/GPU | step_ms | samples/s | per GPU |
+    |---|---|---|---|---|---|
+    | 8n pure DDP (7565972) | 32 | 1 | 492.7 | 64.9 | 2.03 |
+    | **4n h2w2 (7580162)** | **16** | **8** | 576.6 | 55.5 | **3.47** |
+    The mechanism is **occupancy, not communication**: at 1 sample/GPU a 60×120 trunk cannot
+    fill an A100, and sharding is what lets each GPU hold 8 samples while the global batch
+    stays at 32. Memory falls too (6.0 GB vs the production run's 8.36).
+    ⇒ 100 epochs at batch 32 costs **87 node-hours on 4 nodes h2w2** vs 149 on 8 nodes pure
+    DDP — and vs **216 node-hours for the 128-node run we actually did, which bought 8,500
+    updates against these 136,800.** 16× the updates for 40% of the cost.
+  - **PREREG §7b SCORED — 3 hits, 1 partial, 1 miss, and the miss is the finding.** P5
+    predicted all three arms would exceed a 985 ms "zero-overhead" reference (2× the 8-node
+    pure-DDP step); both successes came in far **below** it. The reference assumed per-GPU cost
+    is independent of local batch. It is not — which is the whole occupancy result. Recorded as
+    a miss rather than reinterpreted.
+  - 🐛 **DEFECT FOUND WHILE TABLING THE RESULT: `samples_s_total` overstated every
+    model-parallel row by exactly `h_par·w_par`.** The parser used `local_batch × ranks`, but
+    makani splits `--batch_size` across the **data** group, so under spatial parallelism
+    `local_batch` is per data group and there are only `ranks/(h_par·w_par)` of them. h2w2 at
+    batch 32 read **222 samples/s where the truth is 55.5** — a number that would have made
+    sharding look 4× better than pure DDP instead of 1.71×, on a column that is a
+    cross-project contract (#10). Fixed to derive from `global_batch`, which is an **identity**
+    where `h_par=w_par=1`: verified across all four CSVs, the 30-row scaling table and the
+    128-node production row are bit-unchanged and only the 5 spatial rows moved (each by
+    exactly 4.00×), corrected in place. Two tests pin both halves —
+    `MAKANI_SCALING_PARSE_OK 13 tests`.
+  - **Cost:** 7580084 ≈1.8 node-h (wasted, no recorder), 7580122/7580127/7580162 ≈3-4 node-h
+    each. **In flight: 7580297** — 8 nodes h2w2 `LOCAL_BATCH=4` → batch 32 on 32 GPUs, the
+    controlled twin of 7565972 (same nodes, same global batch, same 1 sample-equivalent per
+    GPU; only the samples-per-GPU differs, 4 vs 1). It isolates the occupancy claim.
+  - ⚠ **Still open and now more urgent:** every row above is `gpu_order=default`, i.e. each
+    rank on the NUMA node farthest from its GPU. Under spatial parallelism the intra-node
+    halo traffic rides that distance every step, so the placement arm should land before any
+    of these numbers are treated as final (`TODO.md` P0-3).
+
 - **2026-09-01** — **Documentation cleanup ahead of the makani push: the makani campaign now has
   a results document, the repo has one prioritised to-do list, and this log is in date order
   again.** No GPU time; nothing submitted (the queue is empty — every ai-rossby sweep job
