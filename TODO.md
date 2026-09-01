@@ -43,7 +43,12 @@ not the current push. Nothing queued or running as of 2026-09-01.
    warmup-inclusive says the first Slingshot hop is free (+0.7%) and 67% efficiency at 8 nodes;
    warmup-free says +35% and **47%**. → `makani_bench_report.md` §3c.
    Run §3a's rungs at `EPOCHS=2`, wandb off, ≥3 interleaved reps per rung.
-   *Cost: ~12 jobs, all ≤10 nodes in `debug-scaling` (≤1 h, 1 job/user).*
+   **Carry `-v GPU_ORDER=reverse` as a paired arm at 1 and 4 nodes** — all 30 existing rows
+   (production included) ran `default`, which on Polaris' **reversed** GPU↔NUMA map
+   (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456) combines with the mandatory
+   `--cpu-bind depth -d 8` to place every rank on the NUMA node *farthest* from its own GPU.
+   It changes placement, not per-rank arithmetic, so it needs no equivalence gate.
+   *Cost: ~12 jobs + 2 arms, all ≤10 nodes in `debug-scaling` (≤1 h, 1 job/user).*
    PASS: `MAKANI_MN_SCALING_OK` + a row per rung.
    *Nothing about makani scaling should be published until this exists.*
 
@@ -97,9 +102,11 @@ not the current push. Nothing queued or running as of 2026-09-01.
    `polaris_pack_e3sm_scaling.pbs`. ⚠ Seven files inside a `git subtree` — keep the edits
    minimal and contiguous (notes §6b).
 
-9. **Arms D and E, never run** (prereg 4 and 5, still unscored): `-v DATA=synthetic` separates
-   an I/O loss from a comms loss; `-v GPU_ORDER=reverse` tests the measured reversed GPU↔NUMA
-   map. *Cost: 2 jobs.*
+9. **Arm D, never run** (prereg 4, unscored): `-v DATA=synthetic` separates an I/O loss from a
+   comms loss. *Cost: 1 job.* (Arm E, `GPU_ORDER=reverse`, has moved up into P0-3 — it is a
+   confound on every existing row, not just an unscored prediction. ⚠ ai-rossby queued the
+   same test and **both arms were refused** — 7577036 `rc=134`, 7577166 `rc=143` — so the axis
+   still has zero measurements anywhere; find out why those died before re-queueing.)
 
 10. **Second-user reproducibility for makani** — Pangu and SI have it, makani and physicsnemo
     do not (DESIGN §8). One run as another user with `PYTHONNOUSERSITE=1`.

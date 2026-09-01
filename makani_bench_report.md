@@ -40,6 +40,7 @@ logs `makani_sfno/makani_mn_scaling.o<jobid>` (launcher header) and
 | model | SFNO `embed_dim 384`, `num_layers 8`, E3SM 180×360 — **147,818,882 params** (53-ch) / **147,863,863** (ALLDATA) |
 | DDP shape | `parameters_reduction_buffer_count 1` — makani reduces in **one bucket**, ≈**591 MB** fp32 per step |
 | scaling mode | **weak** — local batch pinned at 1 sample/GPU, so global batch = 4 × nodes and per-GPU arithmetic is constant |
+| rank↔GPU placement | ⚠ **`GPU_ORDER=default` on all 30 rows, production included.** Polaris' GPU↔NUMA map is **reversed** (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456), and the **mandatory** `--cpu-bind depth -d 8` puts local rank 0 on NUMA 0 — whose GPU is `dev3`. The two required settings therefore combine to place **every rank maximally far from its own GPU**. `-v GPU_ORDER=reverse` (`CUDA_VISIBLE_DEVICES=3,2,1,0`) fixes it and **has never been run** (prereg 5, §8) |
 
 **Three packs, and they are not interchangeable** (a pack change alone moved the
 single-node step time 41%, §2):
@@ -259,6 +260,31 @@ Recorded before the first multi-node job (in the deleted plan, §4). Three score
 | 4 | synthetic-data arm degrades less than real (separates I/O from comms) | ⛔ **never run** |
 | 5 | `GPU_ORDER=reverse` (NUMA-local pairing) within 5% of default | ⛔ **never run** |
 
+### 7a. Prereg — the `h4w4` / batch-32 arm, recorded before submission (2026-09-01)
+
+Upstream reaches 512-1024 GPUs at data-parallel batch **16-32** by spending ranks on
+ensemble × spatial parallelism (`fourcastnet3.yaml`: pretrain1 `e16 × b16 × h2w2` = 1024;
+pretrain2 `e2 × b32 × h2w4` = 512, *"to fit into memory on 80GB GPUs"*). Our production run
+spent all 512 ranks on data parallelism instead ⇒ batch 512, 16× pretrain2, and 8,500
+optimizer updates. Since `GLOBAL_BATCH = LOCAL_BATCH × NRANKS/(HPAR·WPAR)`, `h4w4` +
+`LOCAL_BATCH=32` reproduces the batch-32 regime on **4 nodes**. 16-fold spatial has never
+been run here — only `h2w2` (§5).
+
+1. **It initialises and trains** — 60/60 steps, `MAKANI_MN_SCALING_OK`. *Falsified by* a hang
+   or IMA, which would kill batch-32-by-sharding and force the batch down on pure DDP instead.
+2. **Memory fits** — peak < 30 GB/GPU. Estimate ~17 GB: production held 8.36 GB at batch 1
+   unsharded, and each rank here holds 1/16 of the domain for 32 samples ≈ 2 sample-equivalents.
+   *Falsified by* OOM ⇒ retry at `LOCAL_BATCH=16` (pretrain1's batch).
+3. **Step time lands in 1.5-6 s** — arm F's `h2w2` at 4 nodes was 569.9 ms for batch 4; this
+   carries 8× the samples on 4× the split. *Falsified outside the band*, meaning the cost model
+   is wrong, not the run.
+4. **The loss is sane** — first steps O(1-3) and descending within the epoch, matching the
+   production run's opening (2.14 → 0.89 over its first six steps). *Falsified by* NaN or a flat
+   loss ⇒ the spatial split changes **what** is computed, not just where, and that is a
+   correctness bug rather than a placement question.
+5. **`gpu_order=default`, deliberately** — this arm does not touch placement, so it stays
+   comparable to arm F. The placement axis is a separate, still-unmeasured arm (§8).
+
 **Paper context, kept from the deleted plan:** FourCastNet 3 (arXiv:2507.12144 §E.2) trains
 pretrain-2 on **512 A100** as `ensemble 2 × batch 32 × h2w4`. The production run above is also
 512 A100 — but as **pure data parallelism** on a different model and dataset. It reproduces the
@@ -273,7 +299,8 @@ FCN3 reproduction.
 | **A warmup-free, wandb-off ladder** | decides §3a vs §3c, i.e. whether the first hop is free or +35% | 4 jobs, ≤1 h |
 | **cpu-bind / progress-thread sweep on the new plugin** | ~79% of the 8-node step is exposed comms (§3b); the bind was tuned for the old plugin's manual progress | 3-4 jobs at 4 nodes |
 | **`nsys` per-rank capture (`-v NSYS=1`)** | makani has **no kernel-level profile at all**; rank-0 logging cannot answer where the step goes | 1 job (truncated by design — `exit_on_stop`) |
-| **arms D (synthetic) / E (`GPU_ORDER=reverse`)** | separates I/O from comms; tests the reversed GPU↔NUMA map | 2 jobs |
+| **arm D (synthetic)** | separates an I/O loss from a comms loss | 1 job |
+| **arm E (`GPU_ORDER=reverse`)** | every row here — and the production run — placed each rank on the NUMA node *farthest* from its GPU (§1). It is a placement change, not an arithmetic one, so it needs no equivalence gate, and it is the standing candidate for the host-CPU stall in `polaris_bench_report.md` §4.4e. **It matters more under spatial parallelism**, where intra-node halo traffic rides that same distance every step. ai-rossby queued the identical test and both arms were refused (7577036 `rc=134`, 7577166 `rc=143`), so the axis has **zero measurements in either harness** | 1 job + 1 control |
 | **A DESIGN §4 equivalence baseline** | no hot-path change may be committed without one; makani has none | 1 short job |
 | **Inference / evaluation on `best_ckpt_mp0.tar`** | a trained model nobody has scored | not yet scripted |
 | **`omp_threads=64`** | all 30 rows ran at **8× CPU oversubscription** on the same cores the progress engine uses (PBS exports `OMP_NUM_THREADS=<ncpus>`; the launcher's `${OMP_NUM_THREADS:-1}` idiom never overrode it). Comparability is intact — the value is constant on every row — but the absolute numbers were taken under it | deliberately **not** changed: flipping it makes future rows incomparable with all 30. Owner's call, and it interacts with the cpu-bind sweep above |
