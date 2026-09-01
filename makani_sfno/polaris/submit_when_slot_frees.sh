@@ -48,6 +48,12 @@ SLEEP_S=300
 
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "${LOG}"; }
 
+# ORDER IS LOAD-BEARING: COMMON first, EXTRA last. PBS -v resolves duplicate
+# keys LAST-WINS (measured 2026-09-01, job 7582170: EXTRA carried EPOCHS=8 and
+# STEPS=20, COMMON carried EPOCHS=2 and STEPS=60, and the rendered config got
+# COMMON's values). With EXTRA first, every per-arm override of a COMMON key was
+# silently discarded -- the arm ran a different configuration than its own tag
+# claimed, which is the worst possible failure for a benchmark harness.
 COMMON="STEPS=60,EPOCHS=2"
 COMMON="${COMMON},MAKANI_SCALING_CSV=${CSV}"
 COMMON="${COMMON},CONFIG_YAML=e3sm_alldata_full.yaml"
@@ -64,7 +70,7 @@ log "waiting for a slot: ${TAG} [${EXTRA}] select=${SELECT} walltime=${WALLTIME}
 for ((i = 1; i <= MAX_TRIES; i++)); do
     out=$(cd "${HERE}" && qsub -q "${QUEUE}" \
               -l "select=${SELECT}:system=polaris" -l "walltime=${WALLTIME}" \
-              -v "${EXTRA},${COMMON}" \
+              -v "${COMMON},${EXTRA}" \
               polaris/polaris_makani_multinode_scaling.pbs 2>&1)
     if [[ "${out}" == *".polaris-pbs"* ]]; then
         log "ARM_QUEUED ${TAG} jobid=${out%%.*} (try ${i})"
