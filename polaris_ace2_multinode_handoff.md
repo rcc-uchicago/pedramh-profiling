@@ -269,8 +269,26 @@ building any multi-node ladder; a scale-out study that never establishes the
 state scales with the 2.67 GB parameter bytes (§2): params + grads + AdamW's two
 moments ≈ **10.7 GB fixed on a 40 GB Polaris A100**, against makani's 2.37 GB.
 ACE2 starts with a quarter of the card gone, and `batch_size=16` was already
-flagged unvalidated at 40 GB. **Find the largest local batch that fits before
-assuming the makani strategy transfers.**
+flagged unvalidated at 40 GB.
+
+⚠⚠ **AND DO NOT EXTRAPOLATE THE MEMORY — BINARY-SEARCH IT.** makani has three measured
+points and **no working model**; two were fitted and both refuted by the next measurement:
+
+| makani samples/GPU | memory |
+|---|---|
+| 8 | 16.04 GB |
+| **12** | **18.97 GB** (+0.73 GB per sample — nearly linear) |
+| 16 | **≥39.5 GB — OOM** on a 39.49 GiB card |
+
+8→12 is nearly linear; 12→16 would predict ~22 GB and instead exceeds 39.5. **That is a
+cliff, not a curve** — something discrete happens in between (allocator fragmentation, or a
+spectral-transform workspace change; untested). Refuted models, kept so neither is refitted:
+*"≈0.99 GB per sample-step, linear"* and *"≈2.5× per doubling, superlinear"*.
+
+**For ACE2 this matters more, not less** — 4.5× the fixed optimizer state means the usable
+activation budget is smaller and the cliff arrives sooner. Find the largest local batch by
+**measuring one arm per value** (a 2-epoch run at production settings reports the peak in
+~20 min), not by fitting. → `makani_bench_report.md` §5g.
 
 **The Midway profile may not transfer at all.** It was taken on **A100-PCIE with
 no NVLink**, where a fp32 gradient all-reduce is expensive — that is *why* NCCL
@@ -294,9 +312,18 @@ interconnect.
 | **`sbank`** (`sbank-list-allocations -p lighthouse-uchicago`, `sbank-list-jobs`) | the accounting source; PBS `qstat -x` history only reaches ~1 week |
 
 **Reference point for what a Polaris production run now looks like:** makani job
-**7585080** — 1 node, 4 GPUs, pure DDP, 243 epochs, ~45 h, ~45 node-hours, on
-`capacity` (1-4 nodes, ≤168 h, **`max_run 1` per PROJECT** — it holds the
-project's only slot for the duration).
+**7585080** — 1 node, 4 GPUs, pure DDP, batch 32, LR 2e-3, `CosineAnnealingWarmRestarts`
+(`T_0=20`), 243 epochs, ~45 h, ~45 node-hours, on `capacity` (1-4 nodes, ≤168 h,
+**`max_run 1` per PROJECT** — it holds the project's only slot for the duration).
+By epoch 23 (its first cycle end, **4.4 node-hours**) it was at validation **0.01402 — 23%
+below the 128-node run's FINAL loss**, which cost 216 node-hours. That is the occupancy
+result cashed out.
+
+⚠ **Operational, measured: do not run I/O-heavy arms against a live production job on the
+same data pack.** Three concurrent 1-node arms plus a probe cost production **+2.3% median
+epoch wall** (668.4 → 683.9 s, spikes to 753 s), with `io_gbs` 3.31 → 3.27. Numerics are
+unaffected — but those epochs must be excluded from any epoch-time statistic, and at ACE2's
+I/O shape (**every rank reading one 2.4 TB NetCDF**, §2) the effect could be much larger.
 
 ---
 
@@ -526,6 +553,16 @@ Suggested predictions (falsifiable, with the condition stated):
 4. **The cliff saturates:** 2→4 node growth ≤25%.
 5. `gpu_busy_frac` ≥ 0.85 on every arm.
 6. Rep spread < 5% per arm (ai-rossby missed this at 2 nodes: 15%).
+
+⚠ **If any arm scores stability, do NOT use gradient norm alone as the health signal.**
+Measured on makani 2026-09-02: in a 4-arm LR sweep the **worst** arm (4e-3, validation
+0.10703 — 4.5× worse than the winner) had the **lowest** gradient norm of the four
+(0.00913). A falling grad norm is equally consistent with healthy convergence and with a
+collapsed/stuck optimizer. Read it **with** the loss, never instead of it.
+⚠ Also from that sweep: the winner (2e-3) was **5× upstream's own batch-32 value**, which
+came third of four. Upstream authority is a prior, not a measurement — write the selection
+rule before the arms exist (makani's is `makani_sfno/polaris/pick_lr.py`, committed before
+arms 2-3 ran).
 
 ## 6. Definition of done
 
