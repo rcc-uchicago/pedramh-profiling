@@ -44,7 +44,10 @@ mkdir -p "$(dirname "${LOG}")"
 log "waiting for lr_4e4 / lr_1e3 / lr_2e3 to reach epoch 3"
 
 for ((i = 1; i <= MAX_TRIES; i++)); do
-    PICK=$("${HERE}/polaris/pick_lr.py" "${RUNS}" 2>&1)
+    # /usr/bin/python3.11 EXPLICITLY: the login node's bare `python3` is 3.6.15
+    # and dies on `from __future__ import annotations` (polaris_pbs_notes: repo
+    # tooling needs 3.11). A shebang alone is not enough via `env python3`.
+    PICK=$(/usr/bin/python3.11 "${HERE}/polaris/pick_lr.py" "${RUNS}" 2>&1)
     RC=$?
     if [ "${RC}" -eq 0 ]; then
         log "selection: ${PICK}"

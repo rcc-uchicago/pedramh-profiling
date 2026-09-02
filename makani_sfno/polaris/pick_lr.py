@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3.11
 """Apply the pre-registered LR selection rule to the 3-arm sweep.
 
 Exit 0 and print ``WINNER_LR=<lr> ...`` once every arm has reached epoch 3.
