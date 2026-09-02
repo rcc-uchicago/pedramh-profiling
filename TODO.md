@@ -41,10 +41,14 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
    the batch-512 production run had **no warmup at all** and could not have had any.
    Warm restarts also hand us a **free snapshot ensemble** — one checkpoint per restart (item 3).
 
-3. **Evaluate the trained model — inference has never been run on makani here.**
-   `best_ckpt_mp0.tar` (= epoch 100) exists and nothing scores it. This is the last unchecked
-   box of DESIGN §8 Phase 1 for this model, and it is the difference between "a training run
-   completed" and "an evaluatable model".
+3. **Score the trained model — *rollout* inference is what's missing, not all evaluation.**
+   ⚠ **Corrected 2026-09-02:** an earlier version of this item said "nothing scores it". Not
+   true — `makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md` documents the
+   restore path **and a one-command Polaris validation run**: `-v SKIP_TRAIN=1` restores the
+   pinned `RUN_NUM` and runs validation only over the full 3-year split (4,380 samples,
+   3-step rollout, ~10 min, 1 node, weights untouched). What is genuinely missing is **long
+   rollout forecasts and scorecards**, whose tooling (`src/sfno_inference/`, `src/sfno_eval/`)
+   is Stampede3-pathed, and stock makani's inference entrypoint is hard-gated off in this fork.
    **Do not write this from scratch:** `makani_sfno/scripts/` already carries the group's
    4-stage chain (`eval_inference.py` → score → `report.md` → figures, driven by
    `submit_eval.sh`, plus the `eval-sfno-own` / `eval-sfno-5410` skills). It even expects the

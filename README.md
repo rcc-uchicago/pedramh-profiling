@@ -86,6 +86,45 @@ Executed handoff prompts are deleted once their work is done — the results liv
 **If a doc disagrees with `polaris_pbs_notes.md` on a cluster fact, the notes win.**
 Several docs carry convenience copies of the queue table; they drift, and they say so.
 
+
+## For the science owner — checkpoints, inference, and the open questions
+
+The engineering docs above are about *making it run*. These are about *what it computed*:
+
+| you want to… | read / run |
+|---|---|
+| **use the trained model** — load weights, restore, run it | **[`makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md`](makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md)** — written for a user with no HPC stack. Weights, config, normalization stats and channel contract, with paths |
+| **validate the checkpoint on Polaris** | one command, ~10 min on 1 node: `-v RUN_NUM=<run>,SKIP_TRAIN=1,EVAL_SAMPLES=4380` on `polaris/polaris_makani_multinode_scaling.pbs` — restores and runs validation only, weights untouched (§5 of that doc) |
+| **compare models** | the **102 shared wandb panels** in project `pedramh-profiling` — per-variable, per-level lat-weighted RMSE in physical units, keys byte-identical across makani / PanguWeather / ai-rossby. `prod128_alldata_v2` is run `kfodxzto`. Contract: [`wandb_metrics_report.md`](wandb_metrics_report.md), [`ai_rossby_finegrained_wandb_handoff.md`](ai_rossby_finegrained_wandb_handoff.md) |
+| **check which variables a model trains on** | [`ai_rossby_panguweather_variable_parity.md`](ai_rossby_panguweather_variable_parity.md) (which variables, proven equal across pipelines) and [`polaris_e3sm_variable_reference.md`](polaris_e3sm_variable_reference.md) (what each one is) |
+| **check how the data is stored** | [`ai_rossby_e3sm_zarr_schema.md`](ai_rossby_e3sm_zarr_schema.md) — measured geometry, chunking, and the production year split |
+| **answer the open decisions** | [`polaris_data_prep_decisions.md`](polaris_data_prep_decisions.md) — 5 open questions, several needing a science call |
+
+### ⚠ Three semantics that silently produce wrong physics if ignored
+
+From the checkpoint doc §4 — they matter to anyone using the weights outside the training wrappers:
+
+1. **Inputs are z-scored** with the pack's `global_means`/`global_stds`, in exactly the channel
+   order of `metadata/data.json`. **The checkpoint is not self-contained** — wrong stats or
+   order give plausible-looking, wrong output.
+2. **The network predicts a *tendency*, not the state.** Add it to the input state to get the
+   next state.
+3. **The 7 forcing channels are prescribed at every rollout step, not predicted** — refresh
+   them from data. `PRECT` is diagnostic-only and never fed back.
+
+### Open science questions, stated plainly
+
+- **Batch size / LR.** The 128-node run used global batch **512** at the shipped LR — 64× the
+  config's batch, and it bought only **8,500 optimizer updates** in 100 epochs. Its validation
+  minimum sat at the *last* epoch, i.e. undertrained rather than converged. The run in flight
+  now uses batch **32** on one node for **332,424** updates. Neither batch/LR choice has had a
+  science sign-off; the per-channel panels are how to judge them.
+- **Rollout training.** All runs so far are `n_future: 0` — single-step, never trained on their
+  own output. This is the leading explanation for forecasts being worse than the training loss
+  suggests, and upstream's own recipe has a 4-step rollout stage for exactly this reason.
+- **Frozen ocean forcing (R2)** — the sharpest open question in the archive itself.
+  [`data_for_training.md`](data_for_training.md).
+
 ### How `s2s-lightning/` and `s2s/` relate
 
 `s2s-lightning/` contains **no copy** of the model, losses, or data loaders. Its
