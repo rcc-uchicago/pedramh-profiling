@@ -9,6 +9,15 @@ TREE all-reduce silently return partially-reduced data and then hang, at sizes
 between 25 MiB and 1000 MiB. `NCCL_ALGO=Ring` avoids it and is one env var —
 set it from the first multi-node job as insurance.**
 
+**⚠ UPDATED 2026-09-02 — read §1f before the plan. A second harness (makani) went
+to production on Polaris and measured that at a FIXED global batch, more nodes
+make training SLOWER: one node was both the cheapest and the fastest, and the
+fabric costs a fixed ~234 ms/step the moment it is touched. ACE2's own Midway
+data points the same way (NCCL 40-46% of kernel time; batch size moves it
+52.1% → 18.6%). So the first question here is "what is the fewest GPUs that hold
+the batch", not "how well does it scale out" — and this document's title is a
+hypothesis, not a conclusion.**
+
 **Whether ACE2 is actually exposed is UNKNOWN and is the first thing to
 measure, not assume.** Its largest gradient collective is ~165–212 MB (measured
 in this repo, §1a), which lands in a range nobody has probed. An earlier draft
@@ -217,6 +226,72 @@ costs 0.5% of step time for double the ranks. 2 nodes is a throughput *trough*
 that error is recorded in CHANGELOG because I made it.
 ⚠ Per-arm rep spread: 1n 0.1%, 4n 2.5%, 8n 4.0%, but **2n 15%** across 5 reps.
 Anchor claims on the tight arms.
+
+### 1f. ⚠ WHAT THE makani CAMPAIGN ADDED (2026-09-01/02) — read before writing the plan
+
+A second harness was taken to production on Polaris after this document was
+written, and **its central result questions this document's premise.** Evidence:
+`makani_bench_report.md` §5, `polaris_makani_1node_production_handoff.md`.
+
+**At a FIXED global batch, more nodes made makani slower, not faster:**
+
+| nodes | GPUs | samples/GPU | step_ms | samples/s |
+|---|---|---|---|---|
+| **1** | **4** | **8** | **365.4** | **87.6** |
+| 2 | 8 | 4 | 627.1 | 51.0 |
+| 4 | 16 | 2 | 409.5 | 78.1 |
+| 8 | 32 | 1 | 492.7 | 64.9 |
+
+The mechanism is a **fixed ~234 ms per-step toll the moment the fabric is
+touched** (derived from two runs sharing a node count; ≈4.4 GB/s effective
+busbw, consistent with this stack's measured 4-6 GB/s). One node never pays it.
+The 2-node trough reproduces §1e's ai-rossby shape on a second, unrelated model
+— **that is now a machine characteristic, not a per-model quirk.**
+
+⇒ **For ACE2 this is not a footnote, it is the plan.** Three independent facts
+point the same way:
+1. ACE2's Midway profile is **NCCL 40-46% of GPU kernel time**;
+2. `bench_midway_notes.md` already measured that **raising batch size moves NCCL
+   52.1% → 18.6%** — i.e. the lever on communication is samples per rank;
+3. makani measured that at fixed batch, **fewer ranks each doing more wins.**
+
+**So the first ACE2 question on Polaris is not "how well does it scale out" but
+"what is the fewest GPUs that hold the batch".** Measure the 1-node point before
+building any multi-node ladder; a scale-out study that never establishes the
+1-node baseline cannot tell a comms win from an occupancy win.
+
+⚠ **But ACE2 has far less room to take that route than makani did.** Optimizer
+state scales with the 2.67 GB parameter bytes (§2): params + grads + AdamW's two
+moments ≈ **10.7 GB fixed on a 40 GB Polaris A100**, against makani's 2.37 GB.
+ACE2 starts with a quarter of the card gone, and `batch_size=16` was already
+flagged unvalidated at 40 GB. **Find the largest local batch that fits before
+assuming the makani strategy transfers.**
+
+**The Midway profile may not transfer at all.** It was taken on **A100-PCIE with
+no NVLink**, where a fp32 gradient all-reduce is expensive — that is *why* NCCL
+read 40-46%. Polaris A100-SXM4 is a **full NV4 NVLink mesh, 82.9-83.1 GB/s
+uniform on every pair** (job 7533457). Intra-node collectives should be
+dramatically cheaper here, so **prereg this: ACE2's NCCL share on 1 Polaris node
+will be materially below 40%.** If it isn't, the diagnosis was never about the
+interconnect.
+
+**Other carry-overs, each measured, each cheap to honour:**
+
+| finding | consequence for ACE2 |
+|---|---|
+| **60-step benchmark arms read a cache-hot window** — makani's production step was **475 ms vs 365 ms** benchmarked, a 30% optimism; the *ranking* survived, the absolutes did not | never plan from a short arm. ACE2's own notes already record the page-cache lesson ("8× more samples in half the wall-clock"); this quantifies it |
+| **wandb per-iteration logging costs ~0** (475.6 vs 474.9 ms, controlled twin) | ACE2's epoch cost is the **validation aggregators**, not logging. `validation_aggregator.log_snapshots=false` (~30% off the epoch, no numerics change) remains the real lever |
+| **`GPU_ORDER=reverse` is config-dependent, not a free win** — +0.88% *worse* at 1 node (3+3 reps, node-matched), −7.0% better at 4 nodes sharded | measure it per configuration; do not port a sign |
+| **Spatial/model sharding is a 40-80% tax and is NOT a fabric effect** (+80.8% at 1 node with no fabric at all) | if ACE2 ever grows a model-parallel path, it buys memory, never speed |
+| **PBS `-v` resolves duplicate keys LAST-WINS** | a helper appending its defaults *after* the caller silently discards per-arm overrides — a plausible row describing a config that never ran |
+| **Resume must be phase-tested, not assumed** | requeue into a pinned run and diff the LR/epoch trace against an uninterrupted reference; makani's passed byte-identically |
+| **Prereg beats authority** | in makani's LR sweep the value taken from upstream's own config came **last** of three. Write the selection rule before the arms exist |
+| **`sbank`** (`sbank-list-allocations -p lighthouse-uchicago`, `sbank-list-jobs`) | the accounting source; PBS `qstat -x` history only reaches ~1 week |
+
+**Reference point for what a Polaris production run now looks like:** makani job
+**7585080** — 1 node, 4 GPUs, pure DDP, 243 epochs, ~45 h, ~45 node-hours, on
+`capacity` (1-4 nodes, ≤168 h, **`max_run 1` per PROJECT** — it holds the
+project's only slot for the duration).
 
 ---
 
