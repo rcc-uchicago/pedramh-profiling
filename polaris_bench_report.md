@@ -1892,7 +1892,15 @@ Stated plainly so nothing below reads as done:
 * **2026-07-15** — **VERDICT: elementwise-bound, not matmul-bound.** 61% of GPU time in
   pointwise kernels over ~1506 launches/step vs 15% in GEMM (job 7255503). Memory-bandwidth
   bound and fusion-starved ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on
-  evidence rather than assumption. NCCL is 10.5% of kernel time but only **1.2% exposed** (plan §0b), so §5 rung 3 is
+  evidence rather than assumption.
+  ⚠ **SUPERSEDED — do not act on the `torch.compile` half of this entry.** True as written on
+  2026-07-15 from the kernel-share view, but three later findings in *this same report* retire
+  it: (a) `InductorError: KeyError: 'complex64'` on the whole SFNO, so **Inductor cannot reach
+  this model's complex64 hot path at all** (lines 1058-1059, and `ACE2_retrain/PROFILING_PLAN.md`);
+  (b) the dominant cost is a **377 MB spectral weight in the wrong layout**, which compilation
+  does not touch — §4.9 / rung **1b** exists for it; (c) the DESIGN §4 equivalence gate
+  **failed** `torch.compile` on ai-rossby (4.02e-01 ≫ 1e-2, job 7353187), so it is measured
+  (1.40×) and **not adopted**. The "elementwise-bound" verdict itself stands. NCCL is 10.5% of kernel time but only **1.2% exposed** (plan §0b), so §5 rung 3 is
   worth ~1.2% on one node, not ≈5%; cuFFT/SHT is only 3.3%.
 * **2026-07-15** — **The model is 1,182,108,160 params**, not the ~79M the docs assume — that
   figure is the Pangu/Swin model, not the E3SM SFNO. 26.98 GB peak of 40 GB.

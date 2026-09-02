@@ -285,13 +285,22 @@ and doubling the per-GPU work made the step *faster* in absolute terms (707.7 �
 **2× the work in 0.82× the time — 2.46× better per sample-equivalent.** Fixed per-step cost
 dominates this model at batch 32, so the lever is fewer GPUs each doing more, not more GPUs.
 
-⇒ **The best configuration is therefore predicted to be one nobody has run: plain DDP at
-4 nodes with `LOCAL_BATCH=2`** (16 GPUs × 2 samples = batch 32, 2 sample-equivalents per GPU,
-*no* sharding and so no 43.6% tax). Extrapolating 576.6 / 1.436 ⇒ **~400 ms**. That is a
-prediction, not a measurement, and it is the next arm to run.
+⇒ **This predicted a configuration nobody had run: plain DDP at 4 nodes with `LOCAL_BATCH=2`**
+(16 GPUs × 2 samples = batch 32, 2 sample-equivalents per GPU, *no* sharding and so no tax).
+Extrapolating 576.6 / 1.436 ⇒ **~400 ms**.
+
+✅ **MEASURED: 409.5 ms** (job **7580312**) — the prediction landed within **2.4%**. The
+4-node sharding tax computed from that pair is **576.6 / 409.5 = +40.8%**, against +43.6% at
+8 nodes (§5c table) and +80.8% at 1 node (7580404) — three independent node counts, all
+between +40% and +81%.
+
+⚠ And the trend did not stop at 4 nodes: **1 node, `LOCAL_BATCH=8`, is faster still at
+365.4 ms** (job 7580338, 3 reps, 0.2% spread) — see §5d. Fewer GPUs each doing more kept
+winning until there was only one node left.
 
 Memory is not the constraint anywhere here: 6.0-6.2 GB on the sharded arms against the
-production run's 8.36 GB, on 40 GB cards.
+production run's 8.36 GB, on 40 GB cards. ⚠ But see §5g — that figure is a *benchmark* peak
+(`EVAL_SAMPLES=8`); at production settings it is **16.0 GB**.
 
 ### 5d. What it costs to train 100 epochs at batch 32 (**1,368** steps/epoch)
 
@@ -359,9 +368,16 @@ so this needs the **`capacity`** queue (1-4 nodes, ≤168 h — it fits **unchai
 
 **P5 is the miss that carries the result.** The 985 ms reference (2 × the 8-node pure-DDP
 step) assumed per-GPU cost scales with sample count independently of *local batch*. It does
-not: 8 samples per GPU is far more efficient than 1, which is precisely why sharding wins in
-§5c. The reference was built on the wrong invariant, and the prediction failing is how that
-surfaced.
+not: **8 samples per GPU is far more efficient than 1**, and that — not the sharding — is why
+the 4-node arm beat the reference. The reference was built on the wrong invariant, and the
+prediction failing is how that surfaced.
+
+⚠ **An earlier version of this paragraph ended "…which is precisely why sharding wins in §5c".
+That was wrong and contradicted §5c's own conclusion.** Job **7580297** (8 nodes, `h2w2`,
+1 sample-equivalent/GPU — matched against 7565972) measured sharding as a **+43.6% tax**, and
+7580404 confirmed it is not a fabric effect (**+80.8% at 1 node, no fabric at all**). The
+4-node arm carried *two* changes — sharding *and* 2× the per-GPU work — and only the second
+was doing anything.
 
 ## 5g. The production baseline — and why the benchmark absolutes are ~30% optimistic
 

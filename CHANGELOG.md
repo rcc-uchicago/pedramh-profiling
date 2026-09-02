@@ -280,6 +280,35 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - **`TODO.md` P0 items 1-2 rewritten** — they still read "nothing running" and briefed work
     that job 7585080 has since done. A priority list that describes a finished plan is worse
     than no list.
+  - 🔬 **BENCH-REPORT AUDIT — every `(job, step_ms)` pair re-derived from the CSVs, and three
+    contradictions removed.** `makani_bench_report.md`, `polaris_bench_report.md`,
+    `s2s/v2.0/bench_report.md`.
+    * **Ground-truth check: 30/30 data rows in `makani_bench_report.md` match
+      `$MEMBER_ROOT/bench/makani_*.csv` exactly** (the 2 apparent misses were provenance rows
+      carrying a job id and no timing). Re-verified after the edits below: still 30/30.
+    * 🐛 **`makani_bench_report.md` §5f contradicted §5c** — it still ended *"…which is
+      precisely why **sharding wins** in §5c"* while §5c says sharding is a **+43.6% tax**.
+      Deleted and replaced with what the data supports: **work per GPU**, not sharding, is why
+      the 4-node arm beat the reference. Cites 7580297 (the matched pair) and 7580404 (+80.8%
+      at 1 node, *no fabric*).
+    * 🐛 **§5c still called the 4-node pure-DDP arm "a prediction… the next arm to run"** — it
+      had been run. Replaced with the measurement (**409.5 ms**, job 7580312, the ~400 ms
+      extrapolation landing within **2.4%**) and the tax now stated from **three** independent
+      node counts: **+80.8%** (1n, 660.6/365.4), **+40.8%** (4n, 576.6/409.5), **+43.6%**
+      (8n, 707.7/492.7) — arithmetic re-checked. Also notes the trend continued past 4 nodes to
+      **365.4 ms at 1 node** (7580338).
+    * 🐛 **`polaris_bench_report.md`'s 2026-07-15 verdict *"`torch.compile` is the right first
+      lever, now on evidence"* is superseded — by three findings in the SAME report.** Marked
+      in place (dated entries are history, not errors): (a) `InductorError: KeyError:
+      'complex64'` means Inductor **cannot reach this model's hot path at all** (its own lines
+      1058-1059); (b) the dominant cost is a **377 MB spectral weight in the wrong layout**,
+      which compilation does not touch (§4.9, rung **1b**); (c) the §4 equivalence gate
+      **failed** `torch.compile` on ai-rossby (4.02e-01 ≫ 1e-2, job 7353187) — measured 1.40×,
+      **not adopted**. The "elementwise-bound" verdict itself stands.
+    * `s2s/v2.0/bench_report.md`: clean. Cross-report facts (A100 40 GB, plugin pins,
+      `--cpu-bind depth -d 8`) show no disagreement — the Pangu report simply predates the
+      multi-node campaign and does not mention them.
+
   - 🔍 **SECOND ADVERSARIAL DOC PASS — "the notes are the source of truth", enforced rather
     than asserted.** A cross-document fact check (queue limits, node ranges, walltimes, GPU
     memory, the tree-defect floor) across all 26 root docs + both live-session prompts found
