@@ -228,12 +228,39 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     numbers* as the object of documented corrections:
     * `PROFILING_TABLES.md` — `ACE2_retrain/PROFILING_PLAN.md:60-72` cites
       `PROFILING_TABLES.md:35-40` while *correcting* it. Deleting it would orphan the
-      correction record, and it holds the two unique measurements above. **KEPT.**
+      correction record, and it holds the two unique measurements above. **KEPT — and then
+      ANNOTATED IN PLACE (operator's call): the corrections now travel WITH the numbers.**
+      Six ⚠ CORRECTED notes added beside the claims they overturn — H100 `GEMM 7.6%` (really
+      **10.9%**, the classifier keyed on `shortName` and missed `Kernel2`/`nvjet_*`), the
+      `91%` occupancy (mislabelled — that is `gpu_busy_frac`, and it is **81.0%** on job
+      53534648), the `~26 GB/s` ring (really **15.5 GB/s**, inconsistent with this file's own
+      18.3 GB/s P2P matrix), and the A100→H100 "clean hardware swap" (**~90% of it is a
+      single-threaded matplotlib call on a different node**; the validation loop is 3.59 vs
+      3.67 s — identical; only the 1.61× step-time row is a hardware number).
+      ⚠ Found while doing it: **`PROFILING_PLAN.md`'s citation `PROFILING_TABLES.md:35-40` is
+      already stale** — the claim it corrects is now at line 48. Line-number citations rot;
+      cite by table caption. Recorded in the file's header.
     * `polaris_handoff_prompt.md` — cited by `polaris_pbs_notes.md:30` as an **OPEN** caveat
       ("asserts without measurement that torchrun's local ranks bind fine") and by
       `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs:276`, a **code comment
       citing `polaris_handoff_prompt.md:116-117`** for the reversed GPU-order fact. **KEPT.**
-    **Deleted (5)**, each with its work verifiably complete and its references retargeted:
+    ⇒ **AND THEN ONE CANCELLATION WAS ITSELF OVERTURNED — by the right architectural
+    argument (operator, 2026-09-02): `polaris_pbs_notes.md` is the DURABLE cluster reference;
+    a handoff brief is TRANSIENT. Code must cite the durable one.** So the fix was not to keep
+    `polaris_handoff_prompt.md` alive to satisfy its citations, but to move what those
+    citations needed into the notes and repoint them:
+    * `polaris_sfno_e3sm_multinode.pbs:275` cited `polaris_handoff_prompt.md:116-117` for the
+      reversed GPU order. The notes hold the **measured** version of that same fact (job
+      **7531456**: `dev0`→NUMA 3 … `dev3`→NUMA 0) — strictly better than the brief's
+      *assertion*. Comment repointed there, with a note saying why.
+    * `polaris_pbs_notes.md:30`'s **OPEN** caveat kept its claim, losing only the filename.
+    * The **`demand` queue** (1-56 nodes, ≤1 h, by request only — **it is what preempts
+      `preemptable`**) and the MIG restriction existed *only* in the brief. Both folded into
+      the notes' queue table, where the preemption mechanism now sits next to the queue it
+      preempts.
+    ⇒ **`polaris_handoff_prompt.md` deleted too (18 KB).** Deleted **6**, kept
+    `PROFILING_TABLES.md` alone:
+    **Deleted (6)**, each with its work verifiably complete and its references retargeted:
     | doc | KB | work completed by | refs retargeted to |
     |---|---|---|---|
     | `polaris_ai_rossby_pangu_handoff_prompt.md` (v1) | 8 | superseded by v2 in its own line 2 | `ai_rossby_panguweather_variable_parity.md` |
@@ -241,7 +268,8 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     | `polaris_profiling_handoff_prompt.md` | 15 | `PANGU_POLARIS_PROFILING_PLAN.md` + `polaris_bench_report.md` | — (0 inbound) |
     | `polaris_pipelines_handoff_prompt.md` | 17 | its own deliverables `polaris_pipelines_plan.md` + `polaris_pipeline_runbook.md` | **§3 launcher table folded into `polaris_pbs_notes.md` §6**; CLAUDE.md + pipelines plan retargeted |
     | `panguweather_repo_cleanup.md` | 8 | instructions for **a different repo** (`envfluids/PanguWeather`), 0 inbound | — |
-    Net **−68 KB, 32 → 27 root docs**, zero evidence lost, zero dangling references (verified by
+    | `polaris_handoff_prompt.md` | 18 | Polaris bring-up complete (all 4 models GREEN, CHANGELOG 2026-07-14/16) | `demand` + MIG folded into `polaris_pbs_notes.md`; the `.pbs` comment repointed to the **measured** GPU↔NUMA row |
+    Net **−86 KB, 32 → 26 root docs**, zero evidence lost, zero dangling references (verified by
     sweep; the one remaining mention is the provenance note in `polaris_pbs_notes.md` recording
     where the launcher table came from).
   - **Two live docs were ORPHANED (0 inbound refs) — linked rather than deleted:**

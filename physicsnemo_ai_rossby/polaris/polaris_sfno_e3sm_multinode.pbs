@@ -272,10 +272,12 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 # --- rank -> GPU mapping (the GPU half of the affinity question) --------------
 # `--cpu-bind depth -d 8` pins rank r to cores 8r..8r+7, while the shim's
 # LOCAL_RANK sends rank r to cuda:r (manager.py:584). That is the FORWARD map.
-# ALCF's canonical helper (set_affinity_gpus_polaris.sh, cited in this repo's
-# polaris_handoff_prompt.md:116-117) instead assigns GPUs in REVERSE local-rank
-# order, because a Polaris node's NUMA domains and GPU indices are not in the same
-# order. The colleague's 4.08 -> 36.93 GB/s busbw A/B validated the inter-node NIC
+# ALCF's canonical helper (set_affinity_gpus_polaris.sh) instead assigns GPUs in
+# REVERSE local-rank order, because a Polaris node's NUMA domains and GPU indices
+# are not in the same order. That map is MEASURED in polaris_pbs_notes.md §1
+# ("GPU<->NUMA map -- REVERSED", job 7531456: dev0->NUMA3 ... dev3->NUMA0) -- cite
+# the notes, not a handoff brief: briefs are transient, the notes are the durable
+# cluster reference, and the notes' version is measured rather than asserted. The colleague's 4.08 -> 36.93 GB/s busbw A/B validated the inter-node NIC
 # path, NOT the host-to-device path, so it does not settle this.
 # We do NOT flip the map blind: the compute-node GPU/NUMA table cannot be read
 # from a login node (NVML fails there), the single-node baseline this run is

@@ -3,6 +3,15 @@
 Tables only. Detail: `ACE2_retrain/bench_midway_notes.md`,
 `PanguWeather/v2.0/bench_midway_notes.md`, `polaris_bench_report.md`.
 
+> ### ⚠⚠ SEVERAL TABLES BELOW ARE CORRECTED — annotated in place, 2026-09-02
+> `ACE2_retrain/PROFILING_PLAN.md` §"claims re-checked" overturned **10 claims**, most of
+> them sourced from this file. Each affected table now carries a ⚠ **CORRECTED** note next to
+> the number, so the correction travels with the claim instead of living only in the doc that
+> made it. **That table is the authority; this file is the record of what was originally
+> measured and why it was wrong.**
+> ⚠ Its citation reads `PROFILING_TABLES.md:35-40` for the occupancy claim, which is now at
+> **line 48** — line-number citations rot. Cite by table caption, not by line.
+
 > ### ⚠ Read this before quoting any percentage in this file
 > **Almost every table here is a table of shares, one capture per column** — and a share
 > of a GPU-kernel total is **not a reproducible quantity**, because NCCL *wait* sits in the
@@ -21,11 +30,16 @@ Jobs 53479120 (A100), 53524918 (H100), 53483668 (H200).
 |---|---|---|---|
 | NCCL (comm + wait) | 40.6% | 52.1% | 18.6% |
 | elementwise / copy | 35.4% | 26.8% | 47.9% |
-| GEMM | 11.3% | 7.6% | 11.9% |
+| GEMM | 11.3% | **7.6%** ⚠ | 11.9% |
 | norm / cudnn | 4.7% | 3.1% | 5.3% |
 | optimizer | 4.2% | 3.2% | 3.0% |
 | FFT / SHT | 2.4% | 2.4% | 4.2% |
 | reduction | 1.0% | 1.0% | 2.8% |
+
+⚠ **CORRECTED — the H100 `GEMM 7.6%` is low by ~30%; the real figure is 10.9%.** The bucket
+classifier keys on `shortName`, but the cutlass complex GEMM's shortName is `Kernel2` and the
+cuBLAS SM90 GEMMs are `nvjet_*`. Re-measured from `demangledName`: cutlass complex 4.98% +
+nvjet 3.67% + xmma 2.25% = **10.9%**. → `ACE2_retrain/PROFILING_PLAN.md`.
 
 ---
 
@@ -45,7 +59,7 @@ Jobs 53479120 (A100), 53524918 (H100), 53483668 (H200).
 
 | phase | GPU occupancy |
 |---|---|
-| training (steady) | 91% |
+| training (steady) | **91%** ⚠ |
 | validation tail | 3.3% |
 
 ---
@@ -119,7 +133,7 @@ Jobs 53524580/581/674/675/752.
 | B | batch 16 (4× fewer batches) | 33.86 s | −1% |
 | C | 1 data worker | 43.88 s | +28% |
 | D | 16 data workers | 34.43 s | +1% |
-| E | `log_snapshots=false` | 16.45 s | −52% |
+| E | `log_snapshots=false` | 16.45 s | −52% | ⚠ |
 
 ---
 
@@ -131,6 +145,12 @@ Jobs 53524580/581/674/675/752.
 | training, 16 steps | 48 s | 19.2 s |
 | validation | ~183 s | 32.2 s |
 | epoch | 231 s | 51.2 s |
+
+⚠ **CORRECTED — this is NOT a clean hardware swap.** ~90% of the validation delta is a
+single-threaded matplotlib call on a different node (`Getting logs for snapshot`: 164.27 s on
+`beagle3-0012` vs 17.86 s on `midway3-0423`). The validation *loop* is **3.59 s vs 3.67 s —
+identical**. Only the step-time row (0.542 → 0.337 s, **1.61×**) is a defensible hardware
+number. Most likely a cold `MPLCONFIGDIR`/NFS font cache. → `ACE2_retrain/PROFILING_PLAN.md`.
 | wall | 5:55 | 2:03 |
 
 ---
@@ -194,6 +214,13 @@ Jobs 53538838/53538839, `midway3-0423`.
 |---|---|---|---|---|
 | `midway3-0423` | 4x H100 NVL | NV12 pairs only | 261 GB/s | **18 GB/s** |
 | Delta `gh121` | 4x GH200 120GB | NV6 full mesh | 132 GB/s | **126 GB/s** |
+
+⚠ **CORRECTED — the "~26 GB/s on the cross-pair path, two methods, same answer" inference is
+wrong and arithmetically inconsistent with this file's own P2P matrix (18.3 GB/s, below).**
+Measured directly: 2.735 GB of ring egress in 176.3 ms = **15.5 GB/s**, i.e. 85% of the
+18.3 GB/s link. The "+65 ms ⇒ 26 GB/s" derivation also assumed zero overlap, and arm B moves
+NUMA node *and* PCIe root complex while `midway_topology_probe.sh:68` sets only
+`CUDA_VISIBLE_DEVICES` — no `numactl`. → `ACE2_retrain/PROFILING_PLAN.md`.
 
 ---
 

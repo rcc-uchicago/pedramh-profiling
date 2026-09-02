@@ -1,14 +1,16 @@
 # Polaris (ALCF) PBS bring-up notes
 
 The Polaris/PBS analog of the Midway notes docs. This is the **proof deliverable**
-for the `polaris_handoff_prompt.md` bring-up: it records the confirmed Polaris
+for the original Polaris bring-up brief (deleted 2026-09-02 once discharged; results in
+CHANGELOG 2026-07-14 → 2026-07-16): it records the confirmed Polaris
 cluster facts, the env/module strategy, the per-model GREEN matrix
 (probe → 1-GPU → 4-GPU), the repointed-path map, the two SFNO data-conversion
 recipes, and a dated decisions log.
 
 See **CLAUDE.md** for how to work here, **DESIGN.md** for what/why, **CHANGELOG.md**
-for cross-cutting status, and **polaris_handoff_prompt.md** for the bring-up brief
-this doc discharges.
+for cross-cutting status. **This file is the durable Polaris reference — cite it, not a
+handoff prompt.** Handoff briefs are transient and get deleted once discharged; cluster
+facts live here.
 
 > Style mirrors `si/bench_midway_notes.md`: a narrative + a dated decisions log.
 > Everything under "confirmed" was verified **on a Polaris compute node** (probe
@@ -27,7 +29,7 @@ this doc discharges.
 | GPU memory | **40960 MiB/GPU** (~40 GiB); driver **570.124.06** | probe `nvidia-smi` |
 | CPU | AMD EPYC Milan, **nproc=64** (32 cores × 2 SMT) | probe `nproc` |
 | **CPU binding, MULTI-node** | **`mpiexec --cpu-bind depth -d 8` is MANDATORY.** Without it aws-ofi-nccl's CPU-side progress engine starves and inter-node all-reduce drops **9.1×** — **4.08 vs 36.93 GB/s** busbw. It **fails silently**: no error, just a slow job. `4 ranks × 8 = 32 = the physical core count.` | measured, colleague's job **7368993** |
-| **CPU binding, SINGLE node** | ⚠ **OPEN — never tested, and `polaris_handoff_prompt.md` asserts without measurement that "torchrun's local ranks bind fine".** `polaris_bench_report.md` §4.4e finds a **second, undiagnosed** host-CPU stall pattern on unbound single-node runs (dev0 out of phase, late work in the inter-step gap). Note the *reproducible* stall on those runs turned out to be **CPython gen-2 GC**, not affinity — so do not attribute every host stall to binding. Note `PanguWeather/v2.0/HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs:51` sets **`OMP_NUM_THREADS=8`** → 4 unbound ranks × 8 OpenMP threads = 32 threads on 32 physical cores, *plus* 4 main threads and the loader workers. The ai-rossby single-node script sets none, so torchrun pins it to **1**. | ⚠️ unverified |
+| **CPU binding, SINGLE node** | ⚠ **OPEN — never tested. The original bring-up brief (deleted 2026-09-02) asserted without measurement that "torchrun's local ranks bind fine".** `polaris_bench_report.md` §4.4e finds a **second, undiagnosed** host-CPU stall pattern on unbound single-node runs (dev0 out of phase, late work in the inter-step gap). Note the *reproducible* stall on those runs turned out to be **CPython gen-2 GC**, not affinity — so do not attribute every host stall to binding. Note `PanguWeather/v2.0/HPC_scripts/polaris_bench_nsys_e3sm_sfno.pbs:51` sets **`OMP_NUM_THREADS=8`** → 4 unbound ranks × 8 OpenMP threads = 32 threads on 32 physical cores, *plus* 4 main threads and the loader workers. The ai-rossby single-node script sets none, so torchrun pins it to **1**. | ⚠️ unverified |
 | **NUMA domains** | **4 nodes (NPS4)**, 16 CPUs each = 8 physical + 8 SMT. node0 cpus 0-7,32-39; node1 8-15,40-47; node2 16-23,48-55; node3 24-31,56-63. ~128 GB each. Inter-node distance uniform at 12 (local 10). | measured, job **7531456** on `x3001c0s1b0n0` |
 | **GPU↔NUMA map — REVERSED. Do not assume identity.** | `dev0`=`0000:07:00.0`→**NUMA 3**; `dev1`=`0000:46:00.0`→**NUMA 2**; `dev2`=`0000:85:00.0`→**NUMA 1**; `dev3`=`0000:c7:00.0`→**NUMA 0**. ⇒ **a naive `--cpu-bind depth -d 8` puts local rank 0 on cores 0-7 = NUMA 0, whose GPU is `dev3` — i.e. every rank lands maximally far from its own GPU.** This is a concrete candidate mechanism for the undiagnosed host-CPU stall pattern in `polaris_bench_report.md` §4.4e, and it confirms the warning in `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs` that the ALCF helper assigns GPUs in reverse local-rank order. | measured, job **7531456** (bus IDs cross-checked against `TARGET_INFO_GPU` in the nsys captures) |
 | Node RAM | **not captured** — the probe's `free -g` line had a shell-quoting bug (fixed in `polaris_probe.pbs` after job 7251974); re-run the probe to record it | ⚠️ unverified |
@@ -202,6 +204,11 @@ threw away accrued queue priority for nothing.
 | **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1, max_queued 2 per PROJECT**; `Priority = 150` | 12 running / 6 queued — actively scheduling. ⚠ limits queried, **not yet exercised by us** |
 | `preemptable` | ≤ 72 h | 1–10 | max_queued 20/user, **max_run 10/project**; `Priority = 155` | ⚠ **load-dependent**: 0/9 started in 11.5 h (2026-08-05) vs **22 running** (2026-09-02) |
 | `prod` | — | **≥ 10** | routing queue | n/a for single-node work |
+| `demand` | ≤ 1 h | 1–56 | **by request only** (email ALCF support) | ⚠ **this is what preempts `preemptable`** |
+
+⚠ MIG is available **only** in `debug` / `debug-scaling` / `preemptable`.
+*(`demand` and the MIG note were folded in from `polaris_handoff_prompt.md` on 2026-09-02,
+when that executed bring-up brief was deleted — this file is the durable reference.)*
 
 > ### ⚠ CORRECTED 2026-09-02 — `preemptable` does not "never start"; its latency is load-dependent
 > Earlier versions of this file, CLAUDE.md and several handoffs stated *"may never
