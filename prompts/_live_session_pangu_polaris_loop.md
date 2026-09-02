@@ -234,6 +234,11 @@ is absent or dirty, that is a §9 blocker — **never** write a prereg after see
   |---|---|---|
   | `debug` | ≤1 h | **the default for this loop.** Proven; cannot chain or pre-load |
   | `capacity` | ≤168 h | 1–4 nodes, but **`max_run 1` per PROJECT** — check the slot is free and coordinate *before* taking it: `qstat -a \| awk 'NR>5 && $3 ~ /capacity/ {print $2, $10}'` |
+
+> ⚠ **Authoritative source: `polaris_pbs_notes.md` §1b.** This copy is a convenience and
+> drifts — when the two disagree, **the notes win**. (2026-09-02: a stale `preemptable`
+> claim had to be corrected in five files at once; that is what this line exists to stop.)
+
   | `preemptable` | ≤72 h | ⚠ load-dependent: 0/9 started 2026-08-05, **22 running 2026-09-02**. 10 concurrent/project — wins on concurrency, not latency |
 - **⚠ NEVER resubmit a stuck job without diagnosing first** (CLAUDE.md #12 — this cost a day on 2026-08-05):
   ```bash

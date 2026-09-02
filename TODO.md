@@ -73,11 +73,10 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
    warmup-inclusive says the first Slingshot hop is free (+0.7%) and 67% efficiency at 8 nodes;
    warmup-free says +35% and **47%**. → `makani_bench_report.md` §3c.
    Run §3a's rungs at `EPOCHS=2`, wandb off, ≥3 interleaved reps per rung.
-   **Carry `-v GPU_ORDER=reverse` as a paired arm at 1 and 4 nodes** — all 30 existing rows
-   (production included) ran `default`, which on Polaris' **reversed** GPU↔NUMA map
-   (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456) combines with the mandatory
-   `--cpu-bind depth -d 8` to place every rank on the NUMA node *farthest* from its own GPU.
-   It changes placement, not per-rank arithmetic, so it needs no equivalence gate.
+   ✅ **The placement arm is DONE** (2026-09-02, `makani_bench_report.md` §5i): `GPU_ORDER=reverse`
+   is **+0.88% slower at 1 node** (3+3 reps, node-matched) and −7.0% faster at 4 nodes sharded —
+   **config-dependent, not a free win**; `default` is correct for the 1-node production config.
+   Reps for the *ladder rungs* are still outstanding.
    *Cost: ~12 jobs + 2 arms, all ≤10 nodes in `debug-scaling` (≤1 h, 1 job/user).*
    PASS: `MAKANI_MN_SCALING_OK` + a row per rung.
    *Nothing about makani scaling should be published until this exists.*

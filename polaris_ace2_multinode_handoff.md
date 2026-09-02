@@ -192,6 +192,11 @@ different transport before crashing somewhere unrelated.
    its keep on its first prod run: `48 healthy of 49 allocated` — one sick node
    pruned instead of killing a 48-node allocation.
 
+
+> ⚠ **Authoritative source: `polaris_pbs_notes.md` §1b.** This copy is a convenience and
+> drifts — when the two disagree, **the notes win**. (2026-09-02: a stale `preemptable`
+> claim had to be corrected in five files at once; that is what this line exists to stop.)
+
 ### 1d. Queue geography (verified `qstat -Qf` 2026-08-28)
 
 | queue | nodes | max walltime |

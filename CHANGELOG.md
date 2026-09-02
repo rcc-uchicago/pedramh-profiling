@@ -280,6 +280,28 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - **`TODO.md` P0 items 1-2 rewritten** — they still read "nothing running" and briefed work
     that job 7585080 has since done. A priority list that describes a finished plan is worse
     than no list.
+  - 🔍 **SECOND ADVERSARIAL DOC PASS — "the notes are the source of truth", enforced rather
+    than asserted.** A cross-document fact check (queue limits, node ranges, walltimes, GPU
+    memory, the tree-defect floor) across all 26 root docs + both live-session prompts found
+    the numeric facts consistent — every apparent disagreement was formatting (hyphen vs
+    en-dash, `168 h` vs `≤168` vs `7 d`). Four **real** defects, all fixed:
+    1. 🐛 **The notes' own `capacity` row was stale**: *"limits queried, **not yet exercised by
+       us**"* — while job **7585080** was running on `capacity`. The source of truth was wrong
+       about the thing it is the source of truth for. Now records the first real use.
+    2. 🐛 **`makani_bench_report.md` contradicted itself about `GPU_ORDER`**: §1 and prereg 5
+       said *"has never been run"* while §5a/§5c tabled job **7580305** with
+       `gpu_order=reverse`. Resolved by adding **§5i** with the actual measurements (3+3 reps)
+       and scoring prereg 5 — **HIT at 1 node** (+0.88%, inside the predicted 5%), **MISS at
+       4 nodes** (−7.0%). The prediction assumed placement has one sign; it does not.
+       Same staleness fixed in `TODO.md` item 5 and the §8 gap table.
+    3. 🐛 **`polaris_sfno_comparison_handoff.md` still used the retired "0/9 jobs" framing as
+       live guidance** — the fifth copy of the `preemptable` claim, missed by the first pass
+       because it phrases it as prose rather than a table row.
+    4. 🏗 **Five docs carry duplicate queue tables** — the drift surface that made the
+       `preemptable` correction a five-file edit. Each now carries an explicit precedence
+       marker: *"Authoritative source: `polaris_pbs_notes.md` §1b. When the two disagree, the
+       notes win."* Copies stay (handoffs should be self-contained) but they no longer compete
+       for authority.
   - ⚠ **DOC CORRECTION, repo-wide: `preemptable` does not "never start" — its latency is
     LOAD-DEPENDENT.** CLAUDE.md, `polaris_pbs_notes.md`, two handoffs and both live-session
     prompts asserted *"may never start"* as a **property of the queue**, generalised from one

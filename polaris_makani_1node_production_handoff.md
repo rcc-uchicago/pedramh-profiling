@@ -42,6 +42,11 @@ plugin v1.21.1 + OFI_NCCL_PROGRESS_MODEL=AUTO + NCCL_PROTO=Simple
 ⚠ **`OFI_NCCL_PROGRESS_MODEL=AUTO` lives in no script.** Omit it and the job dies with ENOSYS.
 `polaris/submit_when_slot_frees.sh` bakes it in; a hand-written `qsub` must not forget it.
 
+
+> ⚠ **Authoritative source: `polaris_pbs_notes.md` §1b.** This copy is a convenience and
+> drifts — when the two disagree, **the notes win**. (2026-09-02: a stale `preemptable`
+> claim had to be corrected in five files at once; that is what this line exists to stop.)
+
 ## 2. Queue reality
 
 A ~16-24 h single-node job has exactly one home:

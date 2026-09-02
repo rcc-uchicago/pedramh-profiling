@@ -177,8 +177,10 @@ optimizer step, so nothing compounds).
 ## 6. Step 3 — run both
 
 **Queue: use `-q capacity`, NOT `preemptable`.** `capacity` takes 1–4 nodes for
-**≤168 h** at `Priority=150`; `preemptable` only runs on nodes `prod` isn't using and
-**did not start a single one of 9 jobs in 11.5 h** on 2026-08-05. Caveat:
+**≤168 h** at `Priority=150`; `preemptable` only runs on nodes `prod` isn't using, so its
+start latency tracks machine load — 0/9 jobs in 11.5 h on 2026-08-05, but **22 running on
+2026-09-02** (⚠ corrected: this is not "never starts"; authoritative row is
+`polaris_pbs_notes.md` §1b). Caveat:
 `capacity`'s `max_run 1 / max_queued 2` are **per PROJECT**, so check the slot is free
 and coordinate:
 

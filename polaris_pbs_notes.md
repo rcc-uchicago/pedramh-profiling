@@ -201,7 +201,7 @@ threw away accrued queue priority for nothing.
 | queue | walltime | nodes | limits | starts? |
 |---|---|---|---|---|
 | `debug` | **≤ 1 h** | 1–2 | **max_run 1, max_queued 1 per USER** — cannot chain, cannot pre-load | **9/9 started, median 19 s** |
-| **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1, max_queued 2 per PROJECT**; `Priority = 150` | 12 running / 6 queued — actively scheduling. ⚠ limits queried, **not yet exercised by us** |
+| **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1, max_queued 2 per PROJECT**; `Priority = 150` | ✅ **EXERCISED 2026-09-02** — job **7585080**, 1 node, 48 h requested, started promptly (14 running / 6 queued at submit). Earlier note "not yet exercised by us" retired |
 | `preemptable` | ≤ 72 h | 1–10 | max_queued 20/user, **max_run 10/project**; `Priority = 155` | ⚠ **load-dependent**: 0/9 started in 11.5 h (2026-08-05) vs **22 running** (2026-09-02) |
 | `prod` | — | **≥ 10** | routing queue | n/a for single-node work |
 | `demand` | ≤ 1 h | 1–56 | **by request only** (email ALCF support) | ⚠ **this is what preempts `preemptable`** |

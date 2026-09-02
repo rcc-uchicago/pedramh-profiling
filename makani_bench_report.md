@@ -47,7 +47,7 @@ logs `makani_sfno/makani_mn_scaling.o<jobid>` (launcher header) and
 | model | SFNO `embed_dim 384`, `num_layers 8`, E3SM 180×360 — **147,818,882 params** (53-ch) / **147,863,863** (ALLDATA) |
 | DDP shape | `parameters_reduction_buffer_count 1` — makani reduces in **one bucket**, ≈**591 MB** fp32 per step |
 | scaling mode | **weak** — local batch pinned at 1 sample/GPU, so global batch = 4 × nodes and per-GPU arithmetic is constant |
-| rank↔GPU placement | ⚠ **`GPU_ORDER=default` on all 30 rows, production included.** Polaris' GPU↔NUMA map is **reversed** (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456), and the **mandatory** `--cpu-bind depth -d 8` puts local rank 0 on NUMA 0 — whose GPU is `dev3`. The two required settings therefore combine to place **every rank maximally far from its own GPU**. `-v GPU_ORDER=reverse` (`CUDA_VISIBLE_DEVICES=3,2,1,0`) fixes it and **has never been run** (prereg 5, §8) |
+| rank↔GPU placement | ⚠ **`GPU_ORDER=default` on all 30 rows, production included.** Polaris' GPU↔NUMA map is **reversed** (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456), and the **mandatory** `--cpu-bind depth -d 8` puts local rank 0 on NUMA 0 — whose GPU is `dev3`. The two required settings therefore combine to place **every rank maximally far from its own GPU**. `-v GPU_ORDER=reverse` (`CUDA_VISIBLE_DEVICES=3,2,1,0`) inverts it. ✅ **MEASURED 2026-09-02 (§5i): reverse is +0.88% SLOWER at 1 node** (3+3 reps, node-matched pair confirms) and −7.0% *faster* at 4 nodes sharded — placement is **config-dependent, not a free win**, and `default` is correct for the production config |
 
 **Three packs, and they are not interchangeable** (a pack change alone moved the
 single-node step time 41%, §2):
@@ -407,6 +407,29 @@ pre-registered rule is the only reason the choice wasn't rationalised after the 
 was the **top of the range tested**, so the optimum may lie higher. Warm restarts bound the
 risk: 2e-3 is the peak of every cycle, so trouble surfaces in cycle 1 with checkpoints intact.
 
+### 5i. Rank↔GPU placement — measured, and it is config-dependent
+
+`GPU_ORDER=reverse` sets `CUDA_VISIBLE_DEVICES=3,2,1,0`, undoing Polaris' reversed GPU↔NUMA
+map (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456) so each rank sits on its own GPU's NUMA node.
+
+| config | order | reps | step_ms | delta |
+|---|---|---|---|---|
+| **1 node**, batch 32, pure DDP | default | 365.1 / 365.9 / 365.4 | **365.4** | — |
+| **1 node**, batch 32, pure DDP | **reverse** | 366.7 / 368.6 / 369.7 | 368.6 | **+0.88% SLOWER** |
+| 4 nodes, batch 32, `h2w2` | default | n=1 | 576.6 | — |
+| 4 nodes, batch 32, `h2w2` | **reverse** | n=1 | 536.3 | **−7.0% faster** |
+
+**Opposite signs, so placement cannot be ported as a rule.** It helps when sharded traffic
+crosses the fabric and costs slightly at 1 node where there is no fabric to help.
+
+⚠ The 1-node default arm has a **0.2% rep spread** — the tightest measurement in the campaign —
+so +0.88% is real, not noise. The confound was checked: the six arms landed on six hosts, but
+**7580482 (default) and 7580507 (reverse) ran on the same node** `x3001c0s19b1n0` → 365.58 vs
+369.85 = **+1.17%**. Node-matched, reverse is still slower.
+⚠ Residual: the reverse reps drift monotonically (366.8 → 368.8 → 369.9) while default does not.
+Don't quote 0.88% as precise. **The decision — `default` for the 1-node production config — is
+unaffected.**
+
 ## 6. What the refused rows say — 15 of 30 rows carry no timing, by design
 
 The parser refuses a row rather than writing a plausible number (`NO_STEP_TIMING` → `csv_rc=4`).
@@ -435,7 +458,7 @@ Recorded before the first multi-node job (in the deleted plan, §4). Three score
 | 2 | `transport` reads `AWS Libfabric` on every multi-node row | ✅ **HIT** — every row except 7553811, which is the ENOSYS failure the column exists to expose |
 | 3 | 4-node `wireup_s` > 2× 1-node | ✅ **HIT, large** — 21.38 vs 2.76 = **7.7×** |
 | 4 | synthetic-data arm degrades less than real (separates I/O from comms) | ⛔ **never run** |
-| 5 | `GPU_ORDER=reverse` (NUMA-local pairing) within 5% of default | ⛔ **never run** |
+| 5 | `GPU_ORDER=reverse` (NUMA-local pairing) within 5% of default | ✅ **SCORED 2026-09-02 — HIT at 1 node** (+0.88%, inside 5%), **MISS at 4 nodes sharded** (−7.0%). The prediction was written as if placement had one sign; it does not (§5i) |
 
 ### 7a. Prereg — the `h4w4` / batch-32 arm, recorded before submission (2026-09-01)
 
@@ -519,7 +542,7 @@ FCN3 reproduction.
 | **cpu-bind / progress-thread sweep on the new plugin** | ~79% of the 8-node step is exposed comms (§3b); the bind was tuned for the old plugin's manual progress | 3-4 jobs at 4 nodes |
 | **`nsys` per-rank capture (`-v NSYS=1`)** | makani has **no kernel-level profile at all**; rank-0 logging cannot answer where the step goes | 1 job (truncated by design — `exit_on_stop`) |
 | **arm D (synthetic)** | separates an I/O loss from a comms loss | 1 job |
-| **arm E (`GPU_ORDER=reverse`)** | every row here — and the production run — placed each rank on the NUMA node *farthest* from its GPU (§1). It is a placement change, not an arithmetic one, so it needs no equivalence gate, and it is the standing candidate for the host-CPU stall in `polaris_bench_report.md` §4.4e. **It matters more under spatial parallelism**, where intra-node halo traffic rides that same distance every step. ai-rossby queued the identical test and both arms were refused (7577036 `rc=134`, 7577166 `rc=143`), so the axis has **zero measurements in either harness** | 1 job + 1 control |
+| ~~**arm E (`GPU_ORDER=reverse`)**~~ ✅ **DONE 2026-09-02, §5i** | every row before it — and the production run — placed each rank on the NUMA node *farthest* from its GPU (§1). It is a placement change, not an arithmetic one, so it needs no equivalence gate, and it is the standing candidate for the host-CPU stall in `polaris_bench_report.md` §4.4e. **It matters more under spatial parallelism**, where intra-node halo traffic rides that same distance every step — and that is exactly what the measurement showed: **−7.0% at 4 nodes sharded, but +0.88% SLOWER at 1 node** (§5i). ai-rossby's two attempts at the same test were both refused (7577036 `rc=134`, 7577166 `rc=143`); makani's 3+3 reps are the first measurements of this axis in the project | ✅ done, 6 arms |
 | **A DESIGN §4 equivalence baseline** | no hot-path change may be committed without one; makani has none | 1 short job |
 | **Inference / evaluation on `best_ckpt_mp0.tar`** | a trained model nobody has scored | not yet scripted |
 | **`omp_threads=64`** | all 30 rows ran at **8× CPU oversubscription** on the same cores the progress engine uses (PBS exports `OMP_NUM_THREADS=<ncpus>`; the launcher's `${OMP_NUM_THREADS:-1}` idiom never overrode it). Comparability is intact — the value is constant on every row — but the absolute numbers were taken under it | deliberately **not** changed: flipping it makes future rows incomparable with all 30. Owner's call, and it interacts with the cpu-bind sweep above |
@@ -548,6 +571,11 @@ source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
 `polaris_pack_e3sm_scaling.pbs` and `polaris_pack_alldata_production.pbs` already demonstrate
 the swap on real work. Each of the seven also needs the h5py overlay, since they all import
 makani → h5py.
+
+
+> ⚠ **Authoritative source: `polaris_pbs_notes.md` §1b.** This copy is a convenience and
+> drifts — when the two disagree, **the notes win**. (2026-09-02: a stale `preemptable`
+> claim had to be corrected in five files at once; that is what this line exists to stop.)
 
 **Queue geography** (verified `qstat -Qf`): `debug` ≤2 nodes, `debug-scaling` ≤10 nodes / 1 h /
 1 job per user; `prod` routes ~16→`small`, 25-99→`medium`, **100-496→`large`**. Settle tuning
