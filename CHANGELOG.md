@@ -143,6 +143,75 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-02** — 🚀 **1-NODE PRODUCTION LAUNCHED (7585080, `capacity`) after the LR sweep
+  overturned my prior.** The occupancy result (2026-09-01) said production belongs on **one
+  node**; today closed the last blockers and started it.
+  - **RUNNING: 7585080** — 1 node / 4 GPUs, pure DDP, global batch 32, `LOCAL_BATCH=8`,
+    `GPU_ORDER=default`, `CosineAnnealingWarmRestarts` `T_0=20 T_mult=1`, 3 warmup epochs,
+    **LR 2.0e-3**, `CKPT_VERSIONS=250`, **243 epochs = 3 + 12×20** so it ends *on* a cycle
+    boundary with 12 annealed snapshots. Measured **665 s/epoch ⇒ ~45.1 h ≈ 45 node-hours**
+    and **332,424 updates = 1.6× upstream FCN3 pretrain-1**, against the 128-node run's
+    **8,500 updates for 216 node-hours**.
+    ⚠ `capacity` is `max_run 1` per PROJECT — this holds the project's only slot for ~45 h.
+  - **At epoch 5 (0.93 h) it is already at valid 0.0209**, closing on the 128-node run's
+    *final* 0.018297 — i.e. ~1% of the cost is about to buy a better model. Grad norm
+    monotone 0.300 → 0.021, no spikes, through the first cosine cycle where LR sits near peak.
+  - ⭐ **LR SWEEP — PREREG SCORED, AND MY PRIOR WAS THE WORST ARM.** Rule committed
+    (`9506ad1f`) *before* arms 2-3 existed: disqualify on non-finite loss or a grad-norm RISE
+    from epoch 2→3, then lowest epoch-3 validation loss, ties within 5% to the lower LR.
+    | arm | valid @ ep3 | grad norm @ ep3 | |
+    |---|---|---|---|
+    | 4.0e-4 — upstream's batch-32 value, **my stated prior** | 0.03237 | 0.04966 | worst |
+    | 1.0e-3 — our shipped, unscaled | 0.02655 | 0.02616 | |
+    | **2.0e-3 — sqrt-scaled, WINNER** | **0.02352** | **0.01830** | best on *both* |
+    All three passed the stability filter; 2e-3 won by 12.9%, no tie-break needed. **I would
+    have argued for 4e-4 on upstream authority — the prereg is the only reason I didn't.**
+    ⚠ 3 epochs cannot catch a tail instability, and 2e-3 was the **top of the range tested**,
+    so the optimum may be higher or we may be near an edge. Warm restarts bound it: 2e-3 is
+    the peak of every cycle, so trouble shows in cycle 1 (epochs 4-23) with checkpoints intact.
+  - ✅ **RESUME PROVEN ACROSS A RESTART CYCLE — the last blocker on long walltime.** Ran 4
+    epochs pinned, resubmitted to 8, and compared against the uninterrupted reference:
+    | epochs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+    |---|---|---|---|---|---|---|---|---|
+    | A then B (resumed) | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 | **4e-4** | 2.005e-4 | 4e-4 | 2.005e-4 |
+    | uninterrupted | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 |
+    Byte-identical. All three silent failure modes ruled out: it restarted at **epoch 5** (not
+    1), there was **no warmup replay**, and epoch 5 sits at the **cycle peak** — phase survived.
+  - ✅ **Warm restarts wired and verified** — the LR sawtooth is real (2.005e-4 is exactly the
+    analytic midpoint of a 2-epoch cosine), read from the offline wandb datastore.
+  - 🐛 **makani's own warmup default is illegal.** `lr_start` defaults to **0.0** and
+    `LinearLR` raises *"Starting multiplicative factor expected to be greater than 0"* — so
+    **any** makani warmup crashes unless `lr_start > 0` is set. One minute of wiring test caught
+    what would have killed a 45 h job at startup. Fixed with `LR_START=0.01`.
+  - 🐛 **MY BUG, and the worst kind for a harness: `-v` per-arm overrides were silently
+    discarded.** PBS resolves duplicate `-v` keys **last-wins**, and the queue helper appended
+    its hardcoded `COMMON` *after* the caller's payload — so an arm asking for `EPOCHS=8,
+    STEPS=20` ran `EPOCHS=2, STEPS=60` while its tag and log claimed otherwise. Not a crash: a
+    plausible row describing a configuration that never ran. Order swapped, semantics recorded.
+    No published row is affected (no earlier arm overrode a `COMMON` key).
+  - 🐛 Also walked into a documented trap: `pick_lr.py` ran under the login node's bare
+    `python3` (**3.6.15**, dies on `from __future__ import annotations`). Pinned to
+    `/usr/bin/python3.11`. And a `pkill -f` matched its own command line and killed my shell.
+  - ⭐ **PRODUCTION BASELINE ≠ BENCHMARK BASELINE — the campaign's absolutes are ~30%
+    optimistic.** At real production settings the step is **475 ms**, not the 365 ms measured
+    by the 60-step arms. A controlled twin settles the cause:
+    | | step_ms (ep 2) | memory |
+    |---|---|---|
+    | `WANDB=1` (7582088) | 475.6 | 16.03 GB |
+    | `WANDB=0` (7582377) | **474.9** | 16.04 GB |
+    ⇒ **the 101-key per-iteration wandb contract costs nothing** (0.15%). The gap is
+    **full-pass I/O**: a real epoch streams 43,776 samples from 30 files while the 60-step arms
+    re-read a 1,920-sample window that was cache-hot. **The occupancy ranking survives** (every
+    arm shared the bias) **but no benchmark step time may be quoted for planning.**
+  - **Two memory numbers, and they measure different things** — 10.33 GB (`EVAL_SAMPLES=8`,
+    training-dominated peak) vs 16.03 GB (`EVAL_SAMPLES=512`, **validation**-dominated peak).
+    `n_future` scales the *training* part only, so the handoff's rollout-memory table still
+    stands on the 10.33 figure; the 16 GB is a fixed validation ceiling that does not grow
+    with rollout length.
+  - **Allocation context** (`sbank`): project has **14,592 node-hours available**, 2,147
+    charged all-time, **2,086 of it in the last 31 days** — of which ai-rossby is ~59% and the
+    whole makani campaign ~290. This 45 h run is **0.3% of the remaining balance**.
+
 - **2026-09-01 (cont.)** — ⭐ **SHARDING BEATS PURE DDP AT EQUAL BATCH, AND THE BROKEN AXIS IS
   `w`, NOT THE SPLIT SIZE.** Four spatial shapes at global batch 32 on the ALLDATA pack,
   4 nodes, new plugin + Simple, `EPOCHS=2` so `step_ms` is warmup-free. Full analysis with

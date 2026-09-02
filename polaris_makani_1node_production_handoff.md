@@ -60,6 +60,13 @@ cannot overlap.
 
 ## 3. Capacity sequence
 
+> **STATUS 2026-09-02 — C3 IS RUNNING as job 7585080** (`capacity`, 1 node, 243 epochs,
+> LR **2.0e-3**, warm restarts `T_0=20 T_mult=1`, ~45 h). It was launched *before* C1/C2
+> because the LR sweep and resume test completed first and the slot was free. C1 (rollout
+> fine-tune) and C2 (`n_future` scaling) follow when it finishes or is stopped at a cycle end.
+> Measured: **665 s/epoch**, valid 0.0209 by epoch 5 — already closing on the 128-node run's
+> *final* 0.018297 at ~1% of its cost.
+
 ### C1 — rollout fine-tune FIRST, from the checkpoint we already have
 
 The reported problem is that **inference is worse than expected while training looked fine**.
@@ -108,6 +115,11 @@ nodes, which is the *worst* configuration on this machine (§0). Options, in pre
 node; (c) accept 2 nodes and its ~234 ms toll. **Measure (a) before assuming (c).**
 ⚠ The 0.99 GB/sample-step figure is a one-point extrapolation. Verify at `n_future=1` before
 planning around `n_future=3`.
+⚠ **Do not substitute the 16.03 GB production figure into this table.** 10.33 GB is a
+*training*-dominated peak (`EVAL_SAMPLES=8`); 16.03 GB is a *validation*-dominated peak
+(`EVAL_SAMPLES=512`, 3-step rollout). `n_future` scales the training term only, so the rollout
+arithmetic uses 10.33 — but the card must also clear the fixed ~16 GB validation ceiling, which
+becomes non-binding once training exceeds it at `n_future ≥ 1`.
 
 ### C3 — the batch-32 retrain, with the hyperparameter fixes
 
@@ -135,7 +147,7 @@ From an adversarial review of the shipped config. **LR is fourth, not first.**
 | 2 | **use the idle 74% of the GPU** | 10.33 / 40 GB | `scale_factor: 3 → 2` (trunk 60×120 → 90×180, stop discarding resolution before the spectral layers) **or** `embed_dim 384→512` / `num_layers 8→12`. Capacity usually beats schedule tuning |
 | 3 | **`optimizer_beta2`** | 0.95 → **0.999** | 0.95 is a large-batch setting (short second-moment memory). At batch 32 the gradient is 16× noisier and 0.95 amplifies it. **Probably actively wrong at the new batch** |
 | 3 | **`weight_decay`** | 0.0 → **1e-5 … 1e-4** | AdamW at zero decay is just Adam — no regularisation, while taking 16× more updates |
-| 4 | **`lr`** | 1e-3 → **4e-4?** | upstream's batch-32 value is 4e-4; scaling our shipped (batch 8, 1e-3) suggests 2e-3. A 5× spread — measure, don't derive. 3 arms × 30 epochs ≈ 41,000 updates each (5× the *entire* 128-node run) |
+| 4 | **`lr`** | 1e-3 → **2e-3 — MEASURED, sweep §5h** | 3 arms x 3 full epochs: 2e-3 won on both validation loss and grad norm; **4e-4, the upstream value and my prior, came last**. 3 arms × 30 epochs ≈ 41,000 updates each (5× the *entire* 128-node run) |
 | 5 | **`optimizer_max_grad_norm`** | 32 → **~1.0** | never engages (observed grad norms 0.43 → 0.012, three orders below). Effectively unclipped at a noisier batch. ⚠ verify makani clips **before** `optimizer.step()` — ai-rossby had exactly that bug |
 | 6 | **stale schedule keys** | delete | `scheduler_T_max/factor/patience/step_size/gamma` are dead under warm restarts and will mislead the next reader |
 | 7 | **EMA** | leave **off** | measured in this codebase: **+0.16%** at convergence, **0.9-10.5% worse** mid-descent, and it doubles validation cost. `docs/2026-05-12_v11_clip_restore_plan.md` |

@@ -363,6 +363,50 @@ not: 8 samples per GPU is far more efficient than 1, which is precisely why shar
 §5c. The reference was built on the wrong invariant, and the prediction failing is how that
 surfaced.
 
+## 5g. The production baseline — and why the benchmark absolutes are ~30% optimistic
+
+⚠ **Everything in §2-§5f is a 60-step arm. None of those step times may be used for planning.**
+Measured at real production settings (full-pass epochs, `EVAL_SAMPLES=512`, checkpointing):
+
+| | step_ms | epoch wall | memory |
+|---|---|---|---|
+| 60-step benchmark arm (7580338) | 365.4 | — | 10.33 GB |
+| **production settings** (7582088 / 7585080) | **475 / 665 s per epoch** | **665-676 s** | **16.0 GB** |
+
+**The cause is I/O, not instrumentation.** A controlled twin — same settings, wandb off — lands
+at **474.9 ms** against 475.6 with wandb on (0.15%). So the **101-key per-iteration wandb
+contract costs nothing**, and the gap is full-pass streaming: a real epoch reads 43,776 samples
+from 30 files, while a 60-step arm re-reads a 1,920-sample window that was cache-hot.
+
+⇒ **The occupancy *ranking* survives** — every arm carried the same bias — **but the absolutes
+do not.** Plan on 475 ms.
+
+**The two memory figures measure different things** and must not be conflated: 10.33 GB is a
+*training*-dominated peak (`EVAL_SAMPLES=8`), 16.03 GB is a *validation*-dominated peak
+(`EVAL_SAMPLES=512`, 3-step autoregressive rollout). `n_future` scales the **training** term
+only, so rollout-memory arithmetic uses 10.33 (≈0.99 GB per sample-step above ~2.4 GB of
+weights + grads + AdamW moments); the 16 GB is a fixed validation ceiling that does not grow
+with rollout length.
+
+### 5h. LR sweep — the prereg beat the prior
+
+Three arms, 3 full-pass epochs each (1,368 updates/epoch), identical warm-restart schedule, one
+variable. Selection rule committed **before** arms 2-3 existed (`9506ad1f`).
+
+| arm | valid @ ep3 | grad norm @ ep3 | verdict |
+|---|---|---|---|
+| 4.0e-4 — upstream FCN3 pretrain-2's batch-32 value | 0.03237 | 0.04966 | **worst** |
+| 1.0e-3 — our shipped config, unscaled | 0.02655 | 0.02616 | |
+| **2.0e-3 — sqrt-scaled from batch 8** | **0.02352** | **0.01830** | **winner, on both** |
+
+All three passed the stability filter (grad norm fell 2→3 everywhere); 2e-3 led by 12.9%, so no
+tie-break. **4e-4 was my stated prior on upstream's authority and it came last** — the
+pre-registered rule is the only reason the choice wasn't rationalised after the fact.
+
+⚠ Three epochs cannot catch a tail instability (ai-rossby diverged at **epoch 11**), and 2e-3
+was the **top of the range tested**, so the optimum may lie higher. Warm restarts bound the
+risk: 2e-3 is the peak of every cycle, so trouble surfaces in cycle 1 with checkpoints intact.
+
 ## 6. What the refused rows say — 15 of 30 rows carry no timing, by design
 
 The parser refuses a row rather than writing a plausible number (`NO_STEP_TIMING` → `csv_rc=4`).
