@@ -433,19 +433,29 @@ do not.** Plan on 475 ms.
 *training*-dominated peak (`EVAL_SAMPLES=8`), 16.03 GB is a *validation*-dominated peak
 (`EVAL_SAMPLES=512`, 3-step autoregressive rollout).
 
-⚠ **Memory does NOT scale linearly with samples/GPU — measured, not assumed.** The two
-production-settings points:
+⚠⚠ **MEMORY vs samples/GPU: THREE MEASURED POINTS AND NO WORKING MODEL.** Two successive
+models were fitted here and *both were refuted by the next measurement*. What is left is the
+data:
 
 | samples/GPU | global batch | memory | job |
 |---|---|---|---|
-| 8 | 32 | **16.04 GB** | 7585080 |
-| 16 | 64 | **≥39.5 GB → OOM** on a 39.49 GiB card | **7580362** |
+| 8 | 32 | **16.04 GB** | 7585080 / 7582088 |
+| **12** | **48** | **18.97 GB** | **7585983** |
+| 16 | 64 | **≥39.5 GB → OOM** on a 39.49 GiB card | 7580362 |
 
-Doubling the samples took memory **≈2.5×**. An earlier linear fit (~0.99 GB per sample-step,
-from the benchmark arms) predicted 18.2 GB and was wrong by >2×. **The apparent 24 GB of
-headroom at 8 samples/GPU is therefore not 24 GB of usable capacity** — the next doubling
-consumes all of it and more. Any `n_future` or batch increase must be measured one arm at a
-time, not extrapolated.
+**8→12 adds only 0.73 GB per sample; 12→16 would predict ~22 GB and instead exceeds 39.5.**
+That is a **cliff, not a curve** — something discrete happens between 12 and 16 samples/GPU
+(allocator fragmentation, or a workspace/plan change in the spectral transform, untested).
+
+Retired models, kept so neither is refitted:
+* ~~"≈0.99 GB per sample-step, linear"~~ — from the benchmark arms; predicted 18.2 GB at 16
+  samples. **Refuted by the OOM.**
+* ~~"≈2.5× per doubling, superlinear"~~ — fitted to the 8 and 16 points. Predicted ~21 GB at
+  12; the truth is 18.97, and the model cannot produce a cliff at all. **Refuted by 7585983.**
+
+⇒ **Do not extrapolate memory in this regime. Measure one arm per configuration.** In
+particular the apparent ~20 GB of headroom at 8 samples/GPU is *not* usable capacity: batch 48
+fits with room, batch 64 does not fit at all, and nothing in between has been probed.
 
 ### 5h. LR sweep — the prereg beat the prior
 
@@ -454,17 +464,24 @@ variable. Selection rule committed **before** arms 2-3 existed (`9506ad1f`).
 
 | arm | valid loss @ ep3 | grad norm @ ep3 | verdict |
 |---|---|---|---|
-| 4.0e-4 — upstream FCN3 pretrain-2's batch-32 value | 0.03237 | 0.04966 | **worst** |
+| 4.0e-4 — upstream FCN3 pretrain-2's batch-32 value | 0.03237 | 0.04966 | worst of the three tested first |
 | 1.0e-3 — our shipped config, unscaled | 0.02655 | 0.02616 | |
-| **2.0e-3 — sqrt-scaled from batch 8** | **0.02352** | **0.01830** | **winner, on both** |
+| **2.0e-3 — sqrt-scaled from batch 8** | **0.02352** | **0.01830** | **WINNER — minimum** |
+| 4.0e-3 *(added 2026-09-02, job 7585996)* | **0.10703** | 0.00913 | **4.5× worse** |
 
-All three passed the stability filter (grad norm fell 2→3 everywhere); 2e-3 led by 12.9%, so no
-tie-break. **4e-4 was my stated prior on upstream's authority and it came last** — the
+✅ **CLOSED 2026-09-02 — the optimum is bracketed on both sides, and it is 2.0e-3.** The first
+three arms had 2e-3 winning at the *top* of the range, so the optimum was only bounded below.
+The 4e-3 arm settles it: validation is **4.5× worse**, giving a clean U-shape with the minimum
+at 2e-3. The pre-registered rule picked the right value from an open-ended range.
+⚠ Note 4e-3's grad norm is the *lowest* of the four (0.00913) while its loss is the worst —
+a low gradient norm is **not** a health signal on its own; read it with the loss.
+
+**4e-4 was my stated prior on upstream's authority and it came third of four** — the
 pre-registered rule is the only reason the choice wasn't rationalised after the fact.
 
-⚠ Three epochs cannot catch a tail instability (ai-rossby diverged at **epoch 11**), and 2e-3
-was the **top of the range tested**, so the optimum may lie higher. Warm restarts bound the
-risk: 2e-3 is the peak of every cycle, so trouble surfaces in cycle 1 with checkpoints intact.
+⚠ Three epochs still cannot catch a tail instability (ai-rossby diverged at **epoch 11**).
+Warm restarts bound the risk: 2e-3 is the peak of every cycle, so trouble surfaces in cycle 1
+with checkpoints intact — and it did not (production cleared cycle 1 with grad norm monotone).
 
 ### 5i. Rank↔GPU placement — measured, and it is config-dependent
 

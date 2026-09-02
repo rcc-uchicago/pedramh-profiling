@@ -143,6 +143,59 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-02 (cont.)** — **Production cleared its first warm-restart cycle; the LR sweep is
+  CLOSED at 2e-3; batch 48 fits; and the memory model was refuted for the second time.**
+  - ✅ **PRODUCTION 7585080 — 24/243 epochs, and cycle 1 behaved exactly as designed.**
+    | epoch | valid | note |
+    |---|---|---|
+    | 23 | **0.01402** | **end of cycle 1** — LR annealed to `eta_min`, grad norm **0.0043**, first of 12 snapshots |
+    | 24 | 0.01611 | LR jumps back to the 2e-3 peak ⇒ validation degrades |
+    The epoch-24 rise is the **SGDR sawtooth working**, not a regression — and it is precisely
+    why snapshots are taken at cycle *ends*. `best_ckpt` holds epoch 23. **0.01402 is 23% below
+    the 128-node run's FINAL 0.018297**, reached in **4.4 node-hours against its 216**.
+    The 2e-3 peak — 5× upstream's batch-32 value, and the risk I flagged when the prereg picked
+    it — produced no instability through the whole first cycle.
+  - ✅ **LR SWEEP CLOSED — 2.0e-3 confirmed as the optimum, now bracketed on BOTH sides**
+    (job 7585996 added the missing arm):
+    | LR | valid @ ep3 |
+    |---|---|
+    | 4.0e-4 (upstream's batch-32 value) | 0.03237 |
+    | 1.0e-3 (shipped, unscaled) | 0.02655 |
+    | **2.0e-3** | **0.02352 ← minimum** |
+    | **4.0e-3** | **0.10703 — 4.5× worse** |
+    A clean U-shape. Before this arm, 2e-3 won at the *top* of the range and the optimum was
+    only bounded below; it is now located. **The pre-registered rule picked the right value out
+    of an open-ended range.**
+    ⚠ Note 4e-3 has the **lowest grad norm of the four** (0.00913) alongside the worst loss —
+    **a low gradient norm is not a health signal on its own.**
+  - ⭐ **BATCH 48 FITS: 18.97 GB** (job 7585983, 12 samples/GPU, production settings).
+  - 🐛🐛 **AND THAT REFUTED THE MEMORY MODEL FOR THE SECOND TIME. There is now no model —
+    three points and a CLIFF:**
+    | samples/GPU | memory |
+    |---|---|
+    | 8 | 16.04 GB |
+    | **12** | **18.97 GB** (+0.73 GB per sample) |
+    | 16 | **≥39.5 GB — OOM** |
+    8→12 is nearly linear; 12→16 would predict ~22 GB and exceeds 39.5. Both models fitted here
+    are dead: *"≈0.99 GB/sample-step, linear"* (predicted 18.2 at 16 — refuted by the OOM) and
+    *"≈2.5× per doubling, superlinear"* (predicted ~21 at 12 — refuted by 7585983, and it
+    cannot produce a cliff at all). **Something discrete happens between 12 and 16 samples/GPU**
+    — allocator fragmentation or a spectral-transform workspace change, untested. ⇒ **measure
+    one arm per configuration; do not fit a third model.** Corrected in the report §5g and the
+    handoff §C2, with both dead models retained so neither is refitted.
+  - ⚠ **BATCH-48 LR SWEEP INCONCLUSIVE — killed at walltime — but it caught a divergence.**
+    All three arms (7586074/5/6, `preemptable`) hit the 55-min cap with only 1-2 epochs;
+    epoch-1 losses cannot rank LRs (a higher LR always descends faster early). What *is*
+    conclusive: **4.5e-3 DIVERGED at epoch 2 — grad norm 4,303,908** (from 0.34 at epoch 1),
+    step time 3× slower. That is the tail instability the repo warns about, arriving at
+    **epoch 2** rather than epoch 11. Re-run needs a longer walltime and less concurrency.
+  - ⚠ **METHOD: the side jobs DID perturb production, as flagged when they were queued.**
+    Median epoch wall **668.4 s → 683.9 s (+2.3%)** while the probe and three arms ran
+    concurrently, with spikes at epochs 16/19/22 (753/749/711 s); `io_gbs` 3.31 → 3.27. Small,
+    and the model is unaffected (I/O jitter changes wall clock, not numerics) — but **epochs
+    16-23 must be excluded from any epoch-time statistic**, and it is a concrete argument
+    against running I/O-heavy arms against a live production job on the same pack.
+
 - **2026-09-02** — 🚀 **1-NODE PRODUCTION LAUNCHED (7585080, `capacity`) after the LR sweep
   overturned my prior.** The occupancy result (2026-09-01) said production belongs on **one
   node**; today closed the last blockers and started it.
