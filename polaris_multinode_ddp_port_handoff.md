@@ -46,9 +46,13 @@ nodes ≤1 h, ONE queued-or-running job per user; `prod` routes by size →
 `small` (~10–24), `medium` (25–99), `large` (100–496, ≤24 h); **`capacity`**
 (≤168 h — the designated long single-node queue, `max_run 1` per PROJECT: it
 blocks every group member, never take it without the operator) and
-**`preemptable`** (fallback; may never start). A >1 h job of 3–9 nodes has no
-clean home — restructure it (shorter epochs, resume chains) rather than
-reaching for `preemptable`.
+**`preemptable`** (≤72 h, 1–10 nodes, **10 concurrent per project** — its start
+latency is load-dependent, not absent: it runs only on nodes `prod` isn't using,
+so 0/9 started on 2026-08-05 and 22 were running on 2026-09-02). A >1 h job of
+3–9 nodes has no clean home in the deterministic queues — restructure it
+(shorter epochs, resume chains) or accept `preemptable`'s latency; since resume
+is proven (2026-09-02) a preemption now costs ~1 epoch, but our launchers are
+`-r n` and would be killed rather than requeued.
 
 ## 0. Ground rules (all inherited, all enforced by evidence in CHANGELOG)
 

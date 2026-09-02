@@ -50,7 +50,7 @@ A ~16-24 h single-node job has exactly one home:
 |---|---|---|---|
 | `debug` | ≤2 | 1 h | tests only |
 | `prod`→small/medium/large | ≥16 | 6-24 h | won't take 1 node |
-| `preemptable` | — | — | may never start |
+| `preemptable` | 1-10 | ≤72 h | **10 concurrent/project**, but start latency is load-dependent; preemption now costs ~1 epoch since resume is proven, though our launchers are `-r n` |
 | **`capacity`** | **1-4** | **≤168 h** | **the only option — fits unchained** |
 
 ⚠ `capacity` is **`max_run 1` per PROJECT**. Taking it blocks every other

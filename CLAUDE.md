@@ -100,7 +100,7 @@ The ways to silently break this project.
 |---|---|---|
 | Scheduler | SLURM (`sbatch`/`squeue`) | PBS Pro (`qsub`/`qstat`/`qdel`) |
 | Account | `--account=pi-pedramh -p pedramh-gpu` | `-A lighthouse-uchicago` |
-| Queue | `pedramh-gpu` | smoke → `debug` (≤1 h); long single-node → **`capacity`** (≤168 h); `preemptable` is the fallback and **may never start**. → notes §1b |
+| Queue | `pedramh-gpu` | smoke → `debug` (≤1 h); long single-node → **`capacity`** (≤168 h, `max_run 1` per *project*); `preemptable` = ≤72 h, **10 concurrent per project**, but **start latency is load-dependent** (it runs only on nodes `prod` isn't using: 0/9 started on 2026-08-05, 22 running on 2026-09-02) — use it for concurrency, not for short jobs. → notes §1b |
 | GPU | 4× H100 NVL ~94 GB | 4× A100 40 GB SXM4 |
 | Node directive | `--nodes=1 --gres=gpu:4` | `-l select=1:system=polaris -l place=scatter` |
 | Filesystems | implicit | **`-l filesystems=home:eagle`** — jobs are *rejected* without it |

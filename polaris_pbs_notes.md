@@ -199,8 +199,37 @@ threw away accrued queue priority for nothing.
 |---|---|---|---|---|
 | `debug` | **≤ 1 h** | 1–2 | **max_run 1, max_queued 1 per USER** — cannot chain, cannot pre-load | **9/9 started, median 19 s** |
 | **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1, max_queued 2 per PROJECT**; `Priority = 150` | 12 running / 6 queued — actively scheduling. ⚠ limits queried, **not yet exercised by us** |
-| `preemptable` | ≤ 72 h | 1–10 | max_queued 20/user, max_run 10/project | **0/9 started in 11.5 h** |
+| `preemptable` | ≤ 72 h | 1–10 | max_queued 20/user, **max_run 10/project**; `Priority = 155` | ⚠ **load-dependent**: 0/9 started in 11.5 h (2026-08-05) vs **22 running** (2026-09-02) |
 | `prod` | — | **≥ 10** | routing queue | n/a for single-node work |
+
+> ### ⚠ CORRECTED 2026-09-02 — `preemptable` does not "never start"; its latency is load-dependent
+> Earlier versions of this file, CLAUDE.md and several handoffs stated *"may never
+> start"* as a **property of the queue**, generalised from one bad day (0/9 jobs in
+> 11.5 h on 2026-08-05, all showing `queue_tags`). Re-queried **2026-09-02**:
+> `enabled=True`, `Priority=155` (**above** `capacity`'s 150), **22 running**, 125
+> queued, 48 held.
+>
+> The real mechanism is already in this file: **`preemptable` runs only on nodes
+> `prod` is not using**, so its throughput tracks machine load. On a busy day it
+> starts nothing; on a quiet one it starts dozens. State it as *unpredictable start
+> latency*, never as *never starts* — the difference matters when choosing a queue.
+>
+> **Operational guidance (operator call, 2026-09-02) — unchanged by the correction:**
+> * **short measurement work → `debug` / `debug-scaling`.** Deterministic, seconds to
+>   start. `preemptable` occasionally takes long enough to queue that it is not worth
+>   it for a 30-minute job.
+> * **long uninterrupted runs → `capacity`.** 1–4 nodes, ≤168 h, no preemption.
+> * **`preemptable` earns its place when you need CONCURRENCY**: `max_run` is **10 per
+>   project** against `capacity`'s **1**, and it does not block other members from the
+>   capacity slot. That is the axis on which it wins, not latency.
+>
+> ⭐ **What changed the calculus (2026-09-02): resume is proven.** Preemption used to
+> mean losing a run, which is why this repo wrote the queue off. makani's resume test
+> reproduced an uninterrupted reference **byte-identically** — correct epoch, no warmup
+> replay, LR-cycle phase preserved — so a preemption now costs **at most one epoch**.
+> ⚠ But our launchers are `#PBS -r n` (**not** rerunnable), so PBS would kill rather
+> than requeue them; `-r y` is required and is **untested here**. See
+> "Preemption is self-healing — but only with `-r y`" below.
 
 > ### ⚠ `capacity` is the right queue for long single-node runs — not `preemptable`
 > An earlier version of these notes (and CLAUDE.md) said `preemptable` was *the*

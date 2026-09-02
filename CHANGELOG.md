@@ -211,6 +211,22 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - **Allocation context** (`sbank`): project has **14,592 node-hours available**, 2,147
     charged all-time, **2,086 of it in the last 31 days** — of which ai-rossby is ~59% and the
     whole makani campaign ~290. This 45 h run is **0.3% of the remaining balance**.
+  - ⚠ **DOC CORRECTION, repo-wide: `preemptable` does not "never start" — its latency is
+    LOAD-DEPENDENT.** CLAUDE.md, `polaris_pbs_notes.md`, two handoffs and both live-session
+    prompts asserted *"may never start"* as a **property of the queue**, generalised from one
+    bad day (0/9 jobs in 11.5 h on 2026-08-05, all `queue_tags`). Re-queried today:
+    `enabled=True`, **`Priority=155`** (*above* `capacity`'s 150), **22 running**, 125 queued,
+    48 held, ≤72 h, 1-10 nodes, **`max_run 10` per project against `capacity`'s 1**.
+    The mechanism was already in the notes: it runs **only on nodes `prod` isn't using**, so
+    throughput tracks machine load. Fixed in all five places; the dated 2026-08-05/06 records
+    are left alone because they are correct *as observations*.
+    **Operational guidance unchanged (operator call):** short measurement work stays on
+    `debug`/`debug-scaling` — deterministic, seconds to start, and `preemptable` occasionally
+    takes long enough to queue that it isn't worth it for a 30-minute job. `preemptable` wins
+    on **concurrency** (10 vs 1), not latency, and it doesn't block other members' capacity.
+    ⭐ **What changed the calculus: resume is proven** (above), so a preemption now costs ~1
+    epoch rather than the run. ⚠ But our launchers are `#PBS -r n` — PBS would kill rather than
+    requeue them. `-r y` is required and **untested here**.
 
 - **2026-09-01 (cont.)** — ⭐ **SHARDING BEATS PURE DDP AT EQUAL BATCH, AND THE BROKEN AXIS IS
   `w`, NOT THE SPLIT SIZE.** Four spatial shapes at global batch 32 on the ALLDATA pack,

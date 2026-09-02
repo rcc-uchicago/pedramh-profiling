@@ -16,7 +16,7 @@ The Midway pattern runs a cheap `--partition=build` orchestrator that submits ga
 |---|---|---|
 | `debug` | ≤ 1 h | **`max_run 1` AND `max_queued 1` per USER.** A second `qsub` is rejected outright; a `-W depend=` job is rejected too, because a held job still counts. |
 | `capacity` | ≤ 168 h | **`max_run 1` / `max_queued 2` per PROJECT** — one slot for all of `lighthouse-uchicago`. |
-| `preemptable` | ≤ 72 h | **0/9 jobs started in 11.5 h** on 2026-08-05. May never start. |
+| `preemptable` | ≤ 72 h | ⚠ load-dependent: 0/9 started in 11.5 h (2026-08-05) vs 22 running (2026-09-02). Runs only on nodes `prod` isn't using. 10 concurrent/project |
 
 So a batch orchestrator on `debug` is its own competitor and cannot submit the very jobs it exists to submit; on
 `capacity` it would burn the project's only long slot to sit and wait. There is no `build`-equivalent queue.

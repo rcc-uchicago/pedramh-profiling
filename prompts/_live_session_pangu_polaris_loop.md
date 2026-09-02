@@ -234,7 +234,7 @@ is absent or dirty, that is a §9 blocker — **never** write a prereg after see
   |---|---|---|
   | `debug` | ≤1 h | **the default for this loop.** Proven; cannot chain or pre-load |
   | `capacity` | ≤168 h | 1–4 nodes, but **`max_run 1` per PROJECT** — check the slot is free and coordinate *before* taking it: `qstat -a \| awk 'NR>5 && $3 ~ /capacity/ {print $2, $10}'` |
-  | `preemptable` | ≤72 h | **0/9 started in 11.5 h** on 2026-08-05. The fallback that may never start |
+  | `preemptable` | ≤72 h | ⚠ load-dependent: 0/9 started 2026-08-05, **22 running 2026-09-02**. 10 concurrent/project — wins on concurrency, not latency |
 - **⚠ NEVER resubmit a stuck job without diagnosing first** (CLAUDE.md #12 — this cost a day on 2026-08-05):
   ```bash
   qstat -x -f <jobid> | grep -E "^ +comment|^ +eligible_time|^ +job_state"   # anchor the grep!
