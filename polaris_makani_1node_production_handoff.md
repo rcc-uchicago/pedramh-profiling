@@ -105,7 +105,22 @@ scorecard is still poor, that is evidence for C3, not against rollouts.
 Activations scale with `samples/GPU × (n_future + 1)`. From the one measurement we have
 (10.33 GB at 8 samples/GPU, `n_future=0`; ~2.4 GB is weights + grads + AdamW moments):
 
-**≈ 0.99 GB per sample-step**, so `samples/GPU × (n_future+1) ≲ 34` on a 40 GB card.
+⚠⚠ **CORRECTED 2026-09-02 — the linear model below is REFUTED; do not plan from it.**
+Two *production-settings* points now exist and they do not fit a line:
+
+| samples/GPU | global batch | measured memory | job |
+|---|---|---|---|
+| 8 | 32 | **16.04 GB** | 7585080 / 7582088 |
+| 16 | 64 | **≥39.5 GB — OOM** | **7580362** |
+
+Doubling samples/GPU took memory **≈2.5×, not 2×**. The linear fit (~0.99 GB per sample-step,
+derived from the *benchmark* arms at `EVAL_SAMPLES=8`) predicted 18.2 GB for 16 samples and was
+wrong by more than a factor of two. **Memory scales superlinearly in this regime and must be
+measured, not extrapolated** — one arm per `n_future` value, before committing a long run.
+
+The table below is retained only to show what was predicted and how it failed:
+
+**≈ 0.99 GB per sample-step (REFUTED — see above)**, giving `samples/GPU × (n_future+1) ≲ 34`.
 
 | `n_future` | samples/GPU at batch 32, 1 node | est. memory | fits 1 node? |
 |---|---|---|---|
@@ -119,8 +134,11 @@ Activations scale with `samples/GPU × (n_future + 1)`. From the one measurement
 nodes, which is the *worst* configuration on this machine (§0). Options, in preference order:
 (a) stop at `n_future=2-3` on one node; (b) drop the batch to 16 and keep `n_future=4` on one
 node; (c) accept 2 nodes and its ~234 ms toll. **Measure (a) before assuming (c).**
-⚠ The 0.99 GB/sample-step figure is a one-point extrapolation. Verify at `n_future=1` before
-planning around `n_future=3`.
+⚠ **The 0.99 GB/sample-step figure is refuted (above), so every row of this table is
+untrustworthy.** `n_future=1` doubles the retained graph exactly as 8→16 samples/GPU did — and
+that measured **≥2.5×**, i.e. 16.04 GB → **≥40 GB, an OOM**. So `n_future=1` at 8 samples/GPU
+may well not fit at all, and C2 should open with `n_future=1` at a REDUCED `LOCAL_BATCH`
+(4 or 6) rather than assuming the current batch survives.
 ⚠ **Do not substitute the 16.03 GB production figure into this table.** 10.33 GB is a
 *training*-dominated peak (`EVAL_SAMPLES=8`); 16.03 GB is a *validation*-dominated peak
 (`EVAL_SAMPLES=512`, 3-step rollout). `n_future` scales the training term only, so the rollout

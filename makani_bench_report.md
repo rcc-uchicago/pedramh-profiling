@@ -431,10 +431,21 @@ do not.** Plan on 475 ms.
 
 **The two memory figures measure different things** and must not be conflated: 10.33 GB is a
 *training*-dominated peak (`EVAL_SAMPLES=8`), 16.03 GB is a *validation*-dominated peak
-(`EVAL_SAMPLES=512`, 3-step autoregressive rollout). `n_future` scales the **training** term
-only, so rollout-memory arithmetic uses 10.33 (≈0.99 GB per sample-step above ~2.4 GB of
-weights + grads + AdamW moments); the 16 GB is a fixed validation ceiling that does not grow
-with rollout length.
+(`EVAL_SAMPLES=512`, 3-step autoregressive rollout).
+
+⚠ **Memory does NOT scale linearly with samples/GPU — measured, not assumed.** The two
+production-settings points:
+
+| samples/GPU | global batch | memory | job |
+|---|---|---|---|
+| 8 | 32 | **16.04 GB** | 7585080 |
+| 16 | 64 | **≥39.5 GB → OOM** on a 39.49 GiB card | **7580362** |
+
+Doubling the samples took memory **≈2.5×**. An earlier linear fit (~0.99 GB per sample-step,
+from the benchmark arms) predicted 18.2 GB and was wrong by >2×. **The apparent 24 GB of
+headroom at 8 samples/GPU is therefore not 24 GB of usable capacity** — the next doubling
+consumes all of it and more. Any `n_future` or batch increase must be measured one arm at a
+time, not extrapolated.
 
 ### 5h. LR sweep — the prereg beat the prior
 
