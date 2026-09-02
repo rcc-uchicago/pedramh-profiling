@@ -3,9 +3,13 @@
 **Status: ✅ PASS — full variable parity. Coding is unblocked.**
 
 This is the Step-0 gate for the ai-rossby PanguPlasim bring-up
-(`polaris_ai_rossby_pangu_handoff_prompt.md`). It proves the variable set we are about to
+(the ai-rossby/Pangu bring-up handoff, deleted 2026-09-02 once executed — results in
+CHANGELOG 2026-08-04/05). It proves the variable set we are about to
 train is **identical** to the one jesswan's PanguWeather E3SM run actually trained on, so
 that any difference in results is attributable to the architecture, not to the data.
+
+**Companion:** `ai_rossby_e3sm_zarr_schema.md` — *how* these variables are stored
+(measured geometry, chunking, and the production year split).
 
 Every table below is **machine-generated evidence**, not a reading. The contract lives in
 one place — `ai_rossby_variable_contract.py::PLANNED` — and that module both (a) asserts

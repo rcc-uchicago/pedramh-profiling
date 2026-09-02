@@ -1,6 +1,7 @@
 # The three E3SM pipelines on Polaris: convert → train → infer (the plan)
 
-Written 2026-07-16, the deliverable of `polaris_pipelines_handoff_prompt.md` §8. Every
+Written 2026-07-16, the deliverable of the pipelines design handoff (deleted 2026-09-02
+once executed; its launcher rules live in `polaris_pbs_notes.md` §6). Every
 claim below was read from code this session (two Fable-5 agents swept PanguWeather and
 makani; PhysicsNeMo was read directly) or is marked **UNMEASURED / NEVER RUN**. Nothing
 in this document has been submitted.

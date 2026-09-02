@@ -7,33 +7,32 @@ This file says only **what to do next and in what order**.
 Rules: newest state at the top of each item; when an item is done, delete it here and
 record the measurement in `CHANGELOG.md`. **PASS is the log token, never `rc`** (#14).
 
-**Focus (2026-09-01): makani.** P0/P1 are makani; P2 is everything else, still live but
-not the current push. Nothing queued or running as of 2026-09-01.
+**Focus (2026-09-02): makani.** P0/P1 are makani; P2 is everything else, still live but
+not the current push.
+🚀 **RUNNING: job 7585080** — 1-node production on `capacity`, 243 epochs, LR 2.0e-3,
+warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09-02`.
 
 ---
 
 ## P0 — do these first
 
-1. **Retrain at the right batch, on one node.** The 128-node run (7566145) is a completed
-   training run, not a usable recipe: batch 512 bought only **8,500 weight updates** in 100
-   epochs, and its validation minimum sitting at the last epoch says undertrained, not
-   converged. Batch 32 on **1 node** gives **136,800 updates in ~16.2 h for ~14 node-hours**
-   — 16× the updates for 1/15th the cost of the run already spent (`makani_bench_report.md`
-   §5c-d).
-   Order: finish the placement reps (in flight) → lock the config → one 100-epoch reference
-   run → the LR sweep (item 2).
-   ⚠ Needs the **`capacity`** queue: 1-4 nodes, ≤168 h, so it fits unchained — but it is
-   `max_run 1` per *project*, so taking it blocks other `lighthouse-uchicago` members for the
-   duration. Coordinate before submitting.
+1. ✅ **LAUNCHED 2026-09-02 — job 7585080, `capacity`, 1 node, 243 epochs, ~45 h.** Watch it,
+   don't re-plan it. The 128-node run (7566145) was a completed training run, not a usable
+   recipe: batch 512 bought only **8,500 weight updates** in 100 epochs and its validation
+   minimum sat at the last epoch — undertrained, not converged. This run does **332,424
+   updates (1.6× upstream FCN3 pretrain-1) for ~45 node-hours** against that run's 216
+   (`makani_bench_report.md` §5c-d, §5g-h).
+   **What to check:** loss still descending at cycle ends (epochs 23/43/63/…); `best_ckpt`
+   advancing; grad norm without spikes at each restart, where LR returns to its 2e-3 peak.
+   ⚠ It holds the project's **only `capacity` slot** (`max_run 1` per project) for ~45 h.
    *Note: batch/LR/scheduler changes are training-regime changes; keep the science owner
    informed and hand her the per-channel lwrmse panels — but this does not gate the work.*
 
-2. **Optimize the LR and the schedule — now affordable at full length.**
-   The two references disagree by 5-10× at batch 32: upstream FCN3 pretrain2 uses **4e-4**,
-   while scaling our shipped (batch 8, 1e-3) gives 2e-3 (sqrt) to 4e-3 (linear). Not derivable
-   — measurable. At ~14 node-hours a run, a **3-arm sweep at the full 100 epochs** costs ~42,
-   less than the single 128-node run already spent. Full length matters: ai-rossby's short
-   sweep would have passed a config that diverged at **epoch 11**.
+2. ✅ **SETTLED 2026-09-02 — LR 2.0e-3, warm restarts, by a pre-registered rule** (commit
+   `9506ad1f`, scored in `makani_bench_report.md` §5h). Three arms × 3 full-pass epochs:
+   4e-4 (upstream's batch-32 value) **came last**; 2e-3 won on both validation loss (0.02352)
+   and grad norm (0.01830), by 12.9%. Remaining work is only to *re-test* if the run misbehaves:
+   3 epochs cannot catch a tail instability, and 2e-3 was the **top of the range tested**.
    Ship it on a real schedule at the same time — `makani/utils/driver.py:678-708` already
    supports `CosineAnnealingLR` and **`CosineAnnealingWarmRestarts`** (`scheduler_T_0`,
    `scheduler_T_mult`), config-only.
@@ -144,43 +143,52 @@ not the current push. Nothing queued or running as of 2026-09-01.
 
 ## P2 — other tracks, still live
 
-13. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
+13. **ACE2 (`fme`) on Polaris — the next port after makani.** Plan and the carried-over
+    NCCL/training configuration: **`polaris_ace2_multinode_handoff.md`** (§1f holds the
+    2026-09-01/02 makani findings). Status: GREEN on Midway (4×H100, `ACE2_SMOKE_OK`, jobs
+    53478978/53478979), profiled (`ACE2_retrain/bench_midway_notes.md`), **no Polaris/PBS path
+    yet**. Data already staged at `/eagle/projects/lighthouse-uchicago/ace2/`.
+    ⚠ Read §1f first: at fixed batch more nodes made makani *slower*, so establish the 1-node
+    point before building any scale-out ladder — and ACE2's optimizer state is ~10.7 GB of a
+    40 GB card, so it has less room for the large-local-batch route than makani had.
+
+14. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
     **none of it is in the CHANGELOG** (rows are in `$MEMBER_ROOT/bench/ai_rossby_hpsweep.csv`
     and `ai_rossby_tuning.csv`; the commits are on `feat/multinode-ddp-port`). Also confirm the
     LR-5e-4 restart (**7573280**) cleared **epoch 11**, the point where LR 1.46e-3 diverged.
     The living document is not optional — an unrecorded measurement is a lost one.
 
-14. **ai-rossby: `max_checkpoints_to_keep: 5` does not prune.** 43 epochs kept all 92 files =
+15. **ai-rossby: `max_checkpoints_to_keep: 5` does not prune.** 43 epochs kept all 92 files =
     **870 GB**; at 100 epochs that is ~2 TB. Find out why before the next long run.
 
-15. **PanguWeather: capture the §4.1 baseline, then rung 1 of the §5 ladder.** Nothing blocks
+16. **PanguWeather: capture the §4.1 baseline, then rung 1 of the §5 ladder.** Nothing blocks
     the baseline any more (all three §4.0 prerequisites met; `tiny_baseline.yaml` runs in ~0.5 s
     of compute). `torch.compile` is measured at 1.40× on ai-rossby but **fails equivalence**
     (4.02e-01 ≫ 1e-2) — it is measured, not adopted. Plan and evidence:
     `PANGU_POLARIS_PROFILING_PLAN.md`, `polaris_bench_report.md`.
 
-16. **Profile SI and physicsnemo on Polaris** (DESIGN §8 Phase 2). Only PanguWeather has a
+17. **Profile SI and physicsnemo on Polaris** (DESIGN §8 Phase 2). Only PanguWeather has a
     kernel-level profile. **SI is cheapest** — it already has `SI_BENCH_*`/`SI_NVTX` and a green
     Polaris bench (7252700 / 7253603); physicsnemo has no comparable harness.
 
-17. **Fix the loader's missing `worker_init_fn`.** Would make `num_data_workers` an
+18. **Fix the loader's missing `worker_init_fn`.** Would make `num_data_workers` an
     output-neutral knob worth **+9% wall throughput with 10× less jitter** (1 → 8). Today the
     worker count changes the noise realisation, so the win cannot pass the §4 gate. Ship it with
     a test pinning sample→noise independence from worker count.
 
-18. **Stand up the test harness proper.** Three self-running test files exist (`SEEDING_OK`,
+19. **Stand up the test harness proper.** Three self-running test files exist (`SEEDING_OK`,
     `BENCH_INSTR_OK`, `VAE_NOISE_OK`); there is no `conftest.py` and no `--fast`.
 
-19. **Merge the open PRs, in order.** `polaris-pbs-bringup` → **#10** `polaris-profiling` →
+20. **Merge the open PRs, in order.** `polaris-pbs-bringup` → **#10** `polaris-profiling` →
     **#11** `polaris-data-prep`; then `profile/pangu-polaris-profiling` → `feat/multinode-ddp-port`.
     A solo session cannot self-approve (#9). Every one of these is stacked, so merging out of
     order replays commits.
 
-20. **E3SM data prep: 4 open converter defects + 5 decisions** (jesswan/us) —
+21. **E3SM data prep: 4 open converter defects + 5 decisions** (jesswan/us) —
     `polaris_data_prep_decisions.md`. The full ~1.43 TB PhysicsNeMo conversion is **not cleared
     to run**. makani's ALLDATA converter was audited clean (`MAKANI_PACK_AUDIT_OK`, 101 channels).
 
-21. **ERA5 Globus stage** → unblocks the s2s and s2s-lightning smokes on Polaris; both scripts
+22. **ERA5 Globus stage** → unblocks the s2s and s2s-lightning smokes on Polaris; both scripts
     are written and preflight `ERA5_NOT_STAGED`.
 
 ---

@@ -32,6 +32,7 @@ this doc discharges.
 | **GPU↔NUMA map — REVERSED. Do not assume identity.** | `dev0`=`0000:07:00.0`→**NUMA 3**; `dev1`=`0000:46:00.0`→**NUMA 2**; `dev2`=`0000:85:00.0`→**NUMA 1**; `dev3`=`0000:c7:00.0`→**NUMA 0**. ⇒ **a naive `--cpu-bind depth -d 8` puts local rank 0 on cores 0-7 = NUMA 0, whose GPU is `dev3` — i.e. every rank lands maximally far from its own GPU.** This is a concrete candidate mechanism for the undiagnosed host-CPU stall pattern in `polaris_bench_report.md` §4.4e, and it confirms the warning in `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs` that the ALCF helper assigns GPUs in reverse local-rank order. | measured, job **7531456** (bus IDs cross-checked against `TARGET_INFO_GPU` in the nsys captures) |
 | Node RAM | **not captured** — the probe's `free -g` line had a shell-quoting bug (fixed in `polaris_probe.pbs` after job 7251974); re-run the probe to record it | ⚠️ unverified |
 | **Node-local scratch** | **`/local/scratch` = 2.8 TB free** (also `/tmp` = 252 GB) | probe |
+| **A100 peak DRAM bandwidth** | **1555.2 GB/s**, L2 = 40 MiB — read from `TARGET_INFO_GPU`. Use it as the denominator for any "% of peak" claim | job **7255503** (`PROFILING_TABLES.md`) |
 | Queue (smoke) | `debug` (1–2 nodes, ≤1 h, 1 running job/user) | `qstat -Q` |
 | Node/GPU directive | `-l select=1:system=polaris -l place=scatter` (whole node = 4 GPU) | probe accepted |
 | **Filesystems** | `-l filesystems=home:eagle` (REQUIRED; jobs rejected without it) | probe accepted |
@@ -726,6 +727,18 @@ DistributedManager`), `warp-lang`, `nvidia-dali-cuda120`, `s3fs`, `treelib`, `mo
    the venv has no `torchrun` of its own; the bare name resolves to the **base** conda
    `torchrun`, whose shebang pins the **base** python — the spawned ranks then die with
    `No module named 'makani'`. Use **`python -m torch.distributed.run`**.
+
+   > **The per-model launcher table** (folded in from `polaris_pipelines_handoff_prompt.md` §3
+   > on 2026-09-02 when that executed handoff prompt was deleted; CLAUDE.md §Common commands
+   > cites this block):
+   >
+   > | model | launcher |
+   > |---|---|
+   > | PanguWeather | `torchrun --standalone --nproc_per_node=$NPROC` |
+   > | **makani / PhysicsNeMo** | **`python -m torch.distributed.run`** — their venv has no `torchrun`, and the bare name resolves to the BASE conda's, whose shebang pins the wrong python |
+   > | ACE2 (`fme`) | `python -m fme.ace.train` under `torch.distributed` (torchrun-family) |
+   >
+   > **Polaris/PBS: never `srun`.** Every Polaris script must `source polaris_env.sh`.
 3. **`pip install tltorch` does not exist** — the module `tltorch` ships as the PyPI
    package **`tensorly-torch`**. (It silently "worked" only by leaking from the user site.)
 4. **Never `pip install nvidia-physicsnemo` from PyPI without `--no-deps`**: its pyproject

@@ -1,0 +1,26 @@
+#!/bin/bash
+# >>> claude-hpc job template >>>
+#PBS -l select=1
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=0:30:00
+#PBS -q debug
+#PBS -A lighthouse-uchicago
+# NOTE: every existing job script in this directory uses the fuller Polaris form
+#       `-l select=1:system=polaris` together with `-l place=scatter`.
+#       Match them before submitting anything real.
+
+cd "$PBS_O_WORKDIR" || exit 1
+
+# Compute nodes reach the internet only through the site proxy; login nodes must not.
+case "$HOSTNAME" in
+  *login*) ;;
+  *) export HTTP_PROXY=http://proxy.alcf.anl.gov:3128
+     export HTTPS_PROXY=$HTTP_PROXY http_proxy=$HTTP_PROXY \
+            https_proxy=$HTTP_PROXY ftp_proxy=$HTTP_PROXY
+     export no_proxy="localhost,*.polaris.alcf.anl.gov,*.alcf.anl.gov" ;;
+esac
+
+# --- replace with the real command -------------------------------------------
+echo "REPLACE ME: job command goes here"
+# -----------------------------------------------------------------------------
+# <<< claude-hpc job template <<<

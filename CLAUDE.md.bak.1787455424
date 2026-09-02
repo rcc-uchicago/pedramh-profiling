@@ -1,8 +1,7 @@
 # CLAUDE.md
 
 *How to work here.* What & why → **DESIGN.md** (read it first). Where things stand
-→ **CHANGELOG.md**. What to do next, priority first → **TODO.md**. Cluster detail →
-**`polaris_pbs_notes.md`**.
+→ **CHANGELOG.md**. Cluster detail → **`polaris_pbs_notes.md`**.
 
 This file is deliberately short. When a rule needs evidence, the reference carries
 it — don't inline the evidence back here.
@@ -74,7 +73,7 @@ The ways to silently break this project.
 1. Read **CHANGELOG.md** — state, blockers, and failed approaches not to re-try.
 2. Confirm `/model`; note the cluster (`hostname`, `qstat -Q`).
 3. Run the relevant smoke (§Smokes) — or `pytest -q --fast` once that harness exists.
-4. Pick the top open item in **TODO.md** (P0 first); DESIGN §8 is the roadmap behind it.
+4. Pick the next unchecked roadmap item (DESIGN §8).
 5. **Before stopping, update CHANGELOG.md**: what you did, the measured result, what
    you learned, what's now blocked.
 
@@ -100,7 +99,7 @@ The ways to silently break this project.
 |---|---|---|
 | Scheduler | SLURM (`sbatch`/`squeue`) | PBS Pro (`qsub`/`qstat`/`qdel`) |
 | Account | `--account=pi-pedramh -p pedramh-gpu` | `-A lighthouse-uchicago` |
-| Queue | `pedramh-gpu` | smoke → `debug` (≤1 h); long single-node → **`capacity`** (≤168 h, `max_run 1` per *project*); `preemptable` = ≤72 h, **10 concurrent per project**, but **start latency is load-dependent** (it runs only on nodes `prod` isn't using: 0/9 started on 2026-08-05, 22 running on 2026-09-02) — use it for concurrency, not for short jobs. → notes §1b |
+| Queue | `pedramh-gpu` | smoke → `debug` (≤1 h); long single-node → **`capacity`** (≤168 h); `preemptable` is the fallback and **may never start**. → notes §1b |
 | GPU | 4× H100 NVL ~94 GB | 4× A100 40 GB SXM4 |
 | Node directive | `--nodes=1 --gres=gpu:4` | `-l select=1:system=polaris -l place=scatter` |
 | Filesystems | implicit | **`-l filesystems=home:eagle`** — jobs are *rejected* without it |
@@ -131,7 +130,7 @@ cd si && python bench.py --config configs/SI_midway.yaml --devices 0   # --confi
 **DESIGN §2**. Two traps it records: PanguWeather uses `PANGU_*` (a stale `S2S_*`
 errors `LEGACY_BENCH_ENV`), and on **Polaris never `srun`** — makani/physicsnemo need
 `python -m torch.distributed.run`, not bare `torchrun`
-(→ `polaris_pbs_notes.md` §6 venv traps, the per-model launcher table).
+(→ `polaris_pipelines_handoff_prompt.md` §launcher).
 
 ## Smokes
 
@@ -175,35 +174,8 @@ reads as fork-owned but is not. Keep such edits minimal and contiguous. → note
 > exists because the *port imports* `s2s/v2.0`) about a PanguWeather file is a
 > category error — it happened here and cost real work.
 
-**Where to look:** measured evidence → `makani_bench_report.md` (multi-node scaling +
-the 128-node production run), `polaris_bench_report.md` (Pangu, kernel-level),
+**Where to look:** measured evidence → `polaris_bench_report.md`,
 `s2s/v2.0/bench_report.md`, `si/bench_midway_notes.md`,
 `s2s-lightning/LIGHTNING_PORT.md`; SI knobs → `si/CLAUDE.md` (auto-loads under `si/`);
 ai-rossby → `physicsnemo_ai_rossby/CLAUDE.md`; Polaris bring-up →
 `polaris_pbs_notes.md`.
-
-<!-- >>> claude-hpc polaris shell rules >>> -->
-## Shell rules — ALCF Polaris login node (shared, process-capped)
-
-Exceeding the per-user process cap kills this session mid-task.
-
-MUST:
-- Never use the Task or Agent tools or spawn parallel agents here.
-- Never run compute, builds, or I/O-heavy work on login nodes.
-  Submit via qsub. For short jobs only, `qsub -W block=true` as a
-  single blocking call (debug queue, walltime under the Bash tool
-  timeout); otherwise submit, report the job ID, and stop. Check
-  `qstat -x <id>` at most once per user request — never in a loop.
-- Never search or list files outside this project directory.
-
-PREFER:
-- Read/Grep/Glob tools over shelling out to cat, grep, find, ls.
-- One Bash call per logical step: chain with && or write a script
-  with the Write tool and run it once.
-- `conda run -n <env>` over `conda activate`.
-
-Example — inspect job output:
-BAD:  `ls out/` then `head out/run.log` then `qstat` (3 calls)
-GOOD: Read tool on out/run.log, or
-      `ls out/ && tail -20 out/run.log && qstat -x 12345` (1 call)
-<!-- <<< claude-hpc polaris shell rules <<< -->

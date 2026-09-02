@@ -211,6 +211,47 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - **Allocation context** (`sbank`): project has **14,592 node-hours available**, 2,147
     charged all-time, **2,086 of it in the last 31 days** — of which ai-rossby is ~59% and the
     whole makani campaign ~290. This 45 h run is **0.3% of the remaining balance**.
+  - 🧹 **DOC CLEANUP — five executed handoff prompts deleted, and an adversarial pass cut the
+    list in half before anything was removed.** The repo's pattern: a prompt is written to brief
+    a future session, that session does the work, the results land here and in a report — and
+    the prompt stays forever. Seven candidates were proposed; **three checks were run first**:
+    1. **Orphan-evidence check** — every job ID and PASS token in each candidate, tested against
+       the rest of the repo. **One orphan found**: job **7337122** (`CONVERT_ALL_OK`, the
+       ai-rossby E3SM→zarr smoke-split conversion) existed *only* in
+       `polaris_ai_rossby_pangu_handoff_v2.md`. **It is preserved here by this entry.**
+    2. **Numeric-survival check** on `PROFILING_TABLES.md`: 134/139 of its decimals appear
+       elsewhere; the 5 that don't are the **GH200/Delta NVLink matrix** (NV6, 126.0-132.1 GB/s
+       pairwise) and the **A100 peak DRAM bandwidth 1555.2 GB/s** (job 7255503, from
+       `TARGET_INFO_GPU`).
+    3. **Inbound-citation check** — and this is what overturned the plan.
+    ⇒ **TWO PROPOSED DELETIONS WERE CANCELLED**, both because they are cited *with line
+    numbers* as the object of documented corrections:
+    * `PROFILING_TABLES.md` — `ACE2_retrain/PROFILING_PLAN.md:60-72` cites
+      `PROFILING_TABLES.md:35-40` while *correcting* it. Deleting it would orphan the
+      correction record, and it holds the two unique measurements above. **KEPT.**
+    * `polaris_handoff_prompt.md` — cited by `polaris_pbs_notes.md:30` as an **OPEN** caveat
+      ("asserts without measurement that torchrun's local ranks bind fine") and by
+      `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs:276`, a **code comment
+      citing `polaris_handoff_prompt.md:116-117`** for the reversed GPU-order fact. **KEPT.**
+    **Deleted (5)**, each with its work verifiably complete and its references retargeted:
+    | doc | KB | work completed by | refs retargeted to |
+    |---|---|---|---|
+    | `polaris_ai_rossby_pangu_handoff_prompt.md` (v1) | 8 | superseded by v2 in its own line 2 | `ai_rossby_panguweather_variable_parity.md` |
+    | `polaris_ai_rossby_pangu_handoff_v2.md` | 20 | CHANGELOG 2026-08-05 (all three steps green, jobs 7340945 / 7341412) | — (0 inbound) |
+    | `polaris_profiling_handoff_prompt.md` | 15 | `PANGU_POLARIS_PROFILING_PLAN.md` + `polaris_bench_report.md` | — (0 inbound) |
+    | `polaris_pipelines_handoff_prompt.md` | 17 | its own deliverables `polaris_pipelines_plan.md` + `polaris_pipeline_runbook.md` | **§3 launcher table folded into `polaris_pbs_notes.md` §6**; CLAUDE.md + pipelines plan retargeted |
+    | `panguweather_repo_cleanup.md` | 8 | instructions for **a different repo** (`envfluids/PanguWeather`), 0 inbound | — |
+    Net **−68 KB, 32 → 27 root docs**, zero evidence lost, zero dangling references (verified by
+    sweep; the one remaining mention is the provenance note in `polaris_pbs_notes.md` recording
+    where the launcher table came from).
+  - **Two live docs were ORPHANED (0 inbound refs) — linked rather than deleted:**
+    `polaris_ace2_multinode_handoff.md` is now `TODO.md` item 13 (the next port after makani),
+    and `ai_rossby_e3sm_zarr_schema.md` is now linked from its companion
+    `ai_rossby_panguweather_variable_parity.md`. Zero references is a *symptom*, and it points
+    two ways — at dead weight or at a doc nobody can find.
+  - **`TODO.md` P0 items 1-2 rewritten** — they still read "nothing running" and briefed work
+    that job 7585080 has since done. A priority list that describes a finished plan is worse
+    than no list.
   - ⚠ **DOC CORRECTION, repo-wide: `preemptable` does not "never start" — its latency is
     LOAD-DEPENDENT.** CLAUDE.md, `polaris_pbs_notes.md`, two handoffs and both live-session
     prompts asserted *"may never start"* as a **property of the queue**, generalised from one
