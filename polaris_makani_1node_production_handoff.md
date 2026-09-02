@@ -115,10 +115,16 @@ nothing to extrapolate with:**
 | 16 | 64 | **≥39.5 GB — OOM** | 7580362 |
 
 8→12 adds **0.73 GB per sample**; 12→16 would predict ~22 GB and instead blows past 39.5.
-**Both models fitted here have been refuted by the next measurement** — first "~0.99 GB per
-sample-step, linear" (predicted 18.2 at 16 samples), then "≈2.5× per doubling, superlinear"
-(predicted ~21 at 12; truth is 18.97, and it cannot produce a cliff at all).
-⇒ **Measure one arm per configuration. Do not fit a third model.**
+Three models were fitted here and all three failed — because **the metric is not a peak.**
+
+⚠⚠ **`memory footprint [GB]` is `total − free` sampled at EPOCH END**
+(`deterministic_trainer.py:703`), after the step's transients are freed. The real high-water
+mark (`max_memory_allocated`) is computed on the same line and **discarded**. The batch-64 OOM
+(7580362) died in the **loss** (`makani/utils/loss.py:402`) at the transient peak, with
+**276 MiB** reserved-but-unallocated (so *not* fragmentation) and **~7.7 GB of non-PyTorch
+overhead** (CUDA context + cuFFT/cuDNN/NCCL workspaces) inside the total.
+⇒ **Log the peak before sizing anything.** Until then, treat every footprint number in this
+document as a **lower bound**, and size `n_future` arms with margin rather than to the number.
 
 The table below is retained only to show what was predicted and how it failed:
 

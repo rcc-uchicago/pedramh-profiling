@@ -183,6 +183,30 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     — allocator fragmentation or a spectral-transform workspace change, untested. ⇒ **measure
     one arm per configuration; do not fit a third model.** Corrected in the report §5g and the
     handoff §C2, with both dead models retained so neither is refitted.
+  - 🔬 **WHY BATCH 64 OOMs — DIAGNOSED, and it retires the "cliff" framing too.** Asked
+    "do we know why it crashes at 16?", the answer was in the log all along:
+    * **Not fragmentation.** `276.76 MiB reserved by PyTorch but unallocated` — PyTorch's own
+      message says fragmentation would make that number *large*.
+    * **~7.7 GB is NON-PyTorch overhead.** At the OOM, 39.41 GiB in use but only **31.46 GiB
+      allocated by PyTorch** — CUDA context + cuFFT/cuDNN workspaces + NCCL buffers.
+      Corroborated by the scaffolding line `9.66 GB (1.99 GB for pytorch)`. It is a **fixed tax
+      on every configuration**.
+    * **It died in the LOSS, not the forward** — `makani/utils/loss.py:402`, i.e. the transient
+      peak where the whole forward graph is alive for backward *plus* the loss intermediates.
+    * ⚠⚠ **AND THE METRIC WE HAVE BEEN PLANNING WITH IS NOT A PEAK.**
+      `get_memory_usage` (`training_helpers.py:22-27`) returns **both** an instantaneous
+      `total − free` **and** `torch.cuda.max_memory_allocated` — and
+      `deterministic_trainer.py:703` logs the first and **discards the second**. So
+      `memory footprint [GB]` is a **post-epoch snapshot**, taken after the step's transients
+      are freed. It understates the true requirement by an amount that **grows with batch**,
+      which is precisely what manufactured the apparent discontinuity.
+    ⇒ **The "cliff" was largely an artifact of measuring the wrong thing** — batch 64 did not
+    hit a discontinuity, it hit a transient peak the metric never showed us at batch 32 or 48
+    either. **Third memory model retired; this time with a mechanism and a fix:** log
+    `max_memory_allocated` (already computed) and `reset_peak_memory_stats` per epoch, and the
+    memory question becomes answerable instead of fitted. Until then **every footprint number
+    in these docs is a LOWER BOUND** — recorded as such in `makani_bench_report.md` §5g and the
+    production handoff §C2.
   - ⚠ **BATCH-48 LR SWEEP INCONCLUSIVE — killed at walltime — but it caught a divergence.**
     All three arms (7586074/5/6, `preemptable`) hit the 55-min cap with only 1-2 epochs;
     epoch-1 losses cannot rank LRs (a higher LR always descends faster early). What *is*

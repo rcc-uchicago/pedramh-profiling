@@ -444,8 +444,38 @@ data:
 | 16 | 64 | **≥39.5 GB → OOM** on a 39.49 GiB card | 7580362 |
 
 **8→12 adds only 0.73 GB per sample; 12→16 would predict ~22 GB and instead exceeds 39.5.**
-That is a **cliff, not a curve** — something discrete happens between 12 and 16 samples/GPU
-(allocator fragmentation, or a workspace/plan change in the spectral transform, untested).
+
+⚠⚠ **DIAGNOSED 2026-09-02 — the "cliff" is largely an ARTIFACT OF THE METRIC.
+`memory footprint [GB]` is not a peak.**
+
+```python
+# makani/utils/training/training_helpers.py:22-27
+free_mem, total_mem = torch.cuda.mem_get_info(device)
+allocated_mem_gb = (total_mem - free_mem)/GB          # INSTANTANEOUS device usage
+torch_mem_gb      = torch.cuda.max_memory_allocated()  # the real high-water mark
+# deterministic_trainer.py:703 -- logs the first, DISCARDS the second:
+all_mem_gb, _ = get_memory_usage(self.device)
+```
+It is sampled **at epoch end**, after the step's transients are freed. So 16.04 and 18.97 are
+*post-epoch snapshots* that understate the true requirement by an amount that **grows with
+batch** — which manufactures an apparent discontinuity where the underlying curve may be smooth.
+
+What the batch-64 OOM actually shows (job 7580362, full message):
+* **Not fragmentation** — `276.76 MiB reserved by PyTorch but unallocated`. PyTorch's own
+  message says fragmentation would make that number large.
+* **~7.7 GB is NON-PyTorch overhead** — at the OOM, 39.41 GiB in use but only **31.46 GiB
+  allocated by PyTorch** (CUDA context + cuFFT/cuDNN workspaces + NCCL buffers). Corroborated
+  by the scaffolding line: `9.66 GB (1.99 GB for pytorch)`. **That ~7.7 GB is a fixed tax on
+  every configuration** and it is inside the reported footprint.
+* **It failed in the LOSS, not the forward** — `makani/utils/loss.py:402`
+  (`loss_vals.append(lfn(...))`), i.e. at the transient peak where the whole forward graph is
+  still alive for backward *plus* the loss intermediates. That transient is exactly what an
+  end-of-epoch sample cannot see.
+
+⇒ **FIX BEFORE PLANNING ANY `n_future` OR BATCH CHANGE: log the peak.**
+`get_memory_usage` already computes `max_memory_allocated`; the epoch log throws it away. Log
+both (and `reset_peak_memory_stats` per epoch) and the memory question becomes answerable
+instead of a fitted guess.
 
 Retired models, kept so neither is refitted:
 * ~~"≈0.99 GB per sample-step, linear"~~ — from the benchmark arms; predicted 18.2 GB at 16
