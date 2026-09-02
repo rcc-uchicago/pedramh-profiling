@@ -123,8 +123,17 @@ mark (`max_memory_allocated`) is computed on the same line and **discarded**. Th
 (7580362) died in the **loss** (`makani/utils/loss.py:402`) at the transient peak, with
 **276 MiB** reserved-but-unallocated (so *not* fragmentation) and **~7.7 GB of non-PyTorch
 overhead** (CUDA context + cuFFT/cuDNN/NCCL workspaces) inside the total.
-⇒ **Log the peak before sizing anything.** Until then, treat every footprint number in this
-document as a **lower bound**, and size `n_future` arms with margin rather than to the number.
+⇒ **Log the peak before sizing anything. DONE 2026-09-02** — `plasim_trainer.log_epoch` now
+emits `peak torch memory [GB]` (`max_memory_reserved`, the part that scales) and
+`non-torch memory [GB]` (the ~7.7 GB fixed tax), with `reset_peak_memory_stats` per epoch.
+Compare their **sum** against **39.49 GiB**. → `makani_bench_report.md` §5g.
+
+**So C2 no longer has to guess — but it does have to wait one arm.** Every memory number
+*already in this document* predates the fix and remains a **lower bound**; do not size
+`n_future` off them. Take the peak from the first job carrying the new keys — the batch-48 LR
+sweep (7586382/3/4, patched while queued) gives the batch-48 point, and C1 gives the
+`n_future=1` point — then size C2 to measured peaks. Values are in the job `.o` log and wandb,
+**not** in `makani_scaling*.csv` (the parser's header guard is deliberately not migrated yet).
 
 The table below is retained only to show what was predicted and how it failed:
 
@@ -148,7 +157,7 @@ samples/GPU) went from 16.04 GB to an OOM. **So `n_future=1` at 8 samples/GPU ma
 at all.** C2 should open with `n_future=1` at a REDUCED `LOCAL_BATCH` (4 or 6) and measure,
 rather than assuming the production batch survives.
 ⚠ **Do not substitute the 16.03 GB production figure into this table.** 10.33 GB is a
-*training*-dominated peak (`EVAL_SAMPLES=8`); 16.03 GB is a *validation*-dominated peak
+*training*-dominated snapshot (`EVAL_SAMPLES=8`); 16.03 GB is a *validation*-dominated snapshot
 (`EVAL_SAMPLES=512`, 3-step rollout). `n_future` scales the training term only, so the rollout
 arithmetic uses 10.33 — but the card must also clear the fixed ~16 GB validation ceiling, which
 becomes non-binding once training exceeds it at `n_future ≥ 1`.

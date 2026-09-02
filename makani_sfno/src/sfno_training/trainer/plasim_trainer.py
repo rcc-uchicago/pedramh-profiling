@@ -780,6 +780,40 @@ class PlasimTrainer(Trainer):
             samples_per_sec = 0.0
         timing_logs["samples/sec"] = samples_per_sec
         train_logs["samples/sec"] = samples_per_sec
+
+        # Peak memory. Makani's own `memory footprint [GB]` is NOT a peak: it is
+        # `(total - free)` sampled at epoch end, after the step's transients are
+        # freed (training_helpers.py:22-27 computes `max_memory_allocated` too,
+        # but deterministic_trainer.py:703 discards it). That understates the
+        # real requirement by an amount that GROWS with batch size, which is why
+        # batch 64 OOM'd (job 7580362) after batch 32/48 reported a comfortable
+        # 16.04/18.97 GB. Two keys, because neither alone answers "will it fit":
+        #   peak torch memory  -- allocator high-water REserved, the part that
+        #                         scales with batch/n_future
+        #   non-torch memory   -- CUDA context + cuFFT/cuDNN workspaces + NCCL
+        #                         buffers (~7.7 GB at the 7580362 OOM); roughly
+        #                         constant, so an epoch-end sample is fine
+        # Their sum is the card occupancy to compare against 39.49 GiB.
+        # Wrapped: a diagnostic must never be able to kill a multi-day run.
+        try:
+            if torch.cuda.is_available():
+                gb = 1024.0**3
+                peak_torch_gb = torch.cuda.max_memory_reserved(self.device) / gb
+                free_mem, total_mem = torch.cuda.mem_get_info(device=self.device)
+                non_torch_gb = (
+                    (total_mem - free_mem) - torch.cuda.memory_reserved(self.device)
+                ) / gb
+                timing_logs["peak torch memory [GB]"] = peak_torch_gb
+                timing_logs["non-torch memory [GB]"] = non_torch_gb
+                train_logs["peak torch memory [GB]"] = peak_torch_gb
+                train_logs["non-torch memory [GB]"] = non_torch_gb
+                # Reset so each epoch reports ITS OWN peak, not a running max --
+                # take the max over epochs when sizing. Epoch 0 is the outlier
+                # (allocator still growing), so it is the one to size against.
+                torch.cuda.reset_peak_memory_stats(self.device)
+        except Exception:  # noqa: BLE001 - diagnostic only
+            logging.warning("peak-memory logging failed", exc_info=True)
+
         base = valid_logs.setdefault("base", {})
         base.setdefault("validation steps", 0)
         base.setdefault("validation loss", float("nan"))

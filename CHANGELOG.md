@@ -143,6 +143,42 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-02 (cont. 2)** — **The peak memory the batch-64 OOM diagnosis asked for is now
+  actually logged — and the batch-48 arms got it for free, because they were still queued.**
+  - **The fix** (`makani_sfno/src/sfno_training/trainer/plasim_trainer.py`, `log_epoch`): two
+    additive per-epoch keys to the screen log **and** wandb, plus `reset_peak_memory_stats` so
+    each epoch reports its own peak rather than a running max —
+    | key | definition | why |
+    |---|---|---|
+    | `peak torch memory [GB]` | gigabytes/GPU, `torch.cuda.max_memory_reserved` | allocator high-water mark — **the term that scales** with batch and `n_future` |
+    | `non-torch memory [GB]` | gigabytes/GPU, `(total − free) − torch reserved`, epoch end | CUDA context + cuFFT/cuDNN + NCCL — the **~7.7 GB fixed tax** measured at the 7580362 OOM |
+    Their **sum** is what to compare against 39.49 GiB. Makani's `memory footprint [GB]` is
+    left in place, so **no prior row is invalidated**.
+  - **Timing was luck worth recording:** `qstat` showed 7586382/3/4 still in state `Q` on
+    `preemptable`. The PBS script puts the fork on `PYTHONPATH` (`:120`,
+    `MAKANI_ROOT/src`) and Python resolves it **at job start**, so patching a queued job's code
+    is enough — no `qdel`, no requeue, no lost eligible time. The running production job
+    (7585080) already imported the module and is unaffected either way.
+  - **Wrapped in `try/except` on purpose.** A diagnostic must never be able to kill a
+    multi-day run; on failure it logs a warning and the epoch continues.
+  - **Deliberately NOT added to `makani_scaling*.csv`.** `parse_makani_scaling.py` asserts the
+    header matches `FIELDS` and **refuses to append** on drift (`:162`, `:172-178`) — rule #10's
+    guard doing its job. Adding columns means migrating every existing CSV in one commit; doing
+    that while 7585080 and three arms are writing to those files is how you lose a campaign's
+    data. → `TODO.md` item 13. Until then read the values from the job `.o` log or wandb.
+  - **Two limits, stated so this isn't over-read in turn** (this is the *fourth* memory claim in
+    this project and the first three were all refuted): `max_memory_reserved` is a high-water
+    mark of the **allocator, not the device**, and the non-torch term is an epoch-end sample
+    *assumed* near-constant. That assumption is untested — it is merely far more defensible than
+    a curve fitted to post-epoch snapshots.
+  - **Stale claims deleted, not just superseded**: `submit_b48_lr_sweep_if_it_fits.sh`'s header
+    ("memory scales SUPERLINEARLY, ~2.5× per doubling") and its `GATE PASSED ... peak ${MEM} GB`
+    log line, and `makani_bench_report.md` §0a's units row calling `memory (GB)` a "peak per
+    GPU" — which had been directly contradicting §5g since the diagnosis. Also
+    `polaris_makani_1node_production_handoff.md` §C2, where "log the peak before sizing
+    anything" is now marked done, with the caveat that every number *already in that document*
+    predates the fix and stays a lower bound.
+
 - **2026-09-02 (cont.)** — **Production cleared its first warm-restart cycle; the LR sweep is
   CLOSED at 2e-3; batch 48 fits; and the memory model was refuted for the second time.**
   - ✅ **PRODUCTION 7585080 — 24/243 epochs, and cycle 1 behaved exactly as designed.**
@@ -389,7 +425,8 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     sweep; the one remaining mention is the provenance note in `polaris_pbs_notes.md` recording
     where the launcher table came from).
   - **Two live docs were ORPHANED (0 inbound refs) — linked rather than deleted:**
-    `polaris_ace2_multinode_handoff.md` is now `TODO.md` item 13 (the next port after makani),
+    `polaris_ace2_multinode_handoff.md` is now the first `TODO.md` **P2** item, ACE2 (the next
+    port after makani; numbered 13 when written, 14 after the 2026-09-02 insertion),
     and `ai_rossby_e3sm_zarr_schema.md` is now linked from its companion
     `ai_rossby_panguweather_variable_parity.md`. Zero references is a *symptom*, and it points
     two ways — at dead weight or at a doc nobody can find.

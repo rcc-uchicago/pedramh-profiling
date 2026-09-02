@@ -58,7 +58,7 @@ unit is given here rather than in the header.
 | `wall (h)` | **hours** | end-to-end for the stated epoch count |
 | `node-hours` | **nodes × wall (h)** | at 1 node this equals `wall (h)` |
 | `updates` | **count of optimizer steps** | `steps/epoch × epochs`; *not* samples |
-| `memory (GB)` | **gigabytes, peak per GPU** | makani's `memory footprint`, an epoch high-water mark |
+| `memory (GB)` | **gigabytes per GPU, epoch-END snapshot — a LOWER BOUND, not a peak** | makani's `memory footprint`: `(total − free)` sampled after the step's transients are freed, so it understates by an amount that grows with batch. → §5g. For the real peak use `peak torch memory [GB]` + `non-torch memory [GB]`, logged from 2026-09-02 |
 | `trunk tile` | **grid points per rank** | after `scale_factor`, i.e. of the 60×120 trunk |
 
 ## 1. What was measured
@@ -472,10 +472,32 @@ What the batch-64 OOM actually shows (job 7580362, full message):
   still alive for backward *plus* the loss intermediates. That transient is exactly what an
   end-of-epoch sample cannot see.
 
-⇒ **FIX BEFORE PLANNING ANY `n_future` OR BATCH CHANGE: log the peak.**
-`get_memory_usage` already computes `max_memory_allocated`; the epoch log throws it away. Log
-both (and `reset_peak_memory_stats` per epoch) and the memory question becomes answerable
-instead of a fitted guess.
+⇒ **FIX SHIPPED 2026-09-02 — the peak is now logged.** `plasim_trainer.log_epoch` emits two
+new per-epoch keys to the screen log and to wandb, and calls `reset_peak_memory_stats` so each
+epoch reports its own peak rather than a running max:
+
+| key | what it is | why both are needed |
+|---|---|---|
+| `peak torch memory [GB]` | gigabytes, `torch.cuda.max_memory_reserved` per GPU | the allocator high-water mark — **the part that scales** with batch and `n_future` |
+| `non-torch memory [GB]` | gigabytes per GPU, `(total − free) − torch reserved` at epoch end | CUDA context + cuFFT/cuDNN workspaces + NCCL buffers — the **~7.7 GB fixed tax** above |
+
+Card occupancy to compare against **39.49 GiB** is the **sum**. Makani's own
+`memory footprint [GB]` is left untouched and still logged, so no prior row is invalidated —
+the new keys are additive.
+
+Two deliberate limits, so this isn't over-read in turn:
+* **Not in `makani_scaling*.csv`.** `parse_makani_scaling.py` asserts the header matches
+  `FIELDS` and *refuses to append* on drift (`:162`, `:172-178`) — the rule-#10 guard doing its
+  job. Adding a column means migrating every existing CSV, which is a deliberate change, not
+  something to do mid-campaign with a production job running. → TODO. Read the values from the
+  job's `.o` log or wandb until then.
+* **`max_memory_reserved` is still PyTorch-only.** It is a high-water mark of the *allocator*,
+  not of the device; the non-torch term is sampled at epoch end and assumed near-constant. That
+  assumption is itself untested — it is just far more defensible than a fit to post-epoch
+  snapshots.
+
+First arms carrying it: the batch-48 LR sweep **7586382 / 7586383 / 7586384** (patched while
+still queued, so all three land with it) and any capacity job submitted after this date.
 
 Retired models, kept so neither is refitted:
 * ~~"≈0.99 GB per sample-step, linear"~~ — from the benchmark arms; predicted 18.2 GB at 16

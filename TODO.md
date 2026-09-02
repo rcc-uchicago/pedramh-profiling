@@ -144,9 +144,18 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
 12. **Second-user reproducibility for makani** — Pangu and SI have it, makani and physicsnemo
     do not (DESIGN §8). One run as another user with `PYTHONNOUSERSITE=1`.
 
+13. **Migrate `makani_scaling*.csv` to carry peak memory** (rule #10 — a deliberate
+    header change, not a drive-by). `plasim_trainer.log_epoch` now logs
+    `peak torch memory [GB]` + `non-torch memory [GB]` per epoch, but they reach only the
+    job `.o` log and wandb: `parse_makani_scaling.py` asserts the header matches `FIELDS`
+    and **refuses to append** on drift (`:162`, `:172-178`). Adding the two columns means
+    rewriting the header of every existing CSV in one commit, plus a parser test.
+    **Deliberately deferred** — not to be done while job 7585080 and the batch-48 arms are
+    writing to those files. Do it once they land. → `makani_bench_report.md` §5g.
+
 ## P2 — other tracks, still live
 
-13. **ACE2 (`fme`) on Polaris — the next port after makani.** Plan and the carried-over
+14. **ACE2 (`fme`) on Polaris — the next port after makani.** Plan and the carried-over
     NCCL/training configuration: **`polaris_ace2_multinode_handoff.md`** (§1f holds the
     2026-09-01/02 makani findings). Status: GREEN on Midway (4×H100, `ACE2_SMOKE_OK`, jobs
     53478978/53478979), profiled (`ACE2_retrain/bench_midway_notes.md`), **no Polaris/PBS path
@@ -155,43 +164,43 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
     point before building any scale-out ladder — and ACE2's optimizer state is ~10.7 GB of a
     40 GB card, so it has less room for the large-local-batch route than makani had.
 
-14. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
+15. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
     **none of it is in the CHANGELOG** (rows are in `$MEMBER_ROOT/bench/ai_rossby_hpsweep.csv`
     and `ai_rossby_tuning.csv`; the commits are on `feat/multinode-ddp-port`). Also confirm the
     LR-5e-4 restart (**7573280**) cleared **epoch 11**, the point where LR 1.46e-3 diverged.
     The living document is not optional — an unrecorded measurement is a lost one.
 
-15. **ai-rossby: `max_checkpoints_to_keep: 5` does not prune.** 43 epochs kept all 92 files =
+16. **ai-rossby: `max_checkpoints_to_keep: 5` does not prune.** 43 epochs kept all 92 files =
     **870 GB**; at 100 epochs that is ~2 TB. Find out why before the next long run.
 
-16. **PanguWeather: capture the §4.1 baseline, then rung 1 of the §5 ladder.** Nothing blocks
+17. **PanguWeather: capture the §4.1 baseline, then rung 1 of the §5 ladder.** Nothing blocks
     the baseline any more (all three §4.0 prerequisites met; `tiny_baseline.yaml` runs in ~0.5 s
     of compute). `torch.compile` is measured at 1.40× on ai-rossby but **fails equivalence**
     (4.02e-01 ≫ 1e-2) — it is measured, not adopted. Plan and evidence:
     `PANGU_POLARIS_PROFILING_PLAN.md`, `polaris_bench_report.md`.
 
-17. **Profile SI and physicsnemo on Polaris** (DESIGN §8 Phase 2). Only PanguWeather has a
+18. **Profile SI and physicsnemo on Polaris** (DESIGN §8 Phase 2). Only PanguWeather has a
     kernel-level profile. **SI is cheapest** — it already has `SI_BENCH_*`/`SI_NVTX` and a green
     Polaris bench (7252700 / 7253603); physicsnemo has no comparable harness.
 
-18. **Fix the loader's missing `worker_init_fn`.** Would make `num_data_workers` an
+19. **Fix the loader's missing `worker_init_fn`.** Would make `num_data_workers` an
     output-neutral knob worth **+9% wall throughput with 10× less jitter** (1 → 8). Today the
     worker count changes the noise realisation, so the win cannot pass the §4 gate. Ship it with
     a test pinning sample→noise independence from worker count.
 
-19. **Stand up the test harness proper.** Three self-running test files exist (`SEEDING_OK`,
+20. **Stand up the test harness proper.** Three self-running test files exist (`SEEDING_OK`,
     `BENCH_INSTR_OK`, `VAE_NOISE_OK`); there is no `conftest.py` and no `--fast`.
 
-20. **Merge the open PRs, in order.** `polaris-pbs-bringup` → **#10** `polaris-profiling` →
+21. **Merge the open PRs, in order.** `polaris-pbs-bringup` → **#10** `polaris-profiling` →
     **#11** `polaris-data-prep`; then `profile/pangu-polaris-profiling` → `feat/multinode-ddp-port`.
     A solo session cannot self-approve (#9). Every one of these is stacked, so merging out of
     order replays commits.
 
-21. **E3SM data prep: 4 open converter defects + 5 decisions** (jesswan/us) —
+22. **E3SM data prep: 4 open converter defects + 5 decisions** (jesswan/us) —
     `polaris_data_prep_decisions.md`. The full ~1.43 TB PhysicsNeMo conversion is **not cleared
     to run**. makani's ALLDATA converter was audited clean (`MAKANI_PACK_AUDIT_OK`, 101 channels).
 
-22. **ERA5 Globus stage** → unblocks the s2s and s2s-lightning smokes on Polaris; both scripts
+23. **ERA5 Globus stage** → unblocks the s2s and s2s-lightning smokes on Polaris; both scripts
     are written and preflight `ERA5_NOT_STAGED`.
 
 ---

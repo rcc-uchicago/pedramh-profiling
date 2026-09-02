@@ -2,10 +2,21 @@
 # Submit the batch-48 LR sweep, but ONLY if the batch-48 memory probe (7585983)
 # proved batch 48 fits on one node.
 #
-# WHY GATED: 12 samples/GPU sits in the untested gap between two measured points
-# -- 8 samples = 16.04 GB, 16 samples = OOM on a 39.49 GiB card. Memory scales
-# SUPERLINEARLY there (doubling samples took ~2.5x, not 2x), so 12 is a genuine
-# coin-flip and three arms would be wasted if it OOMs.
+# WHY GATED: 12 samples/GPU sat in the untested gap between two measured points
+# -- 8 samples = 16.04 GB reported, 16 samples = OOM on a 39.49 GiB card -- so 12
+# was a coin-flip and three arms would have been wasted if it OOM'd. It fit
+# (18.97 GB reported, probe 7585983), so the gate has served its purpose.
+#
+# DO NOT READ A SCALING LAW OFF THOSE NUMBERS. They are epoch-end snapshots, not
+# peaks: makani logs `(total - free)` AFTER the step's transients are freed and
+# discards the `max_memory_allocated` it computes on the same line
+# (training_helpers.py:22-27 vs deterministic_trainer.py:703). Every one of them
+# is a LOWER BOUND that understates by an amount growing with batch size -- which
+# is what made batch 64's OOM (7580362) look like a "cliff" after a comfortable
+# 16.04 GB. The earlier "memory scales ~2.5x per doubling" note that stood here
+# was fitted to those snapshots and is retired. True peaks are now logged per
+# epoch as `peak torch memory [GB]` + `non-torch memory [GB]`
+# (plasim_trainer.py log_epoch); size future n_future/batch work off THOSE.
 #
 # ARMS -- chosen to bracket both scaling rules from the batch-32 winner (2.0e-3):
 #   2.0e-3  optimum does NOT move with batch
@@ -47,7 +58,7 @@ for ((i = 1; i <= MAX_TRIES; i++)); do
     # a written epoch summary with a memory footprint means the step completed => it fits
     if [ -f "${PROBE_LOG}" ] && grep -q "memory footprint" "${PROBE_LOG}" 2>/dev/null; then
         MEM=$(grep "memory footprint" "${PROBE_LOG}" | tail -1 | sed 's/.*: //')
-        log "GATE PASSED batch 48 fits -- peak ${MEM} GB on a 39.49 GiB card"
+        log "GATE PASSED batch 48 fits -- ${MEM} GB epoch-end (NOT a peak) on a 39.49 GiB card"
         break
     fi
     log "probe still running (try ${i}/${MAX_TRIES})"
