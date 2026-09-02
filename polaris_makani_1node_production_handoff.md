@@ -4,8 +4,9 @@
 rests on), then CHANGELOG `2026-09-01 (cont.)`. Priorities live in `TODO.md`.
 
 **Definitions.** `$MEMBER_ROOT` = `/eagle/projects/lighthouse-uchicago/members/mehta5`.
-*sample-equivalent* = one full sample through the whole model; a GPU holding 8 samples on a
-quarter domain carries 2. PASS is always the log token, never `rc` (CLAUDE.md #14).
+*sample-equivalent* = one full sample through the whole model, **per GPU per step** =
+`global_batch ÷ ranks`; a GPU holding 8 samples on a quarter domain carries 2. Units for every
+report column: `makani_bench_report.md` §0a. PASS is always the log token, never `rc` (CLAUDE.md #14).
 
 ---
 
@@ -14,7 +15,7 @@ quarter domain carries 2. PASS is always the log token, never `rc` (CLAUDE.md #1
 **At a fixed global batch, more nodes make this model slower, not faster.** Measured, batch 32,
 ALLDATA, warmup-free:
 
-| nodes | GPUs | samples/GPU | step_ms | samples/s |
+| nodes | GPUs | samples/GPU (per step) | step_ms | samples/s (total) |
 |---|---|---|---|---|
 | **1** | **4** | **8** | **365.4** | **87.6** |
 | 2 | 8 | 4 | 627.1 | 51.0 |

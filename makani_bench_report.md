@@ -36,6 +36,31 @@ logs `makani_sfno/makani_mn_scaling.o<jobid>` (launcher header) and
    production row are bit-unchanged, and the 5 spatial rows were corrected in place. If you
    have a copy of a spatial row taken before that date, **divide its throughput by `h_par·w_par`.**
 
+
+### 0a. Column units and definitions
+
+Report tables use these names. Where a name matches a CSV column it is kept **verbatim** —
+CSV column names are a cross-project contract (CLAUDE.md #10) and must not be renamed — so the
+unit is given here rather than in the header.
+
+| column | unit | definition |
+|---|---|---|
+| `step_ms` | **milliseconds per optimizer step** | the *final epoch's* mean step time (§0 trap 1). CSV column |
+| `samples/s (total)` | **samples per second, all ranks** | `global_batch ÷ step_ms`. CSV `samples_s_total` |
+| `samples/s per GPU` | **samples per second per GPU** | `samples/s (total) ÷ ranks`. CSV `samples_s_rank` |
+| `samples/GPU` | **samples per GPU per step** | = `local_batch`; how many samples one GPU holds in a step |
+| `sample-equiv/GPU` | **sample-equivalents per GPU per step** | `global_batch ÷ ranks` — one full sample through the whole model = 1. A GPU holding 8 samples on a ¼ domain carries 2. Invariant to the decomposition |
+| `weak eff (%)` | **percent** | `step_ms(1 node) ÷ step_ms(N nodes)` at 1 sample/GPU |
+| `vs 1n (%)` | **percent change in step time** | positive = slower than the 1-node arm |
+| `wireup (s)` | **seconds, once per job** | process-group setup before step 1 |
+| `io (GB/s)` | **gigabytes per second, aggregate** | makani's `minimal IO rate` |
+| `epoch wall (s)` | **seconds per epoch** | includes validation + checkpoint I/O, unlike `step_ms` |
+| `wall (h)` | **hours** | end-to-end for the stated epoch count |
+| `node-hours` | **nodes × wall (h)** | at 1 node this equals `wall (h)` |
+| `updates` | **count of optimizer steps** | `steps/epoch × epochs`; *not* samples |
+| `memory (GB)` | **gigabytes, peak per GPU** | makani's `memory footprint`, an epoch high-water mark |
+| `trunk tile` | **grid points per rank** | after `scale_factor`, i.e. of the 60×120 trunk |
+
 ## 1. What was measured
 
 | item | value |
@@ -99,7 +124,7 @@ What each delta is worth, and which have a mechanism:
 
 60 steps, one epoch, no wandb. Every row `AWS Libfabric`, `world_size` verified.
 
-| nodes | ranks | job | step_ms | vs 1n | samples/s total | weak eff | wireup s | io GB/s |
+| nodes | ranks | job | step_ms | vs 1n (%) | samples/s (total) | weak eff (%) | wireup (s) | io (GB/s) |
 |---|---|---|---|---|---|---|---|---|
 | 1 | 4 | 7554222 | 144.7 | — | 27.6 | 100% | 2.76 | 0.70 |
 | 2 | 8 | 7554241 | 145.7 | +0.7% | 54.9 | 99.3% | 8.54 | 1.39 |
@@ -117,7 +142,7 @@ taken.
 
 ### 3b. NEW plugin (v1.21.1 + AUTO) + Simple — everything works, inter-node is 2.3× worse
 
-| nodes | ranks | job | step_ms | vs 1n | samples/s total | weak eff | wireup s | io GB/s |
+| nodes | ranks | job | step_ms | vs 1n (%) | samples/s (total) | weak eff (%) | wireup (s) | io (GB/s) |
 |---|---|---|---|---|---|---|---|---|
 | 1 | 4 | 7564184 | 115.3 | — | 34.7 | 100% | 3.17 | 0.88 |
 | 2 | 8 | 7564264 | 490.7 | +326% | 16.3 | 23.5% | 14.03 | 0.41 |
@@ -145,7 +170,7 @@ Same plugin, proto, pack and node counts as §3a; **2 epochs instead of 1**, so 
 epoch 2 and carries no warmup. wandb is on (adds per-iteration diagnostics), so these are
 *upper bounds* on the steady-state step time.
 
-| nodes | job | step_ms (ep 2) | vs 1n | weak eff | §3a − §3c |
+| nodes | job | step_ms (ep 2) | vs 1n (%) | weak eff (%) | §3a − §3c (ms) |
 |---|---|---|---|---|---|
 | 1 | 7564492 | 65.3 | — | 100% | +79.4 ms |
 | 2 | 7564493 | 88.4 | **+35.4%** | 73.9% | +57.3 ms |
@@ -200,7 +225,7 @@ instruction and has NOT been signed off by the science owner.**
 The only like-for-like multi-node pair on this contract (same pack, same stack, wandb on
 both, `step_ms` warmup-free on both):
 
-| nodes | ranks | job | step_ms | samples/s total |
+| nodes | ranks | job | step_ms | samples/s (total) |
 |---|---|---|---|---|
 | 8 | 32 | 7565972 | 492.7 | 64.9 |
 | 128 | 512 | 7566145 | 576.5 (median 603.6) | 888.1 |
@@ -229,7 +254,7 @@ parallelism** on this model, because it is what lets a GPU hold more than one sa
 
 All four at global batch 32 on the ALLDATA pack, new plugin + Simple, `EPOCHS=2`.
 
-| job | nodes | h×w | spatial factor | trunk tile (of 60×120) | result |
+| job | nodes | h×w | spatial factor | trunk tile (grid pts/rank) | result |
 |---|---|---|---|---|---|
 | 7580122 | 4 | **4×1** | 4 | 15×120 | ✅ **trains**, 626.8 ms |
 | 7580162 | 4 | **2×2** | 4 | 30×60 | ✅ **trains**, 576.6 ms |
@@ -268,7 +293,7 @@ All rows global batch 32, ALLDATA, new plugin, warmup-free (`step_ms` = final ep
 ⚠ Totals are **post-fix**: `samples_s_total` previously multiplied by rank count instead of
 data-group count and overstated every spatial row by exactly `h_par·w_par` (§0 trap 4).
 
-| config | job | nodes | GPUs | samples/GPU | sample-equiv/GPU | step_ms | samples/s | per GPU |
+| config | job | nodes | GPUs | samples/GPU | sample-equiv/GPU | step_ms | samples/s (total) | samples/s per GPU |
 |---|---|---|---|---|---|---|---|---|
 | **pure DDP** | 7565972 | 8 | 32 | 1 | **1** | **492.7** | 64.9 | 2.03 |
 | **h2w2** | 7580297 | 8 | 32 | 4 | **1** | **707.7** | 45.2 | 1.41 |
@@ -277,8 +302,15 @@ data-group count and overstated every spatial row by exactly `h_par·w_par` (§0
 
 **Rows 1-2 are the controlled pair** — same nodes, same GPUs, same global batch, same
 sample-equivalents per GPU, differing only in whether each GPU takes 4 samples over a quarter
-domain or 1 sample over the whole one. **Sharding costs +43.6%.** It is a tax, as expected of
-extra collectives; §5a's success only means `w ≤ 2` *works*, not that it pays.
+domain or 1 sample over the whole one. **Sharding costs +43.6%.**
+
+> **"Sharding overhead" (called the "tax" elsewhere in this repo), defined:**
+> `overhead % = 100 × (step_ms[sharded] ÷ step_ms[pure DDP] − 1)`, measured at **identical**
+> nodes, GPUs, global batch and sample-equivalents per GPU. It is a **relative slowdown of the
+> step**, not a fixed cost and not a fee — `+43.6%` means a sharded step takes **1.436×** as
+> long as a pure-DDP step doing the same work. Unit: percent.
+
+§5a's success only means `w ≤ 2` *works*, not that it pays.
 
 What actually pays is **work per GPU**. Compare rows 2 and 3, both sharded: halving the GPUs
 and doubling the per-GPU work made the step *faster* in absolute terms (707.7 → 576.6), i.e.
@@ -315,7 +347,7 @@ node-hours, 16.2 h wall" was self-contradictory; the figure is **16.3**. Correct
 ⚠ The 1.17 factor is borrowed from a 512-GPU run where validation was amortised 128× more
 widely than it is at 1 node. Job **7582088** measures it directly — prefer that number.
 
-| plan | nodes | step_ms | **wall** | **node-hours** | updates |
+| plan | nodes | step_ms | **wall (h)** | **node-hours** | updates |
 |---|---|---|---|---|---|
 | **1n pure DDP** | **1** | **365.4** | **16.3 h** | **16.3** | **136,800** |
 | 1n h2w2 | 1 | 660.6 | 29.4 h | 29.4 | 136,800 |
@@ -384,7 +416,7 @@ was doing anything.
 ⚠ **Everything in §2-§5f is a 60-step arm. None of those step times may be used for planning.**
 Measured at real production settings (full-pass epochs, `EVAL_SAMPLES=512`, checkpointing):
 
-| | step_ms | epoch wall | memory |
+| | step_ms | epoch wall (s) | memory (GB) |
 |---|---|---|---|
 | 60-step benchmark arm (7580338) | 365.4 | — | 10.33 GB |
 | **production settings** (7582088 / 7585080) | **475 / 665 s per epoch** | **665-676 s** | **16.0 GB** |
@@ -409,7 +441,7 @@ with rollout length.
 Three arms, 3 full-pass epochs each (1,368 updates/epoch), identical warm-restart schedule, one
 variable. Selection rule committed **before** arms 2-3 existed (`9506ad1f`).
 
-| arm | valid @ ep3 | grad norm @ ep3 | verdict |
+| arm | valid loss @ ep3 | grad norm @ ep3 | verdict |
 |---|---|---|---|
 | 4.0e-4 — upstream FCN3 pretrain-2's batch-32 value | 0.03237 | 0.04966 | **worst** |
 | 1.0e-3 — our shipped config, unscaled | 0.02655 | 0.02616 | |
@@ -428,7 +460,7 @@ risk: 2e-3 is the peak of every cycle, so trouble surfaces in cycle 1 with check
 `GPU_ORDER=reverse` sets `CUDA_VISIBLE_DEVICES=3,2,1,0`, undoing Polaris' reversed GPU↔NUMA
 map (`dev0`→NUMA 3 … `dev3`→NUMA 0, job 7531456) so each rank sits on its own GPU's NUMA node.
 
-| config | order | reps | step_ms | delta |
+| config | order | reps (step_ms) | step_ms median | delta (%) |
 |---|---|---|---|---|
 | **1 node**, batch 32, pure DDP | default | 365.1 / 365.9 / 365.4 | **365.4** | — |
 | **1 node**, batch 32, pure DDP | **reverse** | 366.7 / 368.6 / 369.7 | 368.6 | **+0.88% SLOWER** |
@@ -516,7 +548,7 @@ This set runs the three documented shapes, all at **global batch 32 on 4 nodes**
 launcher's `GLOBAL_BATCH = LOCAL_BATCH × NRANKS/(HPAR·WPAR)` gives **identical per-GPU work
 (2 sample-equivalents)** in every arm ⇒ the only variable is communication topology.
 
-| arm | h×w | data ranks | LOCAL_BATCH | trunk tile |
+| arm | h×w | data ranks | LOCAL_BATCH (samples/data group) | trunk tile (grid pts/rank) |
 |---|---|---|---|---|
 | A | 4×1 | 4 | 8 | 15×120 |
 | B | 2×4 | 2 | 16 | 30×30 |
