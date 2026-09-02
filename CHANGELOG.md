@@ -211,6 +211,45 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - **Allocation context** (`sbank`): project has **14,592 node-hours available**, 2,147
     charged all-time, **2,086 of it in the last 31 days** — of which ai-rossby is ~59% and the
     whole makani campaign ~290. This 45 h run is **0.3% of the remaining balance**.
+  - 🔀 **PR #12 OPENED — the whole Polaris body of work, as one PR (operator's call).**
+    `feat/multinode-ddp-port` → `main`: **2,059 commits, 9,681 files, 1.84M insertions — but
+    only ~152 files are ours.** The rest is four `git subtree` imports vendored *unsquashed for
+    provenance*. The PR body leads with that split and lists the reviewable directories in
+    order, because a 9,681-file diff is not a reviewable object and pretending otherwise wastes
+    the reviewer.
+    ⚠ **`main` is protected: 1 approving review required, `enforce_admins=false`.** A local
+    `git merge` + push is refused; `gh pr merge` works (server-side) but still needs the
+    approval. **A solo session cannot self-approve** (#9).
+  - 🧹 **BRANCH CLEANUP — 6 remote + 5 local deleted, every one verified contained first.**
+    `git merge-base --is-ancestor <branch> HEAD` was required to pass before any deletion, and
+    local deletes used `git branch -d` (which refuses unmerged work) rather than `-D`.
+    Deleted: `A2C`, `fix/tsoi-fill-270`, `polaris-pbs-bringup`, `profile/pangu-polaris-profiling`,
+    `polaris-profiling`, `polaris-data-prep`. Also pruned a worktree registration pointing at a
+    non-existent directory.
+    **PRs #10 and #11 were CLOSED as superseded before deleting their branches** — both are
+    strict subsets of #12, and deleting a PR's branch closes it messily. Each close comment
+    records the containment check and points at #12.
+    ⚠ **TWO BRANCHES DELIBERATELY KEPT — they hold commits that exist NOWHERE ELSE:**
+    * **`feat/multiyear-datapipe`** — 3 unique commits, **local only, no remote backup**.
+      Deleting it destroys the multi-year loader port outright.
+    * **`worktree-makani-multinode-ddp-profiling`** — 6 unique commits (`MAKANI_ENV_OK` job
+      7551240, the seven-dead-launchers finding, the `world_size` guard fix, the PALS-stdin
+      fix, the scaling harness + prereg, the `libmpi_gnu_123` rename). The 2026-08-23 entry
+      records that this worktree was integrated **by FILE COPY, not merge** (because `git
+      merge` wedges on this Lustre mount) — so the *content* is in the PR but the *history*,
+      i.e. the commit messages explaining why each fix exists, lives only here. That entry says
+      it outright: the commits "live in the shared object DB under
+      `worktree-makani-multinode-ddp-profiling` (also on `origin`)". It is the only home.
+    Operator decision 2026-09-02: **keep both for now.** If the branch list needs tidying later,
+    tag them (`git tag archive/<name> <sha>` + push) before deleting — that preserves the
+    commits against GC.
+  - 🐛 **My own mistake, caught by checking a clean `git status`:** `git add -A` in `b821fff9`
+    swept in two files that had sat untracked all session and were deliberately left alone.
+    `CLAUDE.md.bak.<ts>` (a timestamped backup 33 lines behind the real file) is untracked
+    again and `.gitignore` now excludes `*.bak.*`. `claude-job.sh.template` is **kept** — it is
+    a real artifact and the user's file; deleting someone else's work to tidy up my own error
+    would be the worse mistake. **`git add -A` is the wrong tool in a repo with
+    intentionally-untracked files. Stage by path.**
   - 🧹 **DOC CLEANUP — five executed handoff prompts deleted, and an adversarial pass cut the
     list in half before anything was removed.** The repo's pattern: a prompt is written to brief
     a future session, that session does the work, the results land here and in a report — and
