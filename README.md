@@ -93,6 +93,7 @@ The engineering docs above are about *making it run*. These are about *what it c
 
 | you want to… | read / run |
 |---|---|
+| **use the trained model — the CURRENT best** | **[`makani_sfno/docs/2026-09-03_prod1n_b32_sgdr_checkpoint_usage.md`](makani_sfno/docs/2026-09-03_prod1n_b32_sgdr_checkpoint_usage.md)** — the 1-node run (valid **0.01295**, 29% better than prod128 at ~46 node-hours vs 216), its 6+ snapshot-ensemble members, and **three ways the prod128 recipe misfires here** — chiefly that `SKIP_TRAIN=1` scores the LAST epoch, not `best_ckpt` |
 | **use the trained model** — load weights, restore, run it | **[`makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md`](makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md)** — written for a user with no HPC stack. Weights, config, normalization stats and channel contract, with paths |
 | **validate the checkpoint on Polaris** | one command, ~10 min on 1 node: `-v RUN_NUM=<run>,SKIP_TRAIN=1,EVAL_SAMPLES=4380` on `polaris/polaris_makani_multinode_scaling.pbs` — restores and runs validation only, weights untouched (§5 of that doc) |
 | **compare models** | the **102 shared wandb panels** in project `pedramh-profiling` — per-variable, per-level lat-weighted RMSE in physical units, keys byte-identical across makani / PanguWeather / ai-rossby. `prod128_alldata_v2` is run `kfodxzto`. Contract: [`wandb_metrics_report.md`](wandb_metrics_report.md), [`ai_rossby_finegrained_wandb_handoff.md`](ai_rossby_finegrained_wandb_handoff.md) |
