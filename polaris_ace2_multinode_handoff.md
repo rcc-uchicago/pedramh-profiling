@@ -74,6 +74,50 @@ continued on gradients correct at one end of the tensor and stale at the other.
   0.6 GB. The conclusion (makani was unaffected) holds; the stated mechanism did
   not, and it is left here as a worked example of the trap.
 
+### 🔴 SETTLED BY MEASUREMENT 2026-09-02 — READ THIS FIRST, IT OVERRIDES THE
+### TWO SECTIONS BELOW
+
+**ACE2 *is* exposed, and by a bigger margin than either draft argued.** The
+2-node flight-recorder dump (job 7586590, 8 ranks, 5,520 collective records)
+shows **one `nccl:all_reduce` of `numel=455,831,040` — the entire model in a
+single collective, 1,823,324,160 B = 1738.86 MiB.**
+
+* That is **not** in the untested 25 MiB–1000 MiB gap. It is **above 1000 MiB**,
+  inside the range where a Tree all-reduce was *measured* to silently return
+  partially reduced data (§1a's table). ⇒ **`NCCL_ALGO=Ring` is load-bearing, not
+  insurance.** It shipped on by default from the first Polaris job, which is why
+  that job completed rather than training on half-stale gradients.
+* It fires **once, as collective 14 of the run**, right after DDP's parameter
+  broadcast and **before the first backward**. Per-*step* traffic is exactly the
+  benign shape the §1a analysis predicted: ~11 buckets, the largest ≈215 MB.
+* ⇒ **ai-rossby's open question is answered.** Its byte-identical stuck collective
+  under a 200× `bucket_cap_mb` change was unexplained because everyone assumed it
+  was a gradient bucket. **It is not a gradient bucket** — it predates the first
+  backward, so `bucket_cap_mb` cannot touch it. Two independent models now do the
+  same thing under stock DDP with `gradient_as_bucket_view=True`.
+  ⚠ The *mechanism* still has no name: the dump carried no stack frames. One arm
+  with stack capture would name the call site, and that is the next cheap step.
+
+**And the complex64 arithmetic below is ITSELF wrong — the original 1.82 GB was
+right.** Two independent lines of evidence:
+
+1. **Source.** `ace_exp/fme/ace/models/modulus/s2convolutions.py:148` declares
+   `nn.Parameter(scale * torch.randn(*weight_shape, 2))` — a **float32** tensor
+   with a trailing size-2 dimension. `torch.view_as_complex` is applied at *use*
+   time, in `contractions.py`. So `p.numel()` already counts real and imaginary
+   as two separate floats, and multiplying that count by 8 B **double-counts**.
+2. **Measurement.** The dump reports `dtype=['Float']` on that collective, and
+   **no complex dtype appears in any of the 5,520 records**.
+
+⇒ **ACE2's gradient volume is 1.823 GB.** Everything derived from 2.67 GB needs
+re-deriving — including "optimizer state ≈ 10.7 GB" in §1f, which at 1.823 GB per
+copy is **≈7.3 GB**. (The *measured* memory figures are unaffected; they were read
+off the GPU: 21.3 GiB at local batch 1, 34.0 at 2, OOM at 3.)
+
+The two sections below are kept verbatim because the reasoning error they warn
+about is real and the correction they apply is the wrong one — which makes them a
+better worked example together than either is alone.
+
 ### ⚠ CORRECTED 2026-08-28 after adversarial review — READ THIS, the first
 ### version of this section was WRONG
 
@@ -363,6 +407,10 @@ not a green-field bring-up.
   * **every rank reads the same file** — at 4 nodes that is 16 ranks against one
     Lustre object set; ai-rossby's loader sharded across 30 separate stores.
     Check the striping (`lfs getstripe`) before blaming NCCL for a slow step.
+    ✅ **MEASURED 2026-09-02, and it is the worst case: `lmm_stripe_count: 1`.**
+    The whole 2,388,766,929,681-byte file is on **one OST** (index 46, 1 MiB
+    stripe size), so every rank's reads serialise through a single object server.
+    Free, no allocation, and it is why prereg P1 predicts `gpu_busy_frac` < 0.90.
   * `HDF5_USE_FILE_LOCKING=FALSE` is already exported by `polaris_env.sh` and is
     **required** on Lustre — a bare netCDF/h5py open without it can hang.
   * The wrap-guard arithmetic still applies but must be derived from this file's
@@ -462,12 +510,18 @@ operator before deleting the original.
      accordingly; do not produce one and call it the other;
    * a larger batch is still a **numerics** change, so the LR moves with it.
      ai-rossby's lesson: the config's linear rule and the sqrt rule differed
-     **7×** at large batch, and neither had been measured. Run a short flat-LR
-     sweep (see `-v FLAT_LR=1` in
-     `physicsnemo_ai_rossby/polaris/polaris_ai_rossby_multinode_scaling.pbs`)
-     before committing a long run — ~5% of the run's cost to find the
-     divergence boundary. Note ACE2 anneals its own LR, so pin the schedule flat
-     for the sweep or every arm will look identical.
+     **7×** at large batch, and neither had been measured. Run a short LR
+     sweep before committing a long run — ~5% of the run's cost to find the
+     divergence boundary.
+     ⚠ **CORRECTED 2026-09-02: ACE2 does NOT anneal its own LR**, so there is
+     nothing to pin flat. `SchedulerConfig.type` defaults to `None`
+     (`fme/core/scheduler.py`) and neither `config_midway.yaml` nor
+     `config_polaris.yaml` sets a `scheduler` key ⇒ the LR is **flat at 1e-4**
+     for the whole run and `-v LR=<value>` alone is a valid arm. The advice to
+     copy ai-rossby's `-v FLAT_LR=1` was carried across from a harness whose
+     config *does* schedule (and where a short run sat entirely inside a 5-epoch
+     warmup ramp, making every arm look identical). That failure mode does not
+     exist here.
 2. **Memory:** the config's own header says batch_size 16 is sized for Delta
    **GH200s** and is "NOT known to fit" a 40 GB A100. Polaris is 40 GB A100.
    Expect to need a smaller per-rank batch — which interacts with (1), since
@@ -487,41 +541,106 @@ operator before deleting the original.
 
 ## 4. Plan
 
-- [ ] ⚠ **BUILD A POLARIS ACE2 ENV — this is the real day-one blocker, budget
+> ### STATUS 2026-09-02 — the bring-up half is DONE; the measurement half is not
+> Delivered and tested without an allocation; state and evidence →
+> CHANGELOG `2026-09-02 (cont. 3)`. Three claims **in this document** were wrong
+> and are corrected in place below (search ⚠ CORRECTED 2026-09-02).
+> Entry points: `polaris_setup_ace2_venv.sh` → `ACE2_VENV_OK`, then
+> `qsub -l select=N:system=polaris ACE2_retrain/polaris/polaris_ace2_train.pbs`
+> → `ACE2_POLARIS_TRAIN_OK`. Prereg: `ACE2_retrain/polaris/ace2_polaris_prereg.md`.
+
+- [x] ⚠ **BUILD A POLARIS ACE2 ENV — this is the real day-one blocker, budget
       1-2 DAYS, not "~1 h".** `ACE2_retrain/` contains **zero `polaris_*` files**;
       the script being ported activates `FME_ENV=/project/rcc/mehta5/envs/fme`
       (a *Midway* path); none of the five envs under `$MEMBER_ROOT/conda-envs/`
       carries `fme`; and `module load conda` is broken. Login-node install +
       fabric probe + knob matrix before any training job.
-- [ ] **Repoint the config — six Midway paths and four traps** in
+      ✅ **DONE 2026-09-02, `ACE2_VENV_OK`** — `polaris_setup_ace2_venv.sh`, one
+      login-node invocation, ~10 min not 1-2 days (all wheels; the healpix
+      requirements and apex are deliberately not installed).
+      **torch is pinned to 2.10.0+cu129 = NCCL 2.27.5, byte-identical to
+      ai-rossby's venv**, which is what lets the fabric probes below be inherited
+      instead of re-run. fme's own `constraints.txt` pins `torch==2.7.1`; that
+      pin is deliberately NOT applied, and the reason is written in the script.
+      ⚠ `module load conda` killed the first version of the script in 3 seconds —
+      the two sibling setup scripts still open that way and are dead for the same
+      reason (TODO P0-10).
+- [x] **Repoint the config — six Midway paths and four traps** in
       `config_midway.yaml`: `data_path` (:53, :70, :73, :77, :84),
       `time_mean_reference_data` (:57), `experiment_dir` (:19), wandb
       `entity` (:63 — notes §5's W&B trap verbatim). Plus:
       **`validation_loader.batch_size: 128` (:81)** is also divisibility-checked
       AND will OOM a 40 GB A100; `inference.n_forward_steps: 7300` (:31) must be
-      disabled for a smoke; `FusedAdam` (:92) needs apex present in the venv.
+      disabled for a smoke; ~~`FusedAdam` (:92) needs apex present in the venv~~.
+      ✅ **DONE — `ACE2_retrain/config_polaris.yaml`, 11 paths (not 6).** The
+      three production-shaped values are deliberately left ALONE in the yaml and
+      overridden by the launcher, so `diff config_midway.yaml config_polaris.yaml`
+      shows only paths and every deviation is visible in the script that makes it.
+      ⚠ **CORRECTED 2026-09-02: `FusedAdam` does NOT need apex.** In this
+      vendored fme it is `torch.optim.AdamW(..., fused=True)`
+      (`fme/core/optimization.py`) and emits a DeprecationWarning. There is no
+      apex import anywhere in `ace_exp/`.
 - [ ] **1-node smoke ON THE EXISTING `.nc`** → PASS token + `gpu_busy_frac`.
       **This gates the conversion (below).**
-- [ ] **Survey, ~1 h, no allocation.** Locate `fme`'s `init_process_group`;
+      🚀 **RUNNING: job 7586496** (debug, 1 node, 60 steps, `LOCAL_BATCH=1`).
+      📏 Zero-allocation precursor already done: **`lfs getstripe` says
+      `lmm_stripe_count: 1`** — the whole 2.4 TB file is on ONE OST, read by every
+      rank. Prereg P1 predicts `gpu_busy_frac` < 0.90 on that basis.
+- [x] **Survey, ~1 h, no allocation.** Locate `fme`'s `init_process_group`;
       confirm which venv/torch on Polaris (any torch ≠ 2.8.0 ⇒ re-run the three
       fabric probes under it, per the parent handoff §1); confirm the `.nc`
       files are readable and what `fme` expects `data_path` to contain.
-- [ ] **Env bootstrap.** `module load conda` is **broken cluster-side** since
+      ✅ **DONE.** `TorchDistributed.__init__`
+      (`fme/core/distributed/torch_distributed.py:29-70`) takes `env://` whenever
+      `RANK` is in the environment, and the srun path **only** under
+      `FME_USE_SRUN=1` — so §3.3's first option (PALS rank shim) is correct and is
+      what shipped. `XarrayDataConfig.data_path` is a **directory** plus a glob
+      (default `*.nc`), not a file. Both `.nc` trees are readable.
+- [x] **Env bootstrap.** `module load conda` is **broken cluster-side** since
       the 2026-08 PE roll. Copy the pattern of
       `physicsnemo_ai_rossby/polaris/polaris_ai_rossby_env.sh`: try the module,
       fall back to a hand reconstruction, and report which path ran.
+      ✅ **DONE — `ACE2_retrain/polaris/polaris_ace2_env.sh`** (reports
+      `ACE2_ENV_SOURCE`). It additionally pins the fabric stack **once**, rather
+      than inline per launcher as ai-rossby does, so the 1-node anchor and the
+      rungs cannot end up on different transports.
 - [ ] **1-node smoke** on Polaris → its own PASS token. This is the anchor;
       multi-node work starts from a green single-node run.
+      *(Same job as above. There is ONE launcher for every node count — the
+      ai-rossby shape — so the anchor is by construction the same config as the
+      rungs, which is the point.)*
 - [ ] **2-node smoke with `NCCL_ALGO=Ring` from the outset** (§1a).
-- [ ] **Parser + tests** adapted from
+      *Ring is already the launcher's default at every node count, including 1 —
+      leaving it unset on the anchor and set on the rungs would make the anchor a
+      different configuration from the ladder it anchors. The flight recorder is
+      on by default too, with all three settings §1a requires, so the 2-node arm
+      produces the dump that settles exposure without a second job.*
+- [x] **Parser + tests** adapted from
       `physicsnemo_ai_rossby/polaris/parse_ai_rossby_scaling.py`. Keep all five
       guards: world_size read only off the trainer's own banner (never off
       anything the launcher echoed), ranks-reporting from PALS labels, telemetry
       cross-check, step-count, transport. Absent banner = ERROR, not a pass.
-- [ ] **Prereg committed BEFORE the ladder**, scored honestly afterwards.
+      ✅ **DONE — `parse_ace2_scaling.py` + 16 tests (`ACE2_SCALING_PARSE_OK`).**
+      All five guards kept, plus a sixth: `LOW_GPU_BUSY_FRAC` under 0.85, so the
+      I/O question cannot be read past. ⚠ **fme prints no world-size line
+      anywhere** (`grep` finds only `"DONE ---- rank N"`), so ACE2 had no banner
+      for the guards to read; `ace2_telemetry.py` prints one, per rank, with
+      `print` rather than `logging` — fme routes logging to rank 0 only, which
+      would leave `ranks_reporting` reading 1 on every arm.
+      ✅ Also delivered, because **ACE2 had no bench CSV at all**
+      (`PROFILING_PLAN.md` §5): `epoch_telemetry.py` (verbatim third copy) +
+      `ace2_telemetry.py` (the injector) + the drift guard extended to three
+      copies. `FIELDS` is byte-identical to ai-rossby's, asserted by a test.
+- [x] **Prereg committed BEFORE the ladder**, scored honestly afterwards.
+      ✅ **WRITTEN — `ACE2_retrain/polaris/ace2_polaris_prereg.md`**, 8 numbered
+      predictions with their falsification conditions and an explicit basis
+      strength on each. Not yet scored: no arm has finished.
 - [ ] **Ladder** 1/2/4/8 nodes (the batch raise in §3.1 removes the old 4-node
       cap), ≥3 interleaved reps, one config, one store, one batch value that
       divides every arm's world size.
+      *The launcher takes `-v LOCAL_BATCH` (samples per GPU) and derives
+      `batch_size = LOCAL_BATCH * 4 * nodes`, which is §3.1's corrected weak-scaling
+      rule and satisfies fme's divisibility requirement by construction.*
 - [ ] **Ticket material:** ACE2 hitting the same tree defect would be
       a *third independent harness* confirming it — worth adding to the ALCF
       ticket alongside makani and ai-rossby.
