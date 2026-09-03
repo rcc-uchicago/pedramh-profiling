@@ -843,6 +843,15 @@ the loss curve reads as a fresh run, not a broken fork (measured 2026-09-03, job
 `get_latest_checkpoint_version` (`checkpoint_helpers.py:33-42`) selects by **mtime** over the
 glob — so a lone `ckpt_mp0_v0.tar` resolves correctly and the run continues at the checkpoint's
 true epoch. ⇒ **Always assert `resuming True` in the log before trusting a warm start.**
+
+🐛 **…and a fork must also run with `WANDB=0`.** With wandb on *and* `resuming=True`,
+`Driver._init_wandb` reads `<expDir>/wandb/makani_restart.yaml` to rejoin the original run
+(`driver.py:237-248`). A forked expDir has no such file, so **every rank dies at construction**
+before epoch 1. The visible symptom is a wall of NCCL/TCPStore teardown traces and
+`rank 0 exited with code 1` — which reads as a fabric fault and is not (jobs 7588055/7588056).
+⚠ Do **not** fix this by copying production's `makani_restart.yaml` into the fork: that makes
+the fork **write into production's wandb run** and corrupts its history. Read the epoch
+summaries from the log instead.
 *(Production 7585080 is unaffected: it holds `v0`…`v72`, so its own resume path is valid.)*
 
 **Seven launchers are still dead.** They open with the bare `module load conda` /

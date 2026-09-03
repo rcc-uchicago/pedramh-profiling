@@ -53,7 +53,18 @@ END=$(( VERS + NEPOCH ))
 echo "forking from epoch ${VERS}; each arm runs to max_epochs=${END} (${NEPOCH} epochs)"
 log "fork source: ${CKPT} -> max_epochs=${END}"
 
-COMMON="TARGET_NODES=1,HPAR=1,WPAR=1,FULL=1,EVAL_SAMPLES=512,WANDB=1"
+# ⚠⚠ WANDB=0 IS REQUIRED FOR A FORK, not a preference. With wandb on AND
+# resuming=True, makani's Driver._init_wandb reads
+# `<expDir>/wandb/makani_restart.yaml` to rejoin the ORIGINAL wandb run
+# (driver.py:237-248). A forked expDir has no such file, so every rank dies at
+# construction with `FileNotFoundError: .../wandb/makani_restart.yaml` before
+# epoch 1 -- the visible symptom is a wall of NCCL/TCPStore teardown traces and
+# `rank 0 exited with code 1`, which looks like a fabric fault and is not
+# (measured 2026-09-03, jobs 7588055/7588056).
+# ⚠ DO NOT "fix" this by copying production's makani_restart.yaml into the fork:
+# that would make the fork WRITE INTO PRODUCTION'S WANDB RUN and corrupt its
+# history. Everything this experiment needs is in the epoch summaries in the log.
+COMMON="TARGET_NODES=1,HPAR=1,WPAR=1,FULL=1,EVAL_SAMPLES=512,WANDB=0"
 COMMON="${COMMON},LR=2.0E-3,SCHED=CosineAnnealingWarmRestarts,SCHED_T0=20,SCHED_TMULT=1"
 COMMON="${COMMON},SCHED_MIN_LR=1.0E-6,WARMUP_EPOCHS=3,LR_START=0.01,CKPT_VERSIONS=250"
 COMMON="${COMMON},EPOCHS=${END}"
