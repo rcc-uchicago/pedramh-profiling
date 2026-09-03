@@ -144,6 +144,42 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-03 (cont.)** — **Production will wall out ~3 epochs short; a dependent resume is
+  staged, and two ALCF limits were measured the hard way.**
+  - **The shortfall:** 7585080 requested **48:00:00** and runs at **~714 s/epoch** (63 epochs in
+    12:30) ⇒ 243 epochs needs **~48.2 h**. It walls out around epoch 240.
+  - 🐛 **`qalter -l walltime=` is REFUSED on Polaris** — `Exception in account_check hook`,
+    **rc=32**. Requested walltime is **immutable once submitted**; there is no second chance.
+    ⇒ size a long run's walltime to the queue max when the epoch cost is not yet known.
+  - 🐛 **`capacity` cannot hold a queued successor.** With one job RUNNING, `qsub` of a second —
+    even *held* on `-W depend=afterany:` — is refused (`would exceed queue capacity's
+    per-project limit`), so the cap counts **running + queued together**. The prior
+    "max_queued 2 per PROJECT" reading in `polaris_pbs_notes.md` was wrong and is corrected.
+    The bind is circular: the slot frees only when the parent ends, which is exactly when the
+    successor needed to already be queued.
+  - **Resolution:** `submit_production_resume.sh` pre-stages the resume on **`preemptable`**
+    (dependencies work across queues) as **7587821**, `H` on `afterany:7585080`, 6 h walltime.
+    The tail is ~3 epochs, checkpoints are per-epoch, and resume is proven byte-identical, so a
+    preemption costs a resubmit rather than progress. `QUEUE=capacity` re-runs it there once the
+    slot is genuinely free.
+  - ⚠ **The trap the script exists to prevent:** the PBS **re-renders the config every
+    submission**, so a resume with a different or missing `-v` set would silently continue under
+    *different hyperparameters* — a reset scheduler or a different peak LR would read as a
+    training bug, not a submission bug. `VARS` is copied verbatim from
+    `submit_production_when_lr_picked.sh:64-72` with `LR=2.0E-3` confirmed against the rendered
+    config. A second gate refuses to submit unless checkpoints are on disk: resume is keyed
+    **entirely** on `RUN_NUM` matching the expDir, and a mismatch would not error — it would
+    start a NEW 243-epoch run and burn 48 h of the project's only capacity slot.
+  - **Production LR, for the record:** peak **2.0e-3**, `CosineAnnealingWarmRestarts` `T_0=20`
+    `T_mult=1`, `min_lr 1.0e-6`, 3-epoch warmup from `lr_start 0.01` (= 2.0e-5). Cycles end at
+    epochs 23/43/63/83…; at epoch 64 the instantaneous LR is ≈1.99e-3. It runs **β₂ 0.95 /
+    clip 32** — the shipped settings the nine §7c/§7d arms are testing.
+  - **Batch-32 mirror submitted** (prereg §7d): 7587776/7/8/9 at **LR 3.0e-3 to match batch 48**,
+    so the two sets differ in batch alone. Verified mechanically that the two submit scripts'
+    `COMMON` blocks differ in `LOCAL_BATCH` only (`COMMON_DIFF_OK`). The **pair of controls**
+    (7587738 at batch 48, 7587776 at batch 32) is the first matched-LR batch-independence test;
+    §5j had to infer it from two different LRs.
+
 - **2026-09-03** — **The batch-48 LR failure is diagnosed, and it is NOT about batch 48. Five
   arms submitted to test whether optimizer config alone raises the ceiling** (prereg §7c;
   7587738 / 7587739 / 7587740 / 7587741 / 7587742, `preemptable`, 1 node, 3 h each).

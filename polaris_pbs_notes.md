@@ -201,10 +201,32 @@ threw away accrued queue priority for nothing.
 | queue | walltime | nodes | limits | starts? |
 |---|---|---|---|---|
 | `debug` | **≤ 1 h** | 1–2 | **max_run 1, max_queued 1 per USER** — cannot chain, cannot pre-load | **9/9 started, median 19 s** |
-| **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1, max_queued 2 per PROJECT**; `Priority = 150` | ✅ **EXERCISED 2026-09-02** — job **7585080**, 1 node, 48 h requested, started promptly (14 running / 6 queued at submit). Earlier note "not yet exercised by us" retired |
+| **`capacity`** | **≤ 168 h (7 d)** | **1–4** | **max_run 1 per PROJECT**; `Priority = 150`. ⚠ the cap counts **running + queued together** — see below | ✅ **EXERCISED 2026-09-02** — job **7585080**, 1 node, 48 h requested, started promptly (14 running / 6 queued at submit). Earlier note "not yet exercised by us" retired |
 | `preemptable` | ≤ 72 h | 1–10 | max_queued 20/user, **max_run 10/project**; `Priority = 155` | ⚠ **load-dependent**: 0/9 started in 11.5 h (2026-08-05) vs **22 running** (2026-09-02) |
 | `prod` | — | **≥ 10** | routing queue | n/a for single-node work |
 | `demand` | ≤ 1 h | 1–56 | **by request only** (email ALCF support) | ⚠ **this is what preempts `preemptable`** |
+
+> ### ⚠ MEASURED 2026-09-03 — a long run's walltime cannot be raised, and its successor cannot be pre-queued
+> Both were hit trying to finish production **7585080** (243 epochs, 48 h requested,
+> running at ~714 s/epoch ⇒ **~48.2 h needed** — short by 2–3 epochs).
+>
+> 1. **`qalter -l walltime=` is REFUSED on this system**, even downward-compatible with
+>    the queue max: `qalter: Exception in account_check hook encountered. Please contact
+>    your administrator` (**rc=32**). Requested walltime is **immutable once submitted**.
+>    ⇒ **Size a long run's walltime with margin at submit time** — there is no second
+>    chance. A run whose epoch cost is known only after it starts should request the
+>    queue max, not the estimate.
+> 2. **`capacity` cannot hold a queued successor while a job runs.** With exactly one job
+>    RUNNING, `qsub` of a second — even one *held* on `-W depend=afterany:` — is refused
+>    with `qsub: would exceed queue capacity's per-project limit`. So the cap counts
+>    **running + queued together**, and the earlier "max_queued 2 per PROJECT" reading was
+>    wrong. The consequence is circular and worth stating plainly: **the slot frees only
+>    when the parent ends, which is the exact moment the successor needed to already be
+>    queued.**
+>    ⇒ To chain automatically, pre-stage the dependent job on **`preemptable`** (dependencies
+>    work fine across queues) and reserve `capacity` for the initial long run. This is what
+>    `makani_sfno/polaris/submit_production_resume.sh` does; it takes `QUEUE=`/`WALLTIME=`
+>    so the same script can be re-run against `capacity` once the slot is genuinely free.
 
 ⚠ MIG is available **only** in `debug` / `debug-scaling` / `preemptable`.
 *(`demand` and the MIG note were folded in from `polaris_handoff_prompt.md` on 2026-09-02,
