@@ -385,7 +385,169 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     window must be excluded from any epoch-time statistic — three concurrent 1-node arms
     previously cost it +2.3% median epoch wall — and (b) this ACE2 row's own `epoch_wall_s`
     carries the same caveat in reverse.
-  - 🟠 **THE I/O QUESTION IS OPEN, NOT CLOSED — and the ladder's own arms cannot close it.**
+  - ✅ **THE LADDER IS DONE, AND IT SETTLES THE I/O QUESTION: ACE2 ON POLARIS IS
+    FABRIC-LIMITED, NOT I/O-LIMITED.** Weak scaling at `LOCAL_BATCH=2`, 60 timed steps,
+    `NCCL_ALGO=Ring`, run SERIALLY as a dependency chain so no two arms shared the OST
+    (`ACE2_retrain/polaris/run_ace2_ladder.sh`):
+    | nodes | ranks | global batch | `step_med_ms` | s/s/rank | s/s total | `gpu_busy_frac` | implied MB/s | reps |
+    |---|---|---|---|---|---|---|---|---|
+    | 1 | 4 | 8 | 716.0 | **2.7932** | 11.17 | 0.9288 | 397 | 3, **±0.1%** |
+    | 2 | 8 | 16 | 1204.4 | 1.6606 | 13.29 | 0.9625 | 500 | 3, ±3.9% |
+    | 4 | 16 | 32 | 1426.1 | 1.4024 | 22.44 | 0.9691 | 861 | 2, ±3.4% |
+    | 8 | 32 | 64 | 1498.5 | 1.3346 | **42.71** | **0.9703** | **1644** | 1 |
+    - 🔴 **PREREG P9 FALSIFIED ON ALL THREE COUNTS** — and it was registered *before* the
+      4n/8n arms ran, precisely to test the I/O worry. Predicted `gpu_busy_frac` <0.90 at 4n
+      and <0.80 at 8n; measured **0.9688 and 0.9703**, rising monotonically. Predicted 8-node
+      throughput under 26.6 samples/s; measured **42.71**. Predicted 500–800 MB/s; measured
+      **1643.6 MB/s**. ⇒ **the single OST sustains ~1.64 GB/s under the real loader at 128
+      concurrent readers with the GPUs 97% busy**, and the 2.4 TB → zarr conversion is not
+      justified anywhere on this ladder.
+    - ⚠ **The app-free probe that motivated P9 UNDERSTATES the OST by ~4.8× — do not quote
+      its absolute numbers.** It divides total bytes by a wall clock that includes `mp.Pool`
+      startup and 32–128 opens of a 2.4 TB HDF5 file, none of which scale with reader count.
+      Its *latency* series is real and does show contention appearing (median window 2.0 →
+      2.7 → 3.7 s from 8 → 16 → 32 readers); its *aggregate* is a floor, not a ceiling. The
+      training arms supersede it. (The probe also had to be fixed twice first: a rank-based
+      `ndim==3` test that died on the 1-D `global_mean_co2`, then a seed scheme whose two
+      repeats overlapped 0/12/56/78% as reader count grew — and it took the *best* repeat, so
+      it manufactured the linear scaling it was built to test. Caught from its own internal
+      inconsistency: median window latency collapsing 160× while per-reader MB/s stayed flat.
+      A `WARN PROBE_INCONSISTENT` self-check now fires on exactly that.)
+    - **Shape: the cliff is the FIRST HOP, then it saturates** — −42% per-GPU at 1→2 nodes,
+      then only −12% and −6.5% for the next two doublings. ai-rossby's shape, reproduced on a
+      **third** harness. First-hop penalty **+488.4 ms/step** (prereg P4 hit, 390–1560 ms).
+    - ⚠ **Weak-scaling efficiency against 1 node (100/58/51/48%) is the WRONG HEADLINE for
+      this model**, because 1 node cannot hold the production batch at all (local 3 OOMs).
+      From the 2-node minimum viable config, ACE2 goes **13.04 → 22.83 → 42.71**, i.e. 1.75×
+      and 3.28× for 2× and 4× the hardware — **87% and 82% incremental efficiency.** ACE2
+      scales well *once past the toll it cannot avoid paying*.
+    - ⚠ **`gpu_busy_frac` rising with node count is not the good news it looks like**, and
+      the same caveat now cuts both ways: the step gets longer (NCCL), so a fixed loader gap
+      is a smaller fraction of it. The column measures **loader idle, not communication
+      cost**.
+    - **Rep spread (prereg P8): 1 node ±0.1% (n=3), 2 nodes ±3.9% (n=3), 4 nodes ±3.4% (n=2).** Both inside
+      5%, and the 2-node figure is far tighter than ai-rossby's 15% miss at the same rung.
+      ⚠ **8n is still n=1** and must not be published as a ladder point yet.
+  - ⚡ **YES, THE FABRIC COSTS ACE2 — MORE THAN makani, NOT LESS.** Weak scaling holds
+    per-GPU work identical, so everything above the 1-node step is exposed inter-node cost:
+    **+488.4 ms at 2 nodes (40.6% of the step), +710.1 at 4 (49.8%), +782.5 at 8 — over half
+    the 8-node step is fabric.** In node-seconds per sample: 0.0895 → 0.1505 → 0.1783 →
+    **0.1873, i.e. 8 nodes costs 2.09× what 1 node would**. Since 1 node cannot run the
+    production batch, the usable framing is **2 → 8 nodes: +24% node-hours for 3.2× the
+    wall-clock throughput.**
+    - **ACE2's toll is 2.09× makani's** (488.4 vs 234.0 ms) on **3.08× the gradient volume**
+      (1.823 vs 0.591 GB) — 3.73 vs 2.53 GB/s effective, both inside this stack's measured
+      2.5–4.4 GB/s. The toll is **bandwidth-bound and scales with gradient volume**, so it is
+      the same `scale_factor` fact as Table 8.
+    - **Why the ladder still looks good is NOT that ACE2 is less affected.** Toll as a share
+      of the compute it hides behind: ACE2 68% at 2 samples/GPU (128% at 1), makani 64% at 8
+      samples/GPU but **512% at 1** — the regime ACE2 cannot reach. At their respective 1-node
+      production configs the fraction is nearly the same (68% vs 64%); the divergence is
+      entirely the *range of configurations reachable*.
+    - ⚠ **`gpu_busy_frac` is blind to this** — it *rises* 0.9288 → 0.9703 across these same
+      rows, because exposed NCCL runs as GPU kernels and counts as busy. It measures loader
+      idle. Communication cost is the `over 1n` column.
+    - ⚠ `over 1n` is fabric **+ load imbalance**, which weak scaling does not separate; and
+      the 716.0 ms baseline already contains **intra-node** NCCL over NVLink, so these are
+      *inter-node increments*, not ACE2's total communication cost. Separating them needs the
+      kernel-level capture prereg P6 still lacks.
+    → `ace2_polaris_results.md` §Table 9.
+  - 🧬 **ACE2 vs makani: SAME SFNO, ONE CONFIG KNOB APART — and it explains every difference.**
+    Both are the Modulus/makani SFNO on a 180×360 equiangular grid with **identical**
+    `embed_dim=384`, `num_layers=8`, `operator_type=dhconv`, `filter_type=linear`,
+    `instance_norm`, `hard_thresholding_fraction=1.0`, `use_mlp`, `separable=False`
+    (`makani_sfno/polaris/e3sm_alldata_full.yaml` vs `ACE2_retrain/config_polaris.yaml`).
+    **The difference is `scale_factor`: ACE2 = 1, makani = 3** — plus ACE2's 2-step rollout
+    (`n_forward_steps=2` vs `n_future=0`).
+    - **The arithmetic closes, and it reproduces makani's own recorded number.** scale_factor 3
+      puts makani's 8 blocks on a 60×120 internal grid, so its dhconv weight is
+      384×384×**60**×2 = 70.78 MB/layer against ACE2's 384×384×**180**×2 = **212.34 MB**.
+      ×8 layers ⇒ 0.566 GB, which with the rest gives **0.591 GB — exactly the ~591 MB
+      single-bucket reduction `makani_bench_report.md` recorded.** Parameter ratio
+      455,831,040 / 147,860,000 = **3.08×**, i.e. the scale_factor ratio.
+    - **Activation memory: 12.64 GiB/sample (ACE2) vs 0.73 GiB/sample (makani) = 17.3×**,
+      against **18× predicted** by 9× internal spatial positions × 2 rollout steps. Nothing
+      else has to be invoked.
+    - ⇒ **The two harnesses do not disagree about Polaris; they are different-sized models.**
+      makani fits its whole production batch (32) on one node and so never has to touch the
+      fabric — its ladder correctly found the ~234 ms toll is never worth paying. ACE2 is 17×
+      heavier per sample, caps at **2 samples/GPU**, and so **has no fabric-free option** at
+      global batch 16. Having to pay the toll, it then amortises it well (82–84% incremental
+      from 2 nodes) because it is also 7.3× heavier per sample in compute.
+    - ⇒ It also explains the **tree-defect split**: ACE2's 1.823 GB gradient volume clears the
+      ~1 GB corruption threshold and makani's 0.591 GB does not. `NCCL_ALGO=Ring` being
+      load-bearing for one and unnecessary for the other is the same `scale_factor` fact.
+    - ⚠ **`scale_factor` is a SCIENCE knob.** ACE2 running at 1 is what the ai2cm config
+      specifies; changing it changes what the model computes and is jesswan's call. Recorded
+      to explain the measurements, **not** as a proposal.
+    - ⚠ Caveats: makani's 45.7 ms/sample is an *average* at 8 samples/GPU (includes fixed
+      per-step overhead) while ACE2's 335.4 is a *marginal* two-point fit; and the
+      3.7×-per-model-application residual is not derived from first principles — both encoders
+      run at full resolution and makani has 2.4× the channels there, partly offsetting its 9×
+      spatial advantage.
+    → full table: `ACE2_retrain/polaris/ace2_polaris_results.md` §Table 8 (generated by
+    `make_results_table.py`; **do not hand-edit**).
+  - 🧭 **WHY ACE2 DOES NOT REPRODUCE makani's "more nodes = slower" — and the first answer
+    was that I COMPARED TWO DIFFERENT EXPERIMENTS.** makani's §1f table holds the **global**
+    batch at 32 and shrinks samples/GPU 8→4→2→1 (**strong** scaling); the ACE2 ladder holds
+    the **local** batch at 2 and grows the global batch 8→64 (**weak** scaling). Under weak
+    scaling the added ranks bring added work, so a roughly fixed per-step collective is
+    amortised; under strong scaling they do not.
+    - ✅ **Settled by running the apples-to-apples arm** (job 7588972, `-v LOCAL_BATCH=1` at
+      4 nodes, routed to `ace2_polaris_strongscale.csv` — a strong-scaling point must never
+      sit in the weak-scaling table): at **global batch 16**, 2 nodes × local 2 gives
+      **13.29** samples/s and **4 nodes × local 1 gives 13.83** — i.e. **+4.1%, faster not
+      slower.** makani's ladder never recovered its 1-node throughput at any larger node
+      count. Prereg P10 hit on direction; it **missed on magnitude** (predicted 15.0), which
+      refutes its own assumption that the fabric toll is batch-independent.
+    - ⚠ **State the size honestly: +4.1% for 2× the hardware is 2% efficiency on the added
+      nodes.** The claim is "**ACE2 does not get worse**", not "ACE2 scales at fixed batch".
+      And makani's actual headline question — *is 1 node fastest?* — **cannot be posed for
+      ACE2 at all**, because 1 node cannot hold global batch 16.
+    - **Mechanism: ACE2 is ~7.3× heavier per sample.** Marginal cost is **335.4 ms/sample**
+      (from 380.6 ms at local 1 → 716.0 at local 2, one node) against makani's ~45.7 ms/sample
+      at 8 samples/GPU. A per-step toll that barely moves with node count is amortised by
+      whatever compute is left on each GPU. makani's fixed-batch ladder could slice to
+      1 sample/GPU, where ~46 ms of compute sits against a ~234 ms toll and the fabric
+      necessarily wins. **ACE2 cannot get there** — it is 7× heavier per sample and cannot go
+      below 1 sample/GPU, so it never enters the regime makani's table measures.
+      ⚠ The 335.4 ms/sample is a **two-point fit** at one node; nothing rules out
+      non-linearity between local batch 1 and 2.
+  - 🧪 **`GPU_ORDER=reverse` tested for the first time — NOT previously exercised** (all 12
+    prior ACE2 rows were `forward`). Jobs 7588998 (1n) / 7588999 (4n):
+    | rung | forward | reverse | delta | forward's own spread |
+    |---|---|---|---|---|
+    | 1 node | 716.0 ms (n=3) | 715.2 ms (n=1) | −0.12% | ±0.1% |
+    | 4 nodes | 1426.1 ms (n=2) | 1466.0 ms (n=1) | **+2.80% slower** | ±3.4% |
+    ⚠ **Neither delta is resolvable** — each reverse arm is n=1 and each delta sits inside its
+    baseline's rep spread. Prereg P11 is scored **falsified on direction at 4 nodes** (I bet
+    faster), but the defensible statement is that **ACE2 shows no placement effect either rung
+    can resolve at n=1**.
+    ✅ **What IS established: makani's −7.0% does not reproduce.** A gain that large would sit
+    far outside ±3.4% and is excluded even at n=1.
+    ⚠ **And the comparison was never apples-to-apples**, which I should have said before
+    betting: makani's −7.0% was at 4 nodes **SHARDED** (model-parallel), and **ACE2 has no
+    model-parallel path** — it is pure DDP. The configuration where makani found the win does
+    not exist here. ⇒ the repo's verdict stands, reinforced by a third harness: **placement is
+    config-dependent, do not port a sign** — including one inferred from first principles, as
+    P11's NUMA/H2D reasoning was. `forward` remains correct for every ACE2 config measured.
+  - 🐛 **The ladder found a launcher bug that only appears at ≥32 ranks** — which is the
+    argument for running the rung rather than extrapolating it. Job **7588719** (8 nodes)
+    killed every rank at construction with
+    `ValueError: No batches in dataloader: 0 samples, batch size is 2`: the fixed 4-day
+    validation window (~14 samples) is under one local batch per rank at 32 ranks, and
+    `drop_last=True` turns that into zero batches. It passed at 4 and 16 ranks, i.e. at every
+    rung already run. Fixed by sizing the window from `NRANKS` and pinning validation to one
+    sample per rank; both sit outside the timed window, so earlier arms stay comparable
+    (`peak_mem_gb` read 33.959 GiB identically at 1/2/4 nodes — it is set by training).
+  - 🐛 **Two PBS facts corrected, both measured:** dependent jobs **DO** count against
+    `debug`'s `max_queued=1` (a held link is refused with *"would exceed queue generic's
+    per-user limit of jobs in 'Q' state"*), so the ladder cannot be one chain — the driver
+    emits one wave per queue instead. And **`qstat -u` truncates the Job ID with a trailing
+    `*` even under `-w`**, which `-W depend=afterany:` rejects as *"illegal -W value"*; use
+    `qselect`.
+  - 🟠 **THE I/O QUESTION AS IT STOOD BEFORE THE LADDER** (kept because the reasoning is
+    what the ladder then tested, and one step of it was wrong in an instructive way):
     Demanded read rates, computed exactly from the file's real dtypes and shapes (the file is
     **contiguous and uncompressed** — `chunks=None`, `compression=None` — so a 3-timestep
     window of one variable is one ~778 KB contiguous read and there is **no chunk
@@ -417,7 +579,8 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
       2.4 TB of file and ~512 GB of node RAM). makani's 30% benchmark optimism came from
       re-reading a warm window; that mechanism is absent here, and production uses a shuffled
       `DistributedSampler` — the same random pattern.
-    ⇒ **The 2.4 TB → zarr conversion is not justified *yet*, at ≤8 ranks. It is not closed.**
+    ⇒ At the time: *"not justified yet, at ≤8 ranks; not closed."* **The ladder above closed
+    it — at 32 ranks the OST sustains 1.64 GB/s and `gpu_busy_frac` is 0.9703.**
   - 📐 **THE BATCH-SIZE SEARCH, MEASURED ONE ARM PER VALUE — and it says ACE2 does NOT fit
     its own production batch on one Polaris node.** All arms 1 node, 60 steps, `debug`,
     ~8-11 min each:

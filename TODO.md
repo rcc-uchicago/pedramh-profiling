@@ -100,6 +100,15 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
      script in this repo carries a hand-reconstructed modulefile because of it.
    - **Three nodes with zombie GPU state**: `x3111c0s37b1n0` (3 strikes), `x3201c0s1b1n0`,
      `x3109c0s1b0n0`.
+   - ⚠ **NEW 2026-09-02 — the tree defect now has a THIRD harness and a named trigger.**
+     ACE2 issues **one all_reduce of its entire 455.8 M-parameter model (1.823 GB =
+     1738.86 MiB)** as **collective 14 of the run**, after DDP's parameter broadcast and
+     *before the first backward* (job 7586590, flight-recorder dump). That is above the
+     measured-failing threshold, so ACE2 would hit the corruption without `NCCL_ALGO=Ring`.
+     It also **explains ai-rossby's byte-identical stuck collective under a 200x
+     `bucket_cap_mb` change**: the collective is not a gradient bucket, so the cap cannot
+     affect it. Two unrelated models, stock DDP, `gradient_as_bucket_view=True`, same
+     behaviour — that is a much stronger ticket than "makani and ai-rossby saw a hang".
    *Cost: writing. Unblocks the fastest stack for everyone on the machine.*
 
 7. **cpu-bind / progress-thread sweep on the new plugin — the biggest known lever.**
@@ -155,14 +164,35 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
 
 ## P2 — other tracks, still live
 
-14. **ACE2 (`fme`) on Polaris — the next port after makani.** Plan and the carried-over
-    NCCL/training configuration: **`polaris_ace2_multinode_handoff.md`** (§1f holds the
-    2026-09-01/02 makani findings). Status: GREEN on Midway (4×H100, `ACE2_SMOKE_OK`, jobs
-    53478978/53478979), profiled (`ACE2_retrain/bench_midway_notes.md`), **no Polaris/PBS path
-    yet**. Data already staged at `/eagle/projects/lighthouse-uchicago/ace2/`.
-    ⚠ Read §1f first: at fixed batch more nodes made makani *slower*, so establish the 1-node
-    point before building any scale-out ladder — and ACE2's optimizer state is ~10.7 GB of a
-    40 GB card, so it has less room for the large-local-batch route than makani had.
+14. **ACE2 (`fme`) on Polaris — bring-up + ladder DONE; what remains is reps and science.**
+    Plan: **`polaris_ace2_multinode_handoff.md`**; prereg + scorecard:
+    `ACE2_retrain/polaris/ace2_polaris_prereg.md`; evidence: CHANGELOG `2026-09-02 (cont. 3)`.
+    ✅ Venv (`ACE2_VENV_OK`), config, telemetry + bench CSV (ACE2 had neither), one launcher
+    for any node count, parser + 46 tests, prereg, and the **full 1/2/4/8-node weak-scaling
+    ladder**. Headline results, all measured:
+    - **`batch_size: 16` does not fit one node** (local 2 = 34.0 GiB, local 3 OOMs), so ACE2
+      always pays the first-hop fabric toll — unlike makani, where 1 node won outright.
+    - **Fabric-limited, not I/O-limited.** At 32 ranks the single-OST 2.4 TB `.nc` sustains
+      **1.64 GB/s** with `gpu_busy_frac` **0.970** ⇒ **the zarr conversion is not justified.**
+    - Shape: cliff at the first hop (−42% per-GPU), then saturating; **87%/82% incremental
+      efficiency from the 2-node minimum viable config.**
+    - 🔴 **`NCCL_ALGO=Ring` is load-bearing**, not insurance — see P0-6.
+    **Next, in order:**
+    0. **Reps for the placement A/B** — `GPU_ORDER=reverse` is n=1 at both rungs and each
+       delta (−0.12% at 1n, +2.80% at 4n) sits *inside* its forward baseline's spread, so
+       neither is resolvable. makani's −7.0% is excluded, but ACE2's own effect is not
+       measured. Needs node-matched reps, as makani's arm used.
+    1. **Reps for 8n** — still **n=1** and must not be published.
+       `bash ACE2_retrain/polaris/run_ace2_ladder.sh 3 2` fills the shortest rungs first;
+       re-run it each time a wave drains (one job per queue is the hard limit).
+    2. **Name the 1.823 GB startup collective.** The flight recorder captured no stack
+       frames; one arm with stack capture would identify the call site and close
+       ai-rossby's open question properly rather than by analogy.
+    3. **Prereg P6 is still untested** — needs an nsys capture to check whether Midway's
+       "NCCL is 40-46% of kernel time" transfers to Polaris' NVLink mesh. `ace2_nvtx.py`
+       exists; there is no Polaris nsys launcher yet.
+    4. **Hand the batch/LR question to jesswan.** Production at global batch 16 on 2 nodes is
+       a training-regime change; the LR is flat at 1e-4 and has never been swept here.
 
 15. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
     **none of it is in the CHANGELOG** (rows are in `$MEMBER_ROOT/bench/ai_rossby_hpsweep.csv`
@@ -214,3 +244,6 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
   (7565896). → `makani_bench_report.md` §6.
 - **`NCCL_ALGO=Ring` for makani** — not needed. makani reduces ~591 MB in one bucket, an order
   of magnitude below the ~1 GB tree-corruption threshold. ai-rossby (4.73 GB) cannot run without it.
+  ⚠ **ACE2 cannot either** (measured 2026-09-02: a single 1.823 GB full-model all_reduce at
+  startup). It is on by default in `polaris_ace2_train.pbs`; removing it is a correctness
+  regression, not a tuning choice.
