@@ -207,8 +207,11 @@ threw away accrued queue priority for nothing.
 | `demand` | ≤ 1 h | 1–56 | **by request only** (email ALCF support) | ⚠ **this is what preempts `preemptable`** |
 
 > ### ⚠ MEASURED 2026-09-03 — a long run's walltime cannot be raised, and its successor cannot be pre-queued
-> Both were hit trying to finish production **7585080** (243 epochs, 48 h requested,
-> running at ~714 s/epoch ⇒ **~48.2 h needed** — short by 2–3 epochs).
+> Both were hit while staging insurance for production **7585080** (243 epochs, 48 h
+> requested). ⚠ The shortfall that prompted it was a **measurement error** — `wall ÷ epochs`
+> amortises startup into every epoch. Measured properly (elapsed and epoch count read in the
+> same instant): **685.0 s/epoch + 350 s startup = 46.33 h**, inside the 48 h limit. The two
+> limits below are real and were confirmed independently of that mistake.
 >
 > 1. **`qalter -l walltime=` is REFUSED on this system**, even downward-compatible with
 >    the queue max: `qalter: Exception in account_check hook encountered. Please contact

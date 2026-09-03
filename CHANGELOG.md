@@ -144,10 +144,20 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
-- **2026-09-03 (cont.)** — **Production will wall out ~3 epochs short; a dependent resume is
-  staged, and two ALCF limits were measured the hard way.**
-  - **The shortfall:** 7585080 requested **48:00:00** and runs at **~714 s/epoch** (63 epochs in
-    12:30) ⇒ 243 epochs needs **~48.2 h**. It walls out around epoch 240.
+- **2026-09-03 (cont.)** — **A dependent resume is staged as insurance, and two ALCF limits were
+  measured the hard way. ⚠ The shortfall that prompted it was a MEASUREMENT ERROR.**
+  - ❌ **RETRACTED within the hour: "production walls out ~3 epochs short".** That came from
+    dividing a `qstat` elapsed reading by an epoch count read *minutes apart*, which folded the
+    one-time **350 s startup** into the per-epoch rate and inflated it to ~714 s.
+  - ✅ **Corrected, both read in the same instant** (elapsed 13:02:07 / 68 epochs): steady-state
+    is **685.0 s/epoch** with **350 s** of startup ⇒ 243 epochs = **46.33 h vs 48 h walltime**,
+    a **+1.67 h margin**; 251 epochs would fit. **Production finishes on its own.**
+  - **Method note worth keeping:** derive a rate from the logged `epoch time [s]` series, never
+    from `wall ÷ epochs` — the latter silently amortises startup into every epoch, and the two
+    readings must be taken at the same instant or the error compounds.
+  - **Tail sizing, if one ever appears** (685 s/epoch + 350 s startup): 2 ep = 28.7 min,
+    3 ep = 40.1 min, 4 ep = 51.6 min, **5 ep = 63.1 min — over `debug`'s 1 h cap.** So `debug` is
+    the right queue for a ≤3-epoch tail and the wrong one from 5 up.
   - 🐛 **`qalter -l walltime=` is REFUSED on Polaris** — `Exception in account_check hook`,
     **rc=32**. Requested walltime is **immutable once submitted**; there is no second chance.
     ⇒ size a long run's walltime to the queue max when the epoch cost is not yet known.
@@ -157,11 +167,13 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     "max_queued 2 per PROJECT" reading in `polaris_pbs_notes.md` was wrong and is corrected.
     The bind is circular: the slot frees only when the parent ends, which is exactly when the
     successor needed to already be queued.
-  - **Resolution:** `submit_production_resume.sh` pre-stages the resume on **`preemptable`**
+  - **Kept anyway as insurance:** `submit_production_resume.sh` pre-stages the resume on **`preemptable`**
     (dependencies work across queues) as **7587821**, `H` on `afterany:7585080`, 6 h walltime.
     The tail is ~3 epochs, checkpoints are per-epoch, and resume is proven byte-identical, so a
     preemption costs a resubmit rather than progress. `QUEUE=capacity` re-runs it there once the
-    slot is genuinely free.
+    slot is genuinely free. It costs nothing to hold — a held job counts against `max_queued`,
+    not `max_run` — and if production completes it starts, finds `max_epochs` reached and exits.
+    It also covers what `debug` cannot: a LATE crash leaving ~10-30 epochs.
   - ⚠ **The trap the script exists to prevent:** the PBS **re-renders the config every
     submission**, so a resume with a different or missing `-v` set would silently continue under
     *different hyperparameters* — a reset scheduler or a different peak LR would read as a
