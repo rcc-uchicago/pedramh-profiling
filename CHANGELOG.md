@@ -144,6 +144,37 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-03 (cont. 2)** — **Forked the running production job at epoch 71 to A/B batch 32 vs
+  48 from identical weights — and found that makani's warm start fails silently.**
+  - **Why this experiment:** at equal DATA batch 48 is ~10% worse, but at equal UPDATES it is
+    **better** — −55.1% at 1,824 steps, −12.3% at 2,736, −4.7% at 3,648, −3.1% at 4,104. So more
+    samples per update *does* help, sub-linearly and with a fast-decaying benefit. Those numbers
+    cover **5,472 of 332,424 planned steps (1.6%)**, and gradient noise matters *least* early and
+    *most* late — so the decaying curve must not be extrapolated into the regime that matters.
+    Forking at epoch 71 samples that regime directly, on `debug`, without waiting ~33 h for
+    production to land or spending a 46 h retrain.
+  - 🐛 **The trap: makani gates resume on EXACTLY `ckpt_mp0_v0.tar`** (`train.py:101-105`,
+    `checkpoint_version=0` hardcoded — it does *not* look for the newest file). Seeding the fork
+    with `ckpt_mp0_v71.tar` gave `resuming = False` and both arms **started training from
+    scratch, with no error and no warning**. Caught at 2 min by checking the log for `resuming`
+    rather than assuming; jobs 7588049/7588050 killed, dirs removed, resubmitted as
+    **7588055/7588056** with the file named `v0` → both now report `resuming True`.
+    The epoch is not read from the filename: counters live inside the tar and
+    `get_latest_checkpoint_version` picks by **mtime**, so a lone `v0` continues at epoch 72.
+  - ⇒ **Rule: assert `resuming True` in the log before trusting any warm start.** A fork that
+    silently restarts produces a plausible-looking loss curve and would have been read as "batch
+    48 is catastrophically worse late in training" — a wrong conclusion from a submission bug.
+  - **Production is unaffected** — it holds `v0`…`v72`, so its own resume (7587821) is valid.
+    The fork COPIES the checkpoint into a fresh expDir with a fresh `RUN_NUM`; reusing
+    production's `RUN_NUM` would put two jobs in one expDir and corrupt the run.
+  - **Design:** both arms restore the identical epoch-71 state (model + optimizer + scheduler +
+    counters) and run 3 epochs to `max_epochs=74` on production's exact schedule (LR 2.0e-3,
+    warmup 3, `T_0=20`, `min_lr` 1e-6) — a different schedule would contradict the restored
+    scheduler state. Compared at **equal epochs = equal data** (43,776 samples/epoch either way);
+    equal-step numbers fall out of the same logs (1368 vs 912 steps/epoch). The b32 arm is not
+    redundant with production: it carries the same I/O contention as the b48 arm and doubles as a
+    fidelity check that the fork reproduces production's own trajectory.
+
 - **2026-09-03 (cont.)** — **A dependent resume is staged as insurance, and two ALCF limits were
   measured the hard way. ⚠ The shortfall that prompted it was a MEASUREMENT ERROR.**
   - ❌ **RETRACTED within the hour: "production walls out ~3 epochs short".** That came from

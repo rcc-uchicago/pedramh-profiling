@@ -832,6 +832,19 @@ contrast did not exist before: §5j inferred batch-independence from two *differ
 
 ## 9. Operational facts that outlive the plan
 
+🐛 **Forking a run from a checkpoint fails SILENTLY unless the seeded file is named `v0`.**
+makani gates resume on the existence of *exactly* `ckpt_mp0_v0.tar` —
+`makani/train.py:101-105` formats the path with `checkpoint_version=0` **hardcoded**, and does
+**not** look for the newest file. Seeding a fresh expDir with `ckpt_mp0_v71.tar` gives
+`resuming = False` and the job **begins training from scratch with no error and no warning**;
+the loss curve reads as a fresh run, not a broken fork (measured 2026-09-03, jobs
+7588049/7588050, killed at 2 min). The epoch is *not* taken from the filename —
+`restore_from_checkpoint` reads counters stored inside the tar, and
+`get_latest_checkpoint_version` (`checkpoint_helpers.py:33-42`) selects by **mtime** over the
+glob — so a lone `ckpt_mp0_v0.tar` resolves correctly and the run continues at the checkpoint's
+true epoch. ⇒ **Always assert `resuming True` in the log before trusting a warm start.**
+*(Production 7585080 is unaffected: it holds `v0`…`v72`, so its own resume path is valid.)*
+
 **Seven launchers are still dead.** They open with the bare `module load conda` /
 `conda activate base` pair and fail with `conda: command not found`:
 
