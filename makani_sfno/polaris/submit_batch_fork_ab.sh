@@ -49,7 +49,14 @@ VERS=$(ls -1 "${SRC}/training_checkpoints"/ckpt_mp0_v*.tar 2>/dev/null \
         | sed 's/.*_v//; s/\.tar//' | sort -n | tail -2 | head -1)
 if [ -z "${VERS}" ]; then echo "ERROR NO_SOURCE_CHECKPOINT: ${SRC}"; exit 3; fi
 CKPT="${SRC}/training_checkpoints/ckpt_mp0_v${VERS}.tar"
-END=$(( VERS + NEPOCH ))
+# ⚠ OFF-BY-ONE: checkpoint v_N holds the state AFTER epoch N+1, not epoch N
+# (production holds v0..v72 at 73 completed epochs). So resuming from v${VERS}
+# continues at epoch VERS+2, and max_epochs must be VERS+1+NEPOCH to actually
+# run NEPOCH epochs. Without the +1 the arms silently run one epoch fewer than
+# asked -- measured 2026-09-03 (jobs 7588118/7588120 requested 3, ran 2, exit 0,
+# no warning). Harmless for an A/B where both arms are treated alike; wrong if
+# you are sizing a run against a walltime.
+END=$(( VERS + 1 + NEPOCH ))
 echo "forking from epoch ${VERS}; each arm runs to max_epochs=${END} (${NEPOCH} epochs)"
 log "fork source: ${CKPT} -> max_epochs=${END}"
 
