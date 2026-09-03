@@ -213,12 +213,18 @@ threw away accrued queue priority for nothing.
 > same instant): **685.0 s/epoch + 350 s startup = 46.33 h**, inside the 48 h limit. The two
 > limits below are real and were confirmed independently of that mistake.
 >
-> 1. **`qalter -l walltime=` is REFUSED on this system**, even downward-compatible with
->    the queue max: `qalter: Exception in account_check hook encountered. Please contact
->    your administrator` (**rc=32**). Requested walltime is **immutable once submitted**.
+> 1. **`qalter` is REFUSED outright on this system — for every attribute, not just
+>    walltime.** Both `qalter -l walltime=` (on a running job) and `qalter -W depend=`
+>    (on a *queued* job) fail with `qalter: Exception in account_check hook encountered.
+>    Please contact your administrator` (**rc=32**). Treat **every job attribute as
+>    immutable once submitted**.
 >    ⇒ **Size a long run's walltime with margin at submit time** — there is no second
 >    chance. A run whose epoch cost is known only after it starts should request the
 >    queue max, not the estimate.
+>    ⇒ **To stagger already-queued jobs, use `qhold` / `qrls`, not `qalter`.** `qhold`
+>    works (rc=0, state → `H`) and, unlike `qdel` + resubmit, does not destroy accrued
+>    eligible time (#12). Dependencies can only be set **at submit time**, via
+>    `qsub -W depend=afterany:<jobid>`.
 > 2. **`capacity` cannot hold a queued successor while a job runs.** With exactly one job
 >    RUNNING, `qsub` of a second — even one *held* on `-W depend=afterany:` — is refused
 >    with `qsub: would exceed queue capacity's per-project limit`. So the cap counts
