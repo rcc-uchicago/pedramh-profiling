@@ -558,6 +558,75 @@ so +0.88% is real, not noise. The confound was checked: the six arms landed on s
 Don't quote 0.88% as precise. **The decision — `default` for the 1-node production config — is
 unaffected.**
 
+### 5j. The LR ceiling — batch-independent, and the failure is irreversible
+
+**Scored 2026-09-03 from the batch-48 sweep (7586382/3/4) + the batch-32 sweep.** The batch-48
+arms did not fail *because of* batch 48. The same failure happens at batch 32.
+
+| arm | job | ep 1 valid | ep 2 valid | ep 3+ valid | ep-2 grad norm | verdict |
+|---|---|---|---|---|---|---|
+| b32 4.0e-4 | 7584861 | 0.2302 | 0.0382 | 0.0324 | 0.1855 | ok |
+| b32 1.0e-3 | 7584961 | 0.1312 | 0.0319 | 0.0265 | 0.1142 | ok |
+| **b32 2.0e-3** | 7585026 | 0.0944 | 0.0299 | **0.0235** | 0.1013 | **ok — best** |
+| **b32 4.0e-3** | 7585996 | 0.0724 | **0.1072** | 0.1070 | **1.05e7** | **💥 collapsed** |
+| b48 2.0e-3 | 7586382 | 0.1120 | 0.0327 | 0.0263 → 0.0211 | 0.1399 | ok |
+| **b48 3.0e-3** | 7586383 | 0.0923 | **0.1071** | 0.1069 | **6.30e7** | **💥 collapsed** |
+| **b48 4.5e-3** | 7586384 | 0.0816 | **0.1071** | 0.1070 | **3.22e11** | **💥 collapsed** |
+
+**Three facts the traces establish.**
+
+1. **Epoch 1 is fine, and higher LR is strictly *better*** (0.1120 → 0.0923 → 0.0816 as LR
+   rises). There is no gradient-noise penalty anywhere before the failure. `lr_warmup_steps: 1`
+   means an arm first meets full LR in **epoch 2** — it dies on first sustained exposure.
+2. **Death is one epoch wide**, train loss 0.24 → 6.05e5 → 0.1056, and **severity tracks LR**
+   (1.05e7 → 6.30e7 → 3.22e11). That is geometric divergence past a stability threshold, not a
+   noise problem.
+3. **It never recovers.** All three land on train 0.1055–0.1056, valid 0.1067–0.1072, grad norm
+   0.007–0.011 — *the same absorbing state to three decimals*, whatever the batch or LR.
+   Post-collapse grad norm is **30× below** a healthy arm's, so cosine annealing back down
+   cannot rescue it. **Divergence here is irreversible, not a setback.**
+
+**Reproducible:** the 4.5e-3 collapse occurred in **both** the v1 and v2 batch-48 runs — epoch 2
+both times, terminal valid 0.1071 both times, epoch-1 valid 0.0814 vs 0.0816. The blow-up
+*magnitude* differs (3.0e3 vs 1.16e10), so it is not bitwise deterministic; the *failure* is.
+
+**The ceiling did not move with batch.**
+
+| batch | survives | dies | ceiling |
+|---|---|---|---|
+| 32 | 2.0e-3 | 4.0e-3 | (2e-3, 4e-3) |
+| 48 | 2.0e-3 | **3.0e-3** | **(2e-3, 3e-3)** |
+
+Linear scaling predicts ceiling₄₈ = 1.5 × ceiling₃₂ > 3e-3, i.e. **3e-3 should have been safe at
+batch 48. It was not** — refuted without needing ceiling₃₂ exactly. Sqrt scaling predicts
+> 2.45e-3 and survives only in the narrow window (2.45e-3, 3e-3): squeezed, not excluded.
+
+⇒ **Hypothesis: the ceiling is curvature-limited, not noise-limited.** Linear scaling assumes
+gradient *variance* binds. If instead the stability bound η < 2/λ_max binds, the ceiling is a
+property of the loss surface and averaging more samples cannot move it — which predicts all of
+the above. **Under test as prereg §7c.**
+
+**Two config choices that plausibly lower that ceiling** (both are what §7c isolates):
+
+* **`optimizer_max_grad_norm: 32` is decorative.** `clip_grads`
+  (`training_helpers.py:100-115`) clamps correctly and returns the *pre*-clip norm, so clipping
+  did fire — but production's grad norm over 64 epochs has an **all-time max of 0.2995**. The
+  clip sits **107× above the operating point** and has never engaged in a healthy step.
+  **makani's own default is 1.0** (`train.py:74-75`); the 32 is a fork convention from
+  `polaris/e3sm_alldata_full.yaml:141`, and sibling configs in the same family use `0.0`.
+* **`optimizer_beta2: 0.95`** — ~20-step second-moment memory vs ~1000 at 0.999; a *large-batch*
+  setting inherited from the batch-512 run. ⚠ But see §7c P3: for a **spike** the sign flips,
+  and 0.999 may be worse. Do not treat this as a known fix.
+
+**Production is safe, with a thinner margin than it looks.** 7585080 (batch 32, LR 2.0e-3) has a
+textbook trace — each cycle anneals 0.0296 → 0.0043, restart bumps back, three restarts
+survived, cycle minima improving 0.01402 → 0.01341 → 0.01316. But it runs **one rung below a
+cliff that is irreversible**, and SGDR returns it to peak LR every 20 epochs with **no
+re-warmup**. Empirically fine; the failure mode is worth knowing.
+
+⚠ **n = 1 per arm, 3–6 epochs.** The blow-up reproduces across three arms and two batch sizes, so
+the *mechanism* is solid; the exact ceiling location is not.
+
 ## 6. What the refused rows say — 15 of 30 rows carry no timing, by design
 
 The parser refuses a row rather than writing a plausible number (`NO_STEP_TIMING` → `csv_rc=4`).
@@ -660,6 +729,52 @@ pretrain-2 on **512 A100** as `ensemble 2 × batch 32 × h2w4`. The production r
 512 A100 — but as **pure data parallelism** on a different model and dataset. It reproduces the
 paper's *rank budget*, not its decomposition, and no table from it should be captioned as an
 FCN3 reproduction.
+
+### 7c. Prereg — can the LR ceiling be raised at batch 48? (2026-09-03, before submission)
+
+**Question.** §5j established an LR ceiling in **(2e-3, 3e-3]** that did **not** move when batch
+went 32 → 48, and identified two config suspects. This is the single-variable test of both.
+
+**Probe point: batch 48, LR 3.0e-3** — a *known-dead* arm (7586383). All arms 1 node,
+`e3sm_alldata_full.yaml`, `EPOCHS=6`, `EVAL_SAMPLES=512`, warm restarts `T_0=2`, `WARMUP=1`,
+identical to the sweep they are compared against.
+
+| arm | β₂ | clip | isolates |
+|---|---|---|---|
+| **E** `b48fix_base` | 0.95 | 32 | **CONTROL — repeat of the dead arm.** Without it, A–D are uninterpretable |
+| **A** `b48fix_beta2` | **0.999** | 32 | β₂ alone |
+| **B** `b48fix_clip` | 0.95 | **1.0** | clip alone (= makani's own default, `train.py:75`) |
+| **C** `b48fix_both` | **0.999** | **1.0** | both |
+| **D** `b48fix_push` | **0.999** | **1.0** | both, at **LR 4.5e-3** — does the ceiling move a little or a lot? |
+
+**Scoring rule, fixed now.** *Survives* = epoch-3 validation < 0.05 **and** train loss finite
+(< 1.0) through epoch 3. *Collapsed* = validation ≥ 0.10 **and** grad norm < 0.02 (the dead
+attractor: train 0.1055–0.1056, valid 0.1067–0.1072, grad norm 0.007–0.011).
+
+| # | prediction | conf. |
+|---|---|---|
+| P1 | **E collapses again at epoch 2.** If it survives, the collapse is stochastic and A–D say nothing | 0.85 |
+| P2 | **B (clip alone) survives.** Clipping bounds what enters Adam's `m` and `v`, capping the runaway. *Counter:* Adam's update is ~invariant to a uniform gradient rescale, so it may only delay | 0.55 |
+| P3 | **A (β₂ alone) survives** | **0.40 — and the mechanism cuts BOTH ways** |
+| P4 | **C (both) survives**, and if any single-factor arm survives, C does | 0.65 |
+| P5 | **D (4.5e-3) survives** — 2.25× the known-good LR, collapsed 2/2 at shipped settings | 0.25 |
+| P6 | **If C survives, its epoch-3 validation beats b48 2.0e-3's 0.0263**, because higher LR was strictly better pre-collapse (0.1120 → 0.0923 → 0.0816 at epoch 1) | 0.70 |
+
+⚠ **P3 is deliberately below 0.5, against the standing recommendation.** The handoff lists
+β₂ 0.95 → 0.999 as recommendation #3 on the "0.95 is a large-batch setting" argument, and that
+argument is real: short memory makes `v̂` a noisy estimate, so some parameters transiently get a
+small `v̂` and an oversized update. **But for a *spike* the sign flips.** A single outlier
+gradient enters `v` with weight `1 − β₂` — **0.05 at β₂=0.95 versus 0.001 at 0.999**. The short
+memory therefore reacts ~50× more strongly and damps the *next* step much harder; the long
+memory barely notices the excursion. So 0.999 may be **worse** for the exact failure we
+measured, even though it is better for steady-state noise. Recorded before the result precisely
+because the honest prior is two-sided, and a post-hoc story could be told either way.
+
+**What each outcome licenses.** A or B alone surviving ⇒ the ceiling is an artefact of optimizer
+config, not the loss surface, and the whole LR sweep must be re-run at corrected settings. Only
+C surviving ⇒ the two interact. **Nothing surviving ⇒ the curvature-limited hypothesis (§5j)
+stands and 2e-3 is near a genuine architectural limit** — which is the outcome that most
+strongly validates the production run's current setting.
 
 ## 8. Not measured — and what each would cost
 

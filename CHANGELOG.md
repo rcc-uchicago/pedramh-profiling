@@ -38,6 +38,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | PanguWeather SFNO | — | ✅ **4-GPU GREEN** (7252271) **and reproducible by a SECOND USER** — job **7253591** (`PYTHONNOUSERSITE=1`) rc=0 with loss **0.3411, identical** to the as-installer run |
 | Makani SFNO | — | ✅ **4-GPU GREEN** (job **7253465**, current script: train loss 2.61 / val 2.38 + ckpt; first green 7252769 pre-rework; pack `CONVERT_OK` 7252728) — runs from the isolated SFNO venv |
 | PhysicsNeMo SFNO | — | ✅ **4-GPU GREEN** (job 7252933, rc=0: loss 0.889, val err 0.541, ckpt saved; 1-GPU 7252816 also green; zarr `CONVERT_OK`) |
+| ACE2 (`fme`) | ✅ `ACE2_SMOKE_OK` (4×H100, 53478978/53478979) + `ACE2_SMOKE_2NODE_OK` | 🟡 venv **`ACE2_VENV_OK`** (2026-09-02: torch 2.10.0+cu129 / NCCL 2.27.5, fme editable); 1-node anchor **job 7586496 running**. PASS = `ACE2_POLARIS_TRAIN_OK` |
 
 ## Next actions → `TODO.md`
 
@@ -142,6 +143,330 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-09-03** — **The batch-48 LR failure is diagnosed, and it is NOT about batch 48. Five
+  arms submitted to test whether optimizer config alone raises the ceiling** (prereg §7c;
+  7587738 / 7587739 / 7587740 / 7587741 / 7587742, `preemptable`, 1 node, 3 h each).
+  - **The finding** (bench report §5j): the LR ceiling is **(2e-3, 3e-3]** and it did **not move
+    when batch went 32 → 48**. Linear scaling predicts 3e-3 should be as safe at batch 48 as
+    2e-3 was at 32; 3e-3 died (7586383). Refuted without needing the batch-32 ceiling exactly.
+    Sqrt scaling is squeezed into (2.45e-3, 3e-3) but not excluded.
+  - **The failure mode is a ONE-EPOCH blow-up into an irreversible dead attractor**, not a
+    gradual degradation: train 0.24 → 6.05e5 → 0.1056, grad norm spiking 1.05e7 (b32 4e-3,
+    7585996) / 6.30e7 (b48 3e-3) / 3.22e11 (b48 4.5e-3, 7586384) — **severity tracks LR**. All
+    collapsed arms land on train 0.1055-0.1056, valid 0.1067-0.1072, grad norm 0.007-0.011:
+    *the same state to three decimals*, 30× below a healthy arm's grad norm, so annealing back
+    down cannot recover it. **Reproduced 2/2** at 4.5e-3 across the v1 and v2 runs.
+  - **Epoch 1 was fine and higher LR was strictly BETTER** (0.1120 → 0.0923 → 0.0816). No
+    gradient-noise penalty anywhere pre-failure ⇒ the ceiling looks **curvature-limited**
+    (eta < 2/lambda_max), which is batch-independent by construction. Under test.
+  - 🐛 **`optimizer_max_grad_norm: 32` is decorative.** Verified `clip_grads`
+    (`training_helpers.py:100-115`) clamps correctly and returns the *pre*-clip norm, so it does
+    fire — but production's grad norm across 64 epochs peaks at **0.2995**. The clip is **107×
+    above the operating point** and has never engaged in a healthy step. **makani's own default
+    is 1.0** (`train.py:74-75`); the 32 is a fork convention
+    (`polaris/e3sm_alldata_full.yaml:141`) and sibling configs in the family use `0.0`.
+  - **New `-v` overrides**: `BETA2` → `optimizer_beta2`, `MAX_GRAD_NORM` →
+    `optimizer_max_grad_norm`, in the PBS config renderer alongside the existing LR/scheduler
+    knobs. **Wiring tested offline before submitting** (`RENDER_WIRING_OK`): the render body was
+    extracted from the `.pbs` and run standalone against the real template, asserting both the
+    override path *and* that the shipped values survive when no override is passed. This is the
+    check that was skipped once before and let `lr_start: 0.0` reach the queue.
+  - **Arm E is a CONTROL, not padding.** LR 3.0e-3 had n=1 for the collapse, so a
+    same-conditions repeat at shipped settings is what makes arms A-D readable at all.
+  - ⚠ **Prereg §7c P3 is recorded at 0.40 — deliberately AGAINST the standing recommendation**
+    that β₂ 0.95 → 0.999. The "0.95 is a large-batch setting" argument is about steady-state
+    noise, but for a *spike* the sign flips: an outlier gradient enters `v` with weight
+    `1 − β₂` = **0.05 at 0.95 vs 0.001 at 0.999**, so the short memory damps the next step ~50×
+    harder. 0.999 may be **worse** for the failure we actually measured. Written down first
+    because a post-hoc story could be told either way.
+  - **Confounds, stated:** the memory and LR results are clean; the batch-48 *throughput*
+    (52.0 vs production's 67.8 samples/s) is **confounded** — three arms ran concurrently and
+    their I/O fell to 1.2-2.6 GB/s against production's 3.3, with per-epoch spikes to 1918 ms.
+    Not attributable to batch size; recorded as such.
+  - **Batch 48 verdict: dead end.** No LR headroom, **87.6% card occupancy** (34.61 GB of
+    39.49 GiB, measured with the new peak keys), and no demonstrated throughput gain. Batch 32
+    stays. 7586383 never wrote a CSV row — preempted after 5 epochs; its log carries the result.
+
+- **2026-09-02 (cont. 3)** — **ACE2 has a Polaris path for the first time.** `ACE2_retrain/`
+  carried **zero** `polaris_*` files and its Midway script activates a `/project/rcc/` env,
+  so this was a bring-up, not a port of an existing launcher. Implementing
+  `polaris_ace2_multinode_handoff.md`.
+  - ✅ **THE DAY-ONE BLOCKER IS CLEARED: `ACE2_VENV_OK`.** `polaris_setup_ace2_venv.sh`
+    (login node, the one sanctioned login-node activity) built
+    `$MEMBER_ROOT/conda-envs/fme-venv`: **python 3.12.11, torch 2.10.0+cu129, NCCL 2.27.5**,
+    `torch_harmonics` 0.8.0 (fme pins it exactly), zarr 3.3.0, fme **editable from our
+    checkout**. None of the eight existing envs carried `fme`.
+    ⚠ **The torch version is a deliberate choice, not a default.** fme's own
+    `constraints.txt` pins `torch==2.7.1`; that pin is NOT applied. 2.10.0+cu129 is
+    **byte-identical in NCCL version to ai-rossby's venv (2.27.5)**, so the multi-node
+    handoff §4's rule — *"any torch ≠ 2.8.0 ⇒ re-run the three fabric probes under it"* — is
+    satisfied by the ai-rossby campaign's **existing** probe results instead of three new
+    jobs. 2.7.1 would have satisfied neither and cost those jobs.
+  - 🐛 **`module load conda` killed the setup script in 3 seconds**, exactly as it kills the
+    seven launchers in TODO P0-10 — and the two *sibling setup scripts*
+    (`polaris_setup_ai_rossby_venv.sh`, `polaris_setup_sfno_venv.sh`) still open that way and
+    are therefore **also dead today**. Fixed here by sourcing
+    `ACE2_retrain/polaris/polaris_ace2_env.sh`, which carries the module-then-manual fallback,
+    rather than growing a fourth copy of it. *(The two siblings are left alone — that is P0-10's
+    scope, and this session did not verify their fallbacks.)*
+  - 📏 **`lfs getstripe` on the 2.4 TB NetCDF: `lmm_stripe_count: 1`.** The whole
+    2,388,766,929,681-byte `merged_ACE2_ERA5_final.nc` sits on **one OST** (index 46, 1 MiB
+    stripe), and every rank opens it. Zero-allocation, and it is the strongest reason to expect
+    the ACE2 bottleneck to be I/O rather than the fabric. **Prereg P1 therefore predicts
+    `gpu_busy_frac` < 0.90** against ai-rossby's ≥0.976 — the falsifiable form of "check the
+    striping before blaming NCCL".
+  - **Delivered** (all tested without an allocation):
+    | file | what |
+    |---|---|
+    | `polaris_setup_ace2_venv.sh` | the venv builder, `ACE2_VENV_OK` |
+    | `ACE2_retrain/polaris/polaris_ace2_env.sh` | third sibling of the makani/ai-rossby env bootstrap; also pins the fabric stack **once** so the 1-node anchor and the rungs cannot disagree about the transport |
+    | `ACE2_retrain/config_polaris.yaml` | `config_midway.yaml` with **11 paths** repointed and nothing else — `diff` shows only paths |
+    | `ACE2_retrain/epoch_telemetry.py` | verbatim third copy of the cross-project telemetry module |
+    | `ACE2_retrain/ace2_telemetry.py` | the injector: monkeypatches the four hooks onto fme (the `ace2_nvtx.py` pattern), since `ace_exp/` is vendored and not edited |
+    | `ACE2_retrain/polaris/polaris_ace2_train.pbs` | **one script, any node count** (the ai-rossby ladder shape), PASS `ACE2_POLARIS_TRAIN_OK` |
+    | `ACE2_retrain/polaris/polaris_rank_env.sh` | PALS→`env://` rank shim, ACE2's own copy |
+    | `ACE2_retrain/polaris/parse_ace2_scaling.py` + test | 5 guards + 16 tests, `ACE2_SCALING_PARSE_OK` |
+    | `ACE2_retrain/polaris/ace2_polaris_prereg.md` | prereg, **committed before the first arm** |
+  - **ACE2 had no bench CSV at all** (`PROFILING_PLAN.md` §5). It does now, and `FIELDS` is
+    **byte-identical to ai-rossby's** — a test asserts that by parsing the sibling's source, so
+    the two tables concatenate (#10). Two window decisions are the load-bearing part, and both
+    are pinned by tests rather than by comments:
+    * **step window** opens at `TrainStepper.train_on_batch` and closes at the per-iteration
+      `Optimization.step_scheduler`. fme calls `train_on_batch` from **three** places and only
+      one is a training step — the other two pass `NullOptimization` (a no-grad forward). The
+      gate is `isinstance`, not a call counter, because a counter breaks the moment
+      `train_evaluation_samples` changes. Closing at `step_scheduler` puts optimizer + EMA +
+      scheduler inside, matching ai-rossby's window.
+    * **epoch window** opens at the *first* `GriddedData.subset_loader`, not at the top of
+      `train_one_epoch`, and closes at `alternate_shuffle`. ⚠ Both ends matter: fme runs
+      `_log_first_batch_metrics()` **before** the loop (one cold batch off a 2.4 TB file plus a
+      forward pass) and a forward-only **train-evaluation pass after** it. A naive
+      top-and-tail hook would have put both inside `epoch_wall_s` — plausibly halving
+      `gpu_busy_frac`, the one number this port turns on, while still carrying the contract's
+      column name.
+  - 🐛 **Drive-by fix, and it was masking a real guard:** `epoch_telemetry_test.py`'s
+    `_line_of` matched **comments**, so `test_ai_rossby_window_includes_the_ema_sweep` failed
+    against correctly ordered code — ai-rossby's `train.py` names `telemetry.step_end()` in a
+    comment seven lines *before* `step_start`. A drift guard that fires on a comment trains the
+    reader to ignore it. Now `code_only=True` where the needle is a statement, and the
+    section-marker lookups keep matching comments. **17 tests, `EPOCH_TELEMETRY_TEST_OK`.**
+  - **Three of the handoff's own claims are corrected by reading the vendored source:**
+    1. **`FusedAdam` does NOT need apex.** §4 lists it as a trap; in this fme it is
+       `torch.optim.AdamW(..., fused=True)` (`fme/core/optimization.py`) and emits a
+       DeprecationWarning. No apex anywhere.
+    2. **ACE2 does not anneal its LR.** §3.1 says "ACE2 anneals its own LR, so pin the schedule
+       flat for the sweep". `SchedulerConfig.type` defaults to `None` and neither config sets a
+       scheduler ⇒ the LR is **flat at 1e-4** for the whole run. An LR arm needs `-v LR=` and
+       nothing else — no `FLAT_LR` equivalent, unlike ai-rossby.
+    3. **The launcher question is settled, with a reason.** `TorchDistributed.__init__` takes
+       the `env://` path whenever `RANK` is in the environment, and the srun path **only**
+       under `FME_USE_SRUN=1`. So the PALS rank shim works and is what is used — one process
+       per rank, no nested launcher, and PALS `--label` supplies the rank labels the parser's
+       `ranks_reporting` guard counts. ⚠ Without the shim there is **no error**: fme silently
+       builds `NonDistributed` and you get N independent `world_size=1` trainers. The launcher
+       also hard-fails on an inherited `FME_USE_SRUN=1`.
+  - ✅ **THE ANCHOR IS GREEN, FIRST ATTEMPT — `ACE2_POLARIS_TRAIN_OK`, job 7586496**
+    (`debug`, 1 node, 4×A100, 60 timed steps, `LOCAL_BATCH=1`, global batch 4,
+    `NCCL_ALGO=Ring`, 8 min wall). ACE2 now runs on Polaris.
+    | quantity | value |
+    |---|---|
+    | `step_med_ms` | **380.606** (p90 383.2 — the distribution is tight) |
+    | `samples_s_rank` / `_total` | 2.6274 / 10.5096 |
+    | **`gpu_busy_frac`** | **0.9325** |
+    | `peak_mem_gb` (GiB, allocated) | **21.316** of 39.49, reserved 21.764, `alloc_retries=0` |
+    | `epoch_wall_s` | 28.751 |
+    | transport / world_size / ranks_reporting / steps | AWS Libfabric / 4 / 4 / 60 of 60 |
+    | train / valid loss | 14.0105 / 13.5400 (finite) |
+    - ❌ **PREREG P1 FALSIFIED** — predicted `gpu_busy_frac` < 0.90 on the strength of the
+      single-OST layout; measured **0.9325**.
+      ⚠⚠ **A FIRST VERSION OF THIS ENTRY THEN CONCLUDED "the loader is not the bottleneck
+      and the zarr conversion is NOT justified". THAT IS A STRONGER CLAIM THAN THE
+      MEASUREMENT SUPPORTS, and it is retracted.** What is established is narrow: at 4-8
+      ranks and 60 steps, ≤6.75% of wall sat outside the step window. See the I/O section
+      below for what is not.
+    - 📐 **The memory number is the surprise, and it is large.** 21.32 GiB at **one sample
+      per GPU** against a ~10.7 GB estimate for fixed state alone ⇒ ~10.6 GiB of
+      activations/workspace per sample. Naively that leaves room for local batch 2 and not 3
+      — i.e. **the config's `batch_size: 16` may not fit one node at all**, and the "fewest
+      GPUs that hold the batch" may be more than four. ⚠ **That sentence is a hypothesis
+      written down to be refuted, not a model**: makani's memory curve was fitted twice and
+      refuted twice, so the next value is being *measured* (job 7586506, `LOCAL_BATCH=2`),
+      not predicted.
+    - ⚠ **`step_mean_ms` 446.9 with `step_std_ms` 481.4, against a median of 380.6 and a p90
+      of 383.2.** One or two multi-second warmup steps, not a broad distribution. This is why
+      the contract's headline is the **median**; do not quote the mean or the std from a
+      60-step arm.
+    - The trainer's own `Time taken for epoch 1 is 69.56 sec` versus the telemetry's
+      `epoch_wall_s` 28.751 is the window design working: validation, the train-evaluation
+      pass and `_log_first_batch_metrics` are all outside it, as intended.
+    - `env_source=manual-reconstruction` — i.e. `module load conda` is still broken and the
+      fallback carried the run, as designed.
+    ⚠ It ran concurrently with makani production **7585080**, so (a) makani epochs in this
+    window must be excluded from any epoch-time statistic — three concurrent 1-node arms
+    previously cost it +2.3% median epoch wall — and (b) this ACE2 row's own `epoch_wall_s`
+    carries the same caveat in reverse.
+  - 🟠 **THE I/O QUESTION IS OPEN, NOT CLOSED — and the ladder's own arms cannot close it.**
+    Demanded read rates, computed exactly from the file's real dtypes and shapes (the file is
+    **contiguous and uncompressed** — `chunks=None`, `compression=None` — so a 3-timestep
+    window of one variable is one ~778 KB contiguous read and there is **no chunk
+    amplification**; 56 variables × 778 KB = **42.77 MB per sample**, over 121,262 timesteps):
+    | arm | ranks | **total MB/s** | **per-rank MB/s** | `gpu_busy_frac` |
+    |---|---|---|---|---|
+    | 1 node, local 1 | 4 | 357.0 | 89.3 | 0.9325 |
+    | 1 node, local 2 | 4 | 406.0 | 101.5 | 0.9357 |
+    | 2 nodes, local 2 | 8 | 512.3 | **64.0** | 0.9625 |
+    - ⚠ **The 2-node arm is a WEAKER loader test than the 1-node one, not a stronger one**,
+      and reading it the other way was the error in the first draft: **per-rank demand FELL
+      101.5 → 64.0 MB/s** because NCCL stretched the step by 68% and handed the loader more
+      time. Total demand rose only 406 → 512. So `gpu_busy_frac` climbing to 0.9625 at 2
+      nodes is **not** evidence that the I/O scales — it is evidence the fabric slowed
+      everything down.
+    - ⚠ **The OST's ceiling is unmeasured.** 512 MB/s could be 15% or 90% of what one OST
+      delivers, and those imply opposite decisions about the conversion. → app-free probe
+      `polaris_ace2_io_probe.pbs` + `ace2_io_probe.py`, **job 7586630** (1 node, `debug`, no
+      GPU): sweeps 1→32 concurrent readers against the real access pattern and prints the
+      arms' demand on the same axis, so the knee is visible rather than inferred.
+    - ⚠ Also unestablished: what the **4–7% gap** actually is (loader, CPU, or aggregator);
+      whether a **marginal** deficit is hiding behind the 8-batch prefetch cushion
+      (`num_data_workers=4` × `prefetch_factor=2`) — a ~5% shortfall would not drain it in
+      60 steps; and anything at **4–8 nodes**, where linear extrapolation of per-rank demand
+      gives ~1.6–3.2 GB/s from one OST.
+    - ✅ One thing does point the right way, and it is the **opposite of the makani
+      precedent**: `sample_with_replacement` uses `RandomSampler(replacement=True)` over
+      121,262 timesteps, so **these arms were not cache-hot** (~2% hit probability against
+      2.4 TB of file and ~512 GB of node RAM). makani's 30% benchmark optimism came from
+      re-reading a warm window; that mechanism is absent here, and production uses a shuffled
+      `DistributedSampler` — the same random pattern.
+    ⇒ **The 2.4 TB → zarr conversion is not justified *yet*, at ≤8 ranks. It is not closed.**
+  - 📐 **THE BATCH-SIZE SEARCH, MEASURED ONE ARM PER VALUE — and it says ACE2 does NOT fit
+    its own production batch on one Polaris node.** All arms 1 node, 60 steps, `debug`,
+    ~8-11 min each:
+    | job | local batch | global | `peak_mem_gb` (GiB alloc) | `step_med_ms` | `samples_s_rank` | `gpu_busy_frac` |
+    |---|---|---|---|---|---|---|
+    | 7586496 | 1 | 4 | **21.316** | 380.6 | 2.6274 | 0.9325 |
+    | 7586506 | 2 | 8 | **33.959** (reserved 34.371) | 715.4 | 2.7956 | 0.9357 |
+    | 7586526 | 3 | 12 | ❌ **OOM** at 38.20 GiB allocated / 39.39 in use | — | — | — |
+    - **THE ANSWER: the largest local batch on a Polaris A100 is 2.** Arm 3 died in
+      `sfnonet.py:250` (`x = x + self.outer_skip(residual)`) trying to allocate **286 MiB**
+      with **93.25 MiB free** of 39.49 GiB. Measured, not fitted, and the failing arm is a
+      data point rather than a wasted job — 8 minutes of `debug`.
+    - ❌ **PREREG P7 FALSIFIED: there is no cliff.** +12.643 GiB per added sample from 1→2,
+      and 3 OOMs at exactly where +12.643 predicts (21.316 + 2×12.643 = 46.6 > 39.49).
+      **makani's discrete 12→16 cliff did NOT reproduce on ACE2** — the shape is the boring
+      one. ⚠ Two points define a line trivially, so the *model* claim is weak and is not
+      being made; the claim that stands is the measured one: **local batch 2 fits, 3 does
+      not.**
+    - ⚠ **CONSEQUENCE: ACE2 cannot run its production batch on one node.** `batch_size: 16`
+      needs 8 GPUs at local 2 (or 16 at local 1), so §1f's "fewest GPUs that hold the batch"
+      answers **two nodes**, not one — the opposite of makani, where 1 node held batch 32 and
+      won on every axis. So ACE2 **must** pay the ~234 ms/step fabric toll that makani could
+      avoid, and the interesting comparison becomes 2 nodes × local 2 versus 4 nodes ×
+      local 1 at the same global batch. Cause, already visible: ~10.7 GB of fixed state
+      before a single activation (2.67 GB of complex64-corrected parameters + grads + AdamW's
+      two moments) plus ~12.6 GiB of activations per sample.
+    - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` **was** in effect: torch 2.10's OOM
+      text names the new `PYTORCH_ALLOC_CONF` spelling, but both strings are present in
+      `libc10_cuda.so`, so the legacy name `polaris_env.sh` exports is still read. (Checked
+      because the OOM message raised the question, not because anything looked wrong.)
+    - **Batch 2 buys only +6.4% throughput per GPU** (2.7956 vs 2.6274 samples/s/rank) for
+      59% more memory: step time went 380.6 → 715.4 ms, i.e. **1.88× for 2× the work**. The
+      large-local-batch route that paid for makani is nearly exhausted here at batch 2.
+    - `gpu_busy_frac` is **flat at 0.93** across a 2× change in per-rank I/O demand, which
+      strengthens the P1 result: the single-OST read is not close to saturating.
+  - 🐛 **The first real log immediately falsified an assumption the parser inherited.**
+    PALS `--label` emits `<hostname> <rank>: `, not the bare `<rank>: ` that
+    `parse_ai_rossby_scaling.py`'s `LABEL_RE` assumes. Against `^\s*(\d+):` **no line
+    matches**, `ranks_reporting` silently falls back to counting banner lines — so the two
+    world-size guards, which exist to be *independent*, both end up reading the same
+    quantity. Nothing looks broken (it still catches 31 banners for 32 ranks); it just stops
+    being a second opinion. Fixed here, with the real prefix copied into the test fixture and
+    a test that distinguishes "16 lines" from "16 ranks".
+    ⚠ **`physicsnemo_ai_rossby/polaris/parse_ai_rossby_scaling.py` has the same regex** and
+    every ai-rossby ladder row may therefore have been scored by the fallback path. Not
+    changed here (different tree, and this session did not see an ai-rossby log to confirm
+    the format) — but it should be checked before that table is published.
+    A 19th test also went in: `EPOCH_LENGTH_MISMATCH`, the wrap guard, comparing the loader's
+    own steps-per-epoch against the arm's requested step count.
+  - 🔴 **PREREG P2 FALSIFIED, AND IT IS THE RESULT OF THE SESSION: ACE2 *IS* EXPOSED TO THE
+    TREE-CORRUPTION DEFECT.** The 2-node flight-recorder dump (job 7586590, 8 ranks, global
+    batch 16, 5,520 collective records across 8 ranks) shows **one `nccl:all_reduce` of
+    `numel=455,831,040` — the ENTIRE model in a single collective, 1,823,324,160 B =
+    1738.86 MiB.**
+    - P2 predicted 150–250 MB. **Wrong.** And this is not the "untested 25 MiB–1000 MiB gap"
+      the handoff worried about — **1738.86 MiB is ABOVE 1000 MiB, i.e. inside the range
+      where a Tree all-reduce was MEASURED to silently return partially reduced data** (jobs
+      7569805/7569817/7571147, at 2 nodes and at 8).
+      ⇒ **`NCCL_ALGO=Ring` was not insurance, it was load-bearing.** Shipping it on by
+      default from the first job is the reason this run completed instead of hanging on
+      half-stale gradients. **Do not remove it, and do not run an ACE2 multi-node arm
+      without it** (`-v NCCL_ALGO=` empty is now a deliberate fault-injection experiment,
+      not a control).
+    - 📍 **It happens ONCE, at startup — `record_id=13`, `collective_seq_id=14`**, right
+      after DDP's initial parameter broadcasts (three of 107,649,792 + one 78,132,864 + one
+      54,748,800) and before training. Per-*step* traffic is the benign shape the Midway
+      profile predicted: ~11 buckets, the largest 53,824,896 floats ≈ **215 MB**, all well
+      under the threshold. So the exposure is a **single startup collective**, not the
+      gradient path.
+    - 🧩 **This explains ai-rossby's open question.** CHANGELOG recorded that ai-rossby
+      showed a **byte-identical stuck collective of its entire 1.18 B-parameter model under a
+      200× difference in `bucket_cap_mb`**, and why DDP coalesced was left open. It is now
+      reproduced on a second, unrelated model — ACE2's whole 455.8 M — and the reason
+      `bucket_cap_mb` made no difference is that **this collective is not a gradient bucket
+      at all**: it fires before the first backward. ai-rossby hung at its first step for
+      exactly this reason.
+      ⚠ The mechanism still has no NAME. `frames` came back empty (the dump captured no
+      stack), so the next cheap step is one arm with C++/python stack capture enabled to
+      identify the call site. Recorded as unnamed rather than guessed.
+  - ⚠️ **AND THE HANDOFF'S OWN "⚠ CORRECTED 2026-08-28" COMPLEX64 ARITHMETIC IS ITSELF
+    WRONG — corrected back, now on two independent lines of evidence.** That section retracts
+    "455,831,040 parameters = 1.82 GB fp32" in favour of **2.67 GB**, on the grounds that the
+    dhconv weights are complex64 at 8 B/element, and keeps it as "the exact reasoning error
+    most likely to be repeated". The measurement says otherwise:
+    1. **Source:** `ace_exp/fme/ace/models/modulus/s2convolutions.py:148` declares
+       `nn.Parameter(scale * torch.randn(*weight_shape, 2))` — a **float32** tensor with a
+       trailing size-2 dimension. `torch.view_as_complex` is applied at *use* time, in
+       `contractions.py`. So `p.numel()` already counts the real and imaginary halves as two
+       separate floats, and multiplying that count by 8 B **double-counts**.
+    2. **Measurement:** the flight recorder reports `dtype=['Float']` on that
+       455,831,040-element collective, and **no complex dtype appears in any of the 5,520
+       records** (only Float, plus two Long and two Int scalars).
+    ⇒ **ACE2's gradient volume is 1.823 GB, the original figure.** ⚠ Everything derived from
+    2.67 GB needs re-deriving, including the "~10.7 GB fixed optimizer state" this session
+    quoted: params + grads + AdamW's two moments at 1.823 GB each is **~7.3 GB**, not 10.7.
+    (The measured memory numbers above are unaffected — those were read off the GPU.)
+  - 📊 **THE FIRST-HOP PENALTY, at fixed local batch 2 — prereg P3 and P4 both HIT:**
+    | nodes | ranks | global | `step_med_ms` | `samples_s_rank` | `samples_s_total` | `gpu_busy_frac` |
+    |---|---|---|---|---|---|---|
+    | 1 | 4 | 8 | 715.4 | **2.7956** | 11.18 | 0.9357 |
+    | 2 | 8 | 16 | 1203.5 | **1.6619** | 13.29 | 0.9625 |
+    - **+488.1 ms/step** for the first hop — inside P4's predicted 390–1560 ms window
+      (predicted ~780 ms from volume scaling). ⚠ P4's basis was explicitly weak and the
+      volume figure it scaled from has just been corrected, so read this as a coincidence
+      until it is reproduced with reps.
+    - **Per-GPU throughput falls 40.6%** — P3's 2-node trough, now on a **third** independent
+      harness after makani and ai-rossby. Total throughput 11.18 → 13.29 = **1.19× for 2×
+      the hardware, 59.4% efficiency.**
+    - ⚠ **`gpu_busy_frac` RISES at 2 nodes (0.9357 → 0.9625) and that is not good news.**
+      The step window ends after the optimizer, so exposed NCCL time counts as *busy*. The
+      column measures **loader idle, not communication cost** — do not read a high value as
+      "the fabric is cheap". It is doing its job (P1's question) and only that job.
+  - **The artifact that settles prereg P2 now exists and needs no extra allocation:**
+    `-v FR_DUMP=1` + `ACE2_retrain/polaris/read_nccl_trace.py` (11 tests,
+    `NCCL_TRACE_TEST_OK`). ⚠ The reason it had to be built: `TORCH_NCCL_DUMP_ON_TIMEOUT=1`
+    writes the flight recorder **only when the watchdog fires**, so a run that SUCCEEDS
+    leaves nothing on disk — and per-collective sizes are exactly what decide whether ACE2's
+    largest all-reduce lands in the untested 25 MiB–1000 MiB gap. The knob makes every rank
+    dump explicitly at epoch end; the reader prints the op histogram, the largest single
+    collective **in bytes**, and the exposure verdict.
+    ⚠ It refuses to guess an unknown dtype's itemsize and says `VERDICT UNDETERMINED`
+    instead — assuming 4 B/element on a complex64 tensor is the exact arithmetic that
+    produced the handoff's retracted "1.82 GB" figure, and a test pins the 26,542,080-element
+    dhconv weight at 212.34 MB rather than 106.17 MB.
+  - **Not done, and not started:** the ladder (2/4/8 nodes) and its ≥3 interleaved reps, the
+    flight-recorder read that settles prereg P2, and the kernel-level capture P6 needs. The
+    2.4 TB → zarr conversion stays **gated on P1** — it is the biggest speculative spend in the
+    handoff and it needs the `capacity` slot that makani production is holding.
 
 - **2026-09-02 (cont. 2)** — **The peak memory the batch-64 OOM diagnosis asked for is now
   actually logged — and the batch-48 arms got it for free, because they were still queued.**

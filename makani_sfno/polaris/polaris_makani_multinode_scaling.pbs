@@ -395,6 +395,17 @@ _sched = {
     "scheduler_min_lr": "SCHED_MIN_LR",
     "lr_warmup_steps": "WARMUP_EPOCHS",
     "lr_start": "LR_START",
+    # Optimizer stability knobs. Both are suspects for the LR ceiling measured at
+    # ~(2e-3, 3e-3] and found NOT to move with batch size (bench report §5h/§5j):
+    #   BETA2          -- configs ship 0.95 (~20-step second-moment memory, a
+    #                     LARGE-batch setting inherited from the batch-512 run).
+    #                     0.999 (~1000 steps) is the standard small-batch value.
+    #   MAX_GRAD_NORM  -- configs ship 32, but the measured grad norm never exceeds
+    #                     0.2995 in 64 production epochs, so the clip is ~107x above
+    #                     the operating point and has never once engaged. makani's
+    #                     OWN default is 1.0 (makani/train.py:74-75).
+    "optimizer_beta2": "BETA2",
+    "optimizer_max_grad_norm": "MAX_GRAD_NORM",
 }
 for _key, _env in _sched.items():
     _val = _os.environ.get(_env)
