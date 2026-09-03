@@ -776,6 +776,46 @@ C surviving ⇒ the two interact. **Nothing surviving ⇒ the curvature-limited 
 stands and 2e-3 is near a genuine architectural limit** — which is the outcome that most
 strongly validates the production run's current setting.
 
+### 7d. Prereg — the batch-32 mirror (2026-09-03, before submission)
+
+**Why LR 3.0e-3 and not batch 32's own dead point (4.0e-3).** Matching the *probe LR* to §7c is
+what makes the two sets differ in **batch alone**; matching the *dead point* instead would
+confound batch with LR. It also fills a real gap: **3.0e-3 at batch 32 has never been run** — it
+sits inside the untested (2e-3, 4e-3) bracket — so the control arm is a new measurement, not a
+repeat. Everything else is identical to §7c (1 node, `LOCAL_BATCH=8`, `EPOCHS=6`,
+`EVAL_SAMPLES=512`, warm restarts `T_0=2`, `WARMUP=1`).
+
+| arm | job tag | β₂ | clip | mirrors |
+|---|---|---|---|---|
+| **E32** | `b32fix_base` | 0.95 | 32 | §7c E — **control, and it narrows the batch-32 ceiling** |
+| **A32** | `b32fix_beta2` | **0.999** | 32 | §7c A |
+| **B32** | `b32fix_clip` | 0.95 | **1.0** | §7c B |
+| **C32** | `b32fix_both` | **0.999** | **1.0** | §7c C |
+
+No `push` arm: §7c D already probes how far the ceiling moves, and at batch 32 the ceiling
+location is what E32 is measuring. Four arms keeps the project under `preemptable`'s
+`max_run 10` with a slot spare (5 from §7c + 4 = 9).
+
+**Same scoring rule as §7c** (survives = epoch-3 valid < 0.05 and train < 1.0; collapsed =
+valid ≥ 0.10 and grad norm < 0.02).
+
+| # | prediction | conf. |
+|---|---|---|
+| Q1 | **E32 collapses** (⇒ ceiling (2e-3, 3e-3] at *both* batches — identical, batch-independence confirmed sharply) | **0.55** |
+| Q2 | **The fix arms behave the SAME way at batch 32 as at batch 48** — i.e. whichever of A/B/C rescues 3.0e-3 at batch 48 also rescues it at batch 32, and vice versa | 0.75 |
+| Q3 | If E32 *survives*, then ceiling₃₂ ∈ (3e-3, 4e-3) while ceiling₄₈ ∈ (2e-3, 3e-3] ⇒ **the ceiling DECREASES with batch** — anti-scaling, and a stronger refutation than §5j's | 0.45 (= 1 − Q1) |
+
+⚠ **Q1 is near a coin-flip on purpose.** Two considerations point to collapse: batch 32 runs
+**1368 optimizer steps/epoch vs 912** (50% more chances to meet an outlier), and its gradients
+are noisier per step. One points the other way: the existing brackets — b32 dies at 4.0e-3, b48
+dies at 3.0e-3 — are *already consistent* with a ceiling that falls as batch rises, which would
+put 3.0e-3 on the safe side at batch 32. **Both outcomes are informative, which is why the arm
+is worth running**; neither is the "hoped-for" result.
+
+**Interaction with §7c.** The pair of controls (7587738 at batch 48, E32 at batch 32) is the
+actual batch-independence test — a matched-LR, matched-optimizer, batch-only contrast. That
+contrast did not exist before: §5j inferred batch-independence from two *different* LRs.
+
 ## 8. Not measured — and what each would cost
 
 | gap | why it matters | cost |
