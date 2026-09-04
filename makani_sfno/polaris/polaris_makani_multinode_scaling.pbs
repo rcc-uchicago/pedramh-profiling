@@ -406,6 +406,27 @@ _sched = {
     #                     OWN default is 1.0 (makani/train.py:74-75).
     "optimizer_beta2": "BETA2",
     "optimizer_max_grad_norm": "MAX_GRAD_NORM",
+    # VALID_AUTOREG -- the EVALUATION rollout length, independent of training
+    # `n_future`. `rollout_length = valid_autoreg_steps + 1`
+    # (deterministic_trainer.py:169), so the shipped 3 scores a 4-step rollout =
+    # 24 forecast hours. That is far too short to see the error compounding a
+    # rollout fine-tune exists to fix, which is why a C1-vs-base comparison at
+    # the default would likely show nothing.
+    #
+    # ⚠⚠ COST SCALES WITH batch_size x (VALID_AUTOREG + 1), AND IT IS STEEP.
+    # In eval mode the fork sets the DATASET's n_future to this value
+    # (plasim_trainer.py:140-142), so each sample carries VALID_AUTOREG+1 target
+    # frames of 101 x 180 x 360 float32 = 26.2 MiB each:
+    #     VALID_AUTOREG 3  -> 0.10 GiB per sample
+    #     VALID_AUTOREG 20 -> 0.55 GiB per sample
+    #     VALID_AUTOREG 40 -> 1.07 GiB per sample
+    # At the production LOCAL_BATCH=8 that is 8.6 GiB of target tensors PER
+    # BATCH at 40, before prefetch_factor multiplies it -- host memory, not GPU.
+    # ⇒ **Drop LOCAL_BATCH to 1-2 and EVAL_SAMPLES to a few hundred for any long
+    # rollout.** Validation runs under no_grad, so a small batch costs little.
+    # Read volume scales the same way: 4,380 samples at VALID_AUTOREG 40 is
+    # ~4.7 TiB off Lustre.
+    "valid_autoreg_steps": "VALID_AUTOREG",
 }
 for _key, _env in _sched.items():
     _val = _os.environ.get(_env)
