@@ -411,6 +411,44 @@ for _key, _env in _sched.items():
     _val = _os.environ.get(_env)
     if _val:
         keys += [(_key, '"%s"' % _val if _key == "scheduler" else _val)]
+
+# ---- C1: rollout fine-tune (warm-start from another run's checkpoint) --------
+# `pretrained` is a DIFFERENT mechanism from `resuming`, and they are mutually
+# exclusive: deterministic_trainer.py:237 gates on
+# `params.pretrained and not params.resuming`. Resuming continues a run in the
+# SAME expDir; pretrained starts a NEW run from another run's weights, which is
+# what a stage-2 rollout fine-tune needs (upstream FCN3 pretrain-2 is a fine-tune
+# from pretrain-1, not a run from scratch).
+#
+# ⚠ Give the new run its own RUN_NUM. If the target expDir already holds
+# checkpoints, `resuming` wins and PRETRAINED_CKPT is silently ignored.
+#
+# load_* default to True (deterministic_trainer.py:252-255). Upstream resets all
+# of them at the stage boundary, so C1 wants LOAD_OPTIMIZER/SCHEDULER/COUNTERS=0.
+# ⚠ With LOAD_OPTIMIZER=1 the LR comes from the restored optimizer state and the
+# config's `lr` is ignored unless OVERRIDE_LR=1 (:262-264).
+_bools = {
+    "pretrained": "PRETRAINED",
+    "load_optimizer": "LOAD_OPTIMIZER",
+    "load_scheduler": "LOAD_SCHEDULER",
+    "load_counters": "LOAD_COUNTERS",
+    "load_loss": "LOAD_LOSS",
+    "override_lr": "OVERRIDE_LR",
+    "strict_restore": "STRICT_RESTORE",
+}
+for _key, _env in _bools.items():
+    _val = _os.environ.get(_env)
+    if _val:
+        keys += [(_key, "!!bool True" if _val.lower() in ("1", "true", "yes") else "!!bool False")]
+_pck = _os.environ.get("PRETRAINED_CKPT")
+if _pck:
+    keys += [("pretrained_checkpoint_path", '"%s"' % _pck)]
+
+# ⚠⚠ NO `n_future` KNOB HERE, DELIBERATELY. makani OVERWRITES it from the CLI:
+#     train.py:119   params["n_future"] = args.multistep_count - 1
+# so a config-side `n_future` is silently discarded. The rollout horizon is set
+# ONLY by -v MULTISTEP=<n_future+1> (see TRAIN_ARGS below). Setting `n_future`
+# here would render a config that reads correctly and does nothing.
 for k, v in keys:
     src = setkey(src, k, v)
 open(path, "w").write(src)
@@ -539,7 +577,14 @@ TRAIN_ARGS=(
     --config e3sm_mn_scaling
     --run_num "${RUN_NUM}"
     --batch_size "${GLOBAL_BATCH}"
-    --multistep_count 1
+    # -v MULTISTEP=<n> sets the rollout horizon: makani derives
+    #   n_future = multistep_count - 1   (train.py:119, OVERWRITING the config)
+    # so this CLI flag is the ONLY place n_future can be set. 1 = single-step
+    # (n_future 0, what every run so far used); 2 = C1's rollout fine-tune.
+    # ⚠ n_future 1 roughly doubles the retained graph: the measured fit
+    # peak_torch ~= 2.31 + 2.12 GB per sample/GPU puts 8 samples/GPU near 44 GB
+    # on a 39.49 GiB card, so drop LOCAL_BATCH to 4-6 and measure first.
+    --multistep_count "${MULTISTEP:-1}"
     --amp_mode bf16
     --h_parallel_size "${HPAR}"
     --w_parallel_size "${WPAR}"
