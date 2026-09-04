@@ -9,27 +9,35 @@ record the measurement in `CHANGELOG.md`. **PASS is the log token, never `rc`** 
 
 **Focus (2026-09-02): makani.** P0/P1 are makani; P2 is everything else, still live but
 not the current push.
-🚀 **RUNNING: job 7585080** — 1-node production on `capacity`, 243 epochs, LR 2.0e-3,
-warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09-02`.
+✅ **DONE 2026-09-04: job 7585080 completed all 243 epochs**, `Exit_status 0`, best validation
+loss **0.01284**, 46.3 node-hours, 12 snapshot-ensemble checkpoints. Items 1 and 2 are closed
+by it. 🔵 **NOW RUNNING: job 7591605** — C1 rollout fine-tune on `capacity`, 24 epochs,
+warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG `2026-09-04`.
 
 ---
 
 ## P0 — do these first
 
-1. ✅ **LAUNCHED 2026-09-02 — job 7585080, `capacity`, 1 node, 243 epochs, ~45 h.** Watch it,
-   don't re-plan it. The 128-node run (7566145) was a completed training run, not a usable
-   recipe: batch 512 bought only **8,500 weight updates** in 100 epochs and its validation
-   minimum sat at the last epoch — undertrained, not converged. This run does **332,424
-   updates (1.6× upstream FCN3 pretrain-1) for ~45 node-hours** against that run's 216
-   (`makani_bench_report.md` §5c-d, §5g-h).
-   **What to check:** loss still descending at cycle ends (epochs 23/43/63/…); `best_ckpt`
-   advancing; grad norm without spikes at each restart, where LR returns to its 2e-3 peak.
-   ⚠ It holds the project's **only `capacity` slot** (`max_run 1` per project) for ~45 h.
-   *Note: batch/LR/scheduler changes are training-regime changes; keep the science owner
-   informed and hand her the per-channel lwrmse panels — but this does not gate the work.*
+1. ✅ **COMPLETE 2026-09-04 — job 7585080, all 243 epochs, `Exit_status 0`**, 46 h 20 min of a
+   48 h allocation. Best validation loss **0.01284** at epoch 243; **332,424 weight updates**
+   for **46.3 node-hours**. Twelve snapshot-ensemble members on disk (epochs 23 through 243,
+   every 20). No overfitting: training and validation descend together throughout. Maximum
+   gradient norm over the whole run **0.30**. Full table: `makani_bench_report.md` §5k.
+   ⚠ The comparison against the 128-node run (0.018297) is **not converged-versus-converged** —
+   that run stopped while still improving. The defensible claim is cost: **11.3× more samples
+   per node-hour**. Do not quote the loss ratio without that caveat.
+   *Remaining: hand the per-channel lwrmse panels to the science owner.*
 
-2. ✅ **SETTLED 2026-09-02 — LR 2.0e-3, warm restarts, by a pre-registered rule** (commit
-   `9506ad1f`, scored in `makani_bench_report.md` §5h). Three arms × 3 full-pass epochs:
+2. ✅ **SETTLED, AND NOW BOUNDED ABOVE — LR 2.0e-3, β₂ 0.95, warm restarts.**
+   🔴 **Two hyperparameter recommendations changed on measurement (`makani_bench_report.md` §7e,
+   9 arms, all collapsed):**
+   - **RETIRED: β₂ 0.95 → 0.999.** Measured backwards — 5 of 5 arms at 0.999 collapsed at
+     epoch 2, the fastest failure of any configuration. **Keep 0.95.**
+   - **CONFIRMED: `optimizer_max_grad_norm` 32 → 1.0.** Delays collapse from epoch 2 to 6 and
+     gives the best loss of its batch. Does not prevent collapse; nothing tested does.
+   - **The LR ceiling is (2e-3, 3e-3] and does NOT move with batch size.** 2.0e-3 is one rung
+     below a hard limit — do not raise it.
+   Original sweep (commit `9506ad1f`, `makani_bench_report.md` §5h). Three arms × 3 full-pass epochs:
    4e-4 (upstream's batch-32 value) **came last**; 2e-3 won on both validation loss (0.02352)
    and grad norm (0.01830), by 12.9%. Remaining work is only to *re-test* if the run misbehaves:
    3 epochs cannot catch a tail instability, and 2e-3 was the **top of the range tested**.
@@ -177,8 +185,24 @@ warm restarts, ~45 h. Items 1 and 2 below are DONE by it; see CHANGELOG `2026-09
     - Shape: cliff at the first hop (−42% per-GPU), then saturating; **87%/82% incremental
       efficiency from the 2-node minimum viable config.**
     - 🔴 **`NCCL_ALGO=Ring` is load-bearing**, not insurance — see P0-6.
+    🎯 **PRODUCTION SHAPE SETTLED (2026-09-03): 1 node, global batch 8, ~27 epochs = makani's
+    332,424 updates for ~66 node-h.** Smaller batch on one node is **3.4x more
+    update-efficient** than 2 nodes at batch 16 and faster in wall-clock too — the ladder's
+    ranking inverts once the objective is updates rather than samples/s.
+    ✅ Resume gate PASSED (`ACE2_RESUME_GATE_OK`) — warm restarts + snapshot ensemble survive
+    preemption. 🔬 LR sweep RUNNING (7589850-53, 4 arms, rule pre-registered in prereg §1a).
     **Next, in order:**
-    0. **Reps for the placement A/B** — `GPU_ORDER=reverse` is n=1 at both rungs and each
+    0. **Score the LR sweep against the pre-registered rule**, then launch production with the
+       winner as the warm-restart peak. ⚠ If the winner is an endpoint, extend the range —
+       do not adopt. ⚠ fme has no grad-norm and no gradient clipping, so the tie-break is
+       batch_loss variance, a weaker proxy.
+    0. **Confirm resume is data-deterministic at production scale.** The gate passed on the
+       load-bearing criterion (LR trace identical ⇒ `T_cur` survives preemption, so warm
+       restarts and the snapshot ensemble are safe), but its loss diverged 23% because
+       `sample_with_replacement` selects a bare `RandomSampler` that is not epoch-seeded.
+       Production uses `DistributedSampler` + `set_epoch`, which *should* be deterministic —
+       **inferred from the source, not measured.** Needs one full-epoch gate.
+    0b. **Reps for the placement A/B** — `GPU_ORDER=reverse` is n=1 at both rungs and each
        delta (−0.12% at 1n, +2.80% at 4n) sits *inside* its forward baseline's spread, so
        neither is resolvable. makani's −7.0% is excluded, but ACE2's own effect is not
        measured. Needs node-matched reps, as makani's arm used.

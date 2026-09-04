@@ -66,12 +66,19 @@ cannot overlap.
 
 ## 3. Capacity sequence
 
-> **STATUS 2026-09-02 — C3 IS RUNNING as job 7585080** (`capacity`, 1 node, 243 epochs,
-> LR **2.0e-3**, warm restarts `T_0=20 T_mult=1`, ~45 h). It was launched *before* C1/C2
-> because the LR sweep and resume test completed first and the slot was free. C1 (rollout
-> fine-tune) and C2 (`n_future` scaling) follow when it finishes or is stopped at a cycle end.
-> Measured: **665 s/epoch**, valid 0.0209 by epoch 5 — already closing on the 128-node run's
-> *final* 0.018297 at ~1% of its cost.
+> ### ✅ STATUS 2026-09-04 — C3 IS COMPLETE, C1 IS RUNNING
+> **C3 (job 7585080) finished all 243 epochs**, `Exit_status 0`, 46 hours 20 minutes of a
+> 48-hour allocation. Best validation loss **0.01284** at epoch 243 — **29.8 percent below**
+> the 128-node run's 0.018297, at **46.3 node-hours against 216**. Twelve snapshot-ensemble
+> members on disk. Measured rate 683.6 seconds per epoch (5.27 epochs per hour).
+> → `makani_bench_report.md` §5k, and `makani_sfno/docs/2026-09-03_prod1n_b32_sgdr_checkpoint_usage.md`.
+>
+> **C1 (job 7591605) is running on `capacity`**, 24 epochs, warm-started from that checkpoint.
+> Its machinery was proven first by a one-epoch probe (job 7590355): pretrained path taken,
+> `n_future` 1 applied, **26.21 of 39.49 gibibytes** peak memory at 4 samples per GPU.
+>
+> ⚠ C3 was run *before* C1/C2 because the slot was free; the ordering in this section is the
+> original plan, not the order executed.
 
 ### C1 — rollout fine-tune FIRST, from the checkpoint we already have
 
@@ -81,41 +88,78 @@ its own output, so autoregressive error compounds. Upstream's own recipe says so
 pretrain-2 exists *"to get good autoregressive rollouts"* and is a **fine-tune from pretrain-1's
 checkpoint**, not a run from scratch.
 
-We already have a stage-1 model: `best_ckpt_mp0.tar` from 7566145. So C1 buys the most for the
-least and does not wait on a retrain.
+**Launched 2026-09-04 as job 7591605** via
+`makani_sfno/polaris/submit_c1_rollout_finetune.sh full`, which encodes everything below. Do
+not hand-write the `qsub`.
+
+**Warm-starts from `prod1n_b32_sgdr`, NOT prod128.** This document originally named
+prod128's checkpoint and warned that *"a rollout fine-tune cannot repair a base model that
+never converged"* — prod128 had 8,500 weight updates. C3 has **332,424** and finished with
+flattened cycle minima, so that caveat no longer applies and C1 is far better positioned than
+when this was written.
 
 ```
 pretrained: true
 pretrained_checkpoint_path: $MEMBER_ROOT/runs/makani_mn_scaling/e3sm_mn_scaling/
-                            prod128_alldata_v2/training_checkpoints/best_ckpt_mp0.tar
-load_optimizer: false        # upstream resets all three at the stage boundary
+                            prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar
+load_optimizer: false        # upstream resets these at the stage boundary
 load_scheduler: false
 load_counters: false
-n_future: 1                  # multistep_count = n_future + 1
-lr: 4.0E-4                   # upstream's pretrain-2 value, with override_lr
-max_epochs: ~24              # a fine-tune, not a pretrain
+load_loss:      false        # REQUIRED -- see trap 1 below
+override_lr: true
+lr: 4.0E-4                   # upstream's pretrain-2 value
+max_epochs: 24               # a fine-tune, not a pretrain
+LOCAL_BATCH: 4               # 4 samples per GPU; 8 would need ~44 gibibytes and will not fit
+MULTISTEP: 2                 # => n_future 1. The ONLY place n_future can be set -- trap 2
 ```
 
-⚠ **The stage-1 model is undertrained** (8,500 updates). C1 tests the machinery and may improve
-rollout skill, but a rollout fine-tune cannot repair a base model that never converged. If C1's
-scorecard is still poor, that is evidence for C3, not against rollouts.
+**Three traps, all measured, all silent if violated:**
+
+1. **`load_loss: false` is required.** `LossHandler` carries running statistics whose *shape*
+   depends on `n_future`; the checkpoint's were accumulated at `n_future` 0, so restoring them
+   into an `n_future` 1 model raises a size-mismatch `RuntimeError` at trainer construction
+   (job 7590350 died there). Do **not** work around it with `strict_restore: false` — that
+   would silently skip real mismatches in the model weights too.
+2. **A config-side `n_future` does nothing.** `makani/train.py:119` sets
+   `params["n_future"] = args.multistep_count - 1`, overwriting the config. Only
+   `--multistep_count` has effect.
+3. **`pretrained` and `resuming` are mutually exclusive**
+   (`deterministic_trainer.py:237` gates on `pretrained and not resuming`), so C1 needs a
+   **new** `RUN_NUM`. If the target experiment directory already holds checkpoints, resuming
+   wins and `pretrained_checkpoint_path` is silently ignored.
+
+**Verified by a one-epoch probe first (job 7590355, `debug`):** pretrained path taken,
+`resuming False`, `multistep_count 2` / `n_future 1` applied, and **26.21 of 39.49 gibibytes**
+peak memory (18.21 PyTorch + 8.00 non-PyTorch) at 4 samples per GPU — 66 percent of the card.
+Rate 1053.8 seconds per epoch, so 24 epochs is about **7 hours**.
 
 ### C2 — scale `n_future`, and mind the memory wall
 
 Activations scale with `samples/GPU × (n_future + 1)`. From the one measurement we have
 (10.33 GB at 8 samples/GPU, `n_future=0`; ~2.4 GB is weights + grads + AdamW moments):
 
-⚠⚠ **CORRECTED TWICE — there is no working memory model. Three measured points, a CLIFF, and
-nothing to extrapolate with:**
+✅ **RESOLVED 2026-09-04 — there is now a working memory model, measured with real peaks.**
+Units: gibibytes per GPU. The card is 39.49 gibibytes.
 
-| samples/GPU | global batch | measured memory | job |
-|---|---|---|---|
-| 8 | 32 | **16.04 GB** | 7585080 / 7582088 |
-| **12** | **48** | **18.97 GB — fits with ~20 GB spare** | **7585983** |
-| 16 | 64 | **≥39.5 GB — OOM** | 7580362 |
+| configuration | samples per GPU | global batch size (samples) | peak PyTorch memory (gibibytes) | non-PyTorch memory (gibibytes) | total (gibibytes) | fraction of card | job |
+|---|---|---|---|---|---|---|---|
+| single-step (`n_future` 0) | 8 | 32 | 19.23 | 8.01 | **27.24** | 69 percent | 7588118 |
+| single-step (`n_future` 0) | 12 | 48 | 27.69 | 8.04 | **35.73** | 90 percent | 7588120 |
+| single-step (`n_future` 0) | 16 | 64 | not measured | not measured | **~44 (predicted)** | **out of memory** | 7580362 |
+| **rollout (`n_future` 1)** | **4** | **16** | **18.21** | **8.00** | **26.21** | **66 percent** | **7590355** |
 
-8→12 adds **0.73 GB per sample**; 12→16 would predict ~22 GB and instead blows past 39.5.
-Three models were fitted here and all three failed — because **the metric is not a peak.**
+**peak PyTorch memory (gibibytes) ≈ 2.31 + 2.12 × (samples per GPU)** at `n_future` 0, plus a
+fixed ~8 gibibyte non-PyTorch overhead. It **retrodicts the batch-64 failure** (16 samples per
+GPU → 44.2 gibibytes), which is what the three earlier models could not do.
+
+`n_future` 1 roughly **doubles the per-sample term**: predicted 19.3 against 18.21 measured.
+⇒ **sizing rule for C2:** total gibibytes ≈ 8 + (2.31 + 2.12 × (`n_future` + 1) × samples per
+GPU), and it must stay under 39.49. At 4 samples per GPU that allows `n_future` up to about 3;
+at 8 samples per GPU even `n_future` 1 does not fit.
+
+⚠ Every "memory" number *elsewhere* in this document predates the instrumentation and is an
+epoch-end snapshot — a **lower bound**, understating by 11-16 gibibytes. Size from the table
+above only.
 
 ⚠⚠ **`memory footprint [GB]` is `total − free` sampled at EPOCH END**
 (`deterministic_trainer.py:703`), after the step's transients are freed. The real high-water
@@ -128,12 +172,9 @@ emits `peak torch memory [GB]` (`max_memory_reserved`, the part that scales) and
 `non-torch memory [GB]` (the ~7.7 GB fixed tax), with `reset_peak_memory_stats` per epoch.
 Compare their **sum** against **39.49 GiB**. → `makani_bench_report.md` §5g.
 
-**So C2 no longer has to guess — but it does have to wait one arm.** Every memory number
-*already in this document* predates the fix and remains a **lower bound**; do not size
-`n_future` off them. Take the peak from the first job carrying the new keys — the batch-48 LR
-sweep (7586382/3/4, patched while queued) gives the batch-48 point, and C1 gives the
-`n_future=1` point — then size C2 to measured peaks. Values are in the job `.o` log and wandb,
-**not** in `makani_scaling*.csv` (the parser's header guard is deliberately not migrated yet).
+**C2 can now be sized from measurement rather than guessed.** Use the table and rule above.
+Values are in each job's `.o` log and in wandb, **not** in `makani_scaling*.csv` — the parser's
+header guard is deliberately not migrated (TODO item 13).
 
 The table below is retained only to show what was predicted and how it failed:
 
@@ -186,10 +227,10 @@ From an adversarial review of the shipped config. **LR is fourth, not first.**
 |---|---|---|---|
 | 1 | **`n_future`** | 0 → 1-3 | C1/C2. Targets the actual symptom |
 | 2 | **use the idle 74% of the GPU** | 10.33 / 40 GB | `scale_factor: 3 → 2` (trunk 60×120 → 90×180, stop discarding resolution before the spectral layers) **or** `embed_dim 384→512` / `num_layers 8→12`. Capacity usually beats schedule tuning |
-| 3 | **`optimizer_beta2`** | 0.95 → **0.999** | 0.95 is a large-batch setting (short second-moment memory). At batch 32 the gradient is 16× noisier and 0.95 amplifies it. **Probably actively wrong at the new batch** |
+| ~~3~~ | 🔴 **`optimizer_beta2` — RETIRED 2026-09-04, DO NOT APPLY** | ~~0.95 → 0.999~~ | **Measured backwards.** 5 of 5 arms at β₂ 0.999 collapsed at epoch 2 — the fastest failure of any configuration — with gradient excursions up to 7.86e12 against 8.78e7 at β₂ 0.95 (§7e). The steady-state-noise argument below is real but does not govern: for a *spike*, an outlier gradient enters Adam's second-moment accumulator with weight 1 − β₂, which is 0.05 at 0.95 against 0.001 at 0.999, so the long-memory setting barely reacts and damps the next step ~50× less. **Keep β₂ at 0.95.** Original rationale, kept only to show what was refuted: 0.95 is a large-batch setting (short second-moment memory). At batch 32 the gradient is 16× noisier and 0.95 amplifies it. **Probably actively wrong at the new batch** |
 | 3 | **`weight_decay`** | 0.0 → **1e-5 … 1e-4** | AdamW at zero decay is just Adam — no regularisation, while taking 16× more updates |
-| 4 | **`lr`** | 1e-3 → **2e-3 — MEASURED, sweep §5h** | 3 arms x 3 full epochs: 2e-3 won on both validation loss and grad norm; **4e-4, the upstream value and my prior, came last**. 3 arms × 30 epochs ≈ 41,000 updates each (5× the *entire* 128-node run) |
-| 5 | **`optimizer_max_grad_norm`** | 32 → **~1.0** | never engages (observed grad norms 0.43 → 0.012, three orders below). Effectively unclipped at a noisier batch. ⚠ verify makani clips **before** `optimizer.step()` — ai-rossby had exactly that bug |
+| 4 | ✅ **`lr`** — **CONFIRMED and bounded** | 1e-3 → **2.0e-3** | Swept (§5h) *and* bounded above (§5j/§7e): the ceiling is **(2e-3, 3e-3] at both batch 32 and batch 48**, and 3.0e-3 collapses irreversibly. 2.0e-3 is one rung below a hard limit — do not raise it. 3 arms x 3 full epochs: 2e-3 won on both validation loss and grad norm; **4e-4, the upstream value and my prior, came last**. 3 arms × 30 epochs ≈ 41,000 updates each (5× the *entire* 128-node run) |
+| 5 | ✅ **`optimizer_max_grad_norm`** — **CONFIRMED, apply it** | 32 → **1.0** | Measured (§7e): a clip of 1.0 delayed collapse from epoch 2 to 6 at batch 32 and from 4 to 6 at batch 48, and produced the best loss of each batch. It does **not** prevent collapse — nothing tested does. makani's own default is 1.0 (`train.py:74-75`). Across 243 production epochs the maximum gradient norm was **0.30**, so a clip of 32 never engaged: never engages (observed grad norms 0.43 → 0.012, three orders below). Effectively unclipped at a noisier batch. ⚠ verify makani clips **before** `optimizer.step()` — ai-rossby had exactly that bug |
 | 6 | **stale schedule keys** | delete | `scheduler_T_max/factor/patience/step_size/gamma` are dead under warm restarts and will mislead the next reader |
 | 7 | **EMA** | leave **off** | measured in this codebase: **+0.16%** at convergence, **0.9-10.5% worse** mid-descent, and it doubles validation cost. `docs/2026-05-12_v11_clip_restore_plan.md` |
 
@@ -235,10 +276,15 @@ From an adversarial review of the shipped config. **LR is fourth, not first.**
 | evidence | `makani_bench_report.md` §5 | — |
 | eval chain (needs porting) | `makani_sfno/scripts/` + `submit_eval.sh` | SLURM/Stampede3/PLASIM — **port to PBS/Polaris/101-ch E3SM** |
 
-## 8. In flight at handoff — read these first
+## 8. Jobs referenced by this document — all complete unless noted
 
-| job | what | why it matters |
+| job | what | outcome |
 |---|---|---|
+| **7585080** | C3, the 1-node production run, 243 epochs | ✅ complete, `Exit_status 0`, best validation loss **0.01284** |
+| **7591605** | C1, rollout fine-tune, 24 epochs | 🔵 running on `capacity` |
+| **7590355** | C1 one-epoch probe | ✅ complete — machinery verified, 26.21 gibibytes peak |
+| **7587738-42, 7587776-79** | the 9-arm learning-rate-ceiling factorial | ✅ complete — **all collapsed** (§7e) |
+| **7588118 / 7588120** | batch 32 vs 48 fork A/B from epoch 74 | ✅ complete — batch 32 retained (§5l) |
 | **7582088** | 3 full-pass epochs at production settings, 1 node | gives the **measured** per-epoch wall, replacing the assumed +17% overhead. Every wall-clock and node-hour figure here depends on it |
 | **7582170** | 8 short epochs, `T_0=2`, warm restarts + warmup | proves the schedule constructs and restarts fire (trap 5), and that `CKPT_VERSIONS` retains the snapshots. **Read before C3** |
 

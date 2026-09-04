@@ -144,6 +144,62 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-04** — ⭐ **THE 1-NODE PRODUCTION RUN IS COMPLETE, the learning-rate ceiling is
+  characterised, batch 48 is closed, and C1 is running.** Write-up finished across
+  `makani_bench_report.md` (§5g, §5j, §5k, §5l, §7e), the handoff, and the checkpoint doc.
+  - ✅ **Production 7585080: all 243 epochs, `Exit_status 0`, 46 h 20 min of 48 h.** Best
+    validation loss **0.01284** at epoch 243; 332,424 optimizer updates; **46.3 node-hours**;
+    683.6 seconds per epoch (5.27 epochs per hour), stable to 0.85 percent across the run.
+    **Twelve snapshot-ensemble members** (epochs 23…243, every 20), all on disk, 401 gibibytes
+    of checkpoints. No overfitting — training and validation descend together throughout.
+    Maximum gradient norm over 243 epochs: **0.30**.
+  - ⚠ **FRAMING CORRECTED — do not quote "29.8 percent better than the 128-node run" bare.**
+    That run's minimum sat at its **last** epoch; it was still improving, so it is not a
+    converged-versus-converged comparison and more time would have lowered it. The defensible
+    claim is **cost**: 1.73 versus **16.95 samples per second per GPU**, and 20,267 versus
+    **229,753 samples per node-hour — 11.3×**. Cause: batch 512 across 512 ranks is **1 sample
+    per GPU**, which starves the hardware. Matching this run's 10.64 M samples on 128 nodes
+    would take ~525 node-hours against 46.3; matching its *updates*, 8,398. And the usual
+    large-batch escape is closed — the LR ceiling does not move with batch, so batch 512 cannot
+    use a proportionally larger learning rate. ⇒ **the decision was about batch size, not node
+    count.** ⚠ We never ran 128 nodes longer; this is inference from measured throughput and
+    the measured ceiling, not a head-to-head.
+  - **§7c/§7d SCORED — 9 of 9 arms at LR 3.0e-3 collapsed.** Neither β₂ nor the gradient clip
+    prevents it; they change only *when*: β₂ 0.999 dies at epoch 2 (5/5), β₂ 0.95 + clip 32 at
+    epoch 2-4, β₂ 0.95 + clip 1.0 at epoch 6 at **both** batch sizes. Score: 4 correct, 3
+    wrong, 1 ambiguous, 1 void. Both predictions registered *against* expectation (P3 at 0.40,
+    Q1 at 0.55) came in correct; P1 and P4 were wrong.
+    - 🔴 **RETIRED: the β₂ 0.95 → 0.999 recommendation.** Measured backwards — the fastest
+      route to collapse, with gradient excursions to 7.86e12 against 8.78e7 at 0.95. The
+      mechanism was registered in advance: an outlier gradient enters Adam's second-moment
+      accumulator with weight 1 − β₂, 0.05 at 0.95 against 0.001 at 0.999.
+    - ✅ **CONFIRMED: `optimizer_max_grad_norm` 32 → 1.0** — delays collapse and gives the best
+      loss of each batch, though it prevents nothing.
+    - ⚠ **The registered scoring rule was too short.** It keyed on epoch-3 validation; both
+      clip arms "survive" by that rule and collapsed at epoch 6. Under warm restarts a survival
+      criterion must span several restart cycles. Recorded rather than quietly rewritten — had
+      the arms stopped at 3 epochs the conclusion would have been the opposite of the truth.
+  - **Batch 48 closed on three axes** (§5l): worse at equal data early (11.7 percent), better
+    at equal *updates* early (12.3 percent, decaying), and only **0.25-0.57 percent** better at
+    equal data late — measured by forking production at epoch 74 into two arms from identical
+    weights (7588118 / 7588120). Costs 12-27 percent more wall-clock per epoch and 90 percent
+    of the card. The fork validated itself: its batch-32 arm read 0.01338 against production's
+    own 0.01336 at the same epoch, **0.15 percent apart**.
+  - **A working memory model, finally** (§5g): peak PyTorch gibibytes ≈ **2.31 + 2.12 × samples
+    per GPU**, plus a fixed ~8 gibibyte non-PyTorch overhead. It **retrodicts the batch-64
+    out-of-memory failure** (44.2 against a 39.49 gibibyte card) — the first of four models here
+    that predicts the observed failure instead of being refuted by it.
+  - 🔵 **C1 launched (7591605, `capacity`, 24 epochs)** from the new checkpoint, after a
+    one-epoch probe (7590355) verified the machinery: pretrained path taken, `n_future` 1
+    applied, **26.21 of 39.49 gibibytes** at 4 samples per GPU. Two silent traps found and
+    fixed — `load_loss` must be false (loss state shape depends on `n_future`), and a
+    config-side `n_future` is overwritten by `--multistep_count` (`train.py:119`).
+  - **Stale markers cleared** across all four documents: PROVISIONAL banners, "RUNNING"/"in
+    flight" status blocks, the refuted memory tables in the handoff's C2, and the C1 recipe's
+    pointer at prod128's undertrained checkpoint. Units are now spelled out in every table
+    (gibibytes, samples per second, samples per GPU, node-hours, epoch index) and the §0a legend
+    covers the new columns.
+
 - **2026-09-03 (cont. 2)** — **Forked the running production job at epoch 71 to A/B batch 32 vs
   48 from identical weights — and found that makani's warm start fails silently.**
   - **Why this experiment:** at equal DATA batch 48 is ~10% worse, but at equal UPDATES it is
@@ -385,6 +441,152 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     window must be excluded from any epoch-time statistic — three concurrent 1-node arms
     previously cost it +2.3% median epoch wall — and (b) this ACE2 row's own `epoch_wall_s`
     carries the same caveat in reverse.
+- **2026-09-04** — **ACE2: the LR sweep is BLOCKED BY A SATURATED QUEUE, not by a bug; a
+  shortened screen is running instead, and LR 1e-3 does NOT diverge.**
+  - 🚦 **The 4 preemptable LR arms (7589850-53) sat 13 h and never started.** Diagnosis before
+    action, per CLAUDE.md #12: `comment = Not Running: Insufficient amount of resource:
+    queue_tags` with `eligible_time = 06:07:03`. **That signature means the queue has no
+    nodes** — priority and walltime are irrelevant, and **resubmitting would destroy the
+    accrued eligible time.** `qstat -Q` confirms it is saturation, not breakage:
+    **preemptable = 208 total / 149 queued / 18 running.** They are left queued to keep
+    accruing. ⚠ This is the third campaign to hit it; the handoff's "use preemptable for
+    concurrency, not for short jobs" needs a companion line: **it is also unusable for
+    anything time-boxed**, because there is no bound on when it starts.
+  - ⚠ **The structural squeeze this exposes:** any ACE2 arm longer than 1 h can run *only* on
+    `preemptable` (saturated) or `capacity` (1-4 nodes ≤168 h, but **`max_run 1` per PROJECT**
+    and makani's production run holds it). `debug`/`debug-scaling` cap at 1 h. So ACE2 has
+    **no reliable queue for multi-hour work** until the capacity slot frees (~12 h).
+  - 🔬 **Shortened LR screen in `debug` instead** — 1 node, batch 8, flat LR, 1,000 steps/epoch
+    × 3 (3,000 updates/arm, ~45 min), serial. It **cannot replace** the 3-full-epoch sweep
+    (36,702 updates/arm) and is labelled a screen: its job is to catch divergence and eliminate
+    obviously-bad arms before the capacity slot frees, not to rank close LRs. Rows go to
+    `ace2_lr_screen.csv`, never the sweep's table.
+  - ✅ **LR 1e-3 (10× the config's value) trains STABLY** — job 7590248, 2 epochs so far:
+    `batch_loss` 15.70 → 4.38 → 3.07 → 2.55 → 2.14 over the first 500 updates, then
+    **train 1.0852 → 0.8783, valid 1.0119 → 0.7536**. No NaN, no divergence.
+    ⚠ That is a genuinely useful negative result **because fme has no gradient clipping at
+    all** — the prereg flagged the top of the range as the arm most likely to report the
+    missing clip rather than the LR. It did not. So the range is not obviously too wide at the
+    top, and makani's "upstream's value was 5× too low" pattern remains live for ACE2.
+  - 📏 **First epoch timing grounded in a real (if shortened) run:** 12.9 min per 1,000-step
+    epoch = **774 ms/step including validation and overhead**, against the 716 ms `step_med`
+    measured on 60-step arms. Extrapolated to a full 12,234-step epoch that is **~2.63 h**,
+    inside the 2.51 h (optimistic) → 3.26 h (+30%) band predicted. The 30% page-cache
+    pessimism has **not** materialised so far — consistent with ACE2's random sampler, which
+    is the mechanism makani's gap was attributed to.
+  - 🎯 **PRODUCTION SHAPE DECIDED: 1 NODE, GLOBAL BATCH 8, ~27 EPOCHS — and it INVERTS the
+    ladder's ranking, because "maximum updates" is a different objective from "maximum
+    samples/s".** Target: makani-equivalent **332,424 weight updates**.
+    | config | updates/epoch | **updates/node-h** | epochs→332k | wall h | **node-h** |
+    |---|---|---|---|---|---|
+    | **1 node, batch 8** | 12,234 | **5,028** | 27.2 | 66.1 | **66.1** |
+    | 2 nodes, batch 16 | 6,117 | 1,495 | 54.3 | 111.2 | 222.4 |
+    | 4 nodes, batch 32 | 3,058 | 631 | 108.7 | 131.7 | 526.7 |
+    *(makani reference: 332,424 updates in 45 node-h.)*
+    - **Two effects compound**: halving the batch doubles updates per sample, AND more nodes
+      cost step time without adding updates. So 2 nodes at batch 16 is **3.4× more expensive
+      per update** than 1 node at batch 8 — and *slower in wall-clock too* (2,989 vs 5,028
+      updates/hour).
+    - ⚠️ **THIS CORRECTS A CLAIM MADE EARLIER TODAY IN THIS SAME ENTRY.** "ACE2 must pay the
+      fabric toll, unlike makani" was **conditional on holding global batch at 16** — an
+      inherited config value, not a requirement. **At batch ≤8 ACE2 fits one node and the
+      fabric question disappears entirely**, so makani's "one node is cheapest and fastest"
+      does apply to ACE2 after all. The ladder is still correct about *scaling*; it was the
+      wrong instrument for *this* objective.
+    - **Batch 8 chosen over batch 4** (which is cheaper still: 9,459 updates/node-h, 332k in
+      **35 node-h**, beating makani outright) because 8 is defensible as *the largest batch
+      that fits one node* — a hardware fact — whereas 4 is a 4× deviation from the ai2cm
+      config chosen purely for throughput. Operator decision 2026-09-03.
+    - ⚠ Batch 8 sees **2.66M sample-presentations** against makani's 10.64M. Equal *updates*,
+      not equal data exposure. ACE2's dataset is 2.2× larger, so each sample is seen ~27 times
+      vs makani's ~243 — arguably better, but it is a different quantity and should not be
+      quoted as "equivalent" without the qualifier.
+  - 🔬 **LR SWEEP LAUNCHED, RULE REGISTERED FIRST** (prereg §1a). 4 arms — **5e-5, 1e-4, 3e-4,
+    1e-3** — at 1 node, batch 8, **3 full epochs** (36,702 updates each), **flat LR**
+    (`-v NO_SCHEDULER=1`, added for this: a schedule would test each arm at a different
+    effective LR by the time it is scored). Jobs **7589850-7589853**, `preemptable`, ~29 node-h.
+    The winner becomes the **peak** of `CosineAnnealingWarmRestarts` in production — makani's
+    exact shape.
+    - ⚠ **The rule could NOT reuse makani's tie-breaker.** `grep` over `ace_exp/fme` finds
+      **no gradient-norm logging and no gradient clipping anywhere** — fme neither computes
+      nor exposes it, so `pick_lr.py`'s criterion has no analogue here. Tie-break falls back to
+      per-step `batch_loss` variance, which is a weaker proxy, and the prereg says so.
+    - ⚠ **fme does no gradient clipping at all and it is not configurable.** ai-rossby's
+      divergence investigation listed `grad_clip_norm: 0.0` as a leading suspect; here it is
+      not zero by choice, the capability is absent. An arm diverging at 1e-3 may be reporting
+      the missing clip rather than the LR.
+    - ⚠ **If the winner is an endpoint (5e-5 or 1e-3) the range was insufficient and it must
+      not be adopted** — makani's CHANGELOG carries exactly that caveat ("2e-3 was the top of
+      the range tested") and repeating it knowingly would be worse than the first time.
+    - The 2-node/batch-16 epoch-cost job (7589568) was **qdel'd**: production is no longer that
+      shape, and these arms measure the real epoch for free.
+    - ⚠ **4 concurrent arms + live makani production share the filesystem.** Their
+      `epoch_wall_s` is therefore NOT a clean epoch-cost measurement, and makani's epochs in
+      this window must be excluded from its epoch-time statistics (three concurrent 1-node arms
+      previously cost it +2.3%).
+  - ✅ **PRODUCTION MODE + THE RESUME GATE: `ACE2_RESUME_GATE_OK`.** ACE2 production cannot
+    use `capacity` (`max_run 1` per project, makani holds it), so it runs on `preemptable`
+    where it **will** be preempted at ~2 h/epoch. That made resume a blocker, not a nicety.
+    - **`-v PRODUCTION=1` added to `polaris_ace2_train.pbs`** (a mode, not a second launcher —
+      the ai-rossby precedent — so the bench and production paths cannot drift). It flips
+      exactly four things: checkpoints on incl. `checkpoint_every_n_batches`;
+      **`CosineAnnealingWarmRestarts`**; `checkpoint_save_epochs` aligned to the restarts;
+      and a `RUN_NAME` carrying **no jobid**.
+      ⚠ That last one is the subtle killer: fme resumes by **path**
+      (`resuming = os.path.isfile(.../ckpt.tar)`), so a jobid in the run name starts a FRESH
+      run on every requeue while looking perfectly healthy.
+    - **fme takes `CosineAnnealingWarmRestarts` config-only** — schedulers are resolved by
+      name out of `torch.optim.lr_scheduler`. ⚠ Its `.step()` takes no `metrics`; fme calls
+      `step(metrics=valid_loss)` and falls back on `except TypeError`, which is verified to be
+      the path that fires.
+    - 🎁 **The snapshot ensemble works and the off-by-one was real.** With `T_0=2` the run left
+      **`ckpt_0002.tar`, `ckpt_0004.tar`, `ckpt_0006.tar`** — one per restart. Alignment must
+      be `start=T_0, step=T_0`, **not** `T_0-1`: `_epochs_trained` is incremented at the END of
+      `train_one_epoch` and `save_all_checkpoints` runs after it, so the checkpoint tagged N
+      holds the weights after N complete epochs = that cycle's **LR minimum**, which is the
+      snapshot you want. `T_0-1` would keep weights one epoch short of every minimum.
+    - ✅ **THE GATE PASSED ON THE CRITERION THAT MATTERS.** Jobs 7589567 (uninterrupted
+      reference) vs 7589664 `qdel`'d after 2 epochs → 7589714 resubmitted: it logged
+      `Resuming training from .../ckpt.tar` and **restarted at epoch 3, not epoch 1**, and the
+      **LR trace is identical across all 24 sampled points**. That is the load-bearing result:
+      `scheduler_state_dict` is checkpointed by `Optimization.get_state`, so
+      `CosineAnnealingWarmRestarts`' `T_cur` survives preemption. Had it not, every requeue
+      would have silently reset the LR to peak — the run would still descend, still exit 0, and
+      **the whole snapshot ensemble would be built from checkpoints no longer at cycle
+      minima**, with nothing downstream noticing.
+    - ⚠ **The gate also reported a loss divergence (train 23.4%, valid 7.5%), and it is an
+      ARTIFACT OF THE GATE, not a defect — but that is an inference, not a measurement.**
+      Mechanism, from `ace/data_loading/getters.py:_get_sampler`: the gate shortens epochs with
+      `sample_with_replacement`, which selects a bare **`RandomSampler`** — *not* epoch-seeded.
+      On resume the process re-seeds from `seed: 3`, so the resumed epochs 3-6 draw what the
+      reference's epochs 1-4 drew. Different data ⇒ different loss.
+      **Production leaves `sample_with_replacement` unset** ⇒ `dist.get_sampler(shuffle=True)`
+      ⇒ `DistributedSampler` seeded per epoch via `train_data.set_epoch(_epochs_trained + 1)`,
+      which IS a deterministic function of the epoch index. ⇒ the divergence should not occur
+      in production. **Not yet confirmed at production scale** — confirming it needs a
+      full-epoch gate (~2 h/epoch), so it is recorded as an open item rather than assumed.
+    - `compare_resume_trace.py` (+ a synthetic self-test covering healthy-resume, `T_cur`-reset
+      and never-resumed) asserts the LR trace **exactly** — it is a deterministic function of
+      epoch and scheduler state, so any mismatch is a defect — and reports the losses against a
+      tolerance rather than asserting bit-identity, because fme's resume is not bit-reproducible
+      the way makani's was.
+    - 📏 **Early epoch-timing read** (100-step epochs, 2 nodes, batch 16): 170.9 s for epoch 1
+      then **150-154 s steady state**, of which ~124 s is timed steps ⇒ **~27 s/epoch of
+      non-step overhead** (validation + train-eval + checkpoint save).
+      ⚠ **This suggests the Midway "validation is 61% of an epoch" finding does NOT transfer to
+      a full-length Polaris epoch.** A real epoch is **6,117 steps** (train split = **97,874
+      samples**: 1940-1995 + 2011-2019 + 2021-2022 of a 1940-2022 file), so validating even the
+      config's full 1996-97 split is ~3% of the epoch, not 61% — the 61% was measured on a
+      *shortened* epoch. If that holds, `validation_aggregator.log_snapshots=false` is a much
+      smaller lever here than §1f implies. **Inference; job 7589568 is queued to measure it.**
+    - **Production sizing, from the ladder:** ~**2.1 h/epoch and 4.1 node-h/epoch** at batch 16
+      on 2 nodes (1.21 h / 4.8 node-h at batch 32 on 4; 0.64 h / 5.1 at batch 64 on 8).
+      ⚠ These use 60-step arm step times, which the handoff warns are ~30% optimistic.
+    - ⚠ **Queue assignment corrected against the operator's initial plan:** the resume gate went
+      to **`debug`**, not `preemptable`. It is a ~25-minute job, and `polaris_pbs_notes.md` is
+      explicit that preemptable is "for concurrency, not for short jobs" — borne out here, as
+      the one job that *did* go to preemptable (7589568, epoch cost, 12 h) is **still queued**
+      alongside makani's three.
   - ✅ **THE LADDER IS DONE, AND IT SETTLES THE I/O QUESTION: ACE2 ON POLARIS IS
     FABRIC-LIMITED, NOT I/O-LIMITED.** Weak scaling at `LOCAL_BATCH=2`, 60 timed steps,
     `NCCL_ALGO=Ring`, run SERIALLY as a dependency chain so no two arms shared the OST

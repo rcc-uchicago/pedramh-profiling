@@ -60,6 +60,17 @@ unit is given here rather than in the header.
 | `updates` | **count of optimizer steps** | `steps/epoch × epochs`; *not* samples |
 | `memory (GB)` | **gigabytes per GPU, epoch-END snapshot — a LOWER BOUND, not a peak** | makani's `memory footprint`: `(total − free)` sampled after the step's transients are freed, so it understates by an amount that grows with batch. → §5g. For the real peak use `peak torch memory [GB]` + `non-torch memory [GB]`, logged from 2026-09-02 |
 | `trunk tile` | **grid points per rank** | after `scale_factor`, i.e. of the 60×120 trunk |
+| `peak torch memory [GB]` | **gibibytes per GPU** | `torch.cuda.max_memory_reserved`, reset each epoch. The allocator high-water mark — the term that scales with batch size and `n_future`. Logged from 2026-09-02 |
+| `non-torch memory [GB]` | **gibibytes per GPU** | `(total − free) − torch reserved` at epoch end: CUDA context, cuFFT/cuDNN workspaces, NCCL buffers. A fixed ~8 gibibyte overhead |
+| total memory | **gibibytes per GPU** | the **sum** of the two above; this is what to compare against the card's **39.49 gibibytes** |
+| `validation loss` / `training loss` | **dimensionless** | area-weighted loss as makani reports it. ⚠ Comparable only at equal `n_future`: at `n_future` 1 the loss averages a 2-step rollout and is **not** comparable to a single-step number |
+| `gradient norm` | **dimensionless** | the **pre-clip** total L2 norm (`clip_grads` returns it before scaling). Healthy range here is 0.003-0.30; values above ~1e3 indicate divergence |
+| epoch of collapse | **epoch index, 1-based** | the first epoch whose validation loss reaches the dead attractor (≈0.107) |
+
+⚠ **Two units that are easy to conflate.** `samples/GPU` is the *local batch size*; a global
+batch of 32 on 4 GPUs is 8 samples per GPU. And **gibibytes (2³⁰ bytes), not gigabytes** — the
+A100 is 39.49 gibibytes, and CUDA reports in gibibytes, so the two must not be mixed when
+checking whether a configuration fits.
 
 ## 1. What was measured
 
@@ -496,8 +507,30 @@ Two deliberate limits, so this isn't over-read in turn:
   assumption is itself untested — it is just far more defensible than a fit to post-epoch
   snapshots.
 
-First arms carrying it: the batch-48 LR sweep **7586382 / 7586383 / 7586384** (patched while
-still queued, so all three land with it) and any capacity job submitted after this date.
+**Measured values, all with the new instrumentation.** Units: gibibytes per GPU; the card is
+39.49 gibibytes.
+
+| configuration | samples per GPU | global batch size (samples) | peak PyTorch memory (gibibytes) | non-PyTorch memory (gibibytes) | total per GPU (gibibytes) | fraction of card |
+|---|---|---|---|---|---|---|
+| single-step (`n_future` 0) | 8 | 32 | 19.23 | 8.01 | **27.24** | 69 percent |
+| single-step (`n_future` 0) | 12 | 48 | 27.69 | 8.04 | **35.73** | 90 percent |
+| single-step (`n_future` 0) | 16 | 64 | not measured | not measured | **~44 (predicted)** | **out of memory** |
+| rollout (`n_future` 1) | 4 | 16 | 18.21 | 8.00 | **26.21** | 66 percent |
+
+Fit over the two single-step points: peak PyTorch memory in gibibytes ≈
+**2.31 + 2.12 × (samples per GPU)**. It **retrodicts the batch-64 out-of-memory failure**
+(job 7580362): 16 samples per GPU gives 36.2 + 8.0 = 44.2 gibibytes against a 39.49 gibibyte
+card. That is the first memory model here that predicts the observed failure rather than
+contradicting it — the three that preceded it were each refuted by the next measurement.
+
+`n_future` 1 roughly **doubles the per-sample term**: predicted 2.31 + 2 × 2.12 × 4 = 19.3
+gibibytes against **18.21 measured** (job 7590355), 6 percent high. So a rollout fine-tune at
+the production 8 samples per GPU would need ~44 gibibytes and cannot run; 4 samples per GPU
+fits at 66 percent.
+
+⚠ Still a two-point fit with a one-point check. The non-PyTorch term is sampled at epoch end
+and *assumed* constant; it has held at 8.00-8.07 gibibytes across every configuration measured,
+which is consistent with that assumption but does not prove it.
 
 Retired models, kept so neither is refitted:
 * ~~"≈0.99 GB per sample-step, linear"~~ — from the benchmark arms; predicted 18.2 GB at 16
@@ -604,7 +637,8 @@ batch 48. It was not** — refuted without needing ceiling₃₂ exactly. Sqrt s
 ⇒ **Hypothesis: the ceiling is curvature-limited, not noise-limited.** Linear scaling assumes
 gradient *variance* binds. If instead the stability bound η < 2/λ_max binds, the ceiling is a
 property of the loss surface and averaging more samples cannot move it — which predicts all of
-the above. **Under test as prereg §7c.**
+the above. **Tested and upheld — see §7c/§7d: all nine arms at learning rate 3.0e-3
+collapsed, so the ceiling is not an artefact of optimizer configuration.**
 
 **Two config choices that plausibly lower that ceiling** (both are what §7c isolates):
 
@@ -626,6 +660,118 @@ re-warmup**. Empirically fine; the failure mode is worth knowing.
 
 ⚠ **n = 1 per arm, 3–6 epochs.** The blow-up reproduces across three arms and two batch sizes, so
 the *mechanism* is solid; the exact ceiling location is not.
+
+### 5k. The 1-node production run — COMPLETE, and the campaign's headline result
+
+Job **7585080**, finished `Exit_status 0` after **46 hours 20 minutes** of a 48-hour
+allocation. All 243 epochs.
+
+| quantity | 128-node run (7566145) | **1-node run (7585080)** |
+|---|---|---|
+| nodes | 128 | **1** |
+| GPUs (NVIDIA A100, 40 gigabytes) | 512 | **4** |
+| compute cost (node-hours) | 216 | **46.3** |
+| global batch size (samples per optimizer step) | 512 | **32** |
+| weight updates (optimizer steps, total) | 8,500 | **332,424** |
+| epochs (count) | 100 | **243** |
+| best validation loss (dimensionless) | 0.018297 | **0.01284** |
+| epoch of best validation loss | 100 (still improving at the schedule bound) | 243 |
+| usable checkpoints for ensembling (count) | 1 | **12** |
+
+**0.01284 against 0.018297 is 29.8 percent lower, at 46.3 node-hours against 216.**
+
+⚠⚠ **DO NOT READ THAT AS "one node trains better." It is not a converged-versus-converged
+comparison.** The 128-node run's validation minimum sat at its **last** epoch — it was still
+improving when the schedule ended. Run longer, it would have come down. The defensible claim is
+about **cost, not capability**:
+
+| quantity | 128-node run | 1-node run | ratio |
+|---|---|---|---|
+| throughput per GPU (samples per second) | 1.73 | **16.95** | **9.8×** |
+| samples processed per node-hour | 20,267 | **229,753** | **11.3×** |
+
+The cause is not the fabric: **batch 512 across 512 ranks is 1 sample per GPU**, which starves
+the hardware. The 1-node configuration runs 8 samples per GPU.
+
+⇒ To process the same 10.64 million samples, 128 nodes would need **525 node-hours against
+46.3 — 11.3 times more**. To match the same 332,424 optimizer updates it would need 3,888
+epochs = **8,398 node-hours, 181 times more**.
+
+**And the usual large-batch escape is closed for this model.** A batch-512 run would normally
+compensate for 16× fewer updates with a proportionally larger learning rate. But the ceiling is
+**(2e-3, 3e-3] and does not move with batch size** (§5j, §7e) — linear scaling from batch 32 to
+512 would want ~32e-3, an order of magnitude past a limit that collapses irreversibly. The
+batch-512 run also had **no warmup at all**: `lr_warmup_steps` raises `NotImplementedError`
+under `ReduceLROnPlateau`, so it could not have had any.
+
+⇒ **The decision was about batch size, not node count.** Batch 512 was the wrong batch for this
+model; once it is 32, 128 nodes cannot be occupied usefully — that would be one sixteenth of a
+sample per GPU. The node count follows from the batch.
+
+⚠ **We never ran the 128-node configuration longer.** The above is inference from measured
+throughput and the measured learning-rate ceiling, not a head-to-head. Whether batch 512 would
+*ever* reach 0.01284 at a learning rate it can survive is untested.
+
+**Rate:** 683.6 seconds per epoch (**5.27 epochs per hour**), of which 645.8 seconds is
+training (94.5 percent) and 33.5 seconds validation (4.9 percent); 472.1 milliseconds per
+optimizer step over 1368 steps per epoch; 67.79 samples per second. Stable to **0.85 percent**
+across the run — first 20 epochs 681.1 seconds, last 20 epochs 686.9 seconds.
+
+**Snapshot ensemble** — one member per 20-epoch cycle, all 12 on disk:
+
+| epoch number | checkpoint file | validation loss (dimensionless) | training loss (dimensionless) | gradient norm (dimensionless) | change vs previous cycle (units of 1e-5) |
+|---|---|---|---|---|---|
+| 23 | `ckpt_mp0_v22.tar` | 0.01402 | 0.01222 | 0.0043 | — |
+| 43 | `ckpt_mp0_v42.tar` | 0.01341 | 0.01120 | 0.0040 | −61.8 |
+| 63 | `ckpt_mp0_v62.tar` | 0.01316 | 0.01070 | 0.0039 | −24.7 |
+| 83 | `ckpt_mp0_v82.tar` | 0.01304 | 0.01040 | 0.0039 | −11.7 |
+| 103 | `ckpt_mp0_v102.tar` | 0.01299 | 0.01019 | 0.0039 | −5.6 |
+| 123 | `ckpt_mp0_v122.tar` | 0.01295 | 0.01003 | 0.0040 | −4.0 |
+| 143 | `ckpt_mp0_v142.tar` | 0.01291 | 0.00991 | 0.0037 | −3.8 |
+| 163 | `ckpt_mp0_v162.tar` | 0.01289 | 0.00981 | 0.0042 | −2.4 |
+| 183 | `ckpt_mp0_v182.tar` | 0.01288 | 0.00973 | 0.0037 | −0.7 |
+| 203 | `ckpt_mp0_v202.tar` | 0.01286 | 0.00966 | 0.0040 | −1.8 |
+| 223 | `ckpt_mp0_v222.tar` | 0.01285 | 0.00959 | 0.0036 | −1.4 |
+| **243** | **`ckpt_mp0_v242.tar`** | **0.01284** | **0.00954** | **0.0037** | −0.8 |
+
+Three things the table settles:
+
+* **No overfitting anywhere.** Training and validation loss descend together for all 243
+  epochs and the gap narrows slightly. Stopping earlier would not have been better.
+* **Stability was never in question.** Every cycle-end gradient norm lies between 0.0036 and
+  0.0043 — a 19 percent spread over 12 cycles — and the maximum over the whole run was 0.30.
+  Compare the arms at learning rate 3.0e-3, which reached 1e7 to 1e13 (§7e).
+* **The run converged well before it ended.** The last 54 epochs bought 0.3 percent. A
+  forecast of 0.01286 for epoch 243, made at epoch 189 from the decay of the cycle gains,
+  landed within 2e-5 of the measured 0.01284. The final cycles are worth running for the
+  **ensemble members**, not for the loss.
+
+### 5l. Batch 32 versus batch 48 — closed on measurement, on three separate axes
+
+At matched learning rate 2.0e-3, matched schedule and matched 43,776 samples per epoch:
+
+| axis held fixed | batch 32 | batch 48 | verdict |
+|---|---|---|---|
+| **equal data** (samples seen), early training | 0.02352 at 131,328 samples | 0.02627 | batch 48 is **11.7 percent worse** |
+| **equal optimizer steps**, early training | 0.02994 at 2,736 steps | 0.02627 | batch 48 is **12.3 percent better** |
+| **equal data**, late training (fork from epoch 74) | 0.01338 / 0.01331 | 0.01330 / 0.01328 | batch 48 is **0.57 then 0.25 percent better** |
+
+The two early-training rows are the same measurement read on different axes: more samples per
+update genuinely does improve progress **per update** (−55.1 percent at 1,824 steps, −12.3 at
+2,736, −4.7 at 3,648, −3.1 at 4,104 — decaying fast), but batch 48 takes **33 percent fewer
+updates** for the same data, and that dominates.
+
+The late-training test (jobs **7588118** and **7588120**, both warm-started from the identical
+epoch-74 checkpoint) was run because gradient noise should matter *most* late, when gradients
+are small. It does not reverse: batch 48's advantage is **0.25 to 0.57 percent and shrinking**,
+against batch 32's own per-epoch improvement of 0.52 percent — the same order as the signal.
+
+Costs are unambiguous: **765.96 then 859.41 seconds per epoch against 682.42 and 675.10** for
+identical data, and **35.73 of 39.49 gibibytes, 90 percent card occupancy**.
+
+⇒ **Batch 32 stays.** The fork also validated itself: at epoch 76 the batch-32 arm read 0.01338
+against production's own 0.01336 — **0.15 percent apart**, so the warm-start reproduces the
+parent run and the batch-48 arm's number can be trusted.
 
 ## 6. What the refused rows say — 15 of 30 rows carry no timing, by design
 
@@ -815,6 +961,82 @@ is worth running**; neither is the "hoped-for" result.
 **Interaction with §7c.** The pair of controls (7587738 at batch 48, E32 at batch 32) is the
 actual batch-independence test — a matched-LR, matched-optimizer, batch-only contrast. That
 contrast did not exist before: §5j inferred batch-independence from two *different* LRs.
+
+### 7e. §7c and §7d SCORED — every arm collapsed; the ceiling is not an optimizer artefact
+
+**Result: 9 of 9 arms at learning rate 3.0e-3 collapsed**, across both batch sizes and all four
+combinations of the two knobs. Neither β₂ nor the gradient clip prevents the failure; they only
+change **how long it takes**.
+
+| batch size (samples) | β₂ | gradient clip | job | best validation loss (dimensionless) | maximum gradient norm (dimensionless) | epoch of collapse |
+|---|---|---|---|---|---|---|
+| 32 | 0.95 | 32 | 7587776 | 0.08100 | 8.78e7 | **2** |
+| 32 | 0.999 | 32 | 7587777 | 0.10686 | 7.86e12 | **2** |
+| 32 | 0.95 | 1.0 | 7587778 | **0.01895** | 16.3 | **6** |
+| 32 | 0.999 | 1.0 | 7587779 | — | — | **2** |
+| 48 | 0.95 | 32 | 7587738 | 0.02477 | 738 | **4** |
+| 48 | 0.999 | 32 | 7587739 | 0.10691 | 3.31e12 | **2** |
+| 48 | 0.95 | 1.0 | 7587740 | **0.02013** | 1.03e8 | **6** |
+| 48 | 0.999 | 1.0 | 7587741 | 0.10696 | 2.41e8 | **2** |
+| 48 (learning rate 4.5e-3) | 0.999 | 1.0 | 7587742 | 0.10612 | 4.03e9 | **2** |
+
+**Time to collapse is ordered and reproducible across both batch sizes:**
+
+| configuration | epoch of collapse, batch 32 | epoch of collapse, batch 48 |
+|---|---|---|
+| β₂ 0.999 (either clip) | 2 | 2 |
+| β₂ 0.95, clip 32 | 2 | 4 |
+| β₂ 0.95, clip 1.0 | **6** | **6** |
+
+#### Predictions scored
+
+| identifier | prediction | registered confidence | outcome |
+|---|---|---|---|
+| P1 | the batch-48 control collapses again at epoch 2 | 0.85 | ❌ **WRONG** — it survived to epoch 4. The collapse is **stochastic in timing**, which is why control arms were run at all |
+| P2 | clip alone (arm B) survives | 0.55 | ⚠ **true as written, false on the evidence** — see the scoring-rule note below |
+| P3 | β₂ alone (arm A) survives | **0.40, registered against the standing recommendation** | ✅ **CORRECT, and the direction was right**: β₂ 0.999 collapsed in 5 of 5 arms, always at epoch 2, with the largest gradient excursions measured (up to 7.86e12) |
+| P4 | both together (arm C) survives, and if any single-factor arm survives so does C | 0.65 | ❌ **WRONG** — arm C collapsed at epoch 2 at both batch sizes, *earlier* than either single-factor arm |
+| P5 | the 4.5e-3 arm survives | 0.25 | ✅ **CORRECT** — it collapsed at epoch 2 |
+| P6 | if C survives, its epoch-3 validation beats 0.0263 | 0.70 | **void** — C did not survive |
+| Q1 | the batch-32 control collapses (⇒ identical ceiling at both batch sizes) | 0.55 | ✅ **CORRECT** — collapsed at epoch 2, so the ceiling is **(2e-3, 3e-3] at both batch sizes** |
+| Q2 | the knobs behave the same at batch 32 as at batch 48 | 0.75 | ✅ **CORRECT, and strikingly so** — the clip arm survived exactly 5 epochs and posted the best loss of its batch at *both* sizes |
+| Q3 | the ceiling *decreases* with batch size | 0.45 | ❌ **WRONG** — it is unchanged |
+
+**Score: 4 correct, 3 wrong, 1 ambiguous, 1 void.** The two predictions registered *against*
+the prevailing expectation (P3 at 0.40, Q1 at 0.55) both came in correct; the two registered
+with confidence (P4 at 0.65, Q2 at 0.75) split.
+
+#### ⚠ The scoring rule itself was too short — recorded, not quietly rewritten
+
+The registered rule keyed survival on **epoch-3** validation loss. By that rule
+`b32fix_clip` and `b48fix_clip` both "survive" — and both collapsed at epoch 6. The rule was
+written knowing the hazard (the prose beside it says *"`T_0` = 2 returns the learning rate to
+peak every 2 epochs, so surviving epoch 2 is not safety"*) but did not encode it.
+
+⇒ **Under warm restarts, a survival criterion must span several restart cycles.** A
+single-cycle window measures "did it survive one exposure to peak learning rate", which is not
+the question. Had these arms stopped at 3 epochs, the conclusion would have been *"a tighter
+clip fixes the ceiling"* — the exact opposite of the truth.
+
+#### What this licenses
+
+* **The learning-rate ceiling is (2e-3, 3e-3] and is a property of the model, not the
+  optimizer configuration.** §7c registered this outcome in advance as the one that *"most
+  strongly validates the production run's current setting"*, and that is where it landed.
+* 🔴 **RETIRED — the recommendation to change β₂ from 0.95 to 0.999.** It was ranked third in
+  the handoff's hyperparameter list on a steady-state-noise argument. Measured, it is the
+  **fastest route to collapse**: 5 of 5 arms dead at epoch 2, with gradient excursions up to
+  10⁵ times larger than at β₂ 0.95. The mechanism was registered in advance (P3): an outlier
+  gradient enters Adam's second-moment accumulator with weight 1 − β₂, which is 0.05 at 0.95
+  against 0.001 at 0.999, so the long-memory setting barely registers the excursion and damps
+  the following step roughly fifty times less.
+* **The gradient clip is worth setting to 1.0 anyway.** It does not prevent collapse, but it
+  delayed it from epoch 2 to epoch 6 at batch 32 and from 4 to 6 at batch 48, and produced the
+  best loss of each batch before dying. makani's own default is 1.0
+  (`makani/train.py:74-75`); the fork ships 32, which never engaged in 243 production epochs
+  whose maximum gradient norm was 0.30.
+* **Production is vindicated unchanged**: learning rate 2.0e-3, β₂ 0.95. Across 243 epochs its
+  maximum gradient norm was **0.30** and every cycle end sat between 0.0036 and 0.0043.
 
 ## 8. Not measured — and what each would cost
 
