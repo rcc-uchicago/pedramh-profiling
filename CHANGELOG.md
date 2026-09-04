@@ -144,6 +144,35 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-04 (cont. 2)** — **makani session closed; continuation handed off in
+  `polaris_makani_analysis_ensemble_handoff.md`.** The training campaign is finished — nothing
+  remaining needs a long run.
+  - 🐛 **Found and fixed a bug in the scorecard launcher before handing it over.** The first
+    three arms (7592332/3/6) restored, logged `resuming True` and `skip_training True`, and
+    then **did nothing**: the epoch counter comes back from the checkpoint as 243, so with
+    `EPOCHS=1` the training loop is `range(243, 1)` — empty — and because validation lives
+    *inside* the epoch loop, no validation ran either. Exit 0, no error, no loss written.
+    Fixed with `LOAD_COUNTERS=0` (weights still restore); resubmitted as **7592575/6/7**.
+    Ninth silent-failure trap of this campaign, and the fourth that exits 0.
+  - **The handoff's first instruction is to read the lead-time ladder**, because its *shape*
+    decides everything after it: error growing fast ⇒ exposure bias, C1 correctly aimed;
+    error rising then flattening ⇒ blurring, needs CRPS not rollout; error barely moving ⇒
+    **the whole rollout/ensemble direction is misaimed** and the real cause of "inference
+    worse than expected" is elsewhere. That third outcome has never been excluded — the
+    `n_future: 0` explanation was inferred, never confirmed.
+  - **Ensemble build scoped by audit, not estimate.** `sfno_inference`'s rollout body is
+    already channel-generic (`rollout_driver.py:163-164` reads `n_state`/`n_out` from
+    `eval_params`; 52/53 are only defaults), so the port is four localized changes, not a
+    rewrite. 🐛 One of them is a **silent-wrong-physics bug**: `_extract_truth_sic` guards on
+    forcing *length* (`< 6`) not identity, so our 7-forcing E3SM pack passes the guard, reads
+    channel 5, and returns a confidently-labelled `truth_sic` that is a different variable.
+  - ⚠ Recorded for the next session: `sfno_inference` is **shared with the Stampede3
+    `eval-sfno-own` path and is inside a `git subtree`**, so every fix must *generalise*
+    rather than special-case E3SM (CLAUDE.md #5).
+  - Handoff also carries **8 retired claims** (β₂ → 0.999 backwards; three refuted memory
+    models; the "cliff"; the sharding confound; the overstated 29.8 % comparison; the
+    unfounded "late ensemble members are redundant") and **9 silent traps**.
+
 - **2026-09-04 (cont.)** — ⭐ **makani's FIRST kernel-level profile: it spends more GPU time
   moving data than computing.** Job **7591822**, `nsys` per-rank capture, all 4 ranks, steps
   30-40, at the exact production configuration. → `makani_bench_report.md` §5m.
@@ -475,6 +504,38 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     window must be excluded from any epoch-time statistic — three concurrent 1-node arms
     previously cost it +2.3% median epoch wall — and (b) this ACE2 row's own `epoch_wall_s`
     carries the same caveat in reverse.
+- **2026-09-04 (cont.)** — **ACE2 LR SCREEN: the config's own value came LAST, and the optimum
+  is INTERIOR at 1e-3. makani's pattern reproduced on a second harness.**
+  1 node, global batch 8, flat LR, 3 epochs × 1,000 steps (3,000 updates/arm), `debug` +
+  `debug-scaling` in parallel. Rows in `ace2_lr_screen.csv`.
+  | LR | valid loss by epoch | final |
+  |---|---|---|
+  | 1e-4 *(the config's own value)* | 1.6496, 1.1390, 0.9362 | **0.9362 — last** |
+  | 3e-4 | 1.1913, 0.8667, 0.7249 | 0.7249 |
+  | **1e-3** | 1.0119, 0.7536, **0.6417** | **0.6417 — winner** |
+  | 3e-3 *(range extension)* | 1.9703, 1.2954, … | worse than all at every epoch |
+  - 🎯 **`optimization.lr: 1e-4`, inherited from the ai2cm/Delta config, is 46% worse than
+    1e-3 on this data.** makani's sweep found upstream's own value came last of three; **ACE2
+    reproduces it exactly.** "Prereg beats authority" now has two independent harnesses.
+  - ✅ **The prereg's endpoint rule was triggered and satisfied.** 1e-3 was the TOP of the
+    registered range, and §1a says an endpoint winner means the range was insufficient and
+    must not be adopted. So **3e-3 was added before scoring** — and it is worse than every
+    other arm at every epoch, so **1e-3 is an interior optimum bracketed by 3e-4 and 3e-3**.
+    The rule caught the thing it was written for.
+  - ✅ **No divergence at any LR up to 3e-3**, despite fme having **no gradient clipping at
+    all**. The prereg flagged the top of the range as the arm most likely to report the missing
+    clip rather than the LR; it did not. 3e-3 is simply *worse*, not unstable.
+  - ⚠️ **THIS IS A SCREEN, NOT THE REGISTERED SWEEP.** 3,000 updates/arm against the
+    registered **36,702** (3 *full* epochs) — **8%** of it — and **n=1 per arm**. Rank order at
+    3k updates need not survive to 332k: a higher LR that wins early can be overtaken. The
+    four full arms (7589850-53) remain queued and are still the real experiment. Do not adopt
+    1e-3 for a 27-epoch production run on this evidence alone; adopt it as the **current best
+    estimate** and let the full arms confirm.
+  - ⚠ The screen ran two arms concurrently across `debug` + `debug-scaling`, so its epoch times
+    are contended and unusable; only the losses are being read.
+  - 🔄 3e-3 was walltime-truncated at 2 epochs on its first attempt and re-run (7592103), which
+    incidentally gives that arm the campaign's only rep.
+
 - **2026-09-04** — **ACE2: the LR sweep is BLOCKED BY A SATURATED QUEUE, not by a bug; a
   shortened screen is running instead, and LR 1e-3 does NOT diverge.**
   - 🚦 **The 4 preemptable LR arms (7589850-53) sat 13 h and never started.** Diagnosis before

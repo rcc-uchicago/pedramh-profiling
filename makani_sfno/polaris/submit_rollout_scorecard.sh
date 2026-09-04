@@ -75,7 +75,15 @@ for VA in "${VAS[@]}"; do
     # Driver._init_wandb reads <expDir>/wandb/makani_restart.yaml, which a seeded
     # dir has not got, and every rank dies at construction.
     V="TARGET_NODES=1,HPAR=1,WPAR=1,LOCAL_BATCH=${LB},FULL=0,EPOCHS=1,STEPS=1"
-    V="${V},SKIP_TRAIN=1,WANDB=0,EVAL_SAMPLES=${NEVAL},VALID_AUTOREG=${VA}"
+    # ⚠ LOAD_COUNTERS=0 IS REQUIRED. On the resume path makani restores the
+    # epoch counter from the checkpoint (243 for a finished production run),
+    # so with EPOCHS=1 the training loop becomes range(243, 1) -- EMPTY. No
+    # epoch runs, and because validation happens INSIDE the epoch loop, no
+    # validation runs either: the job restores, logs `resuming True` and
+    # `skip_training True`, exits 0, and writes NO validation loss. Measured
+    # 2026-09-04 (7592332/3/6). Not loading counters starts the epoch at 0 so
+    # one iteration runs; the WEIGHTS are restored either way.
+    V="${V},SKIP_TRAIN=1,WANDB=0,LOAD_COUNTERS=0,EVAL_SAMPLES=${NEVAL},VALID_AUTOREG=${VA}"
     V="${V},RUN_NUM=${TAG},MAKANI_SCALING_CSV=${MEMBER_ROOT}/bench/makani_scorecard.csv"
     V="${V},CONFIG_YAML=e3sm_alldata_full.yaml"
     V="${V},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"

@@ -18,6 +18,13 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 📋 **makani continuation: `polaris_makani_analysis_ensemble_handoff.md`** — written
+> 2026-09-04 when the training campaign closed. Covers the lead-time ladder (which decides
+> whether the rollout direction is even correct), scoring C1, and the audited 4-item scope
+> for building the snapshot ensemble. Includes 9 measured silent-failure traps and 8
+> retired claims not to resurrect.
+
+
 1. ✅ **COMPLETE 2026-09-04 — job 7585080, all 243 epochs, `Exit_status 0`**, 46 h 20 min of a
    48 h allocation. Best validation loss **0.01284** at epoch 243; **332,424 weight updates**
    for **46.3 node-hours**. Twelve snapshot-ensemble members on disk (epochs 23 through 243,
