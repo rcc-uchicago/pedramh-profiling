@@ -16,7 +16,8 @@
 # has 332,424 and its cycle minima have flattened, so C1 is far better positioned
 # here than in the version of the plan that was written.
 #
-# QUEUE: `preemptable`, NOT `capacity`. ~24 epochs at roughly 1.5-2x the 683
+# QUEUE: probe -> `debug` (1 h cap, ~19 s median start); full -> `preemptable`,
+# NOT `capacity`. ~24 epochs at roughly 1.5-2x the 683
 # s/epoch single-step cost is 7-9 h, which fits easily in preemptable's 72 h; the
 # capacity slot is not needed and should not be taken for this. Checkpoints are
 # per-epoch, so a preemption costs a resubmit, not progress.
@@ -26,7 +27,7 @@
 # ~0.3 h of that margin for one concurrent job. `7587821` covers the downside.
 #
 # Usage:
-#   bash polaris/submit_c1_rollout_finetune.sh probe     # 2 epochs, batch 16, measure peak memory
+#   bash polaris/submit_c1_rollout_finetune.sh probe     # 1 epoch on debug, batch 16, measures peak memory
 #   bash polaris/submit_c1_rollout_finetune.sh full      # 24 epochs at the batch the probe cleared
 #   LOCAL_BATCH=6 bash polaris/submit_c1_rollout_finetune.sh full
 # PASS token: C1_QUEUED mode=<mode> jobid=<id>
@@ -49,8 +50,16 @@ mkdir -p "$(dirname "${LOG}")"
 # non-torch. At the production 8 samples/GPU the doubled graph lands near 44 GB
 # on a 39.49 GiB card => expected OOM. Hence the probe defaults to 4.
 case "${MODE}" in
-    probe) LB="${LOCAL_BATCH:-4}"; EP=2;  WALL=03:00:00 ;;
-    full)  LB="${LOCAL_BATCH:-4}"; EP=24; WALL=12:00:00 ;;
+    # ONE epoch, on `debug`. One COMPLETED epoch is required and sufficient:
+    # peak memory is only logged at epoch end (plasim_trainer.log_epoch), and a
+    # single epoch already shows all three verification signals. Sizing at
+    # global batch 16 -> 2736 steps/epoch (2x production's 1368) at roughly
+    # production's 472 ms/step, since n_future 1 doubles the work per sample:
+    # ~23 min + ~6 min startup. Two epochs would be ~57 min + startup, over
+    # debug's 1 h cap -- and an over-run buys nothing the first epoch didn't.
+    # An OOM, if it comes, lands in the first few steps.
+    probe) LB="${LOCAL_BATCH:-4}"; EP="${EPOCHS:-1}";  WALL="${WALLTIME:-01:00:00}"; Q="${QUEUE:-debug}" ;;
+    full)  LB="${LOCAL_BATCH:-4}"; EP="${EPOCHS:-24}"; WALL="${WALLTIME:-12:00:00}"; Q="${QUEUE:-preemptable}" ;;
     *) echo "ERROR unknown mode '${MODE}' (probe|full)"; exit 2 ;;
 esac
 TAG="c1_rollout_${MODE}_b$((LB*4))"
@@ -69,7 +78,15 @@ V="${V},RUN_NUM=${TAG}"
 # --- the fine-tune itself ---
 V="${V},MULTISTEP=2"                 # => n_future 1. The ONLY place n_future can be set.
 V="${V},PRETRAINED=1,PRETRAINED_CKPT=${CKPT}"
-V="${V},LOAD_OPTIMIZER=0,LOAD_SCHEDULER=0,LOAD_COUNTERS=0,OVERRIDE_LR=1"
+# ⚠ LOAD_LOSS=0 IS REQUIRED, not tidiness. LossHandler carries running_mean/
+# running_var whose SHAPE depends on n_future: the checkpoint's are [101]
+# (n_future 0) and the n_future 1 model wants a different shape, so
+# driver.py's `loss.load_state_dict(checkpoint["loss_state_dict"])` raises
+# a size-mismatch RuntimeError at trainer construction. Measured: job
+# 7590350 died there. Loss stats simply re-accumulate; nothing is lost.
+# Do NOT work around it with STRICT_RESTORE=0 -- that would silently skip
+# real mismatches in the MODEL weights too.
+V="${V},LOAD_OPTIMIZER=0,LOAD_SCHEDULER=0,LOAD_COUNTERS=0,LOAD_LOSS=0,OVERRIDE_LR=1"
 # --- schedule: upstream's pretrain-2 LR, plain cosine (no restarts for a short
 #     fine-tune -- warm restarts exist to harvest snapshots over 243 epochs) ---
 V="${V},LR=4.0E-4,SCHED=CosineAnnealingLR,SCHED_MIN_LR=1.0E-6,WARMUP_EPOCHS=1,LR_START=0.01"
@@ -80,8 +97,8 @@ V="${V},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
 V="${V},OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
 V="${V},OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple"
 
-OUT=$(cd "${HERE}" && qsub -q preemptable \
-        -l select=1:system=polaris -l walltime=${WALL} \
+OUT=$(cd "${HERE}" && qsub -q "${Q}" \
+        -l select=1:system=polaris -l walltime=${WALL} -l filesystems=home:eagle \
         -v "${V}" polaris/polaris_makani_multinode_scaling.pbs 2>&1)
 if [[ "${OUT}" == *".polaris-pbs"* ]]; then
     echo "C1_QUEUED mode=${MODE} tag=${TAG} global_batch=$((LB*4)) epochs=${EP} jobid=${OUT%%.*}"
