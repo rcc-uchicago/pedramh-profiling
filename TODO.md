@@ -135,10 +135,20 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P1 — makani, next
 
-8. **First kernel-level profile of makani** — `-v NSYS=1`, per-rank capture. makani has **no**
-   profile at all (DESIGN §8 Phase 2); rank-0 step timing cannot say where the step goes, and
-   P0-5 is currently reasoning from a subtraction. ⚠ An `NSYS=1` run is truncated by design
-   (`exit_on_stop`) — its rows carry the captures and must never be averaged with full arms.
+8. ✅ **DONE 2026-09-04 — makani's first kernel-level profile** (job 7591822, all 4 ranks,
+   steps 30-40, production configuration). Result: **34.9 percent of GPU compute time is spent
+   in kernels that compute nothing** (`direct_copy`, `bfloat16_copy`, `nchwToNhwc`,
+   `FillFunctor`) against **28.5 percent in GEMM plus FFT** — a ratio of 1.23 to 1, agreeing
+   across all four ranks to within 0.4 percentage points. Same pathology as PanguWeather on the
+   same A100s (47 percent in `direct_copy`+`conj`). → `makani_bench_report.md` §5m.
+   **Follow-on, in order:**
+   a. **NVTX phase attribution** — name *which* copies. Harness exists
+      (`ACE2_retrain/nvtx_phase_attribution.py`); makani's NVTX ranges need checking against it.
+   b. **The §4.1 equivalence baseline (item 9) is now the blocker**, not the profile. No layout
+      or hot-path change may be adopted without it (CLAUDE.md #6).
+   c. Only then a layout fix, behind that gate.
+   ⚠ Not claimed: a speed-up. Kernel time (264.4 ms/step) is not wall time (472.1 ms/step
+   production), and the capture is n=1 under profiler overhead.
 
 9. **Capture a DESIGN §4.1 equivalence baseline for makani.** No hot-path change may be
    committed without one (CLAUDE.md #6), and any lever from P0-5/P1-6 is a hot-path change.

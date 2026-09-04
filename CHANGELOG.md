@@ -144,6 +144,40 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-04 (cont.)** — ⭐ **makani's FIRST kernel-level profile: it spends more GPU time
+  moving data than computing.** Job **7591822**, `nsys` per-rank capture, all 4 ranks, steps
+  30-40, at the exact production configuration. → `makani_bench_report.md` §5m.
+  - **34.9 percent of GPU compute time is spent in kernels that compute nothing** —
+    `direct_copy`, `bfloat16_copy`, `nchwToNhwc` layout transforms, `FillFunctor` — against
+    **28.5 percent in GEMM plus FFT combined**. Ratio **1.23 no-op to 1 real math**.
+  - **All four ranks agree to within 0.4 percentage points** once NCCL is excluded from the
+    denominator. NCCL kernel time swings 3.4 → 27.2 percent across ranks, which is the
+    wait-for-stragglers signature, not bandwidth — so compute time is the honest denominator.
+  - Rank 0 detail: 264.4 ms/step of kernel time, of which copy/layout **71.68 ms (448 kernel
+    launches per step)**, other elementwise 61.62 ms (703 launches), GEMM 50.67 ms (190),
+    NCCL 35.23 ms (2), FFT 14.78 ms (36), fills 8.89 ms (95).
+  - **Same pathology as PanguWeather on the same A100s** (271 ms/rank-step, 47 percent of
+    compute, in `direct_copy`+`conj`; 68 percent pointwise against 17 percent GEMM). Two
+    SFNO-family models, independently instrumented, both data-movement dominated ⇒ a property
+    of the implementation, not a one-off. The largest kernel is a `direct_copy` on **float**
+    (15.2 percent) and the third largest a `direct_copy` on **`complex<float>`** (6.1 percent),
+    consistent with real↔complex conversion and contiguity fixes around the spherical harmonic
+    transform — and Pangu's copies were measured **contiguity-bound, not bandwidth-bound**.
+  - ⚠ **No speed-up claimed, and none may be adopted yet.** Kernel time (264.4 ms/step) is not
+    wall time (472.1 ms/step in production); the capture is n=1 under profiler overhead; and
+    the share-of-kernel-time figure is documented as not reproducible run to run
+    (`polaris_bench_report.md` §4.4c), so the **milliseconds** are the quotable unit. Any
+    hot-path change is gated on the DESIGN §4 equivalence check against a captured baseline,
+    **which makani still does not have** — that (TODO item 9), not the profile, is now the
+    blocker.
+  - **Context this answers:** whether the 46-hour production run reflects the model's real cost
+    or leaves performance on the table. It leaves performance on the table. The wall-clock
+    comparison that prompted the question was itself not apples-to-apples — our run used **185
+    GPU-hours** against a 512-GPU × 60-hour reference's **30,720**, a 166× difference, on a grid
+    16× coarser — but the efficiency suspicion behind it was correct and is now measured.
+  - TODO item 8 closed; `makani_bench_report.md` §8's "no kernel-level profile at all" row
+    retired.
+
 - **2026-09-04** — ⭐ **THE 1-NODE PRODUCTION RUN IS COMPLETE, the learning-rate ceiling is
   characterised, batch 48 is closed, and C1 is running.** Write-up finished across
   `makani_bench_report.md` (§5g, §5j, §5k, §5l, §7e), the handoff, and the checkpoint doc.

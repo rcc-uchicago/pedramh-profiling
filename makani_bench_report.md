@@ -773,6 +773,71 @@ identical data, and **35.73 of 39.49 gibibytes, 90 percent card occupancy**.
 against production's own 0.01336 — **0.15 percent apart**, so the warm-start reproduces the
 parent run and the batch-48 arm's number can be trusted.
 
+### 5m. The first kernel-level profile of makani — it spends more time moving data than computing
+
+Job **7591822**, `nsys` per-rank capture, all 4 ranks, steps 30-40, at the exact production
+configuration (1 node, global batch 32, `h1w1`, 101-channel ALLDATA, 147.9 M parameters,
+`scale_factor` 3 → trunk 60×120). **This is the first kernel-level measurement of makani in
+this project** — the 84 rows across 12 CSVs before it were all system-level.
+
+**Rank 0, GPU kernel time, 264.4 milliseconds per step over the capture:**
+
+| category | share of kernel time (percent) | milliseconds per step | kernel launches per step |
+|---|---|---|---|
+| **copy / layout — computes nothing** | **27.1** | **71.68** | **448** |
+| other elementwise and reduce | 23.3 | 61.62 | 703 |
+| GEMM | 19.2 | 50.67 | 190 |
+| NCCL all-reduce | 13.3 | 35.23 | 2 |
+| FFT (spherical transform) | 5.6 | 14.78 | 36 |
+| batch norm | 4.6 | 12.07 | 64 |
+| other | 3.6 | 9.42 | 90 |
+| **fill — computes nothing** | **3.4** | **8.89** | **95** |
+
+**All four ranks agree once NCCL is excluded.** NCCL kernel time here is largely *waiting for
+other ranks*, not bandwidth — it swings from 3.4 to 27.2 percent across ranks, which is the
+straggler signature, so the honest denominator is compute time:
+
+| rank | kernel time (milliseconds per step) | computes nothing (percent of compute) | GEMM + FFT (percent of compute) |
+|---|---|---|---|
+| 0 | 264.4 | 35.2 | 28.6 |
+| 1 | 236.3 | 34.9 | 28.5 |
+| 2 | 297.9 | 34.8 | 28.6 |
+| 3 | 313.7 | 34.9 | 28.4 |
+| **mean** | — | **34.9** (spread 0.4 points) | **28.5** (spread 0.2 points) |
+
+⇒ **34.9 percent of makani's GPU compute time is spent in kernels that compute nothing** —
+`direct_copy`, `bfloat16_copy`, `nchwToNhwc` layout transforms and `FillFunctor` — against
+**28.5 percent in GEMM and FFT combined**. The ratio is **1.23 no-op to 1 real math**, and the
+four ranks agree to within half a percentage point.
+
+**This is the same pathology already measured in PanguWeather on the same A100s** — 271
+milliseconds per rank-step, 47 percent of compute, in `direct_copy` + `conj`; 68 percent
+pointwise against 17 percent GEMM (`polaris_bench_report.md` §4.3). Two SFNO-family models,
+independently instrumented, both dominated by data movement. That makes it a property of the
+implementation rather than a one-off.
+
+**Corroborating detail:** the largest single kernel is a `direct_copy` on **float** at 15.2
+percent, and the third largest is a `direct_copy` on **`complex<float>`** at 6.1 percent —
+consistent with real↔complex conversions and contiguity fixes around the spherical harmonic
+transform. Pangu's capture found its copies were **contiguity-bound, not bandwidth-bound**, and
+the indicated fix there was a layout change.
+
+⚠ **Limits of this measurement, stated plainly:**
+* **n = 1 capture, 10 steps, under profiler overhead.** Quote the **milliseconds**, not the
+  shares — `polaris_bench_report.md` §4.4c records that the share-of-kernel-time figure is not
+  reproducible run to run. The share *of compute* is reproducible across ranks here, which is a
+  weaker but real claim.
+* **Kernel time is not wall time.** 264.4 milliseconds of kernel time sits inside a production
+  step of 472.1 milliseconds; the remainder is launch gaps and synchronisation, which this
+  capture does not attribute.
+* **No speed-up is claimed.** Eliminating a copy is only a win if it does not change what the
+  model computes, and every hot-path change is gated on the DESIGN §4 numerical-equivalence
+  check against a captured baseline — **which makani does not yet have** (TODO item 9).
+
+**Next**, in order: NVTX phase attribution to name *which* copies (the harness already exists
+in `ACE2_retrain/nvtx_phase_attribution.py`), then the §4.1 equivalence baseline, then a layout
+fix behind that gate.
+
 ## 6. What the refused rows say — 15 of 30 rows carry no timing, by design
 
 The parser refuses a row rather than writing a plausible number (`NO_STEP_TIMING` → `csv_rc=4`).
@@ -1045,7 +1110,7 @@ clip fixes the ceiling"* — the exact opposite of the truth.
 | **Reps 2-3 of any ladder** | every number here is n=1, and §2 shows a 20% unexplained single-node gap | ~3 jobs/rung, ≤10 nodes, `debug-scaling` |
 | **A warmup-free, wandb-off ladder** | decides §3a vs §3c, i.e. whether the first hop is free or +35% | 4 jobs, ≤1 h |
 | **cpu-bind / progress-thread sweep on the new plugin** | ~79% of the 8-node step is exposed comms (§3b); the bind was tuned for the old plugin's manual progress | 3-4 jobs at 4 nodes |
-| **`nsys` per-rank capture (`-v NSYS=1`)** | makani has **no kernel-level profile at all**; rank-0 logging cannot answer where the step goes | 1 job (truncated by design — `exit_on_stop`) |
+| ~~`nsys` per-rank capture (`-v NSYS=1`)~~ | ✅ **DONE 2026-09-04, job 7591822 — see §5m.** 34.9 percent of GPU compute time computes nothing, against 28.5 percent GEMM+FFT | — |
 | **arm D (synthetic)** | separates an I/O loss from a comms loss | 1 job |
 | ~~**arm E (`GPU_ORDER=reverse`)**~~ ✅ **DONE 2026-09-02, §5i** | every row before it — and the production run — placed each rank on the NUMA node *farthest* from its GPU (§1). It is a placement change, not an arithmetic one, so it needs no equivalence gate, and it is the standing candidate for the host-CPU stall in `polaris_bench_report.md` §4.4e. **It matters more under spatial parallelism**, where intra-node halo traffic rides that same distance every step — and that is exactly what the measurement showed: **−7.0% at 4 nodes sharded, but +0.88% SLOWER at 1 node** (§5i). ai-rossby's two attempts at the same test were both refused (7577036 `rc=134`, 7577166 `rc=143`); makani's 3+3 reps are the first measurements of this axis in the project | ✅ done, 6 arms |
 | **A DESIGN §4 equivalence baseline** | no hot-path change may be committed without one; makani has none | 1 short job |
