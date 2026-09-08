@@ -98,6 +98,12 @@ PACK=/eagle/projects/lighthouse-uchicago/members/mehta5/data/e3sm_makani_alldata
   polaris/polaris_makani_multinode_scaling.pbs
 ```
 
+🐛 **BROKEN UNTIL 2026-09-04 — see the prod1n companion doc §4.** Our fork's entrypoint
+short-circuited `skip_training` before `trainer.train()` was ever called, so this command
+restored the checkpoint and exited 0 **without validating**. Fixed in
+`train_plasim.py:382`. If you ran this before 2026-09-04 and got no validation loss, that
+is why — the command was not wrong, the code path was.
+
 Pinning `RUN_NUM` to the existing run makes makani auto-detect the checkpoints
 and restore; `SKIP_TRAIN=1` (launcher knob added 2026-08-27) runs ONLY the
 validation pass — weights untouched — over the full 3-year valid split

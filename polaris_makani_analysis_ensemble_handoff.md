@@ -28,6 +28,30 @@ corrections of earlier wrong answers — the retired claims are listed in §5 be
 
 ---
 
+## 0a. 🐛 READ THIS FIRST — the validation path was broken until 2026-09-04
+
+**`-v SKIP_TRAIN=1` never validated anything.** Our fork's entrypoint had:
+
+```python
+train_plasim.py:382        if params.get("skip_training", False):
+                               pass            # trainer.train() NEVER called
+```
+
+makani handles `skip_training` **inside** `train()` — `deterministic_trainer.py:362` skips
+`train_one_epoch`, `:370` still runs `validate_one_epoch`. Short-circuiting before that
+skipped the entire run: restore the checkpoint, print init timers, **exit 0 having validated
+nothing**, with no error and no output. Fixed 2026-09-04 by calling `trainer.train()`.
+
+⇒ **Any "we scored the checkpoint" claim dated before 2026-09-04 in this repo is void**,
+including the `SKIP_TRAIN=1` recipe in *both* checkpoint-usage docs and the 2026-09-02
+"correction" to TODO item 3 (which was itself wrong — the original "nothing scores it" was
+right). Both docs and the TODO item now carry the retraction.
+
+**Verification is queued as 7598662 / 7598663 / 7598664.** Until the `va=3` arm reproduces
+**0.01284**, treat the entire scoring capability as unproven.
+
+*Tenth silent-failure trap of this campaign, and the fifth that exits 0.*
+
 ## 1. First task — read the lead-time ladder. It decides everything after it.
 
 Jobs **7592575 (va=3)**, **7592576 (va=10)**, **7592577 (va=20)**, scoring
@@ -233,7 +257,9 @@ All measured in this session, all silent.
    jobs with `qhold`/`qrls`.
 8. **`capacity` cannot hold a queued successor** — the cap counts running + queued
    together, so a dependent job cannot be pre-staged. Chain via `preemptable`.
-9. **Never re-run a stuck job before diagnosing.** `comment` on the queued job tells you
+9. **`SKIP_TRAIN=1` validated nothing before 2026-09-04.** `train_plasim.py:382` had a bare
+   `pass`, so `trainer.train()` was never called. Fixed; verify with the `va=3` control.
+10. **Never re-run a stuck job before diagnosing.** `comment` on the queued job tells you
    whether it is the queue or you (CLAUDE.md #12).
 
 ---

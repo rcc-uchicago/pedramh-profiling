@@ -56,9 +56,17 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
    the batch-512 production run had **no warmup at all** and could not have had any.
    Warm restarts also hand us a **free snapshot ensemble** — one checkpoint per restart (item 3).
 
-3. **Score the trained model — *rollout* inference is what's missing, not all evaluation.**
-   ⚠ **Corrected 2026-09-02:** an earlier version of this item said "nothing scores it". Not
-   true — `makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md` documents the
+3. **Score the trained model — NOTHING has ever scored a makani checkpoint on Polaris.**
+   ⚠⚠ **RE-CORRECTED 2026-09-04. The 2026-09-02 correction below was WRONG, and the original
+   claim was right.** `-v SKIP_TRAIN=1` never validated anything: our fork's entrypoint had
+   `if params.get("skip_training"): pass` (`train_plasim.py:382`), skipping the whole run —
+   restore, print timers, exit 0, no validation, no error. Fixed 2026-09-04 by calling
+   `trainer.train()` (makani skips training *inside* the loop at
+   `deterministic_trainer.py:362` and still validates at `:370`). Verification queued as
+   7598662/3/4. **Until that va=3 arm reproduces 0.01284, treat every "we can score it" claim
+   in this repo as unproven.**
+   ⚠ *Superseded text, kept to show what was wrong:* "Corrected 2026-09-02: an earlier version
+   of this item said 'nothing scores it'. Not true — `makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md` documents the
    restore path **and a one-command Polaris validation run**: `-v SKIP_TRAIN=1` restores the
    pinned `RUN_NUM` and runs validation only over the full 3-year split (4,380 samples,
    3-step rollout, ~10 min, 1 node, weights untouched). What is genuinely missing is **long
@@ -213,6 +221,10 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
        winner as the warm-restart peak. ⚠ If the winner is an endpoint, extend the range —
        do not adopt. ⚠ fme has no grad-norm and no gradient clipping, so the tie-break is
        batch_loss variance, a weaker proxy.
+    0a. ✅ **Determinism answered (2026-09-04):** two independent 1-node jobs at `seed: 3` agree
+       **bitwise** on validation loss and to **7.7e-8 (~1 ULP fp32)** on the one cross-rank
+       reduced train loss that moved. ⇒ a §4.1 equivalence baseline is achievable; tolerance
+       ~1e-7 on reduced scalars. ⚠ 1 node only — multi-node reduction orders are unmeasured.
     0. **Confirm resume is data-deterministic at production scale.** The gate passed on the
        load-bearing criterion (LR trace identical ⇒ `T_cur` survives preemption, so warm
        restarts and the snapshot ensemble are safe), but its loss diverged 23% because

@@ -379,7 +379,16 @@ def main() -> None:
             os.makedirs(out_dir, exist_ok=True)
 
     if params.get("skip_training", False):
-        pass
+        # ⚠ MUST call train(). `skip_training` is handled INSIDE makani's train
+        # loop -- deterministic_trainer.py:362 skips train_one_epoch, and :370
+        # still runs validate_one_epoch -- so calling it is what makes
+        # "restore and validate only" work. A bare `pass` here (the previous
+        # behaviour) skipped the entire run: the job restored the checkpoint,
+        # printed its init timers and exited 0 having validated NOTHING, with
+        # no error and no output. That silently broke the `-v SKIP_TRAIN=1`
+        # path both checkpoint-usage docs advertise as the one-command Polaris
+        # validation run. Measured 2026-09-04 (7592332/3/6, 7592575/6/7).
+        trainer.train()
     elif world_rank in args.capture_ranks:
         if args.capture_type == "torch":
             capture_prefix = (

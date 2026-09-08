@@ -189,6 +189,14 @@ PACK=/eagle/projects/lighthouse-uchicago/members/mehta5/data/e3sm_makani_alldata
   polaris/polaris_makani_multinode_scaling.pbs
 ```
 
+🐛 **FIXED 2026-09-04 — this path never worked before that date.** Our fork's entrypoint
+had `if params.get("skip_training"): pass` (`train_plasim.py:382`), which skipped the
+entire run: the job restored the checkpoint, printed its init timers and **exited 0 having
+validated nothing**, with no error and no output. makani handles `skip_training` *inside*
+`train()` (`deterministic_trainer.py:362` skips training, `:370` still validates), so the
+fix is to call `trainer.train()`. Any validation you believe you ran before 2026-09-04
+produced no number.
+
 Validation pass only, weights untouched, over the 3-year valid split (2045-2047,
 4,380 samples) with the 3-step autoregressive rollout. ~10 min on one node.
 
