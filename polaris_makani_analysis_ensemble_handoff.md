@@ -20,8 +20,8 @@ PASS is always the log token, never `rc` (CLAUDE.md #14).
 | batch 48 | ✅ **closed** on three axes (§5l) |
 | memory model | ✅ **works** — retrodicts the batch-64 out-of-memory failure (§5g) |
 | kernel-level profile | ✅ **done** (7591822) — **34.9 % of GPU compute time computes nothing** (§5m) |
-| C1 rollout fine-tune (7591605) | 🔵 **queued** on `capacity`, 24 epochs, ~7 h |
-| lead-time scorecard (7592575/6/7) | 🔵 **queued** on `preemptable`, `va=3/10/20` |
+| C1 rollout fine-tune | 🔵 **queued** — originally 7591605 on `capacity`; requeued as **7593272** on `preemptable` (24 h wall). `capacity` was full machine-wide (13 running / 16 queued), not blocked by us |
+| lead-time scorecard | 🔵 **queued as 7598662/3/4** on `preemptable`, `va=3/10/20`. ⚠ Two earlier rounds (7592332/3/6, 7592575/6/7) produced NOTHING — see §0a |
 
 ⚠ **Do not re-derive any of the above.** Every one cost real jobs and several are
 corrections of earlier wrong answers — the retired claims are listed in §5 below.
@@ -54,7 +54,7 @@ right). Both docs and the TODO item now carry the retraction.
 
 ## 1. First task — read the lead-time ladder. It decides everything after it.
 
-Jobs **7592575 (va=3)**, **7592576 (va=10)**, **7592577 (va=20)**, scoring
+Jobs **7598662 (va=3)**, **7598663 (va=10)**, **7598664 (va=20)**, scoring
 production's `best_ckpt` at three rollout lengths.
 
 ```bash
@@ -82,7 +82,7 @@ That third row is a live possibility and nobody has excluded it. The premise tha
 
 ## 2. Second task — score C1 the same way
 
-When 7591605 finishes:
+When C1 (7593272) finishes:
 
 ```bash
 bash makani_sfno/polaris/submit_rollout_scorecard.sh c1_rollout_full_b16 3 10 20
