@@ -818,6 +818,29 @@ class PlasimTrainer(Trainer):
         base.setdefault("validation steps", 0)
         base.setdefault("validation loss", float("nan"))
         valid_logs.setdefault("metrics", {})
+
+        # Per-lead metrics to the SCREEN log, not only to wandb.
+        # `validation loss` is NOT lead-time resolved: scoring the same
+        # checkpoint at valid_autoreg_steps 3, 10 and 20 returned byte-identical
+        # 0.01284 while validation TIME scaled 17.3 -> 41.9 -> 74.4 s, so the
+        # rollout really ran and the scalar simply does not reflect it
+        # (jobs 7598662/3/4). The lead-resolved numbers live in
+        # `valid_logs["metrics"]`, which MetricsHandler builds with
+        # num_rollout_steps = valid_autoreg_steps + 1 -- but until now they
+        # reached only wandb, and wandb MUST be off for a seeded/forked expDir
+        # (Driver._init_wandb needs a makani_restart.yaml that a seeded dir has
+        # not got). So on the one path that can score a checkpoint, they were
+        # computed every epoch and discarded. Wrapped: a diagnostic must never
+        # be able to kill a run.
+        try:
+            _m = {k: v for k, v in valid_logs["metrics"].items() if np.isscalar(v)}
+            if _m and self.log_to_screen:
+                self.logger.info("Per-lead validation metrics:")
+                for _k in sorted(_m):
+                    self.logger.info("    %s: %s" % (_k, _m[_k]))
+        except Exception:  # noqa: BLE001 - diagnostic only
+            logging.warning("per-lead metric logging failed", exc_info=True)
+
         result = super().log_epoch(train_logs, valid_logs, timing_logs)
 
         # Flat epoch keys for the cross-project contract (`valid_loss` /

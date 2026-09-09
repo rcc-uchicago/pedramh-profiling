@@ -20,8 +20,8 @@ PASS is always the log token, never `rc` (CLAUDE.md #14).
 | batch 48 | ✅ **closed** on three axes (§5l) |
 | memory model | ✅ **works** — retrodicts the batch-64 out-of-memory failure (§5g) |
 | kernel-level profile | ✅ **done** (7591822) — **34.9 % of GPU compute time computes nothing** (§5m) |
-| C1 rollout fine-tune | 🔵 **queued** — originally 7591605 on `capacity`; requeued as **7593272** on `preemptable` (24 h wall). `capacity` was full machine-wide (13 running / 16 queued), not blocked by us |
-| lead-time scorecard | 🔵 **queued as 7598662/3/4** on `preemptable`, `va=3/10/20`. ⚠ Two earlier rounds (7592332/3/6, 7592575/6/7) produced NOTHING — see §0a |
+| C1 rollout fine-tune (7593272) | ✅ **complete** — 24 epochs, 8.0 h, 26.13 gibibytes. Validation flat at 0.01303-0.01312 while training fell to 0.01260. **+1.5 % vs base on a metric that cannot see rollout skill** — see §2 |
+| lead-time scorecard (7598662/3/4) | ⚠️ **ran, control passed, inconclusive** — `validation loss` is byte-identical at va=3/10/20, i.e. not lead-resolved. Per-lead metrics were being discarded; fix landed but is **unverified**. See §1 |
 
 ⚠ **Do not re-derive any of the above.** Every one cost real jobs and several are
 corrections of earlier wrong answers — the retired claims are listed in §5 below.
@@ -52,50 +52,88 @@ right). Both docs and the TODO item now carry the retraction.
 
 *Tenth silent-failure trap of this campaign, and the fifth that exits 0.*
 
-## 1. First task — read the lead-time ladder. It decides everything after it.
+## 1. First task — surface the per-lead metrics. The scalar loss cannot answer the question.
 
-Jobs **7598662 (va=3)**, **7598663 (va=10)**, **7598664 (va=20)**, scoring
-production's `best_ckpt` at three rollout lengths.
+**RESULT 2026-09-04 (jobs 7598662/3/4 — the ladder ran, the control passed, and it still
+could not answer the question).**
+
+| requested `valid_autoreg_steps` | banner confirms | validation TIME (s) | reported `validation loss` |
+|---|---|---|---|
+| 3 | 3 | 17.27 | **0.01284** |
+| 10 | 10 | 41.87 | **0.01284** |
+| 20 | 20 | 74.40 | **0.01284** |
+
+✅ **The `va=3` control reproduced 0.01284 exactly**, so the scoring path is now correct and
+the `train_plasim.py:382` fix works. ✅ `VALID_AUTOREG` reaches the run — validation time
+scales 4.3× from va=3 to va=20, so the longer rollouts genuinely execute.
+
+🐛 **But `validation loss` is NOT lead-time resolved.** Byte-identical at three rollout
+lengths while the work scales 4.3× is not a physical result — the scalar is a single-step
+score and always was. **Every `validation loss` in this project, including production's
+0.01284, is a single-step number, not the 4-step score earlier documents claimed.**
+
+**The lead-resolved numbers exist but were being discarded.** `MetricsHandler` is built with
+`num_rollout_steps = valid_autoreg_steps + 1` (`deterministic_trainer.py:169-170`) and fills
+`valid_logs["metrics"]` — which reached **only wandb**, and wandb **must be off** for a
+seeded expDir (trap 2). So on the one path that can score a checkpoint, the per-lead metrics
+were computed every epoch and thrown away.
+
+**Fixed 2026-09-04**: `plasim_trainer.log_epoch` now prints them to the screen log under
+`Per-lead validation metrics:`. **UNVERIFIED — no job has run since.** First task:
 
 ```bash
-grep "validation loss" $MEMBER_ROOT/runs/makani_mn_scaling/score_prod1n_b32_sgdr_va*.log
+bash makani_sfno/polaris/submit_rollout_scorecard.sh prod1n_b32_sgdr 3 10 20   # delete the old score_* dirs first
+grep -A40 "Per-lead validation metrics" $MEMBER_ROOT/runs/makani_mn_scaling/score_prod1n_b32_sgdr_va20.log
 ```
 
-**Check `va=3` FIRST — it is a control.** It must reproduce **0.01284**. If it does
-not, the scoring path is wrong and the other two arms mean nothing. (This is the same
-discipline that made the 9-arm factorial readable, and the one time it was skipped the
-batch-48 result became uninterpretable.)
+If that block is empty or absent, `valid_logs["metrics"]` is not populated on this path and
+the next option is makani's `Inferencer` (see §3) — do **not** fall back to reading
+`validation loss`, which cannot work.
 
-Then read the *shape* of loss versus lead time. **It distinguishes two different
-diseases, and they need different cures:**
+Once the per-lead numbers exist, read the *shape* against lead time:
 
-| shape from va=3 → va=20 | diagnosis | what to do |
+| shape | diagnosis | what to do |
 |---|---|---|
-| error grows fast, possibly unstably | **exposure bias** — the model never saw its own imperfect output | C1 is correctly aimed; continue §2 |
-| error rises then **flattens** toward a plateau | **blurring / under-dispersion** — MSE training regresses to the mean, which compounds | C1 will underdeliver; the fix is CRPS, §4 |
-| error barely moves | **neither** — compounding is not our problem | ⚠ **STOP.** C1 and the whole ensemble direction are misaimed. Find the real cause of "inference worse than expected" first |
+| error grows fast, possibly unstably | **exposure bias** — the model never saw its own imperfect output | C1 is correctly aimed |
+| error rises then **flattens** toward a plateau | **blurring / under-dispersion** — MSE regresses to the mean, which compounds | C1 will underdeliver; the fix is CRPS, §4 |
+| error barely moves | **neither** — compounding is not our problem | ⚠ **STOP.** The whole rollout/ensemble direction is misaimed |
 
-That third row is a live possibility and nobody has excluded it. The premise that
-`n_future: 0` explains the weak inference was **inferred, never confirmed**.
+That third row is still live. The premise that `n_future: 0` explains the weak inference was
+**inferred, never confirmed**.
 
 ---
 
-## 2. Second task — score C1 the same way
+## 2. Second task — C1 has RUN. Re-score it once §1 works.
 
-When C1 (7593272) finishes:
+**C1 (7593272) completed all 24 epochs**, ~1195 s/epoch ≈ **8.0 hours**, no errors, memory
+**18.13 + 8.00 = 26.13 gibibytes** (66 % of the card — the probe's prediction held exactly).
+
+| quantity | value |
+|---|---|
+| training loss, epoch 1 → 24 | 0.01347 → **0.01260**, descending steadily |
+| validation loss, epoch 1 → 24 | 0.01312 → **0.01304**, essentially **flat** |
+| best validation | **0.01303** (epoch 18) |
+| gradient norm | 0.0434 → 0.0335, monotone, no excursion |
+| versus base model's 0.01284 | **+1.5 % worse** |
+
+**Do not conclude from this that C1 failed.** Two reasons:
+
+1. **The metric cannot see what C1 targets** — §1 proves `validation loss` is a single-step
+   score. C1 trades single-step accuracy for multi-step stability *by construction*, so a
+   ~1.5 % single-step regression is the **expected** sign.
+2. It is the same magnitude as the one-epoch probe (+2.6 %), i.e. the cost was paid early and
+   did not grow over 24 epochs.
+
+⚠ **What is genuinely worth noting:** training loss fell 6.5 % while validation stayed flat —
+a widening train/validation gap over 24 epochs. That is consistent with fitting the training
+rollout without generalising, and is a real caveat to weigh once the per-lead numbers exist.
 
 ```bash
 bash makani_sfno/polaris/submit_rollout_scorecard.sh c1_rollout_full_b16 3 10 20
 ```
 
-Compare **models at a fixed rollout length**. Do *not* compare across lengths — a
-longer rollout needs more trailing frames, so the set of valid start indices differs.
-
-⚠ **Expect little or nothing at va=3.** Four steps is 24 forecast hours; compounding is
-negligible there. C1's one-epoch probe already read 0.013169 against the base model's
-0.01284 — **2.6 % worse** — and that is the *expected* shape of a rollout fine-tune
-trading single-step accuracy for multi-step stability. A flat or slightly worse va=3 is
-**not** evidence C1 failed. The signal, if it exists, is at va=10 and va=20.
+Compare **models at a fixed rollout length**, never across lengths (a longer rollout needs
+more trailing frames, so the valid start-index set differs).
 
 ---
 
