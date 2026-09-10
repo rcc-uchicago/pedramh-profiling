@@ -103,6 +103,7 @@ one in place.
 | **D** | `rollout_driver.py:281-302` | 🐛 **Real bug — see §2.2** | ~10 lines |
 | **E** | anchor / calendar | **Decision required — see §2.3** | ? |
 | **F** | `scripts/submit_eval.sh` | Polaris PBS sibling. Copy the env-bootstrap block **verbatim** from `polaris/polaris_makani_env_probe.pbs` | 1 script |
+| **G** | `src/sfno_eval/metrics.py:26,51` | 🐛 **Silent — wrong quadrature for our grid. See §2.5** | ~15 lines |
 
 A-D total roughly 25 lines and are mechanical.
 
@@ -166,6 +167,48 @@ label gets written on the output files.
 
 **Recommendation: take step-index labelling** unless calendar-dated NetCDF is
 required by a downstream consumer.
+
+### 2.5 Change G — the group scorer uses the wrong quadrature for our grid
+
+**This one is silent, and it affects any scorecard number produced for E3SM.**
+
+`src/sfno_eval/metrics.py` builds latitude weights with **Gauss-Legendre
+quadrature**:
+
+- `:26` `legendre_gauss_lat_weights(nlat)` — Gauss-Legendre nodes/weights
+- `:51` `cache_lat_weights(out_path, nlat: int = 64)` — default **64**
+
+That is correct for the PLaSim track, whose grid is **T21 Gaussian, 64x128**
+(hence the dataset name `sim52_astro_64x128_zgplev`).
+
+Our E3SM pack is **equiangular**, verified from the run's `config.json`:
+`model_grid_type = equiangular`, `data_grid_type = equiangular`,
+`img_shape_x = 180`, `img_shape_y = 360`, with lat `[89.5, 88.5, … -89.5]` — a
+regular grid whose correct area weight is proportional to `cos(lat)`, **not**
+Gauss-Legendre.
+
+⚠ **It fails silently.** The only guard is
+`if pred.shape[-2] != lat_weights.shape[0]` (`:89`), so 180 weights against 180
+latitudes passes and the function returns a plausible, incorrectly-weighted
+number. The error is worst near the poles, where GL nodes and equiangular cell
+centres diverge most.
+
+✅ **makani's own metric path is unaffected** — `MetricsHandler` takes
+`grid_type` from `params.model_grid_type` and passes it into `GeometricRMSE`,
+so the per-lead curves produced by the training-side patch (commit `652e9505`)
+use the correct equiangular quadrature.
+
+⇒ Two consequences:
+1. **Prefer makani's `MetricsHandler` over the group scorer for E3SM**, which
+   is also what the lagged-ensemble plan does for CRPS/spread/SSR/rank
+   histogram (`2026-09-10_lagged_ensemble_endtoend_plan.md` §4).
+2. If the group scorer is used at all, `legendre_gauss_lat_weights` must
+   branch on grid type. Generalizing fix, not an E3SM special case: take
+   `grid_type` as an argument and return `cos(lat)` weights for
+   `equiangular`.
+
+⚠ If a scorecard number and a validation-side number ever disagree, **the
+validation-side one is the correct one** until this is fixed.
 
 ### 2.4 New work for the lagged ensemble (not part of the port)
 
