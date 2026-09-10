@@ -1,0 +1,82 @@
+#!/bin/bash -l
+#PBS -N makani_perlead_test
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Run the per-lead validation-metric tests on a compute node.
+#
+# WHY A JOB FOR A CPU TEST.  The tests are CPU-only, but CLAUDE.md #3 forbids
+# importing torch on a Polaris login node -- it hangs or core-dumps there, and
+# the repo root's core.* files are what that rule is made of.
+#
+# WHAT IT GUARDS.  makani built ZERO metric handles on the E3SM channel set:
+# MetricsHandler intersects its ERA5 defaults with params.channel_names
+# (metric.py:305-311) and constructs a handle only if the survivors are
+# non-empty (:361).  Empty intersection => no per-lead metric, no error, rc=0.
+# tests/sfno_training/test_per_lead_metrics.py pins both the fix and the
+# upstream silent-failure semantics it works around.
+#
+# PASS = PERLEAD_METRICS_OK.  Per CLAUDE.md #14, rc=0 is NOT the pass signal:
+# pytest's own exit code is checked, but key on the token.
+#
+# Submit from makani_sfno/:
+#     qsub polaris/polaris_perlead_metrics_test.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_makani_env_probe.pbs -- module
+# ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
+# script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+# A --system-site-packages venv re-enables the USER site, which site.py ranks
+# ABOVE the venv.
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+echo "=== makani_perlead_test: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "MAKANI_ROOT=${MAKANI_ROOT}"
+makani_env_report
+echo
+
+# The tests are CPU-only by construction (device="cpu"): a GPU here would only
+# add allocator noise to a correctness check.
+export CUDA_VISIBLE_DEVICES=""
+
+"${PY}" -m pytest -q \
+    "${MAKANI_ROOT}/tests/sfno_training/test_per_lead_metrics.py" \
+    -p no:cacheprovider
+rc=$?
+
+echo "--- pytest rc=${rc} ---"
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR PERLEAD_METRICS_FAILED rc=${rc}"
+    exit 4
+fi
+
+echo "PERLEAD_METRICS_OK  env_source=${MAKANI_ENV_SOURCE}"
+echo "=== makani_perlead_test done $(date -Iseconds) ==="

@@ -56,7 +56,11 @@ CKPT="${EXPROOT}/${SRC_RUN}/training_checkpoints/best_ckpt_mp0.tar"
 echo "scoring ${SRC_RUN}  best_ckpt  at rollout lengths: ${VAS[*]}"
 
 for VA in "${VAS[@]}"; do
-    TAG="score_${SRC_RUN}_va${VA}"
+    # TAG_SUFFIX rescores without deleting a previous arm's expDir (1.7 GB each,
+    # and its out.log is the only on-disk copy of that arm's result). Needed
+    # every time a trainer change has to be re-verified against the same
+    # checkpoint at the same rollout length.
+    TAG="score_${SRC_RUN}_va${VA}${TAG_SUFFIX:-}"
     DST="${EXPROOT}/${TAG}"
     if [ -d "${DST}" ]; then
         echo "  SKIP ${TAG}: expDir exists (delete it to rescore)"; continue
