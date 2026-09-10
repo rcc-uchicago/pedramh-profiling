@@ -61,6 +61,32 @@ the conclusion.**
 an arm a distinct `expDir`. Two REPS of one config measure GPU nondeterminism
 directly.
 
+## 0b. ✅ RESULT — Phase -1 memory probe PASSED. Both depths are feasible.
+
+Jobs **7603323** (`n_future=3`) and **7603324** (`n_future=4`), `debug`, 60
+truncated steps each, warm-started from the base checkpoint.
+
+| arm | global batch | predicted GiB | **measured GiB** (torch + non-torch) | error | % of 39.49 card | step time | throughput |
+|---|---|---|---|---|---|---|---|
+| `n_future=3` | 12 (3/GPU) | 35.75 | **35.51** (27.50 + 8.01) | **+0.24** | 90 % | 713 ms | 16.8 samples/s |
+| `n_future=4` | 8 (2/GPU) | 31.51 | **30.28** (22.29 + 7.99) | +1.23 | 77 % | 567 ms | 14.1 samples/s |
+
+⇒ **The memory model survives extrapolation.** It was calibrated at `n_future`
+0 and 1 only; at depth 3 it predicts within **0.24 GiB**, and at depth 4 it
+over-predicts by 1.23 — the same direction and magnitude as its +1.06 at depth 1.
+The `b <= 13.76/(n+1)` bound is confirmed usable.
+
+Headroom check at `n_future=4`: measured per-sample term is
+`(22.29 - 2.31)/2 = 9.99` GiB, so 3 samples/GPU would need
+`2.31 + 29.97 + 8 = 40.28` GiB — over the card. **2/GPU is correct for depth 4**,
+exactly as predicted.
+
+Throughput was estimated at 18.5 / 14.8 samples/s and measured at
+**16.8 / 14.1** — close enough that the wall-clock plan in §8 stands.
+
+⚠ This clears the *feasibility* gate only. It says nothing about whether depth
+helps; §7's decision rules still govern that.
+
 ## 1. Threats to validity — what would make us WRONGLY accept H1
 
 | # | threat | control |
