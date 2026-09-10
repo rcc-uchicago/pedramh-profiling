@@ -25,6 +25,42 @@ cannot be an artifact of that.
 ⇒ **H0 must be the default.** The burden is on H1, and a weak positive should be
 read as noise.
 
+## 0a. 🔴 AMENDED 2026-09-10, BEFORE ANY SCIENCE ARM RAN — "3 seeds" is not implementable
+
+**makani has no global training seed, and asking for one would be a silent
+no-op.** Verified:
+
+- Every `seed=333` in the makani tree belongs to a noise module, a DALI loader,
+  or drop-path. **This fork uses none of them** — it has its own
+  `_plasim_get_dataloader`.
+- Our sampler is `DistributedSampler(..., shuffle=True)`
+  (`plasim_trainer.py:104-110`) with **no `seed` argument**, so torch defaults to
+  seed 0; and **nothing calls `set_epoch()`**, so the shuffle is identical every
+  epoch.
+- The PBS renderer has **no `seed` key** (`_bools` at `:451-459` plus the
+  explicit key list), so `-v SEED=...` is accepted by `qsub` and then dropped.
+- **Every arm restores the same pretrained checkpoint**, so there is no random
+  weight initialisation to vary either.
+
+⇒ Between identical starting weights and a deterministic data order, repeated
+training runs of one configuration differ **only by GPU nondeterminism** (cuDNN
+algorithm choice, atomic reduction order). "3 seeds" as originally written would
+have produced three near-identical runs and a fake `sigma_0` near zero — which
+would have made *any* difference look significant. **That would have inverted
+the conclusion.**
+
+**Revised replication strategy — and it is stronger, not weaker:**
+
+| what | replicate over | why |
+|---|---|---|
+| noise floor | **initial conditions** (3) and **snapshot checkpoints** (3) | neither needs a seed; both are the variation that actually limits ranking |
+| each `n_future` arm | trained **once**, evaluated on the **same 3 ICs** as every other arm | a *paired* comparison across ICs, which is statistically stronger than unpaired seeds |
+| training nondeterminism | 2 `REPS` of one configuration | **measures** it rather than assuming it |
+
+`REPS` in `submit_nfuture_ladder.sh` therefore sets **no seed** — it only gives
+an arm a distinct `expDir`. Two REPS of one config measure GPU nondeterminism
+directly.
+
 ## 1. Threats to validity — what would make us WRONGLY accept H1
 
 | # | threat | control |
