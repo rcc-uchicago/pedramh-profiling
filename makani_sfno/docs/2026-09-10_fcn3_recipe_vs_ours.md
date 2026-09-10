@@ -105,6 +105,69 @@ climatological ceiling at 94 vs 95 steps, late/early slope ratio 0.774 vs
 the error level, not the spectral behaviour that governs stability.** Upstream
 never relies on rollout depth alone.
 
+## 4a. What the stochastic route would COST — measured, 2026-09-10
+
+`ensemble_size` folds into the batch (`ensemble_trainer.py:502`,
+`expand_ensemble(inp, E)` -> `(B*E, C, H, W)`), so both memory and compute scale
+**linearly in E**. Combining that with the measured memory model and the
+measured throughput law:
+
+    memory:      (n_future+1) * samples_per_GPU * E  <=  13.76
+    throughput:  samples/s  ~  67.8 / ((n_future+1) * E)
+
+The throughput law is well validated — predicted vs measured samples/s is
+16.95 vs **16.83** at `n_future=3` and 13.56 vs **14.11** at `n_future=4`
+(jobs 7603323 / 7603324).
+
+| configuration | `n_f` | E | max b/GPU | global batch | samples/s | relative |
+|---|---|---|---|---|---|---|
+| **our base today** | 0 | 1 | 8 | 32 | 67.8 | **1.00x** |
+| C1 | 1 | 1 | 6 | 24 | 37.1 | 0.55x |
+| `n_future=3` (measured) | 3 | 1 | 3 | 12 | 16.8 | 0.25x |
+| `n_future=4` (measured) | 4 | 1 | 2 | 8 | 14.1 | 0.21x |
+| **FCN3 stage-2 shape** | 3 | **2** | 1 | **4** | ~8.4 | **0.12x** |
+| **FCN3 stage-1 shape** | 0 | **16** | 0.86 | — | — | ❌ **does not fit** |
+
+⇒ **FCN3's stage 1 does not fit our hardware.** At `ensemble_size: 16` the
+activation term needs 16x the memory and the bound gives **under one sample per
+GPU**. FCN3 says as much itself (`:220`): stage 1 needs 80 GB VRAM *and*
+model-parallelism `h=2, w=2`. We have 40 GB cards, so we would need sharding
+merely to fit one sample — and our own scaling study measured that sharding
+costs throughput.
+
+⇒ **A stochastic FINE-TUNE, however, is affordable.** Global batch collapses to
+4 and throughput to 12 % of baseline, but FCN3 deliberately shrinks stage 2's
+data budget (`n_train_samples_per_epoch: 6720` against stage 1's 26880). At that
+budget 24 epochs is **~5 hours**; at C1-style full epochs it is ~35 hours.
+
+⇒ **Redoing the base pretrain stochastically is not affordable**: 46.3
+node-hours becomes roughly **350** (7.6x), before counting CRPS's own cost —
+pairwise/sorting over members, plus a spherical harmonic transform per member
+for the spectral term.
+
+⚠ And the binding cost is not GPU hours. Our fork extends the **deterministic**
+`Trainer`; the four contract patches that make our 107->101 channels and forcing
+feedback work **do not exist on `ensemble_trainer.py`**. That port is the
+bottleneck (handoff §4).
+
+### 4b. And ACE2 says you may not need to pay any of it
+
+**ACE2 trains with `loss: type: MSE`** (`config_polaris.yaml:120-121`) — no
+ensemble, no CRPS, no input noise anywhere in its config — and reaches
+**7300-step (5-year)** stable rollouts.
+
+So the two working reference points disagree about the route:
+
+| | how it buys stability | cost to us |
+|---|---|---|
+| **FCN3** | probabilistic objective — CRPS, ensemble, input noise, spectral CRPS | high; stage 1 does not fit our cards |
+| **ACE2** | **corrector** (conservation + positivity), per-channel loss weights, residual normalization | near-free; the corrector needs **no training at all** |
+
+⇒ **Treat the stochastic route as the fallback, not the plan.** The cheap
+experiments — an inference-time positivity clamp, and `time_diff_stds` +
+`temp_diff_normalization` — sit on the ACE2 path and cost hours. The stochastic
+port earns its price only if those fail.
+
 ## 5. Consequences
 
 1. **Nothing was done wrong.** The two-stage shape is right and was followed.
