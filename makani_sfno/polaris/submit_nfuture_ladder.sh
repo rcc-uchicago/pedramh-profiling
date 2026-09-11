@@ -77,6 +77,12 @@ case "${MODE}" in
   # Science arm: batch HELD at 8 global (prereg T3), one full pass of data.
   proxy) LB="${LOCAL_BATCH:-2}"; EP="${EPOCHS:-1}"; ST=60; FULLFLAG=1
          WALL="${WALLTIME:-01:00:00}"; Q="${QUEUE:-debug}" ;;
+  # Diagnostic arm: matches C1 in EVERYTHING except what is being varied, so
+  # the proxy's failure can be attributed. Defaults to C1's 24 epochs and C1's
+  # 1-epoch warmup; override EPOCHS / WARMUP to isolate one factor at a time.
+  # See docs/2026-09-11_proxy_failure_diagnosis.md.
+  diag)  LB="${LOCAL_BATCH:-2}"; EP="${EPOCHS:-24}"; ST=60; FULLFLAG=1
+         WALL="${WALLTIME:-08:00:00}"; Q="${QUEUE:-preemptable}" ;;
   *) echo "ERROR unknown mode '${MODE}' (probe|proxy)"; exit 2 ;;
 esac
 
@@ -116,7 +122,13 @@ for SEED in ${REPS}; do
     # project has lost days.
     # LR 4.0E-4 is upstream's pretrain-2 value and what C1 used -- held fixed so
     # the ladder varies depth alone.
-    V="${V},LR=4.0E-4,SCHED=CosineAnnealingLR,SCHED_MIN_LR=1.0E-6,WARMUP_EPOCHS=0,LR_START=0.01"
+    # ⚠ WARMUP defaults to C1's value of 1 epoch. The first proxy run used 0 and
+    # that is a prime suspect for why it failed to reproduce C1: C1's ENTIRE
+    # first epoch was a ramp from 0.01*lr = 4e-6 up to 4e-4, whereas a
+    # no-warmup 1-epoch run spends its whole life at full 4e-4 on converged
+    # weights -- roughly 2x C1's average first-epoch LR, at a quarter of the
+    # base run's batch. Set WARMUP=0 deliberately if that is what you are testing.
+    V="${V},LR=4.0E-4,SCHED=CosineAnnealingLR,SCHED_MIN_LR=1.0E-6,WARMUP_EPOCHS=${WARMUP:-1},LR_START=0.01"
     V="${V},CKPT_VERSIONS=4"
     V="${V},MAKANI_SCALING_CSV=${MEMBER_ROOT}/bench/makani_nfuture_ladder.csv"
     V="${V},CONFIG_YAML=e3sm_alldata_full.yaml"
