@@ -83,8 +83,16 @@ case "${MODE}" in
   # See docs/2026-09-11_proxy_failure_diagnosis.md.
   diag)  LB="${LOCAL_BATCH:-2}"; EP="${EPOCHS:-24}"; ST=60; FULLFLAG=1
          WALL="${WALLTIME:-08:00:00}"; Q="${QUEUE:-preemptable}" ;;
-  *) echo "ERROR unknown mode '${MODE}' (probe|proxy)"; exit 2 ;;
+  # CRPS / ensemble arm. ensemble_size folds into the batch, so memory goes as
+  # (n_future+1) * samples_per_GPU * E <= 13.76. At MULTISTEP=5, E=2 that is
+  # 10*b <= 13.76 => b = 1 per GPU, global batch 4. LOCAL_BATCH defaults to 1
+  # for that reason; raising it will OOM at depth 4.
+  crps)  LB="${LOCAL_BATCH:-1}"; EP="${EPOCHS:-1}"; ST=60; FULLFLAG=1
+         WALL="${WALLTIME:-03:00:00}"; Q="${QUEUE:-preemptable}"
+         CFG="${CONFIG_YAML:-e3sm_alldata_crps.yaml}" ;;
+  *) echo "ERROR unknown mode '${MODE}' (probe|proxy|diag|crps)"; exit 2 ;;
 esac
+CFG="${CFG:-${CONFIG_YAML:-e3sm_alldata_full.yaml}}"
 
 # ⚠ THERE IS NO SEED KNOB, AND ASKING FOR ONE WOULD BE A SILENT NO-OP.
 # Verified 2026-09-10: makani has no global training seed -- every `seed=333` in
@@ -131,7 +139,7 @@ for SEED in ${REPS}; do
     V="${V},LR=4.0E-4,SCHED=CosineAnnealingLR,SCHED_MIN_LR=1.0E-6,WARMUP_EPOCHS=${WARMUP:-1},LR_START=0.01"
     V="${V},CKPT_VERSIONS=4"
     V="${V},MAKANI_SCALING_CSV=${MEMBER_ROOT}/bench/makani_nfuture_ladder.csv"
-    V="${V},CONFIG_YAML=e3sm_alldata_full.yaml"
+    V="${V},CONFIG_YAML=${CFG}"
     V="${V},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
     V="${V},OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
     V="${V},OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple"

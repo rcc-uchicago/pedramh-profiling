@@ -1,5 +1,5 @@
 #!/bin/bash -l
-#PBS -N makani_perlead_test
+#PBS -N makani_fork_tests
 #PBS -A lighthouse-uchicago
 #PBS -q debug
 #PBS -l select=1:system=polaris
@@ -69,6 +69,7 @@ export CUDA_VISIBLE_DEVICES=""
 
 "${PY}" -m pytest -q \
     "${MAKANI_ROOT}/tests/sfno_training/test_per_lead_metrics.py" \
+    "${MAKANI_ROOT}/tests/sfno_training/test_ensemble_trainer_wiring.py" \
     -p no:cacheprovider
 rc=$?
 

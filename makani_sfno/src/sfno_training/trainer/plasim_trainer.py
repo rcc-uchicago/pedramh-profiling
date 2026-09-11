@@ -61,7 +61,9 @@ from makani.utils.dataloaders.data_helpers import get_climatology, get_data_norm
 from makani.utils.driver import Driver
 from makani.utils.metric import MetricsHandler
 from makani.utils.training import deterministic_trainer
+from makani.utils.training import ensemble_trainer
 from makani.utils.training.deterministic_trainer import Trainer
+from makani.utils.training.ensemble_trainer import EnsembleTrainer
 
 logger = logging.getLogger("sfno_training.trainer")
 
@@ -277,7 +279,16 @@ _PATCHES_INSTALLED: bool = False
 
 
 def _install_plasim_patches() -> None:
-    """Rebind the four Makani module attributes. Idempotent."""
+    """Rebind the Makani module attributes. Idempotent.
+
+    ``ensemble_trainer`` is patched alongside ``deterministic_trainer`` because
+    it performs the SAME module-scope imports —
+    ``from makani.utils.dataloader import get_dataloader`` (:38) and
+    ``from makani.mpu.helpers import sync_params`` (:50) — so a rebind on one
+    module does nothing for the other. Missing this would give an ensemble run
+    stock Makani's dataloader, which has no slot for our 7 forcing channels and
+    would train on silently wrong inputs rather than failing.
+    """
     global _PATCHES_INSTALLED
     if _PATCHES_INSTALLED:
         return
@@ -286,9 +297,11 @@ def _install_plasim_patches() -> None:
     model_registry.MultiStepWrapper = PlasimMultiStepWrapper
     deterministic_trainer.get_dataloader = _plasim_get_dataloader
     deterministic_trainer.sync_params = _serialized_sync_params
+    ensemble_trainer.get_dataloader = _plasim_get_dataloader
+    ensemble_trainer.sync_params = _serialized_sync_params
 
     _PATCHES_INSTALLED = True
-    logger.info("installed PlaSim trainer patches")
+    logger.info("installed PlaSim trainer patches (deterministic + ensemble)")
 
 
 # ---------------------------------------------------------------------------
@@ -1045,3 +1058,44 @@ class PlasimTrainer(Trainer):
                 path,
                 ema_loss,
             )
+
+
+# ---------------------------------------------------------------------------
+# Ensemble variant — CRPS / probabilistic training on the same data contract
+# ---------------------------------------------------------------------------
+class PlasimEnsembleTrainer(PlasimTrainer, EnsembleTrainer):
+    """:class:`PlasimTrainer`'s overrides, on Makani's **ensemble** trainer.
+
+    The body is empty on purpose. This works — and is a two-line change rather
+    than the rewrite the handoff scoped — because of three facts, each verified:
+
+    1. ``EnsembleTrainer`` **subclasses** ``Trainer``
+       (``ensemble_trainer.py:62``), the same base ``PlasimTrainer`` extends.
+    2. ``PlasimTrainer`` calls ``super()`` **exclusively** — never
+       ``Trainer.method(self, ...)``. So its ``super()`` calls follow the MRO of
+       whatever class it is mixed into.
+    3. Python's C3 linearisation gives
+       ``PlasimEnsembleTrainer -> PlasimTrainer -> EnsembleTrainer -> Trainer``.
+
+    ⇒ Every ``super()`` inside ``PlasimTrainer`` — ``__init__``,
+    ``_set_data_shapes``, ``validate_one_epoch``, ``log_epoch`` — resolves to
+    **EnsembleTrainer**, so the PlaSim/E3SM contract (107→101 channels, forcing
+    feedback, the rebuilt per-lead metrics, the EMA pass, the warm-start) is
+    layered on top of ensemble folding and CRPS instead of on the deterministic
+    path. Nothing is duplicated.
+
+    ⚠ ``_install_plasim_patches`` MUST rebind ``ensemble_trainer``'s
+    module-scope ``get_dataloader``/``sync_params`` as well — it does. Without
+    that this class would silently train on stock Makani's dataloader, which
+    drops our 7 forcing channels.
+
+    ⚠ ``local_ensemble_size`` is NOT set by makani's deterministic entrypoint;
+    ``train_stochastic.py:93`` sets it and ``train.py`` does not. Our
+    ``train_plasim.py`` therefore sets it explicitly. ``comm.init`` already
+    creates the ``ensemble`` data-parallel group at size 1 by default
+    (``comm.py:117-118``), so with no ensemble parallelism
+    ``local_ensemble_size == ensemble_size``.
+
+    Requires ``ensemble_size > 1`` and an ``ensemble_*`` loss in the config;
+    a deterministic ``l2`` loss here would just average over identical members.
+    """
