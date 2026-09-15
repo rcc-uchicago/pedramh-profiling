@@ -51,9 +51,23 @@ EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
 LOG="${MEMBER_ROOT}/polaris_logs/makani_nfuture_ladder.log"
 CKPT="${EXPROOT}/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar"
 
-MODE="${1:?usage: submit_nfuture_ladder.sh <probe|proxy> <multistep> [seed]}"
+MODE="${1:?usage: submit_nfuture_ladder.sh <probe|proxy|diag|crps|prod> <multistep> [seed]}"
 MS="${2:?multistep (= n_future + 1); 4 => n_future 3, 5 => n_future 4}"
 NF=$((MS - 1))
+
+# ⚠ GLOBAL BATCH IS RANKS x LOCAL_BATCH AND THERE IS NO OTHER HANDLE. makani has
+# no gradient accumulation -- verified 2026-09-15, the only `accum` in the tree
+# belongs to sfno_eval's climatology accumulator -- so ACE2's trick of buying
+# memory back with accumulation is not available here. A bigger global batch
+# costs NODES, not a bigger LOCAL_BATCH, and at depth 4 that is forced rather
+# than preferred: measured peak is 22.29 GiB at local 2, and the refit in
+# docs/2026-09-15_nfuture_ladder_d1_and_replication.md puts local 3 near 34 GiB
+# and local 4 near 45 against a 39.49 GiB card.
+# The PBS harness derives NNODES from $PBS_NODEFILE on its own, so NODES only
+# has to reach `-l select` and TARGET_NODES -- and TARGET_NODES is that script's
+# GPU-HEALTH PREFLIGHT, not a rank count (it errors if fewer nodes come up
+# healthy than asked for).
+NODES="${NODES:-1}"
 
 mkdir -p "$(dirname "${LOG}")"
 log() { echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "${LOG}"; }
@@ -90,7 +104,14 @@ case "${MODE}" in
   crps)  LB="${LOCAL_BATCH:-1}"; EP="${EPOCHS:-1}"; ST=60; FULLFLAG=1
          WALL="${WALLTIME:-03:00:00}"; Q="${QUEUE:-preemptable}"
          CFG="${CONFIG_YAML:-e3sm_alldata_crps.yaml}" ;;
-  *) echo "ERROR unknown mode '${MODE}' (probe|proxy|diag|crps)"; exit 2 ;;
+  # Production candidate: the best arm the ladder found, run long. Defaults match
+  # C1 and D1 in everything except depth (24 epochs, 1-epoch warmup, LOCAL_BATCH
+  # 2), so its scorecard is directly comparable to both. At NODES=2 that is
+  # global batch 16 -- C1's batch, which D1 showed is worth 2.3 pp of long-lead
+  # skill at depth 1 over batch 8.
+  prod)  LB="${LOCAL_BATCH:-2}"; EP="${EPOCHS:-24}"; ST=60; FULLFLAG=1
+         WALL="${WALLTIME:-12:00:00}"; Q="${QUEUE:-preemptable}" ;;
+  *) echo "ERROR unknown mode '${MODE}' (probe|proxy|diag|crps|prod)"; exit 2 ;;
 esac
 CFG="${CFG:-${CONFIG_YAML:-e3sm_alldata_full.yaml}}"
 
@@ -113,13 +134,13 @@ CFG="${CFG:-${CONFIG_YAML:-e3sm_alldata_full.yaml}}"
 # CONDITIONS at evaluation time, not over training runs. See the prereg.
 REPS="${REPS:-${3:-1}}"
 for SEED in ${REPS}; do
-    TAG="nf${NF}_${MODE}_b$((LB*4))_r${SEED}"
+    TAG="nf${NF}_${MODE}_b$((LB*4*NODES))_r${SEED}"
     if [ -d "${EXPROOT}/${TAG}" ]; then
         echo "  SKIP ${TAG}: expDir exists (trap 3 -- resuming would win over pretrained)"
         continue
     fi
 
-    V="TARGET_NODES=1,HPAR=1,WPAR=1,LOCAL_BATCH=${LB},FULL=${FULLFLAG},EPOCHS=${EP},STEPS=${ST}"
+    V="TARGET_NODES=${NODES},HPAR=1,WPAR=1,LOCAL_BATCH=${LB},FULL=${FULLFLAG},EPOCHS=${EP},STEPS=${ST}"
     V="${V},EVAL_SAMPLES=512,WANDB=0,RUN_NUM=${TAG}"
     V="${V},MULTISTEP=${MS}"                      # trap 2: the ONLY n_future handle
     V="${V},PRETRAINED=1,PRETRAINED_CKPT=${CKPT}"
@@ -144,14 +165,17 @@ for SEED in ${REPS}; do
     V="${V},OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
     V="${V},OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple"
 
+    # place=scatter is also a #PBS directive in the harness, restated here because
+    # a multi-node arm that packs onto one node would measure nothing it claims to.
     OUT=$(cd "${HERE}" && qsub -q "${Q}" \
-            -l select=1:system=polaris -l walltime="${WALL}" -l filesystems=home:eagle \
+            -l select=${NODES}:system=polaris -l place=scatter \
+            -l walltime="${WALL}" -l filesystems=home:eagle \
             -v "${V}" polaris/polaris_makani_multinode_scaling.pbs 2>&1)
     if [[ "${OUT}" == *".polaris-pbs"* ]]; then
         echo "  NFUTURE_QUEUED mode=${MODE} n_future=${NF} seed=${SEED} tag=${TAG}" \
-             "global_batch=$((LB*4)) predicted_GiB=$(awk -v m=${MS} -v b=${LB} \
+             "nodes=${NODES} global_batch=$((LB*4*NODES)) predicted_GiB=$(awk -v m=${MS} -v b=${LB} \
                'BEGIN{printf "%.1f", 10.31 + 2.12*m*b}') jobid=${OUT%%.*}"
-        log "NFUTURE_QUEUED n_future=${NF} seed=${SEED} tag=${TAG} gb=$((LB*4)) jobid=${OUT%%.*}"
+        log "NFUTURE_QUEUED n_future=${NF} seed=${SEED} tag=${TAG} nodes=${NODES} gb=$((LB*4*NODES)) jobid=${OUT%%.*}"
     else
         echo "  ERROR arm n_future=${NF} seed=${SEED} refused: ${OUT}"
         log "ERROR n_future=${NF} seed=${SEED}: ${OUT}"
