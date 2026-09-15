@@ -35,7 +35,7 @@
 ###   sed -e "s|{{OUTPUT_ROOT}}|$OUTPUT_ROOT|g" -e "s|{{EXP_DIR}}|$EXP_DIR|g" \
 ###       polaris/e3sm_alldata_full.yaml > $EXP_DIR/e3sm_alldata_full.rendered.yaml
 
-e3sm_alldata_full:
+e3sm_alldata_crps:
 
     # --- Dataset paths ---
     metadata_json_path: "{{OUTPUT_ROOT}}/metadata/data.json"
