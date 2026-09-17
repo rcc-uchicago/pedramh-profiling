@@ -229,6 +229,45 @@ single collective. On Slurm it is an `srun --network=` option, so that guidance
 assumes a launcher this machine does not have. The `FI_CXI_RDZV_*` variables are
 the userspace half of the same knob and are what actually did the work here.
 
+## 5c. End-to-end on the real trainer — makani, 2 nodes, Slingshot
+
+Job **7630369**. The first makani training run in this repo that is *known* to
+have crossed Slingshot, because the row now has to say so to be recorded.
+
+```
+MAKANI_MN_SCALING_OK
+  step_ms           206.4
+  wireup_s          18.37
+  transport         AWS Libfabric
+  provider          cxi
+  world_sizes_seen  8
+```
+
+Every rank: `NET/OFI Selected Provider is cxi (found 2 nics)`, loading
+`/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib/libnccl-net.so`.
+2 nodes / 8 ranks, `DATA=synthetic`, `STEPS=20`, local batch 1.
+
+This exercises what `nccl-tests` cannot: makani's own DDP setup broadcast
+(`_sync_params_and_buffers`) and its gradient all-reduce. Those are the paths
+that wedged on the cxi plugin before the rendezvous settings (section 5b).
+
+For scale, against `makani_bench_report.md`'s 2-node rows on the same harness:
+
+| stack | 2-node step_ms | provider |
+|---|---|---|
+| section 3b "new plugin" | 490.7 | **tcp** (unlabelled at the time) |
+| section 3a "old plugin" | 145.7 | cxi |
+| **7630369, this change** | **206.4** | **cxi** |
+
+⚠ **Not a matched comparison, and must not be tabled as one.** This arm is
+synthetic data over 20 steps; both bench rows are the real 53-channel pack over
+60. `step_ms` here is a running average that still includes warmup — step 10 read
+333.1 ms and step 20 read 206.4, so it had not flattened. Treat 206.4 as an upper
+bound and the 2.4x gap against the tcp row as directional, not measured.
+
+⚠ `wireup_s` 18.37 is higher than either bench row (8.54 cxi / 14.03 tcp). The
+rendezvous settings plausibly cost setup time. One sample; unexplained.
+
 ## 6. Reproduction
 
 ```bash
