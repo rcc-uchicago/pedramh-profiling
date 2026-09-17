@@ -1,0 +1,166 @@
+#!/bin/bash -l
+#PBS -N makani_eval_inference
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Polaris/PBS sibling of scripts/submit_eval_inference.slurm -- change F of
+# docs/2026-09-10_e3sm_inference_port_scope.md.  Runs ONE stage: the rollout
+# sweep that writes per-IC NetCDFs.  CLAUDE.md #7 -- a sibling, never an edit
+# to the SLURM script.
+#
+# WHY ONLY ONE STAGE OF THE FOUR.  submit_eval.sh chains
+# inference -> score -> report -> figures.  Stages 2-4 run src/sfno_eval, and
+# for E3SM that is the WRONG SCORER: sfno_eval/metrics.py weights latitudes for
+# a Gauss-Legendre grid, and our pack is equiangular -- measured to over-weight
+# the polar row by 1.50x, silently (see polaris_e3sm_port_test.pbs).  The
+# lagged-ensemble plan §4.2 therefore routes E3SM scoring through makani's own
+# MetricsHandler, which reads params.model_grid_type and already gets this
+# right.  Porting the scoring stages would be porting tooling we have decided
+# not to use here.  If the PLaSim track ever needs them on Polaris, add them as
+# further siblings -- do not widen this one.
+#
+# WHAT IT IS FOR.  Task 10 of the end-to-end plan: the K=56 (14-day) sweep.
+# At the 126 h horizon we have today, ACC is still 0.878 -- far from
+# climatology -- so exposure bias and mode-averaging cannot be told apart.  K=56
+# is the measurement that separates them, and it gates the lagged-ensemble
+# combination stages and the CRPS decision alike.
+#
+# DECISION E, TAKEN: step-index labelling.  Leads are labelled by hours since
+# the initial condition, not by calendar date.  The E3SM pack is on a NOLEAP
+# (365-day) calendar -- measured, `.pack_logs/test.log` reports T=1460 for 2048,
+# a leap year -- and `time_plasim` is a split-cumulative day count, so anchoring
+# onto a proleptic-Gregorian datetime64 drifts one day per leap year crossed.
+# Scope doc §2.3 recommends step-index; it is also the natural coordinate for a
+# lagged ensemble, whose members are defined by lead offset rather than date.
+# This has ZERO effect on the model or on any metric -- it is the label written
+# on the output file.  `_resolve_ic_provenance` reads f.attrs["plasim_time_units"],
+# which the E3SM converter never writes, so an absent anchor is EXPECTED here
+# and fails loudly rather than silently if something tries to date the output.
+#
+# Knobs (-v):
+#   RUN         run dir under $EXPROOT           (default prod1n_b32_sgdr)
+#   CKPT        checkpoint path                  (default <RUN>/training_checkpoints/best_ckpt_mp0.tar)
+#   K           rollout horizon in 6 h steps     (default 56 = 14 days)
+#   N_IC        ICs per file                     (default 12)
+#   LIMIT_FILES / LIMIT_ICS   debugging caps     (default: none)
+#   SMOKE=1     LIMIT_FILES=1 LIMIT_ICS=1, and shrinks K to 4
+#   OUT_ROOT    output root                      (default $MEMBER_ROOT/runs/makani_eval/<RUN>_K<K>)
+#
+# PASS = EVAL_INFERENCE_OK.  Per CLAUDE.md #14 rc=0 is not the signal: the
+# script counts the NetCDFs actually written and refuses to pass on zero.
+#
+# Submit from makani_sfno/:
+#   qsub -v SMOKE=1 polaris/polaris_eval_inference.pbs          # ~minutes, debug
+#   qsub -l walltime=06:00:00 -q preemptable polaris/polaris_eval_inference.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_perlead_metrics_test.pbs -- module
+# ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
+# script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+RUN="${RUN:-prod1n_b32_sgdr}"
+RUN_DIR="${EXPROOT}/${RUN}"
+CKPT="${CKPT:-${RUN_DIR}/training_checkpoints/best_ckpt_mp0.tar}"
+TEST_HOLDOUT="${TEST_HOLDOUT:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production/test}"
+K="${K:-56}"
+N_IC="${N_IC:-12}"
+
+if [ "${SMOKE:-0}" = "1" ]; then
+    # Smallest thing that exercises the whole path end to end: one file, one IC,
+    # a 4-step rollout. Enough to catch every defect the port fixed, none of
+    # which is horizon-dependent.
+    LIMIT_FILES="${LIMIT_FILES:-1}"
+    LIMIT_ICS="${LIMIT_ICS:-1}"
+    K=4
+fi
+OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/${RUN}_K${K}}"
+
+for _p in "${RUN_DIR}/config.json" "${CKPT}" "${TEST_HOLDOUT}"; do
+    if [ ! -e "${_p}" ]; then
+        echo "ERROR EVAL_INPUT_MISSING: ${_p}"
+        exit 3
+    fi
+done
+
+echo "=== makani_eval_inference: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "run=${RUN}  K=${K}  n_ic=${N_IC}  smoke=${SMOKE:-0}"
+echo "ckpt=${CKPT}"
+echo "out_root=${OUT_ROOT}"
+makani_env_report
+echo
+
+# Provenance. The SLURM path derives these from git SHAs of three separate
+# repos; here all three live in one tree, so the same SHA is recorded three
+# times rather than inventing a distinction that does not exist.
+SHA7="$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
+RUN_TAG="$(date -u +%Y%m%d)_${RUN}_K${K}_${SHA7}"
+
+EXTRA=()
+[ -n "${LIMIT_FILES:-}" ] && EXTRA+=(--limit-files "${LIMIT_FILES}")
+[ -n "${LIMIT_ICS:-}" ] && EXTRA+=(--limit-ics "${LIMIT_ICS}")
+
+set -x
+"${PY}" "${MAKANI_ROOT}/scripts/eval_inference.py" \
+    --run-dir "${RUN_DIR}" \
+    --ckpt "${CKPT}" \
+    --test-holdout "${TEST_HOLDOUT}" \
+    --out-root "${OUT_ROOT}" \
+    --mode nwp \
+    --nwp-K "${K}" \
+    --nwp-n-ic "${N_IC}" \
+    --eval-sha7 "${SHA7}" \
+    --data-sha7 "${SHA7}" \
+    --train-sha7 "${SHA7}" \
+    --run-tag "${RUN_TAG}" \
+    --device auto \
+    "${EXTRA[@]}"
+rc=$?
+set +x
+
+echo "--- eval_inference rc=${rc} ---"
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR EVAL_INFERENCE_FAILED rc=${rc}"
+    exit 4
+fi
+
+# rc=0 is not the pass signal (CLAUDE.md #14): a run that wrote nothing exits 0.
+NC_COUNT=$(find "${OUT_ROOT}/inference" -name '*.nc' -type f 2>/dev/null | wc -l)
+echo "netcdf files written: ${NC_COUNT}"
+if [ "${NC_COUNT}" -lt 1 ]; then
+    echo "ERROR EVAL_INFERENCE_NO_OUTPUT: rc=0 but no .nc under ${OUT_ROOT}/inference"
+    exit 5
+fi
+
+echo "EVAL_INFERENCE_OK run=${RUN} K=${K} files=${NC_COUNT} out=${OUT_ROOT}"
+echo "=== makani_eval_inference done $(date -Iseconds) ==="
