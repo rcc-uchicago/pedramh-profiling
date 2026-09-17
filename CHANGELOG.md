@@ -218,9 +218,19 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     about to move again. Fixed by asserting the quantity in hours under both behaviours; the
     comparison is still exact, not a loosened tolerance (CLAUDE.md #11). Nothing in `f857040b`
     touches `nc_writer`.
-  - **Still open, in order:** change **E** (step-index vs calendar labelling — the scope doc
-    recommends step-index) and **F** (Polaris PBS sibling for the eval chain), then **task 10, the
-    K=56 / 14-day sweep — the real decision point.** At 126 h ACC is still 0.878, far from
+  - ✅ **Changes E and F landed too.** **E decided: step-index labelling** — the pack is on a
+    **noleap** 365-day calendar (measured: `T=1460` for 2048, a leap year) with a split-cumulative
+    day count, so anchoring onto a proleptic-Gregorian `datetime64` drifts a day per leap year
+    crossed; leads are hours-since-IC, which is also the natural coordinate for a lagged ensemble.
+    Zero effect on the model or any metric. **F = `polaris/polaris_eval_inference.pbs`**, a sibling
+    of `submit_eval_inference.slurm` (CLAUDE.md #7), covering **one** stage of the SLURM chain's
+    four **on purpose**: stages 2-4 run `src/sfno_eval`, which is the wrong scorer for an
+    equiangular grid, and the ensemble plan §4.2 routes E3SM scoring through makani's
+    `MetricsHandler` instead. PASS = `EVAL_INFERENCE_OK`, and it **counts the NetCDFs written**
+    rather than trusting `rc` — a sweep that writes nothing still exits 0.
+    🔵 **Smoke queued as 7630665** (`SMOKE=1`: one file, one IC, K=4). ⚠ **F is committed but
+    UNVERIFIED until that token appears.**
+  - **Still open:** **task 10, the K=56 / 14-day sweep — the real decision point.** At 126 h ACC is still 0.878, far from
     climatology, so exposure bias and mode-averaging are **not yet separable**; that curve is what
     says whether more rollout depth or a distributional objective (the untested CRPS arm) deserves
     the node-hours.
