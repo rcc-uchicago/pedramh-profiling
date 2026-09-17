@@ -71,7 +71,14 @@ COMMON="${COMMON},SCHED=CosineAnnealingWarmRestarts,SCHED_T0=2,SCHED_TMULT=1,SCH
 COMMON="${COMMON},WARMUP_EPOCHS=1,LR_START=0.01,CKPT_VERSIONS=5"
 COMMON="${COMMON},MAKANI_SCALING_CSV=${CSV},CONFIG_YAML=e3sm_alldata_full.yaml"
 COMMON="${COMMON},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
-COMMON="${COMMON},OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
+# Fabric plugin: INHERIT the harness default (v1.6.0, which binds cxi). The
+# ${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1 pin that stood here was removed
+# 2026-09-17: it omits FI_MR_PROV_KEY, which the CXI provider mandates, so it
+# silently selects `tcp` with GDR off instead of failing (7629082). It is why
+# the 128-node run 7566145 never used Slingshot, and why the n_future=4
+# candidate 7621853 wedged on a 6.3 M-element all_reduce. Override with
+# -v OFI_PLUGIN=<dir> for spatial parallelism, which v1.6.0 cannot do.
+# → polaris_nccl_debug_info.md, polaris_nccl_metrics.md §5b
 COMMON="${COMMON},OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple"
 
 for LR in 2.0E-3 3.0E-3 4.5E-3; do
