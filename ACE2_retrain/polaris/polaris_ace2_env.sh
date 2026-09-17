@@ -157,6 +157,18 @@ if [ "${_ace2_env_fail}" -eq 0 ]; then
     # libfabric first so it outranks any system copy; hwloc because libnccl-net.so
     # needs libhwloc.so.0 and nothing on the default path provides it.
     export LD_LIBRARY_PATH="${ACE2_OFI_LIBFABRIC}:${ACE2_OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+# HPE Slingshot rendezvous controls (shs-ccl-docs/ccl_env.sh). Measured to
+# unwedge all_gather at 512 KB on the v1.6.0 plugin -- 7630227 vs 7629096 --
+# at a cost of ~12-18% all_reduce bandwidth. Set CXI_RDZV=0 to drop them and
+# reproduce the wedge deliberately.
+if [ "${CXI_RDZV:-1}" = "1" ]; then
+    export FI_CXI_RDZV_PROTO="${FI_CXI_RDZV_PROTO:-alt_read}"
+    export FI_CXI_RDZV_EAGER_SIZE="${FI_CXI_RDZV_EAGER_SIZE:-0}"
+    export FI_CXI_RDZV_THRESHOLD="${FI_CXI_RDZV_THRESHOLD:-0}"
+    export FI_CXI_RDZV_GET_MIN="${FI_CXI_RDZV_GET_MIN:-0}"
+    export FI_CXI_DEFAULT_TX_SIZE="${FI_CXI_DEFAULT_TX_SIZE:-2048}"
+    export FI_CXI_RX_MATCH_MODE="${FI_CXI_RX_MATCH_MODE:-hybrid}"
+fi
     PROGRESS_MODEL="${PROGRESS_MODEL-AUTO}"
     [ -n "${PROGRESS_MODEL}" ] && export OFI_NCCL_PROGRESS_MODEL="${PROGRESS_MODEL}"
     export FI_CXI_DISABLE_HOST_REGISTER=1

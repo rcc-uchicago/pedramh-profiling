@@ -224,6 +224,42 @@ The rendezvous block and `--disable_rdzv_get` are now available in
 outstanding. The libfabric-version gap is not ours to close — 1.22.0 is not
 installed on this machine.
 
+## 6b. RESOLVED — HPE's rendezvous block fixes the message-size wedge
+
+The gap table above is now partly closed, and the result is the useful one.
+
+Job **7630227** applied HPE's `ccl_env.sh` rendezvous settings on top of the
+v1.6.0 plugin, changing nothing else from 7629096. All four arms passed
+(`NCCL_TESTS_OK arms=4/4`) with `Selected Provider is cxi (found 2 nics)`, and
+**`all_gather` swept through the 512 KB size it had wedged at**, on to 1 GiB.
+
+That was the standing reason v1.6.0 was "not a free fix": section 6 of
+`makani_bench_report.md` disqualified it for production over a message-size
+lottery (job 7565896, a 41,088-element broadcast). A size-threshold hang is what
+a broken rendezvous handshake looks like, and every variable HPE sets targets
+rendezvous:
+
+```
+FI_CXI_RDZV_PROTO=alt_read     FI_CXI_RDZV_EAGER_SIZE=0
+FI_CXI_RDZV_THRESHOLD=0        FI_CXI_RDZV_GET_MIN=0
+FI_CXI_DEFAULT_TX_SIZE=2048    FI_CXI_RX_MATCH_MODE=hybrid
+```
+
+⇒ **There is a configuration that uses Slingshot AND completes every collective:
+aws-ofi-nccl v1.6.0 + `NCCL_PROTO=Simple` + HPE's rendezvous block.** It is now
+the default in the multi-node launchers (`CXI_RDZV=0` disables it to reproduce
+the wedge deliberately). Cost: ~12–18% all_reduce bandwidth (metrics file §5b).
+
+⚠ **What this does NOT establish.** It is one 4-node `nccl-tests` run, not a
+trainer. The original wedge was a *broadcast* inside makani's DDP setup on the
+ALLDATA encoder weight; `nccl-tests` does not exercise that path, and no training
+job has been run on this configuration. Spatial parallelism is also still
+untested on v1.6.0 and is expected to remain broken.
+
+⚠ `--disable_rdzv_get`, which HPE's README calls required under PBS, is
+**rejected by Polaris' PALS mpiexec** (7630201). It is an `srun --network=`
+option on Slurm.
+
 ## 7. Open questions
 
 1. Which aws-ofi-nccl is supported with **NCCL 2.28.3 + libfabric 2.3.1** on

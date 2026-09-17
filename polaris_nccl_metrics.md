@@ -177,6 +177,58 @@ M6 is the control that makes M1-M4 interpretable: multi-node NCCL itself is
 healthy on these nodes, so the failure is confined to the OFI path. CXI is
 **5.2x** TCP, which is the size of the prize for getting the plugin right.
 
+## 5b. HPE rendezvous settings — the configuration that finally works
+
+Job **7630227** vs 7629096. Same plugin (v1.6.0), same `NCCL_PROTO=Simple`, same
+4 nodes / 16 ranks. The only change is HPE's `ccl_env.sh` rendezvous block
+(`FI_CXI_RDZV_PROTO=alt_read`, `RDZV_EAGER_SIZE=0`, `RDZV_THRESHOLD=0`,
+`RDZV_GET_MIN=0`, `DEFAULT_TX_SIZE=2048`, `RX_MATCH_MODE=hybrid`).
+
+```
+NCCL_TESTS_OK arms=4/4 nodes=4 ranks=16
+  A_1node_allreduce       avg_busbw=53.2183  peak_busbw=199.83  correctness_rows_ok=1
+  B_4node_allreduce       avg_busbw=7.67239  peak_busbw=23.34   correctness_rows_ok=1
+  B_4node_allgather       avg_busbw=8.43982  peak_busbw=25.83   correctness_rows_ok=1
+  B_4node_reducescatter   avg_busbw=8.17374  peak_busbw=22.94   correctness_rows_ok=1
+```
+
+**`all_gather` swept THROUGH 524288 B** — the exact size it wedged at in 7629096 —
+and on to 1 GiB with `0 wrong`:
+
+```
+      262144          4096   float  none  -1   230.81   1.14   1.06    0
+      524288          8192   float  none  -1   239.45   2.19   2.05    0   <- wedged here in 7629096
+     1048576         16384   float  none  -1   245.61   4.27   4.00    0
+   134217728       2097152   float  none  -1  3805.13  35.27  33.07    0
+  1073741824      16777216   float  none  -1 38973.7   27.55  25.83    0
+# Out of bounds values : 0 OK
+```
+
+`reduce_scatter` completed too — 7629065 never reached it.
+
+### The cost, at matched message sizes
+
+4-node `all_reduce` busbw, same sizes in both jobs:
+
+| bytes | 7629096 (no HPE) | 7630227 (HPE) | delta |
+|---|---|---|---|
+| 8388608 | 24.22 | 23.01 | −5.0% |
+| 33554432 | 30.75 | 27.73 | −9.8% |
+| 134217728 | 28.67 | 25.16 | −12.2% |
+| 1073741824 | 28.53 | 23.34 | −18.2% |
+
+⇒ **~12–18% of all_reduce bandwidth, in exchange for collectives that finish.**
+Still ~7× the TCP fallback (3.46 GB/s). n=1 on both sides; the per-size scatter
+(−5% to −18%) is wider than any trend, so treat the magnitude as approximate and
+the direction as established.
+
+⚠ **`--disable_rdzv_get` is NOT part of this.** HPE's README calls it required
+under PBS, but Polaris' PALS `mpiexec` rejects it outright — job **7630201**,
+`mpiexec: unrecognized option '--disable_rdzv_get'`, all four arms rc=1 before a
+single collective. On Slurm it is an `srun --network=` option, so that guidance
+assumes a launcher this machine does not have. The `FI_CXI_RDZV_*` variables are
+the userspace half of the same knob and are what actually did the work here.
+
 ## 6. Reproduction
 
 ```bash
