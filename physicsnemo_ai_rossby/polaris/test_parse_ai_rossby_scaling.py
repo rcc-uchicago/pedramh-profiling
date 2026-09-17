@@ -37,7 +37,8 @@ BANNER = ("{r}: [2026-08-27 10:00:0{r}][pangu_plasim_train][INFO] - "
 def good_log(ranks=16, world=None):
     world = ranks if world is None else world
     lines = ["0: [rank0] NCCL INFO NET/OFI Using network AWS Libfabric",
-             "1: [rank1] NCCL INFO NET/OFI Using network AWS Libfabric"]
+             "1: [rank1] NCCL INFO NET/OFI Using network AWS Libfabric",
+             "0: [rank0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)"]
     lines += [BANNER.format(r=r, w=world, d=r % 4) for r in range(ranks)]
     lines.append("0: EPOCH_TELEMETRY epoch=1 n=60 step_med=512.7ms gpu_busy=94.1% "
                  "peak=28.44GB ema=1 -> /x/tel.csv")
@@ -158,14 +159,17 @@ def main() -> int:
     with tempfile.TemporaryDirectory() as td:
         # 8. A launcher echo must not be able to satisfy the world-size guard.
         text = ("ranks = 16   world_size=16\n"
-                "0: [rank0] NCCL INFO Using network AWS Libfabric\n")
+                "0: [rank0] NCCL INFO Using network AWS Libfabric\n"
+                "0: [rank0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)\n")
         rc, rows, _ = _run(text, td)
         check(rc == 4, "no trainer banner is an ERROR, not a silent pass")
         check(rows[0]["world_sizes_seen"] == "", "launcher echo not counted")
 
     with tempfile.TemporaryDirectory() as td:
         # 9. No transport line: a WARN, not a failure -- the timing is still real.
-        text = "\n".join(BANNER.format(r=r, w=16, d=r % 4) for r in range(16)) + "\n"
+        text = ("0: [rank0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)\n"
+                + "\n".join(BANNER.format(r=r, w=16, d=r % 4) for r in range(16))
+                + "\n")
         rc, rows, _ = _run(text, td)
         check(rc == 0, "missing transport line warns but does not fail")
         check(rows[0]["transport"] == "UNKNOWN", "transport recorded as UNKNOWN")
@@ -205,6 +209,25 @@ def main() -> int:
         except SystemExit as exc:
             drifted = "SCALING_CSV_SCHEMA_DRIFT" in str(exc)
         check(drifted, "a drifted header refuses the append")
+
+    with tempfile.TemporaryDirectory() as td:
+        # 15. THE fabric guard. A tcp fallback is rejected, and `transport` is
+        #     shown to be unchanged by it -- the reason it could never catch this.
+        tcp = good_log().replace(
+            "Selected Provider is cxi (found 2 nics)",
+            "Selected provider is tcp, fabric is 10.201.0.0/16 (found 2 nics)")
+        rc, rows, _ = _run(tcp, td)
+        check(rc == 4, "a tcp provider is rejected as a scaling row")
+        check(rows[0]["provider"] == "tcp", "provider recorded as tcp")
+        check(rows[0]["transport"] == "AWS Libfabric",
+              "...while transport still reads AWS Libfabric")
+
+    with tempfile.TemporaryDirectory() as td:
+        # 16. Unverified is not the same as fine.
+        quiet = good_log().replace("Selected Provider is cxi (found 2 nics)", "x")
+        rc, rows, _ = _run(quiet, td)
+        check(rc == 4, "a multi-node row with no provider line is rejected")
+        check(rows[0]["provider"] == "UNKNOWN", "provider recorded as UNKNOWN")
 
     if FAILURES:
         print("ERROR AI_ROSSBY_SCALING_PARSE_FAILED: %d checks failed: %s"

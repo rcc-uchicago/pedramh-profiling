@@ -29,6 +29,7 @@ GOOD_LOG = """\
 Communicators wireup time: 3.42s
 [0] NCCL INFO NET/OFI Using network AWS Libfabric
 [1] NCCL INFO NET/OFI Using network AWS Libfabric
+[0] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
 Initializing model on 16 ranks, world_size=16
 Average step time after step 10: 512.7 ms
 Average effective io rate after step 10: 1.82 GB/s
@@ -37,6 +38,8 @@ Average step time after step 20: 498.3 ms
 Average effective io rate after step 20: 1.91 GB/s
 Total training time is 41.55 sec
 """
+
+CXI_PROVIDER_LINE = "Selected Provider is cxi (found 2 nics)"
 
 BASE_ARGV = [
     "--nodes", "4",
@@ -74,6 +77,7 @@ def test_happy_path():
         assert r["total_train_s"] == "41.55"
         assert r["wireup_s"] == "3.42"
         assert r["transport"] == "AWS Libfabric"
+        assert r["provider"] == "cxi", r["provider"]
         assert r["world_sizes_seen"] == "16"
         # 1 sample / 0.4983 s = 2.0068 samples/s/rank, x16 ranks.
         assert abs(float(r["samples_s_rank"]) - 2.0068) < 1e-3, r["samples_s_rank"]
@@ -100,6 +104,53 @@ def test_missing_step_timing_is_an_error():
         assert rc == 4, "a log with no step timing is not a measurement"
         assert rows[0]["step_ms"] == ""
         assert rows[0]["samples_s_rank"] == ""
+
+
+def test_tcp_fallback_is_an_error():
+    """The defect the provider column exists for.
+
+    7566145 trained 512 GPUs to completion over tcp and every guard passed,
+    because the only fabric column recorded the PLUGIN name -- which the
+    fallback does not change. Assert both halves of that here: the row is
+    rejected, and `transport` is still the same string it was on cxi.
+    """
+    tcp = GOOD_LOG.replace(
+        "Selected Provider is cxi (found 2 nics)",
+        "Selected provider is tcp, fabric is 10.201.0.0/16 (found 2 nics)")
+    with tempfile.TemporaryDirectory() as td:
+        rc, rows, _ = _run(tcp, td)
+        assert rc == 4, "a tcp row is not a Slingshot scaling row, got rc=%s" % rc
+        assert rows[0]["provider"] == "tcp", rows[0]["provider"]
+        assert rows[0]["transport"] == "AWS Libfabric", (
+            "the plugin name is identical on tcp -- that is the whole reason "
+            "`transport` could not catch this")
+
+
+def test_missing_provider_on_multinode_is_an_error():
+    """Unverified is not the same as fine: refuse rather than assume cxi."""
+    quiet = GOOD_LOG.replace(CXI_PROVIDER_LINE, "some other line")
+    with tempfile.TemporaryDirectory() as td:
+        rc, rows, _ = _run(quiet, td)
+        assert rc == 4, "a multi-node row that cannot name its provider is unverified"
+        assert rows[0]["provider"] == "UNKNOWN"
+
+
+def test_single_node_needs_no_provider_line():
+    """A 1-node run never initialises the net plugin, so no line exists to find.
+
+    Without the nodes>1 gate this guard would fail every single-node arm --
+    including the 1-node production run that is the campaign's best result.
+    """
+    quiet = GOOD_LOG.replace(CXI_PROVIDER_LINE, "some other line")
+    quiet = quiet.replace("world_size=16", "world_size=4")
+    with tempfile.TemporaryDirectory() as td:
+        log = os.path.join(td, "run.log")
+        with open(log, "w") as fh:
+            fh.write(quiet)
+        rc = P.main(["--log", log, "--csv", os.path.join(td, "scaling.csv"),
+                     "--nodes", "1", "--ranks", "4", "--local-batch", "1",
+                     "--global-batch", "4", "--steps", "20"])
+        assert rc == 0, "single-node must not require a provider line, got rc=%s" % rc
 
 
 def test_unknown_transport_warns_but_passes():
@@ -155,6 +206,7 @@ def test_schema_drift_refuses_to_append():
 REAL_SUMMARY_LOG = """\
 Communicators wireup time: 5.11s
 [3] NCCL INFO NET/OFI Using network AWS Libfabric
+[3] NCCL INFO NET/OFI Selected Provider is cxi (found 2 nics)
 ===== DDP launch summary =====
 world_size                = 16
 data_parallel_size        = 16

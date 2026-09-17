@@ -58,7 +58,9 @@ COMMON="STEPS=60,EPOCHS=2"
 COMMON="${COMMON},MAKANI_SCALING_CSV=${CSV}"
 COMMON="${COMMON},CONFIG_YAML=e3sm_alldata_full.yaml"
 COMMON="${COMMON},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
-COMMON="${COMMON},OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib"
+# 4-node pure DDP. 1.21.1 here meant this ran on tcp, not Slingshot (7629082);
+# the launcher default is already v1.6.0, so stop overriding it.
+COMMON="${COMMON},OFI_PLUGIN=/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib"
 COMMON="${COMMON},OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple"
 COMMON="${COMMON},TORCH_NCCL_TRACE_BUFFER_SIZE=2000,TORCH_NCCL_ASYNC_ERROR_HANDLING=1"
 COMMON="${COMMON},TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800"

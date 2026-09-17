@@ -86,8 +86,15 @@ export MASTER_PORT=29517
 # Existence-checked for the reason the mistakes ledger records first: a missing
 # dir on LD_LIBRARY_PATH is IGNORED, not honoured, so the run silently measures
 # a different transport and then crashes somewhere unrelated (job 7553811).
-OFI_PLUGIN="${OFI_PLUGIN:-${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib}"
+# 2026-09-17: was ${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib. That plugin does
+# NOT bind Slingshot -- it omits FI_MR_PROV_KEY, which the CXI provider
+# mandates, then silently falls back to tcp with GDR off instead of failing
+# (7629082; the 128-node production run 7566145 trained that way). v1.6.0
+# binds cxi. Override with -v OFI_PLUGIN=<dir> for spatial parallelism, which
+# v1.6.0 cannot do -- and expect the FABRIC_NOT_SLINGSHOT guard to fire.
+OFI_PLUGIN="${OFI_PLUGIN:-/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib}"
 OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
+OFI_PLUGIN_CXI="/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib"
 for _d in "${OFI_PLUGIN}" "${OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
     [ -d "${_d}" ] || { echo "ERROR OFI_PATH_MISSING: ${_d}"; exit 3; }
 done
@@ -236,8 +243,32 @@ echo "--- rc=${rc} ---"
 
 nok=$(grep -c "MN_NCCL_RANK_OK" "${LOG}")
 transport=$(grep -m1 "NCCL INFO Using network" "${LOG}" | sed 's/.*Using network //')
-echo "ranks OK: ${nok}/${NRANKS}   transport: ${transport:-<none reported>}"
-if [ "${nok}" -eq "${NRANKS}" ] && [ ${rc} -eq 0 ]; then
+# The plugin name ("AWS Libfabric") is identical on cxi and on the tcp fallback,
+# so it is reported but never trusted. The provider is the discriminating line.
+provider=$(grep -m1 -oE "Selected [Pp]rovider is [a-z]+" "${LOG}" | awk '{print tolower($NF)}')
+echo "ranks OK: ${nok}/${NRANKS}   transport: ${transport:-<none reported>}   provider: ${provider:-<none reported>}"
+fabric_ok=1
+if [ "${NNODES}" -gt 1 ] && [ "${nok}" -eq 0 ] && [ -z "${provider}" ]; then
+    # Nothing got as far as NCCL, so there is no provider line and nothing to
+    # say about the fabric either way. Say that, instead of naming a transport.
+    echo "NOTE FABRIC_UNTESTED: no rank reached NCCL init, so no provider was selected."
+    echo "  Diagnose the rank failure above first -- this run says nothing about"
+    echo "  Slingshot. (7630176 died here on an unreadable libtorch_global_deps.so.)"
+elif [ "${NNODES}" -gt 1 ] && [ "${provider}" != "cxi" ]; then
+    if [ "${ALLOW_TCP:-0}" = "1" ]; then
+        echo "WARN FABRIC_TCP_ACKNOWLEDGED provider=${provider:-<none reported>} (ALLOW_TCP=1)"
+        echo "  This probe exercised tcp, not Slingshot. It says nothing about the fabric."
+    else
+        fabric_ok=0
+        echo "ERROR FABRIC_NOT_SLINGSHOT provider=${provider:-<none reported>} expected=cxi"
+        echo "  aws-ofi-nccl did not bind the Slingshot fabric. A probe that passes over"
+        echo "  tcp exonerates nothing -- the 128-node production run (7566145) 'passed'"
+        echo "  exactly this way for three weeks."
+        echo "  Fix:      -v OFI_PLUGIN=${OFI_PLUGIN_CXI}"
+        echo "  Or admit: -v ALLOW_TCP=1"
+    fi
+fi
+if [ "${nok}" -eq "${NRANKS}" ] && [ ${rc} -eq 0 ] && [ "${fabric_ok}" -eq 1 ]; then
     echo "MN_NCCL_PROBE_OK ranks=${NRANKS} nodes=${NNODES}"
     echo "  plugin=${OFI_PLUGIN} progress=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
     echo "  The fabric stack carries inter-node traffic at this scale under this venv."

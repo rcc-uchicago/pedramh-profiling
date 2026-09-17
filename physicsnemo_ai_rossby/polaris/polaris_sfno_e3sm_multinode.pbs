@@ -223,7 +223,13 @@ export NCCL_CROSS_NIC=1
 # CollNet is in play.
 export NCCL_COLLNET_ENABLE=1
 export NCCL_NET="AWS Libfabric"
-OFI_PLUGIN="${OFI_PLUGIN:-${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib}"
+# 2026-09-17: was ${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib. That plugin does
+# NOT bind Slingshot -- it omits FI_MR_PROV_KEY, which the CXI provider
+# mandates, then silently falls back to tcp with GDR off instead of failing
+# (7629082; the 128-node production run 7566145 trained that way). v1.6.0
+# binds cxi. Override with -v OFI_PLUGIN=<dir> for spatial parallelism, which
+# v1.6.0 cannot do -- and expect the FABRIC_NOT_SLINGSHOT guard to fire.
+OFI_PLUGIN="${OFI_PLUGIN:-/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib}"
 OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
 for _d in "${OFI_PLUGIN}" "${OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
     if [ ! -d "${_d}" ]; then

@@ -41,6 +41,10 @@ import os
 import re
 import sys
 
+# The plugin that binds Slingshot's cxi provider on Polaris. Named here so the
+# guard's remedy line and the launcher default cannot drift apart.
+OFI_PLUGIN_CXI = "/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib"
+
 # Column order is a cross-run contract (CLAUDE.md #10): a renamed or reordered
 # column silently invalidates every prior comparison in the file.
 FIELDS = [
@@ -68,6 +72,11 @@ FIELDS = [
     "wireup_s",
     "total_train_s",
     "transport",
+    # Added 2026-09-17. This changes the header, so the writer will refuse an
+    # existing CSV -- deliberately: every row written before this column existed
+    # may have been a tcp row, and mixing those with cxi rows in one file is the
+    # error this column was added to prevent.
+    "provider",
     "world_sizes_seen",
     "torch",
     "env_source",
@@ -93,6 +102,15 @@ def parse_log(text: str) -> dict:
     # is "AWS Libfabric" -- two words. A \S+ capture silently records it as
     # "AWS", which reads as a different transport than the one that ran.
     nets = sorted({m.strip() for m in re.findall(r"Using network (.+)$", text, re.M)})
+    # The PROVIDER, not the plugin. "Using network AWS Libfabric" above names the
+    # dlopen'd plugin and is byte-identical whether aws-ofi-nccl bound Slingshot's
+    # cxi provider or silently fell back to tcp -- so `transport` alone could never
+    # fail, and for three weeks it did not (7566145 ran on tcp; prereg #2 scored a
+    # HIT against a check with no failure mode -- CLAUDE.md #10).
+    # Both spellings matter: v1.6.0 prints "Selected Provider is cxi (found 2 nics)",
+    # v1.21.1 prints "Selected provider is tcp, fabric is ...". Matching one spelling
+    # records UNKNOWN on the other, which is the same blindness in a new place.
+    provs = sorted({m.lower() for m in re.findall(r"Selected [Pp]rovider is (\w+)", text)})
     # `\s*` on BOTH sides of the separator. train_plasim's "DDP launch summary"
     # column-pads its keys -- "world_size                = 16" -- so a pattern
     # anchored as `world_size[=:]` matches nothing and this guard, which exists
@@ -109,6 +127,7 @@ def parse_log(text: str) -> dict:
         "total_train_s": _last_float(text, r"Total training time is\s*([0-9.]+)\s*sec"),
         "wireup_s": _last_float(text, r"Communicators wireup time:\s*([0-9.]+)\s*s"),
         "transport": "|".join(nets) if nets else "UNKNOWN",
+        "provider": "|".join(provs) if provs else "UNKNOWN",
         "world_sizes_seen": "|".join(map(str, world_sizes)),
         "_world_sizes": world_sizes,
     }
@@ -153,6 +172,7 @@ def build_row(args, parsed: dict, torch_version: str = "") -> dict:
         "wireup_s": parsed["wireup_s"],
         "total_train_s": parsed["total_train_s"],
         "transport": parsed["transport"],
+        "provider": parsed["provider"],
         "world_sizes_seen": parsed["world_sizes_seen"],
         "torch": torch_version,
         "env_source": args.env_source,
@@ -196,6 +216,36 @@ def check(row: dict, parsed: dict, ranks: int) -> int:
         print("WARN NO_TRANSPORT_LINE: no 'Using network' line in the log.")
         print("  NCCL_DEBUG is probably below INFO. The timing is recorded but the")
         print("  transport that produced it is not -- say so if you table this row.")
+    # Which fabric actually carried the traffic. Gated on NODES, not ranks: a
+    # 1-node run never initialises the net plugin, so there is no provider line
+    # to find and demanding one would fail every single-node arm.
+    nodes = int(row["nodes"]) if str(row["nodes"]).isdigit() else 0
+    if nodes > 1:
+        prov = row["provider"]
+        if prov == "UNKNOWN":
+            print("ERROR FABRIC_UNVERIFIED: no 'Selected Provider' line in the log.")
+            print("  Set NCCL_DEBUG=INFO. Without it this row cannot say whether it")
+            print("  crossed Slingshot or TCP, and those differ by 5.2x (7629082).")
+            rc = 4
+        elif prov != "cxi":
+            # ALLOW_TCP=1 is an acknowledgement, not a bypass: the row is still
+            # labelled tcp and still must not be tabled against a cxi row. It
+            # exists because v1.6.0 (the only plugin that binds cxi here) wedges
+            # by message size -- 7565896 on a 41,088-element broadcast, 7629096
+            # on a 512 KB all_gather -- so "use the fabric" is sometimes not
+            # available, and pretending otherwise would just move the lie.
+            if os.environ.get("ALLOW_TCP") == "1":
+                print("WARN FABRIC_TCP_ACKNOWLEDGED: provider=%s, ALLOW_TCP=1." % prov)
+                print("  Recorded as a tcp row. It is ~5x slower than cxi (7629082)")
+                print("  and is NOT comparable with any cxi row in this file.")
+            else:
+                print("ERROR FABRIC_NOT_SLINGSHOT: provider=%s, expected cxi." % prov)
+                print("  aws-ofi-nccl fell back off the fabric. This is a TCP row, not")
+                print("  a Slingshot row; the 128-node production run 7566145 was one")
+                print("  and nobody noticed for three weeks.")
+                print("  Fix:      -v OFI_PLUGIN=%s" % OFI_PLUGIN_CXI)
+                print("  Or admit: -v ALLOW_TCP=1  (if the cxi plugin wedges your shape)")
+                rc = 4
     ws = parsed["_world_sizes"]
     if ranks > 1 and ws and max(ws) != ranks:
         print(
@@ -253,6 +303,7 @@ def main(argv=None) -> int:
         "wireup_s",
         "io_gbs",
         "transport",
+        "provider",
         "world_sizes_seen",
     ):
         print("  %-17s %s" % (key, row[key]))

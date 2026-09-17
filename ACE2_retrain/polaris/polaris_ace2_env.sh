@@ -136,7 +136,13 @@ export ACE2_ENV_SOURCE
 # Set even for 1-NODE runs.  Intra-node NCCL never leaves NVLink so the plugin is
 # not exercised there, but leaving it unset on the 1-node arm and set on the rest
 # would make the baseline a different configuration from the ladder it anchors.
-ACE2_OFI_PLUGIN="${OFI_PLUGIN:-${MEMBER_ROOT:-/nonexistent}/sw/aws-ofi-nccl-1.21.1/lib}"
+# 2026-09-17: was ${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib. That plugin does
+# NOT bind Slingshot -- it omits FI_MR_PROV_KEY, which the CXI provider
+# mandates, then silently falls back to tcp with GDR off instead of failing
+# (7629082; the 128-node production run 7566145 trained that way). v1.6.0
+# binds cxi. Override with -v OFI_PLUGIN=<dir> for spatial parallelism, which
+# v1.6.0 cannot do -- and expect the FABRIC_NOT_SLINGSHOT guard to fire.
+ACE2_OFI_PLUGIN="${OFI_PLUGIN:-/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib}"
 ACE2_OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
 for _d in "${ACE2_OFI_PLUGIN}" "${ACE2_OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
     if [ ! -d "${_d}" ]; then
