@@ -30,7 +30,7 @@ from makani.utils.parse_dataset_metada import parse_dataset_metadata
 from makani.utils.profiling import Timer
 from makani.utils.YParams import YParams
 
-from sfno_training.trainer import PlasimTrainer
+from sfno_training.trainer import PlasimEnsembleTrainer, PlasimTrainer
 
 
 logger = logging.getLogger(__name__)
@@ -368,7 +368,40 @@ def main() -> None:
     if world_rank == 0:
         _write_warmstart_provenance(params, expDir)
 
-    trainer = PlasimTrainer(params, world_rank)
+    # ---- trainer selection: deterministic vs ensemble/CRPS ------------------
+    # `ensemble_size` > 1 routes to makani's EnsembleTrainer, which folds the
+    # ensemble dim into the batch and hands probabilistic losses a 5-D
+    # (B, E, C, H, W) tensor. Below 2 members a CRPS loss degenerates to MAE,
+    # so the knob is the config's `ensemble_size` and nothing else.
+    #
+    # ⚠ `local_ensemble_size` MUST be set here. makani sets it in
+    # train_stochastic.py:93 and inference.py:157 but NOT in train.py, which is
+    # the entrypoint this file is modelled on -- so EnsembleTrainer would hit an
+    # AttributeError on params.local_ensemble_size. comm.init already creates
+    # the `ensemble` data-parallel group at size 1 by default
+    # (comm.py:117-118, data_parallel_names=["ensemble","batch"]), so with no
+    # ensemble parallelism this is just ensemble_size.
+    ensemble_size = int(params.get("ensemble_size", 1))
+    if ensemble_size > 1:
+        ens_group = comm.get_size("ensemble")
+        if ensemble_size % ens_group != 0:
+            raise ValueError(
+                f"ensemble_size {ensemble_size} does not divide evenly across "
+                f"{ens_group} ensemble-parallel ranks"
+            )
+        params["local_ensemble_size"] = ensemble_size // ens_group
+        if world_rank == 0:
+            logging.info(
+                "ENSEMBLE mode: ensemble_size=%d, ensemble_parallel=%d, "
+                "local_ensemble_size=%d -> PlasimEnsembleTrainer",
+                ensemble_size,
+                ens_group,
+                params["local_ensemble_size"],
+            )
+        trainer = PlasimEnsembleTrainer(params, world_rank)
+    else:
+        params["local_ensemble_size"] = 1
+        trainer = PlasimTrainer(params, world_rank)
 
     # torch.profiler / CUPTI capture branch ported from
     # makani-src/makani/train.py:147-169. Default behaviour

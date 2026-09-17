@@ -56,7 +56,11 @@ CKPT="${EXPROOT}/${SRC_RUN}/training_checkpoints/best_ckpt_mp0.tar"
 echo "scoring ${SRC_RUN}  best_ckpt  at rollout lengths: ${VAS[*]}"
 
 for VA in "${VAS[@]}"; do
-    TAG="score_${SRC_RUN}_va${VA}"
+    # TAG_SUFFIX rescores without deleting a previous arm's expDir (1.7 GB each,
+    # and its out.log is the only on-disk copy of that arm's result). Needed
+    # every time a trainer change has to be re-verified against the same
+    # checkpoint at the same rollout length.
+    TAG="score_${SRC_RUN}_va${VA}${TAG_SUFFIX:-}"
     DST="${EXPROOT}/${TAG}"
     if [ -d "${DST}" ]; then
         echo "  SKIP ${TAG}: expDir exists (delete it to rescore)"; continue
@@ -83,7 +87,19 @@ for VA in "${VAS[@]}"; do
     # `skip_training True`, exits 0, and writes NO validation loss. Measured
     # 2026-09-04 (7592332/3/6). Not loading counters starts the epoch at 0 so
     # one iteration runs; the WEIGHTS are restored either way.
-    V="${V},SKIP_TRAIN=1,WANDB=0,LOAD_COUNTERS=0,EVAL_SAMPLES=${NEVAL},VALID_AUTOREG=${VA}"
+    #
+    # ⚠ LOAD_LOSS=0 IS EQUALLY REQUIRED, and without it this script cannot score
+    # ANY rollout fine-tune. LossHandler carries running statistics whose SHAPE
+    # depends on n_future. A C1-style checkpoint was written at n_future=1; this
+    # job restores at n_future=0 (only VALID_AUTOREG moves, and that is the
+    # validation rollout, not the training one), so the restore dies with
+    #   RuntimeError: Error(s) in loading state_dict for LossHandler
+    # on every rank at trainer construction. Measured 2026-09-10, job 7603090
+    # scoring c1_rollout_full_b16 -- the base model scored fine (7603089) purely
+    # because it was trained at n_future=0, which is why this went unnoticed.
+    # Loud, not silent, but it kills the arm. Same knob and same reason as
+    # submit_c1_rollout_finetune.sh:89. The WEIGHTS restore either way.
+    V="${V},SKIP_TRAIN=1,WANDB=0,LOAD_COUNTERS=0,LOAD_LOSS=0,EVAL_SAMPLES=${NEVAL},VALID_AUTOREG=${VA}"
     V="${V},RUN_NUM=${TAG},MAKANI_SCALING_CSV=${MEMBER_ROOT}/bench/makani_scorecard.csv"
     V="${V},CONFIG_YAML=e3sm_alldata_full.yaml"
     V="${V},PACK=${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
