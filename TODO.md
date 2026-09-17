@@ -56,7 +56,42 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
    the batch-512 production run had **no warmup at all** and could not have had any.
    Warm restarts also hand us a **free snapshot ensemble** — one checkpoint per restart (item 3).
 
-3. **Score the trained model — NOTHING has ever scored a makani checkpoint on Polaris.**
+3. ✅ **CLOSED 2026-09-17 — the per-lead fix landed and six checkpoints have been scored.**
+   The empty-intersection defect below is **fixed** by `652e9505` (merged here today from
+   `wt-perlead-metrics`; verified job **7602739**, `PERLEAD_METRICS_OK`): `PlasimTrainer` rebuilds
+   `MetricsHandler` on the dataset's own channel names and `validate_one_epoch` dumps the full
+   `(leads × channels)` curve to `<expDir>/scores/metrics_epN.h5`. It passes **all 101 channels** —
+   which is what makani's own `Inferencer` does (`inferencer.py:346`), so it is **not** the science
+   choice this item feared. **Picking a headline subset still belongs to jesswan**, and
+   all-channels leaves that open.
+   **What it measured:** the rollout **blurs and drifts** — RMSE grows **4.65×** from 6 h to 126 h,
+   linearly, no saturation; ACC 1.000 → 0.878. C1 is **−3.00 %** at lead 126 h; `n_future=4` is
+   **−4.66 %/−4.63 %** across two seeds. ⇒ the rollout/ensemble direction is **not** misaimed.
+   ⚠ **Still open:** at ACC 0.878 we are far from climatology, so **exposure bias and
+   mode-averaging are not yet separable**. That needs the K=56 / 14-day sweep — see item 4.
+   *Superseded text kept below for the traps it records.*
+
+   ~~✅ **SCORING WORKS — and it produces exactly ONE single-step scalar. 2026-09-10.**~~
+   The va=3 control reproduced production's **0.01284 exactly** (7598662/3/4, again in 7602599),
+   so the `train_plasim.py:382` fix is verified and this item's headline is closed.
+   🔴 **But the lead-time ladder came back FLAT, and the cause is not logging.** va=3/10/20 on
+   the same checkpoint returned **byte-identical** `0.012838906608521938` while validation time
+   scaled 17.3 → 41.9 → 74.4 s. `MetricsHandler` intersects its ERA5 default variable names
+   (`u10m, t2m, sp, sst, u500, z500, q500, q50`) with the dataset's `channel_names`
+   (`metric.py:269-275`) and builds a handle only if the survivors are non-empty (`:323`). Our
+   E3SM channels are `PS, TREFHT, U10, RHREFHT, PSL, TMQ, T_l00…` — **empty intersection, zero
+   handles, no per-lead metric ever computed.** The 2026-09-09 patch that assumed they were
+   computed-and-discarded is a **no-op** (retracted in CHANGELOG `2026-09-10`).
+   ⇒ **Every "validation loss" in this repo — 0.01284, and the 128-node run's 0.018297 — is a
+   SINGLE-STEP number**, not the 4-step score the checkpoint-usage docs and
+   `submit_rollout_scorecard.sh`'s header claim. Fix those claims.
+   **NEXT, and it needs the science owner:** pass E3SM channel names to `MetricsHandler`
+   (`l1_/rmse_/acc_var_names`, reachable at the construction site the fork already uses for
+   `crps_var_names`). **Which of 101 channels are the headline metrics is jesswan's call** —
+   do not pick eight and ship it. Until then **C1 cannot be judged** (see below).
+   *Superseded text kept below for the traps it records.*
+
+   **Score the trained model — NOTHING has ever scored a makani checkpoint on Polaris.**
    ⚠⚠ **RE-CORRECTED 2026-09-04. The 2026-09-02 correction below was WRONG, and the original
    claim was right.** `-v SKIP_TRAIN=1` never validated anything: our fork's entrypoint had
    `if params.get("skip_training"): pass` (`train_plasim.py:382`), skipping the whole run —
@@ -83,7 +118,41 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
    (CLAUDE.md #7's rule, applied to the scheduler axis).
    *Cost: porting, then a short single-node job.*
 
-4. **Ensemble for inference — two cheap routes, one unavailable.**
+4. **Ensemble — the track is now unblocked and running. Next steps, in order.**
+   🔵 **RUNNING/QUEUED 2026-09-17:** **7630639** = the production candidate the n_future ladder
+   named (`n_future=4`, 24 epochs, 2 nodes × local 2 = global batch 16, `preemptable`, ~16
+   node-hours), re-run on the cxi stack after **7621853 died over TCP** in epoch 1.
+   **7630649** = `polaris_e3sm_port_test.pbs`, PASS = `E3SM_PORT_OK`.
+   ✅ **Inference port changes A-D + G landed** (`f857040b`) — two were silent defects
+   (`truth_sic` returned `solin`; the scorer used Gauss-Legendre on our equiangular grid,
+   over-weighting the polar row **1.50×**). → `docs/2026-09-10_e3sm_inference_port_scope.md`.
+   **Remaining, in order:**
+   a. **Decision E — step-index vs calendar labelling.** The scope doc §2.3 recommends
+      **step-index**: E3SM is packed on a **noleap** calendar with a split-cumulative day count, so
+      anchoring to a proleptic-Gregorian `datetime64` drifts one day per leap year crossed. Zero
+      effect on any metric; it only changes the label on output files.
+   b. **Change F — the Polaris PBS sibling for the eval chain** (`scripts/submit_eval.sh` is SLURM
+      on Stampede3; CLAUDE.md #7 ⇒ add a sibling, never edit in place).
+   c. 🎯 **Task 10 — the K=56 / 14-day rollout sweep. THE DECISION POINT.** At 126 h ACC is 0.878,
+      far from climatology, so exposure bias and mode-averaging cannot yet be told apart. This
+      curve decides whether more rollout depth or a **distributional objective** deserves the
+      node-hours — i.e. whether the untested CRPS arm is the next run.
+   d. **The CRPS/ensemble arm has never executed.** `PlasimEnsembleTrainer` is built with 7 tests
+      green and its config root-key defect is fixed; `bash polaris/submit_nfuture_ladder.sh crps 5`.
+      Gated on (c) unless run as a cheap smoke.
+   e. Stages 1/3/4 of the lagged ensemble (stagger-`d` start generator, member alignment by
+      absolute target index, weighted combination `w_k ∝ 1/σ(k)²`) — gated on (c).
+      → `docs/2026-09-10_lagged_ensemble_endtoend_plan.md` §5.
+
+   **Snapshot members — two cheap routes, one unavailable.**
+   ✅ **2026-09-17: there is nothing to keep — it was never pruned. ALL 243 epoch checkpoints
+   of the 1-node production run are on disk**, contiguous `ckpt_mp0_v0…v242`, 1.65 GiB each,
+   **403.2 GiB**, under `prod1n_b32_sgdr/training_checkpoints`. `makani_bench_report.md` §5k's
+   "twelve members" is that report's every-20th *subset*, not what survived. ⇒ **member spacing
+   is a free parameter** and the correlation-vs-skill question can be measured at inference
+   cost, training nothing. ⚠ It is also **item 16's non-pruning defect on a second harness** —
+   decide deliberately which members to keep before the next long run, and do not let a cleanup
+   script pick. → `polaris_makani_128node_decision_prompt.md` §13.
    *Snapshot ensemble*: keep the checkpoint at each `CosineAnnealingWarmRestarts` restart —
    3-4 models from **one** run, free, and a direct payoff of item 2's scheduler change.
    *Multi-seed*: N independent runs; at ~14 node-hours each, 5 seeds ≈ 70 — affordable now,
@@ -217,10 +286,31 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
     ✅ Resume gate PASSED (`ACE2_RESUME_GATE_OK`) — warm restarts + snapshot ensemble survive
     preemption. 🔬 LR sweep RUNNING (7589850-53, 4 arms, rule pre-registered in prereg §1a).
     **Next, in order:**
-    0. **Score the LR sweep against the pre-registered rule**, then launch production with the
-       winner as the warm-restart peak. ⚠ If the winner is an endpoint, extend the range —
-       do not adopt. ⚠ fme has no grad-norm and no gradient clipping, so the tie-break is
-       batch_loss variance, a weaker proxy.
+    0. ✅ **LR SWEEP SCORED AND SETTLED 2026-09-10 — the winner is `3e-4`.** All four arms
+       completed 3 full epochs (the two preempted ones resumed as 7598647/8): **3e-4 0.19579**
+       < 1e-4 0.23332 < 5e-5 0.28380 < 1e-3 0.34571. Ranking identical to the 2-epoch ranking,
+       and 3e-4 is an **interior optimum**, so the prereg's endpoint rule does not fire and it
+       is adoptable as the warm-restart peak.
+       🔵 **REMAINING: launch production.** 1 node, `LOCAL_BATCH=2` (global batch 8), 27 epochs,
+       `PRODUCTION=1 LR=3e-4 FULL_VAL=1 T_0=9 T_MULT=1` — `T_0=9` divides 27 exactly, so the
+       run ends at an LR minimum and the snapshot ensemble gets 3 members at epochs 9/18/27.
+       ⚠ **Queue is an open decision:** `capacity` fits all ~93-124 h in ONE job (never resumes,
+       which matters because item 0 below is unmeasured) but takes the project's single slot;
+       `preemptable` caps at 72 h so the run *must* resume at least once.
+    0aa. ✅ **Metric capture built 2026-09-10** (`ACE2_METRIC_LOG_OK`, 9 tests). fme routed every
+       per-channel validation metric through `wandb.log` with `log_to_wandb: false`, so all of
+       it was discarded — makani's defect on a second harness. Now `logging.metrics_log_dir`
+       (JSONL, resume-safe) + an epoch echo to the screen log, with the dropped-key list named
+       so parity is checkable. ✅ **Verified on real fme (7602614): 837 scalars to the screen
+       log against 3 before, 305 drops all named and all images, `metrics.jsonl` key count an
+       exact match, and `step_med_ms` 716.6 — the timed window is untouched.**
+       ✅ **wandb itself verified separately (7602650, new `-v WANDB=1`, default off):** 837
+       scalars + 305 wandb media PNGs = the 1142 keys the echo counted, so all three sinks
+       agree exactly. Fixed a `/tmp` trap on the way (`wandb_dir_in_experiment_dir` now always
+       true, else `wandb.init(dir=...)` overrides `WANDB_DIR` and the offline run dies with the
+       job). 🔴 **wandb ignores `resume` when offline** — a resumed run starts a NEW wandb run,
+       so wandb cannot be the record for a preempted production run and the JSONL is the one
+       that survives. **Second argument for `capacity` over `preemptable` below.**
     0a. ✅ **Determinism answered (2026-09-04):** two independent 1-node jobs at `seed: 3` agree
        **bitwise** on validation loss and to **7.7e-8 (~1 ULP fp32)** on the one cross-rank
        reduced train loss that moved. ⇒ a §4.1 equivalence baseline is achievable; tolerance
@@ -253,8 +343,11 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
     LR-5e-4 restart (**7573280**) cleared **epoch 11**, the point where LR 1.46e-3 diverged.
     The living document is not optional — an unrecorded measurement is a lost one.
 
-16. **ai-rossby: `max_checkpoints_to_keep: 5` does not prune.** 43 epochs kept all 92 files =
-    **870 GB**; at 100 epochs that is ~2 TB. Find out why before the next long run.
+16. **Checkpoint retention does not prune — on BOTH harnesses.** ai-rossby:
+    `max_checkpoints_to_keep: 5`, 43 epochs kept all 92 files = **870 GB**; at 100 epochs that
+    is ~2 TB. **makani, confirmed 2026-09-17:** the 243-epoch production run kept every epoch =
+    **403.2 GiB** (item 4). Two independent codebases, same symptom — worth one diagnosis, not
+    two. Find out why before the next long run.
 
 17. **PanguWeather: capture the §4.1 baseline, then rung 1 of the §5 ladder.** Nothing blocks
     the baseline any more (all three §4.0 prerequisites met; `tiny_baseline.yaml` runs in ~0.5 s
@@ -290,13 +383,27 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ### Not on this list on purpose
 
-- **A longer/wider makani production run** — gated on P0-1. We can already run 128 nodes at 85%
-  weak-scaling efficiency; more node-hours before a science read buys nothing.
-- **Switching production back to the old (faster) plugin** — disqualified, not deprioritised:
-  its working regime is a message-size lottery and it wedged on the ALLDATA encoder weight
-  (7565896). → `makani_bench_report.md` §6.
-- **`NCCL_ALGO=Ring` for makani** — not needed. makani reduces ~591 MB in one bucket, an order
-  of magnitude below the ~1 GB tree-corruption threshold. ai-rossby (4.73 GB) cannot run without it.
-  ⚠ **ACE2 cannot either** (measured 2026-09-02: a single 1.823 GB full-model all_reduce at
-  startup). It is on by default in `polaris_ace2_train.pbs`; removing it is a correctness
-  regression, not a tuning choice.
+- **A longer/wider makani production run** — gated on P0-3. More node-hours before a science
+  read buys nothing.
+  ⚠ **Corrected 2026-09-17: the "85% weak-scaling efficiency" that used to support this line
+  was measured over TCP** (the 128-node run never opened a CXI domain) and must not be quoted.
+  The conclusion did not depend on it and is now **stronger**: at a hypothetical *zero-cost*
+  fabric, 128 nodes at batch 512 would need a 62.7 ms single-node step at 1 sample/GPU, and the
+  strictly cheaper 53-channel model measures 65.3 ms at that shape. Realistic gap **3.6-4.6×
+  worse per node-hour**, 74-182× worse on **updates** per node-hour. → `polaris_makani_128node_decision_prompt.md`
+  §10-§14. Corollary recorded there: `nodes` is already 1, so **step time at batch 32 is the
+  only remaining lever** on updates/node-hour — that is P1-8 behind P1-9's equivalence gate.
+- **Switching production back to the old (faster) plugin** — ⚠ **REWRITTEN 2026-09-17: the old
+  plugin is now the RECOMMENDED one.** The message-size lottery that disqualified it (it wedged
+  on the ALLDATA encoder weight, 7565896) is **fixed by HPE's rendezvous block** — 7630227
+  against 7629096 swept `all_gather` through the 512 KB size it had wedged at. The "new" plugin
+  was only ever correct-everywhere because it had quietly stopped using the fabric.
+  → `makani_bench_report.md` §6, `polaris_nccl_metrics.md` §5b.
+- **`NCCL_ALGO=Ring` for makani** — probably not needed: makani reduces ~591 MB in one bucket,
+  an order of magnitude below the ~1 GB tree-corruption threshold. ai-rossby (4.73 GB) cannot
+  run without it. ⚠ **ACE2 cannot either** (measured 2026-09-02: a single 1.823 GB full-model
+  all_reduce at startup). It is on by default in `polaris_ace2_train.pbs`; removing it is a
+  correctness regression, not a tuning choice.
+  ⚠ **Evidence downgraded 2026-09-17: the ~1 GB threshold was measured on TCP.** The margin on
+  cxi is unknown. The conclusion may well hold — do not rely on it until re-measured.
+  → `polaris_ace2_slingshot_handoff.md` §2a, task T3.
