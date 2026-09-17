@@ -69,17 +69,25 @@ def load_eval_params(run_dir, *, K: int):
 
     eval_params = ParamsBase.from_json(str(cfg_path))
 
-    # Hard contract — these are the values the metadata-time patch
-    # installed at training; if they ever drift, abort before model build.
-    assert eval_params.N_in_channels == 58, (
-        f"expected 58 (52 state + 6 forcing); got {eval_params.N_in_channels}"
-    )
-    assert eval_params.N_out_channels == 53, (
-        f"expected 53 (52 state + 1 diagnostic); got {eval_params.N_out_channels}"
-    )
-    assert eval_params.n_state_channels == 52
-    assert eval_params.n_diagnostic_channels == 1
-    assert eval_params.n_forcing_channels == 6
+    # Hard contract, checked before the model is built. This used to assert the
+    # PLaSim literals 58/53/52/1/6, which aborted on any other contract -- E3SM
+    # ALLDATA is 107/101/100/1/7. The literals were never the thing worth
+    # checking: what protects a rollout is that the channel roles ADD UP, so
+    # that the state/forcing split the recurrence slices on matches what the
+    # model was built with. Derive both totals from the roles and compare.
+    _n_state = int(eval_params.n_state_channels)
+    _n_diag = int(eval_params.n_diagnostic_channels)
+    _n_forcing = int(eval_params.n_forcing_channels)
+    if _n_state + _n_forcing != int(eval_params.N_in_channels):
+        raise ValueError(
+            "CHANNEL_CONTRACT_INCONSISTENT: inputs are state + forcing, but "
+            f"{_n_state} + {_n_forcing} != N_in_channels={eval_params.N_in_channels}"
+        )
+    if _n_state + _n_diag != int(eval_params.N_out_channels):
+        raise ValueError(
+            "CHANNEL_CONTRACT_INCONSISTENT: outputs are state + diagnostic, but "
+            f"{_n_state} + {_n_diag} != N_out_channels={eval_params.N_out_channels}"
+        )
 
     # Eval-only overrides.
     if K < 1:
@@ -231,11 +239,17 @@ def build_wrapper_from_checkpoint(eval_params, ckpt_path, device):
 
     # Post-build assertions on the actual SFNO module. SFNO uses
     # `inp_chans` / `out_chans` (sfnonet.py:298-299), NOT `in_chans`.
-    assert wrapper.model.inp_chans == 58, (
-        f"wrapper.model.inp_chans={wrapper.model.inp_chans}, expected 58"
+    # Compared against the config rather than the PLaSim literals 58/53: what
+    # this guards is that the built module matches the contract the rollout
+    # will slice against, and that is a per-run quantity. load_eval_params has
+    # already checked the contract is internally consistent.
+    _n_in = int(eval_params.N_in_channels)
+    _n_out = int(eval_params.N_out_channels)
+    assert wrapper.model.inp_chans == _n_in, (
+        f"wrapper.model.inp_chans={wrapper.model.inp_chans}, expected {_n_in}"
     )
-    assert wrapper.model.out_chans == 53, (
-        f"wrapper.model.out_chans={wrapper.model.out_chans}, expected 53"
+    assert wrapper.model.out_chans == _n_out, (
+        f"wrapper.model.out_chans={wrapper.model.out_chans}, expected {_n_out}"
     )
 
     _assert_on_device(wrapper, device)

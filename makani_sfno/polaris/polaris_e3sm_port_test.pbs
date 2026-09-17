@@ -1,0 +1,96 @@
+#!/bin/bash -l
+#PBS -N makani_e3sm_port_tests
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Run the E3SM inference-port tests on a compute node.
+#
+# WHY A JOB FOR A CPU TEST.  The tests are CPU-only, but CLAUDE.md #3 forbids
+# importing torch on a Polaris login node -- it hangs or core-dumps there.
+# Same reason as polaris_perlead_metrics_test.pbs, whose shape this copies.
+#
+# WHAT IT GUARDS -- two silent defects and one hard block:
+#  * _extract_truth_sic read forcing channel 5 behind a guard on the forcing
+#    vector's LENGTH.  E3SM's forcing is 7 long, so the guard passed, index 5
+#    is `solin`, and sea ice is at 6.  It returned solar insolation under a
+#    `truth_sic` label with units="fraction".  No error, no warning.
+#  * sfno_eval/metrics.py weighted latitudes with Gauss-Legendre quadrature.
+#    Correct for the PLaSim T21 Gaussian grid, WRONG for our equiangular
+#    180x360 pack -- and the only guard is a shape check, which 180 weights
+#    against 180 rows passes.  Wrong number, no error.
+#  * load_eval_params asserted the PLaSim literals 58/53/52/1/6 and so aborted
+#    on the 107/101/100/1/7 E3SM contract before the model was built.
+#
+# The port fixes all three by DERIVING from config rather than special-casing
+# E3SM -- src/sfno_inference/ is a git subtree shared with the Stampede3
+# eval-sfno-own path (CLAUDE.md #5).  The PLaSim cases are therefore run here
+# too; a suite that only proved E3SM works would not show that.
+#
+# PASS = E3SM_PORT_OK.  Per CLAUDE.md #14, rc=0 is NOT the pass signal.
+#
+# Submit from makani_sfno/:
+#     qsub polaris/polaris_e3sm_port_test.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_perlead_metrics_test.pbs -- module
+# ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
+# script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+# A --system-site-packages venv re-enables the USER site, which site.py ranks
+# ABOVE the venv.
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+echo "=== makani_e3sm_port_test: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "MAKANI_ROOT=${MAKANI_ROOT}"
+makani_env_report
+echo
+
+# CPU-only by construction: a GPU here would only add allocator noise to a
+# correctness check.
+export CUDA_VISIBLE_DEVICES=""
+
+# The pre-existing suites run too: they are what proves the PLaSim path still
+# works after changes that had to generalize rather than special-case.
+"${PY}" -m pytest -q \
+    "${MAKANI_ROOT}/tests/sfno_inference/test_e3sm_port.py" \
+    "${MAKANI_ROOT}/tests/sfno_inference/test_checkpoint_loader.py" \
+    "${MAKANI_ROOT}/tests/sfno_inference/test_rollout_driver.py" \
+    "${MAKANI_ROOT}/tests/sfno_inference/test_nc_writer.py" \
+    -p no:cacheprovider
+rc=$?
+
+echo "--- pytest rc=${rc} ---"
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR E3SM_PORT_FAILED rc=${rc}"
+    exit 4
+fi
+
+echo "E3SM_PORT_OK  env_source=${MAKANI_ENV_SOURCE}"
+echo "=== makani_e3sm_port_test done $(date -Iseconds) ==="

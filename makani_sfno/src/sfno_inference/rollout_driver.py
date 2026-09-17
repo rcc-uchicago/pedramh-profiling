@@ -80,12 +80,19 @@ class RolloutResult:
 # core single-IC rollout
 # ---------------------------------------------------------------------------
 
-def _load_run_norm_stats(eval_params, device, *, n_out: int = 53):
+def _load_run_norm_stats(eval_params, device, *, n_out: int = None):
     """Load run-dir global_means / global_stds and shape for broadcast.
 
     Returns ``(out_bias, out_scale)`` each shaped ``(1, n_out, 1, 1)``
-    and on ``device`` ready to broadcast against ``(K, 53, H, W)``.
+    and on ``device`` ready to broadcast against ``(K, n_out, H, W)``.
+
+    ``n_out`` defaults to the run's own ``N_out_channels``. It used to default
+    to the PLaSim literal 53, and every caller omits the argument, so a
+    101-channel stats file was checked against 53 and the shape check below
+    rejected it.
     """
+    if n_out is None:
+        n_out = int(eval_params.N_out_channels)
     out_bias_np = np.load(eval_params.global_means_path).astype(np.float32)
     out_scale_np = np.load(eval_params.global_stds_path).astype(np.float32)
     # The stats files on disk are saved as (1, n_out, 1, 1) by the data
@@ -261,7 +268,7 @@ def rollout_one_ic(
     # Provenance: locate the file and sample-within-file for this global idx.
     ic_file, ic_sample_idx, file_anchor, t_plasim = _resolve_ic_provenance(dataset, ic_global_idx)
 
-    truth_sic = _extract_truth_sic(tar_forcing, dataset)
+    truth_sic = _extract_truth_sic(tar_forcing, dataset, eval_params)
 
     return RolloutResult(
         prediction=predictions_phys.cpu(),
@@ -278,14 +285,32 @@ def rollout_one_ic(
     )
 
 
-def _extract_truth_sic(tar_forcing: torch.Tensor, dataset) -> torch.Tensor | None:
-    """Recover physical sic at each lead from the CPU `tar_forcing` tensor.
+# Names a forcing contract may use for sea-ice concentration. PLaSim calls it
+# `sic`; the E3SM ALLDATA pack calls it `ice`. Looked up by name rather than by
+# position because position is not a contract: see _extract_truth_sic.
+_SIC_ALIASES = ("sic", "ice", "seaice", "sea_ice", "siconc")
 
-    `tar_forcing` is `(K, 6, H, W)` z-scored on CPU, with channel order
-    `['lsm','sg','z0','sst','rsdt','sic']`. Inverse-transform channel 5
-    using the dataset's loaded forcing stats. NaN over land (per
-    packager.py:226) round-trips as NaN. Returns None if stats are
-    missing or mis-shaped; the writer then skips truth_sic.
+
+def _extract_truth_sic(tar_forcing: torch.Tensor, dataset,
+                       eval_params=None) -> torch.Tensor | None:
+    """Recover physical sea-ice concentration at each lead from `tar_forcing`.
+
+    `tar_forcing` is `(K, n_forcing, H, W)` z-scored on CPU. The sea-ice
+    channel is located **by name** in ``eval_params.forcing_channel_names``
+    and inverse-transformed with the dataset's forcing stats. NaN over land
+    (per packager.py:226) round-trips as NaN. Returns None -- and the writer
+    then skips truth_sic -- if the stats are missing, the names are missing,
+    or no channel matches.
+
+    🐛 This used to read **positional index 5** behind a guard on the forcing
+    vector's *length* (`if n < 6: disable`). PLaSim's order
+    `['lsm','sg','z0','sst','rsdt','sic']` puts sic at 5, so it was right
+    there by coincidence of ordering. The E3SM ALLDATA contract is
+    `['lsm','topo','glacier','natveg','sst','solin','ice']`: length 7 passes a
+    `< 6` guard, index 5 is **`solin`**, and sea ice is at 6. The function
+    returned solar insolation, which nc_writer labels `truth_sic` with
+    `units="fraction"` and an ice-masking description -- confident, wrong, and
+    silent. Name lookup fixes PLaSim and E3SM with the same rule.
     """
     try:
         fb = np.asarray(dataset.forcing_bias, dtype=np.float32).reshape(-1)
@@ -293,13 +318,34 @@ def _extract_truth_sic(tar_forcing: torch.Tensor, dataset) -> torch.Tensor | Non
     except (AttributeError, TypeError, ValueError):
         logger.warning("dataset has no forcing_bias/forcing_scale; truth_sic disabled")
         return None
-    if fb.shape[0] < 6 or fs.shape[0] < 6:
-        logger.warning("forcing stats too short (%d, %d); truth_sic disabled",
-                       fb.shape[0], fs.shape[0])
+
+    names = list(getattr(eval_params, "forcing_channel_names", None) or [])
+    if not names:
+        logger.warning(
+            "no forcing_channel_names on eval_params; truth_sic disabled. "
+            "Refusing to guess a channel position -- that is how this emitted "
+            "solar insolation labelled as sea ice."
+        )
         return None
-    sic_z = tar_forcing[:, 5, :, :].to(torch.float32)        # (K, H, W) CPU
-    sic_phys = sic_z * float(fs[5]) + float(fb[5])
-    return sic_phys
+
+    lowered = [str(n).strip().lower() for n in names]
+    idx = next((lowered.index(a) for a in _SIC_ALIASES if a in lowered), None)
+    if idx is None:
+        logger.warning("no sea-ice channel among forcing names %s (looked for %s); "
+                       "truth_sic disabled", names, list(_SIC_ALIASES))
+        return None
+
+    n_avail = min(fb.shape[0], fs.shape[0], int(tar_forcing.shape[1]))
+    if idx >= n_avail:
+        logger.warning(
+            "sea-ice channel '%s' is at index %d but only %d forcing channels are "
+            "available (stats %d/%d, tensor %d); truth_sic disabled",
+            names[idx], idx, n_avail, fb.shape[0], fs.shape[0], tar_forcing.shape[1],
+        )
+        return None
+
+    sic_z = tar_forcing[:, idx, :, :].to(torch.float32)      # (K, H, W) CPU
+    return sic_z * float(fs[idx]) + float(fb[idx])
 
 
 # ---------------------------------------------------------------------------
