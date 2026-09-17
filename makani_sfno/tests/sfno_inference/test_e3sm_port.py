@@ -242,6 +242,48 @@ def test_inconsistent_channel_contract_is_rejected(tmp_path, n_state, n_diag,
         load_eval_params(tmp_path, K=4)
 
 
+# ---------------------------------------------------------------------------
+# Change E — init_time labelling: date it when you can, index it when you can't
+# ---------------------------------------------------------------------------
+
+def test_calendar_labelling_when_the_pack_carries_an_anchor():
+    """PLaSim path, unchanged: anchor + time_plasim ⇒ a datetime64."""
+    from sfno_inference.nc_writer import _resolve_init_time
+
+    r = _FakeParams(file_anchor="0126-08-01 00:00:00", time_plasim_at_ic=2.0,
+                    ic_global_idx=7)
+    value, labelling = _resolve_init_time(r)
+    assert labelling == "calendar"
+    assert value == np.datetime64("0126-08-03T00:00:00", "s")   # +2 days
+
+
+def test_step_index_labelling_when_the_anchor_is_absent():
+    """E3SM path: no anchor ⇒ the IC index, and NOT a fabricated date.
+
+    The pack is noleap with a split-cumulative day count, so adding those days
+    to a proleptic-Gregorian datetime64 drifts one day per leap year crossed.
+    """
+    from sfno_inference.nc_writer import _resolve_init_time
+
+    for absent in ("", "   ", None):
+        value, labelling = _resolve_init_time(
+            _FakeParams(file_anchor=absent, time_plasim_at_ic=365.0,
+                        ic_global_idx=42))
+        assert labelling == "step_index"
+        assert int(value) == 42
+        assert not isinstance(value, np.datetime64)
+
+
+def test_malformed_anchor_still_raises_rather_than_downgrading():
+    """A present-but-broken anchor is a packing bug, not a calendar choice.
+    Silently falling back to an index would hide it."""
+    from sfno_inference.nc_writer import _resolve_init_time
+
+    with pytest.raises(ValueError, match="unparseable anchor"):
+        _resolve_init_time(_FakeParams(file_anchor="not-a-date",
+                                       time_plasim_at_ic=0.0, ic_global_idx=0))
+
+
 def _write_run_dir(tmp_path, n_state, n_diag, n_forcing, n_in, n_out):
     """Minimal run dir: config.json plus the two stats files it requires."""
     import json
