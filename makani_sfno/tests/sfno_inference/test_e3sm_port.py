@@ -243,6 +243,54 @@ def test_inconsistent_channel_contract_is_rejected(tmp_path, n_state, n_diag,
 
 
 # ---------------------------------------------------------------------------
+# Holdout discovery — the glob was hardcoded to PLaSim's filename convention
+# ---------------------------------------------------------------------------
+
+def _load_eval_inference():
+    """Import scripts/eval_inference.py by path (it is a script, not a module)."""
+    import importlib.util
+    from pathlib import Path
+
+    p = Path(__file__).resolve().parents[2] / "scripts" / "eval_inference.py"
+    spec = importlib.util.spec_from_file_location("_eval_inference_under_test", p)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_holdout_glob_finds_e3sm_year_named_files(tmp_path):
+    """🐛 `sorted(glob("MOST.*.h5"))` found nothing on the E3SM pack, whose
+    files are `2048.h5` / `2049.h5`, and aborted before a single rollout ran
+    (job 7630665)."""
+    for name in ("2049.h5", "2048.h5", "2050.h5"):
+        (tmp_path / name).touch()
+    files = _load_eval_inference()._list_test_files(tmp_path)
+    assert [f.name for f in files] == ["2048.h5", "2049.h5", "2050.h5"]
+
+
+def test_holdout_glob_still_finds_plasim_files(tmp_path):
+    """The default must not have become E3SM-specific in turn."""
+    for name in ("MOST.0122.h5", "MOST.0121.h5"):
+        (tmp_path / name).touch()
+    files = _load_eval_inference()._list_test_files(tmp_path)
+    assert [f.name for f in files] == ["MOST.0121.h5", "MOST.0122.h5"]
+
+
+def test_holdout_glob_can_be_narrowed_and_refuses_an_empty_match(tmp_path):
+    mod = _load_eval_inference()
+    (tmp_path / "2048.h5").touch()
+    (tmp_path / "MOST.0121.h5").touch()
+    assert [f.name for f in mod._list_test_files(tmp_path, "MOST.*.h5")] == ["MOST.0121.h5"]
+    with pytest.raises(SystemExit):
+        mod._list_test_files(tmp_path, "nothing.*.h5")
+
+
+def test_holdout_glob_refuses_an_empty_directory(tmp_path):
+    with pytest.raises(SystemExit):
+        _load_eval_inference()._list_test_files(tmp_path)
+
+
+# ---------------------------------------------------------------------------
 # Change E — init_time labelling: date it when you can, index it when you can't
 # ---------------------------------------------------------------------------
 

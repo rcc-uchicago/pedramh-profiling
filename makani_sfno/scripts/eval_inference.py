@@ -72,6 +72,10 @@ def _parse_args() -> argparse.Namespace:
                    help="Disable per-step 58→53 contract assertions (faster; default off)")
     p.add_argument("--limit-files", type=int, default=None,
                    help="Process only the first N files (debugging)")
+    p.add_argument("--test-file-glob", type=str, default=None,
+                   help="Glob for holdout h5 files (default: any *.h5). The PLaSim packs "
+                        "are MOST.*.h5 and the E3SM ALLDATA packs are YYYY.h5; pass this "
+                        "only to narrow a directory holding more than one pack.")
     p.add_argument("--limit-ics", type=int, default=None,
                    help="Process only the first N ICs per file (debugging)")
     return p.parse_args()
@@ -86,10 +90,28 @@ def _resolve_device(spec: str):
     return torch.device("cpu")
 
 
-def _list_test_files(test_holdout: Path) -> list[Path]:
-    files = sorted(test_holdout.glob("MOST.*.h5"))
+def _list_test_files(test_holdout: Path, pattern: str | None = None) -> list[Path]:
+    """List the holdout's h5 files, in the order the dataset concatenates them.
+
+    The glob used to be the literal ``MOST.*.h5``, which is the PLaSim packer's
+    filename convention. The E3SM ALLDATA packer names files by year
+    (``2048.h5``, ``2049.h5``), so this raised ``no MOST.*.h5 found`` before a
+    single rollout ran (job 7630665). Default to *any* ``.h5`` and let
+    ``--test-file-glob`` narrow it when a directory holds more than one pack.
+
+    Sorted by name, which is what makes ``dataset.file_offsets`` line up with
+    this list — both PLaSim's ``MOST.NNNN.h5`` and E3SM's ``YYYY.h5`` sort
+    chronologically as strings, and the two are never mixed in one directory.
+    """
+    if pattern:
+        files = sorted(test_holdout.glob(pattern))
+        if not files:
+            raise SystemExit(f"no files matching {pattern!r} under {test_holdout}")
+        return files
+
+    files = sorted(test_holdout.glob("*.h5"))
     if not files:
-        raise SystemExit(f"no MOST.*.h5 found under {test_holdout}")
+        raise SystemExit(f"no .h5 files found under {test_holdout}")
     return files
 
 
@@ -241,7 +263,7 @@ def run_nwp(args: argparse.Namespace) -> int:
     device = _resolve_device(args.device)
     logger.info("device: %s", device)
 
-    test_files = _list_test_files(args.test_holdout)
+    test_files = _list_test_files(args.test_holdout, args.test_file_glob)
     if args.limit_files:
         test_files = test_files[: args.limit_files]
     logger.info("test files: %s", [f.name for f in test_files])
@@ -328,7 +350,7 @@ def run_climate(args: argparse.Namespace) -> int:
 
     device = _resolve_device(args.device)
 
-    test_files = _list_test_files(args.test_holdout)
+    test_files = _list_test_files(args.test_holdout, args.test_file_glob)
     if args.limit_files:
         test_files = test_files[: args.limit_files]
 
