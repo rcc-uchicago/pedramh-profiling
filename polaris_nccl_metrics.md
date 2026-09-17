@@ -268,6 +268,49 @@ bound and the 2.4x gap against the tcp row as directional, not measured.
 ⚠ `wireup_s` 18.37 is higher than either bench row (8.54 cxi / 14.03 tcp). The
 rendezvous settings plausibly cost setup time. One sample; unexplained.
 
+## 5d. The ladder, re-measured on a fabric we can prove was Slingshot
+
+Jobs **7630420 / 7630443 / 7630472**. `DATA=real, STEPS=60` on the same
+53-channel `e3sm_makani_scaling` pack the bench report's section 3a ladder used,
+so this is like-for-like with it. Every row carries `provider=cxi`; the guard
+would have refused it otherwise.
+
+| nodes | ranks | step_ms | vs 1n | weak eff | samples/s | wireup_s | io GB/s |
+|---|---|---|---|---|---|---|---|
+| 1 | 4 | 118.6 | — | 100% | 33.73 | 2.81 | 0.86 |
+| 2 | 8 | 146.9 | +23.9% | 80.7% | 54.46 | 14.18 | 1.38 |
+| 4 | 16 | 186.4 | +57.2% | 63.6% | 85.84 | 21.96 | 2.18 |
+
+Against `makani_bench_report.md`'s two ladders, at 4 nodes:
+
+| stack | 4-node step_ms | provider |
+|---|---|---|
+| section 3b "new plugin" (production's stack) | 460.5 | **tcp** |
+| section 3a "old plugin" | 199.5 | cxi |
+| **this change** | **186.4** | cxi |
+
+⇒ **2.47x faster than the stack the 128-node production run actually used**, and
+modestly faster than section 3a's cxi ladder. Throughput never goes backwards:
+33.7 → 54.5 → 85.8 samples/s.
+
+Two things worth flagging, neither resolved here:
+
+* **The 1-node row lands at 118.6, not section 3a's 144.7.** Section 2 records a
+  20.3% single-node gap between plugins (144.7 vs 115.3) with "no mechanism",
+  and calls it the largest unexplained effect among the single-node rows. At one
+  node there is no fabric, so a plugin cannot explain it; this is a third data
+  point and it sides with the fast camp. Still unexplained — do not read the
+  rendezvous settings as the cause.
+* **`wireup_s` grows 2.81 → 14.18 → 21.96.** Section 3a's old-plugin ladder read
+  2.76 → 8.54 → 21.38, so the 2-node rung is ~1.7x its old value while 4 nodes
+  matches. Plausibly the rendezvous settings; n=1, and not chased.
+
+⚠ n=1 per rung, and `step_ms` is the final epoch's running average, which
+includes warmup (section 0 trap 1 of the bench report). Section 3c showed that
+reading the same stack warmup-free moves 8-node efficiency from 67% to 47%, so
+these efficiency percentages are the flattering read. The **absolute** step times
+and the cxi-vs-tcp gap do not depend on that.
+
 ## 6. Reproduction
 
 ```bash
