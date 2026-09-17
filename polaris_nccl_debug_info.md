@@ -17,6 +17,46 @@ NCCL_DEBUG_FILE="$OUT/<arm>.nccl.%h.%p"
 
 ---
 
+## 0. 🔴 The finding that matters most: a SILENT fallback to TCP
+
+Under `nccl-tests` (section 3) aws-ofi-nccl 1.21.1 fails loudly. **In our production
+training it did not fail — it silently selected the `tcp` provider and kept running.**
+From the 128-node run's own log (`prod128_alldata_v2.log`, job 7566145, lines 1832-1844):
+
+```
+NET/OFI No eligible providers were found
+NET/OFI Selected provider is tcp, fabric is 10.201.0.0/16 (found 2 nics)
+NET/OFI Using transport protocol SENDRECV
+NET/OFI Support for DMA-BUF registrations: false
+NET/OFI Need to force simple protocol: GDR not supported
+NET/OFI Skipping adding NCCL_PROTO=Simple to environment, already set
+NCCL INFO Using network AWS Libfabric
+```
+
+Consequences:
+
+* A **128-node / 512-GPU production training ran every inter-node collective over TCP**,
+  with GPUDirect RDMA off. Slingshot was never used.
+* `Using network AWS Libfabric` names the **plugin**, not the provider, and is byte-identical
+  whether the traffic goes over CXI or TCP. Our benchmark CSV recorded exactly that string,
+  so a `transport` column that read `AWS Libfabric` on every row could not distinguish a
+  Slingshot run from a TCP one. **The discriminating line is
+  `Selected Provider is cxi` vs `Selected provider is tcp`.**
+* The plugin also **injects `NCCL_PROTO=simple` itself** once it lands on TCP
+  (`Need to force simple protocol: GDR not supported`), so a protocol pin we believed was
+  ours was partly the plugin's.
+* Measured cost of the fallback, same nodes, one variable changed:
+  **CXI 18.03 GB/s vs TCP 3.46 GB/s** (section 5 of the metrics file) = **5.2x**.
+
+⚠ **Open discrepancy, stated rather than smoothed over:** the same plugin version behaves
+*differently* in the two contexts — hard failure under `nccl-tests`
+(`Unable to find a protocol that worked`) versus silent TCP fallback under the PyTorch
+trainer. We have not isolated which environment difference flips it. A plugin that
+sometimes aborts and sometimes downgrades the fabric without an error is the more dangerous
+of the two behaviours, and this question is worth answering before trusting either.
+
+---
+
 ## 1. The stack
 
 NCCL cannot address Slingshot directly. The chain is

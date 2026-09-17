@@ -13,6 +13,12 @@ Measured 2026-09-17 on ALCF Polaris (4x A100-SXM4-**40GB**/node, HPE Slingshot 1
 the correctness column and is the PASS gate here — an exit code is not, because a
 killed run still returns 0 through a pipe.
 
+> 🔴 **Read `polaris_nccl_debug_info.md` section 0 first.** Under `nccl-tests` the
+> aws-ofi-nccl 1.21.1 plugin fails loudly, but in our 128-node production training it
+> **silently fell back to the `tcp` provider with GDR off** and trained to completion that
+> way. Every inter-node makani number predating 2026-09-17 is therefore a TCP measurement,
+> not a Slingshot one.
+
 ---
 
 ## 1. Summary

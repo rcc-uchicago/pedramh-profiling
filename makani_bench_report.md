@@ -151,7 +151,7 @@ Its header therefore does not carry the `NCCL_PROTO=Simple` line that 7554222 on
 pin is attested by the submission and the CHANGELOG, not by the log. Re-run it when reps are
 taken.
 
-### 3b. NEW plugin (v1.21.1 + AUTO) + Simple — everything works, inter-node is 2.3× worse
+### 3b. NEW plugin (v1.21.1 + AUTO) + Simple — inter-node is 2.3× worse **because it is TCP**
 
 | nodes | ranks | job | step_ms | vs 1n (%) | samples/s (total) | weak eff (%) | wireup (s) | io (GB/s) |
 |---|---|---|---|---|---|---|---|---|
@@ -165,15 +165,36 @@ flat (490.7 → 460.5 → 545.0): a large, roughly constant cost for touching th
 not a bandwidth wall. 16 GPUs at 4 nodes deliver exactly 4 GPUs' throughput. Per-GPU compute
 is ~115 ms, so **~430 ms ≈ 79% of the 8-node step is exposed comms.**
 
-Signature matches progress-engine CPU starvation: `OFI_NCCL_PROGRESS_MODEL=AUTO` runs
-libfabric's own progress threads on the 8 cores `--cpu-bind depth -d 8` reserves — a bind
-tuned for the old plugin's *manual* progress. Untested; it is the single highest-value
-tuning experiment left (§8).
+🔴 **CAUSE FOUND 2026-09-17 — these rows are not Slingshot rows.** The v1.21.1 plugin
+never opened a CXI domain. Its own log says:
 
-**Trade-off, stated plainly:** old plugin = fast pure DDP, spatial parallelism broken, and its
-"working" regime is a message-size lottery (§6). New plugin = correct everywhere, 2.3× slower
-inter-node at ≤8 nodes. **Production runs on the new plugin** and pays for it — but §4 shows
-the penalty is amortised at production step lengths.
+```
+NET/OFI No eligible providers were found
+NET/OFI Selected provider is tcp, fabric is 10.201.0.0/16 (found 2 nics)
+NET/OFI Need to force simple protocol: GDR not supported
+```
+
+so every §3b row crossed nodes over **TCP with no GPUDirect RDMA**, while §3a's rows print
+`Selected Provider is cxi (found 2 nics)`. **"Old vs new plugin" in this report is really
+"CXI vs TCP".** Measured directly with `nccl-tests` on identical nodes: CXI 18.03 GB/s vs
+TCP 3.46 GB/s busbw = **5.2×** (job 7629082). Root cause is a missing `FI_MR_PROV_KEY` in the
+plugin's mr_mode hints, which CXI mandates — plugin source, not a tunable.
+→ `polaris_nccl_debug_info.md`.
+
+~~Signature matches progress-engine CPU starvation: `OFI_NCCL_PROGRESS_MODEL=AUTO` runs
+libfabric's own progress threads on the 8 cores `--cpu-bind depth -d 8` reserves.~~
+**RETIRED — the hypothesis was wrong and the AUTO knob is exonerated.** The cpu-bind /
+progress-thread sweep is no longer the highest-value tuning experiment (§8); re-running the
+ladder on a plugin that actually selects `cxi` is.
+
+Note also that `NCCL_PROTO=Simple` on these rows was **not our pin**: the plugin injects it
+(`Need to force simple protocol: GDR not supported` → `Adding NCCL_PROTO=simple`). §2's
+"Simple costs 26%" therefore conflates the protocol pin with the TCP fallback.
+
+**Trade-off, restated:** old plugin = real CXI, fast pure DDP, spatial parallelism broken, and
+a message-size lottery (§6 — reconfirmed 2026-09-17, `all_gather` wedged at 512 KB). New
+plugin = correct everywhere and never wedges, **because it quietly stopped using the fabric**.
+**Production runs on the new plugin**, so §4 is a TCP result.
 
 ### 3c. The warmup-free read — and the correction it forces
 
@@ -207,7 +228,7 @@ on the 101-channel ALLDATA contract that matches Pangu/ai-rossby.
 | | |
 |---|---|
 | shape | 512 ranks × 1 sample/GPU = **global batch 512**, `h_par=w_par=1` (pure DDP) |
-| stack | **new plugin** v1.21.1+AUTO + Simple, `AWS Libfabric`, `world_sizes_seen=512` |
+| stack | **new plugin** v1.21.1+AUTO + Simple, `world_sizes_seen=512`. 🔴 **Provider was `tcp`, NOT `cxi`** (log lines 1832-1844) — this run never used Slingshot; `AWS Libfabric` names the *plugin*, not the transport (§3b) |
 | data | `e3sm_makani_alldata_production`, 43,800 samples; FULL epochs of 43,520 = **85 steps** |
 | wall | train **5,749.2 s** + wireup **315.7 s** ⇒ **≈216 node-hours** (cap was 774) |
 | cost/epoch | 57.5 s ⇒ **2.04 node-hours per epoch** |
@@ -850,7 +871,8 @@ The refusals are the failure catalogue:
 | spatial hang/IMA | 7554129, 7554253, 7554367, 7563723 | old plugin, subgroup small-message storms (§5) |
 | sick node (zombie GPU) | 7563960, 7563991, 7564075, 7564123, 7564227 | `CUDA-capable device(s) busy` at init → `-v TARGET_NODES=N` with `select=N+1` prunes it |
 | harness | 7564377 | `NO_STEP_TIMING`, rc=143 |
-| message-size lottery | 7565896 (in `makani_wandb_check.csv`) | old plugin wedged on a **41,088-element = 384×107** broadcast, the ALLDATA encoder weight — the size the 53-ch model (384×58) happened to dodge. **This disqualified the old plugin for production**, and it is why the faster stack is not the production stack |
+| message-size lottery | 7565896 (in `makani_wandb_check.csv`), **7629096** | old plugin wedged on a **41,088-element = 384×107** broadcast, the ALLDATA encoder weight — the size the 53-ch model (384×58) happened to dodge. **This disqualified the old plugin for production**, and it is why the faster stack is not the production stack. **Reconfirmed app-free 2026-09-17**: `nccl-tests` `all_gather_perf` wedged at **512 KB** on 16 ranks with `NCCL_PROTO=Simple` set, while `all_reduce_perf` swept clean to 4 GiB on the same communicator |
+| **silent TCP fallback** | **7566145 (production), all §3b rows** | 🔴 aws-ofi-nccl **v1.21.1** omits `FI_MR_PROV_KEY` from its mr_mode hints; CXI mandates it, so the plugin logs `No eligible providers were found` and **falls back to `Selected provider is tcp` with GDR off instead of failing**. Not caught for three weeks because the `transport` CSV column records the plugin name (`AWS Libfabric`), which is identical on CXI and TCP. **The discriminating line is `Selected Provider is cxi` vs `Selected provider is tcp`** — any future fabric check must key on that (CLAUDE.md #10) |
 
 Two failures were only catchable because the guards exist: `world_size` is read from the
 trainer's own banner (N independent `world_size=1` trainers would otherwise time plausibly),
