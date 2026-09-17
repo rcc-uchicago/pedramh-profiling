@@ -209,8 +209,15 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - 🔵 **QUEUED: 7630639** — the production candidate re-run on the cxi stack (`n_future=4`,
     24 epochs, 2 nodes × local 2 = global batch 16, `preemptable`, ~16 node-hours). The dead expDir
     is preserved as `nf4_prod_b16_r1_tcpfail_7621853`.
-  - 🔵 **QUEUED: 7630649** — `polaris_e3sm_port_test.pbs`, PASS = `E3SM_PORT_OK`. ⚠ **The port is
-    committed but UNVERIFIED until that token appears** (CLAUDE.md #14).
+  - ✅ **PORT VERIFIED — `E3SM_PORT_OK`, job 7630654: 52 passed, 4 skipped, 0 failed**, 13.7 s on a
+    compute node. The first run (7630649) came back **51 passed / 1 failed**, and the failure was
+    **pre-existing and unrelated**: `test_nc_writer.py::test_round_trip_dims_and_coords` compares
+    `ds['lead_time']` against integer hours, but current xarray decodes a timedelta-like `units`
+    into `timedelta64`, so it returned `np.timedelta64(21600000000000,'ns')` — which *is* 6 h.
+    Value right, decoded dtype moved, and xarray's own FutureWarning in the same log says it is
+    about to move again. Fixed by asserting the quantity in hours under both behaviours; the
+    comparison is still exact, not a loosened tolerance (CLAUDE.md #11). Nothing in `f857040b`
+    touches `nc_writer`.
   - **Still open, in order:** change **E** (step-index vs calendar labelling — the scope doc
     recommends step-index) and **F** (Polaris PBS sibling for the eval chain), then **task 10, the
     K=56 / 14-day sweep — the real decision point.** At 126 h ACC is still 0.878, far from
