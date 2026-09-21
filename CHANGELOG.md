@@ -144,6 +144,624 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-21 (makani)** — 🟢 **LAGGED ENSEMBLE STAGES 1 AND 3 BUILT (tasks 11-12, `d7a49780`) —
+  `E3SM_PORT_OK` job 7643045, 82 passed / 4 skipped, up from 52.** No allocation beyond a 42 s
+  debug job; both stages are index arithmetic and NetCDF metadata.
+  - **Why the existing sweep contributes nothing:** `nwp_ic_offsets` spaces starts
+    `(n_samples - K) // n_ic` apart — **117 samples at K=56** — precisely so forecasts do *not*
+    overlap. Right for a scorecard, and it means the 24-IC K=56 sweep has **exactly zero** lagged
+    members. `plan_lagged_sweep` emits starts `stride` apart so rollouts share targets.
+  - **Stage 3 is a regrouping, not a re-run:** a rollout from `s` predicts absolute indices
+    `s+1 … s+K` at depths `1 … K`, so one rollout is a member of many targets.
+    `align_members_by_target` keys on `ic_global_idx` and reads **only NetCDF attributes**, so
+    indexing a 45 GB sweep costs milliseconds; stage 4 reads fields one target at a time.
+  - 🐛 **Two bugs the tests caught in my own first draft — both plausible, both silent:**
+    1. **The coverage arithmetic over-provisioned by 2 rollouts.** It assumed the first fully
+       covered target is `first_start + K`; in fact a lower target is already full whenever
+       `M = K/stride` starts sit at or below `T−1`. Correct span
+       `[first_start + K − stride + 1, last_start + stride]` ⇒ `n` rollouts cover
+       `(n+1)·stride − K` targets, so **32 targets need 21 rollouts, not 23**. At ~1.95 GB and
+       ~77 s each that was 4 GB and 3 min of waste per sweep.
+    2. **I asserted uniform depths across targets — false.** The member *count* is uniform; the
+       *depths* depend on `(T − first_start) mod stride`, giving exactly `stride` distinct
+       patterns, of which only the on-lattice one is the plan's quoted `d, 2d, … K`. Harmless for
+       `w_k ∝ 1/σ(k)²` (each member is weighted by its own depth) but it means **aggregating
+       spread or CRPS across residue classes mixes constructions**. Documented, not papered over;
+       `lattice_targets` is the subset sharing one pattern.
+  - **Guards, each for a failure that is otherwise silent:** `stride` must divide `K`; `stride > K`
+    refused (no overlap ⇒ no ensemble); a sweep running past end-of-file refused (cross-file
+    rollout unsupported, and truncation yields ragged targets); members of one target must agree
+    on `ic_file` (**sample index 5 is a different time in 2048.h5 than in 2049.h5**); a duplicated
+    `(start, depth)` refused (double-counting understates spread and inflates SSR); `sigma_weights`
+    rejects a zero/NaN σ rather than handing one member the whole ensemble.
+  - **`src/sfno_ensemble/` is a NEW package, not additions to `src/sfno_inference/`** — that tree
+    is shared with the Stampede3 `eval-sfno-own` path and wants none of this (CLAUDE.md #7).
+    Torch-free, so its tests run anywhere. `eval_inference.py` gains `--ic-mode`, defaulting to
+    `monthly` = the existing path, so **the SLURM chain is unchanged**; lagged sweeps write to
+    `inference/lagged/` and are named by start index.
+  - **Ready to run, not run:** `qsub -v IC_MODE=lagged,N_TARGETS=32 -l walltime=02:00:00
+    -q preemptable polaris/polaris_eval_inference.pbs` ⇒ 21 rollouts ≈ 41 GB, ~27 min. ⚠ Check
+    disk first — the 243 snapshots hold 403 GiB and `max_checkpoints_to_keep` does not prune.
+    **Task 13 (weighted combination) is the next code**, and its σ(k) already exists in
+    `k56_metrics.h5`.
+
+- **2026-09-20 (makani)** — 🟢 **THE K=56 CURVE IS READ, AND IT ANSWERS THE CRPS QUESTION:
+  MODE-AVERAGING IS RULED OUT. Job 7633207's 45 GB had been sitting unscored since 2026-09-19 —
+  the gate was never closed because nobody computed the curve, not because an arm lost.**
+  Job **7639477** (tests failed) → **7639537**: `K56_SCORE_TESTS_OK` (14 tests) then
+  `K56_SCORE_OK`, 24 ICs × 56 leads × 101 channels, **0 non-finite cells**, 22.8 min CPU-only on
+  one debug node.
+  - **The rule was written down first** — `makani_sfno/docs/2026-09-20_k56_readout_prereg.md`,
+    on disk before a single number was computed, and implemented as `classify_regime()` with a
+    test per branch so it could not move once the numbers were in. It replaces the handoff's
+    "saturating / still climbing, read by eye" with thresholds on three quantities.
+  - **New tooling, and it is an E3SM SIBLING, not an edit** (CLAUDE.md #7):
+    `polaris/score_rollout_nc.py` + `polaris/test_score_rollout_nc.py` +
+    `polaris/polaris_score_k56.pbs`. `scripts/score_nwp.py` is **not** usable here and was not
+    modified: it still calls `legendre_gauss_lat_weights` directly (change G added the
+    `lat_weights(nlat, grid_type)` dispatcher but **did not update this caller** — a live
+    silent defect for anyone who points it at E3SM), it requires a calendar-binned climatology
+    E3SM has no builder for, and its sanity gate is `tas`/`zg500`/`MOST.`-specific. The new
+    scorer reuses `sfno_eval.metrics` for the formulas, so only the quadrature (equiangular) and
+    the climatology (the pack's `time_means.npy`) differ from the PLaSim track.
+
+    | median over 101 channels | 126 h | **336 h** |
+    |---|---|---|
+    | NRMSE (1.0 = climatological mean, 1.414 = decorrelated) | 0.519 | **0.970** |
+    | VR = predicted ÷ true anomaly amplitude | 0.999 | **1.019** |
+    | ACC | 0.867 | **0.546** |
+    | `R_slope` = slope(240→336 h) ÷ slope(30→126 h) | — | **0.473** |
+
+  - 🔴 **CRPS IS NOT INDICATED.** Blurring means amplitude collapse; at 14 days the model's
+    anomaly amplitude is 2 % **above** truth's, and VR never leaves 0.99–1.02 across any lead.
+    The pre-registered CRPS branch needs VR ≤ 0.60. ⇒ **the never-run `PlasimEnsembleTrainer`
+    arm stays parked, and the jesswan loss-change sign-off is not on the critical path.**
+  - ⚠ **But K=56 still did not reach saturation, so `n_future=8` is not selected either.**
+    NRMSE 0.970 is short of 1.0, let alone 1.414, and the curve is **decelerating**
+    (`R_slope` 0.473, continuing the 0.779 late/early ratio measured at lead 21 in
+    `2026-09-10_longroll_blowup_analysis.md` §2). Doubling the horizon took us from ~29 % of the
+    ceiling to ~69 %. Absent the drift clause the verdict would have been **AMBIGUOUS**.
+  - 🐛 **The verdict that DID fire is `DRIFT_FIRST`, on ONE channel of 101: `Z3_l17`.**
+    `a_truth` **0.271 m** (near-surface terrain-following level — nearly time-invariant), yet the
+    model manufactures **1.27 m of anomaly in a single step** and **10.22 m by 336 h**, with half
+    the final error a systematic **−5.15 m** drift (VR 5.06 → **43.16**). Not a small-denominator
+    artifact alone — the numerator grows 40× while truth's stays flat — and not large in absolute
+    terms, 10.2 m being the *smallest* 336 h RMSE of the Z3 family. Every other channel is
+    ≤ 1.371 NRMSE at 336 h.
+    ⚠ **Invisible to the earlier analysis by construction:** that normalised by `global_stds.npy`,
+    which for `Z3_l17` is dominated by **spatial** terrain variation and hides a temporal drift
+    completely. `Z3_l17` is a fed-back state channel ⇒ a blow-up candidate distinct from the `U10`
+    the long-roll doc named. **Whether a near-constant near-surface geopotential level should be
+    prognostic at all is jesswan's call** (division of labor), and is worth raising *instead of*
+    the CRPS question that was queued for her.
+  - ⚠ **A defect in my own pre-registration, disclosed rather than patched.** Its §5 promised
+    `PRECT` would be "reported separately" and argued 1 of 101 cannot move a median — true of the
+    medians, **false of the drift clause**, which is a max over all 101 and can therefore be
+    selected by any channel with a degenerate denominator. The clause is left exactly as written
+    and the verdict reported as it came out; rewriting it after seeing which channel trips it
+    would forfeit the point. Next prereg: floor `a_truth` in that clause and name the exclusions.
+  - ⚠ **Both NRMSE and ACC are flattered here:** `time_means.npy` is a single *annual* mean, so
+    the anomalies retain the seasonal cycle and a forecast that merely knew the season already
+    beats NRMSE 1.0. Pre-stated in §2, which is why VR — immune to that bias — is the primary
+    discriminator. The cheap sharpening is a day-of-year climatology from the training pack.
+  - ✅ **Task 13 of the lagged-ensemble plan is unblocked as a side effect.** `k56_metrics.h5`
+    carries RMSE for all **56** depths × 101 channels — the `σ(k)` that `w_k ∝ 1/σ(k)²` needs, and
+    which stopped at lead 20 until today.
+  - ✅ **Handoff §7's channel-count question is settled:** the pack is 101 (100 state + `PRECT`);
+    the loader's `180 × 360 × 100` counts `fields_state` only. The scorer asserts
+    `len(channel) == time_means.shape[1]` and would have refused to score a mismatch.
+  - **7630639** (depth-4 × 24 epochs) is **still queued**, `eligible_time` **72:22:13**,
+    `comment = Insufficient amount of resource: queue_tags`. No nodes — **do not resubmit**
+    (CLAUDE.md #12).
+
+- **2026-09-18 (ACE2)** — 🔵 **ACE2 PRODUCTION CONFIG SETTLED, as an operator decision
+  (rmehta1987): no longer gated on external science sign-off.** Two independent Fable-5 review
+  seeds were given the same question — *what is the optimal ACE2 training configuration for RMSE
+  and for climate-statistical skill, and how is that established statistically* — with no shared
+  context, and they returned **the same configuration**, matching a third independent derivation
+  done here while they ran:
+  ```
+  qsub -q capacity -l select=1:system=polaris -l walltime=140:00:00 -l filesystems=home:eagle \
+    -v PRODUCTION=1,LOCAL_BATCH=2,EPOCHS=27,LR=3e-4,FULL_VAL=1,T_0=9,T_MULT=1 \
+    ACE2_retrain/polaris/polaris_ace2_train.pbs
+  ```
+  1 node / 4 GPUs, global batch 8, LR 3e-4 as the warm-restart peak, T_0=9 (27/9 ends at an LR
+  minimum ⇒ free snapshot ensemble at 9/18/27), `NCCL_ALGO=Ring` unchanged, ~68–70 node-h
+  uncontended (93–124 h contended).
+  - 🔴 **THE SLINGSHOT FIX DOES NOT MOVE THE PRODUCTION SHAPE, because the objective is UPDATES,
+    not samples.** 1 node at batch 8 does **5,044 updates/node-hour vs 2,208** at 2 nodes/batch 16
+    (2.3×) and also wins on **wall-clock** updates (5,044 vs 4,415). Today's 1.477× fabric win
+    matters for scaling studies and for any *multi-node* production — and not at all for this run,
+    which never leaves one node.
+  - 🐛 **Both seeds independently caught a misleading line written here earlier today:** TODO item
+    14's "a second node now costs only +14% node-hours" is true **per sample** and wrong as a
+    licence for a 2-node production run — per *update* it costs 2.3× the allocation to train more
+    slowly. Corrected in TODO item 14 and prereg §1a. The related "**3.4×** more update-efficient"
+    figure was a **TCP-era** number (5,028 vs 1,495); on cxi it is **2.3×**.
+  - **RMSE vs CLIMATE STATISTICS are different objectives, and this config optimises the first.**
+    RMSE is carried by LR 3e-4 → `FULL_VAL=1` (selection on ~2,900 real samples, not ~16) → EMA
+    weights → update count. Climate skill (time-mean bias, variability, spectra, drift) is neither
+    trained nor selected on: the paper's α criterion **is** fme's `best_inference_ckpt`, and
+    `PRODUCTION=1` hardwires `inference=null`, so it never fires. Both seeds independently reached
+    the same verdict — score climate **post-hoc** with `run_ace2_evaluator.py` (single rank,
+    monthly means, 5-y rollouts from the 1996 ICs), because at 22.5% of the paper's sample budget
+    the model is still descending and α cannot yet diverge from validation loss.
+  - **The statistics answer: two noise models with opposite conclusions.** *Timing* claims need ≥3
+    interleaved reps (1-node spread ±0.1%, 2-node ±3.8% ⇒ at 2 nodes nothing under ~8% resolves at
+    n=3, which is why Tree's ~2% projected 2-node win is below the noise floor). *Model-quality*
+    claims cannot use reps at all — ACE2 is **bitwise-to-1-ULP deterministic at fixed seed**
+    (7591998/7592103), so same-config spread is zero by construction; the real variance is
+    **across parameter inits and has never been measured for ACE2**. Minimum defensible comparison
+    is ≥3 inits, paired by init. Calibration from makani: a two-seed arm agreed to 0.03 pp on a
+    4.65 pp effect, so the LR sweep's 16–48% gaps are safe at one seed and a 2% tweak would not be.
+  - 🐛 **`FULL_VAL` defaulted OFF under `PRODUCTION=1` while the launcher's own comment called it
+    "REQUIRED for production"** — one forgotten `-v` from selecting the shipped model on a
+    ~16-sample validation window, silently. Default flipped: ON under `PRODUCTION=1`,
+    `-v FULL_VAL=0` restores the short window for the resume gate. Bench arms untouched; default
+    matrix verified across all six PRODUCTION×FULL_VAL combinations.
+  - 🐛 **`config_polaris.yaml`'s header still claimed the dhconv weights are complex64** (~10.7 GB
+    optimizer state). Refuted by the flight recorder: float32, **1.823 GB** of gradients, ~7.3 GB
+    fixed state (7586590). Stale text in the file every run parses; corrected with the measurement
+    and with the local-batch ceilings.
+  - ⚠ **Flagged, not changed: 1998–2010 is in NEITHER split.** Train is ≤1995 + 2011–2019 + 2021–,
+    validation is 1996–1997, so `best_ckpt` selects on **2 years where ai2's recipe uses 5**
+    (1996–2000); 2001–2010 is plausibly the paper's test period. Recorded because it changes what
+    "validation loss" means when compared against published numbers.
+  - **Deviations from ai2's published ACE2-ERA5 recipe, recorded rather than approved** (prereg
+    §1a is the list): batch 8 vs 16, LR 3e-4 vs 1e-4, 27 epochs vs 120,
+    `use_gradient_accumulation=false` vs true, warm restarts added where the reference has none,
+    2-year validation window vs 5.
+    ⚠ Job 7608867 shows the paper's global 16 **does** fit one node with accumulation on
+    (37.095 GiB) — rejected for this run on evidence, not permission: −6.5% samples/s, 2.4 GiB
+    headroom (94% of the card) with the inline-inference path unproven there, and it would
+    invalidate the LR sweep, which was measured at `false`.
+  - **Queue reality:** `capacity` is `max_run 1` per *project* and the slot is held by `awikner`'s
+    `rsi-a2l-b4-prod24` (9 h into 168 h), so a submission there **queues behind a colleague** for up
+    to ~6.6 days rather than blocking them. `preemptable` caps at **10 nodes** and at 72 h, and is
+    currently handing out nothing — all three of our jobs there sit on `queue_tags`. Production is
+    **7633565** (preemptable, 72 h, `queue_tags`). ⚠ It also needed a fresh CSV: `EPOCHS>1` + `LR`
+    route its row to `ace2_polaris_tuning.csv`, still **27 columns**, so with the new `provider`
+    column the append would abort on `SCALING_CSV_SCHEMA_DRIFT` — **after ~65 h of training**.
+    Now routed to `ace2_polaris_tuning_cxi.csv`. Two earlier submissions (7633396 capacity,
+    7633400 preemptable) were cancelled for that defect and to keep production's I/O out of the
+    comparison window below.
+
+- **2026-09-19 (ACE2)** — ✅ **CRITICAL BATCH SIZE SETTLED: 1 NODE STANDS. The 16-node speedup is
+  real, correctly measured, and unusable for this model.** Prereg §1e, registered before the arms
+  ran, scored **3 HIT / 3**:
+
+  | arm | ep 1 | ep 2 | ep 3 | job |
+  |---|---|---|---|---|
+  | batch 8, LR 3e-4 (reference) | 0.2846 | 0.2205 | **0.19579** | 7589850 → 7598647 |
+  | batch 128, LR 3e-4 | 0.8717 | 0.6052 | **0.5017** | 7633624 → resumed **7633879** |
+  | batch 128, LR 1.2e-3 (√-scaling) | 0.7406 | **0.5126** | — | 7633846 |
+  | batch 128, LR 4.8e-3 (linear) | 2.1755 | **1.7993** | — | 7633847 |
+
+  - **The selection rule fires unambiguously**: best batch-128 arm ~0.50 vs 0.19579 = **156%
+    worse** against a ">10% ⇒ 1 node stands" threshold. ⇒ **production stays 1 node / global
+    batch 8 / LR 3e-4**, now on measurement rather than on the update-efficiency argument alone.
+  - **P17 HIT by 2.6×** — a margin large enough that the reference being from an earlier env does
+    not threaten it (1-node runs have no fabric; ACE2 is bitwise deterministic at fixed seed).
+    **P18 HIT** — √-scaling beat both unscaled and linear, as makani's batch-independent LR ceiling
+    predicted. **P19 HIT on the criterion, mechanism WRONG** — 4.8e-3 is 9× worse than the
+    reference but it never diverged; it descends steadily (2.1755 → 1.7993), i.e. badly suboptimal,
+    not collapsed.
+  - 🔴 **THE ANSWER TO THE WHOLE SCALING QUESTION: the fabric was never what stood between ACE2 and
+    a faster good model — the batch was, and it still is.** 95.9% weak-scaling and 15.35×
+    throughput at 16 nodes are correct; the batch that comes with them costs **2.6× in validation
+    loss at matched samples**, which no throughput factor recovers. The cxi work remains valuable
+    for *any* run that must be multi-node (ACE2's own batch-16 production shape needs 2 nodes) and
+    for makani's 128-node campaign — it just does not change ACE2's 1-node production choice.
+  - ✅ **The resume path was exercised for real, not in a gate**: 7633624 was walltime-killed with
+    exactly 2 epochs recorded; resubmitting the same jobid-free `RUN_NAME` (7633879) picked up from
+    its own `ckpt.tar` and finished epoch 3. That is the property production depends on.
+  - ⚠ **Two arms stopped at 2 of 3 registered epochs** (walltime, even at `small`'s 3 h cap — the
+    epoch-1 cold-read penalty). Their third epochs were deliberately **not bought**: no third epoch
+    closes a 2.6× gap. Horizon complete for one B arm, short for two — stated, not smoothed.
+  - ⚠ **The matched-conditions reference arm (7633848) never started and was cancelled**, both
+    because P17's margin makes it non-decisive and because on `preemptable` it would have contended
+    with the production run for the same single-OST store.
+  - ⚠ **Walltime lesson, twice paid:** `PRODUCTION=1` drops the bench mode's `sample_with_replacement`
+    cap, so every epoch reads the **full 97,874-sample split (~4 TB)** and the first pass runs
+    **2.8× slower** (2098 vs 756 ms/step at 16 nodes, gpu_busy 99.3% vs 92.2%). Bench-arm step
+    times therefore **under-predict production walltime by ~2.5× on epoch 1**. Sizing a production
+    walltime from a 60-step bench row is how both round-1 and round-2 arms got killed.
+
+- **2026-09-19 (makani)** — 🔴 **"Does ACE2's 95.9% transfer to makani?" — CANNOT BE ANSWERED WITH
+  THE DATA STAGED HERE, and two of my own projections are retracted. One real finding survives:
+  SYNTHETIC DATA IS NOT A NEUTRAL STAND-IN FOR A SCALING MEASUREMENT.**
+  - **The hypothesis under test:** makani's 63.6% weak-scaling efficiency at 4 nodes on cxi is not a
+    fabric property but a **compute:comms ratio** property — it runs 1 sample/GPU (118.6 ms of
+    compute) against a toll of 67.8 ms, where ACE2 runs 716 ms. Model: `step(N) = step(1) + toll`,
+    toll batch-invariant because makani's gradient volume (0.591 GB) does not move with batch.
+  - 🔴 **THE MODEL IS FALSIFIED on its first real test.** 4 nodes, local 1, synthetic
+    (**7633729**) = **252.6 ms** against a predicted 191.6 — **+31.8% error**, efficiency **49.0%**
+    vs 64.6% predicted. The synthetic 4-node toll is **128.8 ms, 1.9× the real-data toll of
+    67.8 ms**. ⚠ And the model's apparent "0.0 pp agreement" on the real local-1 pair was
+    **circular** — the toll was fitted on exactly those two rows, so reproducing them was algebra.
+  - 🔬 **WHY, and this is the transferable lesson: synthetic data makes comms look WORSE, not
+    better.** At 1 node synthetic and real agree to **4.4%** (123.8 vs 118.6 ms) — no fabric, so
+    only the loader differs. At 4 nodes synthetic is **35% SLOWER** (252.6 vs 186.4). The
+    interpretation that fits: with real data part of the collective hides inside loader stalls,
+    and removing the I/O removes the slack the all-reduce was overlapping with, exposing it fully.
+    ⇒ makani's launcher comment — "synthetic removes the shared-FS confound" — is true and
+    incomplete: it also removes I/O/comms overlap, so **a synthetic row and a real row must not be
+    compared across node counts.** The `data` column records which is which; that is now
+    load-bearing rather than descriptive.
+  - ⛔ **The decisive arm (4 nodes, local batch 8) failed twice, for two different data-volume
+    reasons, and cannot be run here:**
+    1. **real** (7633649): makani's wrap guard refused it — `train samples available: 400;
+       required: 7680`. Only `train/2015.h5` is staged, so real data caps
+       `STEPS × global_batch ≤ 400`.
+    2. **synthetic** (7633881): trained fine (`train_rc=0`) but produced **no timing line**.
+       Diagnosed from the progress bars: 1 node ran **12** steps, 4 nodes ran **3**, and
+       12×32 = 3×128 = **384** — so `--enable_synthetic_data` uses a FIXED 384-sample set and
+       **ignores `n_train_samples_per_epoch`** (rendered 1920 and 7680 respectively). At global
+       batch 128 that is 3 steps; `print_timings_frequency=10` never fires, and a 3-step average
+       would not be a measurement even if it did.
+  - **Retracted:** the **84%** projection (built on 365.4 ms as makani's 1-node local-8 step, taken
+    from the bench report — measured here it is **889.4 ms**, 2.4× larger, evidently a different
+    config or era) and its replacement **92.9%** (built on the now-falsified batch-invariant toll).
+    **Neither number should be quoted.** What survives is only the *direction*: per-GPU compute
+    rises 123.8 → 889.4 ms from local 1 → 8 while the toll stays positive, so efficiency must
+    improve — by an unmeasured amount.
+  - ⇒ **ACE2, not makani, is the right vehicle for this question**: it has 97,874 staged samples,
+    and its 16-node arm already gave 95.9% at local batch 2. The equivalent ACE2 sweep (local 1 vs
+    local 2 at fixed node count) is runnable today. Testing it on makani needs more packed years.
+  - **Also recorded:** makani's launcher hardcodes `print_timings_frequency 10`, so **any arm
+    shorter than 10 steps is silently unmeasurable** — a `-v PRINT_TIMINGS=` knob would surface
+    that class instead of producing `NO_STEP_TIMING` after the allocation is spent.
+  - 🐛 **Fixed on the way:** makani's launcher derived `REPO` as `${PBS_O_WORKDIR}/..` when
+    `src/sfno_training` was absent, so submitting from the repo root sent it to `$MEMBER_ROOT` and
+    `REPO` to `/members` — three jobs died in 0 s on `members/polaris_env.sh: No such file`
+    (7633629/7633630/7633633; no node-time burned, three queue waits lost). It now probes
+    `${MAKANI_ROOT}/makani_sfno/` first and fails with `MAKANI_ROOT_NOT_FOUND` naming
+    `PBS_O_WORKDIR`, the derived root and the derived repo. Verified from all three plausible
+    submission directories. ACE2's launcher already had this probe.
+
+- **2026-09-18 (ACE2, cont.)** — 🟢🟢 **ACE2 WEAK-SCALES AT 95.9% TO 16 NODES ON SLINGSHOT. The
+  fabric is now essentially free, and that inverts the central tcp-era conclusion.** A serialized
+  1-node-vs-16-node comparison (serial because the store is one OST — two arms at once put each
+  one's I/O inside the other's measurement):
+
+  | | 1 node / 4 GPUs (7633560) | **16 nodes / 64 GPUs (7633410)** |
+  |---|---|---|
+  | global batch | 8 | **128** |
+  | `step_med_ms` | 716.195 | **746.469 (+4.2%)** |
+  | samples/s total | 11.17 | **171.47 = 15.35× for 16× the GPUs** |
+  | weak-scaling efficiency | — | **95.9%** |
+  | node·s per sample | 0.08952 | 0.09331 (**+4.2% node-hours**) |
+  | `gpu_busy_frac` | 0.9431 | 0.9412 — **I/O still fine at 64 concurrent readers** |
+  | `peak_mem_gb` | 33.959 | 33.959 (identical, as expected) |
+
+  Both `provider=cxi`, both 64/64 and 4/4 ranks reporting, GPU preflight 17 healthy of 17.
+  **Contrast the tcp era: 8 nodes cost +109% node-hours per sample and "over half of the 8-node
+  step is fabric" (52.2%).** On cxi, 16 nodes costs 4.2%. Results Table 9 is now not merely
+  mis-magnituded but describes a machine that no longer exists for this model.
+  - 🔴 **AND THE LADDER IS NON-MONOTONIC: the 2-node rung (815.3 ms) is SLOWER than the 16-node
+    rung (746.5 ms), by 9.2%.** That is the **2-node trough** this repo has now seen on three
+    unrelated models (ai-rossby §1e, makani §5, ACE2), and 9.2% is outside the 2-node rung's own
+    tcp-era rep spread (±3.8%), so it is probably real rather than a bad draw. Mechanism consistent
+    with the nccl-tests data: Ring's reduce-scatter gives each rank `S/N`, so the per-rank message
+    *shrinks* as N grows while inter-node busbw stays flat-to-rising (35.37 GB/s at 2 nodes →
+    37.00 at 8) — the worst case is the smallest multi-node world, not the largest.
+  - ⇒ **The reason to prefer 1 node is now PURELY the batch size, not the interconnect.** At 16
+    nodes the global batch is 128, so updates/epoch fall 16× and updates/node-hour go 5,027 → 301
+    (1 node is **16.7× cheaper per update**). That is a critical-batch-size / LR-scaling question —
+    statistics, not HPC — and it is the one thing this campaign has never measured.
+  - ⚠ **Caveats, stated because the number is attractive:** 16n is **n=1**; the **4- and 8-node cxi
+    rungs are still missing**, so the shape between 2 and 16 is unmeasured and known to be
+    non-monotonic; and the 16-node arm ran on a **different rack** (`x3201c0s*`) from the 1- and
+    2-node arms (`x3001c0s*`), so rack/node variation is an uncontrolled confound.
+
+- **2026-09-18** — **DECISION TAKEN: the makani accuracy lever is ROLLOUT DEPTH, and the thing that
+  says when to stop pushing it costs inference, not allocation.** Taken to end an analysis loop, on
+  evidence already in the repo — no new measurement was needed to choose.
+  - **The ranking, measured:** `n_future=4` at **one** epoch is **−4.66 % / −4.63 %** RMSE at lead
+    126 h (two seeds, 0.03 pp apart) against depth-1 fine-tuning's **−3.00 % over twenty-four**.
+    ⇒ ~24× the skill per epoch. `D1` adds that batch 8 costs 2.3 pp against batch 16, so the batch
+    does not shrink to buy depth. Nothing else measured on this model is close, and **no fabric,
+    node-count or batch-shape result touches accuracy at all.**
+  - **What is genuinely undecided is one thing:** the rollout drifts **linearly to 126 h with no
+    saturation** (RMSE ×4.65, ACC 1.000 → 0.878), so **exposure bias and mode-averaging cannot be
+    told apart** — and they point at opposite fixes (deeper rollout vs a distributional loss). The
+    **K=56 / 14-day curve separates them and is inference-only.** That is why it, not another
+    training arm, is the next thing to run.
+  - **Order of work, decided:** (1) re-verify eval-inference; (2) leave **7630639** (depth-4 ×
+    24 epochs) alone — it answers whether depth-4 *compounds*; (3) K=56 sweep on the existing best
+    checkpoint; (4) lagged ensemble over the **243** on-disk snapshots, scored against the best
+    single member — both (3) and (4) are inference, so they run *while* 7630639 trains; (5) gated on
+    (3): `n_future=8` (⚠ depth 4 at global 16 is already 22.29 GiB/GPU at local 2 — depth 8 needs a
+    memory audit, probably 4 nodes at local 1) **or** the never-run CRPS arm. ⚠ **CRPS changes the
+    loss definition — jesswan's call** (CLAUDE.md, division of labor); raise it now so the sign-off
+    is not the blocker when (3) reports.
+  - 🔴 **Change F was NOT verified, and it gates the cheap half of all of the above.** `7630665`
+    returned `ERROR EVAL_INFERENCE_FAILED rc=1` — `no MOST.*.h5 found`, the PLaSim glob against an
+    E3SM holdout that is `2048.h5` / `2049.h5`. `65f5e405` fixed it (default `*.h5`, `--test-file-glob`
+    to narrow) but **nothing re-ran**, so the inference path has been committed-but-unproven since
+    2026-09-17. Resubmitted as **7632577**, which got past the glob (`test files: ['2048.h5']`) and
+    died one layer deeper — **a second, unrelated port gap:**
+    - 🐛 **`AssertionError: torch.distributed is unavailable. Check pytorch build ...`** — and the
+      message is misleading. torch.distributed is fine. makani's `comm.init` reaches physicsnemo's
+      `create_process_subgroup`, which raises whenever `manager.distributed` is False
+      (`physicsnemo_sfno/physicsnemo/distributed/manager.py:638`); it wants a real process group,
+      **world size 1 included**. `DistributedManager` initialises from **ENV, SLURM or OPENMPI** — the
+      SLURM sibling gets it free from `SLURM_PROCID` et al, and under **PBS there is nothing to
+      read**, so it logged `Assuming this is a single process job` and every model-parallel call
+      after it asserted. Invisible on the Stampede3 path by construction.
+    - **Fixed in the LAUNCHER, not in `src/sfno_inference/`** — that tree is a subtree shared with the
+      Stampede3 `eval-sfno-own` path, where the SLURM initialiser already works (CLAUDE.md #7).
+      `polaris_eval_inference.pbs` now runs the script under
+      `python -m torch.distributed.run --standalone --nproc_per_node=1`, which supplies exactly the
+      ENV-method variables the manager looks for — and is the launcher shape CLAUDE.md already
+      requires for makani/physicsnemo on Polaris.
+    - ✅ **VERIFIED: `EVAL_INFERENCE_OK` (7632679, K=4 smoke, 1 file / 1 IC, 9.07 s for the rollout,
+      56 s of job).** Wrote `2048_ic000.nc`; the NetCDF count gate (CLAUDE.md #14 — `rc=0` with zero
+      output is not a pass) passed on a real file. **Change F is no longer unproven, and steps (3)
+      and (4) of the decision above are unblocked.**
+    - ⚠ Worth one look when the full sweep runs, not a blocker: the loader reports the pack as
+      `180 x 360 x **100**` channels while the contract elsewhere is quoted as 101. The wrapper loaded
+      and rolled out, and the port tests compare `inp_chans`/`out_chans` against the run's own config,
+      so this is almost certainly on-disk-vs-model bookkeeping — confirm it rather than assume it.
+  - **Explicitly NOT next:** `NCCL_ALGO`, 128-node, batch-shape. The step-time work (P1-8, 34.9 % of
+    GPU time in kernels that compute nothing) is the only speed item with an accuracy consequence,
+    and only indirectly — it stays behind P1-9's equivalence gate and behind all of the above.
+  - 🔵 **K=56 sweep submitted: 7633207** (24 ICs, 1 node, `preemptable`, 2 h — the smoke's 9.07 s at
+    K=4 extrapolates to ~127 s/IC, so ~51 min of rollout). This is **task 10**.
+  - ⚠ **Correction made in-session: step (4) is NOT free inference today.** Tasks **11-13** of
+    `2026-09-10_lagged_ensemble_endtoend_plan.md:286-289` (stagger-`d` start generator → member
+    alignment by absolute target index → weighted combination `w_k ∝ 1/σ(k)²`) are all `to do` and
+    sequentially dependent. The *members* are paid for; the machinery to combine and score them is
+    not. Both branches of the K=56 decision need those stages, so they are the productive
+    non-allocation work while the jobs run. ⚠ Two different ensembles are being blurred: the plan's
+    **lagged** ensemble is over *staggered start times*, the 243 snapshots are a **checkpoint**
+    ensemble — stage 13 is largely shared, the rest is not. ⚠ That plan's task table is **stale**:
+    4-9 are done and verified, and 15's Gauss-Legendre defect was fixed as change G.
+  - 📄 **Handoff written: `polaris_makani_accuracy_handoff.md`** — the decision, both live jobs and
+    what each answers, the read-out rule for K=56 (write the branch down *before* looking), the two
+    port gaps and why neither was fixed in shared code, and what is parked on purpose.
+
+- **2026-09-18 (adversarial re-read of the tree probe)** — **the crossover holds; three of the
+  numbers around it do not mean what they read as.** No measurement changed — this is a re-read of
+  7631550 / 7631624's raw rows, `nccl-tests/src/common.cu`, and `parse_nccl_tests.py`'s own output.
+  - ✅ **The sound core:** both halves of the crossover are *within-job, back-to-back* comparisons
+    (same allocation, same communicator size, seconds apart), so allocation variance cannot touch
+    them. Tree +21 % at 2n, Ring +25–29 % at every size at 8n. That part stands.
+  - ⚠ **`busbw` is rank-count normalised — the SCALING axis of the §1a table is contaminated.**
+    nccl-tests reports `busbw = algbw × 2(N−1)/N`: **×1.75 at 8 ranks, ×1.9375 at 32.** Within a node
+    count it cancels; across node counts it does not. At 1 GiB, Ring reads **35.74 → 37.46 busbw
+    (+4.8 %)** but is **20.43 → 19.34 algbw (−5.3 %)**. *Ring did not get faster with scale; the
+    constant did.* Quote `algbw` whenever the node count moves.
+  - ⚠ **`-c 1` checks ONE collective per (size, placement)** — `common.cu:831`, `for (c=0; c<datacheck; c++)`.
+    The ten `-n 10` timed iterations are **never verified**. So "6/6 arms clean" is **24 checked
+    inter-node collectives** at 8 nodes, of which **six Tree ops sit inside the historical ≥1000 MB
+    failure window** (twelve across both jobs). Probably enough for a defect that looked
+    deterministic — but state the number, not the arm count.
+  - ⚠ **The sweep stops below the worst of the failure window.** tcp-era Tree failed at
+    **1000 / 2000 / 4000 / 4700 MB** (§1a table); the cxi sweep is 134 → 2147 MB, so **4000 and
+    4700 MB were never retested** — the direction the inferred mechanism says is worse. `-c 1` needs
+    3 buffers and `common.cu:1632` caps size at ~12 GB on an A100-40, so **`-v SIZE_MAX=4700M` fits.**
+  - 🐛 **The probe states its own failure window two ways:** `polaris_ace2_tree_probe.pbs:18` says
+    "between 25 MiB and 1000 MiB", its runtime banner (line 199) says "1000-4700 MB". The sweep
+    bounds were chosen against one of them. CLAUDE.md #10 in miniature.
+  - ⚠ **The recommendation is the one configuration never measured.** "Unpin and let the tuner
+    choose" has **zero arms** behind it: every arm forced `NCCL_ALGO` *and* pinned
+    `NCCL_PROTO=Simple`, and the tuner picks both jointly. One arm (`-v NCCL_ALGO=`, ~10 s in a job
+    that ran six in 48 s) would record what NCCL actually selects at 32 ranks — which could be Tree,
+    the 27 %-slower branch.
+  - ⚠ **Protocol confound:** every tcp-era failure ran with `NCCL_PROTO` **unset** (the pin was added
+    2026-09-18); every cxi arm ran it pinned. Four variables separate failing from passing —
+    provider, plugin 1.21.1→1.6.0, protocol, algo pin — and the recorded conclusion picks one. An
+    LL128 bug was never on the three-way list; it is the least likely branch (NCCL would not pick
+    LL128 at 1 GB) but it is *inference*, and at **2 nodes** it is testable (v1.6.0's ≥3-node setup
+    deadlock does not apply there).
+  - ⚠ **The intra-node control proves less than the header claims** (`polaris_ace2_tree_probe.pbs:30-31`,
+    "removing the fabric from the comparison entirely"). It is a **4-rank tree over NVLink** — it
+    exercises neither the multi-level tree topology nor any chunked rendezvous transfer, which is the
+    shape of the observed failure (head reduced, tail untouched, ranks disagreeing). Weak negative
+    control, not an exoneration.
+  - ⚠ **Topology uncontrolled:** 7631624 drew all eight nodes from rack **x3112**, 7631550 its two
+    from **x3001**. Both compact, different racks, n=1 each. Harmless for the crossover; every
+    absolute number and the *location* of the crossover between 2 and 8 nodes rests on single
+    favourable draws.
+  - 📐 **The decision is below its own noise floor at the shape ACE2 runs.** From the 2-node rows:
+    256 MiB costs Tree 11.06 ms vs Ring 13.08 ms ⇒ at ACE2's ~165 MB bucket, ~1.24 ms × 11 buckets ≈
+    **13.6 ms = 1.7 % of the 815.3 ms step**, fully-exposed upper bound, against rep spread that
+    reached **±3.8 %**. The regime where Ring wins big (8 nodes, ~30 ms/step) is a shape ACE2 does not
+    run — global batch 16 is memory-driven at 2 nodes. ⇒ **Build the equivalence baseline (it gates
+    the step-time work anyway); do not spend a hot-path decision on ±2 %.**
+  - 🔴 **One claim these logs refute:** `parse_ace2_scaling.py` node-gates its `provider` check on
+    "a 1-node run never initialises the net plugin". **Measured false** — the 1-node ACE2 anchor
+    **7631544 prints `Selected Provider is cxi`**, as do the probe's own 1-node intra arms. The
+    plugin initialises at one node; it just carries no bytes. The gate is still defensible on the
+    *bytes* argument, but as written it exempts the anchor from a check that would in fact pass.
+
+- **2026-09-17 (cont. 3)** — **ACE2 put on Slingshot: the guard, the missing protocol pin, and the
+  instrument for the one experiment that decides whether `NCCL_ALGO=Ring` can go.** Implements
+  `polaris_ace2_slingshot_handoff.md` T1 in full; T2/T3 are written and tested but **not yet run**.
+  - **T1 — `provider` is now a column with a failure value** (`parse_ace2_scaling.py`). Extracts
+    `Selected [Pp]rovider is (\w+)` — **both spellings**, v1.6.0 capitalises it and v1.21.1 does
+    not — and on `nodes > 1` fails `FABRIC_UNVERIFIED` (no line) or `FABRIC_NOT_SLINGSHOT`
+    (anything but `cxi`), rc=4, with `ALLOW_TCP=1` downgrading the second to a labelled warning.
+    Gated on **nodes, not ranks**: a 1-node run never initialises the net plugin, so a rank-gated
+    check would fail the ladder's own anchor and both LR-sweep runs.
+  - **FIELDS parity restored**: 27 → **28 columns, byte-identical to `parse_ai_rossby_scaling.py`**
+    again (they drifted when `698b867e` added `provider` on one side only). The two tables
+    concatenate; `test_parse_ace2_scaling.py` asserts it by reading the sibling's source with
+    `ast`, never importing it — the two trees export colliding top-level module names.
+  - **Tests: `ACE2_SCALING_PARSE_OK (23 tests)`**, up from 16. The three the makani suite gained,
+    plus `ALLOW_TCP`. The tcp test asserts `transport` **still reads `AWS Libfabric`** on the
+    rejected row — that is the property that made this invisible for three weeks, and it is now
+    pinned by a test rather than by memory.
+  - 🔴 **A gap the handoff did not flag: the fabric fix was HALF applied.** `polaris_ace2_env.sh`
+    flipped the plugin to v1.6.0 but never pinned `NCCL_PROTO`. v1.6.0 **deadlocks in setup at
+    ≥3 nodes** on the default LL/LL128 paths (7553891/7554129/7554143; nccl-debug-info §5), and
+    makani's launcher has carried the pin since 2026-08-24. Left as it was, T2's 4- and 8-node
+    arms would have hung at init and burned two `debug-scaling` allocations. Now pinned in the env
+    file (both ACE2 launchers must agree on the wire), `-v NCCL_PROTO=` to unpin, and both it and
+    the rendezvous block are echoed into every log header. ⚠ **Not inert at 1 node** — it changes
+    the anchor too, deliberately. Its cost is **unsettled**: the quoted −26% conflates the pin with
+    the tcp fallback (see the 2026-09-17 entry), so it is now stated as a direction, not a number.
+  - **`run_ace2_ladder.sh` read one CSV and wrote another.** It resolved `$ACE2_SCALING_CSV` for its
+    resume count and let the launcher pick its own default. Harmless while the schema was frozen;
+    with `provider` added it would have appended a 28-column row to the 27-column tcp file and
+    died on `SCALING_CSV_SCHEMA_DRIFT` **after** the allocation was spent. The path is now passed
+    through in the same `-v` list.
+  - **T3's instrument did not exist.** The handoff points at `polaris_nccl_tests.pbs`; that file is
+    in no tree in this repo. Written as `ACE2_retrain/polaris/polaris_ace2_tree_probe.pbs`
+    (nccl-tests `all_reduce_perf`, **`-c 1` mandatory**, Tree vs Ring, 128 M→2 G plus an arm at
+    ACE2's exact 1,823,324,160 B startup collective, `timeout` per arm because **a hang is the
+    expected failure mode**) + `parse_nccl_tests.py` + 14 tests `ACE2_NCCL_TESTS_PARSE_OK`. It
+    runs the **C binary, not torch** — both torch probes died on an unreadable
+    `libtorch_global_deps.so` on 2026-09-17 while the C binary ran fine — and it adds an
+    **intra-node control arm**, which settles "NCCL Tree bug vs fabric bug" without sending an
+    inter-node byte. The parser fails on a missing terminator line (the hang signature), on
+    `#wrong != 0` (silent corruption), and on `#wrong = N/A` (a corruption probe run with checking
+    off — a label, not a guard).
+  - **The tcp-era results are labelled, not deleted** (`make_results_table.py` regenerated):
+    a banner on `ace2_polaris_results.md`, a `provider` column that renders legacy rows as `tcp*`
+    = *inferred, not recorded*, a corrected `transport` dictionary entry, and a "do not quote the
+    node-hour projections" warning on Table 9. §1a and §1b of
+    `polaris_ace2_multinode_handoff.md` corrected in place: §1b **refuted** (1.21.1 "worked"
+    because it stopped using the fabric), §1a's **table kept, attribution withdrawn** pending T3.
+  - **Prereg §1c written before any cxi arm exists**: P12 2-node > 1.5× faster (⇒ < 803 ms),
+    P13 Tree still fails at 2000 MB on cxi, P14 wireup rises, P15 the **1-node** arm gets 5–30%
+    *worse* from the protocol pin — registered separately so a compute-side regression cannot be
+    absorbed into a fabric-side win. §1d lists what the tcp finding does **not** touch (the LR
+    result, the I/O verdict, the batch ceiling) so none of it is re-litigated.
+  - **Submitted (2026-09-18, `debug`, 2 nodes each, one at a time — `debug` is `max_queued=1` per
+    user and a `-W depend=afterany` hold **counts** against it, so they cannot be chained, only
+    posted as the slot frees):**
+    - **7631522** — tree probe, **FAILED its own preflight in 4 seconds**, `Exit_status 3`, and the
+      cheap failure is the point: `import nvidia.nccl` is a **namespace package whose `__file__`
+      is `None`**, so deriving the lib directory from it raised `TypeError` and the
+      `NO_VENV_NVIDIA_LIBS` guard fired before any GPU was touched. Fixed by globbing the
+      interpreter's own `site-packages/nvidia/*/lib` (15 dirs, nccl first) instead of importing —
+      verified on a login node with `ldd` alone: **every library the binary needs now resolves.**
+    - **7631529** — **T2's 2-node rung**, `LOCAL_BATCH=2` (global batch 16 = the production shape),
+      writing to the fresh `ace2_polaris_scaling_cxi.csv`. This is the row prereg P12 scores
+      against the tcp 2-node median of 1204.4 ms.
+    - **7631534** — the probe again, and it died in **6 seconds** on all six arms with
+      `MPIDI_CRAY_init: GPU_SUPPORT_ENABLED is requested, but GTL library is not linked`.
+      The ACE2 env carries `MPICH_GPU_SUPPORT_ENABLED=1` (right for the trainer, which never
+      calls `MPI_Init`), but **`nccl-tests` is not linked against Cray's GTL**, so MPICH aborts
+      before NCCL exists. Fixed with `MPICH_GPU_SUPPORT_ENABLED=0` **in the probe only** — and
+      that is not a compromise: nccl-tests uses MPI purely to bootstrap (uniqueId broadcast,
+      hostname-hash allgather, error-count allreduce — all **host** buffers), while every
+      device-to-device byte goes through NCCL, which is the thing being measured, and the
+      `Selected Provider` line still proves which wire carried it.
+      ⚠ **Both probe failures were the launch path, not the experiment**, and both cost 6 s of a
+      2-node debug allocation — the preflights did their job. Each was diagnosed before
+      resubmission (#12), and the remaining risk was then closed **from a login node with `ldd`
+      alone**: `ldd -r` shows no missing libraries **and no undefined symbols**, which also
+      retires the "built against NCCL 2.28.3 headers, running against the venv's 2.27.5" worry.
+      That check is now in the probe's preflight rather than in a session's memory.
+    - **7631544** — the **1-node cxi anchor** (prereg P15), queued; the probe's third attempt is
+      queued behind it.
+  - ✅ **DEFINITION-OF-DONE ITEM 2 IS MET: the first ACE2 row on Slingshot exists** (7631529,
+    `ACE2_POLARIS_TRAIN_OK nodes=2`, **`provider=cxi`** on all 8 ranks, 28-column row in
+    `ace2_polaris_scaling_cxi.csv`, 3 min 57 s of walltime):
+
+    | | tcp (n=3) | **cxi (n=1)** | change |
+    |---|---|---|---|
+    | `step_med_ms` | 1204.4 | **815.275** | **−32.3%** |
+    | `samples_s_rank` | 1.6605 | **2.4532** | **1.477×** |
+    | `gpu_busy_frac` | 0.9288 | 0.9469 | +1.9 pp |
+    | `peak_mem_gb` | 33.959 | 33.959 | identical |
+
+    **Prereg P12 (">1.5×") is a MISS by 1.5%** — it needed < 803 ms and got 815.3. Recorded as a
+    miss, not rounded up. The threshold was set on makani's ~3.3× at 2 nodes without allowing for
+    the protocol pin the cxi stack requires.
+    ⚠ **Three variables moved at once** (plugin, `NCCL_PROTO=Simple`, rendezvous block) and two of
+    them are *costs*, so 1.477× is a **lower bound** on what the fabric alone is worth. The 1-node
+    arm (P15) has both costs and no fabric, which is what separates them — submitted behind the
+    probe. ⚠ n=1 against a rung whose own tcp rep spread was ±3.8%.
+  - 🟢 **THE ANCHOR LANDED AND IT CHANGES THE READING (7631544, 1 node, `provider=cxi`):
+    713.693 ms against the tcp anchor's 716.0 — no change at all (−0.3%).**
+    **Prereg P15 (predicting the 1-node arm gets 5–30% WORSE) is FALSIFIED**, and the miss is the
+    valuable one: **`NCCL_PROTO=Simple` costs ACE2 nothing measurable.** makani's quoted −26% does
+    not transfer, and the mechanism is consistent — LL/LL128 are *small-message* protocols, while
+    ACE2's intra-node traffic is a 1.74 GiB full-model all_reduce plus ~11 buckets of ~165 MB.
+    ⇒ **P12's "lower bound" caveat collapses: the 2-node 1.477× is essentially all fabric.**
+  - ✅ **T4 — the economics, recomputed** (n=1 at each rung, `local_batch=2`):
+
+    | | tcp (n=3) | **cxi (n=1)** |
+    |---|---|---|
+    | first-hop toll | **+488.4 ms** (40.6% of the 2-node step) | **+101.6 ms (12.5%)** |
+    | node·s/sample, 1n → 2n | 0.0895 → 0.1506 = **1.68×** | 0.0892 → 0.1019 = **1.14×** |
+    | samples/s total at 2n | 13.29 | **19.63** |
+
+    **The toll fell 4.81× against a 5.2× app-free bandwidth ratio** (7629082) — exposed
+    inter-node cost tracks fabric bandwidth almost exactly, which is the strongest evidence yet
+    that this toll is **bandwidth-bound**. And the conclusion moves qualitatively: on tcp, a
+    second node cost **+68% node-hours per sample** — the fact that made "use the fewest GPUs
+    that hold the batch" the first question — while on cxi it costs **+14% for 1.75× the
+    throughput.** §1f of the multi-node handoff is updated in place with this table.
+  - 🟢 **T3 ANSWERED (7631550, 44 s, `ACE2_NCCL_TESTS_OK arms=6/6`, all `provider=cxi`): THE TREE
+    DEFECT DOES NOT REPRODUCE ON SLINGSHOT.** Every row `#wrong = 0` with nccl-tests' own
+    `Out of bounds values : 0 OK` terminator — no corruption **and** no hang — at 256 MB / 512 MB /
+    1 GiB / 2 GiB **and** at ACE2's exact 1,823,324,160 B collective, in-place and out-of-place.
+    ⇒ **the tcp-era failure was a defect in the path ACE2 was actually using (aws-ofi-nccl 1.21.1
+    over tcp), not an NCCL Tree bug** — possibility (1) of the three the slingshot handoff listed.
+    The **intra-node control arms** say it from the other side: Tree is correct with no fabric in
+    the path at all. **Prereg P13 (Tree still fails) is FALSIFIED**, which is the outcome the
+    prereg itself called the more useful one.
+
+    | | Tree | Ring |
+    |---|---|---|
+    | intra-node (NVLink) | 138.43 GB/s | **187.04** |
+    | inter-node (cxi, 2 nodes) | **42.79** | 35.37 |
+    | ACE2's 1.74 GiB collective | **44.03** | 35.78 |
+
+    ⚠ **`NCCL_ALGO=Ring` has gone from free insurance to a measured 21–23% inter-node cost — and
+    it STAYS ON anyway.** The tcp defect appeared at 2 nodes *and 8* and this re-test is 2 nodes
+    only; nccl-tests drives one communicator with nothing else in flight, while ACE2's exposure is
+    a DDP all_reduce inside fme (the makani wedge that started all of this was a DDP *broadcast*
+    that no app-free probe ever reproduced); and dropping it is a hot-path change, so DESIGN §4
+    wants an equivalence baseline, not a bandwidth table. Next: the same probe at 4/8 nodes.
+    ⚠ Note the reversal *inside* a node (Ring +35%): this is not "Tree is better", it is "Tree is
+    better across the fabric, Ring over NVLink", and ACE2's big collective crosses both.
+  - 🐛 **The probe's own parser had a blind spot, found by its first real log and fixed against
+    it.** PALS `--label --line-buffer` interleaves 8 ranks' `NCCL_DEBUG` with rank 0's table, which
+    **splits rows mid-line** — and a split row was dropped silently, so **its `#wrong` column, the
+    one thing the instrument exists to read, went unchecked**. It cost the `ace2_startup_*` arms
+    their only row each (`rows=0` while the arm had plainly finished). Two fixes: the parser now
+    matches a prefix-less row, still checks it, and names it `ARM_SPLIT_ROWS` rather than
+    recovering silently; and the launcher sends `NCCL_DEBUG` to per-rank **files**
+    (`NCCL_DEBUG_FILE`) then echoes each arm's provider lines back into the log, so the table and
+    the debug stream stop sharing stdout. Verified by **re-scoring the real 7631550 log: 4/6 → 6/6,
+    every split row recovered and checked** (16 tests, `ACE2_NCCL_TESTS_PARSE_OK`).
+  - 🟢 **T3 AT 8 NODES (7631624, 32 ranks, `debug-scaling`, 53 s, `arms=6/6`, `Exit_status 0`):
+    CLEAN THERE TOO — and the PERFORMANCE answer REVERSES WITH SCALE.** Every row `#wrong = 0`,
+    every arm terminated, all `provider=cxi`. The tcp defect showed at 2 nodes *and* 8; both are
+    now clean, so **the correctness case for `NCCL_ALGO=Ring` is gone.** But:
+
+    | inter-node avg busbw (GB/s) | Tree | Ring | winner |
+    |---|---|---|---|
+    | 2 nodes / 8 ranks (7631550) | **42.79** | 35.37 | **Tree +21%** |
+    | 8 nodes / 32 ranks (7631624) | 28.90 | **37.00** | **Ring +28%** |
+    | ACE2's 1.74 GiB @ 2n / @ 8n | **44.03** / 29.48 | 35.78 / **37.55** | Tree +23% / Ring +27% |
+
+    At 8 nodes Ring wins by **25–29% at every size** in the 128 MiB→2 GiB sweep, not just on the
+    average, and the mechanism is the one §1a inferred back when it was explaining why Ring escaped
+    the defect: **Tree's per-link message does not shrink with N; Ring's reduce-scatter gives each
+    rank `S/N`.** Inside a node Ring leads throughout (193 vs 141 GB/s).
+    ⇒ **The pin is right at 8 nodes and costs ~21% of collective bandwidth at 2** — ACE2's
+    production shape at global batch 16, worth ~2% of step time through the 101.6 ms toll.
+    ⇒ **So the move is NOT "pin Tree" but UNPIN** (`-v NCCL_ALGO=`) and let NCCL's own tuner pick
+    per size and per scale: it is the thing that knows this crossover, and forcing one algorithm
+    everywhere guarantees being wrong at one end. ⚠ **Still gated on the trainer** (a DDP
+    all_reduce with ~10 other collectives in flight is not one app-free communicator — the makani
+    wedge that started all of this was a DDP *broadcast* no probe ever reproduced) **and on
+    DESIGN §4** (hot-path change, reduction order moves, and ACE2 has no equivalence baseline yet).
+  - ✅ **The `NCCL_DEBUG_FILE` fix is verified on real output: `split 0` on all six arms at 8 nodes,
+    against `split 1` on every arm at 2 nodes before it.** The table and the debug stream no longer
+    share stdout.
+  - **Still open:** the **4/8-node cxi ladder rungs** (T2's *shape* is still a tcp result beyond
+    2 nodes), **reps everywhere** (every cxi row is n=1 against tcp rungs whose own spread reached
+    ±3.8% at 2n), and an **equivalence baseline**, which is what actually blocks the `NCCL_ALGO`
+    decision now that the correctness question is answered.
+
 - **2026-09-17 (cont. 2)** — **The ensemble track was on a branch of its own, and it was blocked by
   the fabric fix on this one. Merged; two silent defects found and fixed on the way; both the
   production candidate and the port tests are queued.**
