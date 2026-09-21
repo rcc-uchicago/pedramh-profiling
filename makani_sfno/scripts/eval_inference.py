@@ -78,6 +78,22 @@ def _parse_args() -> argparse.Namespace:
                         "only to narrow a directory holding more than one pack.")
     p.add_argument("--limit-ics", type=int, default=None,
                    help="Process only the first N ICs per file (debugging)")
+    # --- lagged ensemble (end-to-end plan stage 1 / task 11) ---
+    # Additive: --ic-mode defaults to `monthly`, which is nwp_ic_offsets and the
+    # behaviour every existing caller gets. The SLURM path passes neither flag.
+    p.add_argument("--ic-mode", choices=["monthly", "lagged"], default="monthly",
+                   help="IC placement. 'monthly' = nwp_ic_offsets, far-apart starts for a "
+                        "scorecard (default). 'lagged' = starts spaced --ic-stride apart so "
+                        "rollouts OVERLAP on common targets, which is what a lagged ensemble "
+                        "needs and what the monthly spacing deliberately prevents.")
+    p.add_argument("--ic-stride", type=int, default=4,
+                   help="Lagged mode: spacing d between starts, in samples. Must divide "
+                        "--nwp-K; members per target is K/d (default 4 => 14 at K=56)")
+    p.add_argument("--n-targets", type=int, default=32,
+                   help="Lagged mode: how many consecutive targets to cover fully. ⚠ COST: "
+                        "~1.95 GB and ~77 s per rollout at the production shape")
+    p.add_argument("--first-start", type=int, default=0,
+                   help="Lagged mode: sample index of the first start within each file")
     return p.parse_args()
 
 
@@ -258,6 +274,7 @@ def run_nwp(args: argparse.Namespace) -> int:
         write_rollout_nc,
     )
     from sfno_inference.rollout_driver import _load_run_norm_stats
+    from sfno_ensemble import plan_lagged_sweep
     from sfno_training.trainer.plasim_trainer import _plasim_get_dataloader
 
     device = _resolve_device(args.device)
@@ -277,7 +294,10 @@ def run_nwp(args: argparse.Namespace) -> int:
     channel_names = _resolve_and_check_channel_names(args.run_dir, test_files[0])
     lat, lon = _read_lat_lon_from_run(args.run_dir, test_files[0])
 
-    out_dir = args.out_root / "inference" / "nwp"
+    # A lagged sweep writes to its own subdirectory: its members overlap in time and
+    # would otherwise be scored as if they were the monthly sweep's independent ICs.
+    sweep = "lagged" if args.ic_mode == "lagged" else "nwp"
+    out_dir = args.out_root / "inference" / sweep
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # NWP mode: one dataset built per file (the dataset config has all
@@ -297,7 +317,15 @@ def run_nwp(args: argparse.Namespace) -> int:
         )
         file_start_global = int(dataset.file_offsets[file_idx])
 
-        offsets = nwp_ic_offsets(n, K=args.nwp_K, n_ic=args.nwp_n_ic)
+        if args.ic_mode == "lagged":
+            plan = plan_lagged_sweep(
+                n, K=args.nwp_K, stride=args.ic_stride,
+                n_targets=args.n_targets, first_start=args.first_start,
+            )
+            offsets = plan.starts
+            logger.info("%s: %s", fpath.name, plan.summary())
+        else:
+            offsets = nwp_ic_offsets(n, K=args.nwp_K, n_ic=args.nwp_n_ic)
         if args.limit_ics:
             offsets = offsets[: args.limit_ics]
 
@@ -314,15 +342,18 @@ def run_nwp(args: argparse.Namespace) -> int:
                 out_scale=out_scale,
                 assert_contract=not args.no_assert_contract,
             )
-            result.rollout_mode = "nwp"
-            out_nc = out_dir / f"{fpath.stem}_ic{ic_n:03d}.nc"
+            result.rollout_mode = sweep
+            # Lagged members are named by their START index, not by IC ordinal: the
+            # start is what identifies a member, and alignment regroups by start+depth.
+            out_nc = out_dir / (f"{fpath.stem}_s{sample_idx:05d}.nc" if sweep == "lagged"
+                                else f"{fpath.stem}_ic{ic_n:03d}.nc")
             write_rollout_nc(
                 out_nc, result=result,
                 channel_names=channel_names, lat=lat, lon=lon,
                 ckpt_path=str(args.ckpt),
                 eval_sha7=args.eval_sha7, data_sha7=args.data_sha7,
                 train_sha7=args.train_sha7, run_tag=args.run_tag,
-                rollout_mode="nwp",
+                rollout_mode=sweep,
             )
             elapsed = time.time() - t_start
             logger.info(
@@ -332,8 +363,8 @@ def run_nwp(args: argparse.Namespace) -> int:
             n_written += 1
 
     total = time.time() - t0
-    logger.info("nwp mode done: %d files, %d ICs written, %.1f min",
-                len(test_files), n_written, total / 60.0)
+    logger.info("%s mode done: %d files, %d ICs written, %.1f min",
+                sweep, len(test_files), n_written, total / 60.0)
     return 0
 
 

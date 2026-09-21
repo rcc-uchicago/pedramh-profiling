@@ -58,6 +58,8 @@
 # Submit from makani_sfno/:
 #   qsub -v SMOKE=1 polaris/polaris_eval_inference.pbs          # ~minutes, debug
 #   qsub -l walltime=06:00:00 -q preemptable polaris/polaris_eval_inference.pbs
+#   qsub -v IC_MODE=lagged,N_TARGETS=32 -l walltime=02:00:00 -q preemptable \
+#        polaris/polaris_eval_inference.pbs                     # the lagged sweep
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}" || exit 2
@@ -95,6 +97,17 @@ TEST_HOLDOUT="${TEST_HOLDOUT:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production
 K="${K:-56}"
 N_IC="${N_IC:-12}"
 
+# IC_MODE=lagged switches from the monthly scorecard spacing to starts STRIDE apart
+# (end-to-end plan stage 1 / task 11).  Default is unchanged.
+# ⚠ COST: a lagged sweep is many overlapping full-length rollouts -- ~1.95 GB and
+# ~77 s each at K=56 (measured, 7633207).  N_TARGETS=32 at STRIDE=4 is ~23 rollouts,
+# ~45 GB, ~30 min; a whole test year would be ~685 GB.  Check disk first: the 243
+# snapshots already hold 403 GiB and max_checkpoints_to_keep does not prune.
+IC_MODE="${IC_MODE:-monthly}"
+STRIDE="${STRIDE:-4}"
+N_TARGETS="${N_TARGETS:-32}"
+FIRST_START="${FIRST_START:-0}"
+
 if [ "${SMOKE:-0}" = "1" ]; then
     # Smallest thing that exercises the whole path end to end: one file, one IC,
     # a 4-step rollout. Enough to catch every defect the port fixed, none of
@@ -102,8 +115,15 @@ if [ "${SMOKE:-0}" = "1" ]; then
     LIMIT_FILES="${LIMIT_FILES:-1}"
     LIMIT_ICS="${LIMIT_ICS:-1}"
     K=4
+    # STRIDE must divide K (the generator refuses otherwise, since a non-divisor
+    # gives targets unequal member counts), and K just became 4.
+    [ "${IC_MODE}" = "lagged" ] && STRIDE=1 && N_TARGETS=2
 fi
-OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/${RUN}_K${K}}"
+if [ "${IC_MODE}" = "lagged" ]; then
+    OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/${RUN}_lagged_K${K}_d${STRIDE}}"
+else
+    OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/${RUN}_K${K}}"
+fi
 
 for _p in "${RUN_DIR}/config.json" "${CKPT}" "${TEST_HOLDOUT}"; do
     if [ ! -e "${_p}" ]; then
@@ -114,7 +134,9 @@ done
 
 echo "=== makani_eval_inference: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
-echo "run=${RUN}  K=${K}  n_ic=${N_IC}  smoke=${SMOKE:-0}"
+echo "run=${RUN}  K=${K}  n_ic=${N_IC}  smoke=${SMOKE:-0}  ic_mode=${IC_MODE}"
+[ "${IC_MODE}" = "lagged" ] && \
+    echo "lagged: stride=${STRIDE}  n_targets=${N_TARGETS}  first_start=${FIRST_START}"
 echo "ckpt=${CKPT}"
 echo "out_root=${OUT_ROOT}"
 makani_env_report
@@ -129,9 +151,31 @@ RUN_TAG="$(date -u +%Y%m%d)_${RUN}_K${K}_${SHA7}"
 EXTRA=()
 [ -n "${LIMIT_FILES:-}" ] && EXTRA+=(--limit-files "${LIMIT_FILES}")
 [ -n "${LIMIT_ICS:-}" ] && EXTRA+=(--limit-ics "${LIMIT_ICS}")
+if [ "${IC_MODE}" = "lagged" ]; then
+    EXTRA+=(--ic-mode lagged --ic-stride "${STRIDE}"
+            --n-targets "${N_TARGETS}" --first-start "${FIRST_START}")
+fi
 
+# ⚠ LAUNCHED UNDER torch.distributed.run EVEN THOUGH THIS IS ONE RANK ON ONE GPU.
+# MEASURED, job 7632577: run bare, it dies in `build_wrapper_from_checkpoint` with
+#     AssertionError: torch.distributed is unavailable. Check pytorch build ...
+# which is a misleading message for the actual fault. makani's `comm.init` calls
+# physicsnemo's `DistributedManager.create_process_subgroup`, and that raises
+# whenever `manager.distributed` is False (`manager.py:638`) -- it needs a real
+# process group, world size 1 included. DistributedManager initialises from ENV,
+# SLURM or OPENMPI; the SLURM sibling gets it free from `SLURM_PROCID` et al, and
+# under PBS there is nothing to read, so it logs "Assuming this is a single
+# process job" and every model-parallel subgroup call after it asserts.
+# `torch.distributed.run` supplies exactly the ENV-method variables it looks for
+# (RANK/WORLD_SIZE/LOCAL_RANK/MASTER_ADDR/MASTER_PORT) and `--standalone` picks a
+# free port. Per CLAUDE.md this is also the required launcher shape for
+# makani/physicsnemo on Polaris -- `python -m torch.distributed.run`, never bare
+# `torchrun` and never `srun`.
+# ⚠ Do NOT "fix" this in `src/sfno_inference/` instead: that tree is shared with
+# the Stampede3 eval path, where the SLURM initialiser already works.
 set -x
-"${PY}" "${MAKANI_ROOT}/scripts/eval_inference.py" \
+"${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+    "${MAKANI_ROOT}/scripts/eval_inference.py" \
     --run-dir "${RUN_DIR}" \
     --ckpt "${CKPT}" \
     --test-holdout "${TEST_HOLDOUT}" \

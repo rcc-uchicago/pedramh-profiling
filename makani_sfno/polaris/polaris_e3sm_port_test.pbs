@@ -83,6 +83,7 @@ export CUDA_VISIBLE_DEVICES=""
     "${MAKANI_ROOT}/tests/sfno_inference/test_checkpoint_loader.py" \
     "${MAKANI_ROOT}/tests/sfno_inference/test_rollout_driver.py" \
     "${MAKANI_ROOT}/tests/sfno_inference/test_nc_writer.py" \
+    "${MAKANI_ROOT}/tests/sfno_ensemble/test_lagged_ensemble.py" \
     -p no:cacheprovider
 rc=$?
 
