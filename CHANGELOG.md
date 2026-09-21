@@ -179,11 +179,21 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     Torch-free, so its tests run anywhere. `eval_inference.py` gains `--ic-mode`, defaulting to
     `monthly` = the existing path, so **the SLURM chain is unchanged**; lagged sweeps write to
     `inference/lagged/` and are named by start index.
-  - **Ready to run, not run:** `qsub -v IC_MODE=lagged,N_TARGETS=32 -l walltime=02:00:00
-    -q preemptable polaris/polaris_eval_inference.pbs` ⇒ 21 rollouts ≈ 41 GB, ~27 min. ⚠ Check
-    disk first — the 243 snapshots hold 403 GiB and `max_checkpoints_to_keep` does not prune.
-    **Task 13 (weighted combination) is the next code**, and its σ(k) already exists in
-    `k56_metrics.h5`.
+  - ✅ **THE FIRST LAGGED SWEEP EXISTS — `EVAL_INFERENCE_OK`, job 7643069**: 21 rollouts, 2048.h5,
+    **26.1 min / 39 GB**, one debug node. `qsub -v IC_MODE=lagged,N_TARGETS=32,LIMIT_FILES=1
+    polaris/polaris_eval_inference.pbs`. Out:
+    `runs/makani_eval/prod1n_b32_sgdr_lagged_K56_d4/inference/lagged/`.
+    ⚠ **`LIMIT_FILES=1` is load-bearing, and its absence was a costing error of mine**: `run_nwp`
+    loops over *every* holdout file, so the sweep without it is **42** rollouts / ~82 GB / ~54 min
+    — double what was quoted, and over the `debug` hour. 2049 is a second identical job if wanted.
+  - ✅ **Stages 1 and 3 verified against real output, not fixtures** (`ALIGN_CHECK_OK`, job
+    7643103): 21 rollouts indexed → **32 targets (53–84), all 14 members, `uniform: True`**,
+    matching `plan.targets` exactly. Target 56's members run depths 4…56 — shallowest
+    `2048_s00052.nc` lead 24 h, deepest `2048_s00000.nc` lead 336 h — and every member satisfies
+    `start + depth == target`. **`depth_range` is (1, 56) across the table while every *full*
+    target has 14 members**, which is the residue-class effect above, visible in real data.
+  - **Task 13 (weighted combination) is the next code**, and both its inputs now exist: the
+    members here, and σ(k) for all 56 depths in `k56_metrics.h5`.
 
 - **2026-09-20 (makani)** — 🟢 **THE K=56 CURVE IS READ, AND IT ANSWERS THE CRPS QUESTION:
   MODE-AVERAGING IS RULED OUT. Job 7633207's 45 GB had been sitting unscored since 2026-09-19 —
