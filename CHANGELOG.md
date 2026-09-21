@@ -144,6 +144,65 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
+  DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
+  tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →
+  `makani_sfno/docs/2026-09-21_lagged_ensemble_result.md`.
+  - **Scored:** 8 targets × 14 members at depths 4…56 (forecasts aged **24 h to 336 h**, all valid
+    at the same time), `w_k ∝ 1/σ(k,c)²` per channel with σ from the *independent* monthly K=56
+    sweep, equiangular quadrature, 101 channels, 3.6 min CPU-only.
+  - ✅ **Alignment verified, not assumed:** all 14 members of every target carry a bitwise-identical
+    truth field — `truth_max_disagreement = 0.000e+00`. Different valid times in one bucket is the
+    silent failure that would invalidate everything, and it is now a gate rather than an argument.
+
+    | plan §4.3 check | result |
+    |---|---|
+    | 1. mean beats the best single member | 🔴 **NO — 31.7 % worse, 0/101 channels improved** |
+    | 2. SSR ≈ 1 | ⚠ **1.66 — OVER-dispersed** (§4.5 predicted *under*) |
+    | 3. rank histogram flat | — not read; diagnostic only, members non-exchangeable |
+    | 4. CRPS beats the deterministic baseline | ✅ **YES — 28.7 % better** |
+
+  - 🔴 **The failure is monotone, which is what makes it conclusive.** Nested sub-ensembles of the
+    `m` freshest members give median RMSE **2.3375, 2.4529, 2.5770, … 3.2212** for m = 1…14 —
+    every member added makes it worse, **starting from the second (a 48 h forecast, not a stale
+    one)**, and 101/101 channels prefer m = 1. ⇒ **no truncation of this ensemble beats the single
+    member**, so do not spend the 685 GB full-year sweep on the same construction. Mechanism:
+    inverse-variance weighting is optimal for *independent* errors, and these members share one
+    model, one weight set and overlapping ICs. The weighting does real work (**+42.1 %** against a
+    uniform mean) — just not enough.
+  - **Over-dispersion is the same finding, not a separate one:** the member spread (4.378) is
+    dominated by *error growth with lead*, not by uncertainty at a fixed lead. The construction
+    spreads members over forecast **age**, which is a property of the schedule, not a draw from a
+    predictive distribution.
+  - **CRPS is where the value is:** 1.2665 vs 1.7233 for the single member (whose CRPS is its MAE).
+    A distribution that brackets the truth beats a sharp point estimate under a proper scoring rule
+    even when its mean is further off. There is now a calibration number where there was none.
+  - 🐛 **Two defects of mine, both caught by the data and both worth recording:**
+    1. **Residue classes were being averaged together.** A target's depths depend on
+       `(T − first_start) mod stride`, so target 56 gets depths 4…56 but target 53 gets **1…53** —
+       a 6 h forecast as its "shallowest member". A lagged ensemble valid at T can only use
+       forecasts *already issued*, so all members must share one minimum lead. The first run broke
+       the four-way tie on encounter order and scored the 6 h-lead ensemble; **the headline moved
+       9 pp** when fixed to the plan's `d, 2d … K`.
+    2. **Clamping made an undefined SSR look like a value.** makani clamps the fair correction to
+       `eps` — correct for a differentiable training loss — and offline that printed a median SSR
+       of **599581**. Now NaN, with the count reported (83 cells).
+  - ⚠ **§4.2's "reuse `MetricsHandler`, do not rewrite" did not survive contact**, and the reason
+    is a live trap: **makani's `_crps_skillspread_kernel` — the `skillspread` type
+    `e3sm_alldata_crps.yaml` selects — IGNORES its `ensemble_weights` argument**, reducing with a
+    plain `torch.mean`; only the `cdf`/`pwm` kernels read them. Passing weights to the obvious
+    constructor returns an unweighted number, silently. We own the weighted math instead and pin
+    the *definition*: `test_crps_matches_makani_unweighted` matches makani's kernel exactly at
+    uniform weights, and **ran green** (it is not among 7643249's 4 skips).
+  - **Where it points, stated as direction not conclusion:** away from combining forecasts of
+    different *ages*, toward members differing at the *same lead* — the 243-snapshot checkpoint
+    ensemble. ⚠ Not implied by this result alone, and the distributional-loss alternative was
+    separately ruled out by the K=56 read-out.
+  - ⚠ **n = 1 and small:** one sweep, one holdout year, 8 *consecutive* (hence correlated) targets,
+    one checkpoint. Only the 24 h-lead ensemble was scored; the other three residue classes were
+    dropped, not averaged. The nested sweep varies ensemble *size*, not the weights' functional
+    form — an inverse-*covariance* combination is untested.
+
 - **2026-09-21 (makani)** — 🟢 **LAGGED ENSEMBLE STAGES 1 AND 3 BUILT (tasks 11-12, `d7a49780`) —
   `E3SM_PORT_OK` job 7643045, 82 passed / 4 skipped, up from 52.** No allocation beyond a 42 s
   debug job; both stages are index arithmetic and NetCDF metadata.

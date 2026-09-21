@@ -1,0 +1,132 @@
+#!/bin/bash -l
+#PBS -N makani_score_lagged
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Combine and score the lagged ensemble -- stages 4 and 5 (tasks 13-14) of
+# docs/2026-09-10_lagged_ensemble_endtoend_plan.md, and the last of them.
+#
+# WHAT IT ANSWERS (plan §4.3, in order of how much each tells us):
+#   1. Does the ensemble mean beat the best single member?  If not, the ensemble
+#      bought nothing and the weighting is wrong.
+#   2. Is SSR near 1?  < 1 is under-dispersed, i.e. over-confident.  A lagged
+#      ensemble shares one set of weights, so it samples IC and rollout error but
+#      NOT model uncertainty -- expect < 1 and read it as how badly (§4.5).
+#   3. Rank histogram flat?  ⚠ DIAGNOSTIC ONLY: members are ordered by depth, so
+#      it is U-shaped by construction and must not be read as calibration.
+#   4. Does CRPS beat the deterministic baseline?
+#
+# INPUTS, and they come from two DIFFERENT sweeps on purpose.  The members are the
+# lagged sweep; sigma(k) for w_k ~ 1/sigma(k)^2 is the MONTHLY K=56 sweep's
+# k56_metrics.h5.  Weighting an ensemble by its own errors would fit the noise.
+#
+# CPU-ONLY.  Reductions over NetCDF slabs; a GPU adds allocator noise and no speed.
+#
+# Knobs (-v):
+#   RUN        lagged sweep dir under runs/makani_eval  (default prod1n_b32_sgdr_lagged_K56_d4)
+#   SIGMA_H5   depth curve                              (default prod1n_b32_sgdr_K56/scores/k56_metrics.h5)
+#   OUT_DIR    outputs                                  (default <RUN>/scores)
+#   SMOKE=1    4 targets, no truth check, into scores_smoke/
+#
+# PASS = LAGGED_ENSEMBLE_OK.  Per CLAUDE.md #14 rc=0 is not the signal: the driver
+# refuses to pass if the members of a target disagree about the truth field, which
+# would mean the alignment put different valid times in one bucket.
+#
+# Submit from makani_sfno/:
+#   qsub -v SMOKE=1 polaris/polaris_score_lagged.pbs
+#   qsub polaris/polaris_score_lagged.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_ensemble" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+if [ ! -d "${MAKANI_ROOT}/src/sfno_ensemble" ]; then
+    echo "ERROR MAKANI_ROOT_NOT_FOUND: PBS_O_WORKDIR=${PBS_O_WORKDIR} derived=${MAKANI_ROOT}"
+    exit 2
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_score_k56.pbs -- module ordering
+# differs per model on purpose (CLAUDE.md, "Writing a new submission script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export CUDA_VISIBLE_DEVICES=""
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EVAL="${MEMBER_ROOT}/runs/makani_eval"
+RUN="${RUN:-prod1n_b32_sgdr_lagged_K56_d4}"
+NC_DIR="${NC_DIR:-${EVAL}/${RUN}/inference/lagged}"
+SIGMA_H5="${SIGMA_H5:-${EVAL}/prod1n_b32_sgdr_K56/scores/k56_metrics.h5}"
+
+EXTRA=()
+if [ "${SMOKE:-0}" = "1" ]; then
+    # A smoke writes elsewhere: three files of the same names would otherwise
+    # replace a full result with a 4-target one that reads identically.
+    OUT_DIR="${OUT_DIR:-${EVAL}/${RUN}/scores_smoke}"
+    EXTRA+=(--limit-targets 4 --truth-check-every 1)
+else
+    OUT_DIR="${OUT_DIR:-${EVAL}/${RUN}/scores}"
+fi
+
+for _p in "${NC_DIR}" "${SIGMA_H5}"; do
+    if [ ! -e "${_p}" ]; then
+        echo "ERROR SCORE_INPUT_MISSING: ${_p}"
+        exit 3
+    fi
+done
+
+echo "=== makani_score_lagged: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "nc_dir=${NC_DIR}"
+echo "sigma=${SIGMA_H5}"
+echo "out_dir=${OUT_DIR}  smoke=${SMOKE:-0}"
+makani_env_report
+echo
+
+SHA7="$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
+
+set -x
+"${PY}" "${MAKANI_ROOT}/polaris/score_lagged_ensemble.py" \
+    --nc-dir "${NC_DIR}" \
+    --sigma-h5 "${SIGMA_H5}" \
+    --out-dir "${OUT_DIR}" \
+    --provenance "job=${PBS_JOBID%%.*} sha=${SHA7} run=${RUN}" \
+    "${EXTRA[@]}"
+rc=$?
+set +x
+
+echo "--- score_lagged_ensemble rc=${rc} ---"
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR LAGGED_ENSEMBLE_FAILED rc=${rc}"
+    exit 4
+fi
+
+for _f in lagged_metrics.h5 lagged_summary.csv lagged_readout.json; do
+    if [ ! -s "${OUT_DIR}/${_f}" ]; then
+        echo "ERROR LAGGED_ENSEMBLE_NO_OUTPUT: ${OUT_DIR}/${_f} missing or empty"
+        exit 5
+    fi
+done
+
+echo "=== makani_score_lagged done $(date -Iseconds) ==="

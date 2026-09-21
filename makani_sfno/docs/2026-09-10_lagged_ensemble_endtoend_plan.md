@@ -271,30 +271,48 @@ delivers anyway.** Do not build the combination and calibration layers (stages
 
 ## 5. Ordered task list
 
+**ALL TASKS CLOSED as of 2026-09-21.** Result → `2026-09-21_lagged_ensemble_result.md`.
+
 | # | task | depends on | status |
 |---|---|---|---|
-| 1 | Per-lead metrics on our channel names | — | ✅ `652e9505` |
+| 1 | Per-lead metrics on our channel names | — | ✅ `652e9505`, job 7602739 |
 | 2 | Re-score base at K=20 | 1 | ✅ 7603089 |
-| 3 | Re-score C1 at K=20, compare at fixed depth | 1 | 🔵 7603119 |
-| 4 | Port A — derive channel contract from config | — | to do |
-| 5 | Port B — `out_chans` assert | — | to do |
-| 6 | Port C — `_load_run_norm_stats` n_out | — | to do |
-| 7 | Port D — `_extract_truth_sic` name lookup (bug) | — | to do |
-| 8 | Port F — Polaris PBS sibling for the eval chain | 4-7 | to do |
-| 9 | Decision E — step-index vs calendar labelling | — | recommend step-index |
-| 10 | **K=56 rollout sweep, read the curve to 14 days** | 4-9 | **the decision point** |
-| 11 | Stage 1 — stagger-`d` start generator | 10 | to do |
-| 12 | Stage 3 — member alignment by absolute target index | 11 | to do |
-| 13 | Stage 4 — weighted combination, `w_k ∝ 1/σ(k)²` | 12, 2 | to do |
-| 14 | Stage 5 — feed 5-D tensor to `MetricsHandler` with CRPS/spread/SSR/RH | 13 | to do |
-| 15 | Fix Gauss-Legendre weights in `sfno_eval/metrics.py` for equiangular grids | — | to do (silent defect) |
+| 3 | Re-score C1 at K=20, compare at fixed depth | 1 | ✅ 7603119 (−3.00 % at 126 h) |
+| 4 | Port A — derive channel contract from config | — | ✅ `f857040b` |
+| 5 | Port B — `out_chans` assert | — | ✅ `f857040b` |
+| 6 | Port C — `_load_run_norm_stats` n_out | — | ✅ `f857040b` (was silent) |
+| 7 | Port D — `_extract_truth_sic` name lookup (bug) | — | ✅ `f857040b` (was silent — returned `solin`) |
+| 8 | Port F — Polaris PBS sibling for the eval chain | 4-7 | ✅ `26192b3c` + `65f5e405`, verified 7632679 |
+| 9 | Decision E — step-index vs calendar labelling | — | ✅ step-index (pack is noleap) |
+| 10 | **K=56 sweep, read the curve to 14 days** | 4-9 | ✅ 7633207 + 7639537 → `2026-09-20_k56_readout_prereg.md` |
+| 11 | Stage 1 — stagger-`d` start generator | 10 | ✅ `d7a49780` (`sfno_ensemble.starts`) |
+| 12 | Stage 3 — member alignment by absolute target index | 11 | ✅ `d7a49780`, verified on real output 7643103 |
+| 13 | Stage 4 — weighted combination, `w_k ∝ 1/σ(k)²` | 12, 2 | ✅ `sfno_ensemble.combine` |
+| 14 | Stage 5 — CRPS / spread / SSR / RH | 13 | ✅ `sfno_ensemble.scores` — ⚠ **not** `MetricsHandler`; see below |
+| 15 | Fix Gauss-Legendre weights in `sfno_eval/metrics.py` for equiangular grids | — | ✅ change G — ⚠ but `scripts/score_nwp.py` still calls `legendre_gauss_lat_weights` directly and is a live silent defect for E3SM |
 
-Tasks 4-9 are needed for **any** inference, lagged or not, and do not depend on
-task 3. Task 10 is the gate for 11-14.
+⚠ **§4.2's "reuse `MetricsHandler`, do not rewrite" did not survive contact.** Two
+reasons, both from reading makani rather than its docs: (a) `_crps_skillspread_kernel`
+— the `skillspread` type this repo's CRPS config selects — **ignores its
+`ensemble_weights` argument**, reducing over the ensemble with a plain `torch.mean`,
+so for the weighted ensemble §4.4 requires there was nothing to reuse and the obvious
+constructor would have silently returned an unweighted number; (b) the `Geometric*`
+wrappers call `comm.get_size("ensemble")` and so need makani's process groups. The
+*definition* is preserved instead: `test_crps_matches_makani_unweighted` pins our
+uniform-weight CRPS against makani's own kernel, and ran green in job 7643249.
 
 ---
 
 ## 6. Open risks
+
+> **Resolved 2026-09-21 — see `2026-09-21_lagged_ensemble_result.md`.** Risk 1 did not
+> materialise in the form written (the 14-day curve did not saturate, and it ruled
+> mode-averaging *out*), but the ensemble failed for a different reason: its mean is
+> **31.7 % worse** than the single freshest member, monotonically in ensemble size, and
+> 101 of 101 channels prefer one member to any prefix. Risk 2 proved to understate the
+> problem — the members are non-exchangeable *and* the resulting ensemble is
+> **over**-dispersed (SSR 1.66), the opposite of §4.5's prediction. Risk 3 stands: n = 1,
+> 8 targets, one year.
 
 1. **Task 10 may kill tasks 11-14.** If the 14-day curve saturates, the lagged
    ensemble is treating a symptom. Read it first.
