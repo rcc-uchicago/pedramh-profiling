@@ -180,6 +180,31 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - ⚠ **Still only 8 targets over 7 days.** ACE2 computes alpha over eight **5-year** runs. A bias
     metric is precisely the statistic that needs a long time average; at n=8 much of what alpha
     reports as bias is still sampling noise. Do not read this alpha the way the paper reads its own.
+  - ❓**ANSWERED: why does this work for ACE2 and not for us?** ⇒ `polaris/analyze_lagged_correlation.py`
+    (`LAGGED_CORRELATION_OK verdict=no-member-helps rho_floor=0.418`), write-up in the doc §5.
+    - **ACE2 never uses a lagged ensemble to improve a forecast.** The word "lagged" appears **0
+      times** in the paper. Its forecast skill (§2.2.6) is "48 initializations equally spaced across
+      2020" each scored **deterministically**, RMSE averaged *over* forecasts — never combined at a
+      common valid time. The staggered-init ensemble exists only inside eq 8, to average away
+      **internal variability** when estimating a 5-year **climate bias** for checkpoint selection.
+    - **The whole difference is one inequality.** Adding a member of error `sigma_k` to one of error
+      `sigma_1` helps at all iff **`rho < sigma_1/sigma_k`**. ACE2's members are 5-year sims — past
+      any predictability horizon, so all estimate the climate **equally well**, `sigma_1/sigma_k = 1`,
+      threshold `rho < 1`, and any ensemble clears it. Ours are 24…336 h forecasts with **wildly
+      unequal** skill, so the threshold collapses.
+    - **Measured, and the gap never closes — it widens:** step 1→2 `rho` 0.740 vs threshold 0.716
+      (misses by a hair, which is why the curve turns over at the *second* member); by 13→14 it is
+      0.418 vs 0.260. Only 39 % of channels are helped by the 48 h member and ~0 % by anything older.
+    - 🔑 **`rho` floors at 0.418 rather than decaying to zero.** That residue is the **shared
+      systematic model bias** — same weights, so part of the error is identical however far apart the
+      inits are, and averaging cannot touch it. **A large model bias ⇒ high `rho` floor ⇒ lagged
+      ensembling is worthless.** `Z3_l17` owning 42 % of alpha and the lagged ensemble failing are
+      **the same finding seen twice**, which also explains why re-scoring under alpha made it *worse*:
+      alpha measures exactly the component an ensemble structurally cannot cancel.
+    - ⇒ **Ensembling here needs members of comparable skill: a FIXED-LEAD ensemble** (the 243 on-disk
+      checkpoints, or seeds), where `sigma_1/sigma_k ≈ 1` restores the threshold to ~1. ACE2's eq-8
+      construction is reproducible for us, but as a **climate** statistic over long rollouts from
+      well-separated ICs — not over 8 targets in one week.
 
 - **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
   DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;

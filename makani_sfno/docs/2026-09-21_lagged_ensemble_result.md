@@ -232,6 +232,64 @@ remedy as an automatic **sensitivity, never as the headline**: at 0.1× weight t
 comparison becomes 0.27626 vs 0.10149, **−172.2 %, and the verdict holds**. The median
 reduction used by checks 1–4 could not have surfaced this at all.
 
+### Why it works for ACE2 and not for us — and the two are not in conflict
+
+**ACE2 never uses a lagged ensemble to improve a forecast.** The word "lagged" does not
+appear in the paper. Its *forecast* skill (§2.2.6) comes from "48 initializations
+equally spaced across 2020", each scored as a **deterministic** forecast with RMSE
+averaged *over* forecasts — never combined at a common valid time. The staggered-init
+ensemble appears only inside eq 8, where its job is to average away **internal
+variability** so that a 5-year **time-mean climate bias** can be estimated cleanly
+enough to select a checkpoint. Different target, different job.
+
+That difference is decisive, and it reduces to one inequality. For two estimators with
+error magnitudes σ₁ < σ_k and correlation ρ, the optimal weight on the second is
+positive — i.e. adding it helps **at all** — iff
+
+> **ρ < σ₁ / σ_k**
+
+*(a\* = (σ_k² − ρσ₁σ_k)/(σ₁² + σ_k² − 2ρσ₁σ_k); a\* < 1 ⟺ ρσ₁σ_k < σ₁².)*
+
+- **ACE2's eq-8 members are 5-year simulations**, far beyond any predictability horizon,
+  so every member estimates the climate **equally well**: σ₁/σ_k = 1, the threshold is
+  ρ < 1, and *any* non-degenerate ensemble clears it. Ensembling is close to free.
+- **Our members are forecasts at 24…336 h**, so their skill is wildly **unequal** and
+  the threshold collapses. Measured, per nested step (median over 101 channels):
+
+| m → m+1 | lead of incoming member | σ_k / √V_m | ρ measured | threshold ρ < | channels helped |
+|---|---|---|---|---|---|
+| 1→2 | 48 h | 1.397 | **0.740** | 0.716 | 39 % |
+| 2→3 | 72 h | 1.692 | 0.689 | 0.591 | 2 % |
+| 3→4 | 96 h | 1.978 | 0.648 | 0.505 | 0 % |
+| 5→6 | 144 h | 2.536 | 0.556 | 0.394 | 0 % |
+| 9→10 | 240 h | 3.234 | 0.443 | 0.309 | 1 % |
+| 13→14 | 336 h | 3.841 | **0.418** | 0.260 | 0 % |
+
+**The gap never closes — it widens.** The first step misses by a hair (0.740 vs 0.716),
+which is why the curve turns over immediately; after that the error ratio grows far
+faster than the correlation decays.
+
+The load-bearing number is the last one. **ρ plateaus near 0.42 and does not go to
+zero**, even between a 24 h and a 336 h forecast. That floor is the **shared systematic
+model bias**: both members come from the same weights, so a component of their error is
+identical no matter how far apart their initializations are. Averaging cannot touch it.
+A model with a large systematic bias therefore has a high ρ floor, and a high ρ floor is
+exactly what makes a lagged ensemble worthless — `Z3_l17` owning 42 % of alpha and the
+lagged ensemble failing are **the same finding seen twice**.
+
+This also explains why re-scoring under alpha made things *worse* rather than better.
+Averaging removes the independent part of the error and leaves the shared part;
+alpha measures precisely the shared part. Asking a same-model ensemble to reduce alpha
+is asking it to cancel the one component it structurally cannot — and old members
+contribute *more* of it, because bias grows with lead. ACE2 does not make that mistake:
+it uses the ensemble to *measure* the bias, then changes the checkpoint.
+
+**What follows.** Ensembling helps here only where members are of comparable skill. That
+points at a **fixed-lead** ensemble — the 243 on-disk checkpoints, or seeds — where
+σ₁/σ_k ≈ 1 restores the threshold to ~1. It also means ACE2's eq-8 construction is
+directly reproducible for us, but as a *climate* statistic over long rollouts from
+well-separated ICs, not over 8 targets in one week.
+
 ### What this does *not* fix
 
 * **The time average is 8 targets over 7 days.** ACE2 computes alpha over eight
