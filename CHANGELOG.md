@@ -197,10 +197,22 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
       0.418 vs 0.260. Only 39 % of channels are helped by the 48 h member and ~0 % by anything older.
     - 🔑 **`rho` floors at 0.418 rather than decaying to zero.** That residue is the **shared
       systematic model bias** — same weights, so part of the error is identical however far apart the
-      inits are, and averaging cannot touch it. **A large model bias ⇒ high `rho` floor ⇒ lagged
-      ensembling is worthless.** `Z3_l17` owning 42 % of alpha and the lagged ensemble failing are
-      **the same finding seen twice**, which also explains why re-scoring under alpha made it *worse*:
-      alpha measures exactly the component an ensemble structurally cannot cancel.
+      inits are, and averaging cannot touch it. That is also why re-scoring under alpha made things
+      *worse*: alpha measures exactly the component an ensemble is structurally unable to cancel.
+    - ⚠ **CORRECTION (same session).** A first draft of this entry claimed `Z3_l17` dominating alpha
+      and the lagged ensemble failing were "the same finding seen twice". **That is wrong** — `rho`
+      = 0.418 is a *median over 101 channels* and one channel cannot move a median. Measured: median
+      `rho` **0.4183** all-channels vs **0.4149** with `Z3_l17` removed; **101/101** channels fail the
+      threshold, **100/100** without it. There are **two** problems, related in kind, not one:
+      **(A)** shared systematic bias in ~every channel — the `rho`≈0.42 floor, which is what kills the
+      lagged ensemble and which **no single-channel fix touches**; and **(B)** `Z3_l17` as the most
+      extreme instance of A (highest `rho` of any channel at 0.779 vs a p90 of 0.604; 43× drift;
+      41.8 % of alpha against a median of 0.26 for the other 100), which drives `DRIFT_FIRST` and
+      dominates alpha. **Fixing B would not rescue the ensemble** — measured, not argued: at ACE2's
+      10× downweight it is still −172 %.
+    - ⇒ **Dependency, corrected:** the alpha-over-243-checkpoints run is **not blocked** by `Z3_l17`
+      — alpha *selects against* it, so that run is a candidate **remedy** for B, not a dependent of
+      it. It is the job with no prerequisite.
     - ⇒ **Ensembling here needs members of comparable skill: a FIXED-LEAD ensemble** (the 243 on-disk
       checkpoints, or seeds), where `sigma_1/sigma_k ≈ 1` restores the threshold to ~1. ACE2's eq-8
       construction is reproducible for us, but as a **climate** statistic over long rollouts from

@@ -78,6 +78,9 @@ def main() -> int:
         nested = np.asarray(f["nested_rmse"][:], dtype=np.float64).mean(0)   # (E, C)
         r_shallow = np.asarray(f["rmse_shallowest"][:], dtype=np.float64).mean(0)
         depths = [int(d) for d in f["depth"][:]]
+        channels = [c.decode() if isinstance(c, bytes) else str(c) for c in f["channel"][:]]
+        alpha_c = (np.asarray(f["ace2_alpha_per_channel"][:], dtype=np.float64)
+                   if "ace2_alpha_per_channel" in f else None)
 
     if len(depths) != nested.shape[0]:
         print(f"ERROR DEPTH_MISMATCH: {len(depths)} depths vs {nested.shape[0]} nested "
@@ -110,6 +113,36 @@ def main() -> int:
         print(f"{m}->{m + 1:<5} {depths[m] * 6:>7} {rows[-1][2]:>17.3f} "
               f"{rows[-1][3]:>7.3f} {rows[-1][4]:>14.3f} {helped:>15.0f}%")
 
+    # Is the floor one bad channel, or all of them?  It is easy -- and this analysis
+    # got it wrong once -- to read "rho floors at 0.42" together with "one channel owns
+    # 42% of alpha" and conclude they are the same finding.  They are not: rho above is
+    # a MEDIAN over channels, and one channel cannot move a median.  Report the
+    # dominant channel's own rho next to the median with it removed, so the two
+    # problems stay visibly distinct.
+    if alpha_c is not None:
+        iz = int(np.argmax(alpha_c))
+        keep = np.ones(len(channels), bool)
+        keep[iz] = False
+        v_m = nested[-2] ** 2
+        s_k = s_cal[-1]
+        head = w[:-1].sum(axis=0)
+        a = head / (head + w[-1])
+        b = 1.0 - a
+        rho_d = (nested[-1] ** 2 - a ** 2 * v_m - b ** 2 * s_k ** 2) / (
+            2.0 * a * b * np.sqrt(v_m) * s_k)
+        thr_d = np.sqrt(v_m) / s_k
+        print(f"\ndeepest step, dominant-channel check ({channels[iz]} = "
+              f"{alpha_c[iz] / alpha_c.sum() * 100:.1f}% of alpha):")
+        print(f"  median rho  all channels {np.median(rho_d):.4f}  |  "
+              f"excluding {channels[iz]} {np.median(rho_d[keep]):.4f}")
+        print(f"  {channels[iz]}'s own rho {rho_d[iz]:.4f} (p90 of all = "
+              f"{np.percentile(rho_d, 90):.3f}) -- the most extreme channel, not the cause")
+        print(f"  channels failing the threshold: {(rho_d > thr_d).sum()}/{len(channels)}"
+              f"  |  excluding it: {(rho_d[keep] > thr_d[keep]).sum()}/{keep.sum()}")
+        print("  => the floor is a property of ALL channels (shared model bias); the "
+              "dominant\n     channel is the worst instance of it, and fixing that one "
+              "would not rescue\n     the ensemble.")
+
     rho_floor = min(r[3] for r in rows)
     print(f"\nrho is the correlation between the m-member mean and the incoming member.")
     print(f"'channels helped' = %% of {nested.shape[1]} channels where rho < threshold, "
@@ -117,8 +150,9 @@ def main() -> int:
     print(f"\nrho floors at {rho_floor:.3f} rather than decaying to 0: that residue is the "
           "SHARED\nSYSTEMATIC MODEL BIAS -- both members come from the same weights, so part "
           "of their\nerror is identical however far apart they are initialised, and averaging "
-          "cannot\ntouch it. A large model bias means a high rho floor, and a high rho floor "
-          "is what\nmakes a lagged ensemble worthless.")
+          "cannot\ntouch it. This is a MODEL-WIDE property, not one bad channel (see the "
+          "dominant-\nchannel check above), so it is not reachable by any per-channel fix -- "
+          "only by an\nensemble whose members are not the same weights, or not at unequal leads.")
     if all(r[3] >= r[4] for r in rows):
         print("\nLAGGED_CORRELATION_OK verdict=no-member-helps "
               f"rho_floor={rho_floor:.3f}")

@@ -273,9 +273,23 @@ The load-bearing number is the last one. **ρ plateaus near 0.42 and does not go
 zero**, even between a 24 h and a 336 h forecast. That floor is the **shared systematic
 model bias**: both members come from the same weights, so a component of their error is
 identical no matter how far apart their initializations are. Averaging cannot touch it.
-A model with a large systematic bias therefore has a high ρ floor, and a high ρ floor is
-exactly what makes a lagged ensemble worthless — `Z3_l17` owning 42 % of alpha and the
-lagged ensemble failing are **the same finding seen twice**.
+
+⚠ **This floor is NOT caused by `Z3_l17`, and an earlier draft of this section wrongly
+said it was.** ρ = 0.418 is a *median over 101 channels* and one channel cannot move a
+median. Measured: median ρ is **0.4183** over all channels and **0.4149** with `Z3_l17`
+removed, and **101/101** channels fail the `ρ < σ₁/σ_k` threshold — **100/100** without
+it. So there are **two separate problems** here, related in kind but not the same defect:
+
+* **A — shared systematic bias in essentially every channel.** The ρ≈0.42 floor. This is
+  what kills the lagged ensemble, it is a property of averaging one deterministic model
+  against itself, and **no single-channel fix touches it.**
+* **B — `Z3_l17` specifically**, which is the most extreme instance of A: the highest ρ
+  of any channel (0.779, against a 90th percentile of 0.604), 43× drift at 336 h, and
+  41.8 % of alpha where the other 100 channels have a median alpha of 0.26. It drives
+  the `DRIFT_FIRST` verdict and dominates alpha.
+
+**Fixing B would not rescue the ensemble**, and that is measured rather than argued: at
+ACE2's 10× downweight the ensemble is still **−172 %** against the single member.
 
 This also explains why re-scoring under alpha made things *worse* rather than better.
 Averaging removes the independent part of the error and leaves the shared part;
