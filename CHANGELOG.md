@@ -144,6 +144,43 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-22 (makani)** — 🔴 **THE LAGGED ENSEMBLE, RE-SCORED UNDER ACE2 EQ 8 — THE FRAMEWORK IT
+  SHOULD HAVE FOLLOWED ALL ALONG. The negative result gets ~7× stronger: −213 %, not −31.7 %.**
+  `LAGGED_ENSEMBLE_OK` job **7643591** (`scores_ace2/`, 3.7 min). Write-up →
+  `makani_sfno/docs/2026-09-21_lagged_ensemble_result.md` §5.
+  - **The framework.** Watt-Meyer et al., *ACE2*, arXiv:2411.11268 **§4.3 eq 8**:
+    `alpha = (1/C) Σ_c sqrt( Σ_φλ w ( MEAN_{t,ens}[y_c − ŷ_c] )² )`. Three things about it are easy
+    to read past and all three change the answer: (a) **the overbar is INSIDE the square**, so alpha
+    is the RMS of the *mean* error — a **bias** metric, where our checks 1–4 square per snapshot and
+    keep the random component; (b) **ACE2's own ensemble there is a lagged one combined with a PLAIN
+    UNWEIGHTED mean** — `w_k ∝ 1/σ²` is an invention of this repo and was never the thing under test;
+    (c) eq 8 is on **normalised** fields, which is what licenses its arithmetic `(1/C) Σ_c` channel
+    reduction where ours was stuck with a median over 101 disparate physical scales.
+  - **Measured.** deterministic (single freshest member) **0.14035** · `1/σ²`-weighted 0.23832 ·
+    **uniform 14-member (ACE2's rule) 0.43886 = −212.7 %**. Monotone in m, `best m = 1` again.
+  - ⚠ **The reframing cut the opposite way to the obvious guess.** Averaging signed errors kills
+    *random* error, so a construction losing on RMSE could in principle win on alpha — it does not,
+    because alpha scores **bias**, and bias is exactly what **grows with lead** and what a time
+    average **cannot** cancel. Mixing in 336 h members injects drift straight into the metric.
+    Hypothesis stated, tested, false. Note also ACE2's uniform mean is the **worse** of the two rules
+    here (0.439 vs 0.238) — our weighting was helping, just nowhere near enough.
+  - ⚠ **`Z3_l17` owns 42 % of alpha** (18.524 vs 0.513 for the next worst) — the channel the K=56
+    read-out flagged for 43× variance injection. This is ACE2's own `q0` situation, so the driver
+    applies the paper's remedy as an **automatic sensitivity, never the headline**: at 0.1× the
+    comparison is 0.27626 vs 0.10149, **−172.2 %, verdict holds**. The median reduction used by
+    checks 1–4 was structurally incapable of surfacing this.
+  - ✅ **Non-regressive:** checks 1–4 reproduce job 7643271 **exactly** (3.2212 / −31.69 % /
+    CRPS +28.73 % / SSR 1.6604 / identical 14-point nested curve). New result written to
+    `scores_ace2/` so 7643271's artifacts are preserved rather than overwritten.
+  - **Code:** `scores.ace2_alpha` / `bias_rms_per_channel` / `time_mean_bias` + 8 tests (26 pass).
+    No new input file needed — eq 8's standard-scaling **mean cancels in `y − ŷ`**, so only a
+    per-channel σ is required and `a_truth_mean` in the independent `k56_metrics.h5` already is it.
+    The driver accumulates one running field sum **per member**, so every combination rule (uniform,
+    `1/σ²`, any nested prefix) is an exact linear recombination afterwards at no extra read.
+  - ⚠ **Still only 8 targets over 7 days.** ACE2 computes alpha over eight **5-year** runs. A bias
+    metric is precisely the statistic that needs a long time average; at n=8 much of what alpha
+    reports as bias is still sampling noise. Do not read this alpha the way the paper reads its own.
+
 - **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
   DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
   tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →

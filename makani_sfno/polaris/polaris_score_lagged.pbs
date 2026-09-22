@@ -12,7 +12,13 @@
 # Combine and score the lagged ensemble -- stages 4 and 5 (tasks 13-14) of
 # docs/2026-09-10_lagged_ensemble_endtoend_plan.md, and the last of them.
 #
-# WHAT IT ANSWERS (plan §4.3, in order of how much each tells us):
+# HEADLINE: ACE2 eq 8 (arXiv:2411.11268 §4.3) -- alpha, the channel-mean global RMS
+# of the TIME-AND-ENSEMBLE-MEAN error, on normalised fields.  The overbar is inside
+# the square, so alpha scores systematic bias, not instantaneous error.  ACE2's own
+# ensemble there is a lagged one combined with a PLAIN UNWEIGHTED mean, so alpha is
+# reported for both the uniform and the 1/sigma^2 rule.  Lower alpha is better.
+#
+# SECONDARY (plan §4.3, in order of how much each tells us):
 #   1. Does the ensemble mean beat the best single member?  If not, the ensemble
 #      bought nothing and the weighting is wrong.
 #   2. Is SSR near 1?  < 1 is under-dispersed, i.e. over-confident.  A lagged
