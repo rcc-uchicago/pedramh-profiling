@@ -95,6 +95,33 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-09-22** — **CPU-only PBS handoff authored + `module load conda` is UNBROKEN.**
+  New `polaris_cpu_only_pbs_handoff.md`: a deliberately project-agnostic guide to
+  running CPU-only PBS jobs (queues + limits, env construction, threading/multiprocessing
+  libraries, CPU binding, I/O). Validated with **three 1-node `debug` jobs on three
+  different nodes** — `7643786`, `7643793`, `7643804` — the last of which runs the doc's
+  own appendix probe *verbatim*, so the shipped script is known-good. Measured:
+  **`module load conda` + `conda activate base` WORKS on a compute node again**
+  (Python 3.12.11, numpy 2.2.6/OpenBLAS), and a new `conda/2026-09-17` (Python 3.13.15)
+  exists. ⚠️ **FOLLOW-UP:** the 2026-08-20 "`module load conda` is BROKEN" blocker box
+  lives in `polaris_pbs_notes.md` on **`feat/multinode-ddp-port`**, not on `main`, so
+  this branch could not mark it resolved — **do that when the branches meet.** Its
+  history and its still-valid traps (the `libmpi_gnu_123.so.12` / `libcudart.so.13`
+  shims, the torch_harmonics squeeze, the failed-approach list) should be kept; only the
+  "live blocker" framing is now wrong. Also measured, and useful beyond CPU work:
+  `cray-python/3.12.12` ships
+  **mpi4py 4.1.1** prebuilt against cray-mpich; node = AMD EPYC 7543P, **32 physical
+  cores / 64 SMT**, **503.6 GiB**, NPS4 with CPUs `0-31` = the real cores and `32-63` =
+  siblings; `/tmp` is a **252 GB tmpfs (RAM)** while `/local/scratch` is the real 2.8 TB
+  disk; PBS allocates `force_exclhost`, so a CPU-only job still costs a whole GPU node.
+  **Two corrections to prior belief**, both caught by the probe: (1) `mpiexec` with **no**
+  `--cpu-bind` does *not* leave ranks free — it pins each rank to **one CPU**, so a
+  threaded rank silently runs ~8× slow; (2) `--cpu-bind depth -d 2` with 32 ranks is
+  *unbalanced* (ranks 0-15 get real cores, 16-31 get their siblings) — use `-d 1`×32,
+  `-d 4`×8 or `-d 8`×4. Unset `OMP_NUM_THREADS` means **64** OpenBLAS threads, not 1.
+  Learned the hard way: **`module load` inside a pipe is discarded** (subshell), and the
+  symptom is indistinguishable from the August breakage — it cost job `7643786`.
+
 - **2026-07-14** — **Polaris (PBS) bring-up.** Confirmed cluster facts (`-A
   lighthouse-uchicago`, 4×A100-40GB sm80, `debug` queue, `filesystems=home:eagle`,
   `/local/scratch`); env = base ALCF conda (`module load conda`, torch 2.8/cu12.9) +
