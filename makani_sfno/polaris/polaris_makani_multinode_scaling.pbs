@@ -362,6 +362,12 @@ fi
 # row's step average spans dataloader re-warmup and must not sit in a scaling
 # table with single-epoch rows. Pair it with -v MAKANI_SCALING_CSV=<other.csv>.
 NSAMP="${NSAMP:-$(( STEPS * GLOBAL_BATCH ))}"   # synthetic path never set it
+# Validation shards n_eval_samples over GLOBAL batches; fewer samples than one global
+# batch means ZERO validation batches and `validation loss: nan` (0/0), which reads
+# like a diverged model. Seen in 7630472, 7633857, 7633881, 7646684 -- all this, not NaNs.
+if [ "${EVAL_SAMPLES:-8}" -lt "${GLOBAL_BATCH}" ]; then
+    echo "WARN EVAL_SAMPLES_LT_GLOBAL_BATCH: EVAL_SAMPLES=${EVAL_SAMPLES:-8} < global batch ${GLOBAL_BATCH} -- validation loss will print nan; it is not a divergence."
+fi
 "${PY}" - "${RENDERED}" "${NSAMP}" "${WANDB:-0}" "${RUN_NUM}" "${EPOCHS:-1}" "${EVAL_SAMPLES:-8}" <<'PY' || exit 2
 import re, sys
 path, nsamp = sys.argv[1], int(sys.argv[2])

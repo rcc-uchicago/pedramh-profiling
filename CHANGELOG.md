@@ -144,6 +144,62 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-23 (makani/ACE2 ports — `polaris_makani_ace2_ports_handoff.md` implemented)** — 🔵
+  **PORT F IS BUILT AND SMOKED; THE PRE-F BASELINE IS RE-TAKEN ON 99 CHANNELS.** Branch
+  `worktree-makani-ace2-ports` (base `a5b83ae2`; commits `50350a96`…`772cbe16`). Debug job
+  **7646684** (`polaris_makani_ports_smoke.pbs`). Reviewed live by a peer session
+  (`docs/2026-09-23_architect_review_ace2_ports.md`, which reached the same blockers independently).
+  - **F — no repack, no new stats.** Stock `parse_dataset_metadata` already maps `channel_names`
+    → pack indices (`params.out_channels`), which the loss, ACC climatology and model package use.
+    🔴 The fork's `plasim_trainer` built `range(n_state)` instead — a naive `n_state: 98` would
+    have dropped **RELHUM_l16/l17**, kept both soil channels, and normalized PRECT with
+    RELHUM_l16's moments, silently. Fixed: `_plasim_channel_indices` reads makani's lists
+    (identity for every full-width config), asserts diag-last (`CHANNEL_SUBSET_MISMATCH`).
+    `e3sm_alldata_nosoil.yaml` (99 names, n_state 98, 105-in/99-out). New
+    `channel_subset_gate.py`, run by the production launcher for any config declaring
+    `dropped_channel_names` (the launcher had **no** converter gate before).
+    **Verified live on the production pack (7646684):** `CHANNEL_SUBSET_GATE_OK 99 of 101`,
+    `CHANNEL_SUBSET in=98 out=99 … dropped pack idx [8, 9]`, `N_in_channels=105`, metrics over 99;
+    20 steps, loss **2.19 → 0.296**, grad norm 0.248, all finite. ⚠ Its `validation loss: nan`
+    is **my smoke's shape, not F**: EVAL_SAMPLES=8 < global batch 32 ⇒ zero validation batches
+    (0/0). Every full-width smoke with the same inequality printed nan too (7630472, 7633857,
+    7633881); those with global ≤ 8 are finite. Smoke now uses 64 and the launcher prints
+    `WARN EVAL_SAMPLES_LT_GLOBAL_BATCH`. So 7646684's `NOSOIL_TRAIN_SMOKE_FAILED` (its nan grep)
+    is this artifact — read the per-section tokens, not `PORTS_SMOKE_OK`.
+  - **Eval path fixed before F trains:** `rollout_driver` indexes full-width stats by
+    `out_channels` when widths differ; `eval_inference` accepts a subset whose names match the
+    h5 at those indices; `score_rollout_nc` selects climatology rows **by name** (it would have
+    refused the 99-ch NetCDFs with `CHANNEL_COUNT_MISMATCH` — peer review). Full-width paths
+    unchanged.
+  - **Rebaseline, done BEFORE any post-F number exists** (`restrict_readout.py`, reproduces the
+    published 101 readout to 1e-9 first) → `…/prod1n_b32_sgdr_K56/scores/k56_readout_common99.json`:
+    NRMSE336 0.9696→**0.9689**, ACC336 0.5463→**0.5420**, ACC126 0.8669→0.8665, VR336 1.0189
+    unchanged. ⚠ The channel set alone moves ACC336 by 0.8 % — compare F only against these.
+    The 43.18× worst channel is **not** a soil channel: `DRIFT_FIRST` survives F.
+  - **B step 1:** converter `--time-diff-only --workers N` (same completeness guard as
+    `--stats-only`, writes ONLY `stats/time_diff_stds.npy`; diffs never span a year file) +
+    `time_diff_report.py` (r_c table, realised weight, clamp hits, Spearman vs 7646192).
+    Nothing enables `temp_diff_normalization`.
+  - **C finding (pinned by test):** installed makani's `channel_weights: auto` keys on lowercase
+    ERA5 names; every E3SM name falls through to one default ⇒ `auto` **is** `constant` here.
+    Port C can only be an explicit list ⇒ B+C collapse into `make_capped_weights.py`:
+    `clip(σ/δ, 1, W_max)` normalized to **sum 1** (makani's `constant` is ones/C — the peer
+    suggested dividing by the mean, which would scale the loss 99×). Produces a nested
+    `[[…]]` yaml snippet; enables nothing — **loss change ⇒ jesswan sign-off**.
+  - **D:** launcher `-v EMA=1 [EMA_DECAY=]`, default 0.9995 (≈1.5 epochs at 1368 updates/epoch,
+    not ACE2's 0.999 copied across a 9× update-rate difference), asserted `EMA_ASSERT_OK`.
+    Live: `EMA enabled: decay=0.9995, shadowed_params=87`.
+  - **A:** `force_positive_names` clamp in `rollout_driver`, `--force-positive-names`, default
+    OFF, **not run** — F removed its headline target and the list is science-owned.
+  - **F cost — surgical transfer prepared, not yet run:** `slice_checkpoint.py` (drops rows 8,9
+    from every 107/101-sized dim; exact identity proved on a toy) +
+    `polaris_makani_surgical_proof.pbs`, **pre-registered PASS iff first val loss ≤ 0.02568**
+    (2× the base's 0.01284; from scratch was 0.094 @ ep1, 0.026 @ ep3). PASS ⇒ F is a
+    fine-tune, not 46 node-h.
+  - ⚠ **Git hazard, recorded:** a peer committed onto this worktree's branch from outside its
+    index; the next commit here silently deleted that file (restored, `11628839`). Peers now
+    message instead of committing.
+
 - **2026-09-23 (makani/ACE2, analysis only — no jobs, no allocation)** — 🔵 **THE ACE2-vs-makani
   DIFFERENCE TABLE IS WRITTEN AND ON GITHUB: PR #15**, branch `docs/ace2-vs-makani-differences`,
   one file (`ace2_vs_makani_differences.md`, +208), based on `main`, **left open** (CLAUDE.md #9 —

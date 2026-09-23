@@ -24,6 +24,9 @@
 #                 -> CHANNEL_SUBSET_GATE_OK, "CHANNEL_SUBSET in=98 out=99",
 #                    EMA_ASSERT_OK, MAKANI_MN_SCALING_OK
 #
+# EVAL_SAMPLES must be >= the GLOBAL batch (32 here) or validation has zero batches and
+# prints `validation loss: nan` (7646684 did, with 8; so did full-width 7633857/7630472).
+#
 # PASS = PORTS_SMOKE_OK on the last line. Per CLAUDE.md #14 the exit code is not
 # the result. The training smoke's CSV row is FUNCTIONAL ONLY (the time-diff pass
 # shares the node) and goes to its own CSV, never the scaling table.
@@ -121,7 +124,7 @@ echo "=== 2. restrict K=56 read-out ==="
 echo "=== 4. e3sm_alldata_nosoil.yaml training smoke (EMA=1) ==="
 RUN_NUM="smoke_nosoil_${JOBID}"
 CONFIG_YAML=e3sm_alldata_nosoil.yaml PACK="${PACK}" RUN_NUM="${RUN_NUM}" \
-STEPS=20 LOCAL_BATCH=8 EPOCHS=1 EVAL_SAMPLES=8 EMA=1 WANDB=0 \
+STEPS=20 LOCAL_BATCH=8 EPOCHS=1 EVAL_SAMPLES=64 EMA=1 WANDB=0 \
 MAKANI_SCALING_CSV="${MEMBER_ROOT}/bench/makani_ports_smoke.csv" \
     bash "${MAKANI_ROOT}/polaris/polaris_makani_multinode_scaling.pbs" > "${TD_OUT}/train_smoke.out" 2>&1
 train_rc=$?

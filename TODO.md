@@ -18,6 +18,22 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 🔵 **2026-09-23 — ACE2 ports (`polaris_makani_ace2_ports_handoff.md`), branch
+> `worktree-makani-ace2-ports`.** Code for F/A/B/C/D is in and smoked (job 7646684, CHANGELOG
+> 2026-09-23). In order:
+> 1. **Surgical-transfer proof** — `cd makani_sfno && qsub polaris/polaris_makani_surgical_proof.pbs`
+>    (debug, pre-registered PASS ≤ 0.02568). Decides fine-tune vs 46 node-h from scratch.
+> 2. **The F run** on `capacity` (⚠ blocks the project's one capacity slot — ask first):
+>    production VARS from `submit_production_when_lr_picked.sh` with
+>    `CONFIG_YAML=e3sm_alldata_nosoil.yaml`, new `RUN_NUM`, `EMA=1`; plus
+>    `PRETRAINED_CKPT=<sliced>` and fewer epochs if (1) passed. Pre-register the land-only
+>    PRECT/TREFHT/RHREFHT/TMQ panel (architect review §6) before it finishes.
+> 3. Score F with the K=56 sweep against **`k56_readout_common99.json`** only (never the 101 numbers),
+>    then the long rollout to divergence — if it still blows up at ~500 steps with no soil
+>    reservoir, retract `2026-09-10_ace2_comparison_the_corrector.md` §4.
+> 4. Take the `time_diff_report` table + `make_capped_weights.py --w-max 30` vector to **jesswan**
+>    with the E / `Z3_l17` questions; the B+C arm runs only after her sign-off (`LOAD_LOSS=0`).
+
 > 📋 **makani continuation: `polaris_makani_analysis_ensemble_handoff.md`** — written
 > 2026-09-04 when the training campaign closed. Covers the lead-time ladder (which decides
 > whether the rollout direction is even correct), scoring C1, and the audited 4-item scope
