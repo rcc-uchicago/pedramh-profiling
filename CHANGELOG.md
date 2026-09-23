@@ -144,6 +144,223 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-23 (makani/ACE2, analysis only — no jobs, no allocation)** — 🔵 **THE ACE2-vs-makani
+  DIFFERENCE TABLE IS WRITTEN AND ON GITHUB: PR #15**, branch `docs/ace2-vs-makani-differences`,
+  one file (`ace2_vs_makani_differences.md`, +208), based on `main`, **left open** (CLAUDE.md #9 —
+  a solo session cannot self-approve). It covers the **science axis**; `ace2_polaris_results.md`
+  Table 8 already covers architecture/performance and is cross-referenced rather than repeated.
+  - **Config-verified today by parsing `ACE2_retrain/config_polaris.yaml`** (not eyeballed):
+    **44 in / 50 out = 38 prognostic + 6 forcing + 12 diagnostic**; `corrector` = dry-air-mass
+    conservation + moisture-budget correction + `force_positive` on **16** names; loss = **17
+    explicit channel weights spanning 0.25–10**; **dual** normalization (full-field + residual).
+    Against ours: **100 prognostic / 7 forcing / 1 diagnostic**, `channel_weights: "constant"`,
+    single full-field z-score, `temp_diff_normalization: False`, and **zero** corrector machinery.
+  - 🐛 **Discrepancy found, flagged not patched.** Table 8 records ACE2 as "56 (43 in / 40 out)";
+    the config gives 44/50. **Table 8's parameter, memory and throughput rows are unaffected** —
+    they depend on `scale_factor` and the trunk, not encoder width — but the channel row should be
+    corrected where it lives, not in the new document.
+  - ✅ **Three things confirmed NOT to be differences**, each having been assumed at some point:
+    (1) **cadence — both are 6-hourly**, and the E3SM archive has no hourly option at all
+    (51,100 files = 35 yr × 1460, `noleap`); ERA5 *is* hourly at source and ai2 chose 6-hourly
+    anyway. (2) **prescribed SST / sea ice / insolation — both** read them from file every step;
+    `sst`, `ice`, `solin` are 3 of our 7 forcings. (3) architecture family and grid — both.
+  - ⚠ **Correction to `2026-09-10_ace2_comparison_the_corrector.md` §1.** Its "ACE2's 2 forward
+    steps ≡ makani's 2" is true of the **C1 fine-tune**; the **shipped production checkpoint is
+    `n_future: 0`, i.e. ONE forward application**. The depth-equivalence claim must not be quoted
+    about the model we ship.
+  - **Lagged-ensemble numbers re-read from the run rather than the write-up** (job 7643271,
+    `lagged_readout.json` + `lagged_summary.csv`): per-channel ratio weighted÷freshest is
+    **min 1.133, median 1.317, max 1.774** over 101 channels, which reproduces the −31.7 %
+    headline exactly (the ratio *of medians* would read −37.8 % — do not mix the two reductions).
+    Worst channels **`SOILWATER_10CM` 1.559** and **`Z3_l17` 1.510**; best **`PRECT` 1.179**.
+    ⇒ the most *systematic* channels are damaged most by averaging and the noisiest least, which
+    is the error-correlation mechanism visible directly in the per-channel table.
+  - **Git technique, recorded because it matters on this filesystem:** the commit was built with
+    plumbing on a temporary `GIT_INDEX_FILE` (`read-tree` → `hash-object -w` → `update-index
+    --cacheinfo` → `write-tree` → `commit-tree` → `update-ref`), so **no command walked the
+    working tree** and the real index was never touched. `git status`/`add`/`commit` can wedge in
+    uninterruptible Lustre I/O here and each wedged process holds a login-node slot permanently.
+  - 🟢 **AND THE PORT HANDOFF'S CENTRAL CLAIM WAS PUT ON A DEBUG NODE RATHER THAN ARGUED —
+    job 7646192, `TENDENCY_PROBE_OK`, 60 s, CPU-only.** New tooling:
+    `makani_sfno/polaris/tendency_norm_probe.py` + `polaris_tendency_norm_probe.pbs`;
+    handoff at `polaris_makani_ace2_ports_handoff.md`. Five hypotheses with thresholds fixed
+    in the script **before** any number existed; outputs in
+    `$MEMBER_ROOT/runs/makani_probe/tendency_norm/7646192/`.
+    - ✅ **H1 the mechanism is real and current** — `makani/utils/loss.py:152` is verbatim
+      what the 2026-09-10 doc quoted; key is **`params.time_diff_stds_path`**;
+      `get_time_diff_stds` is a bare `np.load` with **no internal normalization**;
+      `loss.py:99` makes `scale` exactly `global_stds.npy`, so the multiplier really is
+      **σ_c / clamp(δ_c, 1e-4)**.
+    - ✅ **H2 `r_c = δ_c/σ_c` spans 1.31e4** (0.000105 → 1.375) — the "slow channels are
+      nearly invisible to the loss" claim is right, and by 4 orders of magnitude, not the
+      1.5 the prereg asked for.
+    - 🔴 **H3 FALSIFIED — my framing was wrong.** The slow channels are **the `Z3`
+      geopotential levels and `PS`**, not land reservoirs as a class: 5 of the 10 slowest
+      are `Z3_l17…l13`; `SOILWATER_10CM` is 6th (5th pct) but **`TSOI_10CM` is 39th pct**.
+    - ✅ **H4, the one that mattered: Spearman(`r_c`, bias²/MSE @336 h) = −0.647**
+      (threshold −0.30). The drift *is* concentrated where the loss is blind.
+    - ✅ **H5 refuted the competing explanation**: the train→test warming shift gives
+      Spearman **+0.079** — the 336 h bias is not the model regressing toward a stale
+      train-split climatology.
+    - 🔴 **TWO TRAPS FOUND THAT WOULD HAVE MADE THE PORT SILENTLY WRONG.** (1) The `1e-4`
+      clamp is in **physical units**, and `PRECT`'s tendency std is **7.95e-08 m/s** — so
+      enabling the switch gives precipitation weight **8.3e-04** instead of 1.044, a factor
+      of **0.0008**: the channel is effectively deleted from the loss, no error, no warning.
+      (2) The realised weight range would be **0.727 → 9518** (1.3e4 span) with **`Z3_l17`
+      alone at 9518**, a channel with 0.271 m of temporal variability; ACE2's hand-picked
+      weights span 40×. ⇒ **`temp_diff_normalization: True` is NOT a one-line flip here** —
+      it needs a dimensionless weight cap and an explicit `PRECT` decision, which reprices
+      the port from config-only to code+config.
+    - 🔴 **CORRECTION to a claim I made earlier the same day.** I called removable
+      systematic drift "possibly the largest single win". Measured: **only 2 of 101 channels
+      carry a material bias² share at 336 h** — `Z3_l17` 0.253 and `Z3_l16` 0.139 — and 94
+      channels are ≤ 0.010. The prize is much smaller and much more local than stated.
+    - 🎯 **Three independent lines now point at the `Z3` family**: slowest `r_c` of all 101
+      (by 35× over the next channel), largest systematic share of 336 h error, and the K=56
+      read-out's `DRIFT_FIRST` verdict on a completely different normalisation. **Whether a
+      near-constant terrain-following level should be prognostic at all is the question to
+      take to jesswan** — possibly instead of, not alongside, weighting it harder.
+  - 🟢 **COLD-CRITIC AUDIT OF THE `Z3_l17`-IS-TOPOGRAPHY READING — job 7646252,
+    `STATIC_AUDIT_OK`, 16 s.** Prompted by rmehta1987's observation that `Z3` is geopotential
+    height and `_l17` the bottom model level, so the channel would be dominated by surface
+    topography. Tooling: `makani_sfno/polaris/static_channel_audit.py` +
+    `polaris_static_channel_audit.pbs`. Six attacks, thresholds fixed before any number.
+    - ✅ **The observation is measured and correct**: `corr(time_mean(Z3_l17), topo) =
+      +0.9854`, `Z3_l17 ≈ 0.953·topo + 33 m`. Slope < 1 is right — thinner layer over high,
+      cold terrain.
+    - ✅ **A1 it is a genuine OUTLIER, by 50×.** `S_c = std_space(time_mean)/a_truth` is
+      **3053** for `Z3_l17`, **61.2** for the next channel (`Z3_l16`); median over 101 is
+      **0.83**, only **1** channel above 300. ⇒ "stop predicting it" is a one-channel
+      decision, not a family-wide normalization problem.
+    - ✅ **A2 "the other surface topography" is only 5 of 101 channels** reconstructible from
+      `lsm/topo/glacier/natveg` at R² > 0.90: `Z3_l17` 0.974, `Z3_l16` 0.972, `Z3_l15` 0.967,
+      **`PS` 0.964**, `Z3_l14` 0.942.
+    - 🔑 **`PS` is the counterexample that fixes the rule.** It is 96.4 % static-reconstructible
+      and the 7th-slowest channel (`r_c` 0.0248) yet its 336 h bias fraction is **0.0015** —
+      it does not drift. ⇒ **terrain-dominance is not the discriminator; residual forecastable
+      signal is.** `PS` keeps 793 Pa of real temporal signal; `Z3_l17` keeps 0.27 m.
+    - ✅ **A3, the strongest attack, SURVIVES.** Job 7646192's Spearman(`r_c`, bias²/MSE) of
+      **−0.647** becomes **−0.581** with all 18 `Z3` levels removed and **−0.506** on one
+      channel per family (16). It was not one variable wearing a trenchcoat.
+    - ✅ **A4 bias is linear in lead to R² = 1.0000**, slope **−0.0913 m/step** (×56 = 5.11 m
+      vs the measured −5.15 m). 🔑 **That per-step systematic error EXCEEDS the channel's
+      entire true 6-hour variability** (δ = 0.0857 m) — every step, the mean error is larger
+      than the whole signal.
+    - 🔴 **A5 PASSED ITS THRESHOLD BUT REFUTED ITS MECHANISM — disclosed, not patched.** I
+      predicted spectral reconstruction error at steep terrain (`scale_factor: 3` ⇒ 60×120
+      internal grid). Measured: `corr(bias_map, topo) = +0.565` clears the bar, but
+      `corr(bias_map, |∇topo|) = +0.277` **fails** it, and the bias is **on the ocean**:
+      land **+0.85 ± 8.51 m**, ocean **−5.41 ± 6.34 m**. The topo correlation is positive only
+      because the error is near zero *over* terrain and strongly negative at sea level. **The
+      steep-terrain/spectral-ringing story is refuted**; the clause tested the wrong thing and
+      is left as written. Next prereg: state the sign and the land/ocean split up front.
+    - ✅ **A6 redundancy confirmed and strong**: median per-cell temporal correlation with
+      `TREFHT` = **+0.965** (quartiles 0.935/0.965/0.985), so it is global, not a few cells.
+      Fitted **0.0466 m/K** against the ~0.115 predicted from a 33 m layer — same order, 2.5×
+      low, implying a ~13 m mean layer. ⇒ the forecastable part of `Z3_l17` is near-surface
+      temperature, which is already two prognostic channels.
+    - 🔴 **A SECOND DRIFT POPULATION THE AUDIT SURFACED AND MY STORY DOES NOT EXPLAIN.**
+      `T_l00` (bias_frac 0.041), `T_l01` (0.028) and `Z3_l00` (0.022) all drift **linearly**
+      (R²_lin 0.995–0.997) at the **model top**, with `S_c` ≈ 0.67–1.00 and `R²_static`
+      0.06–0.53 — i.e. neither loss-blind nor terrain-related. Loss blindness explains the
+      bottom of the model, not the top. **Open.**
+  - 🔴 **THE SOIL CHANNELS: THE MODEL PREDICTS NEGATIVE SOIL WATER, AND A FIFTH OF THE SOIL
+    ERROR BUDGET IS SPENT OUTSIDE THE VALID REGION.** Jobs **7646391** (`SOILWATER_10CM`,
+    partner `PRECT`) and **7646383** (`TSOI_10CM`, partner `TREFHT`), both `STATIC_AUDIT_OK`.
+    The audit gained a land/ocean mask and a new attack **A7 (is the fill respected?)** after
+    it became clear these are land-only fields — global spatial statistics on them are ~62–72 %
+    constant by construction, the same way `global_stds` flattered `Z3_l17`.
+    - 🎯 **`SOILWATER_10CM`: truth over the filled region is ≈ 0; the model predicts mean
+      **−0.856** there (std 1.46) — i.e. **negative soil water content** — and **12.5 % of the
+      lat-weighted 336 h MSE comes from cells whose answer is a known constant.**
+      ⇒ **direct measured support for the ACE2 positivity clamp (handoff port A)**, which is
+      the one port that needs no retraining. `force_positive_names` exists upstream for exactly
+      this.
+    - 🎯 **`TSOI_10CM`: truth over ocean is a 270 K constant; the model predicts std 1.77 K
+      with max 303.7 K there, and **21.8 % of its 336 h MSE is outside the valid region.**
+      A masking problem, not a physics problem.
+    - ✅ **`SOILWATER_10CM` A5 FALSIFIED cleanly** — `corr(bias, topo) = −0.292`,
+      `|∇topo| = +0.021`. Soil-moisture bias is **not** terrain-organised. (`TSOI_10CM` is:
+      −0.376 on land.)
+    - ✅ **`SOILWATER_10CM` A6 FALSIFIED** — median per-cell correlation with `PRECT` is
+      **0.160** (quartiles 0.008/0.160/0.355). Soil moisture is **not** redundant with
+      precipitation; it is an integrator of it. ⇒ unlike `Z3_l17`, **this channel cannot be
+      deleted — it has to be constrained.** The two channels need opposite fixes.
+    - ⚠ **Neither soil channel has a drift problem worth chasing**: systematic share of the
+      336 h MSE is **0.018** (`SOILWATER_10CM`) and **0.0026** (`TSOI_10CM`), against 0.253 for
+      `Z3_l17`.
+    - 🐛 **Three defects in my own harness, disclosed.** (1) `fields_state[:, 100]` is an
+      `IndexError` — `PRECT` is index 100 of `channel_names` but lives in `fields_diagnostic`;
+      killed 7646367, fixed with a split-aware reader. (2) A1/A2/A3's verdict lines test
+      **global** properties, so they print identically for every target and are meaningless for
+      anything but `Z3_l17`. (3) A6's slope label is hard-coded `m/K` and its 0.50 threshold was
+      calibrated on the `Z3`/thickness case — `TSOI_10CM` "passes" at 0.526 with an IQR of
+      **−0.20 to 0.93** and a slope of 0.05 K/K, which says damped integrator, not copy.
+      **Do not read `TSOI_10CM` as redundant with `TREFHT`.**
+  - 📊 **THE `Z3` FAMILY AS A VERTICAL PROFILE (all 18 levels, from 7646252's CSV) — three
+    regimes, and they are a sandwich.** Truth behaves exactly as hypsometry requires: the
+    forecastable amplitude falls **559.9 m (`l00`) → 0.267 m (`l17`)** while the static share
+    rises **0.53 → 0.97**, so `S_c` spans **1.0 → 3053** within one variable.
+    - **Free troposphere `l02`–`l13`: healthy.** Linear fits explain 0–88 % of the bias curve,
+      slopes change sign level to level, systematic share ≤ 0.005 everywhere.
+    - **Model top `l00`/`l01`: drifts −0.525 / −0.114 m per step at R² 0.995 / 0.942**, but that
+      is the *column-integrated* thermal bias accumulating by construction, and at 560 m of
+      natural variability it is only **2.2 %** of that level's error.
+    - **Lower boundary `l14`–`l17`: coherent drift converging on ≈ −0.09 m/step**, R² 0.964 →
+      0.997 → 0.999 → **1.0000**, systematic share 0.003 → 0.038 → 0.139 → **0.253**. Onset
+      coincides with the terrain share crossing ~0.94 at `l14`.
+    - 🔑 **And `TREFHT` does not drift (systematic share 0.0000).** So the model lowers the
+      geopotential of its lowest layers while leaving the temperature that physically determines
+      it untouched — **it breaks its own hypsometric consistency.** At `l17` the per-step
+      systematic error (0.0913 m) **exceeds the channel's entire true 6-hourly variability**
+      (0.0857 m).
+    - Family total 0.483 of summed bias share, concentrated: `l15`+`l16`+`l17` = 0.430, `l00` =
+      0.022, the other 14 levels ≈ 0.03 combined.
+  - 🔵 **OPERATOR DECISION (rmehta1987, 2026-09-23): DROP `SOILWATER_10CM` AND `TSOI_10CM`
+    FROM THE PROGNOSTIC SET AND RETRAIN.** Written up as **port F** in
+    `polaris_makani_ace2_ports_handoff.md` §6a, which now leads the order.
+    - **Not a repack.** `plasim_forcing_dataset.py:308` already reads with
+      `channels=self.in_channels` and `:320` builds the target from `self.out_channels`;
+      makani indexes the normalization arrays the same way (`loss.py:106`,
+      `scale[:, params.out_channels, ...]`). ⇒ **the 1.4 TB pack and all six stats files stay
+      as they are** and the decision stays reversible. Inputs 107 → 105, outputs 101 → 99,
+      `n_state_channels` 100 → 98, `n_diagnostic_channels` stays 1, forcings unchanged.
+    - ⚠ **First thing to check:** `in_channels`/`out_channels` are set in *neither*
+      `e3sm_alldata_full.yaml` nor `train_plasim.py`, so makani derives them — read
+      `driver.py`. If they are settable, keep `channel_names` at 101 and express the removal
+      as index lists; if they are derived from `len(channel_names)`, editing it to 99 **trips
+      the converter↔trainer gate**, which must be taught the subset rather than weakened.
+    - ⚠ **`:320` assumes the diagnostic channel is LAST in `out_channels`** — `PRECT` must
+      stay at the end of the subset or the target silently takes the wrong channel.
+    - ⚠ **The existing checkpoint cannot be warm-started** (encoder-in and decoder-out widths
+      both change). From scratch is the measured **46.3 node-hours / 332,424 updates**; a
+      surgical row-drop transfer is possible in principle and must be proven by a 1-epoch arm
+      starting near the base loss, not at initialization.
+    - 🔴 **Comparison trap, flagged before any new number exists:** the new model has 99
+      channels and **every existing baseline is a 101-channel median** — `0.01284`,
+      `NRMSE336 0.970`, and the whole `n_future` ladder would shift from the channel set
+      alone. Recompute the old baselines restricted to the common 99 channels **first**;
+      it is a re-take of medians from `k56_metrics.h5`, not a re-run.
+    - 🔗 **This supersedes most of port A**: the positivity clamp's headline target was
+      `SOILWATER_10CM`, the channel whose −59 %-by-step-500 extrapolation started the line of
+      work. Remaining candidates (`PRECT`, `RHREFHT`, humidity) have never been shown to go
+      unphysical. Port A demoted below F and folded into the retrain.
+    - 🎯 **And it turns the post-retrain long rollout into a real experiment:** if divergence
+      still occurs near step 500 with no soil reservoir in the state, the reservoir-drift
+      chain was never the cause and `2026-09-10_ace2_comparison_the_corrector.md` §4 needs
+      retracting. Run it and report either way.
+    - ⚠ **Science consequence, stated not buried:** this removes the model's land-surface
+      memory, so no soil-moisture → evaporation → precipitation feedback. **ACE2 carries no
+      soil variables either** (38 prognostic channels, verified), so it moves toward the
+      reference contract — but it is a science change, not a cleanup.
+  - **Open:** the Table 8 channel-count correction; port F's `in_channels`/`out_channels`
+    question and the 99-channel rebaseline; the weight cap + `PRECT` decision for port B;
+    `time_diff_stds.npy` over the full 30-year train split (the probe used 4 × 60 samples of
+    `train/2044.h5`, which fixes the ordering but not the values); **why the `Z3_l17` bias is
+    an ocean/sea-level phenomenon rather than a terrain one**; **the model-top drift family
+    (`T_l00`/`T_l01`/`Z3_l00`)**; and the still-unrun test of whether `Z3_l17` contaminates
+    the other 100 channels.
+
 - **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
   DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
   tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →

@@ -266,9 +266,74 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P2 — other tracks, still live
 
-14. **ACE2 (`fme`) on Polaris — bring-up + ladder DONE; what remains is reps and science.**
-    Plan: **`polaris_ace2_multinode_handoff.md`**; prereg + scorecard:
-    `ACE2_retrain/polaris/ace2_polaris_prereg.md`; evidence: CHANGELOG `2026-09-02 (cont. 3)`.
+14. **ACE2 (`fme`) on Polaris — 🔴 the whole ladder was measured over TCP; re-measurement is the
+    top ACE2 item.** Plan: **`polaris_ace2_slingshot_handoff.md`** (read first),
+    then `polaris_ace2_multinode_handoff.md`; prereg + scorecard:
+    `ACE2_retrain/polaris/ace2_polaris_prereg.md` §1c/§1d; evidence: CHANGELOG
+    `2026-09-17 (cont. 3)` and `2026-09-02 (cont. 3)`.
+    **Done 2026-09-17 (no allocation needed):** `provider` guard + FIELDS parity restored
+    (23 tests), `NCCL_PROTO=Simple` pinned for the v1.6.0 plugin (without it the 4n/8n arms
+    deadlock at init), the ladder script now passes its CSV path through to the jobs, the T3
+    probe written (`polaris_ace2_tree_probe.pbs` + `parse_nccl_tests.py`, 14 tests), and every
+    tcp-era table labelled rather than deleted.
+    🟢 **T2 (partly) and T4 DONE 2026-09-18 — ACE2 is on Slingshot and the economics moved:**
+
+    | | tcp (n=3) | **cxi (n=1)** |
+    |---|---|---|
+    | 1-node step | 716.0 ms | **713.7** (7631544 — **unchanged**, so `NCCL_PROTO=Simple` costs ACE2 nothing) |
+    | 2-node step | 1204.4 ms | **815.3** (7631529, **1.477×**) |
+    | first-hop toll | +488.4 ms (40.6%) | **+101.6 ms (12.5%)** — fell **4.81×** vs a 5.2× bandwidth ratio |
+    | node·s/sample 1n→2n | 1.68× | **1.14×**, for **1.75× the throughput** |
+
+    ⇒ **"Use the fewest GPUs that hold the batch" is much weaker on Slingshot**: a second node
+    now costs +14% node-hours, not +68%. Prereg P12 ❌ missed by 1.5%; P15 ❌ falsified.
+    🟢🟢 **16-NODE COMPARISON, 2026-09-18 (7633410 vs 7633560): ACE2 WEAK-SCALES AT 95.9% ON
+    SLINGSHOT.** 1 node 716.2 ms → 16 nodes **746.5 ms (+4.2%)** for **16× the global batch**;
+    11.17 → **171.47 samples/s (15.35× for 16× the GPUs)**; **+4.2% node-hours per sample** against
+    the tcp era's **+109% at 8 nodes**. `gpu_busy_frac` 0.9412 at 64 readers — I/O still not the
+    limit. ⇒ **the fabric is no longer a reason to stay small.**
+    🔴 **The ladder is NON-MONOTONIC: 2 nodes (815.3 ms) is 9.2% SLOWER than 16 nodes (746.5).**
+    The 2-node trough, now on a third model. The worst multi-node config is the *smallest* one.
+    ✅ **AND THAT BATCH QUESTION IS NOW MEASURED AND CLOSED (2026-09-19, prereg §1e, 3 HIT/3):
+    1 NODE STANDS.** At matched samples (3 full epochs), global batch 128's best LR reaches
+    **~0.50 validation vs batch 8's 0.19579 — 156% worse**, against a ">10% ⇒ 1 node" rule:
+    LR 3e-4 → 0.5017, √-scaled 1.2e-3 → 0.5126 (2 ep), linear 4.8e-3 → 1.7993 (2 ep, badly
+    suboptimal but never diverged). ⇒ **the fabric was never what stood between ACE2 and a faster
+    good model — the batch was, and it still is.** The cxi work stays valuable for any run that
+    must be multi-node and for makani's campaign; it does not change ACE2's 1-node choice.
+    ⚠ **Sizing lesson:** `PRODUCTION=1` drops the bench `sample_with_replacement` cap, so epoch 1
+    reads the full ~4 TB split and runs **2.8× slower** than the bench step time predicts. Do not
+    size a production walltime from a 60-step bench row.
+    ⚠ 16n is n=1; 4n/8n on cxi do not exist; the 16-node arm ran on a different rack.
+    ⚠⚠ **THAT +14% IS PER SAMPLE, AND IT DOES NOT LICENSE A 2-NODE PRODUCTION RUN.** Flagged
+    independently by both review seeds 2026-09-18, and they are right. Per **optimizer update** —
+    which is what model quality tracks — 1 node at global batch 8 still wins on *both* axes:
+    **5,044 vs 2,208 updates/node-hour (2.3×)** and **5,044 vs 4,415 updates/hour of wall-clock**,
+    computed from the measured cxi steps (713.7 / 815.3 ms). A 2-node production run would spend
+    **2.3× the allocation to train more slowly.** The ladder's ranking inverts between
+    samples/s and updates/node-hour, and the production objective is the latter.
+    ⚠ The "**3.4×** more update-efficient" figure quoted here and in prereg §1a is a **TCP-era
+    number** (5,028 vs 1,495). On cxi it is **2.3×**. The conclusion survives; the magnitude
+    must be restated wherever it appears.
+    **Next, in order:**
+    - **Reps.** Every cxi row is **n=1** against tcp rungs whose own spread reached ±3.8% at 2n.
+      `ACE2_SCALING_CSV=$MEMBER_ROOT/bench/ace2_polaris_scaling_cxi.csv bash
+      ACE2_retrain/polaris/run_ace2_ladder.sh 3 2` fills the shortest rungs first.
+    - **The 4- and 8-node cxi rungs** (`debug-scaling`). Until they exist, every *shape* claim —
+      efficiency, the 2-node trough, saturation — is still a tcp result.
+    - ✅ **T3 ANSWERED AT BOTH NODE COUNTS — the Tree defect does NOT reproduce on Slingshot.**
+      7631550 (2 nodes) and 7631624 (8 nodes), 6/6 arms each, every `#wrong = 0`, every arm
+      terminated, at 128 MiB→2 GiB and at ACE2's exact 1.74 GiB collective. It was **1.21.1's
+      tcp path**, not NCCL's Tree ⇒ **the correctness case for `NCCL_ALGO=Ring` is gone.**
+      ⚠ **But the performance answer reverses with scale:** Tree **+21%** inter-node at 2 nodes
+      (42.79 vs 35.37 GB/s), Ring **+28%** at 8 (37.00 vs 28.90, and +25–29% at *every* size).
+      Tree's per-link message does not shrink with N; Ring's reduce-scatter gives each rank S/N.
+      🔵 **So the move is UNPIN (`-v NCCL_ALGO=`), not "pin Tree"** — let NCCL's tuner pick per
+      size and scale. Worth ~2% of step time at the 2-node production shape. **Gated on:**
+      (a) a trainer-side run, since a DDP all_reduce with ~10 collectives in flight is not one
+      app-free communicator, and (b) **an equivalence baseline (DESIGN §4)** — hot-path change,
+      reduction order moves. **That baseline is now the blocker, not the fabric.**
+    ⚠ **Every headline below is still a TCP number.** The shapes survive, the magnitudes do not.
     ✅ Venv (`ACE2_VENV_OK`), config, telemetry + bench CSV (ACE2 had neither), one launcher
     for any node count, parser + 46 tests, prereg, and the **full 1/2/4/8-node weak-scaling
     ladder**. Headline results, all measured:
@@ -334,8 +399,16 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
     3. **Prereg P6 is still untested** — needs an nsys capture to check whether Midway's
        "NCCL is 40-46% of kernel time" transfers to Polaris' NVLink mesh. `ace2_nvtx.py`
        exists; there is no Polaris nsys launcher yet.
-    4. **Hand the batch/LR question to jesswan.** Production at global batch 16 on 2 nodes is
-       a training-regime change; the LR is flat at 1e-4 and has never been swept here.
+    4. ✅ **SETTLED 2026-09-18 — operator decision (rmehta1987), not gated on external sign-off:
+       production runs at global batch 8 on ONE node, LR 3e-4, 27 epochs, warm restarts T_0=9,
+       `use_gradient_accumulation=false`, `FULL_VAL=1`.** Derived independently by two review
+       seeds and a third pass, all agreeing; the LR was swept here (3e-4 an interior optimum,
+       0.19579 vs 1e-4's 0.23332) and the shape is set by updates/node-hour, not samples/s.
+       The item this replaces said the LR "has never been swept here" — it has, since 2026-09-10.
+       These remain departures from ai2's published recipe (batch 16, LR 1e-4, 120 epochs,
+       accumulation on) and are recorded as such in prereg §1a, which is the list to hand anyone
+       comparing our numbers with the paper's.
+       🔵 **Only remaining blocker is the QUEUE, not the science** — see the launch line below.
 
 15. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
     **none of it is in the CHANGELOG** (rows are in `$MEMBER_ROOT/bench/ai_rossby_hpsweep.csv`

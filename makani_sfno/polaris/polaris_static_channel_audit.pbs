@@ -1,0 +1,160 @@
+#!/bin/bash -l
+#PBS -N makani_static_audit
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# COLD-CRITIC AUDIT of the "Z3_l17 is topography, so stop predicting it"
+# conclusion -- and the same analysis for every other channel whose spatial
+# structure is a static map the model is already handed as a forcing.
+#
+# Sibling of polaris_tendency_norm_probe.pbs (job 7646192), which established
+# that Z3_l17 is the slowest channel in the pack and carries the largest
+# systematic share of its 336 h error.  This one attacks the INTERPRETATION of
+# that, on six fronts, with thresholds fixed in static_channel_audit.py before
+# any number existed:
+#
+#   A1 is Z3_l17 an OUTLIER, or one of a family?  If many channels share its
+#      static-to-forecastable ratio, "delete the channel" does not scale and the
+#      answer is a normalization change instead.
+#   A2 WHICH OTHER channels are reconstructible from lsm/topo/glacier/natveg?
+#      This is the "other surface topography" question, asked of all 101.
+#   A3 does job 7646192's Spearman(-0.647) SURVIVE removing the 18 Z3 levels?
+#      18 levels of one variable are not 18 independent draws, and they sit in
+#      both tails.  If it does not survive, the headline was one variable.
+#   A4 is bias(k) actually LINEAR in lead, as the "static error integrating"
+#      story requires?
+#   A5 is the 336 h bias MAP organised by terrain, as the scale_factor=3
+#      spectral-reconstruction story requires?  That story is speculation until
+#      this runs.
+#   A6 is the forecastable part REDUNDANT with near-surface temperature?  A ~33 m
+#      layer at ~288 K predicts dZ/dT ~ 0.115 m/K -- a number to hit or miss.
+#
+# A3 and A5 attack my own conclusion directly; A1 and A6 decide whether the
+# recommendation ("stop predicting it") or the alternative ("reweight it") is
+# the right one.  Falsifying is the successful outcome.
+#
+# CPU-ONLY. Reads stats (28 MB), k56_metrics.h5 (0.6 MB), one lead-slice per IC
+# from the K=56 NetCDFs, and ~120 samples x 2 channels of test/2048.h5.
+#
+# Knobs (-v):
+#   TARGET      channel under audit        (default Z3_l17)
+#   PARTNER     redundancy candidate       (default TREFHT)
+#   N_IC        ICs for the A5 bias map    (default 6)
+#   A6_SAMPLES  samples for A6             (default 120)
+#   PREV_CSV    tendency_norm_probe.csv    (default job 7646192's)
+#
+# PASS = STATIC_AUDIT_OK, which means only that it ran (CLAUDE.md #14).  The
+# result is the six A<n> verdict lines.
+#
+# Submit from makani_sfno/:
+#   qsub polaris/polaris_static_channel_audit.pbs
+#   qsub -v TARGET=Z3_l16,PARTNER=T_l16 polaris/polaris_static_channel_audit.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_eval" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+if [ ! -d "${MAKANI_ROOT}/src/sfno_eval" ]; then
+    echo "ERROR MAKANI_ROOT_NOT_FOUND: PBS_O_WORKDIR=${PBS_O_WORKDIR} derived=${MAKANI_ROOT}"
+    exit 2
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_score_k56.pbs -- module ordering
+# differs per model on purpose (CLAUDE.md, "Writing a new submission script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export CUDA_VISIBLE_DEVICES=""
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+PACK="${PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"
+EVAL="${EVAL:-${MEMBER_ROOT}/runs/makani_eval/prod1n_b32_sgdr_K56}"
+K56="${K56:-${EVAL}/scores/k56_metrics.h5}"
+NC_DIR="${NC_DIR:-${EVAL}/inference/nwp}"
+CONFIG="${CONFIG:-${MAKANI_ROOT}/polaris/e3sm_alldata_full.yaml}"
+PREV_CSV="${PREV_CSV:-${MEMBER_ROOT}/runs/makani_probe/tendency_norm/7646192/tendency_norm_probe.csv}"
+TARGET="${TARGET:-Z3_l17}"
+PARTNER="${PARTNER:-TREFHT}"
+N_IC="${N_IC:-6}"
+A6_SAMPLES="${A6_SAMPLES:-120}"
+TEST_YEAR="${TEST_YEAR:-2048}"
+OUT_DIR="${OUT_DIR:-${MEMBER_ROOT}/runs/makani_probe/static_audit/${PBS_JOBID%%.*}}"
+
+for _p in "${PACK}/stats/time_means.npy" "${PACK}/stats/forcing_time_means.npy" \
+          "${PACK}/test/${TEST_YEAR}.h5" "${K56}" "${NC_DIR}" "${CONFIG}"; do
+    if [ ! -e "${_p}" ]; then
+        echo "ERROR AUDIT_INPUT_MISSING: ${_p}"
+        exit 3
+    fi
+done
+
+echo "=== makani_static_audit: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "target=${TARGET}  partner=${PARTNER}  n_ic=${N_IC}  a6_samples=${A6_SAMPLES}"
+echo "pack=${PACK}"
+echo "nc_dir=${NC_DIR}"
+echo "prev_csv=${PREV_CSV}"
+echo "out_dir=${OUT_DIR}"
+makani_env_report
+echo
+
+SHA7="$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
+
+EXTRA=()
+if [ -e "${PREV_CSV}" ]; then
+    EXTRA+=(--prev-csv "${PREV_CSV}")
+else
+    echo "WARN AUDIT_NO_PREV_CSV: ${PREV_CSV} absent -- r_c will be NaN and A3 cannot run."
+fi
+
+set -x
+"${PY}" "${MAKANI_ROOT}/polaris/static_channel_audit.py" \
+    --pack-root "${PACK}" \
+    --config "${CONFIG}" \
+    --k56-h5 "${K56}" \
+    --nc-dir "${NC_DIR}" \
+    --target "${TARGET}" \
+    --partner "${PARTNER}" \
+    --test-year "${TEST_YEAR}" \
+    --n-ic "${N_IC}" \
+    --a6-samples "${A6_SAMPLES}" \
+    --out-dir "${OUT_DIR}" \
+    --provenance "job=${PBS_JOBID%%.*} sha=${SHA7} target=${TARGET}" \
+    "${EXTRA[@]}"
+rc=$?
+set +x
+
+echo "--- static_channel_audit rc=${rc} ---"
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR STATIC_AUDIT_FAILED rc=${rc}"
+    exit 5
+fi
+for _f in static_channel_audit.csv static_channel_audit.json; do
+    if [ ! -s "${OUT_DIR}/${_f}" ]; then
+        echo "ERROR STATIC_AUDIT_NO_OUTPUT: ${OUT_DIR}/${_f} missing or empty"
+        exit 6
+    fi
+done
+
+echo "=== makani_static_audit done $(date -Iseconds) ==="

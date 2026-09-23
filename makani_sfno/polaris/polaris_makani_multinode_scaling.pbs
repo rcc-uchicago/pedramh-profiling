@@ -85,9 +85,28 @@
 cd "${PBS_O_WORKDIR}" || exit 2
 MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
 if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
-    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+    # ⚠ TRY THE REPO ROOT BEFORE THE PARENT. Submitting from the repo root sent
+    # `..` to $MEMBER_ROOT and REPO to `/members`, so the job died in 0 s on
+    # `members/polaris_env.sh: No such file or directory` -- three times
+    # (7633629/7633630/7633633, 2026-09-19). Nothing was burned but three queue
+    # waits were. ACE2's launcher already probes its own subdirectory this way.
+    if [ -d "${MAKANI_ROOT}/makani_sfno/src/sfno_training" ]; then
+        MAKANI_ROOT="${MAKANI_ROOT}/makani_sfno"
+    else
+        MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+    fi
 fi
 REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+# Fail HERE, naming both paths, rather than on a `source` of a nonexistent file
+# whose error message names neither the submission dir nor the expected layout.
+if [ ! -r "${REPO}/polaris_env.sh" ]; then
+    echo "ERROR MAKANI_ROOT_NOT_FOUND"
+    echo "  PBS_O_WORKDIR = ${PBS_O_WORKDIR}"
+    echo "  derived MAKANI_ROOT = ${MAKANI_ROOT}  (wanted a dir with src/sfno_training)"
+    echo "  derived REPO = ${REPO}  (wanted a dir with polaris_env.sh)"
+    echo "  Submit from the repo root or from makani_sfno/."
+    exit 2
+fi
 
 # ---- environment ------------------------------------------------------------
 # polaris_env.sh FIRST (it defines MEMBER_ROOT, which the makani bootstrap
