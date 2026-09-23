@@ -196,6 +196,20 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     `polaris_makani_surgical_proof.pbs`, **pre-registered PASS iff first val loss ≤ 0.02568**
     (2× the base's 0.01284; from scratch was 0.094 @ ep1, 0.026 @ ep3). PASS ⇒ F is a
     fine-tune, not 46 node-h.
+  - **Surgical proof 7646690 — `SURGICAL_TRANSFER_PASS val_loss=0.014265581965446472`**
+    (≤ 0.02568; 1.111× the base's 0.01284). ⚠ The job itself printed `ERROR NO_VALIDATION_LOSS`:
+    its grep assumed one space, the trainer pads the column (`validation loss:      0.0142…`).
+    The token above is the pre-registered rule applied to the **existing** log with the fixed
+    pattern `validation loss: +[0-9.eE+-]+` (now in the pbs), no rerun. Tier STRONG on the
+    101-channel proxy — **provisional** until `fill_substitute_probe`'s `base` arm gives the
+    99-channel denominator on the same first-64 validation samples (7646696). The same padding
+    affects any grep on trainer summary lines (`training loss:`, `validation loss ema:`).
+  - **Leave the 12 `submit_*.sh` fabric flags alone.** Eleven pass
+    `OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple`; `submit_when_slot_frees.sh` also passes the
+    correct v1.6.0 `OFI_PLUGIN`. None passes the v1.21.1 plugin (13ae5cbd); both values are
+    benign. But F runs in the **no-AUTO** env of smoke 7646700 — `submit_f_nosoil.sh` refuses
+    any fabric override, and the launcher now kills a multi-node run unless every node reports
+    `Selected Provider is cxi` (fatal on timeout when FULL=1, and post-run regardless of rc).
   - ⚠ **Git hazard, recorded:** a peer committed onto this worktree's branch from outside its
     index; the next commit here silently deleted that file (restored, `11628839`). Peers now
     message instead of committing.

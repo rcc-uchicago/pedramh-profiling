@@ -20,7 +20,8 @@ representable by slicing; zfill and tmean would need the loader to keep feeding
 two frozen channels (the "keep 100 inputs, drop 2 outputs" design).
 
 Metric: single-step lat-weighted MSE in normalized units over the 99 KEPT output
-channels, same ICs for every variant. Read out as a ratio to `base`.
+channels, same ICs for every variant: the first --n-samples of the split in loader
+order, i.e. the samples the trainer's validation (n_eval_samples) scores. Read out as a ratio to `base`.
 
 PRE-REGISTERED before any number (2026-09-23), per variant:
     STRONG  ratio <= 1.25   WEAK  ratio <= 2.0   FAIL  otherwise
@@ -93,7 +94,10 @@ def main() -> int:
                   for c in DROP},
     }
     keep = [c for c in range(len(names)) if c not in DROP]
-    idxs = np.linspace(0, len(ds) - 1, a.n_samples).round().astype(int).tolist()
+    # The FIRST n samples in loader order: exactly the Subset(range(n)) the trainer's
+    # validation used in the surgical proof (7646690, n_eval_samples 64), so z0 here is
+    # the same samples as its first validation -- the identity only holds on those.
+    idxs = list(range(min(a.n_samples, len(ds))))
 
     sums = {k: 0.0 for k in subs}
     w = None

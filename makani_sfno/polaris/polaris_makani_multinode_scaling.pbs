@@ -764,6 +764,9 @@ FABRIC_ABORT="${EXP_DIR}/${RUN_NUM}.fabric_abort"
 rm -f "${FABRIC_ABORT}"
 if [ "${NNODES}" -gt 1 ] && [ "${FABRIC_WATCH:-1}" = "1" ]; then
     (
+        # Confirm only when EVERY node has reported cxi (>= NNODES lines) and no rank
+        # has reported anything else; one early cxi line does not clear a later tcp.
+        # FULL=1 (production): a timeout without confirmation is fatal too.
         for _ in $(seq 1 "$(( ${FABRIC_WATCH_S:-1200} / 10 ))"); do
             sleep 10
             [ -s "${LOG}" ] || continue
@@ -773,12 +776,18 @@ if [ "${NNODES}" -gt 1 ] && [ "${FABRIC_WATCH:-1}" = "1" ]; then
                 pkill -TERM -u "$(id -u)" -f "mpiexec -n ${NRANKS} --ppn ${GPUS_PER_NODE} --hostfile ${NODEFILE}"
                 exit 0
             fi
-            if grep -qi "Selected Provider is cxi" "${LOG}"; then
-                echo "FABRIC_CXI_CONFIRMED: $(grep -m1 -oi 'Selected Provider is cxi[^)]*)\?' "${LOG}")"
+            n_cxi=$(grep -ci "Selected Provider is cxi" "${LOG}")
+            if [ "${n_cxi}" -ge "${NNODES}" ]; then
+                echo "FABRIC_CXI_CONFIRMED: ${n_cxi} 'Selected Provider is cxi' lines for ${NNODES} nodes"
                 exit 0
             fi
         done
-        echo "WARN FABRIC_WATCH_TIMEOUT: no 'Selected Provider' line in ${FABRIC_WATCH_S:-1200} s"
+        echo "WARN FABRIC_WATCH_TIMEOUT: fewer than ${NNODES} cxi lines in ${FABRIC_WATCH_S:-1200} s"
+        if [ "${FULL:-0}" = "1" ]; then
+            echo "ERROR FABRIC_UNCONFIRMED: production run, killing ranks rather than train unverified"
+            touch "${FABRIC_ABORT}"
+            pkill -TERM -u "$(id -u)" -f "mpiexec -n ${NRANKS} --ppn ${GPUS_PER_NODE} --hostfile ${NODEFILE}"
+        fi
     ) &
     FABRIC_WATCH_PID=$!
 fi
@@ -792,7 +801,12 @@ rc=$?
 set +o pipefail
 [ -n "${FABRIC_WATCH_PID:-}" ] && { kill "${FABRIC_WATCH_PID}" 2>/dev/null; wait "${FABRIC_WATCH_PID}" 2>/dev/null; }
 if [ -f "${FABRIC_ABORT}" ]; then
-    echo "ERROR MAKANI_MN_SCALING_FAILED fabric=tcp (aborted early by the watchdog; rc=${rc})"
+    echo "ERROR MAKANI_MN_SCALING_FAILED fabric=not-cxi (aborted by the watchdog; rc=${rc})"
+    exit 6
+fi
+# Regardless of rc: a multi-node run whose log never names cxi is not a Slingshot run.
+if [ "${NNODES}" -gt 1 ] && [ -s "${LOG}" ] && ! grep -qi "Selected Provider is cxi" "${LOG}"; then
+    echo "ERROR MAKANI_MN_SCALING_FAILED fabric=unconfirmed (no 'Selected Provider is cxi' line; rc=${rc})"
     exit 6
 fi
 echo "--- train rc=${rc} ---"
