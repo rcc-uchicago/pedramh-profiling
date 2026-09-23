@@ -225,6 +225,42 @@ def test_channel_count_mismatch_fails_loud():
         assert "CHANNEL_COUNT_MISMATCH" in str(exc.value)
 
 
+def test_subset_model_scores_against_wider_pack_climatology_by_name():
+    """Port F: 3-channel NetCDFs vs a 5-channel pack climatology with two channels
+    inserted mid-list. Rows must be picked by name via metadata/data.json -- the
+    `climatology` regime makes any row misalignment change the read-out."""
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        nc_dir, clim_path = _make_case(tmp, "climatology", n_ic=1)
+        assert _run_main(nc_dir, clim_path, tmp / "ref") == 0
+        clim = np.load(clim_path)[0]
+        pack = tmp / "pack"
+        (pack / "stats").mkdir(parents=True)
+        (pack / "metadata").mkdir()
+        names = ["PS", "SOIL", "TSOI", "T_l00", "PRECT"]
+        wide = np.stack([clim[0], clim[0] * 0 + 1e3, clim[0] * 0 - 1e3, clim[1], clim[2]])
+        np.save(pack / "stats" / "time_means.npy", wide[np.newaxis].astype(np.float32))
+        (pack / "metadata" / "data.json").write_text(json.dumps({"coords": {"channel": names}}))
+        assert _run_main(nc_dir, pack / "stats" / "time_means.npy", tmp / "sub") == 0
+        ref, sub = _readout(tmp / "ref")["readout"], _readout(tmp / "sub")["readout"]
+        for k, v in ref.items():
+            if isinstance(v, float):
+                assert np.isclose(sub[k], v, equal_nan=True), k
+
+
+def test_wider_climatology_without_metadata_still_fails_loud():
+    import pytest
+
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        nc_dir, clim_path = _make_case(tmp, "perfect", n_ic=1)
+        wide = np.concatenate([np.load(clim_path)] * 2, axis=1)   # 6 channels, no metadata
+        np.save(clim_path, wide)
+        with pytest.raises(SystemExit) as exc:
+            _run_main(nc_dir, clim_path, tmp / "scores")
+        assert "CHANNEL_COUNT_MISMATCH" in str(exc.value)
+
+
 def test_short_horizon_refuses_a_verdict():
     """A sweep that never reaches 336 h writes curves but must not read as a decision."""
     with tempfile.TemporaryDirectory() as td:

@@ -1,0 +1,85 @@
+#!/bin/bash -l
+#PBS -N makani_surgical_proof
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Port F surgical-transfer PROOF (architect review §4; handoff §6a route 2).
+#
+# Slice SOILWATER_10CM / TSOI_10CM (positions 8, 9 on both sides) out of
+# prod1n_b32_sgdr's best checkpoint, warm-start e3sm_alldata_nosoil.yaml from it
+# at a near-zero LR (1e-5, 20 steps), and read the first validation loss.
+#
+# PRE-REGISTERED (2026-09-23, before any number exists):
+#   PASS  iff  first validation loss <= 2 x 0.01284 = 0.02568
+#     0.01284 = prod1n_b32_sgdr's final single-step validation loss (101 ch).
+#     From scratch the same run was at 0.094 after epoch 1 and 0.026 after
+#     epoch 3, so a pass cannot be an accident of 20 steps; the factor 2 absorbs
+#     the 99-vs-101 mean shift and the 64-sample validation noise.
+#   PASS => the post-F model is a FINE-TUNE from this checkpoint, not a 46 node-h
+#           from-scratch run. FAIL => from scratch, and say so.
+#   ⚠ validation loss is single-step (handoff §7.6): this proves the transfer
+#     WORKS, it says nothing about long-lead skill.
+#
+# Submit from makani_sfno/:  qsub polaris/polaris_makani_surgical_proof.pbs
+# PASS token: SURGICAL_TRANSFER_PASS (or SURGICAL_TRANSFER_FAIL, both with the value)
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${MAKANI_ROOT}/src/sfno_training" ] || { echo "ERROR MAKANI_ROOT_NOT_FOUND: submit from makani_sfno/"; exit 2; }
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+JOBID="${PBS_JOBID%%.*}"
+
+# ---- environment (verbatim from polaris_makani_multinode_scaling.pbs) ---------
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3; fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# -----------------------------------------------------------------------------
+
+BASE="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar"
+OUT="${MEMBER_ROOT}/runs/makani_probe/surgical/${JOBID}"
+SLICED="${OUT}/best_ckpt_mp0_nosoil.tar"
+mkdir -p "${OUT}" || exit 2
+THRESH=0.02568
+
+( cd "${MAKANI_ROOT}" && "${PY}" -m pytest -q -p no:cacheprovider \
+    polaris/test_slice_checkpoint.py polaris/test_make_capped_weights.py \
+    polaris/test_score_rollout_nc.py ) || { echo "ERROR SURGICAL_TESTS_FAILED"; exit 2; }
+echo "SURGICAL_TESTS_OK"
+"${PY}" "${MAKANI_ROOT}/polaris/slice_checkpoint.py" --src "${BASE}" --dst "${SLICED}" \
+    --n-in 107 --n-out 101 --drop 8 9 | tee "${OUT}/slice.log"
+grep -q SLICE_CKPT_OK "${OUT}/slice.log" || { echo "ERROR SLICE_FAILED"; exit 2; }
+
+RUN_NUM="surgical_nosoil_${JOBID}"
+CONFIG_YAML=e3sm_alldata_nosoil.yaml PACK="${MEMBER_ROOT}/data/e3sm_makani_alldata_production" \
+RUN_NUM="${RUN_NUM}" PRETRAINED_CKPT="${SLICED}" LR=1.0E-5 \
+STEPS=20 LOCAL_BATCH=8 EPOCHS=1 EVAL_SAMPLES=64 WANDB=0 \
+MAKANI_SCALING_CSV="${MEMBER_ROOT}/bench/makani_ports_smoke.csv" \
+    bash "${MAKANI_ROOT}/polaris/polaris_makani_multinode_scaling.pbs" > "${OUT}/train.out" 2>&1
+rc=$?
+TLOG="${MEMBER_ROOT}/runs/makani_mn_scaling/${RUN_NUM}.log"
+grep -E "CHANNEL_SUBSET_GATE_OK|warm-start: loaded|MAKANI_MN_SCALING_OK|ERROR" "${OUT}/train.out" "${TLOG}" 2>/dev/null | tail -8
+grep -q "warm-start: loaded weights" "${TLOG}" || { echo "ERROR SURGICAL_NOT_WARMSTARTED (rc=${rc}) -- the result would be from init"; exit 2; }
+VL=$(grep -m1 -oE "validation loss: [0-9.eE+-]+" "${TLOG}" | awk '{print $3}')
+[ -n "${VL}" ] || { echo "ERROR NO_VALIDATION_LOSS rc=${rc} (see ${TLOG})"; exit 2; }
+if awk -v v="${VL}" -v t="${THRESH}" 'BEGIN{exit !(v <= t)}'; then
+    echo "SURGICAL_TRANSFER_PASS val_loss=${VL} <= ${THRESH} sliced=${SLICED}"
+else
+    echo "SURGICAL_TRANSFER_FAIL val_loss=${VL} > ${THRESH} -- retrain from scratch"
+fi
