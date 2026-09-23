@@ -1,0 +1,64 @@
+#!/bin/bash -l
+#PBS -N makani_force_positive
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r n
+#PBS -j oe
+# Port A (positivity clamp) long rollouts + the fill-substitute probe, one debug job.
+#   1. longroll_force_positive.py --arm none|soil|moist, jesswan's 7603141 command
+#      line (IC 2044-10-01, 1460 steps, fp32). Arms are independent processes on
+#      GPUs 0/1/2 in parallel. Pre-registered read-out in the script's docstring.
+#   2. fill_substitute_probe.py (port F transfer diagnostic) on GPU 3.
+# PASS: FORCE_POSITIVE_ARM_OK x3 (none must NOT print CONTROL_MISMATCH) and
+# FILL_SUBSTITUTE_PROBE_OK. Submit from makani_sfno/.
+set -u
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${MAKANI_ROOT}/src/sfno_training" ] || { echo "ERROR MAKANI_ROOT_NOT_FOUND: submit from makani_sfno/"; exit 2; }
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+JOBID="${PBS_JOBID%%.*}"
+
+# ---- environment (verbatim from polaris_makani_multinode_scaling.pbs) ---------
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3; fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+# -----------------------------------------------------------------------------
+
+RUN="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling/prod1n_b32_sgdr"
+PACK="${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
+OUT="${MEMBER_ROOT}/runs/makani_probe/force_positive/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+
+gpu=0
+for arm in none soil moist; do
+    CUDA_VISIBLE_DEVICES=${gpu} "${PY}" "${MAKANI_ROOT}/polaris/longroll_force_positive.py" \
+        --arm "${arm}" -- \
+        --run-dir "${RUN}" --ckpt "${RUN}/training_checkpoints/best_ckpt_mp0.tar" \
+        --pack "${PACK}" --out-root "${OUT}/${arm}" --run-name "${arm}" \
+        --first-year 2044 --last-year 2049 --ic-year 2044 --ic-month 10 --ic-days 1 \
+        --end-year 2049 --max-steps 1460 --fp32 \
+        --sample-vars TREFHT PRECT SOILWATER_10CM TSOI_10CM \
+        > "${OUT}/${arm}.log" 2>&1 &
+    gpu=$((gpu + 1))
+done
+CUDA_VISIBLE_DEVICES=3 "${PY}" "${MAKANI_ROOT}/polaris/fill_substitute_probe.py" --run-dir "${RUN}" \
+    --ckpt "${RUN}/training_checkpoints/best_ckpt_mp0.tar" --data "${PACK}/valid" \
+    --pack "${PACK}" --n-samples 64 --out "${OUT}/fill_probe" > "${OUT}/fill_probe.log" 2>&1 &
+wait
+
+for f in none soil moist fill_probe; do
+    echo "--- ${f}"; tail -n 6 "${OUT}/${f}.log" | cut -c1-220
+done
+echo "out=${OUT}"

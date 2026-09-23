@@ -60,7 +60,7 @@ THRESH=0.02568
 
 ( cd "${MAKANI_ROOT}" && "${PY}" -m pytest -q -p no:cacheprovider \
     polaris/test_slice_checkpoint.py polaris/test_make_capped_weights.py \
-    polaris/test_score_rollout_nc.py ) || { echo "ERROR SURGICAL_TESTS_FAILED"; exit 2; }
+    polaris/test_score_rollout_nc.py polaris/test_regional_scores.py ) || { echo "ERROR SURGICAL_TESTS_FAILED"; exit 2; }
 echo "SURGICAL_TESTS_OK"
 "${PY}" "${MAKANI_ROOT}/polaris/slice_checkpoint.py" --src "${BASE}" --dst "${SLICED}" \
     --n-in 107 --n-out 101 --drop 8 9 | tee "${OUT}/slice.log"

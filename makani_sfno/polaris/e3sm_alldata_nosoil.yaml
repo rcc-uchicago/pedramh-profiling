@@ -5,7 +5,7 @@
 ### fill region (60-70 % of the globe, constant in time) the model fabricates
 ### values over. Differences from e3sm_alldata_full.yaml, and NOTHING else:
 ###     root key, channel_names 101 -> 99, dropped_channel_names, n_state 100 -> 98,
-###     and an `ema:` block that is OFF (identical behaviour to no block).
+###     and an `ema:` block that is ON (port D; a weight shadow, training unchanged).
 ### => 98 state + 1 diag (PRECT, still LAST) + 7 forcing: 105-in / 99-out.
 ###
 ### ⚠ SCIENCE CONSEQUENCE, not a neutral cleanup: the model loses its land-surface
@@ -163,10 +163,12 @@ e3sm_alldata_nosoil:
     log_to_wandb:  !!bool False
     log_video: 0
     save_checkpoint: "legacy"
-    # EMA (port D, handoff §4). OFF here; the launcher's -v EMA=1 [EMA_DECAY=] turns it on.
-    # Flow form on ONE line on purpose: the launcher rewrites flat keys line-by-line.
+    # EMA (port D, handoff §4) -- ON for the F run (operator, 2026-09-23). A shadow of the
+    # weights: training is unchanged, it adds an EMA validation pass and best_ckpt_ema_mp0.tar.
+    # decay 0.9995 ~ 1/(1-d) = 2000 updates ~ 1.5 epochs at 1368 updates/epoch. -v EMA=0
+    # turns it off. Flow form on ONE line: the launcher rewrites flat keys line-by-line.
     # Needs save_checkpoint AND load_checkpoint legacy (plasim_trainer.py EMA guard).
-    ema: {enabled: !!bool False, decay: 0.9995}
+    ema: {enabled: !!bool True, decay: 0.9995}
     verbose: !!bool True
 
     wireup_info: "mpi"
