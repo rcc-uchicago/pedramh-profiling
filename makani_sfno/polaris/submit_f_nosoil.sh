@@ -7,6 +7,14 @@
 # optimizer trajectory is the base's and nodes buy only wall-clock:
 #   LOCAL_BATCH = 32 / (4 x NODES)  -> 1 node x 8, 2 x 4, 4 x 2.
 # EPOCHS should be 3 + 20k so the run ends on a cosine-cycle boundary.
+# RECOMMENDED 243 (k=12), matched to the reference. prod1n_b32_sgdr's validation loss
+# at each cycle end: 0.01402 (ep23) then -4.40 -1.84 -0.89 -0.43 -0.31 -0.29 -0.19
+# -0.05 -0.14 -0.11 -0.06 % per cycle; the last six cycles bought 0.84 % in total.
+# The surgical warm start begins at 0.01427 = the base's cycle-1 level.
+# PRE-REGISTERED extension rule (2026-09-23): report the per-cycle change at every
+# cycle end; extend by ONE 20-epoch resume only if the LAST cycle improves single-step
+# validation loss by > 0.5 %; otherwise stop. Single-step loss is not the target --
+# the K=56 scorecard vs k56_readout_common99.json is, and EMA may pick another epoch.
 # warm = start from 7646690's sliced checkpoint (surgical proof: val 0.01427, 1.11x
 # the base, STRONG tier) with fresh optimizer/scheduler/counters/loss.
 #
