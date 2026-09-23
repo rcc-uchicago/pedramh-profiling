@@ -131,6 +131,17 @@ a distributional loss is not indicated by *that* evidence either.
 * **n = 1, and small.** One sweep, one holdout year (2048), 8 targets, one checkpoint.
   The 8 targets are consecutive in time and therefore heavily correlated with each
   other — they are not 8 independent draws.
+* **…and they are all in mid-January.** ICs are **step indices**, not dates
+  (`init_time_labelling = step_index`): starts are samples 0, 4 … 80 of `2048.h5` at
+  `dt = 6 h`, so the 8 scored targets 56…84 are **day-of-year 14 → 21**, i.e.
+  **Jan 15–22 of model year 2048**, sampled every 24 h. One week of boreal winter. So
+  the sample is not merely small, it is **seasonally unrepresentative**: nothing here
+  says whether the ρ floor, `Z3_l17`'s drift or alpha behave differently in summer or
+  monsoon season. ⚠ The rollout NetCDFs cannot be dated on their own — `file_anchor` is
+  empty and `time_plasim_at_ic = 0.0`; the mapping lives in the pack
+  (`time_plasim` = day-of-year, `timestamp` = seconds from file start, attr
+  `year = 2048`). And 2048 is a **model** year of an SSP245 AMIP projection, not an
+  observed date.
 * **Only the 24 h-lead ensemble was scored.** The three other residue classes were
   dropped rather than averaged in; a 6 h-lead ensemble is a different experiment and
   has not been run.
