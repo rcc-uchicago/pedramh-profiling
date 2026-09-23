@@ -43,10 +43,16 @@ mkdir -p "${OUT}" || exit 2
 ( cd "${MAKANI_ROOT}" && "${PY}" -m pytest -q -p no:cacheprovider \
     polaris/test_regional_scores.py polaris/test_make_capped_weights.py ) || { echo "ERROR PREREG_TESTS_FAILED"; exit 2; }
 "${PY}" "${MAKANI_ROOT}/polaris/regional_scores.py" --nc-dir "${BASE_NC}" --pack "${PACK}" \
-    --out "${OUT}/base_prod1n_b32_sgdr"
+    --out "${OUT}/base_prod1n_b32_sgdr" | tee "${OUT}/regional.log"
 "${PY}" "${MAKANI_ROOT}/polaris/make_capped_weights.py" --pack "${PACK}" \
     --config "${MAKANI_ROOT}/polaris/e3sm_alldata_nosoil.yaml" --root-key e3sm_alldata_nosoil \
-    --w-max 30 --out "${OUT}/capped_weights"
+    --w-max 30 --out "${OUT}/capped_weights" | tee "${OUT}/capped.log"
 echo "--- land/ocean baseline"
 cat "${OUT}/base_prod1n_b32_sgdr/regional_scores.csv" 2>/dev/null
-echo "out=${OUT}"
+# PASS only if BOTH sections printed their token (CLAUDE.md #14), not on rc.
+if grep -q REGIONAL_SCORES_OK "${OUT}/regional.log" && grep -q CAPPED_WEIGHTS_OK "${OUT}/capped.log"; then
+    echo "PORTS_PREREG_OK out=${OUT}"
+else
+    echo "ERROR PORTS_PREREG_FAILED (see ${OUT}/regional.log, ${OUT}/capped.log)"
+    exit 1
+fi
