@@ -76,7 +76,8 @@ rc=$?
 TLOG="${MEMBER_ROOT}/runs/makani_mn_scaling/${RUN_NUM}.log"
 grep -E "CHANNEL_SUBSET_GATE_OK|warm-start: loaded|MAKANI_MN_SCALING_OK|ERROR" "${OUT}/train.out" "${TLOG}" 2>/dev/null | tail -8
 grep -q "warm-start: loaded weights" "${TLOG}" || { echo "ERROR SURGICAL_NOT_WARMSTARTED (rc=${rc}) -- the result would be from init"; exit 2; }
-VL=$(grep -m1 -oE "validation loss: [0-9.eE+-]+" "${TLOG}" | awk '{print $3}')
+# the column is space-padded ("validation loss:      0.0142"); 7646690 missed it with one space
+VL=$(grep -m1 -oE "validation loss: +[0-9.eE+-]+" "${TLOG}" | awk '{print $NF}')
 [ -n "${VL}" ] || { echo "ERROR NO_VALIDATION_LOSS rc=${rc} (see ${TLOG})"; exit 2; }
 if awk -v v="${VL}" -v t="${THRESH}" 'BEGIN{exit !(v <= t)}'; then
     echo "SURGICAL_TRANSFER_PASS val_loss=${VL} <= ${THRESH} sliced=${SLICED}"

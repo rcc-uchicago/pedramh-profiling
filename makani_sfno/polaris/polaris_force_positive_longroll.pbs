@@ -43,6 +43,9 @@ mkdir -p "${OUT}" || exit 2
 
 gpu=0
 for arm in none soil moist; do
+    # makani comm.init needs the torch.distributed ENV vars even at one rank (as in
+    # jesswan's polaris_e3sm_longroll_pilot.pbs); a distinct port per concurrent process.
+    MASTER_ADDR=localhost MASTER_PORT=$((29500 + gpu)) WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 \
     CUDA_VISIBLE_DEVICES=${gpu} "${PY}" "${MAKANI_ROOT}/polaris/longroll_force_positive.py" \
         --arm "${arm}" -- \
         --run-dir "${RUN}" --ckpt "${RUN}/training_checkpoints/best_ckpt_mp0.tar" \
@@ -53,6 +56,7 @@ for arm in none soil moist; do
         > "${OUT}/${arm}.log" 2>&1 &
     gpu=$((gpu + 1))
 done
+MASTER_ADDR=localhost MASTER_PORT=29503 WORLD_SIZE=1 RANK=0 LOCAL_RANK=0 \
 CUDA_VISIBLE_DEVICES=3 "${PY}" "${MAKANI_ROOT}/polaris/fill_substitute_probe.py" --run-dir "${RUN}" \
     --ckpt "${RUN}/training_checkpoints/best_ckpt_mp0.tar" --data "${PACK}/valid" \
     --pack "${PACK}" --n-samples 64 --out "${OUT}/fill_probe" > "${OUT}/fill_probe.log" 2>&1 &

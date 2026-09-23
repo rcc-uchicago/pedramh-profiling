@@ -1,0 +1,52 @@
+#!/bin/bash -l
+#PBS -N makani_ports_prereg
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# The two artifacts that must exist BEFORE the F run starts (no training):
+#   1. regional_scores.py on prod1n_b32_sgdr's K=56 NetCDFs -> the land/ocean
+#      baseline the F acceptance rule compares against     -> REGIONAL_SCORES_OK
+#   2. make_capped_weights.py --w-max 30 on e3sm_alldata_nosoil's 99-channel order
+#      -> the B+C candidate for jesswan, NOT enabled         -> CAPPED_WEIGHTS_OK
+# Submit from makani_sfno/.
+set -u
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${MAKANI_ROOT}/src/sfno_training" ] || { echo "ERROR MAKANI_ROOT_NOT_FOUND: submit from makani_sfno/"; exit 2; }
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+JOBID="${PBS_JOBID%%.*}"
+
+# ---- environment (verbatim from polaris_makani_multinode_scaling.pbs) ---------
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3; fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+# -----------------------------------------------------------------------------
+
+PACK="${MEMBER_ROOT}/data/e3sm_makani_alldata_production"
+BASE_NC="${MEMBER_ROOT}/runs/makani_eval/prod1n_b32_sgdr_K56/inference/nwp"
+OUT="${MEMBER_ROOT}/runs/makani_probe/prereg/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+
+( cd "${MAKANI_ROOT}" && "${PY}" -m pytest -q -p no:cacheprovider \
+    polaris/test_regional_scores.py polaris/test_make_capped_weights.py ) || { echo "ERROR PREREG_TESTS_FAILED"; exit 2; }
+"${PY}" "${MAKANI_ROOT}/polaris/regional_scores.py" --nc-dir "${BASE_NC}" --pack "${PACK}" \
+    --out "${OUT}/base_prod1n_b32_sgdr"
+"${PY}" "${MAKANI_ROOT}/polaris/make_capped_weights.py" --pack "${PACK}" \
+    --config "${MAKANI_ROOT}/polaris/e3sm_alldata_nosoil.yaml" --root-key e3sm_alldata_nosoil \
+    --w-max 30 --out "${OUT}/capped_weights"
+echo "--- land/ocean baseline"
+cat "${OUT}/base_prod1n_b32_sgdr/regional_scores.csv" 2>/dev/null
+echo "out=${OUT}"

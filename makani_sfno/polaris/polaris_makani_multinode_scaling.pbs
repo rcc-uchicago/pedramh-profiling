@@ -755,6 +755,33 @@ echo "TMPDIR for launch = ${TMPDIR}"
 cd "${MAKANI_ROOT}" || exit 2
 LOG="${EXP_DIR}/${RUN_NUM}.log"
 echo "--- launching (log tee'd to ${LOG}) ---"
+# ---- fabric watchdog (multi-node only) ----------------------------------------
+# A TCP fallback trains with finite loss and rc=0 (7566145 ran 128 nodes on tcp);
+# parse_makani_scaling.py only catches it AFTER the run. On a capacity slot that
+# is days wasted, so abort as soon as NCCL names its provider: cxi -> stand down,
+# tcp / "No eligible providers" -> kill the ranks. -v FABRIC_WATCH=0 disables.
+FABRIC_ABORT="${EXP_DIR}/${RUN_NUM}.fabric_abort"
+rm -f "${FABRIC_ABORT}"
+if [ "${NNODES}" -gt 1 ] && [ "${FABRIC_WATCH:-1}" = "1" ]; then
+    (
+        for _ in $(seq 1 "$(( ${FABRIC_WATCH_S:-1200} / 10 ))"); do
+            sleep 10
+            [ -s "${LOG}" ] || continue
+            if grep -qiE "Selected provider is (tcp|sockets|verbs)|No eligible providers" "${LOG}"; then
+                echo "ERROR FABRIC_NOT_SLINGSHOT_EARLY: $(grep -m1 -oiE 'Selected provider is [a-z;+]+|No eligible providers[^.]*' "${LOG}") -- killing ranks"
+                touch "${FABRIC_ABORT}"
+                pkill -TERM -u "$(id -u)" -f "mpiexec -n ${NRANKS} --ppn ${GPUS_PER_NODE} --hostfile ${NODEFILE}"
+                exit 0
+            fi
+            if grep -qi "Selected Provider is cxi" "${LOG}"; then
+                echo "FABRIC_CXI_CONFIRMED: $(grep -m1 -oi 'Selected Provider is cxi[^)]*)\?' "${LOG}")"
+                exit 0
+            fi
+        done
+        echo "WARN FABRIC_WATCH_TIMEOUT: no 'Selected Provider' line in ${FABRIC_WATCH_S:-1200} s"
+    ) &
+    FABRIC_WATCH_PID=$!
+fi
 set -o pipefail
 mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     --cpu-bind depth -d 8 \
@@ -763,6 +790,11 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     "${NSYS_PREFIX[@]}" "${PY}" "${TRAIN_ARGS[@]}" 2>&1 | tee "${LOG}"
 rc=$?
 set +o pipefail
+[ -n "${FABRIC_WATCH_PID:-}" ] && { kill "${FABRIC_WATCH_PID}" 2>/dev/null; wait "${FABRIC_WATCH_PID}" 2>/dev/null; }
+if [ -f "${FABRIC_ABORT}" ]; then
+    echo "ERROR MAKANI_MN_SCALING_FAILED fabric=tcp (aborted early by the watchdog; rc=${rc})"
+    exit 6
+fi
 echo "--- train rc=${rc} ---"
 
 # ---- results ----------------------------------------------------------------
