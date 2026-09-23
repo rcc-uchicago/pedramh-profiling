@@ -94,6 +94,11 @@ def _parse_args() -> argparse.Namespace:
                         "~1.95 GB and ~77 s per rollout at the production shape")
     p.add_argument("--first-start", type=int, default=0,
                    help="Lagged mode: sample index of the first start within each file")
+    # --- port A (polaris_makani_ace2_ports_handoff.md §2) ---
+    p.add_argument("--force-positive-names", nargs="*", default=[],
+                   help="DIAGNOSTIC. Clamp these output channels at 0 (physical units) after "
+                        "every step, as ACE2's corrector does. Default: none (off). Which "
+                        "channels are non-negative by physics is the science owner's call.")
     return p.parse_args()
 
 
@@ -240,6 +245,17 @@ def _resolve_and_check_channel_names(
         return h5_names
     cfg_names = [str(c) for c in cfg_names]
     h5_names = [str(c) for c in h5_names]
+    # A model trained on a channel SUBSET of the pack (makani maps channel_names
+    # to pack indices and records them as out_channels): its names must be the h5
+    # names AT those indices, position by position. Returns the model's names --
+    # what the predictions actually are.
+    idx = cfg.get("out_channels")
+    if (idx is not None and len(cfg_names) < len(h5_names) and len(idx) == len(cfg_names)
+            and all(0 <= int(i) < len(h5_names) for i in idx)
+            and [h5_names[int(i)] for i in idx] == cfg_names):
+        logger.info("channel subset: model has %d of the %d h5 channels",
+                    len(cfg_names), len(h5_names))
+        return cfg_names
     if cfg_names != h5_names:
         n = max(len(cfg_names), len(h5_names))
         diff_lines = []
@@ -286,6 +302,7 @@ def run_nwp(args: argparse.Namespace) -> int:
     logger.info("test files: %s", [f.name for f in test_files])
 
     eval_params = load_eval_params(args.run_dir, K=args.nwp_K)
+    eval_params.force_positive_names = args.force_positive_names  # port A; [] = off
     wrapper = build_wrapper_from_checkpoint(eval_params, args.ckpt, device=device)
     out_bias, out_scale = _load_run_norm_stats(eval_params, device)
 
@@ -399,6 +416,7 @@ def run_climate(args: argparse.Namespace) -> int:
         logger.info("climate rollout: %s  K=%d  (n_samples=%d)", fpath.name, K, n)
 
         eval_params = load_eval_params(args.run_dir, K=K)
+        eval_params.force_positive_names = args.force_positive_names  # port A; [] = off
         wrapper = build_wrapper_from_checkpoint(eval_params, args.ckpt, device=device)
         out_bias, out_scale = _load_run_norm_stats(eval_params, device)
 

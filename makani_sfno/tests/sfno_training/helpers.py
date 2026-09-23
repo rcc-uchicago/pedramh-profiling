@@ -104,8 +104,19 @@ def load_params(output_root: Path):
     return params
 
 
-def build_dataset(params, output_root: Path, *, n_future: int = 0, split: str = "train"):
-    """Build a PlasimForcingDataset against the packaged synthetic data."""
+def build_dataset(
+    params,
+    output_root: Path,
+    *,
+    n_future: int = 0,
+    split: str = "train",
+    in_channels=None,
+    out_channels=None,
+):
+    """Build a PlasimForcingDataset against the packaged synthetic data.
+
+    ``in_channels`` / ``out_channels`` default to the full-width contiguous
+    lists; pass pack-relative index lists to build a channel subset."""
     from sfno_training.data import PlasimForcingDataset
 
     location = {
@@ -113,11 +124,16 @@ def build_dataset(params, output_root: Path, *, n_future: int = 0, split: str = 
         "valid": params.valid_data_path,
     }[split]
 
+    if in_channels is None:
+        in_channels = list(range(params.n_state_channels))
+    if out_channels is None:
+        out_channels = list(range(params.n_state_channels + params.n_diagnostic_channels))
+
     return PlasimForcingDataset(
         location=location,
         dt=1,
-        in_channels=list(range(params.n_state_channels)),
-        out_channels=list(range(params.n_state_channels + params.n_diagnostic_channels)),
+        in_channels=in_channels,
+        out_channels=out_channels,
         n_forcing_channels=params.n_forcing_channels,
         n_history=0,
         n_future=n_future,

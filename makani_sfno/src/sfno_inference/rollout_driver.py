@@ -95,6 +95,13 @@ def _load_run_norm_stats(eval_params, device, *, n_out: int = None):
         n_out = int(eval_params.N_out_channels)
     out_bias_np = np.load(eval_params.global_means_path).astype(np.float32)
     out_scale_np = np.load(eval_params.global_stds_path).astype(np.float32)
+    # A run trained on a channel SUBSET of its pack keeps the pack's full-width
+    # stats; makani indexes them by `out_channels` (recorded in config.json), and
+    # so must we. Only taken when the widths differ: full-width runs are untouched.
+    _idx = getattr(eval_params, "out_channels", None)
+    if _idx is not None and out_bias_np.size != n_out and len(_idx) == n_out:
+        out_bias_np = out_bias_np.reshape(-1)[list(_idx)]
+        out_scale_np = out_scale_np.reshape(-1)[list(_idx)]
     # The stats files on disk are saved as (1, n_out, 1, 1) by the data
     # packager (verified for plasim_sim52_full: both run-dir and dataset-stats
     # copies are (1, 53, 1, 1)). The plan §B.2 documented (53,) but reality
@@ -111,6 +118,36 @@ def _load_run_norm_stats(eval_params, device, *, n_out: int = None):
     out_bias = torch.from_numpy(out_bias_np).to(device).reshape(1, n_out, 1, 1)
     out_scale = torch.from_numpy(out_scale_np).to(device).reshape(1, n_out, 1, 1)
     return out_bias, out_scale
+
+
+def _force_positive_setup(eval_params, out_bias, out_scale):
+    """ACE2-style ``force_positive_names`` (its corrector clamps these at 0 in
+    physical units after every step). Read from ``eval_params``; absent or empty
+    = OFF, so every existing config is unchanged. Returns ``(idx, floor_z)``:
+    output-channel indices and the z-space value of physical 0, or ``(None, None)``.
+
+    DIAGNOSTIC ONLY (polaris_makani_ace2_ports_handoff.md §2). Which channels are
+    non-negative by physics is a science decision; a wrong entry clamps a channel
+    that legitimately goes negative and silently changes the answer.
+    """
+    names = list(getattr(eval_params, "force_positive_names", None) or [])
+    if not names:
+        return None, None
+    chan = list(getattr(eval_params, "channel_names", None) or [])
+    missing = [n for n in names if n not in chan]
+    if missing:
+        raise ValueError(f"force_positive_names not in channel_names: {missing}")
+    idx = [chan.index(n) for n in names]
+    floor_z = -out_bias[:, idx] / out_scale[:, idx]
+    return idx, floor_z
+
+
+def _apply_force_positive(pred, idx, floor_z):
+    if idx is None:
+        return pred
+    out = pred.clone()
+    out[:, idx] = torch.maximum(pred[:, idx], floor_z.to(pred.dtype))
+    return out
 
 
 def rollout_one_ic(
@@ -216,6 +253,8 @@ def rollout_one_ic(
     autocast_enabled = bool(eval_params.amp_enabled) and (torch.device(device).type == "cuda")
     autocast_dtype = eval_params.amp_dtype if autocast_enabled else torch.float32
 
+    pos_idx, pos_floor_z = _force_positive_setup(eval_params, out_bias, out_scale)
+
     predictions: list[torch.Tensor] = []
     inpt = inp
     for idt, targ in enumerate(tarlist):
@@ -227,6 +266,7 @@ def rollout_one_ic(
             dtype=autocast_dtype,
         ):
             pred = wrapper(inpt)  # _forward_eval → single-step forward → (1, 53, H, W)
+            pred = _apply_force_positive(pred, pos_idx, pos_floor_z)  # no-op unless configured
 
         if assert_contract:
             assert pred.shape == (1, n_out, H, W), (
