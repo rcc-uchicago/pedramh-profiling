@@ -23,15 +23,25 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 > 2026-09-23). In order:
 > 1. **Surgical-transfer proof** — `cd makani_sfno && qsub polaris/polaris_makani_surgical_proof.pbs`
 >    (debug, pre-registered PASS ≤ 0.02568). Decides fine-tune vs 46 node-h from scratch.
-> 2. **The F run** on `capacity` (⚠ blocks the project's one capacity slot — ask first):
->    production VARS from `submit_production_when_lr_picked.sh` with
->    `CONFIG_YAML=e3sm_alldata_nosoil.yaml`, new `RUN_NUM`, `EMA=1`; plus
->    `PRETRAINED_CKPT=<sliced>` and fewer epochs if (1) passed. Pre-register the land-only
->    PRECT/TREFHT/RHREFHT/TMQ panel (architect review §6) before it finishes.
-> 3. Score F with the K=56 sweep against **`k56_readout_common99.json`** only (never the 101 numbers),
+>    Also `qsub polaris/polaris_fill_substitute_probe.pbs` (validation-only, pre-registered
+>    tiers) — it predicts 7646690's step-0 ratio and says whether z=0 / fill / time-mean soil
+>    inputs are tolerated. Debug allows ONE queued job per user, so submit after 7646690 starts.
+> 2. **Before the F run STARTS:** pre-register the land-only PRECT/TREFHT/RHREFHT/TMQ panel
+>    (architect review §6) as a tested function. ⚠ `k56_metrics.h5` holds global means only, so
+>    it needs a land-mask option in `score_rollout_nc.py` (lsm from the pack's forcing) and a
+>    re-score of the 101 baseline NetCDFs — not a re-take.
+> 3. **The F run** on `capacity` (⚠ blocks the project's one capacity slot — ask first).
+>    **HOLD until 7646690 + the fill probe report:** a STRONG-tier transfer makes F a ~20-epoch
+>    fine-tune (~4 h), not a 48 h slot. Recipe = prod1n_b32_sgdr's exactly (its `config.json`:
+>    LR 2e-3, β₂ 0.95, **clip 32**, CosineAnnealingWarmRestarts T0=20, warmup 3) +
+>    `CONFIG_YAML=e3sm_alldata_nosoil.yaml`, `EMA=1`, `EVAL_SAMPLES=512`, new `RUN_NUM`. Do NOT
+>    fold in the §7e clip-1.0 recommendation — that is a second variable. Fine-tune route adds
+>    `PRETRAINED_CKPT=<sliced>` + `LOAD_OPTIMIZER=0 LOAD_SCHEDULER=0 LOAD_COUNTERS=0 LOAD_LOSS=0
+>    OVERRIDE_LR=1` as in `submit_c1_rollout_finetune.sh`, and a `warmstart_provenance.txt`.
+> 4. Score F with the K=56 sweep against **`k56_readout_common99.json`** only (never the 101 numbers),
 >    then the long rollout to divergence — if it still blows up at ~500 steps with no soil
 >    reservoir, retract `2026-09-10_ace2_comparison_the_corrector.md` §4.
-> 4. Take the `time_diff_report` table + `make_capped_weights.py --w-max 30` vector to **jesswan**
+> 5. Take the `time_diff_report` table + `make_capped_weights.py --w-max 30` vector to **jesswan**
 >    with the E / `Z3_l17` questions; the B+C arm runs only after her sign-off (`LOAD_LOSS=0`).
 
 > 📋 **makani continuation: `polaris_makani_analysis_ensemble_handoff.md`** — written
