@@ -344,6 +344,13 @@ sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
     -e "s|^${CFG_KEY}:|e3sm_mn_scaling:|" \
     "${BASE_CFG}" > "${RENDERED}" || exit 2
 grep -q "^e3sm_mn_scaling:" "${RENDERED}" || { echo "ERROR CONFIG_KEY_RENAME_FAILED: root key '${CFG_KEY}:' not found in ${CONFIG_YAML}"; exit 2; }
+# A config that trains on a SUBSET of the pack (port F: e3sm_alldata_nosoil*.yaml)
+# declares `dropped_channel_names`; everything else must still be the converter's
+# TARGET_CHANNELS in order, or channels map to the wrong slots silently. No-op
+# (prints CHANNEL_SUBSET_GATE_SKIP) for every config without the key.
+if grep -q "^ *dropped_channel_names:" "${RENDERED}"; then
+    "${PY}" "${MAKANI_ROOT}/polaris/channel_subset_gate.py" "${RENDERED}" e3sm_mn_scaling || exit 2
+fi
 # WANDB=1 (qsub -v) enables wandb for THIS run -- exists for smoke-testing the
 # Pangu-parity diagnostics contract (sfno_training/trainer/wandb_diagnostics.py)
 # before a production launch. Default stays OFF: a wandb'd row's step_ms carries
@@ -483,6 +490,19 @@ for _key, _env in _bools.items():
 _pck = _os.environ.get("PRETRAINED_CKPT")
 if _pck:
     keys += [("pretrained_checkpoint_path", '"%s"' % _pck)]
+
+# ---- port D: EMA (polaris_makani_ace2_ports_handoff.md §4) --------------------
+# -v EMA=1 [-v EMA_DECAY=<d>] writes a one-line `ema:` mapping (the fork's
+# sfno_training/trainer/ema.py; raw weights are still trained and saved, EMA adds
+# a second validation pass and best_ckpt_ema_mp*.tar). Unset = config untouched.
+# Size the decay from an averaging window in EPOCHS: window ~ 1/(1-d) updates, and
+# FULL=1 at global batch 32 is 1368 updates/epoch, so 0.9995 ~ 2000 updates ~ 1.5
+# epochs (0.999 would be ~0.7). Asserted in the log after training.
+_ema = _os.environ.get("EMA")
+if _ema:
+    _on = _ema.lower() in ("1", "true", "yes")
+    _dec = float(_os.environ.get("EMA_DECAY", "0.9995"))
+    keys += [("ema", "{enabled: !!bool %s, decay: %r}" % ("True" if _on else "False", _dec))]
 
 # ⚠⚠ NO `n_future` KNOB HERE, DELIBERATELY. makani OVERWRITES it from the CLI:
 #     train.py:119   params["n_future"] = args.multistep_count - 1
@@ -757,6 +777,17 @@ if [ ! -s "${LOG}" ]; then echo "ERROR NO_LOG"; exit 4; fi
     --nsys "${NSYS}" --steps "${STEPS}" \
     --env-source "${MAKANI_ENV_SOURCE}" --omp-threads "${OMP_NUM_THREADS}"
 csv_rc=$?
+
+# -v EMA=1 must have reached the trainer: its init logs "EMA enabled: decay=".
+# A config that renders but is not read would train without EMA and exit 0.
+case "${EMA:-}" in 1|true|yes)
+    if grep -q "EMA enabled: decay=" "${LOG}"; then
+        echo "EMA_ASSERT_OK: $(grep -m1 -o 'EMA enabled: decay=[^,]*' "${LOG}")"
+    else
+        echo "ERROR EMA_NOT_ENABLED: -v EMA=${EMA} but the trainer never logged 'EMA enabled'"
+        csv_rc=5
+    fi ;;
+esac
 
 if [ "${NSYS}" = "1" ]; then
     _n=$(find "${NSYS_DIR}" -name '*.nsys-rep' 2>/dev/null | wc -l)

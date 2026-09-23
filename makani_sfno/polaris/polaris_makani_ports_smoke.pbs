@@ -1,0 +1,161 @@
+#!/bin/bash -l
+#PBS -N makani_ports_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# ONE debug job for polaris_makani_ace2_ports_handoff.md (debug is max_queued 1
+# per user, so the checks share an allocation rather than queue four times):
+#
+#   1. pytest  -- ports F/A/B/C/D unit tests + the neighbouring suites they touch
+#                                                        -> PORTS_TESTS_OK
+#   2. port F  -- re-take the prod1n_b32_sgdr K=56 read-out on the common 99
+#                 channels BEFORE any post-F number exists -> RESTRICT_READOUT_OK
+#   3. port B  -- time_diff_stds.npy over the FULL 30-year train split (CPU,
+#                 background; writes ONLY stats/time_diff_stds.npy) + the r_c
+#                 table, inspect-only              -> TIME_DIFF_STDS_OK, TIME_DIFF_REPORT_OK
+#   4. port F+D -- 20-step real-data training smoke of e3sm_alldata_nosoil.yaml
+#                 through the PRODUCTION launcher with EMA=1
+#                 -> CHANNEL_SUBSET_GATE_OK, "CHANNEL_SUBSET in=98 out=99",
+#                    EMA_ASSERT_OK, MAKANI_MN_SCALING_OK
+#
+# PASS = PORTS_SMOKE_OK on the last line. Per CLAUDE.md #14 the exit code is not
+# the result. The training smoke's CSV row is FUNCTIONAL ONLY (the time-diff pass
+# shares the node) and goes to its own CSV, never the scaling table.
+#
+# Submit from makani_sfno/ (so MAKANI_ROOT is THIS tree):
+#   cd makani_sfno && qsub polaris/polaris_makani_ports_smoke.pbs
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${MAKANI_ROOT}/src/sfno_training" ] || { echo "ERROR MAKANI_ROOT_NOT_FOUND: submit from makani_sfno/"; exit 2; }
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+JOBID="${PBS_JOBID%%.*}"
+
+# ---- environment (verbatim from polaris_makani_multinode_scaling.pbs) ---------
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    echo "  Build it on a LOGIN node:  bash ${REPO}/polaris_setup_sfno_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+if [ ! -d "${MAKANI_H5PY_OVERLAY:-/nonexistent}" ]; then
+    echo "ERROR MAKANI_H5PY_OVERLAY_MISSING: ${MAKANI_H5PY_OVERLAY:-<unset>}"
+    exit 3
+fi
+
+# sfno_training lives under <root>/src -- NOT <root>.
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export WANDB_MODE="${WANDB_MODE:-offline}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# -----------------------------------------------------------------------------
+
+PACK="${PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"
+K56="${K56:-${MEMBER_ROOT}/runs/makani_eval/prod1n_b32_sgdr_K56/scores}"
+PROBE_CSV="${MEMBER_ROOT}/runs/makani_probe/tendency_norm/7646192/tendency_norm_probe.csv"
+TD_OUT="${MEMBER_ROOT}/runs/makani_probe/time_diff/${JOBID}"
+mkdir -p "${TD_OUT}" || exit 2
+echo "job=${JOBID} makani_root=${MAKANI_ROOT} pack=${PACK}"
+declare -A OK
+
+# ---- 3 (started first: CPU-bound, runs under 1 and 2 and 4) -------------------
+TD_LOG="${TD_OUT}/time_diff_pass.log"
+if [ -f "${PACK}/stats/time_diff_stds.npy" ]; then
+    echo "time_diff_stds.npy already present -- not recomputing (qsub -v TD_OVERWRITE=1 to force)"
+    [ "${TD_OVERWRITE:-0}" = "1" ] && _td_ow="--overwrite" || _td_ow=""
+else
+    _td_ow=""
+fi
+if [ ! -f "${PACK}/stats/time_diff_stds.npy" ] || [ -n "${_td_ow}" ]; then
+    ( cd "${MAKANI_ROOT}/polaris" && "${PY}" convert_e3sm_to_makani_alldata.py \
+        --e3sm-root unused --output-root "${PACK}" \
+        --train-years 2015 2044 --time-diff-only --workers "${TD_WORKERS:-12}" ${_td_ow} ) \
+        > "${TD_LOG}" 2>&1 &
+    TD_PID=$!
+    echo "time-diff pass started (pid ${TD_PID}), log ${TD_LOG}"
+else
+    TD_PID=""
+fi
+
+# ---- 1. tests ----------------------------------------------------------------
+echo "=== 1. pytest ==="
+( cd "${MAKANI_ROOT}" && exec "${PY}" -m pytest -q -p no:cacheprovider \
+    tests/sfno_training/test_channel_subset.py \
+    tests/sfno_training/test_data_loader.py \
+    tests/sfno_training/test_trainer_ci.py \
+    tests/sfno_training/test_ema.py \
+    tests/sfno_training/test_channel_weights_auto.py \
+    tests/sfno_inference/test_rollout_ports.py \
+    tests/sfno_inference/test_rollout_driver.py \
+    polaris/test_channel_subset_gate.py \
+    polaris/test_restrict_readout.py \
+    polaris/test_convert_time_diff.py \
+    polaris/test_time_diff_report.py \
+    polaris/test_score_rollout_nc.py ) > "${TD_OUT}/pytest.log" 2>&1
+_prc=$?
+tail -25 "${TD_OUT}/pytest.log"
+if [ "${_prc}" = "0" ]; then OK[tests]=1; echo "PORTS_TESTS_OK"; else echo "ERROR PORTS_TESTS_FAILED"; fi
+
+# ---- 2. baseline re-take on the common 99 --------------------------------------
+echo "=== 2. restrict K=56 read-out ==="
+"${PY}" "${MAKANI_ROOT}/polaris/restrict_readout.py" --scores-dir "${K56}" \
+    --drop SOILWATER_10CM TSOI_10CM && OK[restrict]=1
+
+# ---- 4. training smoke through the production launcher ------------------------
+echo "=== 4. e3sm_alldata_nosoil.yaml training smoke (EMA=1) ==="
+RUN_NUM="smoke_nosoil_${JOBID}"
+CONFIG_YAML=e3sm_alldata_nosoil.yaml PACK="${PACK}" RUN_NUM="${RUN_NUM}" \
+STEPS=20 LOCAL_BATCH=8 EPOCHS=1 EVAL_SAMPLES=8 EMA=1 WANDB=0 \
+MAKANI_SCALING_CSV="${MEMBER_ROOT}/bench/makani_ports_smoke.csv" \
+    bash "${MAKANI_ROOT}/polaris/polaris_makani_multinode_scaling.pbs" > "${TD_OUT}/train_smoke.out" 2>&1
+train_rc=$?
+TLOG="${MEMBER_ROOT}/runs/makani_mn_scaling/${RUN_NUM}.log"
+grep -E "CHANNEL_SUBSET_GATE_OK|ERROR|EMA_ASSERT_OK|MAKANI_MN_SCALING_OK|N_in_channels=" "${TD_OUT}/train_smoke.out" | tail -12
+_sub=$(grep -m1 -o "CHANNEL_SUBSET in=[0-9]* out=[0-9]* of a [0-9]*-channel pack; dropped pack idx \[[0-9, ]*\]" "${TLOG}" 2>/dev/null)
+echo "subset line: ${_sub:-<absent>}"
+_nan=$(grep -ciE "loss.*\b(nan|inf)\b" "${TLOG}" 2>/dev/null)
+if grep -q "CHANNEL_SUBSET_GATE_OK" "${TD_OUT}/train_smoke.out" \
+   && [ "${_sub}" = "CHANNEL_SUBSET in=98 out=99 of a 101-channel pack; dropped pack idx [8, 9]" ] \
+   && grep -q "EMA_ASSERT_OK" "${TD_OUT}/train_smoke.out" \
+   && grep -q "MAKANI_MN_SCALING_OK" "${TD_OUT}/train_smoke.out" \
+   && [ "${_nan:-0}" = "0" ]; then
+    OK[train]=1; echo "NOSOIL_TRAIN_SMOKE_OK rc=${train_rc} log=${TLOG}"
+else
+    echo "ERROR NOSOIL_TRAIN_SMOKE_FAILED rc=${train_rc} nan_lines=${_nan:-?} (see ${TD_OUT}/train_smoke.out, ${TLOG})"
+fi
+
+# ---- 3 (finish). wait for the time-diff pass, then publish the table ----------
+echo "=== 3. time_diff_stds + r_c table ==="
+if [ -n "${TD_PID}" ]; then wait "${TD_PID}"; fi
+tail -3 "${TD_LOG}" 2>/dev/null
+if [ -f "${PACK}/stats/time_diff_stds.npy" ] && { [ -z "${TD_PID}" ] || grep -q TIME_DIFF_STDS_OK "${TD_LOG}"; }; then
+    "${PY}" "${MAKANI_ROOT}/polaris/time_diff_report.py" --pack "${PACK}" \
+        --out-dir "${TD_OUT}" --probe-csv "${PROBE_CSV}" && OK[timediff]=1
+else
+    echo "ERROR TIME_DIFF_PASS_FAILED (see ${TD_LOG})"
+fi
+
+echo
+echo "sections ok: ${!OK[*]}"
+if [ "${#OK[@]}" -eq 4 ]; then
+    echo "PORTS_SMOKE_OK job=${JOBID} out=${TD_OUT}"
+else
+    echo "ERROR PORTS_SMOKE_INCOMPLETE ok=${!OK[*]} (want tests restrict train timediff)"
+    exit 1
+fi
