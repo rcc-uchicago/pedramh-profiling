@@ -173,7 +173,7 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     the probe's "~1.3 s/step" was mostly block I/O). ⇒ a 7,667-lead member is ~3.5 min of stepping.
   - **G4 — stability, n=1 per checkpoint, 150 d, NOT a climate result** (readout job **7649572**;
     σ = the run's `global_stds`; anomaly vs `stats/time_means.npy`):
-    | | A `prod1n_b32_sgdr` best (epoch **243**) | B `nf4_prod_b16_r1` best (epoch **1**) |
+    | | A `prod1n_b32_sgdr` best (epoch **243**) | B `nf4_prod_b16_r1` best (fine-tune epoch **1**, from A) |
     |---|---|---|
     | outcome | **non-finite at lead 595** (`PS`), outputs written | 600/600 finite |
     | channels past 3σ / 10σ (anom RMS) | 101 / 101 | **0 / 0** |
@@ -186,9 +186,13 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     not blow up in 150 d, but its **global-mean `PS` falls steadily, −13.5 hPa by lead 600**:
     that is a loss of atmospheric mass. Global-mean `PS` is nearly constant in reality, so this is a
     defect, not a season. The `T`/`TREFHT` Δs (−1 to −3 K, Oct→Feb) **include the real seasonal
-    cycle** and cannot be read as drift without the §4a truth references. (3) A vs B differ in both
-    `n_future` (1 vs 5) and training length (243 vs 1 epoch), so this does **not** isolate
-    `n_future`'s effect. n=1 each.
+    cycle** and cannot be read as drift without the §4a truth references. (3) B is **A's epoch-243
+    weights plus 1 epoch of `n_future=4` fine-tuning** (`pretrained_checkpoint_path` = A's
+    `best_ckpt_mp0.tar`, `warmstart_provenance.txt`); A is `n_future=0`. So B differs from A by that
+    one extra epoch *and* its multi-step loss. The comparison does not separate the two; no
+    "one more single-step epoch" control exists. n=1 each. (4) Arm A's `rc=1` in the `.o` is
+    `torch.distributed.run`'s `ChildFailedError` wrapping the CLI's deliberate exit code 3
+    (`CLIMATE_ROLLOUT_TRUNCATED`, outputs written), not a crash.
   - Handoff §7 defaults recorded: (1) soil channels undecided (jesswan); the driver is
     channel-agnostic (§5.8), so this blocks nothing. (2) B = `best_ckpt_mp0.tar`, **confirmed epoch 1**
     from inside the checkpoint (valid-loss best at epoch 1, per 7630639). Using `ckpt_mp0_v3.tar` (last
