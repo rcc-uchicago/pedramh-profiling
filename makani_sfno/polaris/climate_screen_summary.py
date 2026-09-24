@@ -44,10 +44,12 @@ from sfno_ensemble.scores import equiangular_weights  # noqa: E402  (torch-free)
 
 FRAMES_PER_YEAR = 1460                      # E3SM noleap, 6-hourly
 PACK_SPLITS = ("train", "valid", "test")
-TRUTH_CHANNELS = ("PS", "T_l17", "Z3_l10", "TREFHT")
+TRUTH_CHANNELS = ("PS", "T_l17", "Z3_l10", "TREFHT", "TMQ")
+GRAVITY = 9.80665                           # m s-2, as sfno_training.models.mass_fix
 SIGMA_THRESHOLD = 3.0
 # Physical-unit conversion per truth channel for the report (PS is Pa -> hPa).
-UNIT = {"PS": ("hpa", 0.01), "T_l17": ("k", 1.0), "Z3_l10": ("m", 1.0), "TREFHT": ("k", 1.0)}
+UNIT = {"PS": ("hpa", 0.01), "T_l17": ("k", 1.0), "Z3_l10": ("m", 1.0), "TREFHT": ("k", 1.0),
+        "TMQ": ("kgm2", 1.0)}
 # (column, channel, lead); lead None = the member's last finite lead.
 DRIFT_COLUMNS = (
     ("ps_drift_hpa@600", "PS", 600),
@@ -56,6 +58,10 @@ DRIFT_COLUMNS = (
     ("z10_drift_m@1460", "Z3_l10", 1460),
     ("trefht_drift_k@1460", "TREFHT", 1460),
     ("ps_drift_hpa@last", "PS", None),
+    ("tmq_drift_kgm2@1460", "TMQ", 1460),
+    # dry-air surface pressure PS - g*TMQ: what the dry-air fix holds (diagnostic)
+    ("dry_drift_hpa@600", "DRY", 600),
+    ("dry_drift_hpa@1460", "DRY", 1460),
 )
 CSV_COLUMNS = (
     "rank", "label", "ckpt_epoch", "epoch_check", "survived", "truncated_at_step",
@@ -232,13 +238,18 @@ def summarize_member(member: dict, truth: dict, n_leads: int) -> dict:
         run_dir=str(a.get("run_dir", "")), ckpt=str(a.get("ckpt", "")), nc=member["path"],
     )
     tch = truth["channels"]
+    def drift(ch, L):
+        """(model - truth) global mean of ``ch`` at lead L, physical units; NaN if absent."""
+        if ch == "DRY":
+            d_ps, d_q = drift("PS", L), drift("TMQ", L)
+            return d_ps - GRAVITY * d_q                               # Pa
+        if ch not in names or ch not in tch or L > steps_run or L < 1:
+            return float("nan")
+        return float(gm[L - 1, names.index(ch)] - truth["global_mean"][L - 1, tch.index(ch)])
+
     for col, ch, lead in DRIFT_COLUMNS:
         L = steps_run if lead is None else lead
-        if ch not in names or ch not in tch or L > steps_run or L < 1:
-            row[col] = float("nan")
-            continue
-        d = gm[L - 1, names.index(ch)] - truth["global_mean"][L - 1, tch.index(ch)]
-        row[col] = float(d * UNIT[ch][1])
+        row[col] = drift(ch, L) * (0.01 if ch == "DRY" else UNIT[ch][1])
     return row
 
 
@@ -286,7 +297,8 @@ def write_csv(rows: list[dict], path: Path) -> None:
 MD_COLUMNS = ("rank", "label", "ckpt_epoch", "survived", "truncated_at_step",
               "median_cross_3sigma", "n_past_3sigma", "ps_drift_hpa@600", "ps_drift_hpa@1460",
               "t17_drift_k@1460", "z10_drift_m@1460", "trefht_drift_k@1460",
-              "ps_drift_hpa@last", "first_past_3sigma")
+              "ps_drift_hpa@last", "tmq_drift_kgm2@1460", "dry_drift_hpa@1460",
+              "first_past_3sigma")
 
 
 def markdown(rows: list[dict], truth: dict) -> str:

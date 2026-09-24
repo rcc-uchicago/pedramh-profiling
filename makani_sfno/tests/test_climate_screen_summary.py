@@ -40,7 +40,8 @@ H, W = 4, 8
 FPY = S.FRAMES_PER_YEAR
 START = (2044, 1092)
 N = 1460
-NAMES = ["PS", "T_l17", "Z3_l10", "TREFHT", "X"]
+NAMES = ["PS", "T_l17", "Z3_l10", "TREFHT", "TMQ", "X"]
+NT = len(S.TRUTH_CHANNELS)                 # PS, T_l17, Z3_l10, TREFHT, TMQ
 
 
 # ---------------------------------------------------------------------------
@@ -57,16 +58,21 @@ LAT_PATTERN = np.array([0.0, 0.0, 0.0, 8.0])     # asymmetric: cos weights != pl
 
 def _write_year(path: Path, year: int) -> None:
     frames = np.arange(FPY, dtype=np.float64)
-    state = np.empty((FPY, 3, H, W), np.float64)   # float64: exact asserts
-    for c in range(3):
-        state[:, c] = (_truth_value(c, year, frames)[:, None, None]
+    # every truth channel is state except TREFHT, which sits in the diagnostic
+    # dataset to exercise the by-name fallback; value index = TRUTH_CHANNELS position
+    tc = list(S.TRUTH_CHANNELS)
+    st_names = [n for n in tc if n != "TREFHT"]
+    state = np.empty((FPY, len(st_names), H, W), np.float64)   # float64: exact asserts
+    for j, n in enumerate(st_names):
+        state[:, j] = (_truth_value(tc.index(n), year, frames)[:, None, None]
                        + LAT_PATTERN[None, :, None])
     diag = np.empty((FPY, 1, H, W), np.float64)
-    diag[:, 0] = _truth_value(3, year, frames)[:, None, None] + LAT_PATTERN[None, :, None]
+    diag[:, 0] = (_truth_value(tc.index("TREFHT"), year, frames)[:, None, None]
+                  + LAT_PATTERN[None, :, None])
     with h5py.File(path, "w") as f:
         f["fields_state"] = state
         f["fields_diagnostic"] = diag
-        f["channel_state"] = np.array(["PS", "T_l17", "Z3_l10"], dtype="S")
+        f["channel_state"] = np.array(st_names, dtype="S")
         f["channel_diagnostic"] = np.array(["TREFHT"], dtype="S")
 
 
@@ -129,12 +135,12 @@ def _write_member(path: Path, truth: dict, *, label: str, epoch: int, steps: int
 # ---------------------------------------------------------------------------
 
 def test_truth_matches_direct_read_across_year_boundary(truth):
-    assert truth["global_mean"].shape == (N, 4)
+    assert truth["global_mean"].shape == (N, NT)
     assert (int(truth["valid_year"][367]), int(truth["valid_frame"][367])) == (2045, 0)
     assert (int(truth["valid_year"][366]), int(truth["valid_frame"][366])) == (2044, 1459)
     assert (int(truth["valid_year"][-1]), int(truth["valid_frame"][-1])) == (2045, 1092)
     for k in (1, 367, 368, 369, 600, 1460):
-        for c in range(4):
+        for c in range(NT):
             assert truth["global_mean"][k - 1, c] == pytest.approx(_expected_truth(k, c), abs=1e-6)
 
 
@@ -148,14 +154,14 @@ def test_truth_uses_equiangular_area_weights(truth):
 
 
 def test_truth_reads_diagnostic_channel_by_name(truth):
-    assert truth["channels"].tolist() == ["PS", "T_l17", "Z3_l10", "TREFHT"]
+    assert truth["channels"].tolist() == list(S.TRUTH_CHANNELS)
     assert truth["global_mean"][599, 3] == pytest.approx(_expected_truth(600, 3), abs=1e-6)
 
 
 def test_truth_npz_roundtrip(truth, tmp_path):
     S.save_truth(truth, tmp_path / "t.npz")
     t = S.load_truth(tmp_path / "t.npz")
-    assert t["channels"] == ["PS", "T_l17", "Z3_l10", "TREFHT"] and t["start"] == START
+    assert t["channels"] == list(S.TRUTH_CHANNELS) and t["start"] == START
     np.testing.assert_array_equal(t["global_mean"], truth["global_mean"])
 
 
@@ -188,15 +194,18 @@ def test_survivor_metrics_and_drift_sign(truth, tmp_path):
     assert r["t17_drift_k@1460"] == pytest.approx(+2.0, abs=1e-6)          # sign: warm > 0
     assert r["z10_drift_m@1460"] == pytest.approx(-30.0, abs=1e-6)
     assert r["trefht_drift_k@1460"] == pytest.approx(0.0, abs=1e-6)
+    assert r["tmq_drift_kgm2@1460"] == pytest.approx(0.0, abs=1e-6)
+    assert r["dry_drift_hpa@1460"] == pytest.approx(r["ps_drift_hpa@1460"], abs=1e-6)
     assert r["epoch_check"] == "ok"
 
 
 def test_median_cross_needs_a_channel_majority(truth, tmp_path):
     t = _load_truth(truth)
     p = _write_member(tmp_path / "m.nc", t, label="m", epoch=1, steps=N,
-                      past={"PS": 100, "T_l17": 200, "Z3_l10": 300})
+                      past={"PS": 100, "T_l17": 200, "Z3_l10": 300, "TMQ": 400})
     r = S.summarize_member(S.load_member(p), t, N)
-    assert r["n_past_3sigma"] == 3 and r["median_cross_3sigma"] == 300
+    # 6 channels: at 300 the median is (0.5+5)/2 = 2.75; at 400 four are past -> 5
+    assert r["n_past_3sigma"] == 4 and r["median_cross_3sigma"] == 400
 
 
 def test_truncated_member_is_not_a_survivor_and_has_no_1460_drift(truth, tmp_path):
@@ -320,3 +329,14 @@ def test_cli_summarize_fails_loudly_on_a_bad_member(pack, tmp_path, capsys):
     assert rc == 1
     assert "ERROR CLIMATE_SCREEN_MEMBER" in out and "TRUTH_MISALIGNED" in out
     assert "CLIMATE_SCREEN_SUMMARY_OK" not in out
+
+
+def test_dry_air_drift_subtracts_the_water_column(truth, tmp_path):
+    """PS low by 300 Pa and TMQ low by 10 kg/m2: dry-air drift = -300 + g*10 Pa."""
+    t = _load_truth(truth)
+    p = _write_member(tmp_path / "d.nc", t, label="d", epoch=1, steps=N,
+                      offsets={"PS": lambda L: -300.0 + 0 * L, "TMQ": lambda L: -10.0 + 0 * L})
+    r = S.summarize_member(S.load_member(p), t, N)
+    assert r["ps_drift_hpa@1460"] == pytest.approx(-3.0, abs=1e-9)
+    assert r["tmq_drift_kgm2@1460"] == pytest.approx(-10.0, abs=1e-9)
+    assert r["dry_drift_hpa@1460"] == pytest.approx((-300.0 + S.GRAVITY * 10.0) / 100, abs=1e-9)
