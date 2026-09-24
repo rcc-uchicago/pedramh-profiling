@@ -144,6 +144,47 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — second-start re-screen: B epoch 22 is the Stage-0 winner, and PS
+  drift is a fixed property of each checkpoint, not noise.** Operator (first-hand): "re-screen first
+  and then do stage 1". Prereg addendum A1 (`a27c59b2` 19:16:44Z < `stime` 19:16:54Z) fixed the combined
+  rule before the job ran. Job **7649792** `CLIMATE_SCREEN_OK n=16`: B e01/e21–24 and C1's 11 one-year
+  survivors from **2044 f1156 (Oct 17)**. Output `$MEMBER_ROOT/runs/makani_eval/climate_screen_7649792/`, CSV
+  `makani_sfno/docs/2026-09-24_climate_screen_7649792_f1156.csv`.
+
+  | comb | label | survived both | n>3σ (sum) | mean abs PS@1460 hPa | rank Oct 1 | rank Oct 17 | PS@1460 Oct 1 / Oct 17 |
+  |---|---|---|---|---|---|---|---|
+  | 1 | **B_e22** | yes | 0 | 0.6 | 1 | 1 | +0.67 / −0.46 |
+  | 2 | B_e24 | yes | 0 | 4.6 | 2 | 2 | +4.64 / +4.54 |
+  | 3 | B_e21 | yes | 1 | 57.2 | 3 | 5 | −57.96 / −56.49 |
+  | 4 | B_e01 | yes | 2 | 31.5 | 8 | 3 | −30.98 / −31.98 |
+  | 5 | C1_e18 | yes | 2 | 50.6 | 10 | 4 | −51.10 / −50.18 |
+  | 6 | C1_e24 | yes | 3 | 25.7 | 7 | 6 | −26.49 / −24.95 |
+  | 7 | C1_e20 | yes | 3 | 62.9 | 11 | 8 | −57.56 / −68.27 |
+  | 8 | B_e23 | yes | 4 | 68.8 | 12 | 9 | −68.09 / −69.51 |
+  | 9 | C1_e12 | yes | 5 | 27.7 | 13 | 7 | −25.33 / −30.08 |
+  | 10 | C1_e19 | yes | 5 | 48.9 | 9 | 10 | −46.29 / −51.49 |
+  | 11 | C1_e13 | yes | 7 | 81.6 | 15 | 11 | −81.27 / −82.00 |
+  | 12 | C1_e23 | yes* | 102 | — | 6 | 13 | −13.6 / −1.7e16 |
+  | 13 | C1_e03 | yes | 132 | 472.4 | 19 | 12 | −152 / −793 |
+  | 14–16 | C1_e14, C1_e09, C1_e07 | no (die at 1370 / 778 / 1433 from Oct 17) | | | | | |
+
+  - **Winner by rule A1: `B_e22` = `nf4_prod_b16_r1/training_checkpoints/ckpt_mp0_v1.tar`**, rank 1 at
+    both starts (the A1 condition is top-3 at each). n=2 starts. ⚠ `ckpt_mp0_v1.tar` is a rotating
+    version slot: resuming `nf4_prod_b16_r1` would overwrite it. Do not resume that run. Copy the file
+    to a stable name before the protocol run.
+  - **PS drift is reproducible per checkpoint** to ~1–2 hPa across the two starts (B e21 −58/−56,
+    e22 +0.7/−0.5, e23 −68/−70, e24 +4.6/+4.5). The epoch-to-epoch swing seen in 7649647 is therefore a
+    **fixed mass bias that each checkpoint carries**, not chaotic sensitivity to the IC. Consecutive
+    epochs of one run differ by up to 70 hPa/yr. Validation loss cannot see this. The trajectory-level
+    screen can.
+  - Survival is **not** reproducible for C1: e07, e09 and e14 survive from Oct 1 and die from Oct 17.
+    All 5 B checkpoints survive both starts. Depth reread at Oct 17 alone: B above C1 at both matched
+    epochs present (e23, e24); the combined order is headed by B. That is consistent with "depth 4 helps".
+  - ⚠ `survived` means finite, not sane: C1 e23 stays finite from Oct 17 while its global means reach
+    ~1e16. Its 101 channels past 3σ rank it low anyway. A reader of `survived` alone would be misled.
+  - Next: Stage 1 (operator-approved): S1a short run **7649926** (debug, `fs_lrcheck_nf4_b8_r1`), then
+    the LR check, probes at depth 8/16, then T-anneal on `preemptable`.
+
 - **2026-09-24 (makani) — Stage-0 stability screen: depth 4 helps survival, more epochs help, and
   mass loss is the rule. Operator decision on Stage 1 pending.** Branch `feat/makani-finetune-stability`
   (cut from `feat/makani-climate-driver` @ `d8d884a2`), handoff `polaris_makani_finetune_stability_handoff.md`.
