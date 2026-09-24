@@ -1,0 +1,18 @@
+# Second-start re-screen (prereg addendum A1): B epochs 1, 21-24 and C1's 11 one-year
+# survivors from screen 7649647. Run with START_FRAME=1156 (2044 Oct 17).
+B_e01=nf4_prod_b16_r1:best_ckpt_mp0.tar
+B_e21=nf4_prod_b16_r1:ckpt_mp0_v0.tar
+B_e22=nf4_prod_b16_r1:ckpt_mp0_v1.tar
+B_e23=nf4_prod_b16_r1:ckpt_mp0_v2.tar
+B_e24=nf4_prod_b16_r1:ckpt_mp0_v3.tar
+C1_e03=c1_rollout_full_b16:ckpt_mp0_v2.tar
+C1_e07=c1_rollout_full_b16:ckpt_mp0_v6.tar
+C1_e09=c1_rollout_full_b16:ckpt_mp0_v8.tar
+C1_e12=c1_rollout_full_b16:ckpt_mp0_v11.tar
+C1_e13=c1_rollout_full_b16:ckpt_mp0_v12.tar
+C1_e14=c1_rollout_full_b16:ckpt_mp0_v13.tar
+C1_e18=c1_rollout_full_b16:ckpt_mp0_v17.tar
+C1_e19=c1_rollout_full_b16:ckpt_mp0_v18.tar
+C1_e20=c1_rollout_full_b16:ckpt_mp0_v19.tar
+C1_e23=c1_rollout_full_b16:ckpt_mp0_v22.tar
+C1_e24=c1_rollout_full_b16:ckpt_mp0_v23.tar

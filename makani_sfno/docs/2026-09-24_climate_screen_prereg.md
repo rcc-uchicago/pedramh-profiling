@@ -69,6 +69,27 @@ Stage 1 (T-anneal, T-d8, T-d16) runs only if §3 says depth or epochs matter. If
 "hurts" or "not separated", the default (handoff §6.3) is to stop and report, and the question moves to
 the mass/loss route for jesswan.
 
+## A1. Addendum (2026-09-24, after screen 7649647, before the second-start job)
+
+Why: §3's small-gap trigger did not fire (top-3 |PS drift| span 57 hPa), but B's PS drift swung
+−58 / +0.7 / −68 / +4.6 hPa across epochs 21–24, so one start cannot rank neighbouring epochs. The
+operator asked for a broader re-screen than §3's top three.
+
+- Run: `polaris/climate_screen_rescreen_f1156.list` (B e01, e21–24; C1's 11 one-year survivors) from
+  **2044 frame 1156** (Oct 17), 1460 leads, same tool, own truth `screen_truth_2044f1156.npz`.
+- **Combined rule** (both starts, per checkpoint), decided now:
+  1. survived **both** starts first;
+  2. then fewest `n_past_3sigma` summed over the two starts;
+  3. then smallest **mean** `|ps_drift_hpa@1460|` over the two starts.
+  The per-start ranks from §2 are reported beside it.
+- **Winner:** the combined rank-1 checkpoint is named only if it is also in the top three at each
+  start separately. Otherwise report "no stable winner at n=2" and hand the protocol run the combined
+  rank-1 checkpoint with that label.
+- **Depth reread:** §3's depth rule is re-applied at the second start alone, then to the combined
+  rank. The two readings are reported side by side, and neither overrides the other.
+- Stage 1 goes ahead on the operator's instruction (2026-09-24) whatever this shows; the re-screen
+  sets the reference those arms are compared against.
+
 ## 5. Threats
 
 - **One start date, one year.** Chaotic sensitivity can reorder close checkpoints; §3's re-screen rule
