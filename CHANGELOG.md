@@ -207,7 +207,7 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     rule.** The 16 were chosen *because* they survived this start with the fix off, so any
     perturbation regresses their survival. The mass fix works by construction: PS drift < 1 hPa in
     every survivor, from 5–320 hPa. But **the model compensates elsewhere.** `T_l17` at one year is
-    colder with the fix on in 14 of 14 survivors, e.g. B e01 −0.8 → −10.5 K with `TMQ` −10 kg/m².
+    colder with the fix on in **12 of 14** survivors (warmer: B e24 +1.79 → +1.94 K, C1 e07 −74.0 → −3.5 K), e.g. B e01 −0.8 → −10.5 K with `TMQ` −10 kg/m².
     All 5 B checkpoints still survive; the C1 effect is mixed (e07 much better, e14 much worse).
   - **Why post hoc is not the real test.** A model trained without the constraint learned to lose
     mass. Putting mass back each step hands it states it never saw. The trained arm
