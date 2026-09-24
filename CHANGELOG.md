@@ -174,7 +174,32 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     1.0×/1.41× std and whether it decelerates, channels past 3× at day 50; (2) train/test NRMSE ratio
     at the first leads — the contamination claim, n=1 per arm, indicative; (3) are the 7 forcing
     channels bitwise identical across 2044/2045/2048. PASS = `LONGROLL_PROBE_OK`. Out →
-    `$MEMBER_ROOT/runs/makani_eval/prod1n_b32_sgdr_longroll_probe_f1092/`. **Result pending.**
+    `$MEMBER_ROOT/runs/makani_eval/prod1n_b32_sgdr_longroll_probe_f1092/`.
+  - ✅ **PROBE RESULT — `LONGROLL_PROBE_OK`, job 7648967, 18 min.** K=200 **OOM'd** (35.01 GiB
+    in use + 4.88 GiB requested on 39.49 GiB — confirms the ~6-copies estimate), K=144 (36 d) ran at
+    **~1.3 s/step** (192 s / 189 s). Both arms identical in shape: median NRMSE crosses **1.0 at ~250 h
+    (10 d)**, reaches **1.39–1.40 at day 36** with VR **1.11** and slope ratio **0.29 / 0.07** ⇒
+    **plateauing at the decorrelated ceiling, not diverging**; amplitude preserved. **Exactly two
+    channels past the 3× blow-up clause: `Z3_l17` (NRMSE 152, bias −81 truth-amplitudes) and
+    `Z3_l16` (3.1)**; next `SOILWATER_10CM` 2.5, `TSOI_10CM` 1.9. ⇒ within 36 days the model is
+    physical except for channel-specific drift in fed-back near-surface geopotential and soil; the
+    ~120-day blow-up jesswan saw is later than the probe reaches and will be preceded by those
+    channels leaving range. **Contamination: the training-year IC is 6–8 % better at leads ≤ 168 h
+    on 75–91 % of channels and the gap is exactly 1.001 at 336 h** — a real, small memorisation tilt
+    that vanishes by 14 d; below the flag threshold; irrelevant after a 92-day discard.
+    **`FORCING_REPEATS_ANNUAL_CYCLE=True`: all 7 forcing channels bitwise identical across 2044, 2045,
+    2048** at frames 0/1092/1459 (state differs by 6.6e3) — the frozen-annual-cycle finding is in
+    the packed makani data.
+  - **DECISION (user, end of session): "Let's do what ACE2 does."** Adopt fme's inference-evaluator
+    recipe — whole-window time-mean bias/RMSE vs the *same-window* truth mean, monthly reference →
+    global-mean annual series and seasonal cycle, zonal means; skip Nino3.4 (SST prescribed). Monthly
+    bins, not per-frame. Nothing is built yet: needs reference builders, a **streaming cross-file
+    driver that reduces on the fly** (constant memory, crosses year files, accumulates time/monthly
+    means + a per-channel stability record), an aggregator, and a pre-registration. Full design,
+    facts, cost numbers, jesswan questions and do-not-retry list →
+    **`polaris_makani_climate_protocol_handoff.md`**. No retraining is implied: ACE2 runs 10-year
+    inference on a 2-step-trained model; whether *our* checkpoint survives 5 years is what the run
+    measures, and a training change (deeper unroll / dropping `Z3_l17`) is jesswan's call if not.
 - **2026-09-24 (makani, docs only)** — **`plan_lagged_sweep` gains a `Parameters` block; the four
   lagged-mode CLI help strings say what they mean.** Branch `docs/lagged-ensemble-docstrings`
   (worktree `.claude/worktrees/lagged-docstrings`). Prompted by a Q&A that had to reconstruct the

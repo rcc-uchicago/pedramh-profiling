@@ -24,6 +24,16 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 > for building the snapshot ensemble. Includes 9 measured silent-failure traps and 8
 > retired claims not to resurrect.
 
+> 📋 **makani climate evaluation (2026-09-24): `polaris_makani_climate_protocol_handoff.md`** —
+> the user decided to **"do what ACE2 does"** for jesswan's multi-year protocol (8 ICs Oct 2044,
+> score 2045–2049 vs climatology). Nothing is built yet. Order: (1) reference builders
+> (2045–49 time mean + monthly; 2015–44 monthly climatology + interannual std), (2) the
+> **streaming cross-file driver** with on-the-fly time/monthly means and a per-channel stability
+> record, equivalence-checked against `rollout_one_ic` at K=56, (3) aggregator, (4) pre-reg
+> **before** the 8-member run. ⚠ Probe 7648967: the checkpoint is physical to day 36 except
+> `Z3_l17`/`Z3_l16`/soil drift; the ~120-day blow-up will land in the first scored year — the
+> first run is a stability measurement. Six questions for jesswan are in the handoff §5.
+
 
 1. ✅ **COMPLETE 2026-09-04 — job 7585080, all 243 epochs, `Exit_status 0`**, 46 h 20 min of a
    48 h allocation. Best validation loss **0.01284** at epoch 243; **332,424 weight updates**
