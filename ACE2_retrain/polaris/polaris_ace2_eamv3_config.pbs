@@ -1,0 +1,61 @@
+#!/bin/bash -l
+#PBS -N ace2_eamv3_config
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Download ai2's ACE2-EAMv3 checkpoint (1.82 GB, huggingface allenai/ACE2-EAMv3)
+# and read its training config: the prognostic / diagnostic / forcing split on
+# E3SMv3 data, which no public document lists.  CPU only; no training.
+#
+# The checkpoint lands in ${MEMBER_ROOT}/ace2_eamv3/ (never the repo — rule #8);
+# only the config JSON is text and may be copied back.
+#
+# PASS = ACE2_EAMV3_CONFIG_OK.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+[ -d "${ACE2_DIR}/ace_exp" ] || { echo "ERROR ACE2_TREE_NOT_FOUND"; exit 2; }
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+[ -x "${ACE2_VENV}/bin/python" ] || { echo "ERROR ACE2_VENV_MISSING: ${ACE2_VENV}"; exit 3; }
+export PYTHONNOUSERSITE=1
+# Compute nodes reach the internet only through the ALCF proxy (polaris_pbs_notes.md).
+export https_proxy=http://proxy.alcf.anl.gov:3128 http_proxy=http://proxy.alcf.anl.gov:3128
+
+DEST="${MEMBER_ROOT}/ace2_eamv3"
+CKPT="${DEST}/ace2_EAMv3_ckpt.tar"
+URL=https://huggingface.co/allenai/ACE2-EAMv3/resolve/main/ace2_EAMv3_ckpt.tar
+WANT_BYTES=1823619578
+mkdir -p "${DEST}" || { echo "ERROR DEST_NOT_WRITABLE: ${DEST}"; exit 2; }
+echo "=== ace2_eamv3_config: $(date -Iseconds) host=$(hostname) dest=${DEST} ==="
+
+if [ "$(stat -c %s "${CKPT}" 2>/dev/null)" != "${WANT_BYTES}" ]; then
+    curl -fL --retry 3 -C - -o "${CKPT}" "${URL}" || { echo "ERROR DOWNLOAD_FAILED"; exit 4; }
+fi
+GOT=$(stat -c %s "${CKPT}")
+[ "${GOT}" = "${WANT_BYTES}" ] || { echo "ERROR SIZE_MISMATCH got=${GOT} want=${WANT_BYTES}"; exit 4; }
+echo "checkpoint ok: ${GOT} bytes"
+
+# fme names torch.save files *.tar; if this one is a real tar archive, unpack it.
+LOAD="${CKPT}"
+if tar -tf "${CKPT}" >/dev/null 2>&1; then
+    echo "real tar archive; contents:"; tar -tvf "${CKPT}"
+    tar -xf "${CKPT}" -C "${DEST}"
+    LOAD="$(find "${DEST}" -name '*ckpt*' ! -name 'ace2_EAMv3_ckpt.tar' -type f | head -1)"
+    [ -n "${LOAD}" ] || { echo "ERROR NO_CKPT_IN_TAR"; exit 5; }
+fi
+echo "loading: ${LOAD}"
+"${ACE2_VENV}/bin/python" "${ACE2_DIR}/polaris/ace2_eamv3_read_config.py" \
+    "${LOAD}" "${DEST}/ace2_eamv3_stepper_config.json"
