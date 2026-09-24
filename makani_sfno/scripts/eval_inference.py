@@ -59,7 +59,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--mode", choices=["nwp", "climate"], default="nwp",
                    help="Rollout mode (default: nwp)")
     p.add_argument("--nwp-K", type=int, default=56,
-                   help="Rollout horizon in NWP mode (default: 56 = 14 days)")
+                   help="Rollout length in NWP mode, in 6 h frames: K predictions at leads "
+                        "6 h … 6K h, no lead-0 (default: 56 = 14 days). In lagged mode also "
+                        "the age of the oldest member; must be a multiple of --ic-stride.")
     p.add_argument("--nwp-n-ic", type=int, default=12,
                    help="ICs per file in NWP mode (default: 12)")
     p.add_argument("--eval-sha7", required=True, type=str)
@@ -87,13 +89,18 @@ def _parse_args() -> argparse.Namespace:
                         "rollouts OVERLAP on common targets, which is what a lagged ensemble "
                         "needs and what the monthly spacing deliberately prevents.")
     p.add_argument("--ic-stride", type=int, default=4,
-                   help="Lagged mode: spacing d between starts, in samples. Must divide "
-                        "--nwp-K; members per target is K/d (default 4 => 14 at K=56)")
+                   help="Lagged mode: spacing d between starts, in 6 h frames, and so the "
+                        "spacing in age between members at one target. Must divide --nwp-K; "
+                        "members per target is K/d (default 4 = 24 h => 14 at K=56)")
     p.add_argument("--n-targets", type=int, default=32,
-                   help="Lagged mode: how many consecutive targets to cover fully. ⚠ COST: "
-                        "~1.95 GB and ~77 s per rollout at the production shape")
+                   help="Lagged mode: how many consecutive target frames (valid times) must "
+                        "receive all K/d members. Sets the rollout count, "
+                        "ceil((n_targets + K)/d) - 1 (default 32 => 21 at K=56, d=4). "
+                        "⚠ COST: ~1.95 GB and ~77 s per rollout at the production shape")
     p.add_argument("--first-start", type=int, default=0,
-                   help="Lagged mode: sample index of the first start within each file")
+                   help="Lagged mode: frame index of the first start within each file. "
+                        "Translates the whole sweep without changing any count; its residue "
+                        "mod d picks which targets carry the on-lattice depths d, 2d, … K.")
     return p.parse_args()
 
 

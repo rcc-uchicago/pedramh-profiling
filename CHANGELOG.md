@@ -144,6 +144,23 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, docs only)** — **`plan_lagged_sweep` gains a `Parameters` block; the four
+  lagged-mode CLI help strings say what they mean.** Branch `docs/lagged-ensemble-docstrings`
+  (worktree `.claude/worktrees/lagged-docstrings`). Prompted by a Q&A that had to reconstruct the
+  meanings from three files: `K` had no docstring anywhere in `sfno_ensemble` and the CLI called it a
+  "horizon" without a unit. Now recorded in one place, in the code's own terms: everything is in
+  **frames (one frame = one 6 h step)**; `K` is the rollout length *and* the age of the oldest member
+  (`K // stride` members at ages `stride … K`); `stride` (= `d`) is the start spacing *and* the age
+  spacing between members, a design choice not a derived one (design doc §4b); `n_targets` counts
+  consecutive target **frames** (valid times) and is the only knob that sets the rollout count
+  `ceil((n_targets + K)/stride) − 1`; `first_start` is a pure translation whose residue mod `stride`
+  picks the on-lattice targets. Why each production value is what it is (56 / 4 / 32 / 0) is stated
+  with its source. **No behaviour changed** — `py_compile` OK under the sfno-venv Python 3.12, and
+  `tests/sfno_ensemble/test_lagged_ensemble.py` **21 passed** (login node; the interpreter then
+  core-dumped at teardown, the CLAUDE.md #3 login-node behaviour — the pass count is the token).
+  ⚠ Fact worth keeping straight, surfaced by the same Q&A: the E3SM test files `2048.h5`/`2049.h5` are
+  **1460 frames** each (noleap, asserted by `polaris_pack_e3sm_alldata_full.pbs`); **1455/1459 is the
+  PlaSim `MOST.*.h5` length** (Aug-1 anchor, 363.75 d) and does not apply to the Polaris sweep.
 - **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
   DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
   tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →

@@ -122,6 +122,49 @@ def plan_lagged_sweep(
     ~350 rollouts ≈ 685 GB -- check disk before widening the window; the 243 snapshots
     already hold 403 GiB and `max_checkpoints_to_keep` does not prune.
 
+    Parameters
+    ----------
+    n_samples
+        Frames in the file being swept -- the length of its `time_plasim` axis (1460
+        for an E3SM noleap year at 6 h).  Every rollout must end inside it,
+        `s + K < n_samples`, for the same reason `nwp_ic_offsets` refuses to cross a
+        file boundary.  `K`, `stride`, `n_targets` and `first_start` are all in the
+        same unit: one frame = one 6 h step.
+    K
+        Rollout length, in frames.  A rollout from start `s` makes `K` autoregressive
+        predictions valid at frames `s+1 … s+K`, i.e. at leads `6 h … 6K h`; there is
+        no lead-0 output (`rollout_one_ic` asserts the truth block is exactly `K`
+        frames).  In the ensemble `K` is also the age of the OLDEST member at any
+        target, so members per target is `K // stride` and their ages run
+        `stride, 2*stride, … K`.  Must be a positive multiple of `stride`.  Production
+        is 56 = 14 days: the NWP scorecard horizon, kept here because the 126 h curve
+        was too short to separate exposure bias from mode-averaging (plan §4.5) and the
+        K=56 rollouts are the evaluation's own, so the members are already paid for.
+    stride
+        Spacing between consecutive starts, in frames -- `d` in the plan docs.  Because
+        a target's members come from the starts that span it, `stride` is equally the
+        spacing in age between neighbouring members at one target.  Must divide `K`,
+        or targets get unequal member counts (checked below).  Production is 4 = 24 h.
+        The design doc (§4b) treats it as the dial that sets the spread: `d=1` makes
+        members nearly identical, `d=20` far apart -- so it is a choice, not derived.
+    n_targets
+        How many consecutive target frames must receive the full `K // stride`
+        members.  A target is a frame in the role of forecast valid time; the same
+        frame is a start for one rollout and a target of the rollouts before it.  This
+        is the only knob that sets the rollout count,
+        `ceil((n_targets + K) / stride) - 1`, and with it the cost; it changes nothing
+        about any single member.  Production is 32 (8 days of valid times, 21
+        rollouts), sized to fit one file in a `debug`-queue hour.
+    first_start
+        Frame index, within each file, of the first start.  A pure translation: every
+        start and every target moves with it (`starts`, `target_range`), and no count
+        does (`n_rollouts`, `members_per_target`, `n_covered_targets`).  Its residue
+        mod `stride` decides which targets sit on the start lattice and carry the
+        depths `stride, 2*stride, … K` (`lattice_targets`); with 6 h frames and
+        `stride=4` that is the hour of day the scored targets are valid at.  Bounded
+        above by the fit check.  The same offset is applied in every file the sweep
+        loops over; the caller adds the file's global offset.
+
     Raises
     ------
     ValueError
