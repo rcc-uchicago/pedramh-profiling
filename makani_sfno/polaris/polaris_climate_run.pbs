@@ -28,6 +28,12 @@
 #
 # PASS = CLIMATE_RUN_OK (every member printed OK or TRUNCATED and has its .nc).
 # Submit from makani_sfno/:   qsub polaris/polaris_climate_run.pbs
+#
+# ANOTHER USER (e.g. jesswan): works unchanged. Checkpoints, pack and h5py overlay
+# are read from CLIMATE_SRC_ROOT (default mehta5's group-readable tree); outputs
+# go to YOUR members/<you>/runs/makani_eval/climate_protocol_<jobid>/. The PBS .o
+# file lands in the directory you submit from, so submit from a makani_sfno/
+# you can write to, or add  -o <your dir>/climate_run.o
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}" || exit 2
@@ -36,6 +42,17 @@ if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
     MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
 fi
 REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Second-user support. Inputs (checkpoints, pack, h5py overlay) live in mehta5's
+# group-readable tree; OUTPUTS go to the submitter's own MEMBER_ROOT, which
+# polaris_env.sh resolves per user. Without this, another user's MEMBER_ROOT
+# would be used to find the checkpoints (not there) and the overlay (absent,
+# so base h5py fails). Set before the env block so that block stays verbatim.
+CLIMATE_SRC_ROOT="${CLIMATE_SRC_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+if [ -z "${MAKANI_H5PY_OVERLAY:-}" ] && \
+   [ ! -d "/eagle/projects/lighthouse-uchicago/members/${USER}/conda-envs/makani-h5py-overlay" ]; then
+    export MAKANI_H5PY_OVERLAY="${CLIMATE_SRC_ROOT}/conda-envs/makani-h5py-overlay"
+fi
 
 # Env bootstrap copied verbatim from polaris_eval_inference.pbs -- module
 # ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
@@ -56,8 +73,8 @@ export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
 export HDF5_USE_FILE_LOCKING=FALSE
 PY="${SFNO_VENV}/bin/python"
 
-MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
-EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"   # outputs
+EXPROOT="${CLIMATE_SRC_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"                 # inputs
 ARMS="${ARMS:-A B}"
 N_MEMBERS="${N_MEMBERS:-8}"
 MEMBER_STRIDE="${MEMBER_STRIDE:-16}"
@@ -76,6 +93,7 @@ mkdir -p "${OUT_ROOT}"
 
 echo "=== makani_climate_run: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}  arms='${ARMS}'  members=${N_MEMBERS}  out=${OUT_ROOT}"
+echo "inputs=${CLIMATE_SRC_ROOT}  h5py_overlay=${MAKANI_H5PY_OVERLAY:-<env default>}  user=${USER}"
 for arm in ${ARMS}; do echo "ckpt ${arm}: ${CKPTS[$arm]}"; done
 makani_env_report
 echo
