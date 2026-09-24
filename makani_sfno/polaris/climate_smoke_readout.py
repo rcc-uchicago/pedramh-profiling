@@ -16,7 +16,9 @@ import netCDF4
 import numpy as np
 
 DRIFT_CHANNELS = ("Z3_l17", "Z3_l10", "T_l17", "PS", "TREFHT")
-LEADS = (120, 240, 368, 480, 594, 600)
+# From an Oct 1 2044 start: 368 = Jan 1 2045; 1828/3288/4748/6208 = Jan 1 2046..2049;
+# 7555 = last lead every 8-member start reaches; 7667 = Oct 1 member's last.
+LEADS = (120, 240, 368, 480, 594, 600, 1828, 3288, 4748, 6208, 7555, 7667)
 
 
 def main() -> int:
