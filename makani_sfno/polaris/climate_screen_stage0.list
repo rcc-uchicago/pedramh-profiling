@@ -1,0 +1,48 @@
+# Stage-0 screen list (polaris_makani_finetune_stability_handoff.md §2c), priority order.
+# label=run_dir:ckpt   run_dir relative to $EXPROOT; ckpt relative to <run_dir>/training_checkpoints.
+# A label ending _eNN is checked against the epoch stored in the checkpoint (summary column epoch_check).
+# File->epoch mapping from write order (verified 2026-09-24 by mtime): ckpt_mp0_v<i> = epoch i+1 for
+# c1_rollout_full_b16 (24 kept) and prod1n_b32_sgdr (243 kept); nf4_prod_b16_r1 keeps 4 rotating
+# versions, v0..v3 = epochs 21..24; its best_ckpt = epoch 1.
+#
+# 1. C1 (depth 1) all 24 epochs vs B (depth 4) epochs 1, 21-24: matched batch 16, LR, schedule.
+C1_e01=c1_rollout_full_b16:ckpt_mp0_v0.tar
+C1_e02=c1_rollout_full_b16:ckpt_mp0_v1.tar
+C1_e03=c1_rollout_full_b16:ckpt_mp0_v2.tar
+C1_e04=c1_rollout_full_b16:ckpt_mp0_v3.tar
+C1_e05=c1_rollout_full_b16:ckpt_mp0_v4.tar
+C1_e06=c1_rollout_full_b16:ckpt_mp0_v5.tar
+C1_e07=c1_rollout_full_b16:ckpt_mp0_v6.tar
+C1_e08=c1_rollout_full_b16:ckpt_mp0_v7.tar
+C1_e09=c1_rollout_full_b16:ckpt_mp0_v8.tar
+C1_e10=c1_rollout_full_b16:ckpt_mp0_v9.tar
+C1_e11=c1_rollout_full_b16:ckpt_mp0_v10.tar
+C1_e12=c1_rollout_full_b16:ckpt_mp0_v11.tar
+C1_e13=c1_rollout_full_b16:ckpt_mp0_v12.tar
+C1_e14=c1_rollout_full_b16:ckpt_mp0_v13.tar
+C1_e15=c1_rollout_full_b16:ckpt_mp0_v14.tar
+C1_e16=c1_rollout_full_b16:ckpt_mp0_v15.tar
+C1_e17=c1_rollout_full_b16:ckpt_mp0_v16.tar
+C1_e18=c1_rollout_full_b16:ckpt_mp0_v17.tar
+C1_e19=c1_rollout_full_b16:ckpt_mp0_v18.tar
+C1_e20=c1_rollout_full_b16:ckpt_mp0_v19.tar
+C1_e21=c1_rollout_full_b16:ckpt_mp0_v20.tar
+C1_e22=c1_rollout_full_b16:ckpt_mp0_v21.tar
+C1_e23=c1_rollout_full_b16:ckpt_mp0_v22.tar
+C1_e24=c1_rollout_full_b16:ckpt_mp0_v23.tar
+B_e01=nf4_prod_b16_r1:best_ckpt_mp0.tar
+B_e21=nf4_prod_b16_r1:ckpt_mp0_v0.tar
+B_e22=nf4_prod_b16_r1:ckpt_mp0_v1.tar
+B_e23=nf4_prod_b16_r1:ckpt_mp0_v2.tar
+B_e24=nf4_prod_b16_r1:ckpt_mp0_v3.tar
+# 2. 1-epoch batch-8 depth ladder (proxies).
+nf1p_r1_e01=nf1_proxy_b8_r1:best_ckpt_mp0.tar
+nf1p_r2_e01=nf1_proxy_b8_r2:best_ckpt_mp0.tar
+nf3p_r1_e01=nf3_proxy_b8_r1:best_ckpt_mp0.tar
+nf4p_r1_e01=nf4_proxy_b8_r1:best_ckpt_mp0.tar
+nf4p_r2_e01=nf4_proxy_b8_r2:best_ckpt_mp0.tar
+# 3. Base-model snapshot spread, and the CRPS arm.
+A_e200=prod1n_b32_sgdr:ckpt_mp0_v199.tar
+A_e220=prod1n_b32_sgdr:ckpt_mp0_v219.tar
+A_e243=prod1n_b32_sgdr:ckpt_mp0_v242.tar
+crps_e01=nf4_crps_b4_r1:best_ckpt_mp0.tar
