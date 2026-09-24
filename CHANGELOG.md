@@ -144,6 +144,29 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani) — jesswan's multi-year protocol, inference only: neither A nor B yields an
+  admissible 5-year climate.** Job **7649597** (`polaris/polaris_climate_run.pbs` @ `d8b301ea`,
+  `CLIMATE_RUN_OK`, ~8 min of compute): 8 start dates (Oct 1, 5, …, 29 2044 = frames 1092+16i),
+  each rolled to 2049-12-31 18:00, for A (`prod1n_b32_sgdr` best, epoch 243) and B
+  (`nf4_prod_b16_r1` best = fine-tune epoch 1). Outputs + `readout.log`:
+  `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7649597/`.
+  - **A: 8/8 non-finite** at leads 595, 560, 849, 453, 490, 463, **317**, 425 (day 79–212). A06 dies
+    before the scored window opens (lead 368); the others reach it for 57–481 leads. The first
+    channels past 3σ are upper-level `RELHUM_l04`/`V_l00`.
+  - **B: 7/8 non-finite** at leads 5634, 3639, 7263, 5485, 6997, 7339, 5778 (≈ 2.5–5.0 yr); the
+    channel median crosses 3σ at leads 3458–7161. The first channel past 3σ is at the **model top**
+    (`V_l00`/`V_l01`, leads 1353–1880 ≈ 1 yr), then `RELHUM_l00`. **The one survivor (B05, Oct 21) is
+    not usable:** global-mean `PS` −269 hPa (≈27% of the atmosphere) and `T_l17` −10.5 K by lead 7555.
+  - **Mass loss is steady in every B run from the first weeks:** global-mean `PS` Δ vs lead 1 is
+    −34 to −42 hPa at lead 1828 (1.25 yr), −65 to −105 at 3288, −128 to −177 at 4748, −226 to −316 at
+    6208. The `PS` channel is where every one of the 16 runs goes non-finite. (`T`/`TREFHT` Δs
+    include the seasonal cycle; `PS` global mean has essentially none.)
+  - Reading: A fails at ~day 80–210; B delays failure by years but drifts in mass throughout. The
+    protocol cannot be scored on either checkpoint. **Next:** `polaris_makani_finetune_stability_handoff.md`
+    Stage 0 (does depth or epochs change time-to-failure *and* the `PS` drift rate: C1 vs B,
+    all epochs), and put the mass loss in front of jesswan (ACE2 runs `conserve_dry_air: true`).
+    n=8 start dates per checkpoint, one checkpoint each.
+
 - **2026-09-24 (makani) — streaming multi-year climate driver BUILT; G1–G3 green; first stability
   read of checkpoints A and B.** Branch `feat/makani-climate-driver` (cut from
   `docs/lagged-ensemble-docstrings` @ `05333971`), handoff `polaris_makani_streaming_driver_handoff.md`.
