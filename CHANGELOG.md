@@ -144,6 +144,61 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani) — streaming multi-year climate driver BUILT; G1–G3 green; first stability
+  read of checkpoints A and B.** Branch `feat/makani-climate-driver` (cut from
+  `docs/lagged-ensemble-docstrings` @ `05333971`), handoff `polaris_makani_streaming_driver_handoff.md`.
+  New files only: `src/sfno_inference/climate_driver.py`, `scripts/climate_rollout.py`,
+  `scripts/climate_driver_equiv.py`, `tests/sfno_inference/test_climate_driver.py`,
+  `polaris/polaris_climate_{equiv,smoke,readout}.pbs`, `polaris/climate_smoke_readout.py`,
+  `docs/2026-09-24_climate_driver_g2_prereg.md`. `rollout_driver.py`, `eval_inference.py`, the
+  preprocessor and the model are **untouched**.
+  - **G1 ✅** `CLIMATE_DRIVER_TEST_OK`, 25/25 (job **7649565**). Real `PlasimForcingDataset` on
+    tiny `YYYY.h5` files (5+1 out / 3 forcing channels), real preprocessor cache methods, real
+    `rollout_one_ic` as the block reference; each §5 trap seeded and shown caught. ⚠ The first run
+    (**7649561**) was 23/25: the seeded off-by-one and stale-`xz` faults changed **no output bit**
+    because the fixture's year/frame-encoding forcing saturated the stub model's `tanh`. A fixture
+    fault (the forcing-seen check caught the same seed); fixed by feeding forcing through `sin()`.
+    Lesson: a seeded-fault test is only as good as the fixture's sensitivity to the seed.
+  - **G2 ✅** `CLIMATE_DRIVER_EQUIV_OK` (7649561 and 7649565; tolerance committed in `fe89b902`
+    before submission): ckpt A, 2048 frame 1092, K=56, **every lead bitwise equal** to
+    `rollout_one_ic` for chunk_len 40/7/1, and the chunk lengths are bitwise equal to each other;
+    control (`rollout_one_ic` ×2) bitwise. Fed-back dtype **bf16**, the same as `rollout_one_ic`, not changed.
+    Blind spots: G2 is single-file and does not test the reductions (those are covered by G1 §5.4–5.7 and G3's hand-off).
+  - **G3 ✅** `CLIMATE_SMOKE_OK` (job **7649567**; outputs
+    `$MEMBER_ROOT/runs/makani_eval/climate_smoke_7649567/member_{A,B}.nc`): 600 leads from 2044
+    frame 1092, A and B in parallel on 2 GPUs. Hand-off `2044.h5→2045.h5` at **lead 368**, local
+    frame 0, input forcing bitwise equal to a direct read of `2045.h5` (both arms). E3SM per-file
+    timestamps **reset** at each file ⇒ the dataset **synthesised** the continuous axis (logged).
+    **Cost: 0.023–0.026 s/lead, peak 1.48 GiB** per member (vs `rollout_one_ic`'s OOM at K=200;
+    the probe's "~1.3 s/step" was mostly block I/O). ⇒ a 7,667-lead member is ~3.5 min of stepping.
+  - **G4 — stability, n=1 per checkpoint, 150 d, NOT a climate result** (readout job **7649572**;
+    σ = the run's `global_stds`; anomaly vs `stats/time_means.npy`):
+    | | A `prod1n_b32_sgdr` best (epoch **243**) | B `nf4_prod_b16_r1` best (epoch **1**) |
+    |---|---|---|
+    | outcome | **non-finite at lead 595** (`PS`), outputs written | 600/600 finite |
+    | channels past 3σ / 10σ (anom RMS) | 101 / 101 | **0 / 0** |
+    | median crosses 3σ / 10σ | lead **488** / 507 (≈ day 122 / 127) | never |
+    | first channels past 3σ | `V_l00`@382, `RELHUM_l04`@410, `RELHUM_l00`@417, `RELHUM_l05`@437, … | — |
+    | global-mean Δ vs lead 1 at lead 368 / 480 | `Z3_l17` −22.8 / −43.4 m; `Z3_l10` −0.3 / **+838** m; `T_l17` −1.33 / −12.1 K; `PS` +156 / −3220 Pa | `Z3_l17` +94 / +127 m (+149 at 600); `Z3_l10` −7.6 / +10.6 m; `T_l17` −2.76 / −2.87 K; `PS` **−661 / −981 Pa (−1346 at 600)** |
+    Readings: (1) A's blow-up (the "~500 steps") is reproduced at the median crossing (lead 488), and it
+    **starts at the model top** (`V_l00`, upper `RELHUM`), not near-surface `Z3`. `Z3_l17`'s
+    −43 m at lead 480 matches the −0.35 m/day linear drift predicted in the entry below. (2) B does
+    not blow up in 150 d, but its **global-mean `PS` falls steadily, −13.5 hPa by lead 600**:
+    that is a loss of atmospheric mass. Global-mean `PS` is nearly constant in reality, so this is a
+    defect, not a season. The `T`/`TREFHT` Δs (−1 to −3 K, Oct→Feb) **include the real seasonal
+    cycle** and cannot be read as drift without the §4a truth references. (3) A vs B differ in both
+    `n_future` (1 vs 5) and training length (243 vs 1 epoch), so this does **not** isolate
+    `n_future`'s effect. n=1 each.
+  - Handoff §7 defaults recorded: (1) soil channels undecided (jesswan); the driver is
+    channel-agnostic (§5.8), so this blocks nothing. (2) B = `best_ckpt_mp0.tar`, **confirmed epoch 1**
+    from inside the checkpoint (valid-loss best at epoch 1, per 7630639). Using `ckpt_mp0_v3.tar` (last
+    epoch) instead is the operator's call. Not fixed here (per handoff §6): 7630639's
+    `SCALING_CSV_SCHEMA_DRIFT`.
+  - **Next** (handoff §8): §4a truth references (2045–49 time and monthly means, 2015–44
+    interannual std), §4c aggregator, §4d pre-registration, then the 8-member run. Add a `PS`
+    global-mean (mass) clause to the prereg's admissibility rules, because B passes every σ-threshold
+    while losing mass.
+
 - **2026-09-24 (makani, analysis only) — `Z3_l17`'s "NRMSE 152" is a denominator artefact over a
   real, linear drift; the channel's 6-h signal sits below the model's resolution.** Read from probe
   7648967's `k56_summary.csv` (test arm, physical units) and the pack's `stats/*.npy`; no new job.
