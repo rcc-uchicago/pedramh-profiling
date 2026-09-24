@@ -144,6 +144,46 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — Stage 1 started: S1a green (`SCHED_TMAX=22`), T-anneal queued,
+  depth-8 fits, depth-16 OOMs.** Operator approved Stage 1 on `preemptable`, one arm at a time,
+  warm start A. Tooling `5a997a9d`: the harness gains one additive `_sched` line
+  (`scheduler_T_max` ← `SCHED_TMAX`); `submit_finetune_stability_arm.sh` is a sibling launcher
+  (`submit_nfuture_ladder.sh` is not edited); `lr_schedule_check.py` and
+  `polaris_lr_schedule_check.pbs` implement the S1a check.
+  - **S1a ✅** job **7649946** `S1A_OK`. Three readings agree:
+    (1) makani's own `get_scheduler` under torch 2.8.0: only `T_max=22` puts epoch 24 at 1e-6;
+    T_max 23 ends at 2.86e-6.
+    (2) The LR saved in all 24 C1 checkpoints and B's last 4 matches epoch e training at cosine
+    t = e − 2. A checkpoint is saved after `scheduler.step()`, so it holds the next epoch's LR.
+    C1's v0 holds exactly 4.000e-4.
+    (3) Short run **7649926** (`fs_lrcheck_nf4_b8_r1`, 3 epochs × 20 steps, `SCHED_TMAX=1`): the
+    rendered config carries `scheduler_T_max: 1`, and the LRs went 4e-4 → 1e-6 → 4e-4.
+    ⇒ Warmup and cosine step **once per epoch**, and **epoch 1 runs at a constant 4e-6**.
+    `submit_nfuture_ladder.sh:154-159`'s "entire first epoch was a ramp" is **wrong**. The script
+    is not edited, because it is protected.
+  - **T-anneal queued:** job **7650020**, `preemptable`, 2 nodes, 12 h, `fs_anneal_nf4_b16_r1`,
+    `SCHED_TMAX=22`, 25 checkpoints kept. Held on `queue_tags` (no free node); **do not resubmit**
+    (CLAUDE.md #12).
+  - **Probes** (`submit_nfuture_ladder.sh probe`, local batch 1, 1 node):
+    - depth 8, job **7650039**: trained clean, **peak torch 19.66 GB**, 7.10 samples/s over 4 GPUs.
+    - depth 16, job **7650263**: **CUDA OOM** on all 4 ranks. That matches the model's 46.4 GiB
+      prediction. T-d16 is blocked until activation recompute (`checkpointing_level`) is proven
+      bitwise on one step (handoff §3a.2).
+    - Both jobs report `rc=1` from the known `SCALING_CSV_SCHEMA_DRIFT` on the ladder CSV. Depth 8's
+      training itself returned rc 0. The Stage-1 arms write a new CSV.
+    - **T-d8 cost, estimated from the probe:** ~28 samples/s at 16 ranks and ~43.8k samples/epoch
+      gives ~1,550 s of training per epoch. That is ≈ 11–12 h for 24 epochs on 4 nodes, ≈ 45–50
+      node-hours.
+  - ⚠ **Isolation incident, caught by the monitor.** The dry-air fix (operator request) was first
+    edited in *this* worktree's `src/` while T-anneal was queued from it. The harness puts
+    `PBS_O_WORKDIR/src` first on `PYTHONPATH` (`:86`, `:120`), so the control arm would have
+    trained on uncommitted code. The files were copied out, and `src/`, `scripts/`, `polaris/` and
+    `tests/` were restored to HEAD `356dd2ea` before 7650020 started. The depth-16 probe
+    (19:34:59–19:37:13) did run with the flag-off hooks present. Those are pass-throughs, so its
+    OOM reading stands. **Rule: a worktree that has a queued or running training job is
+    read-only. Develop in another worktree.** The dry-air fix and the negativity probe continue
+    on `feat/makani-dryair-negativity` (worktree `dryair-negativity`).
+
 - **2026-09-24 (makani, cont.) — second-start re-screen: B epoch 22 is the Stage-0 winner, and PS
   drift is a fixed property of each checkpoint, not noise.** Operator (first-hand): "re-screen first
   and then do stage 1". Prereg addendum A1 (`a27c59b2` 19:16:44Z < `stime` 19:16:54Z) fixed the combined
