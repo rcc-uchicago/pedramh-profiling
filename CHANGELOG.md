@@ -144,6 +144,24 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
+  Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
+  job is read-only, because the harness imports `PBS_O_WORKDIR/src` at start and again on every
+  preemption restart.
+
+  | order | job | arm | tag | nodes × local | walltime | code tree (frozen) |
+  |---|---|---|---|---|---|---|
+  | 1 | **7650020** | T-anneal (depth 4) | `fs_anneal_nf4_b16_r1` | 2 × 2 | 12 h | `finetune-stability` @ `356dd2ea` src (pre-fix) |
+  | 2 | **7650769** | T-anneal + dry-air fix (DIAGNOSTIC) | `fs_anneal_dryair_nf4_b16_r1` | 2 × 2 | 12 h | `arm-anneal-dryair` @ `14043a95` |
+  | 3 | **7650770** | T-d8 | `fs_d8_nf8_b16_r1` | 4 × 1 | 16 h | `finetune-stability` (pre-fix) |
+
+  All arms: warm start A, global batch 16, LR 4e-4, 1-epoch warmup, `SCHED_TMAX=22`, 24 epochs,
+  25 checkpoints kept. Estimated cost ≈ 2×12 + 2×12 + 4×12 ≈ 100 node-hours. The T-d8 estimate is
+  from probe 7650039 (~1,550 s/epoch at 16 ranks). **Do not edit `finetune-stability` or
+  `arm-anneal-dryair` until 7650770 finishes.** T-d16 is blocked on OOM (activation recompute
+  not yet proven bitwise). Next: screen every epoch of each arm with `polaris_climate_screen.pbs`
+  (§3c); validation loss is never used to select.
+
 - **2026-09-24 (makani, cont.) — dry-air mass fix, inference only: conserves mass exactly, and by
   the pre-registered rule it HURTS survival. DIAGNOSTIC; jesswan's call.** Operator asked for ACE2's
   `conserve_dry_air` in the fine-tune and chose "test at inference, then train" and "dry-air mass".
