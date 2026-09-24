@@ -340,3 +340,12 @@ def test_dry_air_drift_subtracts_the_water_column(truth, tmp_path):
     assert r["ps_drift_hpa@1460"] == pytest.approx(-3.0, abs=1e-9)
     assert r["tmq_drift_kgm2@1460"] == pytest.approx(-10.0, abs=1e-9)
     assert r["dry_drift_hpa@1460"] == pytest.approx((-300.0 + S.GRAVITY * 10.0) / 100, abs=1e-9)
+
+
+def test_seeded_truth_missing_a_channel_is_refused(pack, tmp_path):
+    """A truth npz built before TMQ was added must not yield NaN drift columns silently."""
+    old = _load_truth(S.build_truth(pack, START, N, channels=("PS", "T_l17", "Z3_l10", "TREFHT")))
+    t = _load_truth(S.build_truth(pack, START, N))
+    p = _write_member(tmp_path / "o.nc", t, label="o", epoch=1, steps=N)
+    with pytest.raises(S.ScreenError, match="TRUTH_MISSING_CHANNEL.*TMQ"):
+        S.summarize_member(S.load_member(p), old, N)

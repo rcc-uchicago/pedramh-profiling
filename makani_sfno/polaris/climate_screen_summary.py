@@ -183,7 +183,13 @@ def load_member(path: Path) -> dict:
 
 
 def check_alignment(member: dict, truth: dict) -> None:
-    """Refuse a member whose start or per-lead valid times differ from the truth's."""
+    """Refuse a member whose start or per-lead valid times differ from the truth's,
+    or a truth file missing a channel a drift column needs (an older truth npz
+    would otherwise turn those columns into NaN silently)."""
+    missing = [c for c in TRUTH_CHANNELS if c not in truth["channels"]]
+    if missing:
+        raise ScreenError(f"TRUTH_MISSING_CHANNEL: truth file lacks {missing}; rebuild it "
+                          "(new path -- do not overwrite a truth a committed CSV came from)")
     a = member["attrs"]
     mstart = (int(a["start_year"]), int(a["start_frame"]))
     if mstart != truth["start"]:

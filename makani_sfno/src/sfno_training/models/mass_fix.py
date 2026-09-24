@@ -88,6 +88,12 @@ class DryAirFix:
             raise ValueError(f"DRY_AIR_FIX: nlat {pred_z.shape[-2]} != weights {self.w.numel()}")
         err = self._gm_dry(pred_z) - self._gm_dry(inp_z)          # (B,) Pa
         shift = (err / self.sd_ps)[:, None, None]                  # float64, z units
-        out = pred_z.clone()
-        out[:, self.i_ps] = (pred_z[:, self.i_ps].to(torch.float64) - shift).to(pred_z.dtype)
+        # ⚠ Promote bf16/fp16 to float32. The per-step dry-air error is a few Pa,
+        # far below one bf16 step of PS (σ_PS/256 at |z|~1); a bf16 value shifted by
+        # that and rounded back to bf16 is returned UNCHANGED, so a bf16 result would
+        # silently undo the fix (fix-on screen 7650512: B_e01 dry drift -30.9 hPa
+        # with the fix on vs -31.0 off). Promotion is lossless for the other channels.
+        out_dtype = torch.promote_types(pred_z.dtype, torch.float32)
+        out = pred_z.to(out_dtype).clone()
+        out[:, self.i_ps] = (pred_z[:, self.i_ps].to(torch.float64) - shift).to(out_dtype)
         return out

@@ -68,13 +68,47 @@ def test_fix_sign_adds_mass_back_when_prediction_lost_it():
     assert bool((out[:, 0] > pred[:, 0]).all())
 
 
-def test_fix_keeps_bf16_and_stays_close():
+def test_fix_promotes_bf16_to_float32_and_is_exact():
     inp, pred = _pair(3)
     out = _fix()(inp.to(torch.bfloat16), pred.to(torch.bfloat16))
-    assert out.dtype == torch.bfloat16
-    # bf16 PS spacing at |z|~1 is ~2^-8 * 5000 Pa ~ 20 Pa per point; the global
-    # mean after rounding is far tighter than the 1000 Pa the fix removes
-    assert np.abs(_gm_dry(out) - _gm_dry(inp.to(torch.bfloat16))).max() < 20.0
+    assert out.dtype == torch.float32
+    np.testing.assert_allclose(_gm_dry(out), _gm_dry(inp.to(torch.bfloat16)), atol=1e-2, rtol=0)
+    # non-PS channels are the bf16 values, exactly (promotion is lossless)
+    assert torch.equal(out[:, 1:], pred.to(torch.bfloat16)[:, 1:].to(torch.float32))
+
+
+def test_fix_keeps_float32_and_float64_dtypes():
+    inp, pred = _pair(10)
+    assert _fix()(inp.float(), pred.float()).dtype == torch.float32
+    assert _fix()(inp, pred).dtype == torch.float64
+
+
+def test_fix_survives_bf16_when_the_error_is_below_one_ulp():
+    """Regression, fix-on screen 7650512: the real per-step error is a few Pa, far below one
+    bf16 step of PS (σ/256 at |z|~1). A bf16 prediction shifted by that and re-rounded to
+    bf16 comes back unchanged, so the fix silently did nothing (B_e01 dry drift -30.9 hPa
+    with the fix on vs -31.0 off). The fixed prediction must keep the shift."""
+    inp, _ = _pair(9)
+    inp = inp.to(torch.bfloat16)
+    pred_bf = torch.cat([inp, torch.zeros_like(inp[:, :1])], 1).clone()
+    # A genuine bf16 prediction with a small mass loss: lower half of row 2's PS cells
+    # by exactly one bf16 ulp (v - 2^(floor(log2|v|)-7) is representable in bf16).
+    ps = pred_bf[:, 0, 2, : W // 2].to(torch.float64)
+    ulp = torch.exp2(torch.floor(torch.log2(ps.abs())) - 7)
+    pred_bf[:, 0, 2, : W // 2] = (ps - ulp).to(torch.bfloat16)
+    err_before = _gm_dry(pred_bf) - _gm_dry(inp)
+    assert np.all(err_before < -0.5) and np.all(err_before > -50)   # a few Pa, a real loss
+
+    # the pre-fix behaviour (round the corrected PS back to bf16) keeps most of the loss
+    f = _fix()
+    shift = torch.as_tensor(err_before / f.sd_ps)[:, None, None]
+    old = pred_bf.clone()
+    old[:, 0] = (pred_bf[:, 0].to(torch.float64) - shift).to(torch.bfloat16)
+    assert np.all(np.abs(_gm_dry(old) - _gm_dry(inp)) > 0.5 * np.abs(err_before))
+
+    out = f(inp, pred_bf)
+    assert out.dtype == torch.float32              # promoted, so the shift survives
+    np.testing.assert_allclose(_gm_dry(out), _gm_dry(inp), atol=1e-2, rtol=0)
 
 
 def test_fix_is_differentiable():
