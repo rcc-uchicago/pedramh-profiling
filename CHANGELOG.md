@@ -144,6 +144,110 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
+  Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
+  job is read-only, because the harness imports `PBS_O_WORKDIR/src` at start and again on every
+  preemption restart.
+
+  | order | job | arm | tag | nodes × local | walltime | code tree (frozen) |
+  |---|---|---|---|---|---|---|
+  | 1 | **7650020** | T-anneal (depth 4) | `fs_anneal_nf4_b16_r1` | 2 × 2 | 12 h | `finetune-stability` @ `356dd2ea` src (pre-fix) |
+  | 2 | **7650769** | T-anneal + dry-air fix (DIAGNOSTIC) | `fs_anneal_dryair_nf4_b16_r1` | 2 × 2 | 12 h | `arm-anneal-dryair` @ `14043a95` |
+  | 3 | **7650770** | T-d8 | `fs_d8_nf8_b16_r1` | 4 × 1 | 16 h | `finetune-stability` (pre-fix) |
+
+  All arms: warm start A, global batch 16, LR 4e-4, 1-epoch warmup, `SCHED_TMAX=22`, 24 epochs,
+  25 checkpoints kept. Estimated cost ≈ 2×12 + 2×12 + 4×12 ≈ 100 node-hours. The T-d8 estimate is
+  from probe 7650039 (~1,550 s/epoch at 16 ranks). **Do not edit `finetune-stability` or
+  `arm-anneal-dryair` until 7650770 finishes.** T-d16 is blocked on OOM (activation recompute
+  not yet proven bitwise). Next: screen every epoch of each arm with `polaris_climate_screen.pbs`
+  (§3c); validation loss is never used to select.
+
+- **2026-09-24 (makani, cont.) — dry-air mass fix, inference only: conserves mass exactly, and by
+  the pre-registered rule it HURTS survival. DIAGNOSTIC; jesswan's call.** Operator asked for ACE2's
+  `conserve_dry_air` in the fine-tune and chose "test at inference, then train" and "dry-air mass".
+  Branch `feat/makani-dryair-negativity`. `sfno_training/models/mass_fix.py` shifts predicted `PS`
+  uniformly so the area-weighted global mean of `PS − g·TMQ` equals the step input's. It is
+  applied in `PlasimPreprocessor`, and is off unless `conserve_dry_air`.
+  - **Flag-off gate ✅** job **7650461** `DRYAIR_OFF_EQUIV_OK`: pre-fix tree (`873ecd37`) vs this tree
+    with the fix off, same node, B e22 and A e243 × 1460 leads. 20/20 NetCDF variables bitwise.
+  - ⚠ **Job 7650512 = wiring failure, superseded; no effect reading.** Prereg A2's sanity check went
+    red: |dry drift| < 1 hPa held for 1 of 16. The fix returned the model's **bf16** dtype.
+    σ_PS = 9353 Pa, so half a bf16 step is ≈ 36 Pa at |z|≈1 (monitor, from `global_stds.npy`), while
+    the per-step correction is a few Pa. The shift rounded away everywhere except where |z_PS| is
+    small. That made 7650512 a **spatially non-uniform PS distortion**, not a weak fix (C1 e12
+    reached −19,313 hPa, C1 e07/e23 truncated). My unit test had seeded 1,000 Pa and missed it. The
+    fix, `6c29bf18`: promote the corrected prediction to float32, plus a failing-first test that
+    lowers bf16 PS by one ulp. Tests **7650629** `CLIMATE_SCREEN_TEST_OK` (39/39; driver 25/25).
+  - **Fix-on screen ✅** job **7650652** `CLIMATE_SCREEN_OK n=16`. The same 16 checkpoints and start
+    (2044 f1092) as their fix-off rows in 7649647; truth `screen_truth_2044f1092_tmq.npz`.
+    Sanity ✅: `dry_drift_hpa@1460` = +0.000 for all 14 survivors. `feedback_dtype=torch.float32`,
+    `dry_air_fix=1` in every member log.
+
+    | ckpt | survived off→on | n>3σ off→on | PS@1460 hPa off→on | T_l17@1460 K off→on | TMQ@1460 kg/m² on |
+    |---|---|---|---|---|---|
+    | B_e22 | 1→1 | 0→0 | +0.7 → −0.07 | −0.44 → −0.59 | −0.7 |
+    | B_e21 | 1→1 | 0→0 | −58.0 → −0.16 | −1.38 → −2.31 | −1.6 |
+    | B_e24 | 1→1 | 0→0 | +4.6 → +0.30 | +1.79 → +1.94 | +3.0 |
+    | B_e01 | 1→1 | 1→0 | −31.0 → −1.0 | −0.83 → **−10.5** | −10.3 |
+    | B_e23 | 1→1 | 1→2 | −68.1 → −0.27 | −0.61 → −2.76 | −2.7 |
+    | C1_e12 | 1→1 | 3→1 | −25.3 → −0.06 | −0.98 → −1.95 | −0.6 |
+    | C1_e23 | 1→1 | 1→1 | −13.6 → −0.20 | −0.33 → −2.18 | −2.0 |
+    | C1_e19 | 1→1 | 1→2 | −46.3 → −0.14 | −0.26 → −3.32 | −1.5 |
+    | C1_e24 | 1→1 | 1→3 | −26.5 → −0.10 | −0.36 → −1.13 | −1.0 |
+    | C1_e20 | 1→1 | 1→6 | −57.6 → −0.30 | −1.98 → −3.49 | −3.1 |
+    | C1_e07 | 1→1 | **70→8** | −318.8 → −0.03 | −74.0 → −3.49 | −0.3 |
+    | C1_e09 | 1→1 | 3→8 | −38.1 → −0.76 | −1.26 → −6.66 | −7.7 |
+    | C1_e18 | 1→1 | 1→22 | −51.1 → −0.52 | −0.91 → −5.97 | −5.3 |
+    | C1_e14 | 1→1 | **1→72** | −5.1 → −4.1 | +0.19 → −64.5 | −41.8 |
+    | C1_e03 | **1→0** (1173) | 33→101 | −152 → — | −11.3 → — | — |
+    | C1_e13 | **1→0** (988) | 3→101 | −81.3 → — | −0.88 → — | — |
+
+    **Reading by prereg A2** (n=1 start): survivors 16 → 14 (fall of 2); median `n_past_3sigma` 1 → 2.5.
+    ⇒ **"hurts"**, by the survivors clause. ⚠ **Selection caveat, stated but not used to override the
+    rule.** The 16 were chosen *because* they survived this start with the fix off, so any
+    perturbation regresses their survival. The mass fix works by construction: PS drift < 1 hPa in
+    every survivor, from 5–320 hPa. But **the model compensates elsewhere.** `T_l17` at one year is
+    colder with the fix on in 14 of 14 survivors, e.g. B e01 −0.8 → −10.5 K with `TMQ` −10 kg/m².
+    All 5 B checkpoints still survive; the C1 effect is mixed (e07 much better, e14 much worse).
+  - **Why post hoc is not the real test.** A model trained without the constraint learned to lose
+    mass. Putting mass back each step hands it states it never saw. The trained arm
+    (`anneal_dryair`, same as T-anneal plus `CONSERVE_DRY_AIR=1`) is the actual test.
+  - **For jesswan (handoff §7):** (1) Dry-air conservation is implemented and tested. It removes the
+    PS drift exactly, but applied post hoc it cools and dries the column. (2) Any per-step corrector
+    below ~σ/256 of its channel must act on an **fp32 state**. The model still reads bf16 under
+    autocast; the conservation lives in the fed-back fp32 state. (3) Negativity (entry below):
+    `PRECT`/`SOILWATER_10CM` are the clamp candidates.
+
+- **2026-09-24 (makani, cont.) — negativity probe: E3SM truth is never negative in any
+  moisture channel, but every rollout is. `PRECT` is negative over 10–17% of the globe.**
+  Operator: "measure how often RELHUM, RHREFHT and PRECT go negative in our rollouts" (the question
+  behind ACE2's `force_positive_names`, `ACE2_retrain/config_polaris.yaml:172-188`). Branch
+  `feat/makani-dryair-negativity` (`a275337d`). Job **7650442** `NEGATIVITY_PROBE_OK n=4`: one-year
+  rollouts from 2044 f1092 with the unchanged driver step. Measurement only. Truth is sampled daily
+  from the pack (`negativity_truth_2044f1092_s4.npz`). Outputs:
+  `$MEMBER_ROOT/runs/makani_eval/negativity_7650442/negativity.{csv,md}`.
+
+  Cell = mean % of area < 0 over leads / worst lead % / min value; truth (all four) = 0 % everywhere.
+
+  | member | RELHUM (worst level) | RHREFHT | PRECT | TMQ | SOILWATER_10CM |
+  |---|---|---|---|---|---|
+  | A_e243 (dies at 595) | l02: 20.7 / 79.2 / blow-up | 12.7 / 99.7 / blow-up | 13.7 / 26 / −4.9e-5 | 11 / 60 / blow-up | 64.2 / 100 / blow-up |
+  | C1_e24 | l00: 27.7 / 51.5 / −0.54 | 0.019 / 0.58 / −9.7 | 17.1 / 23.3 / −1.7e-7 | 0.11 / 0.55 / −6.5 | 47.9 / 56.8 / −116 |
+  | B_e01 | l00: 3.4 / 11.7 / −0.17 | 4e-6 / 0.002 / −0.59 | 10.1 / 15.2 / −1.1e-7 | 2.0 / 3.1 / −27 | 12.6 / 20.5 / −289 |
+  | B_e22 | l01: 5.7 / 15.9 / −0.57 | 0.001 / 0.25 / −5.2 | 12.3 / 19.1 / −8.6e-8 | 0.31 / 1.2 / −7.2 | 63.3 / 67.9 / −89 |
+
+  - `PRECT` (m/s) goes negative over 10–17% of the globe in every checkpoint that survives. The worst
+    cell is ≈ −1e-7 m/s ≈ −9 mm/day. This is the case ACE2 clamps (`PRATEsfc`).
+  - `RELHUM` negatives sit at the **model top (l00–l02)**, small in magnitude (< 1 % RH). Those are
+    the same levels where every blow-up starts (`V_l00`, `RELHUM_l00/l04`). That is a correlation,
+    not a shown cause.
+  - `SOILWATER_10CM`'s large area share is mostly ocean and ice, where truth is exactly 0 and a
+    tiny negative counts. The worst cells (−89 to −289 kg/m²) are not tiny. `TMQ` is rarely negative
+    but deeply so in a few cells. `RHREFHT` is essentially fine.
+  - A clamp (`max(x, 0)` before feedback) changes what the model computes → jesswan. The numbers
+    say `PRECT` and `SOILWATER_10CM` are the candidates, and `RELHUM` at the top only.
+    n = 1 start per checkpoint.
+
 - **2026-09-24 (makani, cont.) — Stage 1 started: S1a green (`SCHED_TMAX=22`), T-anneal queued,
   depth-8 fits, depth-16 OOMs.** Operator approved Stage 1 on `preemptable`, one arm at a time,
   warm start A. Tooling `5a997a9d`: the harness gains one additive `_sched` line
