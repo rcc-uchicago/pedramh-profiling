@@ -144,6 +144,29 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, analysis only) — `Z3_l17`'s "NRMSE 152" is a denominator artefact over a
+  real, linear drift; the channel's 6-h signal sits below the model's resolution.** Read from probe
+  7648967's `k56_summary.csv` (test arm, physical units) and the pack's `stats/*.npy`; no new job.
+  - `Z3_l17` truth anomaly amplitude is **0.15–0.22 m**. Model error is **1.2 m at 6 h** (one step
+    is already 6× the channel's variability), bias **−1.7 / −3.4 / −6.9 / −12.4 m at 5 / 10 / 20 /
+    36 d** ⇒ a **linear −0.35 m/day drift**, not exponential growth. `Z3_l16` −0.28 m/day, soil water
+    linear too. Extrapolated: ~−40 m at day 120, ~−600 m at 5 yr.
+  - Why: `global_std(Z3_l17)` = 815.6 m = the spatial std of its time mean, i.e. **pure topography**;
+    its 6-h tendency std (`time_diff_stds`) is **0.09 m**. In normalised units that is ~1e-4 σ,
+    ~35× below bf16 spacing at 1σ (~3.2 m) and far below what the loss can see. Ratio tendency /
+    bf16-step: `Z3_l17` 0.03, `Z3_l16` 1.0, `Z3_l15` 1.9, `T_l17` 26 — the same order as the
+    worst-channel list. Hypothesis (bf16 vs loss-scale not separated), untested.
+  - Consequences: (1) in the §4b stability monitor's `global_std` units `Z3_l17` is **~0.015 σ at
+    day 36 — benign**; it is unlikely to be what blows up near step 500, so the handoff's "Z3 leaves
+    range first" prediction is withdrawn. (2) Any metric normalised by truth anomaly amplitude will
+    flag `Z3_l17` at step 1 — the prereg must report it in metres and keep it out of headline /
+    blow-up clauses. (3) For jesswan (§5 q4): `Z3_l17` is effectively static topography + a
+    near-constant lowest-layer thickness, diagnosable from `PS`/`T_l17`; making it diagnostic or
+    normalising it by its tendency std changes what the model computes — her call.
+  - Also visible and not yet explained: `Z3_l10` bias **+28 → +44 m** (20 → 36 d) and `T_l17`
+    **+0.3 → +0.8 K** — a growing mid/low-troposphere warm drift in the ordinary channels, which is
+    the more likely route to a day-120 failure. The streaming run should track it.
+
 - **2026-09-24 (makani, cont.) — jesswan's multi-year climate protocol, assessed; probe SUBMITTED.**
   Proposal: initialise 8 members on evenly spaced October 2044 days, roll to end-2049, discard
   Oct–Dec 2044, compare 2045–2049 to climatology. Assessment (this session, before any new number):

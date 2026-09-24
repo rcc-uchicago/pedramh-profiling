@@ -125,6 +125,12 @@ worktree — copy it somewhere durable if the worktree is deleted). Outputs:
   ⇒ the failure is **channel-specific drift in fed-back near-surface geopotential and
   soil**, not a global blow-up. Whether `Z3_l17` should be prognostic at all is jesswan's
   call (raised in CHANGELOG `2026-09-20`, still open).
+- ⚠ **Correction (same day, CHANGELOG "analysis only"):** in physical units `Z3_l17` is a
+  **linear −0.35 m/day** drift on a channel whose truth anomaly amplitude is 0.2 m and whose
+  6-h tendency (0.09 m) is ~35× below bf16 resolution of its topography-dominated normalisation
+  (σ = 816 m). It is ~0.015 σ at day 36 — the "152" is the denominator. It is probably **not**
+  the blow-up precursor; watch the ordinary-channel warm drift (`Z3_l10` +44 m, `T_l17` +0.8 K
+  at 36 d) instead. The next bullet's prediction is withdrawn.
 - Reconciling with "blows up near 500 steps": not contradicted — 144 < 500. The probe
   says the first 36 days are physical apart from those channels; the blow-up, if it
   comes at ~120 d, will be **preceded by Z3_l17/Z3_l16/soil leaving range first**. The
