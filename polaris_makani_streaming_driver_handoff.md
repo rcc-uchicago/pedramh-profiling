@@ -79,6 +79,31 @@ OOMs, and it cannot cross files. **Leave it alone**; the new CLI is a sibling.
 
 Both traps pass any test that only checks shapes. §5 requires a seeded test for each.
 
+### 2b. Input from the `makani_ports_from_ace2` session (2026-09-24, relayed, not yet re-verified here)
+
+Its line numbers refer to **its** branch `worktree-makani-ace2-ports`, whose `rollout_driver.py` adds a
+`force_positive` clamp (`:122-148`). On this branch the same code is at `:160` / `:206-243` / `:238`.
+
+- **No turnkey tool** for makani that it verified (Earth2Studio/PhysicsNeMo not checked). It recommends the
+  plan above: `rollout_one_ic`'s step body, fme's streaming pattern.
+- **More fme references:** `fme/ace/aggregator/inference/time_mean.py:98-135` (running sum, one C×H×W
+  buffer); `fme/ace/inference/data_writer/monthly.py:89-330` (monthly totals + counts written to netCDF,
+  not held in RAM); `fme/ace/aggregator/inference/annual.py:157` (global-mean annual).
+- **Accumulate in z-space.** De-normalisation is affine per channel (`pred_z·out_scale + out_bias`), so
+  means accumulated in z-space de-normalise exactly at the end. The stability monitor still reports σ and
+  physical units.
+- **Chunk recipe:** at each chunk, re-cache with `xz` = forcing at the chunk's first input time and `yz` =
+  its N future frames. Pass the **chunk-local** step 0..N−1 to `append_history`, never the global step.
+  A shorter last chunk re-clones the cache buffers (`:386/:391`), so hold no outside references to them.
+- **bf16 feedback dtype.** Under autocast the fed-back `pred` may be bf16; `rollout_one_ic` casts to fp32
+  only for the stash. **Do not "fix" this in the driver**: G2 must match `rollout_one_ic` as it is. Log the
+  fed-back dtype, and raise any fp32-feedback arm as a separate, labelled, jesswan-visible change.
+- **`force_positive` clamp** (its branch only) changes outputs: diagnostic arm only, labelled, never default.
+- **ACE2-EAMv3 as a baseline is its own task**, not this one. Checkpoint
+  `/eagle/projects/lighthouse-uchicago/members/mehta5/ace2_eamv3/ace2_EAMv3_ckpt.tar`; it needs ai2's
+  8-layer coarsened inputs, which our pack lacks. It was trained on AMIP 1970–2020 with no CO2 input, so
+  2044–49 is extrapolation, comparable only on shared quantities.
+
 ---
 
 ## 3. What to build
