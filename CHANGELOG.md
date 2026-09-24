@@ -144,6 +144,36 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — negativity probe: E3SM truth is never negative in any
+  moisture channel, but every rollout is. `PRECT` is negative over 10–17% of the globe.**
+  Operator: "measure how often RELHUM, RHREFHT and PRECT go negative in our rollouts" (the question
+  behind ACE2's `force_positive_names`, `ACE2_retrain/config_polaris.yaml:172-188`). Branch
+  `feat/makani-dryair-negativity` (`a275337d`). Job **7650442** `NEGATIVITY_PROBE_OK n=4`: one-year
+  rollouts from 2044 f1092 with the unchanged driver step. Measurement only. Truth is sampled daily
+  from the pack (`negativity_truth_2044f1092_s4.npz`). Outputs:
+  `$MEMBER_ROOT/runs/makani_eval/negativity_7650442/negativity.{csv,md}`.
+
+  Cell = mean % of area < 0 over leads / worst lead % / min value; truth (all four) = 0 % everywhere.
+
+  | member | RELHUM (worst level) | RHREFHT | PRECT | TMQ | SOILWATER_10CM |
+  |---|---|---|---|---|---|
+  | A_e243 (dies at 595) | l02: 20.7 / 79.2 / blow-up | 12.7 / 99.7 / blow-up | 13.7 / 26 / −4.9e-5 | 11 / 60 / blow-up | 64.2 / 100 / blow-up |
+  | C1_e24 | l00: 27.7 / 51.5 / −0.54 | 0.019 / 0.58 / −9.7 | 17.1 / 23.3 / −1.7e-7 | 0.11 / 0.55 / −6.5 | 47.9 / 56.8 / −116 |
+  | B_e01 | l00: 3.4 / 11.7 / −0.17 | 4e-6 / 0.002 / −0.59 | 10.1 / 15.2 / −1.1e-7 | 2.0 / 3.1 / −27 | 12.6 / 20.5 / −289 |
+  | B_e22 | l01: 5.7 / 15.9 / −0.57 | 0.001 / 0.25 / −5.2 | 12.3 / 19.1 / −8.6e-8 | 0.31 / 1.2 / −7.2 | 63.3 / 67.9 / −89 |
+
+  - `PRECT` (m/s) goes negative over 10–17% of the globe in every checkpoint that survives. The worst
+    cell is ≈ −1e-7 m/s ≈ −9 mm/day. This is the case ACE2 clamps (`PRATEsfc`).
+  - `RELHUM` negatives sit at the **model top (l00–l02)**, small in magnitude (< 1 % RH). Those are
+    the same levels where every blow-up starts (`V_l00`, `RELHUM_l00/l04`). That is a correlation,
+    not a shown cause.
+  - `SOILWATER_10CM`'s large area share is mostly ocean and ice, where truth is exactly 0 and a
+    tiny negative counts. The worst cells (−89 to −289 kg/m²) are not tiny. `TMQ` is rarely negative
+    but deeply so in a few cells. `RHREFHT` is essentially fine.
+  - A clamp (`max(x, 0)` before feedback) changes what the model computes → jesswan. The numbers
+    say `PRECT` and `SOILWATER_10CM` are the candidates, and `RELHUM` at the top only.
+    n = 1 start per checkpoint.
+
 - **2026-09-24 (makani, cont.) — Stage 1 started: S1a green (`SCHED_TMAX=22`), T-anneal queued,
   depth-8 fits, depth-16 OOMs.** Operator approved Stage 1 on `preemptable`, one arm at a time,
   warm start A. Tooling `5a997a9d`: the harness gains one additive `_sched` line
