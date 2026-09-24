@@ -170,7 +170,11 @@ class MixWrapper(torch.nn.Module):
         assert inpa.shape[1] == self.cs + self.cf, f"model got {inpa.shape[1]} channels"
         self.calls += 1
         self.seen_forcing.append(inpa[0, self.cs:].clone())
-        mix = torch.tanh(torch.einsum("oc,bchw->bohw", self.M, inpa))
+        # sin() on the forcing: its channels encode year (~2044) and frame (~0..1459),
+        # which saturate tanh directly -- then a one-frame forcing shift changes no
+        # output bit and the §5.2/§5.3 seeded faults pass unseen (job 7649561).
+        feat = torch.cat([inpa[:, : self.cs], torch.sin(inpa[:, self.cs:])], 1)
+        mix = torch.tanh(torch.einsum("oc,bchw->bohw", self.M, feat))
         out = torch.cat([0.8 * inp[:, : self.cs] + 0.3 * mix[:, : self.cs], mix[:, self.cs:]], 1)
         if self.nan_at == self.calls:
             out = out.clone()
