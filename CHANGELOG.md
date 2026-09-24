@@ -144,6 +144,37 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — jesswan's multi-year climate protocol, assessed; probe SUBMITTED.**
+  Proposal: initialise 8 members on evenly spaced October 2044 days, roll to end-2049, discard
+  Oct–Dec 2044, compare 2045–2049 to climatology. Assessment (this session, before any new number):
+  - ✅ **Right protocol shape.** Spin-up is spent inside training years; the scored window is the
+    entire held-out record (2045–2047 valid + 2048–2049 test), five whole calendar years; 8 ICs ~4
+    days apart decorrelate in 2–3 weeks and become an IC ensemble for climate statistics. A
+    training-year IC does **not** contaminate it: training was single-step teacher-forced, the
+    trajectory forgets its IC within weeks, and the 92-day discard is 4–6× that.
+  - 🔴 **The blocker is unchanged and lands inside the window:** the checkpoint diverges near step
+    500 (~120 d, `2026-09-10_longroll_blowup_analysis.md`), which from Oct 1 2044 is **late January
+    2045** — the first month she would score. Until stability is fixed the run is a *stability
+    measurement*, not an evaluation.
+  - ⚠ Real exposure concerns, neither the IC: checkpoint selected on 2045–2047 valid loss (mild for
+    climate stats; 2048–2049 are the only fully clean years); and the pack's forcing repeats one
+    1460-step annual cycle every year (frozen-2015 boundary finding), so 2045–2049 differ from
+    training only in the atmospheric truth — a forced-stationarity test, not a response test.
+  - ⚠ Underspecified: *which* climatology (2015–2044 by month or by frame?), which statistics, and
+    what counts as success — pre-register before running. E3SM truth is one realisation; 8×5 model
+    years vs 5 truth years needs the 30-year interannual std as the noise floor.
+  - ⚠ Plumbing, ours: the driver loads all K truth+forcing frames onto the GPU at once (26 MB/frame
+    ⇒ one E3SM year ≈ 41 GB > 40 GB A100; climate mode has never run on Polaris), refuses to cross
+    year files (2044 is in `train/`, 2045–47 in `valid/`, 2048–49 in `test/`), and writes ~35 MB/lead
+    (≈270 GB/member at 7670 steps). Needs a streaming cross-file driver writing monthly means.
+  - 🔵 **Probe submitted: `polaris_longroll_probe.pbs`, job 7648967 (debug).** Two rollouts from
+    Oct 1 00:00 (frame 1092) of **2044** (train) and **2048** (test) at K=200 (50 d; ladder 144/96
+    on OOM — `rollout_one_ic` holds ~6 K-frame copies on the GPU, so K=367 ≈ 58 GB), scored with
+    `score_rollout_nc.py`, read by `longroll_probe_summary.py`: (1) where median NRMSE crosses
+    1.0×/1.41× std and whether it decelerates, channels past 3× at day 50; (2) train/test NRMSE ratio
+    at the first leads — the contamination claim, n=1 per arm, indicative; (3) are the 7 forcing
+    channels bitwise identical across 2044/2045/2048. PASS = `LONGROLL_PROBE_OK`. Out →
+    `$MEMBER_ROOT/runs/makani_eval/prod1n_b32_sgdr_longroll_probe_f1092/`. **Result pending.**
 - **2026-09-24 (makani, docs only)** — **`plan_lagged_sweep` gains a `Parameters` block; the four
   lagged-mode CLI help strings say what they mean.** Branch `docs/lagged-ensemble-docstrings`
   (worktree `.claude/worktrees/lagged-docstrings`). Prompted by a Q&A that had to reconstruct the
