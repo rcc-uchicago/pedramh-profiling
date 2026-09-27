@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 """Turn one ACE2 Polaris run into one row of the scaling CSV.
 
-Called by ``polaris_ace2_1node.pbs`` and ``polaris_ace2_multinode.pbs``.  It
+Called by ``polaris_ace2_train.pbs`` (one launcher, any node count).  It
 lives in its own file rather than inline in a PBS heredoc so it can be tested
 without an allocation -- see ``test_parse_ace2_scaling.py``.  That is not
 tidiness: the guards below are the difference between a scaling number and a
@@ -35,10 +35,19 @@ It is printed by the TRAINER PROCESS after ``init_process_group``, from a
 ``print`` rather than ``logging`` (fme routes logging to rank 0 only, which would
 make ``ranks_reporting`` read 1 on every arm).
 
-Five guards, each a real failure mode observed on this cluster:
+Six guards, each a real failure mode observed on this cluster:
 
-* ``transport`` -- which network NCCL actually selected.  A silent fallback off
-  the aws-ofi-nccl plugin looks exactly like "Slingshot is slow".
+* ``transport`` -- which net plugin NCCL dlopen'd.  ⚠ It is a LABEL, NOT A
+  GUARD: "AWS Libfabric" is byte-identical whether aws-ofi-nccl bound Slingshot
+  or silently fell back to tcp, so no value of it can fail.  Every ACE2
+  multi-node row written before 2026-09-17 carried it and none of them crossed
+  the fabric (handoff §1).  It is kept because it still distinguishes the plugin
+  from NCCL's built-in socket/IB transports -- not because it answers "which
+  wire".
+* ``provider`` -- the libfabric provider that DID carry the traffic, and the
+  guard with a failure value.  ``cxi`` is Slingshot; ``tcp`` is Ethernet at
+  ~1/5 the speed (7629082), and it is what the pinned 1.21.1 plugin fell back to
+  while printing the same ``transport`` string.
 * ``world_sizes_seen`` -- read ONLY off the trainer's own banner, never off
   anything the launcher echoed.  If the PALS rank shim does not apply, fme's
   ``TorchDistributed.is_available()`` returns False (no ``RANK`` in env), it
@@ -69,6 +78,10 @@ import sys
 # concatenate. Config -- plugin, progress model, NCCL_ALGO, store -- deliberately
 # does NOT get columns: it lives in the log header, and rows from different
 # configs go in different FILES rather than different columns.
+# The plugin that binds Slingshot's cxi provider on Polaris. Named here so the
+# guard's remedy line and polaris_ace2_env.sh's default cannot drift apart.
+OFI_PLUGIN_CXI = "/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib"
+
 FIELDS = [
     "jobid",
     "nodes",
@@ -95,6 +108,12 @@ FIELDS = [
     "epoch_wall_s",
     "peak_mem_gb",
     "transport",
+    # Added 2026-09-17, in step with parse_ai_rossby_scaling.py's commit 698b867e.
+    # This changes the header, so the writer will refuse an existing CSV --
+    # deliberately: every ACE2 row written before this column existed was a tcp
+    # row, and mixing those with cxi rows in one file is the error this column
+    # was added to prevent.
+    "provider",
     "world_sizes_seen",
     "ranks_reporting",
     "torch",
@@ -132,6 +151,12 @@ def parse_log(text: str) -> dict:
     # is "AWS Libfabric" -- two words. A \S+ capture silently records it as
     # "AWS", which reads as a different transport than the one that ran.
     nets = sorted({m.strip() for m in re.findall(r"Using network (.+)$", text, re.M)})
+    # The PROVIDER, not the plugin -- the line above names only the dlopen'd
+    # plugin and cannot fail (see the docstring).
+    # Both spellings matter: v1.6.0 prints "Selected Provider is cxi (found 2 nics)",
+    # v1.21.1 prints "Selected provider is tcp, fabric is ...". Matching one spelling
+    # records UNKNOWN on the other, which is the same blindness in a new place.
+    provs = sorted({m.lower() for m in re.findall(r"Selected [Pp]rovider is (\w+)", text)})
 
     world_sizes: set[int] = set()
     labels: set[str] = set()
@@ -156,6 +181,7 @@ def parse_log(text: str) -> dict:
 
     return {
         "transport": "|".join(nets) if nets else "UNKNOWN",
+        "provider": "|".join(provs) if provs else "UNKNOWN",
         "world_sizes_seen": "|".join(map(str, sorted(world_sizes))),
         "ranks_reporting": ranks_reporting,
         "_world_sizes": sorted(world_sizes),
@@ -222,6 +248,7 @@ def build_row(args, parsed: dict, tel: dict, torch_version: str = "") -> dict:
         "epoch_wall_s": _f(tel, "epoch_wall_s"),
         "peak_mem_gb": _f(tel, "peak_mem_gb"),
         "transport": parsed["transport"],
+        "provider": parsed["provider"],
         "world_sizes_seen": parsed["world_sizes_seen"],
         "ranks_reporting": parsed["ranks_reporting"],
         "torch": torch_version,
@@ -275,6 +302,39 @@ def check(row: dict, parsed: dict, tel: dict, args) -> int:
         print("WARN NO_TRANSPORT_LINE: no 'Using network' line in the log.")
         print("  NCCL_DEBUG is probably below INFO. The timing is recorded but the")
         print("  transport that produced it is not -- say so if you table this row.")
+
+    # Which fabric actually carried the traffic. Gated on NODES, not ranks: a
+    # 1-node run never initialises the net plugin, so there is no provider line
+    # to find and demanding one would fail every single-node arm -- including the
+    # ladder's anchor and both LR-sweep runs.
+    if args.nodes > 1:
+        prov = row["provider"]
+        if prov == "UNKNOWN":
+            print("ERROR FABRIC_UNVERIFIED: no 'Selected Provider' line in the log.")
+            print("  Set NCCL_DEBUG=INFO (and NCCL_DEBUG_SUBSYS covering NET). Without")
+            print("  it this row cannot say whether it crossed Slingshot or TCP, and")
+            print("  those differ by ~5x (7629082).")
+            rc = 4
+        elif prov != "cxi":
+            # ALLOW_TCP=1 is an acknowledgement, not a bypass: the row is still
+            # labelled tcp and still must not be tabled against a cxi row. It
+            # exists because v1.6.0 -- the only plugin that binds cxi here --
+            # wedges by message size (7629096, a 512 KB all_gather), so "use the
+            # fabric" is sometimes not available, and pretending otherwise would
+            # just move the lie.
+            if os.environ.get("ALLOW_TCP") == "1":
+                print("WARN FABRIC_TCP_ACKNOWLEDGED: provider=%s, ALLOW_TCP=1." % prov)
+                print("  Recorded as a tcp row. It is ~5x slower than cxi (7629082)")
+                print("  and is NOT comparable with any cxi row in this file.")
+            else:
+                print("ERROR FABRIC_NOT_SLINGSHOT: provider=%s, expected cxi." % prov)
+                print("  aws-ofi-nccl fell back off the fabric. This is a TCP row, not")
+                print("  a Slingshot row -- which is what every ACE2 multi-node row up")
+                print("  to 2026-09-17 was, unnoticed for three weeks, because")
+                print("  `transport` reads 'AWS Libfabric' either way.")
+                print("  Fix:      -v OFI_PLUGIN=%s" % OFI_PLUGIN_CXI)
+                print("  Or admit: -v ALLOW_TCP=1  (if the cxi plugin wedges your shape)")
+                rc = 4
 
     if parsed["_banner_lines"] == 0:
         print("ERROR NO_TRAINER_BANNER: no 'ACE2_BANNER ... world_size=...' line.")
@@ -394,6 +454,7 @@ def main(argv=None) -> int:
         "gpu_busy_frac",
         "peak_mem_gb",
         "transport",
+        "provider",
         "world_sizes_seen",
         "ranks_reporting",
     ):

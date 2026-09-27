@@ -1,0 +1,183 @@
+#!/bin/bash -l
+#PBS -N ace2_evaluator
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# ACE2 EVALUATOR GATE — the cheap decisive test both adversarial critics
+# converged on (CHANGELOG 2026-09-10 cont. 2). Nothing in this repo has ever
+# run fme's inference or evaluator path on Polaris; this is the first.
+#
+# THREE QUESTIONS, ONE DEBUG ALLOCATION:
+#   A. Does an evaluator config built from config_polaris.yaml's `inference:`
+#      block parse and roll?  Both critics predicted `fme.ace.inference` CANNOT
+#      load it (wrong schema: it wants initial_condition/forcing_loader, and its
+#      aggregator has no log_histograms, under dacite strict) and that
+#      `fme.ace.evaluator` CAN. Arm A settles it.
+#   B. What does forward-only rollout cost per sample-step?  The critics'
+#      extrapolations disagree ~7x (0.5 vs 3.6 GPU-h per 16-IC member) and
+#      NEITHER is measured. Arm A is timed to replace both with a number.
+#   C. Does a 4-rank run crash as predicted — the IC loaded UNSHARDED (all N on
+#      every rank, inference.py:308-313 / gridded_data.py:190) against a
+#      rank-sharded forcing loader (data_loading/inference.py:288-293), giving
+#      batch-4 state vs batch-1 forcing?  Arm B tests it.
+#
+# ⚠ ARM B IS EXPECTED TO FAIL. Its failure is the RESULT, not an error: it
+# confirms inference here is single-rank-only, which decides the shape of every
+# future evaluator launcher. The job does NOT fail because arm B fails — but it
+# reports loudly if arm B unexpectedly SUCCEEDS, because that refutes a finding
+# now recorded in the CHANGELOG.
+#
+# ⚠ There is no `python -m` target for the evaluator: evaluator.py:288 has a
+# main() but there is no __main__.py and pyproject has no [project.scripts].
+# `python -m fme.ace.inference` runs the OTHER path. Hence run_ace2_evaluator.py.
+#
+# PASS = ACE2_EVALUATOR_OK. Per CLAUDE.md #14 the token is the signal, not rc:
+# fme can exit 0 having written nothing.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+if [ ! -d "${ACE2_DIR}/ace_exp" ]; then
+    echo "ERROR ACE2_TREE_NOT_FOUND from PBS_O_WORKDIR=${PBS_O_WORKDIR}"; exit 2
+fi
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+SHIM="${ACE2_DIR}/polaris/polaris_rank_env.sh"
+DRIVER="${ACE2_DIR}/polaris/run_ace2_evaluator.py"
+CONFIG="${EVAL_CONFIG:-${ACE2_DIR}/polaris/evaluator_smoke.yaml}"
+
+# ---- environment: copied from polaris_ace2_train.pbs, deliberately ----------
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+[ -x "${ACE2_VENV}/bin/python" ] || { echo "ERROR ACE2_VENV_MISSING ${ACE2_VENV}"; exit 3; }
+# shellcheck disable=SC1091
+source "${ACE2_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${ACE2_VENV}/bin/python"
+for f in "${SHIM}" "${DRIVER}" "${CONFIG}"; do
+    [ -f "${f}" ] || { echo "ERROR MISSING ${f}"; exit 3; }
+done
+
+# Same guard the trainer uses: the telemetry/driver assume the checkout that
+# built the editable install, and a mismatch fails silently.
+VENV_FME="$("${PY}" -c 'import fme,os;print(os.path.realpath(os.path.dirname(fme.__file__)))' 2>/dev/null)"
+THIS_FME="$(cd "${ACE2_DIR}/ace_exp/fme" && pwd -P)"
+[ "${VENV_FME}" = "${THIS_FME}" ] || {
+    echo "ERROR ACE2_WRONG_CHECKOUT venv=${VENV_FME:-<import failed>} job=${THIS_FME}"; exit 3; }
+
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/ace2_evaluator/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+export TMPDIR=/tmp
+export OMP_NUM_THREADS="${OMP_THREADS:-2}"
+export MASTER_ADDR; MASTER_ADDR="$(head -n1 "${PBS_NODEFILE}")"
+export MASTER_PORT="${MASTER_PORT:-$(( 20000 + JOBID % 20000 ))}"
+# Ring for the same reason the trainer uses it: the Polaris tree all-reduce
+# corrupts above ~1 GB and this model is 1.823 GB. Inert at 1 rank, load-bearing at 4.
+export NCCL_ALGO="${NCCL_ALGO-Ring}"
+
+CKPT="$("${PY}" -c "import yaml,sys;print(yaml.safe_load(open('${CONFIG}'))['checkpoint_path'])")"
+echo "=== ace2_evaluator: $(date -Iseconds) ==="
+echo "jobid=${JOBID}  config=${CONFIG}"
+echo "checkpoint=${CKPT}"
+[ -f "${CKPT}" ] || { echo "ERROR CHECKPOINT_MISSING ${CKPT}"; exit 3; }
+ls -l "${CKPT}"
+nvidia-smi -L
+echo
+
+# ---- preflight: pure dacite parse, no data opened ---------------------------
+# This alone answers question A's negative half cheaply. --config_type evaluator
+# is a real choice (validate_config.py:15 CONFIG_CHOICES).
+echo "=== preflight: evaluator config parse ==="
+"${PY}" -m fme.ace.validate_config "${CONFIG}" --config_type evaluator \
+    --override "experiment_dir=${OUT}/arm_a" \
+    || { echo "ERROR ACE2_EVAL_CONFIG_INVALID"; exit 4; }
+echo "PREFLIGHT_OK"
+echo
+
+# ---- ARM A: single rank, the real question ----------------------------------
+echo "=== ARM A: 1 rank ==="
+a_start=$(date +%s)
+mpiexec -n 1 --ppn 1 --hostfile "${PBS_NODEFILE}" --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${SHIM}" "${PY}" "${DRIVER}" "${CONFIG}" \
+    --override "experiment_dir=${OUT}/arm_a" 2>&1 | tee "${OUT}/arm_a.log"
+a_rc=${PIPESTATUS[0]}
+a_wall=$(( $(date +%s) - a_start ))
+echo "--- ARM A rc=${a_rc} wall=${a_wall}s ---"
+
+# ---- ARM B: 4 ranks, the predicted crash ------------------------------------
+echo
+echo "=== ARM B: 4 ranks (EXPECTED TO FAIL — the failure is the result) ==="
+b_start=$(date +%s)
+mpiexec -n 4 --ppn 4 --hostfile "${PBS_NODEFILE}" --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${SHIM}" "${PY}" "${DRIVER}" "${CONFIG}" \
+    --override "experiment_dir=${OUT}/arm_b" 2>&1 | tee "${OUT}/arm_b.log"
+b_rc=${PIPESTATUS[0]}
+b_wall=$(( $(date +%s) - b_start ))
+echo "--- ARM B rc=${b_rc} wall=${b_wall}s ---"
+
+# ---- results ----------------------------------------------------------------
+echo
+echo "=== outputs written ==="
+du -sh "${OUT}"/arm_a "${OUT}"/arm_b 2>/dev/null
+find "${OUT}/arm_a" -maxdepth 2 -type f -printf '  %10s  %p\n' 2>/dev/null | head -25
+
+# Question B: cost per sample-step. 4 ICs x 100 forward steps = 400 sample-steps.
+if [ ${a_rc} -eq 0 ] && [ ${a_wall} -gt 0 ]; then
+    "${PY}" - <<PYEOF
+wall = ${a_wall}; ics = 4; steps = 100
+ss = ics * steps
+print("ACE2_EVAL_COST wall_s=%d sample_steps=%d ms_per_sample_step=%.1f" % (wall, ss, 1000.0*wall/ss))
+# Production shape the critics argued over: 16 ICs x 7300 steps = 116,800 sample-steps.
+print("  extrapolated 16 IC x 7300 steps = %.2f GPU-h  (includes this run's fixed startup, so it is an UPPER bound)"
+      % (116800 * (wall/ss) / 3600.0))
+print("  critics predicted 0.5 (opus) vs 3.6 (fable) GPU-h per member -- compare against the line above")
+PYEOF
+fi
+
+echo
+if [ ${a_rc} -eq 0 ]; then
+    echo "ACE2_EVALUATOR_OK arm_a_rc=0 wall=${a_wall}s out=${OUT}"
+    echo "  => fme.ace.evaluator DOES load a config shaped like config_polaris.yaml's"
+    echo "     inference: block, and rolls. Question A answered."
+else
+    echo "ERROR ACE2_EVALUATOR_FAILED arm_a_rc=${a_rc} (see ${OUT}/arm_a.log)"
+fi
+if [ ${b_rc} -eq 0 ]; then
+    echo "⚠ ACE2_EVAL_4RANK_EXITS_ZERO rc=0 — it does NOT crash. MEASURED 2026-09-10 (7603116):"
+    echo "  the predicted unsharded-IC-vs-sharded-forcing mismatch does not happen (the IC IS"
+    echo "  sharded), but the outputs split in two and only half is rank-safe:"
+    echo "    aggregated diagnostics (time_mean, zonal_mean, power_spectrum, mean_*)"
+    echo "        -> byte-size IDENTICAL to the 1-rank arm. The aggregators reduce correctly."
+    echo "    per-sample writes (monthly_mean_*, initial_condition, restart)"
+    echo "        -> exactly 0.25x at 4 ranks. ONLY RANK 0's SHARD IS WRITTEN."
+    echo "  => rc=0, no warning, and (N-1)/N of your initial conditions are silently discarded."
+    echo "  RUN INFERENCE SINGLE-RANK. Compare the two arm directories below before doubting it."
+else
+    echo "ACE2_EVAL_4RANK_FAILED rc=${b_rc} — differs from the 2026-09-10 measurement (rc=0"
+    echo "  with silent 1/N output loss). Investigate: the failure mode may have changed."
+fi
+# The comparison that makes the above checkable rather than assertable.
+"${PY}" - <<'PYEOF' "${OUT}"
+import os, sys
+base = sys.argv[1]
+a, b = os.path.join(base, "arm_a"), os.path.join(base, "arm_b")
+if os.path.isdir(a) and os.path.isdir(b):
+    print("\n  per-file arm_b/arm_a size ratio (1.00 = rank-safe, 0.25 = rank-0 only):")
+    for f in sorted(set(os.listdir(a)) & set(os.listdir(b))):
+        pa, pb = os.path.join(a, f), os.path.join(b, f)
+        if os.path.isfile(pa) and os.path.isfile(pb) and os.path.getsize(pa):
+            print("    %-42s %.2f" % (f, os.path.getsize(pb) / os.path.getsize(pa)))
+PYEOF
+echo "=== done $(date -Iseconds) ==="
+exit ${a_rc}

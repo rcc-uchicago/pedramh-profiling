@@ -1,14 +1,32 @@
 # ACE2 on Polaris — complete measured results
 
+> 🔴 **EVERY MULTI-NODE ROW BELOW IS A TCP ROW, NOT A SLINGSHOT ROW.**
+> Found 2026-09-17: aws-ofi-nccl **1.21.1**, which every arm here pinned,
+> cannot negotiate the CXI provider (it omits `FI_MR_PROV_KEY`, which CXI
+> mandates) and silently falls back to `tcp` with GPUDirect RDMA off — while
+> still printing `Using network AWS Libfabric`, which is the string the
+> `transport` column records. All six recent ACE2 logs read `provider=tcp`.
+> App-free, cxi measured **5.2×** tcp on these nodes (7629082), and makani's
+> equivalent re-measurement went 460.5 → 186.4 ms/step at 4 nodes.
+>
+> These rows are **kept, not deleted** — they are a real measurement of the
+> configuration that ran for three weeks. But no number in them may be quoted
+> as a property of Slingshot, and nothing here is comparable with a `cxi` row.
+> The re-measured ladder lands in a SEPARATE file
+> (`ace2_polaris_scaling_cxi.csv`), because the `provider` column added on the
+> same day changes the header and the writer refuses to mix the two.
+> → `polaris_ace2_slingshot_handoff.md`, prereg §1c/§1d.
+
 Generated from the CSVs the launchers wrote; **do not hand-edit** — regenerate.
 Sources: `$MEMBER_ROOT/bench/ace2_polaris_scaling.csv` (weak ladder + placement +
 failed arms), `ace2_polaris_strongscale.csv` (strong scaling), and
 `epoch_telemetry_ace2_polaris.csv` (the per-epoch rows those are derived from).
 
-Common to EVERY row below unless stated: Polaris 4×A100-40GB/node, `fme` @ our
+Common to every row below **except Table 0's**: Polaris 4×A100-40GB/node, `fme` @ our
 `ace_exp` checkout, torch 2.10.0+cu129 / NCCL 2.27.5, `NCCL_ALGO=Ring`,
-transport `AWS Libfabric` (aws-ofi-nccl 1.21.1 + libfabric 2.3.1,
-`OFI_NCCL_PROGRESS_MODEL=AUTO`), `--cpu-bind depth -d 8`, `OMP_NUM_THREADS=2`,
+plugin aws-ofi-nccl **1.21.1** + libfabric 2.3.1 ⇒ **provider `tcp`** (see the
+banner; `transport` read `AWS Libfabric` on every arm and could not have read
+anything else), `OFI_NCCL_PROGRESS_MODEL=AUTO`, `--cpu-bind depth -d 8`, `OMP_NUM_THREADS=2`,
 4 loader workers/rank, 60 timed steps, 1 epoch, AMP bf16, LR 1e-4 flat,
 `env_source=manual-reconstruction`, store = the single 2.4 TB NetCDF (`data=nc`).
 
@@ -36,7 +54,8 @@ transport `AWS Libfabric` (aws-ofi-nccl 1.21.1 + libfabric 2.3.1,
 | `gpu_busy_frac` | fraction 0–1 | Σ step_ms ÷ epoch_wall_s. ⚠ **loader idle, NOT comms cost** — exposed NCCL counts as *busy* |
 | `epoch_wall_s` | **s** | wall clock for the timed window only (excludes validation + first-batch probe) |
 | `peak_mem_gb` | **GiB** | ⚠ **GiB (bytes/1024³), despite the column name.** Run-to-date max over ranks. Not comparable to PanguWeather's decimal-GB column of the same name |
-| `transport` | — | network NCCL selected; anything but `AWS Libfabric` invalidates the row |
+| `transport` | — | the net PLUGIN NCCL dlopen'd. ⚠ **A label, not a guard** — identical on cxi and on the tcp fallback, which is why it never caught the fallback |
+| `provider` | — | the libfabric provider that actually carried the traffic: `cxi` = Slingshot, `tcp` = Ethernet at ~1/5 the speed. **Added 2026-09-17** — rows from before it read `tcp*` below, meaning *inferred from the log, not recorded in the CSV* |
 | `world_sizes_seen` | count | world size off the trainer's own banner — guards against silent NonDistributed fallback |
 | `ranks_reporting` | count | distinct PALS rank labels that emitted the banner — independent second view |
 | `torch` | — | interpreter's torch build |
@@ -48,25 +67,49 @@ transport `AWS Libfabric` (aws-ofi-nccl 1.21.1 + libfabric 2.3.1,
 ⚠ **`samples_s_rank`/`_total` (GPU time) and `samples_s_wall` (wall clock) have
 different denominators.** `gpu_busy_frac` is the ratio between the two views.
 
+## Table 0 — 🟢 CXI (SLINGSHOT) ROWS — the re-measurement, and what it replaces
+
+Stack: aws-ofi-nccl **v1.6.0** + libfabric 2.3.1 + **`NCCL_PROTO=Simple`** +
+HPE's CXI rendezvous block, `NCCL_ALGO=Ring`. ⚠ **That is three changes from
+the tcp rows at once**, and two of them (`Simple` disables LL/LL128; the
+rendezvous block costs ~12–18% of all_reduce bandwidth) are *costs* — so a
+speedup here is a **lower bound** on what the fabric alone is worth. The 1-node
+row, where NCCL never leaves NVLink, is what isolates the two.
+
+| nodes | ranks | local_batch | global_batch | `provider` | step_med (ms) | tcp step_med (ms) | speedup | samples/s total | gpu_busy_frac | peak mem (GiB) | n |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | 4 | 2 | 8 | `cxi` | **714.9** | 716.0 | **1.002×** | 11.19 | 0.9546 | 33.959 | 2 |
+| 2 | 8 | 2 | 16 | `cxi` | **815.3** | 1204.4 | **1.477×** | 19.63 | 0.9469 | 33.959 | 1 |
+| 16 | 64 | 2 | 128 | `cxi` | **746.5** | — | — (no matching tcp rung) | 171.47 | 0.9412 | 33.959 | 1 |
+
+⚠ **Rungs not yet re-measured on cxi: 4, 8 node(s).** Until they are, any
+scaling *shape* — efficiency, break-even node count, node-hours — still comes
+from the tcp tables below and is not a Slingshot result.
+
 ## Table 1 — every arm, every column
 
-| experiment | `jobid` | `nodes` | `ranks` | `local_batch` | `global_batch` | `data` | `rep` | `gpu_order` | `steps` | `n_steps` | `step_med_ms` | `step_p90_ms` | `step_mean_ms` | `step_std_ms` | `samples_s_rank` | `samples_s_total` | `samples_s_wall` | `gpu_busy_frac` | `epoch_wall_s` | `peak_mem_gb` | `transport` | `world_sizes_seen` | `ranks_reporting` | `omp_threads` | read MB/s |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| BATCH-SEARCH | 7586496 | 1 | 4 | 1 | 4 | nc | 1 | forward | 60 | 60 | 380.606 | 383.216 | 446.858 | 481.426 | 2.6274 | 10.5096 | 8.3474 | 0.9325 | 28.751 | 21.316 | AWS Libfabric | 4 | 4 | 2 | 348 |
-| WEAK-LADDER | 7586506 | 1 | 4 | 2 | 8 | nc | 1 | forward | 60 | 60 | 715.404 | 718.28 | 788.576 | 529.182 | 2.7956 | 11.1825 | 9.4927 | 0.9357 | 50.565 | 33.959 | AWS Libfabric | 4 | 4 | 2 | 396 |
-| FAILED | 7586526 | 1 | 4 | 3 | 12 | nc | 1 | forward | 60 | — | — | — | — | — | — | — | — | — | — | — | AWS Libfabric | 4 | 4 | 2 | — |
-| WEAK-LADDER | 7586590 | 2 | 8 | 2 | 16 | nc | 1 | forward | 60 | 60 | 1203.473 | 1247.781 | 1285.536 | 502.385 | 1.6619 | 13.2949 | 11.9791 | 0.9625 | 80.139 | 33.959 | AWS Libfabric | 8 | 8 | 2 | 500 |
-| WEAK-LADDER | 7588696 | 1 | 4 | 2 | 8 | nc | 1 | forward | 60 | 60 | 716.147 | 719.409 | 771.233 | 394.513 | 2.7927 | 11.1709 | 9.6346 | 0.9288 | 49.821 | 33.959 | AWS Libfabric | 4 | 4 | 2 | 402 |
-| WEAK-LADDER | 7588702 | 4 | 16 | 2 | 32 | nc | 1 | forward | 60 | 60 | 1401.679 | 1495.657 | 1472.913 | 488.462 | 1.4269 | 22.8298 | 21.0485 | 0.9688 | 91.218 | 33.959 | AWS Libfabric | 16 | 16 | 2 | 878 |
-| FAILED | 7588719 | 8 | 32 | 2 | 64 | nc | 1 | forward | 60 | — | — | — | — | — | — | — | — | — | — | — | AWS Libfabric | — | 0 | 2 | — |
-| WEAK-LADDER | 7588721 | 2 | 8 | 2 | 16 | nc | 2 | forward | 60 | 60 | 1250.638 | 1355.009 | 1332.534 | 491.099 | 1.5992 | 12.7935 | 11.5596 | 0.9627 | 83.048 | 33.959 | AWS Libfabric | 8 | 8 | 2 | 482 |
-| WEAK-LADDER | 7588734 | 8 | 32 | 2 | 64 | nc | 1 | forward | 60 | 60 | 1498.546 | 1659.304 | 1576.622 | 511.97 | 1.3346 | 42.7081 | 39.3859 | 0.9703 | 97.497 | 33.959 | AWS Libfabric | 32 | 32 | 2 | 1644 |
-| WEAK-LADDER | 7588735 | 1 | 4 | 2 | 8 | nc | 3 | forward | 60 | 60 | 716.02 | 730.986 | 780.584 | 462.831 | 2.7932 | 11.1729 | 9.5183 | 0.9287 | 50.429 | 33.959 | AWS Libfabric | 4 | 4 | 2 | 397 |
-| WEAK-LADDER | 7588758 | 4 | 16 | 2 | 32 | nc | 2 | forward | 60 | 60 | 1450.487 | 1550.563 | 1532.753 | 508.559 | 1.3788 | 22.0616 | 20.2398 | 0.9695 | 94.863 | 33.959 | AWS Libfabric | 16 | 16 | 2 | 845 |
-| WEAK-LADDER | 7588759 | 2 | 8 | 2 | 16 | nc | 3 | forward | 60 | 60 | 1204.354 | 1239.938 | 1277.206 | 501.639 | 1.6606 | 13.2851 | 12.0314 | 0.9604 | 79.791 | 33.959 | AWS Libfabric | 8 | 8 | 2 | 502 |
-| STRONG-SCALE | 7588972 | 4 | 16 | 1 | 16 | nc | 1 | forward | 60 | 60 | 1156.587 | 1200.601 | 1204.841 | 316.743 | 0.8646 | 13.8338 | 12.9124 | 0.9723 | 74.347 | 21.316 | AWS Libfabric | 16 | 16 | 2 | 539 |
-| PLACEMENT | 7588998 | 1 | 4 | 2 | 8 | nc | 1 | reverse | 60 | 60 | 715.185 | 718.314 | 777.888 | 451.305 | 2.7965 | 11.1859 | 9.5264 | 0.9263 | 50.386 | 33.959 | AWS Libfabric | 4 | 4 | 2 | 398 |
-| PLACEMENT | 7588999 | 4 | 16 | 2 | 32 | nc | 1 | reverse | 60 | 60 | 1466.02 | 1811.477 | 1564.36 | 491.747 | 1.3642 | 21.8278 | 19.7832 | 0.9671 | 97.052 | 33.959 | AWS Libfabric | 16 | 16 | 2 | 826 |
+| experiment | `jobid` | `nodes` | `ranks` | `local_batch` | `global_batch` | `data` | `rep` | `gpu_order` | `steps` | `n_steps` | `step_med_ms` | `step_p90_ms` | `step_mean_ms` | `step_std_ms` | `samples_s_rank` | `samples_s_total` | `samples_s_wall` | `gpu_busy_frac` | `epoch_wall_s` | `peak_mem_gb` | `transport` | `provider` | `world_sizes_seen` | `ranks_reporting` | `omp_threads` | read MB/s |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| BATCH-SEARCH | 7586496 | 1 | 4 | 1 | 4 | nc | 1 | forward | 60 | 60 | 380.606 | 383.216 | 446.858 | 481.426 | 2.6274 | 10.5096 | 8.3474 | 0.9325 | 28.751 | 21.316 | AWS Libfabric | tcp\* | 4 | 4 | 2 | 348 |
+| WEAK-LADDER | 7586506 | 1 | 4 | 2 | 8 | nc | 1 | forward | 60 | 60 | 715.404 | 718.28 | 788.576 | 529.182 | 2.7956 | 11.1825 | 9.4927 | 0.9357 | 50.565 | 33.959 | AWS Libfabric | tcp\* | 4 | 4 | 2 | 396 |
+| FAILED | 7586526 | 1 | 4 | 3 | 12 | nc | 1 | forward | 60 | — | — | — | — | — | — | — | — | — | — | — | AWS Libfabric | tcp\* | 4 | 4 | 2 | — |
+| WEAK-LADDER | 7586590 | 2 | 8 | 2 | 16 | nc | 1 | forward | 60 | 60 | 1203.473 | 1247.781 | 1285.536 | 502.385 | 1.6619 | 13.2949 | 11.9791 | 0.9625 | 80.139 | 33.959 | AWS Libfabric | tcp\* | 8 | 8 | 2 | 500 |
+| WEAK-LADDER | 7588696 | 1 | 4 | 2 | 8 | nc | 1 | forward | 60 | 60 | 716.147 | 719.409 | 771.233 | 394.513 | 2.7927 | 11.1709 | 9.6346 | 0.9288 | 49.821 | 33.959 | AWS Libfabric | tcp\* | 4 | 4 | 2 | 402 |
+| WEAK-LADDER | 7588702 | 4 | 16 | 2 | 32 | nc | 1 | forward | 60 | 60 | 1401.679 | 1495.657 | 1472.913 | 488.462 | 1.4269 | 22.8298 | 21.0485 | 0.9688 | 91.218 | 33.959 | AWS Libfabric | tcp\* | 16 | 16 | 2 | 878 |
+| FAILED | 7588719 | 8 | 32 | 2 | 64 | nc | 1 | forward | 60 | — | — | — | — | — | — | — | — | — | — | — | AWS Libfabric | tcp\* | — | 0 | 2 | — |
+| WEAK-LADDER | 7588721 | 2 | 8 | 2 | 16 | nc | 2 | forward | 60 | 60 | 1250.638 | 1355.009 | 1332.534 | 491.099 | 1.5992 | 12.7935 | 11.5596 | 0.9627 | 83.048 | 33.959 | AWS Libfabric | tcp\* | 8 | 8 | 2 | 482 |
+| WEAK-LADDER | 7588734 | 8 | 32 | 2 | 64 | nc | 1 | forward | 60 | 60 | 1498.546 | 1659.304 | 1576.622 | 511.97 | 1.3346 | 42.7081 | 39.3859 | 0.9703 | 97.497 | 33.959 | AWS Libfabric | tcp\* | 32 | 32 | 2 | 1644 |
+| WEAK-LADDER | 7588735 | 1 | 4 | 2 | 8 | nc | 3 | forward | 60 | 60 | 716.02 | 730.986 | 780.584 | 462.831 | 2.7932 | 11.1729 | 9.5183 | 0.9287 | 50.429 | 33.959 | AWS Libfabric | tcp\* | 4 | 4 | 2 | 397 |
+| WEAK-LADDER | 7588758 | 4 | 16 | 2 | 32 | nc | 2 | forward | 60 | 60 | 1450.487 | 1550.563 | 1532.753 | 508.559 | 1.3788 | 22.0616 | 20.2398 | 0.9695 | 94.863 | 33.959 | AWS Libfabric | tcp\* | 16 | 16 | 2 | 845 |
+| WEAK-LADDER | 7588759 | 2 | 8 | 2 | 16 | nc | 3 | forward | 60 | 60 | 1204.354 | 1239.938 | 1277.206 | 501.639 | 1.6606 | 13.2851 | 12.0314 | 0.9604 | 79.791 | 33.959 | AWS Libfabric | tcp\* | 8 | 8 | 2 | 502 |
+| STRONG-SCALE | 7588972 | 4 | 16 | 1 | 16 | nc | 1 | forward | 60 | 60 | 1156.587 | 1200.601 | 1204.841 | 316.743 | 0.8646 | 13.8338 | 12.9124 | 0.9723 | 74.347 | 21.316 | AWS Libfabric | tcp\* | 16 | 16 | 2 | 539 |
+| PLACEMENT | 7588998 | 1 | 4 | 2 | 8 | nc | 1 | reverse | 60 | 60 | 715.185 | 718.314 | 777.888 | 451.305 | 2.7965 | 11.1859 | 9.5264 | 0.9263 | 50.386 | 33.959 | AWS Libfabric | tcp\* | 4 | 4 | 2 | 398 |
+| PLACEMENT | 7588999 | 4 | 16 | 2 | 32 | nc | 1 | reverse | 60 | 60 | 1466.02 | 1811.477 | 1564.36 | 491.747 | 1.3642 | 21.8278 | 19.7832 | 0.9671 | 97.052 | 33.959 | AWS Libfabric | tcp\* | 16 | 16 | 2 | 826 |
+
+⚠ `provider` = `tcp\*` means **inferred, not recorded**: the column did not
+exist when these rows were written. The 1-node rows are marked the same way for
+uniformity, but a 1-node run never initialises the net plugin at all, so for
+them the transport is not merely unrecorded — it is irrelevant.
 
 `torch`=2.10.0+cu129 and `env_source`=manual-reconstruction on every row (omitted above for width).
 
@@ -160,7 +203,7 @@ exist here. `forward` remains correct for every ACE2 config measured.
 |---|---|
 | hardware | Polaris, 4 × A100-SXM4-40GB per node (**39.49 GiB** usable), NV4 mesh |
 | venv | `$MEMBER_ROOT/conda-envs/fme-venv` — python 3.12.11, **torch 2.10.0+cu129, NCCL 2.27.5**, torch_harmonics 0.8.0, zarr 3.3.0; `fme` **editable** from `ACE2_retrain/ace_exp` |
-| fabric | self-built aws-ofi-nccl **1.21.1** + cray libfabric **2.3.1** + `OFI_NCCL_PROGRESS_MODEL=AUTO`; transport reported `AWS Libfabric` on **every** arm |
+| fabric | 🔴 self-built aws-ofi-nccl **1.21.1** + cray libfabric **2.3.1** + `OFI_NCCL_PROGRESS_MODEL=AUTO` ⇒ **provider `tcp`, GPUDirect RDMA off — these runs never touched Slingshot.** `transport` reported `AWS Libfabric` on every arm and would have done so either way (7629082; handoff §1) |
 | launcher | PALS `mpiexec --ppn 4 --cpu-bind depth -d 8 --label --line-buffer` + `polaris_rank_env.sh` (PMI_* → `env://`) → `ace2_telemetry.py` |
 | knobs | `NCCL_ALGO=Ring`, `OMP_NUM_THREADS=2`, `MASTER_PORT=20000+jobid%20000`, `TMPDIR=/tmp`, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (verified honoured — both env-var spellings are in `libc10_cuda.so`) |
 | model/config | `config_polaris.yaml` = `config_midway.yaml` with 11 paths repointed, nothing else. SFNO, embed_dim 384, 8 layers, dhconv; AMP **bf16**; AdamW(fused) — `FusedAdam` needs **no apex** here; **LR 1e-4 and FLAT** (fme's default scheduler is `None`) |
@@ -228,10 +271,17 @@ is jesswan's call, not a tuning decision. It is listed here to explain the measu
 and the 3.7×-per-application residual is not derived from first principles — the encoder
 runs at full resolution in both and makani has 2.4× the channels there, which partly
 offsets its 9× spatial advantage.
-## Table 9 — WHAT THE FABRIC COSTS ACE2
+## Table 9 — WHAT THE FABRIC COSTS ACE2 — 🔴 **over TCP**
 
 Weak scaling holds per-GPU work identical on every row, so **everything above the
 1-node step is exposed inter-node cost** (fabric + load imbalance).
+
+⚠ **Every figure in this table is the cost of ETHERNET, not of Slingshot** (see
+the banner). cxi measured 5.2× tcp app-free, so the +488.4 ms first-hop toll
+below is expected to fall to roughly +95 ms — which would change not just the
+magnitudes but the conclusion, since the toll is what makes 'the fewest GPUs
+that hold the batch' the first question. **Do not quote this table's
+node-hour projections.** Re-measure (handoff T2/T4) before using any of it.
 
 | nodes | step_med (ms) | over 1n (ms) | **% of the step** | node·s / sample | vs 1 node |
 |---|---|---|---|---|---|

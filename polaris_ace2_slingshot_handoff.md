@@ -111,9 +111,38 @@ simply not the thing that made multi-node work.
 
 **No ACE2 job has yet been run on this env.** That is T2.
 
+## 4a. STATUS 2026-09-17/18 — what has been done against this document
+
+| task | state |
+|---|---|
+| T1 guard + FIELDS parity | ✅ **DONE** — `provider` column, both provider spellings, nodes-gated, `ALLOW_TCP` escape; 27 → **28 columns, parity with ai-rossby restored**; `ACE2_SCALING_PARSE_OK (23 tests)` |
+| T2 ladder on cxi | 🟢 **1- and 2-node rungs DONE, both `provider=cxi`** — 7631544 (713.7 ms, **unchanged** from tcp) and 7631529 (1204.4 → **815.275 ms, 1.477×**), in `ace2_polaris_scaling_cxi.csv`. 4/8-node rungs not run; **every rung is n=1** |
+| T3 Tree re-test on cxi | 🟢 **ANSWERED AT 2 AND 8 NODES — 7631550 + 7631624, `arms=6/6` each, every `#wrong = 0`, all `provider=cxi`. The defect does NOT reproduce on Slingshot** ⇒ possibility (1): it was 1.21.1's **tcp** path, so the correctness case for the Ring pin is gone. ⚠ **Performance reverses with scale:** Tree +21% at 2 nodes, **Ring +28% at 8** ⇒ the move is **unpin**, not "pin Tree" — gated on a trainer run + a DESIGN §4 baseline. Attempts 7631522/7631534 died in the **launch path** (6 s each), both diagnosed then fixed |
+| T4 §1f economics | 🟢 **DONE** — first-hop toll **+488.4 → +101.6 ms (4.81× against a 5.2× bandwidth ratio)**; a second node costs **+14% node-hours, not +68%**. §1f rewritten in place with the table |
+| §1a / §1b corrections | ✅ **applied in place** — §1b **refuted**, §1a's table kept with the attribution withdrawn pending T3 |
+| prereg | ✅ **written before the first cxi arm** — prereg §1c (P12–P15) and §1d (what the finding does *not* touch) |
+
+**Three things this document got wrong or did not know:**
+
+1. **§4 "already applied" was HALF applied.** The plugin was flipped to v1.6.0 but
+   `NCCL_PROTO` was never pinned, and v1.6.0 **deadlocks in setup at ≥3 nodes** on
+   the default LL/LL128 paths (`polaris_nccl_debug_info.md` §5; makani has carried
+   the pin since 2026-08-24). T2's 4- and 8-node arms would have hung at init.
+   Now pinned in `polaris_ace2_env.sh`; `-v NCCL_PROTO=` unpins it.
+   ⚠ It is **not inert at 1 node**, so it moves the ladder's anchor too.
+2. **T3's instrument did not exist.** This document points at `polaris_nccl_tests.pbs`
+   (via the debug-info file); that path is in no tree in this repo. Written as
+   `ACE2_retrain/polaris/polaris_ace2_tree_probe.pbs` + `parse_nccl_tests.py`
+   (14 tests), with an **intra-node control arm** that separates "NCCL Tree bug"
+   from "fabric bug" without sending an inter-node byte.
+3. **`run_ace2_ladder.sh` read one CSV and wrote another** — it resolved
+   `$ACE2_SCALING_CSV` for its resume count and let the launcher default its own.
+   Since T1 that is no longer merely inconsistent: the job would have died on
+   `SCALING_CSV_SCHEMA_DRIFT` after the allocation was spent. Fixed.
+
 ## 5. Tasks, in order
 
-### T1 — the guard (no GPU needed, do this first)
+### T1 — the guard (no GPU needed, do this first) — ✅ DONE
 
 `parse_ace2_scaling.py` has a `transport` column and no `provider` column, so it
 still cannot fail on a tcp row. Port the guard from

@@ -1,0 +1,287 @@
+#!/bin/bash -l
+#PBS -N ace2_tree_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=2:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# T3 of polaris_ace2_slingshot_handoff.md: DOES THE TREE DEFECT SURVIVE ON CXI?
+#
+#     qsub ACE2_retrain/polaris/polaris_ace2_tree_probe.pbs
+#     qsub -l select=4:system=polaris -q debug-scaling  ACE2_retrain/polaris/...
+#
+# THE QUESTION
+#   A Polaris TREE all-reduce between 25 MiB and 1000 MiB was measured to
+#   SILENTLY RETURN PARTIALLY REDUCED DATA and then hang -- head of the buffer
+#   correctly reduced, tail untouched, ranks disagreeing (7569805/7569817/
+#   7571147, at 2 nodes AND at 8). ACE2 pins `NCCL_ALGO=Ring` because of it and
+#   pays Tree's small-message latency for the privilege.
+#
+#   Every one of those probes ran on aws-ofi-nccl 1.21.1 -- which we now know
+#   never bound Slingshot at all and silently used tcp. So the defect is real
+#   and the ATTRIBUTION is not. Three possibilities, undistinguished:
+#     1. a bug in 1.21.1's tcp path      -> Ring pin can be dropped
+#     2. an NCCL Tree bug, transport-free -> pin stays, §1a gets re-titled
+#     3. present on cxi at another size   -> the table moves
+#   This job is the discriminator, and the intra-node control arm separates
+#   (2) from (1)/(3) by removing the fabric from the comparison entirely.
+#
+# WHY THE C BINARY AND NOT A TORCH PROBE
+#   `nccl-tests` needs no conda, no venv-torch and no rank shim -- it discovers
+#   ranks through MPI. On 2026-09-17 both torch probes died on an unreadable
+#   `libtorch_global_deps.so` while the C binary ran fine (7630176), and a probe
+#   that cannot start settles nothing. It also has the property a hand-written
+#   probe has to be given: `-c 1` compares every result against the expected
+#   reduction, so corruption is REPORTED rather than inferred from a hang.
+#
+# ⚠ DO NOT DROP `-c 1`. Without it the `#wrong` column prints N/A and this job
+#   becomes a bandwidth benchmark that cannot see the thing it exists to see.
+#   parse_nccl_tests.py fails on N/A for exactly that reason.
+#
+# PASS = `ACE2_NCCL_TESTS_OK arms=N/N` from parse_nccl_tests.py -- which requires
+# every arm to have FINISHED (nccl-tests' own terminator line), every `#wrong` to
+# be 0, and every multi-node arm to report `Selected Provider is cxi`. Per
+# CLAUDE.md #14 the exit code is not the gate: a wedged arm killed by `timeout`
+# and a clean short sweep look the same to rc.
+#
+# Knobs:
+#   -v SIZE_MIN=128M -v SIZE_MAX=2G   sweep bounds (nccl-tests -b/-e)
+#   -v STEP_FACTOR=2                  -f: sizes double from MIN to MAX
+#   -v ITERS=10 -v WARMUP=2           -n/-w
+#   -v ARM_TIMEOUT=420                seconds before an arm is killed. A HANG IS
+#                                     A RESULT: killing it early keeps the other
+#                                     arms, and the parser records the last size.
+#   -v ALGOS="Tree Ring"              which algorithms to sweep
+#   -v SKIP_INTRA=1                   drop the intra-node control arm
+#   -v NCCL_PROTO=                    unpin the protocol (its own arm)
+#   -v ALLOW_TCP=1                    accept a tcp arm as a labelled tcp result
+#   -v NCCL_TESTS_BIN=<dir>           another nccl-tests build
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+if [ ! -d "${ACE2_DIR}/ace_exp" ]; then
+    echo "ERROR ACE2_TREE_NOT_FOUND from PBS_O_WORKDIR=${PBS_O_WORKDIR}"
+    exit 2
+fi
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+
+# ---- environment ------------------------------------------------------------
+# The SAME env the trainer uses, sourced the same way: the plugin pin, HPE's
+# rendezvous block and NCCL_PROTO all live in polaris_ace2_env.sh, and a probe
+# run under a different fabric configuration than the trainer answers a question
+# nobody asked.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${ACE2_VENV}/bin/python"
+
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+
+# ---- GPU-aware MPI OFF, for this binary only --------------------------------
+# ⚠ MEASURED, job 7631534: all six arms died in 6 seconds with
+#     MPIDI_CRAY_init: GPU_SUPPORT_ENABLED is requested, but GTL library is not linked
+# The ACE2 environment carries MPICH_GPU_SUPPORT_ENABLED=1 (correct for the
+# trainer), but `nccl-tests` is not linked against Cray's GTL
+# (`ldd all_reduce_perf` shows no `libmpi_gtl_cuda`), so MPICH aborts at init.
+# The trainer never hits this because torch does not call MPI_Init at all.
+#
+# Turning it off is not a compromise here: nccl-tests uses MPI ONLY to bootstrap
+# -- broadcast the ncclUniqueId, allgather hostname hashes, allreduce the error
+# count -- all HOST buffers. Every device-to-device byte goes through NCCL, which
+# is the thing being measured, and the `Selected Provider` line still proves which
+# fabric carried it. (The alternative, LD_PRELOADing
+# /opt/cray/pe/mpich/9.1.0/gtl/lib/libmpi_gtl_cuda.so, buys nothing this probe
+# needs and adds a PE-version pin that will rot on the next Cray roll.)
+export MPICH_GPU_SUPPORT_ENABLED=0
+
+# ---- the binary and the libraries it needs ----------------------------------
+# ⚠ `ldd all_reduce_perf` on a login node shows libnccl/libcudart "not found":
+# the build resolves them from LD_LIBRARY_PATH at run time, and polaris_ace2_env
+# deliberately does NOT prepend a system NCCL (it would displace the one ACE2's
+# torch was built against -- and then this probe would measure a different NCCL
+# than the trainer it is about). Take both from the venv's own nvidia wheels, so
+# the probe and the trainer share a NCCL by construction.
+NCCL_TESTS_BIN="${NCCL_TESTS_BIN:-${MEMBER_ROOT}/sw/src/nccl-tests-2.20.0/build}"
+ALL_REDUCE="${NCCL_TESTS_BIN}/all_reduce_perf"
+if [ ! -x "${ALL_REDUCE}" ]; then
+    echo "ERROR NCCL_TESTS_MISSING: ${ALL_REDUCE}"
+    echo "  Build it, or pass -v NCCL_TESTS_BIN=<dir>."
+    exit 3
+fi
+#
+# ⚠ Found by job 7631522, which failed here in 4 seconds: `import nvidia.nccl`
+# gives a NAMESPACE package whose `__file__` is **None**, so deriving the lib
+# directory from it raises TypeError. Glob the interpreter's own site-packages
+# instead -- no import, and it picks up every nvidia wheel rather than the three
+# that were guessed at.
+VENV_LIBS="$("${PY}" - <<'PY'
+import glob, os, sysconfig
+seen, paths = set(), []
+for key in ("purelib", "platlib"):
+    root = sysconfig.get_paths().get(key)
+    if not root:
+        continue
+    # nccl first: it is the one library whose identity matters here (the probe
+    # must exercise the SAME NCCL the trainer links), so it goes ahead of any
+    # other copy that might turn up on the path.
+    for pat in ("nvidia/nccl/lib", "nvidia/*/lib"):
+        for lib in sorted(glob.glob(os.path.join(root, pat))):
+            if lib not in seen:
+                seen.add(lib)
+                paths.append(lib)
+print(":".join(paths))
+PY
+)"
+[ -n "${VENV_LIBS}" ] || { echo "ERROR NO_VENV_NVIDIA_LIBS: no nvidia/*/lib in ${ACE2_VENV}"; exit 3; }
+export LD_LIBRARY_PATH="${VENV_LIBS}:${LD_LIBRARY_PATH}"
+# Fail HERE, with a one-line reason, rather than 8 ranks deep in a dynamic
+# linker error that reads as an MPI problem.
+# `ldd -r`, not plain `ldd`: it also resolves SYMBOLS, which is the check that
+# matters for this binary -- it was built against NCCL 2.28.3 headers and runs
+# against the venv's 2.27.5, and a symbol added in between would abort every rank
+# with a message that reads like a launcher fault. (Verified clean on a login node
+# before this ran: no missing libs, no undefined symbols.)
+_ldd="$(ldd -r "${ALL_REDUCE}" 2>&1)"
+if echo "${_ldd}" | grep -qE "not found|undefined symbol"; then
+    echo "ERROR NCCL_TESTS_UNRESOLVED: the binary does not link cleanly here."
+    echo "${_ldd}" | grep -E "not found|undefined symbol" | head -20 | sed 's/^/  /'
+    echo "  An undefined symbol means the nccl-tests build and this venv's NCCL"
+    echo "  have diverged -- rebuild nccl-tests against ${VENV_LIBS%%:*}."
+    exit 3
+fi
+
+# ---- allocation shape -------------------------------------------------------
+NODEFILE="${PBS_NODEFILE:-}"
+[ -s "${NODEFILE}" ] || { echo "ERROR NO_NODEFILE"; exit 2; }
+export GPUS_PER_NODE=4
+NNODES=$(sort -u "${NODEFILE}" | wc -l)
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+JOBID="${PBS_JOBID%%.*}"
+
+OUT="${MEMBER_ROOT}/runs/ace2_tree_probe/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+LOG="${OUT}/probe.log"
+# One node of this allocation, for the intra-node control.
+sort -u "${NODEFILE}" | head -n1 > "${OUT}/nodefile_1n"
+
+SIZE_MIN="${SIZE_MIN:-128M}"
+SIZE_MAX="${SIZE_MAX:-2G}"
+STEP_FACTOR="${STEP_FACTOR:-2}"
+ITERS="${ITERS:-10}"
+WARMUP="${WARMUP:-2}"
+ARM_TIMEOUT="${ARM_TIMEOUT:-420}"
+ALGOS="${ALGOS:-Tree Ring}"
+
+echo "=== ace2_tree_probe: $(date -Iseconds) ==="
+echo "jobid=${JOBID}  nodes=${NNODES}  ranks=${NRANKS}"
+sort -u "${NODEFILE}" | sed 's/^/  /'
+echo "binary   = ${ALL_REDUCE}"
+echo "sweep    = -b ${SIZE_MIN} -e ${SIZE_MAX} -f ${STEP_FACTOR} -n ${ITERS} -w ${WARMUP} -c 1"
+echo "algos    = ${ALGOS}"
+echo "timeout  = ${ARM_TIMEOUT}s per arm"
+polaris_env_report
+ace2_env_report
+echo
+echo "ACE2's own collectives, for reading the table against:"
+echo "  startup all_reduce = 1,823,324,160 B (1738.86 MiB, the whole model, once)"
+echo "  per-step buckets   = ~11 x ~165 MB, largest ~215 MB"
+echo "  tcp-era result     = Tree corrupts+hangs 1000-4700 MB; Ring passes"
+echo
+
+# ---- the arms ---------------------------------------------------------------
+# Each arm is its own mpiexec, hence its own NCCL init, hence its own provider
+# line -- which is what lets the parser check the fabric per arm rather than
+# once for the job. The `=== ARM ... ===` marker is the parser's contract.
+# Sizes are ARGUMENTS, not a `VAR=x run_arm` prefix: bash does not reliably
+# scope an assignment prefix to a shell function, so the exact-size arms would
+# have silently re-set the sweep bounds for everything after them.
+run_arm() {  # run_arm <name> <algo> <ranks> <nodefile> <arm_nodes> <bmin> <bmax>
+    local name="$1" algo="$2" ranks="$3" nodefile="$4" arm_nodes="$5"
+    local bmin="${6:-${SIZE_MIN}}" bmax="${7:-${SIZE_MAX}}"
+    echo
+    echo "=== ARM ${name} algo=${algo} proto=${NCCL_PROTO:-default} nodes=${arm_nodes} ==="
+    echo "    -b ${bmin} -e ${bmax} -f ${STEP_FACTOR} -g 1 -c 1 -n ${ITERS} -w ${WARMUP}"
+    # `timeout` because A HANG IS THE EXPECTED FAILURE MODE here. Without it one
+    # wedged arm eats the walltime and the remaining arms are never run -- which
+    # is how the tcp-era table ended up with gaps.
+    # ⚠ NCCL_DEBUG GOES TO PER-RANK FILES, NOT STDOUT. MEASURED on job 7631550:
+    # with 8 ranks' NCCL_DEBUG interleaved into rank 0's table under `--label
+    # --line-buffer`, table rows get SPLIT mid-line -- the `ace2_startup_*` arms
+    # lost their only row that way, and a split row's `#wrong` column is the one
+    # thing this probe exists to read. Files keep the table clean; the provider
+    # lines are then echoed back into this arm's section below, so the per-arm
+    # fabric check still has something to read.
+    local dbg="${OUT}/nccl_${name}"
+    NCCL_DEBUG_FILE="${dbg}_%h_%p.log" NCCL_ALGO="${algo}" \
+        timeout -k 30 "${ARM_TIMEOUT}" \
+        mpiexec -n "${ranks}" --ppn "${GPUS_PER_NODE}" --hostfile "${nodefile}" \
+        --cpu-bind depth -d 8 --label --line-buffer \
+        "${ALL_REDUCE}" -b "${bmin}" -e "${bmax}" -f "${STEP_FACTOR}" \
+        -g 1 -c 1 -n "${ITERS}" -w "${WARMUP}"
+    local rc=$?
+    # Distinct provider/plugin lines for THIS arm, from the debug files. `sort -u`
+    # because 8 ranks each print their own and one line per distinct value is the
+    # evidence; the files stay on disk under ${OUT} as the raw record.
+    sed -n 's/.*\(Selected [Pp]rovider is .*\)/  NET\/OFI \1/p' "${dbg}"_*.log 2>/dev/null \
+        | sort -u | head -4
+    sed -n 's/.*\(Using network .*\)/  NCCL INFO \1/p' "${dbg}"_*.log 2>/dev/null \
+        | sort -u | head -2
+    if [ ${rc} -eq 124 ] || [ ${rc} -eq 137 ]; then
+        echo "  (arm ${name} KILLED after ${ARM_TIMEOUT}s -- no terminator line will"
+        echo "   follow, which is precisely the hang signature; continuing)"
+        # Give PALS time to reap the ranks; a leftover process holding a GPU
+        # would make the NEXT arm fail for an unrelated reason.
+        sleep 15
+    fi
+    return 0   # never let one arm's failure skip the others
+}
+
+{
+    # The control first: same collective, same sizes, NO fabric. If Tree
+    # corrupts here it is an NCCL bug and the fabric is exonerated before a
+    # single inter-node byte is sent.
+    if [ "${SKIP_INTRA:-0}" != "1" ]; then
+        for algo in ${ALGOS}; do
+            run_arm "intra_${algo}" "${algo}" "${GPUS_PER_NODE}" "${OUT}/nodefile_1n" 1
+        done
+    fi
+    for algo in ${ALGOS}; do
+        run_arm "inter_${algo}" "${algo}" "${NRANKS}" "${NODEFILE}" "${NNODES}"
+    done
+    # ACE2's actual startup collective, to the byte (1738.86 MiB, job 7586590).
+    # The sweep above steps in powers of two and straddles it; this arm is the
+    # one that speaks directly about ACE2 rather than about a size range.
+    for algo in ${ALGOS}; do
+        run_arm "ace2_startup_${algo}" "${algo}" "${NRANKS}" "${NODEFILE}" "${NNODES}" \
+            1823324160 1823324160
+    done
+} 2>&1 | tee "${LOG}"
+
+echo
+echo "--- verdict (parse_nccl_tests.py) ---"
+"${PY}" "${ACE2_DIR}/polaris/parse_nccl_tests.py" \
+    --log "${LOG}" --nodes "${NNODES}" --ranks "${NRANKS}"
+probe_rc=$?
+
+echo
+echo "log -> ${LOG}"
+if [ ${probe_rc} -ne 0 ]; then
+    echo "  A FAILING ARM IS A RESULT, not a lost job -- record which algo, which"
+    echo "  size, and whether it corrupted (wrong values) or wedged (no terminator)"
+    echo "  in polaris_ace2_multinode_handoff.md §1a. If Tree passes every arm on"
+    echo "  cxi, NCCL_ALGO=Ring can be dropped and ACE2 gets Tree's small-message"
+    echo "  latency back; if it fails identically, the defect is NCCL-side."
+fi
+echo "=== done $(date -Iseconds) ==="
+exit ${probe_rc}

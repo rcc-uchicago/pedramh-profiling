@@ -26,6 +26,11 @@ def load(f):
 weak=load("ace2_polaris_scaling.csv")
 strong=load("ace2_polaris_strongscale.csv")
 allrows=weak+strong
+# The cxi ladder lives in its own FILE, not its own column: these rows crossed
+# Slingshot and every row in `weak`/`strong` crossed Ethernet, so putting them in
+# one table is the mislabelling the `provider` column was added to prevent. They
+# are deliberately NOT concatenated into `allrows`.
+cxi=[r for r in load("ace2_polaris_scaling_cxi.csv") if r.get('n_steps')]
 
 def exp_of(r):
     if r in strong: return "STRONG-SCALE"
@@ -38,15 +43,33 @@ out=[]
 w=out.append
 w("# ACE2 on Polaris — complete measured results")
 w("")
+w("> 🔴 **EVERY MULTI-NODE ROW BELOW IS A TCP ROW, NOT A SLINGSHOT ROW.**")
+w("> Found 2026-09-17: aws-ofi-nccl **1.21.1**, which every arm here pinned,")
+w("> cannot negotiate the CXI provider (it omits `FI_MR_PROV_KEY`, which CXI")
+w("> mandates) and silently falls back to `tcp` with GPUDirect RDMA off — while")
+w("> still printing `Using network AWS Libfabric`, which is the string the")
+w("> `transport` column records. All six recent ACE2 logs read `provider=tcp`.")
+w("> App-free, cxi measured **5.2×** tcp on these nodes (7629082), and makani's")
+w("> equivalent re-measurement went 460.5 → 186.4 ms/step at 4 nodes.")
+w(">")
+w("> These rows are **kept, not deleted** — they are a real measurement of the")
+w("> configuration that ran for three weeks. But no number in them may be quoted")
+w("> as a property of Slingshot, and nothing here is comparable with a `cxi` row.")
+w("> The re-measured ladder lands in a SEPARATE file")
+w("> (`ace2_polaris_scaling_cxi.csv`), because the `provider` column added on the")
+w("> same day changes the header and the writer refuses to mix the two.")
+w("> → `polaris_ace2_slingshot_handoff.md`, prereg §1c/§1d.")
+w("")
 w("Generated from the CSVs the launchers wrote; **do not hand-edit** — regenerate.")
 w("Sources: `$MEMBER_ROOT/bench/ace2_polaris_scaling.csv` (weak ladder + placement +")
 w("failed arms), `ace2_polaris_strongscale.csv` (strong scaling), and")
 w("`epoch_telemetry_ace2_polaris.csv` (the per-epoch rows those are derived from).")
 w("")
-w("Common to EVERY row below unless stated: Polaris 4×A100-40GB/node, `fme` @ our")
+w("Common to every row below **except Table 0's**: Polaris 4×A100-40GB/node, `fme` @ our")
 w("`ace_exp` checkout, torch 2.10.0+cu129 / NCCL 2.27.5, `NCCL_ALGO=Ring`,")
-w("transport `AWS Libfabric` (aws-ofi-nccl 1.21.1 + libfabric 2.3.1,")
-w("`OFI_NCCL_PROGRESS_MODEL=AUTO`), `--cpu-bind depth -d 8`, `OMP_NUM_THREADS=2`,")
+w("plugin aws-ofi-nccl **1.21.1** + libfabric 2.3.1 ⇒ **provider `tcp`** (see the")
+w("banner; `transport` read `AWS Libfabric` on every arm and could not have read")
+w("anything else), `OFI_NCCL_PROGRESS_MODEL=AUTO`, `--cpu-bind depth -d 8`, `OMP_NUM_THREADS=2`,")
 w("4 loader workers/rank, 60 timed steps, 1 epoch, AMP bf16, LR 1e-4 flat,")
 w("`env_source=manual-reconstruction`, store = the single 2.4 TB NetCDF (`data=nc`).")
 w("")
@@ -75,7 +98,8 @@ for c,u,m in [
  ("gpu_busy_frac","fraction 0–1","Σ step_ms ÷ epoch_wall_s. ⚠ **loader idle, NOT comms cost** — exposed NCCL counts as *busy*"),
  ("epoch_wall_s","**s**","wall clock for the timed window only (excludes validation + first-batch probe)"),
  ("peak_mem_gb","**GiB**","⚠ **GiB (bytes/1024³), despite the column name.** Run-to-date max over ranks. Not comparable to PanguWeather's decimal-GB column of the same name"),
- ("transport","—","network NCCL selected; anything but `AWS Libfabric` invalidates the row"),
+ ("transport","—","the net PLUGIN NCCL dlopen'd. ⚠ **A label, not a guard** — identical on cxi and on the tcp fallback, which is why it never caught the fallback"),
+ ("provider","—","the libfabric provider that actually carried the traffic: `cxi` = Slingshot, `tcp` = Ethernet at ~1/5 the speed. **Added 2026-09-17** — rows from before it read `tcp*` below, meaning *inferred from the log, not recorded in the CSV*"),
  ("world_sizes_seen","count","world size off the trainer's own banner — guards against silent NonDistributed fallback"),
  ("ranks_reporting","count","distinct PALS rank labels that emitted the banner — independent second view"),
  ("torch","—","interpreter's torch build"),
@@ -90,17 +114,95 @@ w("⚠ **`samples_s_rank`/`_total` (GPU time) and `samples_s_wall` (wall clock) 
 w("different denominators.** `gpu_busy_frac` is the ratio between the two views.")
 w("")
 
+# ---- Table 0: the cxi re-measurement ---------------------------------------
+# First in reading order because it is the only part of this file measured on the
+# fabric the machine actually has. It stays a SEPARATE table, not extra rows in
+# Table 1, for the reason stated where `cxi` is loaded.
+w("## Table 0 — 🟢 CXI (SLINGSHOT) ROWS — the re-measurement, and what it replaces")
+w("")
+if not cxi:
+    w("**No cxi row exists yet.** Every table below is a tcp table. Run")
+    w("`ACE2_SCALING_CSV=$MEMBER_ROOT/bench/ace2_polaris_scaling_cxi.csv bash")
+    w("ACE2_retrain/polaris/run_ace2_ladder.sh 3 2` — the `provider` guard makes a row")
+    w("unwritable unless it reports `cxi` (handoff T2).")
+else:
+    w("Stack: aws-ofi-nccl **v1.6.0** + libfabric 2.3.1 + **`NCCL_PROTO=Simple`** +")
+    w("HPE's CXI rendezvous block, `NCCL_ALGO=Ring`. ⚠ **That is three changes from")
+    w("the tcp rows at once**, and two of them (`Simple` disables LL/LL128; the")
+    w("rendezvous block costs ~12–18% of all_reduce bandwidth) are *costs* — so a")
+    w("speedup here is a **lower bound** on what the fabric alone is worth. The 1-node")
+    w("row, where NCCL never leaves NVLink, is what isolates the two.")
+    w("")
+    w("| nodes | ranks | local_batch | global_batch | `provider` | step_med (ms) | tcp step_med (ms) | speedup | samples/s total | gpu_busy_frac | peak mem (GiB) | n |")
+    w("|---|---|---|---|---|---|---|---|---|---|---|---|")
+    def _tcp_med(nodes, lb):
+        """Median tcp step for the matching rung, or None if there isn't one.
+
+        Matched on nodes AND local_batch AND forward placement: a cxi row compared
+        against a tcp row at a different per-GPU batch would be a batch experiment
+        wearing a fabric label.
+        """
+        rs=[float(r['step_med_ms']) for r in weak
+            if r['nodes']==nodes and r['local_batch']==lb
+            and r['gpu_order']=='forward' and r['n_steps']]
+        return st.median(rs) if rs else None
+    bynode={}
+    for r in cxi: bynode.setdefault((r['nodes'],r['local_batch']),[]).append(r)
+    for (nodes,lb),rs in sorted(bynode.items(), key=lambda kv:(int(kv[0][0]),kv[0][1])):
+        med=st.median([float(r['step_med_ms']) for r in rs])
+        tcp=_tcp_med(nodes,lb)
+        sp=f"**{tcp/med:.3f}×**" if tcp else "— (no matching tcp rung)"
+        prov="|".join(sorted({r.get('provider','') or '?' for r in rs}))
+        ranks=rs[0]['ranks']
+        w(f"| {nodes} | {ranks} | {lb} | {rs[0]['global_batch']} | `{prov}` | **{med:.1f}** | "
+          f"{f'{tcp:.1f}' if tcp else '—'} | {sp} | "
+          f"{st.median([float(r['samples_s_total']) for r in rs]):.2f} | "
+          f"{st.median([float(r['gpu_busy_frac']) for r in rs]):.4f} | "
+          f"{st.median([float(r['peak_mem_gb']) for r in rs]):.3f} | {len(rs)} |")
+    w("")
+    if all(len(rs)==1 for rs in bynode.values()):
+        w("⚠ **Every rung here is n=1**, against tcp rungs whose own rep spread reached")
+        w("**±3.8%** at 2 nodes. Nothing in this table may be quoted to three digits, and")
+        w("no rung is a ladder point until it has reps.")
+    missing=[n for n in ('1','2','4','8') if not any(k[0]==n for k in bynode)]
+    if missing:
+        w("⚠ **Rungs not yet re-measured on cxi: %s node(s).** Until they are, any"
+          % ", ".join(missing))
+        w("scaling *shape* — efficiency, break-even node count, node-hours — still comes")
+        w("from the tcp tables below and is not a Slingshot result.")
+w("")
+
 w("## Table 1 — every arm, every column")
 w("")
 cols=['jobid','nodes','ranks','local_batch','global_batch','data','rep','gpu_order',
       'steps','n_steps','step_med_ms','step_p90_ms','step_mean_ms','step_std_ms',
       'samples_s_rank','samples_s_total','samples_s_wall','gpu_busy_frac','epoch_wall_s',
-      'peak_mem_gb','transport','world_sizes_seen','ranks_reporting','omp_threads']
+      'peak_mem_gb','transport','provider','world_sizes_seen','ranks_reporting','omp_threads']
+
+def cell(r,c):
+    """One table cell, tolerant of columns a row predates.
+
+    `provider` landed 2026-09-17; every row written before it is a tcp row (the
+    banner) but says so nowhere in the file. Rendering that as a blank would let
+    the most important column in the table be the emptiest, so it is filled in as
+    `tcp*` — inferred from the run's log, not recorded by the harness — and the
+    star is what distinguishes it from a row that measured its own provider.
+    """
+    v=r.get(c)
+    if v: return v
+    if c=='provider' and v is None: return "tcp\\*"
+    return "—"
+
 w("| experiment | " + " | ".join(f"`{c}`" for c in cols) + " | read MB/s |")
 w("|" + "---|"*(len(cols)+2))
 for r in sorted(allrows,key=lambda r:int(r['jobid'])):
     rd = f"{float(r['samples_s_wall'])*MB_PER_SAMPLE:.0f}" if r['samples_s_wall'] else "—"
-    w("| " + exp_of(r) + " | " + " | ".join((r[c] if r[c] else "—") for c in cols) + f" | {rd} |")
+    w("| " + exp_of(r) + " | " + " | ".join(cell(r,c) for c in cols) + f" | {rd} |")
+w("")
+w("⚠ `provider` = `tcp\\*` means **inferred, not recorded**: the column did not")
+w("exist when these rows were written. The 1-node rows are marked the same way for")
+w("uniformity, but a 1-node run never initialises the net plugin at all, so for")
+w("them the transport is not merely unrecorded — it is irrelevant.")
 w("")
 w("`torch`=2.10.0+cu129 and `env_source`=manual-reconstruction on every row (omitted above for width).")
 w("")
@@ -238,7 +340,7 @@ w("| item | value |")
 w("|---|---|")
 w("| hardware | Polaris, 4 × A100-SXM4-40GB per node (**39.49 GiB** usable), NV4 mesh |")
 w("| venv | `$MEMBER_ROOT/conda-envs/fme-venv` — python 3.12.11, **torch 2.10.0+cu129, NCCL 2.27.5**, torch_harmonics 0.8.0, zarr 3.3.0; `fme` **editable** from `ACE2_retrain/ace_exp` |")
-w("| fabric | self-built aws-ofi-nccl **1.21.1** + cray libfabric **2.3.1** + `OFI_NCCL_PROGRESS_MODEL=AUTO`; transport reported `AWS Libfabric` on **every** arm |")
+w("| fabric | 🔴 self-built aws-ofi-nccl **1.21.1** + cray libfabric **2.3.1** + `OFI_NCCL_PROGRESS_MODEL=AUTO` ⇒ **provider `tcp`, GPUDirect RDMA off — these runs never touched Slingshot.** `transport` reported `AWS Libfabric` on every arm and would have done so either way (7629082; handoff §1) |")
 w("| launcher | PALS `mpiexec --ppn 4 --cpu-bind depth -d 8 --label --line-buffer` + `polaris_rank_env.sh` (PMI_* → `env://`) → `ace2_telemetry.py` |")
 w("| knobs | `NCCL_ALGO=Ring`, `OMP_NUM_THREADS=2`, `MASTER_PORT=20000+jobid%20000`, `TMPDIR=/tmp`, `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` (verified honoured — both env-var spellings are in `libc10_cuda.so`) |")
 w("| model/config | `config_polaris.yaml` = `config_midway.yaml` with 11 paths repointed, nothing else. SFNO, embed_dim 384, 8 layers, dhconv; AMP **bf16**; AdamW(fused) — `FusedAdam` needs **no apex** here; **LR 1e-4 and FLAT** (fme's default scheduler is `None`) |")
@@ -308,10 +410,17 @@ w("and the 3.7×-per-application residual is not derived from first principles �
 w("runs at full resolution in both and makani has 2.4× the channels there, which partly")
 w("offsets its 9× spatial advantage.")
 
-w("## Table 9 — WHAT THE FABRIC COSTS ACE2")
+w("## Table 9 — WHAT THE FABRIC COSTS ACE2 — 🔴 **over TCP**")
 w("")
 w("Weak scaling holds per-GPU work identical on every row, so **everything above the")
 w("1-node step is exposed inter-node cost** (fabric + load imbalance).")
+w("")
+w("⚠ **Every figure in this table is the cost of ETHERNET, not of Slingshot** (see")
+w("the banner). cxi measured 5.2× tcp app-free, so the +488.4 ms first-hop toll")
+w("below is expected to fall to roughly +95 ms — which would change not just the")
+w("magnitudes but the conclusion, since the toll is what makes 'the fewest GPUs")
+w("that hold the batch' the first question. **Do not quote this table's")
+w("node-hour projections.** Re-measure (handoff T2/T4) before using any of it.")
 w("")
 w("| nodes | step_med (ms) | over 1n (ms) | **% of the step** | node·s / sample | vs 1 node |")
 w("|---|---|---|---|---|---|")

@@ -45,12 +45,23 @@ BANNER = (PALS + "ACE2_BANNER steps_per_epoch={spe} world_size={w} rank={r} "
           "local_batch=1 global_batch={w} device=cuda:{d} torch=2.10.0+cu129")
 
 
-def good_log(ranks=16, world=None, spe=60):
+NCCL = "x3005c0s13b0n0:1203158:1203212 [0] NCCL INFO NET/OFI "
+
+# The line that says which wire. v1.6.0's capital-P spelling; v1.21.1 prints
+# "Selected provider is tcp, fabric is ..." and the parser must read both.
+CXI = PALS.format(r=0) + NCCL + "Selected Provider is cxi (found 2 nics)"
+TCP = (PALS.format(r=0) + NCCL
+       + "Selected provider is tcp, fabric is 10.201.0.0/16 (found 2 nics)")
+
+
+def good_log(ranks=16, world=None, spe=60, provider=CXI):
     world = ranks if world is None else world
     lines = [PALS.format(r=0) + "x3005c0s13b0n0:1203158:1203212 [0] NCCL INFO "
              "Using network AWS Libfabric",
              PALS.format(r=1) + "x3005c0s13b0n0:1203159:1203213 [1] NCCL INFO "
              "Using network AWS Libfabric"]
+    if provider:
+        lines.append(provider)
     lines += [BANNER.format(r=r, w=world, d=r % 4, spe=spe) for r in range(ranks)]
     lines.append("0: EPOCH_TELEMETRY epoch=1 n=60 step_med=512.7ms gpu_busy=94.1% "
                  "peak=28.44GB ema=1 -> /x/tel.csv")
@@ -239,11 +250,17 @@ def test_no_telemetry_row_is_fatal():
 
 
 def test_unknown_transport_warns_but_does_not_fail():
-    """A timing is still a timing; it just cannot be tabled as fabric evidence."""
-    log = "\n".join(BANNER.format(r=r, w=16, d=r % 4, spe=60) for r in range(16))
+    """A timing is still a timing; it just cannot be tabled as plugin evidence.
+
+    The provider line is kept so this isolates the transport check: the two are
+    read from different lines and one missing must not implicate the other.
+    """
+    log = "\n".join([CXI] + [BANNER.format(r=r, w=16, d=r % 4, spe=60)
+                             for r in range(16)])
     rc, row, out = run(log + "\n", [tel_row()])
     assert rc == 0, out
     assert row["transport"] == "UNKNOWN"
+    assert row["provider"] == "cxi"
     assert "NO_TRANSPORT_LINE" in out
 
 
@@ -272,6 +289,64 @@ def test_two_word_transport_name_is_not_truncated():
     """`\\S+` would record "AWS Libfabric" as "AWS" -- a different transport."""
     parsed = P.parse_log("0: NCCL INFO NET/OFI Using network AWS Libfabric\n")
     assert parsed["transport"] == "AWS Libfabric"
+
+
+# --- the fabric guard -----------------------------------------------------
+# Added 2026-09-17. Every ACE2 multi-node row before that date was a tcp row and
+# nothing in the harness could say so: `transport` records a string the fallback
+# does not change. These three cases are the ones that give the column a failure
+# value -- without them `provider` would be another label.
+
+
+def test_tcp_fallback_is_rejected_while_transport_still_reads_libfabric():
+    """THE case. The second assertion is why this went unnoticed for weeks."""
+    rc, row, out = run(good_log(provider=TCP), [tel_row()])
+    assert rc == 4
+    assert "FABRIC_NOT_SLINGSHOT" in out
+    assert row["provider"] == "tcp"
+    assert row["transport"] == "AWS Libfabric"   # unchanged by the fallback
+    # and it names the remedy rather than leaving it to be rediscovered
+    assert "OFI_PLUGIN" in out
+
+
+def test_multinode_without_a_provider_line_is_rejected():
+    """Unverified is not the same as fine (CLAUDE.md #14)."""
+    rc, row, out = run(good_log(provider=None), [tel_row()])
+    assert rc == 4
+    assert "FABRIC_UNVERIFIED" in out
+    assert row["provider"] == "UNKNOWN"
+
+
+def test_single_node_needs_no_provider_line():
+    """A 1-node run never initialises the net plugin -- there is no line to find.
+
+    Gating on ranks instead of nodes would fail the ladder's own anchor and both
+    LR-sweep runs (7598647/7598648), whose conclusions the transport cannot
+    touch.
+    """
+    log = good_log(ranks=4, provider=None)
+    rc, row, out = run(log, [tel_row(n_gpus=4)],
+                       extra_argv=["--nodes", "1", "--ranks", "4",
+                                   "--global-batch", "4"])
+    assert rc == 0, out
+    assert row["provider"] == "UNKNOWN"
+    assert "FABRIC" not in out
+
+
+def test_allow_tcp_downgrades_the_error_to_a_labelled_warning():
+    """An acknowledgement, not a bypass: the row is still written as tcp.
+
+    It exists because v1.6.0 -- the only plugin that binds cxi here -- wedges by
+    message size, so "use the fabric" is sometimes not available.
+    """
+    os.environ["ALLOW_TCP"] = "1"
+    try:
+        rc, row, out = run(good_log(provider=TCP), [tel_row()])
+    finally:
+        del os.environ["ALLOW_TCP"]
+    assert rc == 0, out
+    assert "FABRIC_TCP_ACKNOWLEDGED" in out
+    assert row["provider"] == "tcp"
 
 
 # --- ACE2-specific --------------------------------------------------------

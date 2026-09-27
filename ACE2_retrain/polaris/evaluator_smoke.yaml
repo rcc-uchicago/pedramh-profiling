@@ -1,0 +1,64 @@
+# ACE2 evaluator GATE config — the cheap decisive test both adversarial critics
+# converged on (CHANGELOG 2026-09-10 cont. 2).
+#
+# It answers three questions in under an hour of debug time:
+#   1. Does an evaluator config built from config_polaris.yaml's `inference:`
+#      block actually parse and roll?  (Both critics predicted the standalone
+#      `fme.ace.inference` path CANNOT load it, and that `fme.ace.evaluator`
+#      can. This is that test.)
+#   2. What does forward-only rollout actually cost per sample-step?  The two
+#      critics' extrapolations disagree ~7x (0.5 vs 3.6 GPU-h per member) and
+#      NEITHER is measured. One timed run replaces both.
+#   3. Run under `mpiexec -n 4`, does it crash the way the plumbing critic
+#      predicted — IC loaded unsharded (all N on every rank) against a
+#      rank-sharded forcing loader?  Hence 4 ICs below: with 4 ranks that is
+#      4 IC samples vs 1 forcing sample per rank, which is the mismatch.
+#
+# ⚠ NOT a science run. 100 forward steps = 25 days, not the 7300 steps (5 y) a
+# real evaluation needs. Nothing here should be quoted as a result.
+#
+# ⚠ `save_prediction_files: false` is deliberate and is the single most
+# important line. The default is TRUE and the paired writer emits predictions
+# AND a reference copy: ~1.8-2.9 TB per member at production length. Monthly
+# means are ~11-13 GB. Do not flip this without costing it.
+#
+# ⚠ The loader must NOT subset its dataset — InferenceDataLoaderConfig
+# __post_init__ raises "Inference data may not be subset." So the 1996-1997
+# validation window cannot be expressed here the way validation_loader does it;
+# the window comes from start_indices plus n_forward_steps.
+
+experiment_dir: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/ace2_evaluator/PLACEHOLDER
+checkpoint_path: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/ace2_polaris/ace2_lr_3e-4/training_checkpoints/best_ckpt.tar
+
+# 100 steps x 6 h = 25 days. forward_steps_in_memory caps the window held on GPU.
+n_forward_steps: 100
+forward_steps_in_memory: 10
+
+logging:
+  log_to_screen: true
+  log_to_wandb: false
+  log_to_file: true
+  project: ace2-era5-training
+  entity: awikner-University of Chicago
+
+data_writer:
+  # See the warning above — this is the difference between ~13 GB and ~2.8 TB.
+  save_prediction_files: false
+  save_monthly_files: true
+
+loader:
+  # Four of the sixteen ICs the training config already carries. Four, not two,
+  # so the 4-rank arm exercises the sharding path rather than starving ranks.
+  start_indices:
+    times:
+      - '1996-01-01T00:00:00'
+      - '1996-04-01T00:00:00'
+      - '1996-07-01T00:00:00'
+      - '1996-10-01T00:00:00'
+  dataset:
+    data_path: /eagle/projects/lighthouse-uchicago/ace2/ace_training
+  num_data_workers: 4
+
+aggregator:
+  log_histograms: true
+  time_mean_reference_data: /eagle/projects/lighthouse-uchicago/ace2/normalization/time-mean.nc

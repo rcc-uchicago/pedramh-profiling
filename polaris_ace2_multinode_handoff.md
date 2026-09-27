@@ -38,7 +38,64 @@ Definitions: `$MEMBER_ROOT` = `/eagle/projects/lighthouse-uchicago/members/mehta
 
 ### 1a. ⚠ THE RING/TREE DEFECT — the finding that matters most
 
-**Measured on Polaris, app-free (no PyTorch model, no DDP, just NCCL):**
+> 🔴 **CORRECTED 2026-09-17 — THE TABLE IS RIGHT, THE ATTRIBUTION IS NOT.**
+> Every probe below ran on aws-ofi-nccl **1.21.1**, which we now know never bound
+> Slingshot: it silently used **tcp** with GPUDirect RDMA off while printing
+> `Using network AWS Libfabric` (→ `polaris_ace2_slingshot_handoff.md` §1). So
+> the corruption is real and reproduced, but **"a fabric defect on Polaris" is
+> not established** — Slingshot was never in the path. Three live
+> possibilities: (1) a bug in 1.21.1's **tcp** path, absent on cxi; (2) an NCCL
+> **Tree** bug, transport-independent; (3) present on cxi at a different
+> threshold.
+>
+> ⚠ **Keep `NCCL_ALGO=Ring` until the cxi re-run says otherwise.** The
+> silent-corruption property is the serious part and is transport-agnostic in
+> principle; dropping the pin speculatively risks training on half-reduced
+> gradients. Ring is not free — it is why ACE2 cannot use Tree's small-message
+> latency — so the question is worth settling, not assuming.
+>
+> 🟢 **RESOLVED 2026-09-18 — job 7631550, `ACE2_NCCL_TESTS_OK arms=6/6`, all on
+> `provider=cxi`. IT IS POSSIBILITY (1): the defect is in the tcp path, not in
+> NCCL's Tree.** Every row `#wrong = 0` with nccl-tests' own
+> `Out of bounds values : 0 OK` terminator — no corruption and no hang — at
+> 256 MB / 512 MB / 1 GiB / 2 GiB and at ACE2's exact 1,823,324,160 B collective,
+> in-place and out-of-place. The intra-node control arms agree from the other
+> side: Tree is correct with no fabric in the path.
+>
+> 🟢 **AND AT 8 NODES — job 7631624, 32 ranks, `arms=6/6`, every `#wrong = 0`.**
+> The original defect appeared at 2 nodes *and* 8; **both are now clean on cxi**, so
+> the correctness case for `NCCL_ALGO=Ring` is gone.
+>
+> | inter-node avg busbw (GB/s) | Tree | Ring | winner |
+> |---|---|---|---|
+> | 2 nodes / 8 ranks (7631550) | **42.79** | 35.37 | **Tree +21%** |
+> | 8 nodes / 32 ranks (7631624) | 28.90 | **37.00** | **Ring +28%** |
+> | ACE2's 1.74 GiB @ 2n | **44.03** | 35.78 | Tree +23% |
+> | ACE2's 1.74 GiB @ 8n | 29.48 | **37.55** | Ring +27% |
+> | intra-node (NVLink) | 140.8 | **193.2** | Ring throughout |
+>
+> ⚠ **THE ANSWER REVERSES WITH SCALE, and that is the finding.** At 8 nodes Ring
+> wins by **25–29% at every size** in the 128 MiB→2 GiB sweep, not just on average.
+> The crossover sits between 2 and 8 nodes, by the mechanism this section already
+> inferred: Tree's per-link message does not shrink with N; Ring's reduce-scatter
+> gives each rank `S/N`.
+>
+> ⇒ **The pin is right at 8 nodes and costs ~21% of collective bandwidth at 2** —
+> ACE2's production shape at global batch 16, where it is worth ~2% of step time
+> once translated through the 101.6 ms toll. So the move is **not "pin Tree"** but
+> **unpin** (`-v NCCL_ALGO=`) and let NCCL's tuner choose per size and scale;
+> forcing one algorithm everywhere guarantees being wrong at one end.
+> ⚠ **Still gated on** (a) the trainer, not an app-free probe — ACE2's exposure is a
+> DDP all_reduce with ~10 other collectives in flight, and the makani wedge that
+> started this was a DDP *broadcast* no probe ever reproduced; and (b) DESIGN §4 —
+> it is a hot-path change and ACE2 has **no equivalence baseline yet**. n=1 per arm.
+>
+> Instrument: `ACE2_retrain/polaris/polaris_ace2_tree_probe.pbs` (nccl-tests
+> `all_reduce_perf`, `-c 1` mandatory, Tree vs Ring, intra-node control) scored by
+> `parse_nccl_tests.py` (16 tests).
+
+**Measured on Polaris, app-free (no PyTorch model, no DDP, just NCCL) — over
+TCP, see the box above:**
 
 | traffic | size | result |
 |---|---|---|
@@ -190,16 +247,39 @@ stuck — only the monitor thread can report this class of hang. Raising it to
 Read the dump with `pickle.load`; `state=scheduled` on all ranks with an
 identical `collective_seq_id` means enqueued-and-never-launched.
 
-### 1b. The fabric stack (unchanged, still mandatory)
+### 1b. The fabric stack — 🔴 **REFUTED 2026-09-17. Do not use this section.**
 
-Self-built **aws-ofi-nccl v1.21.1** (`$MEMBER_ROOT/sw/aws-ofi-nccl-1.21.1`) +
-cray libfabric 2.3.1 + **`OFI_NCCL_PROGRESS_MODEL=AUTO`**. Re-measured under
-ai-rossby's torch 2.10/NCCL 2.27.5: `C_progress_auto` is the *only* working
-combo of six, exactly as on makani's 2.8.0/2.28.3 — so the pin is CXI-side and
-NCCL-version-independent. Everything else fails `fi_domain` with ENOSYS.
+> **What this section said:** self-built **aws-ofi-nccl v1.21.1** +
+> cray libfabric 2.3.1 + **`OFI_NCCL_PROGRESS_MODEL=AUTO`** is "the only working
+> combo of six", everything else failing `fi_domain` with ENOSYS.
+>
+> **Why it is wrong:** that was measured with a torch probe that could not tell
+> cxi from tcp. **1.21.1 "worked" because it stopped using the fabric** — it
+> omits `FI_MR_PROV_KEY`, which the CXI provider mandates, so it falls back to
+> tcp instead of failing (job 7629082; `FI_PROVIDER=cxi` and both
+> `OFI_NCCL_PROTOCOL` values fail identically — it is plugin source, not a
+> tunable). The **v1.6.0** plugin binds cxi on the same nodes, today
+> (7629082 M5, 7629096, 7630369).
+>
+> `OFI_NCCL_PROGRESS_MODEL=AUTO` is neither proven nor disproven by this; it is
+> simply not the thing that made multi-node work.
+
+**The stack that actually uses Slingshot**, and what
+`ACE2_retrain/polaris/polaris_ace2_env.sh` now defaults to:
+
+| component | value | why |
+|---|---|---|
+| plugin | `/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib` | the only build here that binds `cxi` |
+| libfabric | `/opt/cray/libfabric/2.3.1/lib64` | the only one installed |
+| `NCCL_PROTO` | **`Simple`** | v1.6.0 deadlocks in setup at ≥3 nodes on the default LL/LL128 paths (7553891/7554129/7554143; `polaris_nccl_debug_info.md` §5). Costs ~26% on a 1-node step — **not inert on the anchor** |
+| CXI rendezvous | HPE's `ccl_env.sh` block, behind `CXI_RDZV=1` | unwedges a 512 KB `all_gather` (7630227 vs 7629096) at ~12–18% all_reduce bandwidth |
+
 Existence-check every pinned dir and hard-exit: a missing dir on
 `LD_LIBRARY_PATH` is **ignored, not honoured**, and the run then measures a
-different transport before crashing somewhere unrelated.
+different transport before crashing somewhere unrelated. ⚠ And check the
+**provider**, not the plugin name: `parse_ace2_scaling.py` now fails a
+multi-node row whose `provider` is not `cxi`, which is the check whose absence
+made this section wrong for three weeks.
 
 ### 1c. Traps that cost real time here — do not pay twice
 
@@ -277,6 +357,64 @@ that error is recorded in CHANGELOG because I made it.
 Anchor claims on the tight arms.
 
 ### 1f. ⚠ WHAT THE makani CAMPAIGN ADDED (2026-09-01/02) — read before writing the plan
+
+> ⚠ **2026-09-17: the ARGUMENT survives, every MAGNITUDE below is a TCP number.**
+> "The first question is the fewest GPUs that hold the batch" is a *batch-size*
+> argument and does not depend on the wire. But the ~234 ms toll, the 2-node
+> trough and every node-hour projection here were measured on a stack that never
+> bound Slingshot (§1b). **Do not quote the node-hour projections below.**
+>
+> 🟢 **RECOMPUTED 2026-09-18 for ACE2 on cxi (slingshot handoff T4)** — jobs
+> **7631544** (1 node) and **7631529** (2 nodes), `provider=cxi`, `local_batch=2`,
+> **n=1 each**:
+>
+> | | tcp (n=3) | **cxi (n=1)** |
+> |---|---|---|
+> | 1-node step | 716.0 ms | **713.7 ms** (unchanged) |
+> | 2-node step | 1204.4 ms | **815.3 ms** |
+> | **first-hop toll** | **+488.4 ms** (40.6% of the step) | **+101.6 ms (12.5%)** |
+> | node·s per sample, 1n → 2n | 0.0895 → 0.1506 = **1.68×** | 0.0892 → 0.1019 = **1.14×** |
+> | samples/s total at 2n | 13.29 | **19.63** |
+>
+> **The toll fell 4.81×** — against the 5.2× cxi/tcp bandwidth ratio measured
+> app-free on the same nodes (7629082). Exposed inter-node cost tracks fabric
+> bandwidth almost exactly, which is the strongest evidence yet that this toll is
+> **bandwidth-bound**, not latency- or overhead-bound.
+>
+> ⇒ **The economics change qualitatively, not just numerically.** On tcp, going to
+> 2 nodes cost **+68% node-hours per sample**, which is what made "use the fewest
+> GPUs that hold the batch" the first question. On cxi it costs **+14%** — for
+> **1.75× the throughput**. The 1-node arm is still marginally the cheapest per
+> sample, but the gap is now small enough that wall-clock can reasonably win, and
+> ACE2's production batch of 16 **needs** 2 nodes anyway.
+>
+> 🟢🟢 **AND AT 16 NODES IT IS ALMOST FREE — measured 2026-09-18, jobs 7633410 vs
+> 7633560:** 1 node 716.195 ms → **16 nodes 746.469 ms, +4.2%**, for **16× the
+> global batch**. 11.17 → **171.47 samples/s = 15.35× for 16× the GPUs = 95.9%
+> weak-scaling efficiency**, at **+4.2% node-hours per sample**. `gpu_busy_frac`
+> 0.9412 at 64 concurrent readers, so the single-OST store still is not the limit.
+> **Against the tcp era's +109% at 8 nodes, "over half the step is fabric" is dead.**
+>
+> 🔴 **The ladder is NON-MONOTONIC: the 2-node rung (815.3) is 9.2% SLOWER than the
+> 16-node rung (746.5).** This is §1e's **2-node trough**, now on a third unrelated
+> model, and 9.2% exceeds that rung's own ±3.8% spread. Mechanism matches the
+> nccl-tests data — Ring's reduce-scatter gives each rank `S/N`, so the per-rank
+> message shrinks as N grows while inter-node busbw holds (35.37 GB/s at 2 nodes →
+> 37.00 at 8). **The worst multi-node configuration is the smallest one.**
+>
+> ⇒ **So the case for 1 node is now purely the BATCH, not the fabric.** At 16 nodes
+> the global batch is 128, updates/epoch fall 16×, and updates/node-hour go
+> 5,027 → 301. Whether that trade is worth it is a critical-batch-size and
+> LR-scaling question — statistics, not interconnect — and it has never been
+> measured here.
+> ⚠ 16n is **n=1**; the **4- and 8-node cxi rungs do not exist**; and the 16-node
+> arm ran on a different rack (`x3201c0s*`) from the 1- and 2-node arms
+> (`x3001c0s*`), an uncontrolled confound.
+>
+> ⚠ **n=1 at both rungs**, and the 4- and 8-node rungs are **not re-measured** — so
+> the *shape* beyond 2 nodes (§1e's trough, the saturation) is still a tcp result.
+> ⚠ This is ACE2. makani's cxi re-measurement (460.5 → 186.4 ms at 4 nodes, 2.47×)
+> is a different model at a different batch and is quoted here only as precedent.
 
 A second harness was taken to production on Polaris after this document was
 written, and **its central result questions this document's premise.** Evidence:

@@ -43,7 +43,15 @@
 # (48 healthy of 49).
 #
 # PASS = one `ACE2_POLARIS_TRAIN_OK nodes=N` per link, plus a row per link in
-# $MEMBER_ROOT/bench/ace2_polaris_scaling.csv.
+# $MEMBER_ROOT/bench/ace2_polaris_scaling.csv — with `provider=cxi` in it. Set
+# `ACE2_SCALING_CSV=<path>` to route the whole ladder elsewhere; it is used BOTH
+# for the resume count and for the rows the jobs write.
+#
+# ⚠ THE PRE-2026-09-17 ROWS IN THAT DEFAULT FILE ARE TCP ROWS. aws-ofi-nccl
+# 1.21.1 never bound Slingshot (polaris_ace2_slingshot_handoff.md §1), and the
+# file has no `provider` column to say so, so it is 27 columns where the parser
+# now writes 28 and an append into it is REFUSED. A cxi ladder needs a fresh
+# path: `ACE2_SCALING_CSV=$MEMBER_ROOT/bench/ace2_polaris_scaling_cxi.csv`.
 #
 # To cancel: `qdel` every printed id IN ONE COMMAND (deleting a link alone
 # RELEASES its successor — afterany fires on deletion too).
@@ -79,7 +87,15 @@ submit() {  # submit <rep> <rung-spec> [dependency]; echoes the job id or ""
     # ⚠ ONE `-v` flag with comma-separated pairs, never several. PBS resolves
     # duplicate keys LAST-WINS, and a second -v is the documented way to
     # silently discard a per-arm override (handoff §1f).
-    vars="LOCAL_BATCH=${LOCAL_BATCH},REP=${rep}"
+    # ⚠ The CSV is passed THROUGH to the job, not just read here. Until
+    # 2026-09-17 this script resolved $ACE2_SCALING_CSV for its resume count and
+    # then let the launcher pick its own default, so `ACE2_SCALING_CSV=<fresh>
+    # bash run_ace2_ladder.sh` counted one file and wrote another. Since the
+    # provider column landed that is no longer a quiet mismatch -- the launcher
+    # would try to append a 28-column row to the 27-column tcp file and die on
+    # SCALING_CSV_SCHEMA_DRIFT after the allocation was spent -- but the fix is
+    # that the two must be the same file by construction.
+    vars="LOCAL_BATCH=${LOCAL_BATCH},REP=${rep},ACE2_SCALING_CSV=${CSV}"
     [ "${target}" != "-" ] && vars="${vars},TARGET_NODES=${target}"
 
     local args=(-q "${queue}" -l "select=${sel}:system=polaris" -v "${vars}")
@@ -175,5 +191,5 @@ done
 echo
 echo "submitted ${#ids[@]} link(s) this wave — re-run this script when they drain"
 echo "watch:   qstat -u \$USER"
-echo "results: \${MEMBER_ROOT}/bench/ace2_polaris_scaling.csv"
+echo "results: ${CSV}"
 [ ${#ids[@]} -gt 0 ] && echo "cancel:  qdel ${ids[*]}"

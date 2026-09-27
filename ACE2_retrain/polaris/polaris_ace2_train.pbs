@@ -248,7 +248,43 @@ if [ $(( GLOBAL_BATCH % NRANKS )) -ne 0 ]; then
 fi
 
 # ---- run identity + CSV routing ---------------------------------------------
-RUN_NAME="${RUN_NAME:-ace2_${NNODES}n_b${GLOBAL_BATCH}_rep${REP}_${JOBID}}"
+# ---- -v PRODUCTION=1 : a real, resumable, preemption-safe training run --------
+# The bench arms above are 60 timed steps with checkpoints OFF and a jobid in the
+# run name -- correct for timing, useless for training. PRODUCTION flips the four
+# things that matter and NOTHING else, so the two modes cannot drift apart:
+#
+#   1. RUN_NAME carries NO jobid. A preempted job keeps its id when PBS requeues
+#      it, but a hand-resubmitted one does not -- and fme resumes by finding
+#      `${experiment_dir}/training_checkpoints/ckpt.tar` (trainer.py:~300,
+#      `resuming = os.path.isfile(...)`). A jobid in the path silently starts a
+#      FRESH run instead of resuming, which looks like training that never
+#      converges.
+#   2. Checkpoints ON, including `checkpoint_every_n_batches` -- fme installs a
+#      SIGTERM handler that writes restart checkpoints mid-epoch, which is what
+#      makes preemption survivable at 2+ h/epoch.
+#   3. `CosineAnnealingWarmRestarts`. fme resolves schedulers by NAME out of
+#      `torch.optim.lr_scheduler` (core/scheduler.py), so this is config-only.
+#      ⚠ Its `.step()` takes no `metrics`; fme calls `step(metrics=valid_loss)`
+#      first and falls back on `except TypeError` -- verified to be the path that
+#      fires. The scheduler's `T_cur` IS checkpointed
+#      (`Optimization.get_state` -> `scheduler_state_dict`), which is what lets a
+#      restart cycle survive a preemption. The resume gate proves it.
+#   4. A SNAPSHOT ENSEMBLE for free: `checkpoint_save_epochs` is aligned to the
+#      restart epochs, so each cycle's converged weights are kept.
+#      ⚠ Alignment is off-by-one-prone. `_epochs_trained` is incremented at the
+#      END of `train_one_epoch` and `save_all_checkpoints` runs after it, so the
+#      checkpoint tagged epoch N holds the weights after N complete epochs -- the
+#      LR MINIMUM of cycle N/T_0. Use start=T_0, step=T_0. Using T_0-1 would keep
+#      the weights one epoch short of each cycle's minimum.
+PRODUCTION="${PRODUCTION:-0}"
+T_0="${T_0:-10}"
+T_MULT="${T_MULT:-1}"
+ETA_MIN="${ETA_MIN:-1e-6}"
+if [ "${PRODUCTION}" = "1" ]; then
+    RUN_NAME="${RUN_NAME:-ace2_prod_${NNODES}n_b${GLOBAL_BATCH}}"
+else
+    RUN_NAME="${RUN_NAME:-ace2_${NNODES}n_b${GLOBAL_BATCH}_rep${REP}_${JOBID}}"
+fi
 EXP_ROOT="${MEMBER_ROOT}/runs/ace2_polaris"
 EXP_DIR="${EXP_ROOT}/${RUN_NAME}"
 mkdir -p "${EXP_DIR}" "${MEMBER_ROOT}/bench" || exit 2
@@ -460,21 +496,127 @@ export TMPDIR=/tmp
 #       on a 40 GB A100 on its own.
 #   inference=null
 #       the config's inline inference is 7300 forward steps.
-OVERRIDES=(
-    "experiment_dir=${EXP_DIR}"
-    "max_epochs=${EPOCHS}"
-    "segment_epochs=${EPOCHS}"
-    "save_checkpoint=false"
-    "checkpoint_save_epochs=null"
-    "inference=null"
-    "train_loader.batch_size=${GLOBAL_BATCH}"
-    "train_loader.num_data_workers=${LOADER_WORKERS}"
-    "train_loader.sample_with_replacement=$(( STEPS * GLOBAL_BATCH ))"
-    "train_evaluation_samples=${GLOBAL_BATCH}"
-    "validation_loader.num_data_workers=${LOADER_WORKERS}"
-    "log_train_every_n_batches=10"
-)
+if [ "${PRODUCTION}" = "1" ]; then
+    # Real epochs (no sample_with_replacement cap), checkpoints on, warm restarts.
+    # SAMPLES_PER_EPOCH shortens the epoch for the RESUME GATE without changing
+    # anything else, so the gate exercises the same code path as production.
+    SPE_ARG=()
+    if [ -n "${SAMPLES_PER_EPOCH:-}" ]; then
+        SPE_ARG=( "train_loader.sample_with_replacement=${SAMPLES_PER_EPOCH}" )
+        echo "SAMPLES_PER_EPOCH=${SAMPLES_PER_EPOCH} -> SHORTENED epochs (gate mode, not a production epoch time)"
+    else
+        echo "full epochs: the config's train split is ~97,874 samples => $(( 97874 / GLOBAL_BATCH )) steps/epoch"
+    fi
+    OVERRIDES=(
+        "experiment_dir=${EXP_DIR}"
+        "max_epochs=${EPOCHS}"
+        "segment_epochs=${EPOCHS}"
+        "save_checkpoint=true"
+        "checkpoint_every_n_batches=${CKPT_EVERY_N_BATCHES:-500}"
+        "checkpoint_save_epochs.start=${T_0}"
+        "checkpoint_save_epochs.stop=$(( EPOCHS + 1 ))"
+        "checkpoint_save_epochs.step=${T_0}"
+        "inference=null"
+        "train_loader.batch_size=${GLOBAL_BATCH}"
+        "train_loader.num_data_workers=${LOADER_WORKERS}"
+        "${SPE_ARG[@]}"
+        "train_evaluation_samples=${GLOBAL_BATCH}"
+        "validation_loader.num_data_workers=${LOADER_WORKERS}"
+        "log_train_every_n_batches=${LOG_EVERY:-100}"
+    )
+    # ⚠ -v NO_SCHEDULER=1 : keep the LR FLAT. Required for an LR SWEEP -- a
+    # schedule confounds the thing being measured, because each arm would be
+    # tested at a different effective LR by the time it is scored. fme's default
+    # scheduler is already None, so this simply declines to add one; production
+    # (without the knob) gets CosineAnnealingWarmRestarts and the free snapshot
+    # ensemble.
+    if [ "${NO_SCHEDULER:-0}" = "1" ]; then
+        echo "NO_SCHEDULER=1 -> FLAT LR (sweep mode); no warm restarts, no snapshot ensemble"
+    else
+        OVERRIDES+=(
+            "optimization.scheduler.type=CosineAnnealingWarmRestarts"
+            "optimization.scheduler.step_each_iteration=false"
+            "optimization.scheduler.kwargs.T_0=${T_0}"
+            "optimization.scheduler.kwargs.T_mult=${T_MULT}"
+            "optimization.scheduler.kwargs.eta_min=${ETA_MIN}"
+        )
+    fi
+    # ⚠ The single biggest epoch-time lever the Midway profile found, and it is
+    # NUMERICS-NEUTRAL: validation was 61% of an epoch at 3.3% GPU there, and
+    # turning off snapshot logging took ~30% off the epoch without changing what
+    # is computed. Untested on Polaris -- ON by default so production gets it,
+    # `-v LOG_SNAPSHOTS=1` restores it as its own arm.
+    if [ "${LOG_SNAPSHOTS:-0}" != "1" ]; then
+        OVERRIDES+=( "validation_aggregator.log_snapshots=false" )
+    fi
+else
+    OVERRIDES=(
+        "experiment_dir=${EXP_DIR}"
+        "max_epochs=${EPOCHS}"
+        "segment_epochs=${EPOCHS}"
+        "save_checkpoint=false"
+        "checkpoint_save_epochs=null"
+        "inference=null"
+        "train_loader.batch_size=${GLOBAL_BATCH}"
+        "train_loader.num_data_workers=${LOADER_WORKERS}"
+        "train_loader.sample_with_replacement=$(( STEPS * GLOBAL_BATCH ))"
+        "train_evaluation_samples=${GLOBAL_BATCH}"
+        "validation_loader.num_data_workers=${LOADER_WORKERS}"
+        "log_train_every_n_batches=10"
+    )
+fi
 [ -n "${LR:-}" ] && OVERRIDES+=( "optimization.lr=${LR}" )
+# ---- reference-parity knobs (ai2's own ACE2-ERA5 config) ---------------------
+# `ace_exp/configs/baselines/era5/ace-train-config.yaml` is ai2's published recipe
+# and it disagrees with ours on both of these. Exposed as knobs rather than
+# changed in place because each is a SCIENCE deviation needing sign-off:
+#   use_gradient_accumulation  reference true,  ours false (config_polaris.yaml:110)
+#   enable_automatic_mixed_precision  reference false, ours true (:111)
+# ⚠ GRAD_ACCUM IS NOT A MEMORY KNOB. With it on, fme detaches the autoregressive
+# state between steps and backwards each immediately, so the model stops
+# back-propagating through step 1 to improve step 2 -- truncated BPTT, a
+# different gradient. It also frees step-1 activations before step-2's forward,
+# which is why it plausibly moves the local-batch ceiling: the measured
+# "largest local batch is 2" (jobs 7586496/7586506/7586526) was taken with
+# accumulation OFF and has never been re-measured at the reference's setting.
+[ -n "${GRAD_ACCUM:-}" ] && OVERRIDES+=( "optimization.use_gradient_accumulation=${GRAD_ACCUM}" )
+[ -n "${AMP:-}" ] && OVERRIDES+=( "optimization.enable_automatic_mixed_precision=${AMP}" )
+# ---- capture the metrics fme otherwise throws away --------------------------
+# `logging.log_to_wandb` is FALSE in config_polaris.yaml, and fme routes every
+# per-channel validation metric through `wandb.log` and nowhere else
+# (trainer.py:471-491 builds `all_logs`; the screen gets four lines). With wandb
+# off that payload went to /dev/null on every ACE2 epoch ever run here -- the
+# same defect makani had, where per-lead metrics were computed each epoch and
+# discarded because wandb must be off on the one path that can score a
+# checkpoint (fixed 2026-09-09, plasim_trainer.log_epoch).
+#
+# `metrics_log_dir` is a config-only knob on LoggingConfig: it attaches fme's own
+# DiskMetricLogger, which mirrors EVERY wandb.log payload to metrics.jsonl. It is
+# independent of log_to_wandb and resume-safe (it reads the existing file's
+# high-water mark and skips steps at or below it, so a preempted-and-resumed run
+# does not double-write). ace2_telemetry.py additionally echoes the epoch payload
+# to the screen log and NAMES anything the JSONL dropped -- read that line, it is
+# how "the keys are the same" stays a checkable claim.
+OVERRIDES+=( "logging.metrics_log_dir=${METRICS_LOG_DIR:-${EXP_DIR}/metrics}" )
+# ⚠ wandb_dir_in_experiment_dir=true UNCONDITIONALLY, whether or not wandb is on.
+# `logging_utils.py:142-145` picks `wandb_dir = DEFAULT_TMP_DIR` ("/tmp") when this
+# is false and passes it as `wandb.init(dir=...)` -- and an explicit `dir=`
+# OVERRIDES the `WANDB_DIR=$MEMBER_ROOT/wandb` that polaris_env.sh exports. This
+# launcher also forces TMPDIR=/tmp (see the TMPDIR block). On a Polaris compute
+# node /tmp is node-local and is discarded when the job ends, so an OFFLINE wandb
+# run -- the only kind we can make here, WANDB_MODE=offline, no route to
+# api.wandb.ai except the proxy -- would be written and then thrown away, with no
+# error. Same silent-loss class as the metrics defect above. In the experiment dir
+# it survives on eagle and can be uploaded later from a LOGIN node with
+# `wandb sync`.
+OVERRIDES+=( "logging.wandb_dir_in_experiment_dir=true" )
+# -v WANDB=1 turns wandb ON. Default OFF, matching config_polaris.yaml: the
+# metrics_log_dir JSONL above is the primary record and does not depend on it.
+if [ "${WANDB:-0}" = "1" ]; then
+    OVERRIDES+=( "logging.log_to_wandb=true" )
+    echo "WANDB=1 -> log_to_wandb, mode=${WANDB_MODE:-offline}, run dir under ${EXP_DIR}"
+    echo "  upload later from a LOGIN node:  wandb sync ${EXP_DIR}/wandb/offline-run-*"
+fi
 # ---- validation window: MUST scale with the world size ----------------------
 # Validation is 61% of an epoch at 3.3% GPU on the Midway profile and fme has no
 # switch to skip it, so it is shortened. But a FIXED short window does not
@@ -500,6 +642,34 @@ OVERRIDES=(
 #     is the only column that could in principle move, and it does not: it read
 #     33.959 GiB identically at 1, 2 and 4 nodes, i.e. it is set by training, and
 #     this change only ever LOWERS the validation footprint.
+# ⚠ -v FULL_VAL=1 : validate on the CONFIG'S REAL SPLIT (1996-01-01..1997-12-31),
+# not a world-size-scaled slice. REQUIRED for production, because
+# `Trainer.save_all_checkpoints` selects `best_ckpt.tar` on validation loss --
+# choosing the shipped model off ~16 samples would be selection on noise.
+# Cost is negligible at production epoch length: ~2,900 samples / global batch 8
+# = 363 steps x 0.716 s = ~4.3 min against a ~2.5 h epoch (~3%).
+# ⚠ This also contradicts the Midway note that validation is 61% of an epoch --
+# that was measured on a SHORTENED epoch; at full length it is ~3%.
+# ⚠ DEFAULT FLIPPED 2026-09-18: ON under PRODUCTION=1, off for bench arms.
+# The comment above called FULL_VAL "REQUIRED for production" while the code
+# defaulted it to 0 -- so the documented-mandatory setting was one forgotten `-v`
+# away from selecting the shipped model on a ~16-sample validation window, i.e.
+# on noise, with nothing in the log saying so. The safe thing is now the default.
+# `-v FULL_VAL=0` restores the short window, which is what the RESUME GATE wants
+# (it runs PRODUCTION=1 with SAMPLES_PER_EPOCH to shorten everything).
+# Bench arms are untouched: PRODUCTION=0 keeps the old default, and validation
+# runs outside their timed window anyway.
+if [ "${PRODUCTION}" = "1" ]; then
+    FULL_VAL="${FULL_VAL:-1}"
+else
+    FULL_VAL="${FULL_VAL:-0}"
+fi
+if [ "${FULL_VAL}" = "1" ]; then
+    OVERRIDES+=( "validation_loader.batch_size=${GLOBAL_BATCH}" )
+    echo "FULL_VAL=1 -> validating on the config's real 1996-1997 split (~2,900 samples),"
+    echo "             batch ${GLOBAL_BATCH}; best_ckpt selection is therefore meaningful"
+    _FULL_VAL_DONE=1
+fi
 VAL_BATCHES_PER_RANK="${VAL_BATCHES_PER_RANK:-4}"
 [ "${VALIDATE}" = "1" ] && VAL_BATCHES_PER_RANK=32
 # samples wanted -> timesteps (+2 for the n_forward_steps=2 window) -> days at 6-hourly
@@ -508,8 +678,10 @@ VAL_DAYS=$(( (VAL_SAMPLES + 2 + 3) / 4 ))
 [ "${VAL_DAYS}" -lt 5 ] && VAL_DAYS=5
 VAL_STOP="$(date -u -d "1996-01-01 + ${VAL_DAYS} days" +%Y-%m-%d)" || {
     echo "ERROR VAL_STOP_DATE_FAILED"; exit 3; }
-OVERRIDES+=( "validation_loader.batch_size=${NRANKS}" )
-OVERRIDES+=( "validation_loader.dataset.subset.stop_time=${VAL_STOP}" )
+if [ "${_FULL_VAL_DONE:-0}" != "1" ]; then
+    OVERRIDES+=( "validation_loader.batch_size=${NRANKS}" )
+    OVERRIDES+=( "validation_loader.dataset.subset.stop_time=${VAL_STOP}" )
+fi
 echo "validation: ${VAL_SAMPLES} samples wanted over ${NRANKS} ranks"
 echo "            -> 1996-01-01..${VAL_STOP} (${VAL_DAYS} d), batch ${NRANKS} (1/rank)"
 
@@ -556,10 +728,13 @@ echo "--- train rc=${rc} ---"
 
 # ---- results ----------------------------------------------------------------
 # Delegated to parse_ace2_scaling.py rather than an inline heredoc so it can be
-# tested without an allocation (test_parse_ace2_scaling.py, 16 checks). That is
+# tested without an allocation (test_parse_ace2_scaling.py, 23 checks). That is
 # not tidiness: its guards -- world_size, ranks reporting, telemetry n_gpus, step
-# count, transport -- are the difference between a scaling number and a
-# plausible-looking number.
+# count, and the fabric PROVIDER -- are the difference between a scaling number
+# and a plausible-looking number. ⚠ `transport` is in the row but is NOT one of
+# the guards: it reads "AWS Libfabric" whether the plugin bound Slingshot or fell
+# back to tcp, which is how every pre-2026-09-17 multi-node row passed while
+# running on Ethernet. `provider` is the one that can fail.
 "${PY}" "${ACE2_DIR}/polaris/parse_ace2_scaling.py" \
     --log "${LOG}" --csv "${SCALING_CSV}" \
     --telemetry-csv "${TELEMETRY_CSV}" --run-name "${RUN_NAME}" \

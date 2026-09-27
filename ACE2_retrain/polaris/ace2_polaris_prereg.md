@@ -462,6 +462,106 @@ node-matched design.
 schema), so reverse rows belong in the same table — but every ladder summary must
 then filter `gpu_order == forward` or it will average two configurations.
 
+## 1a. LR SWEEP — SELECTION RULE, WRITTEN BEFORE THE ARMS EXIST
+
+> ### 🔬 SCREEN SCORED 2026-09-04 (not the registered sweep — 8% of its updates)
+> | LR | final valid @ 3,000 updates |
+> |---|---|
+> | 1e-4 *(config's own)* | 0.9362 — **last** |
+> | 3e-4 | 0.7249 |
+> | **1e-3** | **0.6417 — winner** |
+> | 3e-3 *(added by the endpoint rule)* | worse than all at every epoch |
+>
+> ✅ **Rule applied as written.** 1e-3 won at the range TOP, so the endpoint clause fired and
+> **3e-3 was run before scoring**; it is worse everywhere, so 1e-3 is an **interior optimum**
+> and the result is adoptable in principle. ✅ No arm was disqualified — no NaN, no rising
+> validation loss, and no divergence even at 3e-3 with clipping unavailable. The
+> batch_loss-variance tie-break was never needed (the gap is 11.5%, far outside a tie).
+>
+> 🎯 **The config's own 1e-4 came LAST — makani's finding reproduced on a second harness.**
+>
+> ⚠ **Not the registered experiment.** 3,000 updates/arm vs the registered 36,702, n=1, and
+> early rank order need not survive to 332k updates. The four full arms (7589850-53) are still
+> queued. Treat 1e-3 as the current best estimate, not a settled value.
+
+**Registered 2026-09-03, before jobs are submitted.** "Prereg beats authority" is a
+measured result here: in makani's sweep the value taken from **upstream's own
+config came LAST of three**. ACE2's `optimization.lr: 1e-4` is inherited from the
+ai2cm/Delta config at global batch 16 and **has never been validated on this data
+at any batch**.
+
+**Configuration under test:** 1 node, global batch **8** (local 2), **3 full
+epochs** (12,234 updates/epoch ⇒ 36,702 updates/arm), **flat LR**
+(`-v NO_SCHEDULER=1`) — a schedule would confound the arms by testing each at a
+different effective LR by the time it is scored. Production then uses the winner
+as the **peak** of `CosineAnnealingWarmRestarts`, which is makani's exact shape.
+
+**Arms (4):** `5e-5, 1e-4, 3e-4, 1e-3` — spanning 20×. This deliberately brackets
+both the linear-scaled value for the halved batch (5e-5) and the config's own
+value (1e-4), and extends upward because makani's winner was **5× upstream's
+value**.
+
+### The rule
+
+1. **Disqualify** any arm that raises `Loss is NaN-valued during training`
+   (`Optimization._validate_loss` raises, so this is loud), or whose validation
+   loss *increases* from epoch 2 → 3.
+2. **Winner = lowest validation loss after epoch 3.**
+3. **Tie-break** (within 2%): lower variance of the per-step `batch_loss` across
+   the final epoch.
+
+⚠ **The tie-break is NOT gradient norm, and that is a forced change from makani's
+rule.** `grep` over `ace_exp/fme` finds **no gradient-norm logging and no
+gradient clipping anywhere** — fme neither computes nor exposes it. Anyone
+expecting makani's `pick_lr.py` criterion here will not find it. The batch_loss
+variance is a *proxy* for gradient noise and is weaker; say so when scoring.
+
+⚠ **fme also does no gradient clipping at all**, and it is not configurable. That
+is a real risk at the top of this range: ai-rossby's divergence investigation
+listed `grad_clip_norm: 0.0` as a leading suspect, and here it is not 0 by
+choice — the capability is absent. An arm that diverges at 1e-3 may be telling us
+about the missing clip rather than about the LR.
+
+⚠ **If the winner is 5e-5 or 1e-3 — i.e. an ENDPOINT — the range was
+insufficient and the result must NOT be adopted as-is.** Extend and re-run.
+makani's CHANGELOG carries exactly this caveat ("2e-3 was the top of the range
+tested") and repeating it knowingly would be worse than the first time.
+
+🔵 **OPERATOR DECISION 2026-09-18 (rmehta1987): these are ADOPTED. Production is
+not gated on external sign-off.** What follows is therefore a *record of the
+deviations*, not a request for approval — the distinction matters because every
+item below is still a real departure from ai2's published ACE2-ERA5 recipe, and a
+reader comparing our numbers against the paper's needs the list either way.
+
+Batch 8 is a deviation: the config says 16, and 8 is chosen as *the largest batch
+that fits one node* — a hardware fact — which also happens to be **3.4× more
+update-efficient** (5,028 vs 1,495 updates/node-hour) because it avoids the
+fabric entirely.
+
+⚠ **RESTATED 2026-09-18: that 3.4× is a TCP-era figure. On cxi it is 2.3×**
+(5,044 vs 2,208 updates/node-hour, from the measured 713.7 / 815.3 ms steps —
+jobs 7631544 / 7631529). **The conclusion survives and the magnitude does not.**
+1 node still wins on *both* axes — updates per node-hour **and** updates per hour
+of wall-clock (5,044 vs 4,415) — so the production shape is unchanged by the
+fabric fix. ⚠ Do not read §1f's "a second node costs only +14% node-hours" as
+licensing a 2-node production run: that +14% is **per sample**, and per *update*
+2 nodes costs 2.3× the allocation to train more slowly.
+
+⚠ **And "the largest batch that fits one node" is now only true at
+`use_gradient_accumulation=false`.** Job 7608867 measured the config's own
+global 16 fitting on **one** node at 37.095 GiB with accumulation **on** — but
+that is truncated BPTT, i.e. a **different gradient**, and it invalidates the LR
+sweep that was run without it.
+
+**It is the paper-fidelity alternative, and it is NOT what the recommended run
+uses — on evidence, not on permission.** Three measured reasons: it is
+**−6.5% samples/s**; it leaves **2.4 GiB of headroom** (37.095 of 39.49 = 94%),
+which is thin enough that the inline-inference path is unproven at that footprint;
+and the **LR 3e-4 winner was measured at `false`**, so adopting `true` re-opens
+the one hyperparameter this campaign actually settled. Running it would mean
+re-running the LR sweep first. Worth doing as its own arm; not worth bundling
+into the production launch.
+
 ---
 
 ## 1b. Scorecard as of 2026-09-02 (11 arms: full 1/2/4/8-node ladder + the batch search)
@@ -495,6 +595,371 @@ at 82–87% incremental efficiency.
 
 ---
 
+## 1c. 🔴 SLINGSHOT RE-MEASUREMENT — written 2026-09-17, before any cxi arm exists
+
+**Everything in §1b was measured over TCP.** aws-ofi-nccl 1.21.1 cannot negotiate
+the CXI provider (it omits `FI_MR_PROV_KEY`, which CXI mandates) and silently
+falls back to `tcp` with GPUDirect RDMA off — while still printing
+`Using network AWS Libfabric`, the string this campaign's `transport` column
+recorded. Six ACE2 training logs confirmed: `provider=tcp` on every one.
+→ `polaris_ace2_slingshot_handoff.md`.
+
+⚠ What that does and does not invalidate is in §1d. These four predictions are
+registered **before** the re-measured ladder, on the same rule as the rest of this
+file: written first, scored after, misses kept.
+
+### P12 — the 2-node step time improves by **>1.5×** on cxi vs its tcp row — ❌ **MISSED BY 1.5% (job 7631529: 815.3 ms, 1.477×)**
+
+> **Scored 2026-09-18, n=1.** `ACE2_POLARIS_TRAIN_OK nodes=2`, **`provider=cxi`** —
+> the first ACE2 row on Slingshot, in `ace2_polaris_scaling_cxi.csv`.
+>
+> | quantity | tcp (n=3) | cxi (n=1) | change |
+> |---|---|---|---|
+> | `step_med_ms` | 1204.4 | **815.275** | **−32.3%** |
+> | `step_p90_ms` | — | 818.411 | p90 within **0.4%** of the median |
+> | `samples_s_rank` | 1.6605 | **2.4532** | **1.477×** |
+> | `samples_s_total` | 13.29 | **19.6253** | 1.477× |
+> | `gpu_busy_frac` | 0.9288 | 0.9469 | +1.9 pp |
+> | `epoch_wall_s` | — | 55.181 | — |
+> | `peak_mem_gb` | 33.959 | **33.959** | **identical** — memory is set by training, as expected |
+>
+> **1.477× against a 1.5× threshold.** It needed < 803 ms and delivered 815.3, so
+> the prediction is **wrong by 1.5%** — recorded as a miss, not rounded into a hit.
+> The honest reading is that the *direction and rough size were right* and the
+> threshold was set on makani's 2-node number (~3.3×) without accounting for the
+> protocol pin the cxi stack requires.
+>
+> ⚠ **This is a three-variable change, not one.** plugin 1.21.1→v1.6.0 **and**
+> `NCCL_PROTO=Simple` **and** HPE's rendezvous block, all at once. The fabric's own
+> contribution is therefore **bounded below** by 1.477×: the two accompanying
+> changes are both *costs* (LL/LL128 disabled; ~12–18% of all_reduce bandwidth).
+> P15's 1-node arm is what separates them — it has the same two costs and **no**
+> fabric — and until it lands, "cxi is worth 1.48× to ACE2" is a statement about
+> the whole stack.
+> ⚠ **n=1.** The tcp 2-node rung's own rep spread was **±3.8%** over 3 reps, so a
+> single cxi row cannot be quoted to three digits. Reps are the next cheap thing.
+
+tcp 2-node: **1204.4 ms** (median of n=3, local_batch 2) ⇒ P12 asserts **< 803 ms**.
+
+makani got **2.47×** at 4 nodes (460.5 → 186.4 ms) and ~3.3× at 2. ACE2's exposed
+inter-node cost is +488.4 ms of a 1204.4 ms step (§1b P4), and cxi measured
+**5.2× tcp** app-free (7629082, 18.03 vs 3.46 GB/s), so the toll should fall by
+roughly that factor: 716.0 + 488.4/5.2 ≈ **810 ms**, i.e. the prediction sits
+deliberately just *below* the naive estimate.
+
+⚠ The estimate is not clean, and this is the interesting part: the cxi
+configuration also pins `NCCL_PROTO=Simple`, which **disables LL/LL128** —
+a slower *intra-node* path that the fabric win has to pay for before it shows.
+Its size is unsettled: the quoted −26% on makani's 1-node arm (114.9 →
+144.7 ms/step) is flagged in CHANGELOG 2026-09-17 as conflating the pin with the
+tcp fallback, and HPE's rendezvous block costs a further 12–18% of all_reduce
+bandwidth. If P12 misses, check the 1-node arm (P15) before blaming the fabric.
+
+### P13 — the Tree all-reduce **still fails** at 2000 MB on cxi — ❌ **FALSIFIED (job 7631550: Tree is clean on cxi, and 21% FASTER than Ring)**
+
+> **Scored 2026-09-18.** `ACE2_NCCL_TESTS_OK arms=6/6`, all six on `provider=cxi`,
+> **every row `#wrong = 0`**, every arm carrying nccl-tests' own
+> `Out of bounds values : 0 OK` terminator — i.e. no corruption *and* no hang, at
+> 256 MB / 512 MB / 1 GiB / 2 GiB **and** at ACE2's exact 1,823,324,160 B
+> collective, in-place and out-of-place.
+>
+> | arm | avg busbw (GB/s) | rows | `#wrong` | finished |
+> |---|---|---|---|---|
+> | `intra_Tree` (1 node, no fabric) | 138.43 | 5 | all 0 | ✅ |
+> | `intra_Ring` (1 node, no fabric) | **187.04** | 5 | all 0 | ✅ |
+> | `inter_Tree` (2 nodes) | **42.79** | 5 | all 0 | ✅ |
+> | `inter_Ring` (2 nodes) | 35.37 | 5 | all 0 | ✅ |
+> | `ace2_startup_Tree` (1.74 GiB exact) | **44.03** | 1 | 0 | ✅ |
+> | `ace2_startup_Ring` (1.74 GiB exact) | 35.78 | 1 | 0 | ✅ |
+>
+> ⇒ **The tcp-era failure was possibility (1): a defect in the path ACE2 was
+> actually using (aws-ofi-nccl 1.21.1 over tcp), not an NCCL Tree bug.** The
+> intra-node control arms say the same thing from the other side — Tree is correct
+> with no fabric in the path at all.
+>
+> 🟢 **CONFIRMED AT 8 NODES TOO — job 7631624, 32 ranks, `arms=6/6`, split 0,
+> `Exit_status 0`, 53 s.** Every row `#wrong = 0`, every arm terminated. The
+> original tcp defect showed at 2 nodes *and* 8; **both node counts are now clean
+> on cxi**, so the correctness case for the pin is gone.
+>
+> ⚠ **AND THE PERFORMANCE ANSWER REVERSES WITH SCALE — which is the finding.**
+>
+> | inter-node avg busbw (GB/s) | Tree | Ring | winner |
+> |---|---|---|---|
+> | **2 nodes** / 8 ranks (7631550) | **42.79** | 35.37 | **Tree +21%** |
+> | **8 nodes** / 32 ranks (7631624) | 28.90 | **37.00** | **Ring +28%** |
+> | ACE2's 1.74 GiB, 2 nodes | **44.03** | 35.78 | Tree +23% |
+> | ACE2's 1.74 GiB, 8 nodes | 29.48 | **37.55** | Ring +27% |
+>
+> At 8 nodes Ring wins by **25–29% at every size** in the sweep (128 MiB → 2 GiB),
+> not just on the average. The crossover therefore sits **between 2 and 8 nodes**,
+> and the mechanism is the one §1a already inferred for why Ring escaped the defect:
+> Tree's per-link message does not shrink with N, while Ring's reduce-scatter hands
+> each rank `S/N`. Inside a node Ring leads throughout (193 vs 141 GB/s).
+>
+> ⇒ **The pin is not simply wrong — it is right at 8 nodes and costs ~21% of
+> collective bandwidth at 2**, which is ACE2's production shape at global batch 16.
+> Translated through the 2-node toll (101.6 ms of an 815 ms step), Tree there is
+> worth roughly **2% of step time** — real, modest, and not worth a correctness
+> risk taken carelessly.
+> ⇒ So the move is **not "pin Tree"** but **unpin** (`-v NCCL_ALGO=`) and let NCCL's
+> own tuner pick per size and per scale — it is the thing that knows this
+> crossover, and forcing one algorithm everywhere is what guarantees being wrong at
+> one end.
+>
+> ⚠ **STILL GATED, and two of the three original reasons stand:**
+> 1. ~~2 nodes only~~ — **satisfied** by 7631624 (2 and 8 both clean).
+> 2. **nccl-tests is not the trainer.** ACE2's exposure is a DDP all_reduce inside
+>    fme with ~10 other collectives in flight; the probe drives one communicator
+>    with nothing else running. The makani wedge that started all of this was a
+>    *broadcast* inside DDP setup that no app-free probe ever reproduced.
+> 3. It is a **hot-path change**, so DESIGN §4 applies: a captured equivalence
+>    baseline, not a bandwidth table. Changing the algorithm changes the reduction
+>    order, and ACE2 has **no equivalence baseline yet** (TODO item 14).
+> ⚠ Each arm is **n=1**.
+
+#### P13 as registered, 2026-09-17 (kept verbatim — the reasoning is what was wrong)
+
+A MISS here is the more useful outcome: it would mean the defect was
+1.21.1's tcp path and `NCCL_ALGO=Ring` can be dropped, giving ACE2 back Tree's
+small-message latency. A HIT means the defect is NCCL-side and §1a of the
+multi-node handoff must be re-titled rather than deleted.
+
+Stated as a HIT because the corruption was reproduced at **two different node
+counts** (2 and 8) and at three sizes, which reads more like an algorithm bug
+than a transport bug — but this is a genuine guess, which is why the probe runs
+an **intra-node control arm** (`polaris_ace2_tree_probe.pbs`): Tree corrupting
+with no fabric in the path settles it without any inter-node byte at all.
+
+### P14 — `wireup_s` / time-to-first-step **increases** vs the tcp rows — ⚪ **UNSCORED (the quantity is not recorded)**
+
+> **2026-09-18.** As registered, this is **UNSCORABLE, not a hit**: ACE2's CSV has
+> no wireup column and nothing in the harness times "up to the first step".
+>
+> The one adjacent quantity that *is* recorded moved the **opposite** way — within
+> the timed window, `epoch_wall_s − n_steps × step_med` (loader/other idle, **not**
+> wireup) went 7.31 → 4.57 s at 1 node and 7.88 → 6.26 s at 2. That is a different
+> quantity measured after wireup has already happened, so it neither scores P14 nor
+> contradicts it; it is recorded so the next person does not mistake it for an
+> answer. Closing P14 properly needs a timestamp at `init_process_group` return,
+> which is a telemetry change, not a measurement.
+
+#### P14 as registered, 2026-09-17
+
+It did on makani (8.54 → 14.18 s at 2 nodes). Mechanism unknown — CXI memory
+registration is the suspect — so this is a guess, registered because a startup
+regression hiding inside a step-time win is exactly what a ladder table does not
+show. ⚠ ACE2's CSV has **no wireup column**; this is scored off `epoch_wall_s`
+minus Σ step time, or the log timestamps, and if it cannot be read that way the
+prediction is **UNSCORABLE**, not a hit.
+
+### P15 — the **1-node** step time gets *worse*, by 5–30% — ❌ **FALSIFIED (job 7631544: 713.693 ms, −0.3%)**
+
+> **Scored 2026-09-18, n=1.** `provider=cxi`, `NCCL_PROTO=Simple`, rendezvous block
+> on. **713.693 ms against the tcp anchor's 716.0** — a 0.3% *improvement*, i.e. no
+> change at all, against a predicted 752–931 ms. `gpu_busy_frac` 0.9357 → 0.9660;
+> `peak_mem_gb` identical at 33.959.
+>
+> **The protocol pin costs ACE2 nothing measurable**, and that is the useful part:
+> makani's quoted −26% for `Simple` does **not** transfer. The mechanism is
+> consistent — LL/LL128 are small-message protocols, and ACE2's intra-node traffic
+> is a 1.74 GiB full-model all_reduce plus ~11 buckets of ~165 MB, all far above
+> the sizes where those protocols pay. It is also further evidence for CHANGELOG
+> 2026-09-17's reading that the "26%" conflated the pin with the tcp fallback.
+>
+> ⇒ **P12's caveat tightens: the 2-node 1.477× is essentially all fabric.** The two
+> accompanying changes were bounded as "costs of unknown size"; measured at the one
+> node count where they act alone, their size is **≈0**.
+
+tcp 1-node: **716.0 ms** ⇒ P15 asserts **752–931 ms**.
+
+1 node never leaves NVLink, so the plugin change is inert there — but
+`NCCL_PROTO=Simple` is not, and neither is HPE's rendezvous block. If the anchor
+moves, every "cost of the fabric" figure in §1b Table 9 is re-based, and the
+comparison that matters (2n cxi vs 2n tcp) is *not* affected. Registered
+separately from P12 so a compute-side regression cannot be absorbed silently into
+a fabric-side win.
+
+### 1c-bis. The 16-node comparison — unregistered, and it reframes §1c
+
+Run 2026-09-18 on operator request (7633410 vs 7633560), **without a prediction
+registered first** — recorded as such, because the repo's method is to predict
+before measuring and this arm did not.
+
+| | 1 node / 4 GPUs | **16 nodes / 64 GPUs** |
+|---|---|---|
+| global batch | 8 | **128** |
+| `step_med_ms` | 716.195 | **746.469 (+4.2%)** |
+| samples/s total | 11.17 | **171.47** = **15.35×** for 16× the GPUs |
+| weak-scaling efficiency | — | **95.9%** |
+| node·s per sample | 0.08952 | 0.09331 (**+4.2%**) |
+| `gpu_busy_frac` | 0.9431 | 0.9412 |
+
+**What it changes:** P12's 2-node arm turns out to be the *worst* multi-node rung,
+not a representative one — 2 nodes (815.3 ms) is **9.2% slower than 16 nodes**
+(746.5). The ladder is **non-monotonic**, which is §1e's 2-node trough on a third
+unrelated model, and the margin exceeds that rung's own ±3.8% spread. So the
+"first-hop toll" framing that this whole file inherited from the tcp era describes
+the trough, not the fabric: per-rank message size falls as `S/N` under Ring while
+inter-node busbw holds (35.37 → 37.00 GB/s, 2 → 8 nodes), so the penalty is worst
+at the smallest multi-node world and nearly gone by 16.
+
+⇒ **The case for 1-node production is now purely about BATCH SIZE.** The fabric
+costs 4.2% at 64 GPUs; the batch costs 16× the updates (updates/node-hour
+5,027 → 301). Whether a 16× larger batch with a rescaled LR reaches the same loss
+per sample is a **critical-batch-size question this campaign has never measured** —
+and it is now the single highest-value open experiment for ACE2, worth more than
+any remaining fabric work.
+
+⚠ n=1 at 16 nodes; the 4- and 8-node cxi rungs do not exist, so the shape between
+2 and 16 is unmeasured and known to be non-monotonic; and the 16-node arm ran on a
+**different rack** (`x3201c0s*`) from the 1- and 2-node arms (`x3001c0s*`) — an
+uncontrolled confound that a node-matched rep would remove.
+
+## 1e. CRITICAL BATCH SIZE — predictions written 2026-09-19, BEFORE the arms ran
+
+§1c-bis left exactly one question standing between ACE2 and a **14× wall-clock**
+speedup: the fabric costs 4.2% at 64 GPUs, so the only penalty for scaling out is
+that the global batch scales with it. **Does global batch 128 with a rescaled LR
+reach the same loss per sample as global batch 8?**
+
+**Design — matched SAMPLES, not matched steps.** 3 full epochs each (the same
+horizon the LR sweep used), flat LR (`NO_SCHEDULER=1`, as the sweep did),
+`FULL_VAL=1` so validation loss means the same thing in every arm. Batch 8 sees
+36,702 updates; batch 128 sees 2,292 — that 16× gap **is** the thing under test.
+
+| arm | nodes | global batch | LR | rule |
+|---|---|---|---|---|
+| A | 1 | 8 | 3e-4 | the measured winner at this batch (0.19579) |
+| B1 | 16 | 128 | 3e-4 | control: batch changed, LR held |
+| B2 | 16 | 128 | 1.2e-3 | **√-scaling** (×4) |
+| B3 | 16 | 128 | 4.8e-3 | **linear scaling** (×16) |
+
+⚠ **A SHORT ARM CANNOT ANSWER THIS, and that is measured, not assumed.** The
+3,000-update LR screen picked 1e-3, which the full 3-epoch sweep ranked **worst of
+four**. So the cheap version of this experiment is known to invert. 3 full epochs
+is the minimum defensible horizon, which is why arm A costs ~9 h.
+
+### 1e SCORED, 2026-09-19 — ✅ P17 HIT, ✅ P18 HIT, ✅ P19 HIT. **The batch question is closed: 1 node stands.**
+
+| arm | ep 1 | ep 2 | ep 3 | job |
+|---|---|---|---|---|
+| batch 8, LR 3e-4 (reference) | 0.2846 | 0.2205 | **0.19579** | 7589850 → 7598647 |
+| batch 128, LR 3e-4 | 0.8717 | 0.6052 | **0.5017** | 7633624 → resumed 7633879 |
+| batch 128, LR 1.2e-3 (√-scaling) | 0.7406 | **0.5126** | — | 7633846 |
+| batch 128, LR 4.8e-3 (linear) | 2.1755 | **1.7993** | — | 7633847 |
+
+**The selection rule fires unambiguously.** Best batch-128 arm is ~0.50 against the
+reference's 0.19579 — **156% worse**, against a ">10% worse ⇒ 1 node stands"
+threshold. **Production stays at 1 node, global batch 8, LR 3e-4.**
+
+* **P17 (>10% worse) — HIT, and by a margin that makes the caveats irrelevant.** The
+  gap is **2.6×**, so it cannot be explained by the reference having been measured
+  in an earlier env: 1-node runs have no fabric, ACE2 is bitwise deterministic at
+  fixed seed, and no plausible environmental effect is worth 160%.
+* **P18 (1.2e-3 wins among the B arms) — HIT.** At matched epochs, 1.2e-3 (0.5126)
+  beats 3e-4 (0.6052) and demolishes 4.8e-3 (1.7993). √-scaling was the right rule
+  and linear was not, as makani's batch-independent LR ceiling suggested.
+* **P19 (4.8e-3 worse than 0.34571) — HIT on the criterion, with the mechanism
+  wrong.** It is 1.7993, far past the threshold — but it did **not** diverge or
+  NaN; it descends steadily (2.1755 → 1.7993), i.e. it is *badly suboptimal*
+  rather than *collapsed*. Recorded as a hit whose stated mechanism failed.
+
+⇒ **THE 16-NODE SPEEDUP IS REAL AND UNUSABLE FOR THIS MODEL.** 95.9% weak-scaling
+efficiency and 15.35× throughput are correctly measured — but the batch that comes
+with them costs **2.6× in validation loss at matched samples**, which no throughput
+factor recovers. The fabric was never the thing standing between ACE2 and a faster
+good model; the batch was, and it still is.
+
+⚠ **Two arms stopped at 2 of the registered 3 epochs** (walltime, even at `small`'s
+3 h cap — the epoch-1 I/O penalty again). Their third epochs were **not** bought,
+because no third epoch closes a 2.6× gap and the decision was already determined.
+The horizon is therefore complete for one B arm and short for two — stated rather
+than smoothed over.
+⚠ The matched-conditions reference arm (7633848) never started, so the comparison
+is against the **historical** 0.19579. See P17 for why that does not threaten the
+conclusion.
+⚠ Every arm is n=1 at one init. This ranks configurations; it does not size the gap
+to better than ACE2's unmeasured init noise.
+
+### P17 — batch 128 at its best LR is **>10% worse** than batch 8 at 3e-4
+
+Batch 8's reference is **0.19579** ⇒ P17 asserts the best B arm lands **above
+0.2154**. Mechanism: 16× fewer updates, and ACE2's own sweep says the LR optimum
+is narrow — **1e-3 was already the worst of four arms at batch 8** (0.34571), so
+the critical batch size is plausibly *below* 128. If P17 misses, ACE2 production
+should move to 16 nodes and finish 27 epochs in ~4.6 h instead of 65.5.
+
+### P18 — the best batch-128 LR is **1.2e-3** (√-scaling), not 3e-4 or 4.8e-3
+
+√-scaling is the better-supported rule for Adam-family optimizers; linear scaling
+was derived for SGD+momentum. A genuine guess: the repo has no ACE2 LR-vs-batch
+data at all.
+
+### P19 — 4.8e-3 (linear) **diverges or collapses** — worse than 0.34571
+
+makani's LR ceiling is (2e-3, 3e-3] and **did not move with batch size** across
+9 arms, 5 of which collapsed. 4.8e-3 is above that ceiling. Registered because a
+collapse *bounds* the usable LR at batch 128, which a null result cannot.
+
+**Selection rule, fixed now:** winner = **lowest final EMA validation loss at 3
+full epochs**. If batch 128's best is **within 5%** of 0.19579, production moves
+to 16 nodes (14× wall-clock at +4% node-hours). If it is **>10% worse**, 1 node
+stands and the batch question is closed. Between 5% and 10% is **no decision** —
+it would need the 4-node and 8-node intermediate batches, not a coin flip.
+⚠ Every arm is **n=1 at one init**, so this ranks configurations; it does not
+measure the size of the gap to better than init noise, which for ACE2 is
+**unmeasured** (makani's two-seed calibration suggests O(0.1 pp)).
+
+### §1c scorecard as of 2026-09-18 (6 cxi arms: 1n ×2, 2n, 16n, and the 6-arm Tree probe)
+
+| # | prediction | outcome |
+|---|---|---|
+| P12 | 2-node > 1.5× faster on cxi | ❌ **missed by 1.5%** — 1.477× (815.3 ms vs a 803 ms bar) |
+| P13 | Tree still fails at 2000 MB on cxi | ❌ **falsified** — 6/6 arms clean, `#wrong = 0` everywhere; it was 1.21.1's **tcp** path |
+| P14 | `wireup_s` increases | ⚪ **unscored** — the quantity is not recorded anywhere |
+| P15 | the 1-node arm gets 5–30% worse | ❌ **falsified** — −0.3%; `NCCL_PROTO=Simple` costs ACE2 nothing |
+| P16 | the LR-3e-4 conclusion is unchanged | ✅ **holds** — untouched, and nothing here bears on it |
+
+**Three of three scored predictions were wrong, and two of the three were wrong in
+the direction that removes work:** the protocol pin is free (P15), so the 1.477×
+belongs to the fabric; and the Tree defect is a tcp artefact (P13), so the
+`NCCL_ALGO=Ring` question is now a live 21% rather than a closed safety matter.
+P12's miss is the least interesting — the threshold was borrowed from makani
+without allowing for ACE2's different collective shape.
+
+⚠ **What the scorecard must not be read as saying.** Every cxi row is **n=1**, only
+the 1- and 2-node rungs exist, and the Tree probe ran at **2 nodes** where the
+original defect showed at 2 *and* 8. Nothing here licenses dropping the Ring pin.
+
+⚠ **P16 is not a prediction, it is a gate**: the LR-3e-4 conclusion (§1a) must be
+**unchanged**. Jobs 7598647/7598648 were 1-node runs with no inter-node traffic,
+and loss is a numerical result that does not move with the wire. Scoring it exists
+to stop a settled result being quietly re-opened by a fabric finding.
+
+## 1d. What the TCP finding does NOT invalidate
+
+Recorded before the re-measurement so that nothing is re-litigated after it:
+
+* **The LR sweep (3e-4).** 1-node runs, no fabric. Untouched.
+* **P9 — I/O is not the bottleneck.** `gpu_busy_frac` 0.970 and 1.64 GB/s off the
+  single OST are properties of the loader and the store; a slower wire makes the
+  GPU *less* starved, not more, so the conclusion is if anything conservative.
+  ⚠ The corollary — the zarr conversion is not justified — should be re-checked
+  once steps get faster: the same I/O rate against a shorter step is a larger
+  fraction of it.
+* **P7 — the batch ceiling (local 2, no cliff).** Memory, not comms.
+* **P1's direction and P11.** Both intra-node.
+* **§1b's shape argument** (2 nodes is a per-GPU trough; "fewest GPUs that hold
+  the batch" is the first question) — that is a *batch-size* argument. Its
+  magnitudes were computed against tcp step times and every one of them moves.
+
+Everything else in §1b that involves more than one node is a **tcp measurement**
+and must be labelled as such wherever it is quoted, not deleted: it is a real
+measurement of a configuration we ran for three weeks.
+
+---
+
 ## 2. What would make the whole table invalid
 
 Recorded so that a green-looking CSV cannot be tabled past any of these:
@@ -502,8 +967,13 @@ Recorded so that a green-looking CSV cannot be tabled past any of these:
 * `world_sizes_seen` ≠ ranks — the rank shim did not apply and fme silently built
   `NonDistributed`, i.e. N independent single-GPU trainers.
 * `ranks_reporting` ≠ ranks — a rank died before the banner.
-* `transport` not `AWS Libfabric` — a silent fallback reads exactly like
-  "Slingshot is slow".
+* `provider` ≠ `cxi` on a multi-node arm — the job did not cross Slingshot.
+  ⚠ **This bullet used to read `transport` not `AWS Libfabric`, and that check
+  could not fail.** The plugin prints that string whether it bound the fabric or
+  fell back to tcp, so every multi-node arm in §1b satisfied it while running on
+  Ethernet, for three weeks (CLAUDE.md #10; handoff §8). `transport` is retained
+  as a label; `provider` is the guard, gated on nodes > 1 because a 1-node run
+  never initialises the net plugin.
 * `n_steps` ≠ requested — a walltime-truncated arm is not comparable to a full one.
 * Arms not interleaved. Two runs of an identical config once measured 42.2% vs
   37.4% for the same quantity (CHANGELOG §4.4c).
@@ -511,8 +981,13 @@ Recorded so that a green-looking CSV cannot be tabled past any of these:
   concurrent 1-node arms cost that job **+2.3% median epoch wall**; at ACE2's I/O
   shape the effect could be much larger, in both directions.
 
-All five of the first are enforced by `parse_ace2_scaling.py` and tested by
-`test_parse_ace2_scaling.py`; the last two are operator discipline.
+All four of the first are enforced by `parse_ace2_scaling.py` and tested by
+`test_parse_ace2_scaling.py` (23 tests); the last two are operator discipline.
+
+⚠ **The test to apply to any future check: what value of this field would make
+the job fail?** If there is no such value it is a label, not a guard — which is
+what `transport` was, and why a pre-registered prediction once scored a HIT
+against it.
 
 ---
 
@@ -534,5 +1009,9 @@ for the whole run and `-v LR=` alone is a valid arm. This corrects the multi-nod
 handoff §3.1, which says "ACE2 anneals its own LR, so pin the schedule flat for
 the sweep".
 
-⚠ Changing the batch or the LR for **production** is a training-regime change and
-is jesswan's call. These arms are 60 timed steps and are thrown away.
+⚠ The batch and LR used by the *ladder* arms are not a proposal for production:
+those arms are 60 timed steps and are thrown away. The production values are
+settled separately in §1a, and as of **2026-09-18 they are an operator decision
+(rmehta1987), adopted and not gated on external sign-off** — global batch 8,
+LR 3e-4, 27 epochs, `use_gradient_accumulation=false`, warm restarts T_0=9.
+They remain departures from ai2's published recipe and are listed as such.

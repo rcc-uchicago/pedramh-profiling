@@ -1,0 +1,256 @@
+#!/bin/bash -l
+#PBS -N ace2_paper_align
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# THREE independent Opus 5 critics: what do we ACTUALLY have to change to match
+# the ACE2 paper (arXiv:2411.11268 §4)? Run on a COMPUTE node via the ALCF proxy.
+#
+# Env-bootstrap block copied verbatim from polaris_ace2_ensemble_critique.pbs,
+# which copied it from makani_sfno/polaris/polaris_critic_handoff.pbs. Compute
+# nodes reach api.anthropic.com ONLY via the proxy, and the in-session `Agent`
+# tool is hard-denied by user permission rules (measured 2026-09-10), so this is
+# the only route to an independent critic.
+#
+# Three angles, deliberately non-overlapping:
+#   A PAPER FIDELITY  — is our reading of §4 right, and what ELSE in the paper do
+#                       we silently differ from (data splits, loss, corrector,
+#                       normalization, architecture)?
+#   B REQUIRED DIFF   — the concrete config/launcher changes, and what the
+#                       proposed three-change list gets wrong or omits.
+#   C COST & PARITY   — the paper trained each model 4.5 days on 8x H100-80GB.
+#                       We plan ~119 h on 1 node of 4x A100-40GB. Is our run even
+#                       comparable, and is the 4-seed budget real?
+#
+# ⚠ Critics get READ-ONLY tools plus WebFetch so they can check the paper itself
+# rather than trust the brief. They are told not to qsub, not to train, not to
+# import torch.
+#
+# PASS = ACE2_PAPER_ALIGN_OK + three non-empty reports under
+# $MEMBER_ROOT/runs/ace2_paper_align/<jobid>/. rc=0 is not the signal (#14).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+if [ ! -d "${ACE2_DIR}/ace_exp" ]; then
+    echo "ERROR ACE2_TREE_NOT_FOUND from PBS_O_WORKDIR=${PBS_O_WORKDIR}"; exit 2
+fi
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+OUT="${MEMBER_ROOT}/runs/ace2_paper_align/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+# ---- proxy: the ONLY route out from a compute node --------------------------
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+export HTTP_PROXY="${http_proxy}" HTTPS_PROXY="${https_proxy}"
+export no_proxy="localhost,127.0.0.1" NO_PROXY="${no_proxy}"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ || echo 000)
+echo "api.anthropic.com via proxy: HTTP ${code}"
+[ "${code}" != "000" ] || { echo "ERROR NO_ROUTE_VIA_PROXY"; exit 3; }
+
+CLAUDE="${HOME}/.local/bin/claude"
+[ -x "${CLAUDE}" ] || { echo "ERROR CLAUDE_CLI_MISSING ${CLAUDE}"; exit 2; }
+"${CLAUDE}" --version || true
+MODEL="${CRITIC_MODEL:-claude-opus-5}"
+echo "critic model = ${MODEL}  (3 critics)"
+
+# ---- shared context ---------------------------------------------------------
+cat > "${OUT}/_context.txt" <<EOP
+Your job is to ATTACK a migration plan. Assume it is wrong somewhere and find
+where. Do not be agreeable. One finding that survives your own scrutiny beats
+five hedged observations. Where the plan is right, say so in one line and move on.
+
+REPO: ${REPO}
+Tools: Read/Grep/Glob/Bash (read-only) and WebFetch. VERIFY AGAINST SOURCE AND
+AGAINST THE PAPER — do not reason from memory about what fme does or what the
+paper says. The paper is arXiv:2411.11268 (HTML: https://arxiv.org/html/2411.11268v1).
+⚠ Do NOT qsub anything, do NOT run training, do NOT import torch. Read/grep/fetch only.
+
+Key paths:
+  ACE2_retrain/config_polaris.yaml                   our training config
+  ACE2_retrain/polaris/polaris_ace2_train.pbs        our launcher (PRODUCTION=1 branch)
+  ACE2_retrain/ace_exp/fme/                          vendored fme (editable install)
+  ACE2_retrain/ace_exp/fme/core/generics/trainer.py  train loop, save_all_checkpoints
+  ACE2_retrain/polaris/polaris_ace2_evaluator.pbs    evaluator gate (job 7603116, GREEN)
+  CHANGELOG.md                                       measured history, newest at top
+
+WHAT THE PAPER SAYS (arXiv:2411.11268 §4). Verbatim quotes already extracted:
+  - "four models were trained with the same hyperparameters and differing only in
+     parameter initialization"
+  - "we perform an ensemble of four training runs which differ only in the
+     initialization of model parameters."
+  - checkpoint selection: "we therefore define a selection criteria to choose a
+     checkpoint with the smallest time-averaged climate biases. The criteria is the
+     channel-mean global RMSE of time-means." and "In practice, alpha is computed
+     once per epoch during training from an ensemble of eight 5-year long
+     simulations, initialized at evenly spaced intervals across 1996, the start of
+     the validation period"
+  - across-run selection: "we performed twelve 5-year inference runs, initialized
+     once every 5 years starting on 1 January 1940, spanning the training and
+     validation periods, but not overlapping with the held out test period."
+  - results figures: "a three-member initial condition (IC) ensemble of the model
+     (each initialized one day apart) is shown in solid lines"; "Error bars indicate
+     the range over three IC ensemble members for each model."
+  - "Training duration for each model is approximately 4.5 days on eight NVIDIA
+     H100-80GB-HBM3 GPUs."
+  - SST: "Historical SST and sea ice concentration data come from that used to force
+     historical AMIP CMIP6 simulations"
+  - "The loss function is the mean squared error over all outputs" with "sum over two
+     autoregressive forward 6-hour steps."
+
+WHAT WE MEASURED (established; do not re-derive):
+  - 1 node = 4x A100 40GB. Largest local batch is 2 (3 OOMs). Production shape:
+    1 node, global batch 8, 27 epochs = ~330k updates, ~3.5-4 h/epoch, ~93-124 h.
+  - 12,234 updates/epoch at global batch 8; train split ~97,874 samples.
+  - LR sweep settled at full depth: 3e-4 (val 0.19579 @ 3 epochs), interior optimum.
+  - Evaluator gate GREEN (job 7603116): forward-only costs 94.1 ms/sample-step
+    (fme timer, 4 ICs x 100 steps = 400 sample-steps in 37.63 s).
+  - Aggregated diagnostics reduce correctly across ranks; per-sample WRITTEN files
+    do not (4-rank run wrote exactly 0.25x - only rank 0's shard, rc=0, no warning).
+  - fme implements alpha natively: trainer.py:448-450 reads
+    "inference/time_mean_norm/rmse/channel_mean" and feeds save_all_checkpoints.
+  - train_config.py:281-282 calls set_seed() before model construction.
+  - Our launcher's PRODUCTION branch sets inference=null, and adds
+    CosineAnnealingWarmRestarts (T_0 default 10) + checkpoint_save_epochs.
+
+THE PLAN UNDER ATTACK — three proposed launcher changes to "match the paper":
+  1. Restore inline inference in the PRODUCTION branch, trimmed to the paper's 8
+     ICs, so alpha drives checkpoint selection and best_inference_ckpt is written.
+     Claimed cost: 8 x 7300 sample-steps / 4 ranks x 94.1 ms = 0.38 h/epoch = +10%.
+  2. Add a SEED knob so the four models are -v SEED=1..4.
+  3. Add a 3-ICs-one-day-apart evaluator config for the results ensemble.
+  Plus: DROP the warm-restart/snapshot machinery (T_0, checkpoint_save_epochs)
+  entirely, because the paper does not use it.
+  Claimed budget: 4 x ~119 h = ~475 node-hours.
+EOP
+
+run_critic() {  # run_critic <label> <promptfile> <outfile>
+    echo "--- critic $1 (${MODEL}) start $(date -Iseconds) ---"
+    ( cd "${REPO}" && "${CLAUDE}" -p --model "${MODEL}" \
+        --add-dir "${REPO}" \
+        --allowedTools Read Grep Glob Bash WebFetch \
+        --max-turns "${MAX_TURNS:-55}" \
+        < "$2" ) > "$3" 2> "${OUT}/$1.err"
+    rc=$?
+    lines=$(wc -l < "$3" 2>/dev/null || echo 0)
+    echo "--- critic $1 rc=${rc} lines=${lines} $(date -Iseconds) ---"
+    [ ${rc} -eq 0 ] && [ "${lines}" -ge 5 ]
+}
+
+FORMAT='
+OUTPUT FORMAT — exactly this, no preamble:
+VERDICT: <plan_is_sufficient|sufficient_with_additions|materially_incomplete|wrong_approach>
+REQUIRED_CHANGES: numbered, ordered by "would break the result if skipped" first.
+  Each: WHAT (the concrete edit: file + setting + value) / WHY (tie it to a paper
+  quote or a source line) / EVIDENCE (file:line, a number, or a paper quote) /
+  IF_SKIPPED (what specifically goes wrong) / CONFIDENCE
+  (verified_in_source|verified_in_paper|strong_inference|speculative)
+WRONG_IN_THE_PLAN: anything in the three proposed changes that is mistaken,
+  unnecessary, or actively harmful. Say "nothing" only if you genuinely find none.
+STRONGEST_OBJECTION: <one paragraph>
+WHAT_WOULD_CHANGE_MY_MIND: <the specific check that would settle it>'
+
+# ---- critic A: paper fidelity -----------------------------------------------
+{
+cat "${OUT}/_context.txt"
+cat <<'EOP'
+
+YOUR ANGLE: PAPER FIDELITY. Is our reading of §4 correct AND COMPLETE? Fetch the
+paper and check. Then find what ELSE we silently differ from that nobody has
+noticed, because the three proposed changes only address the ensemble machinery.
+Specifically worth checking:
+ - DATA SPLIT. Our config's train_loader concatenates three windows and excludes
+   some years; the paper states its own training/validation/test split. Do they
+   match? A different held-out period changes every number we would compare.
+ - Architecture and loss: embed_dim, num_layers, the corrector's conservation
+   constraints, the residual normalization, the per-variable loss weights, and
+   "sum over two autoregressive forward 6-hour steps". Do ours match the paper's
+   Table 2 / §4.3? Quote both sides.
+ - The paper's alpha is used to select a checkpoint. Does fme's
+   save_all_checkpoints actually implement selection the way the paper describes,
+   or only write a best_inference_ckpt alongside a differently-selected best_ckpt?
+   Which one would we ship?
+ - Anything in §4 we have not implemented at all.
+EOP
+echo "${FORMAT}"
+} > "${OUT}/prompt_fidelity.txt"
+
+# ---- critic B: the required diff --------------------------------------------
+{
+cat "${OUT}/_context.txt"
+cat <<'EOP'
+
+YOUR ANGLE: THE REQUIRED DIFF. Produce the concrete, complete change list, and
+attack the proposed three. You are the person who has to write the patch.
+Specifically:
+ - Enumerate every edit to config_polaris.yaml and polaris_ace2_train.pbs needed
+   to match the paper. Be specific: key path, current value, required value.
+ - Is dropping warm restarts / checkpoint_save_epochs actually right, or does
+   something else in the launcher depend on them? What breaks if they are removed?
+ - Inline inference: what does the PRODUCTION override block have to set, exactly,
+   for alpha to be computed and used? Check whether inference config under the
+   TRAIN config has the same schema as the standalone evaluator (it may not), and
+   whether `save_best_inference_epoch_checkpoints` matters.
+ - Does the 4-rank per-sample-write bug affect inline inference during training?
+   (Claim: no, because only the aggregate is needed. Verify or refute.)
+ - The SEED knob: does setting `seed` alone reproduce "differing only in parameter
+   initialization", or does it also change data order/augmentation, making the
+   four runs differ in more than init? Check what set_seed touches.
+ - What is missing from the proposed list entirely?
+EOP
+echo "${FORMAT}"
+} > "${OUT}/prompt_diff.txt"
+
+# ---- critic C: cost and compute parity --------------------------------------
+{
+cat "${OUT}/_context.txt"
+cat <<'EOP'
+
+YOUR ANGLE: COST AND COMPUTE PARITY. The paper trained EACH model for
+"approximately 4.5 days on eight NVIDIA H100-80GB-HBM3 GPUs". We plan ~119 h on
+ONE node of 4x A100-40GB per model. Attack whether our run is even comparable.
+Specifically:
+ - Work out both sides in comparable units (GPU-hours, and adjust for H100 vs
+   A100 throughput on this workload — state your assumed factor and its basis).
+   If our planned run is materially smaller than the paper's, say by how much and
+   what that implies: are we training a 4x-undertrained model and then comparing
+   it to published numbers?
+ - Our global batch is 8 (local 2 x 4 GPUs, memory-capped). What batch did the
+   paper use on 8x H100-80GB, and does our LR 3e-4 (swept at batch 8) even
+   transfer? Is the sweep's winner an artifact of a batch the paper never used?
+ - The +10% alpha cost claim: check the arithmetic against the measured
+   94.1 ms/sample-step, and check whether inline inference is actually sharded
+   across ranks during TRAINING (not just in the standalone evaluator).
+ - The 4-seed budget on our queues: capacity is max_run 1 PER PROJECT (168 h),
+   preemptable is 72 h with 10 concurrent but load-dependent start latency, debug
+   is 1 h. Is ~475 node-hours across 4 runs actually schedulable, and what is the
+   realistic wall-clock? What is the cheapest defensible reduction if it is not?
+EOP
+echo "${FORMAT}"
+} > "${OUT}/prompt_cost.txt"
+
+ok=0
+run_critic fidelity "${OUT}/prompt_fidelity.txt" "${OUT}/report_fidelity.md" || ok=1
+run_critic diff     "${OUT}/prompt_diff.txt"     "${OUT}/report_diff.md"     || ok=1
+run_critic cost     "${OUT}/prompt_cost.txt"     "${OUT}/report_cost.md"     || ok=1
+
+echo
+if [ ${ok} -eq 0 ]; then
+    echo "ACE2_PAPER_ALIGN_OK ${OUT}"
+    for f in "${OUT}"/report_*.md; do echo "  $(basename "${f}"): $(wc -l < "${f}") lines"; done
+else
+    echo "ERROR ACE2_PAPER_ALIGN_FAILED (see ${OUT}/*.err)"
+    tail -5 "${OUT}"/*.err 2>/dev/null
+fi
+echo "=== done $(date -Iseconds) ==="
+exit ${ok}

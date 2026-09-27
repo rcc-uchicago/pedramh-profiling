@@ -29,11 +29,20 @@
 #   validation_loader.batch_size: 128 same divisibility rule, and it OOMs a 40 GB
 #                                     card on its own
 #   inference.n_forward_steps: 7300   inline inference, hours per epoch
-# Optimizer state alone is ~10.7 GB here (2.67 GB of parameters -- the dhconv
-# weights are complex64 -- plus grads plus AdamW's two moments), i.e. a quarter
-# of the card before a single activation. Find the largest local batch by
-# MEASURING one arm per value (`-v LOCAL_BATCH=` on polaris_ace2_1node.pbs),
-# never by extrapolating: makani fitted that curve twice and was refuted twice.
+# ⚠ CORRECTED 2026-09-18. This block used to say "optimizer state alone is
+# ~10.7 GB (2.67 GB of parameters -- the dhconv weights are complex64)". That is
+# REFUTED by measurement: the dhconv weights are declared **float32** with a
+# trailing size-2 dim (`s2convolutions.py:148`) and `view_as_complex` is applied
+# at use time, which the 2-node flight recorder confirms (`dtype=['Float']` on
+# every collective, job 7586590). The real figures are **455,831,040 params =
+# 1.823 GB of gradients** and **~7.3 GB of fixed state**, not 2.67/10.7 -- the
+# complex64 reading double-counts. → ace2_polaris_results.md Table 7 #7.
+# Find the largest local batch by MEASURING one arm per value
+# (`-v LOCAL_BATCH=` on polaris_ace2_train.pbs), never by extrapolating: makani
+# fitted that curve twice and was refuted twice. Measured here: local 2 fits at
+# 33.959 GiB, local 3 OOMs (7586496/7586506/7586526) -- and with the reference's
+# `use_gradient_accumulation=true`, local 4 (global 16) fits at 37.095 GiB but
+# that is truncated BPTT, i.e. a different gradient (job 7608867).
 #
 # wandb `entity` below is kept only to record where production logs went;
 # polaris_env.sh pins WANDB_MODE=offline and log_to_wandb is false.

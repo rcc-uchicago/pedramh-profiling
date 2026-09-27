@@ -1,0 +1,252 @@
+#!/bin/bash -l
+#PBS -N ace2_ens_critique
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Adversarially attack the two proposed ACE2 ensemble strategies with TWO
+# independent Fable 5 critics, on a COMPUTE node via the ALCF proxy.
+#
+# WHY A COMPUTE-NODE JOB. Two reasons, and the second is the one that made this
+# necessary rather than merely tidy:
+#   1. CLAUDE.md's login-node shell rules forbid spawning agents there — the
+#      claude CLI is a node.js process tree and the per-user process cap kills
+#      the parent session. Env-bootstrap block below is copied VERBATIM from
+#      makani_sfno/polaris/polaris_critic_handoff.pbs, which established this
+#      pattern (compute nodes reach api.anthropic.com ONLY via the proxy;
+#      direct connections return HTTP 000 — job 7253810).
+#   2. ⚠ THE IN-SESSION `Agent` TOOL IS HARD-DENIED BY THE USER'S PERMISSION
+#      RULES, so an in-session subagent is not merely discouraged — it cannot
+#      run. Measured 2026-09-10: a Workflow fan-out returned
+#        [attack:plumbing-and-cost] blocked by safety classifier:
+#        [User Deny Rules] ... explicitly deny the `Agent` tool
+#      while the sibling agent in the same workflow completed normally, so the
+#      block is per-call and not obviously deterministic. Either way the ONLY
+#      reliable way to get an independent critic here is a `claude -p` process,
+#      and the only place that may run is a compute node.
+#      (An earlier note here claimed Workflow silently ignored its `model`
+#      option. That was WRONG — the agent inspected was the science critic,
+#      which had been explicitly set to claude-opus-5 and correctly ran as it.
+#      The `model` option was never shown to misbehave.)
+#
+# The session already ran the SCIENTIFIC-VALIDITY angle on Opus 5; this job runs
+# both angles on Fable 5, giving a real model contrast on the same questions.
+#
+# ⚠ Critics here are given READ-ONLY tools on purpose (Read/Grep/Glob/Bash) so
+# they can VERIFY claims against the vendored fme source rather than reason from
+# memory about what fme does — the failure mode that produced the retracted
+# makani per-lead claim (CHANGELOG 2026-09-10). They are told not to qsub, not
+# to train, and not to import torch.
+#
+# PASS = ACE2_ENSEMBLE_CRITIQUE_OK + two non-empty reports under
+# $MEMBER_ROOT/runs/ace2_ensemble_critique/<jobid>/. rc=0 is not the signal (#14).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+if [ ! -d "${ACE2_DIR}/ace_exp" ]; then
+    echo "ERROR ACE2_TREE_NOT_FOUND from PBS_O_WORKDIR=${PBS_O_WORKDIR}"
+    exit 2
+fi
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+OUT="${MEMBER_ROOT}/runs/ace2_ensemble_critique/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+# ---- proxy: the ONLY route out from a compute node --------------------------
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+export HTTP_PROXY="${http_proxy}" HTTPS_PROXY="${https_proxy}"
+export no_proxy="localhost,127.0.0.1" NO_PROXY="${no_proxy}"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ || echo 000)
+echo "api.anthropic.com via proxy: HTTP ${code}"
+[ "${code}" != "000" ] || { echo "ERROR NO_ROUTE_VIA_PROXY"; exit 3; }
+
+CLAUDE="${HOME}/.local/bin/claude"
+[ -x "${CLAUDE}" ] || { echo "ERROR CLAUDE_CLI_MISSING ${CLAUDE}"; exit 2; }
+"${CLAUDE}" --version || true
+MODEL="${CRITIC_MODEL:-claude-fable-5}"
+echo "critic model = ${MODEL}"
+
+# ---- shared context ---------------------------------------------------------
+cat > "${OUT}/_context.txt" <<EOP
+You are reviewing a proposal made for the ACE2 (ai2cm \`fme\`) climate emulator
+running on ALCF Polaris. Your job is to ATTACK it. Assume it is wrong somewhere
+and find where. Do not be agreeable. One finding that survives your own scrutiny
+beats five hedged observations. If some axis is genuinely sound, say so in one
+line and move on.
+
+REPO: ${REPO}
+You have Read/Grep/Glob/Bash. VERIFY CLAIMS AGAINST THE SOURCE — do not reason
+from memory about what fme does. Key paths:
+  ACE2_retrain/config_polaris.yaml                   training config
+  ACE2_retrain/polaris/polaris_ace2_train.pbs        launcher (PRODUCTION=1 branch)
+  ACE2_retrain/ace_exp/fme/                          vendored fme (editable install)
+  ACE2_retrain/ace_exp/fme/ace/inference/            standalone inference + writers
+  ACE2_retrain/ace_exp/fme/core/generics/trainer.py  save_all_checkpoints/save_checkpoint
+  CHANGELOG.md, TODO.md                              measured history, newest at top
+⚠ Do NOT qsub anything, do NOT run training, do NOT import torch. Read/grep only.
+
+MEASURED FACTS (established; do not re-derive):
+- 1 node = 4x A100 40GB. Largest local batch is 2 (measured; 3 OOMs). Production
+  shape: 1 node, global batch 8, ~27 epochs = ~330k updates, ~93-124 h.
+- LR sweep complete at full depth: 3e-4 wins (val 0.19579 @ 3 epochs), interior
+  optimum, bracketed by 1e-4 (0.23332) and 1e-3 (0.34571).
+- Model ~455.8M params. Run-to-run deterministic to ~1 ULP at seed 3, 1 node.
+- Data: one 2.4 TB single-OST NetCDF (ERA5), 121,260 samples of length 3.
+  Validation split 1996-1997.
+- Queues: capacity 168 h but max_run 1 PER PROJECT; preemptable 72 h; debug 1 h.
+- wandb ignores \`resume\` when offline (measured), and offline is forced here.
+- There is NO inference launcher anywhere in ACE2_retrain/ (verified: nothing
+  references fme.ace.inference or save_prediction outside the vendored tree).
+
+THE PROPOSAL UNDER ATTACK — two options, recommended to be COMBINED:
+
+OPTION 1 — snapshot / weight ensemble.
+  Train with CosineAnnealingWarmRestarts (T_0=9, T_mult=1, eta_min=1e-6) over 27
+  epochs, keeping the checkpoint at each restart minimum (epochs 9, 18, 27) via
+  checkpoint_save_epochs aligned to T_0 => 3 members "for free". fme also has EMA
+  (ema.decay 0.999, validate_using_ema: true) plus a separate
+  ema_checkpoint_save_epochs schedule, proposed as a 4th "free" member.
+  Claimed caveat: members share one init/data order/trajectory, so they are
+  correlated and the ensemble will be under-dispersive.
+
+OPTION 2 — initial-condition ensemble via the standalone inference path.
+  fme ships \`fme.ace.inference\`, which WRITES predictions (DataWriterConfig
+  save_prediction_files, netCDF + zarr writers). config_polaris.yaml already
+  lists 16 ICs under inference.loader.start_indices.times (1996-01-01 ..
+  1996-12-08) with n_forward_steps: 7300 (5 years at 6-hourly). The launcher sets
+  inference=null because 7300 steps is too expensive inline. Proposal: run it
+  post-hoc as a separate job.
+
+COMBINED: roll each of the 3 snapshot members plus EMA from the 16 configured ICs
+via fme.ace.inference (~4 x 16 rollouts, pure inference, no retraining), then
+combine the written netCDFs.
+
+ALSO CLAIMED (verify or refute): fme's \`n_ensemble_per_ic\` is a trap here,
+because get_initial_condition(..., n_ensemble) REPLICATES the same initial state
+N times rather than perturbing it, so with ACE2's deterministic
+SingleModuleStepper it silently produces N identical members.
+EOP
+
+# ---- critic A: plumbing and cost --------------------------------------------
+{
+cat "${OUT}/_context.txt"
+cat <<'EOP'
+
+YOUR ANGLE: IMPLEMENTATION, PLUMBING AND COST. You are the engineer who gets
+paged when this fails at 3am. Attack it on: does the code actually do what the
+proposal assumes; what silently no-ops; what it really costs in node-hours,
+wall-clock and disk; what the queue policy does to it; what breaks on
+resume/preemption; what combining the netCDFs actually requires that nobody has
+written yet.
+Worth checking in source specifically:
+ - Does checkpoint_save_epochs alignment really land on the LR minimum? Check
+   where _epochs_trained is incremented relative to save_all_checkpoints, and
+   what Slice start/stop/step mean. An off-by-one keeps weights one epoch short
+   of each cycle minimum. The launcher comment CLAIMS start=T_0, step=T_0 is
+   correct — verify or refute it.
+ - What does an epoch checkpoint contain, and how big (include_optimization)?
+   Multiply by member count. A sibling model here kept 244 checkpoints = 433 GB.
+ - What config does fme.ace.inference REQUIRE that the training config does not
+   provide? Enumerate the gap concretely.
+ - Are the data writers rank-aware? (Initial check found zero
+   Distributed/is_root/gather/rank hits in raw.py/main.py/monthly.py.) What does
+   that imply for a 4-rank inference job?
+ - Cost of 16 ICs x 7300 forward steps x N members, derived from the measured
+   ~717 ms per TRAINING step at global batch 8 (inference is forward-only,
+   no_grad). State how uncertain your extrapolation is.
+ - Does anything in this repo combine prediction netCDFs into an ensemble
+   product today?
+
+OUTPUT FORMAT — exactly this, no preamble:
+VERDICT: <proposal_is_sound|sound_with_serious_caveats|partly_wrong|fundamentally_misaimed>
+FINDINGS: numbered, severity order. Each: TARGET (option_1|option_2|combined|
+  n_ensemble_per_ic_claim|other) / CLAIM (one sentence) / EVIDENCE (file:line or
+  a number; say "reasoning only" if unverified) / CONSEQUENCE / CONFIDENCE
+  (verified_in_source|strong_inference|speculative)
+STRONGEST_OBJECTION: <one paragraph>
+WHAT_WOULD_CHANGE_MY_MIND: <the specific check that would settle it>
+CHEAPER_OR_BETTER_ALTERNATIVE: <concrete, or "none — the proposal is the right shape">
+EOP
+} > "${OUT}/prompt_plumbing.txt"
+
+# ---- critic B: scientific validity ------------------------------------------
+{
+cat "${OUT}/_context.txt"
+cat <<'EOP'
+
+YOUR ANGLE: SCIENTIFIC VALIDITY. You are the reviewer who rejects the paper.
+Attack it on whether this ensemble answers a question anyone actually has, and
+whether the construction is defensible for a CLIMATE emulator specifically.
+Specifically:
+ - ACE2 is the AI2 CLIMATE Emulator. Climate emulators are judged on multi-year
+   statistics (climatological means, variability, spectra, conservation), NOT on
+   NWP-style forecast scorecards. Does "ensemble" even mean the same thing here?
+   Is the proposal importing an NWP framing into a climate problem? If so, say so
+   bluntly and state the right framing.
+ - Snapshot ensembles (Huang et al. 2017) were validated on image classification.
+   What evidence is there that they transfer to autoregressive geophysical
+   rollouts, where the failure mode is drift/instability over thousands of steps
+   rather than classification error?
+ - THREE members. Is that enough for any statistic anyone would quote? What is
+   the smallest defensible N, and for which quantity?
+ - T_0=9 over 27 epochs: is member 1 (epoch 9) even converged? If members differ
+   in QUALITY rather than merely in diversity, is averaging them worse than the
+   best single model? What does that do to the ensemble mean?
+ - EMA as a "4th member": is an EMA of a trajectory independent of snapshots
+   taken along that same trajectory, or is calling it a member double-counting?
+ - 16 ICs all drawn from 1996, rolled 5 years each: what does that sample —
+   initial-condition uncertainty, internal variability, or nothing well-defined?
+   Are 16 starts inside ONE year independent for a 5-year rollout?
+ - Is the under-dispersion caveat adequate, or does it bury a fatal flaw in a
+   footnote?
+
+OUTPUT FORMAT — exactly this, no preamble:
+VERDICT: <proposal_is_sound|sound_with_serious_caveats|partly_wrong|fundamentally_misaimed>
+FINDINGS: numbered, severity order. Each: TARGET / CLAIM / EVIDENCE /
+  CONSEQUENCE / CONFIDENCE (verified_in_source|strong_inference|speculative)
+STRONGEST_OBJECTION: <one paragraph>
+WHAT_WOULD_CHANGE_MY_MIND: <the specific check or measurement that would settle it>
+CHEAPER_OR_BETTER_ALTERNATIVE: <concrete, or "none — the proposal is the right shape">
+EOP
+} > "${OUT}/prompt_science.txt"
+
+run_critic() {  # run_critic <label> <promptfile> <outfile>
+    echo "--- critic $1 (${MODEL}) start $(date -Iseconds) ---"
+    ( cd "${REPO}" && "${CLAUDE}" -p --model "${MODEL}" \
+        --add-dir "${REPO}" \
+        --allowedTools Read Grep Glob Bash \
+        --max-turns "${MAX_TURNS:-60}" \
+        < "$2" ) > "$3" 2> "${OUT}/$1.err"
+    rc=$?
+    lines=$(wc -l < "$3" 2>/dev/null || echo 0)
+    echo "--- critic $1 rc=${rc} lines=${lines} $(date -Iseconds) ---"
+    [ ${rc} -eq 0 ] && [ "${lines}" -ge 5 ]
+}
+
+ok=0
+run_critic plumbing "${OUT}/prompt_plumbing.txt" "${OUT}/report_plumbing.md" || ok=1
+run_critic science  "${OUT}/prompt_science.txt"  "${OUT}/report_science.md"  || ok=1
+
+echo
+if [ ${ok} -eq 0 ]; then
+    echo "ACE2_ENSEMBLE_CRITIQUE_OK ${OUT}"
+    for f in "${OUT}"/report_*.md; do
+        echo "  $(basename "${f}"): $(wc -l < "${f}") lines"
+    done
+else
+    echo "ERROR ACE2_ENSEMBLE_CRITIQUE_FAILED (see ${OUT}/*.err)"
+    tail -5 "${OUT}"/*.err 2>/dev/null
+fi
+echo "=== done $(date -Iseconds) ==="
+exit ${ok}

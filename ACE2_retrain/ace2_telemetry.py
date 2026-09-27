@@ -81,6 +81,49 @@ KNOBS (per-project by convention, ACE2_* like PANGU_*/SI_*)
                                       settles whether ACE2 is exposed to the
                                       Polaris tree-corruption defect. Read with
                                       polaris/read_nccl_trace.py.
+    ACE2_LOG_ALL_METRICS=0            turn OFF the epoch metric echo (default ON)
+
+WHY THE METRIC ECHO EXISTS -- the same defect, found twice on two harnesses
+--------------------------------------------------------------------------
+makani computed a full set of per-lead validation metrics every epoch and sent
+them ONLY to wandb, which has to be off on the one path that can score a
+checkpoint -- so they were discarded every epoch for the whole campaign
+(fixed 2026-09-09, `plasim_trainer.log_epoch`).  fme does the same thing, and
+here it is worse: `config_polaris.yaml` sets `log_to_wandb: false`, so
+
+  * `trainer.py:471-491` builds `all_logs` -- every validation aggregator metric
+    (mean, mean_norm, power_spectrum), per channel, plus lr / epoch timings /
+    best_val_loss -- and hands it to `wandb.log`, which drops it on the floor.
+    The screen log gets four lines: epoch time, Train loss, Valid loss.
+  * `trainer.py:572` explicitly filters the per-step metrics down to three names
+    (`batch_loss`, `training_samples_per_second_on_rank_0`, `lr`) for the screen
+    while wandb gets the whole dict.
+
+So every per-channel number ACE2 has ever computed on Polaris was thrown away.
+Two hooks fix it, and they are deliberately different mechanisms:
+
+  1. `logging.metrics_log_dir` (config-only, set by the launcher) makes fme's own
+     `DiskMetricLogger` mirror EVERY `wandb.log` payload to `metrics.jsonl`.
+     It is resume-safe by high-water mark and independent of `log_to_wandb`.
+  2. the echo below puts the epoch-boundary payload in the SCREEN log, which is
+     what the `.o` file and every existing parser actually read.
+
+⚠ KEY PARITY IS NOT FREE, WHICH IS WHY `_coerce_scalars` EXISTS.
+`DiskMetricLogger._extract_serializable` silently drops anything `json.dumps`
+refuses, at DEBUG level.  Most of fme's metrics survive that -- `reduced.py:140`
+and `train.py:125` already call `float()` -- but `trainer.py:509-512` builds
+`batch_*` from a bare `dist.reduce_mean(...)`, i.e. TORCH TENSORS, which would
+vanish from the JSONL with no message.  Coercing 0-dim tensors and numpy scalars
+to `float` before the payload is handed on makes the JSONL key set equal to the
+wandb key set minus genuine images/figures, and the echo NAMES what it dropped
+so that claim is checkable rather than assumed.
+
+The echo runs on the root rank only, at epoch boundaries only (keyed on the
+`epoch` key, which only the two epoch-level call sites carry), and entirely
+OUTSIDE the timed step window -- `epoch_end` has already fired at
+`alternate_shuffle` by the time `trainer.py:491` runs.  It cannot move
+`step_med_ms`, `gpu_busy_frac` or `epoch_wall_s`, so rows taken before and after
+it remain comparable.
 
 COST
 ----
@@ -95,6 +138,96 @@ import sys
 _ENABLED = os.environ.get("ACE2_EPOCH_TELEMETRY") == "1"
 _MEM_LOG = os.environ.get("ACE2_MEM_LOG") == "1"
 _FR_DUMP = os.environ.get("ACE2_FR_DUMP", "")
+_LOG_ALL_METRICS = os.environ.get("ACE2_LOG_ALL_METRICS", "1") == "1"
+
+
+def _coerce_scalars(data):
+    """Turn 0-dim tensors / numpy scalars into floats, leaving everything else.
+
+    Without this, `trainer.py:509-512`'s `batch_*` metrics -- built from a bare
+    `dist.reduce_mean(...)`, so torch tensors -- are dropped by
+    `DiskMetricLogger._extract_serializable` at DEBUG level, i.e. the JSONL
+    quietly holds fewer keys than wandb was given.
+
+    Deliberately duck-typed rather than `isinstance(v, torch.Tensor)`: this
+    module is imported before fme (and therefore before torch is guaranteed
+    initialized), and the same shape catches numpy scalars for free. `float()`
+    on an fp32 value is exact, so nothing numerical changes.
+    """
+    out = {}
+    for key, value in data.items():
+        # Tuple form, not `bool | int | ...`: the PEP 604 spelling in isinstance
+        # needs 3.10+, and this file has to import under the login node's 3.6 so
+        # test_ace2_metric_logging.py can run without an allocation.
+        if isinstance(value, (bool, int, float, str)) or value is None:
+            out[key] = value
+            continue
+        item = getattr(value, "item", None)
+        size = getattr(value, "size", None)
+        try:
+            # torch: .numel(); numpy: .size is an int. A multi-element tensor has
+            # no scalar reading, so it is left alone for the drop report to name.
+            numel = value.numel() if hasattr(value, "numel") else size
+            if item is not None and numel == 1:
+                out[key] = float(item())
+                continue
+        except Exception:  # noqa: BLE001 - a diagnostic must never kill a run
+            pass
+        out[key] = value
+    return out
+
+
+def _split_serializable(data):
+    """Partition into what `DiskMetricLogger` will keep and what it will drop.
+
+    Mirrors `_extract_serializable` exactly, so the echo's "dropped" list is a
+    true statement about `metrics.jsonl` rather than a guess.
+    """
+    import json
+
+    kept, dropped = {}, []
+    for key, value in data.items():
+        if isinstance(value, (bool, int, float, str)):
+            kept[key] = value
+            continue
+        try:
+            json.dumps(value)
+        except (TypeError, ValueError, OverflowError):
+            dropped.append(key)
+        else:
+            kept[key] = value
+    return kept, dropped
+
+
+def _echo_epoch_metrics(data, step):
+    """Print the epoch-boundary payload to the SCREEN log, all keys, sorted.
+
+    Keyed on the `epoch` key because only fme's two epoch-level `wandb.log`
+    calls carry it (`trainer.py:407` pre-training validation and `:491` end of
+    epoch). The per-step call at `:571` fires every `log_train_every_n_batches`
+    and is left alone -- it is inside the training loop, and `metrics_log_dir`
+    captures it anyway.
+    """
+    if "epoch" not in data:
+        return
+    import logging
+
+    kept, dropped = _split_serializable(data)
+    logging.info(
+        "ACE2_EPOCH_METRICS epoch=%s step=%s keys=%d logged=%d dropped=%d",
+        data.get("epoch"),
+        step,
+        len(data),
+        len(kept),
+        len(dropped),
+    )
+    for key in sorted(kept):
+        logging.info("    %s: %s", key, kept[key])
+    if dropped:
+        # Named, not counted: "all the keys are the same" has to be checkable.
+        # Expect only genuine images/figures here (map + snapshot aggregators);
+        # anything else means a metric is being lost.
+        logging.info("    NOT LOGGED (non-serializable): %s", ", ".join(sorted(dropped)))
 
 
 def _dump_flight_recorder(rank: int) -> None:
@@ -347,6 +480,36 @@ def install():
 
     Optimization.step_scheduler = step_scheduler
     applied.append("step_end")
+
+    # --- metric capture ----------------------------------------------------
+    # See the module docstring: fme sends every per-channel validation metric to
+    # wandb and nowhere else, and `config_polaris.yaml` has `log_to_wandb:
+    # false`. Coerce first (so `metrics_log_dir`'s JSONL keeps the same key set
+    # wandb was handed), then echo the epoch payload to the screen log.
+    if _LOG_ALL_METRICS:
+        from fme.core.wandb import WandB
+
+        _orig_wandb_log = WandB.log
+
+        def wandb_log(self, data, step, sleep=None, commit=None):
+            try:
+                data = _coerce_scalars(data)
+                # Root only: WandB.log runs on EVERY rank (it ends in a barrier),
+                # so an unguarded echo would print the payload world_size times.
+                if torch.distributed.is_available() and torch.distributed.is_initialized():
+                    is_root = torch.distributed.get_rank() == 0
+                else:
+                    is_root = True
+                if is_root:
+                    _echo_epoch_metrics(data, step)
+            except Exception:  # noqa: BLE001 - diagnostic only, never fatal
+                import logging
+
+                logging.warning("ACE2 metric echo failed", exc_info=True)
+            return _orig_wandb_log(self, data, step, sleep=sleep, commit=commit)
+
+        WandB.log = wandb_log
+        applied.append("metric_echo")
 
     print("ACE2_TELEMETRY enabled: hooks=%s csv=%s"
           % (applied, os.environ.get("ACE2_EPOCH_TELEMETRY_CSV", "epoch_telemetry.csv")),

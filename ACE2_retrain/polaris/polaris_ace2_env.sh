@@ -45,6 +45,9 @@
 #   OFI_PLUGIN=<dir>          another aws-ofi-nccl build -- ITS OWN CSV, never the ladder's
 #   OFI_LIBFABRIC=<dir>       another libfabric
 #   PROGRESS_MODEL=           set empty to leave OFI_NCCL_PROGRESS_MODEL unset
+#   NCCL_PROTO=               set empty to leave the NCCL protocol unpinned
+#                             (default Simple -- load-bearing, see the block below)
+#   CXI_RDZV=0                drop HPE's rendezvous block and reproduce the wedge
 
 # Deliberately no `set -e`: this file is sourced, and killing the caller's shell
 # on a probe failure would hide the diagnostics printed below.
@@ -157,18 +160,52 @@ if [ "${_ace2_env_fail}" -eq 0 ]; then
     # libfabric first so it outranks any system copy; hwloc because libnccl-net.so
     # needs libhwloc.so.0 and nothing on the default path provides it.
     export LD_LIBRARY_PATH="${ACE2_OFI_LIBFABRIC}:${ACE2_OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
-# HPE Slingshot rendezvous controls (shs-ccl-docs/ccl_env.sh). Measured to
-# unwedge all_gather at 512 KB on the v1.6.0 plugin -- 7630227 vs 7629096 --
-# at a cost of ~12-18% all_reduce bandwidth. Set CXI_RDZV=0 to drop them and
-# reproduce the wedge deliberately.
-if [ "${CXI_RDZV:-1}" = "1" ]; then
-    export FI_CXI_RDZV_PROTO="${FI_CXI_RDZV_PROTO:-alt_read}"
-    export FI_CXI_RDZV_EAGER_SIZE="${FI_CXI_RDZV_EAGER_SIZE:-0}"
-    export FI_CXI_RDZV_THRESHOLD="${FI_CXI_RDZV_THRESHOLD:-0}"
-    export FI_CXI_RDZV_GET_MIN="${FI_CXI_RDZV_GET_MIN:-0}"
-    export FI_CXI_DEFAULT_TX_SIZE="${FI_CXI_DEFAULT_TX_SIZE:-2048}"
-    export FI_CXI_RX_MATCH_MODE="${FI_CXI_RX_MATCH_MODE:-hybrid}"
-fi
+    # HPE Slingshot rendezvous controls (shs-ccl-docs/ccl_env.sh). Measured to
+    # unwedge all_gather at 512 KB on the v1.6.0 plugin -- 7630227 vs 7629096 --
+    # at a cost of ~12-18% all_reduce bandwidth. Set CXI_RDZV=0 to drop them and
+    # reproduce the wedge deliberately.
+    if [ "${CXI_RDZV:-1}" = "1" ]; then
+        export FI_CXI_RDZV_PROTO="${FI_CXI_RDZV_PROTO:-alt_read}"
+        export FI_CXI_RDZV_EAGER_SIZE="${FI_CXI_RDZV_EAGER_SIZE:-0}"
+        export FI_CXI_RDZV_THRESHOLD="${FI_CXI_RDZV_THRESHOLD:-0}"
+        export FI_CXI_RDZV_GET_MIN="${FI_CXI_RDZV_GET_MIN:-0}"
+        export FI_CXI_DEFAULT_TX_SIZE="${FI_CXI_DEFAULT_TX_SIZE:-2048}"
+        export FI_CXI_RX_MATCH_MODE="${FI_CXI_RX_MATCH_MODE:-hybrid}"
+    fi
+    # ---- NCCL_PROTO=Simple -- the OTHER half of the v1.6.0 switch -----------
+    # ⚠ THE PLUGIN PIN ALONE IS NOT ENOUGH. With the default protocol (LL/LL128
+    # for small messages) v1.6.0 DEADLOCKS DURING SETUP at >=3 nodes: measured on
+    # makani's trainer three times (7553891, 7554129, 7554143) and stated
+    # independently in polaris_nccl_debug_info.md §5, where every nccl-tests arm
+    # that completed on cxi carried the pin. It is the classic v1.6.0-under-
+    # NCCL-2.27/2.28 LL-path mismatch, and it is why makani's multi-node launcher
+    # has carried `NCCL_PROTO=Simple` since 2026-08-24.
+    #
+    # It lives HERE rather than in one launcher because ACE2 has two that must
+    # agree bit-for-bit on the transport -- the same argument as the plugin pin
+    # above -- and because 2026-09-17 flipped that plugin to v1.6.0, which is what
+    # makes the pin load-bearing for ACE2 at all.
+    #
+    # ⚠ IT IS NOT FREE and it is NOT inert at 1 node: disabling LL/LL128 is a
+    # slower intra-node path. Size UNSETTLED -- the quoted ~26% (114.9 -> 144.7
+    # ms/step on makani's single-node arm) is flagged in CHANGELOG 2026-09-17 as
+    # conflating the pin with the tcp fallback, and on the 1.21.1/tcp stack the
+    # plugin injected `simple` by itself ("Need to force simple protocol: GDR not
+    # supported"). Direction: slower. Magnitude: measure it, do not quote it.
+    # Either way it changes the ladder's ANCHOR as well as its rungs, deliberately
+    # -- an anchor measured under a different protocol than its rungs is not an
+    # anchor. Every ACE2 row taken
+    # before 2026-09-17 ran without it (and over tcp), which is why those rows
+    # belong in a different FILE, not merely a different column.
+    #   -v NCCL_PROTO=  (empty) leaves NCCL to choose -- its own arm, not the ladder's.
+    if [ -n "${NCCL_PROTO-Simple}" ]; then
+        export NCCL_PROTO="${NCCL_PROTO:-Simple}"
+    else
+        # `qsub -v NCCL_PROTO=` exports it EMPTY, which is not the same as unset:
+        # NCCL would read a defined-but-invalid protocol name. Same shape as the
+        # launcher's NCCL_ALGO knob.
+        unset NCCL_PROTO
+    fi
     PROGRESS_MODEL="${PROGRESS_MODEL-AUTO}"
     [ -n "${PROGRESS_MODEL}" ] && export OFI_NCCL_PROGRESS_MODEL="${PROGRESS_MODEL}"
     export FI_CXI_DISABLE_HOST_REGISTER=1
@@ -188,6 +225,10 @@ ace2_env_report() {
     echo "fabric plugin     = ${ACE2_OFI_PLUGIN}"
     echo "fabric libfabric  = ${ACE2_OFI_LIBFABRIC}"
     echo "OFI_NCCL_PROGRESS_MODEL = ${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
+    # Both are configuration of the wire, so both belong in every log header:
+    # the provider guard can only say WHICH fabric, not under which protocol.
+    echo "NCCL_PROTO        = ${NCCL_PROTO:-<unset -- NCCL chooses>}"
+    echo "CXI rendezvous    = ${FI_CXI_RDZV_PROTO:-<unset>} (CXI_RDZV=${CXI_RDZV:-1})"
 }
 
 return ${_ace2_env_fail} 2>/dev/null || true
