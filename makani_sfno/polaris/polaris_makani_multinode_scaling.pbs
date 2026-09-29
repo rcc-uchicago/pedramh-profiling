@@ -85,9 +85,28 @@
 cd "${PBS_O_WORKDIR}" || exit 2
 MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
 if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
-    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+    # ⚠ TRY THE REPO ROOT BEFORE THE PARENT. Submitting from the repo root sent
+    # `..` to $MEMBER_ROOT and REPO to `/members`, so the job died in 0 s on
+    # `members/polaris_env.sh: No such file or directory` -- three times
+    # (7633629/7633630/7633633, 2026-09-19). Nothing was burned but three queue
+    # waits were. ACE2's launcher already probes its own subdirectory this way.
+    if [ -d "${MAKANI_ROOT}/makani_sfno/src/sfno_training" ]; then
+        MAKANI_ROOT="${MAKANI_ROOT}/makani_sfno"
+    else
+        MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+    fi
 fi
 REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+# Fail HERE, naming both paths, rather than on a `source` of a nonexistent file
+# whose error message names neither the submission dir nor the expected layout.
+if [ ! -r "${REPO}/polaris_env.sh" ]; then
+    echo "ERROR MAKANI_ROOT_NOT_FOUND"
+    echo "  PBS_O_WORKDIR = ${PBS_O_WORKDIR}"
+    echo "  derived MAKANI_ROOT = ${MAKANI_ROOT}  (wanted a dir with src/sfno_training)"
+    echo "  derived REPO = ${REPO}  (wanted a dir with polaris_env.sh)"
+    echo "  Submit from the repo root or from makani_sfno/."
+    exit 2
+fi
 
 # ---- environment ------------------------------------------------------------
 # polaris_env.sh FIRST (it defines MEMBER_ROOT, which the makani bootstrap
@@ -325,6 +344,13 @@ sed -e "s|{{OUTPUT_ROOT}}|${OUTPUT_ROOT}|g" -e "s|{{EXP_DIR}}|${EXP_DIR}|g" \
     -e "s|^${CFG_KEY}:|e3sm_mn_scaling:|" \
     "${BASE_CFG}" > "${RENDERED}" || exit 2
 grep -q "^e3sm_mn_scaling:" "${RENDERED}" || { echo "ERROR CONFIG_KEY_RENAME_FAILED: root key '${CFG_KEY}:' not found in ${CONFIG_YAML}"; exit 2; }
+# A config that trains on a SUBSET of the pack (port F: e3sm_alldata_nosoil*.yaml)
+# declares `dropped_channel_names`; everything else must still be the converter's
+# TARGET_CHANNELS in order, or channels map to the wrong slots silently. No-op
+# (prints CHANNEL_SUBSET_GATE_SKIP) for every config without the key.
+if grep -q "^ *dropped_channel_names:" "${RENDERED}"; then
+    "${PY}" "${MAKANI_ROOT}/polaris/channel_subset_gate.py" "${RENDERED}" e3sm_mn_scaling || exit 2
+fi
 # WANDB=1 (qsub -v) enables wandb for THIS run -- exists for smoke-testing the
 # Pangu-parity diagnostics contract (sfno_training/trainer/wandb_diagnostics.py)
 # before a production launch. Default stays OFF: a wandb'd row's step_ms carries
@@ -336,6 +362,12 @@ grep -q "^e3sm_mn_scaling:" "${RENDERED}" || { echo "ERROR CONFIG_KEY_RENAME_FAI
 # row's step average spans dataloader re-warmup and must not sit in a scaling
 # table with single-epoch rows. Pair it with -v MAKANI_SCALING_CSV=<other.csv>.
 NSAMP="${NSAMP:-$(( STEPS * GLOBAL_BATCH ))}"   # synthetic path never set it
+# Validation shards n_eval_samples over GLOBAL batches; fewer samples than one global
+# batch means ZERO validation batches and `validation loss: nan` (0/0), which reads
+# like a diverged model. Seen in 7630472, 7633857, 7633881, 7646684 -- all this, not NaNs.
+if [ "${EVAL_SAMPLES:-8}" -lt "${GLOBAL_BATCH}" ]; then
+    echo "WARN EVAL_SAMPLES_LT_GLOBAL_BATCH: EVAL_SAMPLES=${EVAL_SAMPLES:-8} < global batch ${GLOBAL_BATCH} -- validation loss will print nan; it is not a divergence."
+fi
 "${PY}" - "${RENDERED}" "${NSAMP}" "${WANDB:-0}" "${RUN_NUM}" "${EPOCHS:-1}" "${EVAL_SAMPLES:-8}" <<'PY' || exit 2
 import re, sys
 path, nsamp = sys.argv[1], int(sys.argv[2])
@@ -466,6 +498,19 @@ for _key, _env in _bools.items():
 _pck = _os.environ.get("PRETRAINED_CKPT")
 if _pck:
     keys += [("pretrained_checkpoint_path", '"%s"' % _pck)]
+
+# ---- port D: EMA (polaris_makani_ace2_ports_handoff.md §4) --------------------
+# -v EMA=1 [-v EMA_DECAY=<d>] writes a one-line `ema:` mapping (the fork's
+# sfno_training/trainer/ema.py; raw weights are still trained and saved, EMA adds
+# a second validation pass and best_ckpt_ema_mp*.tar). Unset = config untouched.
+# Size the decay from an averaging window in EPOCHS: window ~ 1/(1-d) updates, and
+# FULL=1 at global batch 32 is 1368 updates/epoch, so 0.9995 ~ 2000 updates ~ 1.5
+# epochs (0.999 would be ~0.7). Asserted in the log after training.
+_ema = _os.environ.get("EMA")
+if _ema:
+    _on = _ema.lower() in ("1", "true", "yes")
+    _dec = float(_os.environ.get("EMA_DECAY", "0.9995"))
+    keys += [("ema", "{enabled: !!bool %s, decay: %r}" % ("True" if _on else "False", _dec))]
 
 # ⚠⚠ NO `n_future` KNOB HERE, DELIBERATELY. makani OVERWRITES it from the CLI:
 #     train.py:119   params["n_future"] = args.multistep_count - 1
@@ -712,6 +757,42 @@ echo "TMPDIR for launch = ${TMPDIR}"
 cd "${MAKANI_ROOT}" || exit 2
 LOG="${EXP_DIR}/${RUN_NUM}.log"
 echo "--- launching (log tee'd to ${LOG}) ---"
+# ---- fabric watchdog (multi-node only) ----------------------------------------
+# A TCP fallback trains with finite loss and rc=0 (7566145 ran 128 nodes on tcp);
+# parse_makani_scaling.py only catches it AFTER the run. On a capacity slot that
+# is days wasted, so abort as soon as NCCL names its provider: cxi -> stand down,
+# tcp / "No eligible providers" -> kill the ranks. -v FABRIC_WATCH=0 disables.
+FABRIC_ABORT="${EXP_DIR}/${RUN_NUM}.fabric_abort"
+rm -f "${FABRIC_ABORT}"
+if [ "${NNODES}" -gt 1 ] && [ "${FABRIC_WATCH:-1}" = "1" ]; then
+    (
+        # Confirm only when EVERY node has reported cxi (>= NNODES lines) and no rank
+        # has reported anything else; one early cxi line does not clear a later tcp.
+        # FULL=1 (production): a timeout without confirmation is fatal too.
+        for _ in $(seq 1 "$(( ${FABRIC_WATCH_S:-1200} / 10 ))"); do
+            sleep 10
+            [ -s "${LOG}" ] || continue
+            if grep -qiE "Selected provider is (tcp|sockets|verbs)|No eligible providers" "${LOG}"; then
+                echo "ERROR FABRIC_NOT_SLINGSHOT_EARLY: $(grep -m1 -oiE 'Selected provider is [a-z;+]+|No eligible providers[^.]*' "${LOG}") -- killing ranks"
+                touch "${FABRIC_ABORT}"
+                pkill -TERM -u "$(id -u)" -f "mpiexec -n ${NRANKS} --ppn ${GPUS_PER_NODE} --hostfile ${NODEFILE}"
+                exit 0
+            fi
+            n_cxi=$(grep -ci "Selected Provider is cxi" "${LOG}")
+            if [ "${n_cxi}" -ge "${NNODES}" ]; then
+                echo "FABRIC_CXI_CONFIRMED: ${n_cxi} 'Selected Provider is cxi' lines for ${NNODES} nodes"
+                exit 0
+            fi
+        done
+        echo "WARN FABRIC_WATCH_TIMEOUT: fewer than ${NNODES} cxi lines in ${FABRIC_WATCH_S:-1200} s"
+        if [ "${FULL:-0}" = "1" ]; then
+            echo "ERROR FABRIC_UNCONFIRMED: production run, killing ranks rather than train unverified"
+            touch "${FABRIC_ABORT}"
+            pkill -TERM -u "$(id -u)" -f "mpiexec -n ${NRANKS} --ppn ${GPUS_PER_NODE} --hostfile ${NODEFILE}"
+        fi
+    ) &
+    FABRIC_WATCH_PID=$!
+fi
 set -o pipefail
 mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     --cpu-bind depth -d 8 \
@@ -720,6 +801,16 @@ mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
     "${NSYS_PREFIX[@]}" "${PY}" "${TRAIN_ARGS[@]}" 2>&1 | tee "${LOG}"
 rc=$?
 set +o pipefail
+[ -n "${FABRIC_WATCH_PID:-}" ] && { kill "${FABRIC_WATCH_PID}" 2>/dev/null; wait "${FABRIC_WATCH_PID}" 2>/dev/null; }
+if [ -f "${FABRIC_ABORT}" ]; then
+    echo "ERROR MAKANI_MN_SCALING_FAILED fabric=not-cxi (aborted by the watchdog; rc=${rc})"
+    exit 6
+fi
+# Regardless of rc: a multi-node run whose log never names cxi is not a Slingshot run.
+if [ "${NNODES}" -gt 1 ] && [ -s "${LOG}" ] && ! grep -qi "Selected Provider is cxi" "${LOG}"; then
+    echo "ERROR MAKANI_MN_SCALING_FAILED fabric=unconfirmed (no 'Selected Provider is cxi' line; rc=${rc})"
+    exit 6
+fi
 echo "--- train rc=${rc} ---"
 
 # ---- results ----------------------------------------------------------------
@@ -740,6 +831,17 @@ if [ ! -s "${LOG}" ]; then echo "ERROR NO_LOG"; exit 4; fi
     --nsys "${NSYS}" --steps "${STEPS}" \
     --env-source "${MAKANI_ENV_SOURCE}" --omp-threads "${OMP_NUM_THREADS}"
 csv_rc=$?
+
+# -v EMA=1 must have reached the trainer: its init logs "EMA enabled: decay=".
+# A config that renders but is not read would train without EMA and exit 0.
+case "${EMA:-}" in 1|true|yes)
+    if grep -q "EMA enabled: decay=" "${LOG}"; then
+        echo "EMA_ASSERT_OK: $(grep -m1 -o 'EMA enabled: decay=[^,]*' "${LOG}")"
+    else
+        echo "ERROR EMA_NOT_ENABLED: -v EMA=${EMA} but the trainer never logged 'EMA enabled'"
+        csv_rc=5
+    fi ;;
+esac
 
 if [ "${NSYS}" = "1" ]; then
     _n=$(find "${NSYS_DIR}" -name '*.nsys-rep' 2>/dev/null | wc -l)

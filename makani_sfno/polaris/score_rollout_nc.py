@@ -129,6 +129,30 @@ def _load_climatology(path: Path, grid_lat: int, grid_lon: int):
     return torch.from_numpy(np.asarray(arr, dtype=np.float64))
 
 
+def _select_clim_channels(clim, chan, time_means_path: Path):
+    """Rows of a WIDER pack climatology for a model trained on a channel subset.
+
+    Port F (polaris_makani_ace2_ports_handoff.md §6a) scores 99-channel rollouts
+    against the pack's 101-wide time_means. Rows are chosen BY NAME from the pack's
+    own `metadata/data.json` (the sibling of `stats/`), every NetCDF name must be
+    there and in pack order; anything else is returned unchanged so the caller's
+    CHANNEL_COUNT_MISMATCH guard still fires. Same-width inputs are untouched.
+    """
+    if clim.shape[0] <= len(chan):
+        return clim
+    meta = Path(time_means_path).resolve().parent.parent / "metadata" / "data.json"
+    if not meta.exists():
+        return clim
+    names = [str(c) for c in json.loads(meta.read_text())["coords"]["channel"]]
+    if len(names) != clim.shape[0] or not all(c in names for c in chan):
+        return clim
+    idx = [names.index(c) for c in chan]
+    if idx != sorted(idx):
+        raise SystemExit(f"CHANNEL_ORDER_MISMATCH: NetCDF channels are not in pack order: {chan}")
+    logger.info("climatology: %d of %d pack channels selected by name", len(idx), len(names))
+    return clim[idx]
+
+
 def _lat_weighted_mean(field, w):
     """Latitude-weighted area mean over ``(..., lat, lon)``, matching the RMSE weighting."""
     return (field.mean(dim=-1) * w.to(field.dtype)).sum(dim=-1)
@@ -367,6 +391,7 @@ def main() -> int:
         chan0 = [str(c) for c in ds0["channel"].values]
 
     clim = _load_climatology(args.time_means, n_lat, n_lon)
+    clim = _select_clim_channels(clim, chan0, args.time_means)
     if clim.shape[0] != len(chan0):
         raise SystemExit(
             f"CHANNEL_COUNT_MISMATCH: climatology has {clim.shape[0]} channels, "

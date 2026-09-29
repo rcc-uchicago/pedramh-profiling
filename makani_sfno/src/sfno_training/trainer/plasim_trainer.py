@@ -115,6 +115,49 @@ def _make_train_eval_sampler(
 # ---------------------------------------------------------------------------
 # Custom dataloader
 # ---------------------------------------------------------------------------
+def _plasim_channel_indices(params, n_state: int, n_target: int):
+    """Pack-relative ``(in_channels, out_channels)`` for PlasimForcingDataset.
+
+    Stock ``parse_dataset_metadata`` maps each ``params.channel_names`` entry to
+    its index in the pack's ``coords.channel`` and stores that as
+    ``params.out_channels`` -- the list the loss, the climatology and the model
+    package already use to index the full-width normalization arrays. The
+    dataset must read with the SAME list, or a channel subset (port F: drop two
+    state channels without repacking) normalizes channel k with channel j's
+    stats. For a full-width config the list is ``range(n_target)``, exactly the
+    old behaviour.
+
+    The dataset reads the diagnostic from ``/fields_diagnostic`` whole and drops
+    the last ``out_channels`` entry when reading ``/fields_state``
+    (plasim_forcing_dataset.py:320), so the diagnostic must be the pack's LAST
+    channel and the last entry of ``channel_names``. Asserted, not assumed.
+    """
+    out_channels = params.get("out_channels", None)
+    if out_channels is None:
+        return list(range(n_state)), list(range(n_target))
+    out_channels = [int(c) for c in out_channels]
+    if len(out_channels) != n_target:
+        raise ValueError(
+            f"CHANNEL_SUBSET_MISMATCH: len(channel_names)={len(out_channels)} but "
+            f"n_state_channels + n_diagnostic_channels = {n_target}"
+        )
+    n_data = len(params.get("data_channel_names", None) or range(max(out_channels) + 1))
+    n_diag = n_target - n_state
+    if out_channels[n_state:] != list(range(n_data - n_diag, n_data)):
+        raise ValueError(
+            f"CHANNEL_SUBSET_MISMATCH: the diagnostic must be the last entry of "
+            f"channel_names and the pack's last channel; got out_channels[{n_state}:]="
+            f"{out_channels[n_state:]} for a {n_data}-channel pack"
+        )
+    if out_channels != list(range(n_target)):
+        dropped = sorted(set(range(n_data)) - set(out_channels))
+        logger.info(
+            "CHANNEL_SUBSET in=%d out=%d of a %d-channel pack; dropped pack idx %s",
+            n_state, n_target, n_data, dropped,
+        )
+    return out_channels[:n_state], out_channels
+
+
 def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
     """Drop-in replacement for ``makani.utils.dataloader.get_dataloader``.
 
@@ -150,8 +193,7 @@ def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
     # via out_channels — so we slice in_channels to the first n_state_channels.
     n_state = params.get("n_state_channels", 52)
     n_target = params.get("n_state_channels", 52) + params.get("n_diagnostic_channels", 1)
-    in_channels = list(range(n_state))
-    out_channels = list(range(n_target))
+    in_channels, out_channels = _plasim_channel_indices(params, n_state, n_target)
 
     dataset = PlasimForcingDataset(
         location=files_pattern,
