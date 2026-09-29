@@ -364,6 +364,21 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     rollout_driver, mass_fix, preprocessor, plasim_trainer; +163 / −17) are **inert on the
     full-width path**. Gate F2 of the F handoff §4 is closed; F arms / G may run on this tree.
     Outputs `$MEMBER_ROOT/runs/makani_eval/{f2_equiv,dryair_equiv}_7669103/`.
+  - **Metric-writer fix + O7, job 7669129 queued** (debug, 1 n, 45 min):
+    `polaris_metric_writer_common77.pbs` — (1) the new test (e) of `test_per_lead_metrics.py`
+    must FAIL on the test-only commit `36aa3632` (git-archived), (2) pass with test_trainer_ci
+    on this tree (fix `eb4e0cce`: also require `comm.get_rank("model") == 0`; safe because
+    makani gathers h/w before scoring and `MetricsHandler.save` holds no collective), (3) the
+    six suites, (4) a 1-node h2w2 training smoke writes a readable `metrics_ep*.h5` with no
+    save failure, (5) **O7**: A's K=56 read-out re-taken on G's 77 channels
+    (`k56_readout_common77.json`). PASS = `WRITER_C77_ALL_OK 5/5`. **Not yet run.**
+  - **Draft PRs (solo session cannot self-approve, left open):** **#19** this branch →
+    `feat/makani-dryair-negativity`; **#20** `feat/makani-spatial-cxi` → this branch (stacked).
+  - **makani checkpoint portability (phase 2a prerequisite)** — `legacy` restore validates the
+    file's `comm_grid` against the live layout (h1w1 → h2w2 raises); `flexible` loads `mp0` and
+    scatters it by the live model's `sharded_dims_mp`, so A / an h1w1 checkpoint loads into any
+    layout (never a sharded run's legacy `mp0`, which is shard 0). The launcher does not pass
+    `--load_checkpoint`; phase 2(a) needs a `LOAD_CKPT` knob. Detail: handoff O8a.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
