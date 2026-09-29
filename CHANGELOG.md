@@ -364,14 +364,34 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     rollout_driver, mass_fix, preprocessor, plasim_trainer; +163 / −17) are **inert on the
     full-width path**. Gate F2 of the F handoff §4 is closed; F arms / G may run on this tree.
     Outputs `$MEMBER_ROOT/runs/makani_eval/{f2_equiv,dryair_equiv}_7669103/`.
-  - **Metric-writer fix + O7, job 7669129 queued** (debug, 1 n, 45 min):
-    `polaris_metric_writer_common77.pbs` — (1) the new test (e) of `test_per_lead_metrics.py`
-    must FAIL on the test-only commit `36aa3632` (git-archived), (2) pass with test_trainer_ci
-    on this tree (fix `eb4e0cce`: also require `comm.get_rank("model") == 0`; safe because
-    makani gathers h/w before scoring and `MetricsHandler.save` holds no collective), (3) the
-    six suites, (4) a 1-node h2w2 training smoke writes a readable `metrics_ep*.h5` with no
-    save failure, (5) **O7**: A's K=56 read-out re-taken on G's 77 channels
-    (`k56_readout_common77.json`). PASS = `WRITER_C77_ALL_OK 5/5`. **Not yet run.**
+  - ✅ **Job 7669129 `WRITER_C77_ALL_OK 5/5`** (debug, 1 n, 3.6 min, tree `0c10ef23`),
+    `polaris_metric_writer_common77.pbs`:
+    **Metric-writer fix (O10) verified.** (1) `METRIC_WRITER_RED_OK` — the new test (e) FAILS on
+    the test-only commit `36aa3632` (git-archived) on the writer assertion; (2)
+    `PER_LEAD_METRICS_TEST_OK 6 passed` (per-lead + trainer CI) with fix `eb4e0cce` (also require
+    `comm.get_rank("model") == 0`; safe because makani gathers h/w before scoring and
+    `MetricsHandler.save` holds no collective); (3) `F_FINETUNE_TESTS_OK 6/6`; (4)
+    `METRIC_WRITER_SMOKE_OK` — 1 node h2w2 (1 data rank × 4 model ranks) trains, writes one
+    readable `metrics_ep0000.h5` (RMSE 4 × 101), 0 save failures.
+    **O7 — A's K=56 read-out on G's common 77** (`RESTRICT_READOUT_OK n=77`, full 101 reproduced
+    to 0.0) → `…/prod1n_b32_sgdr_K56/scores/k56_readout_common77.json`:
+
+    | readout | 101 (published) | common 99 (F) | **common 77 (G)** |
+    |---|---|---|---|
+    | NRMSE126 / 336 | 0.5189 / 0.9696 | — / 0.9689 | **0.5848 / 1.0660** |
+    | ACC126 / 336 | 0.8669 / 0.5463 | 0.8665 / 0.5420 | **0.8269 / 0.4400** |
+    | VR336 | 1.0189 | 1.0189 | 1.0130 |
+    | worst channel NRMSE336 | 43.18 | 43.18 | **1.371** |
+    | verdict | DRIFT_FIRST | DRIFT_FIRST | **AMBIGUOUS** |
+
+    ⚠ **The channel set alone moves A's baseline far more than it did for F**: ACC336 −19 %,
+    NRMSE336 +10 %, and the verdict class changes. A's DRIFT_FIRST rested **only** on the
+    worst-channel rule (43.18 > 3.0; NRMSE336 0.97 is far under 1.6), and that 43× channel is one
+    of G's 22 non-soil drops (U10 / RHREFHT / PSL / TMQ / a Z3 level — the JSON does not name it;
+    `k56_metrics.h5` does). The dropped Z3 levels (smooth, high-ACC) were lifting the 101-median
+    skill. ⇒ **G may be quoted only against the common-77 row**, with the split difference stated
+    (G trains 2020–2044, A 2015–2044; same 2048–49 test years). A G result that "beats A's
+    DRIFT_FIRST" on 77 channels would be the channel set, not the model.
   - **Draft PRs (solo session cannot self-approve, left open):** **#19** this branch →
     `feat/makani-dryair-negativity`; **#20** `feat/makani-spatial-cxi` → this branch (stacked).
   - **makani checkpoint portability (phase 2a prerequisite)** — `legacy` restore validates the
