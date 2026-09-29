@@ -35,8 +35,12 @@
 #             MAKANI_MN_SCALING_OK, no nan/inf, and LR_SCHEDULE_OK on its checkpoints
 #             (4e-4 x 0.01 -> 4e-4 -> 1e-6, lr_schedule_check.py).
 #
-# PASS = G_SMOKE_OK 3/3 on the last line. rc is not the result (CLAUDE.md #14).
-# Needs the view: submit with -W depend=afterok:<trainview job>.
+#   0. UNIT TESTS polaris_f_finetune_tests.pbs (gates F0+F1, CPU only), run in the
+#             background alongside section 1 (-v RUN_TESTS=0 to skip) -> F_FINETUNE_TESTS_OK 6/6
+#             Folded in because debug allows ONE queued job per user.
+#
+# PASS = G_SMOKE_OK 3/3, and ALL_GATES_OK when the unit tests also passed. rc is not
+# the result (CLAUDE.md #14). Needs the view: -W depend=afterok:<trainview job>.
 # Submit from makani_sfno/:   qsub [-W depend=afterok:<id>] polaris/polaris_g_smoke.pbs
 # ============================================================================
 set -u
@@ -85,6 +89,32 @@ grep -q '"train_years": \[' "${VIEW}/metadata/data.json" 2>/dev/null \
     || { echo "ERROR TRAINVIEW_MISSING: ${VIEW} (polaris_pack_alldata_trainview.pbs first)"; exit 3; }
 declare -A OK
 
+# ---- 0. unit tests, in the background (CPU only; section 1 owns the GPUs) -----
+TESTS_PID=""
+if [ "${RUN_TESTS:-1}" = "1" ]; then
+    bash "${MAKANI_ROOT}/polaris/polaris_f_finetune_tests.pbs" > "${OUT}/unit_tests.out" 2>&1 &
+    TESTS_PID=$!
+    echo "unit tests started (pid ${TESTS_PID}), log ${OUT}/unit_tests.out"
+fi
+finish() {  # wait for the tests, print every token, set the exit status
+    local tests_ok=0
+    if [ -n "${TESTS_PID}" ]; then
+        wait "${TESTS_PID}"
+        echo "=== 0. unit tests ==="
+        grep -E "^[A-Z_]+_OK |^F_FINETUNE_TESTS_OK|^ERROR" "${OUT}/unit_tests.out"
+        grep -q "^F_FINETUNE_TESTS_OK 6/6" "${OUT}/unit_tests.out" && tests_ok=1
+    fi
+    echo
+    echo "sections ok: ${!OK[*]}"
+    if [ "${#OK[@]}" -eq 3 ]; then
+        echo "G_SMOKE_OK 3/3 job=${JOBID} out=${OUT}"
+        [ "${tests_ok}" = 1 ] && echo "ALL_GATES_OK job=${JOBID}"
+        return 0
+    fi
+    echo "ERROR G_SMOKE_INCOMPLETE ${#OK[@]}/3 ok=${!OK[*]} (want train rollout finetune)"
+    return 1
+}
+
 # pack indices G drops, in the trainer's own format
 WANT_SUB="CHANNEL_SUBSET in=76 out=77 of a 101-channel pack; dropped pack idx $("${PY}" -c \
     'print([2, 3, 4, 5, 8, 9] + list(range(64, 82)))')"
@@ -119,8 +149,8 @@ else
 fi
 
 if [ -z "${OK[train]:-}" ]; then
-    echo "ERROR G_SMOKE_INCOMPLETE ok= (sections 2 and 3 need section 1's checkpoint)"
-    exit 1
+    echo "sections 2 and 3 need section 1's checkpoint -- skipped"
+    finish; exit 1
 fi
 
 # ---- 2. ROLLOUT ----------------------------------------------------------------
@@ -183,11 +213,4 @@ else
     echo "ERROR G_FINETUNE_SMOKE_FAILED: launcher dry run did not accept section 1's checkpoint"
 fi
 
-echo
-echo "sections ok: ${!OK[*]}"
-if [ "${#OK[@]}" -eq 3 ]; then
-    echo "G_SMOKE_OK 3/3 job=${JOBID} out=${OUT}"
-else
-    echo "ERROR G_SMOKE_INCOMPLETE ${#OK[@]}/3 ok=${!OK[*]} (want train rollout finetune)"
-    exit 1
-fi
+finish || exit 1
