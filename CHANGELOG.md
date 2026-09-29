@@ -144,6 +144,24 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-29 (makani) — task #7, spatial parallelism on the fixed CXI stack: phase 1
+  pre-registered and built; not yet submitted.** Branch `feat/makani-spatial-cxi` (pinned
+  worktree `.claude/worktrees/spatial-cxi`, off `feat/makani-f-finetune`). Prereg:
+  `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md`; job `polaris/polaris_spatial_cxi_matrix.pbs`
+  (debug, 2 nodes, 1 h): h1w1 / h2w2 / h4w1 / h2w4 at global batch 32, 4 sample-equivalents
+  per GPU each, TCP-era knobs, no fabric pins, per-arm hard timeout, h2w4 last.
+  - ⚠ **Correction to this session's earlier entry** ("the `w=4` verdict is unproven either
+    way"): §5b diagnosed the `w=4` hang from flight-recorder dumps as **application-level** —
+    `rank % 4 == 3` takes a different parameter-sync path — "not a transport failure … not the
+    plugin". The fabric fix is therefore **predicted not to cure it** (P4). And §5c's sharding
+    overhead includes **+80.8 % at 1 node**, where no inter-node fabric is involved: sharding is
+    a memory tool here, not a speed one.
+  - The h1w1 arm is also **the missing 2-node CXI batch-32 number** for F/G sizing: same knobs
+    as the TCP-era 2-node row (627.1 ms) and the 1-node row (365.4 ms).
+  - `debug-scaling` (the natural 4/8-node place, and where the T-d16 memory probe must run —
+    8 n × h2w2 at batch 16 = 0.5 sample-equivalents per GPU) is held by the ACE2 LR sweep's
+    cron-chained segments (max_queued 1 per user); interleaving is the operator's call.
+
 - **2026-09-29 (makani) — F fine-tune base built; PORT G (the ACE2-EAMv3 variable set) and the
   2020–2044 train split implemented. Nothing trains yet; two debug jobs queued.** Branch
   `feat/makani-f-finetune` (worktree `.claude/worktrees/f-finetune`), per
