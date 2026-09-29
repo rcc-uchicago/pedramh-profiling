@@ -192,3 +192,44 @@ port earns its price only if those fail.
    filter at *inference only* inside `longroll.py`'s loop and see whether the
    divergence step moves. If it moves a lot, accumulated small-scale energy is
    confirmed as the mode, and §4 becomes the priority rather than C2.
+
+## 6. Compute — FCN3 as the paper reports it, against our runs (added 2026-09-29)
+
+FCN3 rows are the paper's own numbers (arXiv:2507.12144, training section, quoted
+verbatim): *"1024 NVIDIA H100 on the NVIDIA Eos Supercomputer for a total of 78 hours"*,
+*"208,320 gradient descent steps … batch size of 16 and an ensemble size of 16"*; *"5,040
+steps … 15 hours on 512 NVIDIA A100 GPUs … NERSC Perlmutter"*, *"4 autoregressive rollout
+steps"*; *"256 NVIDIA H100 GPUs on the Eos system and took 8 hours"*. Stage-3 steps are the
+config's (2920 samples / batch 4 × 4 epochs); node counts assume 8 GPUs per Eos (DGX H100)
+node and 4 per Perlmutter GPU node. Our A row is measured; F and G are the estimates of
+CHANGELOG 2026-09-29 (range = linear scaling … the 4-node CXI smoke's 521 ms/step).
+
+| run | GPUs | nodes | batch × ensemble | steps | rollout | wall (h) | s / step | GPU-hours |
+|---|---|---|---|---|---|---|---|---|
+| FCN3 stage 1 | 1024 H100 | 128 | 16 × 16 | 208,320 | 1 | **78** | 1.35 | 79,872 |
+| **FCN3 stage 2** | **512 A100** | 128 | 32 × 2 | 5,040 | **4** | **15** | 10.7 | 7,680 |
+| FCN3 stage 3 | 256 H100 | 32 | 4 × 4 | 2,920 | 4 | **8** | 9.9 | 2,048 |
+| ours A (done) | 4 A100-40GB | 1 | 32 × 1 | 332,424 | 1 | **46.3** | 0.50 | 185 |
+| ours F (queued) | 8 A100-40GB (+4 spare) | 2 (+1) | 32 × 1 | 58,824 | 1 | 4.3–8.9 | 0.26–0.54 | 34–71 (+50 %) |
+| ours G, 1 node | 4 A100-40GB | 1 | 32 × 1 | 277,020 | 1 | ~38.7 | ~0.50 | ~155 |
+| ours G, 2 nodes | 8 A100-40GB (+4 spare) | 2 (+1) | 32 × 1 | 277,020 | 1 | 20.5–42.4 | 0.27–0.55 | 164–339 (+50 %) |
+
+Reading it:
+
+1. **Scale.** FCN3 spent **89,600 GPU-hours**; our finished base model (A) spent **185** —
+   484× less. The A100 stage alone (7,680 A100-hours) is 41× A. The difference is mostly the
+   problem, not the method: FCN3 trains on 721×1440 ERA5 (16× our 180×360 grid points) with a
+   16-member ensemble in stage 1 (256 forecasts per step against our 32).
+2. **Steps.** We take *more* optimizer steps: A = **1.60×** FCN3 stage 1, G ≈ 1.33×. Our steps
+   are cheap (0.5 s against FCN3's 1.35 s in stage 1 and ~10 s in its rollout stages).
+3. **The A100 stage is the analogue of our Stage-1 fine-tune arms**, not of A/F/G: a short,
+   multi-step (4-step) continuation of a single-step pretrain. Ours roll 5 steps
+   (`MULTISTEP=5`, depth-4) or 9 (T-d8), deterministic, at batch 16.
+4. **Hardware fit.** FCN3 needs a spatial split (h2 w4 on 80 GB cards in stage 2, 16-fold in
+   stage 3) to hold one ensemble member; each GPU holds 1/8 to 1/16 of a sample. We fit **4–8
+   whole samples per 40 GB card** with no split — which is why we can run pure data
+   parallelism, and why a stochastic stage 1 does not fit our cards (§4a).
+5. **Efficiency.** The paper reports none (no throughput, scaling efficiency or utilization;
+   Appendix G describes the decomposition only). Our one measurement: **56 % GPU kernel-busy
+   at 1 node** (nsys 7591822), with 35 % of compute in copy/layout kernels. No efficiency
+   comparison between the two can be made from published numbers.

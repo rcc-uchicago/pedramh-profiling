@@ -279,12 +279,20 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     ⇒ Upstream keeps ~0.13–0.26 M grid points per GPU and scales out by **spatial + ensemble**
     parallelism on 721×1440 (80 GB GPUs); we reach the same per-GPU load at 2 nodes with a 16×
     smaller grid and **pure data parallelism** (spatial never run on CXI). We take **more**
-    optimizer steps than either paper (A = **1.52×** FCN3 pretrain1 by config arithmetic —
-    corrects the "1.6×" of 2026-09-04). Rollout training: ICML fine-tunes at 2 steps, FCN3
+    optimizer steps than either paper: A = **1.60×** FCN3 stage 1, whose paper-stated count is
+    **208,320** steps (the config's `max_epochs: 130` would give 218,400; the paper's number
+    governs — an earlier line of this entry said 1.52× from the config and was wrong; the
+    "1.6×" of 2026-09-04 stands). Rollout training: ICML fine-tunes at 2 steps, FCN3
     pretrain2 at 4; our Stage-1 arms (depth 4/8) are that stage. Objective: `sfnonet.yaml` and
     FCN3 use `channel_weights: auto` + `temp_diff_normalization: True`; the ICML base is plain
-    l2 like ours. Optimizer β₂ 0.95 / clip 32 match FCN3. **No wall-clock or GPU-efficiency
-    figure is in the configs**, and none is quoted here from the papers unverified.
+    l2 like ours. Optimizer β₂ 0.95 / clip 32 match FCN3.
+  - **FCN3's paper-stated compute** (arXiv:2507.12144, training section, quoted verbatim
+    2026-09-29): stage 1 = **1024 H100 (Eos), 78 h, 208,320 steps**, batch 16 × ensemble 16;
+    stage 2 = **512 A100 (Perlmutter), 15 h, 5,040 steps, 4-step rollouts**; fine-tune = **256
+    H100 (Eos), 8 h**, 16-fold spatial split. Total **89,600 GPU-h** vs A's **185** (484×); the
+    A100 stage alone is 7,680 A100-h (41× A). The paper gives **no** scaling efficiency,
+    throughput or GPU utilization, and does not say 40 vs 80 GB (the yaml's h2w4 comment says
+    80 GB). Full table + reading: `makani_sfno/docs/2026-09-10_fcn3_recipe_vs_ours.md` §6.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
