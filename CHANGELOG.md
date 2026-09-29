@@ -144,6 +144,43 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-29 (makani) — task #7, spatial parallelism on the fixed CXI stack: phase 1
+  ✅ RAN (7669001): 4/4 arms on CXI; P4 falsified — h2w4 trains, but ~26 % higher loss.**
+  - ✅ **Job 7669001** (debug, 2 n, `caafdbf7`): `SPATIAL_CXI_MATRIX_DONE 4/4`, every arm
+    `FABRIC_CXI_CONFIRMED`; `F_FINETUNE_TESTS_OK 6/6` after the arms (`test_regional_scores`
+    fix verified, 69 passed). Step ms (epoch 2 of 2 × 60 steps, batch 32, 8 A100): **h1w1 225.2**,
+    h2w2 417.9 (+85.6 %), h4w1 283.8 (+26.0 %), h2w4 616.3 (+173.7 %). Scored as written
+    (`makani_sfno/docs/2026-09-29_spatial_cxi_result.md`): **P1 held** (−64.1 % vs TCP 627.1);
+    **P2: 2 nodes beat 1** (365.4 ms, 81.1 % per GPU) ⇒ F/G's 2-node shape justified; **P3
+    held**; **P4 FALSIFIED — h2w4 trained, no hang**; **P5 held**. ⚠ Epoch-2 train loss h2w4
+    **0.1394** vs 0.1098–0.1112 for the other three (valid 0.1043 vs 0.0879–0.0915): "did not
+    hang" ≠ "same computation" — no production `w=4` before phase 2's equivalence. ⚠ Bug: the
+    per-lead metric file was written by every model rank of data group 0 (h2w4 rank 7 h5py
+    OSError, non-fatal) — fix + failing-first test committed on `feat/makani-f-finetune`
+    (`36aa3632`, `eb4e0cce`), verification job 7669129; carried here once green.
+    The matrix's "first logged loss" grep caught the loss-config line; the numbers above come
+    from the epoch summaries.
+  - Phase 2(a) prerequisite read (makani `driver.py`): `legacy` restore validates the file's
+    `comm_grid` against the live layout (h1w1 → h2w2 raises); `flexible` loads `mp0` and
+    scatters by the live model's `sharded_dims_mp`, so an h1w1/A checkpoint loads into any
+    layout. The launcher does not pass `--load_checkpoint` yet — add `LOAD_CKPT` before (a).
+  - As pre-registered (below, unchanged): branch `feat/makani-spatial-cxi` (pinned
+  worktree `.claude/worktrees/spatial-cxi`, off `feat/makani-f-finetune`). Prereg:
+  `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md`; job `polaris/polaris_spatial_cxi_matrix.pbs`
+  (debug, 2 nodes, 1 h): h1w1 / h2w2 / h4w1 / h2w4 at global batch 32, 4 sample-equivalents
+  per GPU each, TCP-era knobs, no fabric pins, per-arm hard timeout, h2w4 last.
+  - ⚠ **Correction to this session's earlier entry** ("the `w=4` verdict is unproven either
+    way"): §5b diagnosed the `w=4` hang from flight-recorder dumps as **application-level** —
+    `rank % 4 == 3` takes a different parameter-sync path — "not a transport failure … not the
+    plugin". The fabric fix is therefore **predicted not to cure it** (P4). And §5c's sharding
+    overhead includes **+80.8 % at 1 node**, where no inter-node fabric is involved: sharding is
+    a memory tool here, not a speed one.
+  - The h1w1 arm is also **the missing 2-node CXI batch-32 number** for F/G sizing: same knobs
+    as the TCP-era 2-node row (627.1 ms) and the 1-node row (365.4 ms).
+  - `debug-scaling` (the natural 4/8-node place, and where the T-d16 memory probe must run —
+    8 n × h2w2 at batch 16 = 0.5 sample-equivalents per GPU) is held by the ACE2 LR sweep's
+    cron-chained segments (max_queued 1 per user); interleaving is the operator's call.
+
 - **2026-09-29 (makani) — F fine-tune base built; PORT G (the ACE2-EAMv3 variable set) and the
   2020–2044 train split implemented. Nothing trains yet; two debug jobs queued.** Branch
   `feat/makani-f-finetune` (worktree `.claude/worktrees/f-finetune`), per
