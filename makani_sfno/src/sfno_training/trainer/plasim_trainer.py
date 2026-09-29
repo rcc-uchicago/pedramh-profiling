@@ -590,7 +590,11 @@ class PlasimTrainer(Trainer):
         self._per_lead_metrics_path = None
         if not bool(self.params.get("save_per_lead_metrics", True)):
             return
-        if getattr(self, "data_parallel_rank", 0) != 0:
+        # One writer. Data rank 0 alone is not enough under model parallelism:
+        # every model rank of data group 0 has it, and at h2w4 all eight raced
+        # on this file (7669001). The curve is the same on every model rank
+        # (makani gathers h/w before scoring) and save() holds no collective.
+        if getattr(self, "data_parallel_rank", 0) != 0 or comm.get_rank("model") != 0:
             return
         try:
             scores_dir = os.path.join(self.params["experiment_dir"], "scores")
