@@ -76,3 +76,35 @@ def test_shipped_nosoil_config_passes_against_the_real_converter():
     assert check_subset(cfg, list(conv.TARGET_CHANNELS), conv.N_STATE,
                         len(conv.DIAG_CHANNELS)) == []
     assert cfg["forcing_channel_names"] == conv.FORCING_CHANNELS
+
+
+# Port G (operator, 2026-09-29): the ACE2-EAMv3 variable set.
+G_DROP = (["U10", "RHREFHT", "PSL", "TMQ", "SOILWATER_10CM", "TSOI_10CM"]
+          + [f"Z3_l{i:02d}" for i in range(18)])
+
+
+def test_shipped_ace2vars_config_passes_against_the_real_converter():
+    yaml = pytest.importorskip("yaml")
+    pytest.importorskip("h5py")
+    import convert_e3sm_to_makani_alldata as conv
+
+    cfg = yaml.safe_load(open(HERE / "e3sm_alldata_ace2vars.yaml"))["e3sm_alldata_ace2vars"]
+    assert sorted(cfg["dropped_channel_names"]) == sorted(G_DROP)
+    assert check_subset(cfg, list(conv.TARGET_CHANNELS), conv.N_STATE,
+                        len(conv.DIAG_CHANNELS)) == []
+    names = cfg["channel_names"]
+    assert len(names) == 77 and cfg["n_state_channels"] == 76 and names[-1] == "PRECT"
+    # the two the operator kept on purpose, and nothing of the dropped families
+    assert "TREFHT" in names and sum(n.startswith("RELHUM_l") for n in names) == 18
+    assert not any(n.startswith("Z3_") for n in names)
+    # the dry-air fix's inputs: PS survives, TMQ does not (mass_fix must refuse)
+    assert "PS" in names and "TMQ" not in names
+
+
+def test_ace2vars_differs_from_nosoil_only_in_the_declared_keys():
+    """G is F's recipe with a different channel set -- nothing else may move."""
+    yaml = pytest.importorskip("yaml")
+    f = yaml.safe_load(open(HERE / "e3sm_alldata_nosoil.yaml"))["e3sm_alldata_nosoil"]
+    g = yaml.safe_load(open(HERE / "e3sm_alldata_ace2vars.yaml"))["e3sm_alldata_ace2vars"]
+    moved = sorted(k for k in set(f) | set(g) if f.get(k) != g.get(k))
+    assert moved == ["channel_names", "dropped_channel_names", "n_state_channels"]
