@@ -25,10 +25,17 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 >    Only then is any test claim in the CHANGELOG entry true.
 > 2. **F2** (handoff §4): `CLIMATE_DRIVER_EQUIV_OK` + `DRYAIR_OFF_EQUIV_OK` on the merged tree,
 >    tolerance **bitwise**, stated in a commit before the job.
-> 3. **G runs after F** (operator, 2026-09-29; jesswan approved G + the split, relayed). Once 7668637
->    is green: `DEPEND=7660250 bash polaris/submit_g_ace2vars.sh capacity <NODES> <EPOCHS> <WALL>`
->    — epochs still the operator's (243 = A's epoch count, 283 ≈ A's update count at 1140
->    updates/epoch). ⚠ afterany on 7660250 starts G before any F extension resume.
+> 3. **G runs after F** (operator, 2026-09-29; jesswan approved G + the split, relayed).
+>    ⛔ **Do NOT queue G to `capacity` until the operator says so** (operator, 2026-09-29, after
+>    asking about nodes and walltime). Then: `DEPEND=7660250 bash polaris/submit_g_ace2vars.sh
+>    capacity <NODES> <EPOCHS> <WALL>`. Sizing, from measurements: A = 683.6 s/epoch at 1 node
+>    (472 ms/step × 1368 + 33.5 s val) = 46 h 20 min for 243 epochs **of a 48 h allocation**. G at
+>    1140 steps/epoch ≈ 575 s/epoch ⇒ 243 epochs ≈ 39 h at 1 node *if* its step time equals A's
+>    (unmeasured). Multi-node at batch 32 is NOT shown to be faster: the only CXI number is a
+>    50-step 4-node smoke, 521.1 ms/step (7647798), and short smokes overstate (the 20-step 1-node
+>    smoke read 1587.6 ms vs 473 steady). F (2 nodes) will be the first long CXI batch-32 number.
+>    Ask for ≥ 60–72 h: capacity allows 168 h, and makani resumes from the same RUN_NUM.
+>    ⚠ afterany on 7660250 starts G before any F extension resume.
 > 4. **Spatial parallelism on the fixed CXI stack** — never run there (every sharded result is
 >    pre-fix or TCP). `debug-scaling` 4-node matrix h1w1/h2w1/h1w2/h2w2/h4w1/h2w4 at global batch
 >    32, `provider=cxi` asserted; then same-seed loss equivalence vs h1w1; then the T-d16 memory

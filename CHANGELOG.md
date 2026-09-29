@@ -225,6 +225,20 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     limit of jobs in 'Q' state`), so 7668627 (unit tests, never ran) was qdel'd and folded into
     the smoke, which runs them in the background: **job 7668637** (debug, 2 nodes, 1 h,
     `afterok:7668600`) — PASS = `G_SMOKE_OK 3/3` + `ALL_GATES_OK`.
+  - ✅ **7668600 `TRAINVIEW_OK`** (`CONVERT_STATS_TESTS_OK` 7 passed; `CONVERT_ALLDATA_OK`):
+    `…/data/e3sm_makani_alldata_train2020_2044`, t_count **36,500** = 25 × 1460, n = 2.3652e9,
+    0 zero-variance channels, min std 8.30e-8. Stats pass **572 s** with 13 workers (30 yr
+    sequential: 52 min, 7565734). What dropping 2015–2019 did to the normalization (vs the
+    production 2015–2044 stats): means move by a median **6.5e-4 σ**, max **−1.42 % σ at
+    `T_l00`**; stds median **0.08 %**, max **+2.9 % at `RELHUM_l03`**; `time_diff_stds` median
+    0.18 %, max **+3.0 % at `RELHUM_l02`**. Small, and concentrated at the model top.
+  - **Operator, same day: do NOT queue G to `capacity` yet.** Asked whether G is multi-node and
+    why 48 h: G *can* run 1/2/4 nodes at global batch 32, but multi-node is not shown to be
+    faster at that batch (the only CXI number is a 50-step 4-node smoke, 521.1 ms/step, 7647798,
+    vs 473 ms steady at 1 node; short smokes overstate — the 20-step 1-node 7646690 read
+    1587.6 ms). A took **46 h 20 min of a 48 h allocation** (683.6 s/epoch); G ≈ 575 s/epoch at
+    1140 steps if its step time matches A's ⇒ ≈ 39 h for 243 epochs. 48 h was too thin a margin
+    to suggest; ask for 60–72 h (capacity allows 168 h; the run resumes from its RUN_NUM).
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
