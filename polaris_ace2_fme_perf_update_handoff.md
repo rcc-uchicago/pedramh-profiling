@@ -95,6 +95,16 @@ reads the diff, T3 measures.
 - ⚠ Stale sentence: `OPTIMIZATION_CHANGES.md` says "Nothing here is committed yet". It **is** committed,
   as `6ce252e2f`.
 
+### 1.5b Delta's training config is NOT in the tarball, and it is not ours
+
+The docs name the config the optimized code was run with:
+`/work/nvme/bdiu/krucker/ace_zero_co2/run4/config.yaml` (Delta). `TRAINING_SPEEDUP_HISTORY.md:232–233`
+records only `enable_automatic_mixed_precision: true`, `max_epochs: 120`, `batch_size: 16`. The docs are
+silent on learning rate and scheduler. The Delta config in this repo (`config_nsight.yaml`) and ai2's
+reference both use **LR 1e-4, flat, no scheduler**, against our **3e-4 with cosine warm restarts**.
+Theirs is probably the same flat 1e-4, but that is **unverified**. Getting it needs the file copied over
+from Delta. Their speedup numbers were measured under that config (batch 16 on 4 GH200s), not ours.
+
 ### 1.6 Our own prior on `torch.compile` for ACE2 is NEGATIVE — Midway, 4× H100
 
 `ACE2_retrain/bench_midway_notes.md` §"torch.compile: where it can go, and why it is not the lever"
@@ -149,9 +159,17 @@ copy dropped them, so run the same suite on the old tree using `ace_exp_updated`
 `1c3ebad80` into a scratch dir. PASS = same pass/skip counts old vs new, with the `.pt` regression tests
 included. Delta's figure is 493/2; x86 may differ, so the old-vs-new pair on Polaris is what counts.
 
-**T3 — Default-path equivalence on GPU (the DESIGN §4 gate).** Same config, same seed, a short run of a
-few hundred steps plus one validation pass. Run it three ways: old tree; new tree with `FME_NVTX=1`;
-new tree with `FME_NVTX=0`. The reference behavior: two independent same-config, `seed: 3`, 1-node
+**T3 — Default-path equivalence on GPU (the DESIGN §4 gate).** **Code is the only variable.** Every
+arm uses **our production YAML**: LR 3e-4, `CosineAnnealingWarmRestarts` T_0=9 / T_mult=1 /
+eta_min 1e-6, global batch 8, AMP bf16, `seed: 3`. Never mix in Delta's run config. Learning rate,
+schedule, batch and precision are YAML settings, and the update does not touch the code that applies
+them: `optimization.py` only gains NVTX wrappers around `backward` / `step` / `zero_grad`, and
+`scheduler.py` is unchanged. A YAML difference would confound the test.
+**The run must cross ≥2 epoch boundaries.** The scheduler steps **once per epoch**
+(`step_each_iteration: false`), so a run inside one epoch never exercises the cosine path and trains
+at a flat 3e-4. Use short epochs (`SAMPLES_PER_EPOCH`), and compare the per-epoch `lr` as well as the
+losses. That also fires `ace2_telemetry.py`'s `step_scheduler` hook (T4). Run it three ways: old tree;
+new tree with `FME_NVTX=1`; new tree with `FME_NVTX=0`. The reference behavior: two independent same-config, `seed: 3`, 1-node
 runs agreed **bitwise on validation loss** and to **~1 float32 ULP (7.7e-8 relative) on the cross-rank
 reduced train loss** (CHANGELOG 2026-09-04 cont. 2, jobs 7591998/7592103). The tolerance that entry
 derives is **~1e-7 relative on reduced scalars, 1 node**. It is two log scrapes, not a §4.1 tensor
