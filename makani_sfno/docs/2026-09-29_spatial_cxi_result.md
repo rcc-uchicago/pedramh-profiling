@@ -42,9 +42,9 @@ Post-matrix unit suites: `F_FINETUNE_TESTS_OK 6/6` (`polaris/test_*.py` 69 passe
   the table above is read from the epoch summaries.
 - **Bug:** h2w4 rank 7 logged `per-lead metric save failed` (h5py "truncated file"):
   `_save_per_lead_metrics` gated on `data_parallel_rank == 0` only, which every model rank of
-  data group 0 satisfies. Fix committed on `feat/makani-f-finetune` (model rank 0 also
-  required; failing-first test `36aa3632`, fix `eb4e0cce`); verification = job 7669129
-  (`WRITER_C77_ALL_OK 5/5`), to be carried to this branch once green.
+  data group 0 satisfies. **Fixed** (model rank 0 also required): failing-first test
+  `36aa3632` + fix `eb4e0cce`, verified by job 7669129 (`WRITER_C77_ALL_OK 5/5`), cherry-picked
+  to this branch as `a413a645` / `8bc7543e` (identical blobs).
 - **Checkpoint portability (phase 2a prerequisite, read from makani `driver.py`):** `legacy`
   restore checks the file's `comm_grid` against the live layout, so an h1w1 file cannot load into
   h2w2; `flexible` loads `mp0` and scatters it by the live model's `sharded_dims_mp`, so an

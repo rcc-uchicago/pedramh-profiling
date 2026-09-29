@@ -156,8 +156,10 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     **0.1394** vs 0.1098–0.1112 for the other three (valid 0.1043 vs 0.0879–0.0915): "did not
     hang" ≠ "same computation" — no production `w=4` before phase 2's equivalence. ⚠ Bug: the
     per-lead metric file was written by every model rank of data group 0 (h2w4 rank 7 h5py
-    OSError, non-fatal) — fix + failing-first test committed on `feat/makani-f-finetune`
-    (`36aa3632`, `eb4e0cce`), verification job 7669129; carried here once green.
+    OSError, non-fatal) — ✅ fixed: failing-first test + fix (`36aa3632`, `eb4e0cce` on
+    `feat/makani-f-finetune`, verified by 7669129 `WRITER_C77_ALL_OK 5/5`: red on the pre-fix
+    commit, green after, 1-node h2w2 writes one readable file) cherry-picked here as
+    `a413a645` / `8bc7543e`; both files are the **same blobs** as on the verified branch.
     The matrix's "first logged loss" grep caught the loss-config line; the numbers above come
     from the epoch summaries.
   - Phase 2(a) prerequisite read (makani `driver.py`): `legacy` restore validates the file's
