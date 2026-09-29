@@ -297,6 +297,22 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     the same GPU count as FCN3's A100 stage**, batch 512, 8,500 steps, 1.68 h, 863 GPU-h,
     valid 0.018297 (still falling); 1.73 samples/s/GPU = **10 % of the 1-node rate**, over
     **TCP** (pre-fix). Same GPUs as FCN3 stage 2, but a 16× smaller problem spent on batch.
+  - ✅ **G smoke 7668637: `G_SMOKE_OK 3/3`; `ALL_GATES_OK` NOT printed (5/6 unit suites).**
+    (1) train, 2 nodes: `FABRIC_CXI_CONFIRMED` (8 cxi lines), `CHANNEL_SUBSET in=76 out=77 …
+    dropped pack idx [2, 3, 4, 5, 8, 9, 64..81]`, 36,500 samples, `EMA_ASSERT_OK`,
+    `MAKANI_MN_SCALING_OK`; (2) rollout from the 40-step smoke model: **`CLIMATE_ROLLOUT_TRUNCATED`
+    at step 264 (PS)**, 77-channel NetCDF — machinery only, and the 368-step train→valid
+    handoff was **not** reached, so it is still unexercised on the view; (3) the arm launcher's
+    own `lrcheck` vars for G: `FINETUNE_BASE_OK n_out=77 pack=<view>`, `MAKANI_MN_SCALING_OK`,
+    LR 4e-4 → 1e-6 → 4e-4 `LR_SCHEDULE_OK`. Suites: climate driver **29 passed** (incl. the new
+    subset tests), screen + dry-air + negativity **48**, longroll 6, ports 13, preprocessor 4;
+    **`polaris/test_*.py` 68 passed, 1 FAILED** — `test_regional_scores` (port-F land panel,
+    ports branch; first time it ran in a job): rel 7.45058085e-9 at rtol 1e-12. **Traced, not
+    loosened:** `lat_weights` returns float32-rounded weights summing to 1 − 1.4901161e-8 in
+    float64 at H=8; `region_weights` renormalises and `rmse_lat_weighted` assumes its documented
+    sum-to-1 precondition ⇒ predicted gap 1 − √Σw = **7.4505806e-9 = observed**. The test now
+    normalises in float64 first (1e-12 kept) and pins the term (global / region = √Σw at 1e-12).
+    Verification: the spatial job **7669001** re-runs all six suites after its arms.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running

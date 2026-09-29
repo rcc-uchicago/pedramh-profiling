@@ -20,12 +20,22 @@ def test_all_ones_mask_equals_the_global_scorer():
     rng = np.random.default_rng(0)
     H, W = 8, 16
     p, t, c = (rng.normal(size=(3, H, W)) for _ in range(3))
-    lw = M.lat_weights(H, "equiangular").to(torch.float64)
+    # lat_weights returns FLOAT32-rounded weights; in float64 they sum to 1 - 1.49e-8 at
+    # H=8. region_weights renormalises; rmse_lat_weighted assumes its documented
+    # precondition (weights sum to 1). Give both scorers that precondition, keep 1e-12,
+    # and pin the raw weights' gap separately below (job 7668637 traced it: 7.45e-9).
+    lw32 = M.lat_weights(H, "equiangular").to(torch.float64)
+    lw = lw32 / lw32.sum()
     r, a, at = masked_metrics(p, t, c, region_weights(lw.numpy(), np.ones((H, W), bool)))
     P, T, Cl = (torch.from_numpy(x) for x in (p, t, c))
     np.testing.assert_allclose(r, M.rmse_lat_weighted(P, T, lw).numpy(), rtol=1e-12)
     np.testing.assert_allclose(a, M.acc(P, T, Cl, lw).numpy(), rtol=1e-9)
     np.testing.assert_allclose(at, M.rmse_lat_weighted(T, Cl, lw).numpy(), rtol=1e-12)
+    # the traced term: with the raw float32 weights the global scorer is low by exactly
+    # sqrt(sum w), because it does not renormalise and the region scorer does
+    r32, _, _ = masked_metrics(p, t, c, region_weights(lw32.numpy(), np.ones((H, W), bool)))
+    np.testing.assert_allclose(M.rmse_lat_weighted(P, T, lw32).numpy() / r32,
+                               np.sqrt(lw32.sum().item()), rtol=1e-12)
 
 
 def test_mask_ignores_off_region_cells():
