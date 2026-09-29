@@ -37,11 +37,14 @@ def _build_dry_air_fix(params):
         if int(_pget(params, key, 1) or 1) != 1:
             raise ValueError(f"DRY_AIR_FIX: {key}={_pget(params, key)}; the global mean "
                              "needs a spatial all-reduce, not implemented")
+    out_channels = _pget(params, "out_channels", None)
     return DryAirFix(
         channel_names=list(params.channel_names),
         global_means=np.load(params.global_means_path),
         global_stds=np.load(params.global_stds_path),
         nlat=int(_pget(params, "img_crop_shape_x", None) or params.img_shape_x),
+        # a channel-subset run (ports F, G) keeps the pack's full-width stats
+        stats_index=None if out_channels is None else list(out_channels),
     )
 
 

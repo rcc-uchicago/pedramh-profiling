@@ -126,6 +126,95 @@ def test_fix_refuses_missing_channel_and_bad_grid():
         M.DryAirFix(channel_names=NAMES, global_means=MU, global_stds=SD, nlat=H + 1)(inp, pred)
 
 
+# ---------------------------------------------------------------------------
+# channel-subset runs (ports F, G): full-width stats, indexed by out_channels
+# ---------------------------------------------------------------------------
+
+# A 7-channel "pack" whose first channel and fourth channel are dropped by the model,
+# so PS and TMQ both sit AFTER a dropped channel -- the case where a positional read
+# of the full-width stats picks the wrong rows (F survives it only because its
+# dropped channels, 8 and 9, come after PS=0 and TMQ=5).
+PACK_NAMES = ["SOIL", "PS", "T", "Z3", "TMQ", "U", "PRECT"]
+PACK_MU = np.array([0.3, 98000.0, 280.0, 5500.0, 25.0, 0.0, 1e-5])
+PACK_SD = np.array([0.1, 5000.0, 20.0, 300.0, 15.0, 10.0, 1e-5])
+OUT_CH = [1, 2, 4, 5, 6]                      # the model's rows in the pack
+assert [PACK_NAMES[i] for i in OUT_CH] == NAMES
+assert np.array_equal(PACK_MU[OUT_CH], MU) and np.array_equal(PACK_SD[OUT_CH], SD)
+
+
+def test_subset_stats_are_read_by_out_channels():
+    f = M.DryAirFix(channel_names=NAMES, global_means=PACK_MU, global_stds=PACK_SD,
+                    nlat=H, stats_index=OUT_CH)
+    assert (f.mu_ps, f.sd_ps, f.mu_q, f.sd_q) == (98000.0, 5000.0, 25.0, 15.0)
+    inp, pred = _pair(11)
+    np.testing.assert_allclose(_gm_dry(f(inp, pred)), _gm_dry(inp), atol=1e-6, rtol=0)
+    # identical to the fix built from the model-width stats
+    assert torch.equal(f(inp, pred), _fix()(inp, pred))
+
+
+def test_positional_read_of_subset_stats_is_red():
+    """Seeded fault: the pre-fix rule (row = position in channel_names) on this pack
+    reads SOIL's stats for PS and T's for TMQ, and the 'fixed' prediction no longer
+    conserves dry air. The new code refuses to build that fix at all."""
+    pos = M.DryAirFix(channel_names=NAMES, global_means=PACK_MU[:5], global_stds=PACK_SD[:5],
+                      nlat=H)                  # what `mu[names.index("PS")]` used to read
+    assert (pos.mu_ps, pos.mu_q) == (0.3, 280.0)
+    inp, pred = _pair(12)
+    assert np.abs(_gm_dry(pos(inp, pred)) - _gm_dry(inp)).max() > 1.0
+    with pytest.raises(ValueError, match="no out_channels"):
+        M.DryAirFix(channel_names=NAMES, global_means=PACK_MU, global_stds=PACK_SD, nlat=H)
+
+
+@pytest.mark.parametrize("index, why", [
+    ([1, 2, 4, 5], "len 4"),                  # wrong length
+    ([1, 2, 4, 5, 7], "not a selection"),     # past the stats width
+    ([1, 1, 4, 5, 6], "not a selection"),     # duplicate row
+])
+def test_subset_index_that_matches_neither_width_is_refused(index, why):
+    with pytest.raises(ValueError, match=why):
+        M.DryAirFix(channel_names=NAMES, global_means=PACK_MU, global_stds=PACK_SD,
+                    nlat=H, stats_index=index)
+
+
+def test_means_and_stds_of_different_width_are_refused():
+    with pytest.raises(ValueError, match="means have 7 channels, stds 5"):
+        M.DryAirFix(channel_names=NAMES, global_means=PACK_MU, global_stds=SD, nlat=H,
+                    stats_index=OUT_CH)
+
+
+def test_full_width_with_identity_out_channels_is_unchanged():
+    """A (full-width): out_channels = range(C) must read exactly the rows it always read."""
+    f = M.DryAirFix(channel_names=NAMES, global_means=MU, global_stds=SD, nlat=H,
+                    stats_index=list(range(len(NAMES))))
+    g = _fix()
+    assert (f.i_ps, f.i_q, f.mu_ps, f.sd_ps, f.mu_q, f.sd_q) == \
+           (g.i_ps, g.i_q, g.mu_ps, g.sd_ps, g.mu_q, g.sd_q)
+    inp, pred = _pair(13)
+    assert torch.equal(f(inp, pred), g(inp, pred))
+
+
+def test_port_g_channel_set_is_refused_by_name():
+    """Port G (2026-09-29) drops TMQ: the fix has no column water and must say so."""
+    g_names = ["PS", "TREFHT", "T", "U", "PRECT"]
+    with pytest.raises(ValueError, match="channel TMQ not in channel_names"):
+        M.DryAirFix(channel_names=g_names, global_means=PACK_MU, global_stds=PACK_SD, nlat=H,
+                    stats_index=[1, 0, 2, 5, 6])
+
+
+def test_build_from_params_uses_out_channels(tmp_path):
+    np.save(tmp_path / "m.npy", PACK_MU.reshape(1, -1, 1, 1))
+    np.save(tmp_path / "s.npy", PACK_SD.reshape(1, -1, 1, 1))
+    prm = SimpleNamespace(channel_names=NAMES, global_means_path=str(tmp_path / "m.npy"),
+                          global_stds_path=str(tmp_path / "s.npy"), img_crop_shape_x=H,
+                          img_shape_x=H, h_parallel_size=1, w_parallel_size=1,
+                          out_channels=np.array(OUT_CH))
+    f = P._build_dry_air_fix(prm)
+    assert (f.i_ps, f.i_q, f.mu_ps, f.mu_q) == (0, 2, 98000.0, 25.0)
+    del prm.out_channels
+    with pytest.raises(ValueError, match="no out_channels"):
+        P._build_dry_air_fix(prm)
+
+
 def test_weights_match_the_evaluation_package():
     from sfno_ensemble.scores import equiangular_weights
     np.testing.assert_array_equal(M.equiangular_weights(180), equiangular_weights(180))
