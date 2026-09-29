@@ -134,3 +134,12 @@ done
 summary=""
 for arm in "${ORDER[@]}"; do summary="${summary} ${arm}=${RES[$arm]:-not_run}"; done
 echo "SPATIAL_CXI_MATRIX_DONE ${n_ok}/${n_run}${summary} out=${OUT}"
+
+# ---- after the arms, never during them: the F0/F1 unit suites on this tree -----
+# (7668637 ran them beside a smoke; here they would perturb step times, so they go
+# last.) Re-checks POLARIS_SCRIPT_TESTS after the test_regional_scores fix.
+if [ "${RUN_TESTS:-1}" = "1" ]; then
+    echo "=== F0/F1 unit suites (sequential, after the matrix) ==="
+    bash "${MAKANI_ROOT}/polaris/polaris_f_finetune_tests.pbs" > "${OUT}/unit_tests.out" 2>&1
+    grep -E "^[A-Z_]+_OK |^F_FINETUNE_TESTS_OK|^ERROR" "${OUT}/unit_tests.out"
+fi
