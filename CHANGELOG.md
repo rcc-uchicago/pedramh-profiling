@@ -207,6 +207,20 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   - **Not decided here:** F (7660250) stays queued on `capacity`; whether G replaces it, and G's
     queue/epochs (the launcher requires both), are the operator's. Nothing was submitted to
     `capacity`/`preemptable`.
+  - **Later the same day — operator, first-hand:** *"G should run after F"* and **jesswan approved
+    these all** (port G's variable set, the 2020–2044 split; relayed by the operator, not read
+    from her directly). → `submit_g_ace2vars.sh` gains `DEPEND=<jobid>` (afterany), for
+    `DEPEND=7660250`. Asked whether G's smoke tests had run: **no** — 7668627 is unit tests only
+    and nothing had trained G. Added `polaris_g_smoke.pbs` (debug, 2 nodes, the G analogue of
+    F's `polaris_makani_ports_smoke.pbs` §4): (1) 2-node × local 4 training smoke on the view with
+    EMA — requires the trainer's `CHANNEL_SUBSET in=76 out=77 … dropped pack idx [2, 3, 4, 5, 8, 9,
+    64..81]`, `train samples available: 36500`, `FABRIC_CXI_CONFIRMED` (G's 384×83 encoder
+    broadcast is a message size never sent before), `EMA_ASSERT_OK`, `MAKANI_MN_SCALING_OK`, no
+    nan; (2) a 380-lead climate-driver rollout from it across the 2044→2045 (view train→valid)
+    handoff at step 368, 77-channel NetCDF; (3) the arm launcher's own `lrcheck` vars for G run
+    inline — `MULTISTEP=5` at 77 channels, `FINETUNE_BASE_OK n_out=77`, `LR_SCHEDULE_OK`.
+    PASS = `G_SMOKE_OK 3/3`. G is not queued on `capacity` until it and 7668627 are green.
+    7668600 was 8/25 years into the stats pass after 5 min (`CONVERT_STATS_TESTS_OK`, 7 passed).
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running

@@ -22,6 +22,7 @@
 # QUEUE has no default on purpose: capacity is max_run 1 per PROJECT and
 # preemptable start latency is load-dependent (CLAUDE.md cluster table). The
 # operator picks. DRY_RUN=1 prints the qsub and the provenance and submits nothing.
+# DEPEND=<jobid> chains it afterany (G runs after F: DEPEND=7660250).
 #
 # FABRIC: inherits polaris_makani_multinode_scaling.pbs's CXI stack (aws-ofi-nccl
 # v1.6.0, NCCL_PROTO=Simple, HPE rendezvous block) and refuses fabric overrides in
@@ -88,7 +89,11 @@ PROV_TXT="$(
     echo "vars: ${VARS}"
 )"
 echo "${PROV_TXT}"
-QSUB=(qsub -q "${Q}" -l "select=${SELECT}:system=polaris" -l "walltime=${WALL}"
+# DEPEND=<jobid>: start only after that job ends, whatever its exit (afterany) --
+# the operator's order is "G after F" (2026-09-29), e.g. DEPEND=7660250.
+DEP=()
+[ -n "${DEPEND:-}" ] && DEP=(-W "depend=afterany:${DEPEND}")
+QSUB=(qsub -q "${Q}" "${DEP[@]}" -l "select=${SELECT}:system=polaris" -l "walltime=${WALL}"
       -v "${VARS}" polaris/polaris_makani_multinode_scaling.pbs)
 if [ "${DRY_RUN:-0}" = "1" ]; then
     echo "DRY_RUN (cd ${HERE} &&) ${QSUB[*]}"
@@ -98,4 +103,4 @@ fi
 echo "${PROV_TXT}" > "${M}/runs/makani_mn_scaling/${RUN_NUM}.provenance.txt"
 OUT=$(cd "${HERE}" && "${QSUB[@]}" 2>&1)
 echo "${OUT}"
-[[ "${OUT}" == *".polaris-pbs"* ]] && echo "G_QUEUED jobid=${OUT%%.*} run=${RUN_NUM} queue=${Q}" || { echo "ERROR SUBMIT_REFUSED"; exit 2; }
+[[ "${OUT}" == *".polaris-pbs"* ]] && echo "G_QUEUED jobid=${OUT%%.*} run=${RUN_NUM} queue=${Q} depend=${DEPEND:-none}" || { echo "ERROR SUBMIT_REFUSED"; exit 2; }
