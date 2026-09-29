@@ -260,6 +260,31 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     capacity (dry runs: 4n → `CAPACITY_NODECT`; `SPARE=0` → select=4; 2n → select=3, F's shape).
     F's own 2-node log will be the first long CXI batch-32 step time; the G smoke 7668637 gives
     a short 2-node one for G.
+  - **vs the makani papers' own training setups** (operator asked), read from the upstream
+    clone `$MEMBER_ROOT/external/makani-upstream` @ `cdc22ad` (`icml_models.yaml`,
+    `sfnonet.yaml`, `fourcastnet3.yaml`; GPU counts from the yaml comments + the README recipe
+    recorded 2026-08-24). Our trunk *is* upstream's `sfno_sc3_layers8_edim384` (384 / 8 layers /
+    scale 3 / dhconv / linear).
+
+    | setup | GPUs | batch × ens × spatial | samples/GPU | grid pts/GPU | steps | rollout |
+    |---|---|---|---|---|---|---|
+    | ICML SFNO 73ch (`ngpu64_mp1_sp1`) | 64 | 64 × 1 × 1 | 1 | 1,038,240 | 50,580 + 4,215 (2-step ft) | 1 → 2 |
+    | SFNO README scale-out | 256 | 64 × 1 × 4 | 0.25 | 259,560 | ≤ 500 ep × 843 | 1 |
+    | FCN3 pretrain1 (80 GB) | 1024 | 16 × 16 × 4 | 0.25 | 259,560 | 218,400 | 1 |
+    | FCN3 pretrain2 | 512 | 32 × 2 × 8 | 0.125 | 129,780 | 5,040 | 4 |
+    | FCN3 finetune | 256 | 4 × 4 × 16 | 0.0625 | 64,890 | 2,920 | — |
+    | ours A (done) | 4 | 32 × 1 × 1 | 8 | 518,400 | 332,424 | 1 |
+    | ours F / G at 2 nodes | 8 | 32 × 1 × 1 | 4 | 259,200 | 58,824 / 277,020 | 1 |
+
+    ⇒ Upstream keeps ~0.13–0.26 M grid points per GPU and scales out by **spatial + ensemble**
+    parallelism on 721×1440 (80 GB GPUs); we reach the same per-GPU load at 2 nodes with a 16×
+    smaller grid and **pure data parallelism** (spatial never run on CXI). We take **more**
+    optimizer steps than either paper (A = **1.52×** FCN3 pretrain1 by config arithmetic —
+    corrects the "1.6×" of 2026-09-04). Rollout training: ICML fine-tunes at 2 steps, FCN3
+    pretrain2 at 4; our Stage-1 arms (depth 4/8) are that stage. Objective: `sfnonet.yaml` and
+    FCN3 use `channel_weights: auto` + `temp_diff_normalization: True`; the ICML base is plain
+    l2 like ours. Optimizer β₂ 0.95 / clip 32 match FCN3. **No wall-clock or GPU-efficiency
+    figure is in the configs**, and none is quoted here from the papers unverified.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
