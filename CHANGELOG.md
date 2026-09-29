@@ -145,7 +145,26 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 ## Decisions / changes log
 
 - **2026-09-29 (makani) — task #7, spatial parallelism on the fixed CXI stack: phase 1
-  pre-registered and built; not yet submitted.** Branch `feat/makani-spatial-cxi` (pinned
+  ✅ RAN (7669001): 4/4 arms on CXI; P4 falsified — h2w4 trains, but ~26 % higher loss.**
+  - ✅ **Job 7669001** (debug, 2 n, `caafdbf7`): `SPATIAL_CXI_MATRIX_DONE 4/4`, every arm
+    `FABRIC_CXI_CONFIRMED`; `F_FINETUNE_TESTS_OK 6/6` after the arms (`test_regional_scores`
+    fix verified, 69 passed). Step ms (epoch 2 of 2 × 60 steps, batch 32, 8 A100): **h1w1 225.2**,
+    h2w2 417.9 (+85.6 %), h4w1 283.8 (+26.0 %), h2w4 616.3 (+173.7 %). Scored as written
+    (`makani_sfno/docs/2026-09-29_spatial_cxi_result.md`): **P1 held** (−64.1 % vs TCP 627.1);
+    **P2: 2 nodes beat 1** (365.4 ms, 81.1 % per GPU) ⇒ F/G's 2-node shape justified; **P3
+    held**; **P4 FALSIFIED — h2w4 trained, no hang**; **P5 held**. ⚠ Epoch-2 train loss h2w4
+    **0.1394** vs 0.1098–0.1112 for the other three (valid 0.1043 vs 0.0879–0.0915): "did not
+    hang" ≠ "same computation" — no production `w=4` before phase 2's equivalence. ⚠ Bug: the
+    per-lead metric file was written by every model rank of data group 0 (h2w4 rank 7 h5py
+    OSError, non-fatal) — fix + failing-first test committed on `feat/makani-f-finetune`
+    (`36aa3632`, `eb4e0cce`), verification job 7669129; carried here once green.
+    The matrix's "first logged loss" grep caught the loss-config line; the numbers above come
+    from the epoch summaries.
+  - Phase 2(a) prerequisite read (makani `driver.py`): `legacy` restore validates the file's
+    `comm_grid` against the live layout (h1w1 → h2w2 raises); `flexible` loads `mp0` and
+    scatters by the live model's `sharded_dims_mp`, so an h1w1/A checkpoint loads into any
+    layout. The launcher does not pass `--load_checkpoint` yet — add `LOAD_CKPT` before (a).
+  - As pre-registered (below, unchanged): branch `feat/makani-spatial-cxi` (pinned
   worktree `.claude/worktrees/spatial-cxi`, off `feat/makani-f-finetune`). Prereg:
   `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md`; job `polaris/polaris_spatial_cxi_matrix.pbs`
   (debug, 2 nodes, 1 h): h1w1 / h2w2 / h4w1 / h2w4 at global batch 32, 4 sample-equivalents
