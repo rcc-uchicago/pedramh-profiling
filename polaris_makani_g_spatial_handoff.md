@@ -38,7 +38,8 @@ default stated) · 🔵 **open** (work to do, no decision needed).
 | 7668600 | debug 1n | build the 2020–2044 view + stats | ✅ `TRAINVIEW_OK`, 36,500 samples, stats pass 572 s |
 | 7668627 | debug | unit suites | qdel'd before running (debug holds one queued job per user); folded into 7668637 |
 | 7668637 | debug 2n | G smoke + unit suites | ✅ `G_SMOKE_OK 3/3`; unit suites **5/6** (see §3, T6) |
-| **7669001** | debug 2n | **spatial matrix (task #7 phase 1)** + the six unit suites after the arms | 🔵 **RUNNING** at hand-off — read `makani_spatial_cxi.o7669001` in `.claude/worktrees/spatial-cxi/makani_sfno/` |
+| 7669001 | debug 2n | spatial matrix (task #7 phase 1) + the six unit suites after the arms | ✅ `SPATIAL_CXI_MATRIX_DONE 4/4`, `F_FINETUNE_TESTS_OK 6/6`; h1w1 **225.2 ms**; P4 falsified (h2w4 trained) but h2w4 loss ~26 % high — CHANGELOG 2026-09-29 |
+| 7669103 | debug 1n | F2 equivalence (O2): climate equiv + dry-air-off, bitwise | ✅ `F2_EQUIV_OK tolerance=bitwise` (G1+G2 green, 20/20 vars ×2 pairs bitwise vs `873ecd37`) |
 
 Nothing was submitted to `capacity` or `preemptable` this session.
 
@@ -56,13 +57,14 @@ Nothing was submitted to `capacity` or `preemptable` this session.
 | T6 | G smoke | 7668637: 2-node train on CXI, 380-lead rollout machinery, the arm launcher's own `lrcheck` vars on G (`LR_SCHEDULE_OK`) |
 | T7 | the one failing unit test traced | `test_regional_scores`: `lat_weights` is float32-rounded (Σw = 1 − 1.49e-8), `region_weights` renormalises, `rmse_lat_weighted` does not ⇒ gap 1 − √Σw = 7.4505806e-9 = observed. Test fixed at unchanged 1e-12 (`dd99055e` / `caafdbf7`); **re-verification is in 7669001** |
 | T8 | analysis/docs: A/F/G sizing table; vs the makani papers; vs FCN3 (paper-stated compute); the 128-node run beside FCN3's 512-A100 stage | CHANGELOG 2026-09-29; `2026-09-10_fcn3_recipe_vs_ours.md` §6 |
+| T9 (= O1) | read 7669001, score P1–P5 | CHANGELOG 2026-09-29 (both branches): P1 ✅ −64.1 % vs TCP; P2 2 nodes beat 1 (81.1 % per-GPU); P3 ✅ (+85.6 / +26.0 %); **P4 ✗ h2w4 trained**; P5 ✅; T7's test fix verified (69 passed). New: O10, O8c below |
 
 ### 🟡 Needs discussion (operator / science decisions — default stated, nothing blocks on them yet)
 
 | # | decision | what we know | default / recommendation |
 |---|---|---|---|
 | D1 | **G's release to `capacity`** — operator: *"G should run after F … don't queue it to capacity yet"* | chain with `DEPEND=7660250` (afterany: G starts when F's current job ends, **before** any F extension resume) | hold until the operator says so |
-| D2 | **G's nodes, epochs, walltime** | A = 473 ms/step, 46.3 h for 243 epochs **of a 48 h allocation**. G ≈ 575 s/epoch at 1 node ⇒ ~39 h for 243 epochs (unmeasured). 2-node CXI step time unknown until 7669001's h1w1 arm | 1 node, 243 epochs (A's count; 283 ≈ A's update count), **60–72 h** walltime; revisit 2 nodes if h1w1 < 365.4 ms |
+| D2 | **G's nodes, epochs, walltime** | A = 473 ms/step, 46.3 h for 243 epochs **of a 48 h allocation**. G ≈ 575 s/epoch at 1 node ⇒ ~39 h for 243 epochs (unmeasured). **7669001: h1w1 = 225.2 ms < 365.4 ⇒ the revisit rule fired.** Projected production step at 2 n ≈ 292 ms ⇒ G ≈ **24.7 h** (49 node-h `SPARE=0`, 74 with spare) vs 38.7 h / 38.7 node-h at 1 n | **2 nodes, 243 epochs, 36–48 h** walltime (1.5–2× the projection; F's own log will measure the 2-node step first) — or 1 node / 60–72 h if node-hours matter more than wall clock |
 | D3 | **`debug-scaling` for task #7 phase 2** (8 nodes) | held by the ACE2 batch-16 LR sweep, cron-chained 1-h segments (`max_queued 1` per user) — taking the slot delays that sweep | wait for the sweep to finish unless the operator chooses to interleave |
 | D4 | **ensemble / probabilistic training** (operator asked: "can we consider A as pretraining or do we need the ensemble function?") | A = makani's shipped deterministic recipe (single-step l2 pretrain → multi-step fine-tune, like the ICML SFNO paper and ACE2); B (1 epoch at n_future 4 from A) already survived a year at two starts; K=56 readout VR ≈ 1.0, CRPS branch not indicated. `PlasimEnsembleTrainer` exists on `wt-perlead-metrics`, never run, not merged, noise only in `perturb` mode. Input noise was ruled out by jesswan (2026-09-10) | **A/F/G count as pretraining; ensemble not needed now.** Revisit only if the deterministic arms fail stability, or if a probabilistic emulator becomes the goal (needs jesswan) |
 | D5 | FSNT / FSNTOA stay **prognostic** in G | ACE2 keeps every radiative flux diagnostic; moving them needs a repack (the pack's diagnostic group holds PRECT only) | science owner's call; not part of G |
@@ -73,8 +75,8 @@ Nothing was submitted to `capacity` or `preemptable` this session.
 
 | # | item | how / gate |
 |---|---|---|
-| O1 | **read 7669001** | per-arm `SPATIAL_CXI_ARM_OK/_HANG/_FAILED`, `SPATIAL_CXI_MATRIX_DONE`, the P1–P5 table (prereg), then `F_FINETUNE_TESTS_OK 6/6` from the post-matrix unit run. Record in CHANGELOG on **both** branches; score each prediction as written |
-| O2 | **F2 — bitwise equivalence of the full-width paths on the merged tree** (F handoff §4) | `CLIMATE_DRIVER_EQUIV_OK` (A, 2048 f1092, K=56) + `DRYAIR_OFF_EQUIV_OK`; state the tolerance (bitwise) **in a commit before the job**; `polaris_climate_equiv.pbs`, `polaris_dryair_equiv.pbs` from `feat/makani-f-finetune` |
+| ~~O1~~ | ✅ done → T9 | |
+| ~~O2~~ | ✅ done — 7669103 `F2_EQUIV_OK` (bitwise), prereg `e036ede5` first | |
 | O3 | **F3 — F baseline screen** once F (7660250) has run | `CLIMATE_SCREEN_OK` at 2044 f1092 and f1156; answers whether the ~500-lead blow-up persists without soil |
 | O4 | **F4 — F-based `lrcheck` smoke** from F's real checkpoint | `PRETRAINED_CKPT=<F best> bash polaris/submit_subset_finetune_arm.sh F lrcheck` (debug) |
 | O5 | F5/F6 — queue and screen the F arms | operator's word first (D7); pre-register the 99-channel screen addendum before the first arm's screen |
@@ -82,6 +84,8 @@ Nothing was submitted to `capacity` or `preemptable` this session.
 | O7 | **common-77 rebaseline** before any G number is quoted | `restrict_readout.py --drop` the 24 G channels on A's K=56 readout, as was done for F (`k56_readout_common99.json`); note G's split differs from A's too |
 | O8 | **task #7 phase 2** (after O1, and D3) | (a) equivalence across layouts: same checkpoint, validation loss per layout — first read how makani loads a `legacy` (per model-parallel-rank) checkpoint into a sharded model; (b) T-d16 memory at **8 nodes × h2w2, batch 16** (0.5 sample-equivalents/GPU — at 4 nodes the split does not reduce per-GPU memory) |
 | O9 | draft PRs (F handoff §7) | `feat/makani-f-finetune` → `feat/makani-dryair-negativity`; `feat/makani-spatial-cxi` after O1. Solo session cannot self-approve; leave open, note in CHANGELOG |
+| O10 | **per-lead metric save races under model parallelism** (found in 7669001 h2w4) | `plasim_trainer.py:593` gates on `data_parallel_rank == 0` ⇒ every model-parallel rank of data group 0 writes `scores/metrics_ep*.h5`. Gate on world rank 0 after checking makani's `MetricsHandler.save` is not collective; failing-first test; fix on both branches. Not while a job is queued from the tree |
+| O8c | **h2w4 loss ~26 % high** (7669001: ep-2 train 0.1394 vs 0.110–0.111) | not a gate; blocks production `w=4`. First test: replicated params identical across each `w`-group after N steps (§5b's divergent sync path) |
 
 ## 4. Facts learned this session (so they are not re-derived)
 

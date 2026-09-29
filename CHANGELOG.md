@@ -313,6 +313,57 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     sum-to-1 precondition ⇒ predicted gap 1 − √Σw = **7.4505806e-9 = observed**. The test now
     normalises in float64 first (1e-12 kept) and pins the term (global / region = √Σw at 1e-12).
     Verification: the spatial job **7669001** re-runs all six suites after its arms.
+  - ✅ **Spatial matrix 7669001 (task #7 phase 1, debug 2 n, `feat/makani-spatial-cxi` @
+    `caafdbf7`): `SPATIAL_CXI_MATRIX_DONE 4/4`, every arm `FABRIC_CXI_CONFIRMED` (8 cxi lines);
+    `F_FINETUNE_TESTS_OK 6/6`** after the arms (`polaris/test_*.py` **69 passed** — the
+    `test_regional_scores` fix verified; driver 29, screen 48, longroll 6, ports 13, preprocessor
+    4). Global batch 32, 8 A100, 60 steps × 2 epochs, `step_ms` = epoch 2; CSV
+    `bench/makani_spatial_cxi.csv`. Scored against
+    `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md` as written:
+
+    | arm | local | step ms | vs h1w1 | ep-2 train / valid loss |
+    |---|---|---|---|---|
+    | h1w1 | 4 | **225.2** | — | 0.1112 / 0.0915 |
+    | h2w2 | 16 | 417.9 | +85.6 % | 0.1098 / 0.0896 |
+    | h4w1 | 16 | 283.8 | +26.0 % | 0.1099 / 0.0879 |
+    | h2w4 | 32 | 616.3 | +173.7 % | **0.1394 / 0.1043** |
+
+    **P1 held** (h1w1 225.2 ms vs TCP 2-node 627.1: −64.1 % — the fabric *was* what made 2 nodes
+    slow). **P2: 2 nodes beat 1 node** (365.4 ms same knobs, 7580338), per-GPU efficiency
+    **81.1 %** ⇒ the 2-node shape of F and G is justified. **P3 held** (≥ +25 %; h4w1 only just,
+    +26.0 %) — sharding remains a memory tool, not a speed one. **P4 FALSIFIED: h2w4 trained,
+    no hang** ⇒ §5b's `w=4` diagnosis was wrong or transport-dependent. **P5 held** (4/4).
+    ⚠ **But h2w4's loss is ~26 % higher at epoch 2** while the other three agree within ~1 %
+    (epoch 1: 0.434 vs 0.380–0.396). Not a gate and not yet explained; it is what §5b's
+    divergent parameter-sync path at `w=4` would look like if it no longer deadlocks. "Did not
+    hang" ≠ "computes the same thing": **no production use of `w=4`** before phase 2's
+    equivalence check; cheapest first test is whether the replicated parameters stay identical
+    across each `w`-group after N steps. First-epoch losses differ by ~4 % across the other three,
+    so initialisation/data order is layout-dependent — phase 2 must load one checkpoint, not
+    compare fresh runs.
+    ⚠ **Bug found — per-lead metric save races under model parallelism.** h2w4 rank 7:
+    `per-lead metric save failed … OSError: Unable to synchronously create file (truncated file)`.
+    `plasim_trainer.py:593` gates `metrics.save` on `data_parallel_rank == 0`, which every
+    model-parallel rank of data group 0 satisfies (8 writers at h2w4, 4 at h2w2/h4w1). Caught as a
+    warning, so non-fatal, but any sharded run's `scores/metrics_ep*.h5` is racy. Fix (world rank
+    0, after checking makani's `MetricsHandler.save` is not collective) waits until 7669103 has
+    run. Also: the matrix's "first logged loss" grep matched the `losses [{'type': 'l2' …}]`
+    config line, not a loss; the table above is from each arm's epoch summaries.
+    **What this does to G's sizing (D2):** scaling A's 473.2 ms by the same-knob ratio
+    225.2 / 365.4 projects **≈ 292 ms/step** in production at 2 nodes (projection, not measured;
+    F's log will measure it) ⇒ **G at 2 nodes ≈ 24.7 h** for 243 epochs (49 node-h at `SPARE=0`,
+    74 with the spare) vs 38.7 h at 1 node; **F ≈ 5.2 h** of its 12 h.
+  - ✅ **F2 green — job 7669103 `F2_EQUIV_OK tolerance=bitwise`** (debug, 1 node, 2.5 min;
+    tree `e036ede5`, whose commit — the prereg `makani_sfno/docs/2026-09-29_f2_equiv_prereg.md` —
+    precedes the job's start by 61 s). `polaris/polaris_f2_equiv.pbs` ran both gates on the
+    merged tree: `CLIMATE_DRIVER_TEST_OK` + `CLIMATE_DRIVER_EQUIV_OK K=56 leads_checked=56
+    chunks=[40, 7, 1] tolerance=bitwise` (A, 2048 f1092); `DRYAIR_OFF_EQUIV_OK ref=873ecd379bde
+    new=e036ede5c64c` — B e22 and A e243 × 1460 leads from 2044 f1092, **20/20 NetCDF variables
+    bitwise** for both pairs, A e243 truncating at step 595 on PS on both sides as predicted. ⇒
+    The five shared files changed since the last green run (`6c689c21`: climate_driver,
+    rollout_driver, mass_fix, preprocessor, plasim_trainer; +163 / −17) are **inert on the
+    full-width path**. Gate F2 of the F handoff §4 is closed; F arms / G may run on this tree.
+    Outputs `$MEMBER_ROOT/runs/makani_eval/{f2_equiv,dryair_equiv}_7669103/`.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
