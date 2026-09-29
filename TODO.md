@@ -18,6 +18,10 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 📋 **Continue from `polaris_makani_g_spatial_handoff.md`** (2026-09-29): task status
+> (done / needs discussion / open), jobs, branches, traps. It supersedes the list below where
+> they differ.
+>
 > 🔵 **2026-09-29 — Port G (ACE2-EAMv3 variables, 83/77) + 2020–2044 train split + F fine-tune
 > base, branch `feat/makani-f-finetune`** (CHANGELOG 2026-09-29). In order:
 > 1. **Read 7668600** → `TRAINVIEW_OK` + the stats-shift table; **7668637** → `G_SMOKE_OK 3/3` +
