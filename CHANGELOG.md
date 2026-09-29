@@ -144,6 +144,70 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-29 (makani) — F fine-tune base built; PORT G (the ACE2-EAMv3 variable set) and the
+  2020–2044 train split implemented. Nothing trains yet; two debug jobs queued.** Branch
+  `feat/makani-f-finetune` (worktree `.claude/worktrees/f-finetune`), per
+  `polaris_makani_f_finetune_handoff.md` (on `worktree-monitor-ace2`) plus two operator decisions
+  made today, first-hand:
+  - **Port G.** *"remove every channel that is not in ACE2-E3SM (SOILWATER_10CM, TSOI_10CM, Z3,
+    U10, RHREFHT, PSL, TMQ). Keep RELHUM (close to their total water) and TREFHT (close to skin
+    temp)."* → `e3sm_alldata_ace2vars.yaml`: 24 of the pack's 101 dropped (pack indices 2–5, 8, 9,
+    64–81), **76 state + PRECT + 7 forcing = 83 in / 77 out**. Same pack files, full-width stats
+    indexed by `out_channels`, `channel_subset_gate.py` in the launcher. Derived from the F yaml;
+    a test pins that only `channel_names`, `dropped_channel_names`, `n_state_channels` differ.
+  - **Split.** *"2020-2044 (training), 2045-2047 (validation), 2048-2049 (test) … exclude the first
+    5 years of the E3SM simulation as model spinup."* → `polaris_pack_alldata_trainview.pbs`: a
+    view root of per-year symlinks into the production pack plus **freshly computed stats and
+    metadata over the 25 train years** (`…/data/e3sm_makani_alldata_train2020_2044`). The
+    production pack and every existing run are untouched. The converter's `--workers` now also
+    parallelises `--stats-only` (30 yr took 52 min sequentially in 7565734); pool = sequential to
+    1e-12 on the sums, to float32 on the written stats (tests). **Job 7668600** (debug, 1 node,
+    ≤1 h) — PASS = `CONVERT_STATS_TESTS_OK` + `CONVERT_ALLDATA_OK` + `TRAINVIEW_OK`, plus a table
+    of how far the split moved each stat.
+  - **Merge (handoff §2, F0 prerequisite):** `worktree-makani-ace2-ports` @ `a530bf65` into
+    `feat/makani-dryair-negativity` @ `82a80043` = `c51a90be`, done in the object DB
+    (`merge-tree` + a temp index; no working-tree git on Lustre). Conflicts only in
+    `CHANGELOG.md` and `scripts/eval_inference.py`; both sides kept, and every line either
+    branch added to those two and to `polaris_makani_multinode_scaling.pbs` checked present.
+  - **Handoff §2.1–2.2, subset-aware stats (`ec5ccfb7`).** `climate_driver.load_stats_f64` /
+    `load_time_means_z` (and `negativity_rollout.py`) select rows by the run's `out_channels` only
+    when the widths differ; `DryAirFix` indexes its stats through `out_channels` and refuses a
+    width that matches neither. Full-width runs read the same rows as before; F reads the same
+    rows as before (its PS=0/TMQ=5 precede the dropped 8, 9 — right by accident, now by
+    construction). **G has no TMQ, so the dry-air fix cannot run on G**: refused by name, and
+    the arm launcher refuses `anneal_dryair` for G before submission.
+  - **Handoff §2.3, launchers (`c611badb`).** `submit_subset_finetune_arm.sh <F|G> <arm>` (sibling;
+    the A-based launcher stays the record of the cancelled arms): `PRETRAINED_CKPT` required, PACK
+    taken from the base run's `config.json` so an arm normalizes with its base's stats,
+    `finetune_base_check.py` refuses a base whose channels differ, tags `fsF_…`/`fsG_…`, and **no
+    fabric pins** (the old launcher's `OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple` predate the
+    CXI fix; overrides in the environment are refused, as in `submit_f_nosoil.sh`).
+    `submit_g_ace2vars.sh <QUEUE> <NODES> <EPOCHS> <WALL> [scratch|warm]`: F's recipe on G and the
+    view, **queue a required argument**. Login-node dry runs against real run dirs: A's checkpoint
+    for an F arm → `FINETUNE_BASE_MISMATCH` (101 vs 99); `surgical_nosoil_7646690` → `FINETUNE_BASE_OK`
+    and the expected `fsF_lrcheck_nf4_b8_r1` qsub; F base for a G arm → refused; G launcher →
+    `TRAINVIEW_MISSING` until 7668600 finishes.
+  - **Job 7668627** (debug, 1 node, 40 min, queued behind 7668600): `polaris_f_finetune_tests.pbs`,
+    gates F0+F1 — six CPU suites, one token each, PASS = `F_FINETUNE_TESTS_OK 6/6`. Not yet run:
+    **no test in this entry has executed**; every claim above about test results is pending it.
+  - ⚠ **Science consequences of G, recorded not decided** (variable sets are jesswan's): no land
+    memory, no geopotential, no column water; **FSNT/FSNTOA stay prognostic** while ACE2 keeps all
+    radiative fluxes diagnostic (moving them needs a repack — the pack's diagnostic group holds
+    PRECT only). And every existing baseline is 101- or 99-channel **and trained on 2015–2044**:
+    G can only be compared on its common 77 channels with the split stated.
+  - ⚠ **Spatial parallelism (operator: "makani supports it … we also fixed slingshot and nccl").**
+    Every sharded run predates the fabric fix: h2w2 IMA/hang on the old plugin before the
+    rendezvous block (7554253, 7563723), and all of `makani_bench_report.md` §5/§7b (h4w1 626.8 ms,
+    h2w2 576.6 ms, the `w=4` hangs) ran on v1.21.1, i.e. over **TCP** (no `FI_MR_PROV_KEY`,
+    7629082). **HPAR/WPAR>1 has never run on the current CXI stack**, so the `w=4` verdict is
+    unproven either way. Next (TODO): a `debug-scaling` shape matrix at 4 nodes, then a
+    same-seed loss-trajectory equivalence vs h1w1 before any production use, then the T-d16
+    memory probe at h2w2 (OOM 7650263 unsharded). `_build_dry_air_fix` already refuses
+    `h/w_parallel_size != 1` (its global mean would be per-tile).
+  - **Not decided here:** F (7660250) stays queued on `capacity`; whether G replaces it, and G's
+    queue/epochs (the launcher requires both), are the operator's. Nothing was submitted to
+    `capacity`/`preemptable`.
+
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
   job is read-only, because the harness imports `PBS_O_WORKDIR/src` at start and again on every

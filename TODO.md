@@ -18,6 +18,23 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 🔵 **2026-09-29 — Port G (ACE2-EAMv3 variables, 83/77) + 2020–2044 train split + F fine-tune
+> base, branch `feat/makani-f-finetune`** (CHANGELOG 2026-09-29). In order:
+> 1. **Read 7668600** → `TRAINVIEW_OK` + the stats-shift table; **7668627** → `F_FINETUNE_TESTS_OK 6/6`
+>    (gates F0+F1). Only then is any test claim in the CHANGELOG entry true.
+> 2. **F2** (handoff §4): `CLIMATE_DRIVER_EQUIV_OK` + `DRYAIR_OFF_EQUIV_OK` on the merged tree,
+>    tolerance **bitwise**, stated in a commit before the job.
+> 3. **Operator:** does G replace F (7660250, still queued on `capacity`) or follow it? G's queue
+>    and epochs (`submit_g_ace2vars.sh <QUEUE> <NODES> <EPOCHS> <WALL>`; 243 = A's epoch count,
+>    283 ≈ A's update count at 1140 updates/epoch). Tell **jesswan** about G's variable set and
+>    the 2015–2019 exclusion before its numbers are quoted.
+> 4. **Spatial parallelism on the fixed CXI stack** — never run there (every sharded result is
+>    pre-fix or TCP). `debug-scaling` 4-node matrix h1w1/h2w1/h1w2/h2w2/h4w1/h2w4 at global batch
+>    32, `provider=cxi` asserted; then same-seed loss equivalence vs h1w1; then the T-d16 memory
+>    probe at h2w2. Pre-register before submitting.
+> 5. Then the handoff's §3 sequence per base (F now; G once trained): baseline screen → `lrcheck`
+>    smoke via `submit_subset_finetune_arm.sh` → arms on `preemptable` (re-confirm first).
+
 > 🔵 **2026-09-23 — ACE2 ports (`polaris_makani_ace2_ports_handoff.md`), branch
 > `worktree-makani-ace2-ports`.** Code for F/A/B/C/D is in and smoked (job 7646684, CHANGELOG
 > 2026-09-23). In order:
