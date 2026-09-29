@@ -239,6 +239,27 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     1587.6 ms). A took **46 h 20 min of a 48 h allocation** (683.6 s/epoch); G ≈ 575 s/epoch at
     1140 steps if its step time matches A's ⇒ ≈ 39 h for 243 epochs. 48 h was too thin a margin
     to suggest; ask for 60–72 h (capacity allows 168 h; the run resumes from its RUN_NUM).
+  - **Sizing table, global batch 32** (operator asked; F allocates 3 nodes = **2 training + 1
+    spare**, `select=NODES+1`). `wall = steps × step + epochs × 33.5 s val`; reproduces A to 0.7 %
+    (46.0 vs 46.3 h). Efficiency = per-training-GPU throughput vs 1 node (473.2 ms/step);
+    "alloc" also counts the idle spare. Only A's row is measured; multi-node rows bracket an
+    **unmeasured** CXI 2/4-node steady state between linear scaling and the 50-step 4-node CXI
+    smoke (521.1 ms, 7647798 — short runs overstate). Absolute GPU busy at 1 node: 56 % (nsys
+    7591822, 264.4 ms kernels per 472.1 ms step; 35 % of compute is copy/layout).
+
+    | run | nodes alloc / train | GPUs | batch/GPU | steps | step ms | eff train / alloc | wall h | node-h |
+    |---|---|---|---|---|---|---|---|---|
+    | A (done, 7585080) | 1 / 1 | 4 | 8 | 332,424 | 473.2 | 100 / 100 % | **46.3** | 46.3 |
+    | F (queued 7660250) | 3 / 2 | 8 | 4 | 58,824 | 237–521 | 100–45 / 67–30 % | 4.3–8.9 | 13–27 |
+    | G 1 node | 1 / 1 | 4 | 8 | 277,020 | 473 (A's) | 100 / 100 % | 38.7 | 38.7 |
+    | G 2 nodes + spare | 3 / 2 | 8 | 4 | 277,020 | 237–521 | 100–45 / 67–30 % | 20.5–42.4 | 61–127 |
+    | G 4 nodes, `SPARE=0` | 4 / 4 | 16 | 2 | 277,020 | 118–521 | 100–23 % | 11.4–42.4 | 46–169 |
+
+    `capacity` caps `nodect` at **4** (`qstat -Qf`), so a 4-node run + spare (select=5) would be
+    rejected: `submit_g_ace2vars.sh` now takes `SPARE=0|1` (default 1) and refuses select > 4 on
+    capacity (dry runs: 4n → `CAPACITY_NODECT`; `SPARE=0` → select=4; 2n → select=3, F's shape).
+    F's own 2-node log will be the first long CXI batch-32 step time; the G smoke 7668637 gives
+    a short 2-node one for G.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running

@@ -76,12 +76,20 @@ if [ "${ROUTE}" = "warm" ]; then
     [ -f "${G_WARM_CKPT}" ] || { echo "ERROR SLICED_CKPT_MISSING: ${G_WARM_CKPT}"; exit 2; }
     VARS="${VARS},PRETRAINED_CKPT=${G_WARM_CKPT},LOAD_OPTIMIZER=0,LOAD_SCHEDULER=0,LOAD_COUNTERS=0,LOAD_LOSS=0,OVERRIDE_LR=1"
 fi
-# select = NODES + 1 spare: the launcher's GPU preflight runs on the first NODES healthy.
-SELECT=$(( NODES + 1 ))
+# select = NODES + SPARE (default 1): the launcher's GPU preflight runs on the first NODES
+# healthy. The spare is charged like any node. capacity's resources_max.nodect is 4
+# (qstat -Qf, 2026-09-29), so 4 training nodes + a spare is refused there: pass SPARE=0.
+SPARE="${SPARE:-1}"
+case "${SPARE}" in 0|1) ;; *) echo "ERROR SPARE must be 0 or 1"; exit 2;; esac
+SELECT=$(( NODES + SPARE ))
+if [ "${Q}" = "capacity" ] && [ "${SELECT}" -gt 4 ]; then
+    echo "ERROR CAPACITY_NODECT: select=${SELECT} > 4 (capacity's max); use SPARE=0 or fewer NODES"
+    exit 2
+fi
 
 PROV_TXT="$(
     echo "run=${RUN_NUM}  submitted=$(date -u +%FT%TZ)  by=submit_g_ace2vars.sh  git=$(git -C "${HERE}" rev-parse --short HEAD)"
-    echo "queue=${Q}  route=${ROUTE}  nodes=${NODES} (+1 spare)  local_batch=${LB}  global_batch=32  epochs=${EPOCHS}"
+    echo "queue=${Q}  route=${ROUTE}  nodes=${NODES} (+${SPARE} spare)  local_batch=${LB}  global_batch=32  epochs=${EPOCHS}"
     echo "base recipe = F's (submit_f_nosoil.sh) = prod1n_b32_sgdr/config.json; the ONLY intended differences from F:"
     echo "  channel set 99 -> 77 (U10 RHREFHT PSL TMQ Z3_l00..17 also dropped; port G, operator 2026-09-29)"
     echo "  train split 2015-2044 -> 2020-2044, stats recomputed (PACK=${VIEW})"
