@@ -95,6 +95,28 @@ reads the diff, T3 measures.
 - ⚠ Stale sentence: `OPTIMIZATION_CHANGES.md` says "Nothing here is committed yet". It **is** committed,
   as `6ce252e2f`.
 
+### 1.6 Our own prior on `torch.compile` for ACE2 is NEGATIVE — Midway, 4× H100
+
+`ACE2_retrain/bench_midway_notes.md` §"torch.compile: where it can go, and why it is not the lever"
+(lines 681–772; CHANGELOG 2026-08-19):
+- **Whole-SFNO compile is impossible or slower.** On torch 2.7.1 it hard-fails with
+  `InductorError: KeyError: 'complex64'` (the spherical-harmonic path is complex-valued). On torch 2.8
+  it falls back to eager with *"Torchinductor does not support code generation for complex
+  operators"* and runs **+3.4% slower**.
+- **Best regional arm: the corrector, −2.2%** (−2.6% on 2.8). MLP blocks +3.4% slower. Compiling the
+  normalizer gave 0% for **8.4e-3 relative loss drift**, 4 orders above the same-hardware floor. So
+  compile *can* move the numbers here.
+- Verdict there: **"torch.compile is not the lever for ACE2."** `PROFILING_PLAN.md:65` later found that
+  harness couldn't even resolve ±0.5%, because it took medians of deltas between `Step N:` log lines.
+  So treat the 2.2% as the ceiling, not a measurement.
+- **How the two results might both be right (a hypothesis, not a measurement).** Delta's
+  `RUN_OPTIMIZED_TRAINING.md` says compile with DDPOptimizer **on** was **−4.5%**, and only
+  `FME_COMPILE_DDP_OPT=0` turned it positive. Midway compiled with DDP already wrapped (its notes call
+  that "the wrong order") and never turned `optimize_ddp` off. So Midway's +3.4% slower and Delta's
+  −4.5% are the same regime, and Delta's +7% comes from DDPOptimizer off plus torch 2.10. Whether 2.10
+  actually lowers the complex spectral path, or still falls back for it, is unknown. The log line above
+  is the test.
+
 ## 2. STOPs — the ways to break the production run
 
 1. **Do not modify `ACE2_retrain/ace_exp/`, and do not `pip install` anything into `fme-venv`,** while
@@ -150,17 +172,23 @@ row written for the new tree whose per-step timing fields are populated, not zer
 nsys comparison still read correctly with the extra rows. PASS = a measured overhead number and a
 recommendation, either `FME_NVTX=0` in production or keep it on.
 
-**T6 — Opt-in `torch.compile` on A100 (only if the operator wants it).** It's cheap to try, since torch
-2.10 and triton 3.6 are already in the venv. Settings: `FME_COMPILE=1`, `FME_COMPILE_DDP_OPT=0`,
-`TORCHINDUCTOR_COMPILE_THREADS` capped. Keep `TORCHINDUCTOR_CACHE_DIR` on `/eagle`
-(memory `polaris-resource-conventions`). Delta's aarch64 CC/CXX trap should not apply on x86, but
-verify. Two measurements:
-- (a) Throughput A/B, interleaved, ≥3 reps.
-- (b) Equivalence. Compile is **not bitwise**, so this needs the DESIGN §4 tolerance check, and the
-  loss curve must match within that tolerance.
+**T6 — Opt-in `torch.compile` on A100. LOW PRIORITY. Only on the operator's word.** Our own prior is
+negative (§1.6), so this is **one discriminating arm**, not a sweep. Settings: `FME_COMPILE=1`,
+`FME_COMPILE_DDP_OPT=0`, `TORCHINDUCTOR_COMPILE_THREADS` capped, `TORCHINDUCTOR_CACHE_DIR` on `/eagle`.
+Torch 2.10 and triton 3.6 are already in the venv, and Delta's aarch64 CC/CXX trap shouldn't apply on
+x86 (verify).
+- **(a) Read the log first.** If it contains *"Torchinductor does not support code generation for
+  complex operators"*, the SFNO's spectral path is still eager, and any gain comes only from the
+  real-valued parts. Record which case it is.
+- **(b) Throughput.** Compile vs eager, interleaved, ≥3 reps. Measure with the telemetry's per-step
+  timing, **not** by differencing log lines (`PROFILING_PLAN.md:65`). The 1-node noise floor is ±0.1%.
+- **(c) Equivalence.** Compile is **not bitwise**, and Midway's normalizer arm drifted 8.4e-3. The loss
+  trace must stay within the DESIGN §4 tolerance.
 
-PASS = both, with numbers. Our step is 720 ms median at 96.6% GPU-busy, so Delta's +7% is plausible
-but unmeasured on A100.
+PASS = all three, with numbers. **Stop early** if (a) shows the spectral fallback **and** (b) is under
+~2%. That reproduces Midway, and the lever is not worth its numerical risk here. Context: our step is
+720 ms median at ~96% GPU-busy, and on 1 node NCCL never leaves NVLink. Midway's bottleneck was
+different (NCCL 35.7% of exposed wall-clock over PCIe, `PROFILING_PLAN.md:90`).
 
 **T7 — Report.** Write a CHANGELOG entry (measured, with job ids), then a recommendation to the operator
 covering (1) whether to vendor `6ce252e2f` into `ace_exp`, and when (after 7664776 **and** any further
@@ -170,7 +198,8 @@ resume of the 45-epoch run finish, never between segments); (2) the NVTX default
 
 1. Adopt the update at all, and when. The default is after the 45-epoch production run ends, gated on
    T1–T4.
-2. Evaluate `FME_COMPILE` on Polaris (T6)? That is a few debug jobs.
+2. Evaluate `FME_COMPILE` on Polaris (T6)? That is a few debug jobs. The default is **no**, given
+   Midway's negative result (§1.6), unless the operator wants the DDPOptimizer-off hypothesis tested.
 3. Housekeeping at the repo root (untracked). `ace2_updated_codebase.gz` (61.6 MiB) is kept until
    adoption is decided. Two **5.6 GB core dumps** from 2026-09-28 03:19–03:22 (`core.2141696`,
    `core.288365`, plus one in `.claude/worktrees/monitor-ace2/`) date from the login-node trouble. They
