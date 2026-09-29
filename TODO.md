@@ -20,14 +20,15 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 > 🔵 **2026-09-29 — Port G (ACE2-EAMv3 variables, 83/77) + 2020–2044 train split + F fine-tune
 > base, branch `feat/makani-f-finetune`** (CHANGELOG 2026-09-29). In order:
-> 1. **Read 7668600** → `TRAINVIEW_OK` + the stats-shift table; **7668627** → `F_FINETUNE_TESTS_OK 6/6`
->    (gates F0+F1). Only then is any test claim in the CHANGELOG entry true.
+> 1. **Read 7668600** → `TRAINVIEW_OK` + the stats-shift table; **7668637** → `G_SMOKE_OK 3/3` +
+>    `ALL_GATES_OK` (G train/rollout/fine-tune smoke + the F0/F1 unit tests `F_FINETUNE_TESTS_OK 6/6`).
+>    Only then is any test claim in the CHANGELOG entry true.
 > 2. **F2** (handoff §4): `CLIMATE_DRIVER_EQUIV_OK` + `DRYAIR_OFF_EQUIV_OK` on the merged tree,
 >    tolerance **bitwise**, stated in a commit before the job.
-> 3. **Operator:** does G replace F (7660250, still queued on `capacity`) or follow it? G's queue
->    and epochs (`submit_g_ace2vars.sh <QUEUE> <NODES> <EPOCHS> <WALL>`; 243 = A's epoch count,
->    283 ≈ A's update count at 1140 updates/epoch). Tell **jesswan** about G's variable set and
->    the 2015–2019 exclusion before its numbers are quoted.
+> 3. **G runs after F** (operator, 2026-09-29; jesswan approved G + the split, relayed). Once 7668637
+>    is green: `DEPEND=7660250 bash polaris/submit_g_ace2vars.sh capacity <NODES> <EPOCHS> <WALL>`
+>    — epochs still the operator's (243 = A's epoch count, 283 ≈ A's update count at 1140
+>    updates/epoch). ⚠ afterany on 7660250 starts G before any F extension resume.
 > 4. **Spatial parallelism on the fixed CXI stack** — never run there (every sharded result is
 >    pre-fix or TCP). `debug-scaling` 4-node matrix h1w1/h2w1/h1w2/h2w2/h4w1/h2w4 at global batch
 >    32, `provider=cxi` asserted; then same-seed loss equivalence vs h1w1; then the T-d16 memory

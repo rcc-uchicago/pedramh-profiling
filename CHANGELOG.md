@@ -219,8 +219,12 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     nan; (2) a 380-lead climate-driver rollout from it across the 2044→2045 (view train→valid)
     handoff at step 368, 77-channel NetCDF; (3) the arm launcher's own `lrcheck` vars for G run
     inline — `MULTISTEP=5` at 77 channels, `FINETUNE_BASE_OK n_out=77`, `LR_SCHEDULE_OK`.
-    PASS = `G_SMOKE_OK 3/3`. G is not queued on `capacity` until it and 7668627 are green.
+    PASS = `G_SMOKE_OK 3/3`. G is not queued on `capacity` until it and the unit tests are green.
     7668600 was 8/25 years into the stats pass after 5 min (`CONVERT_STATS_TESTS_OK`, 7 passed).
+    ⚠ Debug allows **one queued job per user** (`qsub: would exceed queue generic's per-user
+    limit of jobs in 'Q' state`), so 7668627 (unit tests, never ran) was qdel'd and folded into
+    the smoke, which runs them in the background: **job 7668637** (debug, 2 nodes, 1 h,
+    `afterok:7668600`) — PASS = `G_SMOKE_OK 3/3` + `ALL_GATES_OK`.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
