@@ -209,6 +209,7 @@ CHANGELOG 2026-09-29 (range = linear scaling … the 4-node CXI smoke's 521 ms/s
 | FCN3 stage 1 | 1024 H100 | 128 | 16 × 16 | 208,320 | 1 | **78** | 1.35 | 79,872 |
 | **FCN3 stage 2** | **512 A100** | 128 | 32 × 2 | 5,040 | **4** | **15** | 10.7 | 7,680 |
 | FCN3 stage 3 | 256 H100 | 32 | 4 × 4 | 2,920 | 4 | **8** | 9.9 | 2,048 |
+| **ours 128-node (7566145, done, TCP)** | **512 A100-40GB** | 128 | 512 × 1 | 8,500 | 1 | **1.68** | 0.71 | 863 |
 | ours A (done) | 4 A100-40GB | 1 | 32 × 1 | 332,424 | 1 | **46.3** | 0.50 | 185 |
 | ours F (queued) | 8 A100-40GB (+4 spare) | 2 (+1) | 32 × 1 | 58,824 | 1 | 4.3–8.9 | 0.26–0.54 | 34–71 (+50 %) |
 | ours G, 1 node | 4 A100-40GB | 1 | 32 × 1 | 277,020 | 1 | ~38.7 | ~0.50 | ~155 |
@@ -233,3 +234,14 @@ Reading it:
    Appendix G describes the decomposition only). Our one measurement: **56 % GPU kernel-busy
    at 1 node** (nsys 7591822), with 35 % of compute in copy/layout kernels. No efficiency
    comparison between the two can be made from published numbers.
+6. **Our 128-node run is the same GPU count as FCN3's A100 stage — 512 A100 — and shows what
+   that count buys at our problem size** (`makani_bench_report.md` §4, §5k): 8,500 steps in
+   1.68 h, one whole 180×360 sample per GPU, 8.36 of 40 GB used. Per GPU it moved **1.73
+   samples/s against 16.95 at 1 node — 10 % of the 1-node rate** — and reached validation
+   0.018297 (still falling) against A's 0.01284 for 185 GPU-h instead of 863. Two causes, both
+   recorded: batch 512 = 1 sample per GPU starves the card, and **the run went over TCP, not
+   Slingshot** (v1.21.1 plugin, before the CXI fix). FCN3 keeps 512 GPUs busy by giving each
+   one a slice of a 16×-larger problem (a 2×4 spatial split of 721×1440, 64 member-forecasts
+   × 4 rollout steps per step: 10.7 s/step); at 180×360 our problem is too small to split
+   usefully, so the same GPU count could only be spent on batch — the wrong lever for this
+   model (its LR ceiling does not rise with batch, §5j).

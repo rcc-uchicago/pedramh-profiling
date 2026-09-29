@@ -293,6 +293,10 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     A100 stage alone is 7,680 A100-h (41× A). The paper gives **no** scaling efficiency,
     throughput or GPU utilization, and does not say 40 vs 80 GB (the yaml's h2w4 comment says
     80 GB). Full table + reading: `makani_sfno/docs/2026-09-10_fcn3_recipe_vs_ours.md` §6.
+    Operator: "we also have the original 128-node run" — added: **7566145 = 512 A100-40GB,
+    the same GPU count as FCN3's A100 stage**, batch 512, 8,500 steps, 1.68 h, 863 GPU-h,
+    valid 0.018297 (still falling); 1.73 samples/s/GPU = **10 % of the 1-node rate**, over
+    **TCP** (pre-fix). Same GPUs as FCN3 stage 2, but a 16× smaller problem spent on batch.
 
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
