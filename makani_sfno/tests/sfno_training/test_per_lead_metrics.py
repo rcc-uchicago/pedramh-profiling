@@ -28,6 +28,10 @@ Asserts:
       lead-time ladder.
   (d) An unknown name in ``metric_var_names`` is rejected loudly rather than
       silently dropped — silent dropping is the whole defect.
+  (e) Under model parallelism exactly ONE rank writes the file: data rank 0
+      alone is not enough, because every model-parallel rank of data group 0
+      has it (job 7669001, h2w4: eight writers, rank 7 hit h5py's "truncated
+      file" OSError).
 """
 
 from __future__ import annotations
@@ -176,6 +180,38 @@ def test_validate_writes_full_lead_time_curve(packaged_dataset: Path, tmp_path: 
     # The scalars promoted into the log are only two slices of that curve, so
     # the file is not redundant with them.
     assert n_leads > 2, "pick valid_autoreg_steps >= 2 or this assertion is vacuous"
+
+
+def test_only_model_rank_zero_writes_the_file(
+    packaged_dataset: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """(e) One writer under model parallelism.
+
+    The curve is identical on every model rank — makani gathers the h/w
+    shards before scoring (``metric.py:555-562``) and ``save`` holds no
+    collective (``metric.py:671-700``) — so model rank 0 of data rank 0 writes
+    and every other rank returns before touching the file.
+    """
+    from makani.utils import comm
+
+    pt, _, exp_dir = _build_trainer(packaged_dataset, tmp_path)
+    assert getattr(pt, "data_parallel_rank", 0) == 0
+    path = exp_dir / "scores" / "metrics_ep0003.h5"
+    real_get_rank = comm.get_rank
+
+    monkeypatch.setattr(comm, "get_rank", lambda name: 1 if name == "model" else real_get_rank(name))
+    pt._save_per_lead_metrics(epoch=3)
+    assert not path.exists(), (
+        "a model-parallel rank other than 0 wrote the per-lead metric file — under "
+        "HPAR/WPAR > 1 every model rank of data group 0 races on it"
+    )
+    assert pt._per_lead_metrics_path is None
+
+    monkeypatch.setattr(comm, "get_rank", real_get_rank)
+    pt._save_per_lead_metrics(epoch=3)
+    assert Path(pt._per_lead_metrics_path) == path and path.is_file(), (
+        "model rank 0 must still write the file"
+    )
 
 
 def test_unknown_metric_var_name_is_rejected(packaged_dataset: Path, tmp_path: Path):
