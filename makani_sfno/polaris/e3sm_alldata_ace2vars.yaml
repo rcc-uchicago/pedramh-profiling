@@ -20,18 +20,19 @@
 ### SAME PACK FILES, SAME CONVERTER CONTRACT. The pack keeps all 101 channels; makani
 ### indexes the full-width stats by params.out_channels. The launcher runs
 ### channel_subset_gate.py on this file and aborts on drift.
-### Train on the 2020-2044 VIEW (polaris_pack_alldata_trainview.pbs, -v PACK=...),
-### whose stats are recomputed over those 25 years; the production pack's
-### 2015-2044 stats describe a different split.
+### PACK (the launcher's -v PACK=, chosen by submit_g_ace2vars.sh SPLIT=): G proper runs
+### on the PRODUCTION pack (train 2015-2044, A's/F's stats), so the variable set is its
+### only change from F. The 2020-2044 train view is a SEPARATE split experiment
+### (SPLIT=2020; operator 2026-09-30), not part of G.
 ###
-### ⚠ Every existing baseline is a 101- or 99-channel number, trained on 2015-2044.
-### Compare on the common 77 channels only, and state the split beside every number.
+### ⚠ Every existing baseline is a 101- or 99-channel number. Compare G on the common
+### 77 channels only (k56_readout_common77.json); a SPLIT=2020 run also states its split.
 ###
 ### Cannot warm-start from prod1n_b32_sgdr or F unsliced (encoder/decoder widths
 ### change; strict restore refuses). slice_checkpoint.py can cut A to 83/77:
 ###   --n-in 107 --n-out 101 --drop 2 3 4 5 8 9 64 65 ... 81
 ### (all 24 dropped indices are state channels, so they sit at the same positions
-### on the input and output side), but A was normalized with the 2015-2044 stats.
+### on the input and output side). On the production pack A's stats are G's stats.
 ###
 ### {{OUTPUT_ROOT}} / {{EXP_DIR}} are placeholders substituted by the launcher.
 

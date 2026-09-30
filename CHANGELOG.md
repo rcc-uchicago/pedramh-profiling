@@ -144,6 +144,25 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-30 (makani) — CORRECTION, operator: the 2020–2044 split is a SEPARATE experiment,
+  not part of G.** First-hand: *"the validation year change was supposed to be a separate test not
+  everything should have been included in G"*. The 09-29 work had bundled both into G. Nothing had
+  trained or been queued, so it is unbundled before any cost: `submit_g_ace2vars.sh` and
+  `polaris_g_smoke.pbs` gain **`SPLIT=production|2020`**, default `production` = **G proper on the
+  production pack (train 2015–2044, A's/F's stats; the variable set is its only change from F)**;
+  `SPLIT=2020` = the split experiment on the view (run `g_ace2vars_split2020_*`). Validation
+  (2045–47) and test (2048–49) are identical in both packs (metadata checked), so the pair isolates
+  the split. Login dry runs: default → `PACK=…/e3sm_makani_alldata_production`,
+  `g_ace2vars_2n_b32_e243_scratch`, split check 2015–2044 ✅; `SPLIT=2020` → the view,
+  `g_ace2vars_split2020_…` ✅; bad value refused. Yaml and arm-launcher comments updated.
+  Consequences: (1) G compares **directly** with A's `k56_readout_common77.json` — no split caveat;
+  (2) the debate's argument against a **warm** G (A saw the excluded 2015–19 years, other stats) no
+  longer applies to G proper: A sliced to 83/77 on the same pack and stats is the F surgical-transfer
+  case, so warm is back on the table for G (still needs its own transfer proof); (3) G proper's
+  updates/epoch = A's 1,368, not 1,140; (4) G smoke 7668637 ran on the view — the production-pack
+  path needs its own smoke (`SPLIT=production`, 43,800 samples). **Open (operator):** which model
+  carries the split experiment — G on the view, or F's/A's 101-channel recipe on the view.
+
 - **2026-09-30 (makani, analysis only) — moderated three-agent review of G, fine-tuning and the
   next runs: run the multi-year protocol on B e22 + B e24 first; G is a fine-tuning base, not a
   stability fix.** Operator asked for "3 opus 5.5 [via the] alcf proxy [on] debug … 2 of them

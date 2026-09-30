@@ -9,7 +9,10 @@
 #PBS -r n
 #PBS -j oe
 # ============================================================================
-# PORT G smoke (e3sm_alldata_ace2vars.yaml, 83-in / 77-out, on the 2020-2044 view).
+# PORT G smoke (e3sm_alldata_ace2vars.yaml, 83-in / 77-out). Pack by SPLIT (below):
+# production (default, G proper) or 2020 (the separate split experiment, the view).
+# Sample counts and "view" in this header describe the SPLIT=2020 run (7668637);
+# with SPLIT=production the sample count is 43,800 and the pack is the production pack.
 # The G analogue of polaris_makani_ports_smoke.pbs §4 (F's 7646684), in one debug
 # job, three sections, each keyed on its own token:
 #
@@ -78,7 +81,13 @@ export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # -----------------------------------------------------------------------------
 
-VIEW="${G_PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_train2020_2044}"
+# SPLIT=production (default, G proper: 2015-2044, 43,800 train samples) or SPLIT=2020 (the
+# separate split experiment on the view, 36,500) -- operator 2026-09-30. 7668637 ran the view.
+case "${SPLIT:-production}" in
+    production) VIEW="${G_PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"; NSAMP=43800 ;;
+    2020)       VIEW="${G_PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_train2020_2044}"; NSAMP=36500 ;;
+    *) echo "ERROR SPLIT must be production or 2020"; exit 2 ;;
+esac
 EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
 OUT="${MEMBER_ROOT}/runs/makani_probe/g_smoke/${JOBID}"
 SHA="$(cd "${REPO}" && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
@@ -86,7 +95,7 @@ mkdir -p "${OUT}" || exit 2
 echo "=== makani_g_smoke: $(date -Iseconds) job=${JOBID} sha=${SHA} ==="
 echo "view=${VIEW}  out=${OUT}"
 grep -q '"train_years": \[' "${VIEW}/metadata/data.json" 2>/dev/null \
-    || { echo "ERROR TRAINVIEW_MISSING: ${VIEW} (polaris_pack_alldata_trainview.pbs first)"; exit 3; }
+    || { echo "ERROR PACK_MISSING: ${VIEW} (SPLIT=2020 needs polaris_pack_alldata_trainview.pbs first)"; exit 3; }
 declare -A OK
 
 # ---- 0. unit tests, in the background (CPU only; section 1 owns the GPUs) -----
@@ -137,7 +146,7 @@ n1=$(nan_lines "${TLOG1}")
 CKPT1="${EXPROOT}/${RUN1}/training_checkpoints/best_ckpt_mp0.tar"
 if grep -q "CHANNEL_SUBSET_GATE_OK" "${OUT}/train.out" \
    && [ "${sub1}" = "${WANT_SUB}" ] \
-   && grep -q "train samples available: 36500 " "${OUT}/train.out" \
+   && grep -q "train samples available: ${NSAMP} " "${OUT}/train.out" \
    && grep -q "FABRIC_CXI_CONFIRMED" "${OUT}/train.out" \
    && grep -q "EMA_ASSERT_OK" "${OUT}/train.out" \
    && grep -q "MAKANI_MN_SCALING_OK" "${OUT}/train.out" \

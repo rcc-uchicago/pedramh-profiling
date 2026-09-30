@@ -89,6 +89,14 @@ Nothing was submitted to `capacity` or `preemptable` this session.
 | ~~O10~~ | ✅ per-lead metric save race fixed + verified (7669129) | test `36aa3632` (red on pre-fix, shown in job) + fix `eb4e0cce` (also require model rank 0); in-situ 1-node h2w2 writes one readable file. Cherry-picked to `feat/makani-spatial-cxi` (#20) |
 | O8c | **h2w4 loss ~26 % high** (7669001: ep-2 train 0.1394 vs 0.110–0.111) | not a gate; blocks production `w=4`. First test: replicated params identical across each `w`-group after N steps (§5b's divergent sync path) |
 
+### ⚠ 2026-09-30 — operator correction: G ≠ the split
+
+G proper = the ACE2 variable set on the **production pack** (2015–2044); the 2020–2044 split is a
+**separate** experiment. `submit_g_ace2vars.sh` / `polaris_g_smoke.pbs`: `SPLIT=production`
+(default) or `SPLIT=2020`. Wherever this file or the analysis below ties G to the view or to the
+split (T3, O6, D2's 1,140 updates/epoch, the anti-warm-start argument), read it as the SPLIT=2020
+run. Open: which model carries the split experiment. See CHANGELOG 2026-09-30.
+
 ### 🧭 2026-09-30 — moderated analysis of what to run next
 
 `makani_sfno/docs/2026-09-30_g_finetune_next_runs_analysis.md` (three-agent review, job 7669964).

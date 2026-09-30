@@ -1,23 +1,29 @@
 #!/bin/bash
 # Port G production run: e3sm_alldata_ace2vars.yaml (83-in / 77-out, the ACE2-EAMv3
-# variable set; operator 2026-09-29) on the 2020-2044 TRAIN VIEW of the ALLDATA pack.
-#   bash polaris/submit_g_ace2vars.sh <QUEUE> <NODES 1|2|4> <EPOCHS> <WALLTIME hh:mm:ss> [scratch|warm]
+# variable set; operator 2026-09-29).
+#   [SPLIT=production|2020] bash polaris/submit_g_ace2vars.sh <QUEUE> <NODES 1|2|4> <EPOCHS> <WALLTIME hh:mm:ss> [scratch|warm]
+#
+# SPLIT (operator 2026-09-30: "the validation year change was supposed to be a separate
+# test, not everything should have been included in G"):
+#   production (default) = G proper: the production pack, train 2015-2044, A's/F's stats.
+#                          The variable set is the ONLY change from F.
+#   2020                 = the separate split experiment: the 2020-2044 train view
+#                          (polaris_pack_alldata_trainview.pbs, own stats). Valid 2045-47 and
+#                          test 2048-49 are the same in both, so the pair isolates the split.
 #
 # Sibling of submit_f_nosoil.sh (not edited). Recipe = F's = prod1n_b32_sgdr's
 # (LR 2e-3, beta2 0.95, grad clip 32, CosineAnnealingWarmRestarts T0=20 Tmult=1,
-# warmup 3, EMA 0.9995) at GLOBAL BATCH 32. What differs from F, and nothing else:
+# warmup 3, EMA 0.9995) at GLOBAL BATCH 32. What differs from F:
 #   channel set 99 -> 77            (config; channel_subset_gate.py checks it in-job)
-#   train split 2015-2044 -> 2020-2044, with its own stats (PACK = the view)
-#   route default scratch: no checkpoint shares G's widths *and* its normalization.
-# EPOCHS = 3 + 20k (cycle boundary). The view has 36,500 train samples -> 1140
-# updates/epoch at batch 32 (A: 1368). 243 epochs = A's epoch count (277k updates,
-# 0.83x A's); 283 = A's update count within 3 %. A cost 46.3 node-h for 243 epochs
-# at 1 node on 30 years; G at 25 years is ~5/6 of that per epoch (the trunk
-# dominates; the encoder/decoder width change is small) -- an estimate, not a
-# measurement.
+#   SPLIT=2020 only: train 2015-2044 -> 2020-2044, with the view's own stats
+# EPOCHS = 3 + 20k (cycle boundary). Updates/epoch at batch 32: production 1368 (43,800
+# samples, = A), view 1140 (36,500). 243 epochs = A's epoch count. A cost 46.3 node-h for
+# 243 epochs at 1 node; G on the production pack should be close to that per epoch (the
+# trunk dominates; the encoder/decoder width change is small) -- an estimate.
 # warm = start from G_WARM_CKPT, A sliced to 83/77 by slice_checkpoint.py
-# (--n-in 107 --n-out 101 --drop 2 3 4 5 8 9 64..81), fresh optimizer. ⚠ A learned
-# under the 2015-2044 stats; that is a mismatch the fresh optimizer must absorb.
+# (--n-in 107 --n-out 101 --drop 2 3 4 5 8 9 64..81), fresh optimizer. On SPLIT=production
+# A's stats ARE G's stats (same pack), as for F's surgical transfer; on SPLIT=2020 A saw
+# the excluded 2015-19 years and learned under other stats.
 #
 # QUEUE has no default on purpose: capacity is max_run 1 per PROJECT and
 # preemptable start latency is load-dependent (CLAUDE.md cluster table). The
@@ -32,7 +38,12 @@ set -euo pipefail
 Q="${1:?QUEUE}"; NODES="${2:?NODES}"; EPOCHS="${3:?EPOCHS}"; WALL="${4:?WALLTIME}"; ROUTE="${5:-scratch}"
 M=/eagle/projects/lighthouse-uchicago/members/mehta5
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_train2020_2044}"
+SPLIT="${SPLIT:-production}"
+case "${SPLIT}" in
+    production) VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_production}"; TRAIN0=2015; SPLIT_TAG="" ;;
+    2020)       VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_train2020_2044}"; TRAIN0=2020; SPLIT_TAG="_split2020" ;;
+    *) echo "ERROR SPLIT must be production or 2020"; exit 2 ;;
+esac
 
 for v in OFI_PLUGIN OFI_LIBFABRIC NCCL_PROTO CXI_RDZV OFI_NCCL_PROGRESS_MODEL NCCL_NET FI_PROVIDER; do
     if [ -n "${!v:-}" ]; then echo "ERROR FABRIC_OVERRIDE_REFUSED: ${v}=${!v} is set; unset it"; exit 2; fi
@@ -43,24 +54,24 @@ case "${ROUTE}" in scratch|warm) ;; *) echo "ERROR ROUTE must be scratch or warm
 LB=$(( 32 / (4 * NODES) ))
 if [ $(( (EPOCHS - 3) % 20 )) -ne 0 ]; then echo "ERROR EPOCHS must be 3 + 20k (cycle boundary)"; exit 2; fi
 
-# The view must exist and BE the 2020-2044 split (polaris_pack_alldata_trainview.pbs).
-python3 - "${VIEW}" <<'PY' || exit 2
+# The pack must exist and BE the split SPLIT names (the view: polaris_pack_alldata_trainview.pbs).
+python3 - "${VIEW}" "${TRAIN0}" <<'PY' || exit 2
 import json, os, sys
-root = sys.argv[1]
+root, train0 = sys.argv[1], int(sys.argv[2])
 p = os.path.join(root, "metadata", "data.json")
 if not os.path.isfile(p) or not os.path.isfile(os.path.join(root, "stats", "global_stds.npy")):
-    print("ERROR TRAINVIEW_MISSING: %s (run polaris_pack_alldata_trainview.pbs first)" % root)
+    print("ERROR PACK_MISSING: %s (the 2020 view: run polaris_pack_alldata_trainview.pbs first)" % root)
     sys.exit(2)
 a = json.load(open(p))["attrs"]
-if a["train_years"] != list(range(2020, 2045)) or a["valid_years"] != [2045, 2046, 2047] \
+if a["train_years"] != list(range(train0, 2045)) or a["valid_years"] != [2045, 2046, 2047] \
         or a["test_years"] != [2048, 2049]:
-    print("ERROR TRAINVIEW_WRONG_SPLIT: train %s..%s valid %s test %s" % (
-        a["train_years"][0], a["train_years"][-1], a["valid_years"], a["test_years"]))
+    print("ERROR PACK_WRONG_SPLIT: want train %d..2044, got train %s..%s valid %s test %s" % (
+        train0, a["train_years"][0], a["train_years"][-1], a["valid_years"], a["test_years"]))
     sys.exit(2)
-print("trainview: %s  train 2020-2044 (25) / valid 2045-2047 / test 2048-2049" % root)
+print("pack: %s  train %d-2044 (%d) / valid 2045-2047 / test 2048-2049" % (root, train0, 2045 - train0))
 PY
 
-RUN_NUM="g_ace2vars_${NODES}n_b32_e${EPOCHS}_${ROUTE}"
+RUN_NUM="g_ace2vars${SPLIT_TAG}_${NODES}n_b32_e${EPOCHS}_${ROUTE}"
 if [ -d "${M}/runs/makani_mn_scaling/e3sm_mn_scaling/${RUN_NUM}" ]; then
     echo "ERROR RUN_EXISTS ${RUN_NUM}: resuming would win over a fresh start; resume it deliberately instead"
     exit 2
@@ -92,7 +103,11 @@ PROV_TXT="$(
     echo "queue=${Q}  route=${ROUTE}  nodes=${NODES} (+${SPARE} spare)  local_batch=${LB}  global_batch=32  epochs=${EPOCHS}"
     echo "base recipe = F's (submit_f_nosoil.sh) = prod1n_b32_sgdr/config.json; the ONLY intended differences from F:"
     echo "  channel set 99 -> 77 (U10 RHREFHT PSL TMQ Z3_l00..17 also dropped; port G, operator 2026-09-29)"
-    echo "  train split 2015-2044 -> 2020-2044, stats recomputed (PACK=${VIEW})"
+    if [ "${SPLIT}" = "2020" ]; then
+        echo "  SPLIT=2020 (separate split experiment): train 2015-2044 -> 2020-2044, stats recomputed (PACK=${VIEW})"
+    else
+        echo "  SPLIT=production: train 2015-2044, production stats (PACK=${VIEW}) -- same data and stats as A and F"
+    fi
     echo "  route ${ROUTE}${G_WARM_CKPT:+ (init ${G_WARM_CKPT})}"
     echo "vars: ${VARS}"
 )"

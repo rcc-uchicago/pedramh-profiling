@@ -11,7 +11,7 @@
 #     Handoff default for F: the raw best_ckpt_mp0.tar at the end of F.
 #   - config by model; PACK taken from the BASE RUN's config.json (its
 #     global_means_path), never chosen here, so an arm normalizes with the stats
-#     its base learned under (F: production pack, 2015-2044; G: the 2020-2044 view).
+#     its base learned under (F and G: production pack, 2015-2044; a SPLIT=2020 G base: the view).
 #   - finetune_base_check.py refuses a base whose N_out_channels / channel_names
 #     are not the config's (an A checkpoint for an F arm, an F one for a G arm).
 #   - fabric: nothing passed; the harness's CXI stack (v1.6.0 + HPE rendezvous
