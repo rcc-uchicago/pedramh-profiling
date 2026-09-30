@@ -24,7 +24,10 @@ if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
 fi
 MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
 JOB="${PBS_JOBID%%.*}"
-OUT="${MEMBER_ROOT}/runs/makani_eval/surgical_soil_screen_${JOB}"
+# RESUME_OUT=<a previous run's dir>: reuse its rollouts (the screen skips members whose .nc
+# exists) and redo only truth + summary -- 7671841 needed this: the default truth files predate
+# the summary's TMQ column (TRUTH_MISSING_CHANNEL), so the truth is the _tmq one, built if missing.
+OUT="${RESUME_OUT:-${MEMBER_ROOT}/runs/makani_eval/surgical_soil_screen_${JOB}}"
 mkdir -p "${OUT}" || exit 2
 CKPTS="Fsurg=surgical_nosoil_7646690:best_ckpt_mp0.tar A_e243=prod1n_b32_sgdr:ckpt_mp0_v242.tar"
 echo "=== makani_surgical_soil: $(date -Iseconds) job=${JOB} sha=$(cd "${MAKANI_ROOT}/.." && git rev-parse --short=12 HEAD 2>/dev/null) ==="
@@ -34,6 +37,7 @@ ok=1
 for frame in 1092 1156; do
     d="${OUT}/f${frame}"
     CKPTS="${CKPTS}" START_YEAR=2044 START_FRAME="${frame}" OUT_ROOT="${d}" WALL_BUDGET_S=1200 \
+    TRUTH="${MEMBER_ROOT}/runs/makani_eval/screen_truth_2044f${frame}_tmq.npz" \
         bash "${MAKANI_ROOT}/polaris/polaris_climate_screen.pbs" > "${OUT}/screen_f${frame}.out" 2>&1
     echo "--- start 2044 f${frame}"
     grep -E "^  (Fsurg|A_e243) rc=|^CLIMATE_SCREEN_OK|^ERROR" "${OUT}/screen_f${frame}.out"
