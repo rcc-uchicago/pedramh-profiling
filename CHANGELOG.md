@@ -144,7 +144,23 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
-- **2026-09-30 (makani) — surgical soil-free checkpoint screen: pre-registered, NOT YET SUBMITTED.**
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: ✅ `SURGICAL_SOIL_SCREEN_OK`,
+  outcome D (slicing damage) at both starts — says nothing about soil.** Job **7671841** (rollouts;
+  its summary failed `TRUTH_MISSING_CHANNEL: TMQ` — the default truth files predate the summary's TMQ
+  column) + **7671870** (`RESUME_OUT`, `_tmq` truth, summary only; wrapper fix `d1c2aec2`). Outputs
+  `$MEMBER_ROOT/runs/makani_eval/surgical_soil_screen_7671841/f{1092,1156}/`.
+
+  | start | A_e243 truncates | Fsurg truncates | ratio | first past 3σ (Fsurg / A) |
+  |---|---|---|---|---|
+  | 2044 f1092 | **595** (control ✅) | **293** | 0.49 | RELHUM_l04,l11@161 / V_l00@382 |
+  | 2044 f1156 | 490 | **343** | 0.70 | RELHUM_l00@175, V_l00@176 / RELHUM_l04@305 |
+
+  Both ratios < 0.75 ⇒ **D** by the prereg: A with soil sliced out and only 20 steps of retraining
+  dies *earlier*, at PS, after leaving range at the model top first — the same failure path as A,
+  faster. Uninformative about soil as a cause (the model was never trained without soil inputs); F
+  (7660250, 43 epochs) remains the test (F3). New number: A e243 from f1156 dies at lead 490 (n=1).
+  Original pre-submission note follows.
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: pre-registered (submission note).**
   F (7660250) has no checkpoints yet; the only trained soil-free one is `surgical_nosoil_7646690`
   (A e243 sliced to 99/105 + 20 steps at LR 1e-5, val 0.01427). Operator approved a debug screen of
   it beside A e243 from 2044 f1092 + f1156 — unlike F3, not confounded by extra training. Prereg
