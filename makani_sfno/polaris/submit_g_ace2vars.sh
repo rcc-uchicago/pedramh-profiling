@@ -4,12 +4,14 @@
 #   [SPLIT=production|2020] bash polaris/submit_g_ace2vars.sh <QUEUE> <NODES 1|2|4> <EPOCHS> <WALLTIME hh:mm:ss> [scratch|warm]
 #
 # SPLIT (operator 2026-09-30: "the validation year change was supposed to be a separate
-# test, not everything should have been included in G"):
-#   production (default) = G proper: the production pack, train 2015-2044, A's/F's stats.
-#                          The variable set is the ONLY change from F.
-#   2020                 = the separate split experiment: the 2020-2044 train view
-#                          (polaris_pack_alldata_trainview.pbs, own stats). Valid 2045-47 and
-#                          test 2048-49 are the same in both, so the pair isolates the split.
+# test ... separate the split into H, where it keeps G's removed channels, but changed the
+# train years"):
+#   production (default) = PORT G: the production pack, train 2015-2044, A's/F's stats.
+#                          The variable set is the ONLY change from F.       runs g_ace2vars_*
+#   2020                 = PORT H: G's channel set on the 2020-2044 train view
+#                          (polaris_pack_alldata_trainview.pbs, own stats).  runs h_ace2vars_train2020_*
+#                          Launch it as polaris/submit_h_train2020.sh. Valid 2045-47 and test
+#                          2048-49 are the same in both, so G vs H isolates the train years.
 #
 # Sibling of submit_f_nosoil.sh (not edited). Recipe = F's = prod1n_b32_sgdr's
 # (LR 2e-3, beta2 0.95, grad clip 32, CosineAnnealingWarmRestarts T0=20 Tmult=1,
@@ -40,8 +42,8 @@ M=/eagle/projects/lighthouse-uchicago/members/mehta5
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SPLIT="${SPLIT:-production}"
 case "${SPLIT}" in
-    production) VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_production}"; TRAIN0=2015; SPLIT_TAG="" ;;
-    2020)       VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_train2020_2044}"; TRAIN0=2020; SPLIT_TAG="_split2020" ;;
+    production) VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_production}"; TRAIN0=2015; PORT=G; RUN_PREFIX=g_ace2vars ;;
+    2020)       VIEW="${G_PACK:-${M}/data/e3sm_makani_alldata_train2020_2044}"; TRAIN0=2020; PORT=H; RUN_PREFIX=h_ace2vars_train2020 ;;
     *) echo "ERROR SPLIT must be production or 2020"; exit 2 ;;
 esac
 
@@ -71,7 +73,7 @@ if a["train_years"] != list(range(train0, 2045)) or a["valid_years"] != [2045, 2
 print("pack: %s  train %d-2044 (%d) / valid 2045-2047 / test 2048-2049" % (root, train0, 2045 - train0))
 PY
 
-RUN_NUM="g_ace2vars${SPLIT_TAG}_${NODES}n_b32_e${EPOCHS}_${ROUTE}"
+RUN_NUM="${RUN_PREFIX}_${NODES}n_b32_e${EPOCHS}_${ROUTE}"
 if [ -d "${M}/runs/makani_mn_scaling/e3sm_mn_scaling/${RUN_NUM}" ]; then
     echo "ERROR RUN_EXISTS ${RUN_NUM}: resuming would win over a fresh start; resume it deliberately instead"
     exit 2
@@ -104,9 +106,9 @@ PROV_TXT="$(
     echo "base recipe = F's (submit_f_nosoil.sh) = prod1n_b32_sgdr/config.json; the ONLY intended differences from F:"
     echo "  channel set 99 -> 77 (U10 RHREFHT PSL TMQ Z3_l00..17 also dropped; port G, operator 2026-09-29)"
     if [ "${SPLIT}" = "2020" ]; then
-        echo "  SPLIT=2020 (separate split experiment): train 2015-2044 -> 2020-2044, stats recomputed (PACK=${VIEW})"
+        echo "  PORT H (SPLIT=2020): G's channels, train 2015-2044 -> 2020-2044, stats recomputed (PACK=${VIEW})"
     else
-        echo "  SPLIT=production: train 2015-2044, production stats (PACK=${VIEW}) -- same data and stats as A and F"
+        echo "  PORT G (SPLIT=production): train 2015-2044, production stats (PACK=${VIEW}) -- same data and stats as A and F"
     fi
     echo "  route ${ROUTE}${G_WARM_CKPT:+ (init ${G_WARM_CKPT})}"
     echo "vars: ${VARS}"

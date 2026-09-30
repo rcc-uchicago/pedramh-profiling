@@ -9,10 +9,10 @@
 #PBS -r n
 #PBS -j oe
 # ============================================================================
-# PORT G smoke (e3sm_alldata_ace2vars.yaml, 83-in / 77-out). Pack by SPLIT (below):
-# production (default, G proper) or 2020 (the separate split experiment, the view).
-# Sample counts and "view" in this header describe the SPLIT=2020 run (7668637);
-# with SPLIT=production the sample count is 43,800 and the pack is the production pack.
+# PORT G / PORT H smoke (e3sm_alldata_ace2vars.yaml, 83-in / 77-out). Pack by SPLIT
+# (below): production (default) = port G; 2020 = port H (G's channels, train 2020-2044,
+# the view). Sample counts and "view" in this header describe the SPLIT=2020 run
+# (7668637, i.e. H's path); with SPLIT=production it is 43,800 on the production pack.
 # The G analogue of polaris_makani_ports_smoke.pbs §4 (F's 7646684), in one debug
 # job, three sections, each keyed on its own token:
 #
@@ -81,8 +81,8 @@ export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # -----------------------------------------------------------------------------
 
-# SPLIT=production (default, G proper: 2015-2044, 43,800 train samples) or SPLIT=2020 (the
-# separate split experiment on the view, 36,500) -- operator 2026-09-30. 7668637 ran the view.
+# SPLIT=production (default, port G: 2015-2044, 43,800 train samples) or SPLIT=2020 (port H:
+# the 2020-2044 view, 36,500) -- operator 2026-09-30. 7668637 ran the view (H's path).
 case "${SPLIT:-production}" in
     production) VIEW="${G_PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"; NSAMP=43800 ;;
     2020)       VIEW="${G_PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_train2020_2044}"; NSAMP=36500 ;;

@@ -160,8 +160,17 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   longer applies to G proper: A sliced to 83/77 on the same pack and stats is the F surgical-transfer
   case, so warm is back on the table for G (still needs its own transfer proof); (3) G proper's
   updates/epoch = A's 1,368, not 1,140; (4) G smoke 7668637 ran on the view — the production-pack
-  path needs its own smoke (`SPLIT=production`, 43,800 samples). **Open (operator):** which model
-  carries the split experiment — G on the view, or F's/A's 101-channel recipe on the view.
+  path needs its own smoke (`SPLIT=production`, 43,800 samples).
+  - **Operator, same day: the split is PORT H** — *"separate the split to H, where it keeps G['s]
+    removed channels, but changed the train years"*. **H = G's 77/83 channel set, train 2020–2044
+    (the view, own stats), valid/test unchanged**; G vs H isolates the train years. New entry point
+    `polaris/submit_h_train2020.sh` (calls `submit_g_ace2vars.sh` with `SPLIT=2020`, refuses any
+    other `SPLIT`); runs `h_ace2vars_train2020_*`; arm launcher accepts `H` (`fsH_*`, PACK from the
+    base run, `anneal_dryair` refused — no TMQ). 7668637's smoke and 7668600's view are H's path.
+    Login dry runs: G → production pack `g_ace2vars_2n_b32_e243_scratch`; H → view
+    `h_ace2vars_train2020_2n_b32_e243_scratch`; H with `SPLIT=production` refused; `H anneal_dryair`
+    → `DRYAIR_NEEDS_TMQ`. Nothing queued. Also confirmed for the record: **B (`nf4_prod_b16_r1`) has
+    A's full 101 channels** — both soil channels, Z3 ×18, TMQ (its `config.json`).
 
 - **2026-09-30 (makani, analysis only) — moderated three-agent review of G, fine-tuning and the
   next runs: run the multi-year protocol on B e22 + B e24 first; G is a fine-tuning base, not a

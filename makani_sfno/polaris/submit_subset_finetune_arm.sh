@@ -11,7 +11,7 @@
 #     Handoff default for F: the raw best_ckpt_mp0.tar at the end of F.
 #   - config by model; PACK taken from the BASE RUN's config.json (its
 #     global_means_path), never chosen here, so an arm normalizes with the stats
-#     its base learned under (F and G: production pack, 2015-2044; a SPLIT=2020 G base: the view).
+#     its base learned under (F and G: production pack, 2015-2044; H: the 2020-2044 view).
 #   - finetune_base_check.py refuses a base whose N_out_channels / channel_names
 #     are not the config's (an A checkpoint for an F arm, an F one for a G arm).
 #   - fabric: nothing passed; the harness's CXI stack (v1.6.0 + HPE rendezvous
@@ -46,7 +46,8 @@ CKPT="${PRETRAINED_CKPT:?PRETRAINED_CKPT=<base checkpoint> is required}"
 case "${MODEL}" in
   F) CONFIG_YAML=e3sm_alldata_nosoil.yaml ;;
   G) CONFIG_YAML=e3sm_alldata_ace2vars.yaml ;;
-  *) echo "ERROR unknown model '${MODEL}' (F|G)"; exit 2 ;;
+  H) CONFIG_YAML=e3sm_alldata_ace2vars.yaml ;;   # G's channels; its PACK (the 2020-2044 view) comes from the base run
+  *) echo "ERROR unknown model '${MODEL}' (F|G|H)"; exit 2 ;;
 esac
 for v in OFI_PLUGIN OFI_LIBFABRIC NCCL_PROTO CXI_RDZV OFI_NCCL_PROGRESS_MODEL NCCL_NET FI_PROVIDER; do
     if [ -n "${!v:-}" ]; then echo "ERROR FABRIC_OVERRIDE_REFUSED: ${v}=${!v} is set; unset it"; exit 2; fi
@@ -63,8 +64,8 @@ case "${ARM}" in
   d16)     MS=17; NODES=4; LB=1; WALL="${WALLTIME:-48:00:00}"; Q="${QUEUE:-preemptable}" ;;
   *) echo "ERROR unknown arm '${ARM}' (lrcheck|anneal|anneal_dryair|d8|d16)"; exit 2 ;;
 esac
-if [ "${DRYAIR:-0}" = "1" ] && [ "${MODEL}" = "G" ]; then
-    echo "ERROR DRYAIR_NEEDS_TMQ: port G dropped TMQ; the dry-air fix has no column water on G"
+if [ "${DRYAIR:-0}" = "1" ] && { [ "${MODEL}" = "G" ] || [ "${MODEL}" = "H" ]; }; then
+    echo "ERROR DRYAIR_NEEDS_TMQ: port ${MODEL} dropped TMQ; the dry-air fix has no column water on ${MODEL}"
     exit 2
 fi
 TMAX="${SCHED_TMAX:-${TMAX_DEFAULT}}"

@@ -95,7 +95,9 @@ G proper = the ACE2 variable set on the **production pack** (2015–2044); the 2
 **separate** experiment. `submit_g_ace2vars.sh` / `polaris_g_smoke.pbs`: `SPLIT=production`
 (default) or `SPLIT=2020`. Wherever this file or the analysis below ties G to the view or to the
 split (T3, O6, D2's 1,140 updates/epoch, the anti-warm-start argument), read it as the SPLIT=2020
-run. Open: which model carries the split experiment. See CHANGELOG 2026-09-30.
+run — which is now **PORT H** (operator): G's channels + train 2020–2044, launched with
+`polaris/submit_h_train2020.sh`, runs `h_ace2vars_train2020_*`, arms `submit_subset_finetune_arm.sh H`.
+7668600 (view) and 7668637 (smoke on the view) belong to H. See CHANGELOG 2026-09-30.
 
 ### 🧭 2026-09-30 — moderated analysis of what to run next
 

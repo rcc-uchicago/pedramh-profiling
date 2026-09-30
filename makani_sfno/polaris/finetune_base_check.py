@@ -10,8 +10,8 @@ and compares it with the arm's config yaml:
   - ``channel_names``  == yaml ``channel_names``, name for name, in order
   - the pack: the parent of the base's ``global_means_path``. The arm must train on
     it, so that it normalizes with the stats its base learned under (F: the
-    production pack, 2015-2044; G: the production pack too, or the 2020-2044 view for
-    the separate SPLIT=2020 run). Printed for the launcher.
+    production pack, 2015-2044; G: the production pack too; H: the 2020-2044 view).
+    Printed for the launcher.
 
 A 101-channel checkpoint with a 99-channel config would otherwise fail only at the
 strict restore on the compute node, after the queue wait.
