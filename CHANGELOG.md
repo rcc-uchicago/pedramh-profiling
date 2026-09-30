@@ -144,6 +144,17 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: pre-registered, NOT YET SUBMITTED.**
+  F (7660250) has no checkpoints yet; the only trained soil-free one is `surgical_nosoil_7646690`
+  (A e243 sliced to 99/105 + 20 steps at LR 1e-5, val 0.01427). Operator approved a debug screen of
+  it beside A e243 from 2044 f1092 + f1156 — unlike F3, not confounded by extra training. Prereg
+  `docs/2026-09-30_surgical_soil_screen_prereg.md` (outcomes S/N/D/X by truncation-lead ratio;
+  control A e243 @ 595 from f1092) + `polaris/polaris_surgical_soil_screen.pbs`, committed
+  `4855b999`. `qsub` refused twice (`per-user limit of jobs in 'Q' state`): the `debug` slot
+  is held by **7671383 `ace2_step*`** from the ACE2 session; `-W depend=afterany` counts against the
+  same limit. Submit from `makani_sfno/` once that job has started:
+  `qsub polaris/polaris_surgical_soil_screen.pbs`. PASS = `SURGICAL_SOIL_SCREEN_OK`.
+
 - **2026-09-30 (makani) — CORRECTION, operator: the 2020–2044 split is a SEPARATE experiment,
   not part of G.** First-hand: *"the validation year change was supposed to be a separate test not
   everything should have been included in G"*. The 09-29 work had bundled both into G. Nothing had
