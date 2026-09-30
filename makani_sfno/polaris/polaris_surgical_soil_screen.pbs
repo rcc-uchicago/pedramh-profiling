@@ -1,0 +1,51 @@
+#!/bin/bash -l
+#PBS -N makani_surgical_soil
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Does removing soil change A's ~500-lead blow-up? One-year screen of the surgical
+# soil-free checkpoint (A e243 sliced to 99/105 + 20 steps) beside A e243, from two
+# starts. Pre-registered in docs/2026-09-30_surgical_soil_screen_prereg.md.
+# Runs polaris_climate_screen.pbs (unchanged) twice, one output dir per start.
+# PASS = SURGICAL_SOIL_SCREEN_OK. Key on the token (CLAUDE.md #14).
+# Submit from makani_sfno/:   qsub polaris/polaris_surgical_soil_screen.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOB="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_eval/surgical_soil_screen_${JOB}"
+mkdir -p "${OUT}" || exit 2
+CKPTS="Fsurg=surgical_nosoil_7646690:best_ckpt_mp0.tar A_e243=prod1n_b32_sgdr:ckpt_mp0_v242.tar"
+echo "=== makani_surgical_soil: $(date -Iseconds) job=${JOB} sha=$(cd "${MAKANI_ROOT}/.." && git rev-parse --short=12 HEAD 2>/dev/null) ==="
+echo "members: ${CKPTS}"
+
+ok=1
+for frame in 1092 1156; do
+    d="${OUT}/f${frame}"
+    CKPTS="${CKPTS}" START_YEAR=2044 START_FRAME="${frame}" OUT_ROOT="${d}" WALL_BUDGET_S=1200 \
+        bash "${MAKANI_ROOT}/polaris/polaris_climate_screen.pbs" > "${OUT}/screen_f${frame}.out" 2>&1
+    echo "--- start 2044 f${frame}"
+    grep -E "^  (Fsurg|A_e243) rc=|^CLIMATE_SCREEN_OK|^ERROR" "${OUT}/screen_f${frame}.out"
+    grep -q "^CLIMATE_SCREEN_OK" "${OUT}/screen_f${frame}.out" || { echo "ERROR SCREEN_FAILED f${frame}"; ok=0; }
+    [ -f "${d}/screen_summary.md" ] && cat "${d}/screen_summary.md"
+done
+
+# Control: A e243 from f1092 must truncate at lead 595 (7649647, 7649567).
+if grep -qE "^CLIMATE_ROLLOUT_TRUNCATED step=595 " "${OUT}/f1092/screen_A_e243.log" 2>/dev/null; then
+    echo "CONTROL_OK A_e243 f1092 truncates at 595"
+else
+    echo "ERROR CONTROL_MISMATCH: $(grep -E '^CLIMATE_ROLLOUT_(OK|TRUNCATED)' "${OUT}/f1092/screen_A_e243.log" 2>/dev/null | tail -1)"; ok=0
+fi
+[ "${ok}" -eq 1 ] && echo "SURGICAL_SOIL_SCREEN_OK out=${OUT}" || echo "ERROR SURGICAL_SOIL_SCREEN_FAILED out=${OUT}"
+echo "=== makani_surgical_soil done $(date -Iseconds) ==="
