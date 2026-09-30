@@ -89,6 +89,16 @@ Nothing was submitted to `capacity` or `preemptable` this session.
 | ~~O10~~ | ✅ per-lead metric save race fixed + verified (7669129) | test `36aa3632` (red on pre-fix, shown in job) + fix `eb4e0cce` (also require model rank 0); in-situ 1-node h2w2 writes one readable file. Cherry-picked to `feat/makani-spatial-cxi` (#20) |
 | O8c | **h2w4 loss ~26 % high** (7669001: ep-2 train 0.1394 vs 0.110–0.111) | not a gate; blocks production `w=4`. First test: replicated params identical across each `w`-group after N steps (§5b's divergent sync path) |
 
+### 🧭 2026-09-30 — moderated analysis of what to run next
+
+`makani_sfno/docs/2026-09-30_g_finetune_next_runs_analysis.md` (three-agent review, job 7669964).
+Its ranked plan: **(1) multi-year protocol on B e22 + B e24 (debug, now)** → F as queued → F3 + F4
+in one debug job → T-anneal-F + `anneal_dryair`-F (preemptable) → per-epoch + multi-year screens →
+**G scratch, 2 n, `SPARE=0`, 48 h, released by hand after F's extension decision (not
+`afterany:7660250`), gated on jesswan's TMQ answer** → G 77-ch screen → T-d8-F on a trigger. Items
+(1), (3) and the G/77-ch screens each need a pre-registration first. Recommendations only — D1–D7
+remain the operator's/jesswan's.
+
 ## 4. Facts learned this session (so they are not re-derived)
 
 - **`debug` allows ONE queued job per user** (`qsub: would exceed queue generic's per-user

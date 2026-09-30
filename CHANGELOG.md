@@ -144,6 +144,29 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-30 (makani, analysis only) — moderated three-agent review of G, fine-tuning and the
+  next runs: run the multi-year protocol on B e22 + B e24 first; G is a fine-tuning base, not a
+  stability fix.** Operator asked for "3 opus 5.5 [via the] alcf proxy [on] debug … 2 of them
+  discuss, and 1 moderates". Job **7669964** `MAKANI_DEBATE_OK` (`polaris/polaris_makani_debate.pbs`,
+  18 min; pattern from `polaris_critic_handoff.pbs`): brief `docs/2026-09-30_g_finetune_debate_brief.md`
+  (facts + provenance, no recommendation) + both handoffs + spatial result + CHANGELOG 09-20..29 as
+  the only evidence; analysts A (stability lens) and B (evidence/cost lens) → rebuttals → moderator.
+  Final: `makani_sfno/docs/2026-09-30_g_finetune_next_runs_analysis.md`; transcript
+  `$MEMBER_ROOT/runs/makani_debate/7669964/`. Converged (moderator's ranked plan, recommendations
+  only): (1) **multi-year protocol on B e22 + B e24** (debug; copy B e22 out of the rotating
+  `ckpt_mp0_v1.tar` slot first; pre-register three outcomes incl. a model-top timing readout) — the
+  1-yr screen that will pick every arm's winner has never been checked against 5-yr survival (B e01
+  passed the year, then died at 7/8 starts); (2) F as queued; (3) F3 (raw + EMA best) + F4 in one
+  debug job; (4) T-anneal-F + `anneal_dryair`-F on preemptable, concurrent (operator's call); (5)
+  per-epoch screens + multi-year on each arm's top epochs; (6) **G scratch, 2 nodes, `SPARE=0`, 48 h,
+  released by hand after F's extension decision — not `afterany:7660250`** (that fires before an
+  extension resume), gated on jesswan's answer about losing TMQ/dry-air; (7) G screen on 77 ch with a
+  new 77-channel prereg addendum; (8) T-d8-F only on a pre-registered trigger. Parked: G warm, T-d16,
+  sharding, `w=4`. Rulings: F3 is **not** a gate for G (confounded — F = A + 43 single-step epochs;
+  speaks to soil only); "dies at PS" does not separate mass from model-top failure — read the timing.
+  Correction it found: the 43× channel is `Z3_l17` (09-20 entry), fixed in the 09-29 O7 line below.
+  Nothing was submitted beyond the debate job.
+
 - **2026-09-29 (makani) — F fine-tune base built; PORT G (the ACE2-EAMv3 variable set) and the
   2020–2044 train split implemented. Nothing trains yet; two debug jobs queued.** Branch
   `feat/makani-f-finetune` (worktree `.claude/worktrees/f-finetune`), per
@@ -386,9 +409,10 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
     ⚠ **The channel set alone moves A's baseline far more than it did for F**: ACC336 −19 %,
     NRMSE336 +10 %, and the verdict class changes. A's DRIFT_FIRST rested **only** on the
-    worst-channel rule (43.18 > 3.0; NRMSE336 0.97 is far under 1.6), and that 43× channel is one
-    of G's 22 non-soil drops (U10 / RHREFHT / PSL / TMQ / a Z3 level — the JSON does not name it;
-    `k56_metrics.h5` does). The dropped Z3 levels (smooth, high-ACC) were lifting the 101-median
+    worst-channel rule (43.18 > 3.0; NRMSE336 0.97 is far under 1.6), and that 43× channel is
+    **`Z3_l17`** — already named in the 2026-09-20 entry ("on ONE channel of 101: `Z3_l17`", every
+    other channel ≤ 1.371 = exactly the common-77 worst). *(Corrected 2026-09-30: this line first
+    said the channel was unnamed; the debate moderator, 7669964, caught it.)* The dropped Z3 levels (smooth, high-ACC) were lifting the 101-median
     skill. ⇒ **G may be quoted only against the common-77 row**, with the split difference stated
     (G trains 2020–2044, A 2015–2044; same 2048–49 test years). A G result that "beats A's
     DRIFT_FIRST" on 77 channels would be the channel set, not the model.
