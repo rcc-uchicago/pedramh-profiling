@@ -1,0 +1,80 @@
+#!/bin/bash -l
+#PBS -N makani_fsurg_nf4
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# 1-epoch depth-4 fine-tune of the soil-free surgical checkpoint (nf4_proxy_b8_r1's
+# exact recipe), then its one-year screen from two starts beside the A-based twin.
+# Pre-registered in docs/2026-09-30_fsurg_nf4_proxy_prereg.md.
+# Training goes through polaris_makani_multinode_scaling.pbs (as the ladder's proxy
+# mode does -- submit_nfuture_ladder.sh is protected and hard-wires A); the screen
+# through polaris_climate_screen.pbs, both unchanged.
+# PASS = FSURG_NF4_PROXY_OK. Key on the token (CLAUDE.md #14).
+# Submit from makani_sfno/:   qsub polaris/polaris_fsurg_nf4_proxy.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+JOB="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_eval/fsurg_nf4_proxy_${JOB}"
+RUN_NUM="${RUN_NUM:-fsurg_nf4_proxy_b8_r1}"
+BASE="${EXPROOT}/surgical_nosoil_7646690/training_checkpoints/best_ckpt_mp0.tar"
+mkdir -p "${OUT}" || exit 2
+echo "=== makani_fsurg_nf4: $(date -Iseconds) job=${JOB} sha=$(cd "${MAKANI_ROOT}/.." && git rev-parse --short=12 HEAD 2>/dev/null) run=${RUN_NUM} ==="
+[ -f "${BASE}" ] || { echo "ERROR BASE_MISSING ${BASE}"; exit 2; }
+if [ -d "${EXPROOT}/${RUN_NUM}" ]; then
+    echo "ERROR RUN_EXISTS ${RUN_NUM}: resuming would win over the warm start (ladder trap 3)"; exit 2
+fi
+
+# ---- 1. train: nf4_proxy_b8_r1's config.json, base swapped for the soil-free one
+t0=$(date +%s)
+CONFIG_YAML=e3sm_alldata_nosoil.yaml PACK="${MEMBER_ROOT}/data/e3sm_makani_alldata_production" \
+TARGET_NODES=1 HPAR=1 WPAR=1 LOCAL_BATCH=2 FULL=1 EPOCHS=1 STEPS=60 EVAL_SAMPLES=512 WANDB=0 \
+RUN_NUM="${RUN_NUM}" MULTISTEP=5 PRETRAINED=1 PRETRAINED_CKPT="${BASE}" \
+LOAD_OPTIMIZER=0 LOAD_SCHEDULER=0 LOAD_COUNTERS=0 LOAD_LOSS=0 OVERRIDE_LR=1 \
+LR=4.0E-4 SCHED=CosineAnnealingLR SCHED_MIN_LR=1.0E-6 WARMUP_EPOCHS=0 LR_START=0.01 \
+MAKANI_SCALING_CSV="${OUT}/train.csv" \
+    timeout -k 60 2880 bash "${MAKANI_ROOT}/polaris/polaris_makani_multinode_scaling.pbs" > "${OUT}/train.out" 2>&1
+train_rc=$?
+echo "train rc=${train_rc} wall=$(( $(date +%s) - t0 ))s"
+grep -E "CHANNEL_SUBSET_GATE_OK|CHANNEL_SUBSET in=|epoch time|training loss:|validation loss:|MAKANI_MN_SCALING_|^ERROR" "${OUT}/train.out" | tail -8
+CK="${EXPROOT}/${RUN_NUM}/training_checkpoints/best_ckpt_mp0.tar"
+if ! grep -q "MAKANI_MN_SCALING_OK" "${OUT}/train.out" || [ ! -f "${CK}" ]; then
+    echo "ERROR FSURG_NF4_TRAIN_FAILED (see ${OUT}/train.out)"; exit 3
+fi
+grep -q "n_future.*4\|multistep_count.*5" "${EXPROOT}/${RUN_NUM}/config.json" || { echo "ERROR MULTISTEP_NOT_APPLIED"; exit 3; }
+
+# ---- 2. screen the new checkpoint beside the A-based twin, two starts ---------
+ok=1
+for frame in 1092 1156; do
+    d="${OUT}/f${frame}"
+    CKPTS="FsurgNF4=${RUN_NUM}:best_ckpt_mp0.tar nf4p_r1=nf4_proxy_b8_r1:best_ckpt_mp0.tar" \
+    START_YEAR=2044 START_FRAME="${frame}" OUT_ROOT="${d}" WALL_BUDGET_S=600 \
+    TRUTH="${MEMBER_ROOT}/runs/makani_eval/screen_truth_2044f${frame}_tmq.npz" \
+        bash "${MAKANI_ROOT}/polaris/polaris_climate_screen.pbs" > "${OUT}/screen_f${frame}.out" 2>&1
+    echo "--- start 2044 f${frame}"
+    grep -E "^  (FsurgNF4|nf4p_r1) rc=|^CLIMATE_SCREEN_OK|^ERROR" "${OUT}/screen_f${frame}.out"
+    grep -q "^CLIMATE_SCREEN_OK" "${OUT}/screen_f${frame}.out" || { echo "ERROR SCREEN_FAILED f${frame}"; ok=0; }
+    [ -f "${d}/screen_summary.md" ] && cat "${d}/screen_summary.md"
+done
+
+# Control: nf4p_r1 from f1092 survives with 0 channels past 3 sigma (7649647).
+if grep -q "^CLIMATE_ROLLOUT_OK" "${OUT}/f1092/screen_nf4p_r1.log" 2>/dev/null \
+   && grep -qE "\| nf4p_r1 \| [0-9]+ \| 1 \| -1 \| -1 \| 0 \|" "${OUT}/f1092/screen_summary.md" 2>/dev/null; then
+    echo "CONTROL_OK nf4p_r1 f1092 survives, 0 past 3 sigma"
+else
+    echo "ERROR CONTROL_MISMATCH nf4p_r1 f1092 (see ${OUT}/f1092/)"; ok=0
+fi
+[ "${ok}" -eq 1 ] && echo "FSURG_NF4_PROXY_OK run=${RUN_NUM} out=${OUT}" || echo "ERROR FSURG_NF4_PROXY_FAILED out=${OUT}"
+echo "=== makani_fsurg_nf4 done $(date -Iseconds) ==="
