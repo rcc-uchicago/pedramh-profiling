@@ -225,6 +225,7 @@ def test_ema_disabled_path_unchanged(packaged_dataset: Path, tmp_path: Path):
         optimizer=pt.optimizer,
         scheduler=pt.scheduler,
         counters={"iters": pt.iters, "epoch": pt.epoch},
+        dataloader_state=None,  # makani main's trainer passes this keyword (4693db4)
         checkpoint_mode="legacy",
     )
     saved = torch.load(

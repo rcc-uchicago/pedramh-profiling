@@ -33,6 +33,7 @@ See docs/sfno_training_implementation_plan.md §6 for the full spec.
 from __future__ import annotations
 
 import logging
+import inspect
 import os
 import time
 import types
@@ -66,6 +67,11 @@ from makani.utils.training.deterministic_trainer import Trainer
 from makani.utils.training.ensemble_trainer import EnsembleTrainer
 
 logger = logging.getLogger("sfno_training.trainer")
+
+# makani main's trainers pass dataloader_state= to save_checkpoint (4693db4); the pin's do not
+_DRIVER_SAVE_TAKES_DATALOADER_STATE = (
+    "dataloader_state" in inspect.signature(Driver.save_checkpoint).parameters
+)
 
 
 # ---------------------------------------------------------------------------
@@ -790,9 +796,13 @@ class PlasimTrainer(Trainer):
         optimizer=None,
         scheduler=None,
         counters=None,
+        dataloader_state=None,
         checkpoint_mode: str = "legacy",
     ) -> None:
         """Override stock ``Driver.save_checkpoint`` to append EMA keys.
+
+        ``dataloader_state`` is what makani main's trainer passes; it is ``None`` for our
+        torch DataLoader and is forwarded only to a ``Driver.save_checkpoint`` that takes it.
 
         Defers to ``Driver.save_checkpoint`` first (writes the canonical
         legacy file), then — on data-parallel rank 0 within the current
@@ -801,6 +811,11 @@ class PlasimTrainer(Trainer):
         extra ~O(model size) of disk I/O per epoch; cheaper than
         duplicating ``_save_checkpoint_legacy`` internals.
         """
+        extra = {}
+        if _DRIVER_SAVE_TAKES_DATALOADER_STATE:
+            extra["dataloader_state"] = dataloader_state
+        elif dataloader_state is not None:
+            raise ValueError("dataloader_state given, but this makani's Driver.save_checkpoint cannot store it")
         Driver.save_checkpoint(
             checkpoint_path,
             model,
@@ -809,6 +824,7 @@ class PlasimTrainer(Trainer):
             scheduler=scheduler,
             counters=counters,
             checkpoint_mode=checkpoint_mode,
+            **extra,
         )
 
         if not self.ema_enabled:
