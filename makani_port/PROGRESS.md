@@ -20,9 +20,13 @@ bullets only, with job ids, tokens and shas. A fresh session reads the top 3 ent
   validation keep makani's naive weights. "For now": revisit with jesswan before any from-scratch campaign.
 - §3.1 option (a) was already ruled at 05:05Z; c10 implements it unchanged from the worker's draft.
 
+- Port worktree fast-forwarded `de36065e..291996c3` (0 dirty), pushed. **Slot-3 gate = debug job `7699391`**, queued
+  behind 7698872 (A best-ckpt measurement). **The port worktree is frozen until 7699391 ends.**
+
 **Next**
-- Fast-forward the port worktree to the dev head (0 dirty) → `qstat` → `qsub polaris/polaris_makani_port_slot3.pbs`
-  from its `makani_sfno/` → `PORT_M2M3 gate=green`.
+- Key on `PORT_M2M3 gate=green` in `makani_sfno/makani_port_slot3.o7699391` (detail under
+  `$MEMBER_ROOT/runs/makani_port/slot3/7699391/`). Green → tags m2/m3, then slot 4 (`m4_infer_prereg.md` first).
+  Suites-only red → the `-rA` list is the discovery; fix forward in dev.
 
 ## 2026-10-01 ~17:40Z — tolerance ruling applied; slot-3 job written; only c8/c10 stand between it and the qsub
 
