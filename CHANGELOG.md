@@ -144,6 +144,13 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani port) — operator rulings (relayed by the port monitor):** (1) implement every
+  recommendation of review 7681379; (2) api_delta §3.1: legacy checkpoints load on makani main by
+  allow-listing exactly `ruamel` `ScalarFloat` + `Anchor` as torch safe globals — never the global
+  unsafe-load escape; (3) `NonNegativeConstraint` (PRECT, SOILWATER_10CM, TMQ) gets an opt-in, default-OFF
+  inference wiring after M4 plus a measurement-only climate screen for jesswan — **awaiting jesswan**:
+  no training, default-on or production-config use without her written sign-off.
+
 - **2026-10-01 (makani port) — M1 GREEN: `sfno-venv-main` built beside `sfno-venv`, old venv
   unchanged** — job 7680816 `VENV_MAIN_OK symbols=29/29 old_venv_unchanged=1` at `6a30605a` (tag
   `makani-port/m1-green`): makani `a0aa4c4f`, torch_harmonics `2edb24ed` (reports `0.9.2a`, same

@@ -3,6 +3,26 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 05:30Z — operator rulings recorded; golden extension write job next
+
+**Progress**
+- `m0_golden_prereg.md` Amendment 1 (E1 golden extension ×5, E2 N1 pre-test, E3 physicsnemo
+  parity) + `polaris/polaris_makani_port_golden_ext.pbs`, `scripts/port_golden_npy_diff.py`,
+  `scripts/port_physicsnemo_parity.py`, `golden_checkpoints_ext.json` — committed before the qsub.
+
+**Decisions** (operator, relayed by the monitor, 2026-10-01)
+- ~05:05Z: carry out **every** recommendation of review 7681379, in its order, each through its own gate.
+- ~05:05Z: **§3.1 = option (a)** — add exactly `ruamel.yaml.scalarfloat.ScalarFloat` and
+  `ruamel.yaml.anchor.Anchor` to `torch.serialization` safe globals in our compat layer; **never**
+  `MAKANI_ALLOW_UNSAFE_CHECKPOINT_LOAD`.
+- ~05:10Z: `NonNegativeConstraint` (PRECT, SOILWATER_10CM, TMQ) becomes an **opt-in** right after M4
+  (new venv only, feature-detected, wired in our model-build path, default OFF, names from config,
+  `NONNEG_CONSTRAINT on|off channels=…` per job; flag-off must stay bitwise vs golden). Evidence for
+  jesswan = a pre-registered inference-only climate screen (A e243, nf4p_r1; on vs off; eps/mode/leak
+  sensitivity). **No training, no default-on, no production config change without jesswan's written
+  sign-off** — "awaiting jesswan".
+- Post-M8 items (review §3) become TODO.md entries now; implemented only after M8.
+
 ## 2026-10-01 05:10Z — M1 GREEN (7680816 VENV_MAIN_OK, tag makani-port/m1-green @ 6a30605a); review 7681379 read
 
 **Progress**

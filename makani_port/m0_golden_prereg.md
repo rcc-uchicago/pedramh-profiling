@@ -50,6 +50,33 @@ cuDNN `benchmark=False, deterministic=True`; TF32 flags as the entrypoint sets t
   printed.
 - Any non-bitwise result is reported with the first differing field and is a STOP, not a retry.
 
+## Amendment 1 (2026-10-01, committed before job `polaris_makani_port_golden_ext.pbs` is submitted)
+
+Operator directive (review 7681379 #1, #2, #6). The original five entries and their gate (7679553)
+are untouched; this adds to them.
+
+**E1 — golden extension.** `golden_checkpoints_ext.json`: nf1_proxy_b8_r1, nf1_proxy_b8_r2,
+nf3_proxy_b8_r1, nf4_crps_b4_r1 (ensemble_size 2, `ensemble_crps`), surgical_nosoil_7646690
+(99 out-ch), all `best_ckpt_mp0.tar`, stored epoch 1 each. Same definition as row 1 above (file /
+param / state sha256, K=56 from 2048 f1092, per-lead sha256, in-process control) on the **old**
+venv. Same rule as M0: a **write** job (`PORT_GOLDEN_EXT_WRITTEN`) and a separate **gate** job with
+`-v GOLDEN_REF=<write dir>` comparing bitwise → **`PORT_GOLDEN_EXT_OK`**. For the CRPS checkpoint
+the golden is the deterministic single-member `rollout_one_ic` of its weights (inference has no
+ensemble), which is what M4 will compare.
+
+**E2 — N1 pre-test (measurement, write job only).** `port_golden_infer.py` over the original five
+on the **old** venv with `TORCH_COMPILE_DISABLE=1` (removes the pin's `@torch.compile` on
+`_contract_lwise`, the dhconv contraction, as `6922a56` does upstream), compared with
+`makani_port/golden/infer.json` (hashes) and `golden/7676860/npy` (magnitude, `port_golden_npy_diff.py`).
+Interpretation fixed now:
+- `N1_PRETEST bitwise=5/5` → compile removal alone does not move inference; M4 stays bitwise.
+- anything else → bitwise M4 is impossible by construction; **STOP to the operator** with the
+  measured max abs/rel error and where, and a proposed M4 tolerance, **before** `m4_infer_prereg.md`.
+
+**E3 — physicsnemo parity (measurement, write job only).** sha256 of every file of each venv's
+installed `physicsnemo/` package (old: editable checkout; new: tree `1674e93e`).
+`PHYSICSNEMO_PARITY_OK` expected; a mismatch is listed file by file and is a STOP before M4.
+
 ## Not covered here (by design)
 
 Fsurg (`fsurg_nf4_proxy_b8_r1`) has no checkpoint — job 7671977 hit its 2880 s timeout

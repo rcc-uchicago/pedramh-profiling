@@ -1,0 +1,117 @@
+#!/bin/bash -l
+#PBS -N makani_port_gext
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# makani port, m0_golden_prereg.md Amendment 1, OLD venv (makani c9704308), one debug node:
+#   E1 golden extension over makani_port/golden_checkpoints_ext.json (5 more checkpoints)
+#        write (no GOLDEN_REF) -> PORT_GOLDEN_EXT_WRITTEN ; gate (-v GOLDEN_REF=<dir>) -> PORT_GOLDEN_EXT_OK
+#   E2 N1 pre-test: original five with TORCH_COMPILE_DISABLE=1 vs golden   -> N1_PRETEST bitwise=k/5
+#   E3 physicsnemo install parity old vs new venv                         -> PHYSICSNEMO_PARITY_OK
+# E2/E3 run in the write job only; they are measurements, not part of the E1 gate.
+# Tolerance BITWISE, not a knob. Key on tokens (CLAUDE.md #14).
+# Submit from makani_sfno/:  qsub polaris/polaris_makani_port_golden_ext.pbs [-v GOLDEN_REF=<dir>]
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_makani_port_golden.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export WANDB_MODE=offline
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_port/golden_ext/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+HOLDOUT="${MEMBER_ROOT}/data/e3sm_makani_alldata_production/test"
+GOLDEN_NPY="${MEMBER_ROOT}/runs/makani_port/golden/7676860/npy"
+CMP="${MAKANI_ROOT}/scripts/port_golden_compare.py"
+EXPECT_MAKANI_COMMIT=c97043086e60d44a3adc3bede9a6b3dc71f5005d
+
+SHA="$(cd "${REPO}" && git rev-parse HEAD 2>/dev/null)"
+DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"
+echo "=== makani_port_golden_ext: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
+echo "PORT_GOLDEN_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} venv=$(readlink -f "${SFNO_VENV}") out=${OUT} ref=${GOLDEN_REF:-none}"
+"${PY}" - "${EXPECT_MAKANI_COMMIT}" <<'PY' || exit 3
+import glob, json, os, sys
+import makani
+site = os.path.dirname(os.path.dirname(makani.__file__))
+du = os.path.join(sorted(glob.glob(os.path.join(site, "makani-*.dist-info")))[0], "direct_url.json")
+commit = json.load(open(du))["vcs_info"]["commit_id"]
+print("PORT_GOLDEN_MAKANI commit=%s" % commit)
+if commit != sys.argv[1]:
+    print("ERROR MAKANI_COMMIT_UNEXPECTED got=%s" % commit); sys.exit(3)
+PY
+
+export CUDA_VISIBLE_DEVICES=0
+infer() {  # list out [extra args]
+    local list=$1 out=$2; shift 2
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${MAKANI_ROOT}/scripts/port_golden_infer.py" --list "${list}" --holdout "${HOLDOUT}" \
+        --out "${out}.json" "$@" > "${out}.log" 2>&1
+    grep -E "^(GOLDEN_INFER|PORT_GOLDEN_INFER_OK|ERROR)" "${out}.log"
+}
+
+ok=1
+EXT="${REPO}/makani_port/golden_checkpoints_ext.json"
+if [ -z "${GOLDEN_REF:-}" ]; then
+    # --- E1 write: two processes, bitwise ---
+    infer "${EXT}" "${OUT}/infer_ext" --save-dir "${OUT}/npy"
+    infer "${EXT}" "${OUT}/infer_ext_r2"
+    grep -q "^PORT_GOLDEN_INFER_OK n=5" "${OUT}/infer_ext.log" || { echo "ERROR GOLDEN_EXT_INFER_NOT_OK"; ok=0; }
+    "${PY}" "${CMP}" "${OUT}/infer_ext.json" "${OUT}/infer_ext_r2.json" --label ext_in_job || ok=0
+
+    # --- E2 N1 pre-test: original five, compile disabled ---
+    export TORCH_COMPILE_DISABLE=1
+    infer "${REPO}/makani_port/golden_checkpoints.json" "${OUT}/infer_nocompile" --save-dir "${OUT}/npy_nocompile"
+    unset TORCH_COMPILE_DISABLE
+    "${PY}" "${CMP}" "${REPO}/makani_port/golden/infer.json" "${OUT}/infer_nocompile.json" \
+        --label n1_nocompile_vs_golden > "${OUT}/n1_cmp.log" 2>&1
+    head -12 "${OUT}/n1_cmp.log"
+    "${PY}" "${MAKANI_ROOT}/scripts/port_golden_npy_diff.py" "${GOLDEN_NPY}" "${OUT}/npy_nocompile" \
+        --list "${REPO}/makani_port/golden_checkpoints.json" --label n1 > "${OUT}/n1_npy.log" 2>&1
+    cat "${OUT}/n1_npy.log"
+    n1=$(grep -c " bitwise=True" "${OUT}/n1_npy.log")
+    echo "N1_PRETEST bitwise=${n1}/5 (compile disabled on the pin vs golden; 5/5 = N1 inert)"
+
+    # --- E3 physicsnemo parity ---
+    python3 "${MAKANI_ROOT}/scripts/port_physicsnemo_parity.py" \
+        "${MEMBER_ROOT}/conda-envs/sfno-venv" "${MEMBER_ROOT}/conda-envs/sfno-venv-main"
+
+    [ "${ok}" -eq 1 ] && echo "PORT_GOLDEN_EXT_WRITTEN out=${OUT} sha=${SHA} (resubmit with -v GOLDEN_REF=${OUT} for the gate)" \
+                      || echo "ERROR PORT_GOLDEN_EXT_FAILED out=${OUT}"
+else
+    # --- E1 gate ---
+    infer "${EXT}" "${OUT}/infer_ext"
+    grep -q "^PORT_GOLDEN_INFER_OK n=5" "${OUT}/infer_ext.log" || { echo "ERROR GOLDEN_EXT_INFER_NOT_OK"; ok=0; }
+    "${PY}" "${CMP}" "${GOLDEN_REF}/infer_ext.json" "${OUT}/infer_ext.json" --label ext_vs_ref || ok=0
+    [ "${ok}" -eq 1 ] && echo "PORT_GOLDEN_EXT_OK tolerance=bitwise ref=${GOLDEN_REF} out=${OUT} sha=${SHA}" \
+                      || echo "ERROR PORT_GOLDEN_EXT_FAILED out=${OUT}"
+fi
+echo "=== makani_port_golden_ext done $(date -Iseconds) ==="
