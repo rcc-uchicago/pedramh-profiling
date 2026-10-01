@@ -144,6 +144,17 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani port) — M1 GREEN: `sfno-venv-main` built beside `sfno-venv`, old venv
+  unchanged** — job 7680816 `VENV_MAIN_OK symbols=29/29 old_venv_unchanged=1` at `6a30605a` (tag
+  `makani-port/m1-green`): makani `a0aa4c4f`, torch_harmonics `2edb24ed` (reports `0.9.2a`, same
+  commit as the old venv's `0.9.2.dev75+g2edb24ed`), physicsnemo 2.2.0a0 non-editable (tree
+  `1674e93e`), zarr 3.4.0, torch 2.8.0 from base conda. pip conflict warnings are base-conda LLM
+  packages and physicsnemo's declared minimums (same as the old venv); none touch zarr/DALI/makani.
+  **Grid weighting measured for jesswan** (measurement only, no change): A e243 single-step l2 under
+  cell-centred band areas vs makani's equiangular weights — channel mean −0.074 %, RELHUM_l00 +2.45 %,
+  RELHUM_l01 +1.79 %, RELHUM_l02 +1.67 %; the ±89.5° rows get weight 0 under makani's rule. Operator
+  read-only review 7681379 done (`runs/makani_port/review/7681379/review.md`); its pre-M8 list is in
+  `makani_port/PROGRESS.md`.
 - **2026-10-01 (makani port) — M0 GREEN: golden baselines on the old venv are bitwise reproducible**
   — gate job 7679553 `PORT_GOLDEN_OK tolerance=bitwise` vs write job 7676860, at `812696030bae`
   (tag `makani-port/m0-green`), old `sfno-venv` = makani `c9704308`, `F_FINETUNE_TESTS_OK 6/6`. Golden =

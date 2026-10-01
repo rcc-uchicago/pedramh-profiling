@@ -3,6 +3,41 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 05:10Z — M1 GREEN (7680816 VENV_MAIN_OK, tag makani-port/m1-green @ 6a30605a); review 7681379 read
+
+**Progress**
+- Job 7680816 at `6a30605a`, dirty 0: `SFNO_VENV_MAIN_BUILT`, `VENV_MAIN_OK … symbols=29/29
+  old_venv_unchanged=1`, `PORT_M1 gate=green`. Old venv dist-info still `c7f1fba5…`/`380b1a77…`.
+- `sfno-venv-main` resolved versions (reproducible rebuild = these): torch 2.8.0 (base conda),
+  makani 0.2.0 @ `a0aa4c4f`, torch_harmonics @ `2edb24ed` (reports **`0.9.2a`**; old venv reports
+  `0.9.2.dev75+g2edb24ed` — **same commit**, the build had no git metadata; CUDA-ext build parity
+  unverified), physicsnemo 2.2.0a0 **non-editable** from tree `1674e93e`, **zarr 3.4.0**, numpy 2.2.6
+  (base), h5py 3.16.0 (overlay), wandb 0.22.1 (base), DALI 2.2.0, xarray 2025.9.1 (base), netCDF4 1.7.4.
+- `GRID_WEIGHT_DELTA` (A e243, single-step z-space l2, 64 valid samples, old venv): channel-mean
+  loss_rel **−7.41e-4** (cell-centred vs makani naive); worst channels RELHUM_l00 **+2.45 %**,
+  RELHUM_l01 +1.79 %, RELHUM_l02 +1.67 %; polar (|lat| ≥ 85°) share of the error 0.30 % (naive) vs
+  0.45 % (cell); weights max_abs_row 7.6e-5 at ±89.5°, L1 6.31e-3. Measurement only — for jesswan.
+- Operator review job 7681379 (read-only) `PORT_REVIEW_DONE`; `runs/makani_port/review/7681379/review.md`.
+
+**Surprises**
+- pip "dependency conflicts" ×3 in `build.log`, verdicts: (i) **harmless** — base-conda packages we
+  never import (sglang/vllm/verl: transformers, xgrammar, numpy<2, setuptools; boto3: botocore;
+  datasets/gcsfs: fsspec ≤ 2025.9 — fsspec 2026.6.0 is also the old venv's); (ii) **harmless in
+  practice** — nvidia-physicsnemo 2.2.0a0's declared `torch>=2.10`, torchvision, timm, tensordict,
+  gitpython, importlib-metadata, termcolor, urllib3 minimums: the old venv runs the same 2.2.0a0 on torch
+  2.8 in every green job; (iii) **none** names zarr, numcodecs, DALI or makani.
+- Review: a `try/except` around `parse_dataset_metadata` would leave params half-filled (it raises at
+  `parse_dataset_metada.py:54` before channel names / dataset dict) → §3.2 is a scoped rebind instead.
+- Review: golden covers 5 of the 10 checkpoints named in the handoff; N1 (compile removed from the
+  dhconv contraction) is untested and could make bitwise M4 impossible by construction.
+
+**Decisions** — none new. §3.1 still unruled (M3 only).
+
+**Next** (review's "Before M8" list, in order)
+- One old-venv debug job: M0 prereg amendment + golden write for the 5 missing ckpts; N1 pre-test
+  (`TORCH_COMPILE_DISABLE=1` vs golden); sha256 of both venvs' physicsnemo installs.
+- M2 code (api_delta §2 + scoped grid rebind); M5 prereg additions (clipped probe, CRPS probe, per-lead h5).
+
 ## 2026-10-01 04:05Z — M0 GREEN (7679553 PORT_GOLDEN_OK, tag makani-port/m0-green @ 81269603); M1 next
 
 **Progress**
