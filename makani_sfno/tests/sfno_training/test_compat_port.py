@@ -89,6 +89,32 @@ def test_both_trainer_modules_build_an_eager_loss():
             assert module.LossHandler is makani_loss.LossHandler
 
 
+# --- legacy checkpoints (api_delta §3.1) ---
+class _NotAllowlisted:
+    pass
+
+
+def test_ruamel_checkpoint_loads_and_nothing_else_is_allowed(tmp_path):
+    import torch
+    from makani.utils import checkpoint_helpers
+    from ruamel.yaml import YAML
+
+    on_main = hasattr(checkpoint_helpers, "load_checkpoint")
+    assert compat.CHECKPOINT_SAFE_GLOBALS_REGISTERED is on_main
+    if not on_main:  # the pin loads with weights_only=False
+        return
+    cfg = YAML().load("lr: &lr 2.0e-3\neps: 1.0e-8\nlr_again: *lr\n")
+    assert type(cfg["lr"]).__name__ == "ScalarFloat" and cfg["lr"].anchor.value == "lr"
+    path = tmp_path / "ckpt.tar"
+    torch.save({"model_state": {"w": torch.arange(3.0)}, "optimizer_state_dict": {"lr": cfg["lr"], "eps": cfg["eps"]}}, path)
+    ckpt = checkpoint_helpers.load_checkpoint(str(path))
+    assert ckpt["optimizer_state_dict"]["lr"] == 2.0e-3 and ckpt["optimizer_state_dict"]["eps"] == 1.0e-8
+    assert torch.equal(ckpt["model_state"]["w"], torch.arange(3.0))
+    torch.save({"x": _NotAllowlisted()}, tmp_path / "other.tar")
+    with pytest.raises(RuntimeError, match="allowlist"):
+        checkpoint_helpers.load_checkpoint(str(tmp_path / "other.tar"))
+
+
 # --- grid declaration (api_delta §3.2, makani_port/grid_declaration.md option 1) ---
 _OUR_LAT = [89.5 - i for i in range(180)]
 

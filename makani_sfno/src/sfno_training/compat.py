@@ -26,8 +26,8 @@ converter. That package does not exist at the pin, so patching it is
 feature-detected by import.
 
 The module also carries the small helpers that let our code run on both the
-pin and makani main (model-parallel layout, loss compile, grid declaration); see
-the sections below.
+pin and makani main (checkpoint safe globals, model-parallel layout, loss
+compile, grid declaration); see the sections below.
 
 Idempotent: importing this module twice is a no-op.
 """
@@ -57,6 +57,35 @@ except ImportError:  # the pin has no backends package
     _backends_base = None
 else:
     _backends_base.get_timedelta_from_timestamp = _timedelta_cast  # type: ignore[assignment]
+
+
+# ---------------------------------------------------------------------------
+# Legacy checkpoints on makani main (api_delta §3.1, operator ruling 2026-10-01)
+#
+# main loads checkpoints with torch.load(weights_only=True)
+# (checkpoint_helpers.load_checkpoint). Ours pickle two ruamel types, the YAML-parsed
+# lr/eps inside optimizer and scheduler state, so even a model-only load is refused.
+# ---------------------------------------------------------------------------
+def _register_checkpoint_safe_globals() -> bool:
+    """Allow exactly ``ScalarFloat`` and ``Anchor`` (measured on all ten golden checkpoints).
+
+    Never the global ``MAKANI_ALLOW_UNSAFE_CHECKPOINT_LOAD`` escape.
+    """
+    try:
+        from makani.utils import checkpoint_helpers as _ch
+    except ImportError:
+        return False
+    if not hasattr(_ch, "load_checkpoint"):
+        return False  # the pin loads with weights_only=False; nothing to allow
+    import torch
+    from ruamel.yaml.anchor import Anchor
+    from ruamel.yaml.scalarfloat import ScalarFloat
+
+    torch.serialization.add_safe_globals([ScalarFloat, Anchor])
+    return True
+
+
+CHECKPOINT_SAFE_GLOBALS_REGISTERED = _register_checkpoint_safe_globals()
 
 
 # ---------------------------------------------------------------------------
