@@ -36,9 +36,16 @@ Each arm runs **twice** in-process.
 
 **Expected.** `clipped=20/20` in both arms; `repeat_bitwise=yes` in both. (a) vs (b): **predicted
 `bitwise=no`**, because the reduction order differs. That is a measurement, not a failure. The
-operator rules on it before Parts 1+: a tolerance for M5's clipped probe, or report-only. The
 **unclipped** trace stays bitwise in M5 whatever is ruled. `clipped < 20/20` means the threshold
 did not bind; the arm is reported and the probe is re-specified, not re-run with a new number.
+
+**Amendment (tolerance panel 7697688, `equivalence_tolerance.md` §2b, row G3).** Both arms
+**must** show `clipped=20/20` and `repeat_bitwise=yes`; otherwise P0.1 is red. The per-step a-vs-b
+relative differences of loss and grad norm are written as **`n2_null.json`** (`null_k` per step).
+That file is the null for M5's clipped probe (row G3): step 1 loss bitwise and gn rel ≤ 1e-5;
+step k ≥ 2 loss rel ≤ max(3·null_k, 1e-6) and gn rel ≤ max(3·null_k, 1e-5), capped at 1e-4,
+with steps at and past the cap report-only. This is a pre-registered formula with an old-venv
+null, not a widening.
 
 ## P0.2 `_foreach_norm` on complex gradients (review 7681379 #3)
 
@@ -47,11 +54,17 @@ on one batch (bf16 autocast, as the trace), old venv, GPU: compare `torch._forea
 per tensor with `torch.linalg.vector_norm(g)` (= `sqrt(sum(|g|^2))`, which is what the pin
 computes).
 
-**Token.** `FOREACH_NORM_COMPLEX_OK n=<tensors> n_complex=<c> max_rel=<x>` when every result is
-real, finite, and within **max_rel ≤ 1e-5** of the reference (two fp32 reductions that may
-order differently, so this is a correctness check, not an equivalence gate). Otherwise
+**Token.** `FOREACH_NORM_COMPLEX_OK n=<tensors> n_complex=<c> max_rel=<x> total_rel=<y>` when every
+result is real, finite, and within **max_rel ≤ 1e-5** of the reference. Otherwise
 `ERROR FOREACH_NORM_COMPLEX <first tensor> <reason>`. That is an **M5 STOP** and a candidate
 upstream bug, reported to the operator.
+
+**Amendment (tolerance panel 7697688, §2b, row G4).** The 1e-5 bound stays, with three changes.
+(1) The reference is fp64, `torch.linalg.vector_norm(g.double())`. (2) `n_complex ≥ 1` is required
+and printed; 0 complex tensors is red, because the check would then prove nothing. (3) The total
+norm, `sqrt(sum of squares)` over all tensors, is also compared, at rel ≤ 1e-5. Zero-gradient
+tensors are compared absolutely at 1e-12. Recorded limitation: a norm cannot see a conjugated
+complex gradient. Row T1-g (the step-2 loss, bitwise) catches that.
 
 ## P0.3 CRPS 2-member reference (`nf4_crps_b4_r1`, review 7681379 #4)
 
@@ -71,6 +84,19 @@ Parts 1+.
 Arm (a) of P0.1 is also written as `clipped_ref.json`. `GOLDEN_MATCH clipped_in_job` = its two
 processes bitwise equal. M5's clipped probe (new venv) compares against this file, under the
 P0.1 ruling.
+
+## P0.6 Per-tensor gradient reference and N1 training pre-test (panel 7697688 §3 item 6)
+
+- **`trace_pertensor_ref.json`.** The slot-3 old-venv regression run of golden trace #3 also
+  writes, at step 1, each parameter's gradient L2 norm in fp64 (`vector_norm(g.double())`), keyed
+  by parameter name (A: 87 tensors). It is valid **only if** that run's trace matches 7676860
+  bitwise (`GOLDEN_MATCH train_vs_ref`); otherwise it is not written. It is the reference for M5
+  row G2: rel ≤ 1e-5 per tensor, and an identical tensor set.
+- **`N1_TRAIN_PRETEST`.** Golden trace #3 rerun on the old venv under `TORCH_COMPILE_DISABLE=1`,
+  compared with `golden/trace_train_r1.json`: `N1_TRAIN_PRETEST bitwise=<yes|no> first=<step>:<field>`.
+  `bitwise=no` means N1 (main dropped `@torch.compile` from the dhconv contraction) moves training
+  on its own. Row T1-g (unclipped trace bitwise) would then be impossible by construction. That is
+  a **STOP before Parts 1+**, reported to the operator.
 
 ## P0.5 HB-0 — hydrostatic residual on TRAIN truth: **definition pending, not run in slot 3**
 
