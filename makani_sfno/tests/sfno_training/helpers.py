@@ -25,6 +25,24 @@ makani = pytest.importorskip("makani")
 import torch.nn as nn  # noqa: E402  -- after importorskip
 
 
+def set_unit_model_parallel(params) -> None:
+    """Model parallelism off, in the installed makani's own layout.
+
+    The pin initialises ``[h, w, fin, fout]``; makani main (``f9b6e787``) has
+    ``[h, w, matmul]``. Reading ``comm.init``'s defaults keeps one test source
+    valid on both venvs, and on the pin sets exactly the params it always did.
+    """
+    import inspect
+
+    from makani.utils import comm
+
+    names = list(inspect.signature(comm.init).parameters["model_parallel_names"].default)
+    for name in names:
+        params[f"{name}_parallel_size"] = 1
+    params["model_parallel_sizes"] = [1] * len(names)
+    params["model_parallel_names"] = names
+
+
 class RecordingDummyModel(nn.Module):
     """Minimal nettype that:
 

@@ -27,7 +27,7 @@ makani = pytest.importorskip("makani")
 
 from makani.utils.YParams import YParams  # noqa: E402
 
-from helpers import RecordingDummyModel  # noqa: E402
+from helpers import RecordingDummyModel, set_unit_model_parallel  # noqa: E402
 
 from sfno_training.data import PlasimForcingDataset  # noqa: E402
 from sfno_training.models import (  # noqa: E402
@@ -77,12 +77,7 @@ def _populate_runtime_params(params, exp_dir: Path) -> None:
     params["batch_size"] = 1
     params["data_num_shards"] = 1
     params["data_shard_id"] = 0
-    params["fin_parallel_size"] = 1
-    params["fout_parallel_size"] = 1
-    params["h_parallel_size"] = 1
-    params["w_parallel_size"] = 1
-    params["model_parallel_sizes"] = [1, 1, 1, 1]
-    params["model_parallel_names"] = ["h", "w", "fin", "fout"]
+    set_unit_model_parallel(params)
     params["parameters_reduction_buffer_count"] = 1
     params["optimizer_max_grad_norm"] = 1.0
 
