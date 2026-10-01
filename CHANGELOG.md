@@ -144,6 +144,19 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani) — port to upstream makani `main` planned: worker + monitor handoffs in
+  `makani_port/`.** Operator: port to the latest `main`, keep the same checkpoints, small commits with
+  a green tag per milestone, revert to the last green commit on breakage. Ours = 0.2.0 @ `c9704308`
+  (2026-04-23); `main` = `a0aa4c4f` (2026-09-30), 184 commits / 209 files ahead, same `__version__`.
+  Plan (`makani_port/HANDOFF_worker.md`): new venv `sfno-venv-main` **beside** `sfno-venv` (never
+  modify the old one; physicsnemo non-editable there), branch `feat/makani-port-main`; milestones M0
+  inventory + golden baselines (old venv, run twice, bitwise) → M1 venv → M2 suites on both venvs →
+  M3 strict checkpoint load → M4 inference bitwise vs golden (+ F2, A e243 @ 595) → M5 training
+  equivalence → M6 `SFNO_VENV` opt-in, default unchanged → M7 spatial `w=4` re-test (upstream
+  `4c40a0e0`) → M8 switch-over = operator. Monitor: `makani_port/HANDOFF_monitor.md`. Bookkeeping:
+  `makani_port/PROGRESS.md` (dated Progress/Surprises/Decisions/Next) and `makani_port/_papercuts.md`
+  (seeded with 30+ traps from 09-24..30; read at session start and before every `qsub`).
+
 - **2026-09-30 (makani) — surgical soil-free checkpoint screen: ✅ `SURGICAL_SOIL_SCREEN_OK`,
   outcome D (slicing damage) at both starts — says nothing about soil.** Job **7671841** (rollouts;
   its summary failed `TRUTH_MISSING_CHANNEL: TMQ` — the default truth files predate the summary's TMQ
