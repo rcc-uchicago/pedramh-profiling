@@ -73,7 +73,15 @@ State that magnitude before calling it a defect.
   `GRID_VERIFY_OPTOUT equiangular_cellcentred`. Bitwise-preserving.
 - **To fix the weighting** is a loss/metric change → not a port; jesswan.
 **Default I would take:** preserve as above, and send jesswan the measured magnitude separately.
-**Not implemented — STOP until the operator answers** (the monitor concurs on the scoping).
+**Operator ruling 2026-10-01 (relayed by the monitor): take the default** — implement in M2,
+dataset-scoped, bitwise; measure the magnitude for jesswan.
+
+**Weight difference, measured (stdlib, the formula `GridQuadrature("naive")` uses):** makani's
+row weights `sin(linspace(0, π, 180))` vs band areas `sin(north edge) − sin(south edge)` at
+89.5…−89.5, both normalised: L1 distance **0.63 %** of total weight; the two ±89.5° rows get weight
+**0** (should be 7.6e-5 each, 100 % relative); 46 rows differ by > 1 %, 16 by > 5 %, 10 by > 10 %
+(all poleward); 0.56 % at the equator; mass poleward of 85° is 3.08e-3 vs 3.81e-3. The effect on
+A's loss is measured by `scripts/port_grid_weight_delta.py` (`GRID_WEIGHT_DELTA`, M1 job).
 
 ### 3.3 Predicted non-bitwise sources (pre-register in M4/M5 preregs; never loosen)
 
