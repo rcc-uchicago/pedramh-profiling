@@ -144,6 +144,25 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani/ACE2) — code-level audit of makani vs ACE2 landed; ACE2 5-year rollout test
+  submitted.** Audit = debug job **7703518** (`polaris_makani_ace2_audit.pbs`, 4 Fable 5.1 section
+  auditors + synthesis on a compute node, read-only; `MAKANI_ACE2_AUDIT_OK`) →
+  `makani_sfno/docs/2026-10-01_makani_vs_ace2_code_audit.md` (§8 ranked ports, §9 corrections to
+  older docs). New beyond earlier docs, spot-checked in code: ACE2-EAMv3's loss normalizer gives PS
+  ≈1437× our weight (`1/r²`-like, makani's `temp_diff` is only `1/r`); our config forces an
+  equiangular SHT on the 60-row internal grid (makani's bandlimit there is degree 29 of 60 kept modes;
+  aliasing INFERRED); our rollouts run under bf16 autocast (fed-back dtype still open); ACE2 selects a
+  checkpoint on a 5-year rollout metric; the two "same SFNO" claims are wrong (ai2 modulus SFNO: concat
+  skip, pos_embed, LG SHT vs makani's). Rollout test (prereg
+  `ACE2_retrain/polaris/ace2_5yr_rollout_prereg.md`): ai2's Hugging Face **ACE2-ERA5** on our ERA5
+  and **ACE2-EAMv3 driven by our E3SM-SRM archive** (`build_eamv3_inputs.py`: forcing maps 1:1, the
+  initial state is approximate — 18→8 layers, total water from RELHUM/T/CLDLIQ/CLDICE), 8 starts each =
+  the makani protocol's Oct 2044 starts. Prep **7704377** (debug) → rollout **7704379** (debug-scaling,
+  4 nodes, `afterok`). PASS = `ACE2_ROLLOUT_PREP_OK`, then `ACE2_5YR_OK`; results under
+  `$MEMBER_ROOT/runs/ace2_5yr/7704377/`. Our ACE2 retrain was dropped from this test (operator: Hugging
+  Face models only). Answer to "can the E3SM-SRM archive feed ACE2-EAMv3?": for **inference**, yes
+  (approximate IC); for **training** the EAMv3 contract, no (no Q, rain water, native levels, fluxes).
+
 - **2026-10-01 (makani) — our E3SM SFNO predicts the FULL next state, not a tendency; the
   checkpoint-usage docs said otherwise and are corrected.** `target: "tendency"` in every
   `e3sm_*.yaml` is a dead key: neither makani `c9704308` (`sfno-venv`) nor `a0aa4c4f`
