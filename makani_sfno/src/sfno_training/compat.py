@@ -97,3 +97,21 @@ def set_model_parallel_params(params, sizes, names) -> None:
         params[f"{name}_parallel_size"] = size
     params["model_parallel_sizes"] = list(sizes)
     params["model_parallel_names"] = list(names)
+
+
+# ---------------------------------------------------------------------------
+# Loss handler: main compiles every non-SHT loss term by default (b4e9c6a, 74ba136)
+# ---------------------------------------------------------------------------
+def loss_handler_compile_off(loss_handler_cls):
+    """``loss_handler_cls`` defaulting to ``compile=False`` where it has that kwarg (main);
+    the class itself on the pin. Compiling the loss changes its values (fused reductions),
+    so it is an optimisation behind the DESIGN §4 gate -- not part of the port."""
+    if "compile" not in inspect.signature(loss_handler_cls.__init__).parameters:
+        return loss_handler_cls
+
+    class EagerLossHandler(loss_handler_cls):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("compile", False)
+            super().__init__(*args, **kwargs)
+
+    return EagerLossHandler

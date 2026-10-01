@@ -347,6 +347,9 @@ def _install_plasim_patches() -> None:
     deterministic_trainer.sync_params = _serialized_sync_params
     ensemble_trainer.get_dataloader = _plasim_get_dataloader
     ensemble_trainer.sync_params = _serialized_sync_params
+    # makani main compiles the loss terms by default; keep them eager (identity on the pin)
+    for module in (deterministic_trainer, ensemble_trainer):
+        module.LossHandler = compat.loss_handler_compile_off(module.LossHandler)
 
     _PATCHES_INSTALLED = True
     logger.info("installed PlaSim trainer patches (deterministic + ensemble)")

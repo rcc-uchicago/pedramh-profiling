@@ -55,3 +55,35 @@ def test_feature_split_on_the_installed_makani():
     else:  # main maps fin x fout onto its one matmul group
         assert compat.model_parallel_layout(1, 1, fin=2, fout=2) == ([1, 1, 4], ["h", "w", "matmul"])
         assert compat.model_parallel_layout(1, 1, matmul=2) == ([1, 1, 2], ["h", "w", "matmul"])
+
+
+def test_loss_handler_compile_off_only_changes_the_default():
+    class Compiling:
+        def __init__(self, params, compile=True):
+            self.compile = compile
+
+    class PinStyle:
+        def __init__(self, params):
+            pass
+
+    eager = compat.loss_handler_compile_off(Compiling)
+    assert issubclass(eager, Compiling)
+    assert eager(None).compile is False
+    assert eager(None, compile=True).compile is True
+    assert compat.loss_handler_compile_off(PinStyle) is PinStyle
+
+
+def test_both_trainer_modules_build_an_eager_loss():
+    from makani.utils import loss as makani_loss
+    from makani.utils.training import deterministic_trainer, ensemble_trainer
+
+    from sfno_training.trainer.plasim_trainer import _install_plasim_patches
+
+    _install_plasim_patches()
+    has_compile = "compile" in inspect.signature(makani_loss.LossHandler.__init__).parameters
+    for module in (deterministic_trainer, ensemble_trainer):
+        if has_compile:  # makani main
+            assert module.LossHandler is not makani_loss.LossHandler
+            assert issubclass(module.LossHandler, makani_loss.LossHandler)
+        else:  # the pin: untouched
+            assert module.LossHandler is makani_loss.LossHandler
