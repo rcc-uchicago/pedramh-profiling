@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from argparse import Namespace
 
-from sfno_training.train_plasim import _should_skip_distributed_init
+from makani.utils import argument_parser
+
+from sfno_training.train_plasim import _odirect_params, _should_skip_distributed_init
 
 
 def _args(**overrides):
@@ -49,3 +51,13 @@ def test_model_parallel_size_reads_either_parser(monkeypatch):
     main_args.matmul_parallel_size = 2
     assert _should_skip_distributed_init(main_args) is False
     assert _should_skip_distributed_init(_args(fin_parallel_size=2)) is False
+
+
+def test_odirect_params_from_the_installed_parser():
+    defaults = argument_parser.get_default_argument_parser().parse_args([])
+    if hasattr(defaults, "odirect_config"):  # makani main
+        assert _odirect_params(defaults) == {"enable_odirect": False, "odirect_alignment": 0}
+        assert _odirect_params(Namespace(odirect_config="4K")) == {"enable_odirect": True, "odirect_alignment": 4096}
+    else:  # the pin: the flag passes straight through, as before
+        assert _odirect_params(defaults) == {"enable_odirect": defaults.enable_odirect}
+        assert _odirect_params(Namespace(enable_odirect=True)) == {"enable_odirect": True}

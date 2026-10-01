@@ -196,6 +196,18 @@ def _feature_parallel_sizes(args: Namespace):
     return fin, fout, (None if matmul is None else int(matmul))
 
 
+def _odirect_params(args: Namespace) -> dict:
+    """O_DIRECT params from whichever flag the installed makani's parser defines.
+
+    makani main replaced ``--enable_odirect`` with ``--odirect_config``; the params keys
+    are unchanged and set the way upstream ``train.py:119`` sets them.
+    """
+    if hasattr(args, "odirect_config"):
+        enable, alignment = argument_parser.parse_odirect_config(args.odirect_config)
+        return {"enable_odirect": enable, "odirect_alignment": alignment}
+    return {"enable_odirect": args.enable_odirect}
+
+
 def _model_parallel_size(args: Namespace) -> int:
     fin, fout, matmul = _feature_parallel_sizes(args)
     return prod([args.h_parallel_size, args.w_parallel_size, fin * fout if matmul is None else matmul])
@@ -321,7 +333,8 @@ def main() -> None:
     params["jit_mode"] = args.jit_mode
     params["skip_validation"] = args.skip_validation
     params["skip_training"] = args.skip_training
-    params["enable_odirect"] = args.enable_odirect
+    for key, value in _odirect_params(args).items():
+        params[key] = value
     params["enable_s3"] = args.enable_s3
     params["checkpointing_level"] = args.checkpointing_level
     params["enable_synthetic_data"] = args.enable_synthetic_data
