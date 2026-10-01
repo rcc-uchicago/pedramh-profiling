@@ -3,6 +3,27 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 ~18:15Z — c8 + c10 landed on the operator's word; slot-3 series complete; slot-3 gate next
+
+**Progress** (`feat/makani-port-main-dev`)
+- `afe780ab` c8: `compat.parse_dataset_metadata_scoped` — rebinds `parse_dataset_metada.verify_grid_type` around our
+  own call only, waives exactly `equiangular` + our 180 cell-centred rows (N→S, 1e-3°), restores in `finally`, prints
+  `GRID_VERIFY_OPTOUT equiangular_cellcentred n_lat=180 source=…` once per process; stock call on the pin. Wired in
+  `train_plasim.py` and `scripts/preflight.py` (the only two production call sites). 4 tests in `test_compat_port.py`.
+- `4f0f51d8` c10: `ScalarFloat` + `Anchor` safe globals at `compat` import, only when main's
+  `checkpoint_helpers.load_checkpoint` exists. 1 test (anchored ScalarFloat round-trips through makani's loader; any
+  other class still refused). Login checks: `py_compile` only.
+
+**Decisions**
+- Operator (~18:00Z, direct, after the ACE2 side track): "**ignore the check c8 for now and do the weighting in the
+  score**" = `grid_declaration.md` option 1 now; band-area weights in scoring (`sfno_eval/metrics.py`), training and
+  validation keep makani's naive weights. "For now": revisit with jesswan before any from-scratch campaign.
+- §3.1 option (a) was already ruled at 05:05Z; c10 implements it unchanged from the worker's draft.
+
+**Next**
+- Fast-forward the port worktree to the dev head (0 dirty) → `qstat` → `qsub polaris/polaris_makani_port_slot3.pbs`
+  from its `makani_sfno/` → `PORT_M2M3 gate=green`.
+
 ## 2026-10-01 ~17:40Z — tolerance ruling applied; slot-3 job written; only c8/c10 stand between it and the qsub
 
 **Progress** (`feat/makani-port-main-dev`, pushed)

@@ -1,7 +1,9 @@
 # Grid declaration: what makani main requires, and why the port waives one check
 
 **Status (2026-10-01):** describes the operator's ruling on `api_delta.md` §3.2 (dataset-scoped opt-out, outputs
-bitwise) and commit c8 (scoped `verify_grid_type` rebind, awaiting operator approval in the worker session).
+bitwise) and commit c8 `afe780ab` (`compat.parse_dataset_metadata_scoped`, the scoped `verify_grid_type` rebind).
+Operator ~18:00Z: "ignore the check c8 for now and do the weighting in the score" — option 1 for now; band-area
+weights live in the scorer, not in training or validation.
 
 ## What makani main requires
 
