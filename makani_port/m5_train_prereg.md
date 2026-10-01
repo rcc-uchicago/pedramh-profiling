@@ -66,6 +66,16 @@ norm, `sqrt(sum of squares)` over all tensors, is also compared, at rel ≤ 1e-5
 tensors are compared absolutely at 1e-12. Recorded limitation: a norm cannot see a conjugated
 complex gradient. Row T1-g (the step-2 loss, bitwise) catches that.
 
+*Implementation note (not a change of threshold).* For a complex gradient, the fp64 reference is
+`vector_norm(g.to(torch.complex128))`. A literal `g.double()` discards the imaginary part, so it
+would compute the real-part-only norm that row G4 exists to catch. Real gradients use
+`g.double()` as written (`scripts/port_golden_train.py::_fp64_norm`).
+
+**Harness.** `scripts/port_golden_train.py` knobs `GOLDEN_MAX_GRAD_NORM`, `GOLDEN_CLIP_ARITH`,
+`GOLDEN_PERTENSOR_OUT`, `GOLDEN_FOREACH_CHECK` and `GOLDEN_PARAMS_SHA`. With none set, the run and
+the trace are the M0 golden ones. Verdicts come from `scripts/port_part0_compare.py` (`n2`, `n1`,
+`crps`).
+
 ## P0.3 CRPS 2-member reference (`nf4_crps_b4_r1`, review 7681379 #4)
 
 Warm start from `nf4_crps_b4_r1/training_checkpoints/best_ckpt_mp0.tar` (model weights only),
