@@ -39,6 +39,10 @@ import inspect
 from makani.utils.dataloaders import data_helpers as _dh
 from makani.utils.dataloaders import data_loader_multifiles as _dlm
 
+#: makani main reworked MultifilesDataset onto storage backends and dropped the
+#: per-file HDF5 internals PlasimForcingDataset builds on (api_delta §2).
+MAKANI_HAS_BACKENDS = not hasattr(_dlm.MultifilesDataset, "_get_stats_h5")
+
 
 def _timedelta_cast(t) -> _dt.timedelta:
     return _dt.timedelta(seconds=int(t))
