@@ -1,0 +1,177 @@
+#!/bin/bash -l
+#PBS -N makani_port_golden
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# makani port M0 gate (makani_port/HANDOFF_worker.md §3, m0_golden_prereg.md):
+# golden baselines on the OLD venv (makani c9704308), one debug node.
+#
+#   1. inference  scripts/port_golden_infer.py over makani_port/golden_checkpoints.json:
+#                 file/param/state sha256 + K=56 rollout from 2048 f1092 (lead 1 = 1-step),
+#                 sha256 per lead, in-process control rollout     -> PORT_GOLDEN_INFER_OK
+#   2. validate   A e243 warm-started, --skip_training, 64 fixed valid samples, x2 processes
+#   3. train      A e243 warm-started, 20 steps (160 samples, batch 8, 1 GPU), seed fixed,
+#                 per-step loss + grad norm + clipped flag, x2 processes
+#   4. suites     polaris_f_finetune_tests.pbs (CPU, run in the background)
+#
+# Mode: without -v GOLDEN_REF the job WRITES a golden set (and .npy predictions) and prints
+#   PORT_GOLDEN_WRITTEN; with -v GOLDEN_REF=<dir of an earlier golden job> it also compares
+#   bitwise against it and prints PORT_GOLDEN_OK (the M0 gate = the second run).
+# Tolerance is BITWISE and is not a knob (CLAUDE.md #1). Key on tokens (#14).
+#
+# Submit from makani_sfno/:   qsub polaris/polaris_makani_port_golden.pbs
+#                             qsub -v GOLDEN_REF=<dir> polaris/polaris_makani_port_golden.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_equiv.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export WANDB_MODE=offline
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_port/golden/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+HOLDOUT="${MEMBER_ROOT}/data/e3sm_makani_alldata_production/test"
+LIST="${REPO}/makani_port/golden_checkpoints.json"
+A_RENDERED="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling.prod1n_b32_sgdr.yaml"
+A_CKPT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar"
+EXPECT_MAKANI_COMMIT="${EXPECT_MAKANI_COMMIT:-c97043086e60d44a3adc3bede9a6b3dc71f5005d}"
+
+SHA="$(cd "${REPO}" && git rev-parse HEAD 2>/dev/null)"
+DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"
+echo "=== makani_port_golden: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
+echo "PORT_GOLDEN_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} venv=$(readlink -f "${SFNO_VENV}") out=${OUT} ref=${GOLDEN_REF:-none}"
+makani_env_report
+"${PY}" - "${EXPECT_MAKANI_COMMIT}" <<'PY' || exit 3
+import glob, hashlib, json, os, sys
+import makani
+site = os.path.dirname(os.path.dirname(makani.__file__))
+di = sorted(glob.glob(os.path.join(site, "makani-*.dist-info")))
+if len(di) != 1:
+    print("ERROR MAKANI_DIST_INFO_AMBIGUOUS %s" % di); sys.exit(3)
+du = os.path.join(di[0], "direct_url.json")
+commit = json.load(open(du))["vcs_info"]["commit_id"]
+sha = lambda p: hashlib.sha256(open(p, "rb").read()).hexdigest()
+print("PORT_GOLDEN_MAKANI commit=%s direct_url_sha256=%s RECORD_sha256=%s file=%s"
+      % (commit, sha(du), sha(os.path.join(di[0], "RECORD")), makani.__file__))
+if commit != sys.argv[1]:
+    print("ERROR MAKANI_COMMIT_UNEXPECTED got=%s expected=%s" % (commit, sys.argv[1])); sys.exit(3)
+PY
+echo
+
+# --- 4. suites, CPU-only, in the background while the GPU stages run ---
+bash "${MAKANI_ROOT}/polaris/polaris_f_finetune_tests.pbs" > "${OUT}/suites.out" 2>&1 &
+SUITES_PID=$!
+
+export CUDA_VISIBLE_DEVICES=0
+SAVE_ARGS=()
+[ -z "${GOLDEN_REF:-}" ] && SAVE_ARGS=( --save-dir "${OUT}/npy" )
+
+# --- 1. inference ---
+"${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+    "${MAKANI_ROOT}/scripts/port_golden_infer.py" \
+    --list "${LIST}" --holdout "${HOLDOUT}" --out "${OUT}/infer.json" "${SAVE_ARGS[@]}" \
+    > "${OUT}/infer.log" 2>&1
+grep -E "^(GOLDEN_INFER|PORT_GOLDEN_INFER_OK|ERROR)" "${OUT}/infer.log"
+
+# --- 2/3. render A's own config with the golden overrides only ---
+RENDERED="${OUT}/golden_A.yaml"
+"${PY}" - "${A_RENDERED}" "${RENDERED}" "${OUT}/train_exp" <<'PY' || exit 2
+import re, sys
+src, dst, exp_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(src).read()
+def setkey(t, key, val):
+    pat = re.compile(r"^(\s*)%s:.*$" % re.escape(key), re.M)
+    if not pat.search(t):
+        raise SystemExit("ERROR GOLDEN_RENDER_KEY_MISSING %s" % key)
+    return pat.sub(lambda m: "%s%s: %s" % (m.group(1), key, val), t, count=1)
+for k, v in [("exp_dir", '"%s"' % exp_dir), ("n_train_samples_per_epoch", 160), ("max_epochs", 1),
+             ("n_eval_samples", 64), ("lr_warmup_steps", 0), ("log_to_wandb", "!!bool False")]:
+    text = setkey(text, k, v)
+open(dst, "w").write(text)
+print("PORT_GOLDEN_RENDERED %s from %s" % (dst, src))
+PY
+
+run_trace() {  # name extra-args...
+    local name=$1; shift
+    GOLDEN_TRACE_OUT="${OUT}/trace_${name}.json" GOLDEN_SEED=1234 \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${MAKANI_ROOT}/scripts/port_golden_train.py" \
+        --yaml_config "${RENDERED}" --config e3sm_mn_scaling --run_num "golden_${name}" \
+        --batch_size 8 --multistep_count 1 --amp_mode bf16 --save_checkpoint none \
+        --pretrained_checkpoint_path "${A_CKPT}" "$@" > "${OUT}/${name}.log" 2>&1
+    grep -E "^(PORT_GOLDEN_TRACE_WRITTEN|ERROR)|Traceback|Error:" "${OUT}/${name}.log" | head -5
+}
+run_trace val_r1 --skip_training
+run_trace val_r2 --skip_training
+run_trace train_r1
+run_trace train_r2
+
+CMP="${MAKANI_ROOT}/scripts/port_golden_compare.py"
+ok=1
+grep -q "^PORT_GOLDEN_INFER_OK" "${OUT}/infer.log" || { echo "ERROR GOLDEN_INFER_NOT_OK"; ok=0; }
+for n in val_r1 val_r2 train_r1 train_r2; do
+    [ -f "${OUT}/trace_${n}.json" ] || { echo "ERROR GOLDEN_TRACE_MISSING ${n}"; ok=0; }
+done
+"${PY}" - "${OUT}" <<'PY' || ok=0
+import json, sys
+o = sys.argv[1]
+bad = []
+for n in ("train_r1", "train_r2"):
+    t = json.load(open("%s/trace_%s.json" % (o, n)))
+    if len(t["steps"]) != 20 or any("grad_norm" not in s for s in t["steps"]):
+        bad.append("%s steps=%d" % (n, len(t["steps"])))
+for n in ("val_r1", "val_r2"):
+    t = json.load(open("%s/trace_%s.json" % (o, n)))
+    if t["steps"] or not t["valid_steps"] or t["valid_loss"] in (None, "nan"):
+        bad.append("%s steps=%d valid_steps=%s" % (n, len(t["steps"]), t["valid_steps"]))
+if bad:
+    print("ERROR GOLDEN_TRACE_SHAPE %s" % bad); sys.exit(1)
+print("GOLDEN_TRACE_SHAPE_OK train=20x2 val_steps=%s" % t["valid_steps"])
+PY
+"${PY}" "${CMP}" "${OUT}/trace_val_r1.json" "${OUT}/trace_val_r2.json" --label val_in_job || ok=0
+"${PY}" "${CMP}" "${OUT}/trace_train_r1.json" "${OUT}/trace_train_r2.json" --label train_in_job || ok=0
+
+wait "${SUITES_PID}"
+grep -E "^(F_FINETUNE_TESTS_OK|ERROR)" "${OUT}/suites.out"
+grep -q "^F_FINETUNE_TESTS_OK 6/6" "${OUT}/suites.out" || { echo "ERROR GOLDEN_SUITES_NOT_OK"; ok=0; }
+
+if [ -n "${GOLDEN_REF:-}" ]; then
+    "${PY}" "${CMP}" "${GOLDEN_REF}/infer.json" "${OUT}/infer.json" --label infer_vs_ref || ok=0
+    "${PY}" "${CMP}" "${GOLDEN_REF}/trace_val_r1.json" "${OUT}/trace_val_r1.json" --label val_vs_ref || ok=0
+    "${PY}" "${CMP}" "${GOLDEN_REF}/trace_train_r1.json" "${OUT}/trace_train_r1.json" --label train_vs_ref || ok=0
+    [ "${ok}" -eq 1 ] && echo "PORT_GOLDEN_OK tolerance=bitwise ref=${GOLDEN_REF} out=${OUT} sha=${SHA}" \
+                      || echo "ERROR PORT_GOLDEN_FAILED out=${OUT}"
+else
+    [ "${ok}" -eq 1 ] && echo "PORT_GOLDEN_WRITTEN out=${OUT} sha=${SHA} (resubmit with -v GOLDEN_REF=${OUT} for the gate)" \
+                      || echo "ERROR PORT_GOLDEN_FAILED out=${OUT}"
+fi
+echo "=== makani_port_golden done $(date -Iseconds) ==="

@@ -60,24 +60,31 @@ globally (the handoff rules this shape out). **Default I would take: (a).**
 No makani grid type matches cell-centred latitudes ("they match no grid type makani knows").
 
 Upstream's reason (verbatim): *"a wrong declaration silently mis-weights every area averaged loss
-and metric."* So this is not only a port break; it says **every checkpoint we have was trained and
-scored with naive-equiangular quadrature on a grid it does not describe.**
-- **To keep "same outputs" (the port's contract)** we must keep `equiangular` and not let makani
-  verify it — e.g. pass the file's own coordinates as `lat_lon` to the backend (skips verification,
-  coordinates unchanged) and wrap the `parse_dataset_metadata` check. Bitwise-preserving.
+and metric."* That makes it a **hypothesis** about our existing checkpoints — that they were trained
+and scored with `naive` quadrature over nodes that are not where the data lives. Its size is
+**unmeasured**: nobody has compared makani's equiangular weights at `linspace(−90, 90, 180)` with
+cell-centred weights at 89.5…−89.5, or propagated the difference into the `l2` loss and metrics.
+State that magnitude before calling it a defect.
+- **To keep "same outputs" (the port's contract)** keep `equiangular` and opt out of the check for
+  **our dataset only** — never a global monkeypatch of `verify_grid_type` (same rule as the
+  checkpoint bypass): `PlasimForcingDataset` passes the file's own coordinates as `lat_lon` to its
+  backend (coordinates unchanged, verification not reached), and a narrowly-scoped catch of the
+  `parse_dataset_metadata` check for our `data.json`. One greppable line per job:
+  `GRID_VERIFY_OPTOUT equiangular_cellcentred`. Bitwise-preserving.
 - **To fix the weighting** is a loss/metric change → not a port; jesswan.
-**Default I would take:** preserve (bitwise), behind an explicit, logged opt-out, and raise the
-weighting question with jesswan separately. This needs the operator's yes before M2.
+**Default I would take:** preserve as above, and send jesswan the measured magnitude separately.
+**Not implemented — STOP until the operator answers** (the monitor concurs on the scoping).
 
 ### 3.3 Predicted non-bitwise sources (pre-register in M4/M5 preregs; never loosen)
 
 | # | where | commit | hits | mitigation |
 |---|---|---|---|---|
 | N1 | `_contract_lwise` (dhconv, our `operator_type`) lost `@torch.compile` | `6922a56` | **inference + training** | none in our code; if M4 is non-bitwise, bisect here first |
-| N2 | grad-norm arithmetic in `clip_grads` | `a14185d` | training, every clipped step | none (stock step) |
+| N2 | grad-norm arithmetic in `clip_grads` | `a14185d` | the **logged** grad norm always; the update only on a clipped step | none (stock step). Measured inert for the update: max per-epoch grad norm 0.300 (A, 243 ep) / 0.187 (B) / 0.043 (C1) vs `optimizer_max_grad_norm 32`. Unclipped: old multiplies by `clamp(…, max=1) = 1.0` (bitwise identity), new skips — same grads |
 | N3 | compiled loss terms | `b4e9c6a`, `74ba136` | training + validation loss | `compile=False` rebind (§2) |
 | N4 | MLP `fc1`/`fc2` constructed before init → different RNG draws | `f9b6e787` | fresh-init training only (not checkpoint loads) | M5 trace must warm-start from a checkpoint |
 | N5 | `DistributedInstanceNorm2d` normalises in fp32 (was bf16) | `18c4582` | **spatial `h·w > 1` only** | none — see §4 (M7) |
+| N6 | same commit, h1w1 paths: `SpectralConv` adds `bias.to(x.dtype)` (was fp32-promoting `x + bias`); `GeometricInstanceNormS2` in fp32; `pos_embed.to(x.dtype)` (monitor, 2026-10-01) | `18c4582` | inference + training under bf16, **only** for a SpectralConv bias / `instance_norm_s2` / a pos embed | **measured inert for every golden checkpoint**: 0 `filter*bias` keys in all six model states, all `normalization_layer: instance_norm`, all `pos_embed: none`. Kept as a bisect suspect next to N1 |
 
 ## 4. The five commits the handoff named, read in full
 
@@ -106,6 +113,17 @@ scheduler_state_dict, iters, epoch`; epoch 243, iters 332424; 87 model tensors (
 model comm names {model, spatial, matmul, h, w} (a subset) → the legacy comm check passes.
 A's `config.json`: `amp_mode bf16`, `pos_embed none` (so `sfnonet`'s new `pos_embed.to(dtype)` is
 inert), `optimizer_max_grad_norm 32`, `lr_start 0.01`, `model_parallel_names [h,w,fin,fout]`.
+
+### Golden checkpoint files (stored `epoch` read from each file, not inferred from the name)
+
+| tag | file under `e3sm_mn_scaling/` | epoch | note |
+|---|---|---|---|
+| A | `prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar` | 243 | |
+| B | `nf4_prod_b16_r1/training_checkpoints/ckpt_mp0_v1.tar` | 22 | rotating slot — read-only, never resume |
+| C1 | `c1_rollout_full_b16/training_checkpoints/ckpt_mp0_v23.tar` | 24 | `best_ckpt_mp0.tar` there is e18 |
+| nf4p_r1 | `nf4_proxy_b8_r1/training_checkpoints/best_ckpt_mp0.tar` | 1 | |
+| ema_smoke | `smoke_nosoil_4n_b32_r2/training_checkpoints/best_ckpt_ema_mp0.tar` | 1 | 99 ch; no optimizer/scheduler state |
+| — Fsurg | `fsurg_nf4_proxy_b8_r1/training_checkpoints/` | — | **empty**: job 7671977 `train rc=124 wall=2880s` (its own timeout) before the first epoch end; log stops at "Starting Training Loop". Not in M0 |
 
 ## 6. Requirements delta (for M1)
 
