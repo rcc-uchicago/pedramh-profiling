@@ -92,6 +92,20 @@ A's loss is measured by `scripts/port_grid_weight_delta.py` (`GRID_WEIGHT_DELTA`
 | N5 | `DistributedInstanceNorm2d` normalises in fp32 (was bf16) | `18c4582` | **spatial `h·w > 1` only** | none — see §4 (M7) |
 | N6 | same commit, h1w1 paths: `SpectralConv` adds `bias.to(x.dtype)` (was fp32-promoting `x + bias`); `GeometricInstanceNormS2` in fp32; `pos_embed.to(x.dtype)` (monitor, 2026-10-01) | `18c4582` | inference + training under bf16, **only** for a SpectralConv bias / `instance_norm_s2` / a pos embed | **measured inert for every golden checkpoint**: 0 `filter*bias` keys in all six model states, all `normalization_layer: instance_norm`, all `pos_embed: none`. Kept as a bisect suspect next to N1 |
 
+### 3.4 Our `_lNN` levels are not pressure levels (2026-10-01; overturns order panel fact 11)
+
+The pack's upper-air channels `{T,U,V,Z3,RELHUM}_l00..l17` are **terrain-following hybrid
+levels**, indexed top to surface (`polaris/convert_e3sm_to_makani_alldata.py:30-45`; Z3_l17 tracks
+topography, corr 0.979). `data.json attrs.level_table` carries a reference-pressure suffix and a
+**nominal** hPa label per index, and no hyam/hybm. Consequences for main's pressure-aware features:
+- **Never** feed an `lNN→hPa` alias to `HydrostaticBalanceProjection` (`ad960214`) as pressure.
+  The hydrostatic constraint and HB-0 need per-column pressure: the archive's hyam/hybm/P0, or a
+  written ruling on the approximation (m5 prereg P0.5). The moist RH→q variant is blocked on the
+  same thing.
+- The FCN3.1 (`30a8440f`) alias is for **channel grouping only** (atmo vs surface), not
+  coordinates. Say so in the F1 prereg.
+- `NonNegativeConstraint` takes channel names, not levels, so this does not affect it.
+
 ## 4. The five commits the handoff named, read in full
 
 - **`4c40a0e0` "Guard spectral weight splitting"** — only `SpectralCoherenceLoss` and
