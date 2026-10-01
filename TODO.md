@@ -329,6 +329,24 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
     **Deliberately deferred** — not to be done while job 7585080 and the batch-48 arms are
     writing to those files. Do it once they land. → `makani_bench_report.md` §5g.
 
+13a. **makani `main` port — post-M8 B-track** (review 7681379 §3; order panel 7682039). **Blocked on M8**
+    (the operator's switch to `sfno-venv-main`); nothing here starts before it. Order: B1 → B5 → B7;
+    B3+B4 one job after one ruled tolerance; B2 iff M7 shows h2w4 ≈ h1w1; **B6 last** (re-run M3/M4).
+    → `makani_port/HANDOFF_worker.md` §3a.
+    - **B1 `--multistep_checkpoint`** for the depth-16 fine-tune OOM. ⚠ `train_plasim.py:333-334` does
+      **not** forward `args.multistep_checkpoint` into params (upstream `train.py:127` does), so the
+      flag is a silent no-op for us until that passthrough lands. Proof: flag on vs off, 5 steps,
+      `--multistep_count 4`, loss + grad norm bitwise; then the depth-16 fit.
+    - **B2** spatial sharding as a memory tool — only if M7 says h2w4 ≈ h1w1.
+    - **B3** `jit_mode inductor` + **B4** `LossHandler(compile=True)` — DESIGN §4 gate; the operator
+      rules the tolerance **before** the job (ai-rossby's 4e-1 FAIL, CHANGELOG :26).
+    - **B5** loader/sampler `state_dict` + `enable_checkpointing` for mid-epoch resume (upstream's
+      restore is DALI-only for a torch DataLoader); kill-and-resume bitwise.
+    - **B6** stock pinned `nvidia-physicsnemo` in `sfno-venv-main`, retiring the editable coupling.
+    - **B7** `makani/benchmark.py` as the DESIGN §5 profiling driver.
+    - Science items (NonNeg, hydrostatic, grid-weight fix, `weight_decay_mode`, FCN3.1): opt-in,
+      default OFF, on their own slots (§3a 5–9); training arms need jesswan's **written** sign-off.
+
 ## P2 — other tracks, still live
 
 14. **ACE2 (`fme`) on Polaris — 🔴 the whole ladder was measured over TCP; re-measurement is the
