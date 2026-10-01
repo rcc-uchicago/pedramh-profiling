@@ -54,10 +54,14 @@ def _sha_named(items) -> tuple[str, str]:
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--list", required=True, type=Path, help="golden_checkpoints.json")
-    p.add_argument("--holdout", required=True, type=Path, help="dir holding <year>.h5")
+    p.add_argument("--holdout", type=Path, default=None, help="dir holding <year>.h5 (not with --load-only)")
     p.add_argument("--out", required=True, type=Path, help="manifest JSON to write")
     p.add_argument("--save-dir", type=Path, default=None, help="write <tag>_K<K>.npy here")
+    p.add_argument("--load-only", action="store_true",
+                   help="M3: strict load + parameter/state sha256 only, no rollout (PORT_GOLDEN_LOAD_OK)")
     args = p.parse_args()
+    if not args.load_only and args.holdout is None:
+        p.error("--holdout is required unless --load-only")
     logging.basicConfig(level=logging.WARNING)
 
     import numpy as np
@@ -101,6 +105,13 @@ def main() -> int:
         entry["params_sha256"], entry["params_struct_sha256"] = _sha_named(wrapper.named_parameters())
         entry["state_sha256"], entry["state_struct_sha256"] = _sha_named(wrapper.state_dict().items())
         entry["n_params"] = sum(1 for _ in wrapper.named_parameters())
+        if args.load_only:
+            manifest["checkpoints"][tag] = entry
+            print(f"GOLDEN_LOAD {tag} epoch={c['epoch']} n_params={entry['n_params']} "
+                  f"params={entry['params_sha256'][:12]} struct={entry['params_struct_sha256'][:12]} "
+                  f"state_struct={entry['state_struct_sha256'][:12]} s={time.time() - t0:.1f}", flush=True)
+            del wrapper
+            continue
 
         out_bias, out_scale = _load_run_norm_stats(ep, device)
         _, ds, _ = _plasim_get_dataloader(ep, str(args.holdout), device, mode="eval")
@@ -138,6 +149,10 @@ def main() -> int:
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(manifest, indent=1, sort_keys=True))
     n = len(manifest["checkpoints"])
+    if args.load_only:
+        print(f"PORT_GOLDEN_LOAD_OK n={n} out={args.out}" if n == len(spec["checkpoints"])
+              else f"ERROR PORT_GOLDEN_LOAD_INCOMPLETE n={n}/{len(spec['checkpoints'])}")
+        return 0 if n == len(spec["checkpoints"]) else 1
     if all_ok and n == len(spec["checkpoints"]):
         print(f"PORT_GOLDEN_INFER_OK n={n} out={args.out}")
         return 0
