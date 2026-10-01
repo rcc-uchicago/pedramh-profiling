@@ -1,0 +1,233 @@
+#!/bin/bash -l
+#PBS -N makani_port_slot3
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# makani port, HANDOFF_worker.md §3a slot 3 = M2 gate + M3 + old-venv regression + m5 prereg
+# Part 0 measurements, one debug node (4 GPUs). Tolerances: makani_port/equivalence_tolerance.md
+# (ruling 7697688) and m5_train_prereg.md Part 0, all committed before this job.
+#
+#   CPU, background  polaris_makani_port_suites.pbs on BOTH venvs      -> PORT_SUITES_OK old=n new=n
+#   GPU0, old venv   golden regression vs 7676860 (+ P0.2 check, P0.6 per-tensor ref)
+#                                                                         -> PORT_GOLDEN_OK
+#                    golden ext regression vs 7681949                    -> PORT_GOLDEN_EXT_OK
+#   GPU1-3, old venv P0.1 N2-PRE arms a/b x2, P0.6 N1 trace              -> N2_PRETEST, N1_TRAIN_PRETEST
+#   GPU0-3, old venv P0.3 CRPS 2-member reference x2 (4 ranks, local batch 1)
+#                                                                         -> GOLDEN_MATCH crps_in_job
+#   GPU0, NEW venv   M3 strict load of all 10 checkpoints                -> PORT_CKPT_LOAD_OK n=10
+#                    E3SM data.json through the scoped grid opt-out       -> GRID_VERIFY_OPTOUT
+#
+# GATE = PORT_SUITES_OK (equal counts) + PORT_GOLDEN_OK + PORT_GOLDEN_EXT_OK + GRID_VERIFY_OPTOUT
+#        + PORT_CKPT_LOAD_OK n=10  ->  PORT_M2M3 gate=green
+# Part 0 lines are measurements for M5 (valid only with PORT_GOLDEN_OK green in this job);
+# N1_TRAIN_PRETEST bitwise=no or ERROR FOREACH_NORM_COMPLEX is a STOP for M5, not for this gate.
+# Key on tokens, never rc (CLAUDE.md #14). Submit from makani_sfno/ of the PORT worktree:
+#     qsub polaris/polaris_makani_port_slot3.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_makani_port_golden.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export WANDB_MODE=offline
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+NEW_VENV="${MEMBER_ROOT}/conda-envs/sfno-venv-main"
+NEW_PY="${NEW_VENV}/bin/python"
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_port/slot3/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+RUNS="${MEMBER_ROOT}/runs/makani_mn_scaling"
+A_RENDERED="${RUNS}/e3sm_mn_scaling.prod1n_b32_sgdr.yaml"
+A_CKPT="${RUNS}/e3sm_mn_scaling/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar"
+CRPS_RENDERED="${RUNS}/e3sm_mn_scaling.nf4_crps_b4_r1.yaml"
+CRPS_CKPT="${RUNS}/e3sm_mn_scaling/nf4_crps_b4_r1/training_checkpoints/best_ckpt_mp0.tar"
+GOLDEN_REF_M0="${MEMBER_ROOT}/runs/makani_port/golden/7676860"
+GOLDEN_REF_EXT="${MEMBER_ROOT}/runs/makani_port/golden_ext/7681949"
+P0_MAX_GRAD_NORM=1e-3   # m5_train_prereg.md P0.1: 6.4x below the golden trace minimum 6.396964e-03
+
+SHA="$(cd "${REPO}" && git rev-parse HEAD 2>/dev/null)"
+DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"
+echo "=== makani_port_slot3: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
+echo "PORT_SLOT3_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} old_venv=$(readlink -f "${SFNO_VENV}") new_venv=${NEW_VENV} out=${OUT}"
+[ -x "${NEW_PY}" ] || { echo "ERROR NEW_VENV_MISSING ${NEW_VENV}"; exit 3; }
+
+# --- CPU, background: the M2 suites on both venvs ---
+SUITES_OUT="${OUT}/suites" bash "${MAKANI_ROOT}/polaris/polaris_makani_port_suites.pbs" > "${OUT}/suites.out" 2>&1 &
+SUITES_PID=$!
+
+# --- render a config with only the listed keys changed (as polaris_makani_port_golden.pbs) ---
+render() {  # src dst exp_dir key=value...
+    local src=$1 dst=$2 exp=$3; shift 3
+    "${PY}" - "${src}" "${dst}" "${exp}" "$@" <<'PY' || exit 2
+import re, sys
+src, dst, exp_dir = sys.argv[1:4]
+text = open(src).read()
+def setkey(t, key, val):
+    pat = re.compile(r"^(\s*)%s:.*$" % re.escape(key), re.M)
+    if not pat.search(t):
+        raise SystemExit("ERROR SLOT3_RENDER_KEY_MISSING %s" % key)
+    return pat.sub(lambda m: "%s%s: %s" % (m.group(1), key, val), t, count=1)
+text = setkey(text, "exp_dir", '"%s"' % exp_dir)
+for kv in sys.argv[4:]:
+    k, v = kv.split("=", 1)
+    text = setkey(text, k, v)
+open(dst, "w").write(text)
+print("SLOT3_RENDERED %s" % dst)
+PY
+}
+A_YAML="${OUT}/p0_A.yaml"
+render "${A_RENDERED}" "${A_YAML}" "${OUT}/p0_exp" n_train_samples_per_epoch=160 max_epochs=1 \
+    n_eval_samples=64 lr_warmup_steps=0 'log_to_wandb=!!bool False'
+CRPS_YAML="${OUT}/p0_crps.yaml"
+render "${CRPS_RENDERED}" "${CRPS_YAML}" "${OUT}/p0_crps_exp" n_train_samples_per_epoch=4 max_epochs=1 \
+    n_eval_samples=4 'log_to_wandb=!!bool False'
+
+p0_trace() {  # gpu name extra-args...   (A, golden trace #3 shape; env knobs from the caller)
+    local gpu=$1 name=$2; shift 2
+    CUDA_VISIBLE_DEVICES=${gpu} GOLDEN_TRACE_OUT="${OUT}/trace_${name}.json" GOLDEN_SEED=1234 \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${MAKANI_ROOT}/scripts/port_golden_train.py" \
+        --yaml_config "${A_YAML}" --config e3sm_mn_scaling --run_num "p0_${name}" \
+        --batch_size 8 --multistep_count 1 --amp_mode bf16 --save_checkpoint none \
+        --pretrained_checkpoint_path "${A_CKPT}" "$@" > "${OUT}/${name}.log" 2>&1
+    grep -E "^(PORT_GOLDEN_TRACE_WRITTEN|ERROR)|Traceback" "${OUT}/${name}.log" | head -3 | sed "s/^/  ${name}: /"
+}
+
+# --- GPU1-3, background: P0.1 arms and the P0.6 N1 trace ---
+(
+    GOLDEN_MAX_GRAD_NORM=${P0_MAX_GRAD_NORM} GOLDEN_CLIP_ARITH=stock p0_trace 1 n2_a1
+    GOLDEN_MAX_GRAD_NORM=${P0_MAX_GRAD_NORM} GOLDEN_CLIP_ARITH=stock p0_trace 1 n2_a2
+) > "${OUT}/gpu1.out" 2>&1 &
+G1=$!
+(
+    GOLDEN_MAX_GRAD_NORM=${P0_MAX_GRAD_NORM} GOLDEN_CLIP_ARITH=main p0_trace 2 n2_b1
+    GOLDEN_MAX_GRAD_NORM=${P0_MAX_GRAD_NORM} GOLDEN_CLIP_ARITH=main p0_trace 2 n2_b2
+) > "${OUT}/gpu2.out" 2>&1 &
+G2=$!
+( TORCH_COMPILE_DISABLE=1 p0_trace 3 n1 ) > "${OUT}/gpu3.out" 2>&1 &
+G3=$!
+
+# --- GPU0, foreground: old-venv regression (P0.2 + P0.6 knobs are observation-only) ---
+echo "--- golden regression vs ${GOLDEN_REF_M0} ---"
+GOLDEN_REF="${GOLDEN_REF_M0}" GOLDEN_FOREACH_CHECK=1 GOLDEN_PERTENSOR_OUT="${OUT}/trace_pertensor_candidate.json" \
+    bash "${MAKANI_ROOT}/polaris/polaris_makani_port_golden.pbs" > "${OUT}/golden.out" 2>&1
+grep -E "^(PORT_GOLDEN_OK|PORT_GOLDEN_MAKANI|GOLDEN_MATCH|ERROR)" "${OUT}/golden.out"
+GOLDEN_DIR="$(sed -n 's/^PORT_GOLDEN_PROVENANCE .* out=\([^ ]*\) .*/\1/p' "${OUT}/golden.out" | head -1)"
+echo "--- golden ext regression vs ${GOLDEN_REF_EXT} ---"
+GOLDEN_REF="${GOLDEN_REF_EXT}" bash "${MAKANI_ROOT}/polaris/polaris_makani_port_golden_ext.pbs" > "${OUT}/golden_ext.out" 2>&1
+grep -E "^(PORT_GOLDEN_EXT_OK|PORT_GOLDEN_MAKANI|GOLDEN_MATCH|ERROR)" "${OUT}/golden_ext.out"
+
+wait "${G1}" "${G2}" "${G3}"
+cat "${OUT}/gpu1.out" "${OUT}/gpu2.out" "${OUT}/gpu3.out"
+
+# --- GPU0-3: P0.3 CRPS reference, x2 ---
+for r in 1 2; do
+    CUDA_VISIBLE_DEVICES=0,1,2,3 GOLDEN_TRACE_OUT="${OUT}/trace_crps_r${r}.json" GOLDEN_SEED=1234 GOLDEN_PARAMS_SHA=1 \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=4 \
+        "${MAKANI_ROOT}/scripts/port_golden_train.py" \
+        --yaml_config "${CRPS_YAML}" --config e3sm_mn_scaling --run_num "p0_crps_r${r}" \
+        --batch_size 4 --multistep_count 5 --amp_mode bf16 --save_checkpoint none \
+        --pretrained_checkpoint_path "${CRPS_CKPT}" > "${OUT}/crps_r${r}.log" 2>&1
+    grep -E "^(PORT_GOLDEN_TRACE_WRITTEN|ERROR)|Traceback" "${OUT}/crps_r${r}.log" | head -3 | sed "s/^/  crps_r${r}: /"
+done
+
+# --- NEW venv: M3 strict load + the data.json grid opt-out probe ---
+(
+    deactivate 2>/dev/null
+    # shellcheck disable=SC1091
+    source "${NEW_VENV}/bin/activate" || exit 2
+    export CUDA_VISIBLE_DEVICES=0
+    "${NEW_PY}" -c "import makani, os; print('SLOT3_NEW_VENV makani=' + os.path.realpath(makani.__file__))"
+    for list in golden_checkpoints golden_checkpoints_ext; do
+        "${NEW_PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+            "${MAKANI_ROOT}/scripts/port_golden_infer.py" --load-only \
+            --list "${REPO}/makani_port/${list}.json" --out "${OUT}/load_${list}.json" > "${OUT}/load_${list}.log" 2>&1
+        grep -E "^(GOLDEN_LOAD|PORT_GOLDEN_LOAD_OK|ERROR)|Traceback" "${OUT}/load_${list}.log" | head -12
+    done
+    "${NEW_PY}" - "${A_YAML}" <<'PY'
+import sys
+from makani.utils import parse_dataset_metada as pdm
+from makani.utils.YParams import YParams
+from sfno_training import compat
+stock = pdm.verify_grid_type
+params = YParams(sys.argv[1], "e3sm_mn_scaling", print_params=False)
+compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
+assert pdm.verify_grid_type is stock, "verify_grid_type not restored"
+print("SLOT3_DATAJSON_PROBE_OK grid=%s n_lat=%d n_channels=%d restored=yes"
+      % (params["data_grid_type"], len(params["lat"]), len(params["channel_names"])))
+PY
+) > "${OUT}/new_venv.out" 2>&1
+cat "${OUT}/new_venv.out"
+"${PY}" "${MAKANI_ROOT}/scripts/port_ckpt_load_compare.py" \
+    <("${PY}" - "${OUT}" <<'PY'
+import json, sys
+o = sys.argv[1]
+merged = {"checkpoints": {}}
+for n in ("golden_checkpoints", "golden_checkpoints_ext"):
+    try:
+        merged["checkpoints"].update(json.load(open("%s/load_%s.json" % (o, n)))["checkpoints"])
+    except (OSError, ValueError):
+        pass
+print(json.dumps(merged))
+PY
+    ) "${REPO}/makani_port/golden/infer.json" "${REPO}/makani_port/golden/infer_ext.json" --expect 10 \
+    | tee "${OUT}/ckpt_load.out"
+
+# --- Part 0 verdicts (old venv measurements) ---
+CMP0="${MAKANI_ROOT}/scripts/port_part0_compare.py"
+echo "--- m5 prereg Part 0 ---"
+grep -hE "^(FOREACH_NORM_COMPLEX_OK|ERROR FOREACH_NORM_COMPLEX)" "${GOLDEN_DIR:-/nonexistent}/train_r1.log" 2>/dev/null \
+    || echo "ERROR FOREACH_NORM_COMPLEX - no verdict line in the regression train_r1 log"
+"${PY}" "${CMP0}" n2 "${OUT}/trace_n2_a1.json" "${OUT}/trace_n2_a2.json" "${OUT}/trace_n2_b1.json" "${OUT}/trace_n2_b2.json" \
+    --null-out "${OUT}/n2_null.json" --clipped-ref-out "${OUT}/clipped_ref.json"
+"${PY}" "${CMP0}" n1 "${OUT}/trace_n1.json" "${REPO}/makani_port/golden/trace_train_r1.json"
+"${PY}" "${CMP0}" crps "${OUT}/trace_crps_r1.json" "${OUT}/trace_crps_r2.json" --ref-out "${OUT}/crps_ref.json"
+if grep -q "^PORT_GOLDEN_OK" "${OUT}/golden.out" && [ -f "${OUT}/trace_pertensor_candidate.json" ]; then
+    mv "${OUT}/trace_pertensor_candidate.json" "${OUT}/trace_pertensor_ref.json"
+    echo "PORT_PERTENSOR_REF_OK out=${OUT}/trace_pertensor_ref.json (regression trace bitwise vs 7676860)"
+else
+    echo "ERROR PORT_PERTENSOR_REF_NOT_VALID (needs PORT_GOLDEN_OK in this job)"
+fi
+
+# --- suites ---
+wait "${SUITES_PID}"
+grep -E "^(PORT_SUITES_OK|ERROR|SUITES_SUMMARY)" "${OUT}/suites.out"
+
+# --- gate ---
+ok=1
+grep -q "^PORT_SUITES_OK" "${OUT}/suites.out" || ok=0
+grep -q "^PORT_GOLDEN_OK tolerance=bitwise" "${OUT}/golden.out" || ok=0
+grep -q "^PORT_GOLDEN_EXT_OK tolerance=bitwise" "${OUT}/golden_ext.out" || ok=0
+grep -q "^GRID_VERIFY_OPTOUT equiangular_cellcentred" "${OUT}/new_venv.out" || ok=0
+grep -q "^SLOT3_DATAJSON_PROBE_OK" "${OUT}/new_venv.out" || ok=0
+grep -q "^PORT_CKPT_LOAD_OK n=10" "${OUT}/ckpt_load.out" || ok=0
+[ "${ok}" -eq 1 ] && echo "PORT_M2M3 gate=green out=${OUT} sha=${SHA}" \
+                  || echo "ERROR PORT_M2M3 gate=red out=${OUT} sha=${SHA}"
+echo "=== makani_port_slot3 done $(date -Iseconds) ==="

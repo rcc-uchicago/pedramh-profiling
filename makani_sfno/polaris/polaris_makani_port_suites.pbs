@@ -1,0 +1,114 @@
+#!/bin/bash -l
+#PBS -N makani_port_suites
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# makani port M2 gate (makani_port/HANDOFF_worker.md §3): our code imports and the suites pass on
+# BOTH venvs with identical pass counts. CPU only. Per venv, per suite: its own token, and
+# a suite whose summary has no "passed" is a failure whatever rc says.
+#
+#   suites: the six of polaris_f_finetune_tests.pbs + test_per_lead_metrics + test_trainer_ci
+#           + test_e3sm_port + test_data_loader (PlaSim timestamp-reset tolerance) + every test
+#           the M2 series touched (compat, train_plasim, EMA, packager parse, checkpoint loader,
+#           the port's script tests). pytest -rA: the per-test list is the discovery on red.
+#   PASS = PORT_SUITES_OK old=<n>/<n> new=<n>/<n> passed_old=<k> passed_new=<k>   (k equal)
+#
+# Run standalone (qsub) or from polaris_makani_port_slot3.pbs (bash, CPU, background), which
+# sets SUITES_OUT so the logs land beside the slot-3 outputs.
+# Submit from makani_sfno/:   qsub polaris/polaris_makani_port_suites.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOBID="${PBS_JOBID%%.*}"
+OUT="${SUITES_OUT:-${MEMBER_ROOT}/runs/makani_port/suites/${JOBID}}"
+mkdir -p "${OUT}" || exit 2
+
+SHA="$(cd "${REPO}" && git rev-parse HEAD 2>/dev/null)"
+DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"
+echo "=== makani_port_suites: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
+echo "PORT_SUITES_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} out=${OUT}"
+
+T="${MAKANI_ROOT}/tests"
+P="${MAKANI_ROOT}/polaris"
+SUITES=(
+    "POLARIS_SCRIPT_TESTS|${P}/test_*.py"
+    "CLIMATE_DRIVER_TEST|${T}/sfno_inference/test_climate_driver.py"
+    "CLIMATE_SCREEN_TEST|${T}/test_climate_screen_summary.py ${T}/sfno_training/test_mass_fix.py ${T}/test_negativity.py"
+    "LONGROLL_SUMMARY_TEST|${T}/test_longroll_probe_summary.py"
+    "PORTS_TEST|${T}/sfno_inference/test_rollout_ports.py ${T}/sfno_training/test_channel_subset.py ${T}/sfno_training/test_channel_weights_auto.py"
+    "PREPROCESSOR_TEST|${T}/sfno_training/test_preprocessor.py"
+    "PER_LEAD_METRICS_TEST|${T}/sfno_training/test_per_lead_metrics.py"
+    "TRAINER_CI_TEST|${T}/sfno_training/test_trainer_ci.py"
+    "E3SM_PORT_TEST|${T}/sfno_inference/test_e3sm_port.py"
+    "DATA_LOADER_TEST|${T}/sfno_training/test_data_loader.py"
+    "PORT_COMPAT_TEST|${T}/sfno_training/test_compat_port.py ${T}/sfno_training/test_train_plasim.py ${T}/sfno_training/test_ema_integration.py"
+    "PACKAGER_PARSE_TEST|${T}/plasim_makani_packager/test_parse_dataset_metadata.py ${T}/plasim_makani_packager/test_multifile_loader_smoke.py ${T}/plasim_makani_packager/test_hdf5_writer.py"
+    "CHECKPOINT_LOADER_TEST|${T}/sfno_inference/test_checkpoint_loader.py"
+    "PORT_SCRIPT_TEST|${T}/scripts/test_port_golden_npy_diff.py ${T}/scripts/test_port_part0_compare.py ${T}/scripts/test_port_ckpt_load_compare.py"
+)
+
+run_venv() {  # label venv
+    local label=$1 venv=$2
+    (
+        # Env bootstrap copied verbatim from polaris_f_finetune_tests.pbs, venv chosen explicitly.
+        # shellcheck disable=SC1091
+        source "${REPO}/polaris_env.sh" || exit 2
+        # shellcheck disable=SC1091
+        source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+        # shellcheck disable=SC1091
+        source "${venv}/bin/activate" || exit 2
+        export PYTHONNOUSERSITE=1
+        export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+        export HDF5_USE_FILE_LOCKING=FALSE
+        export CUDA_VISIBLE_DEVICES=""
+        PY="${venv}/bin/python"
+        "${PY}" -c "import makani, os; print('SUITES_VENV ${label}', os.path.realpath(makani.__file__))"
+        n_ok=0; n_all=0; passed=0
+        for entry in "${SUITES[@]}"; do
+            local token="${entry%%|*}" files="${entry#*|}"
+            n_all=$((n_all + 1))
+            local log="${OUT}/${label}_${token}.log"
+            # shellcheck disable=SC2086
+            "${PY}" -m pytest -q -p no:cacheprovider -rA ${files} > "${log}" 2>&1
+            local rc=$? last; last="$(tail -1 "${log}" | tr -d '=' | sed 's/^ *//')"
+            local np; np="$(echo "${last}" | sed -n 's/.*\b\([0-9]\+\) passed.*/\1/p')"
+            if [ ${rc} -eq 0 ] && [ -n "${np}" ]; then
+                echo "${label} ${token}_OK ${last}"; n_ok=$((n_ok + 1)); passed=$((passed + np))
+            else
+                echo "ERROR ${label} ${token}_FAILED rc=${rc} :: ${last}"
+                grep -E "^(FAILED|ERROR) " "${log}" | head -8 | sed "s/^/    ${label} /"
+            fi
+        done
+        echo "SUITES_SUMMARY ${label} ok=${n_ok}/${n_all} passed=${passed}"
+    ) 2>&1 | tee "${OUT}/${label}.summary"
+}
+
+run_venv old "${MEMBER_ROOT}/conda-envs/sfno-venv"
+run_venv new "${MEMBER_ROOT}/conda-envs/sfno-venv-main"
+
+"/usr/bin/python3" - "${OUT}" <<'PY'
+import re, sys
+o = sys.argv[1]
+r = {}
+for label in ("old", "new"):
+    m = re.search(r"^SUITES_SUMMARY %s ok=(\d+)/(\d+) passed=(\d+)" % label, open("%s/%s.summary" % (o, label)).read(), re.M)
+    r[label] = tuple(int(x) for x in m.groups()) if m else None
+old, new = r["old"], r["new"]
+if old and new and old[0] == old[1] and new[0] == new[1] and old[2] == new[2]:
+    print("PORT_SUITES_OK old=%d/%d new=%d/%d passed_old=%d passed_new=%d" % (old[0], old[1], new[0], new[1], old[2], new[2]))
+else:
+    print("ERROR PORT_SUITES_FAILED old=%s new=%s" % (old, new))
+PY
+echo "=== makani_port_suites done $(date -Iseconds) ==="
