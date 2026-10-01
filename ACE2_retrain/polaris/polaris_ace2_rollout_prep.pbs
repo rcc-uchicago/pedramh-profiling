@@ -1,0 +1,134 @@
+#!/bin/bash -l
+#PBS -N ace2_5yr_prep
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Prep for the ACE2 5-year rollout test (polaris_ace2_rollout_5yr.pbs):
+#   1. build_eamv3_inputs.py --selftest
+#   3. build ACE2-EAMv3 inputs from our E3SM-SRM archive: full, south-first rows
+#      (inputs_asc) + a short north-first variant (inputs_flip) for the orientation probe
+#   4. probes, one GPU each: 120-step timing for era5_ai2 / eamv3_ai2, and
+#      8-step EAMv3 PS-vs-archive in both row orientations
+#   5. ace2_rollout.py probe -> probe.json (steps/s, step plan, ORIENTATION)
+#
+#   qsub ACE2_retrain/polaris/polaris_ace2_rollout_prep.pbs      (from the repo root)
+#   -v ROOT=<dir>   default $MEMBER_ROOT/runs/ace2_5yr/<jobid>
+# PASS = ACE2_ROLLOUT_PREP_OK  (EAMV3_SELFTEST_OK, EAMV3_INPUTS_OK x2, ACE2_PROBE_OK)
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+# Tolerate submission from either the repo root or ACE2_retrain/  (env block copied
+# verbatim from polaris_ace2_train.pbs, minus the editable-checkout guard: inference
+# uses whichever fme the venv imports, and we record which).
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+if [ ! -d "${ACE2_DIR}/ace_exp" ]; then
+    echo "ERROR ACE2_TREE_NOT_FOUND from PBS_O_WORKDIR=${PBS_O_WORKDIR}"
+    exit 2
+fi
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+if [ ! -x "${ACE2_VENV}/bin/python" ]; then
+    echo "ERROR ACE2_VENV_MISSING: ${ACE2_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${ACE2_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${ACE2_VENV}/bin/python"
+if [ "${FME_USE_SRUN:-0}" = "1" ]; then
+    echo "ERROR FME_USE_SRUN_SET: unset it. Polaris is PBS/PALS, not SLURM (CLAUDE.md)."
+    exit 3
+fi
+export HDF5_USE_FILE_LOCKING=FALSE
+export WANDB_MODE=offline
+
+JOB="${PBS_JOBID%%.*}"
+ROOT="${ROOT:-${MEMBER_ROOT}/runs/ace2_5yr/${JOB}}"
+TOOLS="${ACE2_DIR}/polaris"
+CKPT_EAMV3="${MEMBER_ROOT}/ace2_eamv3/ace2_EAMv3_ckpt.tar"
+CKPT_ERA5_AI2="${MEMBER_ROOT}/ace2_era5/ace2_era5_ckpt.tar"
+mkdir -p "${ROOT}/ckpt" || exit 2
+VENV_FME="$("${PY}" -c 'import fme,os;print(os.path.realpath(os.path.dirname(fme.__file__)))' 2>/dev/null)"
+echo "=== ace2_5yr_prep: $(date -Iseconds) host=$(hostname) job=${JOB} ==="
+echo "repo=${REPO} sha=$(git -C "${REPO}" rev-parse --short=12 HEAD 2>/dev/null)"
+echo "fme=${VENV_FME} sha=$(git -C "${VENV_FME}" rev-parse --short=12 HEAD 2>/dev/null)"
+echo "root=${ROOT}"
+for f in "${CKPT_EAMV3}" "${CKPT_ERA5_AI2}"; do
+    [ -s "${f}" ] || { echo "ERROR MISSING_CKPT ${f}"; exit 2; }
+done
+
+# ---- 1. selftest ----------------------------------------------------------------
+"${PY}" "${TOOLS}/build_eamv3_inputs.py" --selftest | tee "${ROOT}/selftest.log"
+grep -q EAMV3_SELFTEST_OK "${ROOT}/selftest.log" || { echo "ERROR SELFTEST_FAILED"; exit 4; }
+
+# ---- 2. checkpoints (ai2 Hugging Face: allenai/ACE2-ERA5, allenai/ACE2-EAMv3) ------
+sha256sum "${CKPT_ERA5_AI2}" "${CKPT_EAMV3}" | tee "${ROOT}/ckpt/sha256.txt"
+cat > "${ROOT}/ckpts.env" <<EOF
+CKPT_era5_ai2=${CKPT_ERA5_AI2}
+CKPT_eamv3_ai2=${CKPT_EAMV3}
+EOF
+
+# ---- 3. EAMv3 inputs --------------------------------------------------------------
+"${PY}" "${TOOLS}/build_eamv3_inputs.py" --ckpt "${CKPT_EAMV3}" --out "${ROOT}/inputs_asc" \
+    2>&1 | tee "${ROOT}/build_asc.log" &
+"${PY}" "${TOOLS}/build_eamv3_inputs.py" --ckpt "${CKPT_EAMV3}" --out "${ROOT}/inputs_flip" \
+    --flip --short --workers 8 2>&1 | tee "${ROOT}/build_flip.log" &
+wait
+grep -q EAMV3_INPUTS_OK "${ROOT}/build_asc.log"  || { echo "ERROR BUILD_ASC_FAILED"; exit 5; }
+grep -q EAMV3_INPUTS_OK "${ROOT}/build_flip.log" || { echo "ERROR BUILD_FLIP_FAILED"; exit 5; }
+
+# ---- 4. probes ----------------------------------------------------------------------
+# run_probe <gpu> <label> <arm> <steps> <inputs> [extra config flags...]
+# Strict dataset-compatibility first; on IncompatibleDatasetInfo retry once with
+# allow_incompatible_dataset and record it (the rollout reuses the verdict).
+run_probe() {
+    local gpu="$1" label="$2" arm="$3" steps="$4" inputs="$5"; shift 5
+    local out="${ROOT}/${label}" ckpt_var="CKPT_${arm}"
+    local ckpt="${!ckpt_var}"
+    for attempt in strict allow; do
+        local extra=()
+        [ "${attempt}" = allow ] && extra=(--allow-incompatible)
+        rm -rf "${out}"
+        "${PY}" "${TOOLS}/ace2_rollout.py" config --arm "${arm}" --start 0 --steps "${steps}" \
+            --ckpt "${ckpt}" --inputs "${inputs}" --out "${out}" --yaml "${ROOT}/${label}.yaml" \
+            "${extra[@]}" "$@" > /dev/null || return 1
+        CUDA_VISIBLE_DEVICES="${gpu}" timeout -k 30 1500 "${PY}" -m fme.ace.inference \
+            "${ROOT}/${label}.yaml" > "${ROOT}/${label}.out" 2>&1
+        local rc=$?
+        echo "probe ${label} (${attempt}): rc=${rc}"
+        if [ ${rc} -eq 0 ]; then
+            echo "${attempt}" > "${ROOT}/${label}.compat"
+            return 0
+        fi
+        grep -q IncompatibleDatasetInfo "${ROOT}/${label}.out" || { tail -15 "${ROOT}/${label}.out"; return 1; }
+        tail -5 "${ROOT}/${label}.out"
+    done
+    return 1
+}
+# shellcheck disable=SC1091
+source "${ROOT}/ckpts.env"
+export CKPT_era5_ai2 CKPT_eamv3_ai2
+fails=0
+run_probe 0 probe_era5_ai2  era5_ai2  120 none &                 p0=$!
+( run_probe 2 probe_orient_asc eamv3_ai2 8 "${ROOT}/inputs_asc" --save-predictions \
+  && run_probe 2 probe_eamv3_ai2 eamv3_ai2 120 "${ROOT}/inputs_asc" ) & p2=$!
+run_probe 3 probe_orient_flip eamv3_ai2 8 "${ROOT}/inputs_flip" --save-predictions & p3=$!
+for p in ${p0} ${p2} ${p3}; do wait "${p}" || fails=$((fails+1)); done
+echo "probe processes failed: ${fails}/3"
+
+# ---- 5. probe readout ----------------------------------------------------------------
+"${PY}" "${TOOLS}/ace2_rollout.py" probe --root "${ROOT}" | tee "${ROOT}/probe.log"
+grep -q ACE2_PROBE_OK "${ROOT}/probe.log" || { echo "ERROR PROBE_FAILED"; exit 6; }
+ln -sfn "${ROOT}" "${MEMBER_ROOT}/runs/ace2_5yr/latest_prep"
+echo "ACE2_ROLLOUT_PREP_OK root=${ROOT}"
