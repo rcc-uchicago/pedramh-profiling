@@ -144,6 +144,21 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani port) — M0 GREEN: golden baselines on the old venv are bitwise reproducible**
+  — gate job 7679553 `PORT_GOLDEN_OK tolerance=bitwise` vs write job 7676860, at `812696030bae`
+  (tag `makani-port/m0-green`), old `sfno-venv` = makani `c9704308`, `F_FINETUNE_TESTS_OK 6/6`. Golden =
+  5 ckpts (A e243, B e22, C1 e24 = `ckpt_mp0_v23`, nf4p_r1, ema_smoke) × K=56 rollout from 2048 f1092,
+  per-lead sha256 + param hashes; A validate-only loss 0.013296 (64 samples); a 20-step warm-start trace
+  (fresh optimizer, lr 2e-3, no warmup — an **equivalence probe, not a training-quality number**: loss
+  peaks 0.138, val 0.0133 → 0.0240). Manifests in `makani_port/golden/`; `.npy` (6.8 GB) under
+  `$MEMBER_ROOT/runs/makani_port/golden/7676860/npy`. Upstream delta + 3 STOPs: `makani_port/api_delta.md`;
+  log: `makani_port/PROGRESS.md`.
+- **2026-10-01 (makani port) — operator ruling (relayed by the port monitor) on api_delta §3.2:** keep
+  `equiangular` for our cell-centred 1° grid; opt out of main's `verify_grid_type` for **our dataset only**
+  (no global patch, no `data.json` edit, outputs bitwise), logging `GRID_VERIFY_OPTOUT
+  equiangular_cellcentred`; measure the weighting error for jesswan in a debug check. §3.1 (ruamel
+  allowlist for legacy checkpoints) is still unanswered and gates M3.
+
 - **2026-10-01 (makani) — port to upstream makani `main` planned: worker + monitor handoffs in
   `makani_port/`.** Operator: port to the latest `main`, keep the same checkpoints, small commits with
   a green tag per milestone, revert to the last green commit on breakage. Ours = 0.2.0 @ `c9704308`

@@ -3,6 +3,33 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 04:05Z — M0 GREEN (7679553 PORT_GOLDEN_OK, tag makani-port/m0-green @ 81269603); M1 next
+
+**Progress**
+- Write 7676860 `PORT_GOLDEN_WRITTEN` (sha `347c6431`, 11:54 wall); gate 7679553 `PORT_GOLDEN_OK
+  tolerance=bitwise` vs 7676860 (sha `812696030bae`; differs from `347c6431` only in this file) —
+  `GOLDEN_MATCH infer_vs_ref / val_vs_ref / train_vs_ref`, `F_FINETUNE_TESTS_OK 6/6`, old venv
+  `c9704308` with the monitor's dist-info sha256s.
+- Tag `makani-port/m0-green` → `812696030bae`, pushed. Manifests copied to `makani_port/golden/`
+  (`infer.json`, `trace_val_r1.json`, `trace_train_r1.json` from the write run = the reference).
+- Golden numbers: A val-only loss `0x1.b3af2p-7` (0.013296); 20-step trace clipped=0, grad norm max
+  0.567 (monitor); post-trace val 0.0240.
+
+**Surprises**
+- The warm-start trace perturbs A hard (fresh AdamW at lr 2e-3, no warmup: loss 0.0102 → 0.138).
+  Good for amplifying drift; it is an **equivalence probe only**, never a training-quality number.
+
+**Decisions**
+- Operator ruling on api_delta §3.2, **relayed by the monitor** (2026-10-01): keep `equiangular`;
+  dataset-scoped opt-out of `verify_grid_type` (backend gets the file's own lat/lon + a narrow catch
+  around `parse_dataset_metadata` for our `data.json`), one `GRID_VERIFY_OPTOUT equiangular_cellcentred`
+  line per job; outputs bitwise; measure the weighting error for jesswan (`GRID_WEIGHT_DELTA`).
+- §3.1 (ruamel allowlist) **not yet ruled** — gates M3; not implemented.
+
+**Next**
+- M1: `polaris_setup_sfno_venv_main.sh` → `sfno-venv-main` at `a0aa4c4fe5c4…`, built in one debug job
+  that also prints `VENV_MAIN_OK` and the `GRID_WEIGHT_DELTA` measurement (debug = one queued job).
+
 ## 2026-10-01 01:25Z — M0 write run 7676860 queued (sha 347c6431); gate run follows it
 
 **Progress**
