@@ -147,7 +147,10 @@ def test_trainer_ci_train_one_epoch(packaged_dataset: Path, tmp_path: Path):
 
     # (1) — (5) wrapper + dataset isinstance contracts
     assert isinstance(pt, PlasimTrainer)
-    assert isinstance(pt.train_dataset, PlasimForcingDataset)
+    # the pin keeps the dataset as train_dataset; main binds get_dataloader's second
+    # return to train_data_shapes, and ours returns the dataset there
+    train_dataset = pt.train_dataset if hasattr(pt, "train_dataset") else pt.train_data_shapes
+    assert isinstance(train_dataset, PlasimForcingDataset)
     assert isinstance(pt.model, PlasimSingleStepWrapper)
     assert isinstance(pt.model.preprocessor, PlasimPreprocessor)
     assert pt.params.N_in_channels == 58, (
