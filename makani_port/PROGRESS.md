@@ -3,6 +3,31 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 ~17:40Z — tolerance ruling applied; slot-3 job written; only c8/c10 stand between it and the qsub
+
+**Progress** (`feat/makani-port-main-dev`, pushed)
+- `072880dd` `equivalence_tolerance.md` + `grid_declaration.md` from `c260333f` (copied, byte-identical; this branch is
+  now their canonical home). `07849ea8` erratum line: P0.2 complex reference = `complex128`.
+- `e3f8fd3d` Part 0 amended to ruling §2b/§3.6 (P0.1 → `n2_null.json`; P0.2 fp64 + `n_complex ≥ 1` + total; new P0.6
+  `trace_pertensor_ref.json` + `N1_TRAIN_PRETEST`).
+- `bdf7e698` `port_golden_npy_diff.py` compares bytes and is NaN-aware; a mask mismatch = ERROR, rc 1.
+- `c1607adc` harness knobs in `port_golden_train.py` (off = unchanged trace) + `port_part0_compare.py` (4/4 stdlib).
+- `3f27c216` M3: `port_golden_infer.py --load-only` + `port_ckpt_load_compare.py` (3/3; the 10 golden entries carry all
+  5 fields).
+- `d608c340` `polaris_makani_port_slot3.pbs` + `polaris_makani_port_suites.pbs` (`-rA`, every touched test). `bash -n`
+  only.
+
+**Surprises**
+- Ruling §2b's `vector_norm(g.double())` drops the imaginary part of a complex grad, which is G4's own target. The
+  monitor filed `ruling_erratum.md`.
+
+**Decisions** — none new.
+
+**Next**
+- Operator: c8 + c10. Then commit them (c10 makes the new-venv M3 loads possible) → fast-forward the port worktree to
+  the dev head (0 dirty) → `_papercuts.md` → `qstat -u rmehta1987` (7698872 holds one debug slot; one may queue behind
+  it) → `qsub polaris/polaris_makani_port_slot3.pbs` from the port worktree's `makani_sfno/` → `PORT_M2M3 gate=green`.
+
 ## 2026-10-01 ~17:00Z — operator opens threshold equivalence; tolerance panel 7697688 running; preregs frozen until its ruling
 
 **Decisions** (operator ~16:30Z, relayed by the monitor)
