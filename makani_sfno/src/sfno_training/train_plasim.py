@@ -26,7 +26,6 @@ from math import prod
 import torch
 
 from makani.utils import argument_parser, comm, logging_utils, profiling
-from makani.utils.parse_dataset_metada import parse_dataset_metadata
 from makani.utils.profiling import Timer
 from makani.utils.YParams import YParams
 
@@ -368,7 +367,7 @@ def main() -> None:
     params["log_to_screen"] = (world_rank == 0) and params["log_to_screen"]
 
     if "metadata_json_path" in params:
-        params, _ = parse_dataset_metadata(params["metadata_json_path"], params=params)
+        params, _ = compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
     else:
         raise RuntimeError(
             "params is missing 'metadata_json_path' — required for sfno_training "

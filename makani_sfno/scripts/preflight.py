@@ -106,7 +106,6 @@ def _build_loader_and_wrapper(
     """
     import torch  # noqa: F401  -- ensure torch present
     from makani.utils import comm
-    from makani.utils.parse_dataset_metada import parse_dataset_metadata
     from makani.utils.YParams import YParams
 
     from sfno_training import compat
@@ -163,7 +162,7 @@ def _build_loader_and_wrapper(
     if not hasattr(params, "wandb_dir") or params["wandb_dir"] is None:
         params["wandb_dir"] = str(exp_dir)
 
-    parse_dataset_metadata(params["metadata_json_path"], params=params)
+    compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
 
     trainer = PlasimTrainer(params, world_rank=0)
     return trainer, params

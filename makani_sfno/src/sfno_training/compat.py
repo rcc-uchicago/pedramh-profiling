@@ -26,7 +26,8 @@ converter. That package does not exist at the pin, so patching it is
 feature-detected by import.
 
 The module also carries the small helpers that let our code run on both the
-pin and makani main (model-parallel layout, ...); see the sections below.
+pin and makani main (model-parallel layout, loss compile, grid declaration); see
+the sections below.
 
 Idempotent: importing this module twice is a no-op.
 """
@@ -119,3 +120,61 @@ def loss_handler_compile_off(loss_handler_cls):
             super().__init__(*args, **kwargs)
 
     return EagerLossHandler
+
+
+# ---------------------------------------------------------------------------
+# Grid declaration: main verifies coords.lat against coords.grid_type (798245b)
+#
+# Our packs declare ``equiangular`` but store 180 cell-centred rows, 89.5 ... -89.5,
+# which match no grid type makani knows, so main raises at config load
+# (``parse_dataset_metada.py:54``). Operator ruling on api_delta §3.2 (2026-10-01):
+# waive the check for exactly this declaration, around our own call only, outputs
+# bitwise; band-area weights are applied when scoring (makani_port/grid_declaration.md).
+# ---------------------------------------------------------------------------
+GRID_VERIFY_OPTOUT = "GRID_VERIFY_OPTOUT equiangular_cellcentred"
+_CELLCENTRED_LAT = [89.5 - i for i in range(180)]  # convert_e3sm_to_makani.py: arange(89.5, -90, -1)
+_CELLCENTRED_ATOL = 1e-3  # makani main's GRID_TYPE_TOLERANCE_DEGREES
+_optout_logged = False
+
+
+def is_our_cellcentred_grid(grid_type, latitudes) -> bool:
+    """True only for ``equiangular`` with our 180 cell-centred rows, stored north to south."""
+    lat = [float(x) for x in latitudes]
+    return (
+        grid_type == "equiangular"
+        and len(lat) == len(_CELLCENTRED_LAT)
+        and all(abs(a - b) <= _CELLCENTRED_ATOL for a, b in zip(lat, _CELLCENTRED_LAT))
+    )
+
+
+def parse_dataset_metadata_scoped(metadata_json_path, params):
+    """makani's ``parse_dataset_metadata`` with the grid check waived for our declaration only.
+
+    ``verify_grid_type`` is rebound for the duration of this call and restored in
+    ``finally``; any other grid is still checked by the stock function. On the pin,
+    which has no check, this is the stock call.
+    """
+    global _optout_logged
+    from makani.utils import parse_dataset_metada as pdm
+
+    stock = getattr(pdm, "verify_grid_type", None)
+    if stock is None:
+        return pdm.parse_dataset_metadata(metadata_json_path, params=params)
+
+    waived = []
+
+    def verify_unless_ours(grid_type, latitudes, *args, **kwargs):
+        if is_our_cellcentred_grid(grid_type, latitudes):
+            waived.append(len(latitudes))
+            return None
+        return stock(grid_type, latitudes, *args, **kwargs)
+
+    pdm.verify_grid_type = verify_unless_ours
+    try:
+        result = pdm.parse_dataset_metadata(metadata_json_path, params=params)
+    finally:
+        pdm.verify_grid_type = stock
+    if waived and not _optout_logged:
+        print(f"{GRID_VERIFY_OPTOUT} n_lat={waived[0]} source={metadata_json_path}", flush=True)
+        _optout_logged = True
+    return result

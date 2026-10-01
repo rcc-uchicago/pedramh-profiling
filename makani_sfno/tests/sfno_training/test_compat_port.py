@@ -87,3 +87,88 @@ def test_both_trainer_modules_build_an_eager_loss():
             assert issubclass(module.LossHandler, makani_loss.LossHandler)
         else:  # the pin: untouched
             assert module.LossHandler is makani_loss.LossHandler
+
+
+# --- grid declaration (api_delta §3.2, makani_port/grid_declaration.md option 1) ---
+_OUR_LAT = [89.5 - i for i in range(180)]
+
+
+class _Params(dict):
+    """Item and attribute access, as makani's ParamsBase gives parse_dataset_metadata."""
+
+    def __getattr__(self, key):
+        try:
+            return self[key]
+        except KeyError:
+            raise AttributeError(key) from None
+
+
+def _data_json(tmp_path, lat, drop=()):
+    import json
+
+    meta = {
+        "dataset_name": "e3sm_test",
+        "h5_path": "fields",
+        "dhours": 6,
+        "coords": {
+            "grid_type": "equiangular",
+            "lat": lat,
+            "lon": [float(i) for i in range(360)],
+            "channel": ["T_l00", "PS"],
+        },
+        "attrs": {"description": "fixture"},
+    }
+    for key in drop:
+        meta.pop(key)
+    path = tmp_path / "data.json"
+    path.write_text(json.dumps(meta))
+    return _Params(metadata_json_path=str(path))
+
+
+def _stock_check():
+    from makani.utils import parse_dataset_metada as pdm
+
+    return getattr(pdm, "verify_grid_type", None)
+
+
+_HAS_GRID_CHECK = _stock_check() is not None  # main (798245b); the pin has no check
+
+
+def test_cellcentred_predicate_is_exactly_our_grid():
+    assert compat.is_our_cellcentred_grid("equiangular", _OUR_LAT)
+    assert not compat.is_our_cellcentred_grid("legendre-gauss", _OUR_LAT)
+    assert not compat.is_our_cellcentred_grid("equiangular", _OUR_LAT[::-1])
+    assert not compat.is_our_cellcentred_grid("equiangular", _OUR_LAT + [-90.5])
+    assert not compat.is_our_cellcentred_grid("equiangular", [x + 0.01 for x in _OUR_LAT])
+
+
+def test_our_data_json_parses_and_the_check_is_restored(tmp_path, capsys, monkeypatch):
+    stock = _stock_check()
+    monkeypatch.setattr(compat, "_optout_logged", False)
+    params = _data_json(tmp_path, _OUR_LAT)
+    params, _ = compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
+    assert _stock_check() is stock
+    assert params["data_grid_type"] == "equiangular" and params["lat"] == _OUR_LAT
+    assert params["channel_names"] == ["T_l00", "PS"] and params["dataset"]["name"] == "e3sm_test"
+    out = capsys.readouterr().out.splitlines()
+    logged = [line for line in out if line.startswith(compat.GRID_VERIFY_OPTOUT)]
+    assert len(logged) == (1 if _HAS_GRID_CHECK else 0)
+
+
+def test_any_other_grid_is_still_checked(tmp_path):
+    stock = _stock_check()
+    params = _data_json(tmp_path, [80.0 - 160.0 * i / 179 for i in range(180)])
+    if _HAS_GRID_CHECK:
+        with pytest.raises(ValueError, match="not that grid"):
+            compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
+    else:  # the pin takes any declaration
+        compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
+    assert _stock_check() is stock
+
+
+def test_check_is_restored_when_parsing_raises(tmp_path):
+    stock = _stock_check()
+    params = _data_json(tmp_path, _OUR_LAT, drop=("dataset_name",))
+    with pytest.raises(KeyError, match="dataset_name"):
+        compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
+    assert _stock_check() is stock
