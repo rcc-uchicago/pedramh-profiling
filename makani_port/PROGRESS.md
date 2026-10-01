@@ -3,6 +3,22 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 ~18:45Z — slot-3 7699391 RED (1 test + GPU1-3 unusable); c8/c10 parts green; re-run next
+
+**Progress** (7699391 @ `291996c3`, dirty 0, x3003c0s25b0n0, 17:39–17:55Z)
+- Green: `PORT_GOLDEN_OK tolerance=bitwise` (vs 7676860), `PORT_GOLDEN_EXT_OK tolerance=bitwise` (vs 7681949),
+  `GRID_VERIFY_OPTOUT equiangular_cellcentred n_lat=180`, `SLOT3_DATAJSON_PROBE_OK … n_channels=101 restored=yes`,
+  `PORT_CKPT_LOAD_OK n=10` (c10 works on all 10), `FOREACH_NORM_COMPLEX_OK n=87 n_complex=8 max_rel=7.777e-08`,
+  `PORT_PERTENSOR_REF_OK`.
+- Red: suites old 14/14 (265) vs new 13/14 (264) — `test_trainer_ci_train_one_epoch`: `pt.train_dataset` is a pin
+  attribute (main binds it to `train_data_shapes`). Test-only fix `5cb642e1`.
+- Red: every Part 0 arm off GPU0 (n2 a/b ×2, n1, CRPS ×2) died at `init_process_group` — "device_id must be an
+  accelerator" (`torch.cuda.is_available()` False under `CUDA_VISIBLE_DEVICES=1|2|3`) and CRPS rank 1 "invalid device
+  ordinal" under `0,1,2,3`. Same node ran 7698872 on 4 GPUs until 17:38:08Z. **Cause not established**; the PBS now
+  prints `SLOT3_GPUS` + per-GPU compute mode at start.
+
+**Next** — fast-forward the port worktree, re-run slot 3 (debug), key on `PORT_M2M3 gate=green` and `SLOT3_GPUS`.
+
 ## 2026-10-01 ~18:15Z — c8 + c10 landed on the operator's word; slot-3 series complete; slot-3 gate next
 
 **Progress** (`feat/makani-port-main-dev`)

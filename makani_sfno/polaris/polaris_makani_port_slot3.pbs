@@ -82,6 +82,9 @@ DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null
 echo "=== makani_port_slot3: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
 echo "PORT_SLOT3_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} old_venv=$(readlink -f "${SFNO_VENV}") new_venv=${NEW_VENV} out=${OUT}"
 [ -x "${NEW_PY}" ] || { echo "ERROR NEW_VENV_MISSING ${NEW_VENV}"; exit 3; }
+# 7699391: every process off GPU0 saw no device (the node's previous job used all 4) -- record what is visible
+echo "SLOT3_GPUS nvidia_smi=$(nvidia-smi -L 2>&1 | wc -l) torch=$("${PY}" -c 'import torch; print(torch.cuda.device_count())' 2>&1 | tr '\n' ' ') CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-unset}"
+nvidia-smi --query-gpu=index,uuid,compute_mode,memory.used --format=csv,noheader 2>&1 | sed 's/^/  gpu: /'
 
 # --- CPU, background: the M2 suites on both venvs ---
 SUITES_OUT="${OUT}/suites" bash "${MAKANI_ROOT}/polaris/polaris_makani_port_suites.pbs" > "${OUT}/suites.out" 2>&1 &
