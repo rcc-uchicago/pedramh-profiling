@@ -65,6 +65,7 @@ w = equiangular band weights. rel = |new − ref| / |ref|.
 Part 0 of `m5_train_prereg.md` (215b4ec4): P0.1 N2-PRE needs `clipped=20/20` and `repeat_bitwise=yes` in both arms;
 the measured per-step a-vs-b differences become `n2_null.json`, the null in row G3. P0.2 keeps 1e-5 with an fp64
 `vector_norm(g.double())` reference, a printed `n_complex ≥ 1`, and the total norm at ≤ 1e-5.
+P0.2 reference: vector_norm(g.to(torch.complex128)) for complex gradients (erratum to ruling §2b).
 
 The comparison scripts this needs (z-space comparator, null twins, NaN-aware npy diff, trace and h5 comparators,
 per-tensor gradient reference, `N1_TRAIN_PRETEST`) are listed in ruling §3.
