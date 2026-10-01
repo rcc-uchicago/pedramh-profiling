@@ -25,6 +25,8 @@ with the reason).
 - 10-01 · `git grep` died "failed to create thread" at 190/256 pids (one thread per CPU) · `git -c grep.threads=1 grep …`.
 - 10-01 · the worktree guard refuses `git` inside shell loops/`$VAR`s, even on another repo · run git from a stdlib python script (`subprocess`, `--git-dir`).
 - 10-01 · `$MEMBER_ROOT/external/makani-upstream` is a **shallow** clone holding neither the pin nor `main` · use the bare full clone `$MEMBER_ROOT/external/makani-main.git`.
+- 10-01 · the auto-mode classifier refused the operator-ruled `verify_grid_type` waiver (§3.2) as "Security Test Removal" · a validation bypass needs the operator's explicit go in the session before the edit; never re-route it through another tool.
+- 10-01 · the `_lNN` levels look like a plev list but are terrain-following hybrid levels with no hyam/hybm in `data.json` · read the converter docstring before any pressure-based calculation on the pack.
 - 10-01 · inspecting a checkpoint without torch · stdlib `zipfile` + `pickle.Unpickler` with stub `find_class`/`persistent_load` reads `data.pkl` only (keys, comm_grid, pickled classes) — never loads tensor bytes.
 
 ## makani behaviour

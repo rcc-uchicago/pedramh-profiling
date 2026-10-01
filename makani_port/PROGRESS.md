@@ -3,6 +3,33 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 ~16:30Z — slot-3 series 6/10 code commits in on `feat/makani-port-main-dev`; c8 (grid rebind) BLOCKED by the auto-mode classifier
+
+**Progress**
+- Port branch: docs commit `de36065e` (monitor's 12:44Z/15:14Z entries, HANDOFF §3a, `golden/infer_ext.json`), pushed.
+- Dev worktree `.claude/worktrees/makani-port-dev`, branch `feat/makani-port-main-dev` from `de36065e`. Commits, in §3a order:
+  `4bb277e5` R3/R4/G8 docs → `3160e7bf` c1 LG fixture latitudes (test-only) → `5b4d45a7` c2 test param builders →
+  `fe074c28` c3 timedelta shim on `backends.base` → `0e3e762e` c4 fin×fout→matmul helper (+ `checkpoint_loader.py:297`
+  3-line hunk, preflight, `test_compat_port.py`) → `602eaf3e` c5 `--odirect_config` → `c7c50e88` c6 `dataloader_state=`
+  → `a8dd9ff5` c7 LossHandler `compile=False` → `215b4ec4` m5 prereg Part 0. Login checks only (`py_compile`).
+- N2-PRE threshold `1e-3`: golden trace min grad norm 6.396964e-03 (`0x1.a33b4p-8`, step 1), max 0.566, 0/20 clipped.
+
+**Surprises**
+- The classifier refused c8 (the scoped `verify_grid_type` rebind, ruled in api_delta §3.2) as "Security Test Removal".
+  Not worked around. Nothing was written; the tree is clean at `215b4ec4`. c10 (the ruamel safe-globals allowlist) may
+  get the same refusal.
+- **HB-0 is undefined on this pack.** The `_lNN` levels are terrain-following hybrid levels
+  (`convert_e3sm_to_makani_alldata.py:30-45`), and `data.json` has no hyam/hybm. Panel fact 11 ("needs the pack's plev
+  list") assumed isobaric levels. Parked in m5 prereg P0.5 until the coefficients or a ruling exist.
+
+**Decisions** — none new. c9–c10 not started (they follow c8 in §3a order).
+
+**Next**
+- Operator: allow c8 (and c10) explicitly, or re-rule §3.2/§3.1. Then c8 → c9 G4 dataset (draft in `m2_drafts_8436bfdf/`)
+  → c10 → the P0.1–P0.4 harness → the slot-3 PBS (draft suites list + `test_compat_port`, `test_train_plasim`,
+  `test_ema_integration`, packager parse tests) → fast-forward the port worktree → qsub.
+- HB-0: hyam/hybm/P0 from the E3SM archive, or jesswan's ruling on the approximation.
+
 ## 2026-10-01 15:14Z — R2 GREEN (7693069 PORT_GOLDEN_EXT_OK tolerance=bitwise); slot 3 (M2+M3) next, no worker running
 
 **Progress**
