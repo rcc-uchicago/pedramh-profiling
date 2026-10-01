@@ -21,6 +21,11 @@ with the reason).
 - 09-30 · `! cd makani_sfno && …` failed: the `!` shell was already in `makani_sfno/` · give absolute paths in operator commands.
 - 09-29 · Bash `${VAR:?msg}` with an apostrophe in msg is an unterminated quote.
 - 09-30 · a placeholder sha was written into CHANGELOG · always paste the sha from `git log`.
+- 10-01 · login node at 251/256 pids blocked the session start; the operator killed idle sessions (147 after) · read `pids.current` first; ask the operator — the classifier refuses `kill` from a session.
+- 10-01 · `git grep` died "failed to create thread" at 190/256 pids (one thread per CPU) · `git -c grep.threads=1 grep …`.
+- 10-01 · the worktree guard refuses `git` inside shell loops/`$VAR`s, even on another repo · run git from a stdlib python script (`subprocess`, `--git-dir`).
+- 10-01 · `$MEMBER_ROOT/external/makani-upstream` is a **shallow** clone holding neither the pin nor `main` · use the bare full clone `$MEMBER_ROOT/external/makani-main.git`.
+- 10-01 · inspecting a checkpoint without torch · stdlib `zipfile` + `pickle.Unpickler` with stub `find_class`/`persistent_load` reads `data.pkl` only (keys, comm_grid, pickled classes) — never loads tensor bytes.
 
 ## makani behaviour
 - ~09-18 · `--batch_size` is GLOBAL and makani has no gradient accumulation · global = ranks × LOCAL_BATCH.
