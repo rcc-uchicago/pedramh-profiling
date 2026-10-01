@@ -20,6 +20,11 @@ That binds the name into ``data_loader_multifiles``'s namespace at import
 time, so we have to patch BOTH the source and the importer's local
 binding for the override to take effect on subsequent reads.
 
+makani main (the port target, ``makani_port/``) adds a third binding in
+``dataloaders/backends/base.py:74``, used by the backends' timestamp
+converter. That package does not exist at the pin, so patching it is
+feature-detected by import.
+
 Idempotent: importing this module twice is a no-op.
 """
 
@@ -37,3 +42,9 @@ def _timedelta_cast(t) -> _dt.timedelta:
 
 _dh.get_timedelta_from_timestamp = _timedelta_cast  # type: ignore[assignment]
 _dlm.get_timedelta_from_timestamp = _timedelta_cast  # type: ignore[assignment]
+try:
+    from makani.utils.dataloaders.backends import base as _backends_base
+except ImportError:  # the pin has no backends package
+    _backends_base = None
+else:
+    _backends_base.get_timedelta_from_timestamp = _timedelta_cast  # type: ignore[assignment]
