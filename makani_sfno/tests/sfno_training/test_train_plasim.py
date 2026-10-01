@@ -38,3 +38,14 @@ def test_multi_rank_or_model_parallel_keeps_distributed_init(monkeypatch):
     monkeypatch.delenv("WORLD_SIZE")
     assert _should_skip_distributed_init(_args(h_parallel_size=2)) is False
     assert _should_skip_distributed_init(_args(disable_ddp=False)) is False
+
+
+def test_model_parallel_size_reads_either_parser(monkeypatch):
+    # makani main's parser has --matmul_parallel_size and no fin/fout flags
+    for name in ("WORLD_SIZE", "SLURM_NTASKS", "SLURM_NPROCS", "OMPI_COMM_WORLD_SIZE"):
+        monkeypatch.delenv(name, raising=False)
+    main_args = Namespace(disable_ddp=True, h_parallel_size=1, w_parallel_size=1, matmul_parallel_size=1)
+    assert _should_skip_distributed_init(main_args) is True
+    main_args.matmul_parallel_size = 2
+    assert _should_skip_distributed_init(main_args) is False
+    assert _should_skip_distributed_init(_args(fin_parallel_size=2)) is False

@@ -109,17 +109,13 @@ def _build_loader_and_wrapper(
     from makani.utils.parse_dataset_metada import parse_dataset_metadata
     from makani.utils.YParams import YParams
 
+    from sfno_training import compat
     from sfno_training.trainer import PlasimTrainer
 
     params = YParams(str(yaml_config), config_name, print_params=False)
 
     # Mirror train_plasim.main argument injection (single-process defaults).
-    params["fin_parallel_size"] = 1
-    params["fout_parallel_size"] = 1
-    params["h_parallel_size"] = 1
-    params["w_parallel_size"] = 1
-    params["model_parallel_sizes"] = [1, 1, 1, 1]
-    params["model_parallel_names"] = ["h", "w", "fin", "fout"]
+    compat.set_model_parallel_params(params, *compat.model_parallel_layout(1, 1))
     params["parameters_reduction_buffer_count"] = 1
     params["load_checkpoint"] = "legacy"
     params["save_checkpoint"] = "legacy"

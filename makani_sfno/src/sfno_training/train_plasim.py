@@ -30,6 +30,7 @@ from makani.utils.parse_dataset_metada import parse_dataset_metadata
 from makani.utils.profiling import Timer
 from makani.utils.YParams import YParams
 
+from sfno_training import compat
 from sfno_training.trainer import PlasimEnsembleTrainer, PlasimTrainer
 
 
@@ -186,15 +187,18 @@ def _world_size_from_env(names: tuple[str, ...], default: int = 1) -> int:
     return world_size
 
 
+def _feature_parallel_sizes(args: Namespace):
+    """``(fin, fout, matmul)`` from whichever flags the installed makani's parser defines:
+    ``--fin/--fout_parallel_size`` on the pin, ``--matmul_parallel_size`` on main."""
+    fin = int(getattr(args, "fin_parallel_size", 1))
+    fout = int(getattr(args, "fout_parallel_size", 1))
+    matmul = getattr(args, "matmul_parallel_size", None)
+    return fin, fout, (None if matmul is None else int(matmul))
+
+
 def _model_parallel_size(args: Namespace) -> int:
-    return prod(
-        [
-            args.h_parallel_size,
-            args.w_parallel_size,
-            args.fin_parallel_size,
-            args.fout_parallel_size,
-        ]
-    )
+    fin, fout, matmul = _feature_parallel_sizes(args)
+    return prod([args.h_parallel_size, args.w_parallel_size, fin * fout if matmul is None else matmul])
 
 
 def _should_skip_distributed_init(args: Namespace) -> bool:
@@ -243,17 +247,10 @@ def main() -> None:
     params = YParams(os.path.abspath(args.yaml_config), args.config)
 
     # distributed wireup
-    params["fin_parallel_size"] = args.fin_parallel_size
-    params["fout_parallel_size"] = args.fout_parallel_size
-    params["h_parallel_size"] = args.h_parallel_size
-    params["w_parallel_size"] = args.w_parallel_size
-    params["model_parallel_sizes"] = [
-        args.h_parallel_size,
-        args.w_parallel_size,
-        args.fin_parallel_size,
-        args.fout_parallel_size,
-    ]
-    params["model_parallel_names"] = ["h", "w", "fin", "fout"]
+    sizes, names = compat.model_parallel_layout(
+        args.h_parallel_size, args.w_parallel_size, *_feature_parallel_sizes(args)
+    )
+    compat.set_model_parallel_params(params, sizes, names)
     params["parameters_reduction_buffer_count"] = args.parameters_reduction_buffer_count
 
     params["load_checkpoint"] = args.load_checkpoint

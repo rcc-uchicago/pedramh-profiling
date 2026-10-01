@@ -295,6 +295,9 @@ def _ensure_comm_initialized(eval_params) -> None:
 
     sizes = list(getattr(eval_params, "model_parallel_sizes", [1, 1, 1, 1]))
     names = list(getattr(eval_params, "model_parallel_names", ["h", "w", "fin", "fout"]))
+    # config.json from the pin says [h, w, fin, fout]; makani main has one matmul group
+    from sfno_training.compat import normalize_model_parallel
+    sizes, names = normalize_model_parallel(sizes, names)
 
     # CPU compatibility: physicsnemo's DistributedManager.setup() unconditionally
     # passes device_id=cpu_device to torch.distributed.init_process_group(), which
