@@ -3,6 +3,73 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 15:14Z — R2 GREEN (7693069 PORT_GOLDEN_EXT_OK tolerance=bitwise); slot 3 (M2+M3) next, no worker running
+
+**Progress**
+- 7693069 @ `2b1c9030` (dirty 2 = docs only; old venv, makani `c9704308`), 12:51–12:53Z: `GOLDEN_INFER` ×5
+  `control_bitwise=True`, `PORT_GOLDEN_INFER_OK n=5`, `GOLDEN_MATCH ext_vs_ref`, `PORT_GOLDEN_EXT_OK tolerance=bitwise
+  ref=…/golden_ext/7681949`. All 10 goldens are now deterministic across jobs, so M4 gates all 10.
+- The port worktree is unfrozen. The debug queue is empty.
+
+**Next**
+- §3a slot 3: the M2 commit series in the dev worktree `feat/makani-port-main-dev`, starting from
+  `$MEMBER_ROOT/runs/makani_port/m2_drafts_8436bfdf/`. The test-only fixture fix comes first. Also R3/R4 docs and the
+  m5 prereg Part 0.
+- Copy `golden_ext/7681949/infer_ext.json` to `makani_port/golden/infer_ext.json` (M4 reads it).
+
+## 2026-10-01 12:44Z — order panel 7682039 PORT_ORDER_DONE; its order is now the task layout (written by the monitor)
+
+Written by `port_makani_monitor`: the order landed at 05:16Z, after both the worker and the monitor sessions had gone
+idle, so nobody relayed it and R2 was never queued. **Execution order = `HANDOFF_worker.md` §3a**. Full text, including
+the contested facts and the decision branches: `$MEMBER_ROOT/runs/makani_port/review/order_panel/7682039/order.md`.
+
+**Progress**
+- 7681949 @ `2b1c9030` (done 05:01:46Z; log `makani_sfno/makani_port_gext.o7681949`): `NPY_DIFF_SUMMARY n1 bitwise=5/5`,
+  `N1_PRETEST bitwise=5/5` (N1 inert, so the M4 prereg stays bitwise), `PHYSICSNEMO_PARITY_OK files=724
+  tree_sha256=630587a5…`, `PORT_GOLDEN_EXT_WRITTEN out=$MEMBER_ROOT/runs/makani_port/golden_ext/7681949`. This is R1.
+- Order panel 7682039 (2 Opus 5.5 critics, risk-first and value-first, plus a Fable 5.1 moderator; read-only):
+  `PORT_ORDER_DONE`, all three rc=0.
+- The worker's **uncommitted M2 drafts** (`train_plasim.py`, `checkpoint_loader.py`, `preflight.py`, `compat.py`,
+  `plasim_trainer.py`, `plasim_forcing_dataset.py`, `polaris_makani_port_suites.pbs`) were copied out of its job tmp to
+  `$MEMBER_ROOT/runs/makani_port/m2_drafts_8436bfdf/`. Unreviewed and untested. Start the slot-3 series from them.
+
+**Surprises** (the panel, checked against the files)
+- The G1 "M2 discovery job" isn't needed. The fixture latitudes are `linspace(-80, 80, H)` (`test_hdf5_writer.py:45`),
+  stamped `legendre-gauss`, so every `parse_dataset_metadata` call raises. The failure list is known in advance. Fix it
+  with a test-only commit that writes true Legendre-Gauss nodes; the §3.2 waiver does not cover it.
+- The review's clipped probe "at max_grad_norm 1.0" proves nothing: the golden trace is `clipped=false` on every step
+  (max 0.567). N2-PRE uses a threshold **below the trace minimum** (step 0 ≈ 6.4e-3; read all 20 from `trace_train_r1.json`).
+- M6 needs no code, because `polaris_env.sh:101-102` already honours `POLARIS_SFNO_VENV`. Do not add `SFNO_VENV` as a
+  second override name.
+
+**Decisions**
+- Operator (~05:40Z, before the panel): "**jesswan approves all**": NonNeg, hydrostatic incl. the moist variant, the
+  grid-weight fix, `weight_decay_mode`, FCN3.1. *Verbal, via operator; written re-confirmation pending*
+  (`$MEMBER_ROOT/runs/makani_port/jesswan_approvals.md`). Approved = usable in NEW opt-in arms, default OFF, and the
+  off-path stays bitwise.
+- Operator: follow the panel's order. Moderator rulings: M3 folds into the M2 gate job. R2 is never folded with an M2-sha
+  job. S-NN wiring lands after M4 green and before the M5 job (its off-path check rides in slot 5). B1 stays post-M8.
+  M7 depends only on the M2 gate, and is the fallback job whenever a gate STOPs. Fsurg is off the pending-golden list
+  (no checkpoint exists).
+- Dev work moves to a second worktree, `feat/makani-port-main-dev`. The port worktree only runs gates and is
+  fast-forwarded between jobs.
+
+- **R2 submitted 12:50Z as debug job `7693069`** (operator: "submit the job") at HEAD `2b1c9030`, from `makani_sfno/`,
+  `GOLDEN_REF=…/golden_ext/7681949`. Its provenance line will show `dirty_tracked_files=2`: this entry and HANDOFF §3a,
+  both docs the job never executes. **The port worktree is frozen until 7693069 ends.** Key on
+  `PORT_GOLDEN_EXT_OK tolerance=bitwise` in `makani_sfno/makani_port_gext.o7693069`.
+
+**Next** (the moderator's first 3 actions; action 1 = 7693069, done)
+1. Check `pids.current`, then one `qstat -u rmehta1987` (debug slot is empty as of 12:44Z). From `makani_sfno/` at
+   `2b1c9030`: `qsub -v GOLDEN_REF=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_port/golden_ext/7681949
+   polaris/polaris_makani_port_golden_ext.pbs` → `PORT_GOLDEN_EXT_OK tolerance=bitwise`. The port worktree is frozen
+   until it ends.
+2. Create the dev worktree `feat/makani-port-main-dev` from `2b1c9030` (Lustre-safe git, `_papercuts.md:20`). Commit
+   docs: R3 (api_delta #8 a–d, `enable_odirect`, G3 drop), R4 (TODO.md post-M8 entries, incl. the B1 passthrough fact),
+   G8 note.
+3. Slot-3 commit series, in §3a's order, test-only fixture fix first. Alongside it, `m5_train_prereg.md` Part 0
+   (N2-PRE, CRPS ref, `_foreach_norm` check) and the HB-0 numpy script. Login-node checks only.
+
 ## 2026-10-01 05:30Z — operator rulings recorded; golden extension write job next
 
 **Progress**
