@@ -3,6 +3,23 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 ~17:00Z — operator opens threshold equivalence; tolerance panel 7697688 running; preregs frozen until its ruling
+
+**Decisions** (operator ~16:30Z, relayed by the monitor)
+- Port equivalence gates may use a threshold instead of bitwise. Proposed table: branch
+  `docs/makani-port-tolerance-table` @ `db6822b9` (`equivalence_tolerance.md`, `grid_declaration.md`). Do not merge;
+  the monitor updates it with the ruling.
+- Panel = debug job **7697688** (read-only) → `runs/makani_port/review/tolerance_panel/7697688/ruling.md`,
+  `PORT_TOL_DONE`. **No `m4_infer_prereg.md` and no M5 tolerance parts** until it lands; the table then goes into the
+  preregs verbatim, committed before the jobs.
+- Unchanged: c8/c10 still await the operator, and a tolerance does not replace c8. Old-venv-vs-golden regression gates
+  in slot 3 stay bitwise unless the ruling says otherwise.
+- m5 prereg Part 0 (`215b4ec4`) is already committed. Its only numeric bound, P0.2 `max_rel ≤ 1e-5`, is a
+  `_foreach_norm` correctness check, not an equivalence gate. If the ruling covers it, the ruling wins by amendment.
+
+**Next**
+- 7697688 holds a debug slot. Check `qstat -u rmehta1987` before the slot-3 qsub.
+
 ## 2026-10-01 ~16:50Z — c9 (G4 dataset) staged ahead of c8; api_delta §3.4; c8/c10 still with the operator
 
 **Progress**
