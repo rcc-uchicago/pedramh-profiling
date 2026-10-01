@@ -378,9 +378,32 @@ def stream_rollout(
 # reductions + stability monitor
 # ---------------------------------------------------------------------------
 
-def load_stats_f64(path, n_out: int, name: str) -> np.ndarray:
-    """Per-channel stats as float64 ``(n_out,)``. Refuses a channel-count mismatch."""
+def _subset_rows(index, n_out: int, width: int):
+    """Rows of a ``width``-channel stats file that a model with ``n_out`` outputs uses.
+
+    A run trained on a channel SUBSET of its pack (ports F and G) keeps the pack's
+    full-width stats, and makani indexes them by ``out_channels`` (config.json).
+    Returns that list only when the widths differ and it is a valid selection;
+    ``None`` otherwise, so full-width runs read exactly what they always read and
+    anything else falls through to the caller's mismatch error.
+    """
+    if index is None or width == n_out:
+        return None
+    rows = [int(i) for i in index]
+    if len(rows) != n_out or len(set(rows)) != n_out or min(rows) < 0 or max(rows) >= width:
+        return None
+    return rows
+
+
+def load_stats_f64(path, n_out: int, name: str, index=None) -> np.ndarray:
+    """Per-channel stats as float64 ``(n_out,)``. Refuses a channel-count mismatch.
+
+    ``index``: the run's ``out_channels``. Used only for a subset run's full-width
+    file (see :func:`_subset_rows`)."""
     a = np.load(path).astype(np.float64)
+    rows = _subset_rows(index, n_out, a.size)
+    if rows is not None and a.shape in ((a.size,), (1, a.size, 1, 1)):
+        return a.reshape(-1)[rows]
     if a.size != n_out or a.shape not in ((n_out,), (1, n_out, 1, 1)):
         raise ClimateDriverError(
             f"STATS_CHANNEL_MISMATCH: {name} {path} has shape {a.shape}; "
@@ -388,11 +411,18 @@ def load_stats_f64(path, n_out: int, name: str) -> np.ndarray:
     return a.reshape(n_out)
 
 
-def load_time_means_z(path, mean: np.ndarray, std: np.ndarray, H: int, W: int) -> np.ndarray:
-    """Training-period time mean ``(C, H, W)`` in z-space (float64)."""
+def load_time_means_z(path, mean: np.ndarray, std: np.ndarray, H: int, W: int,
+                      index=None) -> np.ndarray:
+    """Training-period time mean ``(C, H, W)`` in z-space (float64).
+
+    ``index`` as in :func:`load_stats_f64`: a subset run's full-width file is
+    reduced to the run's channels before the z-transform."""
     tm = np.load(path).astype(np.float64)
     if tm.ndim == 4 and tm.shape[0] == 1:
         tm = tm[0]
+    rows = _subset_rows(index, mean.size, tm.shape[0]) if tm.ndim == 3 else None
+    if rows is not None:
+        tm = tm[rows]
     if tm.shape != (mean.size, H, W):
         raise ClimateDriverError(
             f"STATS_CHANNEL_MISMATCH: time_means {path} has shape {tm.shape}; "
@@ -719,10 +749,11 @@ def run_member(
     if len(channel_names) != n_out:
         raise ClimateDriverError(
             f"STATS_CHANNEL_MISMATCH: {len(channel_names)} channel names, N_out={n_out}")
-    mean = load_stats_f64(eval_params.global_means_path, n_out, "global_means")
-    std = load_stats_f64(eval_params.global_stds_path, n_out, "global_stds")
+    out_idx = getattr(eval_params, "out_channels", None)
+    mean = load_stats_f64(eval_params.global_means_path, n_out, "global_means", out_idx)
+    std = load_stats_f64(eval_params.global_stds_path, n_out, "global_stds", out_idx)
     H, W = len(lat), len(lon)
-    tm_z = (load_time_means_z(time_means_path, mean, std, H, W)
+    tm_z = (load_time_means_z(time_means_path, mean, std, H, W, out_idx)
             if time_means_path else None)
 
     if start[0] not in years:

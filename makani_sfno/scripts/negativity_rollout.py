@@ -105,8 +105,11 @@ def main(argv=None) -> int:
     n_out = int(eval_params.N_out_channels)
     idx = select_channels(names, args.channels)
     f64 = dict(dtype=torch.float64, device=device)
-    mean = torch.as_tensor(cd.load_stats_f64(eval_params.global_means_path, n_out, "means"), **f64)
-    std = torch.as_tensor(cd.load_stats_f64(eval_params.global_stds_path, n_out, "stds"), **f64)
+    out_idx = getattr(eval_params, "out_channels", None)   # subset runs (F, G): full-width stats
+    mean = torch.as_tensor(cd.load_stats_f64(eval_params.global_means_path, n_out, "means",
+                                             out_idx), **f64)
+    std = torch.as_tensor(cd.load_stats_f64(eval_params.global_stds_path, n_out, "stds",
+                                            out_idx), **f64)
     ic = int(dataset.file_offsets[dyears.index(start[0])]) + int(start[1])
 
     T, K = args.n_steps, len(idx)

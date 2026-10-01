@@ -144,6 +144,354 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani) — port to upstream makani `main` planned: worker + monitor handoffs in
+  `makani_port/`.** Operator: port to the latest `main`, keep the same checkpoints, small commits with
+  a green tag per milestone, revert to the last green commit on breakage. Ours = 0.2.0 @ `c9704308`
+  (2026-04-23); `main` = `a0aa4c4f` (2026-09-30), 184 commits / 209 files ahead, same `__version__`.
+  Plan (`makani_port/HANDOFF_worker.md`): new venv `sfno-venv-main` **beside** `sfno-venv` (never
+  modify the old one; physicsnemo non-editable there), branch `feat/makani-port-main`; milestones M0
+  inventory + golden baselines (old venv, run twice, bitwise) → M1 venv → M2 suites on both venvs →
+  M3 strict checkpoint load → M4 inference bitwise vs golden (+ F2, A e243 @ 595) → M5 training
+  equivalence → M6 `SFNO_VENV` opt-in, default unchanged → M7 spatial `w=4` re-test (upstream
+  `4c40a0e0`) → M8 switch-over = operator. Monitor: `makani_port/HANDOFF_monitor.md`. Bookkeeping:
+  `makani_port/PROGRESS.md` (dated Progress/Surprises/Decisions/Next) and `makani_port/_papercuts.md`
+  (seeded with 30+ traps from 09-24..30; read at session start and before every `qsub`).
+
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: ✅ `SURGICAL_SOIL_SCREEN_OK`,
+  outcome D (slicing damage) at both starts — says nothing about soil.** Job **7671841** (rollouts;
+  its summary failed `TRUTH_MISSING_CHANNEL: TMQ` — the default truth files predate the summary's TMQ
+  column) + **7671870** (`RESUME_OUT`, `_tmq` truth, summary only; wrapper fix `d1c2aec2`). Outputs
+  `$MEMBER_ROOT/runs/makani_eval/surgical_soil_screen_7671841/f{1092,1156}/`.
+
+  | start | A_e243 truncates | Fsurg truncates | ratio | first past 3σ (Fsurg / A) |
+  |---|---|---|---|---|
+  | 2044 f1092 | **595** (control ✅) | **293** | 0.49 | RELHUM_l04,l11@161 / V_l00@382 |
+  | 2044 f1156 | 490 | **343** | 0.70 | RELHUM_l00@175, V_l00@176 / RELHUM_l04@305 |
+
+  Both ratios < 0.75 ⇒ **D** by the prereg: A with soil sliced out and only 20 steps of retraining
+  dies *earlier*, at PS, after leaving range at the model top first — the same failure path as A,
+  faster. Uninformative about soil as a cause (the model was never trained without soil inputs); F
+  (7660250, 43 epochs) remains the test (F3). New number: A e243 from f1156 dies at lead 490 (n=1).
+  Original pre-submission note follows.
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: pre-registered (submission note).**
+  F (7660250) has no checkpoints yet; the only trained soil-free one is `surgical_nosoil_7646690`
+  (A e243 sliced to 99/105 + 20 steps at LR 1e-5, val 0.01427). Operator approved a debug screen of
+  it beside A e243 from 2044 f1092 + f1156 — unlike F3, not confounded by extra training. Prereg
+  `docs/2026-09-30_surgical_soil_screen_prereg.md` (outcomes S/N/D/X by truncation-lead ratio;
+  control A e243 @ 595 from f1092) + `polaris/polaris_surgical_soil_screen.pbs`, committed
+  `4855b999`. `qsub` refused twice (`per-user limit of jobs in 'Q' state`): the `debug` slot
+  is held by **7671383 `ace2_step*`** from the ACE2 session; `-W depend=afterany` counts against the
+  same limit. Submit from `makani_sfno/` once that job has started:
+  `qsub polaris/polaris_surgical_soil_screen.pbs`. PASS = `SURGICAL_SOIL_SCREEN_OK`.
+
+- **2026-09-30 (makani) — CORRECTION, operator: the 2020–2044 split is a SEPARATE experiment,
+  not part of G.** First-hand: *"the validation year change was supposed to be a separate test not
+  everything should have been included in G"*. The 09-29 work had bundled both into G. Nothing had
+  trained or been queued, so it is unbundled before any cost: `submit_g_ace2vars.sh` and
+  `polaris_g_smoke.pbs` gain **`SPLIT=production|2020`**, default `production` = **G proper on the
+  production pack (train 2015–2044, A's/F's stats; the variable set is its only change from F)**;
+  `SPLIT=2020` = the split experiment on the view (run `g_ace2vars_split2020_*`). Validation
+  (2045–47) and test (2048–49) are identical in both packs (metadata checked), so the pair isolates
+  the split. Login dry runs: default → `PACK=…/e3sm_makani_alldata_production`,
+  `g_ace2vars_2n_b32_e243_scratch`, split check 2015–2044 ✅; `SPLIT=2020` → the view,
+  `g_ace2vars_split2020_…` ✅; bad value refused. Yaml and arm-launcher comments updated.
+  Consequences: (1) G compares **directly** with A's `k56_readout_common77.json` — no split caveat;
+  (2) the debate's argument against a **warm** G (A saw the excluded 2015–19 years, other stats) no
+  longer applies to G proper: A sliced to 83/77 on the same pack and stats is the F surgical-transfer
+  case, so warm is back on the table for G (still needs its own transfer proof); (3) G proper's
+  updates/epoch = A's 1,368, not 1,140; (4) G smoke 7668637 ran on the view — the production-pack
+  path needs its own smoke (`SPLIT=production`, 43,800 samples).
+  - **Operator, same day: the split is PORT H** — *"separate the split to H, where it keeps G['s]
+    removed channels, but changed the train years"*. **H = G's 77/83 channel set, train 2020–2044
+    (the view, own stats), valid/test unchanged**; G vs H isolates the train years. New entry point
+    `polaris/submit_h_train2020.sh` (calls `submit_g_ace2vars.sh` with `SPLIT=2020`, refuses any
+    other `SPLIT`); runs `h_ace2vars_train2020_*`; arm launcher accepts `H` (`fsH_*`, PACK from the
+    base run, `anneal_dryair` refused — no TMQ). 7668637's smoke and 7668600's view are H's path.
+    Login dry runs: G → production pack `g_ace2vars_2n_b32_e243_scratch`; H → view
+    `h_ace2vars_train2020_2n_b32_e243_scratch`; H with `SPLIT=production` refused; `H anneal_dryair`
+    → `DRYAIR_NEEDS_TMQ`. Nothing queued. Also confirmed for the record: **B (`nf4_prod_b16_r1`) has
+    A's full 101 channels** — both soil channels, Z3 ×18, TMQ (its `config.json`).
+
+- **2026-09-30 (makani, analysis only) — moderated three-agent review of G, fine-tuning and the
+  next runs: run the multi-year protocol on B e22 + B e24 first; G is a fine-tuning base, not a
+  stability fix.** Operator asked for "3 opus 5.5 [via the] alcf proxy [on] debug … 2 of them
+  discuss, and 1 moderates". Job **7669964** `MAKANI_DEBATE_OK` (`polaris/polaris_makani_debate.pbs`,
+  18 min; pattern from `polaris_critic_handoff.pbs`): brief `docs/2026-09-30_g_finetune_debate_brief.md`
+  (facts + provenance, no recommendation) + both handoffs + spatial result + CHANGELOG 09-20..29 as
+  the only evidence; analysts A (stability lens) and B (evidence/cost lens) → rebuttals → moderator.
+  Final: `makani_sfno/docs/2026-09-30_g_finetune_next_runs_analysis.md`; transcript
+  `$MEMBER_ROOT/runs/makani_debate/7669964/`. Converged (moderator's ranked plan, recommendations
+  only): (1) **multi-year protocol on B e22 + B e24** (debug; copy B e22 out of the rotating
+  `ckpt_mp0_v1.tar` slot first; pre-register three outcomes incl. a model-top timing readout) — the
+  1-yr screen that will pick every arm's winner has never been checked against 5-yr survival (B e01
+  passed the year, then died at 7/8 starts); (2) F as queued; (3) F3 (raw + EMA best) + F4 in one
+  debug job; (4) T-anneal-F + `anneal_dryair`-F on preemptable, concurrent (operator's call); (5)
+  per-epoch screens + multi-year on each arm's top epochs; (6) **G scratch, 2 nodes, `SPARE=0`, 48 h,
+  released by hand after F's extension decision — not `afterany:7660250`** (that fires before an
+  extension resume), gated on jesswan's answer about losing TMQ/dry-air; (7) G screen on 77 ch with a
+  new 77-channel prereg addendum; (8) T-d8-F only on a pre-registered trigger. Parked: G warm, T-d16,
+  sharding, `w=4`. Rulings: F3 is **not** a gate for G (confounded — F = A + 43 single-step epochs;
+  speaks to soil only); "dies at PS" does not separate mass from model-top failure — read the timing.
+  Correction it found: the 43× channel is `Z3_l17` (09-20 entry), fixed in the 09-29 O7 line below.
+  Nothing was submitted beyond the debate job.
+
+- **2026-09-29 (makani) — F fine-tune base built; PORT G (the ACE2-EAMv3 variable set) and the
+  2020–2044 train split implemented. Nothing trains yet; two debug jobs queued.** Branch
+  `feat/makani-f-finetune` (worktree `.claude/worktrees/f-finetune`), per
+  `polaris_makani_f_finetune_handoff.md` (on `worktree-monitor-ace2`) plus two operator decisions
+  made today, first-hand:
+  - **Port G.** *"remove every channel that is not in ACE2-E3SM (SOILWATER_10CM, TSOI_10CM, Z3,
+    U10, RHREFHT, PSL, TMQ). Keep RELHUM (close to their total water) and TREFHT (close to skin
+    temp)."* → `e3sm_alldata_ace2vars.yaml`: 24 of the pack's 101 dropped (pack indices 2–5, 8, 9,
+    64–81), **76 state + PRECT + 7 forcing = 83 in / 77 out**. Same pack files, full-width stats
+    indexed by `out_channels`, `channel_subset_gate.py` in the launcher. Derived from the F yaml;
+    a test pins that only `channel_names`, `dropped_channel_names`, `n_state_channels` differ.
+  - **Split.** *"2020-2044 (training), 2045-2047 (validation), 2048-2049 (test) … exclude the first
+    5 years of the E3SM simulation as model spinup."* → `polaris_pack_alldata_trainview.pbs`: a
+    view root of per-year symlinks into the production pack plus **freshly computed stats and
+    metadata over the 25 train years** (`…/data/e3sm_makani_alldata_train2020_2044`). The
+    production pack and every existing run are untouched. The converter's `--workers` now also
+    parallelises `--stats-only` (30 yr took 52 min sequentially in 7565734); pool = sequential to
+    1e-12 on the sums, to float32 on the written stats (tests). **Job 7668600** (debug, 1 node,
+    ≤1 h) — PASS = `CONVERT_STATS_TESTS_OK` + `CONVERT_ALLDATA_OK` + `TRAINVIEW_OK`, plus a table
+    of how far the split moved each stat.
+  - **Merge (handoff §2, F0 prerequisite):** `worktree-makani-ace2-ports` @ `a530bf65` into
+    `feat/makani-dryair-negativity` @ `82a80043` = `c51a90be`, done in the object DB
+    (`merge-tree` + a temp index; no working-tree git on Lustre). Conflicts only in
+    `CHANGELOG.md` and `scripts/eval_inference.py`; both sides kept, and every line either
+    branch added to those two and to `polaris_makani_multinode_scaling.pbs` checked present.
+  - **Handoff §2.1–2.2, subset-aware stats (`ec5ccfb7`).** `climate_driver.load_stats_f64` /
+    `load_time_means_z` (and `negativity_rollout.py`) select rows by the run's `out_channels` only
+    when the widths differ; `DryAirFix` indexes its stats through `out_channels` and refuses a
+    width that matches neither. Full-width runs read the same rows as before; F reads the same
+    rows as before (its PS=0/TMQ=5 precede the dropped 8, 9 — right by accident, now by
+    construction). **G has no TMQ, so the dry-air fix cannot run on G**: refused by name, and
+    the arm launcher refuses `anneal_dryair` for G before submission.
+  - **Handoff §2.3, launchers (`c611badb`).** `submit_subset_finetune_arm.sh <F|G> <arm>` (sibling;
+    the A-based launcher stays the record of the cancelled arms): `PRETRAINED_CKPT` required, PACK
+    taken from the base run's `config.json` so an arm normalizes with its base's stats,
+    `finetune_base_check.py` refuses a base whose channels differ, tags `fsF_…`/`fsG_…`, and **no
+    fabric pins** (the old launcher's `OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple` predate the
+    CXI fix; overrides in the environment are refused, as in `submit_f_nosoil.sh`).
+    `submit_g_ace2vars.sh <QUEUE> <NODES> <EPOCHS> <WALL> [scratch|warm]`: F's recipe on G and the
+    view, **queue a required argument**. Login-node dry runs against real run dirs: A's checkpoint
+    for an F arm → `FINETUNE_BASE_MISMATCH` (101 vs 99); `surgical_nosoil_7646690` → `FINETUNE_BASE_OK`
+    and the expected `fsF_lrcheck_nf4_b8_r1` qsub; F base for a G arm → refused; G launcher →
+    `TRAINVIEW_MISSING` until 7668600 finishes.
+  - **Job 7668627** (debug, 1 node, 40 min, queued behind 7668600): `polaris_f_finetune_tests.pbs`,
+    gates F0+F1 — six CPU suites, one token each, PASS = `F_FINETUNE_TESTS_OK 6/6`. Not yet run:
+    **no test in this entry has executed**; every claim above about test results is pending it.
+  - ⚠ **Science consequences of G, recorded not decided** (variable sets are jesswan's): no land
+    memory, no geopotential, no column water; **FSNT/FSNTOA stay prognostic** while ACE2 keeps all
+    radiative fluxes diagnostic (moving them needs a repack — the pack's diagnostic group holds
+    PRECT only). And every existing baseline is 101- or 99-channel **and trained on 2015–2044**:
+    G can only be compared on its common 77 channels with the split stated.
+  - ⚠ **Spatial parallelism (operator: "makani supports it … we also fixed slingshot and nccl").**
+    Every sharded run predates the fabric fix: h2w2 IMA/hang on the old plugin before the
+    rendezvous block (7554253, 7563723), and all of `makani_bench_report.md` §5/§7b (h4w1 626.8 ms,
+    h2w2 576.6 ms, the `w=4` hangs) ran on v1.21.1, i.e. over **TCP** (no `FI_MR_PROV_KEY`,
+    7629082). **HPAR/WPAR>1 has never run on the current CXI stack**, so the `w=4` verdict is
+    unproven either way. Next (TODO): a `debug-scaling` shape matrix at 4 nodes, then a
+    same-seed loss-trajectory equivalence vs h1w1 before any production use, then the T-d16
+    memory probe at h2w2 (OOM 7650263 unsharded). `_build_dry_air_fix` already refuses
+    `h/w_parallel_size != 1` (its global mean would be per-tile).
+  - **Not decided here:** F (7660250) stays queued on `capacity`; whether G replaces it, and G's
+    queue/epochs (the launcher requires both), are the operator's. Nothing was submitted to
+    `capacity`/`preemptable`.
+  - **Later the same day — operator, first-hand:** *"G should run after F"* and **jesswan approved
+    these all** (port G's variable set, the 2020–2044 split; relayed by the operator, not read
+    from her directly). → `submit_g_ace2vars.sh` gains `DEPEND=<jobid>` (afterany), for
+    `DEPEND=7660250`. Asked whether G's smoke tests had run: **no** — 7668627 is unit tests only
+    and nothing had trained G. Added `polaris_g_smoke.pbs` (debug, 2 nodes, the G analogue of
+    F's `polaris_makani_ports_smoke.pbs` §4): (1) 2-node × local 4 training smoke on the view with
+    EMA — requires the trainer's `CHANNEL_SUBSET in=76 out=77 … dropped pack idx [2, 3, 4, 5, 8, 9,
+    64..81]`, `train samples available: 36500`, `FABRIC_CXI_CONFIRMED` (G's 384×83 encoder
+    broadcast is a message size never sent before), `EMA_ASSERT_OK`, `MAKANI_MN_SCALING_OK`, no
+    nan; (2) a 380-lead climate-driver rollout from it across the 2044→2045 (view train→valid)
+    handoff at step 368, 77-channel NetCDF; (3) the arm launcher's own `lrcheck` vars for G run
+    inline — `MULTISTEP=5` at 77 channels, `FINETUNE_BASE_OK n_out=77`, `LR_SCHEDULE_OK`.
+    PASS = `G_SMOKE_OK 3/3`. G is not queued on `capacity` until it and the unit tests are green.
+    7668600 was 8/25 years into the stats pass after 5 min (`CONVERT_STATS_TESTS_OK`, 7 passed).
+    ⚠ Debug allows **one queued job per user** (`qsub: would exceed queue generic's per-user
+    limit of jobs in 'Q' state`), so 7668627 (unit tests, never ran) was qdel'd and folded into
+    the smoke, which runs them in the background: **job 7668637** (debug, 2 nodes, 1 h,
+    `afterok:7668600`) — PASS = `G_SMOKE_OK 3/3` + `ALL_GATES_OK`.
+  - ✅ **7668600 `TRAINVIEW_OK`** (`CONVERT_STATS_TESTS_OK` 7 passed; `CONVERT_ALLDATA_OK`):
+    `…/data/e3sm_makani_alldata_train2020_2044`, t_count **36,500** = 25 × 1460, n = 2.3652e9,
+    0 zero-variance channels, min std 8.30e-8. Stats pass **572 s** with 13 workers (30 yr
+    sequential: 52 min, 7565734). What dropping 2015–2019 did to the normalization (vs the
+    production 2015–2044 stats): means move by a median **6.5e-4 σ**, max **−1.42 % σ at
+    `T_l00`**; stds median **0.08 %**, max **+2.9 % at `RELHUM_l03`**; `time_diff_stds` median
+    0.18 %, max **+3.0 % at `RELHUM_l02`**. Small, and concentrated at the model top.
+  - **Operator, same day: do NOT queue G to `capacity` yet.** Asked whether G is multi-node and
+    why 48 h: G *can* run 1/2/4 nodes at global batch 32, but multi-node is not shown to be
+    faster at that batch (the only CXI number is a 50-step 4-node smoke, 521.1 ms/step, 7647798,
+    vs 473 ms steady at 1 node; short smokes overstate — the 20-step 1-node 7646690 read
+    1587.6 ms). A took **46 h 20 min of a 48 h allocation** (683.6 s/epoch); G ≈ 575 s/epoch at
+    1140 steps if its step time matches A's ⇒ ≈ 39 h for 243 epochs. 48 h was too thin a margin
+    to suggest; ask for 60–72 h (capacity allows 168 h; the run resumes from its RUN_NUM).
+  - **Sizing table, global batch 32** (operator asked; F allocates 3 nodes = **2 training + 1
+    spare**, `select=NODES+1`). `wall = steps × step + epochs × 33.5 s val`; reproduces A to 0.7 %
+    (46.0 vs 46.3 h). Efficiency = per-training-GPU throughput vs 1 node (473.2 ms/step);
+    "alloc" also counts the idle spare. Only A's row is measured; multi-node rows bracket an
+    **unmeasured** CXI 2/4-node steady state between linear scaling and the 50-step 4-node CXI
+    smoke (521.1 ms, 7647798 — short runs overstate). Absolute GPU busy at 1 node: 56 % (nsys
+    7591822, 264.4 ms kernels per 472.1 ms step; 35 % of compute is copy/layout).
+
+    | run | nodes alloc / train | GPUs | batch/GPU | steps | step ms | eff train / alloc | wall h | node-h |
+    |---|---|---|---|---|---|---|---|---|
+    | A (done, 7585080) | 1 / 1 | 4 | 8 | 332,424 | 473.2 | 100 / 100 % | **46.3** | 46.3 |
+    | F (queued 7660250) | 3 / 2 | 8 | 4 | 58,824 | 237–521 | 100–45 / 67–30 % | 4.3–8.9 | 13–27 |
+    | G 1 node | 1 / 1 | 4 | 8 | 277,020 | 473 (A's) | 100 / 100 % | 38.7 | 38.7 |
+    | G 2 nodes + spare | 3 / 2 | 8 | 4 | 277,020 | 237–521 | 100–45 / 67–30 % | 20.5–42.4 | 61–127 |
+    | G 4 nodes, `SPARE=0` | 4 / 4 | 16 | 2 | 277,020 | 118–521 | 100–23 % | 11.4–42.4 | 46–169 |
+
+    `capacity` caps `nodect` at **4** (`qstat -Qf`), so a 4-node run + spare (select=5) would be
+    rejected: `submit_g_ace2vars.sh` now takes `SPARE=0|1` (default 1) and refuses select > 4 on
+    capacity (dry runs: 4n → `CAPACITY_NODECT`; `SPARE=0` → select=4; 2n → select=3, F's shape).
+    F's own 2-node log will be the first long CXI batch-32 step time; the G smoke 7668637 gives
+    a short 2-node one for G.
+  - **vs the makani papers' own training setups** (operator asked), read from the upstream
+    clone `$MEMBER_ROOT/external/makani-upstream` @ `cdc22ad` (`icml_models.yaml`,
+    `sfnonet.yaml`, `fourcastnet3.yaml`; GPU counts from the yaml comments + the README recipe
+    recorded 2026-08-24). Our trunk *is* upstream's `sfno_sc3_layers8_edim384` (384 / 8 layers /
+    scale 3 / dhconv / linear).
+
+    | setup | GPUs | batch × ens × spatial | samples/GPU | grid pts/GPU | steps | rollout |
+    |---|---|---|---|---|---|---|
+    | ICML SFNO 73ch (`ngpu64_mp1_sp1`) | 64 | 64 × 1 × 1 | 1 | 1,038,240 | 50,580 + 4,215 (2-step ft) | 1 → 2 |
+    | SFNO README scale-out | 256 | 64 × 1 × 4 | 0.25 | 259,560 | ≤ 500 ep × 843 | 1 |
+    | FCN3 pretrain1 (80 GB) | 1024 | 16 × 16 × 4 | 0.25 | 259,560 | 218,400 | 1 |
+    | FCN3 pretrain2 | 512 | 32 × 2 × 8 | 0.125 | 129,780 | 5,040 | 4 |
+    | FCN3 finetune | 256 | 4 × 4 × 16 | 0.0625 | 64,890 | 2,920 | — |
+    | ours A (done) | 4 | 32 × 1 × 1 | 8 | 518,400 | 332,424 | 1 |
+    | ours F / G at 2 nodes | 8 | 32 × 1 × 1 | 4 | 259,200 | 58,824 / 277,020 | 1 |
+
+    ⇒ Upstream keeps ~0.13–0.26 M grid points per GPU and scales out by **spatial + ensemble**
+    parallelism on 721×1440 (80 GB GPUs); we reach the same per-GPU load at 2 nodes with a 16×
+    smaller grid and **pure data parallelism** (spatial never run on CXI). We take **more**
+    optimizer steps than either paper: A = **1.60×** FCN3 stage 1, whose paper-stated count is
+    **208,320** steps (the config's `max_epochs: 130` would give 218,400; the paper's number
+    governs — an earlier line of this entry said 1.52× from the config and was wrong; the
+    "1.6×" of 2026-09-04 stands). Rollout training: ICML fine-tunes at 2 steps, FCN3
+    pretrain2 at 4; our Stage-1 arms (depth 4/8) are that stage. Objective: `sfnonet.yaml` and
+    FCN3 use `channel_weights: auto` + `temp_diff_normalization: True`; the ICML base is plain
+    l2 like ours. Optimizer β₂ 0.95 / clip 32 match FCN3.
+  - **FCN3's paper-stated compute** (arXiv:2507.12144, training section, quoted verbatim
+    2026-09-29): stage 1 = **1024 H100 (Eos), 78 h, 208,320 steps**, batch 16 × ensemble 16;
+    stage 2 = **512 A100 (Perlmutter), 15 h, 5,040 steps, 4-step rollouts**; fine-tune = **256
+    H100 (Eos), 8 h**, 16-fold spatial split. Total **89,600 GPU-h** vs A's **185** (484×); the
+    A100 stage alone is 7,680 A100-h (41× A). The paper gives **no** scaling efficiency,
+    throughput or GPU utilization, and does not say 40 vs 80 GB (the yaml's h2w4 comment says
+    80 GB). Full table + reading: `makani_sfno/docs/2026-09-10_fcn3_recipe_vs_ours.md` §6.
+    Operator: "we also have the original 128-node run" — added: **7566145 = 512 A100-40GB,
+    the same GPU count as FCN3's A100 stage**, batch 512, 8,500 steps, 1.68 h, 863 GPU-h,
+    valid 0.018297 (still falling); 1.73 samples/s/GPU = **10 % of the 1-node rate**, over
+    **TCP** (pre-fix). Same GPUs as FCN3 stage 2, but a 16× smaller problem spent on batch.
+  - ✅ **G smoke 7668637: `G_SMOKE_OK 3/3`; `ALL_GATES_OK` NOT printed (5/6 unit suites).**
+    (1) train, 2 nodes: `FABRIC_CXI_CONFIRMED` (8 cxi lines), `CHANNEL_SUBSET in=76 out=77 …
+    dropped pack idx [2, 3, 4, 5, 8, 9, 64..81]`, 36,500 samples, `EMA_ASSERT_OK`,
+    `MAKANI_MN_SCALING_OK`; (2) rollout from the 40-step smoke model: **`CLIMATE_ROLLOUT_TRUNCATED`
+    at step 264 (PS)**, 77-channel NetCDF — machinery only, and the 368-step train→valid
+    handoff was **not** reached, so it is still unexercised on the view; (3) the arm launcher's
+    own `lrcheck` vars for G: `FINETUNE_BASE_OK n_out=77 pack=<view>`, `MAKANI_MN_SCALING_OK`,
+    LR 4e-4 → 1e-6 → 4e-4 `LR_SCHEDULE_OK`. Suites: climate driver **29 passed** (incl. the new
+    subset tests), screen + dry-air + negativity **48**, longroll 6, ports 13, preprocessor 4;
+    **`polaris/test_*.py` 68 passed, 1 FAILED** — `test_regional_scores` (port-F land panel,
+    ports branch; first time it ran in a job): rel 7.45058085e-9 at rtol 1e-12. **Traced, not
+    loosened:** `lat_weights` returns float32-rounded weights summing to 1 − 1.4901161e-8 in
+    float64 at H=8; `region_weights` renormalises and `rmse_lat_weighted` assumes its documented
+    sum-to-1 precondition ⇒ predicted gap 1 − √Σw = **7.4505806e-9 = observed**. The test now
+    normalises in float64 first (1e-12 kept) and pins the term (global / region = √Σw at 1e-12).
+    Verification: the spatial job **7669001** re-runs all six suites after its arms.
+  - ✅ **Spatial matrix 7669001 (task #7 phase 1, debug 2 n, `feat/makani-spatial-cxi` @
+    `caafdbf7`): `SPATIAL_CXI_MATRIX_DONE 4/4`, every arm `FABRIC_CXI_CONFIRMED` (8 cxi lines);
+    `F_FINETUNE_TESTS_OK 6/6`** after the arms (`polaris/test_*.py` **69 passed** — the
+    `test_regional_scores` fix verified; driver 29, screen 48, longroll 6, ports 13, preprocessor
+    4). Global batch 32, 8 A100, 60 steps × 2 epochs, `step_ms` = epoch 2; CSV
+    `bench/makani_spatial_cxi.csv`. Scored against
+    `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md` as written:
+
+    | arm | local | step ms | vs h1w1 | ep-2 train / valid loss |
+    |---|---|---|---|---|
+    | h1w1 | 4 | **225.2** | — | 0.1112 / 0.0915 |
+    | h2w2 | 16 | 417.9 | +85.6 % | 0.1098 / 0.0896 |
+    | h4w1 | 16 | 283.8 | +26.0 % | 0.1099 / 0.0879 |
+    | h2w4 | 32 | 616.3 | +173.7 % | **0.1394 / 0.1043** |
+
+    **P1 held** (h1w1 225.2 ms vs TCP 2-node 627.1: −64.1 % — the fabric *was* what made 2 nodes
+    slow). **P2: 2 nodes beat 1 node** (365.4 ms same knobs, 7580338), per-GPU efficiency
+    **81.1 %** ⇒ the 2-node shape of F and G is justified. **P3 held** (≥ +25 %; h4w1 only just,
+    +26.0 %) — sharding remains a memory tool, not a speed one. **P4 FALSIFIED: h2w4 trained,
+    no hang** ⇒ §5b's `w=4` diagnosis was wrong or transport-dependent. **P5 held** (4/4).
+    ⚠ **But h2w4's loss is ~26 % higher at epoch 2** while the other three agree within ~1 %
+    (epoch 1: 0.434 vs 0.380–0.396). Not a gate and not yet explained; it is what §5b's
+    divergent parameter-sync path at `w=4` would look like if it no longer deadlocks. "Did not
+    hang" ≠ "computes the same thing": **no production use of `w=4`** before phase 2's
+    equivalence check; cheapest first test is whether the replicated parameters stay identical
+    across each `w`-group after N steps. First-epoch losses differ by ~4 % across the other three,
+    so initialisation/data order is layout-dependent — phase 2 must load one checkpoint, not
+    compare fresh runs.
+    ⚠ **Bug found — per-lead metric save races under model parallelism.** h2w4 rank 7:
+    `per-lead metric save failed … OSError: Unable to synchronously create file (truncated file)`.
+    `plasim_trainer.py:593` gates `metrics.save` on `data_parallel_rank == 0`, which every
+    model-parallel rank of data group 0 satisfies (8 writers at h2w4, 4 at h2w2/h4w1). Caught as a
+    warning, so non-fatal, but any sharded run's `scores/metrics_ep*.h5` is racy. Fix (world rank
+    0, after checking makani's `MetricsHandler.save` is not collective) waits until 7669103 has
+    run. Also: the matrix's "first logged loss" grep matched the `losses [{'type': 'l2' …}]`
+    config line, not a loss; the table above is from each arm's epoch summaries.
+    **What this does to G's sizing (D2):** scaling A's 473.2 ms by the same-knob ratio
+    225.2 / 365.4 projects **≈ 292 ms/step** in production at 2 nodes (projection, not measured;
+    F's log will measure it) ⇒ **G at 2 nodes ≈ 24.7 h** for 243 epochs (49 node-h at `SPARE=0`,
+    74 with the spare) vs 38.7 h at 1 node; **F ≈ 5.2 h** of its 12 h.
+  - ✅ **F2 green — job 7669103 `F2_EQUIV_OK tolerance=bitwise`** (debug, 1 node, 2.5 min;
+    tree `e036ede5`, whose commit — the prereg `makani_sfno/docs/2026-09-29_f2_equiv_prereg.md` —
+    precedes the job's start by 61 s). `polaris/polaris_f2_equiv.pbs` ran both gates on the
+    merged tree: `CLIMATE_DRIVER_TEST_OK` + `CLIMATE_DRIVER_EQUIV_OK K=56 leads_checked=56
+    chunks=[40, 7, 1] tolerance=bitwise` (A, 2048 f1092); `DRYAIR_OFF_EQUIV_OK ref=873ecd379bde
+    new=e036ede5c64c` — B e22 and A e243 × 1460 leads from 2044 f1092, **20/20 NetCDF variables
+    bitwise** for both pairs, A e243 truncating at step 595 on PS on both sides as predicted. ⇒
+    The five shared files changed since the last green run (`6c689c21`: climate_driver,
+    rollout_driver, mass_fix, preprocessor, plasim_trainer; +163 / −17) are **inert on the
+    full-width path**. Gate F2 of the F handoff §4 is closed; F arms / G may run on this tree.
+    Outputs `$MEMBER_ROOT/runs/makani_eval/{f2_equiv,dryair_equiv}_7669103/`.
+  - ✅ **Job 7669129 `WRITER_C77_ALL_OK 5/5`** (debug, 1 n, 3.6 min, tree `0c10ef23`),
+    `polaris_metric_writer_common77.pbs`:
+    **Metric-writer fix (O10) verified.** (1) `METRIC_WRITER_RED_OK` — the new test (e) FAILS on
+    the test-only commit `36aa3632` (git-archived) on the writer assertion; (2)
+    `PER_LEAD_METRICS_TEST_OK 6 passed` (per-lead + trainer CI) with fix `eb4e0cce` (also require
+    `comm.get_rank("model") == 0`; safe because makani gathers h/w before scoring and
+    `MetricsHandler.save` holds no collective); (3) `F_FINETUNE_TESTS_OK 6/6`; (4)
+    `METRIC_WRITER_SMOKE_OK` — 1 node h2w2 (1 data rank × 4 model ranks) trains, writes one
+    readable `metrics_ep0000.h5` (RMSE 4 × 101), 0 save failures.
+    **O7 — A's K=56 read-out on G's common 77** (`RESTRICT_READOUT_OK n=77`, full 101 reproduced
+    to 0.0) → `…/prod1n_b32_sgdr_K56/scores/k56_readout_common77.json`:
+
+    | readout | 101 (published) | common 99 (F) | **common 77 (G)** |
+    |---|---|---|---|
+    | NRMSE126 / 336 | 0.5189 / 0.9696 | — / 0.9689 | **0.5848 / 1.0660** |
+    | ACC126 / 336 | 0.8669 / 0.5463 | 0.8665 / 0.5420 | **0.8269 / 0.4400** |
+    | VR336 | 1.0189 | 1.0189 | 1.0130 |
+    | worst channel NRMSE336 | 43.18 | 43.18 | **1.371** |
+    | verdict | DRIFT_FIRST | DRIFT_FIRST | **AMBIGUOUS** |
+
+    ⚠ **The channel set alone moves A's baseline far more than it did for F**: ACC336 −19 %,
+    NRMSE336 +10 %, and the verdict class changes. A's DRIFT_FIRST rested **only** on the
+    worst-channel rule (43.18 > 3.0; NRMSE336 0.97 is far under 1.6), and that 43× channel is
+    **`Z3_l17`** — already named in the 2026-09-20 entry ("on ONE channel of 101: `Z3_l17`", every
+    other channel ≤ 1.371 = exactly the common-77 worst). *(Corrected 2026-09-30: this line first
+    said the channel was unnamed; the debate moderator, 7669964, caught it.)* The dropped Z3 levels (smooth, high-ACC) were lifting the 101-median
+    skill. ⇒ **G may be quoted only against the common-77 row**, with the split difference stated
+    (G trains 2020–2044, A 2015–2044; same 2048–49 test years). A G result that "beats A's
+    DRIFT_FIRST" on 77 channels would be the channel set, not the model.
+  - **Draft PRs (solo session cannot self-approve, left open):** **#19** this branch →
+    `feat/makani-dryair-negativity`; **#20** `feat/makani-spatial-cxi` → this branch (stacked).
+  - **makani checkpoint portability (phase 2a prerequisite)** — `legacy` restore validates the
+    file's `comm_grid` against the live layout (h1w1 → h2w2 raises); `flexible` loads `mp0` and
+    scatters it by the live model's `sharded_dims_mp`, so A / an h1w1 checkpoint loads into any
+    layout (never a sharded run's legacy `mp0`, which is shard 0). The launcher does not pass
+    `--load_checkpoint`; phase 2(a) needs a `LOAD_CKPT` knob. Detail: handoff O8a.
+
 - **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
   Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
   job is read-only, because the harness imports `PBS_O_WORKDIR/src` at start and again on every
@@ -592,6 +940,293 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   ⚠ Fact worth keeping straight, surfaced by the same Q&A: the E3SM test files `2048.h5`/`2049.h5` are
   **1460 frames** each (noleap, asserted by `polaris_pack_e3sm_alldata_full.pbs`); **1455/1459 is the
   PlaSim `MOST.*.h5` length** (Aug-1 anchor, 363.75 d) and does not apply to the Polaris sweep.
+- **2026-09-23 (makani/ACE2 ports — `polaris_makani_ace2_ports_handoff.md` implemented)** — 🔵
+  **PORT F IS BUILT AND SMOKED; THE PRE-F BASELINE IS RE-TAKEN ON 99 CHANNELS.** Branch
+  `worktree-makani-ace2-ports` (base `a5b83ae2`; commits `50350a96`…`772cbe16`). Debug job
+  **7646684** (`polaris_makani_ports_smoke.pbs`). Reviewed live by a peer session
+  (`docs/2026-09-23_architect_review_ace2_ports.md`, which reached the same blockers independently).
+  - **F — no repack, no new stats.** Stock `parse_dataset_metadata` already maps `channel_names`
+    → pack indices (`params.out_channels`), which the loss, ACC climatology and model package use.
+    🔴 The fork's `plasim_trainer` built `range(n_state)` instead — a naive `n_state: 98` would
+    have dropped **RELHUM_l16/l17**, kept both soil channels, and normalized PRECT with
+    RELHUM_l16's moments, silently. Fixed: `_plasim_channel_indices` reads makani's lists
+    (identity for every full-width config), asserts diag-last (`CHANNEL_SUBSET_MISMATCH`).
+    `e3sm_alldata_nosoil.yaml` (99 names, n_state 98, 105-in/99-out). New
+    `channel_subset_gate.py`, run by the production launcher for any config declaring
+    `dropped_channel_names` (the launcher had **no** converter gate before).
+    **Verified live on the production pack (7646684):** `CHANNEL_SUBSET_GATE_OK 99 of 101`,
+    `CHANNEL_SUBSET in=98 out=99 … dropped pack idx [8, 9]`, `N_in_channels=105`, metrics over 99;
+    20 steps, loss **2.19 → 0.296**, grad norm 0.248, all finite. ⚠ Its `validation loss: nan`
+    is **my smoke's shape, not F**: EVAL_SAMPLES=8 < global batch 32 ⇒ zero validation batches
+    (0/0). Every full-width smoke with the same inequality printed nan too (7630472, 7633857,
+    7633881); those with global ≤ 8 are finite. Smoke now uses 64 and the launcher prints
+    `WARN EVAL_SAMPLES_LT_GLOBAL_BATCH`. So 7646684's `NOSOIL_TRAIN_SMOKE_FAILED` (its nan grep)
+    is this artifact — read the per-section tokens, not `PORTS_SMOKE_OK`.
+  - **Eval path fixed before F trains:** `rollout_driver` indexes full-width stats by
+    `out_channels` when widths differ; `eval_inference` accepts a subset whose names match the
+    h5 at those indices; `score_rollout_nc` selects climatology rows **by name** (it would have
+    refused the 99-ch NetCDFs with `CHANNEL_COUNT_MISMATCH` — peer review). Full-width paths
+    unchanged.
+  - **Rebaseline, done BEFORE any post-F number exists** (`restrict_readout.py`, reproduces the
+    published 101 readout to 1e-9 first) → `…/prod1n_b32_sgdr_K56/scores/k56_readout_common99.json`:
+    NRMSE336 0.9696→**0.9689**, ACC336 0.5463→**0.5420**, ACC126 0.8669→0.8665, VR336 1.0189
+    unchanged. ⚠ The channel set alone moves ACC336 by 0.8 % — compare F only against these.
+    The 43.18× worst channel is **not** a soil channel: `DRIFT_FIRST` survives F.
+  - **B step 1:** converter `--time-diff-only --workers N` (same completeness guard as
+    `--stats-only`, writes ONLY `stats/time_diff_stds.npy`; diffs never span a year file) +
+    `time_diff_report.py` (r_c table, realised weight, clamp hits, Spearman vs 7646192).
+    Nothing enables `temp_diff_normalization`.
+  - **C finding (pinned by test):** installed makani's `channel_weights: auto` keys on lowercase
+    ERA5 names; every E3SM name falls through to one default ⇒ `auto` **is** `constant` here.
+    Port C can only be an explicit list ⇒ B+C collapse into `make_capped_weights.py`:
+    `clip(σ/δ, 1, W_max)` normalized to **sum 1** (makani's `constant` is ones/C — the peer
+    suggested dividing by the mean, which would scale the loss 99×). Produces a nested
+    `[[…]]` yaml snippet; enables nothing — **loss change ⇒ jesswan sign-off**.
+  - **D:** launcher `-v EMA=1 [EMA_DECAY=]`, default 0.9995 (≈1.5 epochs at 1368 updates/epoch,
+    not ACE2's 0.999 copied across a 9× update-rate difference), asserted `EMA_ASSERT_OK`.
+    Live: `EMA enabled: decay=0.9995, shadowed_params=87`.
+  - **A:** `force_positive_names` clamp in `rollout_driver`, `--force-positive-names`, default
+    OFF, **not run** — F removed its headline target and the list is science-owned.
+  - **F cost — surgical transfer prepared, not yet run:** `slice_checkpoint.py` (drops rows 8,9
+    from every 107/101-sized dim; exact identity proved on a toy) +
+    `polaris_makani_surgical_proof.pbs`, **pre-registered PASS iff first val loss ≤ 0.02568**
+    (2× the base's 0.01284; from scratch was 0.094 @ ep1, 0.026 @ ep3). PASS ⇒ F is a
+    fine-tune, not 46 node-h.
+  - **Surgical proof 7646690 — `SURGICAL_TRANSFER_PASS val_loss=0.014265581965446472`**
+    (≤ 0.02568; 1.111× the base's 0.01284). ⚠ The job itself printed `ERROR NO_VALIDATION_LOSS`:
+    its grep assumed one space, the trainer pads the column (`validation loss:      0.0142…`).
+    The token above is the pre-registered rule applied to the **existing** log with the fixed
+    pattern `validation loss: +[0-9.eE+-]+` (now in the pbs), no rerun. Tier STRONG on the
+    101-channel proxy — **provisional** until `fill_substitute_probe`'s `base` arm gives the
+    99-channel denominator on the same first-64 validation samples (7646696). The same padding
+    affects any grep on trainer summary lines (`training loss:`, `validation loss ema:`).
+  - **Leave the 12 `submit_*.sh` fabric flags alone.** Eleven pass
+    `OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple`; `submit_when_slot_frees.sh` also passes the
+    correct v1.6.0 `OFI_PLUGIN`. None passes the v1.21.1 plugin (13ae5cbd); both values are
+    benign. But F runs in the **no-AUTO** env of smoke 7646700 — `submit_f_nosoil.sh` refuses
+    any fabric override, and the launcher now kills a multi-node run unless every node reports
+    `Selected Provider is cxi` (fatal on timeout when FULL=1, and post-run regardless of rc).
+  - ⚠ **Git hazard, recorded:** a peer committed onto this worktree's branch from outside its
+    index; the next commit here silently deleted that file (restored, `11628839`). Peers now
+    message instead of committing.
+
+- **2026-09-23 (makani/ACE2, analysis only — no jobs, no allocation)** — 🔵 **THE ACE2-vs-makani
+  DIFFERENCE TABLE IS WRITTEN AND ON GITHUB: PR #15**, branch `docs/ace2-vs-makani-differences`,
+  one file (`ace2_vs_makani_differences.md`, +208), based on `main`, **left open** (CLAUDE.md #9 —
+  a solo session cannot self-approve). It covers the **science axis**; `ace2_polaris_results.md`
+  Table 8 already covers architecture/performance and is cross-referenced rather than repeated.
+  - **Config-verified today by parsing `ACE2_retrain/config_polaris.yaml`** (not eyeballed):
+    **44 in / 50 out = 38 prognostic + 6 forcing + 12 diagnostic**; `corrector` = dry-air-mass
+    conservation + moisture-budget correction + `force_positive` on **16** names; loss = **17
+    explicit channel weights spanning 0.25–10**; **dual** normalization (full-field + residual).
+    Against ours: **100 prognostic / 7 forcing / 1 diagnostic**, `channel_weights: "constant"`,
+    single full-field z-score, `temp_diff_normalization: False`, and **zero** corrector machinery.
+  - 🐛 **Discrepancy found, flagged not patched.** Table 8 records ACE2 as "56 (43 in / 40 out)";
+    the config gives 44/50. **Table 8's parameter, memory and throughput rows are unaffected** —
+    they depend on `scale_factor` and the trunk, not encoder width — but the channel row should be
+    corrected where it lives, not in the new document.
+  - ✅ **Three things confirmed NOT to be differences**, each having been assumed at some point:
+    (1) **cadence — both are 6-hourly**, and the E3SM archive has no hourly option at all
+    (51,100 files = 35 yr × 1460, `noleap`); ERA5 *is* hourly at source and ai2 chose 6-hourly
+    anyway. (2) **prescribed SST / sea ice / insolation — both** read them from file every step;
+    `sst`, `ice`, `solin` are 3 of our 7 forcings. (3) architecture family and grid — both.
+  - ⚠ **Correction to `2026-09-10_ace2_comparison_the_corrector.md` §1.** Its "ACE2's 2 forward
+    steps ≡ makani's 2" is true of the **C1 fine-tune**; the **shipped production checkpoint is
+    `n_future: 0`, i.e. ONE forward application**. The depth-equivalence claim must not be quoted
+    about the model we ship.
+  - **Lagged-ensemble numbers re-read from the run rather than the write-up** (job 7643271,
+    `lagged_readout.json` + `lagged_summary.csv`): per-channel ratio weighted÷freshest is
+    **min 1.133, median 1.317, max 1.774** over 101 channels, which reproduces the −31.7 %
+    headline exactly (the ratio *of medians* would read −37.8 % — do not mix the two reductions).
+    Worst channels **`SOILWATER_10CM` 1.559** and **`Z3_l17` 1.510**; best **`PRECT` 1.179**.
+    ⇒ the most *systematic* channels are damaged most by averaging and the noisiest least, which
+    is the error-correlation mechanism visible directly in the per-channel table.
+  - **Git technique, recorded because it matters on this filesystem:** the commit was built with
+    plumbing on a temporary `GIT_INDEX_FILE` (`read-tree` → `hash-object -w` → `update-index
+    --cacheinfo` → `write-tree` → `commit-tree` → `update-ref`), so **no command walked the
+    working tree** and the real index was never touched. `git status`/`add`/`commit` can wedge in
+    uninterruptible Lustre I/O here and each wedged process holds a login-node slot permanently.
+  - 🟢 **AND THE PORT HANDOFF'S CENTRAL CLAIM WAS PUT ON A DEBUG NODE RATHER THAN ARGUED —
+    job 7646192, `TENDENCY_PROBE_OK`, 60 s, CPU-only.** New tooling:
+    `makani_sfno/polaris/tendency_norm_probe.py` + `polaris_tendency_norm_probe.pbs`;
+    handoff at `polaris_makani_ace2_ports_handoff.md`. Five hypotheses with thresholds fixed
+    in the script **before** any number existed; outputs in
+    `$MEMBER_ROOT/runs/makani_probe/tendency_norm/7646192/`.
+    - ✅ **H1 the mechanism is real and current** — `makani/utils/loss.py:152` is verbatim
+      what the 2026-09-10 doc quoted; key is **`params.time_diff_stds_path`**;
+      `get_time_diff_stds` is a bare `np.load` with **no internal normalization**;
+      `loss.py:99` makes `scale` exactly `global_stds.npy`, so the multiplier really is
+      **σ_c / clamp(δ_c, 1e-4)**.
+    - ✅ **H2 `r_c = δ_c/σ_c` spans 1.31e4** (0.000105 → 1.375) — the "slow channels are
+      nearly invisible to the loss" claim is right, and by 4 orders of magnitude, not the
+      1.5 the prereg asked for.
+    - 🔴 **H3 FALSIFIED — my framing was wrong.** The slow channels are **the `Z3`
+      geopotential levels and `PS`**, not land reservoirs as a class: 5 of the 10 slowest
+      are `Z3_l17…l13`; `SOILWATER_10CM` is 6th (5th pct) but **`TSOI_10CM` is 39th pct**.
+    - ✅ **H4, the one that mattered: Spearman(`r_c`, bias²/MSE @336 h) = −0.647**
+      (threshold −0.30). The drift *is* concentrated where the loss is blind.
+    - ✅ **H5 refuted the competing explanation**: the train→test warming shift gives
+      Spearman **+0.079** — the 336 h bias is not the model regressing toward a stale
+      train-split climatology.
+    - 🔴 **TWO TRAPS FOUND THAT WOULD HAVE MADE THE PORT SILENTLY WRONG.** (1) The `1e-4`
+      clamp is in **physical units**, and `PRECT`'s tendency std is **7.95e-08 m/s** — so
+      enabling the switch gives precipitation weight **8.3e-04** instead of 1.044, a factor
+      of **0.0008**: the channel is effectively deleted from the loss, no error, no warning.
+      (2) The realised weight range would be **0.727 → 9518** (1.3e4 span) with **`Z3_l17`
+      alone at 9518**, a channel with 0.271 m of temporal variability; ACE2's hand-picked
+      weights span 40×. ⇒ **`temp_diff_normalization: True` is NOT a one-line flip here** —
+      it needs a dimensionless weight cap and an explicit `PRECT` decision, which reprices
+      the port from config-only to code+config.
+    - 🔴 **CORRECTION to a claim I made earlier the same day.** I called removable
+      systematic drift "possibly the largest single win". Measured: **only 2 of 101 channels
+      carry a material bias² share at 336 h** — `Z3_l17` 0.253 and `Z3_l16` 0.139 — and 94
+      channels are ≤ 0.010. The prize is much smaller and much more local than stated.
+    - 🎯 **Three independent lines now point at the `Z3` family**: slowest `r_c` of all 101
+      (by 35× over the next channel), largest systematic share of 336 h error, and the K=56
+      read-out's `DRIFT_FIRST` verdict on a completely different normalisation. **Whether a
+      near-constant terrain-following level should be prognostic at all is the question to
+      take to jesswan** — possibly instead of, not alongside, weighting it harder.
+  - 🟢 **COLD-CRITIC AUDIT OF THE `Z3_l17`-IS-TOPOGRAPHY READING — job 7646252,
+    `STATIC_AUDIT_OK`, 16 s.** Prompted by rmehta1987's observation that `Z3` is geopotential
+    height and `_l17` the bottom model level, so the channel would be dominated by surface
+    topography. Tooling: `makani_sfno/polaris/static_channel_audit.py` +
+    `polaris_static_channel_audit.pbs`. Six attacks, thresholds fixed before any number.
+    - ✅ **The observation is measured and correct**: `corr(time_mean(Z3_l17), topo) =
+      +0.9854`, `Z3_l17 ≈ 0.953·topo + 33 m`. Slope < 1 is right — thinner layer over high,
+      cold terrain.
+    - ✅ **A1 it is a genuine OUTLIER, by 50×.** `S_c = std_space(time_mean)/a_truth` is
+      **3053** for `Z3_l17`, **61.2** for the next channel (`Z3_l16`); median over 101 is
+      **0.83**, only **1** channel above 300. ⇒ "stop predicting it" is a one-channel
+      decision, not a family-wide normalization problem.
+    - ✅ **A2 "the other surface topography" is only 5 of 101 channels** reconstructible from
+      `lsm/topo/glacier/natveg` at R² > 0.90: `Z3_l17` 0.974, `Z3_l16` 0.972, `Z3_l15` 0.967,
+      **`PS` 0.964**, `Z3_l14` 0.942.
+    - 🔑 **`PS` is the counterexample that fixes the rule.** It is 96.4 % static-reconstructible
+      and the 7th-slowest channel (`r_c` 0.0248) yet its 336 h bias fraction is **0.0015** —
+      it does not drift. ⇒ **terrain-dominance is not the discriminator; residual forecastable
+      signal is.** `PS` keeps 793 Pa of real temporal signal; `Z3_l17` keeps 0.27 m.
+    - ✅ **A3, the strongest attack, SURVIVES.** Job 7646192's Spearman(`r_c`, bias²/MSE) of
+      **−0.647** becomes **−0.581** with all 18 `Z3` levels removed and **−0.506** on one
+      channel per family (16). It was not one variable wearing a trenchcoat.
+    - ✅ **A4 bias is linear in lead to R² = 1.0000**, slope **−0.0913 m/step** (×56 = 5.11 m
+      vs the measured −5.15 m). 🔑 **That per-step systematic error EXCEEDS the channel's
+      entire true 6-hour variability** (δ = 0.0857 m) — every step, the mean error is larger
+      than the whole signal.
+    - 🔴 **A5 PASSED ITS THRESHOLD BUT REFUTED ITS MECHANISM — disclosed, not patched.** I
+      predicted spectral reconstruction error at steep terrain (`scale_factor: 3` ⇒ 60×120
+      internal grid). Measured: `corr(bias_map, topo) = +0.565` clears the bar, but
+      `corr(bias_map, |∇topo|) = +0.277` **fails** it, and the bias is **on the ocean**:
+      land **+0.85 ± 8.51 m**, ocean **−5.41 ± 6.34 m**. The topo correlation is positive only
+      because the error is near zero *over* terrain and strongly negative at sea level. **The
+      steep-terrain/spectral-ringing story is refuted**; the clause tested the wrong thing and
+      is left as written. Next prereg: state the sign and the land/ocean split up front.
+    - ✅ **A6 redundancy confirmed and strong**: median per-cell temporal correlation with
+      `TREFHT` = **+0.965** (quartiles 0.935/0.965/0.985), so it is global, not a few cells.
+      Fitted **0.0466 m/K** against the ~0.115 predicted from a 33 m layer — same order, 2.5×
+      low, implying a ~13 m mean layer. ⇒ the forecastable part of `Z3_l17` is near-surface
+      temperature, which is already two prognostic channels.
+    - 🔴 **A SECOND DRIFT POPULATION THE AUDIT SURFACED AND MY STORY DOES NOT EXPLAIN.**
+      `T_l00` (bias_frac 0.041), `T_l01` (0.028) and `Z3_l00` (0.022) all drift **linearly**
+      (R²_lin 0.995–0.997) at the **model top**, with `S_c` ≈ 0.67–1.00 and `R²_static`
+      0.06–0.53 — i.e. neither loss-blind nor terrain-related. Loss blindness explains the
+      bottom of the model, not the top. **Open.**
+  - 🔴 **THE SOIL CHANNELS: THE MODEL PREDICTS NEGATIVE SOIL WATER, AND A FIFTH OF THE SOIL
+    ERROR BUDGET IS SPENT OUTSIDE THE VALID REGION.** Jobs **7646391** (`SOILWATER_10CM`,
+    partner `PRECT`) and **7646383** (`TSOI_10CM`, partner `TREFHT`), both `STATIC_AUDIT_OK`.
+    The audit gained a land/ocean mask and a new attack **A7 (is the fill respected?)** after
+    it became clear these are land-only fields — global spatial statistics on them are ~62–72 %
+    constant by construction, the same way `global_stds` flattered `Z3_l17`.
+    - 🎯 **`SOILWATER_10CM`: truth over the filled region is ≈ 0; the model predicts mean
+      **−0.856** there (std 1.46) — i.e. **negative soil water content** — and **12.5 % of the
+      lat-weighted 336 h MSE comes from cells whose answer is a known constant.**
+      ⇒ **direct measured support for the ACE2 positivity clamp (handoff port A)**, which is
+      the one port that needs no retraining. `force_positive_names` exists upstream for exactly
+      this.
+    - 🎯 **`TSOI_10CM`: truth over ocean is a 270 K constant; the model predicts std 1.77 K
+      with max 303.7 K there, and **21.8 % of its 336 h MSE is outside the valid region.**
+      A masking problem, not a physics problem.
+    - ✅ **`SOILWATER_10CM` A5 FALSIFIED cleanly** — `corr(bias, topo) = −0.292`,
+      `|∇topo| = +0.021`. Soil-moisture bias is **not** terrain-organised. (`TSOI_10CM` is:
+      −0.376 on land.)
+    - ✅ **`SOILWATER_10CM` A6 FALSIFIED** — median per-cell correlation with `PRECT` is
+      **0.160** (quartiles 0.008/0.160/0.355). Soil moisture is **not** redundant with
+      precipitation; it is an integrator of it. ⇒ unlike `Z3_l17`, **this channel cannot be
+      deleted — it has to be constrained.** The two channels need opposite fixes.
+    - ⚠ **Neither soil channel has a drift problem worth chasing**: systematic share of the
+      336 h MSE is **0.018** (`SOILWATER_10CM`) and **0.0026** (`TSOI_10CM`), against 0.253 for
+      `Z3_l17`.
+    - 🐛 **Three defects in my own harness, disclosed.** (1) `fields_state[:, 100]` is an
+      `IndexError` — `PRECT` is index 100 of `channel_names` but lives in `fields_diagnostic`;
+      killed 7646367, fixed with a split-aware reader. (2) A1/A2/A3's verdict lines test
+      **global** properties, so they print identically for every target and are meaningless for
+      anything but `Z3_l17`. (3) A6's slope label is hard-coded `m/K` and its 0.50 threshold was
+      calibrated on the `Z3`/thickness case — `TSOI_10CM` "passes" at 0.526 with an IQR of
+      **−0.20 to 0.93** and a slope of 0.05 K/K, which says damped integrator, not copy.
+      **Do not read `TSOI_10CM` as redundant with `TREFHT`.**
+  - 📊 **THE `Z3` FAMILY AS A VERTICAL PROFILE (all 18 levels, from 7646252's CSV) — three
+    regimes, and they are a sandwich.** Truth behaves exactly as hypsometry requires: the
+    forecastable amplitude falls **559.9 m (`l00`) → 0.267 m (`l17`)** while the static share
+    rises **0.53 → 0.97**, so `S_c` spans **1.0 → 3053** within one variable.
+    - **Free troposphere `l02`–`l13`: healthy.** Linear fits explain 0–88 % of the bias curve,
+      slopes change sign level to level, systematic share ≤ 0.005 everywhere.
+    - **Model top `l00`/`l01`: drifts −0.525 / −0.114 m per step at R² 0.995 / 0.942**, but that
+      is the *column-integrated* thermal bias accumulating by construction, and at 560 m of
+      natural variability it is only **2.2 %** of that level's error.
+    - **Lower boundary `l14`–`l17`: coherent drift converging on ≈ −0.09 m/step**, R² 0.964 →
+      0.997 → 0.999 → **1.0000**, systematic share 0.003 → 0.038 → 0.139 → **0.253**. Onset
+      coincides with the terrain share crossing ~0.94 at `l14`.
+    - 🔑 **And `TREFHT` does not drift (systematic share 0.0000).** So the model lowers the
+      geopotential of its lowest layers while leaving the temperature that physically determines
+      it untouched — **it breaks its own hypsometric consistency.** At `l17` the per-step
+      systematic error (0.0913 m) **exceeds the channel's entire true 6-hourly variability**
+      (0.0857 m).
+    - Family total 0.483 of summed bias share, concentrated: `l15`+`l16`+`l17` = 0.430, `l00` =
+      0.022, the other 14 levels ≈ 0.03 combined.
+  - 🔵 **OPERATOR DECISION (rmehta1987, 2026-09-23): DROP `SOILWATER_10CM` AND `TSOI_10CM`
+    FROM THE PROGNOSTIC SET AND RETRAIN.** Written up as **port F** in
+    `polaris_makani_ace2_ports_handoff.md` §6a, which now leads the order.
+    - **Not a repack.** `plasim_forcing_dataset.py:308` already reads with
+      `channels=self.in_channels` and `:320` builds the target from `self.out_channels`;
+      makani indexes the normalization arrays the same way (`loss.py:106`,
+      `scale[:, params.out_channels, ...]`). ⇒ **the 1.4 TB pack and all six stats files stay
+      as they are** and the decision stays reversible. Inputs 107 → 105, outputs 101 → 99,
+      `n_state_channels` 100 → 98, `n_diagnostic_channels` stays 1, forcings unchanged.
+    - ⚠ **First thing to check:** `in_channels`/`out_channels` are set in *neither*
+      `e3sm_alldata_full.yaml` nor `train_plasim.py`, so makani derives them — read
+      `driver.py`. If they are settable, keep `channel_names` at 101 and express the removal
+      as index lists; if they are derived from `len(channel_names)`, editing it to 99 **trips
+      the converter↔trainer gate**, which must be taught the subset rather than weakened.
+    - ⚠ **`:320` assumes the diagnostic channel is LAST in `out_channels`** — `PRECT` must
+      stay at the end of the subset or the target silently takes the wrong channel.
+    - ⚠ **The existing checkpoint cannot be warm-started** (encoder-in and decoder-out widths
+      both change). From scratch is the measured **46.3 node-hours / 332,424 updates**; a
+      surgical row-drop transfer is possible in principle and must be proven by a 1-epoch arm
+      starting near the base loss, not at initialization.
+    - 🔴 **Comparison trap, flagged before any new number exists:** the new model has 99
+      channels and **every existing baseline is a 101-channel median** — `0.01284`,
+      `NRMSE336 0.970`, and the whole `n_future` ladder would shift from the channel set
+      alone. Recompute the old baselines restricted to the common 99 channels **first**;
+      it is a re-take of medians from `k56_metrics.h5`, not a re-run.
+    - 🔗 **This supersedes most of port A**: the positivity clamp's headline target was
+      `SOILWATER_10CM`, the channel whose −59 %-by-step-500 extrapolation started the line of
+      work. Remaining candidates (`PRECT`, `RHREFHT`, humidity) have never been shown to go
+      unphysical. Port A demoted below F and folded into the retrain.
+    - 🎯 **And it turns the post-retrain long rollout into a real experiment:** if divergence
+      still occurs near step 500 with no soil reservoir in the state, the reservoir-drift
+      chain was never the cause and `2026-09-10_ace2_comparison_the_corrector.md` §4 needs
+      retracting. Run it and report either way.
+    - ⚠ **Science consequence, stated not buried:** this removes the model's land-surface
+      memory, so no soil-moisture → evaporation → precipitation feedback. **ACE2 carries no
+      soil variables either** (38 prognostic channels, verified), so it moves toward the
+      reference contract — but it is a science change, not a cleanup.
+  - **Open:** the Table 8 channel-count correction; port F's `in_channels`/`out_channels`
+    question and the 99-channel rebaseline; the weight cap + `PRECT` decision for port B;
+    `time_diff_stds.npy` over the full 30-year train split (the probe used 4 × 60 samples of
+    `train/2044.h5`, which fixes the ordering but not the values); **why the `Z3_l17` bias is
+    an ocean/sea-level phenomenon rather than a terrain one**; **the model-top drift family
+    (`T_l00`/`T_l01`/`Z3_l00`)**; and the still-unrun test of whether `Z3_l17` contaminates
+    the other 100 channels.
+
 - **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
   DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
   tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →

@@ -48,6 +48,26 @@ def equiangular_weights(nlat: int) -> np.ndarray:
     return w / w.sum()
 
 
+def _stats_rows(n: int, width: int, index) -> list[int]:
+    """Stats row of each of the model's ``n`` channels, for a ``width``-channel file.
+
+    Same width: the channel's position (the full-width contract). Wider: the run's
+    ``out_channels``. Anything else is refused -- reading a 101-wide file at a
+    channel's position in a 99-name list is right only while every dropped channel
+    comes after PS and TMQ, which is an accident of order (port F), not a contract.
+    """
+    if width == n:
+        return list(range(n))
+    if index is None:
+        raise ValueError(f"DRY_AIR_FIX: stats have {width} channels for {n} channel_names "
+                         "and no out_channels to index them by")
+    rows = [int(i) for i in index]
+    if len(rows) != n or len(set(rows)) != n or min(rows) < 0 or max(rows) >= width:
+        raise ValueError(f"DRY_AIR_FIX: out_channels (len {len(rows)}) is not a selection "
+                         f"of {n} rows from {width}-channel stats")
+    return rows
+
+
 class DryAirFix:
     """Callable ``(inp_z, pred_z) -> pred_z`` with the dry-air constraint applied.
 
@@ -57,7 +77,11 @@ class DryAirFix:
     """
 
     def __init__(self, *, channel_names, global_means, global_stds, nlat: int,
-                 ps_name: str = "PS", tmq_name: str = "TMQ"):
+                 ps_name: str = "PS", tmq_name: str = "TMQ", stats_index=None):
+        """``channel_names``: the model's output channels, in tensor order.
+        ``stats_index``: the run's ``out_channels`` -- the stats row of each of those
+        channels. Needed when the stats are wider than ``channel_names`` (a run on a
+        channel subset of its pack keeps the pack's full-width stats)."""
         names = list(channel_names)
         for n in (ps_name, tmq_name):
             if n not in names:
@@ -65,11 +89,11 @@ class DryAirFix:
         self.i_ps, self.i_q = names.index(ps_name), names.index(tmq_name)
         mu = np.asarray(global_means, dtype=np.float64).reshape(-1)
         sd = np.asarray(global_stds, dtype=np.float64).reshape(-1)
-        if mu.size < len(names) or sd.size < len(names):
-            raise ValueError(f"DRY_AIR_FIX: stats have {mu.size}/{sd.size} channels, "
-                             f"need {len(names)}")
-        self.mu_ps, self.sd_ps = float(mu[self.i_ps]), float(sd[self.i_ps])
-        self.mu_q, self.sd_q = float(mu[self.i_q]), float(sd[self.i_q])
+        if mu.size != sd.size:
+            raise ValueError(f"DRY_AIR_FIX: means have {mu.size} channels, stds {sd.size}")
+        rows = _stats_rows(len(names), mu.size, stats_index)
+        self.mu_ps, self.sd_ps = float(mu[rows[self.i_ps]]), float(sd[rows[self.i_ps]])
+        self.mu_q, self.sd_q = float(mu[rows[self.i_q]]), float(sd[rows[self.i_q]])
         self.w = torch.as_tensor(equiangular_weights(nlat), dtype=torch.float64)
         if not (math.isfinite(self.sd_ps) and self.sd_ps > 0):
             raise ValueError(f"DRY_AIR_FIX: global std of {ps_name} is {self.sd_ps}")

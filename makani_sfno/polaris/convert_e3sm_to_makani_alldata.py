@@ -265,48 +265,132 @@ def _write_year(out_path: str, e3sm_root: str, year: int, offset_seconds: int,
     return T
 
 
-def _accumulate_stats_from_packed(train_dir: str) -> dict:
-    """Second pass: float64 sum/sumsq/time-sum over the PACKED train files.
+def _diff_chunk(prev, tgt):
+    """One-step differences x(t+1) - x(t) for a chunk, continuing from `prev`
+    (the previous chunk's last frame of the SAME file, or None at file start).
+    Returns (diffs, new_prev). Pairs never span two files: sample 0 of 2049.h5
+    does not follow the last sample of 2048.h5 in the loader's indexing."""
+    seq = tgt if prev is None else np.concatenate([prev, tgt], axis=0)
+    return np.diff(seq, axis=0), tgt[-1:]
 
-    Re-reading what was written makes the pack resumable (skip-existing is
-    safe for train years) and guarantees the stats describe the exact bytes
-    the trainer will read, fills and all.
-    """
-    files = sorted(glob.glob(os.path.join(train_dir, "*.h5")))
-    if not files:
-        raise RuntimeError(f"stats pass: no packed train files under {train_dir}")
-    accum = {
+
+def _accumulate_time_diff_file(path: str):
+    """float64 (sum, sumsq, n) of the one-step target difference, per channel,
+    over one packed file -- the `time_diff_stds.npy` statistic
+    (polaris_makani_ace2_ports_handoff.md §3). Module-level so a Pool can map it."""
+    s, ss, n = np.zeros(N_TARGET), np.zeros(N_TARGET), 0
+    with h5py.File(path, "r") as f:
+        st, dg = f["fields_state"], f["fields_diagnostic"]
+        prev = None
+        for t0 in range(0, st.shape[0], STATS_CHUNK_T):
+            t1 = min(t0 + STATS_CHUNK_T, st.shape[0])
+            tgt = np.concatenate(
+                [st[t0:t1].astype(np.float64), dg[t0:t1].astype(np.float64)], axis=1)
+            d, prev = _diff_chunk(prev, tgt)
+            s += d.sum(axis=(0, 2, 3))
+            ss += (d * d).sum(axis=(0, 2, 3))
+            n += d.shape[0] * H * W
+    print(f"  time-diff <- {path}", flush=True)
+    return s, ss, n
+
+
+def _time_diff_stds(s, ss, n) -> np.ndarray:
+    """(1, N_TARGET, 1, 1) float32, TARGET_CHANNELS order -- the same shape and
+    order as global_stds.npy, because makani indexes both by params.out_channels.
+    Physical units, no floor: makani clamps at 1e-4 itself, and a channel that
+    hits that clamp is a finding to report, not something to hide here."""
+    mean = s / n
+    var = np.maximum(ss / n - mean * mean, 0.0)
+    return np.sqrt(var).astype(np.float32).reshape(1, N_TARGET, 1, 1)
+
+
+def _require_complete_train(output_root: str, train_years: list[int]) -> None:
+    have = sorted(int(os.path.basename(f)[:-3]) for f in
+                  glob.glob(os.path.join(output_root, "train", "*.h5")))
+    if have != train_years:
+        sys.exit(f"ERROR STATS_ONLY_INCOMPLETE: packed train years {have} != "
+                 f"requested {train_years} — stats over a subset are "
+                 f"silently wrong normalization. Finish packing first.")
+
+
+def _new_stats_accum() -> dict:
+    return {
         "n": 0, "t_count": 0,
         "sum_t": np.zeros(N_TARGET), "sumsq_t": np.zeros(N_TARGET),
         "tsum_t": np.zeros((N_TARGET, H, W)),
         "sum_f": np.zeros(N_FORCING), "sumsq_f": np.zeros(N_FORCING),
         "tsum_f": np.zeros((N_FORCING, H, W)),
+        "sum_d": np.zeros(N_TARGET), "sumsq_d": np.zeros(N_TARGET), "n_d": 0,
     }
+
+
+def _combine_stats(parts: list) -> dict:
+    """Sum per-file partial accumulators, in file order. Every entry is a sum, and
+    one-step diffs never span files, so this is exact up to float64 rounding."""
+    accum = _new_stats_accum()
+    for p in parts:
+        for k in accum:
+            accum[k] += p[k]
+    return accum
+
+
+def _accumulate_stats_from_packed(train_dir: str, workers: int = 1) -> dict:
+    """Second pass: float64 sum/sumsq/time-sum over the PACKED train files.
+
+    Re-reading what was written makes the pack resumable (skip-existing is
+    safe for train years) and guarantees the stats describe the exact bytes
+    the trainer will read, fills and all.
+
+    `workers > 1` maps one file per process and sums the partials. The
+    sequential path (`workers=1`) keeps its original running-sum order.
+    """
+    files = sorted(glob.glob(os.path.join(train_dir, "*.h5")))
+    if not files:
+        raise RuntimeError(f"stats pass: no packed train files under {train_dir}")
+    if workers > 1:
+        import multiprocessing as mp
+        with mp.get_context("spawn").Pool(workers) as pool:
+            return _combine_stats(pool.map(_accumulate_stats_file, files, chunksize=1))
+    accum = _new_stats_accum()
     for path in files:
-        with h5py.File(path, "r") as f:
-            st, dg, fo = f["fields_state"], f["fields_diagnostic"], f["forcing"]
-            if st.shape[1] != N_STATE or fo.shape[1] != N_FORCING:
-                raise RuntimeError(
-                    f"stats pass: {path} has state/forcing channels "
-                    f"{st.shape[1]}/{fo.shape[1]}, expected {N_STATE}/{N_FORCING} "
-                    "(is this an old locked-contract pack in the alldata root?)")
-            T = st.shape[0]
-            for t0 in range(0, T, STATS_CHUNK_T):
-                t1 = min(t0 + STATS_CHUNK_T, T)
-                tgt = np.concatenate(
-                    [st[t0:t1].astype(np.float64), dg[t0:t1].astype(np.float64)],
-                    axis=1)
-                frc = fo[t0:t1].astype(np.float64)
-                nt = t1 - t0
-                accum["n"] += nt * H * W
-                accum["t_count"] += nt
-                accum["sum_t"] += tgt.sum(axis=(0, 2, 3))
-                accum["sumsq_t"] += (tgt * tgt).sum(axis=(0, 2, 3))
-                accum["tsum_t"] += tgt.sum(axis=0)
-                accum["sum_f"] += frc.sum(axis=(0, 2, 3))
-                accum["sumsq_f"] += (frc * frc).sum(axis=(0, 2, 3))
-                accum["tsum_f"] += frc.sum(axis=0)
-        print(f"  stats <- {path}", flush=True)
+        _accumulate_stats_file(path, accum)
+    return accum
+
+
+def _accumulate_stats_file(path: str, accum: dict | None = None) -> dict:
+    """Add one packed file into `accum` (a fresh one if None) and return it.
+    Module-level so a Pool can map it."""
+    if accum is None:
+        accum = _new_stats_accum()
+    prev = None  # one-step diffs restart at every file boundary
+    with h5py.File(path, "r") as f:
+        st, dg, fo = f["fields_state"], f["fields_diagnostic"], f["forcing"]
+        if st.shape[1] != N_STATE or fo.shape[1] != N_FORCING:
+            raise RuntimeError(
+                f"stats pass: {path} has state/forcing channels "
+                f"{st.shape[1]}/{fo.shape[1]}, expected {N_STATE}/{N_FORCING} "
+                "(is this an old locked-contract pack in the alldata root?)")
+        T = st.shape[0]
+        for t0 in range(0, T, STATS_CHUNK_T):
+            t1 = min(t0 + STATS_CHUNK_T, T)
+            tgt = np.concatenate(
+                [st[t0:t1].astype(np.float64), dg[t0:t1].astype(np.float64)],
+                axis=1)
+            frc = fo[t0:t1].astype(np.float64)
+            nt = t1 - t0
+            accum["n"] += nt * H * W
+            accum["t_count"] += nt
+            accum["sum_t"] += tgt.sum(axis=(0, 2, 3))
+            accum["sumsq_t"] += (tgt * tgt).sum(axis=(0, 2, 3))
+            accum["tsum_t"] += tgt.sum(axis=0)
+            accum["sum_f"] += frc.sum(axis=(0, 2, 3))
+            accum["sumsq_f"] += (frc * frc).sum(axis=(0, 2, 3))
+            accum["tsum_f"] += frc.sum(axis=0)
+            d, prev = _diff_chunk(prev, tgt)
+            accum["sum_d"] += d.sum(axis=(0, 2, 3))
+            accum["sumsq_d"] += (d * d).sum(axis=(0, 2, 3))
+            accum["n_d"] += d.shape[0] * H * W
+    print(f"  stats <- {path}", flush=True)
     return accum
 
 
@@ -329,6 +413,9 @@ def _write_stats(stats_dir: str, accum: dict) -> list[str]:
                 std.astype(np.float32).reshape(1, C, 1, 1))
         np.save(os.path.join(stats_dir, f"{tag}time_means.npy"),
                 (ts / tc).astype(np.float32).reshape(1, C, H, W))
+    if accum.get("n_d"):
+        np.save(os.path.join(stats_dir, "time_diff_stds.npy"),
+                _time_diff_stds(accum["sum_d"], accum["sumsq_d"], accum["n_d"]))
     print(f"wrote stats to {stats_dir} (n={n}, t_count={tc})", flush=True)
     print(f"zero-variance channels ({len(zero_var)}; expected 0 now that the cloud "
           f"fields are excluded — any entry is a finding): {zero_var}", flush=True)
@@ -446,6 +533,16 @@ def main() -> None:
     # locked converter's guard exists to stop.
     p.add_argument("--skip-stats", action="store_true")
     p.add_argument("--stats-only", action="store_true")
+    # --time-diff-only: ONLY stats/time_diff_stds.npy (port B step 1, handoff §3),
+    # over the same COMPLETE train split, leaving global_means/stds, time_means and
+    # metadata byte-untouched -- a live production pack's normalization is not
+    # rewritten to add a diagnostic. Same completeness guard as --stats-only.
+    # --workers N maps files over a process pool (one file = one year, and diffs
+    # never span files, so per-file partial sums combine exactly). Applies to
+    # --time-diff-only AND the full stats pass (--stats-only): 30 train years took
+    # 52 min sequentially (7565734), too close to debug's 1 h once diffs were added.
+    p.add_argument("--time-diff-only", action="store_true")
+    p.add_argument("--workers", type=int, default=1)
     args = p.parse_args()
 
     split_years = {
@@ -453,15 +550,34 @@ def main() -> None:
         "valid": list(range(args.valid_years[0], args.valid_years[1] + 1)),
         "test": list(range(args.test_years[0], args.test_years[1] + 1)),
     }
+    if args.time_diff_only:
+        _require_complete_train(args.output_root, split_years["train"])
+        out = os.path.join(args.output_root, "stats", "time_diff_stds.npy")
+        if os.path.exists(out) and not args.overwrite:
+            sys.exit(f"ERROR TIME_DIFF_EXISTS: {out} (--overwrite to replace)")
+        files = sorted(glob.glob(os.path.join(args.output_root, "train", "*.h5")))
+        print(f"time-diff pass over {len(files)} train files, {args.workers} workers ...",
+              flush=True)
+        if args.workers > 1:
+            import multiprocessing as mp
+            with mp.get_context("spawn").Pool(args.workers) as pool:
+                parts = pool.map(_accumulate_time_diff_file, files, chunksize=1)
+        else:
+            parts = [_accumulate_time_diff_file(f) for f in files]
+        s = sum(p_[0] for p_ in parts)
+        ss = sum(p_[1] for p_ in parts)
+        n = sum(p_[2] for p_ in parts)
+        tmp = out + ".tmp.npy"
+        np.save(tmp, _time_diff_stds(s, ss, n))
+        os.replace(tmp, out)
+        print(f"wrote {out} (n={n}, {len(files)} files)")
+        print("TIME_DIFF_STDS_OK")
+        return
     if args.stats_only:
-        have = sorted(int(os.path.basename(f)[:-3]) for f in
-                      glob.glob(os.path.join(args.output_root, "train", "*.h5")))
-        if have != split_years["train"]:
-            sys.exit(f"ERROR STATS_ONLY_INCOMPLETE: packed train years {have} != "
-                     f"requested {split_years['train']} — stats over a subset are "
-                     f"silently wrong normalization. Finish packing first.")
+        _require_complete_train(args.output_root, split_years["train"])
         print("stats pass over packed train split ...", flush=True)
-        accum = _accumulate_stats_from_packed(os.path.join(args.output_root, "train"))
+        accum = _accumulate_stats_from_packed(os.path.join(args.output_root, "train"),
+                                              workers=args.workers)
         zero_var = _write_stats(os.path.join(args.output_root, "stats"), accum)
         _write_metadata(args.output_root,
                         {**split_years, "source_root": args.e3sm_root}, zero_var)
@@ -495,7 +611,8 @@ def main() -> None:
         return
 
     print("stats pass over packed train split ...", flush=True)
-    accum = _accumulate_stats_from_packed(os.path.join(args.output_root, "train"))
+    accum = _accumulate_stats_from_packed(os.path.join(args.output_root, "train"),
+                                              workers=args.workers)
     zero_var = _write_stats(os.path.join(args.output_root, "stats"), accum)
     _write_metadata(args.output_root,
                     {**split_years, "source_root": args.e3sm_root}, zero_var)

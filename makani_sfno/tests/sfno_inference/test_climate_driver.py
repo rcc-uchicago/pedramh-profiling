@@ -530,3 +530,90 @@ def test_mismatched_time_means_raises(pack):
     with pytest.raises(cd.ClimateDriverError, match="STATS_CHANNEL_MISMATCH"):
         cd.load_time_means_z(bad_tm, mean, mean + 1, H, W)
     os.remove(bad_tm)
+
+
+# ---------------------------------------------------------------------------
+# channel-subset runs (ports F, G; polaris_makani_f_finetune_handoff.md §2.1):
+# the pack's full-width stats, rows selected by the run's out_channels
+# ---------------------------------------------------------------------------
+
+SUBSET_ROWS = [1, 2, 4, 5, 6, 7]             # model channel i -> row of the wide file
+STATS_FILES = (("global_means", 1e3), ("global_stds", 7.0), ("time_means", -1e3))
+
+
+def _widen(a, junk):
+    """(1, C_OUT, ...) -> (1, C_OUT + 2, ...) with junk rows at 0 and 3 -- the dropped
+    channels. Row 0 is dropped, so a positional read is wrong for EVERY channel."""
+    j = np.full_like(a[:, :1], junk)
+    return np.concatenate([j, a[:, :2], j, a[:, 2:]], axis=1)
+
+
+def _subset_member(pack, yd, tmp_path, out_channels, name, *, widen=True):
+    stats = tmp_path / f"stats_{name}"
+    stats.mkdir()
+    for f, junk in STATS_FILES:
+        a = np.load(pack / f"stats/{f}.npy")
+        np.save(stats / f"{f}.npy", _widen(a, junk) if widen else a)
+    ep = _eval_params(pack)
+    ep.global_means_path = str(stats / "global_means.npy")
+    ep.global_stds_path = str(stats / "global_stds.npy")
+    ep.out_channels = out_channels
+    ds = _dataset(yd, pack)
+    res = cd.run_member(
+        wrapper=MixWrapper(), dataset=ds, eval_params=ep, device="cpu",
+        start=(2044, 100), n_steps=20, score_start=(2044, 105), chunk_len=7,
+        out_path=tmp_path / name, channel_names=[f"s{i}" for i in range(CS)] + ["diag"],
+        lat=ds.lat_lon[0], lon=ds.lat_lon[1], time_means_path=str(stats / "time_means.npy"),
+        provenance={"member_id": "test"})
+    return _read(res.out_path)
+
+
+SUBSET_KEYS = ("global_mean", "std_sigma", "anom_rms_sigma", "time_mean", "monthly_mean")
+
+
+def test_subset_run_reads_its_rows_of_full_width_stats(pack, yd, tmp_path):
+    base, _ = _run(pack, yd, tmp_path, start=(2044, 100), n=20, score_start=(2044, 105),
+                   name="base.nc")
+    base = _read(base.out_path)
+    sub = _subset_member(pack, yd, tmp_path, SUBSET_ROWS, "sub.nc")
+    for k in SUBSET_KEYS:
+        assert np.array_equal(sub[k], base[k]), k             # bitwise: the same float32 rows
+
+
+def test_subset_run_with_wrong_rows_is_red(pack, yd, tmp_path):
+    """Seeded fault: the positional rows 0..C_OUT-1 of the wide file (what reading a
+    full-width file by model position does) pass every shape check and are wrong."""
+    base, _ = _run(pack, yd, tmp_path, start=(2044, 100), n=20, score_start=(2044, 105),
+                   name="base.nc")
+    base = _read(base.out_path)
+    bad = _subset_member(pack, yd, tmp_path, list(range(C_OUT)), "bad.nc")
+    assert not np.allclose(bad["global_mean"], base["global_mean"])
+    assert not np.allclose(bad["anom_rms_sigma"], base["anom_rms_sigma"])
+
+
+def test_full_width_run_with_identity_out_channels_is_unchanged(pack, yd, tmp_path):
+    base, _ = _run(pack, yd, tmp_path, start=(2044, 100), n=20, score_start=(2044, 105),
+                   name="base.nc")
+    base = _read(base.out_path)
+    same = _subset_member(pack, yd, tmp_path, list(range(C_OUT)), "same.nc", widen=False)
+    for k in SUBSET_KEYS:
+        assert np.array_equal(same[k], base[k]), k
+
+
+def test_subset_stats_loaders_refuse_what_matches_neither_width(pack, tmp_path):
+    wide = tmp_path / "wide_means.npy"
+    np.save(wide, _widen(np.load(pack / "stats/global_means.npy"), 1e3))
+    got = cd.load_stats_f64(wide, C_OUT, "m", SUBSET_ROWS)
+    ref = np.load(pack / "stats/global_means.npy").astype(np.float64).reshape(-1)
+    assert np.array_equal(got, ref)
+    for index in (None, SUBSET_ROWS[:-1], SUBSET_ROWS[:-1] + [8], [1, 1, 4, 5, 6, 7]):
+        with pytest.raises(cd.ClimateDriverError, match="STATS_CHANNEL_MISMATCH"):
+            cd.load_stats_f64(wide, C_OUT, "m", index)
+    tm_wide = tmp_path / "wide_tm.npy"
+    np.save(tm_wide, _widen(np.load(pack / "stats/time_means.npy"), -1e3))
+    std = ref * 0 + 2.0
+    np.testing.assert_array_equal(
+        cd.load_time_means_z(tm_wide, ref, std, H, W, SUBSET_ROWS),
+        cd.load_time_means_z(pack / "stats/time_means.npy", ref, std, H, W))
+    with pytest.raises(cd.ClimateDriverError, match="STATS_CHANNEL_MISMATCH"):
+        cd.load_time_means_z(tm_wide, ref, std, H, W)

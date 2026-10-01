@@ -1,0 +1,98 @@
+#!/bin/bash -l
+#PBS -N makani_f_finetune_tests
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:40:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Gates F0 + F1 of polaris_makani_f_finetune_handoff.md §4, CPU only, one job:
+# every suite the merged tree (ports + dryair-negativity) and the port-G / subset
+# work touch, each keyed on its OWN token, then one summary token.
+#
+#   suite            files                                              token
+#   polaris_scripts  polaris/test_*.py (subset gate incl. port G, base   POLARIS_SCRIPT_TESTS_OK
+#                    check, converter stats/workers, slice, scores, ...)
+#   climate_driver   tests/sfno_inference/test_climate_driver.py        CLIMATE_DRIVER_TEST_OK
+#                    (incl. subset stats by out_channels, seeded red)
+#   climate_screen   tests/test_climate_screen_summary.py,              CLIMATE_SCREEN_TEST_OK
+#                    tests/sfno_training/test_mass_fix.py (dry-air by
+#                    name, seeded red), tests/test_negativity.py
+#   longroll         tests/test_longroll_probe_summary.py               LONGROLL_SUMMARY_TEST_OK
+#   ports            tests/sfno_inference/test_rollout_ports.py,        PORTS_TEST_OK
+#                    tests/sfno_training/test_channel_subset.py,
+#                    tests/sfno_training/test_channel_weights_auto.py
+#   preprocessor     tests/sfno_training/test_preprocessor.py           PREPROCESSOR_TEST_OK
+#
+# PASS = F_FINETUNE_TESTS_OK 6/6. Key on the tokens (CLAUDE.md #14): a pytest run
+# can exit 0 with everything skipped, so each suite also refuses "no tests ran".
+# Submit from makani_sfno/:   qsub polaris/polaris_f_finetune_tests.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_screen_test.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+echo "=== makani_f_finetune_tests: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null)"
+
+T="${MAKANI_ROOT}/tests"
+P="${MAKANI_ROOT}/polaris"
+n_ok=0; n_all=0; failed=()
+suite() {  # token file...
+    local token=$1; shift
+    local log; log="$(mktemp)"
+    n_all=$((n_all + 1))
+    echo "--- ${token%_OK}"
+    CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider -rs "$@" > "${log}" 2>&1
+    local rc=$?
+    tail -15 "${log}"
+    # a suite whose last line reports no passed test is not a pass, whatever rc says
+    if [ ${rc} -eq 0 ] && tail -1 "${log}" | grep -q " passed"; then
+        echo "${token} $(tail -1 "${log}" | tr -d '=' | sed 's/^ *//')"
+        n_ok=$((n_ok + 1))
+    else
+        echo "ERROR ${token%_OK}_FAILED rc=${rc}"
+        failed+=("${token%_OK}")
+    fi
+    rm -f "${log}"
+}
+
+suite POLARIS_SCRIPT_TESTS_OK "${P}"/test_*.py
+suite CLIMATE_DRIVER_TEST_OK "${T}/sfno_inference/test_climate_driver.py"
+suite CLIMATE_SCREEN_TEST_OK "${T}/test_climate_screen_summary.py" \
+      "${T}/sfno_training/test_mass_fix.py" "${T}/test_negativity.py"
+suite LONGROLL_SUMMARY_TEST_OK "${T}/test_longroll_probe_summary.py"
+suite PORTS_TEST_OK "${T}/sfno_inference/test_rollout_ports.py" \
+      "${T}/sfno_training/test_channel_subset.py" "${T}/sfno_training/test_channel_weights_auto.py"
+suite PREPROCESSOR_TEST_OK "${T}/sfno_training/test_preprocessor.py"
+
+if [ "${n_ok}" -eq "${n_all}" ]; then
+    echo "F_FINETUNE_TESTS_OK ${n_ok}/${n_all}"
+else
+    echo "ERROR F_FINETUNE_TESTS_FAILED ${n_ok}/${n_all} failed: ${failed[*]}"
+fi
+echo "=== makani_f_finetune_tests done $(date -Iseconds) ==="

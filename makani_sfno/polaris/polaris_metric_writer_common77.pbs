@@ -1,0 +1,138 @@
+#!/bin/bash -l
+#PBS -N makani_writer_c77
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# One debug job (debug holds one queued job per user), five checks, each keyed
+# on its own token:
+#
+#   1 RED     test (e) of tests/sfno_training/test_per_lead_metrics.py on the
+#             test-only commit RED_SHA (git-archived; its conftest puts ITS src
+#             first) must FAIL with the writer assertion   METRIC_WRITER_RED_OK
+#   2 GREEN   test_per_lead_metrics.py + test_trainer_ci.py
+#             on this tree                                PER_LEAD_METRICS_TEST_OK
+#   3 SUITES  polaris_f_finetune_tests.pbs                F_FINETUNE_TESTS_OK 6/6
+#   4 IN SITU 1 node, h2w2 (1 data rank x 4 model ranks), 20 steps, 1 epoch:
+#             MAKANI_MN_SCALING_OK, no "per-lead metric save failed", and
+#             scores/metrics_ep*.h5 readable with L1/RMSE/ACC
+#                                                         METRIC_WRITER_SMOKE_OK
+#   5 O7      A's K=56 read-out re-taken on port G's 77 channels
+#             (restrict_readout.py, full set reproduced to 1e-9 first)
+#                                                         RESTRICT_READOUT_OK n=77
+#
+# PASS = WRITER_C77_ALL_OK 5/5. Key on the tokens (CLAUDE.md #14).
+# Submit from makani_sfno/:   qsub polaris/polaris_metric_writer_common77.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_f_finetune_tests.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+BASE_PYTHONPATH="${PYTHONPATH:-}"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOB="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_probe/metric_writer_${JOB}"
+RED_SHA="${RED_SHA:-36aa3632}"
+K56="${K56:-${MEMBER_ROOT}/runs/makani_eval/prod1n_b32_sgdr_K56/scores}"
+G_DROP=(U10 RHREFHT PSL TMQ SOILWATER_10CM TSOI_10CM
+        Z3_l00 Z3_l01 Z3_l02 Z3_l03 Z3_l04 Z3_l05 Z3_l06 Z3_l07 Z3_l08
+        Z3_l09 Z3_l10 Z3_l11 Z3_l12 Z3_l13 Z3_l14 Z3_l15 Z3_l16 Z3_l17)
+mkdir -p "${OUT}" || exit 2
+echo "=== makani_writer_c77: $(date -Iseconds) job=${JOB} sha=$(cd "${REPO}" && git rev-parse --short=12 HEAD 2>/dev/null) red=${RED_SHA} ==="
+n_ok=0
+
+# ---- 1. RED: the new test on the commit before the fix ------------------------
+mkdir -p "${OUT}/red"
+( cd "${REPO}" && git archive "${RED_SHA}" makani_sfno ) | tar -x -C "${OUT}/red" || exit 2
+( cd "${OUT}/red/makani_sfno" && PYTHONPATH="${OUT}/red/makani_sfno/src:${BASE_PYTHONPATH}" \
+    CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
+    tests/sfno_training/test_per_lead_metrics.py -k only_model_rank_zero ) > "${OUT}/red.log" 2>&1
+red_rc=$?
+tail -4 "${OUT}/red.log"
+if [ "${red_rc}" -ne 0 ] && grep -q "a model-parallel rank other than 0 wrote" "${OUT}/red.log"; then
+    echo "METRIC_WRITER_RED_OK rc=${red_rc} (pre-fix ${RED_SHA} fails on the writer assertion)"; n_ok=$((n_ok + 1))
+else
+    echo "ERROR METRIC_WRITER_RED_FAILED rc=${red_rc}: the test does not catch the pre-fix behaviour"
+fi
+
+# ---- 2. GREEN on this tree ---------------------------------------------------
+( cd "${MAKANI_ROOT}" && PYTHONPATH="${MAKANI_ROOT}/src:${BASE_PYTHONPATH}" \
+    CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider -rs \
+    tests/sfno_training/test_per_lead_metrics.py tests/sfno_training/test_trainer_ci.py ) > "${OUT}/green.log" 2>&1
+green_rc=$?
+tail -4 "${OUT}/green.log"
+if [ "${green_rc}" -eq 0 ] && tail -1 "${OUT}/green.log" | grep -q " passed"; then
+    echo "PER_LEAD_METRICS_TEST_OK $(tail -1 "${OUT}/green.log" | tr -d '=' | sed 's/^ *//')"; n_ok=$((n_ok + 1))
+else
+    echo "ERROR PER_LEAD_METRICS_TEST_FAILED rc=${green_rc}"
+fi
+
+# ---- 3. the six F0/F1 suites -------------------------------------------------
+bash "${MAKANI_ROOT}/polaris/polaris_f_finetune_tests.pbs" > "${OUT}/suites.out" 2>&1
+grep -E "_TEST(S)?_OK|^ERROR|F_FINETUNE_TESTS" "${OUT}/suites.out"
+grep -q "^F_FINETUNE_TESTS_OK 6/6" "${OUT}/suites.out" && n_ok=$((n_ok + 1))
+
+# ---- 4. in situ: 1 node, h2w2 -- 4 model ranks share data rank 0 --------------
+STEPS=20 EPOCHS=1 EVAL_SAMPLES=16 LOCAL_BATCH=8 HPAR=2 WPAR=2 WANDB=0 REP=writer \
+CONFIG_YAML=e3sm_alldata_full.yaml PACK="${MEMBER_ROOT}/data/e3sm_makani_alldata_production" \
+MAKANI_SCALING_CSV="${OUT}/smoke.csv" \
+    timeout -k 60 900 bash "${MAKANI_ROOT}/polaris/polaris_makani_multinode_scaling.pbs" > "${OUT}/smoke.out" 2>&1
+smoke_rc=$?
+grep -E "MAKANI_MN_SCALING_|^ERROR|TRAIN_DONE" "${OUT}/smoke.out" | tail -3
+RUN_DIR="$(grep -oE "MAKANI_MN_SCALING_OK +run_dir=[^ ]+" "${OUT}/smoke.out" | sed 's/.*run_dir=//' | tail -1)"
+n_fail=$(grep -c "per-lead metric save failed" "${OUT}/smoke.out")
+if [ -n "${RUN_DIR}" ] && [ "${n_fail}" -eq 0 ] && \
+   CUDA_VISIBLE_DEVICES="" "${PY}" - "${RUN_DIR}" <<'PY'
+import glob, sys
+import h5py
+files = sorted(glob.glob(f"{sys.argv[1]}/scores/metrics_ep*.h5"))
+assert files, "no scores/metrics_ep*.h5 written"
+for p in files:
+    with h5py.File(p, "r") as f:
+        missing = {"L1", "RMSE", "ACC"} - set(f.keys())
+        assert not missing, f"{p}: missing {missing}"
+        shape = f["RMSE"]["metric_data"].shape
+print(f"metric files {len(files)}, last {files[-1].rsplit('/', 1)[-1]} RMSE shape {shape}")
+PY
+then
+    echo "METRIC_WRITER_SMOKE_OK rc=${smoke_rc} save_failures=0 run_dir=${RUN_DIR}"; n_ok=$((n_ok + 1))
+else
+    echo "ERROR METRIC_WRITER_SMOKE_FAILED rc=${smoke_rc} save_failures=${n_fail} run_dir=${RUN_DIR:-none} (see ${OUT}/smoke.out)"
+fi
+
+# ---- 5. O7: A's K=56 read-out on G's common 77 --------------------------------
+CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/restrict_readout.py" \
+    --scores-dir "${K56}" --drop "${G_DROP[@]}" 2>&1 | tee "${OUT}/restrict.log"
+grep -q "^RESTRICT_READOUT_OK n=77" "${OUT}/restrict.log" && n_ok=$((n_ok + 1))
+
+if [ "${n_ok}" -eq 5 ]; then
+    echo "WRITER_C77_ALL_OK 5/5 out=${OUT}"
+else
+    echo "ERROR WRITER_C77_FAILED ${n_ok}/5 out=${OUT}"
+fi
+echo "=== makani_writer_c77 done $(date -Iseconds) ==="
