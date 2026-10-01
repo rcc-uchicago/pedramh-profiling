@@ -3,6 +3,25 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 01:25Z — M0 write run 7676860 queued (sha 347c6431); gate run follows it
+
+**Progress**
+- `m0_golden_prereg.md` committed at 01:21:13Z in `347c64319ad2` — before the qsub.
+- `polaris/polaris_makani_port_golden.pbs` + `scripts/port_golden_{infer,train,compare}.py` +
+  `makani_port/golden_checkpoints.json` (5 ckpts, stored epochs read from the files).
+- Job **7676860** (debug, write mode) submitted from `makani_sfno/`. Worktree frozen until it ends.
+
+**Surprises**
+- C1 e24 is `ckpt_mp0_v23.tar`; its `best_ckpt_mp0.tar` is e18. Fsurg has no checkpoint
+  (7671977 `rc=124` at 2880 s). N6 (`18c4582` on h1w1) measured inert for every golden ckpt.
+
+**Decisions** (with the monitor): golden trace = warm start from A e243 + grad norm + `clipped`.
+
+**Next**
+- 7676860 → expect `PORT_GOLDEN_WRITTEN`; then `qsub -v GOLDEN_REF=$MEMBER_ROOT/runs/makani_port/golden/7676860 polaris/polaris_makani_port_golden.pbs`
+  → `PORT_GOLDEN_OK` = M0 gate → tag `makani-port/m0-green`, copy the JSONs to `makani_port/golden/`.
+- Operator: api_delta §3.1 / §3.2 answers still needed before M2/M3.
+
 ## 2026-10-01 — M0(a) api_delta written; 3 STOP items found; golden prereg + PBS next
 
 **Progress**
