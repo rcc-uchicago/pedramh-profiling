@@ -144,6 +144,17 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-01 (makani) — our E3SM SFNO predicts the FULL next state, not a tendency; the
+  checkpoint-usage docs said otherwise and are corrected.** `target: "tendency"` in every
+  `e3sm_*.yaml` is a dead key: neither makani `c9704308` (`sfno-venv`) nor `a0aa4c4f`
+  (`sfno-venv-main`) reads `params.target`. `SingleStepWrapper` = denorm(model(norm(x))), the loss is
+  plain L2 on the z-scored state (`temp_diff_normalization: False`, no per-loss `tendency: True`), and
+  `climate_driver.py:355-367` feeds the prediction back unchanged. `big_skip` adds a learned,
+  randomly-initialised 1×1 conv of the input, not a hard identity. The 08-27 prod128 and 09-03
+  prod1n usage docs told users to add the output to the input (that gives ≈ 2× state); fixed. This
+  fits the tendency probe 7646192's "loss blindness". A real tendency formulation (identity skip,
+  tendency-space loss/normalisation) changes what the model computes, so it needs jesswan's sign-off.
+
 - **2026-10-01 (makani port) — operator rulings (relayed by the port monitor):** (1) implement every
   recommendation of review 7681379; (2) api_delta §3.1: legacy checkpoints load on makani main by
   allow-listing exactly `ruamel` `ScalarFloat` + `Anchor` as torch safe globals — never the global

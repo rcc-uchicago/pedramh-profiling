@@ -3,7 +3,7 @@
 How to load the checkpoint and run it, plus this run's provenance.
 
 Companion to `2026-08-27_prod128_alldata_checkpoint_usage.md`. **§0-§4 of that
-document still apply unchanged** (model contract, z-scoring, tendency target,
+document still apply unchanged** (model contract, z-scoring, full-state output,
 prescribed forcings). This file records this run's numbers and its own recipe.
 
 ✅ **FINAL — job 7585080 completed all 243 epochs**, `Exit_status 0`, 46 h 20 min
@@ -35,7 +35,8 @@ against 46.3. → `makani_bench_report.md` §5k.
 
 Model, channels, data pack and normalization are **identical** to prod128:
 SFNO embed 384 / 8 layers / scale-factor 3, E3SMv3 SSP245-AMIP 2015-2044, 1°
-(180×360), 107 input → 101 output channels, `target: "tendency"`.
+(180×360), 107 input → 101 output channels, full-state output (the config's
+`target: "tendency"` is a dead key that makani never reads).
 
 ⚠ **β₂ 0.95 and LR 2.0e-3 are load-bearing, not defaults.** The LR ceiling for this
 model is **(2e-3, 3e-3]** and does not move with batch size; every arm at 3.0e-3
@@ -168,7 +169,8 @@ inference is fine — marginally more accurate, ~2× activation memory.
 
 1. **Inputs are z-scored** with this run's `global_means/stds`, in exactly the
    channel order of `metadata/data.json`.
-2. **The output is a tendency** — add it to the input state to get the next state.
+2. **The output is the full next state, not a tendency** — do NOT add it to the
+   input (corrected 2026-10-01; see the prod128 doc §0 and §4).
 3. **The 7 forcing channels are prescribed at every rollout step**, not predicted —
    refresh them from data (SST/ICE/solin vary in time; land masks are static).
    `PRECT` is diagnostic-only and never fed back.

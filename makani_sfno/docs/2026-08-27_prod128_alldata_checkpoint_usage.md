@@ -13,9 +13,11 @@ channels** (100 prognostic state + 7 prescribed forcings) → **101 output
 channels** (100 state + `PRECT` diagnostic) — the same 108-field variable
 contract as the PanguWeather and ai-rossby production runs. Final/best
 validation loss 0.0183 (epoch 100 — validation was still improving at the
-schedule bound). The network predicts the **normalized tendency** (Δstate),
-NOT the state itself (`target: "tendency"`, e3sm_alldata_full.yaml:158); the
-rollout wrapper adds it to the input state.
+schedule bound). The network predicts the **full normalized next state**, NOT
+a tendency. `target: "tendency"` (e3sm_alldata_full.yaml:158) is a dead key —
+makani never reads `params.target` — and the rollout feeds the prediction back
+as the next input unchanged (`climate_driver.py:355-367`). *(Corrected
+2026-10-01; this line previously said "tendency".)*
 
 ## 1. Gather the bundle (all group-readable on eagle)
 
@@ -78,9 +80,13 @@ Three semantics you MUST respect if you bypass the wrappers:
 1. **Inputs are z-scored** with the pack's `global_means/stds`, in exactly the
    channel order of `metadata/data.json`. The checkpoint alone is not
    self-contained — wrong stats or order produce silently wrong physics.
-2. **The output is a tendency** — add it to the input state to get the next
-   state (the checkpoint's `residual_transform` layer is part of this
-   contract).
+2. **The output is the full next state, not a tendency** — do NOT add it to
+   the input. `SingleStepWrapper` de-normalizes it with the target stats and
+   that tensor *is* the next state. The checkpoint's `residual_transform` is
+   the SFNO's `big_skip`: a learned 1×1 conv of the input added to the network
+   output inside the model (`sfnonet.py:467-472, 639-640`), randomly
+   initialized, not an identity — keep it in the state dict, but it does not
+   make the output a tendency.
 3. **At each rollout step the 7 forcing channels are prescribed, not
    predicted** — refresh them from data (SST/ICE/solin vary in time; the land
    masks are static), and `PRECT` is diagnostic-only, never fed back.
