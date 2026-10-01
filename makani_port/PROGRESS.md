@@ -3,6 +3,24 @@
 Format: `## YYYY-MM-DD HH:MMZ — <one-line state>` then **Progress / Surprises / Decisions / Next**,
 bullets only, with job ids, tokens and shas. A fresh session reads the top 3 entries.
 
+## 2026-10-01 ~16:50Z — c9 (G4 dataset) staged ahead of c8; api_delta §3.4; c8/c10 still with the operator
+
+**Progress**
+- `59d225ff` c9: `PlasimForcingDataset` keeps the pin's HDF5 read path on main (`compat.MAKANI_HAS_BACKENDS`), with a
+  geometry-only stand-in backend. Lands ahead of c8 (monitor OK; independent of c8's code).
+- `580a4763` api_delta §3.4: `_lNN` levels are terrain-following. No lNN→hPa alias as pressure; the FCN3.1 alias is for
+  grouping only.
+
+**Surprises** — none.
+
+**Decisions**
+- **c9 is NOT the grid opt-out.** Its stand-in carries a `GridSpec` (a `NamedTuple`, `backends/base.py:124`); main
+  verifies only in `_describe_grid(from_file=True)` (`base.py:419-420`), so the dataset path skips verification by
+  design (G4, as on the pin). The config-load raise at `parse_dataset_metada.py:54` is untouched by c9 and is **c8's**
+  scope. Until c8 lands, every new-venv job dies at config load on our `data.json`.
+
+**Next** — unchanged: operator on c8/c10 → c8 → c10 → P0.1–P0.4 harness → slot-3 PBS → qsub.
+
 ## 2026-10-01 ~16:30Z — slot-3 series 6/10 code commits in on `feat/makani-port-main-dev`; c8 (grid rebind) BLOCKED by the auto-mode classifier
 
 **Progress**
