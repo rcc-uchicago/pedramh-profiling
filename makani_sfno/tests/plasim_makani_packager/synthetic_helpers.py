@@ -38,6 +38,19 @@ LEV_2_HPA: tuple[int, ...] = (
 )
 
 
+def legendre_gauss_lat_deg(nlat: int) -> np.ndarray:
+    """Gauss-Legendre latitudes in degrees, south to north.
+
+    The packager stamps ``grid_type: legendre-gauss`` (``metadata.py:163``),
+    and makani main checks that claim against the file's latitudes to 1e-3
+    degrees (``grid_types.verify_grid_type``). Fixtures must therefore carry
+    the real Gauss nodes, as PlaSim T42 does; equally spaced stand-ins are
+    rejected at config load.
+    """
+    nodes, _ = np.polynomial.legendre.leggauss(nlat)
+    return np.degrees(np.arcsin(nodes))
+
+
 def _make_synthetic_zg_plev(
     T: int, H: int, W: int, *, rng: np.random.Generator,
     lev_2: tuple[int, ...] = LEV_2_HPA,

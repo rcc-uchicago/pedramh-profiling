@@ -17,7 +17,7 @@ import pytest
 
 xr = pytest.importorskip("xarray")
 
-from synthetic_helpers import LEV_2_HPA, _make_synthetic_zg_plev
+from synthetic_helpers import LEV_2_HPA, _make_synthetic_zg_plev, legendre_gauss_lat_deg
 from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
     FORCING_CHANNELS,
@@ -42,7 +42,7 @@ def _make_most_file(path: Path, T: int, H: int = 64, W: int = 128) -> None:
     static_rng = np.random.default_rng(42)  # shared across test files
     lev = np.linspace(0.05, 0.98, 10, dtype=np.float32)
     time = np.arange(T, dtype=np.float64)
-    lat = np.linspace(-80.0, 80.0, H, dtype=np.float64)
+    lat = legendre_gauss_lat_deg(H)
     lon = np.linspace(0.0, 357.1875, W, dtype=np.float64)
 
     lsm_static = (static_rng.random((H, W)) > 0.7).astype(np.float32)

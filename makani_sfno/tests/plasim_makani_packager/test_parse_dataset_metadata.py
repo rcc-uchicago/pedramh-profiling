@@ -20,6 +20,7 @@ from makani.utils.YParams import YParams  # noqa: E402
 from makani.utils.parse_dataset_metada import parse_dataset_metadata  # noqa: E402
 
 from plasim_makani_packager import metadata as meta_module
+from synthetic_helpers import legendre_gauss_lat_deg
 from plasim_makani_packager.channels import (
     DIAGNOSTIC_CHANNELS,
     FORCING_CHANNELS,
@@ -39,7 +40,7 @@ def _minimal_packaged_file(path: Path) -> None:
         f.create_dataset(
             "forcing", data=np.zeros((1, 6, 64, 128), dtype=np.float32)
         )
-        f.create_dataset("lat", data=np.linspace(-80, 80, 64, dtype=np.float64))
+        f.create_dataset("lat", data=legendre_gauss_lat_deg(64))
         f.create_dataset(
             "lon", data=np.linspace(0.0, 357.1875, 128, dtype=np.float64)
         )
