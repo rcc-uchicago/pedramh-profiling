@@ -27,6 +27,11 @@
 #        + PORT_CKPT_LOAD_OK n=10  ->  PORT_M2M3 gate=green
 # Part 0 lines are measurements for M5 (valid only with PORT_GOLDEN_OK green in this job);
 # N1_TRAIN_PRETEST bitwise=no or ERROR FOREACH_NORM_COMPLEX is a STOP for M5, not for this gate.
+# Sizing (measured): GPU0 path = golden gate 11:44 (7679553) + ext gate 2:48 (7693069) ~ 14.5 min;
+# GPU1-3 = 2 A traces each at ~2:20 (7679553), inside that window; CRPS x2 ~ 5-6 min (startup-bound;
+# nf4_crps_b4_r1 ran this exact geometry: world 4, local batch 1, multistep 5, ~0.5 s/step);
+# new-venv loads + probe ~ 4 min; suites overlap on CPU. ~25 min serial, ~35 with margin < 60.
+# If it ever overruns, CRPS splits off as its own job (moderator's 5a/5b rule); nothing is dropped.
 # Key on tokens, never rc (CLAUDE.md #14). Submit from makani_sfno/ of the PORT worktree:
 #     qsub polaris/polaris_makani_port_slot3.pbs
 # ============================================================================
