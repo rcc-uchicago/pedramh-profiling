@@ -1,0 +1,276 @@
+#!/bin/bash -l
+#PBS -N makani_ace2_audit
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Code-level audit: makani (our E3SM SFNO) vs ACE2 (fme), every axis — data
+# contract, network, normalization, loss, constraints/corrector, step/rollout,
+# training recipe. Headless Claude (Fable 5.1) on a COMPUTE node via the ALCF
+# proxy; pattern from ACE2_retrain/polaris/polaris_read_duncan2024.pbs and
+# polaris_makani_debate.pbs (login nodes must not run the claude CLI: CLAUDE.md
+# shell rules).
+#
+# Four section auditors run in parallel (read-only tools: Read, Grep, Glob; no
+# Write, no Bash), each answering on stdout into ${OUT}/section_<k>.md; then one
+# synthesis pass merges them into ${OUT}/audit.md. Nothing is written into the
+# repo; the operator's session reviews audit.md and lands it as a doc.
+#
+#   qsub polaris/polaris_makani_ace2_audit.pbs          (from makani_sfno/)
+#   -v MODEL=claude-fable-5-1 (default)
+#
+# PASS = MAKANI_ACE2_AUDIT_OK  (audit.md exists and its last line is AUDIT_OK)
+# ============================================================================
+
+M=/lus/eagle/projects/lighthouse-uchicago/members/mehta5
+REPO="${REPO:-${M}/pedramh-profiling/.claude/worktrees/makani-port}"
+MODEL="${MODEL:-claude-fable-5-1}"
+OUT="${OUT:-${M}/runs/audit/makani_vs_ace2/${PBS_JOBID%%.*}}"
+CLAUDE_BIN="${HOME}/.local/bin/claude"
+
+MK_OLD="${M}/conda-envs/sfno-venv/lib/python3.12/site-packages/makani"
+MK_MAIN="${M}/conda-envs/sfno-venv-main/lib/python3.12/site-packages/makani"
+FME="${REPO}/ACE2_retrain/ace_exp/fme"
+EAMV3="${M}/ace2_eamv3"
+ERA5="${M}/ace2_era5"
+PAPERS="${M}/papers"
+PROBE="${M}/runs/makani_probe/tendency_norm/7646192"
+APPROVALS="${M}/runs/makani_port"
+
+export https_proxy=http://proxy.alcf.anl.gov:3128 http_proxy=http://proxy.alcf.anl.gov:3128
+export HTTPS_PROXY="${https_proxy}" HTTP_PROXY="${http_proxy}"
+export no_proxy="localhost,127.0.0.1" NO_PROXY="${no_proxy}"
+
+mkdir -p "${OUT}" && cd "${OUT}" || { echo "ERROR OUT_DIR ${OUT}"; exit 2; }
+for p in "${REPO}" "${MK_OLD}" "${MK_MAIN}" "${FME}" "${EAMV3}/ace2_eamv3_stepper_config.json" \
+         "${ERA5}/inference_config.yaml" "${PAPERS}/duncan2024_readout.md" "${PROBE}/tendency_norm_probe.csv"; do
+    [ -e "${p}" ] || { echo "ERROR MISSING_INPUT ${p}"; exit 2; }
+done
+[ -x "${CLAUDE_BIN}" ] || { echo "ERROR NO_CLAUDE_CLI ${CLAUDE_BIN}"; exit 3; }
+echo "=== makani_ace2_audit: $(date -Iseconds) host=$(hostname) job=${PBS_JOBID%%.*} model=${MODEL} ==="
+echo "repo=${REPO} sha=$(git -C "${REPO}" rev-parse --short=12 HEAD 2>/dev/null)"
+echo "out=${OUT}"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ || echo 000)
+echo "api.anthropic.com via proxy: HTTP ${code}"
+[ "${code}" != "000" ] || { echo "ERROR NO_ROUTE_VIA_PROXY"; exit 3; }
+
+echo "Reply with exactly the word PREFLIGHT_OK and nothing else." > preflight_prompt.txt
+timeout -k 20 180 "${CLAUDE_BIN}" -p --model "${MODEL}" < preflight_prompt.txt > preflight.out 2> preflight.err
+grep -q PREFLIGHT_OK preflight.out || { echo "ERROR MODEL_PREFLIGHT_FAILED model=${MODEL}"; tail -5 preflight.err preflight.out; exit 4; }
+echo "preflight: OK"
+
+# ---- shared context -----------------------------------------------------------
+cat > context.md <<EOF
+# Shared context for every auditor
+
+You are auditing two SFNO-based climate emulators at the CODE level. Read-only: do
+not modify anything. Your final answer (stdout) IS the deliverable; no files.
+
+## Systems and where their code lives (absolute paths)
+- **ACE2 (ai2 "fme")** — code: ${FME}
+  - **ACE2-EAMv3** (PRIMARY ACE2 reference: same E3SM model family as our data):
+    full stepper config + tensor shapes of the pretrained checkpoint:
+    ${EAMV3}/ace2_eamv3_stepper_config.json
+  - **ACE2-ERA5 retrain recipe** (secondary): ${REPO}/ACE2_retrain/config_polaris.yaml;
+    pretrained ERA5 inference config + README: ${ERA5}/
+  - ACE-on-EAMv2 paper readout (PAPER evidence only, label it so): ${PAPERS}/duncan2024_readout.md
+- **makani (ours)** — library code at TWO versions:
+  - old pin c9704308 (production checkpoints were trained here): ${MK_OLD}
+  - main a0aa4c4f (current port target): ${MK_MAIN}
+  - our own code on top (trainer, preprocessor subclass, constraints, inference drivers):
+    ${REPO}/makani_sfno/src  and  ${REPO}/makani_sfno/polaris
+  - configs: production A = ${REPO}/makani_sfno/polaris/e3sm_alldata_full.yaml with the
+    run overrides in ${REPO}/makani_sfno/docs/2026-09-03_prod1n_b32_sgdr_checkpoint_usage.md;
+    port G (ACE2-EAMv3 variable set) = ${REPO}/makani_sfno/polaris/e3sm_alldata_ace2vars.yaml
+  - tendency-variability probe (per-channel sigma_c, delta_c=6h-change std, r=delta/sigma):
+    ${PROBE}/tendency_norm_probe.csv
+  - pending science approvals (jesswan): ${APPROVALS}/jesswan_approvals.md
+- Existing comparison docs (CONTAIN ERRORS — verify, do not trust):
+  ${REPO}/ace2_vs_makani_differences.md, ${REPO}/ace2_e3sm_channel_contract.md,
+  ${REPO}/polaris_makani_ace2_ports_handoff.md,
+  ${REPO}/makani_sfno/docs/2026-09-10_ace2_comparison_the_corrector.md,
+  ${REPO}/makani_sfno/docs/2026-09-23_architect_review_ace2_ports.md
+
+## Facts already verified in code this session (re-check quickly, then build on them)
+F1. makani never reads params.target. SingleStepWrapper = denorm(model(norm(x)))
+    (${MK_OLD}/models/stepper.py:28-52); our rollout feeds pred back unchanged
+    (${REPO}/makani_sfno/src/sfno_inference/climate_driver.py:355-367). => FULL-STATE
+    output; the configs' target: "tendency" is a dead key.
+F2. makani SFNO big_skip (default True, not overridden): residual_transform = 1x1 conv
+    in->out, random normal init, ADDED at the output (${MK_OLD}/models/networks/sfnonet.py:467-472,639-640).
+    makani FCN3 reference config: big_skip False.
+F3. makani temp_diff_normalization: chw = (1/N)*sigma/delta (losses/base_loss.py:232-237,
+    utils/loss.py:152-155), multiplied into the per-channel SQUARED loss (utils/loss.py:443)
+    => effective e^2/(sigma*delta). Per-loss "tendency: True" cancels exactly for absolute squared L2.
+F4. Our config: l2 squared True, channel_weights constant, temp_diff_normalization False,
+    history_normalization_mode none, nettype SFNO, scale_factor 3, pos_embed "none".
+F5. fme NetworkAndLossNormalizationConfig: "residual" overrides the stds of prognostic names
+    for the LOSS normalizer (fme/core/normalizer.py:268-330; fme/core/step/single_module.py:106-118).
+    The EAMv3 json sets normalization.loss EXPLICITLY with residual-like stds for prognostic
+    vars (e.g. PS loss std 247 vs network 9380) and full-field stds for diagnostics.
+F6. fme per-variable weights multiply pred and target BEFORE the loss: loss(w*x, w*y)
+    (fme/core/loss.py:317-318) => effective w^2. type MSE = torch.nn.MSELoss, NOT area-weighted
+    (fme/core/loss.py:484-485; AreaWeightedMSE is a separate option).
+F7. fme step_with_adjustments: residual_prediction False => full state; then corrector, then
+    ocean, BEFORE the loss (fme/core/step/single_module.py:443-451; fme/ace/stepper/single_module.py:1649-1660)
+    => the network is trained through the corrector.
+F8. EAMv3 checkpoint shapes: decoder.0.weight (384, 423, 1, 1) = 384 embed + 39 inputs
+    (big_skip by CONCATENATION); pos_embed (1,384,180,360) learned; 39 in / 44 out; wrapped
+    in multi_call; next_step_forcing_names [SOLIN]; vertical_coordinate ak/bk (9).
+F9. Probe 7646192: Z3_l17 r=1.05e-4 => 1/r = 9518 = 87.6% of sum(1/r) over 101 channels;
+    PS r=0.025; RELHUM mid levels r~0.52.
+
+## Rules
+- Every claim carries a source as path:line. Tag each row VERIFIED (read in code), CONFIG
+  (read in a config/json only), PAPER (duncan readout), or INFERRED (your reasoning).
+- Defaults matter: when a config omits a field, find the default in the dataclass/constructor
+  and say so.
+- Distinguish makani OLD vs MAIN where they differ.
+- If something cannot be determined, say UNDETERMINED and why. Never guess.
+- Do not search outside the directories listed above.
+- Format: markdown. Main content = tables with columns
+  | aspect | ACE2-EAMv3 | ACE2-ERA5 recipe | makani (ours, A / G) | makani stock default | source | tag | relevance to long-rollout stability |
+  then a short "Corrections to existing docs" list, then "Open questions".
+EOF
+
+# ---- section briefs -------------------------------------------------------------
+cat > brief_1.md <<'EOF'
+# Section 1 — NETWORK
+Trace, step by step, the forward pass each system actually executes.
+- fme: which class does builder type "SphericalFourierNeuralOperatorNet" instantiate
+  (fme/ace/registry/sfno.py; modulus vs makani variants in fme/ace/models/)? Every
+  constructor argument and its default for the EAMv3 config. Encoder (layers, activation),
+  pos_embed (default on/off, learned?), blocks (spectral filter type, linear/dhconv,
+  inner_skip, norm0/norm1, MLP ratio/activation, drop_path), big_skip (concat vs add),
+  decoder, spectral transform and grid/quadrature (equiangular vs legendre-gauss), scale_factor,
+  spectral_layers, any checkpointing. Confirm against the EAMv3 checkpoint tensor shapes in
+  the json; compute parameter counts from the shapes.
+- makani: the same for nettype "SFNO" with our config, at OLD and MAIN (note any numerics-
+  relevant change between them, e.g. the fin/fout matmul rewrite). Parameter count estimate.
+- Output parameterization in each (residual_prediction / target / big_skip semantics).
+- Then: which architectural differences plausibly matter for multi-year stability, and why.
+End your answer with a line containing exactly: SECTION_OK
+EOF
+cat > brief_2.md <<'EOF'
+# Section 2 — NORMALIZATION AND LOSS
+Derive, end to end, the effective per-channel weight on squared error in each system.
+- Inputs/outputs normalization: makani zscore/minmax per channel, forcing channels,
+  diagnostics; fme network normalizer (centering + full-field), forcing.
+- Loss normalizer: fme residual/loss override (F5) — use the EAMv3 json numbers to TABULATE,
+  for every EAMv3 output, network std, loss std, custom weight w, and the effective weight on
+  squared error in physical units 1/(loss_std^2) * w^2 and relative to full-field
+  normalization (network_std/loss_std)^2 * w^2.
+- makani: constant weights, temp_diff (F3), channel_weights options incl. lists and "auto"
+  (does "auto" do anything for E3SM names?), area/quadrature weighting in the l2 loss (check
+  the actual lp/geometric loss class used for type "l2"), multistep weighting, uncertainty/
+  balanced weighting knobs. Use the probe csv to tabulate what temp_diff would do for our
+  channels (1/r), and what an ACE2-style scheme would do (1/r^2).
+- fme: area weighting (MSE vs AreaWeightedMSE), sqrt_loss_step_decay_constant,
+  optimize_last_step_only, global_mean loss option, NaN masking, ensemble/CRPS options;
+  what EAMv3 and ERA5 recipe actually set.
+- Then: which loss/normalization differences plausibly matter for stability, and why.
+End your answer with a line containing exactly: SECTION_OK
+EOF
+cat > brief_3.md <<'EOF'
+# Section 3 — CONSTRAINTS, CORRECTOR, STEP AND ROLLOUT PATH
+- fme corrector (fme/core/corrector/atmosphere.py and anything it calls): the exact math of
+  conserve_dry_air (what quantity, how computed from PS / total water / ak,bk / area weights,
+  global vs local, additive vs multiplicative), moisture_budget_correction
+  "advection_and_precipitation", force_positive_names (clamp? which op?), total_energy_budget,
+  zero_global_mean_moisture_advection; ORDER of operations; applied in training AND inference?
+- fme ocean (prescribed TS over OCNFRAC, interpolate, slab), multi_call wrapper semantics,
+  next_step_forcing_names, how forcings enter each step, inference stepper differences.
+- makani: anything comparable in makani OLD/MAIN (search for constraint/corrector/
+  conserv/positive/clamp), and in our code (the repo's makani_sfno/src): dry_air_fix in
+  models/preprocessor.py, NonNegativeConstraint, hydrostatic loss, grid-weight fix,
+  weight_decay_mode, any SST/ice prescription; default ON/OFF, wired into training,
+  inference, both? Cross-check against jesswan_approvals.md (approved? opt-in only?).
+- Our rollout drivers (sfno_inference/climate_driver.py, rollout_driver.py): forcing refresh,
+  diagnostic handling, dtype/autocast, anything that differs from fme inference.
+- Then: which differences plausibly matter for stability, and why.
+End your answer with a line containing exactly: SECTION_OK
+EOF
+cat > brief_4.md <<'EOF'
+# Section 4 — DATA CONTRACT AND TRAINING RECIPE
+- Channel contracts: EAMv3 json in/out names vs our A (e3sm_alldata_full.yaml) and G
+  (e3sm_alldata_ace2vars.yaml): prognostic / forcing / diagnostic counts and lists, vertical
+  coordinate (8 layers ak/bk vs our 18 levels), timestep, grid; map each EAMv3 variable to its
+  nearest makani channel (or ABSENT).
+- Training recipe for each: optimizer, lr, betas, weight decay, schedule + warmup, epochs,
+  batch, n_forward_steps / n_future (and gradient through all steps?), AMP dtype, grad
+  clipping, EMA (fme ema config, validate_using_ema; makani EMA availability and whether our
+  runs use it), checkpoint selection (EAMv3 json has best_inference_error — find what inline
+  inference metric fme selects on), validation, noise/perturbation, parameter_init, dropout.
+  For EAMv3 the json may lack the training recipe: use fme dataclass defaults + duncan readout
+  (tag PAPER) and say which is which. For makani use the configs + prod doc overrides.
+- Data splits/years and stats provenance where visible.
+- Then: which recipe differences plausibly matter for stability, and why.
+End your answer with a line containing exactly: SECTION_OK
+EOF
+
+ALLOW=(--allowedTools "Read" "Grep" "Glob"
+       --add-dir "${REPO}" "${MK_OLD}" "${MK_MAIN}" "${EAMV3}" "${ERA5}" "${PAPERS}" "${PROBE}" "${APPROVALS}")
+
+run_section() {  # run_section <k>
+    local k="$1"
+    { cat context.md; echo; cat "brief_${k}.md"; } > "prompt_${k}.txt"
+    timeout -k 30 2100 "${CLAUDE_BIN}" -p --model "${MODEL}" "${ALLOW[@]}" --output-format text \
+        < "prompt_${k}.txt" > "section_${k}.md" 2> "section_${k}.err"
+    echo "section ${k}: rc=$? lines=$(wc -l < "section_${k}.md") ok=$(grep -c '^SECTION_OK' "section_${k}.md")"
+}
+
+for k in 1 2 3 4; do run_section "${k}" & done
+wait
+
+nok=0
+for k in 1 2 3 4; do grep -q '^SECTION_OK' "section_${k}.md" && nok=$((nok+1)); done
+echo "sections complete: ${nok}/4"
+[ "${nok}" -ge 1 ] || { echo "ERROR NO_SECTION_COMPLETED"; exit 5; }
+
+# ---- synthesis ------------------------------------------------------------------
+{
+cat context.md
+cat <<'EOF'
+
+# SYNTHESIS
+Below are four section audits written by independent auditors (some may be incomplete — a
+section without a final SECTION_OK line was cut off; say so). Merge them into ONE audit
+document. You may Read files to resolve any contradiction between sections; when sections
+disagree, check the code and say which is right.
+
+Structure:
+0. Summary (<= 12 lines): what is the same, what is different, the 5 differences most likely
+   to explain ACE2's multi-year stability vs our ~500-step divergence.
+1. Scope and versions (paths, shas, which ACE2 and which makani configs).
+2. Data contract.  3. Network.  4. Normalization and loss (include the effective-weight
+   tables).  5. Constraints / corrector / ocean.  6. Step and rollout path.
+7. Training recipe.
+8. Ranked list: "ACE2 mechanisms not in our production stack" — for each: what it does
+   (one line, with source), expected effect on stability, cost to port (config-only / code /
+   retrain), whether it changes what the model computes (=> jesswan sign-off), and current
+   status in our code (absent / built-off / approved-pending).
+9. Corrections to existing docs (file:line, wrong claim, correct claim, evidence).
+10. Open questions / UNDETERMINED items.
+Keep the source path:line and the VERIFIED/CONFIG/PAPER/INFERRED tags from the sections.
+The final line must be exactly: AUDIT_OK
+EOF
+for k in 1 2 3 4; do echo; echo "=================== SECTION ${k} ==================="; cat "section_${k}.md"; done
+} > prompt_synth.txt
+
+timeout -k 30 900 "${CLAUDE_BIN}" -p --model "${MODEL}" "${ALLOW[@]}" --output-format text \
+    < prompt_synth.txt > audit.md 2> synth.err
+rc=$?
+echo "synthesis: rc=${rc} lines=$(wc -l < audit.md)"
+if [ -s audit.md ] && [ "$(tail -n1 audit.md | tr -d '[:space:]')" = "AUDIT_OK" ]; then
+    echo "audit: ${OUT}/audit.md"
+    echo "MAKANI_ACE2_AUDIT_OK sections=${nok}/4"
+else
+    echo "ERROR AUDIT_INCOMPLETE rc=${rc} sections=${nok}/4 (sections kept in ${OUT})"
+    exit 1
+fi
