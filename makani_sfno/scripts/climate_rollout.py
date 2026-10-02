@@ -150,7 +150,6 @@ def main(argv=None) -> int:
         git_sha=args.git_sha, pack=str(pack), years_dir=str(years_dir),
         timestamp_axis=ts_mode, created=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         dry_air_fix=int(dry_air_fix), dry_air_fix_in_training=int(trained_with_fix),
-        force_positive_names=force_positive_names, feedback_fp32=int(args.feedback_fp32),
     )
     if dry_air_fix and wrapper.preprocessor.dry_air_fix is None:
         raise RuntimeError("DRY_AIR_FIX requested but the wrapper's preprocessor has none")
