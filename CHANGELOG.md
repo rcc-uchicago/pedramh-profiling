@@ -144,6 +144,58 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-02 (makani) — B-continuation handoff Step 1: B_e22 and B_e24 both run the full 5-year
+  protocol clean (8/8 finite); post-hoc dry-air on B_e01 is a clear negative result; fp32-feedback
+  arm measured no-op; RELHUM positivity clamp is mixed.** Per
+  `docs/2026-10-02_b_continuation_dryair_handoff.md` §2. Branch `feat/makani-b-continuation-dryair`
+  (cut from `feat/makani-port-main` @ `6d2357e0`, commit `dbcfe604`).
+  - **Checkpoints stabilised first** (handoff's own hazard warning): `ckpt_mp0_v1.tar` →
+    `ckpt_mp0_e22_stable.tar`, `ckpt_mp0_v3.tar` → `ckpt_mp0_e24_stable.tar`, both copied out of
+    `nf4_prod_b16_r1/training_checkpoints/` (the rotating slot) before anything else touched that
+    run. Epochs confirmed **from inside each file** by the job itself (`ckpt_epoch=22` / `=24` on
+    every member's own readout line) — matches the mtime ordering inferred beforehand (v0..v3 =
+    e21..e24, ~21 min apart), not just assumed.
+  - **Code** (gate: job **7707535**, `CLIMATE_DRIVER_TEST_OK` 34/34 + `CLIMATE_DRIVER_EQUIV_OK`
+    bitwise vs `rollout_one_ic` at chunk_len 40/7/1 on ckpt A — default behaviour unchanged):
+    `climate_driver.stream_rollout`/`run_member` gained opt-in `out_bias`/`out_scale` +
+    `feedback_fp32` params, reusing `rollout_driver`'s `force_positive` clamp instead of
+    duplicating it (both no-ops unless a caller passes them). `climate_rollout.py` gained
+    `--feedback-fp32` and `--force-positive {config,off,relhum}`, mirroring the existing
+    `--dry-air-fix` pattern. `polaris_climate_run.pbs`'s `ARMS` now accepts any name via
+    `RUNDIR_<ARM>`/`CKPT_<ARM>`/`FLAGS_<ARM>`, not just hardcoded A/B.
+  - **Job 7707597** (debug, 1 node, 18 min compute): 5 arms × 8 members, 2044 Oct starts, same
+    8-start/5-year protocol as 7649597. `CLIMATE_RUN_OK`. Results (global-mean PS drift, phys →
+    hPa; "first >3σ" = first channel past 3σ anom_rms):
+    | arm | survival | PS drift @ ~5yr (8 members) | first >3σ |
+    |---|---|---|---|
+    | **B22** (plain) | **8/8 finite**, zero truncations | −6.1 to −8.8 hPa (med ≈ −6.8) | `V_l00`/`V_l01`/`RELHUM_l00`, leads 1545–2088 (≈1.06–1.43 yr) |
+    | **B24** (plain) | **8/8 finite**, zero truncations | +13.0 to +17.5 hPa (med ≈ +16) | same channels, leads 1394–2010 (≈0.95–1.37 yr) |
+    | B22 + `--feedback-fp32` | 8/8 finite | **bit-identical to plain B22** at every reported lead | identical |
+    | B22 + `--force-positive=relhum` (18 ch) | 8/8 finite | mixed vs plain B22: 3/4 checked members smaller \|drift\| (e.g. −7.18→−3.59, −6.81→−4.87, −6.84→−4.61 hPa), 1/4 larger (−6.10→−6.53); crossing timing shifts both earlier and later across members | mixed |
+    | B01 (`best_ckpt_mp0.tar`) + `--dry-air-fix=on` | **8/8 non-finite**, channel PS, leads 3328–3614 (≈2.28–2.48 yr) | N/A (diverged) | `U_l00`/`T_l00`/`RELHUM_l05`/`V_l00`, leads 1157–1680 (≈0.79–1.15 yr) — earlier than B22/B24 |
+  - **Reading, against the handoff's pre-registered outcomes (§2.3):** B22 and B24 both survive the
+    full 5 years with bounded (not runaway) mass drift — a real improvement over every earlier B
+    lineage result (B_e01 fix-off: 7/8 non-finite, the one survivor at −269 hPa). Neither is a clean
+    match to outcome (a): the model top crosses 3σ at ~1–1.4 yr while |ΔPS| is still small (closer
+    to outcome b), **and** |ΔPS| keeps growing after that to several× the 1-year screen value by
+    5 yr (B22: 0.7→~7 hPa; B24: 4.6→~16 hPa) — outcome (c). Both effects are present; NR's own
+    ruling ("go by the timing, not by 'dies at PS'") anticipated exactly this ambiguity.
+  - **Dry-air on B01 is a clean negative, not "mixed."** Unlike the earlier post-hoc F result
+    (16→14 survivors), this is strictly worse on both counts: survival drops from 7/8 to 0/8, and
+    the surviving runs' failure point moves *earlier* (3328–3614 vs 3639–7339). The corrector did
+    not fix B01's problem on this checkpoint.
+  - **fp32-feedback measured a true no-op, not a bug in the new flag.** Per-member logs confirm the
+    flag fired correctly (`feedback_fp32=1`, `feedback_dtype=torch.float32`, vs plain B22's
+    `feedback_dtype=torch.bfloat16`), yet the resulting trajectories are bit-for-bit identical to
+    bf16 feedback at every reported lead out to 5 years. Most likely explanation (not confirmed by
+    reading the source — `Preprocessor2D.append_history` is in the installed `makani` package, not
+    this repo): the preprocessor's history buffer silently re-casts to a fixed dtype on the next
+    step regardless of what's fed in. Open item for whoever picks this up next, not resolved here.
+  - **Not run this session (per the handoff, held for F):** the trained-with `conserve_dry_air`
+    fine-tune on B_e01 (§3) — still blocked on F's current job (`7660250`) finishing.
+  - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7707597/` (`readout.log` has every
+    member's full drift series; `member_*.log` has the per-member provenance line).
+
 - **2026-10-01 (makani/ACE2) — code-level audit of makani vs ACE2 landed; ACE2 5-year rollout test
   submitted.** Audit = debug job **7703518** (`polaris_makani_ace2_audit.pbs`, 4 Fable 5.1 section
   auditors + synthesis on a compute node, read-only; `MAKANI_ACE2_AUDIT_OK`) →
