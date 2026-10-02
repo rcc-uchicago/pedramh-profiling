@@ -36,6 +36,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 logger = logging.getLogger("climate_rollout")
 
+# ACE2-style force_positive_names preset (rollout_driver.py, DIAGNOSTIC): the
+# full RELHUM column, the ALLDATA pack's naming (longroll_force_positive.py's
+# "moist" arm uses the same convention). makani-B-continuation handoff §2 item 4.
+RELHUM_FORCE_POSITIVE_NAMES = [f"RELHUM_l{i:02d}" for i in range(18)]
+
 
 def _parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0],
@@ -67,6 +72,13 @@ def _parse_args(argv=None) -> argparse.Namespace:
                    help="Dry-air mass fix (sfno_training/models/mass_fix.py; DIAGNOSTIC). "
                         "'config' = the run's conserve_dry_air (absent = off); 'on'/'off' "
                         "override it, e.g. to apply it post hoc to a checkpoint trained without")
+    p.add_argument("--force-positive", choices=("config", "off", "relhum"), default="config",
+                   help="force_positive_names clamp (rollout_driver.py; DIAGNOSTIC). 'config' = "
+                        "the run's own setting (absent = off); 'off' forces it off; 'relhum' "
+                        "overrides it to the full RELHUM column")
+    p.add_argument("--feedback-fp32", action="store_true",
+                   help="Feed back the fp32 prediction instead of its native (autocast) dtype; "
+                        "the forward pass itself is unchanged. Off by default")
     return p.parse_args(argv)
 
 
@@ -109,6 +121,11 @@ def main(argv=None) -> int:
     if args.dry_air_fix != "config":
         eval_params.conserve_dry_air = args.dry_air_fix == "on"
     dry_air_fix = bool(eval_params.get("conserve_dry_air", False))
+    if args.force_positive == "off":
+        eval_params.force_positive_names = []
+    elif args.force_positive == "relhum":
+        eval_params.force_positive_names = RELHUM_FORCE_POSITIVE_NAMES
+    force_positive_names = list(getattr(eval_params, "force_positive_names", None) or [])
     pack = args.pack
     if pack is None:
         tdp = eval_params.train_data_path
@@ -133,6 +150,7 @@ def main(argv=None) -> int:
         git_sha=args.git_sha, pack=str(pack), years_dir=str(years_dir),
         timestamp_axis=ts_mode, created=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         dry_air_fix=int(dry_air_fix), dry_air_fix_in_training=int(trained_with_fix),
+        force_positive_names=force_positive_names, feedback_fp32=int(args.feedback_fp32),
     )
     if dry_air_fix and wrapper.preprocessor.dry_air_fix is None:
         raise RuntimeError("DRY_AIR_FIX requested but the wrapper's preprocessor has none")
@@ -143,6 +161,7 @@ def main(argv=None) -> int:
         lat=lat, lon=lon, time_means_path=time_means, snapshot_every=args.snapshot_every,
         zonal=args.zonal_mean, provenance=provenance,
         assert_contract=not args.no_assert_contract,
+        feedback_fp32=args.feedback_fp32,
     )
 
     # --- concise read-out (≤10 lines) ---
@@ -151,7 +170,8 @@ def main(argv=None) -> int:
             if torch.device(device).type == "cuda" else 0.0)
     print(f"member={args.member_id} ckpt_epoch={provenance['ckpt_epoch']} "
           f"sha={provenance['ckpt_sha256_16']} timestamps={ts_mode['mode']} "
-          f"feedback_dtype={res.feedback_dtype} dry_air_fix={int(dry_air_fix)}")
+          f"feedback_dtype={res.feedback_dtype} dry_air_fix={int(dry_air_fix)} "
+          f"force_positive={len(force_positive_names)}ch feedback_fp32={int(args.feedback_fp32)}")
     for h in res.handoffs:
         print(f"HANDOFF step={h['step']} {h['from']}->{h['to']} local={h['to_local_idx']} "
               f"forcing_direct_match={h['forcing_direct_match']}")
