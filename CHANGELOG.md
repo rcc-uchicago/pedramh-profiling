@@ -144,6 +144,32 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-03 (makani) — climate-fidelity scoring: 2-reviewer adversarial pass found real bugs,
+  all fixed, 12/12 tests pass.** Two independent `claude-opus-5-5` processes (adversarial bug-hunt
+  + from-scratch math re-derivation), run directly in-session per operator override of the
+  login-node Task/Agent restriction (explicit: "no do it overrule", after the risk was raised) --
+  checked process headroom before/after each (137→117/256, no leak), not via the PBS compute-node
+  path this time since the debug queue was per-user job-count capped. Both independently converged
+  on the same core bug: `build_true_climatology.py` assumed `config.json`'s `channel_names` was
+  the pack's *full* channel list needing an `out_idx` reduction; it's actually already the run's
+  own N_out-sized list for a subset run (confirmed against `eval_inference.py`'s resolver before
+  "fixing" it the wrong way). Also found: `global_stds`/`global_means` read from a separately
+  specified `--std-path` could silently drift out of channel-order alignment with the true
+  climatology; netCDF4's auto-mask on `_FillValue` cells was discarded by a bare `np.asarray()`,
+  letting ~9.97e36 fill sentinels enter the bias/RMSE math undetected; no grid/orientation check
+  between a member and the true climatology; the builder's own equivalence test was tautological
+  (computed "ground truth" via the same `dataset[idx]` loop it was checking -- confirmed empty by
+  rerunning the OLD test suite against the buggy code: passed 6/6 anyway). All fixed: channel names
+  now come from the same h5-cross-checked resolver `climate_rollout.py` uses; `global_means/stds`
+  + `lat`/`lon` now travel inside the true-climatology `.npz` itself (removed `--std-path` --
+  structurally can't misalign anymore); masked cells are filled with NaN and refused; grid mismatch
+  is a hard error. New tests: an independent h5-based ground-truth check (replacing the tautological
+  one) plus a seeded off-by-one fault test proving it actually goes red, and 4 scorer `main()`-level
+  contract tests (clean score, channel-mismatch/masked-cell/grid-mismatch refusal -- `main()` was
+  never called by any test before). `CLIMATE_FIDELITY_TEST_OK` 12/12, job 7709661.
+  Also: minimal rollout-reproduction instructions for jesswan,
+  `docs/2026-10-03_jesswan_climate_rollout_instructions.md`.
+
 - **2026-10-03 (makani) — F4 (`lrcheck`, job 7709269) PASSED: `MAKANI_MN_SCALING_OK`, 3 epochs,
   `rc=0`, real per-channel validation RMSE logged throughout, no errors.** Confirms the launcher
   loads F's checkpoint/config correctly (NR's item #3, "does the launcher load F?" — yes).
