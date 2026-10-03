@@ -14,14 +14,16 @@ Per channel: bias = area-weighted mean(member - true); pattern_rmse =
 area-weighted RMS(member - true). Both also reported in units of the channel's
 global_std ("sigma"), since raw units aren't comparable across channels (PS in
 Pa vs a mixing ratio near 0) -- the same normalisation convention the rest of
-this driver uses for stability metrics.
+this driver uses for stability metrics. sigma comes from the true.npz's own
+`global_stds` (what build_true_climatology.py actually used), never a
+separately-specified stats file -- a second file can silently drift out of
+channel-order alignment with the first (review finding, 2026-10-03).
 
 PASS token: CLIMATE_FIDELITY_OK n_members=<n> out=<csv path>
 
 Usage:
     python score_climate_fidelity.py --true climatology.npz \\
-        --member member_B2200.nc member_B2201.nc ... --std-path <global_stds.npy> \\
-        --out fidelity.csv
+        --member member_B2200.nc member_B2201.nc ... --out fidelity.csv
 """
 from __future__ import annotations
 
@@ -37,8 +39,6 @@ def _parse_args(argv=None) -> argparse.Namespace:
                                 epilog=__doc__)
     p.add_argument("--true", required=True, type=Path, help="build_true_climatology.py output")
     p.add_argument("--member", required=True, type=Path, nargs="+", help="member_*.nc file(s)")
-    p.add_argument("--std-path", required=True, type=Path,
-                   help="global_stds.npy for sigma-normalised bias/RMSE (same file the run used)")
     p.add_argument("--out", required=True, type=Path, help="CSV output path")
     p.add_argument("--top", type=int, default=10, help="Worst channels to print (default 10)")
     return p.parse_args(argv)
@@ -60,6 +60,14 @@ def area_weighted_bias_rmse(member_mean, true_mean, weights):
     return bias, rmse
 
 
+def _first_mismatch(a: list, b: list):
+    """Index of the first differing element, or where the shorter list ends."""
+    for i, (x, y) in enumerate(zip(a, b)):
+        if x != y:
+            return i
+    return min(len(a), len(b))
+
+
 def main(argv=None) -> int:
     args = _parse_args(argv)
     import numpy as np
@@ -68,7 +76,11 @@ def main(argv=None) -> int:
     true = np.load(args.true, allow_pickle=True)
     true_mean = true["time_mean"]                         # (C, H, W)
     true_names = [str(c) for c in true["channel_names"]]
-    std = np.load(args.std_path).astype(np.float64).reshape(-1)
+    std = true["global_stds"].astype(np.float64).reshape(-1)
+    true_lat = true["lat"].astype(np.float64)
+    if len(true_names) != true_mean.shape[0]:
+        raise ValueError(f"TRUE_CLIMATOLOGY_CORRUPT: {len(true_names)} channel_names for "
+                         f"time_mean shape {true_mean.shape}")
     if std.size != len(true_names):
         raise ValueError(f"STD_CHANNEL_MISMATCH: {std.size} stds for {len(true_names)} "
                          f"true-climatology channels")
@@ -80,10 +92,20 @@ def main(argv=None) -> int:
             member_names = [str(c) for c in ds["channel"][:]]
             if member_names != true_names:
                 raise ValueError(f"CHANNEL_MISMATCH: {mpath} channels != true climatology's "
-                                 f"(first mismatch at "
-                                 f"{next((i for i, (a, b) in enumerate(zip(member_names, true_names)) if a != b), '?')})")
-            member_mean = np.asarray(ds["time_mean"][:], dtype=np.float64)   # (C, H, W)
+                                 f"({len(member_names)} vs {len(true_names)} channels, first "
+                                 f"mismatch at index {_first_mismatch(member_names, true_names)})")
+            # netCDF4 auto-masks _FillValue cells; np.asarray on a MaskedArray would
+            # silently keep the ~9.97e36 fill sentinel instead of the mask (review
+            # finding, 2026-10-03) -- fill with NaN and refuse a run with any.
+            member_mean = np.ma.filled(ds["time_mean"][:], np.nan).astype(np.float64)
+            if not np.all(np.isfinite(member_mean)):
+                raise ValueError(f"NON_FINITE_TIME_MEAN: {mpath} has masked/non-finite cells "
+                                 f"in time_mean -- a truncated or blown-up member cannot be "
+                                 f"scored against a climatology")
             lat = np.asarray(ds["lat"][:], dtype=np.float64)
+        if not np.allclose(lat, true_lat):
+            raise ValueError(f"GRID_MISMATCH: {mpath}'s lat does not match the true "
+                             f"climatology's -- different grid or orientation")
         if weights is None:
             w = np.cos(np.deg2rad(lat))
             weights = w / w.sum()
