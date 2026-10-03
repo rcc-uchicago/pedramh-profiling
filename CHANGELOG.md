@@ -144,6 +144,31 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-03 (makani) — F3's missing prereg written: D7 (raw vs EMA) decision rule, drafted by a
+  3-process debate, committed.** `docs/2026-09-24_climate_screen_prereg.md` §A3. F3 was blocked on
+  a written-in-advance scoring rule for choosing F's raw vs EMA checkpoint (D7) -- without it,
+  running the screen and picking a winner after seeing the numbers would be exactly the
+  rationalization this project's prereg discipline exists to prevent. Produced by a 2-analyst
+  debate (Debater A: stability-first; Debater B: mass-conservation-first) + moderator, three
+  independent `claude-opus-5-5` processes run directly in-session **on the login node**, per
+  explicit operator override of the usual restriction (2026-10-03) -- no PBS compute-node job, no
+  Task/Agent tool (checked: not available in this session's toolset regardless). Process headroom
+  checked before/after each of the three: 117→127→140→123/256, no leak. Operator reviewed and
+  committed the moderator's output.
+  - **Core rule:** survival gates first (more surviving starts wins D7 outright, regardless of PS).
+    Among survivors, PS drift (`max(|drift@600|, |drift@1460|)`, averaged over shared starts)
+    decides, requiring a noise-scaled gap (≥ max(2 hPa, 20% of the larger value)) **and** agreement
+    at every shared start. `n_past_3sigma` breaks remaining ties. A matched-epoch (raw vs EMA, both
+    at epoch 43) pair controls for the best-epoch-selection confound separately from the "EMA
+    smooths" question. Default on any tie/no-separation/confound: **raw** — EMA has to show an
+    effect, not the other way around.
+  - **Moderator's ruling, where the debaters disagreed:** PS decides among survivors (B's position;
+    A's stability-ranking rule would have made PS effectively unreachable). B's proposed hard
+    mass-flag cutoff (10 hPa) was dropped as too noise-sensitive — replaced by the continuous
+    noise-scaled gap already in Step 2. A's survival-gate concern was kept in full.
+  - **Unblocks** NR's item #3 (F3+F4). F4 already passed (job 7709269). **F3 itself is not launched
+    by this commit** — only the prereg it needed.
+
 - **2026-10-03 (makani) — climate-fidelity scoring: 2-reviewer adversarial pass found real bugs,
   all fixed, 12/12 tests pass.** Two independent `claude-opus-5-5` processes (adversarial bug-hunt
   + from-scratch math re-derivation), run directly in-session per operator override of the
