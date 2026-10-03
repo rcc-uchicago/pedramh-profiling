@@ -144,6 +144,42 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-03 (makani) — Step 2 launched: B-specific `anneal_dryair` (trained-with dry-air
+  conservation) on B_e01, plus F4 (`lrcheck`, the launcher load gate for F).** Resolved the
+  handoff's open "anneal" ambiguity first, from source (not a guess):
+  `polaris/submit_finetune_stability_arm.sh`'s own inline comment, written when the arm was first
+  built (operator request 2026-09-24): "T-anneal + the dry-air mass fix in every
+  training/validation/inference step. Differs from `anneal` in that one flag only." Confirmed
+  against `mass_fix.py`'s `DryAirFix.__call__`: the correction is full-strength, unscaled, every
+  call — no ramp/weight parameter exists anywhere in the code. "Anneal" names the pre-existing
+  LR schedule (CosineAnnealingLR, unrelated to the dry-air mechanism); there never was a second
+  reading to choose between.
+  - **Code**: `submit_finetune_stability_arm.sh`'s `CKPT` is now `${CKPT:-<A's best_ckpt>}`
+    (was hardcoded to A) — a one-line override so the same proven arm can warm-start from any
+    checkpoint, B included. Default (unset `CKPT`) behaviour for A-based arms is unchanged.
+  - **Job 7709268**: `CKPT=nf4_prod_b16_r1/training_checkpoints/best_ckpt_mp0.tar` (B_e01)
+    `QUEUE=capacity bash polaris/submit_finetune_stability_arm.sh anneal_dryair b01` →
+    `fs_anneal_dryair_nf4_b16_rb01`, `CONSERVE_DRY_AIR=1`, 24 epochs, 2 nodes, 12 h, **capacity**
+    (operator's choice, 2026-10-03 — capacity was free, reserved by convention for the single
+    longest job per project; G is currently on hold, see below, so nothing else was waiting on
+    the slot). Verified via `qstat -f` before and after: `PRETRAINED_CKPT`/`CONSERVE_DRY_AIR=1`
+    confirmed correct, not a stale default.
+  - **Job 7709269**: F4 (`lrcheck`) via `submit_subset_finetune_arm.sh F lrcheck`,
+    `PRETRAINED_CKPT`=F's `best_ckpt_mp0.tar` (the warm-start run that completed all 43 epochs,
+    see the entry below) → `FINETUNE_BASE_OK n_out=99`, debug, 1 node, 1 h. Answers "does the
+    launcher load F" per NR's `what to run next` table item #3.
+  - **F3 (climate screen: raw-best vs EMA-best vs snapshots, for D7) NOT launched.** Its own
+    stated gate — "the 99-channel addendum with a PS clause" — does not exist anywhere in the
+    repo (checked). Pre-registering a stability-scoring rule before running the screen is this
+    project's own established practice (same pattern as the B protocol's prereg); writing one on
+    the fly to unblock a job isn't a substitute. Held, not skipped.
+  - **G reconsidered, not queued.** NR's own default was already "accept G without TMQ/dry-air
+    *because* B_e22 held PS below 1 hPa/yr with no corrector" — Step 1 (above) confirmed that
+    holds over the full 5 years, not just 1, which only weakens G's case further. G's remaining
+    unique value (Z3_l17 loss-blindness fix, channel-matched comparison to ACE2-EAMv3) is real but
+    separate from the mass-conservation motivation. jesswan's TMQ decision (D6) was never actually
+    made. Operator's call to hold rather than queue, 2026-10-03.
+
 - **2026-10-02 (makani) — B-continuation handoff Step 1: B_e22 and B_e24 both run the full 5-year
   protocol clean (8/8 finite); post-hoc dry-air on B_e01 is a clear negative result; fp32-feedback
   arm measured no-op; RELHUM positivity clamp is mixed.** Per

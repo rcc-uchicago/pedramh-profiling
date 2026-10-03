@@ -24,7 +24,9 @@
 #   d16      17         4 x 1 (gb 16)  preemptable  T-d16 (only if its probe fits)
 #
 # Usage:  bash polaris/submit_finetune_stability_arm.sh <arm> [rep]
-#   env: WALLTIME=, QUEUE=, DEPEND=<jobid> (afterany: one arm at a time), SCHED_TMAX=
+#   env: WALLTIME=, QUEUE=, DEPEND=<jobid> (afterany: one arm at a time), SCHED_TMAX=,
+#        CKPT=<path> (default: A's best_ckpt; e.g. B's best_ckpt_mp0.tar for a
+#        B-continuation arm -- makani-B-continuation handoff, 2026-10-02)
 # PASS token: FINETUNE_ARM_QUEUED arm=<a> tag=<t> jobid=<id>
 set -u
 
@@ -32,7 +34,7 @@ MEMBER_ROOT=/eagle/projects/lighthouse-uchicago/members/mehta5
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
 LOG="${MEMBER_ROOT}/polaris_logs/makani_finetune_stability.log"
-CKPT="${EXPROOT}/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar"
+CKPT="${CKPT:-${EXPROOT}/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar}"
 
 ARM="${1:?usage: submit_finetune_stability_arm.sh <lrcheck|anneal|anneal_dryair|d8|d16> [rep]}"
 REP="${2:-1}"
