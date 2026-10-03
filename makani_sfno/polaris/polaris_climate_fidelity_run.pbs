@@ -1,0 +1,87 @@
+#!/bin/bash -l
+#PBS -N makani_climate_fidelity_run
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# jesswan's climate-fidelity ask, for real: build the true 2045-2049
+# climatology from data, then score B22/B24's actual 5-year rollout (job
+# 7707597) against it. Code validated 2026-10-03 (2-reviewer adversarial
+# pass, bugs fixed, 12/12 synthetic tests); this is its first run on real
+# data.
+#
+# PASS = CLIMATE_FIDELITY_RUN_OK
+# Submit from makani_sfno/:   qsub polaris/polaris_climate_fidelity_run.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${MAKANI_ROOT}/polaris:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+PROTOCOL_OUT="${MEMBER_ROOT}/runs/makani_eval/climate_protocol_7707597"
+OUT="${MEMBER_ROOT}/runs/makani_eval/climate_fidelity_${PBS_JOBID%%.*}"
+mkdir -p "${OUT}"
+
+echo "=== makani_climate_fidelity_run: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null)  out=${OUT}"
+makani_env_report
+echo
+
+echo "--- building true 2045-2049 climatology ---"
+CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/build_true_climatology.py" \
+    --run-dir "${EXPROOT}/nf4_prod_b16_r1" \
+    --years 2045 2046 2047 2048 2049 \
+    --out "${OUT}/true_climatology_b.npz" 2>&1 | tee "${OUT}/build.log" | tail -40
+build_ok=0
+grep -q "^TRUE_CLIMATOLOGY_OK" "${OUT}/build.log" && build_ok=1
+
+echo "--- scoring B22 + B24 members against it ---"
+mapfile -t MEMBERS < <(ls "${PROTOCOL_OUT}"/member_B22*.nc "${PROTOCOL_OUT}"/member_B24*.nc 2>/dev/null)
+if [ "${#MEMBERS[@]}" -eq 0 ]; then
+    echo "ERROR NO_MEMBERS_FOUND in ${PROTOCOL_OUT}"
+    exit 4
+fi
+echo "scoring ${#MEMBERS[@]} members"
+score_ok=0
+if [ "${build_ok}" -eq 1 ]; then
+    CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/score_climate_fidelity.py" \
+        --true "${OUT}/true_climatology_b.npz" \
+        --member "${MEMBERS[@]}" \
+        --out "${OUT}/fidelity_b22_b24.csv" 2>&1 | tee "${OUT}/score.log" | tail -120
+    grep -q "^CLIMATE_FIDELITY_OK" "${OUT}/score.log" && score_ok=1
+else
+    echo "ERROR BUILD_FAILED skipping scoring (see ${OUT}/build.log)"
+fi
+
+if [ "${build_ok}" -eq 1 ] && [ "${score_ok}" -eq 1 ]; then
+    echo "CLIMATE_FIDELITY_RUN_OK out=${OUT}"
+else
+    echo "ERROR CLIMATE_FIDELITY_RUN_FAILED build_ok=${build_ok} score_ok=${score_ok} (see ${OUT}/score.log)"
+fi
+echo "=== makani_climate_fidelity_run done $(date -Iseconds) ==="
