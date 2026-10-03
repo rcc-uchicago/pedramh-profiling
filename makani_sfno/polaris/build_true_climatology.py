@@ -38,6 +38,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(_REPO_ROOT / "scripts"))  # eval_inference.py lives there, not polaris/
 
 
 def _parse_args(argv=None) -> argparse.Namespace:
