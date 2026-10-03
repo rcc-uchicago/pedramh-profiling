@@ -144,6 +144,18 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-03 (makani) — F3 launched: jobs 7709775 (2044 f1092) + 7709776 (f1156), both starts per
+  §A3.2.** List `polaris/climate_screen_f_d7.list`: `raw_best`/`ema_best` (primary pair) + 6 raw
+  snapshots (e01, e22-midpoint, e39-e42, the last four before 43) per §A3.1's selection rule. **No
+  EMA snapshots exist** beyond `best_ckpt_ema_mp0.tar` (checked the actual checkpoint directory:
+  only one EMA file, no rotating `ckpt_mp0_ema_v*.tar`) — the epoch-43 matched-pair's EMA side is
+  genuinely unavailable, triggering §A3.1's documented "best-epoch confound uncontrolled"
+  contingency rather than a clean matched-pair control. Confirmed before trusting the existing
+  truth files (`screen_truth_2044f1092.npz`/`f1156.npz`, reused unchanged): `climate_screen_summary.py`'s
+  `drift()` pairs truth and model channels **by name** (`names.index(ch)`), not by index, so F's
+  99-channel set vs the files' 101-channel origin is safe — §A3.3's check (b) passes, no rebuild
+  needed. `DRY_AIR_FIX=off` per §A3.2 (D7 asks which checkpoint conserves mass *without* help).
+
 - **2026-10-03 (makani) — F3's missing prereg written: D7 (raw vs EMA) decision rule, drafted by a
   3-process debate, committed.** `docs/2026-09-24_climate_screen_prereg.md` §A3. F3 was blocked on
   a written-in-advance scoring rule for choosing F's raw vs EMA checkpoint (D7) -- without it,
