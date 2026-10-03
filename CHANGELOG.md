@@ -144,6 +144,39 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-03 (makani) — F3 result: D7 = "neither; F not shippable as screened" — none of F's 8
+  checkpoints survive 1 year, raw or EMA, any epoch. A bigger finding than D7 itself.** Jobs
+  7709775+7709891 (f1092, rollouts + re-summary), 7709776+7709892 (f1156, same) —
+  `CLIMATE_SCREEN_OK` both. Two bugs surfaced and fixed along the way, not science results:
+  (1) the reused truth files predated `TRUTH_CHANNELS` gaining `TMQ`, so the summary step hard-
+  refused on `TRUTH_MISSING_CHANNEL` until rebuilt fresh (`screen_truth_2044f{1092,1156}_tmq.npz`,
+  new paths, old ones untouched) — rollouts didn't need rerunning, `OUT_ROOT` reuse skipped them;
+  (2) `ema_best`'s `ckpt_epoch` reads **30**, not 43 — confirms from inside the file (not inferred)
+  that §A3.1's "epoch-43 EMA unavailable, best-epoch confound uncontrolled" contingency is the live
+  case, not a hypothetical.
+  - **Every checkpoint went non-finite at PS within 1 year, at both starts**: raw epochs 1, 22, 39,
+    40, 41, 42, 43 and `ema_best` (epoch 30) all truncated between 281–1243 steps (≈2.3–10.2
+    months) — with ~1e16 Pa PS values immediately before truncation (genuine numerical blow-up,
+    not a gentle drift). First-failing channels are model-top `V_l00`/`RELHUM_l00/04` throughout,
+    the same signature as every other lineage screened so far.
+  - **D7 per the pre-registered rule (§A3.4 Step 1, survival gate):** since nothing survived even
+    one full year at either start, the rule's own language fires directly — **"neither; F not
+    shippable as screened."** Not a raw-vs-EMA preference; a verdict that F isn't ready to ship
+    either way.
+  - **The real finding is bigger than D7.** F and B share the same depth-4 (`n_future=4`) fine-tune
+    recipe; F's only structural difference is dropping soil channels. B survives 2.5–5 **years**
+    on the same protocol family; F survives 2–10 **months** — roughly 5–20× worse. First full
+    43-epoch-trained evidence that dropping soil severely destabilizes this recipe, independent of
+    raw-vs-EMA. Directly weakens G's case further (G drops even more channels than F) — see the
+    2026-10-03 "G reconsidered, not queued" entry below; this result strengthens that read, not a
+    new separate concern.
+  - **One directional signal, reported but not decisive:** `ema_best` lasted longest at both starts
+    (10.2 / 7.5 months vs raw's best 6.0 / 4.4 months) — consistent with EMA damping some
+    instability, not nearly enough to flip D7's verdict.
+  - Checkpoint list `polaris/climate_screen_f_d7.list`, bugfix `polaris/build_true_climatology.py`
+    (missing `scripts/` on `sys.path` — unrelated to F3 itself, found while re-checking the
+    fidelity-run job in parallel).
+
 - **2026-10-03 (makani) — F3 launched: jobs 7709775 (2044 f1092) + 7709776 (f1156), both starts per
   §A3.2.** List `polaris/climate_screen_f_d7.list`: `raw_best`/`ema_best` (primary pair) + 6 raw
   snapshots (e01, e22-midpoint, e39-e42, the last four before 43) per §A3.1's selection rule. **No
