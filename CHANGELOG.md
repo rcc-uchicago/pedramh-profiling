@@ -144,6 +144,30 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-03 (makani) — F4 (`lrcheck`, job 7709269) PASSED: `MAKANI_MN_SCALING_OK`, 3 epochs,
+  `rc=0`, real per-channel validation RMSE logged throughout, no errors.** Confirms the launcher
+  loads F's checkpoint/config correctly (NR's item #3, "does the launcher load F?" — yes).
+  `fsF_lrcheck_nf4_b8_r1`.
+
+- **2026-10-03 (makani) — climate-fidelity scoring built for jesswan: true 5-year climatology vs
+  rollout.** Per her request, clarified first that instantaneous RMSE/ACC isn't meaningful at a
+  5-year lead (predictability horizon is ~2 weeks; any model's skill saturates to climatological
+  noise well before then) — what's meaningful is **mean-state fidelity**: does the rollout's
+  long-run climate match the real one. Built two scripts (`polaris/build_true_climatology.py`,
+  `polaris/score_climate_fidelity.py`) computing the true 2045-2049 time-mean from real data
+  (`valid/2045-2047.h5` + `test/2048-2049.h5`, reusing the same dataset/channel/normalization path
+  the eval pipeline already uses — never hand-parses raw h5 layout) and scoring each rollout
+  member's own `time_mean` (already written by `climate_driver.py`'s `MemberWriter`) against it:
+  area-weighted bias + pattern RMSE per channel, physical and σ units. Tests: streaming-vs-direct
+  equivalence for the builder, pure-math checks for the bias/RMSE weighting (identical→zero,
+  uniform offset→exact, pole-vs-equator weighting, bias-cancels-but-RMSE-doesn't).
+  `polaris_climate_fidelity_test.pbs` (debug, CPU-only pytest) submitted as job 7709505.
+  `polaris_climate_fidelity_review.pbs` — two independent `claude-opus-5-5` reviewers (adversarial
+  bug-hunt + from-scratch math re-derivation) on a compute node via the ALCF proxy, pattern from
+  `polaris_critic_handoff.pbs` — **not yet submitted**: hit the per-user queued-job cap (several
+  other pending jobs — `ace2_train`, `marshal`, `decrypto`, B's capacity job — already occupy
+  slots). Will retry once one clears; not cancelling any of them to make room.
+
 - **2026-10-03 (makani) — Step 2 launched: B-specific `anneal_dryair` (trained-with dry-air
   conservation) on B_e01, plus F4 (`lrcheck`, the launcher load gate for F).** Resolved the
   handoff's open "anneal" ambiguity first, from source (not a guess):
