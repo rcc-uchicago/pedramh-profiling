@@ -144,6 +144,66 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-04 (makani) — Step 2 climate comparison: `anneal_dryair` (B-continuation, trained-with
+  dry-air conservation) survives the full 5-year protocol at epoch 24 (8/8 complete, matching
+  B22/B24), but its PS drift at 5 yr is NOT smaller than plain B's — the opposite of what the
+  1-year screen suggested. No pre-registered rule exists to call a winner at the 5-year horizon;
+  this is a measurement, not a verdict.**
+  - **Citation gap found before trusting anything:** the 2026-10-02/2026-10-03 CHANGELOG entries for
+    Step 1/Step 2 both cite `docs/2026-10-02_b_continuation_dryair_handoff.md` (§2, §2.3, §3) as the
+    source of the pre-registered outcome categories (a)/(b)/(c) used to read B22/B24's result. That
+    file **does not exist** anywhere in this worktree, on any local or remote branch, or in git
+    history (checked: `git log --all -- '*b_continuation*'` and `*dryair_handoff*`, zero hits; full
+    `os.walk` of the tree, zero hits). The underlying job data (7707597, 7650652, 7649647) are real
+    and independently verified from their CSVs/logs below, but the (a)/(b)/(c) framing has no
+    citable source. Used `polaris_makani_finetune_stability_handoff.md` §2b instead — genuinely
+    pre-registered (committed 2026-09-24, before any of today's jobs existed): survivors first, then
+    fewest `n_past_3sigma`, then smallest `|ps_drift_hpa@1460|`. That rule covers the 1-year screen
+    only; nothing pre-registers a 5-year-horizon ranking, so the 5-year numbers below are reported
+    without a verdict.
+  - **Stage-0 1-year screen, jobs 7711659 → 7711705 (`CLIMATE_SCREEN_SUMMARY_OK n=6`):** 6 checkpoints
+    from `fs_anneal_dryair_nf4_b16_rb01` (epochs 1, 21–24, `best_ckpt`=e24), same tool/truth/start
+    (2044 f1092) as the existing B/C1 numbers so they're directly comparable without re-running the
+    baseline. First attempt (7711659) **failed outright** — `TRUTH_MISSING_CHANNEL: ['TMQ']`, the
+    same pre-existing bug F3 already found and fixed; I'd pointed at the pre-fix
+    `screen_truth_2044f1092.npz` instead of the `..._tmq.npz` rebuild. Rollouts (the expensive part)
+    had already completed, so the resubmit reused them via `OUT_ROOT=` and only re-ran the cheap
+    summary step against the correct truth file — no wasted compute.
+    All 6 survived the full year, **zero** channels ever crossed 3σ, PS drift @1460 leads
+    **−0.04 to −0.49 hPa** — 60–1500× smaller than plain B's matched epochs at the same horizon
+    (B_e01 −31.0 hPa, B_e21 −58.0, B_e22 +0.67, B_e24 +4.64; `docs/2026-09-24_climate_screen_7649647.csv`).
+  - **Did not stop there:** the post-hoc dry-air correction applied to these *same* plain-B
+    checkpoints (`...7650652_dryair_on.csv`) looked just as clean at 1 year (−0.07 to +0.30 hPa) and
+    then went 8/8 non-finite by 2.28–2.48 yr in the 5-year protocol (job 7707597, 2026-10-02 entry
+    below) — exactly the trap a 1-year-only read can't see. So the real test has to be the 5-year
+    protocol, same as B22/B24/B01.
+  - **5-year protocol, job 7711720 (`CLIMATE_RUN_OK arms='DRYAIR24 DRYAIR01' members=8`, 12 min
+    compute on debug), 8 members × 2 checkpoints, same 2044-Oct-start/2049 protocol as 7707597:**
+    | arm | survival | PS drift @ ~5 yr (8 members) | first >3σ |
+    |---|---|---|---|
+    | **DRYAIR24** (e24, 24 annealed epochs, trained-with) | **8/8 complete**, zero truncations | −9.5 to −25.6 hPa (med ≈ −21) | `V_l00`/`V_l01`, leads 1292–2149 (≈0.88–1.47 yr) |
+    | DRYAIR01 (e01, 1 epoch, trained-with) | 8/8 **non-finite** (PS), leads 5661–6046 (≈3.88–4.14 yr) | N/A (diverged) | `V_l00`/`U_l00`/`RELHUM_l05`/`T_l00`, leads 1413–2520 (≈0.97–1.73 yr) |
+    | B22 (plain, for reference) | 8/8 finite | −6.1 to −8.8 hPa (med ≈ −6.8) | leads 1545–2088 (≈1.06–1.43 yr) |
+    | B24 (plain, for reference) | 8/8 finite | +13.0 to +17.5 hPa (med ≈ +16) | leads 1394–2010 (≈0.95–1.37 yr) |
+    | B01 + `--dry-air-fix=on` (post-hoc, for reference) | 8/8 non-finite | N/A (diverged) | leads 1157–1680 (≈0.79–1.15 yr), truncates 2.28–2.48 yr |
+  - **Reading, stated as measurement not verdict (no pre-registered 5-yr rule exists):** training
+    with dry-air conservation fixes the catastrophic failure mode of applying it post-hoc — DRYAIR24
+    survives clean to 5 years like B22/B24, and even 1 epoch of it (DRYAIR01) pushes the post-hoc
+    arm's 2.3–2.5 yr collapse out to 3.9–4.1 yr. **But the 1-year screen's 60–1500× smaller PS-drift
+    advantage does not hold at 5 years**: DRYAIR24's end-of-run drift (med ≈ −21 hPa) is larger in
+    magnitude than B22's (−6.8) and in the same ballpark as B24's (+16, opposite sign). First->3σ
+    timing for DRYAIR24 is indistinguishable from plain B22/B24 (~0.9–1.5 yr either way) — dry-air
+    training doesn't delay or prevent the standard `V_l00`/`RELHUM` instability onset; it just
+    happens not to blow up in absolute PS by year 5, same as B22/B24 already did without it. So on
+    this evidence, trained-with dry-air conservation buys **survival parity with the best existing B
+    checkpoints**, not a demonstrated mass-drift improvement over them — the opposite of what the
+    cheap 1-year screen alone would have suggested. Needs jesswan before any interpretation beyond
+    this measurement (§7 of the finetune-stability handoff: changing/adding a conservation
+    constraint is her call).
+  - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_screen_7711659/` (1-yr screen, both attempts)
+    and `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7711720/` (5-yr protocol; `readout.log` has
+    every member's full drift series).
+
 - **2026-10-03 (makani) — F3 result: D7 = "neither; F not shippable as screened" — none of F's 8
   checkpoints survive 1 year, raw or EMA, any epoch. A bigger finding than D7 itself.** Jobs
   7709775+7709891 (f1092, rollouts + re-summary), 7709776+7709892 (f1156, same) —
