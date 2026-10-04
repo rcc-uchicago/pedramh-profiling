@@ -18,6 +18,13 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 📋 **Docs consolidation (2026-10-04): `polaris_makani_docs_consolidation_handoff.md`.**
+> makani_sfno's docs (~70 files in `makani_sfno/docs/` + ~12 root `polaris_makani_*_handoff.md`
+> files + CHANGELOG/TODO entries) have drifted enough to cause a real incident — a CHANGELOG
+> entry cited a handoff doc section that doesn't exist anywhere in the repo (2026-10-04 Step 2
+> climate comparison entry). Docs-only task, zero compute, can run independently of the training
+> work below. Does not block it either way.
+
 > 📋 **Continue from `polaris_makani_g_spatial_handoff.md`** (2026-09-29): task status
 > (done / needs discussion / open), jobs, branches, traps. It supersedes the list below where
 > they differ.

@@ -144,6 +144,17 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-04 (makani) — docs consolidation handoff written: `polaris_makani_docs_consolidation_handoff.md`.**
+  Prompted directly by the dangling-citation finding in the Step 2 climate-comparison entry just
+  below: makani_sfno's documentation (~70 files in `makani_sfno/docs/`, ~12 root
+  `polaris_makani_*_handoff.md` files, plus the CHANGELOG/TODO makani entries) has drifted enough
+  to cause a real, verified incident, not a hypothetical one. Handoff is docs-only (zero compute),
+  spells out a verify-before-citing discipline (don't propagate a citation you haven't opened),
+  and targets a merged `makani_sfno/KNOWLEDGE.md` organized by topic (checkpoint lineages,
+  hyperparameters, depth, mass conservation, scaling, climate screening, retired/contradicted
+  claims) with every entry tagged confirmed/broken/retired/unverified and cited to a primary
+  source. Not started — this entry records the handoff only. TODO.md P0 pointer added.
+
 - **2026-10-04 (makani) — Step 2 climate comparison: `anneal_dryair` (B-continuation, trained-with
   dry-air conservation) survives the full 5-year protocol at epoch 24 (8/8 complete, matching
   B22/B24), but its PS drift at 5 yr is NOT smaller than plain B's — the opposite of what the
