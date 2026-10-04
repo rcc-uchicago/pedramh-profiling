@@ -142,6 +142,36 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-04 (makani) — `anneal_soilfix` launched: job 7714685, 25 epochs, `preemptable`, after
+  a clean debug smoke.** Operator picked 25 epochs + `capacity`, but `capacity`'s `max_run=1`
+  per-project slot was already held by a running job not from this session (`7713242`,
+  "m2p-rerun", 1 node, 24h walltime) plus one held behind it — surfaced per CLAUDE.md's "coordinate
+  before taking the slot," operator switched to `preemptable` (same queue `anneal_dryair`/Step 2
+  already used).
+  - **Added the arm** to `submit_finetune_stability_arm.sh` (`anneal_soilfix` case, mirroring
+    `anneal_dryair`: same recipe, `SOILFIX=1` → `CONSERVE_SOIL_MOISTURE=1`, `EP=25`/`CKV=26`/
+    `TMAX_DEFAULT=23` for the operator's 25-epoch choice vs the other arms' 24).
+    `CONFIG_YAML=e3sm_alldata_full.yaml` was already the script's unconditional default for every
+    arm in this file, so no channel-config change was needed to restore `SOILWATER_10CM`/
+    `TSOI_10CM` — warm-starting from B's own checkpoint onto the config it was already trained on.
+  - **Debug smoke first (job 7714105, `QUEUE=debug WALLTIME=00:15:00`, rep `smoke01`)**, before
+    committing a real allocation: this validates the launcher/YAML-rendering path the unit tests
+    don't reach (the `_bools` dict edit, `conserve_soil_moisture` actually flowing through to the
+    rendered config and into `PlasimPreprocessor` on real GPU hardware). Reached 2137/2737 steps
+    (78%) of epoch 1 before the walltime kill (expected, not a failure) — log confirms
+    `conserve_soil_moisture True`, loss stable and finite throughout (~0.019–0.022), zero
+    NaN/Traceback/CUDA-error hits anywhere in the 1.7 MB log. Clean enough to proceed.
+  - **Real run**: `fs_anneal_soilfix_nf4_b16_rb01`, job 7714685, `QUEUE=preemptable`, 2 nodes,
+    12h walltime, queued (not yet started at time of writing — preemptable start latency is
+    load-dependent per prior history, not a stuck-job signal).
+  - **Not done yet**: the end-to-end bitwise equivalence gate (flag-off vs pre-fix behavior,
+    mirroring `DRYAIR_OFF_EQUIV_OK`) still hasn't run at the PBS level — the smoke above proves
+    the flag-ON path runs cleanly, not that flag-OFF is unchanged. Unit-level proof of that
+    (object-identity pass-through) still stands from the previous entry. Once 7714685 produces
+    checkpoints, climate-screen them the same way `anneal_dryair`'s were (Stage-0 1-year screen
+    first, 5-year protocol only if that looks reasonable) — same tools, same discipline, no new
+    pre-registered rule exists for ranking this specific comparison yet.
+
 - **2026-10-04 (makani) — operator decision: continue the B lineage as main; prototype an ACE2-
   inspired frozen-soil-moisture corrector as a NEW diagnostic arm (not literally "F") to see
   whether constraining soil physics, rather than dropping the channels, changes the outcome.
