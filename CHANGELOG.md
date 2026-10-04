@@ -144,6 +144,34 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-04 (makani) — docs consolidation handoff revised after a 2-seed Opus review; the
+  review found the handoff itself committing the exact unverified-citation error it warns
+  against.** 2 independent `claude-opus-5-5` reviewers (feasibility lens, parsimony lens), run via
+  the Workflow tool after a raw `claude -p` subprocess attempt was blocked by this session's
+  auto-mode classifier (a separate gate from the login-node-vs-compute-node question, resolved in
+  favor of a login-node-equivalent run; Workflow was the sanctioned path, not a workaround).
+  Both independently verified real, checkable problems — spot-checked 2 of them before trusting
+  the rest: (1) `## Known issues / failed approaches (do NOT re-attempt)` really is at
+  CHANGELOG.md line 7769 of 7,926 total, a section the original handoff never pointed to despite
+  it being the most direct "what doesn't work and why" source in the repo; (2)
+  `polaris_makani_analysis_ensemble_handoff.md` really does have an eleventh-or-later trap beyond
+  the "9" the handoff quoted — line 53 literally reads "Tenth silent-failure trap of this
+  campaign." Other confirmed findings: the handoff's own scope count ("~70 files") was the
+  origin/main count (69), not this branch's (~180, across 91 `.md` + 4 undiscussed subdirectories
+  + `makani_port/` + `MONITOR_makani_streaming_driver.md`, all missed); the handoff and ~30 of its
+  own inputs exist **only** on `feat/makani-b-continuation-dryair`, not on `origin/main` — a fresh
+  worktree defaulting to `origin/main` would never see them, confirmed via
+  `git show origin/main:polaris_makani_docs_consolidation_handoff.md` → file not found there; the
+  CHANGELOG `(makani)` tag covers only entries from ~2026-09-19 on, missing older untagged ones;
+  `os.walk('.')` run from one worktree can only prove absence from that worktree, not "anywhere";
+  `qstat -xf` is a poor verification source (PBS purges history, and the shell rules cap it at
+  once per request); and the "every claim verified" standard was infeasible at this scale without
+  a tiering rule and an explicit stop point. Handoff rewritten incorporating all of the above:
+  added a "Step 0: branch and scope" section, a Tier-1/Tier-2 verification split with a stop
+  point, named the missing inputs, settled the archive-vs-header question (header only, never
+  move — moving breaks existing citations), and added an explicit "don't fix code you find
+  broken" scope guard. Not started — this and the prior entry record the handoff only.
+
 - **2026-10-04 (makani) — docs consolidation handoff written: `polaris_makani_docs_consolidation_handoff.md`.**
   Prompted directly by the dangling-citation finding in the Step 2 climate-comparison entry just
   below: makani_sfno's documentation (~70 files in `makani_sfno/docs/`, ~12 root
