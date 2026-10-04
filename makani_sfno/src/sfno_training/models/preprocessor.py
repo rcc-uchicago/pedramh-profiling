@@ -48,16 +48,31 @@ def _build_dry_air_fix(params):
     )
 
 
+def _build_soil_moisture_fix(params):
+    from sfno_training.models.soil_moisture_fix import SoilMoistureFix
+
+    # Pointwise correction, no spatial reduction -- unlike the dry-air fix, no
+    # h/w_parallel_size restriction is needed.
+    out_channels = _pget(params, "out_channels", None)
+    return SoilMoistureFix(
+        channel_names=list(params.channel_names),
+        global_means=np.load(params.global_means_path),
+        global_stds=np.load(params.global_stds_path),
+        stats_index=None if out_channels is None else list(out_channels),
+    )
+
+
 class PlasimPreprocessor(Preprocessor2D):
     """Auto-strip diagnostic channels from ``pred`` before feedback.
 
     ``params.n_state_channels``      -- state-feedback channels (52 in the v9 contract).
     ``params.n_diagnostic_channels`` -- loss-only channels (1 in the v9 contract).
 
-    :meth:`append_history` strips the diagnostic tail. The optional dry-air fix
-    adds two pass-through hooks (:meth:`append_unpredicted_features`,
-    :meth:`history_denormalize`) that do nothing unless ``conserve_dry_air`` is on.
-    All other behavior (forcing caching, history_normalize, ...) is inherited unchanged.
+    :meth:`append_history` strips the diagnostic tail. The optional dry-air and
+    soil-moisture fixes share two pass-through hooks (:meth:`append_unpredicted_features`,
+    :meth:`history_denormalize`) that do nothing unless ``conserve_dry_air`` or
+    ``conserve_soil_moisture`` is on. All other behavior (forcing caching,
+    history_normalize, ...) is inherited unchanged.
     """
 
     def __init__(self, params):
@@ -66,32 +81,42 @@ class PlasimPreprocessor(Preprocessor2D):
         self.n_full_out_channels = (
             params.n_state_channels + params.n_diagnostic_channels
         )
-        # Dry-air mass fix (models/mass_fix.py). DIAGNOSTIC ARM ONLY: off unless
-        # params.conserve_dry_air is true; with it off nothing below runs and the
-        # step is bitwise unchanged.
+        # Dry-air mass fix (models/mass_fix.py) and frozen-soil-moisture fix
+        # (models/soil_moisture_fix.py). DIAGNOSTIC ARMS ONLY: each off unless its
+        # own params flag is true; with both off nothing below runs and the step
+        # is bitwise unchanged.
         self.dry_air_fix = None
+        self.soil_moisture_fix = None
         self._fix_inp_state = None
         if bool(_pget(params, "conserve_dry_air", False)):
             self.dry_air_fix = _build_dry_air_fix(params)
+        if bool(_pget(params, "conserve_soil_moisture", False)):
+            self.soil_moisture_fix = _build_soil_moisture_fix(params)
 
-    # --- dry-air fix hooks -------------------------------------------------
+    # --- state-fix hooks -----------------------------------------------------
     # makani's stepper calls, once per predicted step and in this order,
     #   append_unpredicted_features(inp)  ->  model  ->  history_denormalize(yn, target=True)
     # (stepper.py:34/50, :82/100, :125/143; no other callers). The first hook
     # remembers the step's input state; the second corrects the prediction.
     # getattr: instances built without __init__ (the climate-driver tests do this)
-    # must behave exactly as before the fix existed.
+    # must behave exactly as before either fix existed.
     def append_unpredicted_features(self, inp, target=False):
-        if getattr(self, "dry_air_fix", None) is not None and not target:
+        if not target and (getattr(self, "dry_air_fix", None) is not None
+                            or getattr(self, "soil_moisture_fix", None) is not None):
             self._fix_inp_state = inp[:, : self.n_state_channels]
         return super().append_unpredicted_features(inp, target=target)
 
     def history_denormalize(self, xn, target=False):
         x = super().history_denormalize(xn, target=target)
-        if getattr(self, "dry_air_fix", None) is not None and target:
+        dry_air_fix = getattr(self, "dry_air_fix", None)
+        soil_moisture_fix = getattr(self, "soil_moisture_fix", None)
+        if target and (dry_air_fix is not None or soil_moisture_fix is not None):
             if self._fix_inp_state is None:
-                raise RuntimeError("DRY_AIR_FIX: prediction without a cached input state")
-            x = self.dry_air_fix(self._fix_inp_state, x)
+                raise RuntimeError("STATE_FIX: prediction without a cached input state")
+            if dry_air_fix is not None:
+                x = dry_air_fix(self._fix_inp_state, x)
+            if soil_moisture_fix is not None:
+                x = soil_moisture_fix(self._fix_inp_state, x)
             self._fix_inp_state = None
         return x
 

@@ -142,7 +142,63 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
-## Decisions / changes log
+- **2026-10-04 (makani) — operator decision: continue the B lineage as main; prototype an ACE2-
+  inspired frozen-soil-moisture corrector as a NEW diagnostic arm (not literally "F") to see
+  whether constraining soil physics, rather than dropping the channels, changes the outcome.
+  Code written and unit-tested (`CLIMATE_SCREEN_TEST_OK`, job 7713397); fine-tune NOT launched.**
+  - **Checked before building anything**: F (`e3sm_alldata_nosoil.yaml`) drops `SOILWATER_10CM`/
+    `TSOI_10CM` entirely (confirmed from the file: `dropped_channel_names: ["SOILWATER_10CM",
+    "TSOI_10CM"]`), so there is no soil state left in F for any corrector to act on. "Incorporate
+    the constraint in F" isn't literally executable as F is defined — the sensible version
+    restores the two channels (back toward B's set) and constrains them instead of dropping
+    them. Operator confirmed this reframing (AskUserQuestion, "ignore jesswan signoff" — read as:
+    don't block prototyping on her sign-off, same as the dry-air fix's own precedent, not as
+    skip-the-gate-on-shipping).
+  - **The literal ACE2 field doesn't resolve to real code.** The config this is modeled on
+    (`ACE2_retrain/ace_exp/configs/experiments/2025-04-20-lsm-offline/ace-train-config-lsmv0.yaml`)
+    sets a `corrector.soil_moisture_corrector` block (`temperature_threshold: 272.0`) plus
+    `force_positive_names` on soil/snow channels. Checked: `fme/core/corrector/atmosphere.py`'s
+    `AtmosphereCorrectorConfig` — the class this config loads into — has no
+    `soil_moisture_corrector` field, and its loader (`dacite.Config(strict=True)`) would refuse
+    the key outright. The one other checked location (`worktree-ace2-fme-perf-handoff`'s
+    `ACE2_retrain/` tree) is untracked there, unreadable without checking out another worktree.
+    So this is a FRESH REIMPLEMENTATION of the documented physical intent, same as the dry-air
+    fix was — not a code port of working ACE2 code.
+  - **What's new**: `src/sfno_training/models/soil_moisture_fix.py` — `SoilMoistureFix`, a
+    pointwise `(inp_z, pred_z) -> pred_z` corrector: where the step's INPUT `TSOI_10CM` < 272.0 K,
+    freeze `SOILWATER_10CM` at its input value (no transport while frozen); clamp
+    `SOILWATER_10CM` ≥ 0 everywhere (ACE2's `force_positive_names`, folded into the same
+    corrector rather than using the existing inference-only `rollout_driver.py` mechanism, so it
+    also applies during TRAINING — matching the "trained-with beats post-hoc" lesson from the
+    2026-10-04 dry-air climate-comparison entry below). Unlike `DryAirFix`, this needs no area
+    weights or `h/w_parallel_size` restriction (pointwise, not a global reduction).
+  - **Wiring** (`preprocessor.py`): extended to carry a second, independent fix alongside
+    `dry_air_fix` (`self.soil_moisture_fix`, flag `params.conserve_soil_moisture`), composed in
+    `history_denormalize` — both off is an exact pass-through (same object, proven in the unit
+    test, not just numerically close); either or both can be on independently. Launcher knob
+    `CONSERVE_SOIL_MOISTURE` added to `polaris_makani_multinode_scaling.pbs`'s existing `_bools`
+    map (one line, same pattern as `CONSERVE_DRY_AIR`).
+  - **Test, and a real bug caught in the test, not the implementation**: 18 new tests
+    (`tests/sfno_training/test_soil_moisture_fix.py`), including composing both fixes together
+    and confirming the dry-air fix's own behavior is unchanged by the soil fix's presence. One
+    test failed on first run (1/72 elements off by a noise-scale amount) — added a debug dump
+    before touching anything (CLAUDE.md #11), which proved the frozen mask was 100% correct
+    (72/72). The real cause: the positivity clamp applies to frozen cells too (intentional —
+    moisture shouldn't read negative even when frozen), so the test's expectation of "frozen
+    cell == raw input" was wrong whenever that input's random draw was already below the floor.
+    Fixed the test's expected value to `clamp(input, min=floor)`, not the implementation.
+    `CLIMATE_SCREEN_TEST_OK` after the fix, job 7713397 (debug, ~30s compute).
+  - **Not done yet, surfacing before any job beyond debug**: (1) an end-to-end bitwise
+    equivalence gate mirroring F2's `CLIMATE_DRIVER_EQUIV_OK`/`DRYAIR_OFF_EQUIV_OK` (the unit
+    tests prove pass-through at the exact hook level dry-air already uses and is end-to-end
+    gated for, but no PBS-level equivalence job has run for this specific change yet); (2) the
+    actual fine-tune — warm-start from B's `best_ckpt_mp0.tar` (`nf4_prod_b16_r1`), full 101-channel
+    `e3sm_alldata_full.yaml` (not F's nosoil config), `CONSERVE_SOIL_MOISTURE=1`, same recipe
+    family as `anneal_dryair` (Step 2) — queue/nodes/epochs need surfacing first (preemptable or
+    capacity, not debug). (3) No letter was assigned (A–H are already taken across two different
+    registries — checkpoint lineages and `polaris_makani_ace2_ports_handoff.md`'s mechanism
+    ports, where `E` is explicitly reserved/blocked); named `anneal_soilfix` instead, mirroring
+    how `anneal_dryair` itself was never given a letter.
 
 - **2026-10-04 (makani) — docs consolidation handoff revised after a 2-seed Opus review; the
   review found the handoff itself committing the exact unverified-citation error it warns
