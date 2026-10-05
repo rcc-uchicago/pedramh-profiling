@@ -18,6 +18,35 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 📋 **Continue B-continuation / `anneal_soilfix` (2026-10-05, active work).** B lineage is the
+> operator-confirmed main (B22/B24 proven 8/8, full 5yr). Current thread: an ACE2-inspired
+> frozen-soil-moisture corrector, prototyped as a NEW diagnostic arm (not literally "F" — F has
+> no soil channels left to constrain). Full trail: CHANGELOG 2026-10-03/04/05 `(makani)` entries,
+> newest first. In order:
+> 1. **Check `qstat -u rmehta1987` for job 7715005** (`anneal_soilfix`, 24 epochs, `capacity`,
+>    warm-started from B's `best_ckpt_mp0.tar`). If still queued behind `7713243` (an unrelated
+>    job from another session), that's normal — **do not resubmit** (CLAUDE.md #12).
+> 2. **Once it completes**: Stage-0 1-year climate screen (`polaris_climate_screen.pbs`, debug) on
+>    epochs 1/21–24 + `best_ckpt` from `fs_anneal_soilfix_nf4_b16_rb01/training_checkpoints/`.
+>    ⚠ Use `TRUTH=.../screen_truth_2044f1092_tmq.npz` (the TMQ-fixed one) — pointing at the old
+>    truth file without `_tmq` already broke this once (2026-10-04 entry). Copy the exact `CKPTS=`
+>    invocation style from the 2026-10-04 "Step 2 climate comparison" entry.
+> 3. **If that looks reasonable** (survivors, small `n_past_3sigma`/PS drift): promote to the
+>    5-year protocol (`polaris_climate_run.pbs`, debug, 8 members), compared against B22/B24 and
+>    DRYAIR24's existing numbers (same CHANGELOG entry has the full table). **Remember the
+>    1yr-vs-5yr trap**: DRYAIR24 looked dramatically better than plain B at 1 year, then converged
+>    back to B's own drift magnitude by year 5 — a clean 1-year screen is not a result on its own.
+> 4. **Still open, not done**: a PBS-level flag-off equivalence gate for `soil_moisture_fix.py`
+>    (mirroring `DRYAIR_OFF_EQUIV_OK`) has never run — only the unit-level object-identity proof
+>    exists so far (CHANGELOG 2026-10-04 "frozen-soil-moisture corrector" entry).
+
+> 📋 **Docs consolidation (2026-10-04): `polaris_makani_docs_consolidation_handoff.md`.**
+> makani_sfno's docs (~70 files in `makani_sfno/docs/` + ~12 root `polaris_makani_*_handoff.md`
+> files + CHANGELOG/TODO entries) have drifted enough to cause a real incident — a CHANGELOG
+> entry cited a handoff doc section that doesn't exist anywhere in the repo (2026-10-04 Step 2
+> climate comparison entry). Docs-only task, zero compute, can run independently of the training
+> work below. Does not block it either way.
+
 > 📋 **Continue from `polaris_makani_g_spatial_handoff.md`** (2026-09-29): task status
 > (done / needs discussion / open), jobs, branches, traps. It supersedes the list below where
 > they differ.

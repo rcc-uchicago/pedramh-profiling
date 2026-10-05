@@ -50,6 +50,7 @@ echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-pa
 CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
     "${MAKANI_ROOT}/tests/test_climate_screen_summary.py" \
     "${MAKANI_ROOT}/tests/sfno_training/test_mass_fix.py" \
+    "${MAKANI_ROOT}/tests/sfno_training/test_soil_moisture_fix.py" \
     "${MAKANI_ROOT}/tests/test_negativity.py" 2>&1 | tail -40
 rc=${PIPESTATUS[0]}
 CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \

@@ -19,6 +19,13 @@
 #   B = nf4_prod_b16_r1/best_ckpt_mp0.tar  (A + 1 epoch of n_future=4 fine-tune)
 #   Override B's file with -v CKPT_B=<path> (e.g. ckpt_mp0_v3.tar = epoch 24).
 #
+# ARMS accepts any arm name, not just A/B: for an arm not named "A" or "B",
+# set -v RUNDIR_<ARM>=<run dir name under EXPROOT> -v CKPT_<ARM>=<checkpoint path>
+# (both required -- the job refuses an arm with either missing). Optionally
+# -v FLAGS_<ARM>="<extra climate_rollout.py args>" (e.g. "--dry-air-fix on",
+# "--feedback-fp32", "--force-positive relhum") for a diagnostic variant of the
+# same checkpoint. makani-B-continuation handoff (2026-10-02) §2.
+#
 # Four members at a time, one per GPU; each PID is waited on individually. A
 # member that goes non-finite stops, writes its outputs and prints
 # CLIMATE_ROLLOUT_TRUNCATED -- a measurement, not a failure.
@@ -67,8 +74,21 @@ CHUNK_LEN="${CHUNK_LEN:-40}"
 SNAPSHOT_EVERY="${SNAPSHOT_EVERY:-0}"
 CKPT_A="${CKPT_A:-${EXPROOT}/prod1n_b32_sgdr/training_checkpoints/best_ckpt_mp0.tar}"
 CKPT_B="${CKPT_B:-${EXPROOT}/nf4_prod_b16_r1/training_checkpoints/best_ckpt_mp0.tar}"
-declare -A RUNS=([A]=prod1n_b32_sgdr [B]=nf4_prod_b16_r1)
-declare -A CKPTS=([A]="${CKPT_A}" [B]="${CKPT_B}")
+RUNDIR_A="${RUNDIR_A:-prod1n_b32_sgdr}"
+RUNDIR_B="${RUNDIR_B:-nf4_prod_b16_r1}"
+declare -A RUNS=()
+declare -A CKPTS=()
+declare -A FLAGS=()
+for arm in ${ARMS}; do
+    rundir_var="RUNDIR_${arm}"; ckpt_var="CKPT_${arm}"; flags_var="FLAGS_${arm}"
+    RUNS[$arm]="${!rundir_var:-}"
+    CKPTS[$arm]="${!ckpt_var:-}"
+    FLAGS[$arm]="${!flags_var:-}"
+    if [ -z "${RUNS[$arm]}" ] || [ -z "${CKPTS[$arm]}" ]; then
+        echo "ERROR CLIMATE_RUN_ARM_UNDEFINED arm=${arm} (set RUNDIR_${arm} and CKPT_${arm})"
+        exit 4
+    fi
+done
 JOB="${PBS_JOBID%%.*}"
 OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/climate_protocol_${JOB}}"
 SHA="$(cd "${REPO}" && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
@@ -76,7 +96,7 @@ mkdir -p "${OUT_ROOT}"
 
 echo "=== makani_climate_run: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}  arms='${ARMS}'  members=${N_MEMBERS}  out=${OUT_ROOT}"
-for arm in ${ARMS}; do echo "ckpt ${arm}: ${CKPTS[$arm]}"; done
+for arm in ${ARMS}; do echo "ckpt ${arm}: ${CKPTS[$arm]} flags='${FLAGS[$arm]}'"; done
 makani_env_report
 echo
 
@@ -95,13 +115,14 @@ for ((t = 0; t < ${#TASKS[@]}; t += 4)); do
         frame=$((START_FRAME0 + MEMBER_STRIDE * i))
         n=$((N_STEPS0 - MEMBER_STRIDE * i))
         tag="${arm}$(printf '%02d' "${i}")"
+        # shellcheck disable=SC2086  # FLAGS[$arm] is deliberately word-split (per-arm extra args)
         CUDA_VISIBLE_DEVICES="${g}" "${PY}" -m torch.distributed.run --standalone \
             --nproc_per_node=1 "${MAKANI_ROOT}/scripts/climate_rollout.py" \
             --run-dir "${EXPROOT}/${RUNS[$arm]}" --ckpt "${CKPTS[$arm]}" \
             --start 2044 "${frame}" --n-steps "${n}" --score-start 2045 0 \
             --member-id "${tag}" --chunk-len "${CHUNK_LEN}" --snapshot-every "${SNAPSHOT_EVERY}" \
             --years-dir "${OUT_ROOT}/years/${tag}" \
-            --out "${OUT_ROOT}/member_${tag}.nc" --git-sha "${SHA}" \
+            --out "${OUT_ROOT}/member_${tag}.nc" --git-sha "${SHA}" ${FLAGS[$arm]} \
             > "${OUT_ROOT}/member_${tag}.log" 2>&1 &
         PIDS[$tag]=$!
         echo "launched ${tag} frame=${frame} n=${n} gpu=${g} pid=${PIDS[$tag]} ($(date +%T))"
