@@ -142,6 +142,14 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-05 (makani) — session checkpoint: handed off to TODO.md P0.** Job 7715005
+  (`anneal_soilfix`, 24 epochs, `capacity`) still queued, not yet running, at the time of
+  writing. Added a "Continue B-continuation / `anneal_soilfix`" pointer to the top of TODO.md's
+  P0 — the next steps (check the job, Stage-0 screen with the correct `_tmq` truth file, promote
+  to the 5-year protocol only if that looks reasonable, and the still-missing PBS-level
+  equivalence gate) are there in order, not duplicated here. This entry and the two below it are
+  the full evidence trail a new session needs.
+
 - **2026-10-05 (makani) — `anneal_soilfix` moved to 24 epochs on `capacity`: job 7714685 (25
   epochs, preemptable) cancelled before it ever started, resubmitted as job 7715005.**
   - **Epoch count, recommended and applied (24, not 25):** every other arm in this recipe family
