@@ -51,8 +51,10 @@ case "${ARM}" in
   # DIAGNOSTIC arm (operator decision 2026-10-04, CHANGELOG same date): T-anneal
   # + the frozen-soil-moisture fix (models/soil_moisture_fix.py) in every
   # training/validation/inference step. Differs from `anneal` in that one flag
-  # only. 25 epochs (not 24): operator's explicit choice for this arm.
-  anneal_soilfix) MS=5; NODES=2; LB=2; SOILFIX=1; EP=25; CKV=26; TMAX_DEFAULT=23
+  # only. 24 epochs, matching anneal_dryair exactly (2026-10-05: reverted from an
+  # initial 25 -- CHANGELOG same date -- to keep this a matched-arms comparison;
+  # the default EP/CKV/TMAX_DEFAULT at the top of this file already are 24/25/22).
+  anneal_soilfix) MS=5; NODES=2; LB=2; SOILFIX=1
            WALL="${WALLTIME:-12:00:00}"; Q="${QUEUE:-preemptable}" ;;
   d8)      MS=9;  NODES=4; LB=1; WALL="${WALLTIME:-24:00:00}"; Q="${QUEUE:-preemptable}" ;;
   d16)     MS=17; NODES=4; LB=1; WALL="${WALLTIME:-48:00:00}"; Q="${QUEUE:-preemptable}" ;;

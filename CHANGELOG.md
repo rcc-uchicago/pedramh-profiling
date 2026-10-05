@@ -142,6 +142,28 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-05 (makani) — `anneal_soilfix` moved to 24 epochs on `capacity`: job 7714685 (25
+  epochs, preemptable) cancelled before it ever started, resubmitted as job 7715005.**
+  - **Epoch count, recommended and applied (24, not 25):** every other arm in this recipe family
+    (`anneal_dryair`, and the handoff's T-anneal/T-d8/T-d16 design) uses 24 epochs with
+    `SCHED_TMAX` set so the cosine schedule reaches `eta_min` exactly at the last epoch
+    (`TMAX = EP - 2`, gate S1a). The prior entry's 25/`TMAX=23` was mechanically correct (same
+    formula) but broke the matched-arms comparison this project runs on — same batch/LR/schedule/
+    epoch budget, varying only the flag under test. No evidence favors 25: B's own validation
+    loss across epochs 1→24 was nearly flat (0.013411→0.013612), and `anneal_dryair` at 24 epochs
+    already reached full 5-year survival, so 24 is proven sufficient for this schedule. Reverted
+    the `anneal_soilfix` case in `submit_finetune_stability_arm.sh` to fall through to the
+    script's own top-of-file defaults (`EP=24, CKV=25, TMAX_DEFAULT=22`) instead of overriding
+    them — now byte-for-byte identical to `anneal_dryair`'s settings except the one flag
+    (`SOILFIX` vs `DRYAIR`).
+  - **Queue move to `capacity`**: the job that held it yesterday (`7713242`, "m2p-rerun") is gone;
+    only a queued (not running) `7713243` from that same unrelated work remains, so `capacity`'s
+    `max_run=1` per-project slot is currently free, though `7713243` is still ahead in the queue.
+  - Verified before resubmitting: job 7714685 never left `Q` state and never created its expDir
+    on disk, so cancelling and reusing the same rep tag (`b01`) was safe — no partial run to lose.
+  - New job **7715005**: confirmed via the launcher's own echo — `epochs=24 sched_tmax=22
+    queue=capacity` — queued, not yet running.
+
 - **2026-10-04 (makani) — `anneal_soilfix` launched: job 7714685, 25 epochs, `preemptable`, after
   a clean debug smoke.** Operator picked 25 epochs + `capacity`, but `capacity`'s `max_run=1`
   per-project slot was already held by a running job not from this session (`7713242`,
