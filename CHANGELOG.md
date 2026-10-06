@@ -142,6 +142,40 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-06 (makani) — `DryAirFix` vs ACE2's `_force_conserve_dry_air`: numerically confirmed a
+  correct port (debug 7721257, `DRYAIR_VS_FME_OK`).** New `polaris/test_dryair_vs_fme.py` +
+  `polaris_dryair_vs_fme.pbs` (fme-venv, real fme, makani `mass_fix.py` by path). On a synthetic
+  180×360 state, 8 levels, +349 Pa error:
+  - g is equal and the weights agree to 4e-16.
+  - Each side conserves its own dry air to < 5e-11 Pa.
+  - ΔPS_ACE·(1 − ΣΔb·q) = ΔPS_makani to 7e-11 Pa.
+  - The difference is ≤ 2.4 Pa (≤ 0.7 %) per column, 1.2 Pa global under ACE2's definition.
+  - bf16 is promoted to fp32 with a 1e-5 Pa residual.
+  Side-by-side table of all correctors: `makani_sfno/docs/2026-10-06_corrector_comparison_ace2_vs_makani.md`.
+  The only differences are by design: TMQ is vapour only and held fixed, water is not clamped before the
+  solve, the positivity clamp is RELHUM-only and inference-only and runs after dry air, and the moisture
+  budget is not portable. The RELHUM clamp and `SoilMoistureFix` have not been checked numerically.
+
+- **2026-10-06 (makani) — FSEMA + inference-only dry-air fix at 5 yr: 0/8 healthy (outcome PH2).
+  The same checkpoint without the fix is 8/8. Inference-only dry air is checkpoint-dependent, not safe.**
+  Prereg addendum `77633969`, written before submission; it predicted 8/8, which was wrong. Debug jobs: run **7721233**
+  (`CLIMATE_RUN_OK`), readout **7721248**, budget **7721251**, fidelity **7721253**.
+  - 6/8 went non-finite at PS, steps 3386–7015 (2.3–4.8 yr). Members 02 and 05 "complete" but are
+    collapsed at the end: PS drift −101 hPa (L7555) and −840 hPa, global TMQ → −4.7e6 / −2.6e6 kg/m².
+    The fidelity CSV (`climate_fidelity_7721253`) is therefore not meaningful. Don't quote it.
+  - **The fix itself held:** PS drift stays within −3..−24 Pa (≤ 0.25 hPa) from L120 to L6208 in every
+    member until collapse. Without the fix, the same leads dip −330..−485 Pa. Dry air is pinned. The run-away
+    is in **water**: TMQ goes hugely negative, and PS is dragged down with it because PS − g·TMQ is held.
+    The first 3σ crossings look like plain FSEMA's (`U_l01` @ 546–681 in 4/8, then RELHUM/V/T). The
+    mechanism is not established.
+  - **Pattern across checkpoints, inference-only fix:**
+    - B22 and B24: helps (16/16, |dPS| ≤ 0.41).
+    - B_e01: hurts (fails earlier than without the fix, 7707597).
+    - FSEMA: hurts (8/8 → 0/8 healthy).
+    - Trained-in fix (DRYAIR24): 8/8.
+    So applying the constraint to a model that never saw it can push the state somewhere the model
+    cannot handle. **Train it in rather than bolting it on.** This is a working reading, n = 4 checkpoints.
+
 - **2026-10-06 (makani) — B22/B24 + inference-only dry-air fix at 5 yr: 16/16, |dPS| ≤ 0.41 hPa,
   accuracy "free" (outcome PH1). FSEMA fidelity is comparable to B22 (−0.005 σ) and better than B24.**
   Prereg `863419d0` + deviation `661673ae` (both before the read). Jobs, all debug: run **7721150**

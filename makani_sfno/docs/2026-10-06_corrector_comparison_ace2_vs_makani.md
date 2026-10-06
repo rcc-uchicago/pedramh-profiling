@@ -66,11 +66,39 @@ reimplementation of the stated intent, so it can be checked for internal consist
 |---|---|---|
 | makani `DryAirFix` (trained in) | 5-yr budget readout, DRYAIR24 (7711720 → 7719173) | max one-step \|ΔDRY\| 0.000 hPa, 5-yr dDRY 0.00, 8/8 |
 | makani `DryAirFix` (inference only) | B22/B24 + fix (7721150 → 7721211) | max one-step \|ΔDRY\| 0.000 hPa, dDRY 0.00, 16/16 |
-| makani vs ACE2, same synthetic state | `polaris/test_dryair_vs_fme.py` (`polaris_dryair_vs_fme.pbs`, fme-venv) | see §6 |
+| makani vs ACE2, same synthetic state | `polaris/test_dryair_vs_fme.py` (`polaris_dryair_vs_fme.pbs`, fme-venv), job 7721257 | `DRYAIR_VS_FME_OK`, see §6 |
+| makani `DryAirFix` (inference only) on FSEMA | 7721233 → 7721248/7721251 | dry air held (PS within 0.25 hPa) until collapse; 0/8 healthy, see §7 |
 | makani RELHUM clamp | B22posclamp (7707597) | not checked for negatives after the clamp |
 | makani `SoilMoistureFix` | SOILFIX screen 7719183 | not checked numerically against its rule |
 | ACE2 corrector | `FME/core/corrector/test_atmosphere.py` | exists, not run by us |
 
 ## 6. Numerical cross-check (makani `DryAirFix` vs fme `_force_conserve_dry_air`)
 
-Pending: job id and result are filled in when it runs.
+Debug job **7721257**, `DRYAIR_VS_FME_OK`. It ran in the fme-venv on the real fme (`ACE2_retrain/ace_exp/fme`) and
+makani `mass_fix.py` at `a163a061`. Synthetic state: 3 samples on the 180×360 grid, an 8-layer hybrid
+column, and a +349 Pa global dry-air error.
+
+| check | result | gate |
+|---|---|---|
+| gravity | 9.80665 both | equal |
+| area weights (makani `equiangular_weights` vs fme `spherical_area_weights`) | max rel diff 4.4e-16 | < 1e-12 |
+| ACE2 conserves its own dry air (q_k fixed) | residual 2.9e-11 Pa | < 1e-6 Pa |
+| makani conserves its own dry air (TMQ fixed) | residual 4.4e-11 Pa | < 1e-6 Pa |
+| exact relation ΔPS_ACE·(1 − ΣΔb·q) = ΔPS_makani | 6.9e-11 Pa | < 1e-6 Pa |
+| size of the difference | max 2.4 Pa per column on a 349 Pa correction (max rel 6.9e-3 = max ΣΔb·q). Makani's PS leaves 1.2 Pa (0.34 %) of global error under ACE2's definition. | reported |
+| bf16 prediction through `DryAirFix` | returned float32, residual 1.1e-5 Pa | < 0.01 Pa |
+
+**Verdict:** `DryAirFix` is a correct port of ACE2's dry-air step. Its formula, weights, constant and
+reference state match. The two differences are the documented design choices: TMQ (vapour only) is
+held fixed instead of the mixing ratios, and water is not clamped first.
+
+## 7. A correct fix is not a safe fix
+
+Inference-only use of the fix depends on the checkpoint:
+- **Helps:** B22/B24 (16/16, |dPS| ≤ 0.41 hPa; 7721150).
+- **Hurts:** B_e01 (fails earlier than without; 7707597) and FSEMA (8/8 → 0/8 healthy; 7721233).
+  In FSEMA the fix held PS within 0.25 hPa until the water channel ran away.
+- **Trained in:** DRYAIR24 is 8/8.
+
+The constraint is applied correctly. A model that never trained with it can still be pushed off its
+own trajectory.
