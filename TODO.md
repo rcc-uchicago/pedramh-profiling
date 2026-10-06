@@ -18,6 +18,17 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 📚 **Read first (2026-10-06): `makani_sfno/KNOWLEDGE.md` §0, §9 and §11** (branch
+> `docs/makani-knowledge`, draft PR). It is the verified, tagged record of the makani track. Four
+> findings bear on the open decision just below:
+> - The soil-fix thread's motivation, F3's "dropping soil destabilizes the depth-4 recipe", is
+>   **retracted**. F was trained single-step on A's recipe (`multistep_count = 1`), and it dies like A.
+> - DRYAIR24 vs B22/B24 is **not schedule-matched**: B ran `T_max 100` and was never annealed.
+> - 5-yr **accuracy** has been scored only for B22/B24, never for DRYAIR24 or soil-fix.
+> - The ACE2-EAMv3 5-yr reference (7704379) **never ran**: prep 7704377 hit `PROBE_FAILED`.
+>
+> §11 ranks next steps cheapest-first (inference-only reads before any new training arm).
+
 > 🔎 **Read first: `polaris_makani_b_dryair_findings_handoff.md` + CHANGELOG 2026-10-06.** The
 > "−21 hPa / TMQ negative" reading was a Pa→hPa slip. Measured (7719173): DRYAIR24 dry mass is flat,
 > and its drift is −0.2 hPa from water. Plain B and the soil-fix arm (screen 7719183: −9 to −18 hPa
@@ -43,16 +54,12 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 >    DRYAIR24's existing numbers (same CHANGELOG entry has the full table). **Remember the
 >    1yr-vs-5yr trap**: DRYAIR24 looked dramatically better than plain B at 1 year, then converged
 >    back to B's own drift magnitude by year 5 — a clean 1-year screen is not a result on its own.
+>    ⚠ **Stale (2026-10-06):** with Pa→hPa corrected, DRYAIR24's 1-yr and 5-yr drifts agree (−0.15 /
+>    −0.21 hPa). The 1-yr trap is real for *post-hoc* dry-air (B_e01: clean at 1 yr, 0/8 by 2.5 yr),
+>    not for DRYAIR24. See `makani_sfno/KNOWLEDGE.md` §6.
 > 4. **Still open, not done**: a PBS-level flag-off equivalence gate for `soil_moisture_fix.py`
 >    (mirroring `DRYAIR_OFF_EQUIV_OK`) has never run — only the unit-level object-identity proof
 >    exists so far (CHANGELOG 2026-10-04 "frozen-soil-moisture corrector" entry).
-
-> 📋 **Docs consolidation (2026-10-04): `polaris_makani_docs_consolidation_handoff.md`.**
-> makani_sfno's docs (~70 files in `makani_sfno/docs/` + ~12 root `polaris_makani_*_handoff.md`
-> files + CHANGELOG/TODO entries) have drifted enough to cause a real incident — a CHANGELOG
-> entry cited a handoff doc section that doesn't exist anywhere in the repo (2026-10-04 Step 2
-> climate comparison entry). Docs-only task, zero compute, can run independently of the training
-> work below. Does not block it either way.
 
 > 📋 **Continue from `polaris_makani_g_spatial_handoff.md`** (2026-09-29): task status
 > (done / needs discussion / open), jobs, branches, traps. It supersedes the list below where

@@ -18,7 +18,7 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
 | Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| **makani-SFNO on Polaris** (the focus, 2026-09-01) | 🟢 **PRODUCTION COMPLETE — 128 nodes / 512 ranks, 100/100 epochs, rc=0** (7566145, ≈216 node-hours): train 0.01598 / valid **0.018297 with the minimum at the last epoch**, 888 samples/s, **85% weak-scaling efficiency 8→128 nodes**, on the 101-channel ALLDATA contract that matches Pangu/ai-rossby. Multi-node needed **two** fixes, both found here: `NCCL_PROTO=Simple` (old plugin ≥3 nodes) and a **self-built aws-ofi-nccl v1.21.1 + `OFI_NCCL_PROGRESS_MODEL=AUTO`** — 🔴 **the parenthetical that used to stand here ("the only thing that makes libfabric 2.3.1's CXI provider open a domain") is REFUTED as of 2026-09-17: v1.21.1 never opened a CXI domain. Its own log says `No eligible providers were found` → `Selected provider is tcp` → `GDR not supported`, so this run's collectives crossed nodes over TCP, not Slingshot.** Every inter-node number below — including the 888 samples/s and the 85% efficiency — is therefore a TCP measurement. ⚠ Every scaling number is **n=1**, and the two ladders disagree on the headline (67% vs 47% efficiency at 8 nodes) depending on whether warmup is in the average. ⚠ Batch 512 at the shipped LR is **not signed off** by the science owner, and **nothing has evaluated the checkpoint**. Results → `makani_bench_report.md`; next moves → `TODO.md` P0 |
+| **makani-SFNO on Polaris** (the focus, 2026-09-01) | 📚 **Verified, tagged record: `makani_sfno/KNOWLEDGE.md` (2026-10-06).** Read its §0 (where the 5-yr accuracy path stands) and §9 (retracted claims) before quoting anything below or in an older handoff. 🟢 **PRODUCTION COMPLETE — 128 nodes / 512 ranks, 100/100 epochs, rc=0** (7566145, ≈216 node-hours): train 0.01598 / valid **0.018297 with the minimum at the last epoch**, 888 samples/s, **85% weak-scaling efficiency 8→128 nodes**, on the 101-channel ALLDATA contract that matches Pangu/ai-rossby. Multi-node needed **two** fixes, both found here: `NCCL_PROTO=Simple` (old plugin ≥3 nodes) and a **self-built aws-ofi-nccl v1.21.1 + `OFI_NCCL_PROGRESS_MODEL=AUTO`** — 🔴 **the parenthetical that used to stand here ("the only thing that makes libfabric 2.3.1's CXI provider open a domain") is REFUTED as of 2026-09-17: v1.21.1 never opened a CXI domain. Its own log says `No eligible providers were found` → `Selected provider is tcp` → `GDR not supported`, so this run's collectives crossed nodes over TCP, not Slingshot.** Every inter-node number below — including the 888 samples/s and the 85% efficiency — is therefore a TCP measurement. ⚠ Every scaling number is **n=1**, and the two ladders disagree on the headline (67% vs 47% efficiency at 8 nodes) depending on whether warmup is in the average. ⚠ Batch 512 at the shipped LR is **not signed off** by the science owner, and **nothing has evaluated the checkpoint**. Results → `makani_bench_report.md`; next moves → `TODO.md` P0 |
 | **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 4, 5, 6, 6b, 7 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. **2026-08-21 (item 7, job 7550715, prereg 4/4): those copies are CONTIGUITY-bound, not bandwidth-bound** — store side at exactly the ideal sectors/request, load side at the hardware maximum of 32.00, and the 377 MB spectral weight reads **2043 MB to move 377 MB**. Nothing is saturated (DRAM 24–51% of peak, SM 5–20%). ⇒ the lever is a **layout fix**, and §4.5's "only dominant kernel with no mechanism" now has one (§4.8). Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo have **no kernel-level profile** (makani now has a multi-node *scaling* study — `makani_bench_report.md` — which is a different axis). |
 | §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
 | §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
@@ -141,6 +141,67 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   be >=2 (matplotlib squeezes the axes array) and `dataset.dataset_filename` must be
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
+
+- **2026-10-06 (makani) — docs consolidation DONE: `makani_sfno/KNOWLEDGE.md`, a verified and tagged
+  record. Several claims steering current work are retracted (dated correction, past entries
+  untouched). Depth-4 F fine-tune queued: job 7719538.** Branch `docs/makani-knowledge` (from
+  `feat/makani-b-continuation-dryair` @ `44a3ea9c`, which first commits the previous session's
+  uncommitted 10-05/06 work). Docs only, apart from the operator-requested 7719538.
+  - **Deliverables:**
+    - inventory `makani_sfno/docs/2026-10-06_knowledge_inventory.md`: 121 on-branch docs (65 of them
+      upstream PlaSim/AI-RES, from the subtree import), 4 off-branch, 50 makani CHANGELOG entries;
+    - `makani_sfno/KNOWLEDGE.md`: §0 the 5-yr accuracy picture, lineages, hyperparameters, depth,
+      dry-air, scaling, screening, ACE2 ports, 23 traps, retired claims, 19 dangling citations, and
+      the adversarial review.
+    Every Tier-1 number was re-opened against its job log, CSV or code today.
+  - **Retracted, with primary evidence (detail in KNOWLEDGE.md §9a):**
+    1. **2026-10-03 F3: "F and B share the depth-4 recipe; dropping soil destabilizes it" is false.**
+       - F (7660250) logged `multistep_count = 1`, and its provenance says "base recipe =
+         prod1n_b32_sgdr". B logged `= 5`.
+       - F's 16 rollouts die at 281–1243 steps; A e243 dies at 595 / 490. F ≈ A, so no measurement
+         isolates soil.
+       - The 2026-09-28 F handoff (branch `worktree-monitor-ace2`) and the 09-30 debate had both said
+         F is single-step.
+    2. **B vs the DRYAIR/SOILFIX arms is not schedule-matched.** B ran `scheduler_T_max 100` and was
+       never annealed (e24 ≈ 3.54e-4); the arms ran `T_max 22`. A plain `anneal b01` control has
+       never run.
+    3. **The ACE2-EAMv3 5-yr test (7704379) never ran.**
+       - Prep 7704377 ended `ERROR PROBE_INCOMPLETE` / `PROBE_FAILED`: dacite rejected
+         `log_nino34_index` and `log_zonal_mean_images`.
+       - The decision job's "decisive, unread" verdict does not exist.
+    4. **Job 7650512 is the bf16-broken dry-air screen, not plain B.** The 2026-10-06 entry's "soil-fix
+       PS worse than plain B" compared against it. Against plain B (7649647) soil-fix is mixed: e21
+       −8.8 vs −58.0, e22 −17.6 vs +0.7, e23 −17.2 vs −68.1, e24 −13.2 vs +4.6 hPa.
+    5. **The 16→14 post-hoc dry-air result (7650652) was on B/C1 checkpoints, not F** (2026-10-02 entry).
+    6. **The fp32-feedback no-op is not `append_history`.** With `n_history: 0` that function returns
+       `x2` untouched; the flag up-casts an already-bf16 prediction, which is lossless. True fp32
+       inference has never run.
+    7. **`capacity` holds 2 queued+running per project.** `qstat -Qf`: `max_queued [p:PBS_GENERIC=2]`,
+       `max_run 1`, live-confirmed by 7719538. This retires the 2026-09-03 "cannot hold a queued
+       successor" trap.
+  - **Accuracy, measured before but never tabled:**
+    - 5-yr time-mean RMSE (7709968, uncentered, no noise floor yet): B22 0.246–0.259 σ, B24 0.310–0.327 σ.
+    - DRYAIR24 and soil-fix have never been accuracy-scored.
+    - 1-yr TREFHT vs truth: DRYAIR24 −1.44 K, plain B22 −0.33 K (f1092).
+  - **Review:** the operator opted into workflow agents (the node was otherwise idle, pids ~100/256).
+    - Two read-only Fable critics (`wf_64bce84d-4fc`): "5-yr accuracy path" and "ACE2 ports".
+    - A 2-lens audit of the draft (`wf_675e7179-8aa`): 25+ numbers re-verified, 11 errors fixed.
+    - The ranked, cheapest-first next experiments are KNOWLEDGE.md §11. They are recommendations;
+      queues are the operator's call, metrics and losses jesswan's.
+  - **Job 7719538 (operator request):** depth-4 fine-tune of F-scratch on B's exact recipe.
+    - `MULTISTEP=5`, LR 4e-4, `CosineAnnealingLR` `T_max 100`, batch 16, 24 ep, 2 nodes, 12 h,
+      `capacity`, held on `afterany:7718436`.
+    - Tag `fsF_anneal_nf4_b16_rtmax100_scratch`; base = F-scratch raw `best_ckpt` when 7718436 ends.
+    - Submitted from the pinned sparse worktree `.claude/worktrees/arm-fsF-nf4-bsched` @ `a1b27d79`.
+      **That worktree is read-only until 7719538 ends.**
+    - Prereg committed before submission: `makani_sfno/docs/2026-10-06_fsF_nf4_bsched_prereg.md`.
+      It covers the 1-yr screen at both starts, the 5-yr protocol on e22/e24 regardless, and fidelity
+      on 99 channels vs B22/B24. It states the base-maturity confound (F-scratch e23 ~0.0144 vs A e243
+      0.01284).
+    - F-scratch so far: val 2–4 % above A at every matched epoch 2–14 (e14 0.01565 vs 0.01528).
+  - **Not done:** `codex_reviews/`, `hpo_distill/`, `run_log/` and `audit_snapshots/` got one inventory
+    line each. Older scaling and memory retractions are carried as secondary-only. No
+    `makani_sfno/CLAUDE.md` was created; that is proposed in the PR instead.
 
 - **2026-10-06 (makani) — correction: DRYAIR24's 5-yr PS drift is −0.21 hPa, not −21 hPa (Pa read
   as hPa). Soil-fix 7715005 done; F-scratch 7718436 running.**
