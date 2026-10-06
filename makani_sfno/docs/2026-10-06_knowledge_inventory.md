@@ -80,6 +80,11 @@ Found with `git ls-tree` over the 26 makani/sfno-named branches (local + origin)
 | `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md` | feat/makani-spatial-cxi, origin/feat/makani-spatial-cxi | Pre-registration — spatial parallelism on the fixed CXI stack, phase 1 (2026-09-29) | 74 |
 | `makani_sfno/docs/2026-09-29_spatial_cxi_result.md` | feat/makani-spatial-cxi, origin/feat/makani-spatial-cxi | Result — spatial parallelism on the fixed CXI stack, phase 1 (job 7669001) | 52 |
 
+| `polaris_makani_f_finetune_handoff.md` | worktree-monitor-ace2, origin/worktree-monitor-ace2 | HANDOFF — makani: re-base the stability fine-tune on Port F (the soil-free model) | 150 |
+
+The first pass filtered branches by `makani|sfno` in the name and missed the last row. A second pass
+over the other 39 branches found only that one file.
+
 `makani_multinode_ddp_plan.md` has an add-commit in this branch's history but is not in its tree
 (deleted or moved here); the copy above is from the profiling branch.
 
