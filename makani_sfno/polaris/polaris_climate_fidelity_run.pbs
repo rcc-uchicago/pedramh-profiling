@@ -44,25 +44,43 @@ PY="${SFNO_VENV}/bin/python"
 
 MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
 EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
-PROTOCOL_OUT="${MEMBER_ROOT}/runs/makani_eval/climate_protocol_7707597"
+# Overridable (defaults = the original 7709968 run):
+#   PROTOCOL_OUT  climate_protocol_<job> dir holding member_*.nc
+#   ARMS          member-name prefixes; each matches member_<arm>*.nc
+#   CLIM_RUN      run dir whose config.json sets the truth channel set (a 99-ch F run -> 99-ch truth)
+#   TRUE_NPZ      an existing build_true_climatology.py output; skips the ~15-min rebuild
+#   TAG           CSV name: fidelity_<TAG>.csv
+PROTOCOL_OUT="${PROTOCOL_OUT:-${MEMBER_ROOT}/runs/makani_eval/climate_protocol_7707597}"
+ARMS="${ARMS:-B22 B24}"
+CLIM_RUN="${CLIM_RUN:-nf4_prod_b16_r1}"
+TAG="${TAG:-b22_b24}"
 OUT="${MEMBER_ROOT}/runs/makani_eval/climate_fidelity_${PBS_JOBID%%.*}"
 mkdir -p "${OUT}"
+TRUE_NPZ="${TRUE_NPZ:-${OUT}/true_climatology_b.npz}"
 
 echo "=== makani_climate_fidelity_run: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null)  out=${OUT}"
 makani_env_report
 echo
 
-echo "--- building true 2045-2049 climatology ---"
-CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/build_true_climatology.py" \
-    --run-dir "${EXPROOT}/nf4_prod_b16_r1" \
-    --years 2045 2046 2047 2048 2049 \
-    --out "${OUT}/true_climatology_b.npz" 2>&1 | tee "${OUT}/build.log" | tail -40
+echo "protocol=${PROTOCOL_OUT}  arms='${ARMS}'  clim_run=${CLIM_RUN}  true=${TRUE_NPZ}  tag=${TAG}"
 build_ok=0
-grep -q "^TRUE_CLIMATOLOGY_OK" "${OUT}/build.log" && build_ok=1
+if [ -f "${TRUE_NPZ}" ]; then
+    echo "--- reusing true climatology ${TRUE_NPZ} ---"
+    build_ok=1
+else
+    echo "--- building true 2045-2049 climatology ---"
+    CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/build_true_climatology.py" \
+        --run-dir "${EXPROOT}/${CLIM_RUN}" \
+        --years 2045 2046 2047 2048 2049 \
+        --out "${TRUE_NPZ}" 2>&1 | tee "${OUT}/build.log" | tail -40
+    grep -q "^TRUE_CLIMATOLOGY_OK" "${OUT}/build.log" && build_ok=1
+fi
 
-echo "--- scoring B22 + B24 members against it ---"
-mapfile -t MEMBERS < <(ls "${PROTOCOL_OUT}"/member_B22*.nc "${PROTOCOL_OUT}"/member_B24*.nc 2>/dev/null)
+echo "--- scoring ${ARMS} members against it ---"
+GLOBS=()
+for arm in ${ARMS}; do GLOBS+=("${PROTOCOL_OUT}/member_${arm}"*.nc); done
+mapfile -t MEMBERS < <(ls "${GLOBS[@]}" 2>/dev/null)
 if [ "${#MEMBERS[@]}" -eq 0 ]; then
     echo "ERROR NO_MEMBERS_FOUND in ${PROTOCOL_OUT}"
     exit 4
@@ -71,9 +89,9 @@ echo "scoring ${#MEMBERS[@]} members"
 score_ok=0
 if [ "${build_ok}" -eq 1 ]; then
     CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/score_climate_fidelity.py" \
-        --true "${OUT}/true_climatology_b.npz" \
+        --true "${TRUE_NPZ}" \
         --member "${MEMBERS[@]}" \
-        --out "${OUT}/fidelity_b22_b24.csv" 2>&1 | tee "${OUT}/score.log" | tail -120
+        --out "${OUT}/fidelity_${TAG}.csv" 2>&1 | tee "${OUT}/score.log" | tail -120
     grep -q "^CLIMATE_FIDELITY_OK" "${OUT}/score.log" && score_ok=1
 else
     echo "ERROR BUILD_FAILED skipping scoring (see ${OUT}/build.log)"
