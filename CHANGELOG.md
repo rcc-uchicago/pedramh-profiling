@@ -142,6 +142,38 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-06 (makani) — B22/B24 + inference-only dry-air fix at 5 yr: 16/16, |dPS| ≤ 0.41 hPa,
+  accuracy "free" (outcome PH1). FSEMA fidelity is comparable to B22 (−0.005 σ) and better than B24.**
+  Prereg `863419d0` + deviation `661673ae` (both before the read). Jobs, all debug: run **7721150**
+  (`CLIMATE_RUN_OK`), readout **7721209**, budget **7721211** (`DRYAIR_BUDGET_OK n=16`), fidelity
+  **7721213** (B+fix) and **7721221** (FSEMA), both `CLIMATE_FIDELITY_RUN_OK`. The first FSEMA attempt,
+  **7720814**, hit the 1-h walltime rebuilding a 99-ch truth through F's channel-subset loader
+  (4000/7299 samples, about 5× slower than the 101-ch build). The fix was to cut the 99 rows from the
+  101-ch truth by name: new `polaris/subset_true_climatology.py` (`--selftest`), `TRUE_SUPERSET` in
+  `polaris_climate_fidelity_run.pbs` (parametrised in `a8dc98e5`; the defaults reproduce 7709968).
+  - **B+fix (same B weights, `--dry-air-fix=on` only at inference):** B22dryair 8/8, dPS
+    −0.08..−0.17 hPa. B24dryair 8/8, +0.28..+0.41 hPa. dDRY 0.00, max step |dDRY| 0.000. All the
+    remaining dPS is g·ΔTMQ. **The constraint alone reproduces DRYAIR24's mass behaviour (−0.14..−0.24)**;
+    retraining and annealing are not needed for that. B24's moistening is untouched: TMQ 26.5–27.2 →
+    30.0–30.9 kg/m², as in plain B24. The model top still leaves 3σ at `V_l00` @ 1373–2193, as in
+    plain B. The fix does not touch that failure.
+  - **B+fix fidelity** (101 ch, same members): B22 0.251 → 0.256 σ (Δmed +0.006), B24 0.317 →
+    0.315 (−0.002), so **free**. The PS bias collapses: B22 −495 → −7 Pa, B24 +961 → +31 Pa. PS
+    `rmse_sigma` barely moves (0.41 → 0.41), because pattern error dominates. The cost lands on **PSL**
+    (B22 0.165 → 0.207 σ, bias +65 → +191 Pa; PSL is not corrected) and on the model-top **T_l00–l03**
+    (+0.05..+0.08 σ). B22+fix TREFHT bias −0.30 → −0.57 K, the same sign as DRYAIR24's cold bias.
+  - **FSEMA fidelity, 99 shared channels** (B rows from 7709968 restricted to the same names): FSEMA
+    0.231–0.241 σ, median **0.234**. B22 0.235–0.247 (0.239), B24 0.301–0.318 (0.308), B22+fix 0.245.
+    Δ vs B22 = −0.005 σ, so **comparable**. Δ vs B24 = −0.074, so **better**. Prediction ("FSEMA less
+    accurate than B22") was wrong.
+    It beats B22 on 44 of 99 channels: the model-top T_l00 (0.21 vs 0.63 σ; B22's bias there is +6.5 K),
+    T_l01, RELHUM_l00, PS (0.26 vs 0.41), TREFHT (0.07 vs 0.11), RHREFHT, U10 and Z3_l17. It is worse on
+    U_l01/U_l04 (+0.26..+0.28 σ), PSL (0.33 vs 0.17) and mid-level RELHUM_l05/l14.
+  - **Where that leaves the candidates (5 yr, one seed each):** FSEMA (single-step, soil-free, EMA, no
+    corrector) has dPS ≤ 0.83 hPa and B22-level fidelity. B22+fix has dPS ≤ 0.17 hPa and fidelity 0.245
+    on the same channels. Neither has fixed the model-top 3σ departures. Accuracy of DRYAIR24 itself is
+    still unscored.
+
 - **2026-10-06 (makani) — 5-yr protocol on F-scratch epoch 23: EMA 8/8 with |dPS| ≤ 0.83 hPa
   (outcome S5). Raw 0/8 (outcome D). It is the first single-step checkpoint to pass the 5-yr protocol.**
   Prereg addendum `078369c0`, written before submission. Jobs: run **7720705** (`CLIMATE_RUN_OK`, debug), readout
