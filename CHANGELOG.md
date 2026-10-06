@@ -142,6 +142,67 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-06 (makani) — F-scratch base 1-yr screen vs A at matched epochs: every member survives
+  both starts, so the pre-registered verdict is "indistinguishable at n = 6". But A e22/e23
+  "survive" only as finite numbers: their PS drifts are −527 to −1442 hPa. F-scratch stays within ±10 hPa.**
+  Prereg `makani_sfno/docs/2026-10-06_fscratch_base_screen_prereg.md` (`d2a12198`, committed before
+  submit). Debug jobs **7720637** (f1092) and **7720644** (f1156), `DRY_AIR_FIX=off`, both
+  `CLIMATE_SCREEN_OK n=8`. CSVs: `docs/2026-10-06_climate_screen_77206{37,44}.csv`.
+  - **The prediction was wrong.** All 16 member-runs reached step 1460 with no truncation. That
+    includes A. The prior from A e200/e220/e243 (truncated at 490–664) does not carry back to A's
+    early epochs.
+  - **Primary rule** (truncation step, 6 matched pairs): all 6 are ties, so **indistinguishable at
+    n = 6**. That is the pre-registered answer.
+  - **Descriptive, not the pre-registered measure.** F-scratch has fewer channels past 3σ **and**
+    smaller |PS drift| in **6 of 6** pairs (fs vs A, PS at step 1460, hPa; channels past 3σ):
+
+    | start | e21 | e22 | e23 |
+    |---|---|---|---|
+    | f1092 | −9.6 (4) vs +14.8 (14) | −4.0 (0) vs **−527 (81)** | +7.5 (0) vs **−1025 (86)** |
+    | f1156 | −8.1 (5) vs +12.1 (13) | −2.8 (0) vs **−937 (84)** | +6.8 (1) vs **−1442 (90)** |
+
+    A e22/e23 are a collapsed climate that stayed finite: TREFHT +18 to +72 K, 81–90 channels
+    past 3σ. A's early 3σ crossings include `SOILWATER_10CM` (steps 574–614). F has no soil channel.
+    The screen's `survived=1` means finite, not physical. Read `n_past_3sigma` beside it.
+  - **Gate passed:** `fs_best` reads `ckpt_epoch` 23 at both starts, and its numbers are identical to
+    `fs_e23`. 7719538's base is the epoch-23 raw checkpoint, as its prereg says.
+  - **EMA epoch correction:** `fs_ema` reads `ckpt_epoch` **23**, not 22. The trainer's
+    "saved EMA-best checkpoint @ epoch N" line is 0-based, and "Epoch N summary" is 1-based. So the
+    real raw-vs-EMA pair is fs_e23 vs fs_ema: PS +7.5/+6.8 vs **−2.3/−2.4** hPa, past-3σ 0/1 vs 0/0.
+    EMA is better at both starts (n = 2, directional only).
+  - **Against plain B (f1092, 7649647):** fs_e22/e23/ema (−4.0 / +7.5 / −2.3 hPa) fall in the range of B's
+    good checkpoints (B_e22 +0.7, B_e24 +4.6) and well inside B_e21/B_e23 (−58 / −68). That is
+    1 yr only. B is proven at 5 yr and F-scratch is not.
+  - Per the prereg, every F-scratch member is a **5-yr protocol candidate** (fs_ema, fs_e23 first).
+    Not run without the operator's word.
+  - Does not decide soil under B's recipe (7719538), nor why F-warm (A e243 sliced + 43 ep) collapsed
+    within a year when F-scratch e23 did not. Init and maturity both differ.
+
+- **2026-10-06 (makani) — F-scratch 7718436 trained all 23 epochs; val 0.01438 = A + 2.5 % at
+  epoch 23. No `MAKANI_MN_SCALING_OK`: `mpiexec` hung ~4 h after training and walltime killed it.**
+  - Training is complete: 23 `Epoch N summary` blocks, `Total training time is 21436.66 sec`
+    (01:45 → 07:43), and wandb closed. `ckpt_mp0_v0..v22.tar` and `best_ckpt_mp0.tar` were both
+    written at 07:43. Val falls monotonically, so `best_ckpt_mp0.tar` holds epoch 23 (inferred from
+    the curve and mtime; confirmed `ckpt_epoch` 23 by screen 7720637). EMA best is epoch 23 (the log's
+    "@ epoch 22" is 0-based), `1.4381e-02`.
+    Then nothing more was logged until `PBS: job killed: walltime 36108 exceeded limit 36000`
+    (11:46, Exit -29). No CSV row was written.
+  - **This is a repeat, not new.** F-warm 7660250 printed `Total training time is 38549.19 sec` and
+    then hung until its 12 h walltime (`.o7660250`). The 2026-10-03 note that its walltime kill
+    "interrupted a trailing per-lead eval printout" is wrong: nothing ran after training. Both F runs
+    were launched from the `makani-ace2-ports` tree. Soil-fix 7715005 (b-continuation tree) exited
+    cleanly. Cause not diagnosed; it costs walltime only, not results.
+  - **vs A at matched epochs** (single-step val; F averages 99 channels, A 101; `RUNS/prod1n_b32_sgdr.log`):
+    e3 +4.3 %, e9 +3.3 %, e14 +2.4 %, e18 +2.6 %, e20 +2.5 %, e23 **0.01438 vs 0.01402, +2.5 %**.
+    The gap stopped narrowing after e14. The channel-count share of it is still unseparated (needs a
+    validate-only run of A on the 99 shared channels).
+  - **vs B:** no comparable number yet. F-scratch is single-step and has no rollout screen. The
+    recipe-matched B comparison is F-nf4 **7719538** (capacity, still `Q`, "Not enough free nodes").
+    Its base, F-scratch's raw `best_ckpt_mp0.tar` at epoch 23, is valid.
+  - Debug jobs 7719173 (`DRYAIR_BUDGET_OK`) and 7719183 (`CLIMATE_SCREEN_OK n=6`) finished at
+    03:33/03:36, before this. Their results are in the entry below. Against plain B, use 7649647, not
+    7650512 (KNOWLEDGE.md §9a).
+
 - **2026-10-06 (makani) — correction: DRYAIR24's 5-yr PS drift is −0.21 hPa, not −21 hPa (Pa read
   as hPa). Soil-fix 7715005 done; F-scratch 7718436 running.**
   - `readout.log`'s `drift PS (phys, lead L − lead 1)` is in **Pa** (`lead1=98565`). The 2026-10-04
