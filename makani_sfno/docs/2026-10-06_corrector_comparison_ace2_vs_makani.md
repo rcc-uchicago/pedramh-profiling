@@ -60,6 +60,20 @@ implementation exists:** the vendored fme has no soil corrector, and its strict 
 refuse the `soil_moisture_corrector` key in the lsm experiment yaml (docstring `:9-23`). It is a
 reimplementation of the stated intent, so it can be checked for internal consistency only.
 
+Where the idea comes from, checked 2026-10-06:
+- ACE2's only soil-corrector reference is one experiment config:
+  `ace_exp/configs/experiments/2025-04-20-lsm-offline/ace-train-config-lsmv0.yaml:115-118` (identical in
+  `ace_exp_updated`). It sets `soil_moisture_corrector` with a pattern for 3 soil layers and
+  `temperature_threshold: 272.0`.
+- That config is an **offline land-surface model**, driven by prescribed surface fluxes, with
+  `conserve_dry_air: false`. It is not ACE2-EAMv3 or ACE2-ERA5.
+- No implementation exists in either vendored fme. `corrector/registry.py:16` loads configs with
+  `dacite.Config(strict=True)`, so it would reject the key.
+- ACE2-EAMv3 has no soil variables (0 of its 49 stepper variables).
+
+So our `SoilMoistureFix` copies the config's stated rule (same 272 K threshold, frozen → hold,
+then ≥ 0) on our single 10 cm layer. It is not a port of ACE2 code, and nothing ACE2 ships uses it.
+
 ## 5. Evidence that each fix does what it claims
 
 | fix | evidence | result |
