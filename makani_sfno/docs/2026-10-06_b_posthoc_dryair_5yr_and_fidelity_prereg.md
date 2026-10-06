@@ -63,3 +63,19 @@ from `climate_fidelity_7709968/true_climatology_b.npz` (`polaris/subset_true_cli
 `TRUE_SUPERSET`). Same pack, years and stats files, and every field is per-channel, so the 99 rows are what
 the F build would give. The rule above is unchanged. The B+fix results were read before this note;
 FSEMA's were not.
+
+## Addendum: FSEMA + inference-only dry-air fix, 5 yr (written before submission)
+
+Operator, 2026-10-06: "okay do the FESMA" — FSEMA with `--dry-air-fix=on`. This addendum follows the
+§1/§2 results (`a34ce921`).
+
+- Arm **FSEMAdryair**: `f_nosoil_2n_b32_e23_scratch/.../best_ckpt_ema_mp0.tar`, `FLAGS=--dry-air-fix=on`.
+  `DryAirFix` finds PS/TMQ by name and maps stats rows via `out_channels`, so it is subset-aware.
+  Then readout, budget, and fidelity (`TRUE_SUPERSET`, 99 ch).
+- References: FSEMA 8/8, dPS −0.83..+0.37 (dDRY −0.70..+0.41, g·dTMQ −0.14..+0.01), early PS dip
+  −3.3..−4.8 hPa, fidelity 0.234 σ (`7720705`, `7721221`).
+- **Predictions:** 8/8. dDRY 0.00. Median |dPS| ≤ 0.2 hPa (= g·dTMQ). The early dip disappears
+  (max |PS drift| over leads < 1 hPa): −4 hPa cannot be water, which would take ≈ −40 kg/m² of TMQ.
+  Fidelity Δ vs FSEMA within ±0.02 σ, with PSL worse, as for B22.
+- **Outcomes:** PH1 / PH2 / PH3 as in §1 (≤ 1 hPa / fewer than 8/8 / dDRY not pinned). Fidelity: cost / free / gain
+  at ±0.02 σ vs FSEMA's 0.234.
