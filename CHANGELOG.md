@@ -142,6 +142,39 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-06 (makani) — F-scratch e43 extension queued (7721577, 2 nodes, no spare). DRYAIR24's
+  trained-in fix costs accuracy (0.332 σ vs B22 0.251). A's 1-yr stability by epoch is erratic, not a
+  trend: e83 and e143 survive cleanly, while e43/63/103/123/163/183 go non-finite.**
+  Prereg `2328ed62` (`docs/2026-10-06_fscratch_e43_extension_prereg.md`).
+  - **Extension 7721577** (capacity, `select=2`, `TARGET_NODES=2`, 7 h; the operator wants no spare node):
+    an in-place resume of `f_nosoil_2n_b32_e23_scratch` to `EPOCHS=43`, identical to 7718436 otherwise,
+    from the `makani-ace2-ports` tree @ `a530bf65`. That tree is frozen until it ends. The e23 bests are kept
+    byte-verified as `best_ckpt_{ema_,}mp0_e23_stable.tar` (FSEMA = the ema one). The live
+    `best_*` files will be overwritten.
+  - **DRYAIR24 fidelity (debug 7721578):** median 0.332 σ (0.321–0.339) on 101 ch. B22 0.251,
+    B24 0.317, B22+fix 0.256, B24+fix 0.315. On the 99 shared ch: 0.325 vs FSEMA 0.234. By the
+    prereg rule (> +0.02 σ vs B22) that is a **cost**. PS is pinned (bias −13 Pa), but PSL, which is not
+    corrected, sits at **+657 Pa** bias (rmse 0.54 σ vs B22 0.17). Also `U_l01` −9.0 m/s (0.80 σ vs
+    0.25), TREFHT −1.28 K, T_l17 −1.18 K. It is confounded with its `T_max 22` anneal and the B_e01 restart.
+    The inference-only fix on B (+0.006 σ) shows the constraint alone is nearly free, so most of
+    DRYAIR24's cost is probably the recipe. Not separated.
+  - **A by epoch, 1 yr at f1092 (debug 7721629), all cycle-end checkpoints:**
+
+    | epoch | 43 | 63 | 83 | 103 | 123 | 143 | 163 | 183 |
+    |---|---|---|---|---|---|---|---|---|
+    | non-finite at step | 875 | 906 | — | 619 | 911 | — | 890 | 1291 |
+    | channels past 3σ | 101 | 101 | 1 | 101 | 101 | 0 | 101 | 101 |
+
+    - e83 survives with PS −6.8 hPa and e143 with +8.3 hPa. Earlier screens: e21 survived, e22/e23
+      collapsed but stayed finite, e200/e220/e243 went non-finite at 490–664.
+    - **There is no maturity trend to predict from.** Single-step checkpoints are a per-epoch lottery
+      (n = 1 rollout each). That weakens the e43 prereg's stated reason for its prediction (the
+      prediction itself stands as written).
+    - It strengthens two points: screen several F epochs (raw e39–e43 + EMA), not one; and EMA
+      averaging is doing real work.
+  CSVs: `makani_sfno/docs/2026-10-06_climate_fidelity_7721578_dryair24.csv`,
+  `makani_sfno/docs/2026-10-06_climate_screen_7721629_A_by_epoch.csv`.
+
 - **2026-10-06 (makani) — `DryAirFix` vs ACE2's `_force_conserve_dry_air`: numerically confirmed a
   correct port (debug 7721257, `DRYAIR_VS_FME_OK`).** New `polaris/test_dryair_vs_fme.py` +
   `polaris_dryair_vs_fme.pbs` (fme-venv, real fme, makani `mass_fix.py` by path). On a synthetic
