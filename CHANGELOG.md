@@ -142,6 +142,70 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-06 (makani) — correction: DRYAIR24's 5-yr PS drift is −0.21 hPa, not −21 hPa (Pa read
+  as hPa). Soil-fix 7715005 done; F-scratch 7718436 running.**
+  - `readout.log`'s `drift PS (phys, lead L − lead 1)` is in **Pa** (`lead1=98565`). The 2026-10-04
+    Step-2 table converted B22 (−680 Pa = −6.8 hPa) and B24 (+1600 Pa = +16 hPa) but copied DRYAIR raw.
+    Correct: **DRYAIR24 −0.10 to −0.26 hPa (med ≈ −0.21)** over 5 yr, ~30× smaller than B22, ~75×
+    smaller than B24; DRYAIR01 −0.8 → −5 → −15 hPa before truncating. Agrees with the 1-yr screen
+    (`climate_screen_7711659`: e24 −0.145 hPa, `dry_drift` +0.000, `tmq_drift` −1.48 kg/m²).
+  - Consequences for `polaris_makani_b_dryair_findings_handoff.md` (correction banner added): TL;DR 2
+    reversed (dry-air drifts *less* than plain B, by >30×); the inferred TMQ ≈ −214 kg/m² is void
+    (implied ΔTMQ ≈ −2 kg/m²). Still true: survival (8/8) is not attributable to dry-air, and the
+    port is 1 of ACE2's 3 corrector steps.
+  - Confirming from the member NetCDFs (`global_mean` PS/TMQ every lead, PS − g·TMQ, monthly TMQ
+    min/%neg): new `scripts/dryair_budget_readout.py` (+ `--selftest`) and
+    `polaris/polaris_dryair_budget_readout.pbs`, debug job **7719173**: `DRYAIR_BUDGET_OK` n=16 + n=40.
+    **The fix's formula (`PS − g·TMQ`) is right; the earlier error was units only.** 5-yr, per member:
+    - DRYAIR24: dPS −0.14 to −0.24 hPa, **dDRY = 0.00** (max one-step |dDRY| 0.000), so all of dPS is
+      g·ΔTMQ. Global-mean TMQ 26.4–27.1 → 24.3–25.7 kg/m², never negative. Monthly cell minima reach
+      −6.7 to −12.5 kg/m² (local negatives, ≤0.1% of area in the last month).
+    - B22 (no fix): dPS −6.0 to −8.5, of which dDRY −5.9 to −8.4. **The plain-B drift is dry-mass
+      leak**, and water contributes only −0.03 to −0.14. B24: dPS +12.7 to +17.7, dDRY +12.4 to +17.4.
+      B22 + positivity clamp at inference: dPS −3.6 to −7.1, still almost all dry.
+    - DRYAIR01 and B_e01 + inference-only fix: blow up (TMQ → −1e17). These are the collapsed members.
+    ⇒ The dry-air fix does what it says. It removes the dry-mass drift, 30–75× below plain B. Survival is
+    still not attributable to it (B22/B24 also 8/8).
+  - Soil-fix fine-tune **7715005 finished**: `MAKANI_MN_SCALING_OK`, 24 epochs, 412.1 ms/step, 7h40m;
+    checkpoints `fs_anneal_soilfix_nf4_b16_rb01/training_checkpoints/ckpt_mp0_v{0..23}.tar` + best.
+    Its Stage-0 screen (epochs 1/21–24/best, `_tmq` truth) was first rejected at qsub (debug per-user
+    queued-job limit), then submitted as **7719183**: `CLIMATE_SCREEN_OK n=6`. All 6 survive 1 yr, 0
+    past 3σ. But 1-yr PS drift is **−8.8 (e21) to −17.6 hPa (e22)**, e24/best −13.2, e01 +6.4, and
+    dry_drift ≈ ps_drift in every row (TMQ −0.2 to −0.7 kg/m²). The soil corrector leaves dry mass
+    free, and its PS is **worse than plain B's**. Same screen, model − truth at 1 yr (7650512):
+    B e21/22/23/24 = −6.7 / +0.25 / −10.4 / +2.3 vs soil-fix −8.8 / −17.6 / −17.2 / −13.2.
+    DRYAIR24 is −0.145. Note: the 5-yr budget numbers above are lead L − lead 1 (Oct start → Dec 31
+    end), so they include the seasonal TMQ change. The screens are vs truth.
+    Out: `climate_screen_7719183/screen_summary.csv`.
+  - F-from-scratch **7718436 running** (started 01:44, capacity, 10 h walltime): epoch 9/23 at
+    ~920 s/epoch (631 ms/step, 50.7 samples/s), so ~5.9 h total, which fits. Val loss epochs 4→9:
+    0.02376 → 0.02149 → 0.01985 → 0.01899 → 0.01829 → **0.01761** (EMA 0.01658), falling steadily. The
+    matched target is A's ep-23 val 0.01402.
+
+- **2026-10-05 (makani) — F from scratch queued: job 7718436, `capacity`, 2 nodes (+1 spare), 10 h,
+  23 epochs.** Operator request: compare scratch F with A. `bash polaris/submit_f_nosoil.sh 2 23
+  10:00:00 scratch` from `.claude/worktrees/makani-ace2-ports/makani_sfno` @ `a530bf65`, the same tree
+  as warm F (7660250). Run `f_nosoil_2n_b32_e23_scratch`; provenance in
+  `$MEMBER_ROOT/runs/makani_mn_scaling/f_nosoil_2n_b32_e23_scratch.warmstart_provenance.txt`.
+  Recipe is A's (`prod1n_b32_sgdr`) at global batch 32, 99 channels, EMA 0.9995, random init.
+  - **Why 23, not the 27 asked for:** the wrapper requires 3 + 20k epochs (a cycle boundary), and
+    A only has cycle-end checkpoints (ep 23, 43, …). The matched comparison is A ep 23 vs F-scratch
+    ep 23 (A's val at ep 23 = 0.01402). The operator chose 23.
+  - Queued behind 7715005 (capacity max_run 1/project). **The `makani-ace2-ports` worktree is
+    read-only until 7718436 ends** (the PBS imports `PBS_O_WORKDIR/src` at start).
+
+- **2026-10-05 (makani) — dry-air findings review: DRYAIR24's 5-yr survival is not attributable
+  to dry-air, and our fix is one of ACE2's three corrector steps.** Discussion handoff, no jobs run:
+  `polaris_makani_b_dryair_findings_handoff.md`.
+  - Plain B22/B24 also survive 8/8, so the extra 4-step training explains survival. DRYAIR24's
+    drift (med ≈ −21 hPa) is larger than B22's (−6.8).
+  - Verified from `climate_protocol_7711720/member_*.log`: both DRYAIR arms ran `dry_air_fix=1` at
+    inference. With dry mass pinned, −21 hPa implies global-mean TMQ fell by ≈ 214 kg/m²
+    (negative). **Inferred, not measured.** Next step: the negativity probe with `DRY_AIR_FIX=on`.
+  - ACE2 runs force-positive (water) → conserve_dry_air → moisture budget
+    (`fme/core/corrector/atmosphere.py` ~L182–216). We ported only the middle step.
+  - Correction: DRYAIR01 is ≈ B_e01. Epoch 1 runs at a constant 4e-6 (warmup steps per epoch).
+
 - **2026-10-05 (makani) — session checkpoint: handed off to TODO.md P0.** Job 7715005
   (`anneal_soilfix`, 24 epochs, `capacity`) still queued, not yet running, at the time of
   writing. Added a "Continue B-continuation / `anneal_soilfix`" pointer to the top of TODO.md's

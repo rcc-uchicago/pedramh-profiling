@@ -18,6 +18,13 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 
 ## P0 — do these first
 
+> 🔎 **Read first: `polaris_makani_b_dryair_findings_handoff.md` + CHANGELOG 2026-10-06.** The
+> "−21 hPa / TMQ negative" reading was a Pa→hPa slip. Measured (7719173): DRYAIR24 dry mass is flat,
+> and its drift is −0.2 hPa from water. Plain B and the soil-fix arm (screen 7719183: −9 to −18 hPa
+> in 1 yr) drift through **dry mass**. Open decision for the operator: promote soil-fix to the 5-yr
+> protocol as-is (survival question), or go straight to a combined soil-fix + dry-air arm (needs
+> `capacity`; F-scratch 7718436 holds it until ~07:40).
+
 > 📋 **Continue B-continuation / `anneal_soilfix` (2026-10-05, active work).** B lineage is the
 > operator-confirmed main (B22/B24 proven 8/8, full 5yr). Current thread: an ACE2-inspired
 > frozen-soil-moisture corrector, prototyped as a NEW diagnostic arm (not literally "F" — F has
