@@ -144,7 +144,7 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 - **2026-10-06 (makani) — docs consolidation DONE: `makani_sfno/KNOWLEDGE.md`, a verified and tagged
   record. Several claims steering current work are retracted (dated correction, past entries
-  untouched). Depth-4 F fine-tune queued: job 7719538.** Branch `docs/makani-knowledge` (from
+  untouched). Depth-4 F fine-tune queued: job 7719538.** Branch `docs/makani-knowledge`, **draft PR #22, left open (solo session cannot self-approve)** (from
   `feat/makani-b-continuation-dryair` @ `44a3ea9c`, which first commits the previous session's
   uncommitted 10-05/06 work). Docs only, apart from the operator-requested 7719538.
   - **Deliverables:**

@@ -19,7 +19,7 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
 ## P0 — do these first
 
 > 📚 **Read first (2026-10-06): `makani_sfno/KNOWLEDGE.md` §0, §9 and §11** (branch
-> `docs/makani-knowledge`, draft PR). It is the verified, tagged record of the makani track. Four
+> `docs/makani-knowledge`, draft PR #22). It is the verified, tagged record of the makani track. Four
 > findings bear on the open decision just below:
 > - The soil-fix thread's motivation, F3's "dropping soil destabilizes the depth-4 recipe", is
 >   **retracted**. F was trained single-step on A's recipe (`multistep_count = 1`), and it dies like A.
