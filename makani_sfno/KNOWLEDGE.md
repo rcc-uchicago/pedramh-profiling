@@ -10,7 +10,7 @@ A doc citation alone is not enough. Started 2026-10-06 from
 
 | § | section | tier | state (2026-10-06) |
 |---|---|---|---|
-| 0 | Where the 5-year accuracy path stands | — | pending (next commit) |
+| 0 | Where the 5-year accuracy path stands | — | **done**. Rewrite it when a new 5-yr result lands |
 | 1 | Checkpoint lineages | 1 | **done** (recipes and survival from logs and CSVs; G/H secondary) |
 | 2 | Hyperparameters | 1 | **done** (A recipe, LR ceiling, β₂, clip and fine-tune schedule from logs; batch-48 and memory secondary) |
 | 3 | Depth / `n_future` | 2 | done at Tier 2 |
@@ -21,7 +21,7 @@ A doc citation alone is not enough. Started 2026-10-06 from
 | 8 | Known silent-failure traps | 1 | **done**: 14 from the 09-04 handoff + 6 later |
 | 9 | Retired / contradicted claims | 1 | **done** for everything that steers current work. Older scaling and memory rows are `❓ secondary-only` |
 | 10 | Dangling citations and contradictions | — | **done** for this pass (17 items) |
-| 11 | Adversarial review: open questions and next experiments | — | pending (next commit) |
+| 11 | Adversarial review: open questions and next experiments | — | done (2 critics, 2026-10-06) |
 
 **Not covered in this pass** (inventory lines only): `docs/codex_reviews/` (61 files), `docs/hpo_distill/`,
 `docs/run_log/`, `docs/audit_snapshots/`; the 65 upstream PlaSim/AI-RES docs from the subtree import
@@ -53,7 +53,40 @@ and symbol. A line number, where given, is as of 2026-10-06.
 
 ## 0. Where the 5-year accuracy path stands (2026-10-06)
 
-*Pending: next commit.*
+The goal is the most **accurate** 5-year rollout, not just one that stays finite. What is measured:
+
+1. **Survival is solved for the depth-4 lineage. Accuracy has barely been measured.** B22, B24 and
+   DRYAIR24 finish the 8-member, 5-year protocol 8/8 (§1). The one accuracy score of any 5-yr run
+   (`EVAL/climate_fidelity_7709968/fidelity_b22_b24.csv`, time-mean pattern RMSE vs the true 2045–49
+   climate) covers B22, B24 and two B22 inference variants only. Mean over 101 channels, per member:
+   **B22 0.246–0.259 σ, B24 0.310–0.327 σ**. DRYAIR24 and soil-fix have **never** been accuracy-scored.
+   No pre-registered rule ranks on accuracy. ✅
+2. **The PS champion is not the temperature champion.** At 1 yr vs truth, TREFHT drift is DRYAIR24
+   −1.44 K, B22 −0.33 K, soil-fix e21 −0.04 K. PS drift is DRYAIR24 −0.15 hPa, B22 +0.25 to +0.67 hPa,
+   soil-fix e21 −8.8 hPa. ✅ (§4, §6)
+3. **Every surviving arm leaves 3σ at the model top (`V_l00`, then `V_l01`) at 0.9–1.5 yr.** That
+   holds with and without dry-air, and no built or queued arm targets it. ✅ (critic; `readout.log`
+   "first past 3σ")
+4. **Two causal claims steering the plan are confounded** (§9):
+   - **"Dropping soil destabilizes the depth-4 recipe" (F vs B).** F was trained **single-step** on
+     A's recipe (`.o7660250`: `multistep_count = 1`). Its 1-yr deaths, at 281–1243 steps, match A's
+     (490–595). No measurement isolates soil. ✅
+   - **"DRYAIR24 vs B22/B24" is not a matched comparison.** B ran `scheduler_T_max 100` and was never
+     annealed. The DRYAIR and SOILFIX arms ran `T_max 22`, annealed to 1e-6. A plain-anneal control
+     from B_e01 has never run. ✅
+5. **The external accuracy bar does not exist yet.** The ai2 ACE2-EAMv3-on-our-archive 5-yr test was
+   called "decisive and unread" by the 2026-10-02 decision job. In fact it never ran:
+   - its prep job `ace2_5yr_prep.o7704377` ends `ERROR PROBE_INCOMPLETE` / `ERROR PROBE_FAILED`;
+   - every probe died on `dacite ... UnexpectedDataError: can not match "log_nino34_index",
+     "log_zonal_mean_images"`, i.e. ai2's inference config has keys the installed fme does not accept;
+   - the `afterok` rollout 7704379 left no log. ✅
+6. **ACE2 ports.** `DryAirFix` is a faithful port of fme's step 2 and does what it says: dry mass is
+   flat over 5 yr. `SoilMoistureFix` is not a port: fme has no such corrector. fme's step 1 (water
+   positivity, trained through) is not ported. Step 3 (moisture budget) is not closable on our channel
+   set, and in fme it does not touch the rolled water state anyway. ✅ (§7)
+
+Recommended next steps from the 2026-10-06 adversarial review are in §11. Queue choices are the
+operator's; metric and loss definitions are jesswan's.
 
 ---
 
@@ -401,5 +434,55 @@ append-only, so corrections go in a new dated entry.
 
 ## 11. Adversarial review, 2026-10-06: open questions and next experiments
 
-*Pending: next commit.*
+Two read-only critics ran on 2026-10-06 (`Workflow` run `wf_64bce84d-4fc`, Fable 5):
+- **A, "5-year accuracy path"**: 10 findings.
+- **B, "ACE2 ports: useful, needed, correct"**: 11 findings.
 
+Their claims this session re-opened are folded into §0–§10 above. The ranked list below is
+recommendations, not decisions. Queue and compute choices are the operator's; metric, loss and
+variable decisions are jesswan's.
+
+**Cheapest first. Inference-only, so no training is needed:**
+1. **Accuracy-score what is already on disk** (debug, < 1 node-h). Run `score_climate_fidelity.py` on
+   `EVAL/climate_protocol_7711720` DRYAIR24 members against the existing
+   `climate_fidelity_7709968/true_climatology_b.npz`. Extend the scorer to monthly climatology and
+   interannual std. That gives the first B22 / B24 / B22-clamp / DRYAIR24 accuracy table. Then
+   **pre-register a 5-yr accuracy ranking** before the next `capacity` submission (metric
+   definitions: jesswan). *(both critics)*
+2. **Make the external bar exist.** Fix the ACE2-EAMv3 5-yr test's config mismatch (strip
+   `log_nino34_index` / `log_zonal_mean_images`, or align the fme version) and re-run prep and rollout.
+   The rollout was sized for `debug-scaling` at 4 nodes. *(this session)*
+3. **Controls that need no retrain** (debug, ≈ 1–2 node-h total):
+   - **B22/B24 with `--dry-air-fix on`** at inference. Post-hoc has only ever been tried on B_e01.
+   - **True fp32 inference** (autocast off) on B22 and DRYAIR24. `--feedback-fp32` cannot test this.
+   - **The 5-yr protocol on soil-fix e21 and e24**, plus a **checkpoint average** of B21–24 and of
+     DRYAIR21–24, to address the measured checkpoint lottery. *(critics A, B)*
+
+**Training arms, each ≈ 15 node-h at 2 nodes. Run after the free reads above:**
+4. **A plain `anneal b01` control** (`CKPT=<B_e01> submit_finetune_stability_arm.sh anneal b01`). It
+   separates annealing from dry-air for every existing and future arm. *(critic A)*
+5. **dry-air + trained-through water positivity**, in fme's order (positivity on TMQ/RELHUM before
+   `DryAirFix`, in the same preprocessor hook), on the matched anneal recipe. This should come before a
+   soil-fix 5-yr promotion or a soil-fix + dry-air arm. It may need a channel-list confirmation from
+   jesswan. *(critic B; critic A)*
+6. **The tendency-unit loss normalizer**: build a full-split `time_diff_stds.npy` (debug), then run one
+   capped-1/r fine-tune from B_e01. It is the audit's #1 mechanism and the only one aimed at the
+   universal model-top 3σ crossing. It needs a PRECT decision. *(critic B)*
+7. **The soil question, if it still matters:** fine-tune F (or F-scratch e23) at depth 4 on B's exact
+   recipe, then screen. That is the matched test F3 was not. *(critic A)*
+
+**Process:**
+- Select by **rollout metric**, not single-step validation (ACE2 does). Re-screen saved epochs of each
+  finished arm at ~2.5 yr with 2 members (debug).
+- **Before G/H takes `capacity`:** pre-register its stability levers and a kill criterion. G drops TMQ,
+  so it cannot use the only proven corrector, and it is single-step until a depth-4 stage is budgeted.
+- `capacity` now holds 2 per project (§8 #8), so a successor can be chained there.
+
+**Open questions:**
+- Is the `V_l00` model-top 3σ crossing a real dynamics failure, or tiny anomaly-σ in E3SM's damped
+  sponge layer? Science read needed before optimizing against it.
+- Where does DRYAIR24's −1.4 K TREFHT bias come from: the constraint, the annealed schedule, or the
+  missing water guard? Experiments 3–5 triangulate it.
+- Do 8 October starts bias climatology estimation? All members share one spin-up season.
+- Does the 2026-10-02 sign-off cover a trained-through positivity channel list and a TMQ-retaining G
+  variant, or are those new asks?
