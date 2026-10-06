@@ -53,3 +53,26 @@ A has no EMA file, so the EMA member has no matched A partner.
 
 - Whether soil matters under B's 5-step recipe. That is 7719538 (`2026-10-06_fsF_nf4_bsched_prereg.md`).
 - The channel-count share of the +2.5 % val gap (needs a validate-only A run on the 99 shared channels).
+
+## Addendum: 5-yr protocol on fs_e23 and fs_ema (2026-10-06, written before submission)
+
+The screen found every F-scratch member a candidate, and the operator said "yes run it for the 5 year
+roll out". This addendum is dated after the screen results (`973958ef`) and before the 5-yr run.
+
+- `polaris/polaris_climate_run.pbs`: 8 starts (Oct 1–29 2044, frames 1092 + 16i) to 2049-12-31,
+  `FLAGS` empty (the dry-air fix stays off because the config has none). Arms: **FS23** = `ckpt_mp0_v22.tar`
+  (epoch 23) and **FSEMA** = `best_ckpt_ema_mp0.tar` (epoch 23, EMA).
+- Read-outs: `polaris_climate_readout.pbs` (survival, truncation lead) and
+  `polaris_dryair_budget_readout.pbs` (dPS = lead L − lead 1, dDRY, TMQ, per member).
+- References on the same protocol: B22 8/8, dPS −6.0..−8.5 hPa. B24 8/8, +12.7..+17.7. DRYAIR24 8/8,
+  −0.14..−0.24. A e243 0/8 survive (non-finite at leads 317–849). F-warm has never run at 5 yr; it died in < 1 yr.
+- **Prediction:** at least one arm survives fewer than 8 of 8 members, because no single-step
+  checkpoint has survived 5 yr yet. FSEMA survives ≥ FS23.
+- Outcomes, per arm:
+  - **S5:** 8/8 and median |dPS| ≤ 6.8 hPa (B22's). Single-step soil-free from scratch matches
+    B's 5-yr stability without a multistep fine-tune.
+  - **P:** 8/8, median |dPS| > 6.8 hPa. It survives but drifts more than B22.
+  - **D:** < 8/8. Report counts and truncation leads against A's 317–849.
+  - FS23 vs FSEMA is descriptive only.
+- Not decided here: soil vs training maturity (A e22/e23 collapsed at the same epoch, but this is
+  one training seed per arm). Accuracy/fidelity scoring is a separate step.
