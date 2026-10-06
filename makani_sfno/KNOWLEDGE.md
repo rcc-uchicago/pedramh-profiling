@@ -13,11 +13,11 @@ A doc citation alone is not enough. Started 2026-10-06 from
 | 0 | Where the 5-year accuracy path stands | — | pending (next commit) |
 | 1 | Checkpoint lineages | 1 | **done** (recipes and survival from logs and CSVs; G/H secondary) |
 | 2 | Hyperparameters | 1 | **done** (A recipe, LR ceiling, β₂, clip and fine-tune schedule from logs; batch-48 and memory secondary) |
-| 3 | Depth / `n_future` | 2 | pending (next commit) |
-| 4 | Mass conservation / dry-air | 2 (numbers Tier 1) | pending (next commit) |
-| 5 | Multi-node scaling | 2 | pending (next commit) |
-| 6 | Climate screening methodology | 2 | pending (next commit) |
-| 7 | ACE2 comparison and ports | 2 | pending (next commit) |
+| 3 | Depth / `n_future` | 2 | done at Tier 2 |
+| 4 | Mass conservation / dry-air | 2 (numbers Tier 1) | **done** |
+| 5 | Multi-node scaling | 2 | done at Tier 2 (brief; `makani_bench_report.md` is the full record) |
+| 6 | Climate screening methodology | 2 | done |
+| 7 | ACE2 comparison and ports | 2 | done (port-status table checked against code) |
 | 8 | Known silent-failure traps | 1 | **done**: 14 from the 09-04 handoff + 6 later |
 | 9 | Retired / contradicted claims | 1 | **done** for everything that steers current work. Older scaling and memory rows are `❓ secondary-only` |
 | 10 | Dangling citations and contradictions | — | **done** for this pass (17 items) |
@@ -106,23 +106,144 @@ Notes:
 
 ## 3. Depth / `n_future`
 
-*Pending: next commit.*
+- **Depth 4 buys survival.** In the Stage-0 1-yr screen, B ranks above C1 (depth 1) at 4 of 5 matched
+  epochs. All 5 B checkpoints survive; 2 of 5 matched C1 epochs do. The 1-epoch proxies agree: both
+  nf1 die, nf3 and both nf4 survive. (`docs/2026-09-24_climate_screen_7649647.csv`; CHANGELOG
+  2026-09-24) `❓ secondary-only` for the reading; the CSV is the job's output.
+- **More depth-4 epochs buy 5-yr survival**: B_e01 1/8 → B22/B24 8/8, same run and schedule.
+- **Skill per epoch:** `n_future=4` for **one** epoch gives −4.66 % / −4.63 % RMSE at 126 h (two
+  seeds), against depth-1's −3.00 % over 24 epochs. Batch 8 costs 2.3 pp against batch 16.
+  (`docs/2026-09-11_nfuture_ladder_result.md`, `docs/2026-09-15_nfuture_ladder_d1_and_replication.md`)
+  `❓ secondary-only`
+- **CRPS / a distributional loss is not indicated.** The K=56 (14-day) read-out has VR 0.99–1.02 at
+  every lead, so no amplitude collapse; NRMSE336 is 0.970. Its `DRIFT_FIRST` verdict came from one
+  channel, `Z3_l17`. (job 7639537; `docs/2026-09-20_k56_readout_prereg.md`) `❓ secondary-only`
+- **The lagged ensemble does not improve the deterministic forecast**: its mean is 31.7 % worse than
+  the freshest member, SSR 1.66, CRPS 28.7 % better. (job 7643271; `docs/2026-09-21_lagged_ensemble_result.md`)
+  `❓ secondary-only`
 
 ## 4. Mass conservation / dry-air
 
-*Pending: next commit.*
+**What the fix is** (✅ code, fork `sfno_training/models/mass_fix.py` `DryAirFix`): it shifts predicted
+PS uniformly so that the area-weighted global mean of **PS − g·TMQ** equals the step input's.
+- Computed in float64, with equiangular cos-lat cell weights (`equiangular_weights`) and
+  `GRAVITY = 9.80665`, fme's value.
+- The output dtype is promoted to at least fp32 (`torch.promote_types(pred_z.dtype, torch.float32)`).
+  That is the bf16 fix `6c29bf18`. Before it, the shift rounded away in bf16 and job 7650512 became a
+  spatially non-uniform PS distortion.
+- Applied in `PlasimPreprocessor`'s `history_denormalize` hook, so it acts in training, validation and
+  inference, and the corrected state is the one fed back. ✅ (critic: installed makani `models/stepper.py`)
+
+**5-year budget** (8 members each; job 7719173 `DRYAIR_BUDGET_OK`,
+`b-continuation-dryair/makani_sfno/makani_dryair_budget.o7719173`). ✅
+
+| arm | dPS (hPa) | dDRY (hPa) | global-mean TMQ (kg/m²), start → end | monthly TMQ cell minimum |
+|---|---|---|---|---|
+| **DRYAIR24** | −0.14 to −0.24 | **0.00** | 26.4–27.1 → 24.3–25.7 (never negative) | −6.7 to −12.5 |
+| **B22** | −5.97 to −8.49 | −5.86 to −8.37 | 26.4–27.1 → 25.4–26.2 | −7.9 to −10.5 |
+| B22 + RELHUM clamp (inference) | −3.59 to −7.09 | −3.48 to −7.00 | — | — |
+| B24 | +12.7 to +17.7 | +12.4 to +17.4 | gains about +3 | −21 to −38 |
+
+B24's row is ✅ (critic) and CHANGELOG 2026-10-06.
+
+- **Units trap:** `readout.log`'s `drift PS (phys, lead L − lead 1)` is in **Pa** (`lead1=98564.8`).
+  ✅ `EVAL/climate_protocol_7711720/readout.log`
+- **Plain-B drift is dry-mass leak** (dDRY ≈ dPS). DRYAIR24's residual drift is all water: global TMQ
+  falls about 7 % in 5 yr, which is fme's missing step 1 (§7).
+- **Survival is not attributable to dry-air:** B22 and B24 also go 8/8. ✅
+- **Post-hoc dry-air hurts.** On the 16 B/C1 checkpoints that survived a year (7650652), survivors
+  fell 16 → 14, which reads as "hurts" by prereg A2. 12 of 14 survivors ended colder at T_l17. On
+  B_e01 over 5 yr it gave 0/8, collapsing at 2.28–2.48 yr (7707597). ✅ labels
+  (`docs/2026-09-24_climate_screen_7650652_dryair_on.csv`: B_e01/21–24 and C1 epochs); 5-yr result
+  `❓ secondary-only`. **Trained-with beats post-hoc on B_e01**, but post-hoc has never been tried on a
+  mature checkpoint (B22/B24), see §11.
+- **Temperature:** DRYAIR24 is colder than B22 at 1 yr. TREFHT vs truth is −1.44 K vs −0.33 K, T_l17
+  −1.43 K vs −0.44 K (`climate_screen_7711659` vs `7650512`). ✅ Whether that comes from the constraint,
+  the annealed schedule or the missing water guard is open.
+- **Soil-fix** (`SoilMoistureFix`) leaves dry mass free: dry_drift ≈ ps_drift in every row of
+  `climate_screen_7719183`, at −8.8 to −17.6 hPa (e01 +6.4). Its 1-yr TREFHT is the best measured
+  (e21 −0.04 K). ✅
+- **Negativity** (7650442, 1-yr, 4 checkpoints): truth is never negative in any moisture channel. In
+  every rollout PRECT is negative over 10–17 % of the globe, RELHUM negatives sit at the model top
+  (l00–l02), and SOILWATER_10CM's worst cells reach −89 to −289. `❓ secondary-only`
+  (`EVAL/negativity_7650442/negativity.md`)
 
 ## 5. Multi-node scaling (brief)
 
-*Pending: next commit.*
+Full record: `makani_bench_report.md`, `polaris_nccl_*.md`. Everything here is `❓ secondary-only`
+unless marked.
+- **Every TCP-era multi-node number is void for today's stack.** The 128-node production run
+  (7566145) ran its collectives over TCP (2026-09-17, `nccl-tests` 7629065/7629082/7629096). Before the
+  libfabric/CXI fix, "multi-node is not faster" was a fabric artifact.
+- **On CXI, 2 nodes beat 1** at global batch 32: 225.2 ms/step vs 365.4 ms with the same knobs, 81.1 %
+  per-GPU efficiency (7669001; 7580338). So F's and G's 2-node shape is justified.
+- **Spatial parallelism is a memory tool, not a speed tool:** h4w1 +26.0 %, h2w2 +85.6 %, h2w4
+  +173.7 % step time (7669001). **`w=4` no longer hangs, but h2w4's loss is ~26 % higher at epoch 2.**
+  Do not use `w=4` in production before a same-checkpoint equivalence check. `DryAirFix` refuses
+  h/w > 1 (its global mean would be per-tile).
+- Synthetic data is not a neutral stand-in for scaling: it removes I/O–comms overlap, and at 4 nodes
+  synthetic was 35 % slower than real (7633729). The 84 % and 92.9 % makani projections are retracted
+  (§9).
 
 ## 6. Climate screening methodology
 
-*Pending: next commit.*
+| stage | what | ranking rule | source |
+|---|---|---|---|
+| Stage-0 1-yr screen | one rollout per checkpoint from 2044 f1092 (Oct 1), 1460 leads; drift = model − truth global mean | survivors → fewest `n_past_3sigma` → smallest \|PS drift @1460\| | `docs/2026-09-24_climate_screen_prereg.md` §3 (✅ critic, L35–42). Addendum A1 (second start f1156, top-3 at both) |
+| F3 / D7 | raw vs EMA for F | survival gate, then noise-scaled PS gap, then `n_past_3sigma`; default raw | same doc §A3 |
+| 5-yr protocol (jesswan) | 8 members start at 2044 frame 1092 + 16i (Oct 1, 5 … 29) and all end 2049-12-31 18:00; scoring from 2045-01-01; deterministic; forcing read by valid time | **none pre-registered for 5 yr** | `polaris_climate_run.pbs`. Member lengths 7667 − 16i ✅ (7719173) |
+| climate fidelity | time-mean bias and pattern RMSE per channel vs the true 2045–49 mean, area-weighted, physical and σ units | not part of any rule | `polaris/build_true_climatology.py`, `polaris/score_climate_fidelity.py`. Ran **once** (7709968) ✅ |
+
+What the screens can and cannot see:
+- **A 1-yr screen cannot see post-hoc dry-air collapse.** B/C1 + post-hoc dry-air looked clean at
+  1 yr (7650652) and collapsed at 2.3–2.5 yr on B_e01 (7707597). With units corrected, DRYAIR's 1-yr
+  (−0.145 hPa) and 5-yr (−0.21 hPa) PS agree, so that pair is **not** an example of the 1-yr trap
+  (§9).
+- **PS drift is a fixed property of each checkpoint, not IC noise:** it reproduces to about 1–2 hPa
+  across the two starts. But **neighbouring epochs differ by up to 70 hPa/yr** (B e21–e24: −58, +0.7,
+  −68, +4.6). A single "best" epoch samples a checkpoint lottery. (7649647 vs 7649792 CSVs in
+  `docs/`) `❓ secondary-only` for the reproducibility reading
+- **`survived` means finite, not sane:** C1 e23 stayed finite from f1156 with global means near 1e16.
+  `❓ secondary-only`
+- **Accuracy is time-mean only.** There is no seasonal-cycle, monthly-climatology or interannual-variance
+  metric yet. The fidelity CSV's B22/B24 numbers are in §0. `B22fp32` is bit-identical to B22 (§7).
+- Every blow-up so far starts at the model top (`V_l00`, `RELHUM_l00/l04`), not at near-surface Z3.
+  (7649647 CSV `first_past_3sigma`; F3 CSVs)
 
 ## 7. ACE2 comparison and ports
 
-*Pending: next commit.*
+The canonical code-level comparison is `docs/2026-10-01_makani_vs_ace2_code_audit.md` (job 7703518).
+Its §9 corrects about 25 claims in older docs (`ace2_vs_makani_differences.md`,
+`docs/2026-09-10_ace2_comparison_the_corrector.md`, `polaris_makani_ace2_ports_handoff.md`). Prefer it.
+Its single biggest correction: ACE2 and makani do **not** share the same SFNO. They differ in skip
+wiring, position embedding, internal resolution and SHT grid. `❓ secondary-only`
+
+**fme's atmosphere corrector runs three steps, in order, every step**
+(`ACE2_retrain/ace_exp/fme/core/corrector/atmosphere.py`, main checkout only) ✅:
+1. **Force water positive first.** The code comment says to do this "before imposing other
+   conservation correctors".
+2. **Conserve dry air** (`_force_conserve_dry_air`).
+3. **Moisture budget** (`_force_conserve_moisture`). It reads `total_water_path` but **only sets
+   precipitation rate, evaporation rate and the advection tendency**. Those are diagnostics; it does
+   not modify the rolled water state.
+
+| ACE2 mechanism | in makani? | flag / where | state |
+|---|---|---|---|
+| dry-air conservation (step 2) | ✅ **ported, faithful** | `CONSERVE_DRY_AIR=1` (train) / `--dry-air-fix on` (inference); `mass_fix.py` | flag-off equivalence bitwise (`DRYAIR_OFF_EQUIV_OK` 7650461, 7669103; ✅ critic). Documented deviation: TMQ is held fixed where fme holds q, about 1e-3 of the correction (critic) |
+| water positivity (step 1) | ⚠ **inference only** | `--force-positive {config,off,relhum}` in `climate_rollout.py` (reuses `rollout_driver`'s clamp); `NonNegativeConstraint` opt-in, default off | never trained through. The RELHUM 18-channel clamp on B22: dPS −3.6 to −7.1 vs −6.0 to −8.5 hPa, survival unchanged ✅ (7719173). Fidelity unchanged (0.250 vs 0.251 σ) ✅ |
+| moisture budget (step 3) | ❌ not ported | — | **not closable on our contract**: no evaporation or advection channel (PRECT is the only flux in `e3sm_alldata_full.yaml`, ✅ critic). It would not pin TMQ even in fme (above) ✅ |
+| "frozen soil moisture corrector" | ⚠ **not a port** | `CONSERVE_SOIL_MOISTURE=1`; `soil_moisture_fix.py` `SoilMoistureFix` | fme's `AtmosphereCorrectorConfig` has no such field. The module docstring calls it a fresh reimplementation. 18 unit tests (7713397); **no PBS-level flag-off equivalence gate yet** |
+| tendency-unit loss normalization | ❌ probe only | `temp_diff_normalization` (makani `loss.py`, 1/r) | not a one-line flip: PRECT's weight would be 8.3e-4 and `Z3_l17`'s 9518 (7646192). Audit ranks it #1. No full-split `time_diff_stds.npy` exists `❓ secondary-only` |
+| `channel_weights: auto` | ⚠ = `constant` here | installed makani keys `auto` on lowercase ERA5 names | every E3SM name falls through to the default `❓ secondary-only` |
+| EMA | ✅ | launcher `EMA=1 EMA_DECAY=0.9995` | used in F ✅ |
+| rollout-metric checkpoint selection | ❌ absent | — | ACE2 selects on a long-rollout metric. Ours picks by single-step val, which picked B_e01 (§1) |
+| fp32 state between steps | ❌ **untested** | `--feedback-fp32` exists but is a no-op | it casts the bf16 prediction to fp32 *after* autocast. That is lossless, so the trajectory is bit-identical (7707597; budget rows identical in 7719173) ✅. True fp32 inference (autocast off) has never run |
+| ACE2-EAMv3 channel set | built as port **G**, not queued | `e3sm_alldata_ace2vars.yaml` | no TMQ, so `DryAirFix` is refused by name on G `❓ secondary-only` |
+
+- **The ACE2 5-yr reference never ran.** See §0 item 5. ✅
+- **jesswan's sign-off** covers the ACE2-port mechanism list (operator, 2026-10-02). Don't raise it as
+  a caveat for those mechanisms. A new channel list for trained-through positivity, or a TMQ-retaining
+  G variant, may be a new ask (§11).
 
 ---
 
