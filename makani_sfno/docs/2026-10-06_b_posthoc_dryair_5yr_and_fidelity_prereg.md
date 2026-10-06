@@ -54,3 +54,12 @@ per-member **mean `rmse_sigma` over channels**. Reference: B22 0.246–0.259 σ,
 
 - Accuracy of DRYAIR24 itself (never scored; not in this batch).
 - Whether FSEMA's skill holds for other seeds or epochs.
+
+## Deviation (recorded before the FSEMA score ran)
+
+7720814 ran out of debug walltime building the 99-ch truth from `f_nosoil_2n_b32_e23_scratch`
+(4000/7299 samples in 1 h, vs ~15 min for the 101-ch build). The FSEMA truth is instead cut by name
+from `climate_fidelity_7709968/true_climatology_b.npz` (`polaris/subset_true_climatology.py`,
+`TRUE_SUPERSET`). Same pack, years and stats files, and every field is per-channel, so the 99 rows are what
+the F build would give. The rule above is unchanged. The B+fix results were read before this note;
+FSEMA's were not.
