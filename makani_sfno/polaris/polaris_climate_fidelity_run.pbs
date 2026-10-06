@@ -49,6 +49,7 @@ EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
 #   ARMS          member-name prefixes; each matches member_<arm>*.nc
 #   CLIM_RUN      run dir whose config.json sets the truth channel set (a 99-ch F run -> 99-ch truth)
 #   TRUE_NPZ      an existing build_true_climatology.py output; skips the ~15-min rebuild
+#   TRUE_SUPERSET a larger truth npz to cut the members' channels from (99-ch F vs the 101-ch truth)
 #   TAG           CSV name: fidelity_<TAG>.csv
 PROTOCOL_OUT="${PROTOCOL_OUT:-${MEMBER_ROOT}/runs/makani_eval/climate_protocol_7707597}"
 ARMS="${ARMS:-B22 B24}"
@@ -63,9 +64,22 @@ echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-pa
 makani_env_report
 echo
 
-echo "protocol=${PROTOCOL_OUT}  arms='${ARMS}'  clim_run=${CLIM_RUN}  true=${TRUE_NPZ}  tag=${TAG}"
+echo "protocol=${PROTOCOL_OUT}  arms='${ARMS}'  clim_run=${CLIM_RUN}  true=${TRUE_NPZ}  superset=${TRUE_SUPERSET:-}  tag=${TAG}"
+GLOBS=()
+for arm in ${ARMS}; do GLOBS+=("${PROTOCOL_OUT}/member_${arm}"*.nc); done
+mapfile -t MEMBERS < <(ls "${GLOBS[@]}" 2>/dev/null)
+
 build_ok=0
-if [ -f "${TRUE_NPZ}" ]; then
+if [ -n "${TRUE_SUPERSET:-}" ]; then
+    # TRUE_SUPERSET: a larger truth npz; cut the members' channels out of it by name
+    # (subset_true_climatology.py) instead of a rebuild through a channel-subset loader.
+    echo "--- subsetting ${TRUE_SUPERSET} to the members' channels ---"
+    TRUE_NPZ="${OUT}/true_climatology_subset.npz"
+    { "${PY}" "${MAKANI_ROOT}/polaris/subset_true_climatology.py" --selftest &&
+      "${PY}" "${MAKANI_ROOT}/polaris/subset_true_climatology.py" --true "${TRUE_SUPERSET}" \
+          --names-from "${MEMBERS[0]}" --out "${TRUE_NPZ}"; } 2>&1 | tee "${OUT}/build.log" | tail -20
+    grep -q "^SUBSET_TRUE_CLIMATOLOGY_OK" "${OUT}/build.log" && build_ok=1
+elif [ -f "${TRUE_NPZ}" ]; then
     echo "--- reusing true climatology ${TRUE_NPZ} ---"
     build_ok=1
 else
@@ -78,9 +92,6 @@ else
 fi
 
 echo "--- scoring ${ARMS} members against it ---"
-GLOBS=()
-for arm in ${ARMS}; do GLOBS+=("${PROTOCOL_OUT}/member_${arm}"*.nc); done
-mapfile -t MEMBERS < <(ls "${GLOBS[@]}" 2>/dev/null)
 if [ "${#MEMBERS[@]}" -eq 0 ]; then
     echo "ERROR NO_MEMBERS_FOUND in ${PROTOCOL_OUT}"
     exit 4
