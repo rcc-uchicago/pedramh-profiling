@@ -142,6 +142,33 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-06 (makani) — 5-yr protocol on F-scratch epoch 23: EMA 8/8 with |dPS| ≤ 0.83 hPa
+  (outcome S5). Raw 0/8 (outcome D). It is the first single-step checkpoint to pass the 5-yr protocol.**
+  Prereg addendum `078369c0`, written before submission. Jobs: run **7720705** (`CLIMATE_RUN_OK`, debug), readout
+  **7720726** (`CLIMATE_READOUT_OK`), budget **7720728** (`DRYAIR_BUDGET_OK n=16`). Out:
+  `EVAL/climate_protocol_7720705/` (`readout.log`, `member_*.nc`).
+  - **FSEMA** (`best_ckpt_ema_mp0.tar`, `ckpt_epoch` 23): **8/8 complete.** dPS at the last lead
+    (lead L − lead 1) is −0.83 / +0.37 / −0.39 / −0.50 / −0.25 / −0.19 / −0.57 / −0.41 hPa, median
+    |dPS| **0.40 hPa**. That is ~17× below B22 (−6.8) and in DRYAIR24's range (−0.21), with no
+    corrector. dDRY ≈ dPS. Global TMQ 26.5–27.2 → 25.7–26.8 kg/m². Local monthly TMQ minima reach
+    −10.7 to −13.4 kg/m² (≤ 1 % of area), like B22/DRYAIR24.
+  - **The endpoint hides a transient.** Every FSEMA member's PS drops 3.3–4.8 hPa in the first
+    1–5 months (L120–L480: −327 to −485 Pa) and recovers over ~4 yr. B22's excursion is larger and
+    does not recover: down to −10.8 hPa (B2203 L6208), ending −6.1..−8.5. Quote the excursion beside
+    the endpoint.
+  - 3σ (anom_rms): 2/8 FSEMA members never cross. 4 first cross at 2779–4535 (model top V/RELHUM_l01–03).
+    FSEMA05/06 cross at `U_l01` @ 618/644, earlier than B22's `V_l00` @ 1545–1941. Mixed on this
+    measure. No member reaches a median crossing.
+  - **FS23** (raw `ckpt_mp0_v22.tar`): **0/8**, all non-finite at PS, steps 1766–4830 (1.2–3.3 yr),
+    led by `U_l01` / `RELHUM_l00` at the model top. That is still 2–6× A e243's 317–849.
+  - Prediction ("≥ 1 arm < 8/8; FSEMA ≥ FS23") held.
+  - **Reading (not pre-registered):** the largest effect here is EMA vs raw on the same training
+    trajectory: 0/8 → 8/8. A never kept an EMA. So the A-vs-F-scratch difference mixes soil (raw vs
+    raw, one seed each: A e23 collapses in 1 yr, F e23 lasts 1.2–3.3 yr) with EMA availability. F-warm's
+    EMA (epoch 30) died in < 1 yr, so EMA alone does not rescue A-derived weights.
+  - Open: accuracy. FSEMA has no fidelity score yet (B22 0.246–0.259 σ, `climate_fidelity_7709968`). It
+    is an immature single-step model (val 0.01438 vs A best 0.01284). One training seed.
+
 - **2026-10-06 (makani) — F-scratch base 1-yr screen vs A at matched epochs: every member survives
   both starts, so the pre-registered verdict is "indistinguishable at n = 6". But A e22/e23
   "survive" only as finite numbers: their PS drifts are −527 to −1442 hPa. F-scratch stays within ±10 hPa.**
