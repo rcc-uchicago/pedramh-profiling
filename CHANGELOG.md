@@ -142,6 +142,62 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+- **2026-10-07 (makani) — three jobs read out. F-scratch e43 trained, but stays 2.8 % behind A at every
+  matched epoch. The depth-4 F fine-tune died at e16/24 yet shows the depth-4 trade-off: −8 % RMSE at
+  24 h for +5.5 % at 6 h. SOILFIX 5-yr is the worst B-lineage survival so far (e21 7/8, e24 5/8).**
+  - **F-scratch e43 (7721577, capacity):** all 20 epochs trained, 04:30 → 10:06
+    (`Total training time is 20032.31 sec`, `ckpt_mp0_v23..v42`). Then the third `mpiexec` post-train
+    hang ran into the 7 h wall: Exit -29, no OK token.
+    - Single-step val is +2.2 to +2.9 % above A at every matched epoch, e.g. e43 **0.013776** vs A
+      0.013407 (+2.8 %). The gap was +2.5 % at e23, so a second cycle did not close it. Part of it may be
+      the 99- vs 101-channel denominator, which is still unseparated.
+    - EMA best is **0.013758 at e41** (the log's "@ epoch 40" is 0-based). `best_ckpt_ema_mp0.tar` is
+      now EMA e41 and `best_ckpt_mp0.tar` is raw e43. The e23 pair survives as `*_e23_stable.tar`.
+    - Versus e23, per-channel RMSE median is −3.6 % at 6 h and −3.5 % at 24 h (raw), similar for EMA.
+    - The extension rule fires: cycle 2 improved val by −4.2 %, above the 0.5 % threshold. e63 would
+      need `capacity` and waits for the operator's word.
+    - Read-out addendum `0d4ed389`, written before any rollout: "EMA e43" is read as EMA-best e41.
+      1-yr screen f1092 = **7725618** (debug, queued on `queue_tags`; leave it, CLAUDE.md #12). The
+      operator will decide e63 after the screens.
+    - **Pending screens, one per debug slot** (`runs/makani_eval/next_screens_2026-10-07.sh`):
+      - `fsF1092`: the depth-4 F list.
+      - `both1156`: the F e43 list plus the depth-4 F list.
+  - **Depth-4 F fine-tune (7719538, `fsF_anneal_nf4_b16_rtmax100_scratch`, capacity):** the 12 h wall
+    killed it after **16/24 epochs** (≈ 2670 s/epoch; `ckpt_mp0_v0..v15`). The prereg's e21–e24 / e22+e24
+    read-out is unreachable without a resume.
+    - Single-step val is best at e1 (raw 0.015667, EMA 0.015267), then flat at 0.01583–0.01588. That is
+      +9–10 % over its base (F-scratch e23, 0.014380).
+    - B's own run behaves the same way, at half the size: 0.012839 (A e243) → 0.013411 at e1 (+4.5 %) →
+      0.013612 at e24 (+6.0 %). So a rising single-step val is normal for this recipe and not a failure.
+    - **The per-lead log shows the depth-4 trade-off** (median over 99 channels of RMSE / base RMSE).
+      At e16, 24 h is **−8.3 %** raw and **−12.6 %** EMA, while 6 h is +5.5 % / +3.9 %.
+    - Within the run (e1 → e16), 24 h −6.1 % and 6 h −0.3 %. B's e1 → e24 is 24 h −5.2 % and 6 h +0.5 %.
+    - The 24 h gain was still accruing in EMA at e16.
+    - **Against B on the 99 shared channels** (same valid set):
+      - fsF e16 EMA is +8.7 % at 6 h and +4.4 % at 24 h vs B22. It wins 2/99 and 5/99 channels.
+      - F-scratch e43 raw is +0.9 % at 6 h (wins 35/99) but +14.5 % at 24 h.
+      - FSEMA (e23) is +4.3 % / +19.0 %.
+      - Single-step F has nearly caught B at 6 h, but not at 24 h. Depth-4 F at e16 is still behind
+        B at both leads.
+      - Confounded with base maturity, as the prereg says (base val 0.01438 vs A e243 0.01284).
+    - No rollout yet. Not attributable to soil.
+    - Operator (2026-10-07): "screen e16 now, then decide" on a resume to e24. The prereg amendment
+      `b6a0f7cc` (docs/makani-knowledge) was written before the rollout. It screens e1, e8, e14–e16, EMA
+      and best (= e1) at both starts. Outcomes S/D stay defined on e22/e24 at 5 yr.
+  - **SOILFIX 5-yr (debug 7724006, `CLIMATE_RUN_OK`, sha 7330fca5, no prereg found, so descriptive):**
+    - SOILFIX21 (`ckpt_mp0_v20`) is **7/8**. Member 01 goes non-finite at PS at step 4884 (3.3 yr).
+      SOILFIX24 (`best_ckpt_mp0`, epoch 24) is **5/8**. Members 00/03/07 go non-finite at 5721/5371/6168
+      (3.7–4.2 yr).
+    - Plain B22/B24 and DRYAIR24 are all 8/8 on the same protocol.
+    - PS drift at the last lead (Pa ÷ 100):
+      - SOILFIX21 completes run **+17 to +42 hPa** (median ≈ +25), so it runs away upward after
+        2 yr.
+      - SOILFIX24 completes end at −2.2..+4.2 hPa, but all dip −8.6..−15.4 hPa at L1828 (1.25 yr).
+    - Every member leaves 3σ first at `V_l00` (@1139–2067), as plain B does.
+    - **The trained soil-moisture fix costs 5-yr stability and does not control mass.** It is consistent
+      with its 1-yr screen 7719183 (−8.8..−17.6 hPa, worse than B). Out:
+      `runs/makani_eval/climate_protocol_7724006/readout.log`.
+
 - **2026-10-06 (makani) — F-scratch e43 extension queued (7721577, 2 nodes, no spare). DRYAIR24's
   trained-in fix costs accuracy (0.332 σ vs B22 0.251). A's 1-yr stability by epoch is erratic, not a
   trend: e83 and e143 survive cleanly, while e43/63/103/123/163/183 go non-finite.**
