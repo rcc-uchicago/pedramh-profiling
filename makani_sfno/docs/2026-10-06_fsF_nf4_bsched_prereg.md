@@ -67,3 +67,46 @@ to `fsF_e01`).
 
 **Not amended:** outcomes S/D stay defined on e22/e24 at 5 yr. A 1-yr screen of e14–e16 does not decide
 them; it only informs whether to resume to e24. The "worse than B" attribution rule still applies.
+
+## Amendment 2 (2026-10-07, before submission): resume in place to epoch 63
+
+Operator (2026-10-07), after the f1092 screens of this arm (7725803) and of F-scratch e43 (7725618):
+"submit the 23 epoch F with n_futures=4 and let go to 63 epochs on capacity".
+
+**What the screens showed before this amendment.**
+- This arm at f1092: all 7 checkpoints are finite with 0 channels past 3σ. dPS at 1460 is
+  e1 −72, e8 +50, e14 −4.5, e15 −17, e16 −40, EMA −78 hPa.
+- The `fsF_best` gate passes: `fsF_best` = `fsF_e01`, ckpt_epoch 1.
+- The single-step F-scratch e43 is M-DEGRADE: raw e42/e43 are non-finite at 1098/1060.
+
+**The resume.** Same `RUN_NUM` (`fsF_anneal_nf4_b16_rtmax100_scratch`) and same tree
+(`arm-fsF-nf4-bsched` @ `a1b27d79`). It starts at epoch 17 from `ckpt_mp0_v15.tar`, with `capacity`,
+`select=2` (no spare) and 40 h wall. 47 epochs at 44–46 min is about 36 h. Every other variable is
+7719538's submit line, except:
+- `EPOCHS` 24 → **63**.
+- `LOAD_OPTIMIZER/SCHEDULER/COUNTERS/LOSS` 0 → **1**. makani applies the `load_*` flags on the resume
+  path too (`deterministic_trainer.py:278-287`). At 0, the resume would restore the weights only and
+  restart the optimizer, the warmup and the epoch counter.
+- **`OVERRIDE_LR`, `PRETRAINED` and `PRETRAINED_CKPT` are dropped.**
+  - The resume ignores them anyway (`:237`, `plasim_trainer.py:430`).
+  - The path now holds F e43, not this arm's base. The base survives as F's `best_ckpt_mp0_e23_stable.tar`.
+  - If resume detection failed, the run would therefore start from random init, which is visible in
+    the loss, instead of silently warm-starting from F e43.
+- `CKPT_VERSIONS` 25 → **250**. Rotation is modulo (`:395`), so at 25 the run would overwrite v0 (e1) at
+  epoch 26. At 250 every epoch v0..v62 is kept (≈ 2.2 GiB each).
+
+**The schedule is unchanged.** `T_max 100` counts from the end of the 1-epoch warmup, so the LR at
+epoch N does not depend on `max_epochs`. Stopping early yields the same trajectory. The LR is about
+3.5e-4 at e24 and about 1.3e-4 at e63, so the run is **not annealed** at e63.
+
+**Protected.** The e1 bests are byte-verified copies `best_ckpt_{ema_,}mp0_e1_stable.tar`. The f1156
+screen (`next_screens_2026-10-07.sh both1156`) reads those copies, so both starts screen the same weights.
+
+**Read-out.**
+- Outcomes S/D (5-yr protocol on e22 = v21 and e24 = v23) become reachable and stay as stated.
+- Epochs 25–63 are **descriptive; no outcome is pre-stated for them.**
+- Planned: a 1-yr screen at both starts on e24, e32, e40, e48, e56, e63, EMA-best and best. Then the
+  5-yr protocol on e63 and on EMA-best. Then fidelity vs B22/B24 on the 99 shared channels.
+
+**Expected failure mode.** Every F run so far has hung in `mpiexec` after training (Exit -29, no OK
+token). Completion is keyed on `ckpt_mp0_v62.tar` plus the `Total training time` log line.
