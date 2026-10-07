@@ -48,3 +48,22 @@ than B cannot by itself be attributed to soil.
 
 PS drift is reported as dDRY / dPS from the budget readout (`scripts/dryair_budget_readout.py`), in
 hPa. Mind the `readout.log` Pa units.
+
+## Amendment (2026-10-07, after training, before any rollout of this arm)
+
+7719538 hit its 12 h wall after **16 of 24 epochs** (≈ 2670 s/epoch at `MULTISTEP=5`; `ckpt_mp0_v0..v15`;
+Exit -29). Epochs 21–24 do not exist, so read-out steps 1–2 cannot run as written. Operator (2026-10-07):
+"screen e16 now, then decide" on a resume.
+
+What training already shows (logged before this amendment, so not a rollout result). Single-step val is
+best at e1 (raw 0.015667, EMA 0.015267, so `best_ckpt_mp0.tar` and `best_ckpt_ema_mp0.tar` are both e1)
+and flat at 0.01583–0.01588 after that. Per-lead, median over 99 channels vs the base: 24 h RMSE −8.3 % raw
+and −12.6 % EMA at e16, 6 h +5.5 % / +3.9 %.
+
+**Amended step 1 (descriptive, Stage-0 1-yr screen, both starts, `DRY_AIR_FIX=off`, `_tmq` truth):**
+`fsF_e01` (v0), `fsF_e08` (v7), `fsF_e14` (v13), `fsF_e15` (v14), `fsF_e16` (v15), `fsF_ema`
+(`best_ckpt_ema_mp0.tar`, expect `ckpt_epoch` 1), `fsF_best` (`best_ckpt_mp0.tar`, gate: `ckpt_epoch` 1, equal
+to `fsF_e01`).
+
+**Not amended:** outcomes S/D stay defined on e22/e24 at 5 yr. A 1-yr screen of e14–e16 does not decide
+them; it only informs whether to resume to e24. The "worse than B" attribution rule still applies.
