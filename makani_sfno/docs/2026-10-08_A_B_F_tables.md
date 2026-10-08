@@ -1,4 +1,4 @@
-# A, B and F side by side (2026-10-08, revised 15:45 UTC)
+# A, B and F side by side (2026-10-08, revised 16:45 UTC)
 
 Every number comes from a job output, read on 2026-10-08: the rendered yamls and training logs in
 `RUNS/`, the 1-yr `screen_summary.csv` files in `EVAL/climate_screen_<job>/`, and the 5-yr
@@ -25,9 +25,9 @@ budget read-outs 7719173 / 7720728. One step = 6 h, so 1460 steps = 1 yr.
 | **1-yr screen** | | | | | |
 | stable (within ±10 hPa, finite) at both starts | none of the 5 epochs screened at both. e83 and e143 were stable at the one start tried | e22, e24 (e01/e21/e23 finite, drift 31–70 hPa) | e21, e22, e23, EMA e23. Not e41–e43 or EMA e41 | e14. The other 5 are finite but drift 16–78 hPa | none (every checkpoint blows up in 2–10 months) |
 | **5-yr test** (8 runs, Oct-2044 starts → end 2049) | | | | | |
-| checkpoints tested | e243 | e01, e22, e24 | raw e23, EMA e23. Raw e20–e22 and e41–e43 **queued** (debug 7727625) | e14, e22, e24 **queued** (debug-scaling 7727731, starts after 17:45 UTC) | not tested |
-| runs that finish | **0/8** | e01 1/8 · **e22 8/8** · **e24 8/8** | raw e23 0/8 · **EMA e23 8/8** · the rest pending | pending | — |
-| when the failing runs blow up | 2.6–7.0 months (steps 317–849) | e01: 2.5–5.0 yr (steps 3639–7339) | raw e23: 1.2–3.3 yr (steps 1766–4830) | pending | — |
+| checkpoints tested | e243 | e01, e22, e24 | raw e20–e23, raw e41–e43, EMA e23 | e14, e22, e24 **queued** (debug-scaling 7727731, starts after 17:45 UTC) | not tested |
+| runs that finish | **0/8** | e01 1/8 · **e22 8/8** · **e24 8/8** | **EMA e23 8/8** · raw e22 2/8 · raw e20, e21, e23, e41, e42, e43 all 0/8 | pending | — |
+| when the failing runs blow up | 2.6–7.0 months (steps 317–849) | e01: 2.5–5.0 yr (steps 3639–7339) | raw cycle 1 (e20–e23): 0.9–5.1 yr · raw cycle 2 (e41–e43): 0.3–1.8 yr | pending | — |
 | PS drift at 5 yr (hPa) | — | e01 survivor −269 · e22 −6.0 to −8.5 · e24 +12.7 to +17.7 | EMA e23 −0.83 to +0.37 (dips −3.3 to −4.8 in months 1–5, then recovers) | pending | — |
 | **Accuracy** | | | | | |
 | climate error, 99 shared ch (σ, lower is better) | not scored | e22 0.239 · e24 0.308 | EMA e23 0.234 | not scored | — |
@@ -41,8 +41,8 @@ What each pairwise comparison isolates:
 - **A vs B** differs in depth, LR, schedule, batch, and starting point (B starts from A e243).
 - **F-warm vs F-scratch** differs in starting point: A-derived weights vs random init.
 
-Sources, 5-yr: 7649597 (A e243, B e01), 7707597 (B22, B24), 7720705 (F-scratch raw/EMA e23). Queued: 7727625
-(F-scratch by epoch, prereg `8c8f9048`) and 7727731 (F-depth4, prereg amendment 3 `295aae40`).
+Sources, 5-yr: 7649597 (A e243, B e01), 7707597 (B22, B24), 7720705 (F-scratch raw/EMA e23). 7727625
+(F-scratch raw by epoch, prereg `8c8f9048`). Queued: 7727731 (F-depth4, prereg amendment 3 `295aae40`).
 
 ## 2. A, per checkpoint: 101 ch, soil kept, depth 1, random init, raw weights (A keeps no EMA)
 
@@ -90,14 +90,14 @@ The `starts from` and `depth` columns are the differences between the variants. 
 | F-warm | A e243 sliced | 1 | raw e01, e22, e39–e43 | e43 0.013064 | ✗ 281–735 | ✗ 308–637 | — |
 | F-warm | A e243 sliced | 1 | EMA e30 | 0.012891 | ✗ 1243 | ✗ 909 | — |
 | F-scratch | random | 1 | raw e14 | 0.015654 (A +2.4 %) | — | — | — |
-| F-scratch | random | 1 | raw e20 | 0.014536 (A +2.5 %) | — | — | queued, 7727625 |
-| F-scratch | random | 1 | raw e21 | 0.014467 (A +2.6 %) | −9.6 (4) | −8.1 (5) | queued, 7727625 |
-| F-scratch | random | 1 | raw e22 | 0.014414 (A +2.6 %) | −4.0 (0) | −2.8 (0) | queued, 7727625 |
+| F-scratch | random | 1 | raw e20 | 0.014536 (A +2.5 %) | — | — | 0/8, ✗ 2007–2904 |
+| F-scratch | random | 1 | raw e21 | 0.014467 (A +2.6 %) | −9.6 (4) | −8.1 (5) | 0/8, ✗ 1250–3483 |
+| F-scratch | random | 1 | raw e22 | 0.014414 (A +2.6 %) | −4.0 (0) | −2.8 (0) | 2/8, ✗ 3668–7477 |
 | F-scratch | random | 1 | raw e23 | 0.014380 (A +2.5 %) | +7.5 (0) | +6.8 (1) | 0/8, ✗ 1766–4830 |
 | F-scratch | random | 1 | **EMA e23** | 0.014381 | −2.3 (0) | −2.4 (0) | **8/8**, dPS −0.83 to +0.37 |
-| F-scratch | random | 1 | raw e41 | 0.013824 (A +2.8 %) | −197 (72) | ✗ 517 | queued, 7727625 |
-| F-scratch | random | 1 | raw e42 | 0.013794 (A +2.8 %) | ✗ 1098 | ✗ 745 | queued, 7727625 |
-| F-scratch | random | 1 | raw e43 | 0.013776 (A +2.8 %) | ✗ 1060 | +6.1 (1) | queued, 7727625 |
+| F-scratch | random | 1 | raw e41 | 0.013824 (A +2.8 %) | −197 (72) | ✗ 517 | 0/8, ✗ 517–2673 |
+| F-scratch | random | 1 | raw e42 | 0.013794 (A +2.8 %) | ✗ 1098 | ✗ 745 | 0/8, ✗ 662–1098 |
+| F-scratch | random | 1 | raw e43 | 0.013776 (A +2.8 %) | ✗ 1060 | +6.1 (1) | 0/8, ✗ 496–2511 |
 | F-scratch | random | 1 | EMA e41 | 0.013758 | −1.4e15 (99), finite only | ✗ 718 | — |
 | F-depth4 | F-scratch raw e23 | 5 | e1 (= best before the resume) | 0.015667 | −72.5 (0) | −78.1 (0) | — |
 | F-depth4 | F-scratch raw e23 | 5 | EMA (= e1) | 0.015267 | −78.4 (0) | −78.0 (0) | — |
@@ -108,8 +108,17 @@ The `starts from` and `depth` columns are the differences between the variants. 
 | F-depth4 | F-scratch raw e23 | 5 | e22 / e24 | in training | — | — | queued, 7727731 |
 
 Sources: 7709775/7709776 (F-warm), 7720637/7720644 (F-scratch e21–23), 7725618/7725885 (F-scratch
-e41–43), 7725803/7725885 (F-depth4), 7720705 (5-yr). F-depth4's live run (7725884) logged e21 val
+e41–43), 7725803/7725885 (F-depth4), 7720705 and 7727625 (5-yr). F-depth4's live run (7725884) logged e21 val
 0.015759, EMA 0.015452.
+
+**F-scratch raw at 5 yr, by epoch (7727625, `CLIMATE_RUN_OK`): outcome CONSISTENT-FAIL, as predicted
+(prereg `8c8f9048`).**
+- Cycle 1: e20, e21 and e23 are 0/8, and e22 is 2/8. Every failure is at PS.
+- Cycle 2 fails sooner: e41, e42 and e43 are all 0/8, most within about 1.5 yr.
+- No checkpoint reaches the ≥ 6/8 that LOTTERY needs. Unlike A at 1 yr, raw F-scratch does not survive at
+  random epochs: it fails at every epoch. How long it lasts does vary by epoch (e22 lasts longest).
+- The only F-scratch checkpoint that holds 5 yr is **EMA e23** (8/8), so the EMA averaging is what survives.
+- The PS drift of e22's two survivors has not been read yet (needs the budget read-out).
 
 ## Log traps found while building this
 
@@ -119,3 +128,51 @@ e41–43), 7725803/7725885 (F-depth4), 7720705 (5-yr). F-depth4's live run (7725
   `arm-fsF-nf4-bsched/makani_sfno/makani_mn_scaling.o7719538`.
 - A resume resets the raw best-val tracker. F-depth4's `best_ckpt_mp0.tar` is now e20; the e1 best is
   `best_ckpt_mp0_e1_stable.tar`.
+
+## Best checkpoints so far (2026-10-08 16:45 UTC)
+
+Every checkpoint that finishes the 5-yr test in all 8 runs. The climate errors were re-derived from the
+scoring CSVs (7709968, 7721213, 7721221, 7721578): median over the 8 runs of the mean `rmse_sigma`. The
+range is across the runs.
+
+| checkpoint | soil | 5-yr runs finish | PS drift at 5 yr (hPa) | climate error, 99 shared ch (σ) | climate error, 101 ch (σ) | forecast RMSE vs B22, 6 h / 24 h |
+|---|---|---|---|---|---|---|
+| **B22** | kept | 8/8 | −6.0 to −8.5 | **0.239** (0.235–0.247) | 0.251 | **reference** |
+| B22 + inference-only dry-air fix | kept | 8/8 | **−0.08 to −0.17** | 0.245 (0.242–0.248) | 0.256 | not measured |
+| B22 + inference-only RELHUM clamp | kept | 8/8 | −3.6 to −7.1 | 0.239 (0.235–0.244) | 0.250 | not measured |
+| **F-scratch EMA e23** (FSEMA) | dropped | 8/8 | −0.83 to +0.37 (dips −3.3 to −4.8 in months 1–5, then recovers) | **0.234** (0.231–0.241) | — | +4.3 % / **+19.0 %** |
+| DRYAIR24 (dry-air fix trained in) | kept | 8/8 | −0.14 to −0.24 | 0.325 (0.314–0.332) | 0.332 | not measured |
+| B24 + inference-only dry-air fix | kept | 8/8 | +0.28 to +0.41 | 0.307 (0.303–0.311) | 0.315 | not measured |
+| B24 | kept | 8/8 | +12.7 to +17.7 | 0.308 (0.301–0.318) | 0.317 | not measured |
+
+**Best by category:**
+- **5-yr stability:** all seven finish 8/8, so PS drift separates them. The smallest is B22 + the
+  inference-only dry-air fix (about −0.1 hPa). The smallest without any corrector is FSEMA. None is fully clean:
+  every arm's model top (`V_l00`) leaves 3σ within about 1–1.5 yr. FSEMA is the only one with runs that
+  never do (2 of 8).
+- **Climate accuracy:** FSEMA (0.234) and B22 (0.239) are tied, because their 8-run ranges overlap. B22 + fix
+  is close (0.245), but it makes PSL worse and TREFHT colder. B24 and DRYAIR24 are clearly worse.
+- **Short-range forecast RMSE:** B22 is the best measured, but only F checkpoints have been compared with it.
+  B24, DRYAIR24 and the inference-only variants are unmeasured.
+
+**Overall: B22 is the best all-rounder.** It is the only checkpoint at the top on all three. Run it with the
+inference-only dry-air fix if PS drift matters more than a small accuracy cost. **FSEMA is the best
+soil-free checkpoint:** B22-level climate and the smallest uncorrected drift, but 19 % worse at 24 h.
+
+Tested at 5 yr and **not** surviving:
+- A e243 0/8.
+- B e01 1/8.
+- B e01 + inference-only dry-air fix 0/8.
+- DRYAIR01 0/8.
+- SOILFIX21 7/8 and SOILFIX24 5/8.
+- FSEMA + inference-only dry-air fix: 0/8 healthy.
+- F-scratch raw at every epoch tested (e20–e23, e41–e43): ≤ 2/8.
+
+**Pending:** F-depth4 e14, e22 and e24 (debug-scaling 7727731). This is the soil-free model on B's recipe,
+and its 24 h RMSE is already better than FSEMA's.
+
+**Caveats:**
+- Each checkpoint comes from one training seed.
+- The climate score has no noise floor yet: two real 5-yr periods have never been scored against each
+  other. Read a 0.005 σ gap as a tie.
+
