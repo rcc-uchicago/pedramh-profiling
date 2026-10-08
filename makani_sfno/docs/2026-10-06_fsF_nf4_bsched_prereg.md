@@ -140,3 +140,5 @@ unchanged. The e1 bests survive as `best_ckpt_{ema_,}mp0_e1_stable.tar`.
 W). That freed the single per-user `debug` queue slot for the F-scratch by-epoch job 7727625 (prereg
 `8c8f9048`). The identical arm list is resubmitted by `runs/makani_eval/next_5yr_2026-10-08.sh fd` once
 7727625 is running. The arms, files and outcomes above are unchanged.
+**Resubmitted (2026-10-08 15:37 UTC):** **debug-scaling 7727731**, the same arms and files, still deferred
+to 17:45 UTC. That queue has its own one-queued-job-per-user limit. Operator: "can't you put F-depth4 on scaling".
