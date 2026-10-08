@@ -110,3 +110,28 @@ screen (`next_screens_2026-10-07.sh both1156`) reads those copies, so both start
 
 **Expected failure mode.** Every F run so far has hung in `mpiexec` after training (Exit -29, no OK
 token). Completion is keyed on `ckpt_mp0_v62.tar` plus the `Total training time` log line.
+
+## Amendment 3 (2026-10-08, before submission): the 5-yr protocol on e22 and e24, plus e14
+
+The operator, 2026-10-08: "continue with F-depth4". Single-step F-scratch e63 is cancelled, so this arm
+is now the F track. Resume 7725884 is running. It had logged e17–e21 by 15:18 UTC (v20 written 14:50,
+about 45 min per epoch). Expected write times: e22 = `ckpt_mp0_v21.tar` at about 15:35, e24 = `v23`
+at about 17:05.
+
+**One debug job, deferred start 17:45 UTC** (`qsub -a`). That leaves a 40-min margin for `v23` to finish
+writing; the run script has no partial-file guard. If `v23` is missing or truncated at start, the members
+error and no `CLIMATE_RUN_OK` prints. That is a timing failure, not a result. Arms:
+- `FD22` = `ckpt_mp0_v21.tar` (e22) and `FD24` = `ckpt_mp0_v23.tar` (e24). This is read-out step 2 as
+  pre-registered. **Outcomes S/D are decided by these two arms only.**
+- `FD14` = `ckpt_mp0_v13.tar` (e14), **descriptive**. It is the only checkpoint of this arm within ±10 hPa at
+  both 1-yr starts (−4.5 / −2.4 hPa; 7725803, 7725885). It shows whether that 1-yr ranking holds at 5 yr.
+  It does not enter S/D.
+
+8 members each, 2044 f1092 + 16i, `DRY_AIR_FIX` off (no flags), the same protocol as B22/B24 (7707597)
+and FSEMA (7720705). The job imports `src/` from the `b-continuation-dryair` tree when it starts, so do not
+edit that tree's `src/` until it ends. Follow-ups, each on debug: readout, budget (dPS / dDRY in hPa), then
+fidelity on the 99 shared channels for every 8/8 arm. No prediction is made.
+
+**Trap found:** the resume reset the raw best-val tracker. `best_ckpt_mp0.tar` was rewritten at 14:05 with
+e20 (0.015758). That is the best since the resume, not the run's best (e1, 0.015667). The EMA best is
+unchanged. The e1 bests survive as `best_ckpt_{ema_,}mp0_e1_stable.tar`.
