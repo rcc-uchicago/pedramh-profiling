@@ -142,3 +142,47 @@ W). That freed the single per-user `debug` queue slot for the F-scratch by-epoch
 7727625 is running. The arms, files and outcomes above are unchanged.
 **Resubmitted (2026-10-08 15:37 UTC):** **debug-scaling 7727731**, the same arms and files, still deferred
 to 17:45 UTC. That queue has its own one-queued-job-per-user limit. Operator: "can't you put F-depth4 on scaling".
+
+## Amendment 4 (2026-10-09, before submission): FD22 and FD24 with the inference-only dry-air fix
+
+**What amendment 3 found.** 7727731 (`CLIMATE_RUN_OK`) is **outcome S**: FD22, FD24 and FD14 each finish 8/8,
+and no channel crosses 3σ. But PS drifts. Budget 7731434 (`DRYAIR_BUDGET_OK n=24`, hPa, last lead − lead 1):
+
+| arm | dPS | dDRY | g·dTMQ | global TMQ | last-month TMQ < 0 | monthly cell TMQ min |
+|---|---|---|---|---|---|---|
+| FD14 | +11.5..+13.8 | +11.4..+13.7 | +0.09..+0.16 | 26.5–28.3 kg/m² | 4.2–4.9 % of area | −38..−57 |
+| FD22 | +35.1..+40.0 | +35.0..+39.9 | +0.08..+0.18 | 25.4–28.4 | 6.6–7.0 % | −24..−29 |
+| FD24 | −105.0..−108.0 | −106.2..−108.1 | +0.11..+0.25 | 24.7–29.4 | 0.0 % | −4.4..−5.7 |
+
+So this is dry-air mass drift, as in plain B. For comparison, B22's local negatives are ≤ 0.1 % of area
+(−6.7..−12.5 kg/m²).
+
+**Operator, 2026-10-09:** "do 1 first". That means testing the inference-only `DryAirFix` on these
+checkpoints before any trained-in arm.
+
+**One `debug-scaling` job,** `polaris_climate_run.pbs`. Arms:
+- `FD22dryair` = `ckpt_mp0_v21.tar` (e22)
+- `FD24dryair` = `ckpt_mp0_v23.tar` (e24)
+
+Both use `FLAGS=--dry-air-fix=on`, 8 members each, starting at 2044 f1092 + 16i. This is the same protocol
+and flag as B22dryair/B24dryair (7721150) and FSEMAdryair (7721233). FD14 is left out because it is not an
+S/D arm. The job uses the `b-continuation-dryair` tree @ `bac79ea9`, the same tree as 7727731, and imports
+its `src/` at start, so that tree's `src/` is frozen until the job ends. Follow-ups, each on debug: readout,
+budget, then fidelity on the 99 shared channels for every healthy 8/8 arm.
+
+**Outcomes, per arm.** These are the PH labels of `2026-10-06_b_posthoc_dryair_5yr_and_fidelity_prereg.md`,
+plus a health rule taken from FSEMAdryair. A member counts only if it completes **and** its global-mean
+TMQ stays > 0 at every lead (budget `min` > 0). Two of FSEMAdryair's members "completed" with TMQ at −10⁶.
+- **PH1, the fix suffices:** 8/8 healthy, and median |dPS| ≤ 1 hPa. Then the bolt-on works on F-depth4,
+  as it does on B22/B24.
+- **PH2, it pins mass but costs stability:** fewer than 8/8 healthy, as with FSEMA. The trained-in route
+  then remains, which is an operator decision because it needs `capacity`.
+- **PH3, dDRY is not pinned:** median |dDRY| > 1 hPa with 8/8 healthy. That would be a code fault. Check
+  `_stats_rows` on the 99-ch model before reading anything else.
+
+**Prediction, low confidence.**
+- FD24: PH1. It has no local negative TMQ and is the same kind of model as B22/B24 (depth-4, B's recipe).
+- FD22: at risk of PH2. 7 % of its area already has negative TMQ without the fix, and FSEMAdryair failed
+  by a water runaway.
+
+The FSEMAdryair prediction (8/8) was wrong, so neither call is strong.
