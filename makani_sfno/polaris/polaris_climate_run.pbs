@@ -96,6 +96,27 @@ mkdir -p "${OUT_ROOT}"
 
 echo "=== makani_climate_run: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}  arms='${ARMS}'  members=${N_MEMBERS}  out=${OUT_ROOT}"
+# -v WEIGHTS_<ARM>=ema rolls out the EMA weights stored in CKPT_<ARM>'s ema_state
+# (an EMA run's per-epoch ckpt_mp0_vN.tar). scripts/extract_ema_ckpt.py rebuilds them
+# into ${OUT_ROOT}/ema_ckpt_<arm>.tar the way the trainer builds its EMA-best file
+# (gate EMA_EXTRACT_OK, polaris_eval_gates.pbs); the copy is deleted at the end.
+# Unset = the raw model_state, exactly as before.
+EMA_TMP=()
+for arm in ${ARMS}; do
+    weights_var="WEIGHTS_${arm}"
+    case "${!weights_var:-raw}" in
+        raw) ;;
+        ema)
+            src="${CKPTS[$arm]}"; dst="${OUT_ROOT}/ema_ckpt_${arm}.tar"
+            if ! CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/scripts/extract_ema_ckpt.py" \
+                    --ckpt "${src}" --out "${dst}"; then
+                echo "ERROR EMA_EXTRACT_FAILED arm=${arm} src=${src}"; exit 4
+            fi
+            echo "weights ${arm}: ema from ${src}"
+            CKPTS[$arm]="${dst}"; EMA_TMP+=("${dst}") ;;
+        *) echo "ERROR WEIGHTS_INVALID ${weights_var}=${!weights_var} (raw | ema)"; exit 4 ;;
+    esac
+done
 for arm in ${ARMS}; do echo "ckpt ${arm}: ${CKPTS[$arm]} flags='${FLAGS[$arm]}'"; done
 makani_env_report
 echo
@@ -144,6 +165,8 @@ done
 echo "--- readout ($(date -Iseconds)) ---"
 CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/climate_smoke_readout.py" \
     "${OUT_ROOT}"/member_*.nc 2>&1 | tee "${OUT_ROOT}/readout.log" | tail -80
+
+for f in "${EMA_TMP[@]}"; do rm -f -- "${f}"; done
 
 [ "${ok}" -eq 1 ] && echo "CLIMATE_RUN_OK arms='${ARMS}' members=${N_MEMBERS} out=${OUT_ROOT}"
 echo "=== makani_climate_run done $(date -Iseconds) ==="
