@@ -1,0 +1,94 @@
+#!/bin/bash -l
+#PBS -N makani_window_truth
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Pipeline-comparison prereg §3/§6 (docs/makani-knowledge d06b4916):
+#  1. WINDOW_SCORER_OK: score_window_protocol.py rebuilds the full 2045-2049
+#     window from each member's monthly_mean and must reproduce the legacy
+#     rmse_sigma tables of B22 (7709968, 101 ch) and FSEMA (7721221, 99 ch).
+#  2. Per-year truth time-means for YEARS (default 2045 2046 2047), one process
+#     per year, with the F run's 99-channel config, then their n_samples-weighted
+#     combination: truth_<Y0>_<Y1>.npz in $EVAL/window_truth/.
+# Submit from makani_sfno/:  qsub [-v YEARS="2042 2043 2044"] polaris/polaris_window_truth.pbs
+# PASS = WINDOW_TRUTH_OK (and WINDOW_SCORER_OK on the default run).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_run.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EVAL="${MEMBER_ROOT}/runs/makani_eval"
+FRUN="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_2n_b32_e23_scratch"
+YEARS="${YEARS:-2045 2046 2047}"
+OUT="${EVAL}/window_truth"
+mkdir -p "${OUT}"
+echo "=== makani_window_truth: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} years='${YEARS}' ==="
+
+# --- per-year truth builds in the background, one GPU each -----------------------------
+g=0; PIDS=()
+for y in ${YEARS}; do
+    [ -f "${OUT}/truth_${y}.npz" ] && { echo "truth_${y}.npz exists, reusing"; continue; }
+    CUDA_VISIBLE_DEVICES="$((g % 4))" "${PY}" "${MAKANI_ROOT}/polaris/build_true_climatology.py" \
+        --run-dir "${FRUN}" --years "${y}" --years-dir "${OUT}/years_${y}" \
+        --out "${OUT}/truth_${y}.npz" > "${OUT}/truth_${y}.log" 2>&1 &
+    PIDS+=($!); g=$((g + 1))
+done
+
+# --- WINDOW_SCORER_OK while the truth builds run (default years only) -------------------
+if [ "${YEARS}" = "2045 2046 2047" ]; then
+    S="${MAKANI_ROOT}/polaris/score_window_protocol.py"
+    "${PY}" "${S}" --true "${EVAL}/climate_fidelity_7709968/true_climatology_b.npz" --window 2045 2049 \
+        --member "${EVAL}"/climate_protocol_7707597/member_B22[0-9][0-9].nc \
+        --check-legacy "${EVAL}/climate_fidelity_7709968/fidelity_b22_b24.csv" 2>&1 | tail -2
+    "${PY}" "${S}" --true "${EVAL}/climate_fidelity_7721221/true_climatology_subset.npz" --window 2045 2049 \
+        --member "${EVAL}"/climate_protocol_7720705/member_FSEMA[0-9][0-9].nc \
+        --check-legacy "${EVAL}/climate_fidelity_7721221/fidelity_fsema.csv" 2>&1 | tail -2
+fi
+
+for pid in "${PIDS[@]}"; do wait "${pid}"; done
+for y in ${YEARS}; do tail -1 "${OUT}/truth_${y}.log" 2>/dev/null; done
+
+"${PY}" - "${OUT}" ${YEARS} <<'PY'
+import sys
+import numpy as np
+out, years = sys.argv[1], [int(y) for y in sys.argv[2:]]
+parts = [np.load(f"{out}/truth_{y}.npz", allow_pickle=False) for y in years]
+names = [list(map(str, p["channel_names"])) for p in parts]
+assert all(n == names[0] for n in names), "channel lists differ between years"
+w = np.array([float(p["n_samples"]) for p in parts])
+tm = sum(p["time_mean"].astype(np.float64) * wi for p, wi in zip(parts, w)) / w.sum()
+dst = f"{out}/truth_{years[0]}_{years[-1]}.npz"
+np.savez(dst, time_mean=tm, channel_names=parts[0]["channel_names"],
+         global_means=parts[0]["global_means"], global_stds=parts[0]["global_stds"],
+         lat=parts[0]["lat"], lon=parts[0]["lon"], years=np.array(years), n_samples=int(w.sum()))
+print(f"WINDOW_TRUTH_OK years={years} n_samples={int(w.sum())} channels={len(names[0])} out={dst}")
+PY
+echo "=== makani_window_truth done $(date -Iseconds) ==="
