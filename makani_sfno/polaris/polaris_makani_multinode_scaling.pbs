@@ -80,6 +80,9 @@
 #   -v GPU_ORDER=reverse pair each rank with the GPU on its OWN NUMA node
 #   -v NCCL_DEBUG=WARN   quiet the fabric once the transport is a recorded fact
 #   -v REP=2             label a repetition; interleave reps, never batch them
+#   -v AMP_MODE=none     train without autocast (default bf16). The scaling CSV
+#                        has no precision column, so send fp32 timing runs to
+#                        their own -v MAKANI_SCALING_CSV=<file>.
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}" || exit 2
@@ -652,6 +655,12 @@ export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
 SHIM="${MAKANI_ROOT}/polaris/polaris_rank_env.sh"
 if [ ! -f "${SHIM}" ]; then echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 2; fi
 
+AMP_MODE="${AMP_MODE:-bf16}"
+case "${AMP_MODE}" in
+    none|bf16|fp16) echo "amp_mode=${AMP_MODE}" ;;
+    *) echo "ERROR AMP_MODE_INVALID: ${AMP_MODE} (none | bf16 | fp16)"; exit 2 ;;
+esac
+
 TRAIN_ARGS=(
     -m sfno_training.train_plasim
     --yaml_config "${RENDERED}"
@@ -666,7 +675,10 @@ TRAIN_ARGS=(
     # peak_torch ~= 2.31 + 2.12 GB per sample/GPU puts 8 samples/GPU near 44 GB
     # on a 39.49 GiB card, so drop LOCAL_BATCH to 4-6 and measure first.
     --multistep_count "${MULTISTEP:-1}"
-    --amp_mode bf16
+    # -v AMP_MODE=none trains without autocast (fp32 activations and weights;
+    # train_plasim.py:302-303 still allows TF32 matmuls). Unset = bf16, the
+    # mode of every run before 2026-10-09, so existing submitters are unchanged.
+    --amp_mode "${AMP_MODE}"
     --h_parallel_size "${HPAR}"
     --w_parallel_size "${WPAR}"
     --print_timings_frequency 10
