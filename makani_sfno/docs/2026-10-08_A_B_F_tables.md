@@ -1,4 +1,4 @@
-# A, B and F side by side (2026-10-08, revised 16:45 UTC)
+# A, B and F side by side (2026-10-08, revised 16:45 UTC; channel drift added 2026-10-09)
 
 Every number comes from a job output, read on 2026-10-08: the rendered yamls and training logs in
 `RUNS/`, the 1-yr `screen_summary.csv` files in `EVAL/climate_screen_<job>/`, and the 5-yr
@@ -168,11 +168,99 @@ Tested at 5 yr and **not** surviving:
 - FSEMA + inference-only dry-air fix: 0/8 healthy.
 - F-scratch raw at every epoch tested (e20–e23, e41–e43): ≤ 2/8.
 
-**Pending:** F-depth4 e14, e22 and e24 (debug-scaling 7727731). This is the soil-free model on B's recipe,
-and its 24 h RMSE is already better than FSEMA's.
+**F-depth4 (2026-10-09):** e14, e22 and e24 also finish 8/8 (7727731, outcome S). PS drifts +11..+14,
++35..+40 and −105..−108 hPa, all of it dry air (budget 7731434). That is the worst of any 8/8 arm. With the
+inference-only dry-air fix (7731448) PS holds to +0.3 / −0.6 hPa, but TREFHT then drifts +3.4 / −4.2 K. See
+"5-yr channel drift" below. Its fidelity has not been run, so it is not ranked above.
 
 **Caveats:**
 - Each checkpoint comes from one training seed.
 - The climate score has no noise floor yet: two real 5-yr periods have never been scored against each
   other. Read a 0.005 σ gap as a tie.
 
+## 5-yr channel drift, every channel (2026-10-09)
+
+What each checkpoint's climate drifts *to*, channel by channel. Drift = the annual global mean in 2049 minus
+the one in 2045. Both are full scored years, so the seasonal cycle cancels. ⚠ `readout.log`'s "lead L − lead 1"
+does not cancel it, because runs start in October and end in December. It reads F-depth4 e24's TREFHT as −3 K
+when the drift is −0.16 K. σ = the pack's `global_stds`. Each cell is the median of the 8 runs.
+
+Sources: debug jobs 7731449 / 7731614 read the member NetCDFs of 7720705 (FSEMA), 7711720 (DRYAIR24),
+7707597 (B22, B24), 7727731 (F-depth4 e14/e22/e24) and 7731448 (F-depth4 e22/e24 + inference-only dry-air
+fix). Every channel, with the min/max over the runs: `2026-10-09_channel_drift_2045_2049.csv` (next to this
+doc). The script is in `EVAL/channel_drift_2045_2049/`. FD = F-depth4.
+
+| checkpoint | ch | > 0.1σ | > 0.2σ | largest (σ) | Z3_l17 / PS (σ/σ) | PS (hPa) | PSL (hPa) | Z3_l17 (m) | Z3_l10 (m) | TREFHT (K) | T_l00 (K) | T_l08 (K) | U_l00 (m/s) | TMQ (kg/m²) | RHREFHT (%) | PRECT (mm/d) | FSNTOA (W/m²) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| FSEMA | 99 | 3 | 0 | U_l04 -0.16 | -1.34 | +3.1 | -0.0 | -36 | -23 | -0.14 | -0.51 | +0.30 | -0.8 | -0.19 | +0.35 | -0.10 | -2.0 |
+| DRYAIR24 | 101 | 12 | 5 | U_l00 -0.35 | n/a (PS pinned) | -0.0 | +1.7 | +58 | +23 | -0.20 | +1.16 | -0.35 | -9.0 | -0.24 | +1.50 | -0.18 | -0.3 |
+| B22 | 101 | 15 | 8 | U_l00 -0.57 | -1.01 | -6.9 | +0.3 | +61 | +25 | +0.09 | +4.24 | -0.68 | -14.5 | +0.16 | +0.87 | -0.21 | -1.6 |
+| B24 | 101 | 34 | 6 | U_l01 +0.32 | -1.12 | +14.2 | -0.4 | -139 | -67 | +0.78 | +2.16 | -0.80 | -4.6 | +0.79 | +0.73 | -0.11 | +3.0 |
+| FD14 | 99 | 31 | 9 | U_l02 -0.37 | -1.24 | +13.4 | -0.8 | -145 | -37 | +1.73 | +1.62 | -1.08 | -4.8 | +1.85 | -0.34 | -0.22 | +3.9 |
+| FD22 | 99 | 28 | 14 | U_l00 +0.58 | -1.21 | +24.3 | -1.2 | -256 | -91 | +1.75 | -1.22 | -1.38 | +14.8 | +1.26 | -0.54 | -0.44 | +2.6 |
+| FD24 | 99 | 52 | 39 | Z3_l12 +1.26 | -1.23 | -74.4 | +3.5 | +799 | +488 | -0.16 | -7.90 | +3.37 | -7.7 | +3.42 | +5.48 | +0.61 | -21.8 |
+| FD22dryair | 99 | 54 | 24 | U_l02 -0.67 | n/a (PS pinned) | +0.3 | -3.6 | -327 | -1 | +3.35 | +0.63 | +0.03 | +7.1 | +3.03 | -1.24 | -0.44 | -0.6 |
+| FD24dryair | 99 | 54 | 30 | Z3_l17 +0.87 | n/a (PS pinned) | -0.3 | +8.5 | +708 | +148 | -4.18 | -1.75 | +1.16 | -1.9 | -3.27 | +6.53 | +0.22 | -8.4 |
+
+**FSEMA: ten largest drifts** (σ; physical units; runs with the median's sign)
+
+| channel | σ | physical | same sign |
+|---|---|---|---|
+| U_l04 | -0.159 | -2.224 | 7/8 |
+| U_l06 | -0.117 | -1.54 | 8/8 |
+| U_l05 | -0.111 | -1.416 | 7/8 |
+| U_l01 | +0.062 | +1.377 | 7/8 |
+| RELHUM_l00 | +0.059 | +0.003271 | 7/8 |
+| Z3_l12 | -0.056 | -28.68 | 8/8 |
+| Z3_l11 | -0.056 | -26.17 | 8/8 |
+| Z3_l13 | -0.055 | -32.34 | 8/8 |
+| Z3_l14 | -0.052 | -34.28 | 8/8 |
+| Z3_l15 | -0.048 | -35.45 | 8/8 |
+
+**DRYAIR24: ten largest drifts** (σ; physical units; runs with the median's sign)
+
+| channel | σ | physical | same sign |
+|---|---|---|---|
+| U_l00 | -0.352 | -8.956 | 8/8 |
+| RELHUM_l05 | +0.331 | +5.174 | 8/8 |
+| RELHUM_l04 | +0.327 | +2.598 | 8/8 |
+| T_l04 | -0.247 | -2.165 | 8/8 |
+| T_l03 | -0.231 | -2.063 | 8/8 |
+| U_l01 | -0.156 | -3.459 | 7/8 |
+| SOILWATER_10CM | -0.143 | -2.035 | 8/8 |
+| U_l03 | -0.133 | -2.309 | 8/8 |
+| PSL | +0.116 | +174.6 | 8/8 |
+| RELHUM_l10 | +0.105 | +3.637 | 8/8 |
+
+**Readings:**
+- **FSEMA is the cleanest of the nine.** No channel moves more than 0.2σ, and only three move more than 0.1σ
+  (`U_l04`–`l06`, about −1.5..−2.2 m/s). Its +3.1 hPa PS here, against −0.83..+0.37 hPa in the budget, is the
+  months 1–5 dip recovering: 2045 is still low.
+- **DRYAIR24 pins PS (−0.0 hPa) but the upper troposphere drifts:**
+  - `U_l00` −9.0 m/s
+  - `T_l03`/`l04` −2.1 K
+  - `RELHUM_l04`/`l05` +2.6 / +5.2
+  - `SOILWATER_10CM` −2.0
+
+  That is 5 channels past 0.2σ (B22 has 8). Its lowest-level height `Z3_l17` still rises 58 m with PS held.
+- **Without a corrector, PS and the lower heights move together as one pattern.** `Z3_l17` drifts −1.0 to
+  −1.3× PS, in σ units, in all six unpinned arms (FSEMA, B22, B24, FD14/22/24). Over the same years PSL barely
+  moves. These are the terrain-dominated channels (R² ≥ 0.94 against `topo`, static audit 7646252), so the
+  drift is a change in the terrain-shaped part of the state.
+- **F-depth4 drifts most.** e24 has 39 channels past 0.2σ:
+  - lower-level heights +490..+800 m
+  - model top −7.9 K, mid-troposphere +3.4 K
+  - TMQ +3.4 kg/m², FSNTOA −22 W/m²
+- **The inference-only dry-air fix on F-depth4 (7731448) is PH1 by prereg amendment 4:**
+  - Both arms are 8/8 complete.
+  - Global TMQ stays > 0 at every lead. Its minimum is 25.6 kg/m² for e22 and 19.9 kg/m² for e24.
+  - dDRY is 0.00. dPS is +0.30..+0.38 hPa (e22) and −0.56..−0.69 hPa (e24), all of it water
+    (budget in the 7731614 log).
+  - The prediction "e22 at risk of PH2" was wrong.
+- **But the fix does not hold F-depth4's climate.** It moves the drift into temperature and water:
+  - Channels past 0.1σ: 54 / 54, against 28 / 52 without the fix.
+  - TREFHT: +3.35 K (e22) and −4.18 K (e24).
+  - Global TMQ, first to last lead: 27 → 30.5 (e22) and 27 → 20 kg/m² (e24).
+  - `Z3_l17` still drifts −327 / +708 m, because the fix shifts PS uniformly and leaves the terrain pattern
+    alone.
+  - So on this checkpoint the fix pins mass but leaves the climate drifting. Fidelity has not been run.
