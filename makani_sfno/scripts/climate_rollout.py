@@ -79,6 +79,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--feedback-fp32", action="store_true",
                    help="Feed back the fp32 prediction instead of its native (autocast) dtype; "
                         "the forward pass itself is unchanged. Off by default")
+    p.add_argument("--amp", choices=("config", "off"), default="config",
+                   help="Autocast for the forward pass. 'config' = the run's amp_mode (bf16 for "
+                        "every run so far); 'off' runs fp32 end to end, so the prediction and the "
+                        "carried state are fp32. TF32 flags are PyTorch's defaults and are logged")
     return p.parse_args(argv)
 
 
@@ -126,6 +130,9 @@ def main(argv=None) -> int:
     elif args.force_positive == "relhum":
         eval_params.force_positive_names = RELHUM_FORCE_POSITIVE_NAMES
     force_positive_names = list(getattr(eval_params, "force_positive_names", None) or [])
+    if args.amp == "off":
+        eval_params.amp_enabled = False
+        eval_params.amp_dtype = torch.float32
     pack = args.pack
     if pack is None:
         tdp = eval_params.train_data_path
@@ -170,7 +177,10 @@ def main(argv=None) -> int:
     print(f"member={args.member_id} ckpt_epoch={provenance['ckpt_epoch']} "
           f"sha={provenance['ckpt_sha256_16']} timestamps={ts_mode['mode']} "
           f"feedback_dtype={res.feedback_dtype} dry_air_fix={int(dry_air_fix)} "
-          f"force_positive={len(force_positive_names)}ch feedback_fp32={int(args.feedback_fp32)}")
+          f"force_positive={len(force_positive_names)}ch feedback_fp32={int(args.feedback_fp32)}"
+          + ("" if args.amp == "config" else
+             f" amp=off tf32_matmul={int(torch.backends.cuda.matmul.allow_tf32)}"
+             f" tf32_cudnn={int(torch.backends.cudnn.allow_tf32)}"))
     for h in res.handoffs:
         print(f"HANDOFF step={h['step']} {h['from']}->{h['to']} local={h['to_local_idx']} "
               f"forcing_direct_match={h['forcing_direct_match']}")
