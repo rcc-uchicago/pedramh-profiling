@@ -148,3 +148,40 @@ to the operator before use.
 
 Recipe and attribution claims (≥ 2 seeds each), the constraint bundle (capped tendency-unit loss, Z3 output-only,
 positivity clamp, trained-in dry air) and ACE2 each need their own pre-registration.
+
+## Amendment 1 (2026-10-10, before submission): the stop-early trained-in dry-air test, and how the gates read the window
+
+**Gates vs scores (clarifies §2 and §4).** Gates 1–3 are pass/fail on the whole run to 2049-12-31: finite, TMQ > 0,
+and |dPS| measured last lead − lead 1. That is what "survives 5 yr" means. Every *score* that ranks candidates is
+read only on 2045–47 until `finalists_frozen.txt` exists: A, W, the drift census, and any channel-level climate
+error. Ranking from `readout.log` drift values at leads after 2047-12-31 is forbidden.
+
+**Operator, 2026-10-09/10.** Test training the dry-air constraint in on F-depth4, stop-early, with the first block
+on capacity ahead of G1. If G1 starts first because of queue order, the block follows G1.
+
+**Run `fsF_dryair_nf4_b16_rtmax100_scratch`**, from worktree `arm-fd-dryair` (branch `arm/fd-dryair` at
+`9018ec79`; frozen while queued):
+- **Settings:** 7719538's exact settings, plus `CONSERVE_DRY_AIR=1`.
+  - Warm start from F-scratch raw e23 (`best_ckpt_mp0_e23_stable.tar`) with fresh optimizer, scheduler,
+    counters and loss.
+  - `MULTISTEP=5`, LR 4e-4, `CosineAnnealingLR` `T_max 100`, 1 warmup epoch at `LR_START 0.01`.
+  - 2 nodes × LB 2 (global batch 16), 99 channels (`e3sm_alldata_nosoil.yaml`), bf16.
+  - EMA 0.9995 (the config default), `CKPT_VERSIONS 250`.
+- **Prerequisite:** smoke debug 7732540, 60 steps on the same settings. It must print `MAKANI_MN_SCALING_OK` with
+  a finite loss. Otherwise nothing is submitted.
+- **Block 1 = epochs 1–4** (about 3 h).
+
+**Continue rule.** After each block, run the 5-yr protocol (§2 S set) on raw and EMA at the block's last epoch and
+the epoch two before it. Continue by 4 more epochs, resuming in place with `LOAD_*=1`, only if every condition
+holds:
+1. At least one of them passes gates 1–3.
+2. Its global TREFHT drift (2047 − 2045 annual) is within 0.5 K.
+3. Its drift census has at most 3 groups.
+4. It is not worse on A (2045–47) than F-depth4 EMA at the same epoch from the sweep. "Worse" means a gap larger
+   than 3.3 × the paired member SE.
+
+Otherwise stop. The arm's total cost is then the blocks already run (about 6 node-h per block). Block 1 cannot
+show that later epochs will be good; it can only show cheaply that the approach fails.
+
+**What it decides.** Whether G1 Stage B gets a trained-in dry-air variant. If the arm is stopped, Stage B runs
+plain only. No prediction is made.
