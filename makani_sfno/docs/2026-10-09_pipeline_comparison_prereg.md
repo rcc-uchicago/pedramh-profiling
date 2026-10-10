@@ -185,3 +185,16 @@ show that later epochs will be good; it can only show cheaply that the approach 
 
 **What it decides.** Whether G1 Stage B gets a trained-in dry-air variant. If the arm is stopped, Stage B runs
 plain only. No prediction is made.
+
+**Amendment 1a (2026-10-10, before the first link): where block 1 runs.**
+- **Operator:** run block 1 as chained `debug-scaling` sessions rather than on capacity. G1 keeps its capacity
+  place.
+- **Layout:** **4 nodes × LB 1** instead of 2 × 2. The global batch stays 16, and the distributed sampler puts the
+  same 16 samples in every optimizer step, so only fp reduction order differs.
+- **Chain:** one epoch per 1-h job. Link 1 warm-starts with `PRETRAINED`, `LOAD_*=0` and `OVERRIDE_LR`. Link k ≥ 2
+  is an in-place resume with `EPOCHS=k` and `LOAD_*=1`.
+- **Driver:** `runs/makani_mn_scaling/chain_fsF_dryair.sh`. It qdels each link once "Total training time" and
+  `ckpt_mp0_v{k-1}.tar` both exist, then submits the next link. It stops after epoch 4, or on any link that
+  fails or runs past 70 min. It never resubmits.
+- **Smoke 7732540 passed:** `MAKANI_MN_SCALING_OK`, conserve_dry_air True, finite loss, 1074 ms/step at 2×2,
+  peak 23.2 GB.
