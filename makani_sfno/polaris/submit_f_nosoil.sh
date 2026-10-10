@@ -5,6 +5,7 @@
 #     AMP_MODE=none  train without autocast (fp32; TF32 matmuls stay on). Adds _fp32 to RUN_NUM.
 #     SPARE=0        select exactly NODES (default 1 spare node).
 #     DEPEND=<jobid> hold until that job ends (afterany), e.g. the capacity job ahead of us.
+#     DRYAIR=1       train with the dry-air mass constraint (CONSERVE_DRY_AIR=1). Adds _dryair to RUN_NUM.
 #
 # Recipe = prod1n_b32_sgdr's config.json exactly (LR 2e-3, beta2 0.95, grad clip 32,
 # CosineAnnealingWarmRestarts T0=20 Tmult=1, warmup 3) at GLOBAL BATCH 32, so the
@@ -41,6 +42,7 @@ if [ $(( (EPOCHS - 3) % 20 )) -ne 0 ]; then echo "ERROR EPOCHS must be 3 + 20k (
 
 AMP_MODE="${AMP_MODE:-bf16}"
 case "${AMP_MODE}" in bf16) SUFFIX="" ;; none) SUFFIX="_fp32" ;; *) echo "ERROR AMP_MODE must be bf16 or none"; exit 2;; esac
+case "${DRYAIR:-0}" in 0) ;; 1) SUFFIX="${SUFFIX}_dryair" ;; *) echo "ERROR DRYAIR must be 0 or 1"; exit 2;; esac
 RUN_NUM="f_nosoil_${NODES}n_b32_e${EPOCHS}_${ROUTE}${SUFFIX}"
 SLICED="${M}/runs/makani_probe/surgical/7646690/best_ckpt_mp0_nosoil.tar"
 VARS="TARGET_NODES=${NODES},HPAR=1,WPAR=1,LOCAL_BATCH=${LB},FULL=1,EPOCHS=${EPOCHS},EVAL_SAMPLES=512,WANDB=1"
@@ -50,6 +52,7 @@ VARS="${VARS},WARMUP_EPOCHS=3,LR_START=0.01,CKPT_VERSIONS=250,EMA=1,EMA_DECAY=0.
 VARS="${VARS},CONFIG_YAML=e3sm_alldata_nosoil.yaml,PACK=${M}/data/e3sm_makani_alldata_production"
 VARS="${VARS},MAKANI_SCALING_CSV=${M}/bench/makani_production.csv"
 [ "${AMP_MODE}" != "bf16" ] && VARS="${VARS},AMP_MODE=${AMP_MODE}"
+[ "${DRYAIR:-0}" = "1" ] && VARS="${VARS},CONSERVE_DRY_AIR=1"
 if [ "${ROUTE}" = "warm" ]; then
     [ -f "${SLICED}" ] || { echo "ERROR SLICED_CKPT_MISSING: ${SLICED}"; exit 2; }
     VARS="${VARS},PRETRAINED_CKPT=${SLICED},LOAD_OPTIMIZER=0,LOAD_SCHEDULER=0,LOAD_COUNTERS=0,LOAD_LOSS=0,OVERRIDE_LR=1"
@@ -66,6 +69,7 @@ PROV="${M}/runs/makani_mn_scaling/${RUN_NUM}.warmstart_provenance.txt"
     echo "  EMA on (decay 0.9995; shadow only, raw trajectory unchanged)"
     echo "  node count ${NODES} (global batch held at 32)"
     [ "${AMP_MODE}" = "none" ] && echo "  precision: no autocast (fp32 weights/activations, TF32 matmuls) instead of bf16"
+    [ "${DRYAIR:-0}" = "1" ] && echo "  dry-air mass constraint trained in (CONSERVE_DRY_AIR=1)"
     [ "${ROUTE}" = "warm" ] && echo "  init = sliced prod1n_b32_sgdr best (7646690), fresh optimizer/sched/counters/loss"
     echo "vars: ${VARS}"
 } > "${PROV}"
