@@ -116,7 +116,11 @@ def main(argv=None) -> int:
             mnames = [str(c) for c in ds["channel"][:]]
         shared = [n for n in tnames if n in mnames]
         tidx = [tnames.index(n) for n in shared]
-        tm, nsteps = window_mean(mp, a.window[0], a.window[1], shared)
+        try:
+            tm, nsteps = window_mean(mp, a.window[0], a.window[1], shared)
+        except ValueError as exc:   # blown-up or truncated member: fails gate 1, never scored
+            print(f"SKIP {mp.name}: {exc}")
+            continue
         e = pattern_rmse(tm, tmean[tidx], w)
         maps[mp] = (shared, tm)
         for n, ec, sc in zip(shared, e, tstd[tidx]):

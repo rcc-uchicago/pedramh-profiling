@@ -69,7 +69,13 @@ def main(argv=None) -> int:
 
     per_arm: dict[str, list] = {}
     for mp in a.member:
-        names, m = member_annual_gm(mp, [a.y0, a.y1])
+        try:
+            names, m = member_annual_gm(mp, [a.y0, a.y1])
+        except ValueError as exc:
+            print(f"SKIP {mp.name}: {exc}")
+            continue
+        if not all(np.isfinite(v).all() for v in m.values()):
+            print(f"SKIP {mp.name}: non-finite annual mean"); continue
         idx = [tnames.index(n) for n in names]
         d_phys = (m[a.y1] - tr[a.y1][idx]) - (m[a.y0] - tr[a.y0][idx])
         per_arm.setdefault(arm_of(mp), []).append((names, d_phys, d_phys / sd[idx]))
