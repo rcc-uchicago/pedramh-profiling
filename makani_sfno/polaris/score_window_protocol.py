@@ -103,7 +103,7 @@ def main(argv=None) -> int:
     p.add_argument("--summary", type=Path, default=None, help="per-arm summary CSV")
     a = p.parse_args(argv)
 
-    true = np.load(a.true, allow_pickle=False)
+    true = np.load(a.true, allow_pickle=True)
     tnames = [str(c) for c in true["channel_names"]]
     tmean = np.asarray(true["time_mean"], dtype=np.float64)
     tstd = np.asarray(true["global_stds"], dtype=np.float64).reshape(-1)
@@ -164,7 +164,7 @@ def main(argv=None) -> int:
               f"median floor/global_std={np.median(floor / tstd[[tnames.index(n) for n in common]]):.4f}")
 
     if a.floor:
-        fl = np.load(a.floor, allow_pickle=False)
+        fl = np.load(a.floor, allow_pickle=True)
         fmap = dict(zip([str(c) for c in fl["channel_names"]], np.asarray(fl["floor"], dtype=np.float64)))
         for r in rows:
             r["r"] = r["e"] / fmap[r["channel"]] if r["channel"] in fmap else np.nan

@@ -80,7 +80,7 @@ for y in ${YEARS}; do tail -1 "${OUT}/truth_${y}.log" 2>/dev/null; done
 import sys
 import numpy as np
 out, years = sys.argv[1], [int(y) for y in sys.argv[2:]]
-parts = [np.load(f"{out}/truth_{y}.npz", allow_pickle=False) for y in years]
+parts = [np.load(f"{out}/truth_{y}.npz", allow_pickle=True) for y in years]
 names = [list(map(str, p["channel_names"])) for p in parts]
 assert all(n == names[0] for n in names), "channel lists differ between years"
 w = np.array([float(p["n_samples"]) for p in parts])
