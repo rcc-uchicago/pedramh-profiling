@@ -198,3 +198,37 @@ plain only. No prediction is made.
   fails or runs past 70 min. It never resubmits.
 - **Smoke 7732540 passed:** `MAKANI_MN_SCALING_OK`, conserve_dry_air True, finite loss, 1074 ms/step at 2×2,
   peak 23.2 GB.
+
+## Amendment 2 (2026-10-10, before any dry-air result): G1 switches to dry-air-from-scratch if the fine-tune shows no improvement
+
+**Operator, 2026-10-10:** "If the dry-air fix on the debug-scaling jobs doesn't show improvement, cancel G1 Stage A
+and make sure it is trained with the dry-air fix." The hypothesis is that the constraint must be present from the
+start of training, as in ACE2, rather than added at the fine-tune.
+
+**Comparison, matched by epoch and weight type:**
+- dry-air arm EMA e4 (`fsF_dryair_nf4_b16_rtmax100_scratch`, ckpt v3, `WEIGHTS=ema`);
+- F-depth4 EMA e4 (sweep batch FD-a, 7731806).
+- Both on the S set, scored on 2045–47.
+
+**"Shows improvement"** means all three of:
+1. The dry-air EMA e4 passes gates 1–3 (8/8 finite to 2049, global TMQ > 0 and ≤ 1 % negative area, |dPS| ≤ 1 hPa).
+2. Its global TREFHT drift (2047 − 2045 annual, model − truth) is within 0.5 K. This is the failure the inference-only
+   fix showed.
+3. Against F-depth4 EMA e4, one of:
+   - fewer drifting groups (census, §4.4), with A not worse by more than 3.3 × the paired member SE; or
+   - A better by more than 3.3 × the paired SE, with no more drifting groups.
+
+Anything else is **no improvement**. That includes the chain stopping before e4 because a link failed.
+
+**Actions:**
+- **No improvement:**
+  - Cancel G1 Stage A 7731784, whether queued or running. Its saved epochs stay in the pool as candidates.
+  - If it has already finished, nothing is cancelled.
+  - Either way, submit **G1-dry**: Stage A recipe (§8), fp32, from scratch, with `CONSERVE_DRY_AIR=1`, run
+    `f_nosoil_2n_b32_e23_scratch_fp32_dryair`, on capacity.
+- **Improvement:** the plan stands. G1 Stage A stays plain, and Stage B runs in plain and dry-air variants.
+- In both branches the block-1 continue rule (amendment 1) still governs whether the dry-air arm itself trains on.
+
+**Prerequisites before G1-dry could be submitted:**
+- an fp32 single-step dry-air smoke on debug (prepared now);
+- the drift-census tool, which needs the truth annual global means for 2015–2044 (built now, on debug).
