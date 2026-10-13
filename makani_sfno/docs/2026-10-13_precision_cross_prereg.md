@@ -114,3 +114,9 @@ state accumulates over about 7,600 steps.
   the stride-1 E3SM annual-mean file. It then runs the analysis into
   `runs/makani_eval/precision_cross_2026-10-13/results.txt`.
 - **k:** 10 new candidate tuples, plus the gate arm.
+
+## Amendment 0 (2026-10-13, before any new-cell result): location of the write-up
+
+No design change. The results write-up cited under **Question** as `makani_results/2026-10-13_makani_results.md`
+is committed on this branch at `makani_sfno/docs/2026-10-13_makani_results/2026-10-13_makani_results.md`, with
+its figures and regenerating scripts alongside it.
