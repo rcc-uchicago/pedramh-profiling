@@ -28,4 +28,4 @@ for f in sys.argv[1:]:
     for b in T:
         for pts in L:
             if any(seg_hits(b,pts[k],pts[k+1]) for k in range(len(pts)-1)): print("  LINE ",b[4][:60]); bad+=1; break
-    print(f.rsplit("/",1)[1], "issues:",bad)
+    print(f.replace("\\","/").split("/")[-1], "issues:",bad)

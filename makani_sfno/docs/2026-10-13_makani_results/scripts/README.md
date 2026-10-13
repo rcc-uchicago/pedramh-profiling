@@ -11,4 +11,5 @@ override with `MAKANI_RESULTS_WORK=<dir>`.
    (produced inline during the analysis; the parsing rule is in the write-up's design section).
 4. `gen_tables.py` -> `tables.md` (every table in the write-up). `make_figs.py <outdir>` -> the two SVGs.
    `check_svg.py <svg...>` -> geometric layout check (text overlap, canvas overflow, line-through-label).
-5. `build_doc.py` splices `tables.md` into `results_template.md` -> `../2026-10-13_makani_results.md`.
+5. `make_fig3.py <outdir>` -> `fig3_candidates.svg` and `table6.md` (the checkpoint choice, Result 14).
+6. `build_doc.py` splices `tables.md` and `table6.md` into `results_template.md` -> `../2026-10-13_makani_results.md`.

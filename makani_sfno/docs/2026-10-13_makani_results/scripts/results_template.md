@@ -9,7 +9,7 @@ the end.*
 
 **Status (2026-10-13):** the experiment proposed in the Verdict, the 2 × 2 cross of training precision ×
 rollout precision, is running: debug job 7742848 and debug-scaling job 7742849. It was pre-registered before
-submission in `makani_sfno/docs/2026-10-13_precision_cross_prereg.md`. Its outcome will be added here as Result 14.
+submission in `makani_sfno/docs/2026-10-13_precision_cross_prereg.md`. Its outcome will be added here as Result 15.
 
 ## 1. Question and design
 
@@ -361,6 +361,49 @@ Only epoch 243 went through the five-year protocol (0/8, Table 3). Every A check
 at cycle position 16–19: epochs 21–23, the cycle ends 43 to 243 (kept as snapshot-ensemble members [L3]), and
 epochs 200 and 220. Therefore A cannot test Result 5's position effect, and its only five-year number comes
 from a late-cycle checkpoint.
+
+### Result 14. Among the checkpoints that pass gates 1–3, G1-dry EMA epoch 39 has the lowest score A
+
+As Figure 3 and Table 6 show, eight checkpoints pass gates 1–3. Of these, G1-dry EMA epoch 39 has the lowest score
+A (1.52; worst group W 2.52; |dPS| ≤ 0.30 hPa; at most 0.4% of the globe with negative water in the last month).
+In paired comparisons, the next gate-passing candidates score higher by:
+- 0.158 ± 0.021 for G1 EMA epoch 15 with the prediction-time fix (p = 1.4e-4);
+- 0.231 ± 0.026 for G1 EMA epoch 19 with the fix (p = 4.1e-5);
+- 1.594 ± 0.024 for F-scratch EMA epoch 23 (p = 5.3e-11);
+- 2.009 ± 0.034 for B epoch 22 with the fix (p = 1.0e-10);
+- 2.828 ± 0.041 for DRYAIR epoch 24 (p = 3.6e-11).
+
+The pick is lower in 8 of 8 paired rollouts in every one of these comparisons. Two checkpoints come close on A
+but fail a gate:
+- G1-dry EMA epoch 59 ties it (+0.005 ± 0.023, p = 0.84, 4 of 8 rollouts favour the pick), but 3 of its rollouts
+  blew up in water (gates 2 and 3 fail);
+- G1 EMA epoch 15 is 0.068 ± 0.021 higher (p = 0.013, 7 of 8 favour the pick), but its PS drifts by up to
+  2.40 hPa (gate 3 fails).
+
+Every candidate fails gate 4. The pick has 14 drifting groups against a limit of 3; the fewest, 7, belongs to G1
+EMA epoch 18, which fails gate 3. The pick's neighbours, epochs 40–43, kept 7, 7, 6 and 0 of 8 rollouts finite
+(Table 5), so the choice is sensitive to the epoch. The choice is also provisional:
+- it fails the drift gate;
+- the 2048–2049 reporting window has not been scored;
+- it rests on one training seed;
+- the precision cross (Result 15) may require the bf16 checkpoints to be re-rolled in fp32 before the ranking is
+  final.
+
+Therefore the lead candidate, a selection rather than a validated model, is an SFNO trained single-step, from
+scratch, in fp32, with EMA weights and the dry-air constraint trained in: G1-dry, EMA epoch 39, rolled out in fp32.
+
+![Figure 3](fig3_candidates.svg)
+
+**Figure 3.** The checkpoint choice on the 2045–2047 selection window. (a) Score A with the range over the 8
+rollouts; (b) the largest |dPS| over the rollouts, log scale, with the 1 hPa gate; (c) the largest last-month
+negative-water area, with the 1% gate. Filled markers pass the panel's gate; in (a), filled means gates 1–3 all
+pass. The highlighted row is the pick. A ">" marks a value beyond the axis. Table 6 holds every plotted value.
+
+**Table 6. The candidates behind Figure 3 [R4].** "A minus pick" is the paired mean ± SE over the 8 start dates
+(paired t-test, 7 degrees of freedom). "Depth" 5 = trained on 4 extra steps of its own predictions. "Fix" = the
+dry-air correction applied at prediction time.
+
+{{T6}}
 
 ## 3. Sweeps and ablations: every level tested
 
