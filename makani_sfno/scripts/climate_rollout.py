@@ -79,10 +79,12 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--feedback-fp32", action="store_true",
                    help="Feed back the fp32 prediction instead of its native (autocast) dtype; "
                         "the forward pass itself is unchanged. Off by default")
-    p.add_argument("--amp", choices=("config", "off"), default="config",
-                   help="Autocast for the forward pass. 'config' = the run's amp_mode (bf16 for "
-                        "every run so far); 'off' runs fp32 end to end, so the prediction and the "
-                        "carried state are fp32. TF32 flags are PyTorch's defaults and are logged")
+    p.add_argument("--amp", choices=("config", "off", "bf16"), default="config",
+                   help="Autocast for the forward pass. 'config' = the run's amp_mode; 'off' runs "
+                        "fp32 end to end, so the prediction and the carried state are fp32; 'bf16' "
+                        "forces bf16 autocast (and so a bf16 carried state) on a run whose amp_mode "
+                        "is not bf16 -- the same pair load_eval_params derives from amp_mode bf16. "
+                        "TF32 flags are PyTorch's defaults and are logged")
     return p.parse_args(argv)
 
 
@@ -133,6 +135,11 @@ def main(argv=None) -> int:
     if args.amp == "off":
         eval_params.amp_enabled = False
         eval_params.amp_dtype = torch.float32
+    elif args.amp == "bf16":
+        # Mirrors checkpoint_loader's amp_mode == "bf16" branch exactly; gate
+        # AMP_BF16_EQUIV_OK checks it reproduces a bf16 run's --amp config rollout bitwise.
+        eval_params.amp_enabled = True
+        eval_params.amp_dtype = torch.bfloat16
     pack = args.pack
     if pack is None:
         tdp = eval_params.train_data_path
@@ -179,7 +186,7 @@ def main(argv=None) -> int:
           f"feedback_dtype={res.feedback_dtype} dry_air_fix={int(dry_air_fix)} "
           f"force_positive={len(force_positive_names)}ch feedback_fp32={int(args.feedback_fp32)}"
           + ("" if args.amp == "config" else
-             f" amp=off tf32_matmul={int(torch.backends.cuda.matmul.allow_tf32)}"
+             f" amp={args.amp} tf32_matmul={int(torch.backends.cuda.matmul.allow_tf32)}"
              f" tf32_cudnn={int(torch.backends.cudnn.allow_tf32)}"))
     for h in res.handoffs:
         print(f"HANDOFF step={h['step']} {h['from']}->{h['to']} local={h['to_local_idx']} "

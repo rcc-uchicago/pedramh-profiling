@@ -49,7 +49,10 @@ MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
 EVAL="${MEMBER_ROOT}/runs/makani_eval"
 WT="${EVAL}/window_truth"
 TRUTH="${WT}/truth_2045_2047.npz"
-TGM="${WT}/truth_annual_gm_2015_2047.npz"
+# -v TGM=<npz> overrides the drift census's truth annual means. The default file was built at
+# a 5-step stride and failed its own equivalence check (makani_truth_gm.o7732604, 1.205 SD vs
+# tol 0.1); window_truth/truth_annual_gm_2015_2047_stride1.npz is the stride-1 rebuild.
+TGM="${TGM:-${WT}/truth_annual_gm_2015_2047.npz}"
 FLOOR="${WT}/floor_2045_2047.npz"
 TAG="${TAG:-score}"
 OUT="${EVAL}/protocol_scores"
