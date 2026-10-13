@@ -7,9 +7,10 @@ intermediate JSON that produce every table and figure are in [`scripts/`](script
 Reference keys: **[L#]** = published literature, **[R#]** = a primary record in this project. Both are listed at
 the end.*
 
-**Status (2026-10-13):** the experiment proposed in the Verdict, the 2 × 2 cross of training precision ×
-rollout precision, is running: debug job 7742848 and debug-scaling job 7742849. It was pre-registered before
-submission in `makani_sfno/docs/2026-10-13_precision_cross_prereg.md`. Its outcome will be added here as Result 15.
+**Status (2026-10-13):** the 2 × 2 precision cross is done (Result 15). It requires the bf16-trained candidates
+to be re-rolled in fp32 before the ranking in Result 14 is final. That re-roll is running: debug job 7743368 and
+debug-scaling job 7743369. It was pre-registered before submission in
+`makani_sfno/docs/2026-10-13_fp32_reroll_prereg.md`. The re-ranked pool will be added here as Result 16.
 
 ## 1. Question and design
 
@@ -473,6 +474,61 @@ dry-air correction applied at prediction time.
 | B e24 | bf16 | 5 | none | no | 8 | 4.26 | +2.749 ± 0.036; 1.7e-11 | 6.36 | 17.71 | 0.1 | fail (3) | 23 |
 | DRYAIR e24 | bf16 | 5 | trained in | no | 8 | 4.35 | +2.828 ± 0.041; 3.6e-11 | 7.45 | 0.24 | 0.1 | pass | 22 |
 
+### Result 15. Training precision and rollout precision both matter, and fp32-trained weights need fp32 rollouts
+
+We crossed training precision (F-scratch bf16-trained, G1 fp32-trained) with rollout precision (bf16, fp32) at EMA
+epochs 15–19. It was pre-registered before any new rollout (`docs/2026-10-13_precision_cross_prereg.md`). Two new
+cells completed the 2 × 2:
+- F-scratch rolled with `--amp off`;
+- G1 rolled with a new `--amp bf16` option.
+
+The new option was gated. F-scratch epoch 15 rolled with `--amp bf16` reproduced its existing bf16 rollout bitwise,
+over every step of all 8 members [R11]. Rollouts entered an effect only if they reached 2049 with global water
+vapour above zero and |dPS| ≤ 100 hPa. Effects were pooled over epochs 15, 16, 18 and 19; epoch 17 is a collapse
+checkpoint in F-scratch, with 4 of 8 rollouts healthy.
+
+As Figure 4 and Table 7 show:
+- **Rolling out in fp32 instead of bf16 lowered A for both training precisions:**
+  - by 1.026 ± 0.068 for the bf16-trained weights (p = 1.3e-6);
+  - by 2.160 ± 0.011 for the fp32-trained weights (p = 2.7e-14).
+- **Training in fp32 instead of bf16 lowered A by 0.826 ± 0.072 under fp32 rollouts (p = 8.5e-6),** but raised it
+  by 0.232 ± 0.018 under bf16 rollouts (p = 4.2e-6).
+- **The interaction was −1.044 ± 0.109 (p = 2.8e-5).** Of the total gap of −1.852 ± 0.055, rollout precision
+  accounts for 55% and training precision for 45%.
+- **The fp32-trained weights were unstable in bf16 rollouts.** At epochs 15 and 19, none of G1's 8 bf16 rollouts
+  stayed healthy (largest |dPS| 416 and 1,290 hPa). The two effects involving that cell therefore rest on epochs
+  16 and 18 only.
+- **The fp32 rollout's gain on the bf16-trained weights varied by epoch:**
+  - −1.77 and −1.94 at epochs 15 and 16, bringing F-scratch to 1.90 and 1.79 against G1's 1.59 and 1.60;
+  - −0.30 and −0.10 at epochs 18 and 19.
+
+The pre-registered outcome is 3, "both contribute"; the recorded prediction, rollout precision alone, was wrong.
+We hypothesize that fp32-trained weights rely on small differences in the state that bf16 rounding of the
+fed-back state erases, so in a bf16 rollout the rounding acts as an out-of-distribution perturbation at every
+step. Adding noise of bf16 rounding size to G1's state in an fp32 rollout should reproduce the bf16 blow-ups if
+this is right. Therefore numerical precision acts at both ends of the emulator: rollouts should run in fp32, new
+training runs should use fp32, fp32-trained weights must never be rolled out in bf16, and every bf16-trained
+candidate scored so far from bf16 rollouts has to be re-rolled in fp32 before the ranking of Result 14 is final.
+
+![Figure 4](fig4_precision_cross.svg)
+
+**Figure 4.** The precision cross. Each panel is one EMA epoch. Points are the median score A over healthy
+rollouts for bf16 and fp32 rollouts; lines join the same training precision (blue: F-scratch, bf16-trained;
+orange: G1, fp32-trained). Hollow markers have fewer than 8 healthy rollouts. "None healthy" marks a cell where
+no rollout stayed sane.
+
+**Table 7. Paired effects of the precision cross [R11].** Mean ± SE over the 8 start dates of the per-rollout
+differences, pooled over epochs 15, 16, 18 and 19, with a paired t-test (7 degrees of freedom). The per-epoch
+column shows how many rollouts entered where fewer than 8 did; "—" marks no healthy pair.
+
+| effect (negative = fp32 better) | pooled, epochs 15/16/18/19 (mean ± SE) | p | rollouts | per epoch: 15 / 16 / 17 / 18 / 19 |
+|---|---|---|---|---|
+| rollout fp32 − bf16, bf16-trained (R\|T=bf16) | -1.026 ± 0.068 | 1.3e-06 | 8 | -1.77 / -1.94 / -12.16 (n4) / -0.30 / -0.10 |
+| rollout fp32 − bf16, fp32-trained (R\|T=fp32) | -2.160 ± 0.011 | 2.7e-14 | 8 | — / -2.93 / -0.55 / -1.39 / — |
+| training fp32 − bf16, bf16 rollouts (T\|R=bf16) | +0.232 ± 0.018 | 4.2e-06 | 8 | — / +0.81 / -11.74 (n4) / -0.35 / — |
+| training fp32 − bf16, fp32 rollouts (T\|R=fp32) | -0.826 ± 0.072 | 8.5e-06 | 8 | -0.32 / -0.18 / -0.12 / -1.44 / -1.36 |
+| total: fp32/fp32 − bf16/bf16 | -1.852 ± 0.055 | 5.4e-09 | 8 | -2.09 / -2.12 / -12.30 (n4) / -1.74 / -1.46 |
+
 ## 3. Sweeps and ablations: every level tested
 
 Table 5 lists every EMA epoch of the four swept runs that went through the five-year protocol. Per component:
@@ -606,10 +662,9 @@ Taken together, the results describe three separate failure modes. Each responds
    training worsens it. Therefore it is a conservation problem that a loss computed over 6–30 hours does not
    penalize, and it needs an explicit constraint, as in ACE [L12, L13].
 3. **Time-mean climate error among rollouts that survive and conserve mass.** fp32 and weight averaging reduce
-   it. We hypothesize that bf16 rounding of the fed-back state adds a small bias at every step, which
-   accumulates over 7,600 steps. The test is the 2 × 2 cross of training precision × rollout precision on
-   F-scratch and G1 at the same epochs, which needs rollouts only, no training. Therefore this error depends on
-   the numerical precision of the carried state and on the flatness of the solution, not on the loss value.
+   it. The 2 × 2 cross (Result 15) showed both training precision and rollout precision contribute, and that
+   they interact. Therefore this error depends on the numerical precision of the carried state, on the precision
+   the weights were trained in, and on the flatness of the solution, not on the loss value.
 
 **The 128-node run** belongs to none of these. Its only measured property is that its batch was 16 times larger
 for the same per-update progress (Result 1); no rollout of the 128-node checkpoint exists. Therefore what we know
@@ -623,7 +678,8 @@ against it is its cost; its stability is unmeasured.
 - **The 128-node checkpoint was never rolled out** at any length. Its fabric (TCP rather than the Slingshot
   network, UNVERIFIED [R7]) affects only its speed. We did not check whether its bf16 setting matches A's: the
   log header lacks the line (UNVERIFIED [R9]).
-- **Precision is confounded** between training and rollout (Result 8).
+- **Precision:** Result 8 confounds training and rollout precision. The cross (Result 15) separates them, but only
+  for epochs 15–19 of one seed of each run. Two of its effects rest on epochs 16 and 18 alone.
 - **Selection window.** Every A, W and drift-census number is on 2045–2047, the window used to select. 96
   candidate entries were scored on it. The sealed 2048–2049 window and the April-start set R [R6] have not been run, so
   the top of Table 4 is subject to selection bias.
@@ -642,7 +698,7 @@ against it is its cost; its stability is unmeasured.
 
 ## 6. Verdict
 
-**Decided:** select checkpoints on five-year rollouts, not validation loss, and train at batch 32, not 512; no checkpoint yet passes every gate (lead: G1-dry EMA epoch 39). **Next:** the 2 × 2 training-precision × rollout-precision cross (rollouts only), then freeze finalists and open the 2048–2049 reporting window.
+**Decided:** select checkpoints on five-year fp32 rollouts, not validation loss; train in fp32 at batch 32, not 512; never roll out fp32-trained weights in bf16. No checkpoint yet passes every gate (lead: G1-dry EMA epoch 39). **Next:** the fp32 re-roll of the bf16-trained candidates (running), then freeze finalists and open the 2048–2049 reporting window.
 
 ## References
 
@@ -677,4 +733,5 @@ against it is its cost; its stability is unmeasured.
 - [R7] `makani_bench_report.md` §4 (128-node run) and §5j–5k (learning-rate ceiling; the 1-node run).
 - [R8] `makani_sfno/KNOWLEDGE.md` §2 and §6, branch `docs/makani-knowledge`.
 - [R9] `makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md`, branch `docs/makani-knowledge`.
+- [R11] Precision cross: prereg `makani_sfno/docs/2026-10-13_precision_cross_prereg.md` (this branch); jobs 7742848 and 7742849 (`eval/pipeline-protocol` @ `6645c247`); read-out `EVAL/precision_cross_2026-10-13/{results,gate}.txt`; scores `EVAL/protocol_scores/pxc_*`.
 - [R10] E3SM annual-mean reference build, job 7732604: `.claude/worktrees/eval-protocol/makani_sfno/makani_truth_gm.o7732604`. Score jobs: `makani_protocol_score.o{7734901,7735052,7735690,7738179,7738245,7739744}` in the same directory.
