@@ -7,104 +7,58 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=12:00:00
 #PBS -r y
-# Rerunnable: Polaris' preempt_order is RD (requeue first, delete only if it cannot), and
-# PBS defaults to Rerunable=False, so without this a preempted pack is just killed. On
-# requeue the script re-runs from the top; the packer's per-year outputs make that forward
-# progress rather than wasted work — but VERIFY that in the log ("skipping <year>") rather
-# than taking it on faith.
 #PBS -j oe
 # ============================================================================
-# Pack the FULL E3SM archive into Makani "multifiles" layout — the data step for
-# polaris/polaris_sfno_full.pbs.
+# Pack the full E3SM archive into makani training files, locked 52-channel set
+# (convert_e3sm_to_makani.py). This is the data step for polaris_sfno_full.pbs.
 #
-# WHY THIS IS A SEPARATE JOB, not a step inside the trainer:
-#   The smoke packs 400 samples of 2015 and takes minutes, so it converts inline. The full
-#   pack is 2015-2049 = 51,100 samples and takes HOURS. Doing that inside a training job
-#   would burn the walltime on I/O, and on the preemptable queue a kill mid-pack would leave
-#   a half-written store that the trainer would happily read.
-#
-# ⚠ SIZE: the smoke's 1,200 samples produced ~18 GB, so the full pack is roughly
-#   **750 GB - 800 GB**. Check your quota before starting:  myquota
-#   It writes to $MAKANI_DATA (default: <your member dir>/data/e3sm_makani_full).
-#
-# ⚠ CPU-BOUND, single node: this does not use the GPUs. It is on preemptable because it
-#   exceeds the 1 h debug cap. If it is killed, re-submit — the packer skips years whose
-#   output already exists, so it makes forward progress each time. VERIFY that claim in the
-#   log ("skipping <year>") rather than assuming it.
+# Years: train 2015-2044, valid 2045-2047, test 2048-2049. Override with
+#   -v TRAIN_Y0=..,TRAIN_Y1=..,VALID_Y0=..,VALID_Y1=..,TEST_Y0=..,TEST_Y1=..
+# Output: $MAKANI_FULL_DATA, default $MEMBER_ROOT/data/e3sm_makani_full. About
+#   22 GB per year, 770 GB in total; check space with `myquota` first.
+# It runs on the CPU for hours, longer than the 1-hour debug limit, so it uses the
+#   preemptable queue, and -r y lets PBS requeue it after preemption.
+# Resuming does not finish the pack. A rerun packs the missing years, but then
+#   stops before the statistics, because this converter only counts train years it
+#   writes itself. polaris_pack_e3sm_production.pbs packs the same years in one
+#   debug hour, in parallel, and is the better choice.
 #
 # Submit from makani_sfno/:   qsub polaris/polaris_pack_e3sm_full.pbs
-# PASS = "CONVERT_OK" AND "PACK_FULL_COMPLETE" on the last lines.
-#   (CONVERT_OK alone is NOT enough — job 7252728 emitted it and then failed rc=1.)
+# PASS = CONVERT_OK and PACK_FULL_COMPLETE on the last lines; rc=0 alone is not.
 # ============================================================================
 
-cd "${PBS_O_WORKDIR}"
+cd "${PBS_O_WORKDIR}" || exit 2
 MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
-if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
 
-# Group-readable by design, not by luck. The whole point of a one-time transcode is that the
-# project shares it — but nothing here forced that: the existing packs are group-readable only
-# because the login shell's umask happens to be 0022. A job that inherited umask 077 would
-# produce a private copy and the next member's run would die on permissions, days later.
-# Set it explicitly, and verify at the end.
+# The pack is shared with the project, so make new files group-readable.
 umask 0022
 
-module use /soft/modulefiles
-module load conda
-conda activate base
+# polaris_env.sh first: it defines MEMBER_ROOT, which polaris_makani_env.sh needs.
 # shellcheck disable=SC1091
-source "${MAKANI_ROOT}/../polaris_env.sh" || exit 2
-if [ ! -x "${SFNO_VENV}/bin/python" ]; then
-    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
-    echo "  Build it on a LOGIN node first:  bash ${MAKANI_ROOT}/../polaris_setup_sfno_venv.sh"
-    exit 3
-fi
+source "${REPO}/polaris_env.sh" || exit 2
 # shellcheck disable=SC1091
-source "${SFNO_VENV}/bin/activate"
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
 export PYTHONNOUSERSITE=1
-export HDF5_USE_FILE_LOCKING=FALSE
-# sfno_training lives under <root>/src — NOT <root>. Without /src every rank dies
-# with "No module named 'sfno_training'" (caught by probe 7253835).
-export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
 
-# Full pack goes to its OWN root: never overwrite the smoke's store. The smoke is the thing
-# you run to check the code still works, and it must keep working while this runs for hours.
+# Its own root, so the smoke pack is never overwritten.
 OUTPUT_ROOT="${MAKANI_FULL_DATA:-${MEMBER_ROOT}/data/e3sm_makani_full}"
 TRAIN_Y0="${TRAIN_Y0:-2015}"; TRAIN_Y1="${TRAIN_Y1:-2044}"
 VALID_Y0="${VALID_Y0:-2045}"; VALID_Y1="${VALID_Y1:-2047}"
 TEST_Y0="${TEST_Y0:-2048}";   TEST_Y1="${TEST_Y1:-2049}"
 
-echo "=== makani_pack_e3sm_full: $(date -Iseconds) ==="
-echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
-echo "E3SM_ROOT   = ${E3SM_ROOT}"
-echo "OUTPUT_ROOT = ${OUTPUT_ROOT}"
-echo "train=[${TRAIN_Y0}..${TRAIN_Y1}]  valid=[${VALID_Y0}..${VALID_Y1}]  test=[${TEST_Y0}..${TEST_Y1}]"
-echo "--- free space on the target filesystem ---"
-df -h "$(dirname "${OUTPUT_ROOT}")" | awk 'NR<=2'
+echo "=== makani_pack_e3sm_full: $(date -Iseconds) on $(hostname), job ${PBS_JOBID%%.*} ==="
+echo "out ${OUTPUT_ROOT}  train ${TRAIN_Y0}-${TRAIN_Y1}  valid ${VALID_Y0}-${VALID_Y1}  test ${TEST_Y0}-${TEST_Y1}"
+df -h "$(dirname "${OUTPUT_ROOT}")" | tail -1
 mkdir -p "${OUTPUT_ROOT}"
 
-# The split is by YEAR and the ranges must not overlap: E3SM is a single continuous SSP245
-# run, so a year in both train and valid is train/val leakage (DESIGN §4.3).
-python - "${TRAIN_Y0}" "${TRAIN_Y1}" "${VALID_Y0}" "${VALID_Y1}" "${TEST_Y0}" "${TEST_Y1}" <<'PY' || exit 2
-import sys
-t0, t1, v0, v1, s0, s1 = (int(a) for a in sys.argv[1:7])
-spans = {"train": set(range(t0, t1 + 1)), "valid": set(range(v0, v1 + 1)), "test": set(range(s0, s1 + 1))}
-for a in ("train", "valid", "test"):
-    for b in ("train", "valid", "test"):
-        if a < b and spans[a] & spans[b]:
-            print("ERROR SPLIT_OVERLAP: %s and %s share %s — that is train/val leakage."
-                  % (a, b, sorted(spans[a] & spans[b])))
-            sys.exit(2)
-allowed = set(range(2015, 2050))
-for name, span in spans.items():
-    bad = span - allowed
-    if bad:
-        print("ERROR YEAR_OUT_OF_RANGE: %s wants %s; E3SM covers 2015-2049." % (name, sorted(bad)))
-        sys.exit(2)
-print("split OK: train=%d yr, valid=%d yr, test=%d yr, no overlap" % tuple(len(spans[k]) for k in ("train", "valid", "test")))
-PY
-
-# NOTE: no --max-samples-per-year. That flag is the SMOKE's bound (400 of 1460/yr);
-# omitting it packs every sample.
+# No --max-samples-per-year: every sample of every year is packed. --validate checks
+# every year is present and complete, and that the statistics exist.
 python "${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py" \
     --e3sm-root "${E3SM_ROOT}" --output-root "${OUTPUT_ROOT}" \
     --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
@@ -113,70 +67,11 @@ python "${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py" \
     --validate
 rc=$?
 if [ ${rc} -ne 0 ]; then
-    echo "=== makani_pack_e3sm_full FAILED (rc=${rc}) $(date -Iseconds) ==="
-    echo "NOTE: on preemptable, a non-zero rc is often a PREEMPTION rather than a bug."
-    echo "      Look for a traceback; if there is none, re-submit and it continues."
+    echo "ERROR PACK_FULL_FAILED rc=${rc} $(date -Iseconds)"
+    echo "  No traceback above usually means the job was preempted."
     exit ${rc}
 fi
 
-# Prove the pack is actually complete before anything trains on it: a silently short store
-# trains fine and produces a quietly wrong model.
-python - "${OUTPUT_ROOT}" "${TRAIN_Y0}" "${TRAIN_Y1}" "${VALID_Y0}" "${VALID_Y1}" <<'PY' || exit 2
-import os, sys, glob
-root, t0, t1, v0, v1 = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5])
-ok = True
-for split, y0, y1 in (("train", t0, t1), ("valid", v0, v1)):
-    want = set(range(y0, y1 + 1))
-    got = set()
-    for p in glob.glob(os.path.join(root, split, "*.h5")):
-        stem = os.path.basename(p).split(".")[0]
-        try:
-            got.add(int(stem[:4]))
-        except ValueError:
-            pass
-    missing = sorted(want - got)
-    print("  %-5s: %d/%d years present" % (split, len(want & got), len(want)))
-    if missing:
-        print("    ERROR MISSING_YEARS in %s: %s" % (split, missing)); ok = False
-for stat in ("global_means.npy", "global_stds.npy", "time_means.npy"):
-    p = os.path.join(root, "stats", stat)
-    if not os.path.exists(p):
-        print("    ERROR MISSING_STAT: %s" % p); ok = False
-if not ok:
-    sys.exit(2)
-print("PACK_FULL_COMPLETE")
-PY
-
-# ---- prove it is actually shareable, rather than assuming ----
-# The parent dirs carry setgid (drwxr-sr-x), so new files inherit the lighthouse-uchicago
-# group; combined with umask 0022 that yields g+r. Check, don't trust.
-python - "${OUTPUT_ROOT}" <<'_PY' || echo "WARN: share check failed (data is still usable by you)"
-import os, stat, sys, grp
-root = sys.argv[1]
-bad = []
-checked = 0
-for dirpath, dirnames, filenames in os.walk(root):
-    for name in list(dirnames) + list(filenames):
-        p = os.path.join(dirpath, name)
-        try:
-            st = os.stat(p)
-        except OSError:
-            continue
-        checked += 1
-        if not st.st_mode & stat.S_IRGRP:
-            bad.append(p)
-        if checked > 400:
-            break
-    if checked > 400:
-        break
-if bad:
-    print("WARN NOT_GROUP_READABLE (%d of %d checked):" % (len(bad), checked))
-    for b in bad[:3]:
-        print("   ", b)
-    print("  Fix:  chmod -R g+rX %s" % root)
-else:
-    print("  share check: all %d sampled entries are group-readable (%s)"
-          % (checked, grp.getgrgid(os.stat(root).st_gid).gr_name))
-_PY
-chmod -R g+rX "${OUTPUT_ROOT}" 2>/dev/null || true
-echo "=== makani_pack_e3sm_full done (rc=$?) $(date -Iseconds) ==="
+chmod -R g+rX "${OUTPUT_ROOT}"
+echo "PACK_FULL_COMPLETE ${OUTPUT_ROOT}"
+echo "=== done $(date -Iseconds) ==="
