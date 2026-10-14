@@ -1,0 +1,243 @@
+#!/bin/bash -l
+#PBS -N physicsnemo_zarr_allyears
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=12:00:00
+#PBS -r y
+# Rerunnable, and — unlike polaris_zarr_e3sm_full.pbs — SAFE to rerun: each store is
+# skipped if it already carries the conversion_complete sentinel for THIS split (the
+# sentinel is written last and only on success, so it cannot bless a partial store).
+# That closes the sibling's worst preemption mode: there, a preemption during the VAL
+# conversion requeued the script, which re-opened the finished TRAIN store mode="w" and
+# destroyed 10 completed hours. Here a requeue redoes only the store that was in flight.
+#PBS -j oe
+# ============================================================================
+# Build the ALL-DATA (2015-2049) E3SM -> SeqZarr stores — the data step for
+# polaris/polaris_sfno_allyears.pbs. Sibling of polaris/polaris_zarr_e3sm_full.pbs
+# (which stays untouched and keeps working); this variant differs in:
+#
+#   split    2015-2044 / 2045-2047 (2048-49 unused) -> 2015-2046 / 2047-2049 (ALL 35 years)
+#            (single source of truth: polaris/allyears_split.sh, gated for contiguity)
+#   output   ${MEMBER_ROOT}/e3sm_seqzarr_full       -> ${MEMBER_ROOT}/e3sm_seqzarr_allyears
+#   restart  re-truncates finished stores           -> sentinel-skip (store-granular resume)
+#
+# ⚠ SIZE — honest numbers, not the sibling's "~1 TB": 108 ch x 180x360 float32 = 27.99 MB
+#   /sample (the converter drops the 54 excluded cloud channels — CLDICE/CLDLIQ/CLOUD x 18
+#   levels — from the archive's 162); 51,100 samples = ~1.43 TB total (~1.31 TB train +
+#   ~123 GB val). The stores are raw float32 (the converter does not compress). Check
+#   `myquota` BEFORE confirming.
+# ⚠ TIME — UPPER BOUND, not measured end-to-end (no full conversion has ever been run):
+#   ~0.79 s/sample inherited from the sibling's ~10.6 h/48,180 figure -> ~10.3 h train
+#   + ~1.0 h val = ~11.3 h against the 12 h walltime. That per-sample figure was measured
+#   on 162-channel writes; 108-channel writes should be faster, but that is unmeasured —
+#   budget the full ~11.3 h. If the train store finishes but the job dies in val, just
+#   resubmit: the train store is skipped via its sentinel and only the ~1 h val store is
+#   redone.
+#
+# Cheap validation FIRST: qsub polaris/polaris_sfno_allyears_smoke.pbs  (PASS =
+# ALLYEARS_SMOKE_OK) exercises this split's shape — seams, census, channel counts — in
+# minutes. Then:
+#
+#   Submit from physicsnemo_sfno/:  qsub -v CONFIRM_ALLYEARS=1 polaris/polaris_zarr_e3sm_allyears.pbs
+#
+# Env knobs (all honoured — none of these names is clobbered by polaris_env.sh's _pick,
+# which only pins SEQZARR_DATA and friends):
+#   SEQZARR_ALLYEARS_DATA  output root  (default ${MEMBER_ROOT}/e3sm_seqzarr_allyears)
+#   TRAIN_YEARS/VAL_YEARS  the split    (default 2015-2046 / 2047-2049; contiguity-gated)
+#   FORCE_RECONVERT=1      rebuild even over a mismatched existing store (DESTRUCTIVE)
+#
+# PASS = "CONVERT_OK" for each store it (re)builds (a skipped complete store prints a
+# skip line instead) AND "ZARR_ALLYEARS_COMPLETE" on the last line.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"
+PN_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${PN_ROOT}/examples/weather/unified_recipe" ]; then PN_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+
+# Group-readable by design, not by luck (see polaris_zarr_e3sm_full.pbs for the story).
+umask 0022
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${PN_ROOT}/../polaris_env.sh" || exit 2
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"; exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTHONPATH="${PN_ROOT}:${PYTHONPATH:-}"
+
+# Own output root + own env var. Deliberately NOT ${SEQZARR_DATA}: polaris_env.sh:155
+# unconditionally overwrites that name (its _pick never reads a pre-set value), so a
+# `qsub -v SEQZARR_DATA=...` override silently loses. SEQZARR_ALLYEARS_DATA is never
+# touched by polaris_env.sh, so this default:-override actually works.
+DATA="${SEQZARR_ALLYEARS_DATA:-${MEMBER_ROOT}/e3sm_seqzarr_allyears}"
+
+# The split + its gates live in ONE file shared with the smoke.
+# shellcheck disable=SC1091
+source "${PN_ROOT}/polaris/allyears_split.sh"
+
+# ---- INTERLOCK: ~1.43 TB / up to ~11.3 h is not a casual qsub -------------------------
+if [ "${CONFIRM_ALLYEARS:-}" != "1" ]; then
+    echo "ERROR ALLYEARS_RUN_NOT_CONFIRMED: this writes ~51,100 samples (~1.43 TB) over up to ~11 h."
+    echo "  1) run the cheap shape check first:  qsub polaris/polaris_sfno_allyears_smoke.pbs"
+    echo "  2) check quota:                      myquota   (~1.43 TB must fit)"
+    echo "  3) then:  qsub -v CONFIRM_ALLYEARS=1 polaris/polaris_zarr_e3sm_allyears.pbs"
+    exit 2
+fi
+
+echo "=== physicsnemo_zarr_allyears: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "E3SM_ROOT = ${E3SM_ROOT}"
+echo "out       = ${DATA}"
+echo "train years: ${TRAIN_YEARS}"
+echo "val years  : ${VAL_YEARS}"
+df -h "$(dirname "${DATA}")" | awk 'NR<=2'
+mkdir -p "${DATA}"
+
+allyears_split_check   || exit 2   # SPLIT_OK — overlap/range/contiguity/all-years
+allyears_archive_census || exit 2  # CENSUS_OK — 1460 files per split year, before hour 0
+
+# ---- per-store decision: skip / convert / refuse --------------------------------------
+# rc 0 = store already complete FOR THIS SPLIT and this converter GENERATION -> skip
+#        (this is what makes -r y safe)
+# rc 10 = convert (absent, or an incomplete/preempted attempt at this same split)
+# rc 2 = refuse: the path holds a DIFFERENT store. The converter opens mode="w", so
+#        proceeding would destroy hours of someone's data because a path was mistyped.
+#        "Different" includes a pre-exclusion (162-channel) store: skipping it would hand
+#        the trainer channels the science owner excluded 2026-07-16 (its preflight would
+#        refuse, but refuse LATE — after this job already printed success).
+_store_decision() {  # <store-path> <year> [<year> ...]
+    python - "${PN_ROOT}/polaris" "$@" <<'PY'
+import os, sys
+libdir, path, want_years = sys.argv[1], sys.argv[2], [int(y) for y in sys.argv[3:]]
+sys.path.insert(0, libdir)
+from e3sm_h5_to_seqzarr import EXCLUDED_VARS
+name = os.path.basename(path)
+if not os.path.isdir(path):
+    print("  %s: absent -> convert" % name); sys.exit(10)
+try:
+    import zarr
+    z = zarr.open(path, mode="r")
+    attrs = dict(z.attrs)
+    got_years = list(attrs.get("years") or [])
+except Exception as e:
+    print("ERROR STORE_UNREADABLE: %s (%s: %s)" % (path, type(e).__name__, e))
+    print("  A directory exists there but zarr cannot open it. Refusing to overwrite blind;")
+    print("  inspect it, or re-submit with -v FORCE_RECONVERT=1 to rebuild from scratch.")
+    sys.exit(2)
+if (got_years != want_years or attrs.get("sampling_mode") != "contiguous"
+        or attrs.get("start_sample", 0) != 0 or attrs.get("max_samples") is not None):
+    print("ERROR STORE_MISMATCH: %s holds years=%s mode=%s start=%s max=%s;"
+          % (name, got_years, attrs.get("sampling_mode"),
+             attrs.get("start_sample"), attrs.get("max_samples")))
+    print("  this job wants the full contiguous years=%s. Overwriting would DESTROY it" % want_years)
+    print("  (the converter truncates with mode='w'). Point SEQZARR_ALLYEARS_DATA elsewhere,")
+    print("  or re-submit with -v FORCE_RECONVERT=1 if you mean to replace it.")
+    sys.exit(2)
+if list(attrs.get("excluded_vars") or []) != list(EXCLUDED_VARS):
+    print("ERROR STORE_WRONG_GENERATION: %s records excluded_vars=%s; the converter now"
+          % (name, attrs.get("excluded_vars")))
+    print("  excludes %s (science owner, 2026-07-16). Right split, wrong channels —" % EXCLUDED_VARS)
+    print("  re-submit with -v FORCE_RECONVERT=1 to rebuild it under the current exclusion.")
+    sys.exit(2)
+want_n = len(want_years) * 1460
+zp = z["predicted"]
+if (bool(attrs.get("conversion_complete")) and zp.shape[0] == want_n
+        and zp.nchunks_initialized == zp.nchunks):
+    print("  %s: already complete for this split (%d samples, sentinel + all %d chunks)"
+          " -> skip" % (name, want_n, zp.nchunks))
+    sys.exit(0)
+print("  %s: matches this split but is INCOMPLETE (%d/%d chunks, sentinel=%s) — a"
+      % (name, zp.nchunks_initialized, zp.nchunks, bool(attrs.get("conversion_complete"))))
+print("    preempted/killed attempt. -> reconvert from scratch (the converter is not")
+print("    sample-resumable; unwritten chunks would read back as all-zero slabs).")
+sys.exit(10)
+PY
+}
+
+_maybe_convert() {  # <store-name> <years-string>
+    local store="${DATA}/$1"; shift
+    if [ "${FORCE_RECONVERT:-}" = "1" ]; then
+        echo "  ${store}: FORCE_RECONVERT=1 -> rebuilding unconditionally"
+        rc=10
+    else
+        # shellcheck disable=SC2086
+        _store_decision "${store}" $*; rc=$?
+    fi
+    case "${rc}" in
+        0)  return 0 ;;
+        10) ;;
+        *)  exit 2 ;;
+    esac
+    # No --max-samples / --start-sample: the converter defaults to ALL files in --years
+    # (the 64-sample default that once truncated "full" runs was removed 2026-07-15).
+    # shellcheck disable=SC2086
+    python "${PN_ROOT}/polaris/e3sm_h5_to_seqzarr.py" --out "${store}" --years $* \
+        || { echo "ERROR ZARR_CONVERT_FAILED: ${store}"; exit 2; }
+}
+
+# Train first (the 10 h store), then val (the 1 h one): a preemption is most likely to
+# land in the long train phase, where nothing is lost that was already finished.
+# shellcheck disable=SC2086
+_maybe_convert e3sm_train.zarr ${TRAIN_YEARS}
+# shellcheck disable=SC2086
+_maybe_convert e3sm_val.zarr ${VAL_YEARS}
+
+# ---- prove both stores are exactly the size the split implies -------------------------
+# EXACT counts, not the sibling's 0.99 tolerance: a contiguous full-year conversion is
+# deterministic (census said 1460 files/year), so any deviation means the archive changed
+# under us mid-run.
+python - "${DATA}" "${TRAIN_YEARS}" "${VAL_YEARS}" <<'PY' || exit 2
+import sys, zarr
+data, tr, va = sys.argv[1], sys.argv[2].split(), sys.argv[3].split()
+ok = True
+for store, years in (("e3sm_train.zarr", tr), ("e3sm_val.zarr", va)):
+    z = zarr.open("%s/%s" % (data, store), mode="r")
+    n, want = z["predicted"].shape[0], len(years) * 1460
+    print("  %-16s %d samples (want exactly %d from %d years)" % (store, n, want, len(years)))
+    if n != want:
+        print("    ERROR STORE_COUNT_MISMATCH: %s has %d, want %d" % (store, n, want)); ok = False
+    if not z.attrs.get("conversion_complete"):
+        print("    ERROR STORE_INCOMPLETE: no conversion_complete sentinel"); ok = False
+    init, tot = z["predicted"].nchunks_initialized, z["predicted"].nchunks
+    if init != tot:
+        print("    ERROR UNWRITTEN_CHUNKS: %d/%d written" % (init, tot)); ok = False
+sys.exit(0 if ok else 2)
+PY
+
+# ---- prove it is shareable (setgid parent + umask 0022 should make it so; check) -------
+python - "${DATA}" <<'_PY' || echo "WARN: share check failed (data is still usable by you)"
+import grp, os, stat, sys
+root = sys.argv[1]
+bad, checked = [], 0
+for dirpath, dirnames, filenames in os.walk(root):
+    for name in list(dirnames) + list(filenames):
+        try:
+            st = os.stat(os.path.join(dirpath, name))
+        except OSError:
+            continue
+        checked += 1
+        if not st.st_mode & stat.S_IRGRP:
+            bad.append(os.path.join(dirpath, name))
+        if checked > 400:
+            break
+    if checked > 400:
+        break
+if bad:
+    print("WARN NOT_GROUP_READABLE (%d of %d checked): %s" % (len(bad), checked, bad[0]))
+    print("  Fix:  chmod -R g+rX %s" % root)
+else:
+    print("  share check: all %d sampled entries group-readable (%s)"
+          % (checked, grp.getgrgid(os.stat(root).st_gid).gr_name))
+_PY
+chmod -R g+rX "${DATA}" 2>/dev/null || true
+echo "ZARR_ALLYEARS_COMPLETE"
+echo "=== physicsnemo_zarr_allyears done (rc=0) $(date -Iseconds) ==="

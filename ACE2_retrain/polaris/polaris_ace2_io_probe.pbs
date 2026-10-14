@@ -1,0 +1,69 @@
+#!/bin/bash -l
+#PBS -N ace2_io_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# ACE2 -- app-free single-OST read probe. NO GPU, NO model, NO fme.
+#
+# WHY: the training arms demanded 357-512 MB/s from a file that lives on ONE
+# Lustre OST and held gpu_busy_frac at 0.93-0.96, and that was written up as
+# "the loader is not the bottleneck". It does not support that conclusion --
+# **nobody has measured what the OST delivers**, so 512 MB/s could be 15% of its
+# ceiling or 90%, and those imply opposite decisions about the 2.4 TB -> zarr
+# conversion (handoff §2a).
+#
+# ⚠ The ladder's own arms cannot settle it. The 2-node arm was a WEAKER loader
+# test than the 1-node one: per-rank demand FELL 101.5 -> 64.0 MB/s because NCCL
+# stretched the step 68% and handed the loader more time.
+#
+# This sweeps concurrent readers 1..32 against the real access pattern (random
+# 3-timestep windows of all 56 config variables) and prints the training arms'
+# demand on the same axis, so the knee is visible rather than inferred.
+#
+# PASS = ACE2_IO_PROBE_OK.
+#
+# Knobs:  -v READERS=1,2,4,8,16,32   -v WINDOWS=24   -v REPEAT=2
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+[ -d "${ACE2_DIR}/ace_exp" ] || { echo "ERROR ACE2_TREE_NOT_FOUND"; exit 2; }
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+[ -x "${ACE2_VENV}/bin/python" ] || { echo "ERROR ACE2_VENV_MISSING: ${ACE2_VENV}"; exit 3; }
+export PYTHONNOUSERSITE=1
+PY="${ACE2_VENV}/bin/python"
+
+# Required on Lustre; polaris_env.sh already exports it, restated because this
+# probe's whole subject is the file open path.
+export HDF5_USE_FILE_LOCKING=FALSE
+
+DATA=/eagle/projects/lighthouse-uchicago/ace2/ace_training/merged_ACE2_ERA5_final.nc
+echo "=== ace2_io_probe: $(date -Iseconds)  host=$(hostname) ==="
+lfs getstripe "${DATA}" 2>&1 | sed 's/^/  /'
+echo "  free RAM: $(awk '/MemAvailable/{printf "%.0f GB", $2/1048576}' /proc/meminfo)"
+echo "  ⚠ page cache is NOT dropped (needs root). The file is 2.4 TB against ~512 GB"
+echo "    of node RAM and the training arms touched under ~60 GB of it, so a uniformly"
+echo "    random draw hits cache with probability ~2%. -v REPEAT=2 re-draws to show it."
+echo
+
+"${PY}" "${ACE2_DIR}/polaris/ace2_io_probe.py" \
+    --path "${DATA}" \
+    --config "${ACE2_DIR}/config_polaris.yaml" \
+    --readers "${READERS:-1,2,4,8,16,32}" \
+    --windows "${WINDOWS:-24}" \
+    --repeat "${REPEAT:-2}"
+rc=$?
+echo "--- probe rc=${rc} ---"
+exit ${rc}

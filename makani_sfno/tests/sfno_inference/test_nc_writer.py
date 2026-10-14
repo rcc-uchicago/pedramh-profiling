@@ -89,8 +89,21 @@ class TestWriteRollout:
                 "lat": H,
                 "lon": W,
             }
-            # lead_time coords = [6, 12, ..., 6K] (NO lead 0).
-            assert list(ds["lead_time"].values) == [6, 12, 18, 24, 30]
+            # lead_time coords = [6, 12, ..., 6K] hours (NO lead 0).
+            #
+            # Compared in HOURS rather than against raw values: current xarray
+            # decodes a variable with timedelta-like `units` into timedelta64,
+            # so these come back as np.timedelta64(21600000000000, 'ns') = 6 h
+            # rather than the integer 6. The stored values were always correct;
+            # only the decoded dtype moved, and xarray's own FutureWarning says
+            # it is about to move again. Assert the physical quantity, which is
+            # stable across both behaviours.
+            lead = np.asarray(ds["lead_time"].values)
+            if np.issubdtype(lead.dtype, np.timedelta64):
+                lead_hours = lead.astype("timedelta64[h]").astype(np.int64)
+            else:
+                lead_hours = lead.astype(np.int64)
+            assert list(lead_hours) == [6, 12, 18, 24, 30]
             # channel_ic drops the diagnostic.
             assert list(ds["channel_ic"].values) == _CHANNELS[:52]
             assert "pr_6h" not in list(ds["channel_ic"].values)

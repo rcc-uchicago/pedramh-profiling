@@ -223,7 +223,13 @@ def main(args):
                 fwd_kwargs['c_scalar'] = calendar
             y, y_last = model.forward(x, c_grid, **fwd_kwargs)
 
-            surface_pred, multilevel_pred, diagnostic_pred = disassemble_input(y_last, nlevels=model.nlevels)
+            # Real counts, not the old 6/15 defaults (which were the Midway AMIP config's).
+            surface_pred, multilevel_pred, diagnostic_pred = disassemble_input(
+                y_last,
+                nsurface=len(model.surface_variables),
+                ndiagnostic=len(model.diagnostic_variables),
+                nlevels=model.nlevels,
+            )
 
             surface_pred_denorm = model.n.surface_inv_transform(surface_pred)
             multilevel_pred_denorm = model.n.upper_air_inv_transform(multilevel_pred)

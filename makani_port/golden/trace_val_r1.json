@@ -1,0 +1,16 @@
+{
+ "flags": {
+  "amp_mode": "bf16",
+  "batch_size": 8,
+  "cudnn.allow_tf32": true,
+  "cudnn.benchmark": false,
+  "cudnn.deterministic": true,
+  "matmul.allow_tf32": true,
+  "optimizer_max_grad_norm": 32.0
+ },
+ "seed": 1234,
+ "steps": [],
+ "train_loss_epoch": "0x0.0p+0",
+ "valid_loss": "0x1.b3af200000000p-7",
+ "valid_steps": 8
+}

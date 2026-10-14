@@ -2,10 +2,12 @@
 
 Wires three pieces into stock Makani **without editing core**:
 
-1. ``_install_plasim_patches()`` — rebinds three module attributes:
+1. ``_install_plasim_patches()`` — rebinds four module attributes:
      - ``makani.models.model_registry.SingleStepWrapper`` → ``PlasimSingleStepWrapper``
      - ``makani.models.model_registry.MultiStepWrapper``  → ``PlasimMultiStepWrapper``
      - ``makani.utils.training.deterministic_trainer.get_dataloader`` → ``_plasim_get_dataloader``
+     - ``makani.utils.training.deterministic_trainer.sync_params`` → ``_serialized_sync_params``
+       (multi-node model-parallel setup deadlock/IMA; see the function's docstring)
 
    These are ``from X import Y`` module-scope bindings in their importers,
    which are mutable Python module attributes. Rebinding takes effect on
@@ -31,6 +33,7 @@ See docs/sfno_training_implementation_plan.md §6 for the full spec.
 from __future__ import annotations
 
 import logging
+import inspect
 import os
 import time
 import types
@@ -50,16 +53,25 @@ from sfno_training import compat  # noqa: F401  side-effect: shim install
 from sfno_training.data import PlasimForcingDataset
 from sfno_training.models import PlasimMultiStepWrapper, PlasimSingleStepWrapper
 from sfno_training.trainer.ema import EMAModel
+from sfno_training.trainer import wandb_diagnostics
 
 from makani.models import model_registry
 from makani.utils import comm
 from makani.utils.dataloader import init_distributed_io
-from makani.utils.dataloaders.data_helpers import get_data_normalization
+from makani.utils.dataloaders.data_helpers import get_climatology, get_data_normalization
 from makani.utils.driver import Driver
+from makani.utils.metric import MetricsHandler
 from makani.utils.training import deterministic_trainer
+from makani.utils.training import ensemble_trainer
 from makani.utils.training.deterministic_trainer import Trainer
+from makani.utils.training.ensemble_trainer import EnsembleTrainer
 
 logger = logging.getLogger("sfno_training.trainer")
+
+# makani main's trainers pass dataloader_state= to save_checkpoint (4693db4); the pin's do not
+_DRIVER_SAVE_TAKES_DATALOADER_STATE = (
+    "dataloader_state" in inspect.signature(Driver.save_checkpoint).parameters
+)
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +121,49 @@ def _make_train_eval_sampler(
 # ---------------------------------------------------------------------------
 # Custom dataloader
 # ---------------------------------------------------------------------------
+def _plasim_channel_indices(params, n_state: int, n_target: int):
+    """Pack-relative ``(in_channels, out_channels)`` for PlasimForcingDataset.
+
+    Stock ``parse_dataset_metadata`` maps each ``params.channel_names`` entry to
+    its index in the pack's ``coords.channel`` and stores that as
+    ``params.out_channels`` -- the list the loss, the climatology and the model
+    package already use to index the full-width normalization arrays. The
+    dataset must read with the SAME list, or a channel subset (port F: drop two
+    state channels without repacking) normalizes channel k with channel j's
+    stats. For a full-width config the list is ``range(n_target)``, exactly the
+    old behaviour.
+
+    The dataset reads the diagnostic from ``/fields_diagnostic`` whole and drops
+    the last ``out_channels`` entry when reading ``/fields_state``
+    (plasim_forcing_dataset.py:320), so the diagnostic must be the pack's LAST
+    channel and the last entry of ``channel_names``. Asserted, not assumed.
+    """
+    out_channels = params.get("out_channels", None)
+    if out_channels is None:
+        return list(range(n_state)), list(range(n_target))
+    out_channels = [int(c) for c in out_channels]
+    if len(out_channels) != n_target:
+        raise ValueError(
+            f"CHANNEL_SUBSET_MISMATCH: len(channel_names)={len(out_channels)} but "
+            f"n_state_channels + n_diagnostic_channels = {n_target}"
+        )
+    n_data = len(params.get("data_channel_names", None) or range(max(out_channels) + 1))
+    n_diag = n_target - n_state
+    if out_channels[n_state:] != list(range(n_data - n_diag, n_data)):
+        raise ValueError(
+            f"CHANNEL_SUBSET_MISMATCH: the diagnostic must be the last entry of "
+            f"channel_names and the pack's last channel; got out_channels[{n_state}:]="
+            f"{out_channels[n_state:]} for a {n_data}-channel pack"
+        )
+    if out_channels != list(range(n_target)):
+        dropped = sorted(set(range(n_data)) - set(out_channels))
+        logger.info(
+            "CHANNEL_SUBSET in=%d out=%d of a %d-channel pack; dropped pack idx %s",
+            n_state, n_target, n_data, dropped,
+        )
+    return out_channels[:n_state], out_channels
+
+
 def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
     """Drop-in replacement for ``makani.utils.dataloader.get_dataloader``.
 
@@ -144,8 +199,7 @@ def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
     # via out_channels — so we slice in_channels to the first n_state_channels.
     n_state = params.get("n_state_channels", 52)
     n_target = params.get("n_state_channels", 52) + params.get("n_diagnostic_channels", 1)
-    in_channels = list(range(n_state))
-    out_channels = list(range(n_target))
+    in_channels, out_channels = _plasim_channel_indices(params, n_state, n_target)
 
     dataset = PlasimForcingDataset(
         location=files_pattern,
@@ -215,6 +269,57 @@ def _plasim_get_dataloader(params, files_pattern, device, mode: str = "train"):
     return dataloader, dataset, sampler
 
 
+def _serialized_sync_params(model, mode="broadcast"):
+    """``makani.mpu.helpers.sync_params`` with NO cross-communicator overlap.
+
+    Stock ``sync_params`` interleaves per-parameter broadcasts across DIFFERENT
+    process groups — ``data`` first, then each group in ``param.is_shared_mp``
+    (helpers.py:82-90). With model parallelism off, every non-``data`` group is
+    size 1 and it degenerates to a single-communicator storm, which is fine.
+    With ``h/w > 1`` on MULTIPLE NODES the alternation deadlocks: NCCL forbids
+    un-ordered concurrent collectives on different communicators, and the lazy
+    per-communicator connection setup makes launch order rank-dependent.
+    Measured on Polaris (2026-08-24, 4 nodes × 4 A100, h=2 w=2): IMA inside
+    NCCL transport.cc with GDRDMA on (job 7554253), a watchdog-timeout hang on
+    these very broadcasts with it off (7554367) — while the SAME config trains
+    clean on one node (7554351), where every group is NVLink and nothing is
+    lazy. Upstream knows something is off here: the call site carries
+    ``# DEBUG: this also needs to be fixed in NCCL``
+    (deterministic_trainer.py:142).
+
+    Semantics are byte-identical to stock — same groups, same order, same
+    roots, same complex-view handling; ``mode="mean"`` still delegates. The
+    only delta is a ``torch.cuda.synchronize()`` after each broadcast, so no
+    two communicators ever have kernels in flight at once. Setup-time only —
+    the training step never runs through here.
+    """
+    if mode != "broadcast":
+        from makani.mpu.helpers import sync_params as _stock_sync_params
+        return _stock_sync_params(model, mode=mode)
+
+    with torch.no_grad():
+        for param in model.parameters():
+            if not hasattr(param, "is_shared_mp"):
+                param.is_shared_mp = ["model"]
+            for group in ["data"] + list(param.is_shared_mp):
+                if comm.get_size(group) < 2:
+                    continue
+                buf = (
+                    torch.view_as_real(param).clone()
+                    if param.is_complex()
+                    else param.clone()
+                )
+                dist.broadcast(
+                    buf, src=comm.get_root(group), group=comm.get_group(group)
+                )
+                torch.cuda.synchronize()
+                param.copy_(
+                    torch.view_as_complex(buf) if param.is_complex() else buf
+                )
+    if dist.is_initialized():
+        torch.cuda.synchronize()
+
+
 # ---------------------------------------------------------------------------
 # Patch installer
 # ---------------------------------------------------------------------------
@@ -222,7 +327,16 @@ _PATCHES_INSTALLED: bool = False
 
 
 def _install_plasim_patches() -> None:
-    """Rebind the three Makani module attributes. Idempotent."""
+    """Rebind the Makani module attributes. Idempotent.
+
+    ``ensemble_trainer`` is patched alongside ``deterministic_trainer`` because
+    it performs the SAME module-scope imports —
+    ``from makani.utils.dataloader import get_dataloader`` (:38) and
+    ``from makani.mpu.helpers import sync_params`` (:50) — so a rebind on one
+    module does nothing for the other. Missing this would give an ensemble run
+    stock Makani's dataloader, which has no slot for our 7 forcing channels and
+    would train on silently wrong inputs rather than failing.
+    """
     global _PATCHES_INSTALLED
     if _PATCHES_INSTALLED:
         return
@@ -230,9 +344,15 @@ def _install_plasim_patches() -> None:
     model_registry.SingleStepWrapper = PlasimSingleStepWrapper
     model_registry.MultiStepWrapper = PlasimMultiStepWrapper
     deterministic_trainer.get_dataloader = _plasim_get_dataloader
+    deterministic_trainer.sync_params = _serialized_sync_params
+    ensemble_trainer.get_dataloader = _plasim_get_dataloader
+    ensemble_trainer.sync_params = _serialized_sync_params
+    # makani main compiles the loss terms by default; keep them eager (identity on the pin)
+    for module in (deterministic_trainer, ensemble_trainer):
+        module.LossHandler = compat.loss_handler_compile_off(module.LossHandler)
 
     _PATCHES_INSTALLED = True
-    logger.info("installed PlaSim trainer patches")
+    logger.info("installed PlaSim trainer patches (deterministic + ensemble)")
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +396,20 @@ class PlasimTrainer(Trainer):
         self.logger = logging.getLogger()
 
         super().__init__(params, world_rank, device)
+
+        # Stock's MetricsHandler built ZERO handles on this dataset; rebuild it
+        # on the dataset's own channel names. Must run after super().__init__
+        # (which constructs the one being replaced) and before the first
+        # validation.
+        self._rebuild_metrics_for_dataset_channels()
+
+        # Pangu-parity per-iteration wandb diagnostics (metrics contract:
+        # wandb_metrics_report.md / ai_rossby_finegrained_wandb_handoff.md).
+        # log_to_wandb is already rank-0-gated by train_plasim, and every
+        # bench/scaling render forces it False, so the profiling path never
+        # executes this -- CLAUDE.md #10.
+        if self.log_to_wandb:
+            wandb_diagnostics.install(self)
 
         # ---- Warm-start load (plan: 2026-05-14_v11_clip_warmstart_continuation_plan §4.1) ----
         # Must run AFTER super().__init__ (so self.model exists with the
@@ -365,6 +499,120 @@ class PlasimTrainer(Trainer):
             # Resume: super().__init__ already loaded model_state and set
             # self.checkpoint_version_current; pull ema_* from the SAME version.
             self._maybe_restore_ema_state()
+
+    # ---- Per-lead validation metrics on E3SM channel names ------------------
+    #
+    # 🐛 Stock makani computes NO per-lead metric on this dataset, and it fails
+    # silently. `deterministic_trainer.py:168-176` builds `MetricsHandler` with
+    # its ERA5 defaults (u10m, t2m, sp, sst, u500, z500, q500, q50);
+    # `MetricsHandler.__init__` intersects those with `params.channel_names`
+    # (`metric.py:305-311`) and constructs a handle ONLY if the survivors are
+    # non-empty (`if self.l1_var_names:` at `:361`, same shape for rmse/acc/
+    # crps/spread/ssr). Our 101-channel E3SM ALLDATA contract names its channels
+    # PS, TREFHT, U10, RHREFHT, PSL, TMQ, T_l00.. — the intersection is EMPTY,
+    # so zero handles are built and `finalize()`'s loop over `metric_handles`
+    # (`:672`) iterates nothing.
+    #
+    # Measured consequence (jobs 7598662/3/4): scoring one checkpoint at
+    # `valid_autoreg_steps` 3 / 10 / 20 returned byte-identical
+    # 0.012838906608521938 while validation time scaled 17.3 → 41.9 → 74.4 s.
+    # The rollouts genuinely ran; `validation loss` is a SINGLE-STEP scalar and
+    # always was, so it cannot see the multi-step skill a rollout fine-tune
+    # (C1) trades single-step accuracy for.
+    #
+    # ⚠ ALL channels is deliberate, and it is not a science decision.
+    # Choosing a headline subset of the 101 — which variables represent this
+    # model's skill — belongs to the science owner. Picking eight here to make
+    # the code run would bake that call into an instrumentation patch. Measuring
+    # every channel is the ABSENCE of a choice and leaves the selection open;
+    # it is also cheap, because the buffers are (leads × channels) f32 —
+    # 21 × 101 × 4 B = 8.5 KiB per handle — and the metric is a lat-weighted
+    # reduction whose cost is negligible against a forward pass.
+    def _rebuild_metrics_for_dataset_channels(self) -> None:
+        """Replace stock's empty ``MetricsHandler`` with one on our channels."""
+        params = self.params
+        channel_names = list(params.channel_names)
+
+        # Default: every channel the dataset emits. A config-side list is
+        # honoured, but every name must exist — silently dropping unknown names
+        # is precisely the defect this method exists to remove, so it is an
+        # assertion, not a filter.
+        requested = params.get("metric_var_names", None)
+        metric_var_names = channel_names if requested is None else [str(c) for c in requested]
+        missing = [c for c in metric_var_names if c not in channel_names]
+        assert not missing, (
+            f"metric_var_names holds {len(missing)} name(s) absent from the dataset's "
+            f"channel_names: {missing[:8]}"
+        )
+
+        rollout_length = int(params.get("valid_autoreg_steps", 0)) + 1
+        clim = torch.from_numpy(get_climatology(params)).to(torch.float32)
+
+        self.metrics = MetricsHandler(
+            params=params,
+            climatology=clim,
+            num_rollout_steps=rollout_length,
+            device=self.device,
+            l1_var_names=metric_var_names,
+            rmse_var_names=metric_var_names,
+            acc_var_names=metric_var_names,
+            # Probabilistic metrics need an ensemble dimension the deterministic
+            # trainer does not have — left empty exactly as stock does.
+            crps_var_names=[],
+            spread_var_names=[],
+            ssr_var_names=[],
+        )
+        self.metrics.initialize_buffers()
+
+        # An empty handle list IS the bug. Never let it pass quietly again.
+        assert self.metrics.metric_handles, (
+            "MetricsHandler built no metric handles — per-lead metrics would be silently "
+            f"absent (channel_names[:4]={channel_names[:4]})"
+        )
+
+        if getattr(self, "log_to_screen", False):
+            logger.info(
+                "per-lead metrics: %d handles over %d channels x %d leads (%d h each)",
+                len(self.metrics.metric_handles),
+                len(metric_var_names),
+                rollout_length,
+                self.metrics.dtxdh,
+            )
+
+    def _save_per_lead_metrics(self, epoch: int) -> None:
+        """Write the (lead time × channel) metric curves to HDF5, rank 0 only.
+
+        The full curve exists ONLY inside the handles
+        (``MetricRollout.rollout_curve_cpu``, shape ``(leads, channels)``).
+        ``MetricsHandler.finalize`` promotes just two slices of it into
+        ``valid_logs["metrics"]`` — lead 0 and the last lead
+        (``metric.py:694-704``) — and the only code that writes the whole curve
+        is ``MetricsHandler.save``, which stock calls from the Inferencer alone
+        (``inferencer.py:490``). This fork gates inference off, so on the
+        training/validation path the curve was computed and dropped.
+
+        ``save`` attaches ``lead_time`` (hours) and ``channel`` dimension
+        scales, so the file is self-describing. ~25 KiB per epoch at 101
+        channels × 21 leads × 3 metrics. Wrapped: a diagnostic must never be
+        able to kill a multi-day run.
+        """
+        self._per_lead_metrics_path = None
+        if not bool(self.params.get("save_per_lead_metrics", True)):
+            return
+        # One writer. Data rank 0 alone is not enough under model parallelism:
+        # every model rank of data group 0 has it, and at h2w4 all eight raced
+        # on this file (7669001). The curve is the same on every model rank
+        # (makani gathers h/w before scoring) and save() holds no collective.
+        if getattr(self, "data_parallel_rank", 0) != 0 or comm.get_rank("model") != 0:
+            return
+        try:
+            scores_dir = os.path.join(self.params["experiment_dir"], "scores")
+            os.makedirs(scores_dir, exist_ok=True)
+            path = os.path.join(scores_dir, f"metrics_ep{int(epoch):04d}.h5")
+            self.metrics.save(path)
+            self._per_lead_metrics_path = path
+        except Exception:  # noqa: BLE001 - diagnostic only
+            logging.warning("per-lead metric save failed", exc_info=True)
 
     def _set_data_shapes(self, params, dataset):
         # Stock population first — sets img_*, N_in_channels=52, etc.
@@ -551,9 +799,13 @@ class PlasimTrainer(Trainer):
         optimizer=None,
         scheduler=None,
         counters=None,
+        dataloader_state=None,
         checkpoint_mode: str = "legacy",
     ) -> None:
         """Override stock ``Driver.save_checkpoint`` to append EMA keys.
+
+        ``dataloader_state`` is what makani main's trainer passes; it is ``None`` for our
+        torch DataLoader and is forwarded only to a ``Driver.save_checkpoint`` that takes it.
 
         Defers to ``Driver.save_checkpoint`` first (writes the canonical
         legacy file), then — on data-parallel rank 0 within the current
@@ -562,6 +814,11 @@ class PlasimTrainer(Trainer):
         extra ~O(model size) of disk I/O per epoch; cheaper than
         duplicating ``_save_checkpoint_legacy`` internals.
         """
+        extra = {}
+        if _DRIVER_SAVE_TAKES_DATALOADER_STATE:
+            extra["dataloader_state"] = dataloader_state
+        elif dataloader_state is not None:
+            raise ValueError("dataloader_state given, but this makani's Driver.save_checkpoint cannot store it")
         Driver.save_checkpoint(
             checkpoint_path,
             model,
@@ -570,6 +827,7 @@ class PlasimTrainer(Trainer):
             scheduler=scheduler,
             counters=counters,
             checkpoint_mode=checkpoint_mode,
+            **extra,
         )
 
         if not self.ema_enabled:
@@ -647,6 +905,10 @@ class PlasimTrainer(Trainer):
         raw = super().validate_one_epoch(epoch, profiler=profiler)
         valid_time, viz_time, valid_logs = raw
 
+        # Dump the lead-time curves for the RAW pass here — the EMA pass below
+        # reuses the same handler and zeroes these buffers.
+        self._save_per_lead_metrics(epoch)
+
         if not self._should_run_ema_validation(epoch):
             return valid_time, viz_time, valid_logs
 
@@ -717,11 +979,106 @@ class PlasimTrainer(Trainer):
             samples_per_sec = 0.0
         timing_logs["samples/sec"] = samples_per_sec
         train_logs["samples/sec"] = samples_per_sec
+
+        # Peak memory. Makani's own `memory footprint [GB]` is NOT a peak: it is
+        # `(total - free)` sampled at epoch end, after the step's transients are
+        # freed (training_helpers.py:22-27 computes `max_memory_allocated` too,
+        # but deterministic_trainer.py:703 discards it). That understates the
+        # real requirement by an amount that GROWS with batch size, which is why
+        # batch 64 OOM'd (job 7580362) after batch 32/48 reported a comfortable
+        # 16.04/18.97 GB. Two keys, because neither alone answers "will it fit":
+        #   peak torch memory  -- allocator high-water REserved, the part that
+        #                         scales with batch/n_future
+        #   non-torch memory   -- CUDA context + cuFFT/cuDNN workspaces + NCCL
+        #                         buffers (~7.7 GB at the 7580362 OOM); roughly
+        #                         constant, so an epoch-end sample is fine
+        # Their sum is the card occupancy to compare against 39.49 GiB.
+        # Wrapped: a diagnostic must never be able to kill a multi-day run.
+        try:
+            if torch.cuda.is_available():
+                gb = 1024.0**3
+                peak_torch_gb = torch.cuda.max_memory_reserved(self.device) / gb
+                free_mem, total_mem = torch.cuda.mem_get_info(device=self.device)
+                non_torch_gb = (
+                    (total_mem - free_mem) - torch.cuda.memory_reserved(self.device)
+                ) / gb
+                timing_logs["peak torch memory [GB]"] = peak_torch_gb
+                timing_logs["non-torch memory [GB]"] = non_torch_gb
+                train_logs["peak torch memory [GB]"] = peak_torch_gb
+                train_logs["non-torch memory [GB]"] = non_torch_gb
+                # Reset so each epoch reports ITS OWN peak, not a running max --
+                # take the max over epochs when sizing. Epoch 0 is the outlier
+                # (allocator still growing), so it is the one to size against.
+                torch.cuda.reset_peak_memory_stats(self.device)
+        except Exception:  # noqa: BLE001 - diagnostic only
+            logging.warning("peak-memory logging failed", exc_info=True)
+
         base = valid_logs.setdefault("base", {})
         base.setdefault("validation steps", 0)
         base.setdefault("validation loss", float("nan"))
         valid_logs.setdefault("metrics", {})
-        return super().log_epoch(train_logs, valid_logs, timing_logs)
+
+        # Per-lead metrics to the SCREEN log — a SUMMARY, not the whole curve.
+        #
+        # `validation loss` is NOT lead-time resolved: scoring the same
+        # checkpoint at valid_autoreg_steps 3, 10 and 20 returned byte-identical
+        # 0.01284 while validation TIME scaled 17.3 -> 41.9 -> 74.4 s, so the
+        # rollout really ran and the scalar simply does not reflect it
+        # (jobs 7598662/3/4). The cause was channel-name selection upstream of
+        # all logging, now fixed in _rebuild_metrics_for_dataset_channels.
+        #
+        # `finalize()` promotes only two slices of each curve into
+        # `valid_logs["metrics"]` — lead 0 and the last lead, per metric per
+        # channel — which at 101 channels is ~600 keys, i.e. ~150k lines over a
+        # 243-epoch run. So the FULL curve goes to HDF5 (_save_per_lead_metrics)
+        # and one line goes here. Set `log_per_lead_metrics: true` to print all
+        # of them (useful on a one-epoch scorecard job, not in production).
+        try:
+            _m = {k: v for k, v in valid_logs["metrics"].items() if np.isscalar(v)}
+            if _m and self.log_to_screen:
+                if bool(self.params.get("log_per_lead_metrics", False)):
+                    self.logger.info("Per-lead validation metrics:")
+                    for _k in sorted(_m):
+                        self.logger.info("    %s: %s" % (_k, _m[_k]))
+                else:
+                    self.logger.info(
+                        "Per-lead validation metrics: %d scalars, %d handles x %d channels "
+                        "x %d leads; full curve -> %s",
+                        len(_m),
+                        len(self.metrics.metric_handles),
+                        len(self.metrics.rmse_var_names),
+                        self.metrics.num_rollout_steps,
+                        getattr(self, "_per_lead_metrics_path", None) or "NOT WRITTEN",
+                    )
+        except Exception:  # noqa: BLE001 - diagnostic only
+            logging.warning("per-lead metric logging failed", exc_info=True)
+
+        result = super().log_epoch(train_logs, valid_logs, timing_logs)
+
+        # Flat epoch keys for the cross-project contract (`valid_loss` /
+        # `train_loss` epoch marks + learning rate), logged WITHOUT `step=`.
+        # Context: makani's native epoch logging uses `step=self.epoch`
+        # (deterministic_trainer.py:725-731, :386), which wandb DROPS as
+        # out-of-order once the per-iteration diagnostics advance the auto
+        # step counter into the thousands. This block re-logs that content
+        # flat so nothing is lost; the makani-named epoch panels are replaced
+        # by these, not silently missing.
+        if self.log_to_wandb:
+            import wandb
+
+            flat = {
+                "train_loss_epoch": float(train_logs.get("loss", float("nan"))),
+                "valid_loss": float(base.get("validation loss", float("nan"))),
+                "learning_rate": float(self.optimizer.param_groups[0]["lr"]),
+                "epoch": int(self.epoch),
+            }
+            flat.update({k: v for k, v in train_logs.items() if np.isscalar(v)})
+            flat.update({k: v for k, v in base.items() if np.isscalar(v)})
+            flat.update(
+                {k: v for k, v in valid_logs["metrics"].items() if np.isscalar(v)}
+            )
+            wandb.log(flat)
+        return result
 
     def _save_best_ema_checkpoint(self, epoch: int, ema_loss: float) -> None:
         """Emit ``best_ckpt_ema_mp{mp_rank}.tar`` (plan §7.2(e)).
@@ -766,3 +1123,44 @@ class PlasimTrainer(Trainer):
                 path,
                 ema_loss,
             )
+
+
+# ---------------------------------------------------------------------------
+# Ensemble variant — CRPS / probabilistic training on the same data contract
+# ---------------------------------------------------------------------------
+class PlasimEnsembleTrainer(PlasimTrainer, EnsembleTrainer):
+    """:class:`PlasimTrainer`'s overrides, on Makani's **ensemble** trainer.
+
+    The body is empty on purpose. This works — and is a two-line change rather
+    than the rewrite the handoff scoped — because of three facts, each verified:
+
+    1. ``EnsembleTrainer`` **subclasses** ``Trainer``
+       (``ensemble_trainer.py:62``), the same base ``PlasimTrainer`` extends.
+    2. ``PlasimTrainer`` calls ``super()`` **exclusively** — never
+       ``Trainer.method(self, ...)``. So its ``super()`` calls follow the MRO of
+       whatever class it is mixed into.
+    3. Python's C3 linearisation gives
+       ``PlasimEnsembleTrainer -> PlasimTrainer -> EnsembleTrainer -> Trainer``.
+
+    ⇒ Every ``super()`` inside ``PlasimTrainer`` — ``__init__``,
+    ``_set_data_shapes``, ``validate_one_epoch``, ``log_epoch`` — resolves to
+    **EnsembleTrainer**, so the PlaSim/E3SM contract (107→101 channels, forcing
+    feedback, the rebuilt per-lead metrics, the EMA pass, the warm-start) is
+    layered on top of ensemble folding and CRPS instead of on the deterministic
+    path. Nothing is duplicated.
+
+    ⚠ ``_install_plasim_patches`` MUST rebind ``ensemble_trainer``'s
+    module-scope ``get_dataloader``/``sync_params`` as well — it does. Without
+    that this class would silently train on stock Makani's dataloader, which
+    drops our 7 forcing channels.
+
+    ⚠ ``local_ensemble_size`` is NOT set by makani's deterministic entrypoint;
+    ``train_stochastic.py:93`` sets it and ``train.py`` does not. Our
+    ``train_plasim.py`` therefore sets it explicitly. ``comm.init`` already
+    creates the ``ensemble`` data-parallel group at size 1 by default
+    (``comm.py:117-118``), so with no ensemble parallelism
+    ``local_ensemble_size == ensemble_size``.
+
+    Requires ``ensemble_size > 1`` and an ``ensemble_*`` loss in the config;
+    a deterministic ``l2`` loss here would just average over identical members.
+    """

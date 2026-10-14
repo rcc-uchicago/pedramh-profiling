@@ -1,0 +1,609 @@
+# TODO — priority first
+
+**The single prioritised list for this repo.** Status and evidence live in
+`CHANGELOG.md`; what/why lives in `DESIGN.md`; how to work here is `CLAUDE.md`.
+This file says only **what to do next and in what order**.
+
+Rules: newest state at the top of each item; when an item is done, delete it here and
+record the measurement in `CHANGELOG.md`. **PASS is the log token, never `rc`** (#14).
+
+**Focus (2026-09-02): makani.** P0/P1 are makani; P2 is everything else, still live but
+not the current push.
+✅ **DONE 2026-09-04: job 7585080 completed all 243 epochs**, `Exit_status 0`, best validation
+loss **0.01284**, 46.3 node-hours, 12 snapshot-ensemble checkpoints. Items 1 and 2 are closed
+by it. 🔵 **NOW RUNNING: job 7591605** — C1 rollout fine-tune on `capacity`, 24 epochs,
+warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG `2026-09-04`.
+
+---
+
+## P0 — do these first
+
+> 📚 **Read first (2026-10-06): `makani_sfno/KNOWLEDGE.md` §0, §9 and §11** (branch
+> `docs/makani-knowledge`, draft PR #22). It is the verified, tagged record of the makani track. Four
+> findings bear on the open decision just below:
+> - The soil-fix thread's motivation, F3's "dropping soil destabilizes the depth-4 recipe", is
+>   **retracted**. F was trained single-step on A's recipe (`multistep_count = 1`), and it dies like A.
+> - DRYAIR24 vs B22/B24 is **not schedule-matched**: B ran `T_max 100` and was never annealed.
+> - 5-yr **accuracy** has been scored only for B22/B24, never for DRYAIR24 or soil-fix.
+> - The ACE2-EAMv3 5-yr reference (7704379) **never ran**: prep 7704377 hit `PROBE_FAILED`.
+>
+> §11 ranks next steps cheapest-first (inference-only reads before any new training arm).
+
+> 🔎 **Read first: `polaris_makani_b_dryair_findings_handoff.md` + CHANGELOG 2026-10-06.** The
+> "−21 hPa / TMQ negative" reading was a Pa→hPa slip. Measured (7719173): DRYAIR24 dry mass is flat,
+> and its drift is −0.2 hPa from water. Plain B and the soil-fix arm (screen 7719183: −9 to −18 hPa
+> in 1 yr) drift through **dry mass**. Open decision for the operator: promote soil-fix to the 5-yr
+> protocol as-is (survival question), or go straight to a combined soil-fix + dry-air arm (needs
+> `capacity`; F-scratch 7718436 holds it until ~07:40).
+
+> 📋 **Continue B-continuation / `anneal_soilfix` (2026-10-05, active work).** B lineage is the
+> operator-confirmed main (B22/B24 proven 8/8, full 5yr). Current thread: an ACE2-inspired
+> frozen-soil-moisture corrector, prototyped as a NEW diagnostic arm (not literally "F" — F has
+> no soil channels left to constrain). Full trail: CHANGELOG 2026-10-03/04/05 `(makani)` entries,
+> newest first. In order:
+> 1. **Check `qstat -u rmehta1987` for job 7715005** (`anneal_soilfix`, 24 epochs, `capacity`,
+>    warm-started from B's `best_ckpt_mp0.tar`). If still queued behind `7713243` (an unrelated
+>    job from another session), that's normal — **do not resubmit** (CLAUDE.md #12).
+> 2. **Once it completes**: Stage-0 1-year climate screen (`polaris_climate_screen.pbs`, debug) on
+>    epochs 1/21–24 + `best_ckpt` from `fs_anneal_soilfix_nf4_b16_rb01/training_checkpoints/`.
+>    ⚠ Use `TRUTH=.../screen_truth_2044f1092_tmq.npz` (the TMQ-fixed one) — pointing at the old
+>    truth file without `_tmq` already broke this once (2026-10-04 entry). Copy the exact `CKPTS=`
+>    invocation style from the 2026-10-04 "Step 2 climate comparison" entry.
+> 3. **If that looks reasonable** (survivors, small `n_past_3sigma`/PS drift): promote to the
+>    5-year protocol (`polaris_climate_run.pbs`, debug, 8 members), compared against B22/B24 and
+>    DRYAIR24's existing numbers (same CHANGELOG entry has the full table). **Remember the
+>    1yr-vs-5yr trap**: DRYAIR24 looked dramatically better than plain B at 1 year, then converged
+>    back to B's own drift magnitude by year 5 — a clean 1-year screen is not a result on its own.
+>    ⚠ **Stale (2026-10-06):** with Pa→hPa corrected, DRYAIR24's 1-yr and 5-yr drifts agree (−0.15 /
+>    −0.21 hPa). The 1-yr trap is real for *post-hoc* dry-air (B_e01: clean at 1 yr, 0/8 by 2.5 yr),
+>    not for DRYAIR24. See `makani_sfno/KNOWLEDGE.md` §6.
+> 4. **Still open, not done**: a PBS-level flag-off equivalence gate for `soil_moisture_fix.py`
+>    (mirroring `DRYAIR_OFF_EQUIV_OK`) has never run — only the unit-level object-identity proof
+>    exists so far (CHANGELOG 2026-10-04 "frozen-soil-moisture corrector" entry).
+
+> 📋 **Continue from `polaris_makani_g_spatial_handoff.md`** (2026-09-29): task status
+> (done / needs discussion / open), jobs, branches, traps. It supersedes the list below where
+> they differ.
+>
+> 🔵 **2026-09-29 — Port G (ACE2-EAMv3 variables, 83/77) + 2020–2044 train split + F fine-tune
+> base, branch `feat/makani-f-finetune`** (CHANGELOG 2026-09-29). In order:
+> 1. **Read 7668600** → `TRAINVIEW_OK` + the stats-shift table; **7668637** → `G_SMOKE_OK 3/3` +
+>    `ALL_GATES_OK` (G train/rollout/fine-tune smoke + the F0/F1 unit tests `F_FINETUNE_TESTS_OK 6/6`).
+>    Only then is any test claim in the CHANGELOG entry true.
+> 2. **F2** (handoff §4): `CLIMATE_DRIVER_EQUIV_OK` + `DRYAIR_OFF_EQUIV_OK` on the merged tree,
+>    tolerance **bitwise**, stated in a commit before the job.
+> 3. **G runs after F** (operator, 2026-09-29; jesswan approved G + the split, relayed).
+>    ⛔ **Do NOT queue G to `capacity` until the operator says so** (operator, 2026-09-29, after
+>    asking about nodes and walltime). Then: `DEPEND=7660250 bash polaris/submit_g_ace2vars.sh
+>    capacity <NODES> <EPOCHS> <WALL>`. Sizing, from measurements: A = 683.6 s/epoch at 1 node
+>    (472 ms/step × 1368 + 33.5 s val) = 46 h 20 min for 243 epochs **of a 48 h allocation**. G at
+>    1140 steps/epoch ≈ 575 s/epoch ⇒ 243 epochs ≈ 39 h at 1 node *if* its step time equals A's
+>    (unmeasured). Multi-node at batch 32 is NOT shown to be faster: the only CXI number is a
+>    50-step 4-node smoke, 521.1 ms/step (7647798), and short smokes overstate (the 20-step 1-node
+>    smoke read 1587.6 ms vs 473 steady). F (2 nodes) will be the first long CXI batch-32 number.
+>    Ask for ≥ 60–72 h: capacity allows 168 h, and makani resumes from the same RUN_NUM.
+>    ⚠ afterany on 7660250 starts G before any F extension resume.
+> 4. **Spatial parallelism on the fixed CXI stack** — never run there (every sharded result is
+>    pre-fix or TCP). `debug-scaling` 4-node matrix h1w1/h2w1/h1w2/h2w2/h4w1/h2w4 at global batch
+>    32, `provider=cxi` asserted; then same-seed loss equivalence vs h1w1; then the T-d16 memory
+>    probe at h2w2. Pre-register before submitting.
+> 5. Then the handoff's §3 sequence per base (F now; G once trained): baseline screen → `lrcheck`
+>    smoke via `submit_subset_finetune_arm.sh` → arms on `preemptable` (re-confirm first).
+
+> 🔵 **2026-09-23 — ACE2 ports (`polaris_makani_ace2_ports_handoff.md`), branch
+> `worktree-makani-ace2-ports`.** Code for F/A/B/C/D is in and smoked (job 7646684, CHANGELOG
+> 2026-09-23). In order:
+> 1. **Surgical-transfer proof** — `cd makani_sfno && qsub polaris/polaris_makani_surgical_proof.pbs`
+>    (debug, pre-registered PASS ≤ 0.02568). Decides fine-tune vs 46 node-h from scratch.
+>    Also `qsub polaris/polaris_fill_substitute_probe.pbs` (validation-only, pre-registered
+>    tiers) — it predicts 7646690's step-0 ratio and says whether z=0 / fill / time-mean soil
+>    inputs are tolerated. Debug allows ONE queued job per user, so submit after 7646690 starts.
+> 2. **Before the F run STARTS:** pre-register the land-only PRECT/TREFHT/RHREFHT/TMQ panel
+>    (architect review §6) as a tested function. ⚠ `k56_metrics.h5` holds global means only, so
+>    it needs a land-mask option in `score_rollout_nc.py` (lsm from the pack's forcing) and a
+>    re-score of the 101 baseline NetCDFs — not a re-take.
+> 3. **The F run** on `capacity` (⚠ blocks the project's one capacity slot — ask first).
+>    **HOLD until 7646690 + the fill probe report:** a STRONG-tier transfer makes F a ~20-epoch
+>    fine-tune (~4 h), not a 48 h slot. Recipe = prod1n_b32_sgdr's exactly (its `config.json`:
+>    LR 2e-3, β₂ 0.95, **clip 32**, CosineAnnealingWarmRestarts T0=20, warmup 3) +
+>    `CONFIG_YAML=e3sm_alldata_nosoil.yaml`, `EMA=1`, `EVAL_SAMPLES=512`, new `RUN_NUM`. Do NOT
+>    fold in the §7e clip-1.0 recommendation — that is a second variable. Fine-tune route adds
+>    `PRETRAINED_CKPT=<sliced>` + `LOAD_OPTIMIZER=0 LOAD_SCHEDULER=0 LOAD_COUNTERS=0 LOAD_LOSS=0
+>    OVERRIDE_LR=1` as in `submit_c1_rollout_finetune.sh`, and a `warmstart_provenance.txt`.
+> 4. Score F with the K=56 sweep against **`k56_readout_common99.json`** only (never the 101 numbers),
+>    then the long rollout to divergence — if it still blows up at ~500 steps with no soil
+>    reservoir, retract `2026-09-10_ace2_comparison_the_corrector.md` §4.
+> 5. Take the `time_diff_report` table + `make_capped_weights.py --w-max 30` vector to **jesswan**
+>    with the E / `Z3_l17` questions; the B+C arm runs only after her sign-off (`LOAD_LOSS=0`).
+
+> 📋 **makani continuation: `polaris_makani_analysis_ensemble_handoff.md`** — written
+> 2026-09-04 when the training campaign closed. Covers the lead-time ladder (which decides
+> whether the rollout direction is even correct), scoring C1, and the audited 4-item scope
+> for building the snapshot ensemble. Includes 9 measured silent-failure traps and 8
+> retired claims not to resurrect.
+
+> 📋 **makani climate evaluation (2026-09-24): `polaris_makani_climate_protocol_handoff.md`** —
+> the user decided to **"do what ACE2 does"** for jesswan's multi-year protocol (8 ICs Oct 2044,
+> score 2045–2049 vs climatology). Nothing is built yet. Order: (1) reference builders
+> (2045–49 time mean + monthly; 2015–44 monthly climatology + interannual std), (2) the
+> **streaming cross-file driver** with on-the-fly time/monthly means and a per-channel stability
+> record, equivalence-checked against `rollout_one_ic` at K=56, (3) aggregator, (4) pre-reg
+> **before** the 8-member run. ⚠ Probe 7648967: the checkpoint is physical to day 36 except
+> `Z3_l17`/`Z3_l16`/soil drift; the ~120-day blow-up will land in the first scored year — the
+> first run is a stability measurement. Six questions for jesswan are in the handoff §5.
+
+
+1. ✅ **COMPLETE 2026-09-04 — job 7585080, all 243 epochs, `Exit_status 0`**, 46 h 20 min of a
+   48 h allocation. Best validation loss **0.01284** at epoch 243; **332,424 weight updates**
+   for **46.3 node-hours**. Twelve snapshot-ensemble members on disk (epochs 23 through 243,
+   every 20). No overfitting: training and validation descend together throughout. Maximum
+   gradient norm over the whole run **0.30**. Full table: `makani_bench_report.md` §5k.
+   ⚠ The comparison against the 128-node run (0.018297) is **not converged-versus-converged** —
+   that run stopped while still improving. The defensible claim is cost: **11.3× more samples
+   per node-hour**. Do not quote the loss ratio without that caveat.
+   *Remaining: hand the per-channel lwrmse panels to the science owner.*
+
+2. ✅ **SETTLED, AND NOW BOUNDED ABOVE — LR 2.0e-3, β₂ 0.95, warm restarts.**
+   🔴 **Two hyperparameter recommendations changed on measurement (`makani_bench_report.md` §7e,
+   9 arms, all collapsed):**
+   - **RETIRED: β₂ 0.95 → 0.999.** Measured backwards — 5 of 5 arms at 0.999 collapsed at
+     epoch 2, the fastest failure of any configuration. **Keep 0.95.**
+   - **CONFIRMED: `optimizer_max_grad_norm` 32 → 1.0.** Delays collapse from epoch 2 to 6 and
+     gives the best loss of its batch. Does not prevent collapse; nothing tested does.
+   - **The LR ceiling is (2e-3, 3e-3] and does NOT move with batch size.** 2.0e-3 is one rung
+     below a hard limit — do not raise it.
+   Original sweep (commit `9506ad1f`, `makani_bench_report.md` §5h). Three arms × 3 full-pass epochs:
+   4e-4 (upstream's batch-32 value) **came last**; 2e-3 won on both validation loss (0.02352)
+   and grad norm (0.01830), by 12.9%. Remaining work is only to *re-test* if the run misbehaves:
+   3 epochs cannot catch a tail instability, and 2e-3 was the **top of the range tested**.
+   Ship it on a real schedule at the same time — `makani/utils/driver.py:678-708` already
+   supports `CosineAnnealingLR` and **`CosineAnnealingWarmRestarts`** (`scheduler_T_0`,
+   `scheduler_T_mult`), config-only.
+   🐛 **And it fixes a live defect: warmup is impossible under the current scheduler.**
+   `lr_warmup_steps > 0` with `ReduceLROnPlateau` raises `NotImplementedError` (line 702), so
+   the batch-512 production run had **no warmup at all** and could not have had any.
+   Warm restarts also hand us a **free snapshot ensemble** — one checkpoint per restart (item 3).
+
+3. ✅ **CLOSED 2026-09-17 — the per-lead fix landed and six checkpoints have been scored.**
+   The empty-intersection defect below is **fixed** by `652e9505` (merged here today from
+   `wt-perlead-metrics`; verified job **7602739**, `PERLEAD_METRICS_OK`): `PlasimTrainer` rebuilds
+   `MetricsHandler` on the dataset's own channel names and `validate_one_epoch` dumps the full
+   `(leads × channels)` curve to `<expDir>/scores/metrics_epN.h5`. It passes **all 101 channels** —
+   which is what makani's own `Inferencer` does (`inferencer.py:346`), so it is **not** the science
+   choice this item feared. **Picking a headline subset still belongs to jesswan**, and
+   all-channels leaves that open.
+   **What it measured:** the rollout **blurs and drifts** — RMSE grows **4.65×** from 6 h to 126 h,
+   linearly, no saturation; ACC 1.000 → 0.878. C1 is **−3.00 %** at lead 126 h; `n_future=4` is
+   **−4.66 %/−4.63 %** across two seeds. ⇒ the rollout/ensemble direction is **not** misaimed.
+   ⚠ **Still open:** at ACC 0.878 we are far from climatology, so **exposure bias and
+   mode-averaging are not yet separable**. That needs the K=56 / 14-day sweep — see item 4.
+   *Superseded text kept below for the traps it records.*
+
+   ~~✅ **SCORING WORKS — and it produces exactly ONE single-step scalar. 2026-09-10.**~~
+   The va=3 control reproduced production's **0.01284 exactly** (7598662/3/4, again in 7602599),
+   so the `train_plasim.py:382` fix is verified and this item's headline is closed.
+   🔴 **But the lead-time ladder came back FLAT, and the cause is not logging.** va=3/10/20 on
+   the same checkpoint returned **byte-identical** `0.012838906608521938` while validation time
+   scaled 17.3 → 41.9 → 74.4 s. `MetricsHandler` intersects its ERA5 default variable names
+   (`u10m, t2m, sp, sst, u500, z500, q500, q50`) with the dataset's `channel_names`
+   (`metric.py:269-275`) and builds a handle only if the survivors are non-empty (`:323`). Our
+   E3SM channels are `PS, TREFHT, U10, RHREFHT, PSL, TMQ, T_l00…` — **empty intersection, zero
+   handles, no per-lead metric ever computed.** The 2026-09-09 patch that assumed they were
+   computed-and-discarded is a **no-op** (retracted in CHANGELOG `2026-09-10`).
+   ⇒ **Every "validation loss" in this repo — 0.01284, and the 128-node run's 0.018297 — is a
+   SINGLE-STEP number**, not the 4-step score the checkpoint-usage docs and
+   `submit_rollout_scorecard.sh`'s header claim. Fix those claims.
+   **NEXT, and it needs the science owner:** pass E3SM channel names to `MetricsHandler`
+   (`l1_/rmse_/acc_var_names`, reachable at the construction site the fork already uses for
+   `crps_var_names`). **Which of 101 channels are the headline metrics is jesswan's call** —
+   do not pick eight and ship it. Until then **C1 cannot be judged** (see below).
+   *Superseded text kept below for the traps it records.*
+
+   **Score the trained model — NOTHING has ever scored a makani checkpoint on Polaris.**
+   ⚠⚠ **RE-CORRECTED 2026-09-04. The 2026-09-02 correction below was WRONG, and the original
+   claim was right.** `-v SKIP_TRAIN=1` never validated anything: our fork's entrypoint had
+   `if params.get("skip_training"): pass` (`train_plasim.py:382`), skipping the whole run —
+   restore, print timers, exit 0, no validation, no error. Fixed 2026-09-04 by calling
+   `trainer.train()` (makani skips training *inside* the loop at
+   `deterministic_trainer.py:362` and still validates at `:370`). Verification queued as
+   7598662/3/4. **Until that va=3 arm reproduces 0.01284, treat every "we can score it" claim
+   in this repo as unproven.**
+   ⚠ *Superseded text, kept to show what was wrong:* "Corrected 2026-09-02: an earlier version
+   of this item said 'nothing scores it'. Not true — `makani_sfno/docs/2026-08-27_prod128_alldata_checkpoint_usage.md` documents the
+   restore path **and a one-command Polaris validation run**: `-v SKIP_TRAIN=1` restores the
+   pinned `RUN_NUM` and runs validation only over the full 3-year split (4,380 samples,
+   3-step rollout, ~10 min, 1 node, weights untouched). What is genuinely missing is **long
+   rollout forecasts and scorecards**, whose tooling (`src/sfno_inference/`, `src/sfno_eval/`)
+   is Stampede3-pathed, and stock makani's inference entrypoint is hard-gated off in this fork.
+   **Do not write this from scratch:** `makani_sfno/scripts/` already carries the group's
+   4-stage chain (`eval_inference.py` → score → `report.md` → figures, driven by
+   `submit_eval.sh`, plus the `eval-sfno-own` / `eval-sfno-5410` skills). It even expects the
+   same `best_ckpt_mp0.tar` name. What it does **not** match is our cluster or our data: it is
+   **SLURM on Stampede3** against a **PLASIM sim52** test holdout, whereas we have PBS on
+   Polaris and the **101-channel E3SM ALLDATA** contract. The job is a port — scheduler,
+   test split, channel set — not a design.
+   ⚠ It lives inside a `git subtree`; add a Polaris sibling rather than editing in place
+   (CLAUDE.md #7's rule, applied to the scheduler axis).
+   *Cost: porting, then a short single-node job.*
+
+4. **Ensemble — the track is now unblocked and running. Next steps, in order.**
+   🔵 **RUNNING/QUEUED 2026-09-17:** **7630639** = the production candidate the n_future ladder
+   named (`n_future=4`, 24 epochs, 2 nodes × local 2 = global batch 16, `preemptable`, ~16
+   node-hours), re-run on the cxi stack after **7621853 died over TCP** in epoch 1.
+   **7630649** = `polaris_e3sm_port_test.pbs`, PASS = `E3SM_PORT_OK`.
+   ✅ **Inference port changes A-D + G landed** (`f857040b`) — two were silent defects
+   (`truth_sic` returned `solin`; the scorer used Gauss-Legendre on our equiangular grid,
+   over-weighting the polar row **1.50×**). → `docs/2026-09-10_e3sm_inference_port_scope.md`.
+   **Remaining, in order:**
+   a. **Decision E — step-index vs calendar labelling.** The scope doc §2.3 recommends
+      **step-index**: E3SM is packed on a **noleap** calendar with a split-cumulative day count, so
+      anchoring to a proleptic-Gregorian `datetime64` drifts one day per leap year crossed. Zero
+      effect on any metric; it only changes the label on output files.
+   b. **Change F — the Polaris PBS sibling for the eval chain** (`scripts/submit_eval.sh` is SLURM
+      on Stampede3; CLAUDE.md #7 ⇒ add a sibling, never edit in place).
+   c. 🎯 **Task 10 — the K=56 / 14-day rollout sweep. THE DECISION POINT.** At 126 h ACC is 0.878,
+      far from climatology, so exposure bias and mode-averaging cannot yet be told apart. This
+      curve decides whether more rollout depth or a **distributional objective** deserves the
+      node-hours — i.e. whether the untested CRPS arm is the next run.
+   d. **The CRPS/ensemble arm has never executed.** `PlasimEnsembleTrainer` is built with 7 tests
+      green and its config root-key defect is fixed; `bash polaris/submit_nfuture_ladder.sh crps 5`.
+      Gated on (c) unless run as a cheap smoke.
+   e. Stages 1/3/4 of the lagged ensemble (stagger-`d` start generator, member alignment by
+      absolute target index, weighted combination `w_k ∝ 1/σ(k)²`) — gated on (c).
+      → `docs/2026-09-10_lagged_ensemble_endtoend_plan.md` §5.
+
+   **Snapshot members — two cheap routes, one unavailable.**
+   ✅ **2026-09-17: there is nothing to keep — it was never pruned. ALL 243 epoch checkpoints
+   of the 1-node production run are on disk**, contiguous `ckpt_mp0_v0…v242`, 1.65 GiB each,
+   **403.2 GiB**, under `prod1n_b32_sgdr/training_checkpoints`. `makani_bench_report.md` §5k's
+   "twelve members" is that report's every-20th *subset*, not what survived. ⇒ **member spacing
+   is a free parameter** and the correlation-vs-skill question can be measured at inference
+   cost, training nothing. ⚠ It is also **item 16's non-pruning defect on a second harness** —
+   decide deliberately which members to keep before the next long run, and do not let a cleanup
+   script pick. → `polaris_makani_128node_decision_prompt.md` §13.
+   *Snapshot ensemble*: keep the checkpoint at each `CosineAnnealingWarmRestarts` restart —
+   3-4 models from **one** run, free, and a direct payoff of item 2's scheduler change.
+   *Multi-seed*: N independent runs; at ~14 node-hours each, 5 seeds ≈ 70 — affordable now,
+   impossible at 216/run.
+   ❌ **EMA is NOT in makani 0.2.0** (verified: no EMA/SWA/`AveragedModel` anywhere). Live
+   consequence: the group's `submit_eval.sh` prefers `best_ckpt_ema_mp0.tar` *when present*,
+   and for makani runs it never will be — evaluation silently falls back to raw final weights.
+   ⚠ Not the same thing as makani's *ensemble parallelism* (`ensemble_trainer.py`,
+   `ensemble_size`, CRPS losses + `input_noise`): that is FCN3's probabilistic objective and a
+   different trainer, i.e. a change to what the model computes rather than a post-hoc ensemble.
+
+5. **Settle the ladder: reps, and one warmup-free wandb-off rung set.**
+   Every makani number published is **n=1**, and the two ladders disagree on the headline:
+   warmup-inclusive says the first Slingshot hop is free (+0.7%) and 67% efficiency at 8 nodes;
+   warmup-free says +35% and **47%**. → `makani_bench_report.md` §3c.
+   Run §3a's rungs at `EPOCHS=2`, wandb off, ≥3 interleaved reps per rung.
+   ✅ **The placement arm is DONE** (2026-09-02, `makani_bench_report.md` §5i): `GPU_ORDER=reverse`
+   is **+0.88% slower at 1 node** (3+3 reps, node-matched) and −7.0% faster at 4 nodes sharded —
+   **config-dependent, not a free win**; `default` is correct for the 1-node production config.
+   Reps for the *ladder rungs* are still outstanding.
+   *Cost: ~12 jobs + 2 arms, all ≤10 nodes in `debug-scaling` (≤1 h, 1 job/user).*
+   PASS: `MAKANI_MN_SCALING_OK` + a row per rung.
+   *Nothing about makani scaling should be published until this exists.*
+
+6. **File the ALCF ticket.** Four independent findings, all with app-free reproducers, none
+   reported yet — and one is a **correctness** defect, not a performance one:
+   - `fi_domain` returns **ENOSYS** for every aws-ofi-nccl ≥ v1.9 on `/soft` against libfabric
+     2.3.1, **and the one-line fix is `OFI_NCCL_PROGRESS_MODEL=AUTO`** (matrix 7563894 and
+     7568618 — same answer on NCCL 2.28.3 and 2.27.5, i.e. provider-side, not NCCL-version
+     specific). This is almost certainly why ALCF's own 2025-09 plugin rebuilds sit broken.
+   - The **tree all-reduce silently corrupts above ~1 GB** — app-free, 2 AND 8 nodes
+     (7569805/7569817/7571147): the head of the buffer is reduced, the tail is untouched, and
+     it differs by rank. Had the watchdog not fired, training would have continued on
+     half-stale gradients. `NCCL_ALGO=Ring` is the workaround.
+   - `module load conda` has been **broken since 2026-08-20** (dead `gcc-native/14.2` +
+     `cray-hdf5-parallel/1.14.3.5` pins; base-conda torch also has unresolved libs). Every
+     script in this repo carries a hand-reconstructed modulefile because of it.
+   - **Three nodes with zombie GPU state**: `x3111c0s37b1n0` (3 strikes), `x3201c0s1b1n0`,
+     `x3109c0s1b0n0`.
+   - ⚠ **NEW 2026-09-02 — the tree defect now has a THIRD harness and a named trigger.**
+     ACE2 issues **one all_reduce of its entire 455.8 M-parameter model (1.823 GB =
+     1738.86 MiB)** as **collective 14 of the run**, after DDP's parameter broadcast and
+     *before the first backward* (job 7586590, flight-recorder dump). That is above the
+     measured-failing threshold, so ACE2 would hit the corruption without `NCCL_ALGO=Ring`.
+     It also **explains ai-rossby's byte-identical stuck collective under a 200x
+     `bucket_cap_mb` change**: the collective is not a gradient bucket, so the cap cannot
+     affect it. Two unrelated models, stock DDP, `gradient_as_bucket_view=True`, same
+     behaviour — that is a much stronger ticket than "makani and ai-rossby saw a hang".
+   *Cost: writing. Unblocks the fastest stack for everyone on the machine.*
+
+7. **cpu-bind / progress-thread sweep on the new plugin — the biggest known lever.**
+   At 8 nodes, per-GPU compute is ~115 ms of a 545 ms step ⇒ **~79% is exposed comms**
+   (`makani_bench_report.md` §3b). `OFI_NCCL_PROGRESS_MODEL=AUTO` runs libfabric's own progress
+   threads on the 8 cores `--cpu-bind depth -d 8` reserves — a bind tuned for the *old* plugin's
+   manual progress. Vary `-d`, and settle `OMP_NUM_THREADS` in the same sweep (see the caveat
+   below). If it recovers even half the gap, the new plugin dominates the old one everywhere.
+   *Cost: 3-4 jobs at 4 nodes.*
+   ⚠ **`omp_threads=64` on all 30 existing rows.** PBS exports `OMP_NUM_THREADS=<ncpus>` and the
+   launcher's `${OMP_NUM_THREADS:-1}` idiom never overrode it, so every measurement ran at 8×
+   CPU oversubscription on exactly the cores the progress engine needs. Comparability is intact
+   (constant on every row); the absolute numbers are not clean. **Changing it invalidates
+   comparison with all 30 rows — do it as a deliberate, documented re-baseline inside this
+   sweep, not as a drive-by fix.**
+
+## P1 — makani, next
+
+8. ✅ **DONE 2026-09-04 — makani's first kernel-level profile** (job 7591822, all 4 ranks,
+   steps 30-40, production configuration). Result: **34.9 percent of GPU compute time is spent
+   in kernels that compute nothing** (`direct_copy`, `bfloat16_copy`, `nchwToNhwc`,
+   `FillFunctor`) against **28.5 percent in GEMM plus FFT** — a ratio of 1.23 to 1, agreeing
+   across all four ranks to within 0.4 percentage points. Same pathology as PanguWeather on the
+   same A100s (47 percent in `direct_copy`+`conj`). → `makani_bench_report.md` §5m.
+   **Follow-on, in order:**
+   a. **NVTX phase attribution** — name *which* copies. Harness exists
+      (`ACE2_retrain/nvtx_phase_attribution.py`); makani's NVTX ranges need checking against it.
+   b. **The §4.1 equivalence baseline (item 9) is now the blocker**, not the profile. No layout
+      or hot-path change may be adopted without it (CLAUDE.md #6).
+   c. Only then a layout fix, behind that gate.
+   ⚠ Not claimed: a speed-up. Kernel time (264.4 ms/step) is not wall time (472.1 ms/step
+   production), and the capture is n=1 under profiler overhead.
+
+9. **Capture a DESIGN §4.1 equivalence baseline for makani.** No hot-path change may be
+   committed without one (CLAUDE.md #6), and any lever from P0-5/P1-6 is a hot-path change.
+   Check first whether makani has a usable seed knob — do **not** port `s2s/v2.0/utils/seeding.py`
+   on spec; Pangu already had a stronger one and porting was the wrong call there.
+
+10. **Revive the seven dead launchers** (`makani_bench_report.md` §9). They still open with the
+   bare `module load conda` and fail instantly — **including both data packers**, so the green
+   results they produced (7253465, `CONVERT_OK` 7252728) are not reproducible today. The fix is
+   a two-line swap in a fixed order, already proven on real work by
+   `polaris_pack_e3sm_scaling.pbs`. ⚠ Seven files inside a `git subtree` — keep the edits
+   minimal and contiguous (notes §6b). **2026-10-14:** the two data packers now use the working
+   start-up lines (branch `refactor/e3sm-pack-scripts-port-main`); not yet run end to end. Five remain.
+
+11. **Arm D, never run** (prereg 4, unscored): `-v DATA=synthetic` separates an I/O loss from a
+   comms loss. *Cost: 1 job.* (Arm E, `GPU_ORDER=reverse`, has moved up into P0-3 — it is a
+   confound on every existing row, not just an unscored prediction. ⚠ ai-rossby queued the
+   same test and **both arms were refused** — 7577036 `rc=134`, 7577166 `rc=143` — so the axis
+   still has zero measurements anywhere; find out why those died before re-queueing.)
+
+12. **Second-user reproducibility for makani** — Pangu and SI have it, makani and physicsnemo
+    do not (DESIGN §8). One run as another user with `PYTHONNOUSERSITE=1`.
+
+13. **Migrate `makani_scaling*.csv` to carry peak memory** (rule #10 — a deliberate
+    header change, not a drive-by). `plasim_trainer.log_epoch` now logs
+    `peak torch memory [GB]` + `non-torch memory [GB]` per epoch, but they reach only the
+    job `.o` log and wandb: `parse_makani_scaling.py` asserts the header matches `FIELDS`
+    and **refuses to append** on drift (`:162`, `:172-178`). Adding the two columns means
+    rewriting the header of every existing CSV in one commit, plus a parser test.
+    **Deliberately deferred** — not to be done while job 7585080 and the batch-48 arms are
+    writing to those files. Do it once they land. → `makani_bench_report.md` §5g.
+
+13a. **makani `main` port — post-M8 B-track** (review 7681379 §3; order panel 7682039). **Blocked on M8**
+    (the operator's switch to `sfno-venv-main`); nothing here starts before it. Order: B1 → B5 → B7;
+    B3+B4 one job after one ruled tolerance; B2 iff M7 shows h2w4 ≈ h1w1; **B6 last** (re-run M3/M4).
+    → `makani_port/HANDOFF_worker.md` §3a.
+    - **B1 `--multistep_checkpoint`** for the depth-16 fine-tune OOM. ⚠ `train_plasim.py:333-334` does
+      **not** forward `args.multistep_checkpoint` into params (upstream `train.py:127` does), so the
+      flag is a silent no-op for us until that passthrough lands. Proof: flag on vs off, 5 steps,
+      `--multistep_count 4`, loss + grad norm bitwise; then the depth-16 fit.
+    - **B2** spatial sharding as a memory tool — only if M7 says h2w4 ≈ h1w1.
+    - **B3** `jit_mode inductor` + **B4** `LossHandler(compile=True)` — DESIGN §4 gate; the operator
+      rules the tolerance **before** the job (ai-rossby's 4e-1 FAIL, CHANGELOG :26).
+    - **B5** loader/sampler `state_dict` + `enable_checkpointing` for mid-epoch resume (upstream's
+      restore is DALI-only for a torch DataLoader); kill-and-resume bitwise.
+    - **B6** stock pinned `nvidia-physicsnemo` in `sfno-venv-main`, retiring the editable coupling.
+    - **B7** `makani/benchmark.py` as the DESIGN §5 profiling driver.
+    - Science items (NonNeg, hydrostatic, grid-weight fix, `weight_decay_mode`, FCN3.1): opt-in,
+      default OFF, on their own slots (§3a 5–9); training arms need jesswan's **written** sign-off.
+
+## P2 — other tracks, still live
+
+14. **ACE2 (`fme`) on Polaris — 🔴 the whole ladder was measured over TCP; re-measurement is the
+    top ACE2 item.** Plan: **`polaris_ace2_slingshot_handoff.md`** (read first),
+    then `polaris_ace2_multinode_handoff.md`; prereg + scorecard:
+    `ACE2_retrain/polaris/ace2_polaris_prereg.md` §1c/§1d; evidence: CHANGELOG
+    `2026-09-17 (cont. 3)` and `2026-09-02 (cont. 3)`.
+    **Done 2026-09-17 (no allocation needed):** `provider` guard + FIELDS parity restored
+    (23 tests), `NCCL_PROTO=Simple` pinned for the v1.6.0 plugin (without it the 4n/8n arms
+    deadlock at init), the ladder script now passes its CSV path through to the jobs, the T3
+    probe written (`polaris_ace2_tree_probe.pbs` + `parse_nccl_tests.py`, 14 tests), and every
+    tcp-era table labelled rather than deleted.
+    🟢 **T2 (partly) and T4 DONE 2026-09-18 — ACE2 is on Slingshot and the economics moved:**
+
+    | | tcp (n=3) | **cxi (n=1)** |
+    |---|---|---|
+    | 1-node step | 716.0 ms | **713.7** (7631544 — **unchanged**, so `NCCL_PROTO=Simple` costs ACE2 nothing) |
+    | 2-node step | 1204.4 ms | **815.3** (7631529, **1.477×**) |
+    | first-hop toll | +488.4 ms (40.6%) | **+101.6 ms (12.5%)** — fell **4.81×** vs a 5.2× bandwidth ratio |
+    | node·s/sample 1n→2n | 1.68× | **1.14×**, for **1.75× the throughput** |
+
+    ⇒ **"Use the fewest GPUs that hold the batch" is much weaker on Slingshot**: a second node
+    now costs +14% node-hours, not +68%. Prereg P12 ❌ missed by 1.5%; P15 ❌ falsified.
+    🟢🟢 **16-NODE COMPARISON, 2026-09-18 (7633410 vs 7633560): ACE2 WEAK-SCALES AT 95.9% ON
+    SLINGSHOT.** 1 node 716.2 ms → 16 nodes **746.5 ms (+4.2%)** for **16× the global batch**;
+    11.17 → **171.47 samples/s (15.35× for 16× the GPUs)**; **+4.2% node-hours per sample** against
+    the tcp era's **+109% at 8 nodes**. `gpu_busy_frac` 0.9412 at 64 readers — I/O still not the
+    limit. ⇒ **the fabric is no longer a reason to stay small.**
+    🔴 **The ladder is NON-MONOTONIC: 2 nodes (815.3 ms) is 9.2% SLOWER than 16 nodes (746.5).**
+    The 2-node trough, now on a third model. The worst multi-node config is the *smallest* one.
+    ✅ **AND THAT BATCH QUESTION IS NOW MEASURED AND CLOSED (2026-09-19, prereg §1e, 3 HIT/3):
+    1 NODE STANDS.** At matched samples (3 full epochs), global batch 128's best LR reaches
+    **~0.50 validation vs batch 8's 0.19579 — 156% worse**, against a ">10% ⇒ 1 node" rule:
+    LR 3e-4 → 0.5017, √-scaled 1.2e-3 → 0.5126 (2 ep), linear 4.8e-3 → 1.7993 (2 ep, badly
+    suboptimal but never diverged). ⇒ **the fabric was never what stood between ACE2 and a faster
+    good model — the batch was, and it still is.** The cxi work stays valuable for any run that
+    must be multi-node and for makani's campaign; it does not change ACE2's 1-node choice.
+    ⚠ **Sizing lesson:** `PRODUCTION=1` drops the bench `sample_with_replacement` cap, so epoch 1
+    reads the full ~4 TB split and runs **2.8× slower** than the bench step time predicts. Do not
+    size a production walltime from a 60-step bench row.
+    ⚠ 16n is n=1; 4n/8n on cxi do not exist; the 16-node arm ran on a different rack.
+    ⚠⚠ **THAT +14% IS PER SAMPLE, AND IT DOES NOT LICENSE A 2-NODE PRODUCTION RUN.** Flagged
+    independently by both review seeds 2026-09-18, and they are right. Per **optimizer update** —
+    which is what model quality tracks — 1 node at global batch 8 still wins on *both* axes:
+    **5,044 vs 2,208 updates/node-hour (2.3×)** and **5,044 vs 4,415 updates/hour of wall-clock**,
+    computed from the measured cxi steps (713.7 / 815.3 ms). A 2-node production run would spend
+    **2.3× the allocation to train more slowly.** The ladder's ranking inverts between
+    samples/s and updates/node-hour, and the production objective is the latter.
+    ⚠ The "**3.4×** more update-efficient" figure quoted here and in prereg §1a is a **TCP-era
+    number** (5,028 vs 1,495). On cxi it is **2.3×**. The conclusion survives; the magnitude
+    must be restated wherever it appears.
+    **Next, in order:**
+    - **Reps.** Every cxi row is **n=1** against tcp rungs whose own spread reached ±3.8% at 2n.
+      `ACE2_SCALING_CSV=$MEMBER_ROOT/bench/ace2_polaris_scaling_cxi.csv bash
+      ACE2_retrain/polaris/run_ace2_ladder.sh 3 2` fills the shortest rungs first.
+    - **The 4- and 8-node cxi rungs** (`debug-scaling`). Until they exist, every *shape* claim —
+      efficiency, the 2-node trough, saturation — is still a tcp result.
+    - ✅ **T3 ANSWERED AT BOTH NODE COUNTS — the Tree defect does NOT reproduce on Slingshot.**
+      7631550 (2 nodes) and 7631624 (8 nodes), 6/6 arms each, every `#wrong = 0`, every arm
+      terminated, at 128 MiB→2 GiB and at ACE2's exact 1.74 GiB collective. It was **1.21.1's
+      tcp path**, not NCCL's Tree ⇒ **the correctness case for `NCCL_ALGO=Ring` is gone.**
+      ⚠ **But the performance answer reverses with scale:** Tree **+21%** inter-node at 2 nodes
+      (42.79 vs 35.37 GB/s), Ring **+28%** at 8 (37.00 vs 28.90, and +25–29% at *every* size).
+      Tree's per-link message does not shrink with N; Ring's reduce-scatter gives each rank S/N.
+      🔵 **So the move is UNPIN (`-v NCCL_ALGO=`), not "pin Tree"** — let NCCL's tuner pick per
+      size and scale. Worth ~2% of step time at the 2-node production shape. **Gated on:**
+      (a) a trainer-side run, since a DDP all_reduce with ~10 collectives in flight is not one
+      app-free communicator, and (b) **an equivalence baseline (DESIGN §4)** — hot-path change,
+      reduction order moves. **That baseline is now the blocker, not the fabric.**
+    ⚠ **Every headline below is still a TCP number.** The shapes survive, the magnitudes do not.
+    ✅ Venv (`ACE2_VENV_OK`), config, telemetry + bench CSV (ACE2 had neither), one launcher
+    for any node count, parser + 46 tests, prereg, and the **full 1/2/4/8-node weak-scaling
+    ladder**. Headline results, all measured:
+    - **`batch_size: 16` does not fit one node** (local 2 = 34.0 GiB, local 3 OOMs), so ACE2
+      always pays the first-hop fabric toll — unlike makani, where 1 node won outright.
+    - **Fabric-limited, not I/O-limited.** At 32 ranks the single-OST 2.4 TB `.nc` sustains
+      **1.64 GB/s** with `gpu_busy_frac` **0.970** ⇒ **the zarr conversion is not justified.**
+    - Shape: cliff at the first hop (−42% per-GPU), then saturating; **87%/82% incremental
+      efficiency from the 2-node minimum viable config.**
+    - 🔴 **`NCCL_ALGO=Ring` is load-bearing**, not insurance — see P0-6.
+    🎯 **PRODUCTION SHAPE SETTLED (2026-09-03): 1 node, global batch 8, ~27 epochs = makani's
+    332,424 updates for ~66 node-h.** Smaller batch on one node is **3.4x more
+    update-efficient** than 2 nodes at batch 16 and faster in wall-clock too — the ladder's
+    ranking inverts once the objective is updates rather than samples/s.
+    ✅ Resume gate PASSED (`ACE2_RESUME_GATE_OK`) — warm restarts + snapshot ensemble survive
+    preemption. 🔬 LR sweep RUNNING (7589850-53, 4 arms, rule pre-registered in prereg §1a).
+    **Next, in order:**
+    0. ✅ **LR SWEEP SCORED AND SETTLED 2026-09-10 — the winner is `3e-4`.** All four arms
+       completed 3 full epochs (the two preempted ones resumed as 7598647/8): **3e-4 0.19579**
+       < 1e-4 0.23332 < 5e-5 0.28380 < 1e-3 0.34571. Ranking identical to the 2-epoch ranking,
+       and 3e-4 is an **interior optimum**, so the prereg's endpoint rule does not fire and it
+       is adoptable as the warm-restart peak.
+       🔵 **REMAINING: launch production.** 1 node, `LOCAL_BATCH=2` (global batch 8), 27 epochs,
+       `PRODUCTION=1 LR=3e-4 FULL_VAL=1 T_0=9 T_MULT=1` — `T_0=9` divides 27 exactly, so the
+       run ends at an LR minimum and the snapshot ensemble gets 3 members at epochs 9/18/27.
+       ⚠ **Queue is an open decision:** `capacity` fits all ~93-124 h in ONE job (never resumes,
+       which matters because item 0 below is unmeasured) but takes the project's single slot;
+       `preemptable` caps at 72 h so the run *must* resume at least once.
+    0aa. ✅ **Metric capture built 2026-09-10** (`ACE2_METRIC_LOG_OK`, 9 tests). fme routed every
+       per-channel validation metric through `wandb.log` with `log_to_wandb: false`, so all of
+       it was discarded — makani's defect on a second harness. Now `logging.metrics_log_dir`
+       (JSONL, resume-safe) + an epoch echo to the screen log, with the dropped-key list named
+       so parity is checkable. ✅ **Verified on real fme (7602614): 837 scalars to the screen
+       log against 3 before, 305 drops all named and all images, `metrics.jsonl` key count an
+       exact match, and `step_med_ms` 716.6 — the timed window is untouched.**
+       ✅ **wandb itself verified separately (7602650, new `-v WANDB=1`, default off):** 837
+       scalars + 305 wandb media PNGs = the 1142 keys the echo counted, so all three sinks
+       agree exactly. Fixed a `/tmp` trap on the way (`wandb_dir_in_experiment_dir` now always
+       true, else `wandb.init(dir=...)` overrides `WANDB_DIR` and the offline run dies with the
+       job). 🔴 **wandb ignores `resume` when offline** — a resumed run starts a NEW wandb run,
+       so wandb cannot be the record for a preempted production run and the JSONL is the one
+       that survives. **Second argument for `capacity` over `preemptable` below.**
+    0a. ✅ **Determinism answered (2026-09-04):** two independent 1-node jobs at `seed: 3` agree
+       **bitwise** on validation loss and to **7.7e-8 (~1 ULP fp32)** on the one cross-rank
+       reduced train loss that moved. ⇒ a §4.1 equivalence baseline is achievable; tolerance
+       ~1e-7 on reduced scalars. ⚠ 1 node only — multi-node reduction orders are unmeasured.
+    0. **Confirm resume is data-deterministic at production scale.** The gate passed on the
+       load-bearing criterion (LR trace identical ⇒ `T_cur` survives preemption, so warm
+       restarts and the snapshot ensemble are safe), but its loss diverged 23% because
+       `sample_with_replacement` selects a bare `RandomSampler` that is not epoch-seeded.
+       Production uses `DistributedSampler` + `set_epoch`, which *should* be deterministic —
+       **inferred from the source, not measured.** Needs one full-epoch gate.
+    0b. **Reps for the placement A/B** — `GPU_ORDER=reverse` is n=1 at both rungs and each
+       delta (−0.12% at 1n, +2.80% at 4n) sits *inside* its forward baseline's spread, so
+       neither is resolvable. makani's −7.0% is excluded, but ACE2's own effect is not
+       measured. Needs node-matched reps, as makani's arm used.
+    1. **Reps for 8n** — still **n=1** and must not be published.
+       `bash ACE2_retrain/polaris/run_ace2_ladder.sh 3 2` fills the shortest rungs first;
+       re-run it each time a wave drains (one job per queue is the hard limit).
+    2. **Name the 1.823 GB startup collective.** The flight recorder captured no stack
+       frames; one arm with stack capture would identify the call site and close
+       ai-rossby's open question properly rather than by analogy.
+    3. **Prereg P6 is still untested** — needs an nsys capture to check whether Midway's
+       "NCCL is 40-46% of kernel time" transfers to Polaris' NVLink mesh. `ace2_nvtx.py`
+       exists; there is no Polaris nsys launcher yet.
+    4. ✅ **SETTLED 2026-09-18 — operator decision (rmehta1987), not gated on external sign-off:
+       production runs at global batch 8 on ONE node, LR 3e-4, 27 epochs, warm restarts T_0=9,
+       `use_gradient_accumulation=false`, `FULL_VAL=1`.** Derived independently by two review
+       seeds and a third pass, all agreeing; the LR was swept here (3e-4 an interior optimum,
+       0.19579 vs 1e-4's 0.23332) and the shape is set by updates/node-hour, not samples/s.
+       The item this replaces said the LR "has never been swept here" — it has, since 2026-09-10.
+       These remain departures from ai2's published recipe (batch 16, LR 1e-4, 120 epochs,
+       accumulation on) and are recorded as such in prereg §1a, which is the list to hand anyone
+       comparing our numbers with the paper's.
+       🔵 **Only remaining blocker is the QUEUE, not the science** — see the launch line below.
+
+15. **ai-rossby: write up the stability sweep.** Jobs through **7578960** have all completed and
+    **none of it is in the CHANGELOG** (rows are in `$MEMBER_ROOT/bench/ai_rossby_hpsweep.csv`
+    and `ai_rossby_tuning.csv`; the commits are on `feat/multinode-ddp-port`). Also confirm the
+    LR-5e-4 restart (**7573280**) cleared **epoch 11**, the point where LR 1.46e-3 diverged.
+    The living document is not optional — an unrecorded measurement is a lost one.
+
+16. **Checkpoint retention does not prune — on BOTH harnesses.** ai-rossby:
+    `max_checkpoints_to_keep: 5`, 43 epochs kept all 92 files = **870 GB**; at 100 epochs that
+    is ~2 TB. **makani, confirmed 2026-09-17:** the 243-epoch production run kept every epoch =
+    **403.2 GiB** (item 4). Two independent codebases, same symptom — worth one diagnosis, not
+    two. Find out why before the next long run.
+
+17. **PanguWeather: capture the §4.1 baseline, then rung 1 of the §5 ladder.** Nothing blocks
+    the baseline any more (all three §4.0 prerequisites met; `tiny_baseline.yaml` runs in ~0.5 s
+    of compute). `torch.compile` is measured at 1.40× on ai-rossby but **fails equivalence**
+    (4.02e-01 ≫ 1e-2) — it is measured, not adopted. Plan and evidence:
+    `PANGU_POLARIS_PROFILING_PLAN.md`, `polaris_bench_report.md`.
+
+18. **Profile SI and physicsnemo on Polaris** (DESIGN §8 Phase 2). Only PanguWeather has a
+    kernel-level profile. **SI is cheapest** — it already has `SI_BENCH_*`/`SI_NVTX` and a green
+    Polaris bench (7252700 / 7253603); physicsnemo has no comparable harness.
+
+19. **Fix the loader's missing `worker_init_fn`.** Would make `num_data_workers` an
+    output-neutral knob worth **+9% wall throughput with 10× less jitter** (1 → 8). Today the
+    worker count changes the noise realisation, so the win cannot pass the §4 gate. Ship it with
+    a test pinning sample→noise independence from worker count.
+
+20. **Stand up the test harness proper.** Three self-running test files exist (`SEEDING_OK`,
+    `BENCH_INSTR_OK`, `VAE_NOISE_OK`); there is no `conftest.py` and no `--fast`.
+
+21. **Merge the open PRs, in order.** `polaris-pbs-bringup` → **#10** `polaris-profiling` →
+    **#11** `polaris-data-prep`; then `profile/pangu-polaris-profiling` → `feat/multinode-ddp-port`.
+    A solo session cannot self-approve (#9). Every one of these is stacked, so merging out of
+    order replays commits.
+
+22. **E3SM data prep: 4 open converter defects + 5 decisions** (jesswan/us) —
+    `polaris_data_prep_decisions.md`. The full ~1.43 TB PhysicsNeMo conversion is **not cleared
+    to run**. makani's ALLDATA converter was audited clean (`MAKANI_PACK_AUDIT_OK`, 101 channels).
+
+23. **ERA5 Globus stage** → unblocks the s2s and s2s-lightning smokes on Polaris; both scripts
+    are written and preflight `ERA5_NOT_STAGED`.
+
+---
+
+### Not on this list on purpose
+
+- **A longer/wider makani production run** — gated on P0-3. More node-hours before a science
+  read buys nothing.
+  ⚠ **Corrected 2026-09-17: the "85% weak-scaling efficiency" that used to support this line
+  was measured over TCP** (the 128-node run never opened a CXI domain) and must not be quoted.
+  The conclusion did not depend on it and is now **stronger**: at a hypothetical *zero-cost*
+  fabric, 128 nodes at batch 512 would need a 62.7 ms single-node step at 1 sample/GPU, and the
+  strictly cheaper 53-channel model measures 65.3 ms at that shape. Realistic gap **3.6-4.6×
+  worse per node-hour**, 74-182× worse on **updates** per node-hour. → `polaris_makani_128node_decision_prompt.md`
+  §10-§14. Corollary recorded there: `nodes` is already 1, so **step time at batch 32 is the
+  only remaining lever** on updates/node-hour — that is P1-8 behind P1-9's equivalence gate.
+- **Switching production back to the old (faster) plugin** — ⚠ **REWRITTEN 2026-09-17: the old
+  plugin is now the RECOMMENDED one.** The message-size lottery that disqualified it (it wedged
+  on the ALLDATA encoder weight, 7565896) is **fixed by HPE's rendezvous block** — 7630227
+  against 7629096 swept `all_gather` through the 512 KB size it had wedged at. The "new" plugin
+  was only ever correct-everywhere because it had quietly stopped using the fabric.
+  → `makani_bench_report.md` §6, `polaris_nccl_metrics.md` §5b.
+- **`NCCL_ALGO=Ring` for makani** — probably not needed: makani reduces ~591 MB in one bucket,
+  an order of magnitude below the ~1 GB tree-corruption threshold. ai-rossby (4.73 GB) cannot
+  run without it. ⚠ **ACE2 cannot either** (measured 2026-09-02: a single 1.823 GB full-model
+  all_reduce at startup). It is on by default in `polaris_ace2_train.pbs`; removing it is a
+  correctness regression, not a tuning choice.
+  ⚠ **Evidence downgraded 2026-09-17: the ~1 GB threshold was measured on TCP.** The margin on
+  cxi is unknown. The conclusion may well hold — do not rely on it until re-measured.
+  → `polaris_ace2_slingshot_handoff.md` §2a, task T3.

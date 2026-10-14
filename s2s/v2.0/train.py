@@ -36,6 +36,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
     Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
 from utils.data_loader_multifiles import get_data_loader
 from utils.YParams import YParams
+from utils import seeding
 from utils.integrate import Integrator, forward_euler
 from networks.pangu import PanguModel_Plasim
 from utils.utils import log_memory_usage, log_gpu_memory   
@@ -1807,6 +1808,17 @@ if __name__ == '__main__':
     # parser.add_argument("--num_inferences", type = int)
     # parser.add_argument("--window_size", default = '2,2,2', type = str)
     parser.add_argument("--fresh_start", default=False, action="store_true", help="Start training from scratch, ignoring existing checkpoints")
+    # Reproducibility (DESIGN.md §4.0). Omit --seed to keep the historical behaviour exactly:
+    # torch.manual_seed(world_rank) + cudnn.benchmark=True. Precedence is
+    # --seed > $S2S_SEED > the YAML's `seed:` > legacy.
+    parser.add_argument("--seed", default=None, type=int,
+                        help="Seed random/numpy/torch for a reproducible run. Applied as "
+                             "seed+world_rank (see utils/seeding.py). Required for capturing "
+                             "or reproducing a DESIGN §4 baseline.")
+    parser.add_argument("--deterministic", default=False, action="store_true",
+                        help="Force deterministic kernels (cudnn.benchmark=False, "
+                             "use_deterministic_algorithms). Slower; for baseline capture. "
+                             "Also export CUBLAS_WORKSPACE_CONFIG=:4096:8.")
     parser.add_argument("--local_storage", default=False, type=str)
     ####### for UCAR
     parser.add_argument("--local-rank", type=int)
@@ -1873,9 +1885,28 @@ if __name__ == '__main__':
         world_rank = 0
         local_rank = 0
 
-    torch.manual_seed(world_rank)
+    # --- reproducibility (DESIGN.md §4.0) ---------------------------------------
+    # No seed given -> legacy behaviour, byte-for-byte: torch.manual_seed(world_rank) and
+    # cudnn.benchmark=True. Opt-in only, so this cannot perturb an existing run or the
+    # captured greens. With a seed, random/numpy/torch are ALL seeded — numpy matters
+    # because the validation-sample pick below (np.random.randint) draws from it, so
+    # unseeded numpy alone makes two runs of the same config diverge.
+    _seed = seeding.resolve_seed(cli_seed=args.seed, params=params)
+    if _seed is None:
+        torch.manual_seed(world_rank)
+    else:
+        _rank_seed = seeding.apply_seed(_seed, rank=world_rank)
+        if world_rank == 0:
+            logging.info("seed=%d (rank_seed=%d) — run is reproducible from this config+seed",
+                         _seed, _rank_seed)
     torch.cuda.set_device(local_rank)
     torch.backends.cudnn.benchmark = True
+    if args.deterministic:
+        # Must come AFTER cudnn.benchmark=True above, which it deliberately overrides.
+        seeding.enable_determinism()
+        if _seed is None and world_rank == 0:
+            logging.warning("--deterministic without --seed: kernels are deterministic but the "
+                            "RNG is not seeded, so the run is still not reproducible.")
 
     # Set up directory
     expDir = os.path.join(params.exp_dir, args.config, str(args.run_num))

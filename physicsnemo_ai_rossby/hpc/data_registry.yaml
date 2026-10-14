@@ -1,0 +1,151 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026 The University of Chicago.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# ai-rossby data-location registry (Phase 11).
+#
+# Source of truth for what converted Zarr exists and EVERY cluster it lives on,
+# so a lost copy (e.g. a scratch purge) can be re-transferred and so any cluster
+# can pull what it needs before training. Maintained by tools/data/registry.py
+# (`scan <cluster>` updates a cluster's `copies`; `check` reports gaps + at-risk
+# single copies) and consumed by tools/data/sync_dataset.py.
+#
+# Year ranges are compact strings: "2041-2049", "1981", or "1981,1983-1985".
+
+# TOPOLOGY DECISION (2026-07-21): retire Derecho scratch as the master — its
+# file-count (inode) quota (~26.2M-file hard limit) makes it unable to hold the
+# full dataset family (millions of tiny zarr chunk files each). The intended
+# persistent home is **Delta /work/hdd** (not purged). The re-home transfer
+# (fill the ranges that currently live only on volatile Stampede3 —
+# e3sm 2015-2040, plasim_plev 79-104, amip 1978-2022 — Stampede3 -> Delta) is
+# NOT done yet; the `copies` below still reflect the current physical layout
+# (data is still on Derecho until the migration + decommission).
+clusters:
+  delta:
+    data_root: /work/hdd/bdiu/awikner/physicsnemo-zarr
+    globus_collection: 7e936164-de58-4e3d-85da-21aa23c07169   # NCSA Delta
+    persistent: true                          # /work/hdd is not purged
+    role: intended persistent master          # target durable home (migration pending)
+  deltaai:
+    alias_of: delta                           # shares Delta /work — physically the same data
+  derecho:
+    data_root: /glade/derecho/scratch/awikner/physicsnemo-zarr
+    globus_collection: d33b3614-6d04-11e5-ba46-22000b92c6ec   # NCAR GLADE
+    volatile: true                            # scratch: 60-day purge
+    role: master (RETIRING — inode-limited; migrate to Delta then decommission)
+  stampede3:
+    data_root: /scratch/09979/awikner/physicsnemo-zarr
+    raw_root: /scratch/09979/awikner/raw       # (raw staging deleted 2026-07-20; re-stage if reconverting)
+    globus_collection: 1e9ddd41-fe4b-406f-95ff-f3d79f9cb523   # TACC Stampede3
+    volatile: true                            # scratch: 90-day purge
+    role: conversion + working copy
+  # midway3, dsi — add {data_root, globus_collection} when data is placed there.
+
+datasets:
+  e3sm:
+    subdir: e3sm
+    target_years: "2015-2049"
+    stats: [normalization_2015-2050.zarr, climatology_bias.zarr]
+    raw_source:                                 # COMPLETE archive (all 35 yrs 2015-2049, 51100 h5
+      cluster: stampede3                        # + climatology.nc + norm stats + bias) already on
+      path: /scratch/11095/jwan4/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101   # Stampede3 — no staging.
+    # NB: Derecho/Delta ".../h5/sigma_data" hold only a 2-year subset (2015, 2045); do not use.
+    copies:
+      - {cluster: delta, years: "2041-2049"}
+      - {cluster: stampede3, years: "2015-2049"}   # converted 2026-07-09 (35 yrs + norm + clim/bias)
+      - {cluster: derecho, years: "2015-2049"}     # master; replicated + verified 2026-07-16
+
+  plasim:                                      # sigma-level PLASIM (sim52)
+    subdir: plasim
+    target_years: "12-104"
+    stats_nc:                                  # .nc — still to convert to .zarr (11a)
+      cluster: delta
+      path: /work/nvme/bdiu/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/sigma_data
+    raw_source:
+      cluster: delta
+      path: /work/nvme/bdiu/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/sigma_data
+    # NB: NOT on the Derecho master — Derecho scratch is at its file-count quota
+    # (26.2M-file limit); sigma's ~1.5M chunk files don't fit. Second copy is on
+    # Stampede3 (no inode limit) instead. Delta copy is persistent.
+    copies:
+      - {cluster: delta, years: "12-104"}
+      - {cluster: stampede3, years: "12-104"}   # mirrored 2026-07-17 (#3); verified vs Delta source
+
+  plasim_plev:                                 # pressure-level PLASIM (sim52)
+    subdir: plasim_plev
+    target_years: "12-104"                     # match sigma
+    raw_source:
+      cluster: derecho
+      path: /glade/derecho/scratch/awikner/PLASIM/data/2100_year_sims_rerun/sim52/h5/plev_data
+    stage_dest: plasim_plev/plev_data           # stage → Stampede3 (raw is 565G / 184k files)
+    copies:
+      - {cluster: delta, years: "7-78"}
+      - {cluster: stampede3, years: "12-104"}   # converted 2026-07-09 (verified 93 stores)
+      - {cluster: derecho, years: "12-104"}     # master; replicated + verified 2026-07-16
+
+  era5:                                        # full ERA5 archive
+    subdir: era5
+    target_years: "1979-2024"
+    stats: [normalization_pangu_s2s.zarr]      # 18-level (incl 200 hPa) — built from the
+                                               # pangu_s2s_Z200 variant to match the 18-lvl dataset
+    raw_source:
+      cluster: delta
+      path: /work/hdd/bdiu/bgong1/data/h5data
+    stage_dest: era5/h5data                     # raw dest under a conversion cluster's raw_root
+    copies:
+      - {cluster: stampede3, years: "1979-2024"}   # converted 2026-07-10 (46 stores + norm)
+      - {cluster: derecho, years: "1979-2024"}     # master; replicated + verified 2026-07-16
+      - {cluster: delta, years: "1979-2024"}       # persistent copy on /work/hdd; verified 2026-07-17 (#2)
+
+  era5_sfno_s2s:                               # ERA5 Pangu-S2S benchmark subset
+    subdir: era5_sfno_s2s
+    target_years: "1981"
+    raw_source:
+      cluster: delta
+      path: /work/hdd/bdiu/bgong1/data/h5data
+    copies:
+      - {cluster: delta, years: "1981"}
+
+  amip:
+    subdir: amip
+    target_years: "1978-2022"                   # 2023-2024 raw lack global_mean_co2 — dropped 2026-07-10
+    stats_nc:                                  # .nc — still to convert to .zarr (11a)
+      cluster: delta
+      path: /work/hdd/bdiu/awikner/AMIP/h5
+    raw_source:
+      cluster: delta
+      path: /work/hdd/bdiu/awikner/AMIP/h5
+    stage_dest: amip                            # AMIP converter reads raw/amip/*.h5 directly
+    copies:
+      - {cluster: delta, years: "1981"}
+      - {cluster: stampede3, years: "1978-2022"}   # converted 2026-07-10 (45 stores)
+      - {cluster: derecho, years: "1978-2022"}     # master; replicated + verified 2026-07-16
+
+  imerg:                                       # IMERG global daily precipitation
+    subdir: imerg
+    target_years: "2000-2025"                   # 2000 partial (from 06-01), 2025 partial (to 04-30)
+    note: "diagnostic-only precip: total_precipitation_24hr (mm/day), daily
+      (data_timedelta_hours=24). Global 180x360 on the ERA5 grid; lat/lon copied from
+      era5/*.zarr (N->S 89.5..-89.5, lon 0..359). Grid N->S order verified via a
+      tropics(|lat|<15) >> poles(|lat|>60) precip sanity check for every year."
+    raw_source:                                 # per-day YYYYMMDDHH.h5 (input/total_precipitation_24hr)
+      cluster: derecho
+      path: /glade/derecho/scratch/awikner/laude_data/IMERG_1p0
+    copies:
+      - {cluster: derecho, years: "2000-2025"}   # converted 2026-07-22 (26 stores)
+      - {cluster: stampede3, years: "2000-2025"} # tar-replicated 2026-07-22 (26 stores)
+
+  imd:                                         # IMD India-region daily precipitation
+    subdir: imd
+    target_years: "1901-2025"
+    note: "diagnostic-only precip: total_precipitation_24hr (mm/day, renamed from
+      RAINFALL), daily (data_timedelta_hours=24). Native India 33x35 grid from
+      coordinates.nc (lat 6.5..38.5, lon 66.5..100.5); ~69% NaN (ocean/no-station)
+      preserved as the fill value. Not regridded."
+    raw_source:                                 # per-day YYYYMMDDHH.h5 (input/RAINFALL) + coordinates.nc
+      cluster: derecho
+      path: /glade/derecho/scratch/awikner/laude_data/IMD_1p0
+    copies:
+      - {cluster: derecho, years: "1901-2025"}   # converted 2026-07-22 (125 stores)
+      - {cluster: stampede3, years: "1901-2025"} # tar-replicated 2026-07-22 (125 stores)

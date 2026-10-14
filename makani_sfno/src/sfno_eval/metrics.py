@@ -48,14 +48,65 @@ def legendre_gauss_lat_weights(nlat: int) -> torch.Tensor:
     return weights.to(torch.float32)
 
 
-def cache_lat_weights(out_path, nlat: int = 64) -> Path:
-    """Compute and cache Gauss-Legendre weights to ``out_path`` as ``.npy``.
+def equiangular_lat_weights(nlat: int) -> torch.Tensor:
+    """Return area weights for a cell-centred equiangular grid, summing to 1.
+
+    Cell ``i`` is centred at ``lat_i = 90 - (i + 0.5) * 180 / nlat`` and spans
+    ``Δ = 180 / nlat`` degrees, so its area is proportional to
+    ``sin(lat_i + Δ/2) - sin(lat_i - Δ/2) = 2 sin(Δ/2) cos(lat_i)``. The
+    leading factor is constant, so after normalisation the weight is exactly
+    ``cos(lat_i)`` — this is not an approximation for this grid.
+    """
+    i = torch.arange(nlat, dtype=torch.float64)
+    lat = (90.0 - (i + 0.5) * (180.0 / nlat)) * (np.pi / 180.0)
+    w = torch.cos(lat)
+    return (w / w.sum()).to(torch.float32)
+
+
+# Grid types that makani's own `MetricsHandler` recognises, mapped to the
+# quadrature each one actually requires.
+_LAT_WEIGHT_FNS = {
+    "legendre-gauss": legendre_gauss_lat_weights,
+    "equiangular": equiangular_lat_weights,
+}
+
+
+def lat_weights(nlat: int, grid_type: str = "legendre-gauss") -> torch.Tensor:
+    """Return normalised latitude weights for ``grid_type``.
+
+    ⚠ Getting this wrong is SILENT. The only shape guard downstream is
+    ``pred.shape[-2] != lat_weights.shape[0]``, so 180 Gauss-Legendre weights
+    against a 180-row equiangular grid passes and returns a plausible,
+    incorrectly-weighted number — worst near the poles, where GL nodes and
+    equiangular cell centres diverge most. The PLaSim track is T21 Gaussian
+    (64x128) and wants ``legendre-gauss``; the E3SM ALLDATA pack sets
+    ``model_grid_type: equiangular`` with lat ``[89.5, …, -89.5]``.
+
+    makani's ``MetricsHandler`` already does this correctly — it reads
+    ``params.model_grid_type`` and passes it to ``GeometricRMSE``. Where this
+    scorer and a validation-side number disagree, the validation-side one is
+    right.
+    """
+    key = str(grid_type).strip().lower()
+    if key not in _LAT_WEIGHT_FNS:
+        raise ValueError(
+            f"UNKNOWN_GRID_TYPE: {grid_type!r}; known: {sorted(_LAT_WEIGHT_FNS)}. "
+            "Refusing to default -- a wrong quadrature here fails silently."
+        )
+    return _LAT_WEIGHT_FNS[key](nlat)
+
+
+def cache_lat_weights(out_path, nlat: int = 64,
+                      grid_type: str = "legendre-gauss") -> Path:
+    """Compute and cache latitude weights to ``out_path`` as ``.npy``.
 
     Idempotent — overwrites if the file exists. Returns the resolved path.
+    ``grid_type`` defaults to ``legendre-gauss`` so the PLaSim track is
+    unchanged; pass ``equiangular`` for the E3SM pack (see `lat_weights`).
     """
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    weights = legendre_gauss_lat_weights(nlat).numpy()
+    weights = lat_weights(nlat, grid_type).numpy()
     np.save(out_path, weights)
     return out_path
 

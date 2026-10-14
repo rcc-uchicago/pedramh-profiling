@@ -1,0 +1,241 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_sweep_sfno
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# BEST-CONFIGURATION SWEEP for SfnoPlasim on E3SM — Polaris, 4x A100.
+#
+# Answers a DIFFERENT question from polaris_bench_sfno_e3sm.pbs. That one pins
+# ai-rossby to PanguWeather's settings to isolate the harness (result: 1.166x).
+# This one asks what ai-rossby can do UNCONSTRAINED.
+#
+# One job, ~12 configs: a single bench is only ~2 min end to end (job 7364997:
+# 1 min 53 s of walltime for construction + 20 warmup + 80 timed steps), so a
+# grid fits comfortably inside debug's 1 h cap and one running job per user.
+#
+# --- THE §4 LINE, which decides how each row may be used --------------------
+# DESIGN §4: a "faster" config that changes what the model computes is a BUG,
+# not a win. The grid is therefore split, and the split is not cosmetic:
+#
+#   OUTPUT-NEUTRAL — same math, so a win here is adoptable (after the §4 gate):
+#     * model.checkpointing — activation checkpointing is recompute-vs-store.
+#       It is GRADUATED here, not boolean: >=1 checkpoints encoder+decoder
+#       (sfnonet.py:711,740), >=2 reaches inside the blocks (layers.py:142),
+#       >=3 checkpoints every block (sfnonet.py:699). We currently run 3 — the
+#       MOST recompute — while peaking at only 21.4 of 40 GB. Recompute is
+#       bitwise-identical here only because drop_rate and drop_path_rate are
+#       both 0.0, so no RNG lives inside a checkpointed region. If either
+#       becomes non-zero, this knob stops being output-neutral.
+#     * training.ddp_static_graph — DDP bucketing/graph reuse.
+#     * dataset.num_workers — ClimateZarrDataset has NO per-sample RNG, so
+#       worker count changes prefetch order only, never sample content. (The
+#       opposite of PanguWeather's loader, where it changes the noise
+#       realization — do not carry that rule across the fork boundary.)
+#       Expect ~nothing: data_idle_frac is already 0.0063, which caps the win
+#       at 0.63%. Measured anyway, because "expected" is not "measured".
+#
+#   OUTPUT-CHANGING — a DIFFERENT training run, never a "speedup":
+#     * dataset.batch_size — changes the global batch, hence the gradient, and
+#       PanguWeather's LR formula is 2**loglr * global_batch_size / 16, so the
+#       learning rate moves too. Rows are reported as samples_per_s and are NOT
+#       comparable to the parity rows. Adopting one means re-deriving the LR
+#       and re-running the comparison on BOTH sides.
+#
+# torch.compile is deliberately absent: measured 1.40x, FAILS the §4 gate.
+#
+# --- WHAT THIS JOB DOES NOT ESTABLISH ---------------------------------------
+# A fast row is a CANDIDATE, not an adoption. The winning output-neutral config
+# must still pass the §4 equivalence gate against a checkpointing:3 baseline
+# (equivalence.py + compare_baselines.py) before it goes into any run. Speed
+# here, correctness there.
+#
+# Submit:  qsub polaris/polaris_sweep_sfno_e3sm.pbs
+#          qsub -v WARMUP=5,STEPS=20 polaris/polaris_sweep_sfno_e3sm.pbs   # quicker
+#
+# PASS = the summary table at the end plus N new rows in $SWEEP_CSV. An OOM on
+# a low-checkpointing config is an EXPECTED RESULT, not a failure — it is the
+# memory wall being located. The job records it and continues.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# --- env bootstrap: copied verbatim from polaris_bench_sfno_e3sm.pbs --------
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+[ -d "${DATA}/train" ] || { echo "ERROR AI_ROSSBY_DATA_MISSING: ${DATA}/train"; exit 3; }
+
+export AI_ROSSBY_BENCH=1
+export AI_ROSSBY_BENCH_WARMUP="${WARMUP:-20}"
+export AI_ROSSBY_BENCH_STEPS="${STEPS:-80}"
+# Its own CSV: sweep rows deliberately include output-CHANGING configs and must
+# never be mistaken for the matched parity rows in ai_rossby_sfno_e3sm_bench.csv.
+SWEEP_CSV="${SWEEP_CSV:-${MEMBER_ROOT}/bench/ai_rossby_sfno_sweep.csv}"
+export AI_ROSSBY_BENCH_CSV="${SWEEP_CSV}"
+unset AI_ROSSBY_NVTX
+# The sweep is about the STEP, not the epoch; per-epoch telemetry would never
+# fire in an 80-step window anyway.
+unset AI_ROSSBY_EPOCH_TELEMETRY
+SWEEP_ROOT="${MEMBER_ROOT}/runs/ai_rossby_sweep/${PBS_JOBID%%.*}"
+mkdir -p "$(dirname "${SWEEP_CSV}")" "${SWEEP_ROOT}"
+
+polaris_env_report
+echo "--- sweep ---"
+echo "  ranks  = ${NPROC}   warmup = ${AI_ROSSBY_BENCH_WARMUP}  steps = ${AI_ROSSBY_BENCH_STEPS}"
+echo "  csv    = ${SWEEP_CSV}"
+echo
+
+python "${REPO}/compare_sfno_parity.py" --static || {
+    echo "ERROR PREFLIGHT_FAILED — architecture diverged; sweep rows would be meaningless."
+    exit 4
+}
+echo
+
+# --- the grid ---------------------------------------------------------------
+# Fields: label|checkpointing|ddp_static_graph|num_workers|batch_size|class
+# `class` is N (output-neutral) or C (output-CHANGING) and is carried into the
+# report so a C row can never be quoted as a speedup.
+CONFIGS=(
+  "ckpt3_sg0_w1_bs1|3|false|1|1|N"   # baseline — reproduces the parity row
+  "ckpt2_sg0_w1_bs1|2|false|1|1|N"
+  "ckpt1_sg0_w1_bs1|1|false|1|1|N"
+  "ckpt0_sg0_w1_bs1|0|false|1|1|N"   # least recompute; may hit the memory wall
+  "ckpt1_sg1_w1_bs1|1|true|1|1|N"
+  "ckpt0_sg1_w1_bs1|0|true|1|1|N"
+  "ckpt3_sg0_w8_bs1|3|false|8|1|N"   # isolates workers at the parity baseline
+  "ckpt1_sg0_w8_bs1|1|false|8|1|N"
+  "ckpt1_sg0_w1_bs2|1|false|1|2|C"
+  "ckpt0_sg0_w1_bs2|0|false|1|2|C"
+  "ckpt1_sg0_w1_bs4|1|false|1|4|C"
+  "ckpt2_sg0_w1_bs4|2|false|1|4|C"
+)
+
+rows_before=0
+[ -f "${SWEEP_CSV}" ] && rows_before=$(wc -l < "${SWEEP_CSV}")
+cd "${RECIPE}" || exit 2
+
+declare -a RESULTS
+i=0
+for cfg in "${CONFIGS[@]}"; do
+    IFS='|' read -r label ckpt sg workers bs cls <<< "${cfg}"
+    i=$((i + 1))
+    echo "=============================================================="
+    echo "[${i}/${#CONFIGS[@]}] ${label}  (class ${cls})  ckpt=${ckpt} static_graph=${sg} workers=${workers} batch=${bs}"
+    echo "=============================================================="
+    before=0
+    [ -f "${SWEEP_CSV}" ] && before=$(wc -l < "${SWEEP_CSV}")
+
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        profile_train.py \
+        model=sfno_e3sm_parity \
+        dataset=e3sm_pangu_parity \
+        training=sfno_e3sm_parity \
+        loss=raw_l2 \
+        training.amp=bf16 \
+        model.checkpointing="${ckpt}" \
+        training.ddp_static_graph="${sg}" \
+        dataset.num_workers="${workers}" \
+        dataset.batch_size="${bs}" \
+        run_name="${label}" \
+        hydra.run.dir="${SWEEP_ROOT}/${label}"
+    rc=$?
+
+    after=0
+    [ -f "${SWEEP_CSV}" ] && after=$(wc -l < "${SWEEP_CSV}")
+    if [ "${after}" -gt "${before}" ]; then
+        RESULTS+=("${label}|${cls}|OK|$(tail -1 "${SWEEP_CSV}")")
+        echo "--> ${label}: row written"
+    else
+        # No row means it did not complete. An OOM here is a RESULT (the memory
+        # wall), not a bug — record it and keep going rather than losing the
+        # remaining configs to one failure.
+        RESULTS+=("${label}|${cls}|NOROW_rc=${rc}|")
+        echo "--> ${label}: NO ROW (rc=${rc}) — likely OOM at this memory setting"
+    fi
+    echo
+done
+
+# --- summary ---------------------------------------------------------------
+echo "=============================================================="
+echo "SWEEP SUMMARY  (N = output-neutral/adoptable, C = output-CHANGING)"
+echo "=============================================================="
+python - "${SWEEP_CSV}" "${PBS_JOBID%%.*}" <<'PY'
+import csv, sys
+path = sys.argv[1]
+labels = {r["run_num"]: r for r in csv.DictReader(open(path))}
+grid = [l.split("|") for l in """
+ckpt3_sg0_w1_bs1|N
+ckpt2_sg0_w1_bs1|N
+ckpt1_sg0_w1_bs1|N
+ckpt0_sg0_w1_bs1|N
+ckpt1_sg1_w1_bs1|N
+ckpt0_sg1_w1_bs1|N
+ckpt3_sg0_w8_bs1|N
+ckpt1_sg0_w8_bs1|N
+ckpt1_sg0_w1_bs2|C
+ckpt0_sg0_w1_bs2|C
+ckpt1_sg0_w1_bs4|C
+ckpt2_sg0_w1_bs4|C
+""".strip().splitlines()]
+base = labels.get("ckpt3_sg0_w1_bs1")
+b = float(base["samples_per_s"]) if base else None
+print(f"{'config':20s} {'cls':3s} {'step_med':>9s} {'samp/s':>8s} {'vs base':>8s} {'peak_GB':>8s} {'idle':>7s}")
+for label, cls in grid:
+    r = labels.get(label)
+    if not r:
+        print(f"{label:20s} {cls:3s} {'--- no row (OOM / failed) ---':>44s}")
+        continue
+    sp = float(r["samples_per_s"])
+    rel = f"{sp/b:.3f}x" if b else "--"
+    print(f"{label:20s} {cls:3s} {float(r['step_med']):9.4f} {sp:8.3f} {rel:>8s} "
+          f"{float(r['peak_mem_gb_max_rank']):8.2f} {float(r.get('data_idle_frac') or 0):7.4f}")
+neutral = [(labels[l], l) for l, c in grid if c == "N" and l in labels]
+if neutral and b:
+    best, bl = max(neutral, key=lambda t: float(t[0]["samples_per_s"]))
+    print(f"\nBEST OUTPUT-NEUTRAL: {bl}  "
+          f"{float(best['samples_per_s'])/b:.3f}x vs checkpointing:3 baseline")
+    print("  NOT adopted by this job. It must pass the §4 equivalence gate against a")
+    print("  checkpointing:3 baseline (equivalence.py + compare_baselines.py) first.")
+PY
+
+rows_after=0
+[ -f "${SWEEP_CSV}" ] && rows_after=$(wc -l < "${SWEEP_CSV}")
+echo
+if [ "${rows_after}" -le "${rows_before}" ]; then
+    echo "ERROR SWEEP_NO_ROWS_WRITTEN (before=${rows_before} after=${rows_after})"
+    exit 4
+fi
+echo "AI_ROSSBY_SWEEP_OK  $((rows_after - rows_before))/${#CONFIGS[@]} configs wrote rows -> ${SWEEP_CSV}"

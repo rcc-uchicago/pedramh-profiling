@@ -1,0 +1,46 @@
+#!/bin/bash -l
+#PBS -N makani_f2_equiv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Gate F2 (polaris_makani_f_finetune_handoff.md §4): the full-width paths are
+# unchanged on the merged tree. The two existing gates, sequentially, one node
+# (debug holds one queued job per user):
+#   1. polaris_climate_equiv.pbs  -> CLIMATE_DRIVER_TEST_OK + CLIMATE_DRIVER_EQUIV_OK
+#   2. polaris_dryair_equiv.pbs   -> DRYAIR_OFF_EQUIV_OK (ref = pre-fix tree)
+# Tolerance BITWISE, pre-registered in docs/2026-09-29_f2_equiv_prereg.md.
+#
+# PASS = F2_EQUIV_OK. Key on the token (CLAUDE.md #14).
+# Submit from makani_sfno/:   qsub polaris/polaris_f2_equiv.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+OUT="${MEMBER_ROOT}/runs/makani_eval/f2_equiv_${PBS_JOBID%%.*}"
+mkdir -p "${OUT}"
+
+echo "=== makani_f2_equiv: $(date -Iseconds) job=${PBS_JOBID} sha=$(cd "${MAKANI_ROOT}/.." && git rev-parse --short=12 HEAD 2>/dev/null) ==="
+
+bash "${MAKANI_ROOT}/polaris/polaris_climate_equiv.pbs" > "${OUT}/climate_equiv.out" 2>&1
+grep -E "^(CLIMATE_DRIVER_(TEST|EQUIV)_OK|ERROR|GATES)" "${OUT}/climate_equiv.out"
+
+bash "${MAKANI_ROOT}/polaris/polaris_dryair_equiv.pbs" > "${OUT}/dryair_equiv.out" 2>&1
+grep -E "^(REF tree|NEW tree|  .* rc=|MEMBER_NC_EQUIV_OK|DRYAIR_OFF_EQUIV_OK|ERROR)" "${OUT}/dryair_equiv.out"
+
+ok=1
+for tok in CLIMATE_DRIVER_TEST_OK CLIMATE_DRIVER_EQUIV_OK; do
+    grep -q "^${tok}" "${OUT}/climate_equiv.out" || { echo "ERROR F2_MISSING ${tok}"; ok=0; }
+done
+grep -q "^DRYAIR_OFF_EQUIV_OK" "${OUT}/dryair_equiv.out" || { echo "ERROR F2_MISSING DRYAIR_OFF_EQUIV_OK"; ok=0; }
+[ "${ok}" -eq 1 ] && echo "F2_EQUIV_OK tolerance=bitwise out=${OUT}" || echo "ERROR F2_EQUIV_FAILED out=${OUT}"
+echo "=== makani_f2_equiv done $(date -Iseconds) ==="

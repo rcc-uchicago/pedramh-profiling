@@ -1,0 +1,77 @@
+#!/bin/bash -l
+#PBS -N makani_pack_e3sm_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=12:00:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Pack the full E3SM archive into makani training files, locked 52-channel set
+# (convert_e3sm_to_makani.py). This is the data step for polaris_sfno_full.pbs.
+#
+# Years: train 2015-2044, valid 2045-2047, test 2048-2049. Override with
+#   -v TRAIN_Y0=..,TRAIN_Y1=..,VALID_Y0=..,VALID_Y1=..,TEST_Y0=..,TEST_Y1=..
+# Output: $MAKANI_FULL_DATA, default $MEMBER_ROOT/data/e3sm_makani_full. About
+#   22 GB per year, 770 GB in total; check space with `myquota` first.
+# It runs on the CPU for hours, longer than the 1-hour debug limit, so it uses the
+#   preemptable queue, and -r y lets PBS requeue it after preemption.
+# Resuming does not finish the pack. A rerun packs the missing years, but then
+#   stops before the statistics, because this converter only counts train years it
+#   writes itself. polaris_pack_e3sm_production.pbs packs the same years in one
+#   debug hour, in parallel, and is the better choice.
+#
+# Submit from makani_sfno/:   qsub polaris/polaris_pack_e3sm_full.pbs
+# PASS = CONVERT_OK and PACK_FULL_COMPLETE on the last lines; rc=0 alone is not.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# The pack is shared with the project, so make new files group-readable.
+umask 0022
+
+# polaris_env.sh first: it defines MEMBER_ROOT, which polaris_makani_env.sh needs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+
+# Its own root, so the smoke pack is never overwritten.
+OUTPUT_ROOT="${MAKANI_FULL_DATA:-${MEMBER_ROOT}/data/e3sm_makani_full}"
+TRAIN_Y0="${TRAIN_Y0:-2015}"; TRAIN_Y1="${TRAIN_Y1:-2044}"
+VALID_Y0="${VALID_Y0:-2045}"; VALID_Y1="${VALID_Y1:-2047}"
+TEST_Y0="${TEST_Y0:-2048}";   TEST_Y1="${TEST_Y1:-2049}"
+
+echo "=== makani_pack_e3sm_full: $(date -Iseconds) on $(hostname), job ${PBS_JOBID%%.*} ==="
+echo "out ${OUTPUT_ROOT}  train ${TRAIN_Y0}-${TRAIN_Y1}  valid ${VALID_Y0}-${VALID_Y1}  test ${TEST_Y0}-${TEST_Y1}"
+df -h "$(dirname "${OUTPUT_ROOT}")" | tail -1
+mkdir -p "${OUTPUT_ROOT}"
+
+# No --max-samples-per-year: every sample of every year is packed. --validate checks
+# every year is present and complete, and that the statistics exist.
+python "${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py" \
+    --e3sm-root "${E3SM_ROOT}" --output-root "${OUTPUT_ROOT}" \
+    --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
+    --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+    --test-years  "${TEST_Y0}"  "${TEST_Y1}" \
+    --validate
+rc=$?
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR PACK_FULL_FAILED rc=${rc} $(date -Iseconds)"
+    echo "  No traceback above usually means the job was preempted."
+    exit ${rc}
+fi
+
+chmod -R g+rX "${OUTPUT_ROOT}"
+echo "PACK_FULL_COMPLETE ${OUTPUT_ROOT}"
+echo "=== done $(date -Iseconds) ==="

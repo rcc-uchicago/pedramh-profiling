@@ -1,0 +1,168 @@
+#!/bin/bash -l
+#PBS -N makani_debate
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Three-agent analysis (operator, 2026-09-30): "use 3 opus 5.5 ... 2 of them
+# discuss, and 1 moderates". Question set and facts: docs/2026-09-30_g_finetune_
+# debate_brief.md. Pattern and proxy bootstrap copied from
+# polaris_critic_handoff.pbs: separate `claude -p` processes on a COMPUTE node
+# (login nodes must not run the claude CLI's node.js tree -- CLAUDE.md shell
+# rules), reaching api.anthropic.com only via the ALCF proxy, with the user's
+# Claude Code credentials on the shared $HOME. No tools: the agents answer from
+# the evidence pack only.
+#
+#   round 1  analyst A (stability/science lens) and analyst B (evidence/cost
+#            lens) write independently, in parallel
+#   round 2  each rebuts the other's round-1 analysis, in parallel
+#   round 3  the moderator writes the final analysis from all four
+#
+# The agents run from ${OUT}, outside the repo, so no project CLAUDE.md or
+# memory enters their context -- only the pack.
+# PASS = MAKANI_DEBATE_OK (five non-empty outputs). rc is not the signal (#14).
+# Submit from makani_sfno/:   qsub polaris/polaris_makani_debate.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+MODEL="${DEBATE_MODEL:-claude-opus-5-5}"
+BRIEF="${MAKANI_ROOT}/docs/2026-09-30_g_finetune_debate_brief.md"
+OUT="${MEMBER_ROOT}/runs/makani_debate/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+[ -f "${BRIEF}" ] || { echo "ERROR BRIEF_MISSING ${BRIEF}"; exit 2; }
+echo "=== makani_debate: $(date -Iseconds) job=${PBS_JOBID%%.*} model=${MODEL} sha=$(git -C "${REPO}" rev-parse --short=12 HEAD 2>/dev/null) ==="
+
+# ---- evidence pack: brief + primaries ---------------------------------------
+PACK="${OUT}/evidence_pack.md"
+{
+    echo "# EVIDENCE PACK"; echo
+    echo "## [1] Framing brief (docs/2026-09-30_g_finetune_debate_brief.md)"; echo
+    cat "${BRIEF}"; echo
+    echo "## [2] G / spatial handoff (polaris_makani_g_spatial_handoff.md, feat/makani-f-finetune)"; echo
+    cat "${REPO}/polaris_makani_g_spatial_handoff.md"; echo
+    echo "## [3] F fine-tune handoff (polaris_makani_f_finetune_handoff.md, branch worktree-monitor-ace2)"; echo
+    git -C "${REPO}" show worktree-monitor-ace2:polaris_makani_f_finetune_handoff.md; echo
+    echo "## [4] Spatial phase-1 result (docs/2026-09-29_spatial_cxi_result.md, feat/makani-spatial-cxi)"; echo
+    git -C "${REPO}" show feat/makani-spatial-cxi:makani_sfno/docs/2026-09-29_spatial_cxi_result.md; echo
+    echo "## [5] CHANGELOG.md — Decisions/changes log entries dated 2026-09-20 .. 2026-09-29"; echo
+    /usr/bin/python3 - "${REPO}/CHANGELOG.md" <<'PY'
+import re, sys
+lines = open(sys.argv[1]).read().splitlines()
+start = next(i for i, l in enumerate(lines) if l.startswith("## Decisions / changes log"))
+keep, on = [], False
+for l in lines[start + 1:]:
+    m = re.match(r"- \*\*(\d{4}-\d{2}-\d{2})", l)
+    if m:
+        on = "2026-09-20" <= m.group(1) <= "2026-09-29"
+    elif l.startswith("## "):
+        break
+    if on:
+        keep.append(l)
+print("\n".join(keep))
+PY
+} > "${PACK}" || { echo "ERROR PACK_BUILD_FAILED"; exit 2; }
+echo "evidence pack: $(wc -l < "${PACK}") lines, $(wc -c < "${PACK}") bytes"
+
+# ---- proxy: the ONLY route out from a compute node (copied from polaris_critic_handoff.pbs)
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+export HTTP_PROXY="${http_proxy}" HTTPS_PROXY="${https_proxy}"
+export no_proxy="localhost,127.0.0.1" NO_PROXY="${no_proxy}"
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ || echo 000)
+echo "api.anthropic.com via proxy: HTTP ${code}"
+[ "${code}" != "000" ] || { echo "ERROR NO_ROUTE_VIA_PROXY"; exit 3; }
+
+CLAUDE="${HOME}/.local/bin/claude"
+[ -x "${CLAUDE}" ] || { echo "ERROR CLAUDE_CLI_MISSING ${CLAUDE}"; exit 2; }
+echo "claude: $("${CLAUDE}" --version 2>&1 | head -1)"
+cd "${OUT}" || exit 2
+
+# ---- preflight: the model answers at all ------------------------------------
+echo "Reply with exactly the word PREFLIGHT_OK and nothing else." > preflight_prompt.txt
+timeout -k 20 180 "${CLAUDE}" -p --model "${MODEL}" < preflight_prompt.txt > preflight.out 2> preflight.err
+if ! grep -q "PREFLIGHT_OK" preflight.out; then
+    echo "ERROR MODEL_PREFLIGHT_FAILED model=${MODEL}"; tail -5 preflight.err preflight.out
+    exit 4
+fi
+echo "preflight OK ($(date -Iseconds))"
+
+# ---- prompts ----------------------------------------------------------------
+COMMON='You are one of three agents (two analysts who debate, one moderator) reviewing a weather-emulator training project (makani SFNO on ALCF Polaris) for its operator, rmehta1987. Everything you know is in the EVIDENCE PACK below: a framing brief [1], two handoff documents [2][3], a result document [4], and the project CHANGELOG entries for 2026-09-20..29 [5].
+Rules:
+1. Use no tools. Answer from the pack only.
+2. Every factual claim cites its source in the pack (job id, file, section, or CHANGELOG date).
+3. Never invent a number. Label estimates and projections as such and say what they rest on.
+4. Say how strong each piece of evidence is (n, number of start dates, confounds, measurement vs projection).
+5. Science decisions (variable sets, loss weighting, clamps, conservation defaults, making channels diagnostic, ensembles) belong to jesswan; queue, node and walltime decisions belong to the operator. Recommend; do not decide for them.
+6. Markdown, concise, tables where useful, no preamble, no praise.'
+
+PLAN_SPEC='End with a ranked run plan table (at most 7 rows) with columns: #, run, queue, nodes, walltime, node-hours, gate before it, what it answers, decision owner. Then one line: the single finding that would most change your plan.'
+
+mkprompt() {  # mkprompt <out> <role text> [extra files...]
+    local out=$1 role=$2; shift 2
+    {
+        printf '%s\n\n%s\n\n' "${COMMON}" "${role}"
+        for f in "$@"; do printf '\n===== %s =====\n' "$(basename "${f}")"; cat "${f}"; done
+        printf '\n\n===== EVIDENCE PACK =====\n'; cat "${PACK}"
+    } > "${out}"
+}
+
+run_agent() {  # run_agent <label> <timeout_s>
+    local label=$1 t=$2
+    timeout -k 30 "${t}" "${CLAUDE}" -p --model "${MODEL}" < "prompt_${label}.txt" > "${label}.md" 2> "${label}.err"
+    local rc=$? lines
+    lines=$(wc -l < "${label}.md" 2>/dev/null || echo 0)
+    echo "  agent ${label} rc=${rc} lines=${lines} $(date -Iseconds)"
+    [ "${rc}" -eq 0 ] && [ "${lines}" -ge 5 ]
+}
+
+round() {  # round <name> <timeout_s> <label>...
+    local name=$1 t=$2; shift 2
+    echo "--- ${name} start $(date -Iseconds) ---"
+    local pids=() lab ok=0
+    for lab in "$@"; do run_agent "${lab}" "${t}" & pids+=($!); done
+    for p in "${pids[@]}"; do wait "${p}" || ok=1; done
+    if [ "${ok}" -ne 0 ]; then
+        echo "ERROR DEBATE_ROUND_FAILED ${name}"; tail -3 ./*.err 2>/dev/null; exit 5
+    fi
+}
+
+# ---- round 1: independent analyses -------------------------------------------
+mkprompt prompt_a1.txt "ROLE: Analyst A, round 1. Your lens: the fastest credible path to a STABLE, scientifically admissible multi-year emulator, and what the evidence says about WHY rollouts fail (model top, PS/mass drift, slow channels, single-step training). Answer the three questions of brief [1] section 6 fully. ${PLAN_SPEC} At most 1,800 words."
+mkprompt prompt_b1.txt "ROLE: Analyst B, round 1. Your lens: what the measurements actually support (sample sizes, start dates, confounds, metric artefacts, projections presented as measurements) and what each run costs in node-hours, queue slots (capacity is max_run 1 per PROJECT), wall-clock and risk of wasted compute. Challenge convenient readings. Answer the three questions of brief [1] section 6 fully. ${PLAN_SPEC} At most 1,800 words."
+round "round 1" 1080 a1 b1
+
+# ---- round 2: rebuttals ------------------------------------------------------
+REBUT='Write a rebuttal: (1) points you now agree with the other analyst on, one line each; (2) each disagreement: their claim, your counter, the evidence -- concede where they are right; (3) anything both of you missed; (4) your REVISED ranked run plan (same columns). At most 1,200 words.'
+mkprompt prompt_a2.txt "ROLE: Analyst A, round 2. Your round-1 analysis (a1.md) and Analyst B's (b1.md) are below. ${REBUT}" a1.md b1.md
+mkprompt prompt_b2.txt "ROLE: Analyst B, round 2. Your round-1 analysis (b1.md) and Analyst A's (a1.md) are below. ${REBUT}" b1.md a1.md
+round "round 2" 780 a2 b2
+
+# ---- round 3: moderator ------------------------------------------------------
+mkprompt prompt_moderator.txt "ROLE: Moderator. You did not take part in the debate. Analyst A (stability/science lens) and Analyst B (evidence/cost lens) each wrote a round-1 analysis (a1.md, b1.md) and a round-2 rebuttal (a2.md, b2.md), below. Write the FINAL analysis for the operator with exactly these sections:
+## Bottom line (at most 8 lines)
+## What the debug jobs mean for G
+## What they mean for fine-tuning
+## What to run next (ranked table: #, run, queue, nodes, walltime, node-hours, gate before it, what it answers, decision owner)
+## Where the analysts disagreed, and the ruling (for each: both positions, your ruling, the evidence that decides it; if the pack cannot decide it, name the measurement that would)
+## Claims to verify before acting (anything either analyst asserted that the pack does not support, or that rests on a projection)
+## Decisions needed (operator / jesswan), each with the default you would take
+Rule on evidence, not eloquence or majority. At most 2,000 words." a1.md b1.md a2.md b2.md
+round "round 3" 1080 moderator
+
+echo "MAKANI_DEBATE_OK out=${OUT} files=a1.md,b1.md,a2.md,b2.md,moderator.md"
+echo "=== makani_debate done $(date -Iseconds) ==="

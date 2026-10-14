@@ -1,0 +1,296 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_nccl_mn_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug-scaling
+#PBS -l select=4:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# App-free NCCL broadcast/all-reduce probe across N nodes, UNDER THE AI-ROSSBY
+# VENV -- does the fabric stack itself carry inter-node traffic at 16 ranks?
+#
+# Sibling of makani_sfno/polaris/polaris_makani_nccl_mn_probe.pbs: rank program
+# copied unchanged, env-activation block swapped, and the DEFAULT PLUGIN PIN
+# CHANGED (see below).  The makani file is not edited in place.
+#
+# WHY IT MATTERS HERE.  The single-node fabric/knob probes prove only that a CXI
+# domain OPENS -- single-node NCCL can fall back to P2P/NVLink and never touch
+# the fabric.  This is the first job in the ai-rossby chain that proves traffic
+# actually flows between nodes, and it does it in ~3 minutes instead of a
+# 50-minute trainer bring-up.  It also mimics the traffic that historically
+# wedged: a storm of small broadcasts, then a DDP-sized (100 MB) one, then an
+# all-reduce with a checkable answer.
+#
+# DEFAULT PIN = THE SELF-BUILT v1.21.1 + OFI_NCCL_PROGRESS_MODEL=AUTO, not
+# makani's v1.6.0.  Handoff §1: the v1.6.0 stack is historical context for
+# makani's early ladder rows ONLY and must not be selected for a new model --
+# its progress engine loses small-message broadcasts BY TENSOR SIZE (a 384x58
+# weight broadcast survived where 384x107 wedged, job 7565896), and DDP's
+# initial parameter broadcast is exactly that traffic.  On a 1.18 B-parameter
+# model with different tensor shapes it is a lottery ticket.
+# Override with -v OFI_PLUGIN=<dir> -v PROGRESS_MODEL=<MANUAL|AUTO|> to test
+# another stack as its own, separately-labelled config.
+#
+#   * MN_NCCL_PROBE_OK (all ranks report)  => fabric fine at this scale; a later
+#     trainer hang is the trainer's, not the transport's.
+#   * a hang/abort here                    => ticket-ready, app-free evidence.
+#
+# One node count per submission; override with -l select=N.  `debug` allows 1-2
+# nodes; 3-10 needs `debug-scaling` (<=1 h, ONE queued-or-running job per user).
+# Knobs pass through qsub -v unchanged: NCCL_ALGO, NCCL_PROTO, NCCL_CROSS_NIC,
+# NCCL_NET_GDR_LEVEL -- this is deliberately the cheap vehicle for
+# single-variable fabric probes.
+#   -v BCAST_MB=4700   size of the DDP-shaped broadcast (default 100). THE knob
+#                      for the 7568724 hang: SfnoPlasim's real parameter
+#                      broadcast is ~4.7 GB, and passing at 100 MB says nothing
+#                      about 4.7 GB. Bisect with 100 -> 1000 -> 2000 -> 4700.
+#
+# PASS = "MN_NCCL_PROBE_OK ranks=<N>" -- counted from per-rank OK lines, not rc
+# (CLAUDE.md #14).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then
+    AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${AR_ROOT}/polaris/polaris_ai_rossby_env.sh" || exit 2
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${AI_ROSSBY_VENV}/bin/python"
+
+SHIM="${AR_ROOT}/polaris/polaris_rank_env.sh"
+[ -f "${SHIM}" ] || { echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 3; }
+
+NODEFILE="${PBS_NODEFILE:?}"
+NNODES=$(sort -u "${NODEFILE}" | wc -l)
+export GPUS_PER_NODE=4
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+MASTER_ADDR="$(head -1 "${NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29517
+
+# Existence-checked for the reason the mistakes ledger records first: a missing
+# dir on LD_LIBRARY_PATH is IGNORED, not honoured, so the run silently measures
+# a different transport and then crashes somewhere unrelated (job 7553811).
+# 2026-09-17: was ${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib. That plugin does
+# NOT bind Slingshot -- it omits FI_MR_PROV_KEY, which the CXI provider
+# mandates, then silently falls back to tcp with GDR off instead of failing
+# (7629082; the 128-node production run 7566145 trained that way). v1.6.0
+# binds cxi. Override with -v OFI_PLUGIN=<dir> for spatial parallelism, which
+# v1.6.0 cannot do -- and expect the FABRIC_NOT_SLINGSHOT guard to fire.
+OFI_PLUGIN="${OFI_PLUGIN:-/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib}"
+OFI_LIBFABRIC="${OFI_LIBFABRIC:-/opt/cray/libfabric/2.3.1/lib64}"
+OFI_PLUGIN_CXI="/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib"
+for _d in "${OFI_PLUGIN}" "${OFI_LIBFABRIC}" /soft/libraries/hwloc/lib; do
+    [ -d "${_d}" ] || { echo "ERROR OFI_PATH_MISSING: ${_d}"; exit 3; }
+done
+export LD_LIBRARY_PATH="${OFI_LIBFABRIC}:${OFI_PLUGIN}:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+export NCCL_NET="AWS Libfabric"
+export NCCL_NET_GDR_LEVEL="${NCCL_NET_GDR_LEVEL:-PHB}"
+export NCCL_CROSS_NIC="${NCCL_CROSS_NIC:-1}"
+export FI_CXI_DISABLE_HOST_REGISTER=1
+export FI_MR_CACHE_MONITOR=userfaultfd
+export FI_CXI_DEFAULT_CQ_SIZE=131072
+# HPE Slingshot rendezvous controls (shs-ccl-docs/ccl_env.sh). Measured to
+# unwedge all_gather at 512 KB on the v1.6.0 plugin -- 7630227 vs 7629096 --
+# at a cost of ~12-18% all_reduce bandwidth. Set CXI_RDZV=0 to drop them and
+# reproduce the wedge deliberately.
+if [ "${CXI_RDZV:-1}" = "1" ]; then
+    export FI_CXI_RDZV_PROTO="${FI_CXI_RDZV_PROTO:-alt_read}"
+    export FI_CXI_RDZV_EAGER_SIZE="${FI_CXI_RDZV_EAGER_SIZE:-0}"
+    export FI_CXI_RDZV_THRESHOLD="${FI_CXI_RDZV_THRESHOLD:-0}"
+    export FI_CXI_RDZV_GET_MIN="${FI_CXI_RDZV_GET_MIN:-0}"
+    export FI_CXI_DEFAULT_TX_SIZE="${FI_CXI_DEFAULT_TX_SIZE:-2048}"
+    export FI_CXI_RX_MATCH_MODE="${FI_CXI_RX_MATCH_MODE:-hybrid}"
+fi
+# Mandatory for every plugin >= v1.9 against libfabric 2.3.1: the CXI provider
+# refuses fi_domain with ENOSYS unless auto progress is requested. Settable to
+# empty (-v PROGRESS_MODEL=) to reproduce the failure deliberately.
+PROGRESS_MODEL="${PROGRESS_MODEL-AUTO}"
+[ -n "${PROGRESS_MODEL}" ] && export OFI_NCCL_PROGRESS_MODEL="${PROGRESS_MODEL}"
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+# Fail fast on a wedged collective instead of hanging to walltime.
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-2000}"
+
+OUT="${MEMBER_ROOT}/runs/ai_rossby_nccl_mn_probe/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+echo "=== ai_rossby_nccl_mn_probe: $(date -Iseconds) ==="
+echo "jobid=${PBS_JOBID%%.*}  nodes=${NNODES}  ranks=${NRANKS}"
+sort -u "${NODEFILE}" | sed 's/^/  /'
+ai_rossby_env_report
+echo "plugin        = ${OFI_PLUGIN}"
+echo "libfabric     = ${OFI_LIBFABRIC}"
+echo "progress model= ${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
+echo "knobs: NCCL_ALGO=${NCCL_ALGO:-<default>} NCCL_PROTO=${NCCL_PROTO:-<default>} NCCL_CROSS_NIC=${NCCL_CROSS_NIC} NCCL_NET_GDR_LEVEL=${NCCL_NET_GDR_LEVEL}"
+echo
+
+# Rank program in a FILE, never stdin (PALS gives stdin to rank 0 only --
+# the env-probe lesson, kept).
+RANKPY="${OUT}/mn_bcast.py"
+cat > "${RANKPY}" <<'PY'
+import datetime, os, sys
+import torch
+import torch.distributed as dist
+
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+# 3-minute collective timeout: with ASYNC_ERROR_HANDLING=1 a wedge aborts the
+# process, so a stuck broadcast costs minutes, not the full walltime.
+dist.init_process_group("nccl", timeout=datetime.timedelta(minutes=3))
+r, n = dist.get_rank(), dist.get_world_size()
+if r == 0:
+    print("TORCH %s NCCL %s world_size=%d"
+          % (torch.__version__, ".".join(map(str, torch.cuda.nccl.version())), n),
+          flush=True)
+
+# 1. Small-broadcast storm: the makani trainer wedged on 384-element broadcasts.
+for i in range(20):
+    t = torch.full((96,), float(i), device="cuda")
+    dist.broadcast(t, 0)
+
+# 2. DDP-sized broadcast: _sync_params_and_buffers moves the whole model from
+#    rank 0 in ONE broadcast, so the size that matters is the model's, not a
+#    round number.
+#    ⚠ 100 MB (the inherited default) is 47x TOO SMALL for this harness. SfnoPlasim
+#    is 1.18 B parameters = ~4.7 GB fp32, and job 7568724 wedged at 2 nodes in the
+#    first collective AFTER "Connected all trees" -- i.e. exactly here. A probe
+#    whose broadcast is 47x smaller than the real one cannot exonerate the fabric,
+#    which is what it was read as doing. -v BCAST_MB=4700 reproduces the real size.
+#    Precedent for size dependence on this fabric: the old plugin lost broadcasts
+#    BY TENSOR SIZE (384x58 survived, 384x107 wedged, job 7565896).
+mb = int(os.environ.get("BCAST_MB", "100"))
+n_el = max(1, mb * 1024 * 1024 // 4)
+big = torch.arange(n_el, dtype=torch.float32, device="cuda")
+if r == 0:
+    print("BCAST_SIZE_MB %d (%d float32 elements)" % (mb, n_el), flush=True)
+if r != 0:
+    big.zero_()
+dist.broadcast(big, 0)
+# arange values above 2**24 are not exactly representable in fp32, so check
+# indices, not the last element's magnitude.
+ok = bool((big[n_el - 1] == big[n_el - 1]).item()) and bool((big[1] == 1).item())
+if n_el > 1_000_000:
+    ok = ok and bool((big[1_000_000] == 1_000_000).item())
+
+# 3. All-reduce with a checkable answer.
+a = torch.ones(1024, 1024, device="cuda")
+dist.all_reduce(a)
+ok = ok and abs(a[0, 0].item() - n) < 1e-3
+
+# 4. DDP GRADIENT TRAFFIC -- the collective that actually wedged.
+#    Job 7568724's log orders "Connected all rings" BEFORE the stage banner and
+#    "Connected all trees" AFTER it: NCCL builds rings for the parameter
+#    broadcast (which succeeded) and trees for ALL-REDUCE, so the hang is in the
+#    first gradient all-reduce of the backward pass, not in setup.
+#    Step 3 above is ONE 4 MB all-reduce and passes; DDP instead issues ~4.7 GB
+#    of gradients as a STORM of bucket-sized all-reduces (default bucket 25 MB
+#    => ~190 of them), which is a different traffic pattern in both size and
+#    count. That is what this phase reproduces, app-free.
+#    -v BUCKET_MB / -v N_BUCKETS override; 0 buckets skips the phase.
+bucket_mb = int(os.environ.get("BUCKET_MB", "25"))
+n_buckets = int(os.environ.get("N_BUCKETS", "190"))
+if n_buckets > 0:
+    if r == 0:
+        print("GRAD_STORM %d buckets x %d MB (= %d MB total)"
+              % (n_buckets, bucket_mb, n_buckets * bucket_mb), flush=True)
+    els = max(1, bucket_mb * 1024 * 1024 // 4)
+    # Allocated once and reused: allocating 190 live buckets would OOM a 40 GB
+    # A100 and turn a comms test into a memory test.
+    buf = torch.ones(els, device="cuda")
+    for i in range(n_buckets):
+        dist.all_reduce(buf)
+        # ⚠ BUG FIXED 2026-08-28: this used to `fill_(1.0)` unconditionally and
+        # then assert `buf[0] == 1.0`, i.e. it overwrote the result and compared
+        # it against the value it had just written. The check was VACUOUS and
+        # every rank printed MN_NCCL_RANK_OK in job 7569743 while the watchdog
+        # was simultaneously reporting that same all-reduce timing out. Reset
+        # only BETWEEN iterations, and verify what the LAST one produced.
+        if i < n_buckets - 1:
+            buf.fill_(1.0)
+    dist.barrier()
+    # Every rank contributed 1.0, so a correct all-reduce leaves exactly n.
+    # Checked at both ends of the buffer: a partial transfer of a >4 GB tensor
+    # is exactly the failure this phase exists to catch, and index 0 alone
+    # would not see it.
+    got_first, got_last = buf[0].item(), buf[els - 1].item()
+    bucket_ok = abs(got_first - n) < 1e-3 and abs(got_last - n) < 1e-3
+    ok = ok and bucket_ok
+    if r == 0:
+        print("GRAD_STORM_RESULT first=%.3f last=%.3f want=%d %s"
+              % (got_first, got_last, n, "OK" if bucket_ok else "WRONG"), flush=True)
+        print("GRAD_STORM_DONE", flush=True)
+
+print("rank %d: %s" % (r, "MN_NCCL_RANK_OK" if ok else "MN_NCCL_RANK_BAD"), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+LOG="${OUT}/probe.log"
+set -o pipefail
+mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${SHIM}" "${PY}" "${RANKPY}" \
+    2>&1 | tee "${LOG}"
+rc=$?
+set +o pipefail
+echo "--- rc=${rc} ---"
+
+nok=$(grep -c "MN_NCCL_RANK_OK" "${LOG}")
+transport=$(grep -m1 "NCCL INFO Using network" "${LOG}" | sed 's/.*Using network //')
+# The plugin name ("AWS Libfabric") is identical on cxi and on the tcp fallback,
+# so it is reported but never trusted. The provider is the discriminating line.
+provider=$(grep -m1 -oE "Selected [Pp]rovider is [a-z]+" "${LOG}" | awk '{print tolower($NF)}')
+echo "ranks OK: ${nok}/${NRANKS}   transport: ${transport:-<none reported>}   provider: ${provider:-<none reported>}"
+fabric_ok=1
+if [ "${NNODES}" -gt 1 ] && [ "${nok}" -eq 0 ] && [ -z "${provider}" ]; then
+    # Nothing got as far as NCCL, so there is no provider line and nothing to
+    # say about the fabric either way. Say that, instead of naming a transport.
+    echo "NOTE FABRIC_UNTESTED: no rank reached NCCL init, so no provider was selected."
+    echo "  Diagnose the rank failure above first -- this run says nothing about"
+    echo "  Slingshot. (7630176 died here on an unreadable libtorch_global_deps.so.)"
+elif [ "${NNODES}" -gt 1 ] && [ "${provider}" != "cxi" ]; then
+    if [ "${ALLOW_TCP:-0}" = "1" ]; then
+        echo "WARN FABRIC_TCP_ACKNOWLEDGED provider=${provider:-<none reported>} (ALLOW_TCP=1)"
+        echo "  This probe exercised tcp, not Slingshot. It says nothing about the fabric."
+    else
+        fabric_ok=0
+        echo "ERROR FABRIC_NOT_SLINGSHOT provider=${provider:-<none reported>} expected=cxi"
+        echo "  aws-ofi-nccl did not bind the Slingshot fabric. A probe that passes over"
+        echo "  tcp exonerates nothing -- the 128-node production run (7566145) 'passed'"
+        echo "  exactly this way for three weeks."
+        echo "  Fix:      -v OFI_PLUGIN=${OFI_PLUGIN_CXI}"
+        echo "  Or admit: -v ALLOW_TCP=1"
+    fi
+fi
+if [ "${nok}" -eq "${NRANKS}" ] && [ ${rc} -eq 0 ] && [ "${fabric_ok}" -eq 1 ]; then
+    echo "MN_NCCL_PROBE_OK ranks=${NRANKS} nodes=${NNODES}"
+    echo "  plugin=${OFI_PLUGIN} progress=${OFI_NCCL_PROGRESS_MODEL:-<unset>}"
+    echo "  The fabric stack carries inter-node traffic at this scale under this venv."
+    echo "  Any later trainer hang is the trainer's path, not the transport."
+else
+    echo "ERROR MN_NCCL_PROBE_FAILED ok=${nok}/${NRANKS} rc=${rc}"
+    echo "  App-free reproduction at ${NNODES} nodes with plugin=${OFI_PLUGIN},"
+    echo "  progress=${OFI_NCCL_PROGRESS_MODEL:-<unset>}. Do NOT start the ladder on"
+    echo "  this stack: a scaling row measured over a wedging transport is not a"
+    echo "  measurement of scaling. Re-run the knob matrix and, if it still fails,"
+    echo "  this log is ticket-grade evidence (handoff §4b)."
+fi
+echo "=== done $(date -Iseconds) ==="

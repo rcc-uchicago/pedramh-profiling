@@ -41,7 +41,19 @@ def assemble_forcing(forcing, invariant):
 
     return out
 
-def disassemble_input(x, nsurface=6, ndiagnostic=15, nlevels=13, use_diagnostic=True):
+def disassemble_input(x, nsurface, ndiagnostic, nlevels, use_diagnostic=True):
+    """Split a packed (b, c, h, w) tensor into surface / diagnostic / multilevel.
+
+    nsurface / ndiagnostic / nlevels are REQUIRED — they used to default to 6 / 15 / 13,
+    silently baked to the Midway AMIP config. On any other config (the Polaris E3SM one has
+    **3** diagnostics, not 15) the defaults slice the channels in the wrong places and hand
+    back plausible-looking tensors with the wrong contents. Sometimes that dies in the einops
+    rearrange; sometimes it just trains on garbage.
+
+    Requiring them turns a silent mis-split into a TypeError at the call site, which is the
+    whole point: a missed caller should fail loudly rather than quietly compute nonsense.
+    Pass len(surface_variables) / len(diagnostic_variables) / nlevels from the config.
+    """
     # x in b c h w
     if use_diagnostic:
         surface = x[:, : nsurface]

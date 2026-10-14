@@ -149,6 +149,21 @@ def test_timestamp_reset_across_source_splits_uses_file_order(
     assert tar_forcing.shape == (1, 6, 64, 128)
 
 
+def test_local_grid_is_the_files_grid_on_either_makani(packaged_dataset: Path):
+    """No crop: the rank reads the whole file grid, and every place the geometry is reported
+    (the pin's tuples, main's backend chunk and DataShapes) agrees with the file."""
+    params = load_params(packaged_dataset)
+    ds = build_dataset(params, packaged_dataset, n_future=0)
+    assert tuple(ds.read_anchor) == (0, 0)
+    assert tuple(ds.read_shape) == tuple(ds.img_shape)
+    assert list(ds.lat_lon_local[0]) == list(ds.lat_lon[0])
+    assert list(ds.lat_lon_local[1]) == list(ds.lat_lon[1])
+    if hasattr(ds, "data_shapes"):  # makani main
+        assert ds.backend.chunk.lat.tolist() == list(ds.lat_lon_local[0])
+        assert tuple(ds.backend.chunk.shape) == tuple(ds.return_shape)
+        assert tuple(ds.data_shapes.shard.shape) == tuple(ds.read_shape)
+
+
 def test_dataset_inference_mode_unsupported_via_loader(packaged_dataset: Path):
     """PlasimForcingDataset itself accepts return_target=False (used by
     stock inference path) -- but PR-B's _plasim_get_dataloader gates

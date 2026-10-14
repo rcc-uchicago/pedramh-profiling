@@ -1,0 +1,152 @@
+#!/bin/bash -l
+#PBS -N build_aws_ofi_nccl
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Build a CURRENT aws-ofi-nccl into $MEMBER_ROOT and prove it initializes.
+#
+# WHY.  Every fabric failure this campaign hit traces to ONE stale userspace
+# library: /soft's newest aws-ofi-nccl builds are 2024-vintage (v1.6.0/v1.9.1)
+# and predate the libfabric 2.3.1 ALCF now ships.  Consequences measured here:
+#   * v1.9.1 pairings segfault outright at init (7553823 probe matrix);
+#   * the sole survivor, v1.6.0-libfabric-1.22.0, deadlocks its LL protocol at
+#     >=3 nodes (fixed only by pinning NCCL_PROTO=Simple, which costs ~26% on
+#     the 1-node arm: 114.9 -> 144.7 ms), and
+#   * loses progress on subgroup-communicator small-message storms regardless
+#     of knobs (arm F evidence chain, 7563723: serialized broadcast #84 never
+#     completes after 83 successes) -- which BLOCKS spatial parallelism.
+#
+# This is NOT a system upgrade.  The plugin is a single dlopen'd userspace .so
+# selected per-job via LD_LIBRARY_PATH (the launcher's OFI_PLUGIN knob), NCCL
+# itself stays the one bundled inside the torch wheel, and nothing outside
+# $MEMBER_ROOT is written.  Reverting = pointing OFI_PLUGIN back at /soft.
+#
+# Source: v1.21.1 release tarball (autotools, configure pre-generated),
+# fetched 2026-08-26 to $MEMBER_ROOT/sw/src.  Requirements per INSTALL.md:
+# libfabric >= 1.18 (have 2.3.1), CUDA, hwloc.  --disable-tests skips the MPI
+# test binaries we don't need.
+#
+# PASS = OFI_PLUGIN_BUILD_OK: the lib exists, ldd resolves clean IN THE MAKANI
+# JOB ENV, and a 4-rank NCCL all-reduce with the new plugin under the DEFAULT
+# protocol (no Simple pin -- deliberately, that is half the point) initializes
+# and answers correctly.  Single-node only: the >=3-node behaviour that
+# motivated all this still needs the mn probe + arm F afterwards.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env: polaris_env.sh for MEMBER_ROOT, makani env for the PrgEnv-gnu toolchain
+# (gcc 14) and CUDA_HOME -- the same env the plugin will run under.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+VER="${VER:-1.21.1}"
+SRC="${MEMBER_ROOT}/sw/src/aws-ofi-nccl-${VER}"
+PREFIX="${MEMBER_ROOT}/sw/aws-ofi-nccl-${VER}"
+LIBFABRIC_DIR=/opt/cray/libfabric/2.3.1
+CUDA_DIR="${CUDA_HOME:-/soft/compilers/cudatoolkit/cuda-12.9.1}"
+HWLOC_DIR=/soft/libraries/hwloc
+
+echo "=== build_aws_ofi_nccl v${VER}: $(date -Iseconds) on $(hostname) ==="
+for d in "${SRC}" "${LIBFABRIC_DIR}/include" "${CUDA_DIR}/include" "${HWLOC_DIR}/include"; do
+    [ -d "$d" ] || { echo "ERROR PREREQ_MISSING: $d"; exit 2; }
+done
+echo "compiler: $(gcc --version | sed -n 1p)"
+
+if [ -e "${PREFIX}/lib/libnccl-net.so" ] && [ "${REBUILD:-0}" != "1" ]; then
+    echo "already installed at ${PREFIX} (use -v REBUILD=1 to force); verifying only"
+else
+    BUILD="${SRC}/build-polaris-${PBS_JOBID%%.*}"
+    mkdir -p "${BUILD}" && cd "${BUILD}" || exit 2
+    "${SRC}/configure" \
+        --prefix="${PREFIX}" \
+        --with-libfabric="${LIBFABRIC_DIR}" \
+        --with-cuda="${CUDA_DIR}" \
+        --with-hwloc="${HWLOC_DIR}" \
+        --disable-tests \
+        2>&1 | tail -15 || { echo "ERROR CONFIGURE_FAILED"; exit 3; }
+    make -j 32 2>&1 | tail -5 || { echo "ERROR MAKE_FAILED"; exit 3; }
+    make install 2>&1 | tail -3 || { echo "ERROR INSTALL_FAILED"; exit 3; }
+fi
+
+LIB="${PREFIX}/lib/libnccl-net.so"
+[ -e "${LIB}" ] || { echo "ERROR LIB_MISSING: ${LIB}"; exit 3; }
+echo "--- ldd (must be 0 not-found) ---"
+missing=$(ldd "${LIB}" | grep -c "not found")
+ldd "${LIB}" | grep "not found" | sed 's/^/  UNRESOLVED /'
+[ "${missing}" = "0" ] || { echo "ERROR LDD_UNRESOLVED=${missing}"; exit 3; }
+echo "ldd clean"
+
+# ---- runtime proof: 4-rank all-reduce, NEW plugin, DEFAULT protocol ---------
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+export GPUS_PER_NODE=4
+MASTER_ADDR="$(head -1 "${PBS_NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29519
+export LD_LIBRARY_PATH="${LIBFABRIC_DIR}/lib64:${PREFIX}/lib:${HWLOC_DIR}/lib:${LD_LIBRARY_PATH}"
+export NCCL_NET="AWS Libfabric"
+export NCCL_NET_GDR_LEVEL=PHB
+export NCCL_CROSS_NIC=1
+export FI_CXI_DISABLE_HOST_REGISTER=1
+export FI_MR_CACHE_MONITOR=userfaultfd
+export FI_CXI_DEFAULT_CQ_SIZE=131072
+export NCCL_DEBUG=INFO
+export NCCL_DEBUG_SUBSYS=INIT,NET
+# NO NCCL_PROTO pin here, on purpose: the modern plugin is supposed to make
+# the LL workaround unnecessary, and this run is the first evidence either way.
+
+OUT="${MEMBER_ROOT}/runs/build_aws_ofi_nccl/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}"
+RANKPY="${OUT}/allreduce.py"
+cat > "${RANKPY}" <<'PY'
+import os, sys, torch, torch.distributed as dist
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+dist.init_process_group("nccl")
+t = torch.full((1024, 1024), float(dist.get_rank() + 1), device="cuda")
+dist.all_reduce(t)
+n = dist.get_world_size()
+want = float(n * (n + 1) // 2)
+ok = abs(t[0, 0].item() - want) < 1e-3
+if dist.get_rank() == 0:
+    print("ALLREDUCE %s world=%d" % ("OK" if ok else "WRONG", n), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+LOG="${OUT}/probe.log"
+mpiexec -n 4 --ppn 4 --hostfile "${PBS_NODEFILE}" --cpu-bind depth -d 8 \
+    bash "${MAKANI_ROOT}/polaris/polaris_rank_env.sh" "${PY}" "${RANKPY}" \
+    > "${LOG}" 2>&1
+rc=$?
+loaded=$(grep -m1 "Loaded net plugin" "${LOG}" | sed 's/.*Loaded net plugin //')
+allred=$(grep -c "ALLREDUCE OK" "${LOG}")
+echo "rc=${rc}  plugin_loaded='${loaded:-<none>}'  allreduce_ok=${allred}"
+grep -m1 "Initializing aws-ofi-nccl" "${LOG}" | sed 's/^/  /'
+if [ ${rc} -eq 0 ] && [ "${allred}" -ge 1 ]; then
+    echo "OFI_PLUGIN_BUILD_OK ${PREFIX}"
+    echo "  Next: the >=3-node truth --"
+    echo "    qsub -v OFI_PLUGIN=${PREFIX}/lib polaris/polaris_makani_nccl_mn_probe.pbs"
+    echo "  then arm F with the same override (and NCCL_PROTO unset to retest LL)."
+else
+    echo "ERROR OFI_PLUGIN_BUILD_RUNTIME_FAILED rc=${rc}"
+    echo "  log: ${LOG}"
+fi
+echo "=== done $(date -Iseconds) ==="

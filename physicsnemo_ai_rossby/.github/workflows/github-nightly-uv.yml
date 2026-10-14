@@ -1,0 +1,411 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2024 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# This CI runs nightly to generate the coverage report and testmon database.
+# It runs ALL tests and caches the testmon database for use by PR workflows.
+# The tests run here will only use UV.  This is meant to be nightly functionality
+# testing AND a baseline dependency graph for PRs.
+#
+# ----------------------------------------------------------------------------
+# Cache design (see .github/CACHE_CONTRACT.md for the full contract):
+#
+#   uv download cache (~/.cache/uv)
+#     key   : <UV_CACHE_KEY_PREFIX>-latest
+#     prefix: container + python + uv version
+#     scope : additive wheel store; survives lockfile changes; refreshed
+#             via delete-before-save when the cache is cold.  Restored
+#             fail-open.  This is the ONLY cross-run cache for the Python
+#             environment; the realized .venv is rebuilt every job from
+#             the committed lockfile (deterministic given a pinned
+#             container + --frozen + the pinned uv version).
+#
+# Consumer contract for PR workflows:
+#   * Restore the uv download cache fail-open (speed only).
+#   * Always `uv sync --frozen --group dev --extra cu12` (accelerated by
+#     the restored uv download cache).
+#   * Run tests via `.venv/bin/python` or `uv run --no-sync` so the
+#     realized env cannot be mutated mid-job.
+# ----------------------------------------------------------------------------
+
+
+# TO DO: THE COVERAGE LIMIT IS VERY LOW, BECAUSE THIS IS NOT USING GPU TESTS OR
+# THE DATA-DRIVEN TESTS.  RAISE THIS UP AGAIN EVENTUALLY.
+
+
+name: Nightly Github UV Workflow
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    # Allow manual triggering
+
+permissions:
+  contents: read
+  actions: write
+  checks: write
+
+# Two overlapping nightly runs (manual + schedule, or two manuals) would
+# race on the static `-latest` uv download cache key.  Serialise them so
+# the delete-before-save dance stays correct.  We do NOT cancel
+# in-progress because the nightly testmon DB is consumed by PR workflows
+# and we'd rather a slow nightly than a missing one.
+concurrency:
+  group: nightly-github-uv
+  cancel-in-progress: false
+
+# The CUDA container's default shell is sh, which does not support
+# `set -o pipefail`.  Force bash everywhere.
+defaults:
+  run:
+    shell: bash
+
+env:
+  # ---- Container baseline identity ---------------------------------------
+  # Change ANY of these and the uv cache invalidates via prefix change.
+  # Keep CONTAINER_ID in sync with the `image:` tag below.
+  PYTHON_VERSION: "3.12"
+  UV_VERSION: "0.11.7"
+  CONTAINER_ID: "cuda12.8.1-cudnn-devel-ubuntu24.04"
+  # All feature extras + cu12 backend + matching natten wheel index.  This
+  # powers the @requires_module / pytest.importorskip tests that would
+  # otherwise be skipped due to missing optional dependencies.  Modules
+  # with no extras home (moto, scikit-image, pyg_lib, earth2grid, ...) are
+  # installed by the `Install CI-only test dependencies` step inside the
+  # setup-uv-env composite action.
+  EXTRAS_TAG: "cu12,natten-cu12,utils-extras,mesh-extras,nn-extras,model-extras,datapipes-extras,uq-extras,gnns,sym,transformer-engine-cu12"
+
+  # ---- Cache key prefixes ------------------------------------------------
+  # Inlined literally because GitHub Actions does not allow env-to-env
+  # references within the same env: block.  Bump in lockstep with the
+  # baseline values above.  The `-fullextras` suffix is bumped relative
+  # to the previous prefix so the first run under the expanded EXTRAS_TAG
+  # rebuilds the wheel cache from scratch instead of layering on top of
+  # a stale narrower cache.
+  UV_CACHE_KEY_PREFIX:   "uv-cache-nightly-cuda12.8.1-cudnn-devel-ubuntu24.04-py3.12-uv0.11.7-fullextras"
+  TESTMON_CACHE_KEY_PREFIX:  "testmon-nightly"
+  COVERAGE_CACHE_KEY_PREFIX: "coverage-nightly"
+  JIT_CACHE_KEY_PREFIX: "jit-cache-cuda12.8.1-cudnn-devel-ubuntu24.04-py3.12"
+  JIT_CACHE_DIR: "/root/.cache/jit"
+
+  # ---- uv read-only defaults --------------------------------------------
+  # Belt-and-braces against the historical bug class where an unguarded
+  # `uv run` (without --frozen, without the cu12 extra) silently re-syncs
+  # the venv to a different CUDA variant and rewrites uv.lock.
+  #
+  # UV_FROZEN=1   -> all uv invocations refuse to mutate the lockfile.
+  # UV_NO_SYNC=1  -> `uv run` will not implicitly sync.  The explicit
+  #                  `uv sync` inside setup-uv-env is unaffected by this
+  #                  flag.
+  UV_FROZEN: "1"
+  UV_NO_SYNC: "1"
+
+  PYVISTA_OFF_SCREEN: "true"
+
+jobs:
+  # Stage 1: Warm the uv download cache
+  #
+  # This job's sole purpose is to make sure ~/.cache/uv is populated with
+  # the wheels implied by the current lockfile before the downstream GPU
+  # jobs start.  Each downstream job does its own `uv sync --frozen`, but
+  # that sync is fast because it hits the warm cache this job publishes.
+  build-environment:
+    name: Build Environment
+    runs-on: linux-amd64-cpu8
+    container:
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      # /dev/shm defaults to 64 MiB in docker, which DALI's multiprocess
+      # worker pool exhausts via SemLock allocations and trips ENOSPC
+      # ("No space left on device") in datapipes tests.  2 GiB is plenty
+      # for the test suite and matches the PyTorch container default.
+      options: --shm-size=2g
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Bootstrap cuDNN CI container
+      uses: ./.github/actions/bootstrap-cudnn-ci
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        uv-version: ${{ env.UV_VERSION }}
+
+    - name: Setup uv environment from cache
+      id: setup-uv-env
+      uses: ./.github/actions/setup-uv-env
+      with:
+        uv-cache-key-prefix: ${{ env.UV_CACHE_KEY_PREFIX }}
+        uv-cache-key-suffix: "latest"
+        extras: ${{ env.EXTRAS_TAG }}
+
+    - name: Report setup action outputs
+      run: |
+        echo "setup-uv-env.uv_cache_hit=${{ steps.setup-uv-env.outputs.uv_cache_hit }}"
+
+    # --- uv download cache (static key, delete-before-save) ---
+    #
+    # Fires only on a cold cache (first run, prefix bump, or manual
+    # purge).  In steady state uv_cache_hit is true and these steps
+    # no-op: the warm cache already contains every wheel the frozen sync
+    # needed.  The replace-cache action centralises the delete-before-
+    # save + verify dance shared by all four mutable-slot caches in
+    # this workflow.
+    - name: Prune uv cache
+      if: steps.setup-uv-env.outputs.uv_cache_hit != 'true'
+      run: |
+        set -euo pipefail
+        uv cache prune
+        echo "uv cache after prune:"
+        du -sh ~/.cache/uv 2>/dev/null || echo "  (not present)"
+
+    - name: Replace uv download cache
+      if: steps.setup-uv-env.outputs.uv_cache_hit != 'true'
+      uses: ./.github/actions/replace-cache
+      with:
+        path: ~/.cache/uv
+        key: ${{ env.UV_CACHE_KEY_PREFIX }}-latest
+        description: uv download cache
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 2: Run testmon tests and cache the database
+  testmon:
+    name: Testmon
+    needs: build-environment
+    runs-on: linux-amd64-gpu-h100-latest-1
+    container:
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      # /dev/shm defaults to 64 MiB in docker, which DALI's multiprocess
+      # worker pool exhausts via SemLock allocations and trips ENOSPC
+      # ("No space left on device") in datapipes tests.  2 GiB is plenty
+      # for the test suite and matches the PyTorch container default.
+      options: --shm-size=2g
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Bootstrap cuDNN CI container
+      uses: ./.github/actions/bootstrap-cudnn-ci
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        uv-version: ${{ env.UV_VERSION }}
+
+    # Restore the warm uv download cache (published by build-environment
+    # earlier in this same workflow run) and rebuild .venv from the
+    # frozen lockfile.  With the cache warm the sync is dominated by
+    # local file copies, not network I/O.
+    - name: Setup uv environment from cache
+      uses: ./.github/actions/setup-uv-env
+      with:
+        uv-cache-key-prefix: ${{ env.UV_CACHE_KEY_PREFIX }}
+        uv-cache-key-suffix: "latest"
+        extras: ${{ env.EXTRAS_TAG }}
+
+    # Restore compiled JIT artifacts (warp, triton, inductor) from the
+    # previous nightly so kernel compilation is skipped when source hasn't
+    # changed.  Fail-open: a miss only costs compilation time.
+    - name: Restore JIT compilation cache
+      id: jit-cache-restore
+      uses: actions/cache/restore@v5
+      with:
+        path: ${{ env.JIT_CACHE_DIR }}
+        key: ${{ env.JIT_CACHE_KEY_PREFIX }}-latest
+
+    - name: Download CI test data
+      uses: ./.github/actions/download-ci-data
+      with:
+        hf-token: ${{ secrets.HF_CI_DATA_TOKEN }}
+
+    - name: Run core tests (collect all for testmon)
+      env:
+        WARP_CACHE_PATH: ${{ env.JIT_CACHE_DIR }}/warp
+        TRITON_CACHE_DIR: ${{ env.JIT_CACHE_DIR }}/triton
+        TORCHINDUCTOR_CACHE_DIR: ${{ env.JIT_CACHE_DIR }}/inductor
+      run: |
+        # Workflow-level UV_NO_SYNC=1 + UV_FROZEN=1 keep `uv run` strictly
+        # read-only, so the .venv cannot be mutated mid-job.
+        uv run --no-sync python -m pytest --testmon --ignore-glob="*docs*" --ignore-glob="*examples*"
+
+    # --- JIT compilation cache (static key, delete-before-save) ---
+    #
+    # Same pattern as the uv download cache: the `-latest` key is a
+    # mutable slot refreshed via replace-cache.  The cache is additive
+    # and each compiler handles its own source-hash invalidation, so it
+    # survives lockfile and kernel-source changes safely.  if: always()
+    # so a flaky-but-non-fatal pytest exit still publishes the warm
+    # JIT artifacts produced before the failure.
+    - name: Replace JIT compilation cache
+      if: always()
+      uses: ./.github/actions/replace-cache
+      with:
+        path: ${{ env.JIT_CACHE_DIR }}
+        key: ${{ env.JIT_CACHE_KEY_PREFIX }}-latest
+        description: JIT compilation cache
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    # --- Testmon database cache (mutable -latest slot) ---
+    #
+    # Previously keyed on hashFiles('uv.lock', 'pyproject.toml'), which
+    # collided with the previous nightly's save whenever the lockfile
+    # was unchanged (the common case): GitHub Actions caches are
+    # immutable, so the second save logged "Failed to save: Unable to
+    # reserve cache" as a *warning* and the stale DB persisted for
+    # days.  PRs then restored the stale DB and testmon invalidated
+    # everything because the env fingerprint had drifted.  Switching to
+    # a -latest mutable slot via replace-cache fixes both: the slot is
+    # always overwritten, and silent save failures become hard job
+    # failures via the embedded verify step.
+    #
+    # if: always() so a flaky-but-non-fatal pytest exit still updates
+    # the DB with whatever progress was made.
+    - name: Replace testmon database cache
+      if: always()
+      uses: ./.github/actions/replace-cache
+      with:
+        path: |
+          .testmondata
+          .testmondata-shm
+          .testmondata-wal
+        key: ${{ env.TESTMON_CACHE_KEY_PREFIX }}-latest
+        description: testmon database
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Stage 3: Run coverage tests and upload artifacts
+  coverage:
+    name: Coverage
+    needs: build-environment
+    runs-on: linux-amd64-gpu-h100-latest-1
+    container:
+      image: nvidia/cuda:12.8.1-cudnn-devel-ubuntu24.04
+      # /dev/shm defaults to 64 MiB in docker, which DALI's multiprocess
+      # worker pool exhausts via SemLock allocations and trips ENOSPC
+      # ("No space left on device") in datapipes tests.  2 GiB is plenty
+      # for the test suite and matches the PyTorch container default.
+      options: --shm-size=2g
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Bootstrap cuDNN CI container
+      uses: ./.github/actions/bootstrap-cudnn-ci
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        uv-version: ${{ env.UV_VERSION }}
+
+    - name: Setup uv environment from cache
+      uses: ./.github/actions/setup-uv-env
+      with:
+        uv-cache-key-prefix: ${{ env.UV_CACHE_KEY_PREFIX }}
+        uv-cache-key-suffix: "latest"
+        extras: ${{ env.EXTRAS_TAG }}
+
+    - name: Download CI test data
+      uses: ./.github/actions/download-ci-data
+      with:
+        hf-token: ${{ secrets.HF_CI_DATA_TOKEN }}
+
+    - name: Run core tests for coverage report
+      run: |
+        # See note in testmon job re: workflow-level UV_NO_SYNC / UV_FROZEN.
+        uv run --no-sync coverage run --rcfile='test/coverage.pytest.rc' -m pytest --ignore-glob="*docs*" --ignore-glob="*examples*" --junitxml=coverage-core-report.xml
+
+    - name: Run doc tests (testmon not supported for doctests)
+      run: |
+        uv run --no-sync coverage run --rcfile='test/coverage.docstring.rc' -m pytest --doctest-modules physicsnemo/ --ignore-glob="*internal*" --ignore-glob="*experimental*" --junitxml=coverage-doctest-report.xml
+
+    - name: Upload core test JUnit XML
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-coverage-core
+        path: coverage-core-report.xml
+
+    - name: Upload doctest JUnit XML
+      if: ${{ !cancelled() }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: junit-coverage-doctest
+        path: coverage-doctest-report.xml
+
+    # --- Coverage baseline cache (mutable -latest slot) ---
+    #
+    # Same immutable-key bug as the testmon cache: the previous lockhash
+    # suffix could not be re-saved on consecutive nightlies with an
+    # unchanged lockfile.  Migrated to a -latest slot via replace-cache
+    # for parity with testmon and JIT.
+    - name: Replace coverage baseline cache
+      uses: ./.github/actions/replace-cache
+      with:
+        path: .coverage*
+        key: ${{ env.COVERAGE_CACHE_KEY_PREFIX }}-latest
+        description: coverage baseline
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Merge coverage reports
+      run: |
+        uv run --no-sync coverage combine
+        # -i / --ignore-errors downgrades coverage's fatal "No source for
+        # code" error to a warning, matching the PR workflow.  Kept in
+        # lockstep with github-pr.yml per .github/CACHE_CONTRACT.md.
+        uv run --no-sync coverage report -i --show-missing --omit="*test*" --omit="*internal*" --omit="*experimental*" --fail-under=45
+        uv run --no-sync coverage html -i
+        # Also create an XML report for potential CI integrations
+        uv run --no-sync coverage xml -i -o coverage.xml
+
+    - name: Upload coverage HTML report
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-report-nightly
+        path: htmlcov/
+        retention-days: 7
+
+    - name: Upload combined coverage data
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-data-nightly
+        path: |
+          .coverage
+          coverage.xml
+        retention-days: 30
+
+  # Stage 4: Generate browsable test reports from JUnit XML
+  test-reports:
+    name: Test Reports
+    needs: [coverage]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Download JUnit artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: junit-*
+
+    - name: Core test report
+      uses: dorny/test-reporter@v3
+      with:
+        name: Core Test Results
+        path: junit-coverage-core/coverage-core-report.xml
+        reporter: java-junit
+        fail-on-error: 'false'
+
+    - name: Doctest report
+      uses: dorny/test-reporter@v3
+      with:
+        name: Doctest Results
+        path: junit-coverage-doctest/coverage-doctest-report.xml
+        reporter: java-junit
+        fail-on-error: 'false'

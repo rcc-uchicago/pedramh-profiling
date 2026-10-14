@@ -65,7 +65,12 @@ class AutoencoderModule(L.LightningModule):
         z = self.encode(surface, multilevel, diagnostic)
         y = self.scheduler.sample(self.model, z)
 
-        surface_pred, multilevel_pred, diagnostic_pred = disassemble_input(y, nlevels=self.nlevels)
+        surface_pred, multilevel_pred, diagnostic_pred = disassemble_input(
+            y,
+            nsurface=len(self.surface_variables),
+            ndiagnostic=len(self.diagnostic_variables),
+            nlevels=self.nlevels,
+        )
 
         return surface_pred, multilevel_pred, diagnostic_pred
     

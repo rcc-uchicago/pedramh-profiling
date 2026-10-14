@@ -60,6 +60,44 @@ def _parse_anchor_to_datetime64(anchor: str):
     return np.datetime64(iso, "s")
 
 
+def _resolve_init_time(result):
+    """Return ``(init_time_value, labelling)`` for the ``init_time`` coordinate.
+
+    Two labelling schemes, chosen by whether the pack carries a time anchor —
+    ``h5.attrs["plasim_time_units"]``, read by
+    ``rollout_driver._resolve_ic_provenance``:
+
+    * **calendar** — anchor present (the PLaSim packs). Unchanged behaviour:
+      ``anchor + time_plasim_at_ic`` as a ``datetime64[s]``.
+    * **step_index** — anchor absent. The coordinate becomes the IC's global
+      sample index, an integer.
+
+    Why not date everything: the E3SM converter never writes that attribute
+    (``convert_e3sm_to_makani_alldata.py`` writes ``source_root``/``year``/
+    ``converter``/``lat_order``/``sst_units``/``level_naming`` and no anchor),
+    and the pack is on a **noleap 365-day** calendar with a *split-cumulative*
+    day count. Measured, not assumed: ``.pack_logs/test.log`` reports ``T=1460``
+    for 2048, a leap year — 365x4, not 366x4. Adding those days onto a
+    proleptic-Gregorian ``datetime64`` therefore drifts **one day per leap year
+    crossed**; inside the two-year test split, 2049's dates would already be
+    wrong by one. Fabricating a plausible-but-wrong date is worse than not
+    dating the file.
+
+    This has **zero effect on the model or on any metric** — lead time is a
+    relative offset and is unchanged. It is the label on the output file, and
+    lead-offset is the natural coordinate for a lagged ensemble anyway.
+    → docs/2026-09-10_e3sm_inference_port_scope.md §2.3 (decision E).
+    """
+    anchor = str(getattr(result, "file_anchor", "") or "").strip()
+    if not anchor:
+        return np.int64(result.ic_global_idx), "step_index"
+    # A present-but-malformed anchor is a packing bug, not a calendar choice:
+    # let _parse_anchor_to_datetime64 raise rather than silently downgrading.
+    init_time_np = _parse_anchor_to_datetime64(anchor)
+    offset_s = int(round(result.time_plasim_at_ic * 86400))
+    return init_time_np + np.timedelta64(offset_s, "s"), "calendar"
+
+
 def write_rollout_nc(
     out_path,
     *,
@@ -115,8 +153,7 @@ def write_rollout_nc(
             f"Refusing to write a mislabeled grid."
         )
 
-    init_time_np = _parse_anchor_to_datetime64(result.file_anchor)
-    init_time = init_time_np + np.timedelta64(int(round(result.time_plasim_at_ic * 86400)), "s")
+    init_time, init_time_labelling = _resolve_init_time(result)
 
     lead_time = np.arange(1, K + 1, dtype=np.int64) * dt_hours  # hours; integer
 
@@ -165,6 +202,9 @@ def write_rollout_nc(
             ic_global_idx=int(result.ic_global_idx),
             file_anchor=str(result.file_anchor),
             time_plasim_at_ic=float(result.time_plasim_at_ic),
+            # Which scheme init_time is on, so a consumer never has to guess
+            # whether a number is a date or an index. → _resolve_init_time.
+            init_time_labelling=str(init_time_labelling),
             rollout_mode=str(rollout_mode),
             K=int(K),
             dt_hours=int(dt_hours),
@@ -179,6 +219,13 @@ def write_rollout_nc(
     # both correct and round-trippable.
     ds["lead_time"].attrs["units"] = "hours"
     ds["lead_time"].attrs["description"] = "lead time offset from init_time"
+    if init_time_labelling == "step_index":
+        ds["init_time"].attrs["units"] = "1"
+        ds["init_time"].attrs["description"] = (
+            "IC global sample index -- NOT a date. The source pack carries no "
+            "time anchor and is on a noleap calendar, so a proleptic-Gregorian "
+            "date would drift a day per leap year crossed."
+        )
     ds["lat"].attrs["units"] = "degrees_north"
     ds["lon"].attrs["units"] = "degrees_east"
     ds["prediction"].attrs["units"] = "physical (de-z-scored)"

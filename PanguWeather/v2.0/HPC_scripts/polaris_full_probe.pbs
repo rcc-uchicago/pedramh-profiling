@@ -1,0 +1,63 @@
+#!/bin/bash -l
+#PBS -N pangu_full_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:50:00
+#PBS -j oe
+# ============================================================================
+# RESOURCE PROBE for polaris_train_e3sm_sfno_full.pbs.
+#
+# Pangu is the one model whose SMOKE already runs the full-size network (embed_dim 512,
+# num_layers 12) on real data — so its memory and step time are ALREADY measured by every
+# smoke run. This probe exists to answer the one question the smoke does not: how long does
+# a FULL EPOCH take, and therefore how many of the config's 100 epochs fit in a walltime.
+#
+# It times one epoch (--epochs 1, exactly what the smoke does) and reports it/s, then
+# extrapolates. Cheap: it is the smoke with a timing summary.
+#
+# Submit from PanguWeather/v2.0:  qsub HPC_scripts/polaris_full_probe.pbs
+# ============================================================================
+cd "${PBS_O_WORKDIR}"
+V20_DIR="${PBS_O_WORKDIR}"
+module use /soft/modulefiles
+module load conda
+conda activate base
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+export MPLBACKEND=Agg OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+NPROC="${NPROC:-4}"
+EXP_DIR="${MEMBER_ROOT}/runs/pangu_sfno_probe"
+CONFIG_FILE="${EXP_DIR}/probe.rendered.yaml"
+mkdir -p "${EXP_DIR}"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+echo "=== pangu_full_probe: $(date -Iseconds) ==="
+echo "host=$(hostname)  NPROC=${NPROC}"
+nvidia-smi --query-gpu=name,memory.total --format=csv,noheader | head -1
+grep -E "^  (embed_dim|num_layers|batch_size):" "${CONFIG_FILE}" | head -3
+START=$(date +%s)
+torchrun --standalone --nproc_per_node="${NPROC}" "${V20_DIR}/train.py" \
+    --yaml_config="${CONFIG_FILE}" --config=SFNO --run_num="probe_${PBS_JOBID%%.*}" --epochs 1
+rc=$?
+END=$(date +%s)
+ELAPSED=$((END - START))
+echo "=== pangu_full_probe done (rc=${rc}) elapsed=${ELAPSED}s $(date -Iseconds) ==="
+if [ ${rc} -eq 0 ]; then
+    python - "${ELAPSED}" <<'PY'
+import sys
+# One epoch here = one YEAR (2015). Full training spans 2015..2048 = 34 years/epoch, and the
+# config asks for 100 epochs. Extrapolate honestly, including startup in the measured number.
+e = int(sys.argv[1])
+per_year = e
+print("  measured : %d s for 1 epoch over 1 year (incl. startup)" % e)
+print("  34 years : %.1f h per full epoch" % (per_year * 34 / 3600))
+print("  x100 ep  : %.0f h = %.1f days  <-- vs a 24 h walltime and a 72 h preemptable cap"
+      % (per_year * 34 * 100 / 3600, per_year * 34 * 100 / 86400))
+print("  => resubmits needed at 24 h each: ~%d" % ((per_year * 34 * 100 / 3600) / 24 + 1))
+PY
+fi
+exit ${rc}

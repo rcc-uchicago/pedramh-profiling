@@ -1,0 +1,92 @@
+#!/bin/bash -l
+#PBS -N makani_port_m1
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# makani port M1 (makani_port/HANDOFF_worker.md §3), one debug job (debug = one queued job):
+#
+#   1. GRID_WEIGHT_DELTA  measurement only, OLD venv, 1 GPU: makani "naive" quadrature vs the true
+#                         cell-centred band areas, and A e243's single-step l2 under both
+#                         (api_delta §3.2, operator ruling 2026-10-01). Changes nothing.
+#   2. build              polaris_setup_sfno_venv_main.sh -> $MEMBER_ROOT/conda-envs/sfno-venv-main
+#                         (through the ALCF proxy)          -> SFNO_VENV_MAIN_BUILT
+#   3. gate               scripts/port_venv_check.py on the NEW venv -> VENV_MAIN_OK
+#                         (provenance, pins, 29 makani symbols, old venv's makani dist-info unchanged)
+#
+# PASS = VENV_MAIN_OK (stage 1 reports numbers; it is not part of the gate). Key on tokens (#14).
+# Submit from makani_sfno/:   qsub polaris/polaris_makani_port_m1.pbs     [-v REBUILD=1]
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_port/m1/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+OLD_VENV="${MEMBER_ROOT}/conda-envs/sfno-venv"
+NEW_VENV="${MEMBER_ROOT}/conda-envs/sfno-venv-main"
+OLD_DU=c7f1fba50e911b574f9dc47bfa7ddcb1dbfd5450d7e73808ff20c22580ceefb3
+OLD_RECORD=380b1a777d18a5de1ebabf80defb2ec5174336ce50c3ff8ac6c55cecdf4b78e3
+
+SHA="$(cd "${REPO}" && git rev-parse HEAD 2>/dev/null)"
+DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"
+echo "=== makani_port_m1: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
+echo "PORT_M1_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} out=${OUT}"
+
+# --- 1. measurement on the OLD venv (env bootstrap verbatim from polaris_makani_port_golden.pbs) ---
+(
+    # shellcheck disable=SC1091
+    source "${REPO}/polaris_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${OLD_VENV}/bin/activate"
+    export PYTHONNOUSERSITE=1
+    export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+    export HDF5_USE_FILE_LOCKING=FALSE
+    export CUDA_VISIBLE_DEVICES=0
+    RUN="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling/prod1n_b32_sgdr"
+    "${OLD_VENV}/bin/python" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${MAKANI_ROOT}/scripts/port_grid_weight_delta.py" \
+        --run-dir "${RUN}" --ckpt "${RUN}/training_checkpoints/best_ckpt_mp0.tar" --n 64
+) > "${OUT}/grid_weight_delta.log" 2>&1
+grep -E "^(GRID_WEIGHT|ERROR)|Traceback|Error:" "${OUT}/grid_weight_delta.log" | head -12
+
+# --- 2. build the new venv beside the old one ---
+( bash "${REPO}/polaris_setup_sfno_venv_main.sh" ) > "${OUT}/build.log" 2>&1
+build_rc=$?
+grep -E "^(SFNO_VENV_MAIN_BUILT|ERROR|venv:)|^=== " "${OUT}/build.log"
+[ ${build_rc} -eq 0 ] || echo "ERROR VENV_MAIN_BUILD_FAILED rc=${build_rc} (tail of build.log follows)"
+[ ${build_rc} -eq 0 ] || tail -25 "${OUT}/build.log"
+
+# --- 3. gate on the new venv ---
+(
+    # shellcheck disable=SC1091
+    source "${REPO}/polaris_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${NEW_VENV}/bin/activate" || exit 2
+    export PYTHONNOUSERSITE=1
+    export HDF5_USE_FILE_LOCKING=FALSE
+    export CUDA_VISIBLE_DEVICES=0
+    "${NEW_VENV}/bin/python" "${MAKANI_ROOT}/scripts/port_venv_check.py" \
+        --symbols "${REPO}/makani_port/makani_symbols.txt" \
+        --makani-sha a0aa4c4fe5c40207d4fcc3da61d4c656a4ea0346 \
+        --th-sha 2edb24edcdcfa34abcb4885691818540defb4ee6 \
+        --old-venv "${OLD_VENV}" --old-direct-url "${OLD_DU}" --old-record "${OLD_RECORD}"
+) > "${OUT}/venv_check.log" 2>&1
+cat "${OUT}/venv_check.log"
+grep -q "^VENV_MAIN_OK" "${OUT}/venv_check.log" && echo "PORT_M1 gate=green out=${OUT} sha=${SHA}" \
+                                                || echo "ERROR PORT_M1_FAILED out=${OUT}"
+echo "=== makani_port_m1 done $(date -Iseconds) ==="

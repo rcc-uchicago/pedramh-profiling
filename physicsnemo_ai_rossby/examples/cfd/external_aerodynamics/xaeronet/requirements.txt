@@ -1,0 +1,8 @@
+trimesh>=4.5.0
+torch_geometric>=2.6.1
+pyvista
+vtk
+wandb
+scikit-learn
+tabulate
+matplotlib

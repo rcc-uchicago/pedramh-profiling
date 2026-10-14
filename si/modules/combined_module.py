@@ -182,7 +182,12 @@ class CombinedModule(L.LightningModule):
 
         z_lowres = y_lowres if self.downscaler_input == 'y' else y_last_lowres
 
-        surf_lr, multi_lr, diag_lr = disassemble_input(z_lowres, nlevels=self.nlevels)
+        surf_lr, multi_lr, diag_lr = disassemble_input(
+            z_lowres,
+            nsurface=len(self.surface_variables),
+            ndiagnostic=len(self.diagnostic_variables),
+            nlevels=self.nlevels,
+        )
         surf_up, multi_up, diag_up = self.upsample(surf_lr, multi_lr, diag_lr)
         z_upsampled = assemble_input(surf_up, multi_up, diag_up)
 
@@ -284,7 +289,12 @@ class CombinedModule(L.LightningModule):
             # y_lowres rolls the forecaster forward; y_highres is the full-res prediction.
             # Both have leading dim b*e — individual ensemble members continue independently.
             y_lowres, y_highres = self.forward(x, c_grid, return_model_last=True, c_scalar=c_scalar_t)
-            surface_pred, multilevel_pred, diagnostic_pred = disassemble_input(y_highres, nlevels=self.nlevels)
+            surface_pred, multilevel_pred, diagnostic_pred = disassemble_input(
+                y_highres,
+                nsurface=len(self.surface_variables),
+                ndiagnostic=len(self.diagnostic_variables),
+                nlevels=self.nlevels,
+            )
 
             x = y_lowres
 

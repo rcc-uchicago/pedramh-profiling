@@ -1,0 +1,198 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_sweep_zero
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# ZeRO-1 x activation-checkpointing feasibility sweep — Polaris, 4x A100.
+#
+# WHY THIS USES train.py AND NOT profile_train.py
+# ------------------------------------------------
+# The earlier sweep (polaris_sweep_sfno_e3sm.pbs, job 7365119) ran the BENCH
+# entry point, which builds **no EMA**. Every peak it reported therefore
+# understates production by the 4.40 GB ModelEMA shadow copy — confirmed at
+# ckpt3: bench 21.40 GB vs real training 25.89 GB.
+#
+# That 4.4 GB is precisely what decides this question, so measuring it with the
+# bench would answer the wrong one. This job runs the REAL trainer in smoke mode
+# (EMA on, 20 steps, validation off) and reads peak + step time from the
+# per-epoch telemetry CSV, which is emitted by the real training loop.
+#
+# WHAT IT TESTS
+# -------------
+# ZeRO-1 shards Adam's exp_avg/exp_avg_sq — 8.8 GB/GPU on this model — across
+# the 4 ranks, freeing ~6.6 GB. Predictions being tested (from sweep 7365119
+# plus the 4.4 GB EMA correction), against 39.49 GiB usable:
+#
+#     config          predicted peak   predicted verdict
+#     ckpt3, no ZeRO      ~25.8 GB     fits (reproduces the smoke's 25.89)
+#     ckpt2, no ZeRO      ~38.4 GB     MARGINAL
+#     ckpt1, no ZeRO      ~40.5 GB     OOM
+#     ckpt2, ZeRO-1       ~31.8 GB     fits
+#     ckpt1, ZeRO-1       ~33.9 GB     fits  <- unlocks the 1.307x config
+#
+# The two no-ZeRO rows are deliberate CONTROLS: if ckpt1/no-ZeRO does not OOM,
+# the 4.4 GB EMA correction is wrong and every number above needs revisiting.
+# A prediction with no way to fail is not a prediction.
+#
+# ZeRO also costs one all-gather of parameters per step and forces the eager
+# AdamW kernel (the wrapper rejects fused). The step_med column prices that.
+#
+# ⚠ An OOM row is a RESULT, not a failure — it is the memory wall being located.
+# The job records it and continues.
+#
+# Submit:  qsub polaris/polaris_sweep_sfno_zero.pbs
+#
+# PASS = the summary table + rows in $TEL_CSV. Read the table, not the exit code.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# --- env bootstrap: copied verbatim from polaris_sweep_sfno_e3sm.pbs --------
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"; exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+[ -d "${DATA}/train" ] || { echo "ERROR AI_ROSSBY_DATA_MISSING: ${DATA}/train"; exit 3; }
+
+MAX_ITERS="${MAX_ITERS:-20}"
+SWEEP_ROOT="${MEMBER_ROOT}/runs/ai_rossby_zero_sweep/${PBS_JOBID%%.*}"
+TEL_CSV="${TEL_CSV:-${MEMBER_ROOT}/bench/ai_rossby_sfno_zero_sweep.csv}"
+export AI_ROSSBY_EPOCH_TELEMETRY=1
+export AI_ROSSBY_EPOCH_TELEMETRY_EPOCHS=0
+export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${TEL_CSV}"
+# Not the bench entry point — make sure no stale bench knob is active.
+unset AI_ROSSBY_BENCH AI_ROSSBY_NVTX
+mkdir -p "$(dirname "${TEL_CSV}")" "${SWEEP_ROOT}"
+
+polaris_env_report
+echo "--- zero sweep ---"
+echo "  ranks = ${NPROC}   steps/config = ${MAX_ITERS}   telemetry csv = ${TEL_CSV}"
+echo
+
+python "${REPO}/compare_sfno_parity.py" --static || {
+    echo "ERROR PREFLIGHT_FAILED — architecture diverged."; exit 4; }
+echo
+
+# label|checkpointing|use_zero|batch_size|class|prediction
+CONFIGS=(
+  "ckpt3_zero0_bs1|3|false|1|N|fits ~25.8 (reproduces the smoke)"
+  "ckpt2_zero0_bs1|2|false|1|N|MARGINAL ~38.4"
+  "ckpt1_zero0_bs1|1|false|1|N|OOM ~40.5  <- control"
+  "ckpt3_zero1_bs1|3|true|1|N|fits, ZeRO step cost visible here"
+  "ckpt2_zero1_bs1|2|true|1|N|fits ~31.8"
+  "ckpt1_zero1_bs1|1|true|1|N|fits ~33.9  <- the target"
+  "ckpt0_zero1_bs1|0|true|1|N|fits ~33.9"
+  "ckpt1_zero1_bs2|1|true|2|C|output-CHANGING; may now fit"
+)
+
+cd "${RECIPE}" || exit 2
+i=0
+for cfg in "${CONFIGS[@]}"; do
+    IFS='|' read -r label ckpt zero bs cls pred <<< "${cfg}"
+    i=$((i + 1))
+    echo "=============================================================="
+    echo "[${i}/${#CONFIGS[@]}] ${label}  (class ${cls})  ckpt=${ckpt} zero=${zero} bs=${bs}"
+    echo "      prediction: ${pred}"
+    echo "=============================================================="
+    before=0
+    [ -f "${TEL_CSV}" ] && before=$(wc -l < "${TEL_CSV}")
+
+    # Real trainer, smoke-scoped: EMA on (the whole point), validation off
+    # (val_zarr_path=null — `validation=off` disables only the ROLLOUT).
+    python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+        train.py \
+        model=sfno_e3sm_parity \
+        dataset=e3sm_pangu_parity \
+        training=sfno_e3sm_parity \
+        loss=raw_l2 \
+        training.amp=bf16 \
+        training.max_epochs=1 \
+        training.stages.0.max_iterations="${MAX_ITERS}" \
+        model.checkpointing="${ckpt}" \
+        training.optimizer.use_zero_optimizer="${zero}" \
+        dataset.batch_size="${bs}" \
+        dataset.num_workers=1 \
+        dataset.val_zarr_path=null \
+        checkpoint_save_interval=1000000 \
+        seed=0 \
+        run_name="${label}" \
+        hydra.run.dir="${SWEEP_ROOT}/${label}" \
+        wandb.mode=disabled
+    rc=$?
+
+    after=0
+    [ -f "${TEL_CSV}" ] && after=$(wc -l < "${TEL_CSV}")
+    if [ "${after}" -gt "${before}" ]; then
+        echo "--> ${label}: OK"
+    else
+        echo "--> ${label}: NO ROW (rc=${rc}) — OOM or failure; see above"
+    fi
+    echo
+done
+
+echo "=============================================================="
+echo "ZeRO SWEEP SUMMARY — peak_mem_gb INCLUDES the EMA copy"
+echo "=============================================================="
+python - "${TEL_CSV}" <<'PY'
+import csv, sys
+rows = {r["run_name"]: r for r in csv.DictReader(open(sys.argv[1]))}
+grid = [
+    ("ckpt3_zero0_bs1", "N", "fits ~25.8"), ("ckpt2_zero0_bs1", "N", "MARGINAL ~38.4"),
+    ("ckpt1_zero0_bs1", "N", "OOM ~40.5"),  ("ckpt3_zero1_bs1", "N", "fits"),
+    ("ckpt2_zero1_bs1", "N", "fits ~31.8"), ("ckpt1_zero1_bs1", "N", "fits ~33.9"),
+    ("ckpt0_zero1_bs1", "N", "fits ~33.9"), ("ckpt1_zero1_bs2", "C", "may now fit"),
+]
+base = rows.get("ckpt3_zero0_bs1")
+b = float(base["step_med_ms"]) if base else None
+print(f"{'config':18s} {'cls':3s} {'step_ms':>9s} {'vs base':>8s} {'peak_GB':>8s} {'busy':>6s}  predicted")
+for label, cls, pred in grid:
+    r = rows.get(label)
+    if not r:
+        print(f"{label:18s} {cls:3s} {'--- OOM / failed ---':>34s}  {pred}")
+        continue
+    ms = float(r["step_med_ms"])
+    rel = f"{b/ms:.3f}x" if b else "--"
+    print(f"{label:18s} {cls:3s} {ms:9.1f} {rel:>8s} {float(r['peak_mem_gb']):8.2f} "
+          f"{float(r['gpu_busy_frac']):6.3f}  {pred}")
+ok = [(rows[l], l) for l, c, _ in grid if c == "N" and l in rows]
+if ok and b:
+    best, bl = min(ok, key=lambda t: float(t[0]["step_med_ms"]))
+    print(f"\nFASTEST OUTPUT-NEUTRAL THAT FITS: {bl}  "
+          f"{b/float(best['step_med_ms']):.3f}x vs ckpt3/no-ZeRO, "
+          f"peak {float(best['peak_mem_gb']):.2f} GB")
+    print("  Still NOT adopted: needs the §4 equivalence gate, and a run WITH")
+    print("  validation (this sweep disabled it) to confirm the real peak.")
+PY
+echo
+echo "AI_ROSSBY_ZERO_SWEEP_DONE  -> ${TEL_CSV}"

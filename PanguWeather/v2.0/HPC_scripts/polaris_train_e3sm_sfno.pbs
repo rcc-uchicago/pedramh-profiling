@@ -7,7 +7,6 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=00:50:00
 #PBS -j oe
-#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/pangu_e3sm_sfno.log
 # ============================================================================
 # PanguWeather (SFNO-on-E3SM) Polaris smoke — PBS analog of the Derecho PBS
 # script HPC_scripts/derecho_training_bing.sh, retargeted to Polaris + the
@@ -22,7 +21,8 @@
 #
 # Submit (4-GPU smoke, the default):  qsub HPC_scripts/polaris_train_e3sm_sfno.pbs
 # 1-GPU smoke:                        qsub -v NPROC=1 HPC_scripts/polaris_train_e3sm_sfno.pbs
-# PASS = "DONE ---- rank 0" in polaris_logs/pangu_e3sm_sfno.log with no traceback.
+# PASS = "DONE ---- rank 0" + "rc=0" in pangu_e3sm_sfno.o<jobid> (written into the dir you
+# submit from), with no traceback.
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}"                     # submit from PanguWeather/v2.0
@@ -32,25 +32,37 @@ V20_DIR="${PBS_O_WORKDIR}"
 module use /soft/modulefiles
 module load conda
 conda activate base
-export WANDB_MODE=offline
+# Resolves MEMBER_ROOT (your writable dir), PANGU_AUX (the shared ~17 GB stats +
+# climatology) and the caches. Works for ANY project member.
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
 export HDF5_USE_FILE_LOCKING=FALSE                 # Lustre: h5py/netCDF file locking off
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export MPLBACKEND=Agg                              # train.py imports matplotlib (headless)
 export OMP_NUM_THREADS=8                            # 64 HW threads / ~8 per rank
 export MKL_NUM_THREADS=8
 # Persistent caches on eagle (survive across jobs — node-local /local/scratch is wiped)
-export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
-export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
-export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
-export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics 0.7.4 / zarr, which the base conda
+# lacks. It MUST be on PYTHONPATH or this job dies on `ModuleNotFoundError`. It is a
+# SHARED eagle dir, not a `pip install --user` one: ALCF homes are mode 0700, so a
+# ~/.local install is readable by its owner alone and every other member's run fails.
+# Build it once with polaris_setup_base_topups.sh (PASS = TOPUPS_OK).
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 NPROC="${NPROC:-4}"                                # torchrun local ranks (1 or 4)
-CONFIG_FILE="config/E3SM_SFNO_H5_POLARIS.yaml"
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+# Render into YOUR member dir: exp_dir must be writable by you, and the stats/climatology
+# must point at the shared read-only aux (never another user's clone).
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.rendered.yaml"
 RUN_NUM="polaris_sfno_${PBS_JOBID%%.*}"
 
 echo "=== polaris_train_e3sm_sfno: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  run_num=${RUN_NUM}"
 nvidia-smi -L
+polaris_env_report
 echo "python=$(command -v python)"
 
 # ---- preflight: the E3SM auxiliary files must be prepared. climatology.nc is a
@@ -58,11 +70,11 @@ echo "python=$(command -v python)"
 # train.py at Trainer init. This must run on a COMPUTE node (a login-node
 # background job gets killed mid-write, leaving a 96-byte stub). Auto-run the prep
 # here if the output is missing/truncated, then hard-verify it. ----
-CLIM="${V20_DIR}/polaris_data/climatology.nc"
+CLIM="${PANGU_AUX}/climatology.nc"
 clim_ok() { [ -s "${CLIM}" ] && [ "$(stat -c%s "${CLIM}" 2>/dev/null || echo 0)" -ge 1048576 ]; }
 if ! clim_ok; then
     echo "--- climatology not ready; running polaris_prepare_e3sm_stats.py (compute node) ---"
-    ( cd "${V20_DIR}" && python polaris_prepare_e3sm_stats.py )
+    ( cd "${V20_DIR}" && PANGU_AUX="${PANGU_AUX}" python polaris_prepare_e3sm_stats.py )
 fi
 python - "$CLIM" <<'PY' || { echo "ERROR CLIM_NOT_READY (prep failed — see above)"; exit 2; }
 import sys, xarray as xr
@@ -77,6 +89,34 @@ PY
 # init as rank-0-on-GPU-0 and OOM. Without --debug, setup_distributed binds
 # device = rank % device_count. SFNO batch_size=1 (from BASE; the config's
 # batch_size=16 lives in the unused `modified_1` section, not SFNO).
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+echo "rendered config -> ${CONFIG_FILE}"
+
+# ---- W&B: flip the config's own switch, not just the client's mode --------------
+# $WANDB_MODE only controls the wandb CLIENT. This config sets `log_to_wandb: False`, and
+# train.py:513 guards `wandb.init` behind it — so `-v WANDB_MODE=online` alone logs NOTHING.
+# Flip the rendered copy (never the template) when the user asks for online.
+# `entity` in the template is hardcoded to one person's W&B account; wandb.init(entity=None)
+# falls back to the account the API key belongs to, which is what any other member needs.
+if [ "${WANDB_MODE}" = "online" ]; then
+    python - "${CONFIG_FILE}" "${WANDB_PROJECT}" "${WANDB_ENTITY:-}" <<'_PY' || exit 2
+import re, sys
+path, project, entity = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*log_to_wandb:\s*).*$", lambda m: m.group(1) + "!!bool True", src, count=1)
+if n != 1:
+    print("ERROR WANDB_PATCH_FAILED: log_to_wandb matched %d times" % n); sys.exit(2)
+src = re.subn(r"(?m)^(\s*entity:\s*).*$", lambda m: m.group(1) + (("'%s'" % entity) if entity else "null"), src, count=1)[0]
+src = re.subn(r"(?m)^(\s*project:\s*).*$", lambda m: m.group(1) + "'%s'" % project, src, count=1)[0]
+open(path, "w").write(src)
+print("  wandb ON: log_to_wandb=True, project=%s, entity=%s" % (project, entity or "<your default>"))
+_PY
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
 echo "--- launching torchrun (nproc_per_node=${NPROC}) ---"
 torchrun --standalone --nproc_per_node="${NPROC}" \
     train.py \

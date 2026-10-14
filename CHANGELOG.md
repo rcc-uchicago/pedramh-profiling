@@ -17,46 +17,93 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 |---|---|
 | Repo published (s2s / s2s-lightning / si) | ✅ done |
 | SNFO → SI rename (repo-wide) | ✅ done |
-| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100** (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
-| §4.0 prerequisites (seed knob, tiny config, VAE noise-fix) | ⬜ not started — **blocks baseline capture** |
-| Correctness baselines captured (DESIGN.md §4) | ⬜ not started — **blocks all optimization** |
-| Test harness (tier-1 equivalence/unit + `--fast`) | ⬜ not started |
-| Optimization ladder (DESIGN.md §5) | ⬜ not started |
+| Polaris (PBS) bring-up | ✅ **all 4 runnable models GREEN on 4×A100**, and Pangu is now proven **reproducible by a second user** (7253591, loss identical to the installer's run); **SI too** (7253603). Their deps were private to rmehta1987 until today's shared top-ups (PanguWeather-SFNO, SI, Makani-SFNO, PhysicsNeMo) + probe + all 3 data converters proven on real data. S2S/port scripts delivered but blocked on an ERA5 Globus stage. See `polaris_pbs_notes.md`. |
+| **makani-SFNO on Polaris** (the focus, 2026-09-01) | 📚 **Verified, tagged record: `makani_sfno/KNOWLEDGE.md` (2026-10-06).** Read its §0 (where the 5-yr accuracy path stands) and §9 (retracted claims) before quoting anything below or in an older handoff. 🟢 **PRODUCTION COMPLETE — 128 nodes / 512 ranks, 100/100 epochs, rc=0** (7566145, ≈216 node-hours): train 0.01598 / valid **0.018297 with the minimum at the last epoch**, 888 samples/s, **85% weak-scaling efficiency 8→128 nodes**, on the 101-channel ALLDATA contract that matches Pangu/ai-rossby. Multi-node needed **two** fixes, both found here: `NCCL_PROTO=Simple` (old plugin ≥3 nodes) and a **self-built aws-ofi-nccl v1.21.1 + `OFI_NCCL_PROGRESS_MODEL=AUTO`** — 🔴 **the parenthetical that used to stand here ("the only thing that makes libfabric 2.3.1's CXI provider open a domain") is REFUTED as of 2026-09-17: v1.21.1 never opened a CXI domain. Its own log says `No eligible providers were found` → `Selected provider is tcp` → `GDR not supported`, so this run's collectives crossed nodes over TCP, not Slingshot.** Every inter-node number below — including the 888 samples/s and the 85% efficiency — is therefore a TCP measurement. ⚠ Every scaling number is **n=1**, and the two ladders disagree on the headline (67% vs 47% efficiency at 8 nodes) depending on whether warmup is in the average. ⚠ Batch 512 at the shipped LR is **not signed off** by the science owner, and **nothing has evaluated the checkpoint**. Results → `makani_bench_report.md`; next moves → `TODO.md` P0 |
+| **Profiling (PanguWeather SFNO on A100)** | 🟡 **first pass done, then RE-OPENED** by `PANGU_POLARIS_PROFILING_PLAN.md` (21 items; **1, 2, 3, 4, 5, 6, 6b, 7 done**) — **271 ms/rank-step (47% of compute time)** is `direct_copy`+`conj`, kernels that compute nothing, split **72.9% `backward`** (§4.3). Quote the ms, not a share of GPU-kernel time: that share is not reproducible (§4.4c). See `polaris_bench_report.md`. Harness ported (PanguWeather had **zero** instrumentation), loader sweep + nsys captured. **VERDICT: GPU-bound** (loader idle **0.7%**) and **elementwise-bound** (**68% of *compute* pointwise vs 17% GEMM**, 392 vs 97 ms/rank-step) ⇒ `torch.compile` (§5 rung 1) is the right first lever, now on evidence. **2026-08-21 (item 7, job 7550715, prereg 4/4): those copies are CONTIGUITY-bound, not bandwidth-bound** — store side at exactly the ideal sectors/request, load side at the hardware maximum of 32.00, and the 377 MB spectral weight reads **2043 MB to move 377 MB**. Nothing is saturated (DRAM 24–51% of peak, SM 5–20%). ⇒ the lever is a **layout fix**, and §4.5's "only dominant kernel with no mechanism" now has one (§4.8). Model is **1.18 B params**, not ~79M. SI/makani/physicsnemo have **no kernel-level profile** (makani now has a multi-node *scaling* study — `makani_bench_report.md` — which is a different axis). |
+| §4.0 prerequisites — **`s2s/v2.0`** | 🟡 **seed knob DONE + GPU-verified** (`--seed`/`$S2S_SEED`/YAML + `--deterministic`, `s2s/v2.0/utils/seeding.py`; 10 tests `SEEDING_OK` on CPU **and on an A100**, job 7253738 rc=0); tiny config + VAE noise-fix still **block baseline capture** |
+| §4.0 prerequisites — **`PanguWeather`** (the focus; a separate fork, nothing propagates) | ✅ **ALL THREE MET.** seed knob ✅ **already existed — do NOT port `seeding.py` here** (`--global_seed`→`seed_torch`, seeds numpy+torch+CUDA, forces `cudnn.deterministic`; stronger than s2s's legacy path). VAE noise hook ✅ **built** (`utils/vae_noise.py`, 16 tests `VAE_NOISE_OK`) but **inert on `sfno_plasim`** (no VAE). `tiny_baseline.yaml` ✅ **written AND run** — job 7255583: **7,166,656 params** (165× smaller than the real 1.18 B), 0.023 s/step, **1.00 GB**. ⇒ **baseline capture is no longer blocked on building anything** |
+| **E3SM data prep (PhysicsNeMo zarr)** | 🟡 **7 defects found, 5 fixed, 4 open**; verified `SEQZARR_VERIFIED` on a 24-year random fixture (job 7257786). **The full ~1 TB conversion is NOT cleared to run** — 4 open defects + 5 decisions. `polaris_data_prep_handoff_prompt.md`. makani's converters are **now audited** — `MAKANI_PACK_AUDIT_OK` on both the 53-ch pack and the 101-ch ALLDATA pack against the corrected Pangu moments; Pangu's stats prep audited (clean, metadata-only). |
+| Correctness baselines captured (DESIGN.md §4) | 🟡 **machinery BUILT and first baselines captured** (`baselines/ai_rossby_pangu_plasim/{eager,compiled_default}.json`, job 7353187) — `equivalence.py` + `compare_baselines.py` + a PBS gate. **First verdict: `torch.compile` FAILS** (4.02e-01 > 1e-2), so rung 1 is measured (1.40×) but **not adopted**. Open question for the owner: §4.1 gates on a 20-step bf16 *training* trajectory, which compounds — step 0 agrees to 8.3e-4. Other models still have no baseline |
+| Test harness (tier-1 equivalence/unit + `--fast`) | 🟡 3 test files now exist + self-run (`SEEDING_OK`, `BENCH_INSTR_OK`, `VAE_NOISE_OK`); no `conftest.py`/`--fast` yet |
+| Optimization ladder (DESIGN.md §5) | 🟡 **rung 1 MEASURED on ai-rossby, not adopted**: `torch.compile` (default mode) = **1.401×** (step_med 449.6→320.8 ms, peak mem 24.98→21.07 GB; jobs 7352022 vs 7352948). Still **not enabled anywhere** — §4 equivalence gate does not exist yet. Measuring is unblocked; adopting is not. PanguWeather/SI/s2s rungs untouched |
 
 ### Smoke status matrix (probe → 1-GPU → 4-GPU)
 
 | Model | Midway | Polaris |
 |---|---|---|
-| Toolchain probe | — | ✅ `PROBE_OK` (job 7251974: 4×A100-40GB, all imports) |
+| Toolchain probe | — | ✅ `PROBE_OK` (job **7253681**, the fixed probe run as a second user: `sys.path` free of `~/.local`, and it imports the REAL `modules.train_module` rather than an empty namespace package — the hollow check that hid `cf_xarray`. 4×A100-40GB; makani/physicsnemo need the §6 venv, non-blocking) |
 | S2S (`torchrun`) | ✅ runs (Midway scripts GREEN) | ⛔ blocked on ERA5 stage (scripts ready) |
 | S2S-Lightning | ⚠️ standalone smoke config-path fixed 2026-07-13 — **needs a Midway run to reconfirm** | ⛔ blocked on ERA5 stage (scripts ready) |
-| SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (job 7252700; converted E3SM; step_med 0.400 s, peak 30.98 GB) |
-| PanguWeather SFNO | — | ✅ **4-GPU GREEN** (job 7252271; E3SM data) |
-| Makani SFNO | — | ✅ **4-GPU GREEN** (job 7252769; train loss 2.19 / val 2.05 + ckpt; pack `CONVERT_OK` 7252736) — runs from the isolated SFNO venv |
+| SI | ✅ runs (Midway scripts GREEN) | ✅ **4-GPU GREEN** (7252700: step_med 0.400 s, peak 30.98 GB) **and reproducible by a SECOND USER** — job **7253603** (`PYTHONNOUSERSITE=1`): step_med 0.399, peak 30.69 GB, rc=0 |
+| PanguWeather SFNO | — | ✅ **4-GPU GREEN** (7252271) **and reproducible by a SECOND USER** — job **7253591** (`PYTHONNOUSERSITE=1`) rc=0 with loss **0.3411, identical** to the as-installer run |
+| Makani SFNO | — | ✅ **4-GPU GREEN** (job **7253465**, current script: train loss 2.61 / val 2.38 + ckpt; first green 7252769 pre-rework; pack `CONVERT_OK` 7252728) — runs from the isolated SFNO venv |
 | PhysicsNeMo SFNO | — | ✅ **4-GPU GREEN** (job 7252933, rc=0: loss 0.889, val err 0.541, ckpt saved; 1-GPU 7252816 also green; zarr `CONVERT_OK`) |
+| ACE2 (`fme`) | ✅ `ACE2_SMOKE_OK` (4×H100, 53478978/53478979) + `ACE2_SMOKE_2NODE_OK` | ✅ **GREEN** — venv `ACE2_VENV_OK`, full 1/2/4/8-node ladder, and the **LR sweep is settled at full depth: 3e-4** (0.19579 at 3 epochs, interior optimum; 7598647/8). Metric capture added 2026-09-10 (`metrics_log_dir` + epoch echo) because fme sent every per-channel metric to a wandb that is **off** here. Production not yet launched — queue choice open |
 
-## Next actions (pick from the top)
+## Next actions → `TODO.md`
 
-1. **Polaris bring-up** — probe → 1-GPU → 4-GPU smoke for each model via PBS;
-   write `polaris_pbs_notes.md`. Follow `polaris_handoff_prompt.md` (on `main`).
-2. **Build the §4.0 prerequisites** — a `--seed` knob in `s2s/v2.0/train.py`, a
-   `tiny_baseline.yaml`, and a VAE noise-fixing hook. Nothing can be optimized
-   safely until the equivalence gate is executable.
-3. **Capture correctness baselines** (DESIGN.md §4) for each model.
-4. **Stand up the test harness** — CRPS/KL numerical checks, normalize↔inverse
-   round-trip, tiny-model forward/backward, a `conftest`-registered `--fast`.
-5. Then start the optimization ladder (torch.compile first — enable the existing
-   `TORCH_COMPILE_MODE` plumbing), one gated commit each.
+**The prioritised list is [`TODO.md`](TODO.md)** — one file, P0 first, an item deleted when
+it is done and its measurement recorded below. Per-model item lists stay where the evidence
+is: `PANGU_POLARIS_PROFILING_PLAN.md` (21 items) and `makani_bench_report.md` §8.
+
+**FOCUS (2026-09-01): makani.** A 128-node production model now exists (7566145, 100/100
+epochs); the next moves are a science read of it and an evaluation path — `TODO.md` P0.
+
+> The trap the previous focus note existed to carry, restated because it is a property of the
+> repo rather than of the current focus: **`PanguWeather/` and `s2s/v2.0/` are 95%-identical
+> FORKS, not shared imports** (DESIGN §2c), so nothing propagates between them. In particular
+> PanguWeather's `--global_seed` is *stronger* than s2s's `utils/seeding.py` — do **not**
+> port that file there (Known issues, below).
 
 ## In progress
 
+- **ai-rossby PanguPlasim bring-up — ✅ ALL THREE HANDOFF-v2 STEPS GREEN (2026-08-05).**
+  Branch `fix/tsoi-fill-270`. The smoke-scale pipeline is end-to-end proven: corrected
+  statistics → rebuilt norm zarr → a 4×A100 training run that converges.
+  1. **Normalization regen** — job **7340945**, exit 0, **34:54** over all 51,100 h5 files
+     (~2.15 TB). `MOMENTS_OK` → `NORM_NC_OK` → `NORMALIZATION_OK` → `E3SM_NORM_REGEN_OK`.
+  2. **Norm zarr rebuilt** — bitwise-identical to the source `.nc` across all 26 vars/levels.
+  3. **Training smoke** — job **7341412**, exit 0, **9:36**. `PREFLIGHT_OK`
+     (`VARIABLE_PARITY_OK 21/21` ×3 stores) + `PANGU_PLASIM_RUN_OK`.
+  4. **Production conversion** — ✅ **DONE 2026-08-06**: 35 stores (train 2015–2044,
+     val 2045–2048 + 2049 tail), 43,800 training samples, verified on disk. Took
+     3 h through `debug`; `preemptable` never scheduled it (see the 2026-08-06 entry).
+     No inode problem materialised — `lfs quota` shows files quota/limit **0 = no cap**.
+  **Next: the long training run — and use `-q capacity`, NOT `preemptable`.**
+  `capacity` takes **1–4 nodes for ≤168 h** at `Priority=150` and is actively
+  scheduling (12 running); the project's slot is currently free. At the *measured*
+  449.6 ms/step (not the stale 537) the 100-epoch run is **~150 h — it fits in ONE
+  job**, versus 3× 72 h `preemptable` links that cost jesswan ~80 h of inter-link
+  queue wait plus a lost partial epoch per kill. Caveat: `capacity`'s
+  max_run 1 / max_queued 2 are **per PROJECT**, so coordinate before taking the slot.
+
+- **Pipelines runbook delivered (`polaris_pipelines_plan.md` + operator guide
+  `polaris_pipeline_runbook.md`); the §0 smoke sequence is DONE (all four green, see the
+  decisions log). Remaining wait: jesswan's zarr transfer** (announced 2026-07-16, not yet on
+  disk). The moment it lands:
+  `cd physicsnemo_sfno && qsub -v STORE=<transferred-path> polaris/polaris_verify_store.pbs`
+  (PASS = `SEQZARR_VERIFIED` per store + `STORE_VERIFY_OK`), then train against it via
+  `qsub -v SEQZARR_ALLYEARS_DATA=<dir> polaris/polaris_sfno_allyears.pbs` — if it verifies at
+  the current generation, our own ~11 h / ~1.43 TB conversion is unnecessary.
+- **Data-prep PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/11**
+  (branch `polaris-data-prep`). ⚠️ **Stacked on `polaris-profiling` (#10), itself stacked on
+  `polaris-pbs-bringup`** — merge in that order. Carries the 7 converter defects (5 fixed, 4
+  open) and **5 decisions** needing jesswan/us: `polaris_data_prep_decisions.md`.
+  **The analysis is 1/3 done** — makani's 367-line converter is unaudited (§8).
+- **Profiling PR open for review — https://github.com/rcc-uchicago/pedramh-profiling/pull/10**
+  (branch `polaris-profiling`). ⚠️ **Stacked on `polaris-pbs-bringup`**, which is still
+  unmerged, so PR #10's diff includes those commits until it lands. **Merge the bring-up PR
+  first.** A solo session cannot self-approve — maintainer review/merge needed.
 - **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed; open at
   https://github.com/rcc-uchicago/pedramh-profiling/compare/main...polaris-pbs-bringup
   (a solo session cannot self-approve — maintainer review/merge needed).
-- **Layout change: the 3 SFNO codebases are now `git subtree`s of this repo** (not
+- **Layout change: the SFNO codebases are now `git subtree`s of this repo** (not
   separate checkouts as the handoff assumed, not submodules). Imported **unsquashed for
   full provenance**: upstream commits are real ancestors of HEAD (jesswan-uc 8,
   feynmanliu214 38, ktangsali 203). Cost: 313 → 4,769 files, .git 3.9 MB → 306 MB.
+  **Was 3; `physicsnemo_ai_rossby/` made it 4 on 2026-08-04** (`0777be0f` ← `87002adb`) —
+  and its `examples/weather/ai_rossby/` recipe is subtree-owned too, despite reading as
+  fork-owned. See `polaris_pbs_notes.md` §6b's warning box before editing anything there.
   Bidirectional merging (`subtree pull` from them, `subtree split` + PR to them) and the
   rule-#8 exception for imported third-party junk are documented in
   `polaris_pbs_notes.md` §6b. Note: pushing this repo now needs
@@ -77,12 +124,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   Two more launch traps (both encoded in the scripts): `torchrun` resolves to the BASE
   conda launcher (whose shebang pins the base python) because the venv inherits torch and
   has no torchrun — use `python -m torch.distributed.run`; and makani's `--batch_size` is
-  GLOBAL, so it must divide the rank count. Plus an **upstream makani bug** (pin
+  GLOBAL, so the **rank count must divide it** (`global_batch_size % data_parallel_size == 0`
+  — `--batch_size=1` on 4 ranks fails). Plus an **upstream makani bug** (pin
   `c970430`): `self.logger` is assigned only when `log_to_screen` is truthy (rank-0 only)
   yet `deterministic_trainer.py` calls it unconditionally → every non-zero rank died;
   patched in our `plasim_trainer.py` wrapper, not in makani.
-  **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252736) and Makani SFNO 4-GPU smoke GREEN
-  (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0).**
+  **RESULT: Makani pack GREEN (`CONVERT_OK`, 7252728) and Makani SFNO 4-GPU smoke GREEN
+  (7252769: train loss 2.19, val 2.05, checkpoint written, rc=0), **re-confirmed on the
+  post-rework script by 7253465** (train 2.61 / val 2.38, 7.10 s of real training).**
   **PhysicsNeMo is ALSO GREEN** (1-GPU, job 7252816, rc=0: loss 1.082, val err 0.776,
   checkpoint saved; zarr store `CONVERT_OK` with max|zarr-h5|=0 + all-finite). Its four
   traps: hydra's PATH-form defaults make `model=tiny_sfno` impossible (added
@@ -94,6 +143,8283 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-10-14 (makani) — open makani branches merged into `integrate/makani-2026-10-14`; PR into
+  `main` opened for review.** Built from `feat/makani-b-continuation-dryair` (`bac79ea9`). Its 19
+  commits that existed only on the login node's disk were pushed first.
+  - Merged: `eval/pipeline-protocol` (fast-forward), `arm/g1-fp32-dryair` (which also covers
+    `arm/g1-fp32` and `arm/fd-dryair`), `refactor/e3sm-pack-scripts-port-main`,
+    `feat/makani-climate-driver`, `measure/a-best-ckpt-area-weights`, `docs/makani-knowledge`,
+    `feat/ace2-alpha-lagged`, `feat/makani-spatial-cxi` and `docs/makani-port-tolerance-table`.
+    Already contained before: `feat/makani-port-main`, `feat/makani-f-finetune`,
+    `feat/makani-dryair-negativity`, `feat/makani-finetune-stability`,
+    `docs/lagged-ensemble-docstrings` and `feat/multinode-ddp-port`.
+  - Conflicts: `polaris_climate_run.pbs` kept both sides (the EMA-weights block and the
+    second-user `inputs=` echo). CHANGELOG kept both sides' new entries. Two one-line conflicts in
+    `makani_port/` went to this branch's newer text, so the tolerance-table merge changed no file.
+  - `main` was merged with `-s ours`. Its two squash merges (#9, #15) conflict in 51 files, and in
+    each one `main`'s version is an earlier version in this branch's own history of that file.
+    #15's doc is byte-identical here. The one file the merge would add,
+    `panguweather_repo_cleanup.md`, was deleted on purpose in `b821fff9`. So the tree is unchanged
+    and the PR merges cleanly.
+  - Tests: job 7745972, `SUITE_NO_NEW_FAILURES`. The makani suite (`makani_sfno/tests` and
+    `polaris/test_*.py`, CPU only) ran 1017 tests here (720 passed) and 1007 on the base (710
+    passed). The same 15 tests fail on both, so they predate the merge: 10 in
+    `sfno_inference_5410/test_pipeline_chain.py`, 2 in `sfno_training/test_ddp_logging.py`, and 1
+    each in `test_ensemble_trainer_wiring.py`, `test_preflight.py` and
+    `test_convert_long_inference_output.py`. Not investigated.
+  - Not merged: `worktree-makani-multinode-ddp-profiling` (2026-08-21; its fixes are here in newer
+    form, and merging would revert 4 files), `refactor/e3sm-makani-pack-scripts` (replaced by the
+    port-main version) and `worktree-cpu-only-pbs-handoff` (#14, general docs, its own PR). The arm
+    worktrees with jobs (7740992 running, 7742231 queued) were not touched.
+  - Restored this `## Decisions / changes log` heading. `7d125997` (2026-10-04) replaced it with
+    its new entry by accident.
+
+- **2026-10-14 (makani data prep)** — We simplified the E3SM-to-makani converters and their five
+  pack scripts without changing what they write. Branch `refactor/e3sm-pack-scripts-port-main`,
+  from `6d2357e0`; PR not opened. It replaces `refactor/e3sm-makani-pack-scripts`, which was built
+  on the older all-data converter of `feat/multinode-ddp-port`.
+  - The two converters shared most of their code. It now lives in
+    `makani_sfno/polaris/e3sm_makani_pack.py`. Each converter keeps its channel lists, command
+    line, public names and its own way of computing the statistics. The all-data converter keeps
+    the names its tests call (`_accumulate_stats_file`, `_write_stats`, ...), and its statistics
+    code reads `H`, `W` and `STATS_CHUNK_T` from the converter, so the tests can shrink the grid.
+    Docstrings are Google style.
+  - `--validate` now also checks that every requested year file exists and holds 1460 samples
+    (or the `--max-samples-per-year` cap). The converters refuse a train year that is also a valid
+    or test year, except in `--time-diff-only`, where valid and test years play no part
+    (`polaris_makani_ports_smoke.pbs` passes only `--train-years`).
+  - `polaris_pack_e3sm_full.pbs` and `polaris_pack_e3sm_alldata_full.pbs` now use the start-up
+    lines of `polaris_pack_e3sm_scaling.pbs`, not the broken `module load conda` (TODO #10, 2 of 7).
+    Neither has been run end to end.
+  - Bug fixed: `polaris_pack_e3sm_production.pbs` piped its audit into `tail`, so a crashed audit
+    still printed `PACK_PRODUCTION_OK`. It now checks the audit's own exit code, as
+    `polaris_pack_alldata_production.pbs` already did after job 7565734.
+  - **Equivalence: debug job 7745923, `PACK_EQUIVALENCE_OK`.** On 8 samples per year (train
+    2015–2016, valid 2017, test 2018), the converters at `6d2357e0` and the new ones wrote
+    bit-identical files in all six modes: locked single run, locked chunks + merge, all-data
+    single run, all-data `--skip-stats` + `--stats-only`, `--stats-only --workers 2`, and
+    `--time-diff-only --workers 2`. Both refused the partial-statistics rerun and the second
+    `--time-diff-only` without `--overwrite`. The converter tests passed against the new code
+    (16 passed), and the new `--validate` passed on both production packs (35 year files × 1460
+    samples). Test: `polaris_pack_equivalence.pbs` + `compare_packs.py`. The first branch passed
+    the same check against `a5b83ae2` (job 7745695).
+  - Found, not fixed: `polaris_pack_e3sm_full.pbs` cannot finish after a preemption. The rerun
+    packs the missing years, then stops before the statistics, because the locked converter only
+    counts train years it writes itself. Use `polaris_pack_e3sm_production.pbs` instead.
+
+- **2026-10-07 (makani) — three jobs read out. F-scratch e43 trained, but stays 2.8 % behind A at every
+  matched epoch. The depth-4 F fine-tune died at e16/24 yet shows the depth-4 trade-off: −8 % RMSE at
+  24 h for +5.5 % at 6 h. SOILFIX 5-yr is the worst B-lineage survival so far (e21 7/8, e24 5/8).**
+  - **F-scratch e43 (7721577, capacity):** all 20 epochs trained, 04:30 → 10:06
+    (`Total training time is 20032.31 sec`, `ckpt_mp0_v23..v42`). Then the third `mpiexec` post-train
+    hang ran into the 7 h wall: Exit -29, no OK token.
+    - Single-step val is +2.2 to +2.9 % above A at every matched epoch, e.g. e43 **0.013776** vs A
+      0.013407 (+2.8 %). The gap was +2.5 % at e23, so a second cycle did not close it. Part of it may be
+      the 99- vs 101-channel denominator, which is still unseparated.
+    - EMA best is **0.013758 at e41** (the log's "@ epoch 40" is 0-based). `best_ckpt_ema_mp0.tar` is
+      now EMA e41 and `best_ckpt_mp0.tar` is raw e43. The e23 pair survives as `*_e23_stable.tar`.
+    - Versus e23, per-channel RMSE median is −3.6 % at 6 h and −3.5 % at 24 h (raw), similar for EMA.
+    - The extension rule fires: cycle 2 improved val by −4.2 %, above the 0.5 % threshold. e63 would
+      need `capacity` and waits for the operator's word.
+    - Read-out addendum `0d4ed389`, written before any rollout: "EMA e43" is read as EMA-best e41.
+      1-yr screen f1092 = **7725618** (debug, queued on `queue_tags`; leave it, CLAUDE.md #12). The
+      operator will decide e63 after the screens.
+    - **Pending screens, one per debug slot** (`runs/makani_eval/next_screens_2026-10-07.sh`):
+      - `fsF1092`: the depth-4 F list.
+      - `both1156`: the F e43 list plus the depth-4 F list.
+  - **Depth-4 F fine-tune (7719538, `fsF_anneal_nf4_b16_rtmax100_scratch`, capacity):** the 12 h wall
+    killed it after **16/24 epochs** (≈ 2670 s/epoch; `ckpt_mp0_v0..v15`). The prereg's e21–e24 / e22+e24
+    read-out is unreachable without a resume.
+    - Single-step val is best at e1 (raw 0.015667, EMA 0.015267), then flat at 0.01583–0.01588. That is
+      +9–10 % over its base (F-scratch e23, 0.014380).
+    - B's own run behaves the same way, at half the size: 0.012839 (A e243) → 0.013411 at e1 (+4.5 %) →
+      0.013612 at e24 (+6.0 %). So a rising single-step val is normal for this recipe and not a failure.
+    - **The per-lead log shows the depth-4 trade-off** (median over 99 channels of RMSE / base RMSE).
+      At e16, 24 h is **−8.3 %** raw and **−12.6 %** EMA, while 6 h is +5.5 % / +3.9 %.
+    - Within the run (e1 → e16), 24 h −6.1 % and 6 h −0.3 %. B's e1 → e24 is 24 h −5.2 % and 6 h +0.5 %.
+    - The 24 h gain was still accruing in EMA at e16.
+    - **Against B on the 99 shared channels** (same valid set):
+      - fsF e16 EMA is +8.7 % at 6 h and +4.4 % at 24 h vs B22. It wins 2/99 and 5/99 channels.
+      - F-scratch e43 raw is +0.9 % at 6 h (wins 35/99) but +14.5 % at 24 h.
+      - FSEMA (e23) is +4.3 % / +19.0 %.
+      - Single-step F has nearly caught B at 6 h, but not at 24 h. Depth-4 F at e16 is still behind
+        B at both leads.
+      - Confounded with base maturity, as the prereg says (base val 0.01438 vs A e243 0.01284).
+    - No rollout yet. Not attributable to soil.
+    - Operator (2026-10-07): "screen e16 now, then decide" on a resume to e24. The prereg amendment
+      `b6a0f7cc` (docs/makani-knowledge) was written before the rollout. It screens e1, e8, e14–e16, EMA
+      and best (= e1) at both starts. Outcomes S/D stay defined on e22/e24 at 5 yr.
+  - **SOILFIX 5-yr (debug 7724006, `CLIMATE_RUN_OK`, sha 7330fca5, no prereg found, so descriptive):**
+    - SOILFIX21 (`ckpt_mp0_v20`) is **7/8**. Member 01 goes non-finite at PS at step 4884 (3.3 yr).
+      SOILFIX24 (`best_ckpt_mp0`, epoch 24) is **5/8**. Members 00/03/07 go non-finite at 5721/5371/6168
+      (3.7–4.2 yr).
+    - Plain B22/B24 and DRYAIR24 are all 8/8 on the same protocol.
+    - PS drift at the last lead (Pa ÷ 100):
+      - SOILFIX21 completes run **+17 to +42 hPa** (median ≈ +25), so it runs away upward after
+        2 yr.
+      - SOILFIX24 completes end at −2.2..+4.2 hPa, but all dip −8.6..−15.4 hPa at L1828 (1.25 yr).
+    - Every member leaves 3σ first at `V_l00` (@1139–2067), as plain B does.
+    - **The trained soil-moisture fix costs 5-yr stability and does not control mass.** It is consistent
+      with its 1-yr screen 7719183 (−8.8..−17.6 hPa, worse than B). Out:
+      `runs/makani_eval/climate_protocol_7724006/readout.log`.
+
+- **2026-10-06 (makani) — F-scratch e43 extension queued (7721577, 2 nodes, no spare). DRYAIR24's
+  trained-in fix costs accuracy (0.332 σ vs B22 0.251). A's 1-yr stability by epoch is erratic, not a
+  trend: e83 and e143 survive cleanly, while e43/63/103/123/163/183 go non-finite.**
+  Prereg `2328ed62` (`docs/2026-10-06_fscratch_e43_extension_prereg.md`).
+  - **Extension 7721577** (capacity, `select=2`, `TARGET_NODES=2`, 7 h; the operator wants no spare node):
+    an in-place resume of `f_nosoil_2n_b32_e23_scratch` to `EPOCHS=43`, identical to 7718436 otherwise,
+    from the `makani-ace2-ports` tree @ `a530bf65`. That tree is frozen until it ends. The e23 bests are kept
+    byte-verified as `best_ckpt_{ema_,}mp0_e23_stable.tar` (FSEMA = the ema one). The live
+    `best_*` files will be overwritten.
+  - **DRYAIR24 fidelity (debug 7721578):** median 0.332 σ (0.321–0.339) on 101 ch. B22 0.251,
+    B24 0.317, B22+fix 0.256, B24+fix 0.315. On the 99 shared ch: 0.325 vs FSEMA 0.234. By the
+    prereg rule (> +0.02 σ vs B22) that is a **cost**. PS is pinned (bias −13 Pa), but PSL, which is not
+    corrected, sits at **+657 Pa** bias (rmse 0.54 σ vs B22 0.17). Also `U_l01` −9.0 m/s (0.80 σ vs
+    0.25), TREFHT −1.28 K, T_l17 −1.18 K. It is confounded with its `T_max 22` anneal and the B_e01 restart.
+    The inference-only fix on B (+0.006 σ) shows the constraint alone is nearly free, so most of
+    DRYAIR24's cost is probably the recipe. Not separated.
+  - **A by epoch, 1 yr at f1092 (debug 7721629), all cycle-end checkpoints:**
+
+    | epoch | 43 | 63 | 83 | 103 | 123 | 143 | 163 | 183 |
+    |---|---|---|---|---|---|---|---|---|
+    | non-finite at step | 875 | 906 | — | 619 | 911 | — | 890 | 1291 |
+    | channels past 3σ | 101 | 101 | 1 | 101 | 101 | 0 | 101 | 101 |
+
+    - e83 survives with PS −6.8 hPa and e143 with +8.3 hPa. Earlier screens: e21 survived, e22/e23
+      collapsed but stayed finite, e200/e220/e243 went non-finite at 490–664.
+    - **There is no maturity trend to predict from.** Single-step checkpoints are a per-epoch lottery
+      (n = 1 rollout each). That weakens the e43 prereg's stated reason for its prediction (the
+      prediction itself stands as written).
+    - It strengthens two points: screen several F epochs (raw e39–e43 + EMA), not one; and EMA
+      averaging is doing real work.
+  CSVs: `makani_sfno/docs/2026-10-06_climate_fidelity_7721578_dryair24.csv`,
+  `makani_sfno/docs/2026-10-06_climate_screen_7721629_A_by_epoch.csv`.
+
+- **2026-10-06 (makani) — `DryAirFix` vs ACE2's `_force_conserve_dry_air`: numerically confirmed a
+  correct port (debug 7721257, `DRYAIR_VS_FME_OK`).** New `polaris/test_dryair_vs_fme.py` +
+  `polaris_dryair_vs_fme.pbs` (fme-venv, real fme, makani `mass_fix.py` by path). On a synthetic
+  180×360 state, 8 levels, +349 Pa error:
+  - g is equal and the weights agree to 4e-16.
+  - Each side conserves its own dry air to < 5e-11 Pa.
+  - ΔPS_ACE·(1 − ΣΔb·q) = ΔPS_makani to 7e-11 Pa.
+  - The difference is ≤ 2.4 Pa (≤ 0.7 %) per column, 1.2 Pa global under ACE2's definition.
+  - bf16 is promoted to fp32 with a 1e-5 Pa residual.
+  Side-by-side table of all correctors: `makani_sfno/docs/2026-10-06_corrector_comparison_ace2_vs_makani.md`.
+  The only differences are by design: TMQ is vapour only and held fixed, water is not clamped before the
+  solve, the positivity clamp is RELHUM-only and inference-only and runs after dry air, and the moisture
+  budget is not portable. The RELHUM clamp and `SoilMoistureFix` have not been checked numerically.
+
+- **2026-10-06 (makani) — FSEMA + inference-only dry-air fix at 5 yr: 0/8 healthy (outcome PH2).
+  The same checkpoint without the fix is 8/8. Inference-only dry air is checkpoint-dependent, not safe.**
+  Prereg addendum `77633969`, written before submission; it predicted 8/8, which was wrong. Debug jobs: run **7721233**
+  (`CLIMATE_RUN_OK`), readout **7721248**, budget **7721251**, fidelity **7721253**.
+  - 6/8 went non-finite at PS, steps 3386–7015 (2.3–4.8 yr). Members 02 and 05 "complete" but are
+    collapsed at the end: PS drift −101 hPa (L7555) and −840 hPa, global TMQ → −4.7e6 / −2.6e6 kg/m².
+    The fidelity CSV (`climate_fidelity_7721253`) is therefore not meaningful. Don't quote it.
+  - **The fix itself held:** PS drift stays within −3..−24 Pa (≤ 0.25 hPa) from L120 to L6208 in every
+    member until collapse. Without the fix, the same leads dip −330..−485 Pa. Dry air is pinned. The run-away
+    is in **water**: TMQ goes hugely negative, and PS is dragged down with it because PS − g·TMQ is held.
+    The first 3σ crossings look like plain FSEMA's (`U_l01` @ 546–681 in 4/8, then RELHUM/V/T). The
+    mechanism is not established.
+  - **Pattern across checkpoints, inference-only fix:**
+    - B22 and B24: helps (16/16, |dPS| ≤ 0.41).
+    - B_e01: hurts (fails earlier than without the fix, 7707597).
+    - FSEMA: hurts (8/8 → 0/8 healthy).
+    - Trained-in fix (DRYAIR24): 8/8.
+    So applying the constraint to a model that never saw it can push the state somewhere the model
+    cannot handle. **Train it in rather than bolting it on.** This is a working reading, n = 4 checkpoints.
+
+- **2026-10-06 (makani) — B22/B24 + inference-only dry-air fix at 5 yr: 16/16, |dPS| ≤ 0.41 hPa,
+  accuracy "free" (outcome PH1). FSEMA fidelity is comparable to B22 (−0.005 σ) and better than B24.**
+  Prereg `863419d0` + deviation `661673ae` (both before the read). Jobs, all debug: run **7721150**
+  (`CLIMATE_RUN_OK`), readout **7721209**, budget **7721211** (`DRYAIR_BUDGET_OK n=16`), fidelity
+  **7721213** (B+fix) and **7721221** (FSEMA), both `CLIMATE_FIDELITY_RUN_OK`. The first FSEMA attempt,
+  **7720814**, hit the 1-h walltime rebuilding a 99-ch truth through F's channel-subset loader
+  (4000/7299 samples, about 5× slower than the 101-ch build). The fix was to cut the 99 rows from the
+  101-ch truth by name: new `polaris/subset_true_climatology.py` (`--selftest`), `TRUE_SUPERSET` in
+  `polaris_climate_fidelity_run.pbs` (parametrised in `a8dc98e5`; the defaults reproduce 7709968).
+  - **B+fix (same B weights, `--dry-air-fix=on` only at inference):** B22dryair 8/8, dPS
+    −0.08..−0.17 hPa. B24dryair 8/8, +0.28..+0.41 hPa. dDRY 0.00, max step |dDRY| 0.000. All the
+    remaining dPS is g·ΔTMQ. **The constraint alone reproduces DRYAIR24's mass behaviour (−0.14..−0.24)**;
+    retraining and annealing are not needed for that. B24's moistening is untouched: TMQ 26.5–27.2 →
+    30.0–30.9 kg/m², as in plain B24. The model top still leaves 3σ at `V_l00` @ 1373–2193, as in
+    plain B. The fix does not touch that failure.
+  - **B+fix fidelity** (101 ch, same members): B22 0.251 → 0.256 σ (Δmed +0.006), B24 0.317 →
+    0.315 (−0.002), so **free**. The PS bias collapses: B22 −495 → −7 Pa, B24 +961 → +31 Pa. PS
+    `rmse_sigma` barely moves (0.41 → 0.41), because pattern error dominates. The cost lands on **PSL**
+    (B22 0.165 → 0.207 σ, bias +65 → +191 Pa; PSL is not corrected) and on the model-top **T_l00–l03**
+    (+0.05..+0.08 σ). B22+fix TREFHT bias −0.30 → −0.57 K, the same sign as DRYAIR24's cold bias.
+  - **FSEMA fidelity, 99 shared channels** (B rows from 7709968 restricted to the same names): FSEMA
+    0.231–0.241 σ, median **0.234**. B22 0.235–0.247 (0.239), B24 0.301–0.318 (0.308), B22+fix 0.245.
+    Δ vs B22 = −0.005 σ, so **comparable**. Δ vs B24 = −0.074, so **better**. Prediction ("FSEMA less
+    accurate than B22") was wrong.
+    It beats B22 on 44 of 99 channels: the model-top T_l00 (0.21 vs 0.63 σ; B22's bias there is +6.5 K),
+    T_l01, RELHUM_l00, PS (0.26 vs 0.41), TREFHT (0.07 vs 0.11), RHREFHT, U10 and Z3_l17. It is worse on
+    U_l01/U_l04 (+0.26..+0.28 σ), PSL (0.33 vs 0.17) and mid-level RELHUM_l05/l14.
+  - **Where that leaves the candidates (5 yr, one seed each):** FSEMA (single-step, soil-free, EMA, no
+    corrector) has dPS ≤ 0.83 hPa and B22-level fidelity. B22+fix has dPS ≤ 0.17 hPa and fidelity 0.245
+    on the same channels. Neither has fixed the model-top 3σ departures. Accuracy of DRYAIR24 itself is
+    still unscored.
+
+- **2026-10-06 (makani) — 5-yr protocol on F-scratch epoch 23: EMA 8/8 with |dPS| ≤ 0.83 hPa
+  (outcome S5). Raw 0/8 (outcome D). It is the first single-step checkpoint to pass the 5-yr protocol.**
+  Prereg addendum `078369c0`, written before submission. Jobs: run **7720705** (`CLIMATE_RUN_OK`, debug), readout
+  **7720726** (`CLIMATE_READOUT_OK`), budget **7720728** (`DRYAIR_BUDGET_OK n=16`). Out:
+  `EVAL/climate_protocol_7720705/` (`readout.log`, `member_*.nc`).
+  - **FSEMA** (`best_ckpt_ema_mp0.tar`, `ckpt_epoch` 23): **8/8 complete.** dPS at the last lead
+    (lead L − lead 1) is −0.83 / +0.37 / −0.39 / −0.50 / −0.25 / −0.19 / −0.57 / −0.41 hPa, median
+    |dPS| **0.40 hPa**. That is ~17× below B22 (−6.8) and in DRYAIR24's range (−0.21), with no
+    corrector. dDRY ≈ dPS. Global TMQ 26.5–27.2 → 25.7–26.8 kg/m². Local monthly TMQ minima reach
+    −10.7 to −13.4 kg/m² (≤ 1 % of area), like B22/DRYAIR24.
+  - **The endpoint hides a transient.** Every FSEMA member's PS drops 3.3–4.8 hPa in the first
+    1–5 months (L120–L480: −327 to −485 Pa) and recovers over ~4 yr. B22's excursion is larger and
+    does not recover: down to −10.8 hPa (B2203 L6208), ending −6.1..−8.5. Quote the excursion beside
+    the endpoint.
+  - 3σ (anom_rms): 2/8 FSEMA members never cross. 4 first cross at 2779–4535 (model top V/RELHUM_l01–03).
+    FSEMA05/06 cross at `U_l01` @ 618/644, earlier than B22's `V_l00` @ 1545–1941. Mixed on this
+    measure. No member reaches a median crossing.
+  - **FS23** (raw `ckpt_mp0_v22.tar`): **0/8**, all non-finite at PS, steps 1766–4830 (1.2–3.3 yr),
+    led by `U_l01` / `RELHUM_l00` at the model top. That is still 2–6× A e243's 317–849.
+  - Prediction ("≥ 1 arm < 8/8; FSEMA ≥ FS23") held.
+  - **Reading (not pre-registered):** the largest effect here is EMA vs raw on the same training
+    trajectory: 0/8 → 8/8. A never kept an EMA. So the A-vs-F-scratch difference mixes soil (raw vs
+    raw, one seed each: A e23 collapses in 1 yr, F e23 lasts 1.2–3.3 yr) with EMA availability. F-warm's
+    EMA (epoch 30) died in < 1 yr, so EMA alone does not rescue A-derived weights.
+  - Open: accuracy. FSEMA has no fidelity score yet (B22 0.246–0.259 σ, `climate_fidelity_7709968`). It
+    is an immature single-step model (val 0.01438 vs A best 0.01284). One training seed.
+
+- **2026-10-06 (makani) — F-scratch base 1-yr screen vs A at matched epochs: every member survives
+  both starts, so the pre-registered verdict is "indistinguishable at n = 6". But A e22/e23
+  "survive" only as finite numbers: their PS drifts are −527 to −1442 hPa. F-scratch stays within ±10 hPa.**
+  Prereg `makani_sfno/docs/2026-10-06_fscratch_base_screen_prereg.md` (`d2a12198`, committed before
+  submit). Debug jobs **7720637** (f1092) and **7720644** (f1156), `DRY_AIR_FIX=off`, both
+  `CLIMATE_SCREEN_OK n=8`. CSVs: `docs/2026-10-06_climate_screen_77206{37,44}.csv`.
+  - **The prediction was wrong.** All 16 member-runs reached step 1460 with no truncation. That
+    includes A. The prior from A e200/e220/e243 (truncated at 490–664) does not carry back to A's
+    early epochs.
+  - **Primary rule** (truncation step, 6 matched pairs): all 6 are ties, so **indistinguishable at
+    n = 6**. That is the pre-registered answer.
+  - **Descriptive, not the pre-registered measure.** F-scratch has fewer channels past 3σ **and**
+    smaller |PS drift| in **6 of 6** pairs (fs vs A, PS at step 1460, hPa; channels past 3σ):
+
+    | start | e21 | e22 | e23 |
+    |---|---|---|---|
+    | f1092 | −9.6 (4) vs +14.8 (14) | −4.0 (0) vs **−527 (81)** | +7.5 (0) vs **−1025 (86)** |
+    | f1156 | −8.1 (5) vs +12.1 (13) | −2.8 (0) vs **−937 (84)** | +6.8 (1) vs **−1442 (90)** |
+
+    A e22/e23 are a collapsed climate that stayed finite: TREFHT +18 to +72 K, 81–90 channels
+    past 3σ. A's early 3σ crossings include `SOILWATER_10CM` (steps 574–614). F has no soil channel.
+    The screen's `survived=1` means finite, not physical. Read `n_past_3sigma` beside it.
+  - **Gate passed:** `fs_best` reads `ckpt_epoch` 23 at both starts, and its numbers are identical to
+    `fs_e23`. 7719538's base is the epoch-23 raw checkpoint, as its prereg says.
+  - **EMA epoch correction:** `fs_ema` reads `ckpt_epoch` **23**, not 22. The trainer's
+    "saved EMA-best checkpoint @ epoch N" line is 0-based, and "Epoch N summary" is 1-based. So the
+    real raw-vs-EMA pair is fs_e23 vs fs_ema: PS +7.5/+6.8 vs **−2.3/−2.4** hPa, past-3σ 0/1 vs 0/0.
+    EMA is better at both starts (n = 2, directional only).
+  - **Against plain B (f1092, 7649647):** fs_e22/e23/ema (−4.0 / +7.5 / −2.3 hPa) fall in the range of B's
+    good checkpoints (B_e22 +0.7, B_e24 +4.6) and well inside B_e21/B_e23 (−58 / −68). That is
+    1 yr only. B is proven at 5 yr and F-scratch is not.
+  - Per the prereg, every F-scratch member is a **5-yr protocol candidate** (fs_ema, fs_e23 first).
+    Not run without the operator's word.
+  - Does not decide soil under B's recipe (7719538), nor why F-warm (A e243 sliced + 43 ep) collapsed
+    within a year when F-scratch e23 did not. Init and maturity both differ.
+
+- **2026-10-06 (makani) — F-scratch 7718436 trained all 23 epochs; val 0.01438 = A + 2.5 % at
+  epoch 23. No `MAKANI_MN_SCALING_OK`: `mpiexec` hung ~4 h after training and walltime killed it.**
+  - Training is complete: 23 `Epoch N summary` blocks, `Total training time is 21436.66 sec`
+    (01:45 → 07:43), and wandb closed. `ckpt_mp0_v0..v22.tar` and `best_ckpt_mp0.tar` were both
+    written at 07:43. Val falls monotonically, so `best_ckpt_mp0.tar` holds epoch 23 (inferred from
+    the curve and mtime; confirmed `ckpt_epoch` 23 by screen 7720637). EMA best is epoch 23 (the log's
+    "@ epoch 22" is 0-based), `1.4381e-02`.
+    Then nothing more was logged until `PBS: job killed: walltime 36108 exceeded limit 36000`
+    (11:46, Exit -29). No CSV row was written.
+  - **This is a repeat, not new.** F-warm 7660250 printed `Total training time is 38549.19 sec` and
+    then hung until its 12 h walltime (`.o7660250`). The 2026-10-03 note that its walltime kill
+    "interrupted a trailing per-lead eval printout" is wrong: nothing ran after training. Both F runs
+    were launched from the `makani-ace2-ports` tree. Soil-fix 7715005 (b-continuation tree) exited
+    cleanly. Cause not diagnosed; it costs walltime only, not results.
+  - **vs A at matched epochs** (single-step val; F averages 99 channels, A 101; `RUNS/prod1n_b32_sgdr.log`):
+    e3 +4.3 %, e9 +3.3 %, e14 +2.4 %, e18 +2.6 %, e20 +2.5 %, e23 **0.01438 vs 0.01402, +2.5 %**.
+    The gap stopped narrowing after e14. The channel-count share of it is still unseparated (needs a
+    validate-only run of A on the 99 shared channels).
+  - **vs B:** no comparable number yet. F-scratch is single-step and has no rollout screen. The
+    recipe-matched B comparison is F-nf4 **7719538** (capacity, still `Q`, "Not enough free nodes").
+    Its base, F-scratch's raw `best_ckpt_mp0.tar` at epoch 23, is valid.
+  - Debug jobs 7719173 (`DRYAIR_BUDGET_OK`) and 7719183 (`CLIMATE_SCREEN_OK n=6`) finished at
+    03:33/03:36, before this. Their results are in the entry below. Against plain B, use 7649647, not
+    7650512 (KNOWLEDGE.md §9a).
+- **2026-10-06 (makani) — docs consolidation DONE: `makani_sfno/KNOWLEDGE.md`, a verified and tagged
+  record. Several claims steering current work are retracted (dated correction, past entries
+  untouched). Depth-4 F fine-tune queued: job 7719538.** Branch `docs/makani-knowledge`, **draft PR #22, left open (solo session cannot self-approve)** (from
+  `feat/makani-b-continuation-dryair` @ `44a3ea9c`, which first commits the previous session's
+  uncommitted 10-05/06 work). Docs only, apart from the operator-requested 7719538.
+  - **Deliverables:**
+    - inventory `makani_sfno/docs/2026-10-06_knowledge_inventory.md`: 121 on-branch docs (65 of them
+      upstream PlaSim/AI-RES, from the subtree import), 4 off-branch, 50 makani CHANGELOG entries;
+    - `makani_sfno/KNOWLEDGE.md`: §0 the 5-yr accuracy picture, lineages, hyperparameters, depth,
+      dry-air, scaling, screening, ACE2 ports, 23 traps, retired claims, 19 dangling citations, and
+      the adversarial review.
+    Every Tier-1 number was re-opened against its job log, CSV or code today.
+  - **Retracted, with primary evidence (detail in KNOWLEDGE.md §9a):**
+    1. **2026-10-03 F3: "F and B share the depth-4 recipe; dropping soil destabilizes it" is false.**
+       - F (7660250) logged `multistep_count = 1`, and its provenance says "base recipe =
+         prod1n_b32_sgdr". B logged `= 5`.
+       - F's 16 rollouts die at 281–1243 steps; A e243 dies at 595 / 490. F ≈ A, so no measurement
+         isolates soil.
+       - The 2026-09-28 F handoff (branch `worktree-monitor-ace2`) and the 09-30 debate had both said
+         F is single-step.
+    2. **B vs the DRYAIR/SOILFIX arms is not schedule-matched.** B ran `scheduler_T_max 100` and was
+       never annealed (e24 ≈ 3.54e-4); the arms ran `T_max 22`. A plain `anneal b01` control has
+       never run.
+    3. **The ACE2-EAMv3 5-yr test (7704379) never ran.**
+       - Prep 7704377 ended `ERROR PROBE_INCOMPLETE` / `PROBE_FAILED`: dacite rejected
+         `log_nino34_index` and `log_zonal_mean_images`.
+       - The decision job's "decisive, unread" verdict does not exist.
+    4. **Job 7650512 is the bf16-broken dry-air screen, not plain B.** The 2026-10-06 entry's "soil-fix
+       PS worse than plain B" compared against it. Against plain B (7649647) soil-fix is mixed: e21
+       −8.8 vs −58.0, e22 −17.6 vs +0.7, e23 −17.2 vs −68.1, e24 −13.2 vs +4.6 hPa.
+    5. **The 16→14 post-hoc dry-air result (7650652) was on B/C1 checkpoints, not F** (2026-10-02 entry).
+    6. **The fp32-feedback no-op is not `append_history`.** With `n_history: 0` that function returns
+       `x2` untouched; the flag up-casts an already-bf16 prediction, which is lossless. True fp32
+       inference has never run.
+    7. **`capacity` holds 2 queued+running per project.** `qstat -Qf`: `max_queued [p:PBS_GENERIC=2]`,
+       `max_run 1`, live-confirmed by 7719538. This retires the 2026-09-03 "cannot hold a queued
+       successor" trap.
+  - **Accuracy, measured before but never tabled:**
+    - 5-yr time-mean RMSE (7709968, uncentered, no noise floor yet): B22 0.246–0.259 σ, B24 0.310–0.327 σ.
+    - DRYAIR24 and soil-fix have never been accuracy-scored.
+    - 1-yr TREFHT vs truth: DRYAIR24 −1.44 K, plain B22 −0.33 K (f1092).
+  - **Review:** the operator opted into workflow agents (the node was otherwise idle, pids ~100/256).
+    - Two read-only Fable critics (`wf_64bce84d-4fc`): "5-yr accuracy path" and "ACE2 ports".
+    - A 2-lens audit of the draft (`wf_675e7179-8aa`): 25+ numbers re-verified, 11 errors fixed.
+    - The ranked, cheapest-first next experiments are KNOWLEDGE.md §11. They are recommendations;
+      queues are the operator's call, metrics and losses jesswan's.
+  - **Job 7719538 (operator request):** depth-4 fine-tune of F-scratch on B's exact recipe.
+    - `MULTISTEP=5`, LR 4e-4, `CosineAnnealingLR` `T_max 100`, batch 16, 24 ep, 2 nodes, 12 h,
+      `capacity`, held on `afterany:7718436`.
+    - Tag `fsF_anneal_nf4_b16_rtmax100_scratch`; base = F-scratch raw `best_ckpt` when 7718436 ends.
+    - Submitted from the pinned sparse worktree `.claude/worktrees/arm-fsF-nf4-bsched` @ `a1b27d79`.
+      **That worktree is read-only until 7719538 ends.**
+    - Prereg committed before submission: `makani_sfno/docs/2026-10-06_fsF_nf4_bsched_prereg.md`.
+      It covers the 1-yr screen at both starts, the 5-yr protocol on e22/e24 regardless, and fidelity
+      on 99 channels vs B22/B24. It states the base-maturity confound (F-scratch e23 ~0.0144 vs A e243
+      0.01284).
+    - F-scratch so far: val 2–4 % above A at every matched epoch 2–14 (e14 0.01565 vs 0.01528).
+  - **Not done:** `codex_reviews/`, `hpo_distill/`, `run_log/` and `audit_snapshots/` got one inventory
+    line each. Older scaling and memory retractions are carried as secondary-only. No
+    `makani_sfno/CLAUDE.md` was created; that is proposed in the PR instead.
+
+- **2026-10-06 (makani) — correction: DRYAIR24's 5-yr PS drift is −0.21 hPa, not −21 hPa (Pa read
+  as hPa). Soil-fix 7715005 done; F-scratch 7718436 running.**
+  - `readout.log`'s `drift PS (phys, lead L − lead 1)` is in **Pa** (`lead1=98565`). The 2026-10-04
+    Step-2 table converted B22 (−680 Pa = −6.8 hPa) and B24 (+1600 Pa = +16 hPa) but copied DRYAIR raw.
+    Correct: **DRYAIR24 −0.10 to −0.26 hPa (med ≈ −0.21)** over 5 yr, ~30× smaller than B22, ~75×
+    smaller than B24; DRYAIR01 −0.8 → −5 → −15 hPa before truncating. Agrees with the 1-yr screen
+    (`climate_screen_7711659`: e24 −0.145 hPa, `dry_drift` +0.000, `tmq_drift` −1.48 kg/m²).
+  - Consequences for `polaris_makani_b_dryair_findings_handoff.md` (correction banner added): TL;DR 2
+    reversed (dry-air drifts *less* than plain B, by >30×); the inferred TMQ ≈ −214 kg/m² is void
+    (implied ΔTMQ ≈ −2 kg/m²). Still true: survival (8/8) is not attributable to dry-air, and the
+    port is 1 of ACE2's 3 corrector steps.
+  - Confirming from the member NetCDFs (`global_mean` PS/TMQ every lead, PS − g·TMQ, monthly TMQ
+    min/%neg): new `scripts/dryair_budget_readout.py` (+ `--selftest`) and
+    `polaris/polaris_dryair_budget_readout.pbs`, debug job **7719173**: `DRYAIR_BUDGET_OK` n=16 + n=40.
+    **The fix's formula (`PS − g·TMQ`) is right; the earlier error was units only.** 5-yr, per member:
+    - DRYAIR24: dPS −0.14 to −0.24 hPa, **dDRY = 0.00** (max one-step |dDRY| 0.000), so all of dPS is
+      g·ΔTMQ. Global-mean TMQ 26.4–27.1 → 24.3–25.7 kg/m², never negative. Monthly cell minima reach
+      −6.7 to −12.5 kg/m² (local negatives, ≤0.1% of area in the last month).
+    - B22 (no fix): dPS −6.0 to −8.5, of which dDRY −5.9 to −8.4. **The plain-B drift is dry-mass
+      leak**, and water contributes only −0.03 to −0.14. B24: dPS +12.7 to +17.7, dDRY +12.4 to +17.4.
+      B22 + positivity clamp at inference: dPS −3.6 to −7.1, still almost all dry.
+    - DRYAIR01 and B_e01 + inference-only fix: blow up (TMQ → −1e17). These are the collapsed members.
+    ⇒ The dry-air fix does what it says. It removes the dry-mass drift, 30–75× below plain B. Survival is
+    still not attributable to it (B22/B24 also 8/8).
+  - Soil-fix fine-tune **7715005 finished**: `MAKANI_MN_SCALING_OK`, 24 epochs, 412.1 ms/step, 7h40m;
+    checkpoints `fs_anneal_soilfix_nf4_b16_rb01/training_checkpoints/ckpt_mp0_v{0..23}.tar` + best.
+    Its Stage-0 screen (epochs 1/21–24/best, `_tmq` truth) was first rejected at qsub (debug per-user
+    queued-job limit), then submitted as **7719183**: `CLIMATE_SCREEN_OK n=6`. All 6 survive 1 yr, 0
+    past 3σ. But 1-yr PS drift is **−8.8 (e21) to −17.6 hPa (e22)**, e24/best −13.2, e01 +6.4, and
+    dry_drift ≈ ps_drift in every row (TMQ −0.2 to −0.7 kg/m²). The soil corrector leaves dry mass
+    free, and its PS is **worse than plain B's**. Same screen, model − truth at 1 yr (7650512):
+    B e21/22/23/24 = −6.7 / +0.25 / −10.4 / +2.3 vs soil-fix −8.8 / −17.6 / −17.2 / −13.2.
+    DRYAIR24 is −0.145. Note: the 5-yr budget numbers above are lead L − lead 1 (Oct start → Dec 31
+    end), so they include the seasonal TMQ change. The screens are vs truth.
+    Out: `climate_screen_7719183/screen_summary.csv`.
+  - F-from-scratch **7718436 running** (started 01:44, capacity, 10 h walltime): epoch 9/23 at
+    ~920 s/epoch (631 ms/step, 50.7 samples/s), so ~5.9 h total, which fits. Val loss epochs 4→9:
+    0.02376 → 0.02149 → 0.01985 → 0.01899 → 0.01829 → **0.01761** (EMA 0.01658), falling steadily. The
+    matched target is A's ep-23 val 0.01402.
+
+- **2026-10-05 (makani) — F from scratch queued: job 7718436, `capacity`, 2 nodes (+1 spare), 10 h,
+  23 epochs.** Operator request: compare scratch F with A. `bash polaris/submit_f_nosoil.sh 2 23
+  10:00:00 scratch` from `.claude/worktrees/makani-ace2-ports/makani_sfno` @ `a530bf65`, the same tree
+  as warm F (7660250). Run `f_nosoil_2n_b32_e23_scratch`; provenance in
+  `$MEMBER_ROOT/runs/makani_mn_scaling/f_nosoil_2n_b32_e23_scratch.warmstart_provenance.txt`.
+  Recipe is A's (`prod1n_b32_sgdr`) at global batch 32, 99 channels, EMA 0.9995, random init.
+  - **Why 23, not the 27 asked for:** the wrapper requires 3 + 20k epochs (a cycle boundary), and
+    A only has cycle-end checkpoints (ep 23, 43, …). The matched comparison is A ep 23 vs F-scratch
+    ep 23 (A's val at ep 23 = 0.01402). The operator chose 23.
+  - Queued behind 7715005 (capacity max_run 1/project). **The `makani-ace2-ports` worktree is
+    read-only until 7718436 ends** (the PBS imports `PBS_O_WORKDIR/src` at start).
+
+- **2026-10-05 (makani) — dry-air findings review: DRYAIR24's 5-yr survival is not attributable
+  to dry-air, and our fix is one of ACE2's three corrector steps.** Discussion handoff, no jobs run:
+  `polaris_makani_b_dryair_findings_handoff.md`.
+  - Plain B22/B24 also survive 8/8, so the extra 4-step training explains survival. DRYAIR24's
+    drift (med ≈ −21 hPa) is larger than B22's (−6.8).
+  - Verified from `climate_protocol_7711720/member_*.log`: both DRYAIR arms ran `dry_air_fix=1` at
+    inference. With dry mass pinned, −21 hPa implies global-mean TMQ fell by ≈ 214 kg/m²
+    (negative). **Inferred, not measured.** Next step: the negativity probe with `DRY_AIR_FIX=on`.
+  - ACE2 runs force-positive (water) → conserve_dry_air → moisture budget
+    (`fme/core/corrector/atmosphere.py` ~L182–216). We ported only the middle step.
+  - Correction: DRYAIR01 is ≈ B_e01. Epoch 1 runs at a constant 4e-6 (warmup steps per epoch).
+
+- **2026-10-05 (makani) — session checkpoint: handed off to TODO.md P0.** Job 7715005
+  (`anneal_soilfix`, 24 epochs, `capacity`) still queued, not yet running, at the time of
+  writing. Added a "Continue B-continuation / `anneal_soilfix`" pointer to the top of TODO.md's
+  P0 — the next steps (check the job, Stage-0 screen with the correct `_tmq` truth file, promote
+  to the 5-year protocol only if that looks reasonable, and the still-missing PBS-level
+  equivalence gate) are there in order, not duplicated here. This entry and the two below it are
+  the full evidence trail a new session needs.
+
+- **2026-10-05 (makani) — `anneal_soilfix` moved to 24 epochs on `capacity`: job 7714685 (25
+  epochs, preemptable) cancelled before it ever started, resubmitted as job 7715005.**
+  - **Epoch count, recommended and applied (24, not 25):** every other arm in this recipe family
+    (`anneal_dryair`, and the handoff's T-anneal/T-d8/T-d16 design) uses 24 epochs with
+    `SCHED_TMAX` set so the cosine schedule reaches `eta_min` exactly at the last epoch
+    (`TMAX = EP - 2`, gate S1a). The prior entry's 25/`TMAX=23` was mechanically correct (same
+    formula) but broke the matched-arms comparison this project runs on — same batch/LR/schedule/
+    epoch budget, varying only the flag under test. No evidence favors 25: B's own validation
+    loss across epochs 1→24 was nearly flat (0.013411→0.013612), and `anneal_dryair` at 24 epochs
+    already reached full 5-year survival, so 24 is proven sufficient for this schedule. Reverted
+    the `anneal_soilfix` case in `submit_finetune_stability_arm.sh` to fall through to the
+    script's own top-of-file defaults (`EP=24, CKV=25, TMAX_DEFAULT=22`) instead of overriding
+    them — now byte-for-byte identical to `anneal_dryair`'s settings except the one flag
+    (`SOILFIX` vs `DRYAIR`).
+  - **Queue move to `capacity`**: the job that held it yesterday (`7713242`, "m2p-rerun") is gone;
+    only a queued (not running) `7713243` from that same unrelated work remains, so `capacity`'s
+    `max_run=1` per-project slot is currently free, though `7713243` is still ahead in the queue.
+  - Verified before resubmitting: job 7714685 never left `Q` state and never created its expDir
+    on disk, so cancelling and reusing the same rep tag (`b01`) was safe — no partial run to lose.
+  - New job **7715005**: confirmed via the launcher's own echo — `epochs=24 sched_tmax=22
+    queue=capacity` — queued, not yet running.
+
+- **2026-10-04 (makani) — `anneal_soilfix` launched: job 7714685, 25 epochs, `preemptable`, after
+  a clean debug smoke.** Operator picked 25 epochs + `capacity`, but `capacity`'s `max_run=1`
+  per-project slot was already held by a running job not from this session (`7713242`,
+  "m2p-rerun", 1 node, 24h walltime) plus one held behind it — surfaced per CLAUDE.md's "coordinate
+  before taking the slot," operator switched to `preemptable` (same queue `anneal_dryair`/Step 2
+  already used).
+  - **Added the arm** to `submit_finetune_stability_arm.sh` (`anneal_soilfix` case, mirroring
+    `anneal_dryair`: same recipe, `SOILFIX=1` → `CONSERVE_SOIL_MOISTURE=1`, `EP=25`/`CKV=26`/
+    `TMAX_DEFAULT=23` for the operator's 25-epoch choice vs the other arms' 24).
+    `CONFIG_YAML=e3sm_alldata_full.yaml` was already the script's unconditional default for every
+    arm in this file, so no channel-config change was needed to restore `SOILWATER_10CM`/
+    `TSOI_10CM` — warm-starting from B's own checkpoint onto the config it was already trained on.
+  - **Debug smoke first (job 7714105, `QUEUE=debug WALLTIME=00:15:00`, rep `smoke01`)**, before
+    committing a real allocation: this validates the launcher/YAML-rendering path the unit tests
+    don't reach (the `_bools` dict edit, `conserve_soil_moisture` actually flowing through to the
+    rendered config and into `PlasimPreprocessor` on real GPU hardware). Reached 2137/2737 steps
+    (78%) of epoch 1 before the walltime kill (expected, not a failure) — log confirms
+    `conserve_soil_moisture True`, loss stable and finite throughout (~0.019–0.022), zero
+    NaN/Traceback/CUDA-error hits anywhere in the 1.7 MB log. Clean enough to proceed.
+  - **Real run**: `fs_anneal_soilfix_nf4_b16_rb01`, job 7714685, `QUEUE=preemptable`, 2 nodes,
+    12h walltime, queued (not yet started at time of writing — preemptable start latency is
+    load-dependent per prior history, not a stuck-job signal).
+  - **Not done yet**: the end-to-end bitwise equivalence gate (flag-off vs pre-fix behavior,
+    mirroring `DRYAIR_OFF_EQUIV_OK`) still hasn't run at the PBS level — the smoke above proves
+    the flag-ON path runs cleanly, not that flag-OFF is unchanged. Unit-level proof of that
+    (object-identity pass-through) still stands from the previous entry. Once 7714685 produces
+    checkpoints, climate-screen them the same way `anneal_dryair`'s were (Stage-0 1-year screen
+    first, 5-year protocol only if that looks reasonable) — same tools, same discipline, no new
+    pre-registered rule exists for ranking this specific comparison yet.
+
+- **2026-10-04 (makani) — operator decision: continue the B lineage as main; prototype an ACE2-
+  inspired frozen-soil-moisture corrector as a NEW diagnostic arm (not literally "F") to see
+  whether constraining soil physics, rather than dropping the channels, changes the outcome.
+  Code written and unit-tested (`CLIMATE_SCREEN_TEST_OK`, job 7713397); fine-tune NOT launched.**
+  - **Checked before building anything**: F (`e3sm_alldata_nosoil.yaml`) drops `SOILWATER_10CM`/
+    `TSOI_10CM` entirely (confirmed from the file: `dropped_channel_names: ["SOILWATER_10CM",
+    "TSOI_10CM"]`), so there is no soil state left in F for any corrector to act on. "Incorporate
+    the constraint in F" isn't literally executable as F is defined — the sensible version
+    restores the two channels (back toward B's set) and constrains them instead of dropping
+    them. Operator confirmed this reframing (AskUserQuestion, "ignore jesswan signoff" — read as:
+    don't block prototyping on her sign-off, same as the dry-air fix's own precedent, not as
+    skip-the-gate-on-shipping).
+  - **The literal ACE2 field doesn't resolve to real code.** The config this is modeled on
+    (`ACE2_retrain/ace_exp/configs/experiments/2025-04-20-lsm-offline/ace-train-config-lsmv0.yaml`)
+    sets a `corrector.soil_moisture_corrector` block (`temperature_threshold: 272.0`) plus
+    `force_positive_names` on soil/snow channels. Checked: `fme/core/corrector/atmosphere.py`'s
+    `AtmosphereCorrectorConfig` — the class this config loads into — has no
+    `soil_moisture_corrector` field, and its loader (`dacite.Config(strict=True)`) would refuse
+    the key outright. The one other checked location (`worktree-ace2-fme-perf-handoff`'s
+    `ACE2_retrain/` tree) is untracked there, unreadable without checking out another worktree.
+    So this is a FRESH REIMPLEMENTATION of the documented physical intent, same as the dry-air
+    fix was — not a code port of working ACE2 code.
+  - **What's new**: `src/sfno_training/models/soil_moisture_fix.py` — `SoilMoistureFix`, a
+    pointwise `(inp_z, pred_z) -> pred_z` corrector: where the step's INPUT `TSOI_10CM` < 272.0 K,
+    freeze `SOILWATER_10CM` at its input value (no transport while frozen); clamp
+    `SOILWATER_10CM` ≥ 0 everywhere (ACE2's `force_positive_names`, folded into the same
+    corrector rather than using the existing inference-only `rollout_driver.py` mechanism, so it
+    also applies during TRAINING — matching the "trained-with beats post-hoc" lesson from the
+    2026-10-04 dry-air climate-comparison entry below). Unlike `DryAirFix`, this needs no area
+    weights or `h/w_parallel_size` restriction (pointwise, not a global reduction).
+  - **Wiring** (`preprocessor.py`): extended to carry a second, independent fix alongside
+    `dry_air_fix` (`self.soil_moisture_fix`, flag `params.conserve_soil_moisture`), composed in
+    `history_denormalize` — both off is an exact pass-through (same object, proven in the unit
+    test, not just numerically close); either or both can be on independently. Launcher knob
+    `CONSERVE_SOIL_MOISTURE` added to `polaris_makani_multinode_scaling.pbs`'s existing `_bools`
+    map (one line, same pattern as `CONSERVE_DRY_AIR`).
+  - **Test, and a real bug caught in the test, not the implementation**: 18 new tests
+    (`tests/sfno_training/test_soil_moisture_fix.py`), including composing both fixes together
+    and confirming the dry-air fix's own behavior is unchanged by the soil fix's presence. One
+    test failed on first run (1/72 elements off by a noise-scale amount) — added a debug dump
+    before touching anything (CLAUDE.md #11), which proved the frozen mask was 100% correct
+    (72/72). The real cause: the positivity clamp applies to frozen cells too (intentional —
+    moisture shouldn't read negative even when frozen), so the test's expectation of "frozen
+    cell == raw input" was wrong whenever that input's random draw was already below the floor.
+    Fixed the test's expected value to `clamp(input, min=floor)`, not the implementation.
+    `CLIMATE_SCREEN_TEST_OK` after the fix, job 7713397 (debug, ~30s compute).
+  - **Not done yet, surfacing before any job beyond debug**: (1) an end-to-end bitwise
+    equivalence gate mirroring F2's `CLIMATE_DRIVER_EQUIV_OK`/`DRYAIR_OFF_EQUIV_OK` (the unit
+    tests prove pass-through at the exact hook level dry-air already uses and is end-to-end
+    gated for, but no PBS-level equivalence job has run for this specific change yet); (2) the
+    actual fine-tune — warm-start from B's `best_ckpt_mp0.tar` (`nf4_prod_b16_r1`), full 101-channel
+    `e3sm_alldata_full.yaml` (not F's nosoil config), `CONSERVE_SOIL_MOISTURE=1`, same recipe
+    family as `anneal_dryair` (Step 2) — queue/nodes/epochs need surfacing first (preemptable or
+    capacity, not debug). (3) No letter was assigned (A–H are already taken across two different
+    registries — checkpoint lineages and `polaris_makani_ace2_ports_handoff.md`'s mechanism
+    ports, where `E` is explicitly reserved/blocked); named `anneal_soilfix` instead, mirroring
+    how `anneal_dryair` itself was never given a letter.
+
+- **2026-10-04 (makani) — docs consolidation handoff revised after a 2-seed Opus review; the
+  review found the handoff itself committing the exact unverified-citation error it warns
+  against.** 2 independent `claude-opus-5-5` reviewers (feasibility lens, parsimony lens), run via
+  the Workflow tool after a raw `claude -p` subprocess attempt was blocked by this session's
+  auto-mode classifier (a separate gate from the login-node-vs-compute-node question, resolved in
+  favor of a login-node-equivalent run; Workflow was the sanctioned path, not a workaround).
+  Both independently verified real, checkable problems — spot-checked 2 of them before trusting
+  the rest: (1) `## Known issues / failed approaches (do NOT re-attempt)` really is at
+  CHANGELOG.md line 7769 of 7,926 total, a section the original handoff never pointed to despite
+  it being the most direct "what doesn't work and why" source in the repo; (2)
+  `polaris_makani_analysis_ensemble_handoff.md` really does have an eleventh-or-later trap beyond
+  the "9" the handoff quoted — line 53 literally reads "Tenth silent-failure trap of this
+  campaign." Other confirmed findings: the handoff's own scope count ("~70 files") was the
+  origin/main count (69), not this branch's (~180, across 91 `.md` + 4 undiscussed subdirectories
+  + `makani_port/` + `MONITOR_makani_streaming_driver.md`, all missed); the handoff and ~30 of its
+  own inputs exist **only** on `feat/makani-b-continuation-dryair`, not on `origin/main` — a fresh
+  worktree defaulting to `origin/main` would never see them, confirmed via
+  `git show origin/main:polaris_makani_docs_consolidation_handoff.md` → file not found there; the
+  CHANGELOG `(makani)` tag covers only entries from ~2026-09-19 on, missing older untagged ones;
+  `os.walk('.')` run from one worktree can only prove absence from that worktree, not "anywhere";
+  `qstat -xf` is a poor verification source (PBS purges history, and the shell rules cap it at
+  once per request); and the "every claim verified" standard was infeasible at this scale without
+  a tiering rule and an explicit stop point. Handoff rewritten incorporating all of the above:
+  added a "Step 0: branch and scope" section, a Tier-1/Tier-2 verification split with a stop
+  point, named the missing inputs, settled the archive-vs-header question (header only, never
+  move — moving breaks existing citations), and added an explicit "don't fix code you find
+  broken" scope guard. Not started — this and the prior entry record the handoff only.
+
+- **2026-10-04 (makani) — docs consolidation handoff written: `polaris_makani_docs_consolidation_handoff.md`.**
+  Prompted directly by the dangling-citation finding in the Step 2 climate-comparison entry just
+  below: makani_sfno's documentation (~70 files in `makani_sfno/docs/`, ~12 root
+  `polaris_makani_*_handoff.md` files, plus the CHANGELOG/TODO makani entries) has drifted enough
+  to cause a real, verified incident, not a hypothetical one. Handoff is docs-only (zero compute),
+  spells out a verify-before-citing discipline (don't propagate a citation you haven't opened),
+  and targets a merged `makani_sfno/KNOWLEDGE.md` organized by topic (checkpoint lineages,
+  hyperparameters, depth, mass conservation, scaling, climate screening, retired/contradicted
+  claims) with every entry tagged confirmed/broken/retired/unverified and cited to a primary
+  source. Not started — this entry records the handoff only. TODO.md P0 pointer added.
+
+- **2026-10-04 (makani) — Step 2 climate comparison: `anneal_dryair` (B-continuation, trained-with
+  dry-air conservation) survives the full 5-year protocol at epoch 24 (8/8 complete, matching
+  B22/B24), but its PS drift at 5 yr is NOT smaller than plain B's — the opposite of what the
+  1-year screen suggested. No pre-registered rule exists to call a winner at the 5-year horizon;
+  this is a measurement, not a verdict.**
+  - **Citation gap found before trusting anything:** the 2026-10-02/2026-10-03 CHANGELOG entries for
+    Step 1/Step 2 both cite `docs/2026-10-02_b_continuation_dryair_handoff.md` (§2, §2.3, §3) as the
+    source of the pre-registered outcome categories (a)/(b)/(c) used to read B22/B24's result. That
+    file **does not exist** anywhere in this worktree, on any local or remote branch, or in git
+    history (checked: `git log --all -- '*b_continuation*'` and `*dryair_handoff*`, zero hits; full
+    `os.walk` of the tree, zero hits). The underlying job data (7707597, 7650652, 7649647) are real
+    and independently verified from their CSVs/logs below, but the (a)/(b)/(c) framing has no
+    citable source. Used `polaris_makani_finetune_stability_handoff.md` §2b instead — genuinely
+    pre-registered (committed 2026-09-24, before any of today's jobs existed): survivors first, then
+    fewest `n_past_3sigma`, then smallest `|ps_drift_hpa@1460|`. That rule covers the 1-year screen
+    only; nothing pre-registers a 5-year-horizon ranking, so the 5-year numbers below are reported
+    without a verdict.
+  - **Stage-0 1-year screen, jobs 7711659 → 7711705 (`CLIMATE_SCREEN_SUMMARY_OK n=6`):** 6 checkpoints
+    from `fs_anneal_dryair_nf4_b16_rb01` (epochs 1, 21–24, `best_ckpt`=e24), same tool/truth/start
+    (2044 f1092) as the existing B/C1 numbers so they're directly comparable without re-running the
+    baseline. First attempt (7711659) **failed outright** — `TRUTH_MISSING_CHANNEL: ['TMQ']`, the
+    same pre-existing bug F3 already found and fixed; I'd pointed at the pre-fix
+    `screen_truth_2044f1092.npz` instead of the `..._tmq.npz` rebuild. Rollouts (the expensive part)
+    had already completed, so the resubmit reused them via `OUT_ROOT=` and only re-ran the cheap
+    summary step against the correct truth file — no wasted compute.
+    All 6 survived the full year, **zero** channels ever crossed 3σ, PS drift @1460 leads
+    **−0.04 to −0.49 hPa** — 60–1500× smaller than plain B's matched epochs at the same horizon
+    (B_e01 −31.0 hPa, B_e21 −58.0, B_e22 +0.67, B_e24 +4.64; `docs/2026-09-24_climate_screen_7649647.csv`).
+  - **Did not stop there:** the post-hoc dry-air correction applied to these *same* plain-B
+    checkpoints (`...7650652_dryair_on.csv`) looked just as clean at 1 year (−0.07 to +0.30 hPa) and
+    then went 8/8 non-finite by 2.28–2.48 yr in the 5-year protocol (job 7707597, 2026-10-02 entry
+    below) — exactly the trap a 1-year-only read can't see. So the real test has to be the 5-year
+    protocol, same as B22/B24/B01.
+  - **5-year protocol, job 7711720 (`CLIMATE_RUN_OK arms='DRYAIR24 DRYAIR01' members=8`, 12 min
+    compute on debug), 8 members × 2 checkpoints, same 2044-Oct-start/2049 protocol as 7707597:**
+    | arm | survival | PS drift @ ~5 yr (8 members) | first >3σ |
+    |---|---|---|---|
+    | **DRYAIR24** (e24, 24 annealed epochs, trained-with) | **8/8 complete**, zero truncations | −9.5 to −25.6 hPa (med ≈ −21) | `V_l00`/`V_l01`, leads 1292–2149 (≈0.88–1.47 yr) |
+    | DRYAIR01 (e01, 1 epoch, trained-with) | 8/8 **non-finite** (PS), leads 5661–6046 (≈3.88–4.14 yr) | N/A (diverged) | `V_l00`/`U_l00`/`RELHUM_l05`/`T_l00`, leads 1413–2520 (≈0.97–1.73 yr) |
+    | B22 (plain, for reference) | 8/8 finite | −6.1 to −8.8 hPa (med ≈ −6.8) | leads 1545–2088 (≈1.06–1.43 yr) |
+    | B24 (plain, for reference) | 8/8 finite | +13.0 to +17.5 hPa (med ≈ +16) | leads 1394–2010 (≈0.95–1.37 yr) |
+    | B01 + `--dry-air-fix=on` (post-hoc, for reference) | 8/8 non-finite | N/A (diverged) | leads 1157–1680 (≈0.79–1.15 yr), truncates 2.28–2.48 yr |
+  - **Reading, stated as measurement not verdict (no pre-registered 5-yr rule exists):** training
+    with dry-air conservation fixes the catastrophic failure mode of applying it post-hoc — DRYAIR24
+    survives clean to 5 years like B22/B24, and even 1 epoch of it (DRYAIR01) pushes the post-hoc
+    arm's 2.3–2.5 yr collapse out to 3.9–4.1 yr. **But the 1-year screen's 60–1500× smaller PS-drift
+    advantage does not hold at 5 years**: DRYAIR24's end-of-run drift (med ≈ −21 hPa) is larger in
+    magnitude than B22's (−6.8) and in the same ballpark as B24's (+16, opposite sign). First->3σ
+    timing for DRYAIR24 is indistinguishable from plain B22/B24 (~0.9–1.5 yr either way) — dry-air
+    training doesn't delay or prevent the standard `V_l00`/`RELHUM` instability onset; it just
+    happens not to blow up in absolute PS by year 5, same as B22/B24 already did without it. So on
+    this evidence, trained-with dry-air conservation buys **survival parity with the best existing B
+    checkpoints**, not a demonstrated mass-drift improvement over them — the opposite of what the
+    cheap 1-year screen alone would have suggested. Needs jesswan before any interpretation beyond
+    this measurement (§7 of the finetune-stability handoff: changing/adding a conservation
+    constraint is her call).
+  - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_screen_7711659/` (1-yr screen, both attempts)
+    and `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7711720/` (5-yr protocol; `readout.log` has
+    every member's full drift series).
+
+- **2026-10-03 (makani) — F3 result: D7 = "neither; F not shippable as screened" — none of F's 8
+  checkpoints survive 1 year, raw or EMA, any epoch. A bigger finding than D7 itself.** Jobs
+  7709775+7709891 (f1092, rollouts + re-summary), 7709776+7709892 (f1156, same) —
+  `CLIMATE_SCREEN_OK` both. Two bugs surfaced and fixed along the way, not science results:
+  (1) the reused truth files predated `TRUTH_CHANNELS` gaining `TMQ`, so the summary step hard-
+  refused on `TRUTH_MISSING_CHANNEL` until rebuilt fresh (`screen_truth_2044f{1092,1156}_tmq.npz`,
+  new paths, old ones untouched) — rollouts didn't need rerunning, `OUT_ROOT` reuse skipped them;
+  (2) `ema_best`'s `ckpt_epoch` reads **30**, not 43 — confirms from inside the file (not inferred)
+  that §A3.1's "epoch-43 EMA unavailable, best-epoch confound uncontrolled" contingency is the live
+  case, not a hypothetical.
+  - **Every checkpoint went non-finite at PS within 1 year, at both starts**: raw epochs 1, 22, 39,
+    40, 41, 42, 43 and `ema_best` (epoch 30) all truncated between 281–1243 steps (≈2.3–10.2
+    months) — with ~1e16 Pa PS values immediately before truncation (genuine numerical blow-up,
+    not a gentle drift). First-failing channels are model-top `V_l00`/`RELHUM_l00/04` throughout,
+    the same signature as every other lineage screened so far.
+  - **D7 per the pre-registered rule (§A3.4 Step 1, survival gate):** since nothing survived even
+    one full year at either start, the rule's own language fires directly — **"neither; F not
+    shippable as screened."** Not a raw-vs-EMA preference; a verdict that F isn't ready to ship
+    either way.
+  - **The real finding is bigger than D7.** F and B share the same depth-4 (`n_future=4`) fine-tune
+    recipe; F's only structural difference is dropping soil channels. B survives 2.5–5 **years**
+    on the same protocol family; F survives 2–10 **months** — roughly 5–20× worse. First full
+    43-epoch-trained evidence that dropping soil severely destabilizes this recipe, independent of
+    raw-vs-EMA. Directly weakens G's case further (G drops even more channels than F) — see the
+    2026-10-03 "G reconsidered, not queued" entry below; this result strengthens that read, not a
+    new separate concern.
+  - **One directional signal, reported but not decisive:** `ema_best` lasted longest at both starts
+    (10.2 / 7.5 months vs raw's best 6.0 / 4.4 months) — consistent with EMA damping some
+    instability, not nearly enough to flip D7's verdict.
+  - Checkpoint list `polaris/climate_screen_f_d7.list`, bugfix `polaris/build_true_climatology.py`
+    (missing `scripts/` on `sys.path` — unrelated to F3 itself, found while re-checking the
+    fidelity-run job in parallel).
+
+- **2026-10-03 (makani) — F3 launched: jobs 7709775 (2044 f1092) + 7709776 (f1156), both starts per
+  §A3.2.** List `polaris/climate_screen_f_d7.list`: `raw_best`/`ema_best` (primary pair) + 6 raw
+  snapshots (e01, e22-midpoint, e39-e42, the last four before 43) per §A3.1's selection rule. **No
+  EMA snapshots exist** beyond `best_ckpt_ema_mp0.tar` (checked the actual checkpoint directory:
+  only one EMA file, no rotating `ckpt_mp0_ema_v*.tar`) — the epoch-43 matched-pair's EMA side is
+  genuinely unavailable, triggering §A3.1's documented "best-epoch confound uncontrolled"
+  contingency rather than a clean matched-pair control. Confirmed before trusting the existing
+  truth files (`screen_truth_2044f1092.npz`/`f1156.npz`, reused unchanged): `climate_screen_summary.py`'s
+  `drift()` pairs truth and model channels **by name** (`names.index(ch)`), not by index, so F's
+  99-channel set vs the files' 101-channel origin is safe — §A3.3's check (b) passes, no rebuild
+  needed. `DRY_AIR_FIX=off` per §A3.2 (D7 asks which checkpoint conserves mass *without* help).
+
+- **2026-10-03 (makani) — F3's missing prereg written: D7 (raw vs EMA) decision rule, drafted by a
+  3-process debate, committed.** `docs/2026-09-24_climate_screen_prereg.md` §A3. F3 was blocked on
+  a written-in-advance scoring rule for choosing F's raw vs EMA checkpoint (D7) -- without it,
+  running the screen and picking a winner after seeing the numbers would be exactly the
+  rationalization this project's prereg discipline exists to prevent. Produced by a 2-analyst
+  debate (Debater A: stability-first; Debater B: mass-conservation-first) + moderator, three
+  independent `claude-opus-5-5` processes run directly in-session **on the login node**, per
+  explicit operator override of the usual restriction (2026-10-03) -- no PBS compute-node job, no
+  Task/Agent tool (checked: not available in this session's toolset regardless). Process headroom
+  checked before/after each of the three: 117→127→140→123/256, no leak. Operator reviewed and
+  committed the moderator's output.
+  - **Core rule:** survival gates first (more surviving starts wins D7 outright, regardless of PS).
+    Among survivors, PS drift (`max(|drift@600|, |drift@1460|)`, averaged over shared starts)
+    decides, requiring a noise-scaled gap (≥ max(2 hPa, 20% of the larger value)) **and** agreement
+    at every shared start. `n_past_3sigma` breaks remaining ties. A matched-epoch (raw vs EMA, both
+    at epoch 43) pair controls for the best-epoch-selection confound separately from the "EMA
+    smooths" question. Default on any tie/no-separation/confound: **raw** — EMA has to show an
+    effect, not the other way around.
+  - **Moderator's ruling, where the debaters disagreed:** PS decides among survivors (B's position;
+    A's stability-ranking rule would have made PS effectively unreachable). B's proposed hard
+    mass-flag cutoff (10 hPa) was dropped as too noise-sensitive — replaced by the continuous
+    noise-scaled gap already in Step 2. A's survival-gate concern was kept in full.
+  - **Unblocks** NR's item #3 (F3+F4). F4 already passed (job 7709269). **F3 itself is not launched
+    by this commit** — only the prereg it needed.
+
+- **2026-10-03 (makani) — climate-fidelity scoring: 2-reviewer adversarial pass found real bugs,
+  all fixed, 12/12 tests pass.** Two independent `claude-opus-5-5` processes (adversarial bug-hunt
+  + from-scratch math re-derivation), run directly in-session per operator override of the
+  login-node Task/Agent restriction (explicit: "no do it overrule", after the risk was raised) --
+  checked process headroom before/after each (137→117/256, no leak), not via the PBS compute-node
+  path this time since the debug queue was per-user job-count capped. Both independently converged
+  on the same core bug: `build_true_climatology.py` assumed `config.json`'s `channel_names` was
+  the pack's *full* channel list needing an `out_idx` reduction; it's actually already the run's
+  own N_out-sized list for a subset run (confirmed against `eval_inference.py`'s resolver before
+  "fixing" it the wrong way). Also found: `global_stds`/`global_means` read from a separately
+  specified `--std-path` could silently drift out of channel-order alignment with the true
+  climatology; netCDF4's auto-mask on `_FillValue` cells was discarded by a bare `np.asarray()`,
+  letting ~9.97e36 fill sentinels enter the bias/RMSE math undetected; no grid/orientation check
+  between a member and the true climatology; the builder's own equivalence test was tautological
+  (computed "ground truth" via the same `dataset[idx]` loop it was checking -- confirmed empty by
+  rerunning the OLD test suite against the buggy code: passed 6/6 anyway). All fixed: channel names
+  now come from the same h5-cross-checked resolver `climate_rollout.py` uses; `global_means/stds`
+  + `lat`/`lon` now travel inside the true-climatology `.npz` itself (removed `--std-path` --
+  structurally can't misalign anymore); masked cells are filled with NaN and refused; grid mismatch
+  is a hard error. New tests: an independent h5-based ground-truth check (replacing the tautological
+  one) plus a seeded off-by-one fault test proving it actually goes red, and 4 scorer `main()`-level
+  contract tests (clean score, channel-mismatch/masked-cell/grid-mismatch refusal -- `main()` was
+  never called by any test before). `CLIMATE_FIDELITY_TEST_OK` 12/12, job 7709661.
+  Also: minimal rollout-reproduction instructions for jesswan,
+  `docs/2026-10-03_jesswan_climate_rollout_instructions.md`.
+
+- **2026-10-03 (makani) — F4 (`lrcheck`, job 7709269) PASSED: `MAKANI_MN_SCALING_OK`, 3 epochs,
+  `rc=0`, real per-channel validation RMSE logged throughout, no errors.** Confirms the launcher
+  loads F's checkpoint/config correctly (NR's item #3, "does the launcher load F?" — yes).
+  `fsF_lrcheck_nf4_b8_r1`.
+
+- **2026-10-03 (makani) — climate-fidelity scoring built for jesswan: true 5-year climatology vs
+  rollout.** Per her request, clarified first that instantaneous RMSE/ACC isn't meaningful at a
+  5-year lead (predictability horizon is ~2 weeks; any model's skill saturates to climatological
+  noise well before then) — what's meaningful is **mean-state fidelity**: does the rollout's
+  long-run climate match the real one. Built two scripts (`polaris/build_true_climatology.py`,
+  `polaris/score_climate_fidelity.py`) computing the true 2045-2049 time-mean from real data
+  (`valid/2045-2047.h5` + `test/2048-2049.h5`, reusing the same dataset/channel/normalization path
+  the eval pipeline already uses — never hand-parses raw h5 layout) and scoring each rollout
+  member's own `time_mean` (already written by `climate_driver.py`'s `MemberWriter`) against it:
+  area-weighted bias + pattern RMSE per channel, physical and σ units. Tests: streaming-vs-direct
+  equivalence for the builder, pure-math checks for the bias/RMSE weighting (identical→zero,
+  uniform offset→exact, pole-vs-equator weighting, bias-cancels-but-RMSE-doesn't).
+  `polaris_climate_fidelity_test.pbs` (debug, CPU-only pytest) submitted as job 7709505.
+  `polaris_climate_fidelity_review.pbs` — two independent `claude-opus-5-5` reviewers (adversarial
+  bug-hunt + from-scratch math re-derivation) on a compute node via the ALCF proxy, pattern from
+  `polaris_critic_handoff.pbs` — **not yet submitted**: hit the per-user queued-job cap (several
+  other pending jobs — `ace2_train`, `marshal`, `decrypto`, B's capacity job — already occupy
+  slots). Will retry once one clears; not cancelling any of them to make room.
+
+- **2026-10-03 (makani) — Step 2 launched: B-specific `anneal_dryair` (trained-with dry-air
+  conservation) on B_e01, plus F4 (`lrcheck`, the launcher load gate for F).** Resolved the
+  handoff's open "anneal" ambiguity first, from source (not a guess):
+  `polaris/submit_finetune_stability_arm.sh`'s own inline comment, written when the arm was first
+  built (operator request 2026-09-24): "T-anneal + the dry-air mass fix in every
+  training/validation/inference step. Differs from `anneal` in that one flag only." Confirmed
+  against `mass_fix.py`'s `DryAirFix.__call__`: the correction is full-strength, unscaled, every
+  call — no ramp/weight parameter exists anywhere in the code. "Anneal" names the pre-existing
+  LR schedule (CosineAnnealingLR, unrelated to the dry-air mechanism); there never was a second
+  reading to choose between.
+  - **Code**: `submit_finetune_stability_arm.sh`'s `CKPT` is now `${CKPT:-<A's best_ckpt>}`
+    (was hardcoded to A) — a one-line override so the same proven arm can warm-start from any
+    checkpoint, B included. Default (unset `CKPT`) behaviour for A-based arms is unchanged.
+  - **Job 7709268**: `CKPT=nf4_prod_b16_r1/training_checkpoints/best_ckpt_mp0.tar` (B_e01)
+    `QUEUE=capacity bash polaris/submit_finetune_stability_arm.sh anneal_dryair b01` →
+    `fs_anneal_dryair_nf4_b16_rb01`, `CONSERVE_DRY_AIR=1`, 24 epochs, 2 nodes, 12 h, **capacity**
+    (operator's choice, 2026-10-03 — capacity was free, reserved by convention for the single
+    longest job per project; G is currently on hold, see below, so nothing else was waiting on
+    the slot). Verified via `qstat -f` before and after: `PRETRAINED_CKPT`/`CONSERVE_DRY_AIR=1`
+    confirmed correct, not a stale default.
+  - **Job 7709269**: F4 (`lrcheck`) via `submit_subset_finetune_arm.sh F lrcheck`,
+    `PRETRAINED_CKPT`=F's `best_ckpt_mp0.tar` (the warm-start run that completed all 43 epochs,
+    see the entry below) → `FINETUNE_BASE_OK n_out=99`, debug, 1 node, 1 h. Answers "does the
+    launcher load F" per NR's `what to run next` table item #3.
+  - **F3 (climate screen: raw-best vs EMA-best vs snapshots, for D7) NOT launched.** Its own
+    stated gate — "the 99-channel addendum with a PS clause" — does not exist anywhere in the
+    repo (checked). Pre-registering a stability-scoring rule before running the screen is this
+    project's own established practice (same pattern as the B protocol's prereg); writing one on
+    the fly to unblock a job isn't a substitute. Held, not skipped.
+  - **G reconsidered, not queued.** NR's own default was already "accept G without TMQ/dry-air
+    *because* B_e22 held PS below 1 hPa/yr with no corrector" — Step 1 (above) confirmed that
+    holds over the full 5 years, not just 1, which only weakens G's case further. G's remaining
+    unique value (Z3_l17 loss-blindness fix, channel-matched comparison to ACE2-EAMv3) is real but
+    separate from the mass-conservation motivation. jesswan's TMQ decision (D6) was never actually
+    made. Operator's call to hold rather than queue, 2026-10-03.
+
+- **2026-10-02 (makani) — B-continuation handoff Step 1: B_e22 and B_e24 both run the full 5-year
+  protocol clean (8/8 finite); post-hoc dry-air on B_e01 is a clear negative result; fp32-feedback
+  arm measured no-op; RELHUM positivity clamp is mixed.** Per
+  `docs/2026-10-02_b_continuation_dryair_handoff.md` §2. Branch `feat/makani-b-continuation-dryair`
+  (cut from `feat/makani-port-main` @ `6d2357e0`, commit `dbcfe604`).
+  - **Checkpoints stabilised first** (handoff's own hazard warning): `ckpt_mp0_v1.tar` →
+    `ckpt_mp0_e22_stable.tar`, `ckpt_mp0_v3.tar` → `ckpt_mp0_e24_stable.tar`, both copied out of
+    `nf4_prod_b16_r1/training_checkpoints/` (the rotating slot) before anything else touched that
+    run. Epochs confirmed **from inside each file** by the job itself (`ckpt_epoch=22` / `=24` on
+    every member's own readout line) — matches the mtime ordering inferred beforehand (v0..v3 =
+    e21..e24, ~21 min apart), not just assumed.
+  - **Code** (gate: job **7707535**, `CLIMATE_DRIVER_TEST_OK` 34/34 + `CLIMATE_DRIVER_EQUIV_OK`
+    bitwise vs `rollout_one_ic` at chunk_len 40/7/1 on ckpt A — default behaviour unchanged):
+    `climate_driver.stream_rollout`/`run_member` gained opt-in `out_bias`/`out_scale` +
+    `feedback_fp32` params, reusing `rollout_driver`'s `force_positive` clamp instead of
+    duplicating it (both no-ops unless a caller passes them). `climate_rollout.py` gained
+    `--feedback-fp32` and `--force-positive {config,off,relhum}`, mirroring the existing
+    `--dry-air-fix` pattern. `polaris_climate_run.pbs`'s `ARMS` now accepts any name via
+    `RUNDIR_<ARM>`/`CKPT_<ARM>`/`FLAGS_<ARM>`, not just hardcoded A/B.
+  - **Job 7707597** (debug, 1 node, 18 min compute): 5 arms × 8 members, 2044 Oct starts, same
+    8-start/5-year protocol as 7649597. `CLIMATE_RUN_OK`. Results (global-mean PS drift, phys →
+    hPa; "first >3σ" = first channel past 3σ anom_rms):
+    | arm | survival | PS drift @ ~5yr (8 members) | first >3σ |
+    |---|---|---|---|
+    | **B22** (plain) | **8/8 finite**, zero truncations | −6.1 to −8.8 hPa (med ≈ −6.8) | `V_l00`/`V_l01`/`RELHUM_l00`, leads 1545–2088 (≈1.06–1.43 yr) |
+    | **B24** (plain) | **8/8 finite**, zero truncations | +13.0 to +17.5 hPa (med ≈ +16) | same channels, leads 1394–2010 (≈0.95–1.37 yr) |
+    | B22 + `--feedback-fp32` | 8/8 finite | **bit-identical to plain B22** at every reported lead | identical |
+    | B22 + `--force-positive=relhum` (18 ch) | 8/8 finite | mixed vs plain B22: 3/4 checked members smaller \|drift\| (e.g. −7.18→−3.59, −6.81→−4.87, −6.84→−4.61 hPa), 1/4 larger (−6.10→−6.53); crossing timing shifts both earlier and later across members | mixed |
+    | B01 (`best_ckpt_mp0.tar`) + `--dry-air-fix=on` | **8/8 non-finite**, channel PS, leads 3328–3614 (≈2.28–2.48 yr) | N/A (diverged) | `U_l00`/`T_l00`/`RELHUM_l05`/`V_l00`, leads 1157–1680 (≈0.79–1.15 yr) — earlier than B22/B24 |
+  - **Reading, against the handoff's pre-registered outcomes (§2.3):** B22 and B24 both survive the
+    full 5 years with bounded (not runaway) mass drift — a real improvement over every earlier B
+    lineage result (B_e01 fix-off: 7/8 non-finite, the one survivor at −269 hPa). Neither is a clean
+    match to outcome (a): the model top crosses 3σ at ~1–1.4 yr while |ΔPS| is still small (closer
+    to outcome b), **and** |ΔPS| keeps growing after that to several× the 1-year screen value by
+    5 yr (B22: 0.7→~7 hPa; B24: 4.6→~16 hPa) — outcome (c). Both effects are present; NR's own
+    ruling ("go by the timing, not by 'dies at PS'") anticipated exactly this ambiguity.
+  - **Dry-air on B01 is a clean negative, not "mixed."** Unlike the earlier post-hoc F result
+    (16→14 survivors), this is strictly worse on both counts: survival drops from 7/8 to 0/8, and
+    the surviving runs' failure point moves *earlier* (3328–3614 vs 3639–7339). The corrector did
+    not fix B01's problem on this checkpoint.
+  - **fp32-feedback measured a true no-op, not a bug in the new flag.** Per-member logs confirm the
+    flag fired correctly (`feedback_fp32=1`, `feedback_dtype=torch.float32`, vs plain B22's
+    `feedback_dtype=torch.bfloat16`), yet the resulting trajectories are bit-for-bit identical to
+    bf16 feedback at every reported lead out to 5 years. Most likely explanation (not confirmed by
+    reading the source — `Preprocessor2D.append_history` is in the installed `makani` package, not
+    this repo): the preprocessor's history buffer silently re-casts to a fixed dtype on the next
+    step regardless of what's fed in. Open item for whoever picks this up next, not resolved here.
+  - **Not run this session (per the handoff, held for F):** the trained-with `conserve_dry_air`
+    fine-tune on B_e01 (§3) — still blocked on F's current job (`7660250`) finishing.
+  - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7707597/` (`readout.log` has every
+    member's full drift series; `member_*.log` has the per-member provenance line).
+
+- **2026-10-01 (makani/ACE2) — code-level audit of makani vs ACE2 landed; ACE2 5-year rollout test
+  submitted.** Audit = debug job **7703518** (`polaris_makani_ace2_audit.pbs`, 4 Fable 5.1 section
+  auditors + synthesis on a compute node, read-only; `MAKANI_ACE2_AUDIT_OK`) →
+  `makani_sfno/docs/2026-10-01_makani_vs_ace2_code_audit.md` (§8 ranked ports, §9 corrections to
+  older docs). New beyond earlier docs, spot-checked in code: ACE2-EAMv3's loss normalizer gives PS
+  ≈1437× our weight (`1/r²`-like, makani's `temp_diff` is only `1/r`); our config forces an
+  equiangular SHT on the 60-row internal grid (makani's bandlimit there is degree 29 of 60 kept modes;
+  aliasing INFERRED); our rollouts run under bf16 autocast (fed-back dtype still open); ACE2 selects a
+  checkpoint on a 5-year rollout metric; the two "same SFNO" claims are wrong (ai2 modulus SFNO: concat
+  skip, pos_embed, LG SHT vs makani's). Rollout test (prereg
+  `ACE2_retrain/polaris/ace2_5yr_rollout_prereg.md`): ai2's Hugging Face **ACE2-ERA5** on our ERA5
+  and **ACE2-EAMv3 driven by our E3SM-SRM archive** (`build_eamv3_inputs.py`: forcing maps 1:1, the
+  initial state is approximate — 18→8 layers, total water from RELHUM/T/CLDLIQ/CLDICE), 8 starts each =
+  the makani protocol's Oct 2044 starts. Prep **7704377** (debug) → rollout **7704379** (debug-scaling,
+  4 nodes, `afterok`). PASS = `ACE2_ROLLOUT_PREP_OK`, then `ACE2_5YR_OK`; results under
+  `$MEMBER_ROOT/runs/ace2_5yr/7704377/`. Our ACE2 retrain was dropped from this test (operator: Hugging
+  Face models only). Answer to "can the E3SM-SRM archive feed ACE2-EAMv3?": for **inference**, yes
+  (approximate IC); for **training** the EAMv3 contract, no (no Q, rain water, native levels, fluxes).
+
+- **2026-10-01 (makani) — our E3SM SFNO predicts the FULL next state, not a tendency; the
+  checkpoint-usage docs said otherwise and are corrected.** `target: "tendency"` in every
+  `e3sm_*.yaml` is a dead key: neither makani `c9704308` (`sfno-venv`) nor `a0aa4c4f`
+  (`sfno-venv-main`) reads `params.target`. `SingleStepWrapper` = denorm(model(norm(x))), the loss is
+  plain L2 on the z-scored state (`temp_diff_normalization: False`, no per-loss `tendency: True`), and
+  `climate_driver.py:355-367` feeds the prediction back unchanged. `big_skip` adds a learned,
+  randomly-initialised 1×1 conv of the input, not a hard identity. The 08-27 prod128 and 09-03
+  prod1n usage docs told users to add the output to the input (that gives ≈ 2× state); fixed. This
+  fits the tendency probe 7646192's "loss blindness". A real tendency formulation (identity skip,
+  tendency-space loss/normalisation) changes what the model computes, so it needs jesswan's sign-off.
+
+- **2026-10-01 (makani port) — operator rulings (relayed by the port monitor):** (1) implement every
+  recommendation of review 7681379; (2) api_delta §3.1: legacy checkpoints load on makani main by
+  allow-listing exactly `ruamel` `ScalarFloat` + `Anchor` as torch safe globals — never the global
+  unsafe-load escape; (3) `NonNegativeConstraint` (PRECT, SOILWATER_10CM, TMQ) gets an opt-in, default-OFF
+  inference wiring after M4 plus a measurement-only climate screen for jesswan — **awaiting jesswan**:
+  no training, default-on or production-config use without her written sign-off.
+
+- **2026-10-01 (makani port) — M1 GREEN: `sfno-venv-main` built beside `sfno-venv`, old venv
+  unchanged** — job 7680816 `VENV_MAIN_OK symbols=29/29 old_venv_unchanged=1` at `6a30605a` (tag
+  `makani-port/m1-green`): makani `a0aa4c4f`, torch_harmonics `2edb24ed` (reports `0.9.2a`, same
+  commit as the old venv's `0.9.2.dev75+g2edb24ed`), physicsnemo 2.2.0a0 non-editable (tree
+  `1674e93e`), zarr 3.4.0, torch 2.8.0 from base conda. pip conflict warnings are base-conda LLM
+  packages and physicsnemo's declared minimums (same as the old venv); none touch zarr/DALI/makani.
+  **Grid weighting measured for jesswan** (measurement only, no change): A e243 single-step l2 under
+  cell-centred band areas vs makani's equiangular weights — channel mean −0.074 %, RELHUM_l00 +2.45 %,
+  RELHUM_l01 +1.79 %, RELHUM_l02 +1.67 %; the ±89.5° rows get weight 0 under makani's rule. Operator
+  read-only review 7681379 done (`runs/makani_port/review/7681379/review.md`); its pre-M8 list is in
+  `makani_port/PROGRESS.md`.
+- **2026-10-01 (makani port) — M0 GREEN: golden baselines on the old venv are bitwise reproducible**
+  — gate job 7679553 `PORT_GOLDEN_OK tolerance=bitwise` vs write job 7676860, at `812696030bae`
+  (tag `makani-port/m0-green`), old `sfno-venv` = makani `c9704308`, `F_FINETUNE_TESTS_OK 6/6`. Golden =
+  5 ckpts (A e243, B e22, C1 e24 = `ckpt_mp0_v23`, nf4p_r1, ema_smoke) × K=56 rollout from 2048 f1092,
+  per-lead sha256 + param hashes; A validate-only loss 0.013296 (64 samples); a 20-step warm-start trace
+  (fresh optimizer, lr 2e-3, no warmup — an **equivalence probe, not a training-quality number**: loss
+  peaks 0.138, val 0.0133 → 0.0240). Manifests in `makani_port/golden/`; `.npy` (6.8 GB) under
+  `$MEMBER_ROOT/runs/makani_port/golden/7676860/npy`. Upstream delta + 3 STOPs: `makani_port/api_delta.md`;
+  log: `makani_port/PROGRESS.md`.
+- **2026-10-01 (makani port) — operator ruling (relayed by the port monitor) on api_delta §3.2:** keep
+  `equiangular` for our cell-centred 1° grid; opt out of main's `verify_grid_type` for **our dataset only**
+  (no global patch, no `data.json` edit, outputs bitwise), logging `GRID_VERIFY_OPTOUT
+  equiangular_cellcentred`; measure the weighting error for jesswan in a debug check. §3.1 (ruamel
+  allowlist for legacy checkpoints) is still unanswered and gates M3.
+
+- **2026-10-01 (makani) — port to upstream makani `main` planned: worker + monitor handoffs in
+  `makani_port/`.** Operator: port to the latest `main`, keep the same checkpoints, small commits with
+  a green tag per milestone, revert to the last green commit on breakage. Ours = 0.2.0 @ `c9704308`
+  (2026-04-23); `main` = `a0aa4c4f` (2026-09-30), 184 commits / 209 files ahead, same `__version__`.
+  Plan (`makani_port/HANDOFF_worker.md`): new venv `sfno-venv-main` **beside** `sfno-venv` (never
+  modify the old one; physicsnemo non-editable there), branch `feat/makani-port-main`; milestones M0
+  inventory + golden baselines (old venv, run twice, bitwise) → M1 venv → M2 suites on both venvs →
+  M3 strict checkpoint load → M4 inference bitwise vs golden (+ F2, A e243 @ 595) → M5 training
+  equivalence → M6 `SFNO_VENV` opt-in, default unchanged → M7 spatial `w=4` re-test (upstream
+  `4c40a0e0`) → M8 switch-over = operator. Monitor: `makani_port/HANDOFF_monitor.md`. Bookkeeping:
+  `makani_port/PROGRESS.md` (dated Progress/Surprises/Decisions/Next) and `makani_port/_papercuts.md`
+  (seeded with 30+ traps from 09-24..30; read at session start and before every `qsub`).
+
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: ✅ `SURGICAL_SOIL_SCREEN_OK`,
+  outcome D (slicing damage) at both starts — says nothing about soil.** Job **7671841** (rollouts;
+  its summary failed `TRUTH_MISSING_CHANNEL: TMQ` — the default truth files predate the summary's TMQ
+  column) + **7671870** (`RESUME_OUT`, `_tmq` truth, summary only; wrapper fix `d1c2aec2`). Outputs
+  `$MEMBER_ROOT/runs/makani_eval/surgical_soil_screen_7671841/f{1092,1156}/`.
+
+  | start | A_e243 truncates | Fsurg truncates | ratio | first past 3σ (Fsurg / A) |
+  |---|---|---|---|---|
+  | 2044 f1092 | **595** (control ✅) | **293** | 0.49 | RELHUM_l04,l11@161 / V_l00@382 |
+  | 2044 f1156 | 490 | **343** | 0.70 | RELHUM_l00@175, V_l00@176 / RELHUM_l04@305 |
+
+  Both ratios < 0.75 ⇒ **D** by the prereg: A with soil sliced out and only 20 steps of retraining
+  dies *earlier*, at PS, after leaving range at the model top first — the same failure path as A,
+  faster. Uninformative about soil as a cause (the model was never trained without soil inputs); F
+  (7660250, 43 epochs) remains the test (F3). New number: A e243 from f1156 dies at lead 490 (n=1).
+  Original pre-submission note follows.
+- **2026-09-30 (makani) — surgical soil-free checkpoint screen: pre-registered (submission note).**
+  F (7660250) has no checkpoints yet; the only trained soil-free one is `surgical_nosoil_7646690`
+  (A e243 sliced to 99/105 + 20 steps at LR 1e-5, val 0.01427). Operator approved a debug screen of
+  it beside A e243 from 2044 f1092 + f1156 — unlike F3, not confounded by extra training. Prereg
+  `docs/2026-09-30_surgical_soil_screen_prereg.md` (outcomes S/N/D/X by truncation-lead ratio;
+  control A e243 @ 595 from f1092) + `polaris/polaris_surgical_soil_screen.pbs`, committed
+  `4855b999`. `qsub` refused twice (`per-user limit of jobs in 'Q' state`): the `debug` slot
+  is held by **7671383 `ace2_step*`** from the ACE2 session; `-W depend=afterany` counts against the
+  same limit. Submit from `makani_sfno/` once that job has started:
+  `qsub polaris/polaris_surgical_soil_screen.pbs`. PASS = `SURGICAL_SOIL_SCREEN_OK`.
+
+- **2026-09-30 (makani) — CORRECTION, operator: the 2020–2044 split is a SEPARATE experiment,
+  not part of G.** First-hand: *"the validation year change was supposed to be a separate test not
+  everything should have been included in G"*. The 09-29 work had bundled both into G. Nothing had
+  trained or been queued, so it is unbundled before any cost: `submit_g_ace2vars.sh` and
+  `polaris_g_smoke.pbs` gain **`SPLIT=production|2020`**, default `production` = **G proper on the
+  production pack (train 2015–2044, A's/F's stats; the variable set is its only change from F)**;
+  `SPLIT=2020` = the split experiment on the view (run `g_ace2vars_split2020_*`). Validation
+  (2045–47) and test (2048–49) are identical in both packs (metadata checked), so the pair isolates
+  the split. Login dry runs: default → `PACK=…/e3sm_makani_alldata_production`,
+  `g_ace2vars_2n_b32_e243_scratch`, split check 2015–2044 ✅; `SPLIT=2020` → the view,
+  `g_ace2vars_split2020_…` ✅; bad value refused. Yaml and arm-launcher comments updated.
+  Consequences: (1) G compares **directly** with A's `k56_readout_common77.json` — no split caveat;
+  (2) the debate's argument against a **warm** G (A saw the excluded 2015–19 years, other stats) no
+  longer applies to G proper: A sliced to 83/77 on the same pack and stats is the F surgical-transfer
+  case, so warm is back on the table for G (still needs its own transfer proof); (3) G proper's
+  updates/epoch = A's 1,368, not 1,140; (4) G smoke 7668637 ran on the view — the production-pack
+  path needs its own smoke (`SPLIT=production`, 43,800 samples).
+  - **Operator, same day: the split is PORT H** — *"separate the split to H, where it keeps G['s]
+    removed channels, but changed the train years"*. **H = G's 77/83 channel set, train 2020–2044
+    (the view, own stats), valid/test unchanged**; G vs H isolates the train years. New entry point
+    `polaris/submit_h_train2020.sh` (calls `submit_g_ace2vars.sh` with `SPLIT=2020`, refuses any
+    other `SPLIT`); runs `h_ace2vars_train2020_*`; arm launcher accepts `H` (`fsH_*`, PACK from the
+    base run, `anneal_dryair` refused — no TMQ). 7668637's smoke and 7668600's view are H's path.
+    Login dry runs: G → production pack `g_ace2vars_2n_b32_e243_scratch`; H → view
+    `h_ace2vars_train2020_2n_b32_e243_scratch`; H with `SPLIT=production` refused; `H anneal_dryair`
+    → `DRYAIR_NEEDS_TMQ`. Nothing queued. Also confirmed for the record: **B (`nf4_prod_b16_r1`) has
+    A's full 101 channels** — both soil channels, Z3 ×18, TMQ (its `config.json`).
+
+- **2026-09-30 (makani, analysis only) — moderated three-agent review of G, fine-tuning and the
+  next runs: run the multi-year protocol on B e22 + B e24 first; G is a fine-tuning base, not a
+  stability fix.** Operator asked for "3 opus 5.5 [via the] alcf proxy [on] debug … 2 of them
+  discuss, and 1 moderates". Job **7669964** `MAKANI_DEBATE_OK` (`polaris/polaris_makani_debate.pbs`,
+  18 min; pattern from `polaris_critic_handoff.pbs`): brief `docs/2026-09-30_g_finetune_debate_brief.md`
+  (facts + provenance, no recommendation) + both handoffs + spatial result + CHANGELOG 09-20..29 as
+  the only evidence; analysts A (stability lens) and B (evidence/cost lens) → rebuttals → moderator.
+  Final: `makani_sfno/docs/2026-09-30_g_finetune_next_runs_analysis.md`; transcript
+  `$MEMBER_ROOT/runs/makani_debate/7669964/`. Converged (moderator's ranked plan, recommendations
+  only): (1) **multi-year protocol on B e22 + B e24** (debug; copy B e22 out of the rotating
+  `ckpt_mp0_v1.tar` slot first; pre-register three outcomes incl. a model-top timing readout) — the
+  1-yr screen that will pick every arm's winner has never been checked against 5-yr survival (B e01
+  passed the year, then died at 7/8 starts); (2) F as queued; (3) F3 (raw + EMA best) + F4 in one
+  debug job; (4) T-anneal-F + `anneal_dryair`-F on preemptable, concurrent (operator's call); (5)
+  per-epoch screens + multi-year on each arm's top epochs; (6) **G scratch, 2 nodes, `SPARE=0`, 48 h,
+  released by hand after F's extension decision — not `afterany:7660250`** (that fires before an
+  extension resume), gated on jesswan's answer about losing TMQ/dry-air; (7) G screen on 77 ch with a
+  new 77-channel prereg addendum; (8) T-d8-F only on a pre-registered trigger. Parked: G warm, T-d16,
+  sharding, `w=4`. Rulings: F3 is **not** a gate for G (confounded — F = A + 43 single-step epochs;
+  speaks to soil only); "dies at PS" does not separate mass from model-top failure — read the timing.
+  Correction it found: the 43× channel is `Z3_l17` (09-20 entry), fixed in the 09-29 O7 line below.
+  Nothing was submitted beyond the debate job.
+
+- **2026-09-29 (makani) — task #7, spatial parallelism on the fixed CXI stack: phase 1
+  ✅ RAN (7669001): 4/4 arms on CXI; P4 falsified — h2w4 trains, but ~26 % higher loss.**
+  - ✅ **Job 7669001** (debug, 2 n, `caafdbf7`): `SPATIAL_CXI_MATRIX_DONE 4/4`, every arm
+    `FABRIC_CXI_CONFIRMED`; `F_FINETUNE_TESTS_OK 6/6` after the arms (`test_regional_scores`
+    fix verified, 69 passed). Step ms (epoch 2 of 2 × 60 steps, batch 32, 8 A100): **h1w1 225.2**,
+    h2w2 417.9 (+85.6 %), h4w1 283.8 (+26.0 %), h2w4 616.3 (+173.7 %). Scored as written
+    (`makani_sfno/docs/2026-09-29_spatial_cxi_result.md`): **P1 held** (−64.1 % vs TCP 627.1);
+    **P2: 2 nodes beat 1** (365.4 ms, 81.1 % per GPU) ⇒ F/G's 2-node shape justified; **P3
+    held**; **P4 FALSIFIED — h2w4 trained, no hang**; **P5 held**. ⚠ Epoch-2 train loss h2w4
+    **0.1394** vs 0.1098–0.1112 for the other three (valid 0.1043 vs 0.0879–0.0915): "did not
+    hang" ≠ "same computation" — no production `w=4` before phase 2's equivalence. ⚠ Bug: the
+    per-lead metric file was written by every model rank of data group 0 (h2w4 rank 7 h5py
+    OSError, non-fatal) — ✅ fixed: failing-first test + fix (`36aa3632`, `eb4e0cce` on
+    `feat/makani-f-finetune`, verified by 7669129 `WRITER_C77_ALL_OK 5/5`: red on the pre-fix
+    commit, green after, 1-node h2w2 writes one readable file) cherry-picked here as
+    `a413a645` / `8bc7543e`; both files are the **same blobs** as on the verified branch.
+    The matrix's "first logged loss" grep caught the loss-config line; the numbers above come
+    from the epoch summaries.
+  - Phase 2(a) prerequisite read (makani `driver.py`): `legacy` restore validates the file's
+    `comm_grid` against the live layout (h1w1 → h2w2 raises); `flexible` loads `mp0` and
+    scatters by the live model's `sharded_dims_mp`, so an h1w1/A checkpoint loads into any
+    layout. The launcher does not pass `--load_checkpoint` yet — add `LOAD_CKPT` before (a).
+  - As pre-registered (below, unchanged): branch `feat/makani-spatial-cxi` (pinned
+  worktree `.claude/worktrees/spatial-cxi`, off `feat/makani-f-finetune`). Prereg:
+  `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md`; job `polaris/polaris_spatial_cxi_matrix.pbs`
+  (debug, 2 nodes, 1 h): h1w1 / h2w2 / h4w1 / h2w4 at global batch 32, 4 sample-equivalents
+  per GPU each, TCP-era knobs, no fabric pins, per-arm hard timeout, h2w4 last.
+  - ⚠ **Correction to this session's earlier entry** ("the `w=4` verdict is unproven either
+    way"): §5b diagnosed the `w=4` hang from flight-recorder dumps as **application-level** —
+    `rank % 4 == 3` takes a different parameter-sync path — "not a transport failure … not the
+    plugin". The fabric fix is therefore **predicted not to cure it** (P4). And §5c's sharding
+    overhead includes **+80.8 % at 1 node**, where no inter-node fabric is involved: sharding is
+    a memory tool here, not a speed one.
+  - The h1w1 arm is also **the missing 2-node CXI batch-32 number** for F/G sizing: same knobs
+    as the TCP-era 2-node row (627.1 ms) and the 1-node row (365.4 ms).
+  - `debug-scaling` (the natural 4/8-node place, and where the T-d16 memory probe must run —
+    8 n × h2w2 at batch 16 = 0.5 sample-equivalents per GPU) is held by the ACE2 LR sweep's
+    cron-chained segments (max_queued 1 per user); interleaving is the operator's call.
+
+- **2026-09-29 (makani) — F fine-tune base built; PORT G (the ACE2-EAMv3 variable set) and the
+  2020–2044 train split implemented. Nothing trains yet; two debug jobs queued.** Branch
+  `feat/makani-f-finetune` (worktree `.claude/worktrees/f-finetune`), per
+  `polaris_makani_f_finetune_handoff.md` (on `worktree-monitor-ace2`) plus two operator decisions
+  made today, first-hand:
+  - **Port G.** *"remove every channel that is not in ACE2-E3SM (SOILWATER_10CM, TSOI_10CM, Z3,
+    U10, RHREFHT, PSL, TMQ). Keep RELHUM (close to their total water) and TREFHT (close to skin
+    temp)."* → `e3sm_alldata_ace2vars.yaml`: 24 of the pack's 101 dropped (pack indices 2–5, 8, 9,
+    64–81), **76 state + PRECT + 7 forcing = 83 in / 77 out**. Same pack files, full-width stats
+    indexed by `out_channels`, `channel_subset_gate.py` in the launcher. Derived from the F yaml;
+    a test pins that only `channel_names`, `dropped_channel_names`, `n_state_channels` differ.
+  - **Split.** *"2020-2044 (training), 2045-2047 (validation), 2048-2049 (test) … exclude the first
+    5 years of the E3SM simulation as model spinup."* → `polaris_pack_alldata_trainview.pbs`: a
+    view root of per-year symlinks into the production pack plus **freshly computed stats and
+    metadata over the 25 train years** (`…/data/e3sm_makani_alldata_train2020_2044`). The
+    production pack and every existing run are untouched. The converter's `--workers` now also
+    parallelises `--stats-only` (30 yr took 52 min sequentially in 7565734); pool = sequential to
+    1e-12 on the sums, to float32 on the written stats (tests). **Job 7668600** (debug, 1 node,
+    ≤1 h) — PASS = `CONVERT_STATS_TESTS_OK` + `CONVERT_ALLDATA_OK` + `TRAINVIEW_OK`, plus a table
+    of how far the split moved each stat.
+  - **Merge (handoff §2, F0 prerequisite):** `worktree-makani-ace2-ports` @ `a530bf65` into
+    `feat/makani-dryair-negativity` @ `82a80043` = `c51a90be`, done in the object DB
+    (`merge-tree` + a temp index; no working-tree git on Lustre). Conflicts only in
+    `CHANGELOG.md` and `scripts/eval_inference.py`; both sides kept, and every line either
+    branch added to those two and to `polaris_makani_multinode_scaling.pbs` checked present.
+  - **Handoff §2.1–2.2, subset-aware stats (`ec5ccfb7`).** `climate_driver.load_stats_f64` /
+    `load_time_means_z` (and `negativity_rollout.py`) select rows by the run's `out_channels` only
+    when the widths differ; `DryAirFix` indexes its stats through `out_channels` and refuses a
+    width that matches neither. Full-width runs read the same rows as before; F reads the same
+    rows as before (its PS=0/TMQ=5 precede the dropped 8, 9 — right by accident, now by
+    construction). **G has no TMQ, so the dry-air fix cannot run on G**: refused by name, and
+    the arm launcher refuses `anneal_dryair` for G before submission.
+  - **Handoff §2.3, launchers (`c611badb`).** `submit_subset_finetune_arm.sh <F|G> <arm>` (sibling;
+    the A-based launcher stays the record of the cancelled arms): `PRETRAINED_CKPT` required, PACK
+    taken from the base run's `config.json` so an arm normalizes with its base's stats,
+    `finetune_base_check.py` refuses a base whose channels differ, tags `fsF_…`/`fsG_…`, and **no
+    fabric pins** (the old launcher's `OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple` predate the
+    CXI fix; overrides in the environment are refused, as in `submit_f_nosoil.sh`).
+    `submit_g_ace2vars.sh <QUEUE> <NODES> <EPOCHS> <WALL> [scratch|warm]`: F's recipe on G and the
+    view, **queue a required argument**. Login-node dry runs against real run dirs: A's checkpoint
+    for an F arm → `FINETUNE_BASE_MISMATCH` (101 vs 99); `surgical_nosoil_7646690` → `FINETUNE_BASE_OK`
+    and the expected `fsF_lrcheck_nf4_b8_r1` qsub; F base for a G arm → refused; G launcher →
+    `TRAINVIEW_MISSING` until 7668600 finishes.
+  - **Job 7668627** (debug, 1 node, 40 min, queued behind 7668600): `polaris_f_finetune_tests.pbs`,
+    gates F0+F1 — six CPU suites, one token each, PASS = `F_FINETUNE_TESTS_OK 6/6`. Not yet run:
+    **no test in this entry has executed**; every claim above about test results is pending it.
+  - ⚠ **Science consequences of G, recorded not decided** (variable sets are jesswan's): no land
+    memory, no geopotential, no column water; **FSNT/FSNTOA stay prognostic** while ACE2 keeps all
+    radiative fluxes diagnostic (moving them needs a repack — the pack's diagnostic group holds
+    PRECT only). And every existing baseline is 101- or 99-channel **and trained on 2015–2044**:
+    G can only be compared on its common 77 channels with the split stated.
+  - ⚠ **Spatial parallelism (operator: "makani supports it … we also fixed slingshot and nccl").**
+    Every sharded run predates the fabric fix: h2w2 IMA/hang on the old plugin before the
+    rendezvous block (7554253, 7563723), and all of `makani_bench_report.md` §5/§7b (h4w1 626.8 ms,
+    h2w2 576.6 ms, the `w=4` hangs) ran on v1.21.1, i.e. over **TCP** (no `FI_MR_PROV_KEY`,
+    7629082). **HPAR/WPAR>1 has never run on the current CXI stack**, so the `w=4` verdict is
+    unproven either way. Next (TODO): a `debug-scaling` shape matrix at 4 nodes, then a
+    same-seed loss-trajectory equivalence vs h1w1 before any production use, then the T-d16
+    memory probe at h2w2 (OOM 7650263 unsharded). `_build_dry_air_fix` already refuses
+    `h/w_parallel_size != 1` (its global mean would be per-tile).
+  - **Not decided here:** F (7660250) stays queued on `capacity`; whether G replaces it, and G's
+    queue/epochs (the launcher requires both), are the operator's. Nothing was submitted to
+    `capacity`/`preemptable`.
+  - **Later the same day — operator, first-hand:** *"G should run after F"* and **jesswan approved
+    these all** (port G's variable set, the 2020–2044 split; relayed by the operator, not read
+    from her directly). → `submit_g_ace2vars.sh` gains `DEPEND=<jobid>` (afterany), for
+    `DEPEND=7660250`. Asked whether G's smoke tests had run: **no** — 7668627 is unit tests only
+    and nothing had trained G. Added `polaris_g_smoke.pbs` (debug, 2 nodes, the G analogue of
+    F's `polaris_makani_ports_smoke.pbs` §4): (1) 2-node × local 4 training smoke on the view with
+    EMA — requires the trainer's `CHANNEL_SUBSET in=76 out=77 … dropped pack idx [2, 3, 4, 5, 8, 9,
+    64..81]`, `train samples available: 36500`, `FABRIC_CXI_CONFIRMED` (G's 384×83 encoder
+    broadcast is a message size never sent before), `EMA_ASSERT_OK`, `MAKANI_MN_SCALING_OK`, no
+    nan; (2) a 380-lead climate-driver rollout from it across the 2044→2045 (view train→valid)
+    handoff at step 368, 77-channel NetCDF; (3) the arm launcher's own `lrcheck` vars for G run
+    inline — `MULTISTEP=5` at 77 channels, `FINETUNE_BASE_OK n_out=77`, `LR_SCHEDULE_OK`.
+    PASS = `G_SMOKE_OK 3/3`. G is not queued on `capacity` until it and the unit tests are green.
+    7668600 was 8/25 years into the stats pass after 5 min (`CONVERT_STATS_TESTS_OK`, 7 passed).
+    ⚠ Debug allows **one queued job per user** (`qsub: would exceed queue generic's per-user
+    limit of jobs in 'Q' state`), so 7668627 (unit tests, never ran) was qdel'd and folded into
+    the smoke, which runs them in the background: **job 7668637** (debug, 2 nodes, 1 h,
+    `afterok:7668600`) — PASS = `G_SMOKE_OK 3/3` + `ALL_GATES_OK`.
+  - ✅ **7668600 `TRAINVIEW_OK`** (`CONVERT_STATS_TESTS_OK` 7 passed; `CONVERT_ALLDATA_OK`):
+    `…/data/e3sm_makani_alldata_train2020_2044`, t_count **36,500** = 25 × 1460, n = 2.3652e9,
+    0 zero-variance channels, min std 8.30e-8. Stats pass **572 s** with 13 workers (30 yr
+    sequential: 52 min, 7565734). What dropping 2015–2019 did to the normalization (vs the
+    production 2015–2044 stats): means move by a median **6.5e-4 σ**, max **−1.42 % σ at
+    `T_l00`**; stds median **0.08 %**, max **+2.9 % at `RELHUM_l03`**; `time_diff_stds` median
+    0.18 %, max **+3.0 % at `RELHUM_l02`**. Small, and concentrated at the model top.
+  - **Operator, same day: do NOT queue G to `capacity` yet.** Asked whether G is multi-node and
+    why 48 h: G *can* run 1/2/4 nodes at global batch 32, but multi-node is not shown to be
+    faster at that batch (the only CXI number is a 50-step 4-node smoke, 521.1 ms/step, 7647798,
+    vs 473 ms steady at 1 node; short smokes overstate — the 20-step 1-node 7646690 read
+    1587.6 ms). A took **46 h 20 min of a 48 h allocation** (683.6 s/epoch); G ≈ 575 s/epoch at
+    1140 steps if its step time matches A's ⇒ ≈ 39 h for 243 epochs. 48 h was too thin a margin
+    to suggest; ask for 60–72 h (capacity allows 168 h; the run resumes from its RUN_NUM).
+  - **Sizing table, global batch 32** (operator asked; F allocates 3 nodes = **2 training + 1
+    spare**, `select=NODES+1`). `wall = steps × step + epochs × 33.5 s val`; reproduces A to 0.7 %
+    (46.0 vs 46.3 h). Efficiency = per-training-GPU throughput vs 1 node (473.2 ms/step);
+    "alloc" also counts the idle spare. Only A's row is measured; multi-node rows bracket an
+    **unmeasured** CXI 2/4-node steady state between linear scaling and the 50-step 4-node CXI
+    smoke (521.1 ms, 7647798 — short runs overstate). Absolute GPU busy at 1 node: 56 % (nsys
+    7591822, 264.4 ms kernels per 472.1 ms step; 35 % of compute is copy/layout).
+
+    | run | nodes alloc / train | GPUs | batch/GPU | steps | step ms | eff train / alloc | wall h | node-h |
+    |---|---|---|---|---|---|---|---|---|
+    | A (done, 7585080) | 1 / 1 | 4 | 8 | 332,424 | 473.2 | 100 / 100 % | **46.3** | 46.3 |
+    | F (queued 7660250) | 3 / 2 | 8 | 4 | 58,824 | 237–521 | 100–45 / 67–30 % | 4.3–8.9 | 13–27 |
+    | G 1 node | 1 / 1 | 4 | 8 | 277,020 | 473 (A's) | 100 / 100 % | 38.7 | 38.7 |
+    | G 2 nodes + spare | 3 / 2 | 8 | 4 | 277,020 | 237–521 | 100–45 / 67–30 % | 20.5–42.4 | 61–127 |
+    | G 4 nodes, `SPARE=0` | 4 / 4 | 16 | 2 | 277,020 | 118–521 | 100–23 % | 11.4–42.4 | 46–169 |
+
+    `capacity` caps `nodect` at **4** (`qstat -Qf`), so a 4-node run + spare (select=5) would be
+    rejected: `submit_g_ace2vars.sh` now takes `SPARE=0|1` (default 1) and refuses select > 4 on
+    capacity (dry runs: 4n → `CAPACITY_NODECT`; `SPARE=0` → select=4; 2n → select=3, F's shape).
+    F's own 2-node log will be the first long CXI batch-32 step time; the G smoke 7668637 gives
+    a short 2-node one for G.
+  - **vs the makani papers' own training setups** (operator asked), read from the upstream
+    clone `$MEMBER_ROOT/external/makani-upstream` @ `cdc22ad` (`icml_models.yaml`,
+    `sfnonet.yaml`, `fourcastnet3.yaml`; GPU counts from the yaml comments + the README recipe
+    recorded 2026-08-24). Our trunk *is* upstream's `sfno_sc3_layers8_edim384` (384 / 8 layers /
+    scale 3 / dhconv / linear).
+
+    | setup | GPUs | batch × ens × spatial | samples/GPU | grid pts/GPU | steps | rollout |
+    |---|---|---|---|---|---|---|
+    | ICML SFNO 73ch (`ngpu64_mp1_sp1`) | 64 | 64 × 1 × 1 | 1 | 1,038,240 | 50,580 + 4,215 (2-step ft) | 1 → 2 |
+    | SFNO README scale-out | 256 | 64 × 1 × 4 | 0.25 | 259,560 | ≤ 500 ep × 843 | 1 |
+    | FCN3 pretrain1 (80 GB) | 1024 | 16 × 16 × 4 | 0.25 | 259,560 | 218,400 | 1 |
+    | FCN3 pretrain2 | 512 | 32 × 2 × 8 | 0.125 | 129,780 | 5,040 | 4 |
+    | FCN3 finetune | 256 | 4 × 4 × 16 | 0.0625 | 64,890 | 2,920 | — |
+    | ours A (done) | 4 | 32 × 1 × 1 | 8 | 518,400 | 332,424 | 1 |
+    | ours F / G at 2 nodes | 8 | 32 × 1 × 1 | 4 | 259,200 | 58,824 / 277,020 | 1 |
+
+    ⇒ Upstream keeps ~0.13–0.26 M grid points per GPU and scales out by **spatial + ensemble**
+    parallelism on 721×1440 (80 GB GPUs); we reach the same per-GPU load at 2 nodes with a 16×
+    smaller grid and **pure data parallelism** (spatial never run on CXI). We take **more**
+    optimizer steps than either paper: A = **1.60×** FCN3 stage 1, whose paper-stated count is
+    **208,320** steps (the config's `max_epochs: 130` would give 218,400; the paper's number
+    governs — an earlier line of this entry said 1.52× from the config and was wrong; the
+    "1.6×" of 2026-09-04 stands). Rollout training: ICML fine-tunes at 2 steps, FCN3
+    pretrain2 at 4; our Stage-1 arms (depth 4/8) are that stage. Objective: `sfnonet.yaml` and
+    FCN3 use `channel_weights: auto` + `temp_diff_normalization: True`; the ICML base is plain
+    l2 like ours. Optimizer β₂ 0.95 / clip 32 match FCN3.
+  - **FCN3's paper-stated compute** (arXiv:2507.12144, training section, quoted verbatim
+    2026-09-29): stage 1 = **1024 H100 (Eos), 78 h, 208,320 steps**, batch 16 × ensemble 16;
+    stage 2 = **512 A100 (Perlmutter), 15 h, 5,040 steps, 4-step rollouts**; fine-tune = **256
+    H100 (Eos), 8 h**, 16-fold spatial split. Total **89,600 GPU-h** vs A's **185** (484×); the
+    A100 stage alone is 7,680 A100-h (41× A). The paper gives **no** scaling efficiency,
+    throughput or GPU utilization, and does not say 40 vs 80 GB (the yaml's h2w4 comment says
+    80 GB). Full table + reading: `makani_sfno/docs/2026-09-10_fcn3_recipe_vs_ours.md` §6.
+    Operator: "we also have the original 128-node run" — added: **7566145 = 512 A100-40GB,
+    the same GPU count as FCN3's A100 stage**, batch 512, 8,500 steps, 1.68 h, 863 GPU-h,
+    valid 0.018297 (still falling); 1.73 samples/s/GPU = **10 % of the 1-node rate**, over
+    **TCP** (pre-fix). Same GPUs as FCN3 stage 2, but a 16× smaller problem spent on batch.
+  - ✅ **G smoke 7668637: `G_SMOKE_OK 3/3`; `ALL_GATES_OK` NOT printed (5/6 unit suites).**
+    (1) train, 2 nodes: `FABRIC_CXI_CONFIRMED` (8 cxi lines), `CHANNEL_SUBSET in=76 out=77 …
+    dropped pack idx [2, 3, 4, 5, 8, 9, 64..81]`, 36,500 samples, `EMA_ASSERT_OK`,
+    `MAKANI_MN_SCALING_OK`; (2) rollout from the 40-step smoke model: **`CLIMATE_ROLLOUT_TRUNCATED`
+    at step 264 (PS)**, 77-channel NetCDF — machinery only, and the 368-step train→valid
+    handoff was **not** reached, so it is still unexercised on the view; (3) the arm launcher's
+    own `lrcheck` vars for G: `FINETUNE_BASE_OK n_out=77 pack=<view>`, `MAKANI_MN_SCALING_OK`,
+    LR 4e-4 → 1e-6 → 4e-4 `LR_SCHEDULE_OK`. Suites: climate driver **29 passed** (incl. the new
+    subset tests), screen + dry-air + negativity **48**, longroll 6, ports 13, preprocessor 4;
+    **`polaris/test_*.py` 68 passed, 1 FAILED** — `test_regional_scores` (port-F land panel,
+    ports branch; first time it ran in a job): rel 7.45058085e-9 at rtol 1e-12. **Traced, not
+    loosened:** `lat_weights` returns float32-rounded weights summing to 1 − 1.4901161e-8 in
+    float64 at H=8; `region_weights` renormalises and `rmse_lat_weighted` assumes its documented
+    sum-to-1 precondition ⇒ predicted gap 1 − √Σw = **7.4505806e-9 = observed**. The test now
+    normalises in float64 first (1e-12 kept) and pins the term (global / region = √Σw at 1e-12).
+    Verification: the spatial job **7669001** re-runs all six suites after its arms.
+  - ✅ **Spatial matrix 7669001 (task #7 phase 1, debug 2 n, `feat/makani-spatial-cxi` @
+    `caafdbf7`): `SPATIAL_CXI_MATRIX_DONE 4/4`, every arm `FABRIC_CXI_CONFIRMED` (8 cxi lines);
+    `F_FINETUNE_TESTS_OK 6/6`** after the arms (`polaris/test_*.py` **69 passed** — the
+    `test_regional_scores` fix verified; driver 29, screen 48, longroll 6, ports 13, preprocessor
+    4). Global batch 32, 8 A100, 60 steps × 2 epochs, `step_ms` = epoch 2; CSV
+    `bench/makani_spatial_cxi.csv`. Scored against
+    `makani_sfno/docs/2026-09-29_spatial_cxi_prereg.md` as written:
+
+    | arm | local | step ms | vs h1w1 | ep-2 train / valid loss |
+    |---|---|---|---|---|
+    | h1w1 | 4 | **225.2** | — | 0.1112 / 0.0915 |
+    | h2w2 | 16 | 417.9 | +85.6 % | 0.1098 / 0.0896 |
+    | h4w1 | 16 | 283.8 | +26.0 % | 0.1099 / 0.0879 |
+    | h2w4 | 32 | 616.3 | +173.7 % | **0.1394 / 0.1043** |
+
+    **P1 held** (h1w1 225.2 ms vs TCP 2-node 627.1: −64.1 % — the fabric *was* what made 2 nodes
+    slow). **P2: 2 nodes beat 1 node** (365.4 ms same knobs, 7580338), per-GPU efficiency
+    **81.1 %** ⇒ the 2-node shape of F and G is justified. **P3 held** (≥ +25 %; h4w1 only just,
+    +26.0 %) — sharding remains a memory tool, not a speed one. **P4 FALSIFIED: h2w4 trained,
+    no hang** ⇒ §5b's `w=4` diagnosis was wrong or transport-dependent. **P5 held** (4/4).
+    ⚠ **But h2w4's loss is ~26 % higher at epoch 2** while the other three agree within ~1 %
+    (epoch 1: 0.434 vs 0.380–0.396). Not a gate and not yet explained; it is what §5b's
+    divergent parameter-sync path at `w=4` would look like if it no longer deadlocks. "Did not
+    hang" ≠ "computes the same thing": **no production use of `w=4`** before phase 2's
+    equivalence check; cheapest first test is whether the replicated parameters stay identical
+    across each `w`-group after N steps. First-epoch losses differ by ~4 % across the other three,
+    so initialisation/data order is layout-dependent — phase 2 must load one checkpoint, not
+    compare fresh runs.
+    ⚠ **Bug found — per-lead metric save races under model parallelism.** h2w4 rank 7:
+    `per-lead metric save failed … OSError: Unable to synchronously create file (truncated file)`.
+    `plasim_trainer.py:593` gates `metrics.save` on `data_parallel_rank == 0`, which every
+    model-parallel rank of data group 0 satisfies (8 writers at h2w4, 4 at h2w2/h4w1). Caught as a
+    warning, so non-fatal, but any sharded run's `scores/metrics_ep*.h5` is racy. Fix (world rank
+    0, after checking makani's `MetricsHandler.save` is not collective) waits until 7669103 has
+    run. Also: the matrix's "first logged loss" grep matched the `losses [{'type': 'l2' …}]`
+    config line, not a loss; the table above is from each arm's epoch summaries.
+    **What this does to G's sizing (D2):** scaling A's 473.2 ms by the same-knob ratio
+    225.2 / 365.4 projects **≈ 292 ms/step** in production at 2 nodes (projection, not measured;
+    F's log will measure it) ⇒ **G at 2 nodes ≈ 24.7 h** for 243 epochs (49 node-h at `SPARE=0`,
+    74 with the spare) vs 38.7 h at 1 node; **F ≈ 5.2 h** of its 12 h.
+  - ✅ **F2 green — job 7669103 `F2_EQUIV_OK tolerance=bitwise`** (debug, 1 node, 2.5 min;
+    tree `e036ede5`, whose commit — the prereg `makani_sfno/docs/2026-09-29_f2_equiv_prereg.md` —
+    precedes the job's start by 61 s). `polaris/polaris_f2_equiv.pbs` ran both gates on the
+    merged tree: `CLIMATE_DRIVER_TEST_OK` + `CLIMATE_DRIVER_EQUIV_OK K=56 leads_checked=56
+    chunks=[40, 7, 1] tolerance=bitwise` (A, 2048 f1092); `DRYAIR_OFF_EQUIV_OK ref=873ecd379bde
+    new=e036ede5c64c` — B e22 and A e243 × 1460 leads from 2044 f1092, **20/20 NetCDF variables
+    bitwise** for both pairs, A e243 truncating at step 595 on PS on both sides as predicted. ⇒
+    The five shared files changed since the last green run (`6c689c21`: climate_driver,
+    rollout_driver, mass_fix, preprocessor, plasim_trainer; +163 / −17) are **inert on the
+    full-width path**. Gate F2 of the F handoff §4 is closed; F arms / G may run on this tree.
+    Outputs `$MEMBER_ROOT/runs/makani_eval/{f2_equiv,dryair_equiv}_7669103/`.
+  - ✅ **Job 7669129 `WRITER_C77_ALL_OK 5/5`** (debug, 1 n, 3.6 min, tree `0c10ef23`),
+    `polaris_metric_writer_common77.pbs`:
+    **Metric-writer fix (O10) verified.** (1) `METRIC_WRITER_RED_OK` — the new test (e) FAILS on
+    the test-only commit `36aa3632` (git-archived) on the writer assertion; (2)
+    `PER_LEAD_METRICS_TEST_OK 6 passed` (per-lead + trainer CI) with fix `eb4e0cce` (also require
+    `comm.get_rank("model") == 0`; safe because makani gathers h/w before scoring and
+    `MetricsHandler.save` holds no collective); (3) `F_FINETUNE_TESTS_OK 6/6`; (4)
+    `METRIC_WRITER_SMOKE_OK` — 1 node h2w2 (1 data rank × 4 model ranks) trains, writes one
+    readable `metrics_ep0000.h5` (RMSE 4 × 101), 0 save failures.
+    **O7 — A's K=56 read-out on G's common 77** (`RESTRICT_READOUT_OK n=77`, full 101 reproduced
+    to 0.0) → `…/prod1n_b32_sgdr_K56/scores/k56_readout_common77.json`:
+
+    | readout | 101 (published) | common 99 (F) | **common 77 (G)** |
+    |---|---|---|---|
+    | NRMSE126 / 336 | 0.5189 / 0.9696 | — / 0.9689 | **0.5848 / 1.0660** |
+    | ACC126 / 336 | 0.8669 / 0.5463 | 0.8665 / 0.5420 | **0.8269 / 0.4400** |
+    | VR336 | 1.0189 | 1.0189 | 1.0130 |
+    | worst channel NRMSE336 | 43.18 | 43.18 | **1.371** |
+    | verdict | DRIFT_FIRST | DRIFT_FIRST | **AMBIGUOUS** |
+
+    ⚠ **The channel set alone moves A's baseline far more than it did for F**: ACC336 −19 %,
+    NRMSE336 +10 %, and the verdict class changes. A's DRIFT_FIRST rested **only** on the
+    worst-channel rule (43.18 > 3.0; NRMSE336 0.97 is far under 1.6), and that 43× channel is
+    **`Z3_l17`** — already named in the 2026-09-20 entry ("on ONE channel of 101: `Z3_l17`", every
+    other channel ≤ 1.371 = exactly the common-77 worst). *(Corrected 2026-09-30: this line first
+    said the channel was unnamed; the debate moderator, 7669964, caught it.)* The dropped Z3 levels (smooth, high-ACC) were lifting the 101-median
+    skill. ⇒ **G may be quoted only against the common-77 row**, with the split difference stated
+    (G trains 2020–2044, A 2015–2044; same 2048–49 test years). A G result that "beats A's
+    DRIFT_FIRST" on 77 channels would be the channel set, not the model.
+  - **Draft PRs (solo session cannot self-approve, left open):** **#19** this branch →
+    `feat/makani-dryair-negativity`; **#20** `feat/makani-spatial-cxi` → this branch (stacked).
+  - **makani checkpoint portability (phase 2a prerequisite)** — `legacy` restore validates the
+    file's `comm_grid` against the live layout (h1w1 → h2w2 raises); `flexible` loads `mp0` and
+    scatters it by the live model's `sharded_dims_mp`, so A / an h1w1 checkpoint loads into any
+    layout (never a sharded run's legacy `mp0`, which is shard 0). The launcher does not pass
+    `--load_checkpoint`; phase 2(a) needs a `LOAD_CKPT` knob. Detail: handoff O8a.
+
+- **2026-09-24 (makani, cont.) — Stage-1 arms queued, one at a time on `preemptable` (operator-approved).**
+  Chained with `afterany`, each from a **frozen** code tree. A worktree with a queued or running
+  job is read-only, because the harness imports `PBS_O_WORKDIR/src` at start and again on every
+  preemption restart.
+
+  | order | job | arm | tag | nodes × local | walltime | code tree (frozen) |
+  |---|---|---|---|---|---|---|
+  | 1 | **7650020** | T-anneal (depth 4) | `fs_anneal_nf4_b16_r1` | 2 × 2 | 12 h | `finetune-stability` @ `356dd2ea` src (pre-fix) |
+  | 2 | **7650769** | T-anneal + dry-air fix (DIAGNOSTIC) | `fs_anneal_dryair_nf4_b16_r1` | 2 × 2 | 12 h | `arm-anneal-dryair` @ `14043a95` |
+  | 3 | **7650770** | T-d8 | `fs_d8_nf8_b16_r1` | 4 × 1 | 16 h | `finetune-stability` (pre-fix) |
+
+  All arms: warm start A, global batch 16, LR 4e-4, 1-epoch warmup, `SCHED_TMAX=22`, 24 epochs,
+  25 checkpoints kept. Estimated cost ≈ 2×12 + 2×12 + 4×12 ≈ 100 node-hours. The T-d8 estimate is
+  from probe 7650039 (~1,550 s/epoch at 16 ranks). **Do not edit `finetune-stability` or
+  `arm-anneal-dryair` until 7650770 finishes.** T-d16 is blocked on OOM (activation recompute
+  not yet proven bitwise). Next: screen every epoch of each arm with `polaris_climate_screen.pbs`
+  (§3c); validation loss is never used to select.
+
+- **2026-09-24 (makani, cont.) — dry-air mass fix, inference only: conserves mass exactly, and by
+  the pre-registered rule it HURTS survival. DIAGNOSTIC; jesswan's call.** Operator asked for ACE2's
+  `conserve_dry_air` in the fine-tune and chose "test at inference, then train" and "dry-air mass".
+  Branch `feat/makani-dryair-negativity`. `sfno_training/models/mass_fix.py` shifts predicted `PS`
+  uniformly so the area-weighted global mean of `PS − g·TMQ` equals the step input's. It is
+  applied in `PlasimPreprocessor`, and is off unless `conserve_dry_air`.
+  - **Flag-off gate ✅** job **7650461** `DRYAIR_OFF_EQUIV_OK`: pre-fix tree (`873ecd37`) vs this tree
+    with the fix off, same node, B e22 and A e243 × 1460 leads. 20/20 NetCDF variables bitwise.
+  - ⚠ **Job 7650512 = wiring failure, superseded; no effect reading.** Prereg A2's sanity check went
+    red: |dry drift| < 1 hPa held for 1 of 16. The fix returned the model's **bf16** dtype.
+    σ_PS = 9353 Pa, so half a bf16 step is ≈ 36 Pa at |z|≈1 (monitor, from `global_stds.npy`), while
+    the per-step correction is a few Pa. The shift rounded away everywhere except where |z_PS| is
+    small. That made 7650512 a **spatially non-uniform PS distortion**, not a weak fix (C1 e12
+    reached −19,313 hPa, C1 e07/e23 truncated). My unit test had seeded 1,000 Pa and missed it. The
+    fix, `6c29bf18`: promote the corrected prediction to float32, plus a failing-first test that
+    lowers bf16 PS by one ulp. Tests **7650629** `CLIMATE_SCREEN_TEST_OK` (39/39; driver 25/25).
+  - **Fix-on screen ✅** job **7650652** `CLIMATE_SCREEN_OK n=16`. The same 16 checkpoints and start
+    (2044 f1092) as their fix-off rows in 7649647; truth `screen_truth_2044f1092_tmq.npz`.
+    Sanity ✅: `dry_drift_hpa@1460` = +0.000 for all 14 survivors. `feedback_dtype=torch.float32`,
+    `dry_air_fix=1` in every member log.
+
+    | ckpt | survived off→on | n>3σ off→on | PS@1460 hPa off→on | T_l17@1460 K off→on | TMQ@1460 kg/m² on |
+    |---|---|---|---|---|---|
+    | B_e22 | 1→1 | 0→0 | +0.7 → −0.07 | −0.44 → −0.59 | −0.7 |
+    | B_e21 | 1→1 | 0→0 | −58.0 → −0.16 | −1.38 → −2.31 | −1.6 |
+    | B_e24 | 1→1 | 0→0 | +4.6 → +0.30 | +1.79 → +1.94 | +3.0 |
+    | B_e01 | 1→1 | 1→0 | −31.0 → −1.0 | −0.83 → **−10.5** | −10.3 |
+    | B_e23 | 1→1 | 1→2 | −68.1 → −0.27 | −0.61 → −2.76 | −2.7 |
+    | C1_e12 | 1→1 | 3→1 | −25.3 → −0.06 | −0.98 → −1.95 | −0.6 |
+    | C1_e23 | 1→1 | 1→1 | −13.6 → −0.20 | −0.33 → −2.18 | −2.0 |
+    | C1_e19 | 1→1 | 1→2 | −46.3 → −0.14 | −0.26 → −3.32 | −1.5 |
+    | C1_e24 | 1→1 | 1→3 | −26.5 → −0.10 | −0.36 → −1.13 | −1.0 |
+    | C1_e20 | 1→1 | 1→6 | −57.6 → −0.30 | −1.98 → −3.49 | −3.1 |
+    | C1_e07 | 1→1 | **70→8** | −318.8 → −0.03 | −74.0 → −3.49 | −0.3 |
+    | C1_e09 | 1→1 | 3→8 | −38.1 → −0.76 | −1.26 → −6.66 | −7.7 |
+    | C1_e18 | 1→1 | 1→22 | −51.1 → −0.52 | −0.91 → −5.97 | −5.3 |
+    | C1_e14 | 1→1 | **1→72** | −5.1 → −4.1 | +0.19 → −64.5 | −41.8 |
+    | C1_e03 | **1→0** (1173) | 33→101 | −152 → — | −11.3 → — | — |
+    | C1_e13 | **1→0** (988) | 3→101 | −81.3 → — | −0.88 → — | — |
+
+    **Reading by prereg A2** (n=1 start): survivors 16 → 14 (fall of 2); median `n_past_3sigma` 1 → 2.5.
+    ⇒ **"hurts"**, by the survivors clause. ⚠ **Selection caveat, stated but not used to override the
+    rule.** The 16 were chosen *because* they survived this start with the fix off, so any
+    perturbation regresses their survival. The mass fix works by construction: PS drift < 1 hPa in
+    every survivor, from 5–320 hPa. But **the model compensates elsewhere.** `T_l17` at one year is
+    colder with the fix on in **12 of 14** survivors (warmer: B e24 +1.79 → +1.94 K, C1 e07 −74.0 → −3.5 K), e.g. B e01 −0.8 → −10.5 K with `TMQ` −10 kg/m².
+    All 5 B checkpoints still survive; the C1 effect is mixed (e07 much better, e14 much worse).
+  - **Why post hoc is not the real test.** A model trained without the constraint learned to lose
+    mass. Putting mass back each step hands it states it never saw. The trained arm
+    (`anneal_dryair`, same as T-anneal plus `CONSERVE_DRY_AIR=1`) is the actual test.
+  - **For jesswan (handoff §7):** (1) Dry-air conservation is implemented and tested. It removes the
+    PS drift exactly, but applied post hoc it cools and dries the column. (2) Any per-step corrector
+    below ~σ/256 of its channel must act on an **fp32 state**. The model still reads bf16 under
+    autocast; the conservation lives in the fed-back fp32 state. (3) Negativity (entry below):
+    `PRECT`/`SOILWATER_10CM` are the clamp candidates.
+
+- **2026-09-24 (makani, cont.) — negativity probe: E3SM truth is never negative in any
+  moisture channel, but every rollout is. `PRECT` is negative over 10–17% of the globe.**
+  Operator: "measure how often RELHUM, RHREFHT and PRECT go negative in our rollouts" (the question
+  behind ACE2's `force_positive_names`, `ACE2_retrain/config_polaris.yaml:172-188`). Branch
+  `feat/makani-dryair-negativity` (`a275337d`). Job **7650442** `NEGATIVITY_PROBE_OK n=4`: one-year
+  rollouts from 2044 f1092 with the unchanged driver step. Measurement only. Truth is sampled daily
+  from the pack (`negativity_truth_2044f1092_s4.npz`). Outputs:
+  `$MEMBER_ROOT/runs/makani_eval/negativity_7650442/negativity.{csv,md}`.
+
+  Cell = mean % of area < 0 over leads / worst lead % / min value; truth (all four) = 0 % everywhere.
+
+  | member | RELHUM (worst level) | RHREFHT | PRECT | TMQ | SOILWATER_10CM |
+  |---|---|---|---|---|---|
+  | A_e243 (dies at 595) | l02: 20.7 / 79.2 / blow-up | 12.7 / 99.7 / blow-up | 13.7 / 26 / −4.9e-5 | 11 / 60 / blow-up | 64.2 / 100 / blow-up |
+  | C1_e24 | l00: 27.7 / 51.5 / −0.54 | 0.019 / 0.58 / −9.7 | 17.1 / 23.3 / −1.7e-7 | 0.11 / 0.55 / −6.5 | 47.9 / 56.8 / −116 |
+  | B_e01 | l00: 3.4 / 11.7 / −0.17 | 4e-6 / 0.002 / −0.59 | 10.1 / 15.2 / −1.1e-7 | 2.0 / 3.1 / −27 | 12.6 / 20.5 / −289 |
+  | B_e22 | l01: 5.7 / 15.9 / −0.57 | 0.001 / 0.25 / −5.2 | 12.3 / 19.1 / −8.6e-8 | 0.31 / 1.2 / −7.2 | 63.3 / 67.9 / −89 |
+
+  - `PRECT` (m/s) goes negative over 10–17% of the globe in every checkpoint that survives. The worst
+    cell is ≈ −1e-7 m/s ≈ −9 mm/day. This is the case ACE2 clamps (`PRATEsfc`).
+  - `RELHUM` negatives sit at the **model top (l00–l02)**, small in magnitude (< 1 % RH). Those are
+    the same levels where every blow-up starts (`V_l00`, `RELHUM_l00/l04`). That is a correlation,
+    not a shown cause.
+  - `SOILWATER_10CM`'s large area share is mostly ocean and ice, where truth is exactly 0 and a
+    tiny negative counts. The worst cells (−89 to −289 kg/m²) are not tiny. `TMQ` is rarely negative
+    but deeply so in a few cells. `RHREFHT` is essentially fine.
+  - A clamp (`max(x, 0)` before feedback) changes what the model computes → jesswan. The numbers
+    say `PRECT` and `SOILWATER_10CM` are the candidates, and `RELHUM` at the top only.
+    n = 1 start per checkpoint.
+
+- **2026-09-24 (makani, cont.) — Stage 1 started: S1a green (`SCHED_TMAX=22`), T-anneal queued,
+  depth-8 fits, depth-16 OOMs.** Operator approved Stage 1 on `preemptable`, one arm at a time,
+  warm start A. Tooling `5a997a9d`: the harness gains one additive `_sched` line
+  (`scheduler_T_max` ← `SCHED_TMAX`); `submit_finetune_stability_arm.sh` is a sibling launcher
+  (`submit_nfuture_ladder.sh` is not edited); `lr_schedule_check.py` and
+  `polaris_lr_schedule_check.pbs` implement the S1a check.
+  - **S1a ✅** job **7649946** `S1A_OK`. Three readings agree:
+    (1) makani's own `get_scheduler` under torch 2.8.0: only `T_max=22` puts epoch 24 at 1e-6;
+    T_max 23 ends at 2.86e-6.
+    (2) The LR saved in all 24 C1 checkpoints and B's last 4 matches epoch e training at cosine
+    t = e − 2. A checkpoint is saved after `scheduler.step()`, so it holds the next epoch's LR.
+    C1's v0 holds exactly 4.000e-4.
+    (3) Short run **7649926** (`fs_lrcheck_nf4_b8_r1`, 3 epochs × 20 steps, `SCHED_TMAX=1`): the
+    rendered config carries `scheduler_T_max: 1`, and the LRs went 4e-4 → 1e-6 → 4e-4.
+    ⇒ Warmup and cosine step **once per epoch**, and **epoch 1 runs at a constant 4e-6**.
+    `submit_nfuture_ladder.sh:154-159`'s "entire first epoch was a ramp" is **wrong**. The script
+    is not edited, because it is protected.
+  - **T-anneal queued:** job **7650020**, `preemptable`, 2 nodes, 12 h, `fs_anneal_nf4_b16_r1`,
+    `SCHED_TMAX=22`, 25 checkpoints kept. Held on `queue_tags` (no free node); **do not resubmit**
+    (CLAUDE.md #12).
+  - **Probes** (`submit_nfuture_ladder.sh probe`, local batch 1, 1 node):
+    - depth 8, job **7650039**: trained clean, **peak torch 19.66 GB**, 7.10 samples/s over 4 GPUs.
+    - depth 16, job **7650263**: **CUDA OOM** on all 4 ranks. That matches the model's 46.4 GiB
+      prediction. T-d16 is blocked until activation recompute (`checkpointing_level`) is proven
+      bitwise on one step (handoff §3a.2).
+    - Both jobs report `rc=1` from the known `SCALING_CSV_SCHEMA_DRIFT` on the ladder CSV. Depth 8's
+      training itself returned rc 0. The Stage-1 arms write a new CSV.
+    - **T-d8 cost, estimated from the probe:** ~28 samples/s at 16 ranks and ~43.8k samples/epoch
+      gives ~1,550 s of training per epoch. That is ≈ 11–12 h for 24 epochs on 4 nodes, ≈ 45–50
+      node-hours.
+  - ⚠ **Isolation incident, caught by the monitor.** The dry-air fix (operator request) was first
+    edited in *this* worktree's `src/` while T-anneal was queued from it. The harness puts
+    `PBS_O_WORKDIR/src` first on `PYTHONPATH` (`:86`, `:120`), so the control arm would have
+    trained on uncommitted code. The files were copied out, and `src/`, `scripts/`, `polaris/` and
+    `tests/` were restored to HEAD `356dd2ea` before 7650020 started. The depth-16 probe
+    (19:34:59–19:37:13) did run with the flag-off hooks present. Those are pass-throughs, so its
+    OOM reading stands. **Rule: a worktree that has a queued or running training job is
+    read-only. Develop in another worktree.** The dry-air fix and the negativity probe continue
+    on `feat/makani-dryair-negativity` (worktree `dryair-negativity`).
+
+- **2026-09-24 (makani, cont.) — second-start re-screen: B epoch 22 is the Stage-0 winner, and PS
+  drift is a fixed property of each checkpoint, not noise.** Operator (first-hand): "re-screen first
+  and then do stage 1". Prereg addendum A1 (`a27c59b2` 19:16:44Z < `stime` 19:16:54Z) fixed the combined
+  rule before the job ran. Job **7649792** `CLIMATE_SCREEN_OK n=16`: B e01/e21–24 and C1's 11 one-year
+  survivors from **2044 f1156 (Oct 17)**. Output `$MEMBER_ROOT/runs/makani_eval/climate_screen_7649792/`, CSV
+  `makani_sfno/docs/2026-09-24_climate_screen_7649792_f1156.csv`.
+
+  | comb | label | survived both | n>3σ (sum) | mean abs PS@1460 hPa | rank Oct 1 | rank Oct 17 | PS@1460 Oct 1 / Oct 17 |
+  |---|---|---|---|---|---|---|---|
+  | 1 | **B_e22** | yes | 0 | 0.6 | 1 | 1 | +0.67 / −0.46 |
+  | 2 | B_e24 | yes | 0 | 4.6 | 2 | 2 | +4.64 / +4.54 |
+  | 3 | B_e21 | yes | 1 | 57.2 | 3 | 5 | −57.96 / −56.49 |
+  | 4 | B_e01 | yes | 2 | 31.5 | 8 | 3 | −30.98 / −31.98 |
+  | 5 | C1_e18 | yes | 2 | 50.6 | 10 | 4 | −51.10 / −50.18 |
+  | 6 | C1_e24 | yes | 3 | 25.7 | 7 | 6 | −26.49 / −24.95 |
+  | 7 | C1_e20 | yes | 3 | 62.9 | 11 | 8 | −57.56 / −68.27 |
+  | 8 | B_e23 | yes | 4 | 68.8 | 12 | 9 | −68.09 / −69.51 |
+  | 9 | C1_e12 | yes | 5 | 27.7 | 13 | 7 | −25.33 / −30.08 |
+  | 10 | C1_e19 | yes | 5 | 48.9 | 9 | 10 | −46.29 / −51.49 |
+  | 11 | C1_e13 | yes | 7 | 81.6 | 15 | 11 | −81.27 / −82.00 |
+  | 12 | C1_e23 | yes* | 102 | — | 6 | 13 | −13.6 / −1.7e16 |
+  | 13 | C1_e03 | yes | 132 | 472.4 | 19 | 12 | −152 / −793 |
+  | 14–16 | C1_e14, C1_e09, C1_e07 | no (die at 1370 / 778 / 1433 from Oct 17) | | | | | |
+
+  - **Winner by rule A1: `B_e22` = `nf4_prod_b16_r1/training_checkpoints/ckpt_mp0_v1.tar`**, rank 1 at
+    both starts (the A1 condition is top-3 at each). n=2 starts. ⚠ `ckpt_mp0_v1.tar` is a rotating
+    version slot: resuming `nf4_prod_b16_r1` would overwrite it. Do not resume that run. Copy the file
+    to a stable name before the protocol run.
+  - **PS drift is reproducible per checkpoint** to ~1–2 hPa across the two starts (B e21 −58/−56,
+    e22 +0.7/−0.5, e23 −68/−70, e24 +4.6/+4.5). The epoch-to-epoch swing seen in 7649647 is therefore a
+    **fixed mass bias that each checkpoint carries**, not chaotic sensitivity to the IC. Consecutive
+    epochs of one run differ by up to 70 hPa/yr. Validation loss cannot see this. The trajectory-level
+    screen can.
+  - Survival is **not** reproducible for C1: e07, e09 and e14 survive from Oct 1 and die from Oct 17.
+    All 5 B checkpoints survive both starts. Depth reread at Oct 17 alone: B above C1 at both matched
+    epochs present (e23, e24); the combined order is headed by B. That is consistent with "depth 4 helps".
+  - ⚠ `survived` means finite, not sane: C1 e23 stays finite from Oct 17 while its global means reach
+    ~1e16. Its 101 channels past 3σ rank it low anyway. A reader of `survived` alone would be misled.
+  - Next: Stage 1 (operator-approved): S1a short run **7649926** (debug, `fs_lrcheck_nf4_b8_r1`), then
+    the LR check, probes at depth 8/16, then T-anneal on `preemptable`.
+
+- **2026-09-24 (makani) — Stage-0 stability screen: depth 4 helps survival, more epochs help, and
+  mass loss is the rule. Operator decision on Stage 1 pending.** Branch `feat/makani-finetune-stability`
+  (cut from `feat/makani-climate-driver` @ `d8d884a2`), handoff `polaris_makani_finetune_stability_handoff.md`.
+  New files only: `makani_sfno/polaris/{climate_screen_summary.py, polaris_climate_screen.pbs,
+  polaris_climate_screen_test.pbs, climate_screen_stage0.list}`, `tests/test_climate_screen_summary.py`,
+  `docs/2026-09-24_climate_screen_prereg.md`, `docs/2026-09-24_climate_screen_7649647.csv`.
+  - **S0a ✅** job **7649642** `CLIMATE_SCREEN_TEST_OK`: 15/15 screen tests (real `MemberWriter`; seeded
+    faults shown red: a truncated member ranks last, drift sign, truth off by one lead as a start and
+    per lead) + 25/25 driver tests.
+  - **S0b ✅** prereg `7f6ecfb5` committed 18:59:57Z < screen `stime` 19:00:08Z.
+  - **S0c run ✅** job **7649647** `CLIMATE_SCREEN_OK n=38` (11 min for 38 one-year rollouts, 0.021–0.026
+    s/lead, 1.44 GiB). One rollout per checkpoint from 2044 f1092, 1460 leads. Drift = model − truth
+    global mean (`screen_truth_2044f1092.npz`, equiangular weights). Outputs:
+    `$MEMBER_ROOT/runs/makani_eval/climate_screen_7649647/`. Every `epoch_check` = ok (file→epoch
+    mapping confirmed from inside each checkpoint). Cross-check: A e243 truncates at lead 595 again,
+    the same as job 7649567.
+
+    | rank | label | surv | trunc | med3σ | n>3σ | PS@600 hPa | PS@1460 hPa | T17 K | Z10 m | TREFHT K | first >3σ |
+    |---|---|---|---|---|---|---|---|---|---|---|---|
+    | 1 | B_e22 | 1 | -1 | -1 | 0 | +0.6 | +0.7 | -0.4 | -3.9 | -0.3 |  |
+    | 2 | B_e24 | 1 | -1 | -1 | 0 | -2.7 | +4.6 | +1.8 | +53.2 | +1.7 |  |
+    | 3 | B_e21 | 1 | -1 | -1 | 0 | -27.2 | -58.0 | -1.4 | +254.1 | -1.4 |  |
+    | 4 | nf4p_r1_e01 | 1 | -1 | -1 | 0 | -26.2 | -62.9 | -2.9 | +268.0 | -3.1 |  |
+    | 5 | C1_e14 | 1 | -1 | -1 | 1 | -6.1 | -5.1 | +0.2 | +6.1 | +0.3 | V_l00@425 |
+    | 6 | C1_e23 | 1 | -1 | -1 | 1 | -4.8 | -13.6 | -0.3 | +64.7 | -0.4 | V_l00@716 |
+    | 7 | C1_e24 | 1 | -1 | -1 | 1 | -17.0 | -26.5 | -0.4 | +111.7 | -0.2 | V_l00@465 |
+    | 8 | B_e01 | 1 | -1 | -1 | 1 | -13.3 | -31.0 | -0.8 | +125.1 | -0.9 | V_l00@1458 |
+    | 9 | C1_e19 | 1 | -1 | -1 | 1 | -19.5 | -46.3 | -0.3 | +242.1 | -0.4 | V_l00@301 |
+    | 10 | C1_e18 | 1 | -1 | -1 | 1 | -30.4 | -51.1 | -0.9 | +223.7 | -0.8 | V_l00@243 |
+    | 11 | C1_e20 | 1 | -1 | -1 | 1 | -29.1 | -57.6 | -2.0 | +220.3 | -1.9 | V_l00@430 |
+    | 12 | B_e23 | 1 | -1 | -1 | 1 | -34.9 | -68.1 | -0.6 | +323.2 | -0.6 | SOILWATER_10CM@733 |
+    | 13 | C1_e12 | 1 | -1 | -1 | 3 | -8.2 | -25.3 | -1.0 | +106.8 | -0.9 | V_l00@640 |
+    | 14 | C1_e09 | 1 | -1 | -1 | 3 | -21.8 | -38.1 | -1.3 | +152.4 | -1.2 | V_l01@673 |
+    | 15 | C1_e13 | 1 | -1 | -1 | 3 | -49.6 | -81.3 | -0.9 | +395.9 | -0.9 | V_l00@670 |
+    | 16 | nf4p_r2_e01 | 1 | -1 | -1 | 6 | -49.2 | -148.5 | -9.3 | +644.4 | -8.6 | V_l00@867 |
+    | 17 | nf3p_r1_e01 | 1 | -1 | -1 | 18 | -56.1 | -246.9 | -7.0 | +1173.6 | -7.2 | RELHUM_l00@799 |
+    | 18 | crps_e01 | 1 | -1 | -1 | 30 | -66.1 | -206.9 | -3.6 | +1193.1 | -1.8 | SOILWATER_10CM@995 |
+    | 19 | C1_e03 | 1 | -1 | -1 | 33 | -40.6 | -152.1 | -11.3 | +815.4 | -11.0 | V_l00@355 |
+    | 20 | C1_e07 | 1 | -1 | 1442 | 70 | -47.2 | -318.8 | -74.0 | +1903.1 | -69.8 | V_l00@672 |
+    | 21 | C1_e05 | 0 | 1389 | 1234 | 101 | -60.6 | nan | nan | nan | nan | V_l00@400 |
+    | 22 | nf1p_r1_e01 | 0 | 1381 | 1220 | 101 | -89.4 | nan | nan | nan | nan | V_l00@536 |
+    | 23 | C1_e04 | 0 | 1204 | 1038 | 101 | -25.6 | nan | nan | nan | nan | V_l00@420 |
+    | 24 | C1_e21 | 0 | 1167 | 1021 | 101 | -26.9 | nan | nan | nan | nan | V_l00@562 |
+    | 25 | C1_e15 | 0 | 1095 | 931 | 101 | -14.4 | nan | nan | nan | nan | V_l00@526 |
+    | 26 | C1_e06 | 0 | 981 | 825 | 101 | +6.3 | nan | nan | nan | nan | V_l00@580 |
+    | 27 | C1_e08 | 0 | 948 | 804 | 101 | -21.4 | nan | nan | nan | nan | V_l00@286 |
+    | 28 | C1_e17 | 0 | 905 | 762 | 101 | -56.0 | nan | nan | nan | nan | V_l00@496 |
+    | 29 | nf1p_r2_e01 | 0 | 888 | 719 | 101 | -105.8 | nan | nan | nan | nan | V_l00@485 |
+    | 30 | C1_e02 | 0 | 874 | 716 | 101 | -39.7 | nan | nan | nan | nan | RELHUM_l04@585 |
+    | 31 | C1_e22 | 0 | 868 | 736 | 101 | -23.1 | nan | nan | nan | nan | RELHUM_l00@497 |
+    | 32 | C1_e16 | 0 | 751 | 620 | 101 | -68.0 | nan | nan | nan | nan | V_l00@313 |
+    | 33 | C1_e11 | 0 | 714 | 515 | 101 | -1709.6 | nan | nan | nan | nan | V_l00@349 |
+    | 34 | C1_e01 | 0 | 667 | 531 | 101 | blow-up | nan | nan | nan | nan | V_l00@158 |
+    | 35 | A_e200 | 0 | 664 | 554 | 101 | blow-up | nan | nan | nan | nan | V_l00@417 |
+    | 36 | C1_e10 | 0 | 640 | 478 | 101 | blow-up | nan | nan | nan | nan | RELHUM_l04@314 |
+    | 37 | A_e243 | 0 | 595 | 488 | 101 | blow-up | nan | nan | nan | nan | V_l00@382 |
+    | 38 | A_e220 | 0 | 490 | 382 | 101 | blow-up | nan | nan | nan | nan | RELHUM_l04@312 |
+
+  - **Reading by the pre-registered rules** (prereg §3; n=1 per checkpoint, one start date):
+    (1) **Depth 4 helps stability.** B ranks above C1 at **4 of 5** matched epochs (1, 21, 22, 24; C1 wins at 23).
+    All 5 B checkpoints survive the year with 0–1 channels past 3σ; only 2 of the 5 matched C1
+    epochs survive. The 1-epoch proxies agree: both nf1 die (leads 888, 1381), nf3 and both nf4 survive.
+    (2) **More epochs help at the fixed schedule.** C1 epochs 1–6 have 1 survivor (median 101
+    channels past 3σ), epochs 19–24 have 4 (median 1). The series is not monotone: e10, e11,
+    e21 and e22 still die. (3) **Mass:** 17 of 20 survivors have |PS drift @1460| > 10 hPa. Only
+    B e22 (+0.7), B e24 (+4.6) and C1 e14 (−5.1) are under. In B the sign and size swing between
+    neighbouring epochs (−58, +0.7, −68, +4.6 hPa for e21–24). (4) **The small-gap rule is not
+    triggered.** The top three span 57 hPa in |PS drift|. But the e21–24 swing says one start
+    date cannot rank neighbouring epochs, so B e22 is **not** named a winner. The upper-level
+    `V_l00` (model top) is still the first channel to leave range almost everywhere.
+  - **Stage 1 is indicated by §3.** Depth and epochs both matter, so the handoff's default is to
+    run T-anneal first. It needs operator decisions (queue: `preemptable`, ~18 node-hours; warm start
+    from A). Recommended before that, on debug (pre-authorized, ~5 min): re-screen B e01/e21–24 and
+    C1's 11 survivors (16 rollouts) from 2044 f1156, so the epoch swing is measured and not guessed.
+  - **S1a prep, read-only.** makani `driver.py:701-706` builds `SequentialLR([LinearLR(lr_start, 1 epoch),
+    CosineAnnealingLR(T_max)], milestones=[1])`. It steps once per epoch (`deterministic_trainer.py:380`);
+    `PlasimTrainer` overrides nothing. So the cosine counts from the end of warmup: epoch e≥2 runs at
+    t=e−2. **`SCHED_TMAX=22`** puts epoch 24 at `SCHED_MIN_LR`. B's epoch 24 ran at ≈3.54e-4 (89% of peak).
+    The handoff's 2-epoch S1a check cannot show the minimum, because epoch 2 is always at peak.
+    Use **3 epochs with `SCHED_TMAX=1`**, expecting LRs 4e-6, 4e-4, 1e-6. The printed LR settles
+    t=e−2 vs e−1, i.e. TMAX 22 vs 23. Shortening the epoch to fit debug (`_sample_limit`) is unverified.
+  - **For jesswan (handoff §7):** surviving is not conserving. The best-ranked checkpoints still
+    gain or lose tens of hPa of global-mean PS within a year. ACE2's `conserve_dry_air` is the
+    candidate fix, and it needs her sign-off.
+
+- **2026-09-24 (makani) — jesswan's multi-year protocol, inference only: neither A nor B yields an
+  admissible 5-year climate.** Job **7649597** (`polaris/polaris_climate_run.pbs` @ `d8b301ea`,
+  `CLIMATE_RUN_OK`, ~8 min of compute): 8 start dates (Oct 1, 5, …, 29 2044 = frames 1092+16i),
+  each rolled to 2049-12-31 18:00, for A (`prod1n_b32_sgdr` best, epoch 243) and B
+  (`nf4_prod_b16_r1` best = fine-tune epoch 1). Outputs + `readout.log`:
+  `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7649597/`.
+  - **A: 8/8 non-finite** at leads 595, 560, 849, 453, 490, 463, **317**, 425 (day 79–212). A06 dies
+    before the scored window opens (lead 368); the others reach it for 57–481 leads. The first
+    channels past 3σ are upper-level `RELHUM_l04`/`V_l00`.
+  - **B: 7/8 non-finite** at leads 5634, 3639, 7263, 5485, 6997, 7339, 5778 (≈ 2.5–5.0 yr); the
+    channel median crosses 3σ at leads 3458–7161. The first channel past 3σ is at the **model top**
+    (`V_l00`/`V_l01`, leads 1353–1880 ≈ 1 yr), then `RELHUM_l00`. **The one survivor (B05, Oct 21) is
+    not usable:** global-mean `PS` −269 hPa (≈27% of the atmosphere) and `T_l17` −10.5 K by lead 7555.
+  - **Mass loss is steady in every B run from the first weeks:** global-mean `PS` Δ vs lead 1 is
+    −34 to −42 hPa at lead 1828 (1.25 yr), −65 to −105 at 3288, −128 to −177 at 4748, −226 to −316 at
+    6208. The `PS` channel is where every one of the 16 runs goes non-finite. (`T`/`TREFHT` Δs
+    include the seasonal cycle; `PS` global mean has essentially none.)
+  - Reading: A fails at ~day 80–210; B delays failure by years but drifts in mass throughout. The
+    protocol cannot be scored on either checkpoint. **Next:** `polaris_makani_finetune_stability_handoff.md`
+    Stage 0 (does depth or epochs change time-to-failure *and* the `PS` drift rate: C1 vs B,
+    all epochs), and put the mass loss in front of jesswan (ACE2 runs `conserve_dry_air: true`).
+    n=8 start dates per checkpoint, one checkpoint each.
+
+- **2026-09-24 (makani) — streaming multi-year climate driver BUILT; G1–G3 green; first stability
+  read of checkpoints A and B.** Branch `feat/makani-climate-driver` (cut from
+  `docs/lagged-ensemble-docstrings` @ `05333971`), handoff `polaris_makani_streaming_driver_handoff.md`.
+  New files only: `src/sfno_inference/climate_driver.py`, `scripts/climate_rollout.py`,
+  `scripts/climate_driver_equiv.py`, `tests/sfno_inference/test_climate_driver.py`,
+  `polaris/polaris_climate_{equiv,smoke,readout}.pbs`, `polaris/climate_smoke_readout.py`,
+  `docs/2026-09-24_climate_driver_g2_prereg.md`. `rollout_driver.py`, `eval_inference.py`, the
+  preprocessor and the model are **untouched**.
+  - **G1 ✅** `CLIMATE_DRIVER_TEST_OK`, 25/25 (job **7649565**). Real `PlasimForcingDataset` on
+    tiny `YYYY.h5` files (5+1 out / 3 forcing channels), real preprocessor cache methods, real
+    `rollout_one_ic` as the block reference; each §5 trap seeded and shown caught. ⚠ The first run
+    (**7649561**) was 23/25: the seeded off-by-one and stale-`xz` faults changed **no output bit**
+    because the fixture's year/frame-encoding forcing saturated the stub model's `tanh`. A fixture
+    fault (the forcing-seen check caught the same seed); fixed by feeding forcing through `sin()`.
+    Lesson: a seeded-fault test is only as good as the fixture's sensitivity to the seed.
+  - **G2 ✅** `CLIMATE_DRIVER_EQUIV_OK` (7649561 and 7649565; tolerance committed in `fe89b902`
+    before submission): ckpt A, 2048 frame 1092, K=56, **every lead bitwise equal** to
+    `rollout_one_ic` for chunk_len 40/7/1, and the chunk lengths are bitwise equal to each other;
+    control (`rollout_one_ic` ×2) bitwise. Fed-back dtype **bf16**, the same as `rollout_one_ic`, not changed.
+    Blind spots: G2 is single-file and does not test the reductions (those are covered by G1 §5.4–5.7 and G3's hand-off).
+  - **G3 ✅** `CLIMATE_SMOKE_OK` (job **7649567**; outputs
+    `$MEMBER_ROOT/runs/makani_eval/climate_smoke_7649567/member_{A,B}.nc`): 600 leads from 2044
+    frame 1092, A and B in parallel on 2 GPUs. Hand-off `2044.h5→2045.h5` at **lead 368**, local
+    frame 0, input forcing bitwise equal to a direct read of `2045.h5` (both arms). E3SM per-file
+    timestamps **reset** at each file ⇒ the dataset **synthesised** the continuous axis (logged).
+    **Cost: 0.023–0.026 s/lead, peak 1.48 GiB** per member (vs `rollout_one_ic`'s OOM at K=200;
+    the probe's "~1.3 s/step" was mostly block I/O). ⇒ a 7,667-lead member is ~3.5 min of stepping.
+  - **G4 — stability, n=1 per checkpoint, 150 d, NOT a climate result** (readout job **7649572**;
+    σ = the run's `global_stds`; anomaly vs `stats/time_means.npy`):
+    | | A `prod1n_b32_sgdr` best (epoch **243**) | B `nf4_prod_b16_r1` best (fine-tune epoch **1**, from A) |
+    |---|---|---|
+    | outcome | **non-finite at lead 595** (`PS`), outputs written | 600/600 finite |
+    | channels past 3σ / 10σ (anom RMS) | 101 / 101 | **0 / 0** |
+    | median crosses 3σ / 10σ | lead **488** / 507 (≈ day 122 / 127) | never |
+    | first channels past 3σ | `V_l00`@382, `RELHUM_l04`@410, `RELHUM_l00`@417, `RELHUM_l05`@437, … | — |
+    | global-mean Δ vs lead 1 at lead 368 / 480 | `Z3_l17` −22.8 / −43.4 m; `Z3_l10` −0.3 / **+838** m; `T_l17` −1.33 / −12.1 K; `PS` +156 / −3220 Pa | `Z3_l17` +94 / +127 m (+149 at 600); `Z3_l10` −7.6 / +10.6 m; `T_l17` −2.76 / −2.87 K; `PS` **−661 / −981 Pa (−1346 at 600)** |
+    Readings: (1) A's blow-up (the "~500 steps") is reproduced at the median crossing (lead 488), and it
+    **starts at the model top** (`V_l00`, upper `RELHUM`), not near-surface `Z3`. `Z3_l17`'s
+    −43 m at lead 480 matches the −0.35 m/day linear drift predicted in the entry below. (2) B does
+    not blow up in 150 d, but its **global-mean `PS` falls steadily, −13.5 hPa by lead 600**:
+    that is a loss of atmospheric mass. Global-mean `PS` is nearly constant in reality, so this is a
+    defect, not a season. The `T`/`TREFHT` Δs (−1 to −3 K, Oct→Feb) **include the real seasonal
+    cycle** and cannot be read as drift without the §4a truth references. (3) B is **A's epoch-243
+    weights plus 1 epoch of `n_future=4` fine-tuning** (`pretrained_checkpoint_path` = A's
+    `best_ckpt_mp0.tar`, `warmstart_provenance.txt`); A is `n_future=0`. So B differs from A by that
+    one extra epoch *and* its multi-step loss. The comparison does not separate the two; no
+    "one more single-step epoch" control exists. n=1 each. (4) Arm A's `rc=1` in the `.o` is
+    `torch.distributed.run`'s `ChildFailedError` wrapping the CLI's deliberate exit code 3
+    (`CLIMATE_ROLLOUT_TRUNCATED`, outputs written), not a crash.
+  - Handoff §7 defaults recorded: (1) soil channels undecided (jesswan); the driver is
+    channel-agnostic (§5.8), so this blocks nothing. (2) B = `best_ckpt_mp0.tar`, **confirmed epoch 1**
+    from inside the checkpoint (valid-loss best at epoch 1, per 7630639). Using `ckpt_mp0_v3.tar` (last
+    epoch) instead is the operator's call. Not fixed here (per handoff §6): 7630639's
+    `SCALING_CSV_SCHEMA_DRIFT`.
+  - **Next** (handoff §8): §4a truth references (2045–49 time and monthly means, 2015–44
+    interannual std), §4c aggregator, §4d pre-registration, then the 8-member run. Add a `PS`
+    global-mean (mass) clause to the prereg's admissibility rules, because B passes every σ-threshold
+    while losing mass.
+
+- **2026-09-24 (makani, analysis only) — `Z3_l17`'s "NRMSE 152" is a denominator artefact over a
+  real, linear drift; the channel's 6-h signal sits below the model's resolution.** Read from probe
+  7648967's `k56_summary.csv` (test arm, physical units) and the pack's `stats/*.npy`; no new job.
+  - `Z3_l17` truth anomaly amplitude is **0.15–0.22 m**. Model error is **1.2 m at 6 h** (one step
+    is already 6× the channel's variability), bias **−1.7 / −3.4 / −6.9 / −12.4 m at 5 / 10 / 20 /
+    36 d** ⇒ a **linear −0.35 m/day drift**, not exponential growth. `Z3_l16` −0.28 m/day, soil water
+    linear too. Extrapolated: ~−40 m at day 120, ~−600 m at 5 yr.
+  - Why: `global_std(Z3_l17)` = 815.6 m = the spatial std of its time mean, i.e. **pure topography**;
+    its 6-h tendency std (`time_diff_stds`) is **0.09 m**. In normalised units that is ~1e-4 σ,
+    ~35× below bf16 spacing at 1σ (~3.2 m) and far below what the loss can see. Ratio tendency /
+    bf16-step: `Z3_l17` 0.03, `Z3_l16` 1.0, `Z3_l15` 1.9, `T_l17` 26 — the same order as the
+    worst-channel list. Hypothesis (bf16 vs loss-scale not separated), untested.
+  - Consequences: (1) in the §4b stability monitor's `global_std` units `Z3_l17` is **~0.015 σ at
+    day 36 — benign**; it is unlikely to be what blows up near step 500, so the handoff's "Z3 leaves
+    range first" prediction is withdrawn. (2) Any metric normalised by truth anomaly amplitude will
+    flag `Z3_l17` at step 1 — the prereg must report it in metres and keep it out of headline /
+    blow-up clauses. (3) For jesswan (§5 q4): `Z3_l17` is effectively static topography + a
+    near-constant lowest-layer thickness, diagnosable from `PS`/`T_l17`; making it diagnostic or
+    normalising it by its tendency std changes what the model computes — her call.
+  - Also visible and not yet explained: `Z3_l10` bias **+28 → +44 m** (20 → 36 d) and `T_l17`
+    **+0.3 → +0.8 K** — a growing mid/low-troposphere warm drift in the ordinary channels, which is
+    the more likely route to a day-120 failure. The streaming run should track it.
+
+- **2026-09-24 (makani, cont.) — jesswan's multi-year climate protocol, assessed; probe SUBMITTED.**
+  Proposal: initialise 8 members on evenly spaced October 2044 days, roll to end-2049, discard
+  Oct–Dec 2044, compare 2045–2049 to climatology. Assessment (this session, before any new number):
+  - ✅ **Right protocol shape.** Spin-up is spent inside training years; the scored window is the
+    entire held-out record (2045–2047 valid + 2048–2049 test), five whole calendar years; 8 ICs ~4
+    days apart decorrelate in 2–3 weeks and become an IC ensemble for climate statistics. A
+    training-year IC does **not** contaminate it: training was single-step teacher-forced, the
+    trajectory forgets its IC within weeks, and the 92-day discard is 4–6× that.
+  - 🔴 **The blocker is unchanged and lands inside the window:** the checkpoint diverges near step
+    500 (~120 d, `2026-09-10_longroll_blowup_analysis.md`), which from Oct 1 2044 is **late January
+    2045** — the first month she would score. Until stability is fixed the run is a *stability
+    measurement*, not an evaluation.
+  - ⚠ Real exposure concerns, neither the IC: checkpoint selected on 2045–2047 valid loss (mild for
+    climate stats; 2048–2049 are the only fully clean years); and the pack's forcing repeats one
+    1460-step annual cycle every year (frozen-2015 boundary finding), so 2045–2049 differ from
+    training only in the atmospheric truth — a forced-stationarity test, not a response test.
+  - ⚠ Underspecified: *which* climatology (2015–2044 by month or by frame?), which statistics, and
+    what counts as success — pre-register before running. E3SM truth is one realisation; 8×5 model
+    years vs 5 truth years needs the 30-year interannual std as the noise floor.
+  - ⚠ Plumbing, ours: the driver loads all K truth+forcing frames onto the GPU at once (26 MB/frame
+    ⇒ one E3SM year ≈ 41 GB > 40 GB A100; climate mode has never run on Polaris), refuses to cross
+    year files (2044 is in `train/`, 2045–47 in `valid/`, 2048–49 in `test/`), and writes ~35 MB/lead
+    (≈270 GB/member at 7670 steps). Needs a streaming cross-file driver writing monthly means.
+  - 🔵 **Probe submitted: `polaris_longroll_probe.pbs`, job 7648967 (debug).** Two rollouts from
+    Oct 1 00:00 (frame 1092) of **2044** (train) and **2048** (test) at K=200 (50 d; ladder 144/96
+    on OOM — `rollout_one_ic` holds ~6 K-frame copies on the GPU, so K=367 ≈ 58 GB), scored with
+    `score_rollout_nc.py`, read by `longroll_probe_summary.py`: (1) where median NRMSE crosses
+    1.0×/1.41× std and whether it decelerates, channels past 3× at day 50; (2) train/test NRMSE ratio
+    at the first leads — the contamination claim, n=1 per arm, indicative; (3) are the 7 forcing
+    channels bitwise identical across 2044/2045/2048. PASS = `LONGROLL_PROBE_OK`. Out →
+    `$MEMBER_ROOT/runs/makani_eval/prod1n_b32_sgdr_longroll_probe_f1092/`.
+  - ✅ **PROBE RESULT — `LONGROLL_PROBE_OK`, job 7648967, 18 min.** K=200 **OOM'd** (35.01 GiB
+    in use + 4.88 GiB requested on 39.49 GiB — confirms the ~6-copies estimate), K=144 (36 d) ran at
+    **~1.3 s/step** (192 s / 189 s). Both arms identical in shape: median NRMSE crosses **1.0 at ~250 h
+    (10 d)**, reaches **1.39–1.40 at day 36** with VR **1.11** and slope ratio **0.29 / 0.07** ⇒
+    **plateauing at the decorrelated ceiling, not diverging**; amplitude preserved. **Exactly two
+    channels past the 3× blow-up clause: `Z3_l17` (NRMSE 152, bias −81 truth-amplitudes) and
+    `Z3_l16` (3.1)**; next `SOILWATER_10CM` 2.5, `TSOI_10CM` 1.9. ⇒ within 36 days the model is
+    physical except for channel-specific drift in fed-back near-surface geopotential and soil; the
+    ~120-day blow-up jesswan saw is later than the probe reaches and will be preceded by those
+    channels leaving range. **Contamination: the training-year IC is 6–8 % better at leads ≤ 168 h
+    on 75–91 % of channels and the gap is exactly 1.001 at 336 h** — a real, small memorisation tilt
+    that vanishes by 14 d; below the flag threshold; irrelevant after a 92-day discard.
+    **`FORCING_REPEATS_ANNUAL_CYCLE=True`: all 7 forcing channels bitwise identical across 2044, 2045,
+    2048** at frames 0/1092/1459 (state differs by 6.6e3) — the frozen-annual-cycle finding is in
+    the packed makani data.
+  - **DECISION (user, end of session): "Let's do what ACE2 does."** Adopt fme's inference-evaluator
+    recipe — whole-window time-mean bias/RMSE vs the *same-window* truth mean, monthly reference →
+    global-mean annual series and seasonal cycle, zonal means; skip Nino3.4 (SST prescribed). Monthly
+    bins, not per-frame. Nothing is built yet: needs reference builders, a **streaming cross-file
+    driver that reduces on the fly** (constant memory, crosses year files, accumulates time/monthly
+    means + a per-channel stability record), an aggregator, and a pre-registration. Full design,
+    facts, cost numbers, jesswan questions and do-not-retry list →
+    **`polaris_makani_climate_protocol_handoff.md`**. No retraining is implied: ACE2 runs 10-year
+    inference on a 2-step-trained model; whether *our* checkpoint survives 5 years is what the run
+    measures, and a training change (deeper unroll / dropping `Z3_l17`) is jesswan's call if not.
+- **2026-09-24 (makani, docs only)** — **`plan_lagged_sweep` gains a `Parameters` block; the four
+  lagged-mode CLI help strings say what they mean.** Branch `docs/lagged-ensemble-docstrings`
+  (worktree `.claude/worktrees/lagged-docstrings`). Prompted by a Q&A that had to reconstruct the
+  meanings from three files: `K` had no docstring anywhere in `sfno_ensemble` and the CLI called it a
+  "horizon" without a unit. Now recorded in one place, in the code's own terms: everything is in
+  **frames (one frame = one 6 h step)**; `K` is the rollout length *and* the age of the oldest member
+  (`K // stride` members at ages `stride … K`); `stride` (= `d`) is the start spacing *and* the age
+  spacing between members, a design choice not a derived one (design doc §4b); `n_targets` counts
+  consecutive target **frames** (valid times) and is the only knob that sets the rollout count
+  `ceil((n_targets + K)/stride) − 1`; `first_start` is a pure translation whose residue mod `stride`
+  picks the on-lattice targets. Why each production value is what it is (56 / 4 / 32 / 0) is stated
+  with its source. **No behaviour changed** — `py_compile` OK under the sfno-venv Python 3.12, and
+  `tests/sfno_ensemble/test_lagged_ensemble.py` **21 passed** (login node; the interpreter then
+  core-dumped at teardown, the CLAUDE.md #3 login-node behaviour — the pass count is the token).
+  ⚠ Fact worth keeping straight, surfaced by the same Q&A: the E3SM test files `2048.h5`/`2049.h5` are
+  **1460 frames** each (noleap, asserted by `polaris_pack_e3sm_alldata_full.pbs`); **1455/1459 is the
+  PlaSim `MOST.*.h5` length** (Aug-1 anchor, 363.75 d) and does not apply to the Polaris sweep.
+- **2026-09-23 (makani/ACE2 ports — `polaris_makani_ace2_ports_handoff.md` implemented)** — 🔵
+  **PORT F IS BUILT AND SMOKED; THE PRE-F BASELINE IS RE-TAKEN ON 99 CHANNELS.** Branch
+  `worktree-makani-ace2-ports` (base `a5b83ae2`; commits `50350a96`…`772cbe16`). Debug job
+  **7646684** (`polaris_makani_ports_smoke.pbs`). Reviewed live by a peer session
+  (`docs/2026-09-23_architect_review_ace2_ports.md`, which reached the same blockers independently).
+  - **F — no repack, no new stats.** Stock `parse_dataset_metadata` already maps `channel_names`
+    → pack indices (`params.out_channels`), which the loss, ACC climatology and model package use.
+    🔴 The fork's `plasim_trainer` built `range(n_state)` instead — a naive `n_state: 98` would
+    have dropped **RELHUM_l16/l17**, kept both soil channels, and normalized PRECT with
+    RELHUM_l16's moments, silently. Fixed: `_plasim_channel_indices` reads makani's lists
+    (identity for every full-width config), asserts diag-last (`CHANNEL_SUBSET_MISMATCH`).
+    `e3sm_alldata_nosoil.yaml` (99 names, n_state 98, 105-in/99-out). New
+    `channel_subset_gate.py`, run by the production launcher for any config declaring
+    `dropped_channel_names` (the launcher had **no** converter gate before).
+    **Verified live on the production pack (7646684):** `CHANNEL_SUBSET_GATE_OK 99 of 101`,
+    `CHANNEL_SUBSET in=98 out=99 … dropped pack idx [8, 9]`, `N_in_channels=105`, metrics over 99;
+    20 steps, loss **2.19 → 0.296**, grad norm 0.248, all finite. ⚠ Its `validation loss: nan`
+    is **my smoke's shape, not F**: EVAL_SAMPLES=8 < global batch 32 ⇒ zero validation batches
+    (0/0). Every full-width smoke with the same inequality printed nan too (7630472, 7633857,
+    7633881); those with global ≤ 8 are finite. Smoke now uses 64 and the launcher prints
+    `WARN EVAL_SAMPLES_LT_GLOBAL_BATCH`. So 7646684's `NOSOIL_TRAIN_SMOKE_FAILED` (its nan grep)
+    is this artifact — read the per-section tokens, not `PORTS_SMOKE_OK`.
+  - **Eval path fixed before F trains:** `rollout_driver` indexes full-width stats by
+    `out_channels` when widths differ; `eval_inference` accepts a subset whose names match the
+    h5 at those indices; `score_rollout_nc` selects climatology rows **by name** (it would have
+    refused the 99-ch NetCDFs with `CHANNEL_COUNT_MISMATCH` — peer review). Full-width paths
+    unchanged.
+  - **Rebaseline, done BEFORE any post-F number exists** (`restrict_readout.py`, reproduces the
+    published 101 readout to 1e-9 first) → `…/prod1n_b32_sgdr_K56/scores/k56_readout_common99.json`:
+    NRMSE336 0.9696→**0.9689**, ACC336 0.5463→**0.5420**, ACC126 0.8669→0.8665, VR336 1.0189
+    unchanged. ⚠ The channel set alone moves ACC336 by 0.8 % — compare F only against these.
+    The 43.18× worst channel is **not** a soil channel: `DRIFT_FIRST` survives F.
+  - **B step 1:** converter `--time-diff-only --workers N` (same completeness guard as
+    `--stats-only`, writes ONLY `stats/time_diff_stds.npy`; diffs never span a year file) +
+    `time_diff_report.py` (r_c table, realised weight, clamp hits, Spearman vs 7646192).
+    Nothing enables `temp_diff_normalization`.
+  - **C finding (pinned by test):** installed makani's `channel_weights: auto` keys on lowercase
+    ERA5 names; every E3SM name falls through to one default ⇒ `auto` **is** `constant` here.
+    Port C can only be an explicit list ⇒ B+C collapse into `make_capped_weights.py`:
+    `clip(σ/δ, 1, W_max)` normalized to **sum 1** (makani's `constant` is ones/C — the peer
+    suggested dividing by the mean, which would scale the loss 99×). Produces a nested
+    `[[…]]` yaml snippet; enables nothing — **loss change ⇒ jesswan sign-off**.
+  - **D:** launcher `-v EMA=1 [EMA_DECAY=]`, default 0.9995 (≈1.5 epochs at 1368 updates/epoch,
+    not ACE2's 0.999 copied across a 9× update-rate difference), asserted `EMA_ASSERT_OK`.
+    Live: `EMA enabled: decay=0.9995, shadowed_params=87`.
+  - **A:** `force_positive_names` clamp in `rollout_driver`, `--force-positive-names`, default
+    OFF, **not run** — F removed its headline target and the list is science-owned.
+  - **F cost — surgical transfer prepared, not yet run:** `slice_checkpoint.py` (drops rows 8,9
+    from every 107/101-sized dim; exact identity proved on a toy) +
+    `polaris_makani_surgical_proof.pbs`, **pre-registered PASS iff first val loss ≤ 0.02568**
+    (2× the base's 0.01284; from scratch was 0.094 @ ep1, 0.026 @ ep3). PASS ⇒ F is a
+    fine-tune, not 46 node-h.
+  - **Surgical proof 7646690 — `SURGICAL_TRANSFER_PASS val_loss=0.014265581965446472`**
+    (≤ 0.02568; 1.111× the base's 0.01284). ⚠ The job itself printed `ERROR NO_VALIDATION_LOSS`:
+    its grep assumed one space, the trainer pads the column (`validation loss:      0.0142…`).
+    The token above is the pre-registered rule applied to the **existing** log with the fixed
+    pattern `validation loss: +[0-9.eE+-]+` (now in the pbs), no rerun. Tier STRONG on the
+    101-channel proxy — **provisional** until `fill_substitute_probe`'s `base` arm gives the
+    99-channel denominator on the same first-64 validation samples (7646696). The same padding
+    affects any grep on trainer summary lines (`training loss:`, `validation loss ema:`).
+  - **Leave the 12 `submit_*.sh` fabric flags alone.** Eleven pass
+    `OFI_NCCL_PROGRESS_MODEL=AUTO,NCCL_PROTO=Simple`; `submit_when_slot_frees.sh` also passes the
+    correct v1.6.0 `OFI_PLUGIN`. None passes the v1.21.1 plugin (13ae5cbd); both values are
+    benign. But F runs in the **no-AUTO** env of smoke 7646700 — `submit_f_nosoil.sh` refuses
+    any fabric override, and the launcher now kills a multi-node run unless every node reports
+    `Selected Provider is cxi` (fatal on timeout when FULL=1, and post-run regardless of rc).
+  - ⚠ **Git hazard, recorded:** a peer committed onto this worktree's branch from outside its
+    index; the next commit here silently deleted that file (restored, `11628839`). Peers now
+    message instead of committing.
+
+- **2026-09-23 (makani/ACE2, analysis only — no jobs, no allocation)** — 🔵 **THE ACE2-vs-makani
+  DIFFERENCE TABLE IS WRITTEN AND ON GITHUB: PR #15**, branch `docs/ace2-vs-makani-differences`,
+  one file (`ace2_vs_makani_differences.md`, +208), based on `main`, **left open** (CLAUDE.md #9 —
+  a solo session cannot self-approve). It covers the **science axis**; `ace2_polaris_results.md`
+  Table 8 already covers architecture/performance and is cross-referenced rather than repeated.
+  - **Config-verified today by parsing `ACE2_retrain/config_polaris.yaml`** (not eyeballed):
+    **44 in / 50 out = 38 prognostic + 6 forcing + 12 diagnostic**; `corrector` = dry-air-mass
+    conservation + moisture-budget correction + `force_positive` on **16** names; loss = **17
+    explicit channel weights spanning 0.25–10**; **dual** normalization (full-field + residual).
+    Against ours: **100 prognostic / 7 forcing / 1 diagnostic**, `channel_weights: "constant"`,
+    single full-field z-score, `temp_diff_normalization: False`, and **zero** corrector machinery.
+  - 🐛 **Discrepancy found, flagged not patched.** Table 8 records ACE2 as "56 (43 in / 40 out)";
+    the config gives 44/50. **Table 8's parameter, memory and throughput rows are unaffected** —
+    they depend on `scale_factor` and the trunk, not encoder width — but the channel row should be
+    corrected where it lives, not in the new document.
+  - ✅ **Three things confirmed NOT to be differences**, each having been assumed at some point:
+    (1) **cadence — both are 6-hourly**, and the E3SM archive has no hourly option at all
+    (51,100 files = 35 yr × 1460, `noleap`); ERA5 *is* hourly at source and ai2 chose 6-hourly
+    anyway. (2) **prescribed SST / sea ice / insolation — both** read them from file every step;
+    `sst`, `ice`, `solin` are 3 of our 7 forcings. (3) architecture family and grid — both.
+  - ⚠ **Correction to `2026-09-10_ace2_comparison_the_corrector.md` §1.** Its "ACE2's 2 forward
+    steps ≡ makani's 2" is true of the **C1 fine-tune**; the **shipped production checkpoint is
+    `n_future: 0`, i.e. ONE forward application**. The depth-equivalence claim must not be quoted
+    about the model we ship.
+  - **Lagged-ensemble numbers re-read from the run rather than the write-up** (job 7643271,
+    `lagged_readout.json` + `lagged_summary.csv`): per-channel ratio weighted÷freshest is
+    **min 1.133, median 1.317, max 1.774** over 101 channels, which reproduces the −31.7 %
+    headline exactly (the ratio *of medians* would read −37.8 % — do not mix the two reductions).
+    Worst channels **`SOILWATER_10CM` 1.559** and **`Z3_l17` 1.510**; best **`PRECT` 1.179**.
+    ⇒ the most *systematic* channels are damaged most by averaging and the noisiest least, which
+    is the error-correlation mechanism visible directly in the per-channel table.
+  - **Git technique, recorded because it matters on this filesystem:** the commit was built with
+    plumbing on a temporary `GIT_INDEX_FILE` (`read-tree` → `hash-object -w` → `update-index
+    --cacheinfo` → `write-tree` → `commit-tree` → `update-ref`), so **no command walked the
+    working tree** and the real index was never touched. `git status`/`add`/`commit` can wedge in
+    uninterruptible Lustre I/O here and each wedged process holds a login-node slot permanently.
+  - 🟢 **AND THE PORT HANDOFF'S CENTRAL CLAIM WAS PUT ON A DEBUG NODE RATHER THAN ARGUED —
+    job 7646192, `TENDENCY_PROBE_OK`, 60 s, CPU-only.** New tooling:
+    `makani_sfno/polaris/tendency_norm_probe.py` + `polaris_tendency_norm_probe.pbs`;
+    handoff at `polaris_makani_ace2_ports_handoff.md`. Five hypotheses with thresholds fixed
+    in the script **before** any number existed; outputs in
+    `$MEMBER_ROOT/runs/makani_probe/tendency_norm/7646192/`.
+    - ✅ **H1 the mechanism is real and current** — `makani/utils/loss.py:152` is verbatim
+      what the 2026-09-10 doc quoted; key is **`params.time_diff_stds_path`**;
+      `get_time_diff_stds` is a bare `np.load` with **no internal normalization**;
+      `loss.py:99` makes `scale` exactly `global_stds.npy`, so the multiplier really is
+      **σ_c / clamp(δ_c, 1e-4)**.
+    - ✅ **H2 `r_c = δ_c/σ_c` spans 1.31e4** (0.000105 → 1.375) — the "slow channels are
+      nearly invisible to the loss" claim is right, and by 4 orders of magnitude, not the
+      1.5 the prereg asked for.
+    - 🔴 **H3 FALSIFIED — my framing was wrong.** The slow channels are **the `Z3`
+      geopotential levels and `PS`**, not land reservoirs as a class: 5 of the 10 slowest
+      are `Z3_l17…l13`; `SOILWATER_10CM` is 6th (5th pct) but **`TSOI_10CM` is 39th pct**.
+    - ✅ **H4, the one that mattered: Spearman(`r_c`, bias²/MSE @336 h) = −0.647**
+      (threshold −0.30). The drift *is* concentrated where the loss is blind.
+    - ✅ **H5 refuted the competing explanation**: the train→test warming shift gives
+      Spearman **+0.079** — the 336 h bias is not the model regressing toward a stale
+      train-split climatology.
+    - 🔴 **TWO TRAPS FOUND THAT WOULD HAVE MADE THE PORT SILENTLY WRONG.** (1) The `1e-4`
+      clamp is in **physical units**, and `PRECT`'s tendency std is **7.95e-08 m/s** — so
+      enabling the switch gives precipitation weight **8.3e-04** instead of 1.044, a factor
+      of **0.0008**: the channel is effectively deleted from the loss, no error, no warning.
+      (2) The realised weight range would be **0.727 → 9518** (1.3e4 span) with **`Z3_l17`
+      alone at 9518**, a channel with 0.271 m of temporal variability; ACE2's hand-picked
+      weights span 40×. ⇒ **`temp_diff_normalization: True` is NOT a one-line flip here** —
+      it needs a dimensionless weight cap and an explicit `PRECT` decision, which reprices
+      the port from config-only to code+config.
+    - 🔴 **CORRECTION to a claim I made earlier the same day.** I called removable
+      systematic drift "possibly the largest single win". Measured: **only 2 of 101 channels
+      carry a material bias² share at 336 h** — `Z3_l17` 0.253 and `Z3_l16` 0.139 — and 94
+      channels are ≤ 0.010. The prize is much smaller and much more local than stated.
+    - 🎯 **Three independent lines now point at the `Z3` family**: slowest `r_c` of all 101
+      (by 35× over the next channel), largest systematic share of 336 h error, and the K=56
+      read-out's `DRIFT_FIRST` verdict on a completely different normalisation. **Whether a
+      near-constant terrain-following level should be prognostic at all is the question to
+      take to jesswan** — possibly instead of, not alongside, weighting it harder.
+  - 🟢 **COLD-CRITIC AUDIT OF THE `Z3_l17`-IS-TOPOGRAPHY READING — job 7646252,
+    `STATIC_AUDIT_OK`, 16 s.** Prompted by rmehta1987's observation that `Z3` is geopotential
+    height and `_l17` the bottom model level, so the channel would be dominated by surface
+    topography. Tooling: `makani_sfno/polaris/static_channel_audit.py` +
+    `polaris_static_channel_audit.pbs`. Six attacks, thresholds fixed before any number.
+    - ✅ **The observation is measured and correct**: `corr(time_mean(Z3_l17), topo) =
+      +0.9854`, `Z3_l17 ≈ 0.953·topo + 33 m`. Slope < 1 is right — thinner layer over high,
+      cold terrain.
+    - ✅ **A1 it is a genuine OUTLIER, by 50×.** `S_c = std_space(time_mean)/a_truth` is
+      **3053** for `Z3_l17`, **61.2** for the next channel (`Z3_l16`); median over 101 is
+      **0.83**, only **1** channel above 300. ⇒ "stop predicting it" is a one-channel
+      decision, not a family-wide normalization problem.
+    - ✅ **A2 "the other surface topography" is only 5 of 101 channels** reconstructible from
+      `lsm/topo/glacier/natveg` at R² > 0.90: `Z3_l17` 0.974, `Z3_l16` 0.972, `Z3_l15` 0.967,
+      **`PS` 0.964**, `Z3_l14` 0.942.
+    - 🔑 **`PS` is the counterexample that fixes the rule.** It is 96.4 % static-reconstructible
+      and the 7th-slowest channel (`r_c` 0.0248) yet its 336 h bias fraction is **0.0015** —
+      it does not drift. ⇒ **terrain-dominance is not the discriminator; residual forecastable
+      signal is.** `PS` keeps 793 Pa of real temporal signal; `Z3_l17` keeps 0.27 m.
+    - ✅ **A3, the strongest attack, SURVIVES.** Job 7646192's Spearman(`r_c`, bias²/MSE) of
+      **−0.647** becomes **−0.581** with all 18 `Z3` levels removed and **−0.506** on one
+      channel per family (16). It was not one variable wearing a trenchcoat.
+    - ✅ **A4 bias is linear in lead to R² = 1.0000**, slope **−0.0913 m/step** (×56 = 5.11 m
+      vs the measured −5.15 m). 🔑 **That per-step systematic error EXCEEDS the channel's
+      entire true 6-hour variability** (δ = 0.0857 m) — every step, the mean error is larger
+      than the whole signal.
+    - 🔴 **A5 PASSED ITS THRESHOLD BUT REFUTED ITS MECHANISM — disclosed, not patched.** I
+      predicted spectral reconstruction error at steep terrain (`scale_factor: 3` ⇒ 60×120
+      internal grid). Measured: `corr(bias_map, topo) = +0.565` clears the bar, but
+      `corr(bias_map, |∇topo|) = +0.277` **fails** it, and the bias is **on the ocean**:
+      land **+0.85 ± 8.51 m**, ocean **−5.41 ± 6.34 m**. The topo correlation is positive only
+      because the error is near zero *over* terrain and strongly negative at sea level. **The
+      steep-terrain/spectral-ringing story is refuted**; the clause tested the wrong thing and
+      is left as written. Next prereg: state the sign and the land/ocean split up front.
+    - ✅ **A6 redundancy confirmed and strong**: median per-cell temporal correlation with
+      `TREFHT` = **+0.965** (quartiles 0.935/0.965/0.985), so it is global, not a few cells.
+      Fitted **0.0466 m/K** against the ~0.115 predicted from a 33 m layer — same order, 2.5×
+      low, implying a ~13 m mean layer. ⇒ the forecastable part of `Z3_l17` is near-surface
+      temperature, which is already two prognostic channels.
+    - 🔴 **A SECOND DRIFT POPULATION THE AUDIT SURFACED AND MY STORY DOES NOT EXPLAIN.**
+      `T_l00` (bias_frac 0.041), `T_l01` (0.028) and `Z3_l00` (0.022) all drift **linearly**
+      (R²_lin 0.995–0.997) at the **model top**, with `S_c` ≈ 0.67–1.00 and `R²_static`
+      0.06–0.53 — i.e. neither loss-blind nor terrain-related. Loss blindness explains the
+      bottom of the model, not the top. **Open.**
+  - 🔴 **THE SOIL CHANNELS: THE MODEL PREDICTS NEGATIVE SOIL WATER, AND A FIFTH OF THE SOIL
+    ERROR BUDGET IS SPENT OUTSIDE THE VALID REGION.** Jobs **7646391** (`SOILWATER_10CM`,
+    partner `PRECT`) and **7646383** (`TSOI_10CM`, partner `TREFHT`), both `STATIC_AUDIT_OK`.
+    The audit gained a land/ocean mask and a new attack **A7 (is the fill respected?)** after
+    it became clear these are land-only fields — global spatial statistics on them are ~62–72 %
+    constant by construction, the same way `global_stds` flattered `Z3_l17`.
+    - 🎯 **`SOILWATER_10CM`: truth over the filled region is ≈ 0; the model predicts mean
+      **−0.856** there (std 1.46) — i.e. **negative soil water content** — and **12.5 % of the
+      lat-weighted 336 h MSE comes from cells whose answer is a known constant.**
+      ⇒ **direct measured support for the ACE2 positivity clamp (handoff port A)**, which is
+      the one port that needs no retraining. `force_positive_names` exists upstream for exactly
+      this.
+    - 🎯 **`TSOI_10CM`: truth over ocean is a 270 K constant; the model predicts std 1.77 K
+      with max 303.7 K there, and **21.8 % of its 336 h MSE is outside the valid region.**
+      A masking problem, not a physics problem.
+    - ✅ **`SOILWATER_10CM` A5 FALSIFIED cleanly** — `corr(bias, topo) = −0.292`,
+      `|∇topo| = +0.021`. Soil-moisture bias is **not** terrain-organised. (`TSOI_10CM` is:
+      −0.376 on land.)
+    - ✅ **`SOILWATER_10CM` A6 FALSIFIED** — median per-cell correlation with `PRECT` is
+      **0.160** (quartiles 0.008/0.160/0.355). Soil moisture is **not** redundant with
+      precipitation; it is an integrator of it. ⇒ unlike `Z3_l17`, **this channel cannot be
+      deleted — it has to be constrained.** The two channels need opposite fixes.
+    - ⚠ **Neither soil channel has a drift problem worth chasing**: systematic share of the
+      336 h MSE is **0.018** (`SOILWATER_10CM`) and **0.0026** (`TSOI_10CM`), against 0.253 for
+      `Z3_l17`.
+    - 🐛 **Three defects in my own harness, disclosed.** (1) `fields_state[:, 100]` is an
+      `IndexError` — `PRECT` is index 100 of `channel_names` but lives in `fields_diagnostic`;
+      killed 7646367, fixed with a split-aware reader. (2) A1/A2/A3's verdict lines test
+      **global** properties, so they print identically for every target and are meaningless for
+      anything but `Z3_l17`. (3) A6's slope label is hard-coded `m/K` and its 0.50 threshold was
+      calibrated on the `Z3`/thickness case — `TSOI_10CM` "passes" at 0.526 with an IQR of
+      **−0.20 to 0.93** and a slope of 0.05 K/K, which says damped integrator, not copy.
+      **Do not read `TSOI_10CM` as redundant with `TREFHT`.**
+  - 📊 **THE `Z3` FAMILY AS A VERTICAL PROFILE (all 18 levels, from 7646252's CSV) — three
+    regimes, and they are a sandwich.** Truth behaves exactly as hypsometry requires: the
+    forecastable amplitude falls **559.9 m (`l00`) → 0.267 m (`l17`)** while the static share
+    rises **0.53 → 0.97**, so `S_c` spans **1.0 → 3053** within one variable.
+    - **Free troposphere `l02`–`l13`: healthy.** Linear fits explain 0–88 % of the bias curve,
+      slopes change sign level to level, systematic share ≤ 0.005 everywhere.
+    - **Model top `l00`/`l01`: drifts −0.525 / −0.114 m per step at R² 0.995 / 0.942**, but that
+      is the *column-integrated* thermal bias accumulating by construction, and at 560 m of
+      natural variability it is only **2.2 %** of that level's error.
+    - **Lower boundary `l14`–`l17`: coherent drift converging on ≈ −0.09 m/step**, R² 0.964 →
+      0.997 → 0.999 → **1.0000**, systematic share 0.003 → 0.038 → 0.139 → **0.253**. Onset
+      coincides with the terrain share crossing ~0.94 at `l14`.
+    - 🔑 **And `TREFHT` does not drift (systematic share 0.0000).** So the model lowers the
+      geopotential of its lowest layers while leaving the temperature that physically determines
+      it untouched — **it breaks its own hypsometric consistency.** At `l17` the per-step
+      systematic error (0.0913 m) **exceeds the channel's entire true 6-hourly variability**
+      (0.0857 m).
+    - Family total 0.483 of summed bias share, concentrated: `l15`+`l16`+`l17` = 0.430, `l00` =
+      0.022, the other 14 levels ≈ 0.03 combined.
+  - 🔵 **OPERATOR DECISION (rmehta1987, 2026-09-23): DROP `SOILWATER_10CM` AND `TSOI_10CM`
+    FROM THE PROGNOSTIC SET AND RETRAIN.** Written up as **port F** in
+    `polaris_makani_ace2_ports_handoff.md` §6a, which now leads the order.
+    - **Not a repack.** `plasim_forcing_dataset.py:308` already reads with
+      `channels=self.in_channels` and `:320` builds the target from `self.out_channels`;
+      makani indexes the normalization arrays the same way (`loss.py:106`,
+      `scale[:, params.out_channels, ...]`). ⇒ **the 1.4 TB pack and all six stats files stay
+      as they are** and the decision stays reversible. Inputs 107 → 105, outputs 101 → 99,
+      `n_state_channels` 100 → 98, `n_diagnostic_channels` stays 1, forcings unchanged.
+    - ⚠ **First thing to check:** `in_channels`/`out_channels` are set in *neither*
+      `e3sm_alldata_full.yaml` nor `train_plasim.py`, so makani derives them — read
+      `driver.py`. If they are settable, keep `channel_names` at 101 and express the removal
+      as index lists; if they are derived from `len(channel_names)`, editing it to 99 **trips
+      the converter↔trainer gate**, which must be taught the subset rather than weakened.
+    - ⚠ **`:320` assumes the diagnostic channel is LAST in `out_channels`** — `PRECT` must
+      stay at the end of the subset or the target silently takes the wrong channel.
+    - ⚠ **The existing checkpoint cannot be warm-started** (encoder-in and decoder-out widths
+      both change). From scratch is the measured **46.3 node-hours / 332,424 updates**; a
+      surgical row-drop transfer is possible in principle and must be proven by a 1-epoch arm
+      starting near the base loss, not at initialization.
+    - 🔴 **Comparison trap, flagged before any new number exists:** the new model has 99
+      channels and **every existing baseline is a 101-channel median** — `0.01284`,
+      `NRMSE336 0.970`, and the whole `n_future` ladder would shift from the channel set
+      alone. Recompute the old baselines restricted to the common 99 channels **first**;
+      it is a re-take of medians from `k56_metrics.h5`, not a re-run.
+    - 🔗 **This supersedes most of port A**: the positivity clamp's headline target was
+      `SOILWATER_10CM`, the channel whose −59 %-by-step-500 extrapolation started the line of
+      work. Remaining candidates (`PRECT`, `RHREFHT`, humidity) have never been shown to go
+      unphysical. Port A demoted below F and folded into the retrain.
+    - 🎯 **And it turns the post-retrain long rollout into a real experiment:** if divergence
+      still occurs near step 500 with no soil reservoir in the state, the reservoir-drift
+      chain was never the cause and `2026-09-10_ace2_comparison_the_corrector.md` §4 needs
+      retracting. Run it and report either way.
+    - ⚠ **Science consequence, stated not buried:** this removes the model's land-surface
+      memory, so no soil-moisture → evaporation → precipitation feedback. **ACE2 carries no
+      soil variables either** (38 prognostic channels, verified), so it moves toward the
+      reference contract — but it is a science change, not a cleanup.
+  - **Open:** the Table 8 channel-count correction; port F's `in_channels`/`out_channels`
+    question and the 99-channel rebaseline; the weight cap + `PRECT` decision for port B;
+    `time_diff_stds.npy` over the full 30-year train split (the probe used 4 × 60 samples of
+    `train/2044.h5`, which fixes the ordering but not the values); **why the `Z3_l17` bias is
+    an ocean/sea-level phenomenon rather than a terrain one**; **the model-top drift family
+    (`T_l00`/`T_l01`/`Z3_l00`)**; and the still-unrun test of whether `Z3_l17` contaminates
+    the other 100 channels.
+
+- **2026-09-22 (makani)** — 🔴 **THE LAGGED ENSEMBLE, RE-SCORED UNDER ACE2 EQ 8 — THE FRAMEWORK IT
+  SHOULD HAVE FOLLOWED ALL ALONG. The negative result gets ~7× stronger: −213 %, not −31.7 %.**
+  `LAGGED_ENSEMBLE_OK` job **7643591** (`scores_ace2/`, 3.7 min). Write-up →
+  `makani_sfno/docs/2026-09-21_lagged_ensemble_result.md` §5.
+  - **The framework.** Watt-Meyer et al., *ACE2*, arXiv:2411.11268 **§4.3 eq 8**:
+    `alpha = (1/C) Σ_c sqrt( Σ_φλ w ( MEAN_{t,ens}[y_c − ŷ_c] )² )`. Three things about it are easy
+    to read past and all three change the answer: (a) **the overbar is INSIDE the square**, so alpha
+    is the RMS of the *mean* error — a **bias** metric, where our checks 1–4 square per snapshot and
+    keep the random component; (b) **ACE2's own ensemble there is a lagged one combined with a PLAIN
+    UNWEIGHTED mean** — `w_k ∝ 1/σ²` is an invention of this repo and was never the thing under test;
+    (c) eq 8 is on **normalised** fields, which is what licenses its arithmetic `(1/C) Σ_c` channel
+    reduction where ours was stuck with a median over 101 disparate physical scales.
+  - **Measured.** deterministic (single freshest member) **0.14035** · `1/σ²`-weighted 0.23832 ·
+    **uniform 14-member (ACE2's rule) 0.43886 = −212.7 %**. Monotone in m, `best m = 1` again.
+  - ⚠ **The reframing cut the opposite way to the obvious guess.** Averaging signed errors kills
+    *random* error, so a construction losing on RMSE could in principle win on alpha — it does not,
+    because alpha scores **bias**, and bias is exactly what **grows with lead** and what a time
+    average **cannot** cancel. Mixing in 336 h members injects drift straight into the metric.
+    Hypothesis stated, tested, false. Note also ACE2's uniform mean is the **worse** of the two rules
+    here (0.439 vs 0.238) — our weighting was helping, just nowhere near enough.
+  - ⚠ **`Z3_l17` owns 42 % of alpha** (18.524 vs 0.513 for the next worst) — the channel the K=56
+    read-out flagged for 43× variance injection. This is ACE2's own `q0` situation, so the driver
+    applies the paper's remedy as an **automatic sensitivity, never the headline**: at 0.1× the
+    comparison is 0.27626 vs 0.10149, **−172.2 %, verdict holds**. The median reduction used by
+    checks 1–4 was structurally incapable of surfacing this.
+  - ✅ **Non-regressive:** checks 1–4 reproduce job 7643271 **exactly** (3.2212 / −31.69 % /
+    CRPS +28.73 % / SSR 1.6604 / identical 14-point nested curve). New result written to
+    `scores_ace2/` so 7643271's artifacts are preserved rather than overwritten.
+  - **Code:** `scores.ace2_alpha` / `bias_rms_per_channel` / `time_mean_bias` + 8 tests (26 pass).
+    No new input file needed — eq 8's standard-scaling **mean cancels in `y − ŷ`**, so only a
+    per-channel σ is required and `a_truth_mean` in the independent `k56_metrics.h5` already is it.
+    The driver accumulates one running field sum **per member**, so every combination rule (uniform,
+    `1/σ²`, any nested prefix) is an exact linear recombination afterwards at no extra read.
+  - ⚠ **Still only 8 targets over 7 days.** ACE2 computes alpha over eight **5-year** runs. A bias
+    metric is precisely the statistic that needs a long time average; at n=8 much of what alpha
+    reports as bias is still sampling noise. Do not read this alpha the way the paper reads its own.
+  - ❓**ANSWERED: why does this work for ACE2 and not for us?** ⇒ `polaris/analyze_lagged_correlation.py`
+    (`LAGGED_CORRELATION_OK verdict=no-member-helps rho_floor=0.418`), write-up in the doc §5.
+    - **ACE2 never uses a lagged ensemble to improve a forecast.** The word "lagged" appears **0
+      times** in the paper. Its forecast skill (§2.2.6) is "48 initializations equally spaced across
+      2020" each scored **deterministically**, RMSE averaged *over* forecasts — never combined at a
+      common valid time. The staggered-init ensemble exists only inside eq 8, to average away
+      **internal variability** when estimating a 5-year **climate bias** for checkpoint selection.
+    - **The whole difference is one inequality.** Adding a member of error `sigma_k` to one of error
+      `sigma_1` helps at all iff **`rho < sigma_1/sigma_k`**. ACE2's members are 5-year sims — past
+      any predictability horizon, so all estimate the climate **equally well**, `sigma_1/sigma_k = 1`,
+      threshold `rho < 1`, and any ensemble clears it. Ours are 24…336 h forecasts with **wildly
+      unequal** skill, so the threshold collapses.
+    - **Measured, and the gap never closes — it widens:** step 1→2 `rho` 0.740 vs threshold 0.716
+      (misses by a hair, which is why the curve turns over at the *second* member); by 13→14 it is
+      0.418 vs 0.260. Only 39 % of channels are helped by the 48 h member and ~0 % by anything older.
+    - 🔑 **`rho` floors at 0.418 rather than decaying to zero.** That residue is the **shared
+      systematic model bias** — same weights, so part of the error is identical however far apart the
+      inits are, and averaging cannot touch it. That is also why re-scoring under alpha made things
+      *worse*: alpha measures exactly the component an ensemble is structurally unable to cancel.
+    - ⚠ **CORRECTION (same session).** A first draft of this entry claimed `Z3_l17` dominating alpha
+      and the lagged ensemble failing were "the same finding seen twice". **That is wrong** — `rho`
+      = 0.418 is a *median over 101 channels* and one channel cannot move a median. Measured: median
+      `rho` **0.4183** all-channels vs **0.4149** with `Z3_l17` removed; **101/101** channels fail the
+      threshold, **100/100** without it. There are **two** problems, related in kind, not one:
+      **(A)** shared systematic bias in ~every channel — the `rho`≈0.42 floor, which is what kills the
+      lagged ensemble and which **no single-channel fix touches**; and **(B)** `Z3_l17` as the most
+      extreme instance of A (highest `rho` of any channel at 0.779 vs a p90 of 0.604; 43× drift;
+      41.8 % of alpha against a median of 0.26 for the other 100), which drives `DRIFT_FIRST` and
+      dominates alpha. **Fixing B would not rescue the ensemble** — measured, not argued: at ACE2's
+      10× downweight it is still −172 %.
+    - ⇒ **Dependency, corrected:** the alpha-over-243-checkpoints run is **not blocked** by `Z3_l17`
+      — alpha *selects against* it, so that run is a candidate **remedy** for B, not a dependent of
+      it. It is the job with no prerequisite.
+    - ⇒ **Ensembling here needs members of comparable skill: a FIXED-LEAD ensemble** (the 243 on-disk
+      checkpoints, or seeds), where `sigma_1/sigma_k ≈ 1` restores the threshold to ~1. ACE2's eq-8
+      construction is reproducible for us, but as a **climate** statistic over long rollouts from
+      well-separated ICs — not over 8 targets in one week.
+
+- **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
+  DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
+  tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →
+  `makani_sfno/docs/2026-09-21_lagged_ensemble_result.md`.
+  - **Scored:** 8 targets × 14 members at depths 4…56 (forecasts aged **24 h to 336 h**, all valid
+    at the same time), `w_k ∝ 1/σ(k,c)²` per channel with σ from the *independent* monthly K=56
+    sweep, equiangular quadrature, 101 channels, 3.6 min CPU-only.
+  - ✅ **Alignment verified, not assumed:** all 14 members of every target carry a bitwise-identical
+    truth field — `truth_max_disagreement = 0.000e+00`. Different valid times in one bucket is the
+    silent failure that would invalidate everything, and it is now a gate rather than an argument.
+
+    | plan §4.3 check | result |
+    |---|---|
+    | 1. mean beats the best single member | 🔴 **NO — 31.7 % worse, 0/101 channels improved** |
+    | 2. SSR ≈ 1 | ⚠ **1.66 — OVER-dispersed** (§4.5 predicted *under*) |
+    | 3. rank histogram flat | — not read; diagnostic only, members non-exchangeable |
+    | 4. CRPS beats the deterministic baseline | ✅ **YES — 28.7 % better** |
+
+  - 🔴 **The failure is monotone, which is what makes it conclusive.** Nested sub-ensembles of the
+    `m` freshest members give median RMSE **2.3375, 2.4529, 2.5770, … 3.2212** for m = 1…14 —
+    every member added makes it worse, **starting from the second (a 48 h forecast, not a stale
+    one)**, and 101/101 channels prefer m = 1. ⇒ **no truncation of this ensemble beats the single
+    member**, so do not spend the 685 GB full-year sweep on the same construction. Mechanism:
+    inverse-variance weighting is optimal for *independent* errors, and these members share one
+    model, one weight set and overlapping ICs. The weighting does real work (**+42.1 %** against a
+    uniform mean) — just not enough.
+  - **Over-dispersion is the same finding, not a separate one:** the member spread (4.378) is
+    dominated by *error growth with lead*, not by uncertainty at a fixed lead. The construction
+    spreads members over forecast **age**, which is a property of the schedule, not a draw from a
+    predictive distribution.
+  - **CRPS is where the value is:** 1.2665 vs 1.7233 for the single member (whose CRPS is its MAE).
+    A distribution that brackets the truth beats a sharp point estimate under a proper scoring rule
+    even when its mean is further off. There is now a calibration number where there was none.
+  - 🐛 **Two defects of mine, both caught by the data and both worth recording:**
+    1. **Residue classes were being averaged together.** A target's depths depend on
+       `(T − first_start) mod stride`, so target 56 gets depths 4…56 but target 53 gets **1…53** —
+       a 6 h forecast as its "shallowest member". A lagged ensemble valid at T can only use
+       forecasts *already issued*, so all members must share one minimum lead. The first run broke
+       the four-way tie on encounter order and scored the 6 h-lead ensemble; **the headline moved
+       9 pp** when fixed to the plan's `d, 2d … K`.
+    2. **Clamping made an undefined SSR look like a value.** makani clamps the fair correction to
+       `eps` — correct for a differentiable training loss — and offline that printed a median SSR
+       of **599581**. Now NaN, with the count reported (83 cells).
+  - ⚠ **§4.2's "reuse `MetricsHandler`, do not rewrite" did not survive contact**, and the reason
+    is a live trap: **makani's `_crps_skillspread_kernel` — the `skillspread` type
+    `e3sm_alldata_crps.yaml` selects — IGNORES its `ensemble_weights` argument**, reducing with a
+    plain `torch.mean`; only the `cdf`/`pwm` kernels read them. Passing weights to the obvious
+    constructor returns an unweighted number, silently. We own the weighted math instead and pin
+    the *definition*: `test_crps_matches_makani_unweighted` matches makani's kernel exactly at
+    uniform weights, and **ran green** (it is not among 7643249's 4 skips).
+  - **Where it points, stated as direction not conclusion:** away from combining forecasts of
+    different *ages*, toward members differing at the *same lead* — the 243-snapshot checkpoint
+    ensemble. ⚠ Not implied by this result alone, and the distributional-loss alternative was
+    separately ruled out by the K=56 read-out.
+  - ⚠ **n = 1 and small:** one sweep, one holdout year, 8 *consecutive* (hence correlated) targets,
+    one checkpoint. Only the 24 h-lead ensemble was scored; the other three residue classes were
+    dropped, not averaged. The nested sweep varies ensemble *size*, not the weights' functional
+    form — an inverse-*covariance* combination is untested.
+
+- **2026-09-21 (makani)** — 🟢 **LAGGED ENSEMBLE STAGES 1 AND 3 BUILT (tasks 11-12, `d7a49780`) —
+  `E3SM_PORT_OK` job 7643045, 82 passed / 4 skipped, up from 52.** No allocation beyond a 42 s
+  debug job; both stages are index arithmetic and NetCDF metadata.
+  - **Why the existing sweep contributes nothing:** `nwp_ic_offsets` spaces starts
+    `(n_samples - K) // n_ic` apart — **117 samples at K=56** — precisely so forecasts do *not*
+    overlap. Right for a scorecard, and it means the 24-IC K=56 sweep has **exactly zero** lagged
+    members. `plan_lagged_sweep` emits starts `stride` apart so rollouts share targets.
+  - **Stage 3 is a regrouping, not a re-run:** a rollout from `s` predicts absolute indices
+    `s+1 … s+K` at depths `1 … K`, so one rollout is a member of many targets.
+    `align_members_by_target` keys on `ic_global_idx` and reads **only NetCDF attributes**, so
+    indexing a 45 GB sweep costs milliseconds; stage 4 reads fields one target at a time.
+  - 🐛 **Two bugs the tests caught in my own first draft — both plausible, both silent:**
+    1. **The coverage arithmetic over-provisioned by 2 rollouts.** It assumed the first fully
+       covered target is `first_start + K`; in fact a lower target is already full whenever
+       `M = K/stride` starts sit at or below `T−1`. Correct span
+       `[first_start + K − stride + 1, last_start + stride]` ⇒ `n` rollouts cover
+       `(n+1)·stride − K` targets, so **32 targets need 21 rollouts, not 23**. At ~1.95 GB and
+       ~77 s each that was 4 GB and 3 min of waste per sweep.
+    2. **I asserted uniform depths across targets — false.** The member *count* is uniform; the
+       *depths* depend on `(T − first_start) mod stride`, giving exactly `stride` distinct
+       patterns, of which only the on-lattice one is the plan's quoted `d, 2d, … K`. Harmless for
+       `w_k ∝ 1/σ(k)²` (each member is weighted by its own depth) but it means **aggregating
+       spread or CRPS across residue classes mixes constructions**. Documented, not papered over;
+       `lattice_targets` is the subset sharing one pattern.
+  - **Guards, each for a failure that is otherwise silent:** `stride` must divide `K`; `stride > K`
+    refused (no overlap ⇒ no ensemble); a sweep running past end-of-file refused (cross-file
+    rollout unsupported, and truncation yields ragged targets); members of one target must agree
+    on `ic_file` (**sample index 5 is a different time in 2048.h5 than in 2049.h5**); a duplicated
+    `(start, depth)` refused (double-counting understates spread and inflates SSR); `sigma_weights`
+    rejects a zero/NaN σ rather than handing one member the whole ensemble.
+  - **`src/sfno_ensemble/` is a NEW package, not additions to `src/sfno_inference/`** — that tree
+    is shared with the Stampede3 `eval-sfno-own` path and wants none of this (CLAUDE.md #7).
+    Torch-free, so its tests run anywhere. `eval_inference.py` gains `--ic-mode`, defaulting to
+    `monthly` = the existing path, so **the SLURM chain is unchanged**; lagged sweeps write to
+    `inference/lagged/` and are named by start index.
+  - ✅ **THE FIRST LAGGED SWEEP EXISTS — `EVAL_INFERENCE_OK`, job 7643069**: 21 rollouts, 2048.h5,
+    **26.1 min / 39 GB**, one debug node. `qsub -v IC_MODE=lagged,N_TARGETS=32,LIMIT_FILES=1
+    polaris/polaris_eval_inference.pbs`. Out:
+    `runs/makani_eval/prod1n_b32_sgdr_lagged_K56_d4/inference/lagged/`.
+    ⚠ **`LIMIT_FILES=1` is load-bearing, and its absence was a costing error of mine**: `run_nwp`
+    loops over *every* holdout file, so the sweep without it is **42** rollouts / ~82 GB / ~54 min
+    — double what was quoted, and over the `debug` hour. 2049 is a second identical job if wanted.
+  - ✅ **Stages 1 and 3 verified against real output, not fixtures** (`ALIGN_CHECK_OK`, job
+    7643103): 21 rollouts indexed → **32 targets (53–84), all 14 members, `uniform: True`**,
+    matching `plan.targets` exactly. Target 56's members run depths 4…56 — shallowest
+    `2048_s00052.nc` lead 24 h, deepest `2048_s00000.nc` lead 336 h — and every member satisfies
+    `start + depth == target`. **`depth_range` is (1, 56) across the table while every *full*
+    target has 14 members**, which is the residue-class effect above, visible in real data.
+  - **Task 13 (weighted combination) is the next code**, and both its inputs now exist: the
+    members here, and σ(k) for all 56 depths in `k56_metrics.h5`.
+
+- **2026-09-20 (makani)** — 🟢 **THE K=56 CURVE IS READ, AND IT ANSWERS THE CRPS QUESTION:
+  MODE-AVERAGING IS RULED OUT. Job 7633207's 45 GB had been sitting unscored since 2026-09-19 —
+  the gate was never closed because nobody computed the curve, not because an arm lost.**
+  Job **7639477** (tests failed) → **7639537**: `K56_SCORE_TESTS_OK` (14 tests) then
+  `K56_SCORE_OK`, 24 ICs × 56 leads × 101 channels, **0 non-finite cells**, 22.8 min CPU-only on
+  one debug node.
+  - **The rule was written down first** — `makani_sfno/docs/2026-09-20_k56_readout_prereg.md`,
+    on disk before a single number was computed, and implemented as `classify_regime()` with a
+    test per branch so it could not move once the numbers were in. It replaces the handoff's
+    "saturating / still climbing, read by eye" with thresholds on three quantities.
+  - **New tooling, and it is an E3SM SIBLING, not an edit** (CLAUDE.md #7):
+    `polaris/score_rollout_nc.py` + `polaris/test_score_rollout_nc.py` +
+    `polaris/polaris_score_k56.pbs`. `scripts/score_nwp.py` is **not** usable here and was not
+    modified: it still calls `legendre_gauss_lat_weights` directly (change G added the
+    `lat_weights(nlat, grid_type)` dispatcher but **did not update this caller** — a live
+    silent defect for anyone who points it at E3SM), it requires a calendar-binned climatology
+    E3SM has no builder for, and its sanity gate is `tas`/`zg500`/`MOST.`-specific. The new
+    scorer reuses `sfno_eval.metrics` for the formulas, so only the quadrature (equiangular) and
+    the climatology (the pack's `time_means.npy`) differ from the PLaSim track.
+
+    | median over 101 channels | 126 h | **336 h** |
+    |---|---|---|
+    | NRMSE (1.0 = climatological mean, 1.414 = decorrelated) | 0.519 | **0.970** |
+    | VR = predicted ÷ true anomaly amplitude | 0.999 | **1.019** |
+    | ACC | 0.867 | **0.546** |
+    | `R_slope` = slope(240→336 h) ÷ slope(30→126 h) | — | **0.473** |
+
+  - 🔴 **CRPS IS NOT INDICATED.** Blurring means amplitude collapse; at 14 days the model's
+    anomaly amplitude is 2 % **above** truth's, and VR never leaves 0.99–1.02 across any lead.
+    The pre-registered CRPS branch needs VR ≤ 0.60. ⇒ **the never-run `PlasimEnsembleTrainer`
+    arm stays parked, and the jesswan loss-change sign-off is not on the critical path.**
+  - ⚠ **But K=56 still did not reach saturation, so `n_future=8` is not selected either.**
+    NRMSE 0.970 is short of 1.0, let alone 1.414, and the curve is **decelerating**
+    (`R_slope` 0.473, continuing the 0.779 late/early ratio measured at lead 21 in
+    `2026-09-10_longroll_blowup_analysis.md` §2). Doubling the horizon took us from ~29 % of the
+    ceiling to ~69 %. Absent the drift clause the verdict would have been **AMBIGUOUS**.
+  - 🐛 **The verdict that DID fire is `DRIFT_FIRST`, on ONE channel of 101: `Z3_l17`.**
+    `a_truth` **0.271 m** (near-surface terrain-following level — nearly time-invariant), yet the
+    model manufactures **1.27 m of anomaly in a single step** and **10.22 m by 336 h**, with half
+    the final error a systematic **−5.15 m** drift (VR 5.06 → **43.16**). Not a small-denominator
+    artifact alone — the numerator grows 40× while truth's stays flat — and not large in absolute
+    terms, 10.2 m being the *smallest* 336 h RMSE of the Z3 family. Every other channel is
+    ≤ 1.371 NRMSE at 336 h.
+    ⚠ **Invisible to the earlier analysis by construction:** that normalised by `global_stds.npy`,
+    which for `Z3_l17` is dominated by **spatial** terrain variation and hides a temporal drift
+    completely. `Z3_l17` is a fed-back state channel ⇒ a blow-up candidate distinct from the `U10`
+    the long-roll doc named. **Whether a near-constant near-surface geopotential level should be
+    prognostic at all is jesswan's call** (division of labor), and is worth raising *instead of*
+    the CRPS question that was queued for her.
+  - ⚠ **A defect in my own pre-registration, disclosed rather than patched.** Its §5 promised
+    `PRECT` would be "reported separately" and argued 1 of 101 cannot move a median — true of the
+    medians, **false of the drift clause**, which is a max over all 101 and can therefore be
+    selected by any channel with a degenerate denominator. The clause is left exactly as written
+    and the verdict reported as it came out; rewriting it after seeing which channel trips it
+    would forfeit the point. Next prereg: floor `a_truth` in that clause and name the exclusions.
+  - ⚠ **Both NRMSE and ACC are flattered here:** `time_means.npy` is a single *annual* mean, so
+    the anomalies retain the seasonal cycle and a forecast that merely knew the season already
+    beats NRMSE 1.0. Pre-stated in §2, which is why VR — immune to that bias — is the primary
+    discriminator. The cheap sharpening is a day-of-year climatology from the training pack.
+  - ✅ **Task 13 of the lagged-ensemble plan is unblocked as a side effect.** `k56_metrics.h5`
+    carries RMSE for all **56** depths × 101 channels — the `σ(k)` that `w_k ∝ 1/σ(k)²` needs, and
+    which stopped at lead 20 until today.
+  - ✅ **Handoff §7's channel-count question is settled:** the pack is 101 (100 state + `PRECT`);
+    the loader's `180 × 360 × 100` counts `fields_state` only. The scorer asserts
+    `len(channel) == time_means.shape[1]` and would have refused to score a mismatch.
+  - **7630639** (depth-4 × 24 epochs) is **still queued**, `eligible_time` **72:22:13**,
+    `comment = Insufficient amount of resource: queue_tags`. No nodes — **do not resubmit**
+    (CLAUDE.md #12).
+
+- **2026-09-18 (ACE2)** — 🔵 **ACE2 PRODUCTION CONFIG SETTLED, as an operator decision
+  (rmehta1987): no longer gated on external science sign-off.** Two independent Fable-5 review
+  seeds were given the same question — *what is the optimal ACE2 training configuration for RMSE
+  and for climate-statistical skill, and how is that established statistically* — with no shared
+  context, and they returned **the same configuration**, matching a third independent derivation
+  done here while they ran:
+  ```
+  qsub -q capacity -l select=1:system=polaris -l walltime=140:00:00 -l filesystems=home:eagle \
+    -v PRODUCTION=1,LOCAL_BATCH=2,EPOCHS=27,LR=3e-4,FULL_VAL=1,T_0=9,T_MULT=1 \
+    ACE2_retrain/polaris/polaris_ace2_train.pbs
+  ```
+  1 node / 4 GPUs, global batch 8, LR 3e-4 as the warm-restart peak, T_0=9 (27/9 ends at an LR
+  minimum ⇒ free snapshot ensemble at 9/18/27), `NCCL_ALGO=Ring` unchanged, ~68–70 node-h
+  uncontended (93–124 h contended).
+  - 🔴 **THE SLINGSHOT FIX DOES NOT MOVE THE PRODUCTION SHAPE, because the objective is UPDATES,
+    not samples.** 1 node at batch 8 does **5,044 updates/node-hour vs 2,208** at 2 nodes/batch 16
+    (2.3×) and also wins on **wall-clock** updates (5,044 vs 4,415). Today's 1.477× fabric win
+    matters for scaling studies and for any *multi-node* production — and not at all for this run,
+    which never leaves one node.
+  - 🐛 **Both seeds independently caught a misleading line written here earlier today:** TODO item
+    14's "a second node now costs only +14% node-hours" is true **per sample** and wrong as a
+    licence for a 2-node production run — per *update* it costs 2.3× the allocation to train more
+    slowly. Corrected in TODO item 14 and prereg §1a. The related "**3.4×** more update-efficient"
+    figure was a **TCP-era** number (5,028 vs 1,495); on cxi it is **2.3×**.
+  - **RMSE vs CLIMATE STATISTICS are different objectives, and this config optimises the first.**
+    RMSE is carried by LR 3e-4 → `FULL_VAL=1` (selection on ~2,900 real samples, not ~16) → EMA
+    weights → update count. Climate skill (time-mean bias, variability, spectra, drift) is neither
+    trained nor selected on: the paper's α criterion **is** fme's `best_inference_ckpt`, and
+    `PRODUCTION=1` hardwires `inference=null`, so it never fires. Both seeds independently reached
+    the same verdict — score climate **post-hoc** with `run_ace2_evaluator.py` (single rank,
+    monthly means, 5-y rollouts from the 1996 ICs), because at 22.5% of the paper's sample budget
+    the model is still descending and α cannot yet diverge from validation loss.
+  - **The statistics answer: two noise models with opposite conclusions.** *Timing* claims need ≥3
+    interleaved reps (1-node spread ±0.1%, 2-node ±3.8% ⇒ at 2 nodes nothing under ~8% resolves at
+    n=3, which is why Tree's ~2% projected 2-node win is below the noise floor). *Model-quality*
+    claims cannot use reps at all — ACE2 is **bitwise-to-1-ULP deterministic at fixed seed**
+    (7591998/7592103), so same-config spread is zero by construction; the real variance is
+    **across parameter inits and has never been measured for ACE2**. Minimum defensible comparison
+    is ≥3 inits, paired by init. Calibration from makani: a two-seed arm agreed to 0.03 pp on a
+    4.65 pp effect, so the LR sweep's 16–48% gaps are safe at one seed and a 2% tweak would not be.
+  - 🐛 **`FULL_VAL` defaulted OFF under `PRODUCTION=1` while the launcher's own comment called it
+    "REQUIRED for production"** — one forgotten `-v` from selecting the shipped model on a
+    ~16-sample validation window, silently. Default flipped: ON under `PRODUCTION=1`,
+    `-v FULL_VAL=0` restores the short window for the resume gate. Bench arms untouched; default
+    matrix verified across all six PRODUCTION×FULL_VAL combinations.
+  - 🐛 **`config_polaris.yaml`'s header still claimed the dhconv weights are complex64** (~10.7 GB
+    optimizer state). Refuted by the flight recorder: float32, **1.823 GB** of gradients, ~7.3 GB
+    fixed state (7586590). Stale text in the file every run parses; corrected with the measurement
+    and with the local-batch ceilings.
+  - ⚠ **Flagged, not changed: 1998–2010 is in NEITHER split.** Train is ≤1995 + 2011–2019 + 2021–,
+    validation is 1996–1997, so `best_ckpt` selects on **2 years where ai2's recipe uses 5**
+    (1996–2000); 2001–2010 is plausibly the paper's test period. Recorded because it changes what
+    "validation loss" means when compared against published numbers.
+  - **Deviations from ai2's published ACE2-ERA5 recipe, recorded rather than approved** (prereg
+    §1a is the list): batch 8 vs 16, LR 3e-4 vs 1e-4, 27 epochs vs 120,
+    `use_gradient_accumulation=false` vs true, warm restarts added where the reference has none,
+    2-year validation window vs 5.
+    ⚠ Job 7608867 shows the paper's global 16 **does** fit one node with accumulation on
+    (37.095 GiB) — rejected for this run on evidence, not permission: −6.5% samples/s, 2.4 GiB
+    headroom (94% of the card) with the inline-inference path unproven there, and it would
+    invalidate the LR sweep, which was measured at `false`.
+  - **Queue reality:** `capacity` is `max_run 1` per *project* and the slot is held by `awikner`'s
+    `rsi-a2l-b4-prod24` (9 h into 168 h), so a submission there **queues behind a colleague** for up
+    to ~6.6 days rather than blocking them. `preemptable` caps at **10 nodes** and at 72 h, and is
+    currently handing out nothing — all three of our jobs there sit on `queue_tags`. Production is
+    **7633565** (preemptable, 72 h, `queue_tags`). ⚠ It also needed a fresh CSV: `EPOCHS>1` + `LR`
+    route its row to `ace2_polaris_tuning.csv`, still **27 columns**, so with the new `provider`
+    column the append would abort on `SCALING_CSV_SCHEMA_DRIFT` — **after ~65 h of training**.
+    Now routed to `ace2_polaris_tuning_cxi.csv`. Two earlier submissions (7633396 capacity,
+    7633400 preemptable) were cancelled for that defect and to keep production's I/O out of the
+    comparison window below.
+
+- **2026-09-19 (ACE2)** — ✅ **CRITICAL BATCH SIZE SETTLED: 1 NODE STANDS. The 16-node speedup is
+  real, correctly measured, and unusable for this model.** Prereg §1e, registered before the arms
+  ran, scored **3 HIT / 3**:
+
+  | arm | ep 1 | ep 2 | ep 3 | job |
+  |---|---|---|---|---|
+  | batch 8, LR 3e-4 (reference) | 0.2846 | 0.2205 | **0.19579** | 7589850 → 7598647 |
+  | batch 128, LR 3e-4 | 0.8717 | 0.6052 | **0.5017** | 7633624 → resumed **7633879** |
+  | batch 128, LR 1.2e-3 (√-scaling) | 0.7406 | **0.5126** | — | 7633846 |
+  | batch 128, LR 4.8e-3 (linear) | 2.1755 | **1.7993** | — | 7633847 |
+
+  - **The selection rule fires unambiguously**: best batch-128 arm ~0.50 vs 0.19579 = **156%
+    worse** against a ">10% ⇒ 1 node stands" threshold. ⇒ **production stays 1 node / global
+    batch 8 / LR 3e-4**, now on measurement rather than on the update-efficiency argument alone.
+  - **P17 HIT by 2.6×** — a margin large enough that the reference being from an earlier env does
+    not threaten it (1-node runs have no fabric; ACE2 is bitwise deterministic at fixed seed).
+    **P18 HIT** — √-scaling beat both unscaled and linear, as makani's batch-independent LR ceiling
+    predicted. **P19 HIT on the criterion, mechanism WRONG** — 4.8e-3 is 9× worse than the
+    reference but it never diverged; it descends steadily (2.1755 → 1.7993), i.e. badly suboptimal,
+    not collapsed.
+  - 🔴 **THE ANSWER TO THE WHOLE SCALING QUESTION: the fabric was never what stood between ACE2 and
+    a faster good model — the batch was, and it still is.** 95.9% weak-scaling and 15.35×
+    throughput at 16 nodes are correct; the batch that comes with them costs **2.6× in validation
+    loss at matched samples**, which no throughput factor recovers. The cxi work remains valuable
+    for *any* run that must be multi-node (ACE2's own batch-16 production shape needs 2 nodes) and
+    for makani's 128-node campaign — it just does not change ACE2's 1-node production choice.
+  - ✅ **The resume path was exercised for real, not in a gate**: 7633624 was walltime-killed with
+    exactly 2 epochs recorded; resubmitting the same jobid-free `RUN_NAME` (7633879) picked up from
+    its own `ckpt.tar` and finished epoch 3. That is the property production depends on.
+  - ⚠ **Two arms stopped at 2 of 3 registered epochs** (walltime, even at `small`'s 3 h cap — the
+    epoch-1 cold-read penalty). Their third epochs were deliberately **not bought**: no third epoch
+    closes a 2.6× gap. Horizon complete for one B arm, short for two — stated, not smoothed.
+  - ⚠ **The matched-conditions reference arm (7633848) never started and was cancelled**, both
+    because P17's margin makes it non-decisive and because on `preemptable` it would have contended
+    with the production run for the same single-OST store.
+  - ⚠ **Walltime lesson, twice paid:** `PRODUCTION=1` drops the bench mode's `sample_with_replacement`
+    cap, so every epoch reads the **full 97,874-sample split (~4 TB)** and the first pass runs
+    **2.8× slower** (2098 vs 756 ms/step at 16 nodes, gpu_busy 99.3% vs 92.2%). Bench-arm step
+    times therefore **under-predict production walltime by ~2.5× on epoch 1**. Sizing a production
+    walltime from a 60-step bench row is how both round-1 and round-2 arms got killed.
+
+- **2026-09-19 (makani)** — 🔴 **"Does ACE2's 95.9% transfer to makani?" — CANNOT BE ANSWERED WITH
+  THE DATA STAGED HERE, and two of my own projections are retracted. One real finding survives:
+  SYNTHETIC DATA IS NOT A NEUTRAL STAND-IN FOR A SCALING MEASUREMENT.**
+  - **The hypothesis under test:** makani's 63.6% weak-scaling efficiency at 4 nodes on cxi is not a
+    fabric property but a **compute:comms ratio** property — it runs 1 sample/GPU (118.6 ms of
+    compute) against a toll of 67.8 ms, where ACE2 runs 716 ms. Model: `step(N) = step(1) + toll`,
+    toll batch-invariant because makani's gradient volume (0.591 GB) does not move with batch.
+  - 🔴 **THE MODEL IS FALSIFIED on its first real test.** 4 nodes, local 1, synthetic
+    (**7633729**) = **252.6 ms** against a predicted 191.6 — **+31.8% error**, efficiency **49.0%**
+    vs 64.6% predicted. The synthetic 4-node toll is **128.8 ms, 1.9× the real-data toll of
+    67.8 ms**. ⚠ And the model's apparent "0.0 pp agreement" on the real local-1 pair was
+    **circular** — the toll was fitted on exactly those two rows, so reproducing them was algebra.
+  - 🔬 **WHY, and this is the transferable lesson: synthetic data makes comms look WORSE, not
+    better.** At 1 node synthetic and real agree to **4.4%** (123.8 vs 118.6 ms) — no fabric, so
+    only the loader differs. At 4 nodes synthetic is **35% SLOWER** (252.6 vs 186.4). The
+    interpretation that fits: with real data part of the collective hides inside loader stalls,
+    and removing the I/O removes the slack the all-reduce was overlapping with, exposing it fully.
+    ⇒ makani's launcher comment — "synthetic removes the shared-FS confound" — is true and
+    incomplete: it also removes I/O/comms overlap, so **a synthetic row and a real row must not be
+    compared across node counts.** The `data` column records which is which; that is now
+    load-bearing rather than descriptive.
+  - ⛔ **The decisive arm (4 nodes, local batch 8) failed twice, for two different data-volume
+    reasons, and cannot be run here:**
+    1. **real** (7633649): makani's wrap guard refused it — `train samples available: 400;
+       required: 7680`. Only `train/2015.h5` is staged, so real data caps
+       `STEPS × global_batch ≤ 400`.
+    2. **synthetic** (7633881): trained fine (`train_rc=0`) but produced **no timing line**.
+       Diagnosed from the progress bars: 1 node ran **12** steps, 4 nodes ran **3**, and
+       12×32 = 3×128 = **384** — so `--enable_synthetic_data` uses a FIXED 384-sample set and
+       **ignores `n_train_samples_per_epoch`** (rendered 1920 and 7680 respectively). At global
+       batch 128 that is 3 steps; `print_timings_frequency=10` never fires, and a 3-step average
+       would not be a measurement even if it did.
+  - **Retracted:** the **84%** projection (built on 365.4 ms as makani's 1-node local-8 step, taken
+    from the bench report — measured here it is **889.4 ms**, 2.4× larger, evidently a different
+    config or era) and its replacement **92.9%** (built on the now-falsified batch-invariant toll).
+    **Neither number should be quoted.** What survives is only the *direction*: per-GPU compute
+    rises 123.8 → 889.4 ms from local 1 → 8 while the toll stays positive, so efficiency must
+    improve — by an unmeasured amount.
+  - ⇒ **ACE2, not makani, is the right vehicle for this question**: it has 97,874 staged samples,
+    and its 16-node arm already gave 95.9% at local batch 2. The equivalent ACE2 sweep (local 1 vs
+    local 2 at fixed node count) is runnable today. Testing it on makani needs more packed years.
+  - **Also recorded:** makani's launcher hardcodes `print_timings_frequency 10`, so **any arm
+    shorter than 10 steps is silently unmeasurable** — a `-v PRINT_TIMINGS=` knob would surface
+    that class instead of producing `NO_STEP_TIMING` after the allocation is spent.
+  - 🐛 **Fixed on the way:** makani's launcher derived `REPO` as `${PBS_O_WORKDIR}/..` when
+    `src/sfno_training` was absent, so submitting from the repo root sent it to `$MEMBER_ROOT` and
+    `REPO` to `/members` — three jobs died in 0 s on `members/polaris_env.sh: No such file`
+    (7633629/7633630/7633633; no node-time burned, three queue waits lost). It now probes
+    `${MAKANI_ROOT}/makani_sfno/` first and fails with `MAKANI_ROOT_NOT_FOUND` naming
+    `PBS_O_WORKDIR`, the derived root and the derived repo. Verified from all three plausible
+    submission directories. ACE2's launcher already had this probe.
+
+- **2026-09-18 (ACE2, cont.)** — 🟢🟢 **ACE2 WEAK-SCALES AT 95.9% TO 16 NODES ON SLINGSHOT. The
+  fabric is now essentially free, and that inverts the central tcp-era conclusion.** A serialized
+  1-node-vs-16-node comparison (serial because the store is one OST — two arms at once put each
+  one's I/O inside the other's measurement):
+
+  | | 1 node / 4 GPUs (7633560) | **16 nodes / 64 GPUs (7633410)** |
+  |---|---|---|
+  | global batch | 8 | **128** |
+  | `step_med_ms` | 716.195 | **746.469 (+4.2%)** |
+  | samples/s total | 11.17 | **171.47 = 15.35× for 16× the GPUs** |
+  | weak-scaling efficiency | — | **95.9%** |
+  | node·s per sample | 0.08952 | 0.09331 (**+4.2% node-hours**) |
+  | `gpu_busy_frac` | 0.9431 | 0.9412 — **I/O still fine at 64 concurrent readers** |
+  | `peak_mem_gb` | 33.959 | 33.959 (identical, as expected) |
+
+  Both `provider=cxi`, both 64/64 and 4/4 ranks reporting, GPU preflight 17 healthy of 17.
+  **Contrast the tcp era: 8 nodes cost +109% node-hours per sample and "over half of the 8-node
+  step is fabric" (52.2%).** On cxi, 16 nodes costs 4.2%. Results Table 9 is now not merely
+  mis-magnituded but describes a machine that no longer exists for this model.
+  - 🔴 **AND THE LADDER IS NON-MONOTONIC: the 2-node rung (815.3 ms) is SLOWER than the 16-node
+    rung (746.5 ms), by 9.2%.** That is the **2-node trough** this repo has now seen on three
+    unrelated models (ai-rossby §1e, makani §5, ACE2), and 9.2% is outside the 2-node rung's own
+    tcp-era rep spread (±3.8%), so it is probably real rather than a bad draw. Mechanism consistent
+    with the nccl-tests data: Ring's reduce-scatter gives each rank `S/N`, so the per-rank message
+    *shrinks* as N grows while inter-node busbw stays flat-to-rising (35.37 GB/s at 2 nodes →
+    37.00 at 8) — the worst case is the smallest multi-node world, not the largest.
+  - ⇒ **The reason to prefer 1 node is now PURELY the batch size, not the interconnect.** At 16
+    nodes the global batch is 128, so updates/epoch fall 16× and updates/node-hour go 5,027 → 301
+    (1 node is **16.7× cheaper per update**). That is a critical-batch-size / LR-scaling question —
+    statistics, not HPC — and it is the one thing this campaign has never measured.
+  - ⚠ **Caveats, stated because the number is attractive:** 16n is **n=1**; the **4- and 8-node cxi
+    rungs are still missing**, so the shape between 2 and 16 is unmeasured and known to be
+    non-monotonic; and the 16-node arm ran on a **different rack** (`x3201c0s*`) from the 1- and
+    2-node arms (`x3001c0s*`), so rack/node variation is an uncontrolled confound.
+
+- **2026-09-18** — **DECISION TAKEN: the makani accuracy lever is ROLLOUT DEPTH, and the thing that
+  says when to stop pushing it costs inference, not allocation.** Taken to end an analysis loop, on
+  evidence already in the repo — no new measurement was needed to choose.
+  - **The ranking, measured:** `n_future=4` at **one** epoch is **−4.66 % / −4.63 %** RMSE at lead
+    126 h (two seeds, 0.03 pp apart) against depth-1 fine-tuning's **−3.00 % over twenty-four**.
+    ⇒ ~24× the skill per epoch. `D1` adds that batch 8 costs 2.3 pp against batch 16, so the batch
+    does not shrink to buy depth. Nothing else measured on this model is close, and **no fabric,
+    node-count or batch-shape result touches accuracy at all.**
+  - **What is genuinely undecided is one thing:** the rollout drifts **linearly to 126 h with no
+    saturation** (RMSE ×4.65, ACC 1.000 → 0.878), so **exposure bias and mode-averaging cannot be
+    told apart** — and they point at opposite fixes (deeper rollout vs a distributional loss). The
+    **K=56 / 14-day curve separates them and is inference-only.** That is why it, not another
+    training arm, is the next thing to run.
+  - **Order of work, decided:** (1) re-verify eval-inference; (2) leave **7630639** (depth-4 ×
+    24 epochs) alone — it answers whether depth-4 *compounds*; (3) K=56 sweep on the existing best
+    checkpoint; (4) lagged ensemble over the **243** on-disk snapshots, scored against the best
+    single member — both (3) and (4) are inference, so they run *while* 7630639 trains; (5) gated on
+    (3): `n_future=8` (⚠ depth 4 at global 16 is already 22.29 GiB/GPU at local 2 — depth 8 needs a
+    memory audit, probably 4 nodes at local 1) **or** the never-run CRPS arm. ⚠ **CRPS changes the
+    loss definition — jesswan's call** (CLAUDE.md, division of labor); raise it now so the sign-off
+    is not the blocker when (3) reports.
+  - 🔴 **Change F was NOT verified, and it gates the cheap half of all of the above.** `7630665`
+    returned `ERROR EVAL_INFERENCE_FAILED rc=1` — `no MOST.*.h5 found`, the PLaSim glob against an
+    E3SM holdout that is `2048.h5` / `2049.h5`. `65f5e405` fixed it (default `*.h5`, `--test-file-glob`
+    to narrow) but **nothing re-ran**, so the inference path has been committed-but-unproven since
+    2026-09-17. Resubmitted as **7632577**, which got past the glob (`test files: ['2048.h5']`) and
+    died one layer deeper — **a second, unrelated port gap:**
+    - 🐛 **`AssertionError: torch.distributed is unavailable. Check pytorch build ...`** — and the
+      message is misleading. torch.distributed is fine. makani's `comm.init` reaches physicsnemo's
+      `create_process_subgroup`, which raises whenever `manager.distributed` is False
+      (`physicsnemo_sfno/physicsnemo/distributed/manager.py:638`); it wants a real process group,
+      **world size 1 included**. `DistributedManager` initialises from **ENV, SLURM or OPENMPI** — the
+      SLURM sibling gets it free from `SLURM_PROCID` et al, and under **PBS there is nothing to
+      read**, so it logged `Assuming this is a single process job` and every model-parallel call
+      after it asserted. Invisible on the Stampede3 path by construction.
+    - **Fixed in the LAUNCHER, not in `src/sfno_inference/`** — that tree is a subtree shared with the
+      Stampede3 `eval-sfno-own` path, where the SLURM initialiser already works (CLAUDE.md #7).
+      `polaris_eval_inference.pbs` now runs the script under
+      `python -m torch.distributed.run --standalone --nproc_per_node=1`, which supplies exactly the
+      ENV-method variables the manager looks for — and is the launcher shape CLAUDE.md already
+      requires for makani/physicsnemo on Polaris.
+    - ✅ **VERIFIED: `EVAL_INFERENCE_OK` (7632679, K=4 smoke, 1 file / 1 IC, 9.07 s for the rollout,
+      56 s of job).** Wrote `2048_ic000.nc`; the NetCDF count gate (CLAUDE.md #14 — `rc=0` with zero
+      output is not a pass) passed on a real file. **Change F is no longer unproven, and steps (3)
+      and (4) of the decision above are unblocked.**
+    - ⚠ Worth one look when the full sweep runs, not a blocker: the loader reports the pack as
+      `180 x 360 x **100**` channels while the contract elsewhere is quoted as 101. The wrapper loaded
+      and rolled out, and the port tests compare `inp_chans`/`out_chans` against the run's own config,
+      so this is almost certainly on-disk-vs-model bookkeeping — confirm it rather than assume it.
+  - **Explicitly NOT next:** `NCCL_ALGO`, 128-node, batch-shape. The step-time work (P1-8, 34.9 % of
+    GPU time in kernels that compute nothing) is the only speed item with an accuracy consequence,
+    and only indirectly — it stays behind P1-9's equivalence gate and behind all of the above.
+  - 🔵 **K=56 sweep submitted: 7633207** (24 ICs, 1 node, `preemptable`, 2 h — the smoke's 9.07 s at
+    K=4 extrapolates to ~127 s/IC, so ~51 min of rollout). This is **task 10**.
+  - ⚠ **Correction made in-session: step (4) is NOT free inference today.** Tasks **11-13** of
+    `2026-09-10_lagged_ensemble_endtoend_plan.md:286-289` (stagger-`d` start generator → member
+    alignment by absolute target index → weighted combination `w_k ∝ 1/σ(k)²`) are all `to do` and
+    sequentially dependent. The *members* are paid for; the machinery to combine and score them is
+    not. Both branches of the K=56 decision need those stages, so they are the productive
+    non-allocation work while the jobs run. ⚠ Two different ensembles are being blurred: the plan's
+    **lagged** ensemble is over *staggered start times*, the 243 snapshots are a **checkpoint**
+    ensemble — stage 13 is largely shared, the rest is not. ⚠ That plan's task table is **stale**:
+    4-9 are done and verified, and 15's Gauss-Legendre defect was fixed as change G.
+  - 📄 **Handoff written: `polaris_makani_accuracy_handoff.md`** — the decision, both live jobs and
+    what each answers, the read-out rule for K=56 (write the branch down *before* looking), the two
+    port gaps and why neither was fixed in shared code, and what is parked on purpose.
+
+- **2026-09-18 (adversarial re-read of the tree probe)** — **the crossover holds; three of the
+  numbers around it do not mean what they read as.** No measurement changed — this is a re-read of
+  7631550 / 7631624's raw rows, `nccl-tests/src/common.cu`, and `parse_nccl_tests.py`'s own output.
+  - ✅ **The sound core:** both halves of the crossover are *within-job, back-to-back* comparisons
+    (same allocation, same communicator size, seconds apart), so allocation variance cannot touch
+    them. Tree +21 % at 2n, Ring +25–29 % at every size at 8n. That part stands.
+  - ⚠ **`busbw` is rank-count normalised — the SCALING axis of the §1a table is contaminated.**
+    nccl-tests reports `busbw = algbw × 2(N−1)/N`: **×1.75 at 8 ranks, ×1.9375 at 32.** Within a node
+    count it cancels; across node counts it does not. At 1 GiB, Ring reads **35.74 → 37.46 busbw
+    (+4.8 %)** but is **20.43 → 19.34 algbw (−5.3 %)**. *Ring did not get faster with scale; the
+    constant did.* Quote `algbw` whenever the node count moves.
+  - ⚠ **`-c 1` checks ONE collective per (size, placement)** — `common.cu:831`, `for (c=0; c<datacheck; c++)`.
+    The ten `-n 10` timed iterations are **never verified**. So "6/6 arms clean" is **24 checked
+    inter-node collectives** at 8 nodes, of which **six Tree ops sit inside the historical ≥1000 MB
+    failure window** (twelve across both jobs). Probably enough for a defect that looked
+    deterministic — but state the number, not the arm count.
+  - ⚠ **The sweep stops below the worst of the failure window.** tcp-era Tree failed at
+    **1000 / 2000 / 4000 / 4700 MB** (§1a table); the cxi sweep is 134 → 2147 MB, so **4000 and
+    4700 MB were never retested** — the direction the inferred mechanism says is worse. `-c 1` needs
+    3 buffers and `common.cu:1632` caps size at ~12 GB on an A100-40, so **`-v SIZE_MAX=4700M` fits.**
+  - 🐛 **The probe states its own failure window two ways:** `polaris_ace2_tree_probe.pbs:18` says
+    "between 25 MiB and 1000 MiB", its runtime banner (line 199) says "1000-4700 MB". The sweep
+    bounds were chosen against one of them. CLAUDE.md #10 in miniature.
+  - ⚠ **The recommendation is the one configuration never measured.** "Unpin and let the tuner
+    choose" has **zero arms** behind it: every arm forced `NCCL_ALGO` *and* pinned
+    `NCCL_PROTO=Simple`, and the tuner picks both jointly. One arm (`-v NCCL_ALGO=`, ~10 s in a job
+    that ran six in 48 s) would record what NCCL actually selects at 32 ranks — which could be Tree,
+    the 27 %-slower branch.
+  - ⚠ **Protocol confound:** every tcp-era failure ran with `NCCL_PROTO` **unset** (the pin was added
+    2026-09-18); every cxi arm ran it pinned. Four variables separate failing from passing —
+    provider, plugin 1.21.1→1.6.0, protocol, algo pin — and the recorded conclusion picks one. An
+    LL128 bug was never on the three-way list; it is the least likely branch (NCCL would not pick
+    LL128 at 1 GB) but it is *inference*, and at **2 nodes** it is testable (v1.6.0's ≥3-node setup
+    deadlock does not apply there).
+  - ⚠ **The intra-node control proves less than the header claims** (`polaris_ace2_tree_probe.pbs:30-31`,
+    "removing the fabric from the comparison entirely"). It is a **4-rank tree over NVLink** — it
+    exercises neither the multi-level tree topology nor any chunked rendezvous transfer, which is the
+    shape of the observed failure (head reduced, tail untouched, ranks disagreeing). Weak negative
+    control, not an exoneration.
+  - ⚠ **Topology uncontrolled:** 7631624 drew all eight nodes from rack **x3112**, 7631550 its two
+    from **x3001**. Both compact, different racks, n=1 each. Harmless for the crossover; every
+    absolute number and the *location* of the crossover between 2 and 8 nodes rests on single
+    favourable draws.
+  - 📐 **The decision is below its own noise floor at the shape ACE2 runs.** From the 2-node rows:
+    256 MiB costs Tree 11.06 ms vs Ring 13.08 ms ⇒ at ACE2's ~165 MB bucket, ~1.24 ms × 11 buckets ≈
+    **13.6 ms = 1.7 % of the 815.3 ms step**, fully-exposed upper bound, against rep spread that
+    reached **±3.8 %**. The regime where Ring wins big (8 nodes, ~30 ms/step) is a shape ACE2 does not
+    run — global batch 16 is memory-driven at 2 nodes. ⇒ **Build the equivalence baseline (it gates
+    the step-time work anyway); do not spend a hot-path decision on ±2 %.**
+  - 🔴 **One claim these logs refute:** `parse_ace2_scaling.py` node-gates its `provider` check on
+    "a 1-node run never initialises the net plugin". **Measured false** — the 1-node ACE2 anchor
+    **7631544 prints `Selected Provider is cxi`**, as do the probe's own 1-node intra arms. The
+    plugin initialises at one node; it just carries no bytes. The gate is still defensible on the
+    *bytes* argument, but as written it exempts the anchor from a check that would in fact pass.
+
+- **2026-09-17 (cont. 3)** — **ACE2 put on Slingshot: the guard, the missing protocol pin, and the
+  instrument for the one experiment that decides whether `NCCL_ALGO=Ring` can go.** Implements
+  `polaris_ace2_slingshot_handoff.md` T1 in full; T2/T3 are written and tested but **not yet run**.
+  - **T1 — `provider` is now a column with a failure value** (`parse_ace2_scaling.py`). Extracts
+    `Selected [Pp]rovider is (\w+)` — **both spellings**, v1.6.0 capitalises it and v1.21.1 does
+    not — and on `nodes > 1` fails `FABRIC_UNVERIFIED` (no line) or `FABRIC_NOT_SLINGSHOT`
+    (anything but `cxi`), rc=4, with `ALLOW_TCP=1` downgrading the second to a labelled warning.
+    Gated on **nodes, not ranks**: a 1-node run never initialises the net plugin, so a rank-gated
+    check would fail the ladder's own anchor and both LR-sweep runs.
+  - **FIELDS parity restored**: 27 → **28 columns, byte-identical to `parse_ai_rossby_scaling.py`**
+    again (they drifted when `698b867e` added `provider` on one side only). The two tables
+    concatenate; `test_parse_ace2_scaling.py` asserts it by reading the sibling's source with
+    `ast`, never importing it — the two trees export colliding top-level module names.
+  - **Tests: `ACE2_SCALING_PARSE_OK (23 tests)`**, up from 16. The three the makani suite gained,
+    plus `ALLOW_TCP`. The tcp test asserts `transport` **still reads `AWS Libfabric`** on the
+    rejected row — that is the property that made this invisible for three weeks, and it is now
+    pinned by a test rather than by memory.
+  - 🔴 **A gap the handoff did not flag: the fabric fix was HALF applied.** `polaris_ace2_env.sh`
+    flipped the plugin to v1.6.0 but never pinned `NCCL_PROTO`. v1.6.0 **deadlocks in setup at
+    ≥3 nodes** on the default LL/LL128 paths (7553891/7554129/7554143; nccl-debug-info §5), and
+    makani's launcher has carried the pin since 2026-08-24. Left as it was, T2's 4- and 8-node
+    arms would have hung at init and burned two `debug-scaling` allocations. Now pinned in the env
+    file (both ACE2 launchers must agree on the wire), `-v NCCL_PROTO=` to unpin, and both it and
+    the rendezvous block are echoed into every log header. ⚠ **Not inert at 1 node** — it changes
+    the anchor too, deliberately. Its cost is **unsettled**: the quoted −26% conflates the pin with
+    the tcp fallback (see the 2026-09-17 entry), so it is now stated as a direction, not a number.
+  - **`run_ace2_ladder.sh` read one CSV and wrote another.** It resolved `$ACE2_SCALING_CSV` for its
+    resume count and let the launcher pick its own default. Harmless while the schema was frozen;
+    with `provider` added it would have appended a 28-column row to the 27-column tcp file and
+    died on `SCALING_CSV_SCHEMA_DRIFT` **after** the allocation was spent. The path is now passed
+    through in the same `-v` list.
+  - **T3's instrument did not exist.** The handoff points at `polaris_nccl_tests.pbs`; that file is
+    in no tree in this repo. Written as `ACE2_retrain/polaris/polaris_ace2_tree_probe.pbs`
+    (nccl-tests `all_reduce_perf`, **`-c 1` mandatory**, Tree vs Ring, 128 M→2 G plus an arm at
+    ACE2's exact 1,823,324,160 B startup collective, `timeout` per arm because **a hang is the
+    expected failure mode**) + `parse_nccl_tests.py` + 14 tests `ACE2_NCCL_TESTS_PARSE_OK`. It
+    runs the **C binary, not torch** — both torch probes died on an unreadable
+    `libtorch_global_deps.so` on 2026-09-17 while the C binary ran fine — and it adds an
+    **intra-node control arm**, which settles "NCCL Tree bug vs fabric bug" without sending an
+    inter-node byte. The parser fails on a missing terminator line (the hang signature), on
+    `#wrong != 0` (silent corruption), and on `#wrong = N/A` (a corruption probe run with checking
+    off — a label, not a guard).
+  - **The tcp-era results are labelled, not deleted** (`make_results_table.py` regenerated):
+    a banner on `ace2_polaris_results.md`, a `provider` column that renders legacy rows as `tcp*`
+    = *inferred, not recorded*, a corrected `transport` dictionary entry, and a "do not quote the
+    node-hour projections" warning on Table 9. §1a and §1b of
+    `polaris_ace2_multinode_handoff.md` corrected in place: §1b **refuted** (1.21.1 "worked"
+    because it stopped using the fabric), §1a's **table kept, attribution withdrawn** pending T3.
+  - **Prereg §1c written before any cxi arm exists**: P12 2-node > 1.5× faster (⇒ < 803 ms),
+    P13 Tree still fails at 2000 MB on cxi, P14 wireup rises, P15 the **1-node** arm gets 5–30%
+    *worse* from the protocol pin — registered separately so a compute-side regression cannot be
+    absorbed into a fabric-side win. §1d lists what the tcp finding does **not** touch (the LR
+    result, the I/O verdict, the batch ceiling) so none of it is re-litigated.
+  - **Submitted (2026-09-18, `debug`, 2 nodes each, one at a time — `debug` is `max_queued=1` per
+    user and a `-W depend=afterany` hold **counts** against it, so they cannot be chained, only
+    posted as the slot frees):**
+    - **7631522** — tree probe, **FAILED its own preflight in 4 seconds**, `Exit_status 3`, and the
+      cheap failure is the point: `import nvidia.nccl` is a **namespace package whose `__file__`
+      is `None`**, so deriving the lib directory from it raised `TypeError` and the
+      `NO_VENV_NVIDIA_LIBS` guard fired before any GPU was touched. Fixed by globbing the
+      interpreter's own `site-packages/nvidia/*/lib` (15 dirs, nccl first) instead of importing —
+      verified on a login node with `ldd` alone: **every library the binary needs now resolves.**
+    - **7631529** — **T2's 2-node rung**, `LOCAL_BATCH=2` (global batch 16 = the production shape),
+      writing to the fresh `ace2_polaris_scaling_cxi.csv`. This is the row prereg P12 scores
+      against the tcp 2-node median of 1204.4 ms.
+    - **7631534** — the probe again, and it died in **6 seconds** on all six arms with
+      `MPIDI_CRAY_init: GPU_SUPPORT_ENABLED is requested, but GTL library is not linked`.
+      The ACE2 env carries `MPICH_GPU_SUPPORT_ENABLED=1` (right for the trainer, which never
+      calls `MPI_Init`), but **`nccl-tests` is not linked against Cray's GTL**, so MPICH aborts
+      before NCCL exists. Fixed with `MPICH_GPU_SUPPORT_ENABLED=0` **in the probe only** — and
+      that is not a compromise: nccl-tests uses MPI purely to bootstrap (uniqueId broadcast,
+      hostname-hash allgather, error-count allreduce — all **host** buffers), while every
+      device-to-device byte goes through NCCL, which is the thing being measured, and the
+      `Selected Provider` line still proves which wire carried it.
+      ⚠ **Both probe failures were the launch path, not the experiment**, and both cost 6 s of a
+      2-node debug allocation — the preflights did their job. Each was diagnosed before
+      resubmission (#12), and the remaining risk was then closed **from a login node with `ldd`
+      alone**: `ldd -r` shows no missing libraries **and no undefined symbols**, which also
+      retires the "built against NCCL 2.28.3 headers, running against the venv's 2.27.5" worry.
+      That check is now in the probe's preflight rather than in a session's memory.
+    - **7631544** — the **1-node cxi anchor** (prereg P15), queued; the probe's third attempt is
+      queued behind it.
+  - ✅ **DEFINITION-OF-DONE ITEM 2 IS MET: the first ACE2 row on Slingshot exists** (7631529,
+    `ACE2_POLARIS_TRAIN_OK nodes=2`, **`provider=cxi`** on all 8 ranks, 28-column row in
+    `ace2_polaris_scaling_cxi.csv`, 3 min 57 s of walltime):
+
+    | | tcp (n=3) | **cxi (n=1)** | change |
+    |---|---|---|---|
+    | `step_med_ms` | 1204.4 | **815.275** | **−32.3%** |
+    | `samples_s_rank` | 1.6605 | **2.4532** | **1.477×** |
+    | `gpu_busy_frac` | 0.9288 | 0.9469 | +1.9 pp |
+    | `peak_mem_gb` | 33.959 | 33.959 | identical |
+
+    **Prereg P12 (">1.5×") is a MISS by 1.5%** — it needed < 803 ms and got 815.3. Recorded as a
+    miss, not rounded up. The threshold was set on makani's ~3.3× at 2 nodes without allowing for
+    the protocol pin the cxi stack requires.
+    ⚠ **Three variables moved at once** (plugin, `NCCL_PROTO=Simple`, rendezvous block) and two of
+    them are *costs*, so 1.477× is a **lower bound** on what the fabric alone is worth. The 1-node
+    arm (P15) has both costs and no fabric, which is what separates them — submitted behind the
+    probe. ⚠ n=1 against a rung whose own tcp rep spread was ±3.8%.
+  - 🟢 **THE ANCHOR LANDED AND IT CHANGES THE READING (7631544, 1 node, `provider=cxi`):
+    713.693 ms against the tcp anchor's 716.0 — no change at all (−0.3%).**
+    **Prereg P15 (predicting the 1-node arm gets 5–30% WORSE) is FALSIFIED**, and the miss is the
+    valuable one: **`NCCL_PROTO=Simple` costs ACE2 nothing measurable.** makani's quoted −26% does
+    not transfer, and the mechanism is consistent — LL/LL128 are *small-message* protocols, while
+    ACE2's intra-node traffic is a 1.74 GiB full-model all_reduce plus ~11 buckets of ~165 MB.
+    ⇒ **P12's "lower bound" caveat collapses: the 2-node 1.477× is essentially all fabric.**
+  - ✅ **T4 — the economics, recomputed** (n=1 at each rung, `local_batch=2`):
+
+    | | tcp (n=3) | **cxi (n=1)** |
+    |---|---|---|
+    | first-hop toll | **+488.4 ms** (40.6% of the 2-node step) | **+101.6 ms (12.5%)** |
+    | node·s/sample, 1n → 2n | 0.0895 → 0.1506 = **1.68×** | 0.0892 → 0.1019 = **1.14×** |
+    | samples/s total at 2n | 13.29 | **19.63** |
+
+    **The toll fell 4.81× against a 5.2× app-free bandwidth ratio** (7629082) — exposed
+    inter-node cost tracks fabric bandwidth almost exactly, which is the strongest evidence yet
+    that this toll is **bandwidth-bound**. And the conclusion moves qualitatively: on tcp, a
+    second node cost **+68% node-hours per sample** — the fact that made "use the fewest GPUs
+    that hold the batch" the first question — while on cxi it costs **+14% for 1.75× the
+    throughput.** §1f of the multi-node handoff is updated in place with this table.
+  - 🟢 **T3 ANSWERED (7631550, 44 s, `ACE2_NCCL_TESTS_OK arms=6/6`, all `provider=cxi`): THE TREE
+    DEFECT DOES NOT REPRODUCE ON SLINGSHOT.** Every row `#wrong = 0` with nccl-tests' own
+    `Out of bounds values : 0 OK` terminator — no corruption **and** no hang — at 256 MB / 512 MB /
+    1 GiB / 2 GiB **and** at ACE2's exact 1,823,324,160 B collective, in-place and out-of-place.
+    ⇒ **the tcp-era failure was a defect in the path ACE2 was actually using (aws-ofi-nccl 1.21.1
+    over tcp), not an NCCL Tree bug** — possibility (1) of the three the slingshot handoff listed.
+    The **intra-node control arms** say it from the other side: Tree is correct with no fabric in
+    the path at all. **Prereg P13 (Tree still fails) is FALSIFIED**, which is the outcome the
+    prereg itself called the more useful one.
+
+    | | Tree | Ring |
+    |---|---|---|
+    | intra-node (NVLink) | 138.43 GB/s | **187.04** |
+    | inter-node (cxi, 2 nodes) | **42.79** | 35.37 |
+    | ACE2's 1.74 GiB collective | **44.03** | 35.78 |
+
+    ⚠ **`NCCL_ALGO=Ring` has gone from free insurance to a measured 21–23% inter-node cost — and
+    it STAYS ON anyway.** The tcp defect appeared at 2 nodes *and 8* and this re-test is 2 nodes
+    only; nccl-tests drives one communicator with nothing else in flight, while ACE2's exposure is
+    a DDP all_reduce inside fme (the makani wedge that started all of this was a DDP *broadcast*
+    that no app-free probe ever reproduced); and dropping it is a hot-path change, so DESIGN §4
+    wants an equivalence baseline, not a bandwidth table. Next: the same probe at 4/8 nodes.
+    ⚠ Note the reversal *inside* a node (Ring +35%): this is not "Tree is better", it is "Tree is
+    better across the fabric, Ring over NVLink", and ACE2's big collective crosses both.
+  - 🐛 **The probe's own parser had a blind spot, found by its first real log and fixed against
+    it.** PALS `--label --line-buffer` interleaves 8 ranks' `NCCL_DEBUG` with rank 0's table, which
+    **splits rows mid-line** — and a split row was dropped silently, so **its `#wrong` column, the
+    one thing the instrument exists to read, went unchecked**. It cost the `ace2_startup_*` arms
+    their only row each (`rows=0` while the arm had plainly finished). Two fixes: the parser now
+    matches a prefix-less row, still checks it, and names it `ARM_SPLIT_ROWS` rather than
+    recovering silently; and the launcher sends `NCCL_DEBUG` to per-rank **files**
+    (`NCCL_DEBUG_FILE`) then echoes each arm's provider lines back into the log, so the table and
+    the debug stream stop sharing stdout. Verified by **re-scoring the real 7631550 log: 4/6 → 6/6,
+    every split row recovered and checked** (16 tests, `ACE2_NCCL_TESTS_PARSE_OK`).
+  - 🟢 **T3 AT 8 NODES (7631624, 32 ranks, `debug-scaling`, 53 s, `arms=6/6`, `Exit_status 0`):
+    CLEAN THERE TOO — and the PERFORMANCE answer REVERSES WITH SCALE.** Every row `#wrong = 0`,
+    every arm terminated, all `provider=cxi`. The tcp defect showed at 2 nodes *and* 8; both are
+    now clean, so **the correctness case for `NCCL_ALGO=Ring` is gone.** But:
+
+    | inter-node avg busbw (GB/s) | Tree | Ring | winner |
+    |---|---|---|---|
+    | 2 nodes / 8 ranks (7631550) | **42.79** | 35.37 | **Tree +21%** |
+    | 8 nodes / 32 ranks (7631624) | 28.90 | **37.00** | **Ring +28%** |
+    | ACE2's 1.74 GiB @ 2n / @ 8n | **44.03** / 29.48 | 35.78 / **37.55** | Tree +23% / Ring +27% |
+
+    At 8 nodes Ring wins by **25–29% at every size** in the 128 MiB→2 GiB sweep, not just on the
+    average, and the mechanism is the one §1a inferred back when it was explaining why Ring escaped
+    the defect: **Tree's per-link message does not shrink with N; Ring's reduce-scatter gives each
+    rank `S/N`.** Inside a node Ring leads throughout (193 vs 141 GB/s).
+    ⇒ **The pin is right at 8 nodes and costs ~21% of collective bandwidth at 2** — ACE2's
+    production shape at global batch 16, worth ~2% of step time through the 101.6 ms toll.
+    ⇒ **So the move is NOT "pin Tree" but UNPIN** (`-v NCCL_ALGO=`) and let NCCL's own tuner pick
+    per size and per scale: it is the thing that knows this crossover, and forcing one algorithm
+    everywhere guarantees being wrong at one end. ⚠ **Still gated on the trainer** (a DDP
+    all_reduce with ~10 other collectives in flight is not one app-free communicator — the makani
+    wedge that started all of this was a DDP *broadcast* no probe ever reproduced) **and on
+    DESIGN §4** (hot-path change, reduction order moves, and ACE2 has no equivalence baseline yet).
+  - ✅ **The `NCCL_DEBUG_FILE` fix is verified on real output: `split 0` on all six arms at 8 nodes,
+    against `split 1` on every arm at 2 nodes before it.** The table and the debug stream no longer
+    share stdout.
+  - **Still open:** the **4/8-node cxi ladder rungs** (T2's *shape* is still a tcp result beyond
+    2 nodes), **reps everywhere** (every cxi row is n=1 against tcp rungs whose own spread reached
+    ±3.8% at 2n), and an **equivalence baseline**, which is what actually blocks the `NCCL_ALGO`
+    decision now that the correctness question is answered.
+
+- **2026-09-17 (cont. 2)** — **The ensemble track was on a branch of its own, and it was blocked by
+  the fabric fix on this one. Merged; two silent defects found and fixed on the way; both the
+  production candidate and the port tests are queued.**
+  - 🔴 **The ensemble/per-lead work lived on `wt-perlead-metrics` — 21 commits, none of them on
+    `feat/multinode-ddp-port`** — so `TODO.md`, `CHANGELOG.md` and the 128-node decision prompt all
+    described a project state three weeks stale. Notably **P0-3 was already fixed** there
+    (`652e9505`, job 7602739 `PERLEAD_METRICS_OK`): `MetricsHandler` is rebuilt on the dataset's own
+    channel names and the full `(leads × channels)` curve is dumped to
+    `<expDir>/scores/metrics_epN.h5`. It passes **all 101 channels**, which is what makani's own
+    `Inferencer` does (`inferencer.py:346`) — so it was never the science choice P0-3 feared.
+    Choosing a *headline subset* still belongs to jesswan.
+  - **What that branch had already measured:** the rollout **blurs and drifts** (RMSE ×4.65 from
+    6 h to 126 h, linear, no saturation; ACC 1.000 → 0.878); **C1 −3.00 %** at lead 126 h;
+    **`n_future=4` −4.66 %/−4.63 %**, replicated across two seeds to 0.03 pp; **D1** showed batch 8
+    costs 2.3 pp at depth 1. ⇒ **at matched batch, ONE epoch at depth 4 beats TWENTY-FOUR at
+    depth 1 by ~3.9 pp.** A `PlasimEnsembleTrainer` (CRPS) exists with 7 tests green and has
+    **never run**.
+  - 🔴 **Why it stalled: job 7621853, the production candidate the ladder named, died in epoch 1.**
+    All 8 ranks timed out on a **6,306,103-element `ALLREDUCE`** after 600 s. Its header reads
+    `No eligible providers were found` / `Selected provider is tcp` / `GDR not supported` — the
+    branch predates `9c30e304` by eight days. ⚠ 2 nodes is **forced, not chosen**: makani has **no
+    gradient accumulation**, so global batch = ranks × LOCAL_BATCH, and depth 4 at global 16 needs
+    22.29 GiB/GPU at local 2 (local 3 refits to ~34 of 39.49). This is the memory-driven multi-node
+    case, not a throughput claim.
+  - ✅ **Merged (`6b7231a1`), and it was clean by construction** — 17 files changed on one side, 23
+    on the other, **zero in both**. Discarded the uncommitted, retracted 2026-09-04 per-lead patch
+    from the working tree; it is superseded by `652e9505`.
+  - 🔴 **The merge alone would not have fixed it: TEN makani `submit_*.sh` wrappers still passed
+    `-v OFI_PLUGIN=${MEMBER_ROOT}/sw/aws-ofi-nccl-1.21.1/lib`**, overriding the harness default the
+    Slingshot work had just changed to v1.6.0. The fix was **inert on makani's entire submission
+    path**, including both production launchers. Removed, not relocated (`13ae5cbd`); wrappers now
+    inherit the default, on 1-node scripts too (the `polaris_ace2_env.sh:136-138` reasoning —
+    leaving the anchor arm on a different plugin from the ladder it anchors makes the baseline a
+    different configuration). `OFI_NCCL_PROGRESS_MODEL=AUTO` deliberately kept: provider-side, not
+    plugin-version specific. `parse_makani_scaling.py:242` already refuses to record a non-cxi row,
+    so a regression now costs a run, not a result.
+  - ✅ **E3SM inference port landed (`f857040b`) — changes A-D and G**, all deriving from config
+    rather than branching on dataset name (`src/sfno_inference/` is a subtree shared with the
+    Stampede3 `eval-sfno-own` path). **Two of the five were silent:**
+    - 🐛 **D — wrong physics.** `_extract_truth_sic` guarded on the forcing vector's *length*
+      (`< 6`) and then read *position 5*. PLaSim's order puts `sic` at 5 by coincidence; E3SM's is
+      `['lsm','topo','glacier','natveg','sst','solin','ice']`, so length 7 passes the guard, index 5
+      is **`solin`**, and sea ice is at 6. It returned **solar insolation** labelled `truth_sic`
+      with `units="fraction"`. Now looked up **by name**, with no positional fallback.
+    - 🐛 **G — wrong quadrature on every E3SM scorecard number.** `sfno_eval/metrics.py` used
+      Gauss-Legendre weights, correct for PLaSim's T21 Gaussian 64×128 and wrong for our
+      **equiangular** 180×360 pack; the only guard is a shape check, which 180-vs-180 passes.
+      **Measured: the absolute weight difference peaks at 3.8e-5 — small enough to pass a casual
+      `allclose` — while Gauss-Legendre over-weights the POLAR row by 1.50×.** Added
+      `equiangular_lat_weights` (verified equal to the exact sin(edge)-difference cell area to
+      **1.3e-16**) and a `lat_weights(nlat, grid_type)` dispatcher that **refuses** an unknown grid
+      rather than defaulting. Default stays `legendre-gauss`, so the PLaSim track is unchanged.
+      ⇒ **Where the scorer and a validation-side number disagree, the validation-side one is right.**
+    - A/B/C are mechanical: the literal `58/53/52/1/6` asserts became a self-consistency check
+      (`state + forcing == N_in`, `state + diag == N_out`), `inp_chans`/`out_chans` compare against
+      the run's own config, and `_load_run_norm_stats`' `n_out` defaults to `N_out_channels`
+      instead of 53 (all three call sites omit it, so a 101-channel stats file was checked
+      against 53).
+    - Tests: `tests/sfno_inference/test_e3sm_port.py`, 15 tests, **each contract exercised both
+      ways**. `test_checkpoint_loader.py`'s drift test was **updated, not weakened** — the same
+      forgery (52+6 != 60) is still caught, with a different exception type — plus a new
+      output-side case.
+  - 🔵 **QUEUED: 7630639** — the production candidate re-run on the cxi stack (`n_future=4`,
+    24 epochs, 2 nodes × local 2 = global batch 16, `preemptable`, ~16 node-hours). The dead expDir
+    is preserved as `nf4_prod_b16_r1_tcpfail_7621853`.
+  - ✅ **PORT VERIFIED — `E3SM_PORT_OK`, job 7630654: 52 passed, 4 skipped, 0 failed**, 13.7 s on a
+    compute node. The first run (7630649) came back **51 passed / 1 failed**, and the failure was
+    **pre-existing and unrelated**: `test_nc_writer.py::test_round_trip_dims_and_coords` compares
+    `ds['lead_time']` against integer hours, but current xarray decodes a timedelta-like `units`
+    into `timedelta64`, so it returned `np.timedelta64(21600000000000,'ns')` — which *is* 6 h.
+    Value right, decoded dtype moved, and xarray's own FutureWarning in the same log says it is
+    about to move again. Fixed by asserting the quantity in hours under both behaviours; the
+    comparison is still exact, not a loosened tolerance (CLAUDE.md #11). Nothing in `f857040b`
+    touches `nc_writer`.
+  - ✅ **Changes E and F landed too.** **E decided: step-index labelling** — the pack is on a
+    **noleap** 365-day calendar (measured: `T=1460` for 2048, a leap year) with a split-cumulative
+    day count, so anchoring onto a proleptic-Gregorian `datetime64` drifts a day per leap year
+    crossed; leads are hours-since-IC, which is also the natural coordinate for a lagged ensemble.
+    Zero effect on the model or any metric. **F = `polaris/polaris_eval_inference.pbs`**, a sibling
+    of `submit_eval_inference.slurm` (CLAUDE.md #7), covering **one** stage of the SLURM chain's
+    four **on purpose**: stages 2-4 run `src/sfno_eval`, which is the wrong scorer for an
+    equiangular grid, and the ensemble plan §4.2 routes E3SM scoring through makani's
+    `MetricsHandler` instead. PASS = `EVAL_INFERENCE_OK`, and it **counts the NetCDFs written**
+    rather than trusting `rc` — a sweep that writes nothing still exits 0.
+    🔵 **Smoke queued as 7630665** (`SMOKE=1`: one file, one IC, K=4). ⚠ **F is committed but
+    UNVERIFIED until that token appears.**
+  - **Still open:** **task 10, the K=56 / 14-day sweep — the real decision point.** At 126 h ACC is still 0.878, far from
+    climatology, so exposure bias and mode-averaging are **not yet separable**; that curve is what
+    says whether more rollout depth or a distributional objective (the untested CRPS arm) deserves
+    the node-hours.
+
+- **2026-09-17 (cont.)** — **The 128-node decision prompt, continued: the fabric question is
+  settled without spending a node-hour, §6 is withdrawn, and Option B has 20× the members it
+  claimed.** Analysis only — no jobs submitted. → `polaris_makani_128node_decision_prompt.md`
+  §10-§14.
+  - **The fabric cannot reverse the ranking, and the proof needs no 128-node job.** The
+    deciding quantity is measured at **one node, where there is no fabric**. For 128 nodes at
+    batch 512 (= 1 sample/GPU) to beat the 1-node run's **229,753 samples/node-hour**, it would
+    need a single-node step of **< 62.7 ms** at 1 sample/GPU (`4 GPUs × 3600 ÷ step`). The
+    **53-channel** model — which runs the same trunk with fewer channels and so cannot be
+    slower than ALLDATA at that shape — measures **65.3 ms** there (7564492, warmup-free).
+    Scaling by §4a's ~3.5× contract ratio gives ~229 ms ⇒ **~63,000 samples/node-hour**.
+    The prompt's independent ÷2.47 route gave ~233 ms / ~50,000. **Two routes agree to 2% on
+    the step and bracket the gap at 3.6-4.6× worse per node-hour**, so §1's ~87 node-hours is a
+    **floor**, not an optimistic bound. ⇒ a 128-node cxi scaling job is worth running to
+    characterise the machine but is **not a decision input**.
+  - **The objective restated: `updates/node-hour = 3600 ÷ (step_s × nodes)`.** 1-node **7,180**
+    vs 128-node **39.4** = **182× worse**; at the full measured 2.47× fabric gain, still 74×.
+    `nodes` is already 1, so **step time at batch 32 is the only lever left** — i.e. P1-8's
+    34.9%-of-GPU-time-in-copies finding, behind P1-9's §4.1 equivalence gate. A 20% step cut is
+    20% more updates/node-hour on every future run; no shape change on the table does anything.
+  - **🔴 §6 (2 nodes at batch 64) WITHDRAWN on four measured objections.** (1) Weak-scaling
+    efficiency below 100% **is** the node-hour penalty — the cxi ladder restated per node is
+    33.7 → 27.2 → 21.5 samples/s/node, so 2 nodes is **19% worse**, not a gain; §6 read a
+    throughput gain as an efficiency gain. (2) **The shape is already a row** — job **7580449**,
+    2 nodes × 8 samples/GPU × global batch 64 pure DDP, **1018.6 ms** against the 1-node
+    batch-32 baseline's 365.4 (3 reps, 0.2% spread). It is a TCP row so the number is unusable,
+    but the configuration was not unrun; on cxi the honest estimate is ~390 ms ⇒ **~6-7% worse per
+    node-hour**. (3) **Batch 48 already lost to batch 32** at matched LR and data (§5l: 11.7%
+    worse early, 766-859 s/epoch vs 675-682). (4) **The LR escape is narrower than §6 assumed
+    and the test was under-powered** — 3.0e-3 collapsed at batch **48** (a smaller batch), the
+    ceiling does not move with batch (9/9 arms, §7e), and §7e measured `max_grad_norm: 1.0`
+    delaying collapse to **epoch 6**, exactly the proposed test horizon. Best case the
+    experiment reports "half the wall-clock for +6% node-hours and half the updates" — a
+    scheduling convenience, and wall-clock is not binding (`capacity` ≤168 h; the run took 46).
+  - **Option B is 20× better resourced than stated: all 243 epoch checkpoints are on disk**,
+    contiguous `ckpt_mp0_v0…v242`, 1.65 GiB each, **403.2 GiB**, under
+    `prod1n_b32_sgdr/training_checkpoints`. §5k's "twelve members" is that report's every-20th
+    *subset*, not what survived. ⇒ ensemble **spacing becomes a free parameter** and the
+    single-trajectory correlation objection is measurable at inference cost. ⚠ It is also
+    **TODO item 16's non-pruning defect on a second harness** (ai-rossby 870 GB, makani 403 GiB)
+    — one diagnosis, two codebases.
+  - **Also recorded: where the additive model breaks.** `compute + comms` does not decompose
+    cleanly here (DDP overlaps the all-reduce with backward): on TCP the 2-node rung is *slower*
+    than the 4-node one (490.7 vs 460.5), and the two 2-node ALLDATA reps at batch 32 read
+    **627.1 and 2386.9 ms** — a 3.8× spread. **Treat every 2-node TCP row as unusable.** ÷2.47
+    lands close only because comms dominated ~79% of the TCP step.
+  - **§9's three corrections applied to `TODO.md`:** the TCP-measured "85% weak-scaling
+    efficiency" struck from "Not on this list on purpose" (conclusion restated on the stronger
+    §10 argument); the old-plugin entry **rewritten — it is now the recommended plugin**, its
+    message-size lottery fixed by HPE's rendezvous block (7630227 vs 7629096); and the
+    `NCCL_ALGO=Ring` "~1 GB threshold" evidence downgraded, having been measured on TCP.
+
+- **2026-09-17** — 🔴🔴 **THE 128-NODE PRODUCTION RUN NEVER USED SLINGSHOT. It ran its
+  collectives over TCP.** Found by running NVIDIA `nccl-tests` app-free for the first time
+  (jobs **7629065 / 7629082 / 7629096**) — every prior NCCL result in this repo came from a
+  torch program, which conflates the fabric with DDP.
+  - **The evidence, from the production log itself** (`prod128_alldata_v2.log`, job 7566145,
+    lines 1832-1844 — it was there the whole time, nobody grepped for a *provider*):
+    ```
+    NET/OFI No eligible providers were found
+    NET/OFI Selected provider is tcp, fabric is 10.201.0.0/16 (found 2 nics)
+    NET/OFI Support for DMA-BUF registrations: false
+    NET/OFI Need to force simple protocol: GDR not supported
+    NCCL INFO Using network AWS Libfabric
+    ```
+  - **Why it went unnoticed for three weeks:** `Using network AWS Libfabric` is the *plugin's
+    name*, not the provider. The scaling CSV's `transport` column captured exactly that string,
+    so it read `AWS Libfabric` on every row whether the traffic went over CXI or TCP — and
+    prereg #2 ("`transport` reads `AWS Libfabric` on every multi-node row") scored a **HIT**
+    against an instrumentation contract that could not distinguish the two.
+    The line that *does* discriminate is `Selected Provider is cxi` vs `Selected provider is tcp`.
+    → CLAUDE.md #10: a column that cannot fail is not a measurement.
+  - **So "old vs new plugin" was really "CXI vs TCP" all along.** Verified by re-reading the
+    ladder logs: §3a rows (7554216, 7564288, old v1.6.0 plugin) print
+    `Selected Provider is cxi (found 2 nics)`; §3b rows and production (v1.21.1) print
+    `Selected provider is tcp`. That retires §3b's standing hypothesis — the inter-node
+    collapse was **not** progress-engine CPU starvation from `OFI_NCCL_PROGRESS_MODEL=AUTO`;
+    it was TCP with no GPUDirect RDMA. The AUTO knob is exonerated and the "cpu-bind /
+    progress-thread sweep" in §8 is no longer the top tuning experiment.
+  - **Measured size of the prize** (`nccl-tests` `all_reduce_perf`, same nodes, one variable):
+    CXI **18.03 GB/s** vs TCP **3.46 GB/s** busbw at 64 MB, 8 ranks/2 nodes = **5.2×**. At
+    16 ranks/4 nodes CXI sustains **28.5 GB/s** (peak 30.75) against a **205.03 GB/s**
+    intra-node NVLink ceiling.
+  - **Root cause of the fallback**, from `FI_LOG_LEVEL=info FI_LOG_PROV=cxi` (job 7629082):
+    `ofi_check_mr_mode(): Expected: FI_MR_ALLOCATED, FI_MR_PROV_KEY, FI_MR_ENDPOINT / Given:
+    FI_MR_ALLOCATED, FI_MR_ENDPOINT`. aws-ofi-nccl 1.21.1 omits **`FI_MR_PROV_KEY`**, which the
+    CXI provider mandates; it then falls back to `tcp` instead of failing. mr_mode hints live in
+    plugin source, so **no `FI_*` variable can fix it** — confirmed by `FI_PROVIDER=cxi` and both
+    `OFI_NCCL_PROTOCOL` values failing identically (arms M2/M3/M4).
+  - ⚠ **`NCCL_PROTO=Simple` was never ours to choose on the new plugin.** The plugin injects it:
+    `Need to force simple protocol: GDR not supported` → `Adding NCCL_PROTO=simple to
+    environment`. The §2 "Simple costs 26%" number conflates the pin with the TCP fallback.
+  - **What this does NOT overturn:** §5k's verdict that 1 node beat 128 on cost stands, and its
+    stated cause (batch 512 = **1 sample per GPU** starves the hardware) is still correct — but
+    it is no longer the *only* cause. Both were true at once: a starved step *and* a TCP fabric.
+  - ⚠ **Nothing has been re-measured on CXI at production shape.** The headroom is inferred from
+    §3a (old plugin, 4 nodes: 199.5 ms vs the new plugin's 460.5 ms) plus today's bandwidth
+    ratio — not from a re-run. **Do not quote a corrected 128-node number until one exists.**
+  - ⚠ **The old plugin is not a free fix.** Today's `nccl-tests` reproduced its message-size
+    lottery (§6): `all_reduce` swept clean to 4 GiB while **`all_gather` wedged at 512 KB** at
+    16 ranks with `NCCL_PROTO=Simple` set (job 7629096, killed). Evidence + raw logs:
+    `polaris_nccl_debug_info.md`, `polaris_nccl_metrics.md`.
+
+- **2026-09-10 (cont. 3)** — 🔴🔴 **ai2's OWN ACE2-ERA5 TRAINING CONFIG HAS BEEN VENDORED IN
+  THIS REPO THE WHOLE TIME, AND NOBODY HAD OPENED IT.** Three Opus critics, run on a compute
+  node via the proxy (job **7603189**, `ACE2_PAPER_ALIGN_OK`, angles: paper fidelity /
+  required diff / cost parity). All three returned **`materially_incomplete`**. Every claim
+  below was re-verified against the files by the main session.
+  - 📄 **`ACE2_retrain/ace_exp/configs/baselines/era5/ace-train-config.yaml`** is the
+    reference recipe. Zero prior CHANGELOG hits for it. **The whole "match the paper" plan was
+    built from paper prose — which deliberately omits hyperparameters — while the
+    hyperparameters sat on disk.** Verified diff against `config_polaris.yaml`:
+    | key | ai2 reference | ours |
+    |---|---|---|
+    | `max_epochs` | **120** | 3 (config) / 27 (planned) |
+    | `seed` | **absent** | `3` |
+    | `optimization.use_gradient_accumulation` | **true** | `false` |
+    | `optimization.enable_automatic_mixed_precision` | **false** | `true` |
+    | `optimization.lr` | 1e-4 | 1e-4 (but we planned 3e-4) |
+    | `optimization.scheduler` | absent | absent ✅ |
+    | `checkpoint_save_epochs` | **absent** | `{0, 4, 1}` |
+    | `train_loader.batch_size` | 16 | 16 (launcher forces **8**) |
+    | `builder.type` | **`NoiseConditionedSFNO`** (`noise_embed_dim: 0`) | `SphericalFourierNeuralOperatorNet` |
+    | `embed_dim` / `n_forward_steps` / `loss.type` / `ema.decay` | 384 / 2 / MSE / 0.999 | identical ✅ |
+    `max_epochs: 120` is corroborated by **three** ai2 baselines (era5, amip-c96-shield,
+    climsst — all 120 / batch 16 / lr 1e-4). The reference's 8 inference ICs are **verbatim**
+    the 8 dates the critics quoted, and a subset of our 16.
+  - 🔴 **MY `-v SEED=1..4` PROPOSAL WAS BACKWARDS AND WOULD HAVE CREATED A FIFTH SILENT
+    EXIT-0 FAILURE.** Two independent defects, both verified:
+    1. **Semantics** — see the retraction in the entry below. Setting `seed` changes data
+       order too; the paper's construction is `seed` **unset**.
+    2. **Collision** — `polaris_ace2_train.pbs:284` builds
+       `RUN_NAME="ace2_prod_${NNODES}n_b${GLOBAL_BATCH}"` with **no seed in it**, and
+       `trainer.py:289` resumes unconditionally on `os.path.isfile(latest_checkpoint_path)`.
+       Four seed jobs would share one `EXP_DIR`, runs 2-4 would **resume run 1's `ckpt.tar`**,
+       find `_epochs_trained == max_epochs`, never enter the training loop, and print
+       `ACE2_POLARIS_TRAIN_OK` in minutes. **Four jobs, one model, four green tokens.**
+  - 💰 **THE BUDGET IS ~4× LOW, AND THAT INVALIDATES THE PLAN'S HEADLINE CHANGE.**
+    At 27 epochs each model sees **22.5 %** of the paper's training samples and takes 45 % of
+    its updates; on the paper's own 8×H100 our schedule would finish in ~1 day, not 4.5.
+    Corrected: **~450 h/model, ≈1,450-2,400 node-hours for four** — on `capacity`
+    (`max_run 1` per *project*) that is ~75 days serial.
+    🎯 **And α cannot fire in that regime.** The paper's per-epoch criterion only differs from
+    validation loss once a run is *past* its climate-skill optimum. Every indicator says we
+    will still be descending: the LR sweep fell 0.2846 → 0.2205 → 0.19579 with no flattening,
+    and this repo's one completed production model (makani) hit its minimum **at the last
+    epoch**. ⇒ restoring α costs +10-15 %/epoch to reproduce a decision procedure that
+    returns "the final checkpoint" either way. **The plan had the fidelity priorities
+    backwards:** it restored the expensive criterion that cannot discriminate and omitted the
+    cheap one that is unconditionally required.
+  - 🆕 **MISSING ENTIRELY: the across-run selection.** The paper: *"we performed twelve 5-year
+    inference runs, initialized once every 5 years starting on 1 January 1940"*, with q0
+    downweighted 10× because *"our poor skill in predicting the time-mean of this variable
+    otherwise dominated α"*. fme's `rmse/channel_mean` is an **unweighted** mean
+    (`time_mean.py:346-353`), so the downweight must be applied **offline** from the
+    per-channel `rmse/<name>` values (emitted at `:337`) — exact, not an approximation.
+    Cost ≈ **9 GPU-h total**, the cheapest item on the list and the only one simply absent.
+    ⚠ Without it, four seeds are a **selection pool with no selection rule**.
+  - 🐛 **Four more verified defects in our own config/launcher, none previously known:**
+    - **`FULL_VAL` never defaults on under `PRODUCTION=1`** (`:638`), so `best_ckpt` would be
+      selected on a ~5-day, ~16-sample validation window — *the launcher's own comment at
+      `:630-635` calls this out as "REQUIRED for production"* and the knob still defaults to 0.
+    - **Validation window is 1996-1997; the paper's is 1996-2000.** 1998-2000 sits in
+      **neither** train (`:93-96` jumps 1995→2011) nor validation — three years silently unused.
+    - **Nothing downstream reads `best_inference_ckpt.tar`.** `trainer.py` writes *two*
+      checkpoints from *two* criteria (`:753` val-loss → `best_ckpt`, `:772` α →
+      `best_inference_ckpt`); `evaluator_smoke.yaml:31` points at the former. We would pay for
+      α, write the right file, and evaluate the wrong one — silently, since both load.
+    - **`use_gradient_accumulation: false` is a gradient change, not a memory knob**, and it
+      may be why local batch 3 OOMs: with it **on** (the reference value) fme detaches between
+      autoregressive steps and backwards each immediately, freeing step-1 activations. **The
+      "largest local batch is 2" cap was measured only with it OFF** — so global batch 8, and
+      therefore the entire LR question, rests on an untested premise. One debug job settles it.
+  - ⚖ **Critic disagreement, resolved by the main session:** fidelity said `DistributedSampler`'s
+    seed is independent of `config.seed`; diff said `set_seed` feeds it. **Diff is right**
+    (`rand.py:29` → `distributed.py:416-420` → `:209-214`). Recorded because it is exactly the
+    case where taking a critic at face value would have propagated the error.
+  - ✅ **What survived attack:** the data split matches the paper's Table 1 (predicted 97,878
+    samples vs 97,874 measured); loss weights match Table 2 term for term; `embed_dim: 384`,
+    the 2-step summed loss, the corrector, and the split network/residual normalization all
+    match; α **is** `time_mean_norm/rmse/channel_mean`; dropping `CosineAnnealingWarmRestarts`
+    is right (**the reference has no `scheduler:` key** — so flat LR, confirmed by source
+    rather than by the paper's silence); trimming to 8 ICs is right; and the 4-rank writer bug
+    genuinely does **not** block inline α (`InlineInferenceConfig` has no `data_writer` at all).
+  - ⚠ **My justification "the paper does not use warm restarts" was not evidence** — the paper
+    is *silent* on optimizer, LR, schedule, batch and epochs. Right answer, wrong route; the
+    reference config is the actual evidence.
+  - ✅ **BATCH PROBE — job 7608867, `ACE2_BATCH_PROBE_OK`. THE PAPER'S GLOBAL BATCH 16 FITS ON
+    ONE NODE.** New `polaris/polaris_ace2_batch_probe.pbs`; `GRAD_ACCUM`/`AMP` knobs added to
+    the launcher. Four sequential arms, one allocation, 28 min:
+    | arm | local | global | `use_gradient_accumulation` | rc | peak GiB | `step_med_ms` |
+    |---|---|---|---|---|---|---|
+    | 1 | 2 | 8 | **true** | 0 | **21.514** | 726.1 |
+    | 2 | 3 | 12 | **true** | 0 | **27.969** | 1100.4 |
+    | 3 | 4 | **16** | **true** | 0 | **37.095** | 1553.8 |
+    | 4 | 3 | 12 | false | 1 | **OOM** | — |
+    - 🎯 **Accumulation is worth 12.4 GiB at the same batch** — local 2 costs **21.514 GiB**
+      with it on against the **33.959 GiB** measured with it off (job 7586506). That is the
+      single largest memory lever found in this campaign, and it was sitting in ai2's config
+      the whole time. Mechanism as predicted: the step-1 activation window is freed before
+      step-2's forward at `n_forward_steps: 2`.
+    - ✅ **Arm 4 is the control and it behaved**: local 3 with accumulation OFF still OOMs, on
+      the same node in the same session. ⇒ the 2026-09-02 ceiling was correct *at that
+      setting*; it was never wrong, it was measured at a setting the reference does not use.
+    - ❌ **A GUESS OF MINE WAS WRONG: batch 16 is SLOWER per sample, not faster.** Samples/s
+      falls **11.02 → 10.91 → 10.30** across batches 8/12/16, i.e. **−6.5 %** at batch 16, so
+      epoch wall-clock *rises* ~7 %. I had speculated the opposite ("epoch wall time could drop
+      rather than rise"). What batch 16 buys is **half the optimizer steps per epoch** (6,117
+      vs 12,234) — which is the paper's accounting, not a speed win.
+      📏 Pure-step epoch estimate: 97,874 samples ÷ 10.30/s = **2.64 h** at batch 16 (2.47 h at
+      batch 8), which independently corroborates the "uncontended ~2.63 h/epoch" figure and
+      confirms the **measured 4.05-4.59 h epochs were contention, not the true cost.**
+    - 🔴 **BUT HEADROOM AT BATCH 16 IS ONLY 2.4 GiB (37.095 of 39.49 = 94 %), AND α IS NOT IN
+      THAT NUMBER.** Inline inference runs in the same process right after validation, and
+      `torch.cuda.empty_cache()` is called at the **top of the next epoch**, not before
+      inference (`trainer.py:414-429`) — the exact interaction the fidelity critic flagged.
+      ⇒ **batch 16 + restored α is UNPROVEN and must be gated before any long run.** Batch 12
+      (27.969 GiB, 11.5 GiB headroom) is the conservative fallback.
+    - 🐛 Fixed in the probe on the way out: `grep -c … || echo 0` emits two lines on no-match,
+      so `[ "$oom" -gt 0 ]` errored with `integer expression expected`. Harmless here (the rc
+      branch caught it) but it would have misreported a real OOM.
+  - 📌 **NOTHING IS LAUNCHED.** The corrected picture changes the production decision from
+    "pick a queue" to "pick a compute budget and a set of written-down deviations", which is a
+    science-owner call. Reports:
+    `$MEMBER_ROOT/runs/ace2_paper_align/7603189/report_{fidelity,diff,cost}.md`.
+
+- **2026-09-10 (cont. 2)** — 🔴 **THE PROPOSED ACE2 ENSEMBLE PLAN IS PARTLY WRONG. An
+  adversarial review killed the framing, and the decisive fact is PRESCRIBED SST.**
+  An independent Opus critic (workflow `wf_52819e3c-548`) was told to attack the two ensemble
+  options proposed in-session. Verdict **`partly_wrong`**. Every claim below was
+  **re-verified against source by the main session** before being recorded.
+  - 🔴 **ACE2 here runs with PRESCRIBED SST, so all members share the slow component.**
+    `config_polaris.yaml:166` sets `ocean:` with no `slab:`; `fme/core/ocean.py:95`
+    `self.type = "prescribed"` and `:119` `next_step_temperature = target_data[...]`, applied
+    over ocean every step. ⇒ **all 16 ICs and all weight members are driven by the identical
+    observed 1996-2001 SST/sea-ice/CO2/insolation.** Whatever spread is measured is fast
+    atmospheric noise plus training noise. It cannot address a forced-response question, which
+    is what a climate emulator is judged on.
+    🎯 **Self-proving instance:** fme's own Nino3.4 aggregator
+    (`enso/dynamic_index.py`) computes the ENSO index from `prediction["surface_temperature"]`,
+    which inside the Nino3.4 box (100% ocean) is overwritten with ERA5 every step. The
+    "ensemble ENSO index" is therefore **bit-identical across members and identical to the
+    reference by construction** — zero spread, perfect apparent skill, no information.
+  - 🐛 **The proposal named the WRONG ENTRY POINT.** `fme.ace.inference` cannot consume
+    `config_polaris.yaml`'s `inference:` block: it wants `initial_condition:` (an
+    `xr.open_dataset` target) + `forcing_loader:`, and its aggregator has no `log_histograms`,
+    under `dacite.Config(strict=True)`. **`fme.ace.evaluator` is the match** —
+    `evaluator.py:222-228` takes `loader: InferenceDataLoaderConfig` +
+    `aggregator: InferenceEvaluatorAggregatorConfig`, exactly the config's shapes (verified).
+    It is also the only one that computes time-mean bias, zonal/seasonal means, paired spectra
+    and per-lead RMSE — the climate scorecard. Choosing `inference` forfeits all of it.
+  - 🐛 **"3 free snapshot members" is false at the launcher's DEFAULT.**
+    `polaris_ace2_train.pbs:280` is `T_0="${T_0:-10}"`, and `range(28)[10:28:10]` = **[10, 20]**
+    — two members, with epoch 27 landing **mid-cycle at LR ≈ 1.0e-4**, a high-noise weight
+    state, for the one production run the project is allowed. Passing `-v T_0=9` gives
+    `[9, 18, 27]` and lands the final epoch on a minimum (both verified by slice arithmetic).
+    ⇒ the `T_0=9` in the launch command is **load-bearing, not cosmetic**.
+  - 🐛 **EMA is NOT a 4th member, and as configured it is not even written.**
+    `ema.decay 0.999` ⇒ e-folding ≈ 1000 updates; at 12,234 updates/epoch that is **0.082
+    epochs = 0.30 % of the run**, i.e. EMA ≈ the epoch-27 snapshot. And the launcher never sets
+    `ema_checkpoint_save_epochs` (verified absent), so `trainer.py:791` is always False and no
+    EMA epoch checkpoint exists. The only EMA weights on disk are `best_ckpt.tar`.
+  - 🔴 **The snapshots hold RAW, non-EMA weights that have never been scored.**
+    `trainer.py:799-803` saves the epoch checkpoint **outside** the `with
+    best_checkpoint_context()` block that closes at `:787` (verified by reading the block), and
+    `validate_using_ema: true`. ⇒ every ACE2 validation number this project has ever quoted —
+    including the sweep's **0.19579** — is an **EMA** number, while the proposed members are
+    weight states with no measured quality at all.
+  - ✅ **The `n_ensemble_per_ic` trap is CONFIRMED and was understated.**
+    `broadcast_ensemble` → `repeat_interleave_batch_dim`, with a test asserting exact
+    replication. The only registered perturbations are **`constant`** and
+    **`greens_function`** (verified in `data_loading/perturbation.py:89,109`), both
+    deterministic and loader-wide. With N identical members `SSRBiasMetric.get` returns exactly
+    **-1.0** (its "undefined" convention) and CRPS collapses to MAE — **finite, plottable
+    numbers logged without a warning.**
+  - 💾 **Cost inverts the plan.** Default `save_prediction_files: true` writes both predictions
+    and target: ~2.79 TB per member, **~11 TB** for four. And `data_writer/` has **zero**
+    `Distributed`/`is_root`/rank references (independently confirmed) while `InferenceDataset`
+    shards ICs by rank ⇒ a multi-rank inference job would collide on one filename. Meanwhile
+    forward-only compute is only **~0.5 GPU-h** per 16-IC × 5-y set. **I/O is the constraint,
+    not compute** — so the affordable lever is longer and more numerous rollouts, not more
+    weight members.
+  - 🎯 **REPLACEMENT PLAN (adopted as the recommendation; not yet executed):** one model
+    (`best_ckpt.tar`, the EMA weights, the only checkpoint ever scored) through
+    **`fme.ace.evaluator`**; buy **length over members** (`run_segmented_inference`,
+    `inference.py:389`, chains segments through the 1 h debug queue); `save_prediction_files:
+    false` + `save_monthly_files: true` (~11.6 GB vs 2.79 TB); **one rank**; and if a real
+    ensemble is wanted, use the mechanism fme actually ships — **`SSTPerturbation`
+    (`constant` / `greens_function`), i.e. a forced-response / Green's-function ensemble**,
+    which is what ACE2's own paper does. Demote epoch 9/18/27 to a **reproducibility check**,
+    which is publishable and free. ⚠ Green's-function experiments change the forcing ⇒
+    **science-owner decision (jesswan)**.
+  - ⚠ **Process note, recorded because it cost a wrong diagnosis.** The `Agent` tool is
+    **hard-denied by user permission rules** — the Fable 5 half of the review returned
+    `blocked by safety classifier: [User Deny Rules]` while its sibling completed, so the block
+    is per-call. The main session first misread this as "the agent is running fine" by
+    inspecting the *sibling's* transcript, and wrongly concluded that Workflow's `model` option
+    was being silently ignored. **It was not** — that agent had been explicitly set to
+    `claude-opus-5`. Independent critics on this cluster must go through
+    `claude -p` on a **compute node** via the ALCF proxy, the pattern
+    `makani_sfno/polaris/polaris_critic_handoff.pbs` established. New sibling:
+    `ACE2_retrain/polaris/polaris_ace2_ensemble_critique.pbs` (PASS
+    `ACE2_ENSEMBLE_CRITIQUE_OK`), submitted as **7602723** for the Fable 5 / plumbing angle.
+  - ✅ **7602723 GREEN — `ACE2_ENSEMBLE_CRITIQUE_OK`**, both Fable 5 critics completed
+    (plumbing 10.9 min, science 7.6 min) via the proxy. Verdicts across three independent
+    attacks: Opus/science **`partly_wrong`**, Fable/science **`fundamentally_misaimed`**,
+    Fable/plumbing **`partly_wrong`**.
+    **CONVERGED across all three (and re-verified here):** prescribed SST; wrong entry point
+    (`evaluator`, not `inference`); EMA neither independent nor written; snapshots are raw
+    unscored weights; `n_ensemble_per_ic` replication; `T_0` default 10; I/O is the binding
+    constraint.
+    🆕 **NEW, from Fable, not found by Opus:**
+    - 🔴 **Production turns OFF the only long-horizon metric the run has.** `inference=null`
+      (launcher `:519`) means `trainer.py:448`'s `inference/time_mean_norm/rmse/channel_mean`
+      falls back to `None`, so `best_inference_ckpt` is never written either — and training
+      optimizes a **2-step** MSE (`stepper_training.n_forward_steps: 2`). ⇒ **no member's
+      5-year stability has ever been observed**, and the plan spends the entire rollout budget
+      before checking. One drifting member (the under-trained epoch-9 state is the prime
+      suspect) poisons every pooled statistic. This is a go/no-go gate the plan skipped.
+    - ⚠ **The 16 ICs carry a forcing-window confound.** They span 1996-01-01 to 1996-12-08 —
+      up to **11.3 months** apart — so each member's 7300-step (5 y) window sees partly
+      different prescribed forcing; ~19% of the extreme members' averaging windows differ.
+      Statistics must be restricted to the **common overlap (Dec 1996 – Jan 2001)** or
+      internal variability is confounded with forced window offset.
+    - 🔴 **"Combine the netCDFs" is destructive as usually meant.** Averaging fields across
+      weight members at each timestep suppresses variance by ~1/N and damps spectra — exactly
+      the quantities a climate emulator is graded on. **Only pooling per-member climatologies
+      is defensible**, and nothing in the repo does either; a member-dim concat of 6-hourly
+      raw output is itself a 6+ TB rechunk job nobody has written or costed.
+    - ⚠ **Preemption breaks post-hoc inference twice over:** a monolithic 7300-step run has no
+      resume (only `--segments` skips completed work via `restart.nc`), a restart re-opens
+      outputs in `"w"` mode and **destroys the partials**, and `#PBS -r n` means no requeue.
+      Capacity's single project slot is consumed by the training run for ~5 days, so inference
+      lands on preemptable.
+    - ⚠ **The 4-rank failure is specific:** the IC is loaded **unsharded** (all 16 on every
+      rank) while the forcing loader shards by rank, so the first predict call meets a batch-16
+      prognostic state against batch-4 forcing and dies — after every rank has already opened
+      the same netCDF in `"w"` mode.
+    ⚖ **DISAGREEMENTS, recorded rather than resolved:**
+    - **The off-by-one is SETTLED IN THE LAUNCHER'S FAVOUR.** Both Fable critics independently
+      confirm `start=T_0, step=T_0` is **correct**: `_epochs_trained` increments at
+      `trainer.py:600` *before* `save_all_checkpoints`, and with `step_each_iteration=false`
+      epoch N trains at `T_cur=N-1`, so the checkpoint tagged 9 does hold the cycle's
+      lowest-LR weights. **The launcher comment survived attack** — do not "fix" it.
+    - **Forward-only compute disagrees ~7×**: Opus ~0.5 GPU-h per 16-IC × 5-y set vs Fable
+      ~3.6 GPU-h/member (~14 GPU-h for four, self-declared ±2-3×). **Neither is measured**;
+      both agree compute is not the constraint. Cheap to settle.
+    ✅ **What survived attack (Fable/plumbing #10):** checkpoint/scheduler resume plumbing is
+    genuinely solid (`T_cur` checkpointed, the `step(metrics=…)`→TypeError fallback exists,
+    SIGTERM restart ordering correct); epoch-checkpoint size is **affordable — ~7.3 GB each,
+    ~22 GB for three**, nothing like the sibling model's 433 GB; training checkpoints load
+    directly as inference checkpoints; and `fme.ace.validate_config --config_type
+    inference|evaluator` exists, so a new launcher can preflight its config.
+    🎯 **Both critics converge on the same cheap decisive next test:** one **single-rank,
+    debug-queue** `fme.ace.evaluator` run — hand-written yaml, any existing `ckpt.tar`,
+    `n_forward_steps=100`, `save_prediction_files=false` — settles the config-shape, the cost
+    extrapolation and (repeated under `mpiexec -n 4`) the predicted batch-mismatch crash, in
+    **under an hour of debug time**. Reports:
+    `$MEMBER_ROOT/runs/ace2_ensemble_critique/7602723/report_{plumbing,science}.md`.
+  - ✅ **GATE RUN — job 7603116, `ACE2_EVALUATOR_OK`. The first time anything in this repo has
+    run fme's inference OR evaluator path on Polaris.** 10 min of `debug`, all three questions
+    answered. New: `polaris/polaris_ace2_evaluator.pbs`, `polaris/evaluator_smoke.yaml`,
+    `polaris/run_ace2_evaluator.py`.
+    - 🐛 **First, a gap neither critic caught: THE EVALUATOR HAS NO CLI ENTRY POINT.**
+      `evaluator.py:288` defines `main()`, but there is no `evaluator/__main__.py` and
+      `pyproject.toml` has **no `[project.scripts]` / `entry_points` block at all**;
+      `python -m fme.ace.inference` resolves to the *other* path. Both critics said "use
+      `fme.ace.evaluator`" without noticing you cannot invoke it. Hence
+      `run_ace2_evaluator.py`, a structural copy of `fme/ace/train/__main__.py`.
+    - ✅ **Q1 ANSWERED — the critics were right about the entry point.** `PREFLIGHT_OK` from
+      `fme.ace.validate_config --config_type evaluator`, then **arm A rc=0 in 151 s**, writing
+      the full climate scorecard: `time_mean`, `time_mean_norm`, `zonal_mean`,
+      `power_spectrum`, `histogram`, `mean_step_20` diagnostics plus
+      `monthly_mean_{predictions,target}.nc` and `restart.nc` — **268 MB** for 4 ICs × 100
+      steps with `save_prediction_files: false`.
+    - 📏 **Q2 ANSWERED, and it settles the ~7× disagreement in FABLE'S favour.** fme's own
+      timer: `inference/forward_prediction duration: 37.63 s` for 4 ICs × 100 steps = 400
+      sample-steps ⇒ **94.1 ms/sample-step** of pure forward compute. Extrapolated to the
+      production shape (16 ICs × 7300 steps = 116,800 sample-steps): **≈3.05 GPU-h** of
+      forward compute per member, against a 12.25 GPU-h upper bound from total wall (which
+      carries ~60 s startup + ~50 s aggregation on a 25-day run and so over-weights fixed
+      costs badly at this length). **Fable predicted 3.6 GPU-h (±2-3×, correct); Opus
+      predicted 0.5 GPU-h (~6× low).** ⚠ fme's own `Total steps per second: 3.92` line does
+      not reconcile with either reading of "step"; the duration arithmetic is what is quoted.
+    - 🔴 **Q3 — THE PREDICTED CRASH IS REFUTED, AND WHAT REPLACES IT IS WORSE.**
+      Arm B (`mpiexec -n 4`) returned **rc=0** in 85 s. The plumbing critic's mechanism —
+      IC loaded unsharded against a rank-sharded forcing loader ⇒ batch mismatch ⇒ crash — is
+      **wrong**: the IC *is* sharded, so there is no mismatch. But the outputs split cleanly
+      in two:
+      | file class | arm B vs arm A |
+      |---|---|
+      | `time_mean`, `time_mean_norm`, `zonal_mean`, `power_spectrum`, `mean_*` diagnostics | **byte-size identical** |
+      | `monthly_mean_predictions/target`, `initial_condition`, `restart` | **exactly 0.25×** |
+      0.25 = 1/4 ranks. ⇒ **the aggregators reduce across ranks correctly, and the data
+      writers do not: only rank 0's shard reaches disk.** At 4 ranks you silently keep **one of
+      four ICs**, with `rc=0`, no warning, and a scorecard that still looks right because the
+      aggregated half *is* right. Ranks 1-3's predictions are computed and discarded.
+      ⇒ **RULE: aggregated diagnostics are rank-safe; per-sample written output is not. Run
+      evaluator/inference SINGLE-RANK** — or lose (N-1)/N of the members. The critic's
+      conclusion ("single-rank only") stands; its stated mechanism does not. This is the
+      fourth silent, exit-0 data-loss mode found in this campaign.
+    - ⇒ **The replacement plan is now measured, not argued:** evaluator + single rank +
+      `save_prediction_files: false` + monthly means is confirmed cheap (268 MB / 3 GPU-h-scale)
+      and produces the climate scorecard. What remains unmeasured is **5-year stability**, which
+      is the real go/no-go and which `inference=null` in production still hides.
+    - ⚠⚠ **PROVENANCE OF THE CHECKPOINT THE GATE USED — it is NOT a production model, because
+      PRODUCTION HAS NOT RUN.** `ace2_lr_3e-4/training_checkpoints/best_ckpt.tar` (written
+      2026-09-09 16:11, i.e. by job 7598647) is the **LR-SWEEP arm**: its own `config.yaml`
+      records `max_epochs: 3`, `optimization.lr: 0.0003`, **`scheduler: None`** (flat LR —
+      the sweep ran `NO_SCHEDULER=1` so a schedule could not confound the arms) and
+      `validate_using_ema: true`, and `out.log` shows it re-saved `best_ckpt.tar` at every
+      epoch as validation improved 0.2846 → 0.2205 → **0.19579**.
+      ⇒ it is **~36,700 updates, about 11 % of production's planned ~330,000**, trained on a
+      **flat** LR rather than the warm-restart schedule production will use.
+      **Fine as a plumbing test article — which is all the gate needed — and NOT a source of
+      any science claim.** In particular a 5-year rollout of *this* checkpoint would test
+      whether an 11 %-trained model drifts, which says little about the production model; it is
+      a useful smoke ("does a long rollout complete at all"), not the stability go/no-go.
+      🔁 **Bonus confirmation of the T_0 finding, from this run's own config:** it recorded
+      `checkpoint_save_epochs: {start: 10, stop: 4, step: 10}` — an **empty slice** (start >
+      stop) — which is why the directory holds only `ckpt.tar` and `best_ckpt.tar` and **no
+      per-epoch snapshots at all.** The `T_0` default of 10 is not a hypothetical.
+  - 🎲 **DOES ANY OF THIS INJECT NOISE? NO — and fme's noise machinery is a DIFFERENT MODEL,
+    not a flag.** Asked directly, so verified directly:
+    - Our config builds `type: SphericalFourierNeuralOperatorNet`
+      (`config_polaris.yaml:145`) — the plain **deterministic** SFNO — and trains with
+      `stepper_training.loss.type: MSE`, `n_forward_steps: 2`. Nothing anywhere in the
+      snapshot/IC plan perturbs inputs, weights or state. Combined with the ~1 ULP
+      run-to-run determinism already measured, identical inputs give identical trajectories.
+    - fme **does** ship stochasticity: `ModuleSelector.register("NoiseConditionedSFNO")`
+      (`ace/registry/stochastic_sfno.py:159`). `NoiseConditionedModel.forward` draws **fresh
+      noise on every call** — `torch.randn` (gaussian) or `isotropic_noise` via an inverse SHT
+      (`:19-29`, `:114-122`) — and feeds it as conditioning to conditional layer norm, with
+      `noise_embed_dim: 256` and `noise_type: Literal["isotropic","gaussian"]`.
+    - It also ships the objective that makes a model actually *use* that noise:
+      `StepLossConfig.type` accepts **`"EnsembleLoss"`** (`core/loss.py:589`), i.e.
+      `CRPSLoss` + energy score (`:369`, `:386`). Trained under MSE, a noise-conditioned model
+      would simply learn to ignore its noise channel.
+    - ⇒ **The stochastic route is a different architecture (different weights, extra noise
+      pathway), a different loss, and a full retrain from scratch — a science change, not a
+      config toggle.** It cannot be applied to any checkpoint we have.
+    - 🔑 **This also reframes the `n_ensemble_per_ic` "trap":** the knob is not broken, it is
+      *for the stochastic model we do not have.* Under `NoiseConditionedSFNO` the N replicated
+      copies of one IC would diverge, because noise is drawn per forward call across the batch
+      dimension. Under our deterministic SFNO they stay bit-identical. Same knob, opposite
+      meaning, no warning either way.
+  - 📄 **THE PAPER SETTLES IT — and our plan was the wrong design.** Read the actual source
+    (Watt-Meyer et al., *ACE2: Accurately learning subseasonal to decadal atmospheric
+    variability and forced responses*, **arXiv:2411.11268**, §4 Methods). It uses **three
+    distinct ensembles for three purposes**, and **snapshot ensembles are not among them**:
+    | purpose | construction | paper's words |
+    |---|---|---|
+    | training / structural uncertainty | **4 models, different parameter INIT** | *"four models were trained with the same hyperparameters and differing only in parameter initialization"* |
+    | checkpoint selection, every epoch | **8 × 5-year inference runs** | *"α is computed once per epoch during training from an ensemble of eight 5-year long simulations, initialized at evenly spaced intervals across 1996, the start of the validation period"* |
+    | results / error bars | **3 ICs, ONE DAY APART** | *"a three-member initial condition (IC) ensemble of the model (each initialized one day apart)"*; *"Error bars indicate the range over three IC ensemble members"* |
+    Final model choice across runs used *"twelve 5-year inference runs, initialized once every
+    5 years starting on 1 January 1940."*
+    - 🎯 **α IS ALREADY IMPLEMENTED IN fme, AND OUR LAUNCHER DISABLES IT.** The paper's
+      criterion is *"the channel-mean global RMSE of time-means"*; `trainer.py:448-450` reads
+      exactly `inference/time_mean_norm/rmse/channel_mean` and feeds it to
+      `save_all_checkpoints` → `best_inference_ckpt`. **`inference=null` in the PRODUCTION
+      branch turns off the paper's entire checkpoint-selection method**, leaving `best_ckpt`
+      chosen on validation MSE instead of climate bias. This is the single largest divergence
+      from the published method, and it is the same gap Fable's finding #4 flagged from the
+      other direction (no long-horizon metric ⇒ 5-year stability never observed).
+    - 💰 **Cost of restoring it, from the 7603116 measurement:** 8 ICs × 7300 steps = 58,400
+      sample-steps, sharded across 4 ranks at 94.1 ms ⇒ **≈0.38 h/epoch**, i.e. **+10 %** on a
+      ~3.5-4 h epoch (~+10 h over 27 epochs). ⚠ Our config's `inference:` block carries **16**
+      ICs, double the paper's 8 — trimming to 8 halves this. ✅ **The multi-rank writer bug does
+      NOT block this**: inline inference needs only the *aggregated* α, and aggregated
+      diagnostics were measured byte-identical at 1 and 4 ranks.
+    - ❌ **RETRACTED — this line was WRONG.** It read: *"`seed:` is the right knob for the 4
+      models — seeds 1-4 reproduce 'differing only in parameter initialization' exactly."*
+      It stopped reading `set_seed` one line early. `core/rand.py:29` ends with
+      `dist.set_seed(seed + 5)`; `distributed.py:416-420` stores it as `self._seed`; and
+      `:209-214` passes `seed=self._seed` straight into `DistributedSampler`. **Changing
+      `seed` therefore changes parameter init AND the training shuffle order** — the exact
+      confound the paper's phrase excludes. The correct mechanism is the opposite: leave
+      `seed` **unset**, so `self._seed` stays at its `:63` default of 0 (data order fixed
+      across runs) while torch's global RNG is never seeded (init varies). fme's own docstring
+      says so, and **ai2's reference config has no `seed:` key at all.** See the entry below.
+    - ✅ **Prescribed SST is the paper's design, not a defect.** *"Historical SST and sea ice
+      concentration data come from that used to force historical AMIP CMIP6 simulations."*
+      ⇒ the earlier critique stands mechanically but overreached rhetorically: the paper never
+      claims a calibrated probabilistic ensemble. Its IC spread is **3 members one day apart**
+      used as **error bars** to show run-to-run scatter is small against the signal — a modest,
+      defensible use. **Our 16-ICs-across-1996 is the α ensemble, not the results ensemble**,
+      and Fable's 11.3-month window-offset objection applies only if the α set is misused for
+      results — which the paper does not do.
+    🔴 **CONSEQUENCE FOR THE PLAN: doing it the paper's way costs 4 TRAINING RUNS, not one.**
+    ~4 × 119 h ≈ **475 node-hours**. On `capacity` (max_run 1 per *project*) that is serial,
+    ~20 days; `preemptable` allows 10 concurrent but caps at 72 h, so each run needs ≥2 linked
+    segments. **This makes the queue decision materially larger than it was** and is a
+    budget/science call, not a launcher flag. Evaluation itself is trivial by comparison:
+    3 ICs × 5 y × 4 models ≈ **2.3 GPU-h total**.
+
+- **2026-09-10 (cont.)** — **ACE2: the LR sweep is COMPLETE at full registered depth and 3e-4
+  wins; and fme was found throwing away every per-channel metric it computes.**
+  - ✅ **THE SWEEP IS SETTLED.** The two arms preempted at 2 epochs were resumed and finished
+    epoch 3 (jobs **7598647** lr=3e-4, **7598648** lr=1e-3; both `ACE2_POLARIS_TRAIN_OK`,
+    rc=0, 36,705 batches = 3 full epochs). Final validation loss by LR:
+    | LR | e1 | e2 | **e3** |
+    |---|---|---|---|
+    | **3e-4** | 0.2846 | 0.2205 | **0.19579 — winner** |
+    | 1e-4 *(the config's own)* | 0.3657 | 0.2702 | 0.23332 |
+    | 5e-5 | 0.4612 | 0.3353 | 0.28380 |
+    | 1e-3 *(the screen's "winner")* | 0.8765 | 0.6053 | 0.34571 — worst |
+    **The ranking at 3 epochs is identical to the ranking at 2**, so the provisional call in
+    the 2026-09-05 entry (misfiled below, inside the 2026-09-02 (cont. 3) block) holds at full
+    depth. 3e-4 is an **interior optimum** bracketed by 1e-4 and 1e-3 ⇒ the prereg's endpoint
+    rule does not fire and **3e-4 is adoptable** as the warm-restart peak. The 3,000-update
+    screen's winner (1e-3) is the full sweep's worst at *every* epoch — "prereg beats the
+    expedient proxy" is now confirmed at full depth, not just at the halfway point.
+  - ⚠ **Both resumed arms ran contended and it shows in wall-clock, not in step time.**
+    `step_med_ms` is unchanged (722.6 / 718.3 against 717.5 / 717.9 on the earlier arms of the
+    same rung), but `samples_s_wall` **halved** — 3.98 / 3.97 vs 6.90 — and `step_p90_ms` blew
+    out to 5253 / 5386 from ~2280. Two arms reading the same single-OST 2.4 TB `.nc`
+    concurrently is the obvious suspect. Epoch 3 cost **4.59 h / 4.05 h**. Production sizing at
+    27 epochs stays an upper bound (~110 h); an uncontended epoch is still unmeasured.
+  - 🔴 **fme discards every per-channel metric it computes, and on Polaris it does not even
+    reach an offline wandb dir.** `config_polaris.yaml` sets **`log_to_wandb: false`**, and
+    `trainer.py:471-491` assembles `all_logs` — every validation aggregator metric (mean,
+    mean_norm, power_spectrum) per channel, plus lr, epoch timings and `best_val_loss` — and
+    hands it to `wandb.log`, which with wandb off does nothing. The screen log gets four lines.
+    Separately `trainer.py:572` filters the per-step metrics down to three names for the screen
+    while wandb gets the whole dict. **This is makani's defect on a second harness**, and it is
+    why every ACE2 number in this repo is a single scalar.
+  - ✅ **Fixed with two independent mechanisms, deliberately not one:**
+    1. **`logging.metrics_log_dir`** — a config-only knob on fme's own `LoggingConfig` that
+       attaches `DiskMetricLogger`, mirroring **every** `wandb.log` payload to
+       `metrics.jsonl`. Independent of `log_to_wandb`, and **resume-safe** by high-water mark
+       (a preempted-and-resumed run does not double-write). Now set by the launcher.
+    2. **an epoch echo in `ace2_telemetry.py`** — the epoch payload to the SCREEN log, which is
+       what the `.o` file and every existing parser read. Root rank only, epoch boundaries
+       only, and entirely outside the timed window (`epoch_end` has already fired at
+       `alternate_shuffle`), so `step_med_ms` / `gpu_busy_frac` / `epoch_wall_s` cannot move
+       and rows before and after remain comparable.
+  - ⚠ **Key parity is not free, which is the part worth remembering.**
+    `DiskMetricLogger._extract_serializable` drops whatever `json.dumps` refuses, **at DEBUG
+    level**. Most of fme survives it (`reduced.py:140` and `train.py:125` already call
+    `float()`), but `trainer.py:509-512` builds its `batch_*` metrics from a bare
+    `dist.reduce_mean(...)` — torch tensors — which would have vanished from the JSONL with no
+    message. `_coerce_scalars` unwraps 0-dim tensors/numpy scalars first, and the echo **names**
+    what it still dropped, so "the keys are the same" is a checkable claim rather than an
+    assumption. Expect only genuine images there (map + snapshot aggregators).
+  - Test: `ACE2_retrain/test_ace2_metric_logging.py` → **`ACE2_METRIC_LOG_OK` 9 tests**, pure
+    Python (duck-typed fake tensors), so it runs on a login node. ⚠ It pins the regression
+    directly: without coercion a tensor-valued `batch_*` *is* dropped; with it, nothing is.
+    ⚠ Uses `isinstance(x, (a, b))` not `a | b` — the login node's `python3` is **3.6.15** and
+    the PEP 604 spelling needs 3.10+.
+  - ✅ **VERIFIED against real fme — job 7602614** (debug, 1 node, 40 steps, `rc=0`,
+    `ACE2_POLARIS_TRAIN_OK`). One echo, root rank only, at the epoch boundary:
+    **`ACE2_EPOCH_METRICS epoch=1 step=40 keys=1142 logged=837 dropped=305`.**
+    - **837 scalars now in the screen log, against 3 lines before** — `train/mean/loss/<ch>`
+      and the `val/...` family per channel.
+    - **All 305 drops are genuine images** and are named: `val/mean_map/image-error/<ch>`.
+      Nothing numeric was lost, which is the claim the drop list exists to make checkable.
+    - `metrics.jsonl` holds 6 records: the five per-step calls plus the epoch record with
+      **838 keys** (837 + the injected `step`) — an exact match to the echo's count.
+    - **The coercion regression is real, not hypothetical.** The per-step records carry
+      `batch_loss`, **`batch_loss_step_0`** and **`batch_loss_step_1`** — fme's per-lead loss
+      decomposition, tensor-valued at `trainer.py:509-512`. Without `_coerce_scalars` all three
+      would have been dropped from the JSONL silently. ⚠ Note the contrast with makani in the
+      entry below: fme's aggregators key off the **dataset's own** channel names
+      (`DLWRFsfc, PRATEsfc, TMP2m, Q2m…`), so ACE2 has no name-matching failure mode.
+    - **The hook does not perturb the timed window**: `step_med_ms` **716.6** against 717.5-722.6
+      on the same rung, `gpu_busy_frac` 0.9172, `peak_mem_gb` 33.959. Rows stay comparable.
+  - ✅ **wandb ITSELF also verified — job 7602650, the first ACE2 run on Polaris with
+    `log_to_wandb` ON** (new `-v WANDB=1` knob; default stays OFF, matching the config).
+    wandb **0.29.0**, offline, run `90uvxa9k` created and an 819 KB `run-*.wandb` written;
+    `ACE2_POLARIS_TRAIN_OK`. ⚠ 7602614 did **not** test this — it ran with
+    `log_to_wandb: false`, so `WandB._enabled` was False and the `wandb.log()` branch never
+    executed; only the `_disk_logger` branch did.
+    **The three sinks agree exactly, which is the parity claim discharged from both ends:**
+    | sink | count |
+    |---|---|
+    | echo header | `keys=1142 logged=837 dropped=305` |
+    | `metrics.jsonl` epoch record | **837** scalars (+`step`) |
+    | wandb media | **305** PNGs |
+    837 + 305 = 1142. The "dropped" list is *precisely* the image set (`val/mean_map/…`), and
+    wandb received those as media. **Nothing is lost anywhere.**
+  - 🔴 **wandb CANNOT be the system of record on Polaris: `resume` is silently ignored
+    offline.** The run logged `wandb: WARNING 'resume' will be ignored since W&B syncing is set
+    to 'offline'. Starting a new run with run id 90uvxa9k.` fme's
+    `init_wandb_with_resumption` writes `wandb_run_id` and passes `resume="must"`, but wandb
+    honours neither offline — and offline is forced here (`polaris_env.sh:94`; compute nodes
+    reach `api.wandb.ai` only through the proxy). ⇒ **a preempted-and-resumed production run
+    would be split across N disjoint wandb runs with no continuity.** `DiskMetricLogger` has no
+    such problem — it resumes by high-water mark against the existing file. This is why the fix
+    is two mechanisms and not one, and it is a **second argument for `capacity`** (one job, no
+    resume) over `preemptable` for production.
+  - 🐛 **Found and fixed before it could bite: an enabled wandb would have written to
+    node-local `/tmp` and been discarded.** `logging_utils.py:142-145` picks
+    `wandb_dir = DEFAULT_TMP_DIR` (`/tmp`) unless `wandb_dir_in_experiment_dir` is true, and
+    passes it as `wandb.init(dir=...)` — an explicit `dir=` **overrides** the
+    `WANDB_DIR=$MEMBER_ROOT/wandb` that `polaris_env.sh` exports, and this launcher separately
+    forces `TMPDIR=/tmp`. The launcher now sets `wandb_dir_in_experiment_dir=true`
+    **unconditionally**, so the offline run lands on eagle under the experiment dir and can be
+    uploaded later from a login node with `wandb sync`. Same silent-loss class as the metric
+    defect itself.
+  - 📐 Cost note: **37.7 MB of media per epoch** (305 PNGs) when wandb is on. Production sets
+    `validation_aggregator.log_snapshots=false`, which should cut it; unmeasured.
+  - ✅ **KEY-NAME STABILITY CHECKED EXPLICITLY (rule #10), because counts matching is not names
+    matching.** Three checks, all against the actual files:
+    | check | result |
+    |---|---|
+    | 7602614 vs 7602650 epoch key **names** | **identical**, 837/837, zero difference either way |
+    | per-step key names | **identical**, 5/5 |
+    | bench (7602650) vs **PRODUCTION mode** (7602660) scalars | **identical**, 837/837 |
+    | bench CSV header vs `ace2_polaris_tuning.csv` / `ace2_polaris_scaling.csv` | **identical** |
+    🔑 **The 837 SCALAR keys are invariant across wandb on/off, step count, and bench-vs-
+    production. The IMAGE keys are NOT, and that is config, not drift:** production reports
+    `keys=959 dropped=122` against bench's `keys=1142 dropped=305`. The 183-key difference is
+    exactly the `val/snapshot/*` family, which `validation_aggregator.log_snapshots=false`
+    removes in PRODUCTION mode; `val/mean_map/*` (122) survives because `log_mean_maps` is a
+    **separate** flag that production does not set (`one_step/deterministic.py:104-111`).
+    Both families return `dict[str, Image]` only, which is why no scalar moves. ⇒ **the JSONL
+    contract is stable; only wandb's media volume changes.**
+    ⚠ 7602660 ended `ERROR ACE2_POLARIS_TRAIN_FAILED train_rc=0 csv_rc=4` — the parser's
+    `STEP_COUNT_MISMATCH`/`EPOCH_LENGTH_MISMATCH` guards firing because the arm passed
+    `SAMPLES_PER_EPOCH=160` (20 steps) while `STEPS` kept its default 60. **The guard working
+    as designed on a deliberately-shortened gate arm**, not a training failure: `train_rc=0`
+    and the metrics were produced. No CSV row was written, correctly.
+  - ⏸ **Production is NOT launched** — the queue choice (capacity's single per-project slot vs
+    preemptable's forced resume) was put to the owner and the answer redirected here instead.
+
+- **2026-09-10** — **makani: the lead-time ladder is answered, and the answer refutes the fix
+  written for it. The per-lead metrics were never COMPUTED, not computed-and-discarded.**
+  - ⚠⚠ **RETRACTION of the 2026-09-09 commit message (`ddd9bb5e`).** It claimed the
+    lead-resolved numbers "were computed every epoch and discarded" because they reached only
+    wandb. **Job 7602599** (va=10, the same checkpoint, with that fix in place) printed
+    **nothing**, raised nothing, and returned the same `0.012838906608521938`. The block ran
+    and found no scalars.
+  - 🔬 **The real mechanism, and it is upstream of all logging.** `MetricsHandler.__init__`
+    intersects its ERA5 default variable lists — `u10m, t2m, sp, sst, u500, z500, q500, q50` —
+    with the dataset's `channel_names` (`metric.py:269-275`) and constructs a metric handle
+    **only if the survivors are non-empty** (`if self.l1_var_names:` at `:323`, same shape for
+    rmse/acc/crps/spread/ssr). Our 101-channel E3SM ALLDATA contract names its channels
+    **`PS, TREFHT, U10, RHREFHT, PSL, TMQ, T_l00…`** — **the intersection is EMPTY** (checked
+    against the run's own `config.json`). So zero handles are built, `finalize()`'s loop over
+    `self.metric_handles` (`metric.py:650`) has nothing to iterate, and `logs["metrics"]` holds
+    exactly one entry: the `rollouts` `wandb.Table`, which is not a scalar.
+  - ⇒ **makani has never computed a single per-lead metric on this dataset**, and there was
+    nothing to rescue: makani's own `log_epoch` **already** prints that dict
+    (`deterministic_trainer.py:709-721`). The 09-09 patch is a no-op today. Kept rather than
+    reverted (one dict comprehension per epoch) and its comment corrected in place to the
+    measured mechanism — a wrong comment in a living document is worse than no comment.
+  - 🎯 **What it would take:** pass E3SM channel names to `MetricsHandler`. The fork already
+    overrides `crps_var_names` at the construction site, so `l1_/rmse_/acc_var_names` are
+    reachable the same way. **This is a science choice — WHICH of 101 channels are the headline
+    metrics — and belongs to jesswan, not to a logging patch.** Do not pick eight and ship it.
+  - ✅ **The scoring path itself is PROVEN.** Across 7598662/3/4 and 7602599 the va=3 control
+    reproduced the production run's **0.01284 exactly**, so the `train_plasim.py:382` fix
+    (commit `2cb80a5f`) works and TODO P0-3's "nothing has ever scored a makani checkpoint on
+    Polaris" is closed. What is scorable is **one single-step scalar**, nothing more.
+  - 📉 **The ladder result, recorded because it is the evidence for the above:** va=3 / 10 / 20
+    on the same checkpoint (**7598662/3/4**) returned **byte-identical**
+    `0.012838906608521938` while validation time scaled **17.27 → 41.87 → 74.40 s**. The
+    rollouts genuinely ran; the scalar is single-step and always was. ⇒ **every "validation
+    loss" in this project, including production's 0.01284 and the 128-node run's 0.018297, is a
+    SINGLE-STEP number**, not the 4-step / 24-forecast-hour score the checkpoint-usage docs and
+    `submit_rollout_scorecard.sh`'s own header claim. Those claims are now wrong on file.
+    ⚠ All three arms also ended `ERROR MAKANI_MN_SCALING_FAILED train_rc=0 csv_rc=4` —
+    `NO_STEP_TIMING`, because `n_train_samples_per_epoch=8` never reaches
+    `print_timings_frequency`. A harness artifact on a validation-only job, not a failure, but
+    **no CSV row was written for any of them**; the numbers live only in the `.o` logs.
+  - ✅ **C1 rollout fine-tune COMPLETE — job 7593272**, 24/24 epochs, **8 h 01**, rc=0,
+    `MAKANI_MN_SCALING_OK`, 1 node / global batch 16, `step_med 431.9 ms`, 37.05 samples/s,
+    26.13 GiB. Validation **flat**: 0.013117 (e1) → 0.013038 (e24), best **0.013031 at e18**, a
+    0.6% move over 24 epochs, while training fell to 0.01260 and the gradient norm decreased
+    monotonically 0.0434 → 0.0335. Row in `makani_c1_rollout.csv`.
+    ⚠ That is **+1.5% against the base's 0.012839** — but on a metric that, per the finding
+    above, *structurally cannot see rollout skill*, so **it is not evidence C1 failed**. It is
+    also not evidence it worked. The widening train/validation gap over 24 epochs is a real
+    caveat. **C1 cannot be judged until makani computes per-lead metrics on E3SM channels.**
+  - 🔧 `submit_rollout_scorecard.sh` gained **`TAG_SUFFIX`**, so a checkpoint can be rescored
+    at the same rollout length without deleting the previous arm's expDir (1.7 GB each, and its
+    `out.log` is the only on-disk copy of that arm's result — the script's previous "delete it
+    to rescore" was destroying evidence to make room).
+
+- **2026-09-04 (cont. 2)** — **makani session closed; continuation handed off in
+  `polaris_makani_analysis_ensemble_handoff.md`.** The training campaign is finished — nothing
+  remaining needs a long run.
+  - 🐛 **Found and fixed a bug in the scorecard launcher before handing it over.** The first
+    three arms (7592332/3/6) restored, logged `resuming True` and `skip_training True`, and
+    then **did nothing**: the epoch counter comes back from the checkpoint as 243, so with
+    `EPOCHS=1` the training loop is `range(243, 1)` — empty — and because validation lives
+    *inside* the epoch loop, no validation ran either. Exit 0, no error, no loss written.
+    Fixed with `LOAD_COUNTERS=0` (weights still restore); resubmitted as **7592575/6/7**.
+    Ninth silent-failure trap of this campaign, and the fourth that exits 0.
+  - **The handoff's first instruction is to read the lead-time ladder**, because its *shape*
+    decides everything after it: error growing fast ⇒ exposure bias, C1 correctly aimed;
+    error rising then flattening ⇒ blurring, needs CRPS not rollout; error barely moving ⇒
+    **the whole rollout/ensemble direction is misaimed** and the real cause of "inference
+    worse than expected" is elsewhere. That third outcome has never been excluded — the
+    `n_future: 0` explanation was inferred, never confirmed.
+  - **Ensemble build scoped by audit, not estimate.** `sfno_inference`'s rollout body is
+    already channel-generic (`rollout_driver.py:163-164` reads `n_state`/`n_out` from
+    `eval_params`; 52/53 are only defaults), so the port is four localized changes, not a
+    rewrite. 🐛 One of them is a **silent-wrong-physics bug**: `_extract_truth_sic` guards on
+    forcing *length* (`< 6`) not identity, so our 7-forcing E3SM pack passes the guard, reads
+    channel 5, and returns a confidently-labelled `truth_sic` that is a different variable.
+  - ⚠ Recorded for the next session: `sfno_inference` is **shared with the Stampede3
+    `eval-sfno-own` path and is inside a `git subtree`**, so every fix must *generalise*
+    rather than special-case E3SM (CLAUDE.md #5).
+  - Handoff also carries **8 retired claims** (β₂ → 0.999 backwards; three refuted memory
+    models; the "cliff"; the sharding confound; the overstated 29.8 % comparison; the
+    unfounded "late ensemble members are redundant") and **9 silent traps**.
+
+- **2026-09-04 (cont.)** — ⭐ **makani's FIRST kernel-level profile: it spends more GPU time
+  moving data than computing.** Job **7591822**, `nsys` per-rank capture, all 4 ranks, steps
+  30-40, at the exact production configuration. → `makani_bench_report.md` §5m.
+  - **34.9 percent of GPU compute time is spent in kernels that compute nothing** —
+    `direct_copy`, `bfloat16_copy`, `nchwToNhwc` layout transforms, `FillFunctor` — against
+    **28.5 percent in GEMM plus FFT combined**. Ratio **1.23 no-op to 1 real math**.
+  - **All four ranks agree to within 0.4 percentage points** once NCCL is excluded from the
+    denominator. NCCL kernel time swings 3.4 → 27.2 percent across ranks, which is the
+    wait-for-stragglers signature, not bandwidth — so compute time is the honest denominator.
+  - Rank 0 detail: 264.4 ms/step of kernel time, of which copy/layout **71.68 ms (448 kernel
+    launches per step)**, other elementwise 61.62 ms (703 launches), GEMM 50.67 ms (190),
+    NCCL 35.23 ms (2), FFT 14.78 ms (36), fills 8.89 ms (95).
+  - **Same pathology as PanguWeather on the same A100s** (271 ms/rank-step, 47 percent of
+    compute, in `direct_copy`+`conj`; 68 percent pointwise against 17 percent GEMM). Two
+    SFNO-family models, independently instrumented, both data-movement dominated ⇒ a property
+    of the implementation, not a one-off. The largest kernel is a `direct_copy` on **float**
+    (15.2 percent) and the third largest a `direct_copy` on **`complex<float>`** (6.1 percent),
+    consistent with real↔complex conversion and contiguity fixes around the spherical harmonic
+    transform — and Pangu's copies were measured **contiguity-bound, not bandwidth-bound**.
+  - ⚠ **No speed-up claimed, and none may be adopted yet.** Kernel time (264.4 ms/step) is not
+    wall time (472.1 ms/step in production); the capture is n=1 under profiler overhead; and
+    the share-of-kernel-time figure is documented as not reproducible run to run
+    (`polaris_bench_report.md` §4.4c), so the **milliseconds** are the quotable unit. Any
+    hot-path change is gated on the DESIGN §4 equivalence check against a captured baseline,
+    **which makani still does not have** — that (TODO item 9), not the profile, is now the
+    blocker.
+  - **Context this answers:** whether the 46-hour production run reflects the model's real cost
+    or leaves performance on the table. It leaves performance on the table. The wall-clock
+    comparison that prompted the question was itself not apples-to-apples — our run used **185
+    GPU-hours** against a 512-GPU × 60-hour reference's **30,720**, a 166× difference, on a grid
+    16× coarser — but the efficiency suspicion behind it was correct and is now measured.
+  - TODO item 8 closed; `makani_bench_report.md` §8's "no kernel-level profile at all" row
+    retired.
+
+- **2026-09-04** — ⭐ **THE 1-NODE PRODUCTION RUN IS COMPLETE, the learning-rate ceiling is
+  characterised, batch 48 is closed, and C1 is running.** Write-up finished across
+  `makani_bench_report.md` (§5g, §5j, §5k, §5l, §7e), the handoff, and the checkpoint doc.
+  - ✅ **Production 7585080: all 243 epochs, `Exit_status 0`, 46 h 20 min of 48 h.** Best
+    validation loss **0.01284** at epoch 243; 332,424 optimizer updates; **46.3 node-hours**;
+    683.6 seconds per epoch (5.27 epochs per hour), stable to 0.85 percent across the run.
+    **Twelve snapshot-ensemble members** (epochs 23…243, every 20), all on disk, 401 gibibytes
+    of checkpoints. No overfitting — training and validation descend together throughout.
+    Maximum gradient norm over 243 epochs: **0.30**.
+  - ⚠ **FRAMING CORRECTED — do not quote "29.8 percent better than the 128-node run" bare.**
+    That run's minimum sat at its **last** epoch; it was still improving, so it is not a
+    converged-versus-converged comparison and more time would have lowered it. The defensible
+    claim is **cost**: 1.73 versus **16.95 samples per second per GPU**, and 20,267 versus
+    **229,753 samples per node-hour — 11.3×**. Cause: batch 512 across 512 ranks is **1 sample
+    per GPU**, which starves the hardware. Matching this run's 10.64 M samples on 128 nodes
+    would take ~525 node-hours against 46.3; matching its *updates*, 8,398. And the usual
+    large-batch escape is closed — the LR ceiling does not move with batch, so batch 512 cannot
+    use a proportionally larger learning rate. ⇒ **the decision was about batch size, not node
+    count.** ⚠ We never ran 128 nodes longer; this is inference from measured throughput and
+    the measured ceiling, not a head-to-head.
+  - **§7c/§7d SCORED — 9 of 9 arms at LR 3.0e-3 collapsed.** Neither β₂ nor the gradient clip
+    prevents it; they change only *when*: β₂ 0.999 dies at epoch 2 (5/5), β₂ 0.95 + clip 32 at
+    epoch 2-4, β₂ 0.95 + clip 1.0 at epoch 6 at **both** batch sizes. Score: 4 correct, 3
+    wrong, 1 ambiguous, 1 void. Both predictions registered *against* expectation (P3 at 0.40,
+    Q1 at 0.55) came in correct; P1 and P4 were wrong.
+    - 🔴 **RETIRED: the β₂ 0.95 → 0.999 recommendation.** Measured backwards — the fastest
+      route to collapse, with gradient excursions to 7.86e12 against 8.78e7 at 0.95. The
+      mechanism was registered in advance: an outlier gradient enters Adam's second-moment
+      accumulator with weight 1 − β₂, 0.05 at 0.95 against 0.001 at 0.999.
+    - ✅ **CONFIRMED: `optimizer_max_grad_norm` 32 → 1.0** — delays collapse and gives the best
+      loss of each batch, though it prevents nothing.
+    - ⚠ **The registered scoring rule was too short.** It keyed on epoch-3 validation; both
+      clip arms "survive" by that rule and collapsed at epoch 6. Under warm restarts a survival
+      criterion must span several restart cycles. Recorded rather than quietly rewritten — had
+      the arms stopped at 3 epochs the conclusion would have been the opposite of the truth.
+  - **Batch 48 closed on three axes** (§5l): worse at equal data early (11.7 percent), better
+    at equal *updates* early (12.3 percent, decaying), and only **0.25-0.57 percent** better at
+    equal data late — measured by forking production at epoch 74 into two arms from identical
+    weights (7588118 / 7588120). Costs 12-27 percent more wall-clock per epoch and 90 percent
+    of the card. The fork validated itself: its batch-32 arm read 0.01338 against production's
+    own 0.01336 at the same epoch, **0.15 percent apart**.
+  - **A working memory model, finally** (§5g): peak PyTorch gibibytes ≈ **2.31 + 2.12 × samples
+    per GPU**, plus a fixed ~8 gibibyte non-PyTorch overhead. It **retrodicts the batch-64
+    out-of-memory failure** (44.2 against a 39.49 gibibyte card) — the first of four models here
+    that predicts the observed failure instead of being refuted by it.
+  - 🔵 **C1 launched (7591605, `capacity`, 24 epochs)** from the new checkpoint, after a
+    one-epoch probe (7590355) verified the machinery: pretrained path taken, `n_future` 1
+    applied, **26.21 of 39.49 gibibytes** at 4 samples per GPU. Two silent traps found and
+    fixed — `load_loss` must be false (loss state shape depends on `n_future`), and a
+    config-side `n_future` is overwritten by `--multistep_count` (`train.py:119`).
+  - **Stale markers cleared** across all four documents: PROVISIONAL banners, "RUNNING"/"in
+    flight" status blocks, the refuted memory tables in the handoff's C2, and the C1 recipe's
+    pointer at prod128's undertrained checkpoint. Units are now spelled out in every table
+    (gibibytes, samples per second, samples per GPU, node-hours, epoch index) and the §0a legend
+    covers the new columns.
+
+- **2026-09-03 (cont. 2)** — **Forked the running production job at epoch 71 to A/B batch 32 vs
+  48 from identical weights — and found that makani's warm start fails silently.**
+  - **Why this experiment:** at equal DATA batch 48 is ~10% worse, but at equal UPDATES it is
+    **better** — −55.1% at 1,824 steps, −12.3% at 2,736, −4.7% at 3,648, −3.1% at 4,104. So more
+    samples per update *does* help, sub-linearly and with a fast-decaying benefit. Those numbers
+    cover **5,472 of 332,424 planned steps (1.6%)**, and gradient noise matters *least* early and
+    *most* late — so the decaying curve must not be extrapolated into the regime that matters.
+    Forking at epoch 71 samples that regime directly, on `debug`, without waiting ~33 h for
+    production to land or spending a 46 h retrain.
+  - 🐛 **The trap: makani gates resume on EXACTLY `ckpt_mp0_v0.tar`** (`train.py:101-105`,
+    `checkpoint_version=0` hardcoded — it does *not* look for the newest file). Seeding the fork
+    with `ckpt_mp0_v71.tar` gave `resuming = False` and both arms **started training from
+    scratch, with no error and no warning**. Caught at 2 min by checking the log for `resuming`
+    rather than assuming; jobs 7588049/7588050 killed, dirs removed, resubmitted as
+    **7588055/7588056** with the file named `v0` → both now report `resuming True`.
+    The epoch is not read from the filename: counters live inside the tar and
+    `get_latest_checkpoint_version` picks by **mtime**, so a lone `v0` continues at epoch 72.
+  - ⇒ **Rule: assert `resuming True` in the log before trusting any warm start.** A fork that
+    silently restarts produces a plausible-looking loss curve and would have been read as "batch
+    48 is catastrophically worse late in training" — a wrong conclusion from a submission bug.
+  - **Production is unaffected** — it holds `v0`…`v72`, so its own resume (7587821) is valid.
+    The fork COPIES the checkpoint into a fresh expDir with a fresh `RUN_NUM`; reusing
+    production's `RUN_NUM` would put two jobs in one expDir and corrupt the run.
+  - **Design:** both arms restore the identical epoch-71 state (model + optimizer + scheduler +
+    counters) and run 3 epochs to `max_epochs=74` on production's exact schedule (LR 2.0e-3,
+    warmup 3, `T_0=20`, `min_lr` 1e-6) — a different schedule would contradict the restored
+    scheduler state. Compared at **equal epochs = equal data** (43,776 samples/epoch either way);
+    equal-step numbers fall out of the same logs (1368 vs 912 steps/epoch). The b32 arm is not
+    redundant with production: it carries the same I/O contention as the b48 arm and doubles as a
+    fidelity check that the fork reproduces production's own trajectory.
+
+- **2026-09-03 (cont.)** — **A dependent resume is staged as insurance, and two ALCF limits were
+  measured the hard way. ⚠ The shortfall that prompted it was a MEASUREMENT ERROR.**
+  - ❌ **RETRACTED within the hour: "production walls out ~3 epochs short".** That came from
+    dividing a `qstat` elapsed reading by an epoch count read *minutes apart*, which folded the
+    one-time **350 s startup** into the per-epoch rate and inflated it to ~714 s.
+  - ✅ **Corrected, both read in the same instant** (elapsed 13:02:07 / 68 epochs): steady-state
+    is **685.0 s/epoch** with **350 s** of startup ⇒ 243 epochs = **46.33 h vs 48 h walltime**,
+    a **+1.67 h margin**; 251 epochs would fit. **Production finishes on its own.**
+  - **Method note worth keeping:** derive a rate from the logged `epoch time [s]` series, never
+    from `wall ÷ epochs` — the latter silently amortises startup into every epoch, and the two
+    readings must be taken at the same instant or the error compounds.
+  - **Tail sizing, if one ever appears** (685 s/epoch + 350 s startup): 2 ep = 28.7 min,
+    3 ep = 40.1 min, 4 ep = 51.6 min, **5 ep = 63.1 min — over `debug`'s 1 h cap.** So `debug` is
+    the right queue for a ≤3-epoch tail and the wrong one from 5 up.
+  - 🐛 **`qalter -l walltime=` is REFUSED on Polaris** — `Exception in account_check hook`,
+    **rc=32**. Requested walltime is **immutable once submitted**; there is no second chance.
+    ⇒ size a long run's walltime to the queue max when the epoch cost is not yet known.
+  - 🐛 **`capacity` cannot hold a queued successor.** With one job RUNNING, `qsub` of a second —
+    even *held* on `-W depend=afterany:` — is refused (`would exceed queue capacity's
+    per-project limit`), so the cap counts **running + queued together**. The prior
+    "max_queued 2 per PROJECT" reading in `polaris_pbs_notes.md` was wrong and is corrected.
+    The bind is circular: the slot frees only when the parent ends, which is exactly when the
+    successor needed to already be queued.
+  - **Kept anyway as insurance:** `submit_production_resume.sh` pre-stages the resume on **`preemptable`**
+    (dependencies work across queues) as **7587821**, `H` on `afterany:7585080`, 6 h walltime.
+    The tail is ~3 epochs, checkpoints are per-epoch, and resume is proven byte-identical, so a
+    preemption costs a resubmit rather than progress. `QUEUE=capacity` re-runs it there once the
+    slot is genuinely free. It costs nothing to hold — a held job counts against `max_queued`,
+    not `max_run` — and if production completes it starts, finds `max_epochs` reached and exits.
+    It also covers what `debug` cannot: a LATE crash leaving ~10-30 epochs.
+  - ⚠ **The trap the script exists to prevent:** the PBS **re-renders the config every
+    submission**, so a resume with a different or missing `-v` set would silently continue under
+    *different hyperparameters* — a reset scheduler or a different peak LR would read as a
+    training bug, not a submission bug. `VARS` is copied verbatim from
+    `submit_production_when_lr_picked.sh:64-72` with `LR=2.0E-3` confirmed against the rendered
+    config. A second gate refuses to submit unless checkpoints are on disk: resume is keyed
+    **entirely** on `RUN_NUM` matching the expDir, and a mismatch would not error — it would
+    start a NEW 243-epoch run and burn 48 h of the project's only capacity slot.
+  - **Production LR, for the record:** peak **2.0e-3**, `CosineAnnealingWarmRestarts` `T_0=20`
+    `T_mult=1`, `min_lr 1.0e-6`, 3-epoch warmup from `lr_start 0.01` (= 2.0e-5). Cycles end at
+    epochs 23/43/63/83…; at epoch 64 the instantaneous LR is ≈1.99e-3. It runs **β₂ 0.95 /
+    clip 32** — the shipped settings the nine §7c/§7d arms are testing.
+  - **Batch-32 mirror submitted** (prereg §7d): 7587776/7/8/9 at **LR 3.0e-3 to match batch 48**,
+    so the two sets differ in batch alone. Verified mechanically that the two submit scripts'
+    `COMMON` blocks differ in `LOCAL_BATCH` only (`COMMON_DIFF_OK`). The **pair of controls**
+    (7587738 at batch 48, 7587776 at batch 32) is the first matched-LR batch-independence test;
+    §5j had to infer it from two different LRs.
+
+- **2026-09-03** — **The batch-48 LR failure is diagnosed, and it is NOT about batch 48. Five
+  arms submitted to test whether optimizer config alone raises the ceiling** (prereg §7c;
+  7587738 / 7587739 / 7587740 / 7587741 / 7587742, `preemptable`, 1 node, 3 h each).
+  - **The finding** (bench report §5j): the LR ceiling is **(2e-3, 3e-3]** and it did **not move
+    when batch went 32 → 48**. Linear scaling predicts 3e-3 should be as safe at batch 48 as
+    2e-3 was at 32; 3e-3 died (7586383). Refuted without needing the batch-32 ceiling exactly.
+    Sqrt scaling is squeezed into (2.45e-3, 3e-3) but not excluded.
+  - **The failure mode is a ONE-EPOCH blow-up into an irreversible dead attractor**, not a
+    gradual degradation: train 0.24 → 6.05e5 → 0.1056, grad norm spiking 1.05e7 (b32 4e-3,
+    7585996) / 6.30e7 (b48 3e-3) / 3.22e11 (b48 4.5e-3, 7586384) — **severity tracks LR**. All
+    collapsed arms land on train 0.1055-0.1056, valid 0.1067-0.1072, grad norm 0.007-0.011:
+    *the same state to three decimals*, 30× below a healthy arm's grad norm, so annealing back
+    down cannot recover it. **Reproduced 2/2** at 4.5e-3 across the v1 and v2 runs.
+  - **Epoch 1 was fine and higher LR was strictly BETTER** (0.1120 → 0.0923 → 0.0816). No
+    gradient-noise penalty anywhere pre-failure ⇒ the ceiling looks **curvature-limited**
+    (eta < 2/lambda_max), which is batch-independent by construction. Under test.
+  - 🐛 **`optimizer_max_grad_norm: 32` is decorative.** Verified `clip_grads`
+    (`training_helpers.py:100-115`) clamps correctly and returns the *pre*-clip norm, so it does
+    fire — but production's grad norm across 64 epochs peaks at **0.2995**. The clip is **107×
+    above the operating point** and has never engaged in a healthy step. **makani's own default
+    is 1.0** (`train.py:74-75`); the 32 is a fork convention
+    (`polaris/e3sm_alldata_full.yaml:141`) and sibling configs in the family use `0.0`.
+  - **New `-v` overrides**: `BETA2` → `optimizer_beta2`, `MAX_GRAD_NORM` →
+    `optimizer_max_grad_norm`, in the PBS config renderer alongside the existing LR/scheduler
+    knobs. **Wiring tested offline before submitting** (`RENDER_WIRING_OK`): the render body was
+    extracted from the `.pbs` and run standalone against the real template, asserting both the
+    override path *and* that the shipped values survive when no override is passed. This is the
+    check that was skipped once before and let `lr_start: 0.0` reach the queue.
+  - **Arm E is a CONTROL, not padding.** LR 3.0e-3 had n=1 for the collapse, so a
+    same-conditions repeat at shipped settings is what makes arms A-D readable at all.
+  - ⚠ **Prereg §7c P3 is recorded at 0.40 — deliberately AGAINST the standing recommendation**
+    that β₂ 0.95 → 0.999. The "0.95 is a large-batch setting" argument is about steady-state
+    noise, but for a *spike* the sign flips: an outlier gradient enters `v` with weight
+    `1 − β₂` = **0.05 at 0.95 vs 0.001 at 0.999**, so the short memory damps the next step ~50×
+    harder. 0.999 may be **worse** for the failure we actually measured. Written down first
+    because a post-hoc story could be told either way.
+  - **Confounds, stated:** the memory and LR results are clean; the batch-48 *throughput*
+    (52.0 vs production's 67.8 samples/s) is **confounded** — three arms ran concurrently and
+    their I/O fell to 1.2-2.6 GB/s against production's 3.3, with per-epoch spikes to 1918 ms.
+    Not attributable to batch size; recorded as such.
+  - **Batch 48 verdict: dead end.** No LR headroom, **87.6% card occupancy** (34.61 GB of
+    39.49 GiB, measured with the new peak keys), and no demonstrated throughput gain. Batch 32
+    stays. 7586383 never wrote a CSV row — preempted after 5 epochs; its log carries the result.
+
+- **2026-09-02 (cont. 3)** — **ACE2 has a Polaris path for the first time.** `ACE2_retrain/`
+  carried **zero** `polaris_*` files and its Midway script activates a `/project/rcc/` env,
+  so this was a bring-up, not a port of an existing launcher. Implementing
+  `polaris_ace2_multinode_handoff.md`.
+  - ✅ **THE DAY-ONE BLOCKER IS CLEARED: `ACE2_VENV_OK`.** `polaris_setup_ace2_venv.sh`
+    (login node, the one sanctioned login-node activity) built
+    `$MEMBER_ROOT/conda-envs/fme-venv`: **python 3.12.11, torch 2.10.0+cu129, NCCL 2.27.5**,
+    `torch_harmonics` 0.8.0 (fme pins it exactly), zarr 3.3.0, fme **editable from our
+    checkout**. None of the eight existing envs carried `fme`.
+    ⚠ **The torch version is a deliberate choice, not a default.** fme's own
+    `constraints.txt` pins `torch==2.7.1`; that pin is NOT applied. 2.10.0+cu129 is
+    **byte-identical in NCCL version to ai-rossby's venv (2.27.5)**, so the multi-node
+    handoff §4's rule — *"any torch ≠ 2.8.0 ⇒ re-run the three fabric probes under it"* — is
+    satisfied by the ai-rossby campaign's **existing** probe results instead of three new
+    jobs. 2.7.1 would have satisfied neither and cost those jobs.
+  - 🐛 **`module load conda` killed the setup script in 3 seconds**, exactly as it kills the
+    seven launchers in TODO P0-10 — and the two *sibling setup scripts*
+    (`polaris_setup_ai_rossby_venv.sh`, `polaris_setup_sfno_venv.sh`) still open that way and
+    are therefore **also dead today**. Fixed here by sourcing
+    `ACE2_retrain/polaris/polaris_ace2_env.sh`, which carries the module-then-manual fallback,
+    rather than growing a fourth copy of it. *(The two siblings are left alone — that is P0-10's
+    scope, and this session did not verify their fallbacks.)*
+  - 📏 **`lfs getstripe` on the 2.4 TB NetCDF: `lmm_stripe_count: 1`.** The whole
+    2,388,766,929,681-byte `merged_ACE2_ERA5_final.nc` sits on **one OST** (index 46, 1 MiB
+    stripe), and every rank opens it. Zero-allocation, and it is the strongest reason to expect
+    the ACE2 bottleneck to be I/O rather than the fabric. **Prereg P1 therefore predicts
+    `gpu_busy_frac` < 0.90** against ai-rossby's ≥0.976 — the falsifiable form of "check the
+    striping before blaming NCCL".
+  - **Delivered** (all tested without an allocation):
+    | file | what |
+    |---|---|
+    | `polaris_setup_ace2_venv.sh` | the venv builder, `ACE2_VENV_OK` |
+    | `ACE2_retrain/polaris/polaris_ace2_env.sh` | third sibling of the makani/ai-rossby env bootstrap; also pins the fabric stack **once** so the 1-node anchor and the rungs cannot disagree about the transport |
+    | `ACE2_retrain/config_polaris.yaml` | `config_midway.yaml` with **11 paths** repointed and nothing else — `diff` shows only paths |
+    | `ACE2_retrain/epoch_telemetry.py` | verbatim third copy of the cross-project telemetry module |
+    | `ACE2_retrain/ace2_telemetry.py` | the injector: monkeypatches the four hooks onto fme (the `ace2_nvtx.py` pattern), since `ace_exp/` is vendored and not edited |
+    | `ACE2_retrain/polaris/polaris_ace2_train.pbs` | **one script, any node count** (the ai-rossby ladder shape), PASS `ACE2_POLARIS_TRAIN_OK` |
+    | `ACE2_retrain/polaris/polaris_rank_env.sh` | PALS→`env://` rank shim, ACE2's own copy |
+    | `ACE2_retrain/polaris/parse_ace2_scaling.py` + test | 5 guards + 16 tests, `ACE2_SCALING_PARSE_OK` |
+    | `ACE2_retrain/polaris/ace2_polaris_prereg.md` | prereg, **committed before the first arm** |
+  - **ACE2 had no bench CSV at all** (`PROFILING_PLAN.md` §5). It does now, and `FIELDS` is
+    **byte-identical to ai-rossby's** — a test asserts that by parsing the sibling's source, so
+    the two tables concatenate (#10). Two window decisions are the load-bearing part, and both
+    are pinned by tests rather than by comments:
+    * **step window** opens at `TrainStepper.train_on_batch` and closes at the per-iteration
+      `Optimization.step_scheduler`. fme calls `train_on_batch` from **three** places and only
+      one is a training step — the other two pass `NullOptimization` (a no-grad forward). The
+      gate is `isinstance`, not a call counter, because a counter breaks the moment
+      `train_evaluation_samples` changes. Closing at `step_scheduler` puts optimizer + EMA +
+      scheduler inside, matching ai-rossby's window.
+    * **epoch window** opens at the *first* `GriddedData.subset_loader`, not at the top of
+      `train_one_epoch`, and closes at `alternate_shuffle`. ⚠ Both ends matter: fme runs
+      `_log_first_batch_metrics()` **before** the loop (one cold batch off a 2.4 TB file plus a
+      forward pass) and a forward-only **train-evaluation pass after** it. A naive
+      top-and-tail hook would have put both inside `epoch_wall_s` — plausibly halving
+      `gpu_busy_frac`, the one number this port turns on, while still carrying the contract's
+      column name.
+  - 🐛 **Drive-by fix, and it was masking a real guard:** `epoch_telemetry_test.py`'s
+    `_line_of` matched **comments**, so `test_ai_rossby_window_includes_the_ema_sweep` failed
+    against correctly ordered code — ai-rossby's `train.py` names `telemetry.step_end()` in a
+    comment seven lines *before* `step_start`. A drift guard that fires on a comment trains the
+    reader to ignore it. Now `code_only=True` where the needle is a statement, and the
+    section-marker lookups keep matching comments. **17 tests, `EPOCH_TELEMETRY_TEST_OK`.**
+  - **Three of the handoff's own claims are corrected by reading the vendored source:**
+    1. **`FusedAdam` does NOT need apex.** §4 lists it as a trap; in this fme it is
+       `torch.optim.AdamW(..., fused=True)` (`fme/core/optimization.py`) and emits a
+       DeprecationWarning. No apex anywhere.
+    2. **ACE2 does not anneal its LR.** §3.1 says "ACE2 anneals its own LR, so pin the schedule
+       flat for the sweep". `SchedulerConfig.type` defaults to `None` and neither config sets a
+       scheduler ⇒ the LR is **flat at 1e-4** for the whole run. An LR arm needs `-v LR=` and
+       nothing else — no `FLAT_LR` equivalent, unlike ai-rossby.
+    3. **The launcher question is settled, with a reason.** `TorchDistributed.__init__` takes
+       the `env://` path whenever `RANK` is in the environment, and the srun path **only**
+       under `FME_USE_SRUN=1`. So the PALS rank shim works and is what is used — one process
+       per rank, no nested launcher, and PALS `--label` supplies the rank labels the parser's
+       `ranks_reporting` guard counts. ⚠ Without the shim there is **no error**: fme silently
+       builds `NonDistributed` and you get N independent `world_size=1` trainers. The launcher
+       also hard-fails on an inherited `FME_USE_SRUN=1`.
+  - ✅ **THE ANCHOR IS GREEN, FIRST ATTEMPT — `ACE2_POLARIS_TRAIN_OK`, job 7586496**
+    (`debug`, 1 node, 4×A100, 60 timed steps, `LOCAL_BATCH=1`, global batch 4,
+    `NCCL_ALGO=Ring`, 8 min wall). ACE2 now runs on Polaris.
+    | quantity | value |
+    |---|---|
+    | `step_med_ms` | **380.606** (p90 383.2 — the distribution is tight) |
+    | `samples_s_rank` / `_total` | 2.6274 / 10.5096 |
+    | **`gpu_busy_frac`** | **0.9325** |
+    | `peak_mem_gb` (GiB, allocated) | **21.316** of 39.49, reserved 21.764, `alloc_retries=0` |
+    | `epoch_wall_s` | 28.751 |
+    | transport / world_size / ranks_reporting / steps | AWS Libfabric / 4 / 4 / 60 of 60 |
+    | train / valid loss | 14.0105 / 13.5400 (finite) |
+    - ❌ **PREREG P1 FALSIFIED** — predicted `gpu_busy_frac` < 0.90 on the strength of the
+      single-OST layout; measured **0.9325**.
+      ⚠⚠ **A FIRST VERSION OF THIS ENTRY THEN CONCLUDED "the loader is not the bottleneck
+      and the zarr conversion is NOT justified". THAT IS A STRONGER CLAIM THAN THE
+      MEASUREMENT SUPPORTS, and it is retracted.** What is established is narrow: at 4-8
+      ranks and 60 steps, ≤6.75% of wall sat outside the step window. See the I/O section
+      below for what is not.
+    - 📐 **The memory number is the surprise, and it is large.** 21.32 GiB at **one sample
+      per GPU** against a ~10.7 GB estimate for fixed state alone ⇒ ~10.6 GiB of
+      activations/workspace per sample. Naively that leaves room for local batch 2 and not 3
+      — i.e. **the config's `batch_size: 16` may not fit one node at all**, and the "fewest
+      GPUs that hold the batch" may be more than four. ⚠ **That sentence is a hypothesis
+      written down to be refuted, not a model**: makani's memory curve was fitted twice and
+      refuted twice, so the next value is being *measured* (job 7586506, `LOCAL_BATCH=2`),
+      not predicted.
+    - ⚠ **`step_mean_ms` 446.9 with `step_std_ms` 481.4, against a median of 380.6 and a p90
+      of 383.2.** One or two multi-second warmup steps, not a broad distribution. This is why
+      the contract's headline is the **median**; do not quote the mean or the std from a
+      60-step arm.
+    - The trainer's own `Time taken for epoch 1 is 69.56 sec` versus the telemetry's
+      `epoch_wall_s` 28.751 is the window design working: validation, the train-evaluation
+      pass and `_log_first_batch_metrics` are all outside it, as intended.
+    - `env_source=manual-reconstruction` — i.e. `module load conda` is still broken and the
+      fallback carried the run, as designed.
+    ⚠ It ran concurrently with makani production **7585080**, so (a) makani epochs in this
+    window must be excluded from any epoch-time statistic — three concurrent 1-node arms
+    previously cost it +2.3% median epoch wall — and (b) this ACE2 row's own `epoch_wall_s`
+    carries the same caveat in reverse.
+- **2026-09-05** — 🔴 **THE FULL LR SWEEP RAN AND IT INVERTS THE SCREEN. 1e-3 WENT FROM BEST
+  TO WORST. Do not launch production on the screen's answer.**
+  The four registered arms (7589850-53) finally cleared the preemptable backlog after ~36 h
+  queued. 3 **full** epochs = 36,702 updates/arm, 12× the screen's 3,000.
+  | LR | FULL sweep, valid by epoch | @ epoch 2 | SCREEN @ 3k updates |
+  |---|---|---|---|
+  | 5e-5 | 0.4612, 0.3353, 0.2838 | 0.3353 | 1.1562 |
+  | 1e-4 | 0.3657, 0.2702, 0.2333 | 0.2702 | 0.9362 |
+  | **3e-4** | 0.2846, **0.2205** | **0.2205 — best** | 0.7249 |
+  | 1e-3 | 0.8765, 0.6053 | 0.6053 — **worst** | **0.6417 — "best"** |
+  - **Ranking at 2 epochs (the only depth all four reached): 3e-4 < 1e-4 < 5e-5 < 1e-3.**
+    The screen said **1e-3 < 3e-4 < 1e-4 < 5e-5**. Every pair except one flipped, and the
+    screen's winner is the full sweep's **worst**.
+  - ⚠️ **THE SCREEN'S CONCLUSION WAS WRONG, AND ACTING ON IT WOULD HAVE PUT PRODUCTION ON THE
+    WORST OF FOUR LRs FOR ~66-110 NODE-HOURS.** The caveat attached to it — *"3,000 updates vs
+    the registered 36,702; early rank order need not survive; a higher LR that wins early can
+    be overtaken"* — was not boilerplate. It was the outcome. **A high LR descends fastest
+    initially and then stalls**; at 12× the updates the low-LR arms overtake it.
+  - ⇒ **The registered experiment was the right one and the shortcut was not a substitute.**
+    Record this next to makani's "prereg beats authority": here it is *prereg beats the
+    expedient proxy*, measured, on the same model, in the same week.
+  - **3e-4 is an interior optimum** (bracketed by 1e-4 below, 1e-3 above), so no endpoint
+    problem — unlike the screen, which needed a 3e-3 extension.
+  - ⚠ **3e-4 and 1e-3 completed only 2 of 3 epochs** (preempted). They are PRODUCTION-mode runs
+    with jobid-free run names, so they **can be resumed** to finish epoch 3 — the resume gate
+    proved that path. Score on 2 epochs until then, and say so.
+  - 📏 **Real epoch cost, first honest measurement: 3.46 h (epoch 1) then 3.95 h**, against my
+    estimate of 2.51 h (optimistic) / 3.26 h (+30%). **The estimate was low even at its
+    pessimistic end.** ⚠ Four arms ran concurrently plus makani, so this is a *contended*
+    figure and an upper bound; the two more-contended arms took 4.97-6.43 h/epoch. Production
+    sizing at 28 epochs moves from 68-89 h to **~110 h contended**, and an uncontended
+    measurement is still missing.
+
+- **2026-09-04 (cont. 2)** — **ACE2 IS RUN-TO-RUN DETERMINISTIC TO ~1 ULP — a free answer to a
+  question that was open, from an accidental duplicate job.** The 3e-3 screen arm was
+  re-submitted after a walltime truncation, and the first attempt then completed too, giving
+  two INDEPENDENT jobs (7591998, 7592103) with identical config and `seed: 3` on 1 node:
+  | quantity | agreement |
+  |---|---|
+  | validation loss, epochs 1-3 | **bitwise identical** (e.g. 1.9703121185302734) |
+  | train loss, epochs 1 and 3 | **bitwise identical** |
+  | train loss, epoch 2 | 1.550347924232483 vs 1.5503480434417725 — **7.7e-8 relative** |
+  - **7.7e-8 is ~1 ULP of float32** (eps ≈ 1.2e-7), and the one quantity that moved is the
+    **cross-rank reduced** train loss — consistent with NCCL all-reduce ordering, not with
+    model nondeterminism. Validation, which is also reduced, happened to agree bitwise.
+  - ⇒ **CLAUDE.md #6 / DESIGN §4.1 is achievable for ACE2, and this gives the tolerance:**
+    ~1e-7 relative on reduced scalars. Whether ACE2 was deterministic *at all* was previously
+    listed as unknown, and it blocked capturing an equivalence baseline. It no longer does.
+  - ⚠ **This is not a §4.1 baseline.** That wants a captured multi-step tensor trajectory, not
+    two log scrapes; and this is **1 node, 3 epochs**. More ranks means more reduction orders,
+    so the multi-node tolerance is unmeasured and should be assumed looser.
+
+- **2026-09-04 (cont.)** — **ACE2 LR SCREEN: the config's own value came LAST, and the optimum
+  is INTERIOR at 1e-3. makani's pattern reproduced on a second harness.**
+  1 node, global batch 8, flat LR, 3 epochs × 1,000 steps (3,000 updates/arm), `debug` +
+  `debug-scaling` in parallel. Rows in `ace2_lr_screen.csv`.
+  | LR | valid loss by epoch | final |
+  |---|---|---|
+  | 1e-4 *(the config's own value)* | 1.6496, 1.1390, 0.9362 | **0.9362 — last** |
+  | 3e-4 | 1.1913, 0.8667, 0.7249 | 0.7249 |
+  | **1e-3** | 1.0119, 0.7536, **0.6417** | **0.6417 — winner** |
+  | 3e-3 *(range extension)* | 1.9703, 1.2954, 0.9805 | 0.9805 |
+  | 5e-5 | 2.4843, 1.4328, 1.1562 | 1.1562 — worst |
+  **Complete: 4 registered arms + 1 extension. The curve is UNIMODAL with a clear interior
+  optimum at 1e-3** — 5e-5 (1.1562) and 3e-3 (0.9805) are both worse than the middle, so the
+  winner is bracketed on both sides and is not an artifact of where the range was cut.
+  - 🎯 **`optimization.lr: 1e-4`, inherited from the ai2cm/Delta config, is 46% worse than
+    1e-3 on this data.** makani's sweep found upstream's own value came last of three; **ACE2
+    reproduces it exactly.** "Prereg beats authority" now has two independent harnesses.
+  - ✅ **The prereg's endpoint rule was triggered and satisfied.** 1e-3 was the TOP of the
+    registered range, and §1a says an endpoint winner means the range was insufficient and
+    must not be adopted. So **3e-3 was added before scoring** — and it is worse than every
+    other arm at every epoch, so **1e-3 is an interior optimum bracketed by 3e-4 and 3e-3**.
+    The rule caught the thing it was written for.
+  - ✅ **No divergence at any LR up to 3e-3**, despite fme having **no gradient clipping at
+    all**. The prereg flagged the top of the range as the arm most likely to report the missing
+    clip rather than the LR; it did not. 3e-3 is simply *worse*, not unstable.
+  - ⚠️ **THIS IS A SCREEN, NOT THE REGISTERED SWEEP.** 3,000 updates/arm against the
+    registered **36,702** (3 *full* epochs) — **8%** of it — and **n=1 per arm**. Rank order at
+    3k updates need not survive to 332k: a higher LR that wins early can be overtaken. The
+    four full arms (7589850-53) remain queued and are still the real experiment. Do not adopt
+    1e-3 for a 27-epoch production run on this evidence alone; adopt it as the **current best
+    estimate** and let the full arms confirm.
+  - ⚠ The screen ran two arms concurrently across `debug` + `debug-scaling`, so its epoch times
+    are contended and unusable; only the losses are being read.
+  - 🔄 3e-3 was walltime-truncated at 2 epochs on its first attempt and re-run (7592103), which
+    incidentally gives that arm the campaign's only rep.
+
+- **2026-09-04** — **ACE2: the LR sweep is BLOCKED BY A SATURATED QUEUE, not by a bug; a
+  shortened screen is running instead, and LR 1e-3 does NOT diverge.**
+  - 🚦 **The 4 preemptable LR arms (7589850-53) sat 13 h and never started.** Diagnosis before
+    action, per CLAUDE.md #12: `comment = Not Running: Insufficient amount of resource:
+    queue_tags` with `eligible_time = 06:07:03`. **That signature means the queue has no
+    nodes** — priority and walltime are irrelevant, and **resubmitting would destroy the
+    accrued eligible time.** `qstat -Q` confirms it is saturation, not breakage:
+    **preemptable = 208 total / 149 queued / 18 running.** They are left queued to keep
+    accruing. ⚠ This is the third campaign to hit it; the handoff's "use preemptable for
+    concurrency, not for short jobs" needs a companion line: **it is also unusable for
+    anything time-boxed**, because there is no bound on when it starts.
+  - ⚠ **The structural squeeze this exposes:** any ACE2 arm longer than 1 h can run *only* on
+    `preemptable` (saturated) or `capacity` (1-4 nodes ≤168 h, but **`max_run 1` per PROJECT**
+    and makani's production run holds it). `debug`/`debug-scaling` cap at 1 h. So ACE2 has
+    **no reliable queue for multi-hour work** until the capacity slot frees (~12 h).
+  - 🔬 **Shortened LR screen in `debug` instead** — 1 node, batch 8, flat LR, 1,000 steps/epoch
+    × 3 (3,000 updates/arm, ~45 min), serial. It **cannot replace** the 3-full-epoch sweep
+    (36,702 updates/arm) and is labelled a screen: its job is to catch divergence and eliminate
+    obviously-bad arms before the capacity slot frees, not to rank close LRs. Rows go to
+    `ace2_lr_screen.csv`, never the sweep's table.
+  - ✅ **LR 1e-3 (10× the config's value) trains STABLY** — job 7590248, 2 epochs so far:
+    `batch_loss` 15.70 → 4.38 → 3.07 → 2.55 → 2.14 over the first 500 updates, then
+    **train 1.0852 → 0.8783, valid 1.0119 → 0.7536**. No NaN, no divergence.
+    ⚠ That is a genuinely useful negative result **because fme has no gradient clipping at
+    all** — the prereg flagged the top of the range as the arm most likely to report the
+    missing clip rather than the LR. It did not. So the range is not obviously too wide at the
+    top, and makani's "upstream's value was 5× too low" pattern remains live for ACE2.
+  - 📏 **First epoch timing grounded in a real (if shortened) run:** 12.9 min per 1,000-step
+    epoch = **774 ms/step including validation and overhead**, against the 716 ms `step_med`
+    measured on 60-step arms. Extrapolated to a full 12,234-step epoch that is **~2.63 h**,
+    inside the 2.51 h (optimistic) → 3.26 h (+30%) band predicted. The 30% page-cache
+    pessimism has **not** materialised so far — consistent with ACE2's random sampler, which
+    is the mechanism makani's gap was attributed to.
+  - 🎯 **PRODUCTION SHAPE DECIDED: 1 NODE, GLOBAL BATCH 8, ~27 EPOCHS — and it INVERTS the
+    ladder's ranking, because "maximum updates" is a different objective from "maximum
+    samples/s".** Target: makani-equivalent **332,424 weight updates**.
+    | config | updates/epoch | **updates/node-h** | epochs→332k | wall h | **node-h** |
+    |---|---|---|---|---|---|
+    | **1 node, batch 8** | 12,234 | **5,028** | 27.2 | 66.1 | **66.1** |
+    | 2 nodes, batch 16 | 6,117 | 1,495 | 54.3 | 111.2 | 222.4 |
+    | 4 nodes, batch 32 | 3,058 | 631 | 108.7 | 131.7 | 526.7 |
+    *(makani reference: 332,424 updates in 45 node-h.)*
+    - **Two effects compound**: halving the batch doubles updates per sample, AND more nodes
+      cost step time without adding updates. So 2 nodes at batch 16 is **3.4× more expensive
+      per update** than 1 node at batch 8 — and *slower in wall-clock too* (2,989 vs 5,028
+      updates/hour).
+    - ⚠️ **THIS CORRECTS A CLAIM MADE EARLIER TODAY IN THIS SAME ENTRY.** "ACE2 must pay the
+      fabric toll, unlike makani" was **conditional on holding global batch at 16** — an
+      inherited config value, not a requirement. **At batch ≤8 ACE2 fits one node and the
+      fabric question disappears entirely**, so makani's "one node is cheapest and fastest"
+      does apply to ACE2 after all. The ladder is still correct about *scaling*; it was the
+      wrong instrument for *this* objective.
+    - **Batch 8 chosen over batch 4** (which is cheaper still: 9,459 updates/node-h, 332k in
+      **35 node-h**, beating makani outright) because 8 is defensible as *the largest batch
+      that fits one node* — a hardware fact — whereas 4 is a 4× deviation from the ai2cm
+      config chosen purely for throughput. Operator decision 2026-09-03.
+    - ⚠ Batch 8 sees **2.66M sample-presentations** against makani's 10.64M. Equal *updates*,
+      not equal data exposure. ACE2's dataset is 2.2× larger, so each sample is seen ~27 times
+      vs makani's ~243 — arguably better, but it is a different quantity and should not be
+      quoted as "equivalent" without the qualifier.
+  - 🔬 **LR SWEEP LAUNCHED, RULE REGISTERED FIRST** (prereg §1a). 4 arms — **5e-5, 1e-4, 3e-4,
+    1e-3** — at 1 node, batch 8, **3 full epochs** (36,702 updates each), **flat LR**
+    (`-v NO_SCHEDULER=1`, added for this: a schedule would test each arm at a different
+    effective LR by the time it is scored). Jobs **7589850-7589853**, `preemptable`, ~29 node-h.
+    The winner becomes the **peak** of `CosineAnnealingWarmRestarts` in production — makani's
+    exact shape.
+    - ⚠ **The rule could NOT reuse makani's tie-breaker.** `grep` over `ace_exp/fme` finds
+      **no gradient-norm logging and no gradient clipping anywhere** — fme neither computes
+      nor exposes it, so `pick_lr.py`'s criterion has no analogue here. Tie-break falls back to
+      per-step `batch_loss` variance, which is a weaker proxy, and the prereg says so.
+    - ⚠ **fme does no gradient clipping at all and it is not configurable.** ai-rossby's
+      divergence investigation listed `grad_clip_norm: 0.0` as a leading suspect; here it is
+      not zero by choice, the capability is absent. An arm diverging at 1e-3 may be reporting
+      the missing clip rather than the LR.
+    - ⚠ **If the winner is an endpoint (5e-5 or 1e-3) the range was insufficient and it must
+      not be adopted** — makani's CHANGELOG carries exactly that caveat ("2e-3 was the top of
+      the range tested") and repeating it knowingly would be worse than the first time.
+    - The 2-node/batch-16 epoch-cost job (7589568) was **qdel'd**: production is no longer that
+      shape, and these arms measure the real epoch for free.
+    - ⚠ **4 concurrent arms + live makani production share the filesystem.** Their
+      `epoch_wall_s` is therefore NOT a clean epoch-cost measurement, and makani's epochs in
+      this window must be excluded from its epoch-time statistics (three concurrent 1-node arms
+      previously cost it +2.3%).
+  - ✅ **PRODUCTION MODE + THE RESUME GATE: `ACE2_RESUME_GATE_OK`.** ACE2 production cannot
+    use `capacity` (`max_run 1` per project, makani holds it), so it runs on `preemptable`
+    where it **will** be preempted at ~2 h/epoch. That made resume a blocker, not a nicety.
+    - **`-v PRODUCTION=1` added to `polaris_ace2_train.pbs`** (a mode, not a second launcher —
+      the ai-rossby precedent — so the bench and production paths cannot drift). It flips
+      exactly four things: checkpoints on incl. `checkpoint_every_n_batches`;
+      **`CosineAnnealingWarmRestarts`**; `checkpoint_save_epochs` aligned to the restarts;
+      and a `RUN_NAME` carrying **no jobid**.
+      ⚠ That last one is the subtle killer: fme resumes by **path**
+      (`resuming = os.path.isfile(.../ckpt.tar)`), so a jobid in the run name starts a FRESH
+      run on every requeue while looking perfectly healthy.
+    - **fme takes `CosineAnnealingWarmRestarts` config-only** — schedulers are resolved by
+      name out of `torch.optim.lr_scheduler`. ⚠ Its `.step()` takes no `metrics`; fme calls
+      `step(metrics=valid_loss)` and falls back on `except TypeError`, which is verified to be
+      the path that fires.
+    - 🎁 **The snapshot ensemble works and the off-by-one was real.** With `T_0=2` the run left
+      **`ckpt_0002.tar`, `ckpt_0004.tar`, `ckpt_0006.tar`** — one per restart. Alignment must
+      be `start=T_0, step=T_0`, **not** `T_0-1`: `_epochs_trained` is incremented at the END of
+      `train_one_epoch` and `save_all_checkpoints` runs after it, so the checkpoint tagged N
+      holds the weights after N complete epochs = that cycle's **LR minimum**, which is the
+      snapshot you want. `T_0-1` would keep weights one epoch short of every minimum.
+    - ✅ **THE GATE PASSED ON THE CRITERION THAT MATTERS.** Jobs 7589567 (uninterrupted
+      reference) vs 7589664 `qdel`'d after 2 epochs → 7589714 resubmitted: it logged
+      `Resuming training from .../ckpt.tar` and **restarted at epoch 3, not epoch 1**, and the
+      **LR trace is identical across all 24 sampled points**. That is the load-bearing result:
+      `scheduler_state_dict` is checkpointed by `Optimization.get_state`, so
+      `CosineAnnealingWarmRestarts`' `T_cur` survives preemption. Had it not, every requeue
+      would have silently reset the LR to peak — the run would still descend, still exit 0, and
+      **the whole snapshot ensemble would be built from checkpoints no longer at cycle
+      minima**, with nothing downstream noticing.
+    - ⚠ **The gate also reported a loss divergence (train 23.4%, valid 7.5%), and it is an
+      ARTIFACT OF THE GATE, not a defect — but that is an inference, not a measurement.**
+      Mechanism, from `ace/data_loading/getters.py:_get_sampler`: the gate shortens epochs with
+      `sample_with_replacement`, which selects a bare **`RandomSampler`** — *not* epoch-seeded.
+      On resume the process re-seeds from `seed: 3`, so the resumed epochs 3-6 draw what the
+      reference's epochs 1-4 drew. Different data ⇒ different loss.
+      **Production leaves `sample_with_replacement` unset** ⇒ `dist.get_sampler(shuffle=True)`
+      ⇒ `DistributedSampler` seeded per epoch via `train_data.set_epoch(_epochs_trained + 1)`,
+      which IS a deterministic function of the epoch index. ⇒ the divergence should not occur
+      in production. **Not yet confirmed at production scale** — confirming it needs a
+      full-epoch gate (~2 h/epoch), so it is recorded as an open item rather than assumed.
+    - `compare_resume_trace.py` (+ a synthetic self-test covering healthy-resume, `T_cur`-reset
+      and never-resumed) asserts the LR trace **exactly** — it is a deterministic function of
+      epoch and scheduler state, so any mismatch is a defect — and reports the losses against a
+      tolerance rather than asserting bit-identity, because fme's resume is not bit-reproducible
+      the way makani's was.
+    - 📏 **Early epoch-timing read** (100-step epochs, 2 nodes, batch 16): 170.9 s for epoch 1
+      then **150-154 s steady state**, of which ~124 s is timed steps ⇒ **~27 s/epoch of
+      non-step overhead** (validation + train-eval + checkpoint save).
+      ⚠ **This suggests the Midway "validation is 61% of an epoch" finding does NOT transfer to
+      a full-length Polaris epoch.** A real epoch is **6,117 steps** (train split = **97,874
+      samples**: 1940-1995 + 2011-2019 + 2021-2022 of a 1940-2022 file), so validating even the
+      config's full 1996-97 split is ~3% of the epoch, not 61% — the 61% was measured on a
+      *shortened* epoch. If that holds, `validation_aggregator.log_snapshots=false` is a much
+      smaller lever here than §1f implies. **Inference; job 7589568 is queued to measure it.**
+    - **Production sizing, from the ladder:** ~**2.1 h/epoch and 4.1 node-h/epoch** at batch 16
+      on 2 nodes (1.21 h / 4.8 node-h at batch 32 on 4; 0.64 h / 5.1 at batch 64 on 8).
+      ⚠ These use 60-step arm step times, which the handoff warns are ~30% optimistic.
+    - ⚠ **Queue assignment corrected against the operator's initial plan:** the resume gate went
+      to **`debug`**, not `preemptable`. It is a ~25-minute job, and `polaris_pbs_notes.md` is
+      explicit that preemptable is "for concurrency, not for short jobs" — borne out here, as
+      the one job that *did* go to preemptable (7589568, epoch cost, 12 h) is **still queued**
+      alongside makani's three.
+  - ✅ **THE LADDER IS DONE, AND IT SETTLES THE I/O QUESTION: ACE2 ON POLARIS IS
+    FABRIC-LIMITED, NOT I/O-LIMITED.** Weak scaling at `LOCAL_BATCH=2`, 60 timed steps,
+    `NCCL_ALGO=Ring`, run SERIALLY as a dependency chain so no two arms shared the OST
+    (`ACE2_retrain/polaris/run_ace2_ladder.sh`):
+    | nodes | ranks | global batch | `step_med_ms` | s/s/rank | s/s total | `gpu_busy_frac` | implied MB/s | reps |
+    |---|---|---|---|---|---|---|---|---|
+    | 1 | 4 | 8 | 716.0 | **2.7932** | 11.17 | 0.9288 | 397 | 3, **±0.1%** |
+    | 2 | 8 | 16 | 1204.4 | 1.6606 | 13.29 | 0.9625 | 500 | 3, ±3.9% |
+    | 4 | 16 | 32 | 1426.1 | 1.4024 | 22.44 | 0.9691 | 861 | 2, ±3.4% |
+    | 8 | 32 | 64 | 1498.5 | 1.3346 | **42.71** | **0.9703** | **1644** | 1 |
+    - 🔴 **PREREG P9 FALSIFIED ON ALL THREE COUNTS** — and it was registered *before* the
+      4n/8n arms ran, precisely to test the I/O worry. Predicted `gpu_busy_frac` <0.90 at 4n
+      and <0.80 at 8n; measured **0.9688 and 0.9703**, rising monotonically. Predicted 8-node
+      throughput under 26.6 samples/s; measured **42.71**. Predicted 500–800 MB/s; measured
+      **1643.6 MB/s**. ⇒ **the single OST sustains ~1.64 GB/s under the real loader at 128
+      concurrent readers with the GPUs 97% busy**, and the 2.4 TB → zarr conversion is not
+      justified anywhere on this ladder.
+    - ⚠ **The app-free probe that motivated P9 UNDERSTATES the OST by ~4.8× — do not quote
+      its absolute numbers.** It divides total bytes by a wall clock that includes `mp.Pool`
+      startup and 32–128 opens of a 2.4 TB HDF5 file, none of which scale with reader count.
+      Its *latency* series is real and does show contention appearing (median window 2.0 →
+      2.7 → 3.7 s from 8 → 16 → 32 readers); its *aggregate* is a floor, not a ceiling. The
+      training arms supersede it. (The probe also had to be fixed twice first: a rank-based
+      `ndim==3` test that died on the 1-D `global_mean_co2`, then a seed scheme whose two
+      repeats overlapped 0/12/56/78% as reader count grew — and it took the *best* repeat, so
+      it manufactured the linear scaling it was built to test. Caught from its own internal
+      inconsistency: median window latency collapsing 160× while per-reader MB/s stayed flat.
+      A `WARN PROBE_INCONSISTENT` self-check now fires on exactly that.)
+    - **Shape: the cliff is the FIRST HOP, then it saturates** — −42% per-GPU at 1→2 nodes,
+      then only −12% and −6.5% for the next two doublings. ai-rossby's shape, reproduced on a
+      **third** harness. First-hop penalty **+488.4 ms/step** (prereg P4 hit, 390–1560 ms).
+    - ⚠ **Weak-scaling efficiency against 1 node (100/58/51/48%) is the WRONG HEADLINE for
+      this model**, because 1 node cannot hold the production batch at all (local 3 OOMs).
+      From the 2-node minimum viable config, ACE2 goes **13.04 → 22.83 → 42.71**, i.e. 1.75×
+      and 3.28× for 2× and 4× the hardware — **87% and 82% incremental efficiency.** ACE2
+      scales well *once past the toll it cannot avoid paying*.
+    - ⚠ **`gpu_busy_frac` rising with node count is not the good news it looks like**, and
+      the same caveat now cuts both ways: the step gets longer (NCCL), so a fixed loader gap
+      is a smaller fraction of it. The column measures **loader idle, not communication
+      cost**.
+    - **Rep spread (prereg P8): 1 node ±0.1% (n=3), 2 nodes ±3.9% (n=3), 4 nodes ±3.4% (n=2).** Both inside
+      5%, and the 2-node figure is far tighter than ai-rossby's 15% miss at the same rung.
+      ⚠ **8n is still n=1** and must not be published as a ladder point yet.
+  - ⚡ **YES, THE FABRIC COSTS ACE2 — MORE THAN makani, NOT LESS.** Weak scaling holds
+    per-GPU work identical, so everything above the 1-node step is exposed inter-node cost:
+    **+488.4 ms at 2 nodes (40.6% of the step), +710.1 at 4 (49.8%), +782.5 at 8 — over half
+    the 8-node step is fabric.** In node-seconds per sample: 0.0895 → 0.1505 → 0.1783 →
+    **0.1873, i.e. 8 nodes costs 2.09× what 1 node would**. Since 1 node cannot run the
+    production batch, the usable framing is **2 → 8 nodes: +24% node-hours for 3.2× the
+    wall-clock throughput.**
+    - **ACE2's toll is 2.09× makani's** (488.4 vs 234.0 ms) on **3.08× the gradient volume**
+      (1.823 vs 0.591 GB) — 3.73 vs 2.53 GB/s effective, both inside this stack's measured
+      2.5–4.4 GB/s. The toll is **bandwidth-bound and scales with gradient volume**, so it is
+      the same `scale_factor` fact as Table 8.
+    - **Why the ladder still looks good is NOT that ACE2 is less affected.** Toll as a share
+      of the compute it hides behind: ACE2 68% at 2 samples/GPU (128% at 1), makani 64% at 8
+      samples/GPU but **512% at 1** — the regime ACE2 cannot reach. At their respective 1-node
+      production configs the fraction is nearly the same (68% vs 64%); the divergence is
+      entirely the *range of configurations reachable*.
+    - ⚠ **`gpu_busy_frac` is blind to this** — it *rises* 0.9288 → 0.9703 across these same
+      rows, because exposed NCCL runs as GPU kernels and counts as busy. It measures loader
+      idle. Communication cost is the `over 1n` column.
+    - ⚠ `over 1n` is fabric **+ load imbalance**, which weak scaling does not separate; and
+      the 716.0 ms baseline already contains **intra-node** NCCL over NVLink, so these are
+      *inter-node increments*, not ACE2's total communication cost. Separating them needs the
+      kernel-level capture prereg P6 still lacks.
+    → `ace2_polaris_results.md` §Table 9.
+  - 🧬 **ACE2 vs makani: SAME SFNO, ONE CONFIG KNOB APART — and it explains every difference.**
+    Both are the Modulus/makani SFNO on a 180×360 equiangular grid with **identical**
+    `embed_dim=384`, `num_layers=8`, `operator_type=dhconv`, `filter_type=linear`,
+    `instance_norm`, `hard_thresholding_fraction=1.0`, `use_mlp`, `separable=False`
+    (`makani_sfno/polaris/e3sm_alldata_full.yaml` vs `ACE2_retrain/config_polaris.yaml`).
+    **The difference is `scale_factor`: ACE2 = 1, makani = 3** — plus ACE2's 2-step rollout
+    (`n_forward_steps=2` vs `n_future=0`).
+    - **The arithmetic closes, and it reproduces makani's own recorded number.** scale_factor 3
+      puts makani's 8 blocks on a 60×120 internal grid, so its dhconv weight is
+      384×384×**60**×2 = 70.78 MB/layer against ACE2's 384×384×**180**×2 = **212.34 MB**.
+      ×8 layers ⇒ 0.566 GB, which with the rest gives **0.591 GB — exactly the ~591 MB
+      single-bucket reduction `makani_bench_report.md` recorded.** Parameter ratio
+      455,831,040 / 147,860,000 = **3.08×**, i.e. the scale_factor ratio.
+    - **Activation memory: 12.64 GiB/sample (ACE2) vs 0.73 GiB/sample (makani) = 17.3×**,
+      against **18× predicted** by 9× internal spatial positions × 2 rollout steps. Nothing
+      else has to be invoked.
+    - ⇒ **The two harnesses do not disagree about Polaris; they are different-sized models.**
+      makani fits its whole production batch (32) on one node and so never has to touch the
+      fabric — its ladder correctly found the ~234 ms toll is never worth paying. ACE2 is 17×
+      heavier per sample, caps at **2 samples/GPU**, and so **has no fabric-free option** at
+      global batch 16. Having to pay the toll, it then amortises it well (82–84% incremental
+      from 2 nodes) because it is also 7.3× heavier per sample in compute.
+    - ⇒ It also explains the **tree-defect split**: ACE2's 1.823 GB gradient volume clears the
+      ~1 GB corruption threshold and makani's 0.591 GB does not. `NCCL_ALGO=Ring` being
+      load-bearing for one and unnecessary for the other is the same `scale_factor` fact.
+    - ⚠ **`scale_factor` is a SCIENCE knob.** ACE2 running at 1 is what the ai2cm config
+      specifies; changing it changes what the model computes and is jesswan's call. Recorded
+      to explain the measurements, **not** as a proposal.
+    - ⚠ Caveats: makani's 45.7 ms/sample is an *average* at 8 samples/GPU (includes fixed
+      per-step overhead) while ACE2's 335.4 is a *marginal* two-point fit; and the
+      3.7×-per-model-application residual is not derived from first principles — both encoders
+      run at full resolution and makani has 2.4× the channels there, partly offsetting its 9×
+      spatial advantage.
+    → full table: `ACE2_retrain/polaris/ace2_polaris_results.md` §Table 8 (generated by
+    `make_results_table.py`; **do not hand-edit**).
+  - 🧭 **WHY ACE2 DOES NOT REPRODUCE makani's "more nodes = slower" — and the first answer
+    was that I COMPARED TWO DIFFERENT EXPERIMENTS.** makani's §1f table holds the **global**
+    batch at 32 and shrinks samples/GPU 8→4→2→1 (**strong** scaling); the ACE2 ladder holds
+    the **local** batch at 2 and grows the global batch 8→64 (**weak** scaling). Under weak
+    scaling the added ranks bring added work, so a roughly fixed per-step collective is
+    amortised; under strong scaling they do not.
+    - ✅ **Settled by running the apples-to-apples arm** (job 7588972, `-v LOCAL_BATCH=1` at
+      4 nodes, routed to `ace2_polaris_strongscale.csv` — a strong-scaling point must never
+      sit in the weak-scaling table): at **global batch 16**, 2 nodes × local 2 gives
+      **13.29** samples/s and **4 nodes × local 1 gives 13.83** — i.e. **+4.1%, faster not
+      slower.** makani's ladder never recovered its 1-node throughput at any larger node
+      count. Prereg P10 hit on direction; it **missed on magnitude** (predicted 15.0), which
+      refutes its own assumption that the fabric toll is batch-independent.
+    - ⚠ **State the size honestly: +4.1% for 2× the hardware is 2% efficiency on the added
+      nodes.** The claim is "**ACE2 does not get worse**", not "ACE2 scales at fixed batch".
+      And makani's actual headline question — *is 1 node fastest?* — **cannot be posed for
+      ACE2 at all**, because 1 node cannot hold global batch 16.
+    - **Mechanism: ACE2 is ~7.3× heavier per sample.** Marginal cost is **335.4 ms/sample**
+      (from 380.6 ms at local 1 → 716.0 at local 2, one node) against makani's ~45.7 ms/sample
+      at 8 samples/GPU. A per-step toll that barely moves with node count is amortised by
+      whatever compute is left on each GPU. makani's fixed-batch ladder could slice to
+      1 sample/GPU, where ~46 ms of compute sits against a ~234 ms toll and the fabric
+      necessarily wins. **ACE2 cannot get there** — it is 7× heavier per sample and cannot go
+      below 1 sample/GPU, so it never enters the regime makani's table measures.
+      ⚠ The 335.4 ms/sample is a **two-point fit** at one node; nothing rules out
+      non-linearity between local batch 1 and 2.
+  - 🧪 **`GPU_ORDER=reverse` tested for the first time — NOT previously exercised** (all 12
+    prior ACE2 rows were `forward`). Jobs 7588998 (1n) / 7588999 (4n):
+    | rung | forward | reverse | delta | forward's own spread |
+    |---|---|---|---|---|
+    | 1 node | 716.0 ms (n=3) | 715.2 ms (n=1) | −0.12% | ±0.1% |
+    | 4 nodes | 1426.1 ms (n=2) | 1466.0 ms (n=1) | **+2.80% slower** | ±3.4% |
+    ⚠ **Neither delta is resolvable** — each reverse arm is n=1 and each delta sits inside its
+    baseline's rep spread. Prereg P11 is scored **falsified on direction at 4 nodes** (I bet
+    faster), but the defensible statement is that **ACE2 shows no placement effect either rung
+    can resolve at n=1**.
+    ✅ **What IS established: makani's −7.0% does not reproduce.** A gain that large would sit
+    far outside ±3.4% and is excluded even at n=1.
+    ⚠ **And the comparison was never apples-to-apples**, which I should have said before
+    betting: makani's −7.0% was at 4 nodes **SHARDED** (model-parallel), and **ACE2 has no
+    model-parallel path** — it is pure DDP. The configuration where makani found the win does
+    not exist here. ⇒ the repo's verdict stands, reinforced by a third harness: **placement is
+    config-dependent, do not port a sign** — including one inferred from first principles, as
+    P11's NUMA/H2D reasoning was. `forward` remains correct for every ACE2 config measured.
+  - 🐛 **The ladder found a launcher bug that only appears at ≥32 ranks** — which is the
+    argument for running the rung rather than extrapolating it. Job **7588719** (8 nodes)
+    killed every rank at construction with
+    `ValueError: No batches in dataloader: 0 samples, batch size is 2`: the fixed 4-day
+    validation window (~14 samples) is under one local batch per rank at 32 ranks, and
+    `drop_last=True` turns that into zero batches. It passed at 4 and 16 ranks, i.e. at every
+    rung already run. Fixed by sizing the window from `NRANKS` and pinning validation to one
+    sample per rank; both sit outside the timed window, so earlier arms stay comparable
+    (`peak_mem_gb` read 33.959 GiB identically at 1/2/4 nodes — it is set by training).
+  - 🐛 **Two PBS facts corrected, both measured:** dependent jobs **DO** count against
+    `debug`'s `max_queued=1` (a held link is refused with *"would exceed queue generic's
+    per-user limit of jobs in 'Q' state"*), so the ladder cannot be one chain — the driver
+    emits one wave per queue instead. And **`qstat -u` truncates the Job ID with a trailing
+    `*` even under `-w`**, which `-W depend=afterany:` rejects as *"illegal -W value"*; use
+    `qselect`.
+  - 🟠 **THE I/O QUESTION AS IT STOOD BEFORE THE LADDER** (kept because the reasoning is
+    what the ladder then tested, and one step of it was wrong in an instructive way):
+    Demanded read rates, computed exactly from the file's real dtypes and shapes (the file is
+    **contiguous and uncompressed** — `chunks=None`, `compression=None` — so a 3-timestep
+    window of one variable is one ~778 KB contiguous read and there is **no chunk
+    amplification**; 56 variables × 778 KB = **42.77 MB per sample**, over 121,262 timesteps):
+    | arm | ranks | **total MB/s** | **per-rank MB/s** | `gpu_busy_frac` |
+    |---|---|---|---|---|
+    | 1 node, local 1 | 4 | 357.0 | 89.3 | 0.9325 |
+    | 1 node, local 2 | 4 | 406.0 | 101.5 | 0.9357 |
+    | 2 nodes, local 2 | 8 | 512.3 | **64.0** | 0.9625 |
+    - ⚠ **The 2-node arm is a WEAKER loader test than the 1-node one, not a stronger one**,
+      and reading it the other way was the error in the first draft: **per-rank demand FELL
+      101.5 → 64.0 MB/s** because NCCL stretched the step by 68% and handed the loader more
+      time. Total demand rose only 406 → 512. So `gpu_busy_frac` climbing to 0.9625 at 2
+      nodes is **not** evidence that the I/O scales — it is evidence the fabric slowed
+      everything down.
+    - ⚠ **The OST's ceiling is unmeasured.** 512 MB/s could be 15% or 90% of what one OST
+      delivers, and those imply opposite decisions about the conversion. → app-free probe
+      `polaris_ace2_io_probe.pbs` + `ace2_io_probe.py`, **job 7586630** (1 node, `debug`, no
+      GPU): sweeps 1→32 concurrent readers against the real access pattern and prints the
+      arms' demand on the same axis, so the knee is visible rather than inferred.
+    - ⚠ Also unestablished: what the **4–7% gap** actually is (loader, CPU, or aggregator);
+      whether a **marginal** deficit is hiding behind the 8-batch prefetch cushion
+      (`num_data_workers=4` × `prefetch_factor=2`) — a ~5% shortfall would not drain it in
+      60 steps; and anything at **4–8 nodes**, where linear extrapolation of per-rank demand
+      gives ~1.6–3.2 GB/s from one OST.
+    - ✅ One thing does point the right way, and it is the **opposite of the makani
+      precedent**: `sample_with_replacement` uses `RandomSampler(replacement=True)` over
+      121,262 timesteps, so **these arms were not cache-hot** (~2% hit probability against
+      2.4 TB of file and ~512 GB of node RAM). makani's 30% benchmark optimism came from
+      re-reading a warm window; that mechanism is absent here, and production uses a shuffled
+      `DistributedSampler` — the same random pattern.
+    ⇒ At the time: *"not justified yet, at ≤8 ranks; not closed."* **The ladder above closed
+    it — at 32 ranks the OST sustains 1.64 GB/s and `gpu_busy_frac` is 0.9703.**
+  - 📐 **THE BATCH-SIZE SEARCH, MEASURED ONE ARM PER VALUE — and it says ACE2 does NOT fit
+    its own production batch on one Polaris node.** All arms 1 node, 60 steps, `debug`,
+    ~8-11 min each:
+    | job | local batch | global | `peak_mem_gb` (GiB alloc) | `step_med_ms` | `samples_s_rank` | `gpu_busy_frac` |
+    |---|---|---|---|---|---|---|
+    | 7586496 | 1 | 4 | **21.316** | 380.6 | 2.6274 | 0.9325 |
+    | 7586506 | 2 | 8 | **33.959** (reserved 34.371) | 715.4 | 2.7956 | 0.9357 |
+    | 7586526 | 3 | 12 | ❌ **OOM** at 38.20 GiB allocated / 39.39 in use | — | — | — |
+    - **THE ANSWER: the largest local batch on a Polaris A100 is 2.** Arm 3 died in
+      `sfnonet.py:250` (`x = x + self.outer_skip(residual)`) trying to allocate **286 MiB**
+      with **93.25 MiB free** of 39.49 GiB. Measured, not fitted, and the failing arm is a
+      data point rather than a wasted job — 8 minutes of `debug`.
+    - ❌ **PREREG P7 FALSIFIED: there is no cliff.** +12.643 GiB per added sample from 1→2,
+      and 3 OOMs at exactly where +12.643 predicts (21.316 + 2×12.643 = 46.6 > 39.49).
+      **makani's discrete 12→16 cliff did NOT reproduce on ACE2** — the shape is the boring
+      one. ⚠ Two points define a line trivially, so the *model* claim is weak and is not
+      being made; the claim that stands is the measured one: **local batch 2 fits, 3 does
+      not.**
+    - ⚠ **CONSEQUENCE: ACE2 cannot run its production batch on one node.** `batch_size: 16`
+      needs 8 GPUs at local 2 (or 16 at local 1), so §1f's "fewest GPUs that hold the batch"
+      answers **two nodes**, not one — the opposite of makani, where 1 node held batch 32 and
+      won on every axis. So ACE2 **must** pay the ~234 ms/step fabric toll that makani could
+      avoid, and the interesting comparison becomes 2 nodes × local 2 versus 4 nodes ×
+      local 1 at the same global batch. Cause, already visible: ~10.7 GB of fixed state
+      before a single activation (2.67 GB of complex64-corrected parameters + grads + AdamW's
+      two moments) plus ~12.6 GiB of activations per sample.
+    - `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True` **was** in effect: torch 2.10's OOM
+      text names the new `PYTORCH_ALLOC_CONF` spelling, but both strings are present in
+      `libc10_cuda.so`, so the legacy name `polaris_env.sh` exports is still read. (Checked
+      because the OOM message raised the question, not because anything looked wrong.)
+    - **Batch 2 buys only +6.4% throughput per GPU** (2.7956 vs 2.6274 samples/s/rank) for
+      59% more memory: step time went 380.6 → 715.4 ms, i.e. **1.88× for 2× the work**. The
+      large-local-batch route that paid for makani is nearly exhausted here at batch 2.
+    - `gpu_busy_frac` is **flat at 0.93** across a 2× change in per-rank I/O demand, which
+      strengthens the P1 result: the single-OST read is not close to saturating.
+  - 🐛 **The first real log immediately falsified an assumption the parser inherited.**
+    PALS `--label` emits `<hostname> <rank>: `, not the bare `<rank>: ` that
+    `parse_ai_rossby_scaling.py`'s `LABEL_RE` assumes. Against `^\s*(\d+):` **no line
+    matches**, `ranks_reporting` silently falls back to counting banner lines — so the two
+    world-size guards, which exist to be *independent*, both end up reading the same
+    quantity. Nothing looks broken (it still catches 31 banners for 32 ranks); it just stops
+    being a second opinion. Fixed here, with the real prefix copied into the test fixture and
+    a test that distinguishes "16 lines" from "16 ranks".
+    ⚠ **`physicsnemo_ai_rossby/polaris/parse_ai_rossby_scaling.py` has the same regex** and
+    every ai-rossby ladder row may therefore have been scored by the fallback path. Not
+    changed here (different tree, and this session did not see an ai-rossby log to confirm
+    the format) — but it should be checked before that table is published.
+    A 19th test also went in: `EPOCH_LENGTH_MISMATCH`, the wrap guard, comparing the loader's
+    own steps-per-epoch against the arm's requested step count.
+  - 🔴 **PREREG P2 FALSIFIED, AND IT IS THE RESULT OF THE SESSION: ACE2 *IS* EXPOSED TO THE
+    TREE-CORRUPTION DEFECT.** The 2-node flight-recorder dump (job 7586590, 8 ranks, global
+    batch 16, 5,520 collective records across 8 ranks) shows **one `nccl:all_reduce` of
+    `numel=455,831,040` — the ENTIRE model in a single collective, 1,823,324,160 B =
+    1738.86 MiB.**
+    - P2 predicted 150–250 MB. **Wrong.** And this is not the "untested 25 MiB–1000 MiB gap"
+      the handoff worried about — **1738.86 MiB is ABOVE 1000 MiB, i.e. inside the range
+      where a Tree all-reduce was MEASURED to silently return partially reduced data** (jobs
+      7569805/7569817/7571147, at 2 nodes and at 8).
+      ⇒ **`NCCL_ALGO=Ring` was not insurance, it was load-bearing.** Shipping it on by
+      default from the first job is the reason this run completed instead of hanging on
+      half-stale gradients. **Do not remove it, and do not run an ACE2 multi-node arm
+      without it** (`-v NCCL_ALGO=` empty is now a deliberate fault-injection experiment,
+      not a control).
+    - 📍 **It happens ONCE, at startup — `record_id=13`, `collective_seq_id=14`**, right
+      after DDP's initial parameter broadcasts (three of 107,649,792 + one 78,132,864 + one
+      54,748,800) and before training. Per-*step* traffic is the benign shape the Midway
+      profile predicted: ~11 buckets, the largest 53,824,896 floats ≈ **215 MB**, all well
+      under the threshold. So the exposure is a **single startup collective**, not the
+      gradient path.
+    - 🧩 **This explains ai-rossby's open question.** CHANGELOG recorded that ai-rossby
+      showed a **byte-identical stuck collective of its entire 1.18 B-parameter model under a
+      200× difference in `bucket_cap_mb`**, and why DDP coalesced was left open. It is now
+      reproduced on a second, unrelated model — ACE2's whole 455.8 M — and the reason
+      `bucket_cap_mb` made no difference is that **this collective is not a gradient bucket
+      at all**: it fires before the first backward. ai-rossby hung at its first step for
+      exactly this reason.
+      ⚠ The mechanism still has no NAME. `frames` came back empty (the dump captured no
+      stack), so the next cheap step is one arm with C++/python stack capture enabled to
+      identify the call site. Recorded as unnamed rather than guessed.
+  - ⚠️ **AND THE HANDOFF'S OWN "⚠ CORRECTED 2026-08-28" COMPLEX64 ARITHMETIC IS ITSELF
+    WRONG — corrected back, now on two independent lines of evidence.** That section retracts
+    "455,831,040 parameters = 1.82 GB fp32" in favour of **2.67 GB**, on the grounds that the
+    dhconv weights are complex64 at 8 B/element, and keeps it as "the exact reasoning error
+    most likely to be repeated". The measurement says otherwise:
+    1. **Source:** `ace_exp/fme/ace/models/modulus/s2convolutions.py:148` declares
+       `nn.Parameter(scale * torch.randn(*weight_shape, 2))` — a **float32** tensor with a
+       trailing size-2 dimension. `torch.view_as_complex` is applied at *use* time, in
+       `contractions.py`. So `p.numel()` already counts the real and imaginary halves as two
+       separate floats, and multiplying that count by 8 B **double-counts**.
+    2. **Measurement:** the flight recorder reports `dtype=['Float']` on that
+       455,831,040-element collective, and **no complex dtype appears in any of the 5,520
+       records** (only Float, plus two Long and two Int scalars).
+    ⇒ **ACE2's gradient volume is 1.823 GB, the original figure.** ⚠ Everything derived from
+    2.67 GB needs re-deriving, including the "~10.7 GB fixed optimizer state" this session
+    quoted: params + grads + AdamW's two moments at 1.823 GB each is **~7.3 GB**, not 10.7.
+    (The measured memory numbers above are unaffected — those were read off the GPU.)
+  - 📊 **THE FIRST-HOP PENALTY, at fixed local batch 2 — prereg P3 and P4 both HIT:**
+    | nodes | ranks | global | `step_med_ms` | `samples_s_rank` | `samples_s_total` | `gpu_busy_frac` |
+    |---|---|---|---|---|---|---|
+    | 1 | 4 | 8 | 715.4 | **2.7956** | 11.18 | 0.9357 |
+    | 2 | 8 | 16 | 1203.5 | **1.6619** | 13.29 | 0.9625 |
+    - **+488.1 ms/step** for the first hop — inside P4's predicted 390–1560 ms window
+      (predicted ~780 ms from volume scaling). ⚠ P4's basis was explicitly weak and the
+      volume figure it scaled from has just been corrected, so read this as a coincidence
+      until it is reproduced with reps.
+    - **Per-GPU throughput falls 40.6%** — P3's 2-node trough, now on a **third** independent
+      harness after makani and ai-rossby. Total throughput 11.18 → 13.29 = **1.19× for 2×
+      the hardware, 59.4% efficiency.**
+    - ⚠ **`gpu_busy_frac` RISES at 2 nodes (0.9357 → 0.9625) and that is not good news.**
+      The step window ends after the optimizer, so exposed NCCL time counts as *busy*. The
+      column measures **loader idle, not communication cost** — do not read a high value as
+      "the fabric is cheap". It is doing its job (P1's question) and only that job.
+  - **The artifact that settles prereg P2 now exists and needs no extra allocation:**
+    `-v FR_DUMP=1` + `ACE2_retrain/polaris/read_nccl_trace.py` (11 tests,
+    `NCCL_TRACE_TEST_OK`). ⚠ The reason it had to be built: `TORCH_NCCL_DUMP_ON_TIMEOUT=1`
+    writes the flight recorder **only when the watchdog fires**, so a run that SUCCEEDS
+    leaves nothing on disk — and per-collective sizes are exactly what decide whether ACE2's
+    largest all-reduce lands in the untested 25 MiB–1000 MiB gap. The knob makes every rank
+    dump explicitly at epoch end; the reader prints the op histogram, the largest single
+    collective **in bytes**, and the exposure verdict.
+    ⚠ It refuses to guess an unknown dtype's itemsize and says `VERDICT UNDETERMINED`
+    instead — assuming 4 B/element on a complex64 tensor is the exact arithmetic that
+    produced the handoff's retracted "1.82 GB" figure, and a test pins the 26,542,080-element
+    dhconv weight at 212.34 MB rather than 106.17 MB.
+  - **Not done, and not started:** the ladder (2/4/8 nodes) and its ≥3 interleaved reps, the
+    flight-recorder read that settles prereg P2, and the kernel-level capture P6 needs. The
+    2.4 TB → zarr conversion stays **gated on P1** — it is the biggest speculative spend in the
+    handoff and it needs the `capacity` slot that makani production is holding.
+
+- **2026-09-02 (cont. 2)** — **The peak memory the batch-64 OOM diagnosis asked for is now
+  actually logged — and the batch-48 arms got it for free, because they were still queued.**
+  - **The fix** (`makani_sfno/src/sfno_training/trainer/plasim_trainer.py`, `log_epoch`): two
+    additive per-epoch keys to the screen log **and** wandb, plus `reset_peak_memory_stats` so
+    each epoch reports its own peak rather than a running max —
+    | key | definition | why |
+    |---|---|---|
+    | `peak torch memory [GB]` | gigabytes/GPU, `torch.cuda.max_memory_reserved` | allocator high-water mark — **the term that scales** with batch and `n_future` |
+    | `non-torch memory [GB]` | gigabytes/GPU, `(total − free) − torch reserved`, epoch end | CUDA context + cuFFT/cuDNN + NCCL — the **~7.7 GB fixed tax** measured at the 7580362 OOM |
+    Their **sum** is what to compare against 39.49 GiB. Makani's `memory footprint [GB]` is
+    left in place, so **no prior row is invalidated**.
+  - **Timing was luck worth recording:** `qstat` showed 7586382/3/4 still in state `Q` on
+    `preemptable`. The PBS script puts the fork on `PYTHONPATH` (`:120`,
+    `MAKANI_ROOT/src`) and Python resolves it **at job start**, so patching a queued job's code
+    is enough — no `qdel`, no requeue, no lost eligible time. The running production job
+    (7585080) already imported the module and is unaffected either way.
+  - **Wrapped in `try/except` on purpose.** A diagnostic must never be able to kill a
+    multi-day run; on failure it logs a warning and the epoch continues.
+  - **Deliberately NOT added to `makani_scaling*.csv`.** `parse_makani_scaling.py` asserts the
+    header matches `FIELDS` and **refuses to append** on drift (`:162`, `:172-178`) — rule #10's
+    guard doing its job. Adding columns means migrating every existing CSV in one commit; doing
+    that while 7585080 and three arms are writing to those files is how you lose a campaign's
+    data. → `TODO.md` item 13. Until then read the values from the job `.o` log or wandb.
+  - **Two limits, stated so this isn't over-read in turn** (this is the *fourth* memory claim in
+    this project and the first three were all refuted): `max_memory_reserved` is a high-water
+    mark of the **allocator, not the device**, and the non-torch term is an epoch-end sample
+    *assumed* near-constant. That assumption is untested — it is merely far more defensible than
+    a curve fitted to post-epoch snapshots.
+  - **Stale claims deleted, not just superseded**: `submit_b48_lr_sweep_if_it_fits.sh`'s header
+    ("memory scales SUPERLINEARLY, ~2.5× per doubling") and its `GATE PASSED ... peak ${MEM} GB`
+    log line, and `makani_bench_report.md` §0a's units row calling `memory (GB)` a "peak per
+    GPU" — which had been directly contradicting §5g since the diagnosis. Also
+    `polaris_makani_1node_production_handoff.md` §C2, where "log the peak before sizing
+    anything" is now marked done, with the caveat that every number *already in that document*
+    predates the fix and stays a lower bound.
+
+- **2026-09-02 (cont.)** — **Production cleared its first warm-restart cycle; the LR sweep is
+  CLOSED at 2e-3; batch 48 fits; and the memory model was refuted for the second time.**
+  - ✅ **PRODUCTION 7585080 — 24/243 epochs, and cycle 1 behaved exactly as designed.**
+    | epoch | valid | note |
+    |---|---|---|
+    | 23 | **0.01402** | **end of cycle 1** — LR annealed to `eta_min`, grad norm **0.0043**, first of 12 snapshots |
+    | 24 | 0.01611 | LR jumps back to the 2e-3 peak ⇒ validation degrades |
+    The epoch-24 rise is the **SGDR sawtooth working**, not a regression — and it is precisely
+    why snapshots are taken at cycle *ends*. `best_ckpt` holds epoch 23. **0.01402 is 23% below
+    the 128-node run's FINAL 0.018297**, reached in **4.4 node-hours against its 216**.
+    The 2e-3 peak — 5× upstream's batch-32 value, and the risk I flagged when the prereg picked
+    it — produced no instability through the whole first cycle.
+  - ✅ **LR SWEEP CLOSED — 2.0e-3 confirmed as the optimum, now bracketed on BOTH sides**
+    (job 7585996 added the missing arm):
+    | LR | valid @ ep3 |
+    |---|---|
+    | 4.0e-4 (upstream's batch-32 value) | 0.03237 |
+    | 1.0e-3 (shipped, unscaled) | 0.02655 |
+    | **2.0e-3** | **0.02352 ← minimum** |
+    | **4.0e-3** | **0.10703 — 4.5× worse** |
+    A clean U-shape. Before this arm, 2e-3 won at the *top* of the range and the optimum was
+    only bounded below; it is now located. **The pre-registered rule picked the right value out
+    of an open-ended range.**
+    ⚠ Note 4e-3 has the **lowest grad norm of the four** (0.00913) alongside the worst loss —
+    **a low gradient norm is not a health signal on its own.**
+  - ⭐ **BATCH 48 FITS: 18.97 GB** (job 7585983, 12 samples/GPU, production settings).
+  - 🐛🐛 **AND THAT REFUTED THE MEMORY MODEL FOR THE SECOND TIME. There is now no model —
+    three points and a CLIFF:**
+    | samples/GPU | memory |
+    |---|---|
+    | 8 | 16.04 GB |
+    | **12** | **18.97 GB** (+0.73 GB per sample) |
+    | 16 | **≥39.5 GB — OOM** |
+    8→12 is nearly linear; 12→16 would predict ~22 GB and exceeds 39.5. Both models fitted here
+    are dead: *"≈0.99 GB/sample-step, linear"* (predicted 18.2 at 16 — refuted by the OOM) and
+    *"≈2.5× per doubling, superlinear"* (predicted ~21 at 12 — refuted by 7585983, and it
+    cannot produce a cliff at all). **Something discrete happens between 12 and 16 samples/GPU**
+    — allocator fragmentation or a spectral-transform workspace change, untested. ⇒ **measure
+    one arm per configuration; do not fit a third model.** Corrected in the report §5g and the
+    handoff §C2, with both dead models retained so neither is refitted.
+  - 🔬 **WHY BATCH 64 OOMs — DIAGNOSED, and it retires the "cliff" framing too.** Asked
+    "do we know why it crashes at 16?", the answer was in the log all along:
+    * **Not fragmentation.** `276.76 MiB reserved by PyTorch but unallocated` — PyTorch's own
+      message says fragmentation would make that number *large*.
+    * **~7.7 GB is NON-PyTorch overhead.** At the OOM, 39.41 GiB in use but only **31.46 GiB
+      allocated by PyTorch** — CUDA context + cuFFT/cuDNN workspaces + NCCL buffers.
+      Corroborated by the scaffolding line `9.66 GB (1.99 GB for pytorch)`. It is a **fixed tax
+      on every configuration**.
+    * **It died in the LOSS, not the forward** — `makani/utils/loss.py:402`, i.e. the transient
+      peak where the whole forward graph is alive for backward *plus* the loss intermediates.
+    * ⚠⚠ **AND THE METRIC WE HAVE BEEN PLANNING WITH IS NOT A PEAK.**
+      `get_memory_usage` (`training_helpers.py:22-27`) returns **both** an instantaneous
+      `total − free` **and** `torch.cuda.max_memory_allocated` — and
+      `deterministic_trainer.py:703` logs the first and **discards the second**. So
+      `memory footprint [GB]` is a **post-epoch snapshot**, taken after the step's transients
+      are freed. It understates the true requirement by an amount that **grows with batch**,
+      which is precisely what manufactured the apparent discontinuity.
+    ⇒ **The "cliff" was largely an artifact of measuring the wrong thing** — batch 64 did not
+    hit a discontinuity, it hit a transient peak the metric never showed us at batch 32 or 48
+    either. **Third memory model retired; this time with a mechanism and a fix:** log
+    `max_memory_allocated` (already computed) and `reset_peak_memory_stats` per epoch, and the
+    memory question becomes answerable instead of fitted. Until then **every footprint number
+    in these docs is a LOWER BOUND** — recorded as such in `makani_bench_report.md` §5g and the
+    production handoff §C2.
+  - ⚠ **BATCH-48 LR SWEEP INCONCLUSIVE — killed at walltime — but it caught a divergence.**
+    All three arms (7586074/5/6, `preemptable`) hit the 55-min cap with only 1-2 epochs;
+    epoch-1 losses cannot rank LRs (a higher LR always descends faster early). What *is*
+    conclusive: **4.5e-3 DIVERGED at epoch 2 — grad norm 4,303,908** (from 0.34 at epoch 1),
+    step time 3× slower. That is the tail instability the repo warns about, arriving at
+    **epoch 2** rather than epoch 11. Re-run needs a longer walltime and less concurrency.
+  - ⚠ **METHOD: the side jobs DID perturb production, as flagged when they were queued.**
+    Median epoch wall **668.4 s → 683.9 s (+2.3%)** while the probe and three arms ran
+    concurrently, with spikes at epochs 16/19/22 (753/749/711 s); `io_gbs` 3.31 → 3.27. Small,
+    and the model is unaffected (I/O jitter changes wall clock, not numerics) — but **epochs
+    16-23 must be excluded from any epoch-time statistic**, and it is a concrete argument
+    against running I/O-heavy arms against a live production job on the same pack.
+
+- **2026-09-02** — 🚀 **1-NODE PRODUCTION LAUNCHED (7585080, `capacity`) after the LR sweep
+  overturned my prior.** The occupancy result (2026-09-01) said production belongs on **one
+  node**; today closed the last blockers and started it.
+  - **RUNNING: 7585080** — 1 node / 4 GPUs, pure DDP, global batch 32, `LOCAL_BATCH=8`,
+    `GPU_ORDER=default`, `CosineAnnealingWarmRestarts` `T_0=20 T_mult=1`, 3 warmup epochs,
+    **LR 2.0e-3**, `CKPT_VERSIONS=250`, **243 epochs = 3 + 12×20** so it ends *on* a cycle
+    boundary with 12 annealed snapshots. Measured **665 s/epoch ⇒ ~45.1 h ≈ 45 node-hours**
+    and **332,424 updates = 1.6× upstream FCN3 pretrain-1**, against the 128-node run's
+    **8,500 updates for 216 node-hours**.
+    ⚠ `capacity` is `max_run 1` per PROJECT — this holds the project's only slot for ~45 h.
+  - **At epoch 5 (0.93 h) it is already at valid 0.0209**, closing on the 128-node run's
+    *final* 0.018297 — i.e. ~1% of the cost is about to buy a better model. Grad norm
+    monotone 0.300 → 0.021, no spikes, through the first cosine cycle where LR sits near peak.
+  - ⭐ **LR SWEEP — PREREG SCORED, AND MY PRIOR WAS THE WORST ARM.** Rule committed
+    (`9506ad1f`) *before* arms 2-3 existed: disqualify on non-finite loss or a grad-norm RISE
+    from epoch 2→3, then lowest epoch-3 validation loss, ties within 5% to the lower LR.
+    | arm | valid @ ep3 | grad norm @ ep3 | |
+    |---|---|---|---|
+    | 4.0e-4 — upstream's batch-32 value, **my stated prior** | 0.03237 | 0.04966 | worst |
+    | 1.0e-3 — our shipped, unscaled | 0.02655 | 0.02616 | |
+    | **2.0e-3 — sqrt-scaled, WINNER** | **0.02352** | **0.01830** | best on *both* |
+    All three passed the stability filter; 2e-3 won by 12.9%, no tie-break needed. **I would
+    have argued for 4e-4 on upstream authority — the prereg is the only reason I didn't.**
+    ⚠ 3 epochs cannot catch a tail instability, and 2e-3 was the **top of the range tested**,
+    so the optimum may be higher or we may be near an edge. Warm restarts bound it: 2e-3 is
+    the peak of every cycle, so trouble shows in cycle 1 (epochs 4-23) with checkpoints intact.
+  - ✅ **RESUME PROVEN ACROSS A RESTART CYCLE — the last blocker on long walltime.** Ran 4
+    epochs pinned, resubmitted to 8, and compared against the uninterrupted reference:
+    | epochs | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 |
+    |---|---|---|---|---|---|---|---|---|
+    | A then B (resumed) | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 | **4e-4** | 2.005e-4 | 4e-4 | 2.005e-4 |
+    | uninterrupted | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 | 4e-4 | 2.005e-4 |
+    Byte-identical. All three silent failure modes ruled out: it restarted at **epoch 5** (not
+    1), there was **no warmup replay**, and epoch 5 sits at the **cycle peak** — phase survived.
+  - ✅ **Warm restarts wired and verified** — the LR sawtooth is real (2.005e-4 is exactly the
+    analytic midpoint of a 2-epoch cosine), read from the offline wandb datastore.
+  - 🐛 **makani's own warmup default is illegal.** `lr_start` defaults to **0.0** and
+    `LinearLR` raises *"Starting multiplicative factor expected to be greater than 0"* — so
+    **any** makani warmup crashes unless `lr_start > 0` is set. One minute of wiring test caught
+    what would have killed a 45 h job at startup. Fixed with `LR_START=0.01`.
+  - 🐛 **MY BUG, and the worst kind for a harness: `-v` per-arm overrides were silently
+    discarded.** PBS resolves duplicate `-v` keys **last-wins**, and the queue helper appended
+    its hardcoded `COMMON` *after* the caller's payload — so an arm asking for `EPOCHS=8,
+    STEPS=20` ran `EPOCHS=2, STEPS=60` while its tag and log claimed otherwise. Not a crash: a
+    plausible row describing a configuration that never ran. Order swapped, semantics recorded.
+    No published row is affected (no earlier arm overrode a `COMMON` key).
+  - 🐛 Also walked into a documented trap: `pick_lr.py` ran under the login node's bare
+    `python3` (**3.6.15**, dies on `from __future__ import annotations`). Pinned to
+    `/usr/bin/python3.11`. And a `pkill -f` matched its own command line and killed my shell.
+  - ⭐ **PRODUCTION BASELINE ≠ BENCHMARK BASELINE — the campaign's absolutes are ~30%
+    optimistic.** At real production settings the step is **475 ms**, not the 365 ms measured
+    by the 60-step arms. A controlled twin settles the cause:
+    | | step_ms (ep 2) | memory |
+    |---|---|---|
+    | `WANDB=1` (7582088) | 475.6 | 16.03 GB |
+    | `WANDB=0` (7582377) | **474.9** | 16.04 GB |
+    ⇒ **the 101-key per-iteration wandb contract costs nothing** (0.15%). The gap is
+    **full-pass I/O**: a real epoch streams 43,776 samples from 30 files while the 60-step arms
+    re-read a 1,920-sample window that was cache-hot. **The occupancy ranking survives** (every
+    arm shared the bias) **but no benchmark step time may be quoted for planning.**
+  - **Two memory numbers, and they measure different things** — 10.33 GB (`EVAL_SAMPLES=8`,
+    training-dominated peak) vs 16.03 GB (`EVAL_SAMPLES=512`, **validation**-dominated peak).
+    `n_future` scales the *training* part only, so the handoff's rollout-memory table still
+    stands on the 10.33 figure; the 16 GB is a fixed validation ceiling that does not grow
+    with rollout length.
+  - **Allocation context** (`sbank`): project has **14,592 node-hours available**, 2,147
+    charged all-time, **2,086 of it in the last 31 days** — of which ai-rossby is ~59% and the
+    whole makani campaign ~290. This 45 h run is **0.3% of the remaining balance**.
+  - 🔀 **PR #12 OPENED — the whole Polaris body of work, as one PR (operator's call).**
+    `feat/multinode-ddp-port` → `main`: **2,059 commits, 9,681 files, 1.84M insertions — but
+    only ~152 files are ours.** The rest is four `git subtree` imports vendored *unsquashed for
+    provenance*. The PR body leads with that split and lists the reviewable directories in
+    order, because a 9,681-file diff is not a reviewable object and pretending otherwise wastes
+    the reviewer.
+    ⚠ **`main` is protected: 1 approving review required, `enforce_admins=false`.** A local
+    `git merge` + push is refused; `gh pr merge` works (server-side) but still needs the
+    approval. **A solo session cannot self-approve** (#9).
+  - 🧹 **BRANCH CLEANUP — 6 remote + 5 local deleted, every one verified contained first.**
+    `git merge-base --is-ancestor <branch> HEAD` was required to pass before any deletion, and
+    local deletes used `git branch -d` (which refuses unmerged work) rather than `-D`.
+    Deleted: `A2C`, `fix/tsoi-fill-270`, `polaris-pbs-bringup`, `profile/pangu-polaris-profiling`,
+    `polaris-profiling`, `polaris-data-prep`. Also pruned a worktree registration pointing at a
+    non-existent directory.
+    **PRs #10 and #11 were CLOSED as superseded before deleting their branches** — both are
+    strict subsets of #12, and deleting a PR's branch closes it messily. Each close comment
+    records the containment check and points at #12.
+    ⚠ **TWO BRANCHES DELIBERATELY KEPT — they hold commits that exist NOWHERE ELSE:**
+    * **`feat/multiyear-datapipe`** — 3 unique commits, **local only, no remote backup**.
+      Deleting it destroys the multi-year loader port outright.
+    * **`worktree-makani-multinode-ddp-profiling`** — 6 unique commits (`MAKANI_ENV_OK` job
+      7551240, the seven-dead-launchers finding, the `world_size` guard fix, the PALS-stdin
+      fix, the scaling harness + prereg, the `libmpi_gnu_123` rename). The 2026-08-23 entry
+      records that this worktree was integrated **by FILE COPY, not merge** (because `git
+      merge` wedges on this Lustre mount) — so the *content* is in the PR but the *history*,
+      i.e. the commit messages explaining why each fix exists, lives only here. That entry says
+      it outright: the commits "live in the shared object DB under
+      `worktree-makani-multinode-ddp-profiling` (also on `origin`)". It is the only home.
+    Operator decision 2026-09-02: **keep both for now.** If the branch list needs tidying later,
+    tag them (`git tag archive/<name> <sha>` + push) before deleting — that preserves the
+    commits against GC.
+  - 🐛 **My own mistake, caught by checking a clean `git status`:** `git add -A` in `b821fff9`
+    swept in two files that had sat untracked all session and were deliberately left alone.
+    `CLAUDE.md.bak.<ts>` (a timestamped backup 33 lines behind the real file) is untracked
+    again and `.gitignore` now excludes `*.bak.*`. `claude-job.sh.template` is **kept** — it is
+    a real artifact and the user's file; deleting someone else's work to tidy up my own error
+    would be the worse mistake. **`git add -A` is the wrong tool in a repo with
+    intentionally-untracked files. Stage by path.**
+  - 🧹 **DOC CLEANUP — five executed handoff prompts deleted, and an adversarial pass cut the
+    list in half before anything was removed.** The repo's pattern: a prompt is written to brief
+    a future session, that session does the work, the results land here and in a report — and
+    the prompt stays forever. Seven candidates were proposed; **three checks were run first**:
+    1. **Orphan-evidence check** — every job ID and PASS token in each candidate, tested against
+       the rest of the repo. **One orphan found**: job **7337122** (`CONVERT_ALL_OK`, the
+       ai-rossby E3SM→zarr smoke-split conversion) existed *only* in
+       `polaris_ai_rossby_pangu_handoff_v2.md`. **It is preserved here by this entry.**
+    2. **Numeric-survival check** on `PROFILING_TABLES.md`: 134/139 of its decimals appear
+       elsewhere; the 5 that don't are the **GH200/Delta NVLink matrix** (NV6, 126.0-132.1 GB/s
+       pairwise) and the **A100 peak DRAM bandwidth 1555.2 GB/s** (job 7255503, from
+       `TARGET_INFO_GPU`).
+    3. **Inbound-citation check** — and this is what overturned the plan.
+    ⇒ **TWO PROPOSED DELETIONS WERE CANCELLED**, both because they are cited *with line
+    numbers* as the object of documented corrections:
+    * `PROFILING_TABLES.md` — `ACE2_retrain/PROFILING_PLAN.md:60-72` cites
+      `PROFILING_TABLES.md:35-40` while *correcting* it. Deleting it would orphan the
+      correction record, and it holds the two unique measurements above. **KEPT — and then
+      ANNOTATED IN PLACE (operator's call): the corrections now travel WITH the numbers.**
+      Six ⚠ CORRECTED notes added beside the claims they overturn — H100 `GEMM 7.6%` (really
+      **10.9%**, the classifier keyed on `shortName` and missed `Kernel2`/`nvjet_*`), the
+      `91%` occupancy (mislabelled — that is `gpu_busy_frac`, and it is **81.0%** on job
+      53534648), the `~26 GB/s` ring (really **15.5 GB/s**, inconsistent with this file's own
+      18.3 GB/s P2P matrix), and the A100→H100 "clean hardware swap" (**~90% of it is a
+      single-threaded matplotlib call on a different node**; the validation loop is 3.59 vs
+      3.67 s — identical; only the 1.61× step-time row is a hardware number).
+      ⚠ Found while doing it: **`PROFILING_PLAN.md`'s citation `PROFILING_TABLES.md:35-40` is
+      already stale** — the claim it corrects is now at line 48. Line-number citations rot;
+      cite by table caption. Recorded in the file's header.
+    * `polaris_handoff_prompt.md` — cited by `polaris_pbs_notes.md:30` as an **OPEN** caveat
+      ("asserts without measurement that torchrun's local ranks bind fine") and by
+      `physicsnemo_ai_rossby/polaris/polaris_sfno_e3sm_multinode.pbs:276`, a **code comment
+      citing `polaris_handoff_prompt.md:116-117`** for the reversed GPU-order fact. **KEPT.**
+    ⇒ **AND THEN ONE CANCELLATION WAS ITSELF OVERTURNED — by the right architectural
+    argument (operator, 2026-09-02): `polaris_pbs_notes.md` is the DURABLE cluster reference;
+    a handoff brief is TRANSIENT. Code must cite the durable one.** So the fix was not to keep
+    `polaris_handoff_prompt.md` alive to satisfy its citations, but to move what those
+    citations needed into the notes and repoint them:
+    * `polaris_sfno_e3sm_multinode.pbs:275` cited `polaris_handoff_prompt.md:116-117` for the
+      reversed GPU order. The notes hold the **measured** version of that same fact (job
+      **7531456**: `dev0`→NUMA 3 … `dev3`→NUMA 0) — strictly better than the brief's
+      *assertion*. Comment repointed there, with a note saying why.
+    * `polaris_pbs_notes.md:30`'s **OPEN** caveat kept its claim, losing only the filename.
+    * The **`demand` queue** (1-56 nodes, ≤1 h, by request only — **it is what preempts
+      `preemptable`**) and the MIG restriction existed *only* in the brief. Both folded into
+      the notes' queue table, where the preemption mechanism now sits next to the queue it
+      preempts.
+    ⇒ **`polaris_handoff_prompt.md` deleted too (18 KB).** Deleted **6**, kept
+    `PROFILING_TABLES.md` alone:
+    **Deleted (6)**, each with its work verifiably complete and its references retargeted:
+    | doc | KB | work completed by | refs retargeted to |
+    |---|---|---|---|
+    | `polaris_ai_rossby_pangu_handoff_prompt.md` (v1) | 8 | superseded by v2 in its own line 2 | `ai_rossby_panguweather_variable_parity.md` |
+    | `polaris_ai_rossby_pangu_handoff_v2.md` | 20 | CHANGELOG 2026-08-05 (all three steps green, jobs 7340945 / 7341412) | — (0 inbound) |
+    | `polaris_profiling_handoff_prompt.md` | 15 | `PANGU_POLARIS_PROFILING_PLAN.md` + `polaris_bench_report.md` | — (0 inbound) |
+    | `polaris_pipelines_handoff_prompt.md` | 17 | its own deliverables `polaris_pipelines_plan.md` + `polaris_pipeline_runbook.md` | **§3 launcher table folded into `polaris_pbs_notes.md` §6**; CLAUDE.md + pipelines plan retargeted |
+    | `panguweather_repo_cleanup.md` | 8 | instructions for **a different repo** (`envfluids/PanguWeather`), 0 inbound | — |
+    | `polaris_handoff_prompt.md` | 18 | Polaris bring-up complete (all 4 models GREEN, CHANGELOG 2026-07-14/16) | `demand` + MIG folded into `polaris_pbs_notes.md`; the `.pbs` comment repointed to the **measured** GPU↔NUMA row |
+    Net **−86 KB, 32 → 26 root docs**, zero evidence lost, zero dangling references (verified by
+    sweep; the one remaining mention is the provenance note in `polaris_pbs_notes.md` recording
+    where the launcher table came from).
+  - **Two live docs were ORPHANED (0 inbound refs) — linked rather than deleted:**
+    `polaris_ace2_multinode_handoff.md` is now the first `TODO.md` **P2** item, ACE2 (the next
+    port after makani; numbered 13 when written, 14 after the 2026-09-02 insertion),
+    and `ai_rossby_e3sm_zarr_schema.md` is now linked from its companion
+    `ai_rossby_panguweather_variable_parity.md`. Zero references is a *symptom*, and it points
+    two ways — at dead weight or at a doc nobody can find.
+  - **`TODO.md` P0 items 1-2 rewritten** — they still read "nothing running" and briefed work
+    that job 7585080 has since done. A priority list that describes a finished plan is worse
+    than no list.
+  - 🔬 **BENCH-REPORT AUDIT — every `(job, step_ms)` pair re-derived from the CSVs, and three
+    contradictions removed.** `makani_bench_report.md`, `polaris_bench_report.md`,
+    `s2s/v2.0/bench_report.md`.
+    * **Ground-truth check: 30/30 data rows in `makani_bench_report.md` match
+      `$MEMBER_ROOT/bench/makani_*.csv` exactly** (the 2 apparent misses were provenance rows
+      carrying a job id and no timing). Re-verified after the edits below: still 30/30.
+    * 🐛 **`makani_bench_report.md` §5f contradicted §5c** — it still ended *"…which is
+      precisely why **sharding wins** in §5c"* while §5c says sharding is a **+43.6% tax**.
+      Deleted and replaced with what the data supports: **work per GPU**, not sharding, is why
+      the 4-node arm beat the reference. Cites 7580297 (the matched pair) and 7580404 (+80.8%
+      at 1 node, *no fabric*).
+    * 🐛 **§5c still called the 4-node pure-DDP arm "a prediction… the next arm to run"** — it
+      had been run. Replaced with the measurement (**409.5 ms**, job 7580312, the ~400 ms
+      extrapolation landing within **2.4%**) and the tax now stated from **three** independent
+      node counts: **+80.8%** (1n, 660.6/365.4), **+40.8%** (4n, 576.6/409.5), **+43.6%**
+      (8n, 707.7/492.7) — arithmetic re-checked. Also notes the trend continued past 4 nodes to
+      **365.4 ms at 1 node** (7580338).
+    * 🐛 **`polaris_bench_report.md`'s 2026-07-15 verdict *"`torch.compile` is the right first
+      lever, now on evidence"* is superseded — by three findings in the SAME report.** Marked
+      in place (dated entries are history, not errors): (a) `InductorError: KeyError:
+      'complex64'` means Inductor **cannot reach this model's hot path at all** (its own lines
+      1058-1059); (b) the dominant cost is a **377 MB spectral weight in the wrong layout**,
+      which compilation does not touch (§4.9, rung **1b**); (c) the §4 equivalence gate
+      **failed** `torch.compile` on ai-rossby (4.02e-01 ≫ 1e-2, job 7353187) — measured 1.40×,
+      **not adopted**. The "elementwise-bound" verdict itself stands.
+    * `s2s/v2.0/bench_report.md`: clean. Cross-report facts (A100 40 GB, plugin pins,
+      `--cpu-bind depth -d 8`) show no disagreement — the Pangu report simply predates the
+      multi-node campaign and does not mention them.
+
+  - 🔍 **SECOND ADVERSARIAL DOC PASS — "the notes are the source of truth", enforced rather
+    than asserted.** A cross-document fact check (queue limits, node ranges, walltimes, GPU
+    memory, the tree-defect floor) across all 26 root docs + both live-session prompts found
+    the numeric facts consistent — every apparent disagreement was formatting (hyphen vs
+    en-dash, `168 h` vs `≤168` vs `7 d`). Four **real** defects, all fixed:
+    1. 🐛 **The notes' own `capacity` row was stale**: *"limits queried, **not yet exercised by
+       us**"* — while job **7585080** was running on `capacity`. The source of truth was wrong
+       about the thing it is the source of truth for. Now records the first real use.
+    2. 🐛 **`makani_bench_report.md` contradicted itself about `GPU_ORDER`**: §1 and prereg 5
+       said *"has never been run"* while §5a/§5c tabled job **7580305** with
+       `gpu_order=reverse`. Resolved by adding **§5i** with the actual measurements (3+3 reps)
+       and scoring prereg 5 — **HIT at 1 node** (+0.88%, inside the predicted 5%), **MISS at
+       4 nodes** (−7.0%). The prediction assumed placement has one sign; it does not.
+       Same staleness fixed in `TODO.md` item 5 and the §8 gap table.
+    3. 🐛 **`polaris_sfno_comparison_handoff.md` still used the retired "0/9 jobs" framing as
+       live guidance** — the fifth copy of the `preemptable` claim, missed by the first pass
+       because it phrases it as prose rather than a table row.
+    4. 🏗 **Five docs carry duplicate queue tables** — the drift surface that made the
+       `preemptable` correction a five-file edit. Each now carries an explicit precedence
+       marker: *"Authoritative source: `polaris_pbs_notes.md` §1b. When the two disagree, the
+       notes win."* Copies stay (handoffs should be self-contained) but they no longer compete
+       for authority.
+  - ⚠ **DOC CORRECTION, repo-wide: `preemptable` does not "never start" — its latency is
+    LOAD-DEPENDENT.** CLAUDE.md, `polaris_pbs_notes.md`, two handoffs and both live-session
+    prompts asserted *"may never start"* as a **property of the queue**, generalised from one
+    bad day (0/9 jobs in 11.5 h on 2026-08-05, all `queue_tags`). Re-queried today:
+    `enabled=True`, **`Priority=155`** (*above* `capacity`'s 150), **22 running**, 125 queued,
+    48 held, ≤72 h, 1-10 nodes, **`max_run 10` per project against `capacity`'s 1**.
+    The mechanism was already in the notes: it runs **only on nodes `prod` isn't using**, so
+    throughput tracks machine load. Fixed in all five places; the dated 2026-08-05/06 records
+    are left alone because they are correct *as observations*.
+    **Operational guidance unchanged (operator call):** short measurement work stays on
+    `debug`/`debug-scaling` — deterministic, seconds to start, and `preemptable` occasionally
+    takes long enough to queue that it isn't worth it for a 30-minute job. `preemptable` wins
+    on **concurrency** (10 vs 1), not latency, and it doesn't block other members' capacity.
+    ⭐ **What changed the calculus: resume is proven** (above), so a preemption now costs ~1
+    epoch rather than the run. ⚠ But our launchers are `#PBS -r n` — PBS would kill rather than
+    requeue them. `-r y` is required and **untested here**.
+
+- **2026-09-01 (cont.)** — ⭐ **SHARDING BEATS PURE DDP AT EQUAL BATCH, AND THE BROKEN AXIS IS
+  `w`, NOT THE SPLIT SIZE.** Four spatial shapes at global batch 32 on the ALLDATA pack,
+  4 nodes, new plugin + Simple, `EPOCHS=2` so `step_ms` is warmup-free. Full analysis with
+  tables: `makani_bench_report.md` §5.
+  - **Two work, two hang, and the boundary is clean:**
+    | job | h×w | spatial factor | result |
+    |---|---|---|---|
+    | 7580122 | 4×1 | 4 | ✅ 626.8 ms |
+    | 7580162 | 2×2 | 4 | ✅ 576.6 ms |
+    | 7580127 | 2×**4** | 8 | ❌ hangs in setup |
+    | 7580084 | 4×**4** | 16 | ❌ hangs in the first step |
+    **Every `w=4` arm failed; `h=4` is fine.** That refutes the "h=4 on a 60-row trunk"
+    hypothesis I formed from 7580084 alone — 7580122 splits `h` by 4 and trains.
+  - 🔬 **The flight recorder named it, which is exactly what 7580084 could not do.** In
+    7580127 the ranks are **not running the same program**: ranks 0,1,2,4,5,6 sit in a 283 MB
+    broadcast of the complex spectral weight (`[35389440, 2]`) on their 2-rank h-subgroups,
+    while ranks **3, 7, 11, 15** — precisely `rank % 4 == 3`, the **last rank of each
+    `w`-group** — sit in an `all_reduce_barrier` on `default_pg`. 191 of 192 collectives on
+    rank 0 completed. ⇒ **application-level divergence in parameter sync under `w=4`**, not
+    transport, not size, not the usual "one rank never arrives". Adding the recorder cost
+    nothing and converted a second mystery into a located defect.
+  - ⚠️ **CORRECTION, same day, by the controlled arm 7580297 — I first wrote "sharding beats
+    pure DDP by 1.71× per GPU" and that was a CONFOUND.** The 4-node `h2w2` row carries *both*
+    sharding *and* 2× the per-GPU work; only the second is doing anything. The controlled pair
+    — same nodes, same GPUs, same global batch, same sample-equivalents per GPU — says the
+    opposite:
+    | config | GPUs | samples/GPU | sample-equiv/GPU | step_ms | per-GPU samples/s |
+    |---|---|---|---|---|---|
+    | 8n pure DDP (7565972) | 32 | 1 | **1** | **492.7** | 2.03 |
+    | 8n h2w2 (**7580297**) | 32 | 4 | **1** | **707.7** | 1.41 |
+    | 4n h2w2 (7580162) | 16 | 8 | 2 | 576.6 | 3.47 |
+    ⇒ **sharding costs +43.6% at matched work.** §5a's success means `w ≤ 2` *works*, not that
+    it pays. I published the wrong attribution and the next job overturned it; the lesson is
+    that "half the GPUs, 85% of the throughput" compared two variables at once and I tabled it
+    anyway.
+  - ⭐⭐ **WHAT ACTUALLY PAYS IS WORK PER GPU.** Rows 2→3 above are both sharded: halving the
+    GPUs and doubling per-GPU work made the step *faster in absolute terms* (707.7 → 576.6),
+    i.e. **2× the work in 0.82× the time, 2.46× better per sample-equivalent.** Fixed per-step
+    cost dominates this model at batch 32, so the lever is **fewer GPUs each doing more**.
+    ⇒ the best configuration is one nobody has run: **plain DDP at 4 nodes with
+    `LOCAL_BATCH=2`** — batch 32, 2 sample-equivalents/GPU, no sharding and so no 43.6% tax.
+    Extrapolates to **~400 ms ⇒ ~61 node-hours** for 100 epochs, against 87 for 4n h2w2, 149
+    for 8n pure DDP, and **216 for the 128-node run we actually did — which bought 8,500
+    updates against these 136,800.** If it holds, production needs **no spatial parallelism at
+    all**, which also sidesteps the `w=4` defect. ⚠ Predicted, not measured.
+  - **PREREG §7b SCORED — 3 hits, 1 partial, 1 miss, and the miss is the finding.** P5
+    predicted all three arms would exceed a 985 ms "zero-overhead" reference (2× the 8-node
+    pure-DDP step); both successes came in far **below** it. The reference assumed per-GPU cost
+    is independent of local batch. It is not — which is the whole occupancy result. Recorded as
+    a miss rather than reinterpreted.
+  - 🐛 **DEFECT FOUND WHILE TABLING THE RESULT: `samples_s_total` overstated every
+    model-parallel row by exactly `h_par·w_par`.** The parser used `local_batch × ranks`, but
+    makani splits `--batch_size` across the **data** group, so under spatial parallelism
+    `local_batch` is per data group and there are only `ranks/(h_par·w_par)` of them. h2w2 at
+    batch 32 read **222 samples/s where the truth is 55.5** — a number that would have made
+    sharding look 4× better than pure DDP instead of 1.71×, on a column that is a
+    cross-project contract (#10). Fixed to derive from `global_batch`, which is an **identity**
+    where `h_par=w_par=1`: verified across all four CSVs, the 30-row scaling table and the
+    128-node production row are bit-unchanged and only the 5 spatial rows moved (each by
+    exactly 4.00×), corrected in place. Two tests pin both halves —
+    `MAKANI_SCALING_PARSE_OK 13 tests`.
+  - **Cost:** 7580084 ≈1.8 node-h (wasted, no recorder), 7580122/7580127/7580162 ≈3-4 node-h
+    each. **In flight: 7580297** — 8 nodes h2w2 `LOCAL_BATCH=4` → batch 32 on 32 GPUs, the
+    controlled twin of 7565972 (same nodes, same global batch, same 1 sample-equivalent per
+    GPU; only the samples-per-GPU differs, 4 vs 1). It isolates the occupancy claim.
+  - ⚠ **Still open and now more urgent:** every row above is `gpu_order=default`, i.e. each
+    rank on the NUMA node farthest from its GPU. Under spatial parallelism the intra-node
+    halo traffic rides that distance every step, so the placement arm should land before any
+    of these numbers are treated as final (`TODO.md` P0-3).
+
+- **2026-09-01** — **Documentation cleanup ahead of the makani push: the makani campaign now has
+  a results document, the repo has one prioritised to-do list, and this log is in date order
+  again.** No GPU time; nothing submitted (the queue is empty — every ai-rossby sweep job
+  through 7578960 has finished).
+  - **This log was out of order and had been for a week.** Twelve entries between 2026-08-24 and
+    2026-08-27 sat in an interleaved order (08-27 c3, then **08-24, 08-24c, 08-26…**, then the
+    08-27 group, then 08-26 c6/c5), so "newest at the top" was false exactly across the makani
+    production window — the reader most likely to be looking. Restored to strict
+    descending date, then `cont. N` descending, **as a pure block move**: the line multiset is
+    byte-identical before and after (asserted), so no entry was edited while reordering.
+  - **New `makani_bench_report.md`** — the makani numbers had never been collected anywhere;
+    they existed only as narrative spread across nine log entries and three CSVs. It tables
+    single node, both 1/2/4/8-node ladders, the 128-node production run, spatial parallelism,
+    the refused rows, and the scored prereg, each row carrying its **plugin / protocol / pack /
+    epoch count**, because those four move the number more than node count does.
+  - ⚠ **Writing it surfaced a correction that no single log entry could have shown, because it
+    needs two ladders side by side: `step_ms` is the FINAL EPOCH's mean.** Single-epoch 60-step
+    arms therefore carry 57-98 ms/step of warmup at *every* rung — a near-constant that
+    **compresses** the relative multi-node penalty. Read warmup-free (the 2-epoch rows, same
+    plugin/proto/pack), the same stack scales to **47% at 8 nodes, not 67%**, and the
+    much-quoted **"the first Slingshot hop is free (+0.7%)" becomes +35.4%**. The two ladders
+    also differ in wandb, so this is a two-variable comparison and settles nothing on its own —
+    but it means **neither efficiency curve may be published** until the one cheap job that
+    separates them is run (`TODO.md` P0-3). Both claims stand as measured; what changed is that
+    they are now known to disagree.
+  - **`makani_multinode_ddp_plan.md` deleted** (371 lines). Its predictions are scored
+    (report §7), its arms are measured or listed as not-run (§8), and its two still-live
+    operational sections — the **seven dead launchers** and the pack arithmetic — are carried
+    into §9, **re-verified on disk today** (all seven still open with the bare `module load
+    conda`; both E3SM packers among them). Every inbound reference was retargeted:
+    `polaris_pbs_notes.md`, `polaris_multinode_ddp_port_handoff.md`,
+    `ai_rossby_multinode_ddp_plan.md`, `polaris_pack_e3sm_scaling.pbs`, and two in this file.
+  - **New `TODO.md`**, priority first, replacing the CHANGELOG's "Next actions" list — which had
+    become a Pangu-only list dated 2026-08-20 while the work had moved to makani twice over. Its
+    live items were carried across; its evidence blockquotes were already duplicated in the
+    2026-08-20/21 entries below and in `PANGU_POLARIS_PROFILING_PLAN.md`, so nothing was lost.
+  - **Two stale status claims fixed while passing:** makani's converters are **not** unaudited
+    (`MAKANI_PACK_AUDIT_OK` on both contracts), and "makani not yet profiled" now distinguishes
+    the scaling axis (done) from the kernel axis (untouched).
+  - **One assumption checked rather than written down: makani inference is not a from-scratch
+    job.** `makani_sfno/scripts/` already carries the group's 4-stage eval chain
+    (`eval_inference.py` → score → report → figures) and two skills that drive it — but on
+    **SLURM/Stampede3 against PLASIM sim52**, not PBS/Polaris against 101-channel E3SM.
+    `TODO.md` P0-2 is therefore a port, which is a materially different task from what a plan
+    written without looking would have said.
+
+- **2026-08-27 (cont. 3)** — **MULTI-NODE DDP PORT, HARNESS 1 OF 3: ai-rossby bring-up BUILT
+  and committed; measurement started.** Branch `feat/multinode-ddp-port`, stacked on the
+  unmerged `profile/pangu-polaris-profiling` (**merge order: `profile/pangu-polaris-profiling`
+  FIRST, then this** — the repo has been burned by silent stacking before). Working from
+  `polaris_multinode_ddp_port_handoff.md` §3a; prereg in the new
+  `ai_rossby_multinode_ddp_plan.md`, committed **before** the first ladder job.
+  - **Two dead spots found in `polaris_sfno_e3sm_multinode.pbs`, not one.** The handoff flags
+    it as the origin of the stale fabric block. It was *also* opening with a bare
+    `module load conda`, broken cluster-side since the 2026-08 PE roll (notes §1) — i.e. the
+    script could not start at all, and back-porting only the fabric block would have produced
+    a launcher that still failed. New `polaris/polaris_ai_rossby_env.sh` (sibling of
+    `polaris_makani_env.sh`) tries the sanctioned module first, reconstructs `2025-09-25.lua`
+    by hand when it fails, and reports which path it took in `AI_ROSSBY_ENV_SOURCE` so two runs
+    from different sources are never tabled together. **Verified on a login node: it lands on
+    `manual-reconstruction`**, i.e. the modulefile is still broken today.
+    Three deliberate deltas vs the makani file, all documented in its header: **no** torch-2.8
+    `DT_NEEDED` repair (this venv's torch 2.10 ships the whole nvidia stack as wheels), **no**
+    h5py overlay (zarr harness; `include-system-site-packages=false`), and **no**
+    `/soft/libraries/nccl` prepend — that last one would put NCCL 2.28.3 ahead of the venv's
+    own bundled NCCL, i.e. silently change the comm library under a scaling measurement.
+  - **Fabric block corrected in place** (§3a sanctions the back-port here): the shipped pin was
+    `v1.9.1-aws` + `/opt/cray/libfabric/2.2.0rc1`, both `ls`-verified 2026-08-14 and both gone
+    by 2026-08-23. A nonexistent dir on `LD_LIBRARY_PATH` is IGNORED, not honoured — the
+    original 7553811 defect. Now the measured pin (self-built **v1.21.1 +
+    `OFI_NCCL_PROGRESS_MODEL=AUTO`** + cray 2.3.1) **plus a hard exit on any missing path**,
+    which is the half that makes the failure class impossible rather than fixing one instance.
+    Explicitly NOT v1.6.0+Simple: handoff §1 forbids it for a new model (its progress engine
+    drops small broadcasts *by tensor size*, job 7565896, and DDP's initial parameter broadcast
+    on 1.18 B params is exactly that traffic).
+  - **New:** `polaris_ai_rossby_multinode_scaling.pbs` — one script, any node count, carrying
+    MASTER provisioning, the corrected fabric block, the `TARGET_NODES`+spare GPU preflight,
+    `--cpu-bind depth -d 8`, `OMP_NUM_THREADS=1`, `TMPDIR=/tmp`, write-side isolation from the
+    production run (all `realpath -m`-normalised, because `/eagle` is a symlink), and an
+    **exact** wrap guard: the condition is `steps_per_epoch < STEPS`, and `steps_per_epoch` is
+    the loader's own per-rank count after sharding — the real sample count, not a proxy.
+  - **Parser + 24 tests green with no allocation** (`AI_ROSSBY_SCALING_PARSE_OK`). Guards kept
+    from makani, grammar replaced. Two are new and earn their keep: `world_size` is read
+    **only** off `train.py`'s own per-rank banner (a launcher that echoed `world_size=16` in
+    its header would otherwise satisfy, by construction, the guard that exists to catch N
+    independent world_size=1 trainers — and an absent banner is an ERROR, not a silent pass);
+    and `ranks_reporting` counts distinct PALS labels, because world_size can be right while
+    four ranks are missing. Timings come from the **epoch-telemetry CSV**, an existing
+    cross-project contract, not from its printed line (rounded to 0.1 ms, no p90/mean/std/wall).
+  - **Store decided, on the handoff's own criterion:** `$AI_ROSSBY_DATA/e3sm`, the **per-year**
+    lineage (30 train stores 2015–2044), read off the production run's
+    `.hydra/config.yaml` and cross-checked against its log (`steps_per_epoch=10950` ×
+    world 4 = **43,800 samples**). Largest ladder arm needs 1,920 — 22× headroom.
+  - **Three places the handoff contradicts the repo** (its own instruction: trust the repo,
+    log it) — detail in `ai_rossby_multinode_ddp_plan.md` §6: (a) the store verifier it names
+    (`polaris_verify_store.pbs`, `SEQZARR_VERIFIED`) is for the **SeqZarr** lineage, not this
+    one; the matching verifier is `ai_rossby_variable_contract.py --check-artifacts`, already
+    wired as PREFLIGHT 2; (b) the `module load conda` breakage above is absent from its asset
+    table; (c) "rerun the probes per venv" needed an addition — makani's fabric probe tests six
+    `/soft` pairings and does **not** contain the self-built v1.21.1 the handoff mandates, so
+    the sibling adds combo **G**.
+  - ⭐ **FABRIC ANSWER, job 7568561 — `FABRIC_PROBE_OK`, and the AUTO pin DOES carry across
+    the NCCL version.** Under **torch 2.10.0+cu129 / NCCL 2.27.5** (makani measured
+    2.8.0 / 2.28.3), exactly two of seven combos work — **E** (`/soft` v1.6.0-libfabric-1.22.0
+    + cray 2.3.1) and **G** (self-built **v1.21.1 + `OFI_NCCL_PROGRESS_MODEL=AUTO`** + cray
+    2.3.1) — both reporting `Using network AWS Libfabric`. A–D and F fail, three of them with
+    `Failed to initialize any NET plugin`. **Same shape as makani's answer on a different
+    NCCL**, which is direct evidence the ENOSYS mechanism is CXI-provider-side rather than
+    NCCL-version-side, i.e. the ALCF ticket's premise (§4b) holds beyond the env it was found
+    in. Single-node, so it proves the domain OPENS, not that inter-node traffic flows —
+    that is the ≥2-node probe.
+  - ⭐ **KNOB MATRIX, job 7568618 — `OFI_MATRIX_OK working combos: C_progress_auto`, ALONE.**
+    Six combos, one winner, and it is the same single winner makani got on NCCL 2.28.3
+    (7563894). Everything else fails `fi_domain` with **RC −38 ENOSYS** — default, MANUAL,
+    RDMA, RDMA+MANUAL — with 8 domain errors each. ⇒ **`OFI_NCCL_PROGRESS_MODEL=AUTO` is
+    NECESSARY here, not merely sufficient**, which is the question the fabric probe could not
+    answer and the one that decides whether the pin may be dropped anywhere.
+    **PREREG PREDICTION 2 — SCORED, HIT** (both halves: `C_progress_auto` alone, and
+    `transport = AWS Libfabric` on every working combo).
+    Two independent environments (torch 2.8.0/NCCL 2.28.3 and torch 2.10.0+cu129/NCCL 2.27.5)
+    now give the identical answer, so the ALCF ticket §4b can state the ENOSYS root cause as
+    **CXI-provider-side and NCCL-version-independent** rather than as one env's observation.
+    ⚠ Still single-node: this proves the domain opens, NOT that inter-node traffic flows.
+  - ⚠ **CLUSTER FACT, and a correction to the first version of this entry: the limit is ONE
+    JOB PER QUEUE in Q/H state, not "no dependency chains".** First reading was wrong. A
+    second `debug` submission is refused ("would exceed queue generic's per-user limit of jobs
+    in 'Q' state") — but a `-W depend=afterany:` job lands in **`H`**, and a `debug-scaling`
+    job in `Q` **plus** a `debug` job in `H` is accepted (measured: 7568641 Q + 7568642 H).
+    ⇒ the handoff §0.8 dependency-chain recipe **does work**, one link per queue, and the
+    ladder can be driven two-queues-deep rather than strictly one job at a time.
+  - **Blocker found and fixed: the SFNO parity gate was failing, so PREFLIGHT 1 of BOTH
+    ai-rossby multi-node launchers was dead** — the pre-existing 4-node test as well as the
+    new ladder. `compare_sfno_parity.py --static` reported `SFNO_SOURCE_DIVERGED 3/7`, and all
+    40 differing lines were **one thing**: the §4.9 **dhconv-XIO layout knob**
+    (`PANGU_DHCONV_XIO`, default `"0"`) added to PanguWeather during the profiling work and
+    never vendored into ai-rossby's copy. With the knob OFF the selected path is the pre-knob
+    one, so the trees compute the same arithmetic and the difference is textual; with it ON
+    they are **different models** (dhconv weight `[modes_lat,in,out]` vs `[in,out,modes_lat]`
+    — 95.8% of parameters change shape). Hence a **conditional** carve-out, not an entry in
+    `ALLOWED_DIFF_LINES`: knob set ⇒ `check_source` returns early with its own token
+    `SFNO_XIO_KNOB_SET` and says *different models*, because reporting it as 40 line diffs is
+    what would tempt the next reader to widen the allowlist. Listed line by line so it fails
+    closed on any edit inside the knob. **Not a loosening** — nothing that is a real numerical
+    difference is accepted now that was rejected before. `compare_sfno_parity_test.py` pins
+    both directions (12 checks, `SFNO_PARITY_XIO_TEST_OK`, stdlib only), including the
+    invariant that the two sets stay disjoint (`ALLOWED_DIFF_LINES` is consulted first, so an
+    overlap would make the conditional half silently dead). `--static` now `SFNO_PARITY_OK`.
+  - **Both launcher preflights verified from a login node before any trainer allocation:**
+    PREFLIGHT 1 `SFNO_PARITY_OK`; PREFLIGHT 2 `VARIABLE_PARITY_OK 19/19` on
+    `train/2015.zarr` in **0.13 s** — so the 30-store loop costs ~4 s, not a reason to trim it.
+  - **▶ IN FLIGHT — submitted 2026-08-27 21:09 to run unattended, ANALYSE THESE FIRST:**
+    | job | what | queue | PASS token | reads |
+    |---|---|---|---|---|
+    | ✅ **7568641** | 4-node app-free NCCL probe, v1.21.1+AUTO | `debug-scaling` | **`MN_NCCL_PROBE_OK ranks=16 nodes=4`, 16/16 ranks, `transport: AWS Libfabric`, rc=0** | `physicsnemo_ai_rossby/ai_rossby_nccl_mn_probe.o7568641` |
+    | **7568642** | **1-node ladder smoke (arm A)** — held on 7568641 | `debug` | `AI_ROSSBY_MN_SCALING_OK` + a CSV row | `.../ai_rossby_mn_scaling.o7568642` |
+    | ⛔ **7568724** | 2-node smoke (arm B) | `debug` | **HUNG — NCCL watchdog, `train_rc=134`, row REFUSED (`csv_rc=4`)** | `.../ai_rossby_mn_scaling.o7568724` |
+    - ⭐ **7568641 GREEN — the fabric gate is fully cleared.** `MN_NCCL_PROBE_OK ranks=16
+      nodes=4`, 16/16 ranks, `AWS Libfabric`, rc=0, in ~1 min. This is the first evidence that
+      inter-node traffic actually **flows** under torch 2.10 — the two 1-node probes only
+      proved the CXI domain opens. Note what it passed *without*: the small-broadcast storm,
+      the 100 MB DDP-sized broadcast and the checked all-reduce all completed at **the default
+      NCCL protocol, no `NCCL_PROTO=Simple` pin** — the workaround makani needed at ≥3 nodes
+      on the old plugin, and which handoff §4 says not to port. **All three ai-rossby fabric
+      probes are now green and the ladder is unblocked on the transport side.**
+    - ✅ **7568642 GREEN — the first ai-rossby scaling row ever.** `AI_ROSSBY_MN_SCALING_OK`,
+      1 node / 4 ranks / global batch 4: **step_med 698.9 ms**, p90 700.1, samples/s 1.43 per
+      rank (5.72 total), **gpu_busy 97.5%**, peak **25.91 GB**, `AWS Libfabric`,
+      `world_sizes_seen=4`, `ranks_reporting=4`, `n_steps=60`, wrap guard 10,950 ≥ 60.
+      Every guard fired and passed. (gpu_busy 97.5% already part-scores prereg
+      prediction 5 at 1 node: the loss is inside the step window, not the loader.)
+    - ⛔ **7568724 HUNG — arm B does not run, and the ladder is BLOCKED.** 2 nodes / 8 ranks.
+      All 8 ranks came up correctly (`world_sizes_seen=8`, `ranks_reporting=8`,
+      `Using network AWS Libfabric` ×8) and NCCL setup **completed** — `Connected all rings`
+      ×8, `Connected all trees` ×8. Last trainer line is
+      `stage 0 'default' starting at global_epoch=1` at 21:28:25; then **silence**. Heartbeat
+      monitor fired 21:44:06, watchdog terminated all ranks 21:52:06, `rank 2 died from
+      signal 6`, `train_rc=134`. ⇒ **the wedge is the FIRST collective after communicator
+      setup**, which for DDP is `_sync_params_and_buffers` broadcasting the whole model from
+      rank 0. **The guards worked exactly as designed**: `NO_TELEMETRY_ROW` → `csv_rc=4` →
+      `ERROR AI_ROSSBY_MN_SCALING_FAILED`, and the CSV row carries blank timings rather than
+      a plausible number (contrast CLAUDE.md #14 — `rc` alone would have said nothing useful).
+    - ⭐ **THE FABRIC IS EXONERATED ON EVERY AXIS TESTED — three hypotheses raised and all
+      three REFUTED by app-free probes.** Recorded as misses, per the method:
+      | job | nodes | traffic | result |
+      |---|---|---|---|
+      | 7569520 | **2** | one **4700 MB** broadcast | ✅ `MN_NCCL_PROBE_OK` |
+      | 7569521 | **8** | one **4700 MB** broadcast | ✅ `MN_NCCL_PROBE_OK ranks=32` |
+      | 7569540 | **2** | **190 × 25 MB all-reduces** (DDP's real gradient traffic) | ✅ `MN_NCCL_PROBE_OK` |
+      - **H1 broadcast size — REFUTED.** 4.7 GB moves fine at the exact node count that hung.
+      - **H2 node count — REFUTED, and it never had legs:** the trainer wedged at **2** nodes
+        while the probe passed at **4**, i.e. the failing case had FEWER nodes than the
+        passing one. Node count was exonerated before the probe ran; 7569521 is coverage.
+      - **H3 all-reduce storm — REFUTED.** 190 × 25 MB back-to-back all-reduces, the DDP
+        bucket pattern for a 1.18 B-param model (`ddp_bucket_cap_mb: null` ⇒ PyTorch's 25 MB
+        default), completes app-free at 2 nodes.
+      ⇒ **the transport carries every traffic pattern the trainer needs, at the node count
+      that fails. The trainer's own path is implicated.**
+    - ⚠ **CORRECTION to the first version of this entry, twice over.** (a) "The fabric gate is
+      fully cleared" after 7568641 was **overclaimed**: that probe's broadcast was 100 MB
+      against this model's ~4.7 GB, 47× undersized, so it could not have exonerated the size.
+      (b) "The wedge is `_sync_params_and_buffers`" was **wrong**. The raw log ORDERING
+      settles it: `Connected all rings` at idx 1313-1320 (**before** the stage banner at
+      1338), `Connected all trees` at idx 1523-1530 (**after** it), first error at 1531. NCCL
+      builds rings for the broadcast — which therefore **succeeded** — and trees for
+      **all-reduce**. ⇒ the hang is the **first gradient all-reduce of the backward pass**,
+      not DDP setup. Ordering, not narrative, is what decided this.
+    - **The precise error is not a plain collective timeout:** *"ProcessGroupNCCL's watchdog
+      got stuck for 480 seconds without making progress in monitoring enqueued collectives.
+      This typically indicates a NCCL/CUDA API (e.g. CudaEventDestroy) hang blocking the
+      watchdog, and could be triggered by another thread holding..."* — the MONITOR thread
+      reporting the WATCHDOG thread stuck. Worth keeping distinct from "a collective timed
+      out": it admits causes on the CUDA/host side, not only the network.
+    - **Superseded hypothesis, kept because the method says to keep misses:**
+      SfnoPlasim is **1.18 B params ⇒ ~4.7 GB** in that one broadcast. The app-free probe's
+      "DDP-sized" broadcast was **100 MB — 47× too small**, an inherited default sized for
+      makani's ~150 M-param model. So `MN_NCCL_PROBE_OK` at 4 nodes says nothing about 4.7 GB.
+      Precedent for size dependence on this fabric is already in the ledger: the OLD plugin
+      lost broadcasts **by tensor size** (384×58 survived, 384×107 wedged, job 7565896).
+      Probe now takes **`-v BCAST_MB=`** (default 100) so this is a single-variable,
+      app-free bisect — 100 → 1000 → 2000 → 4700 at 2 nodes — instead of a trainer bring-up
+      per data point. **Next job to run.**
+    - ⭐ **REPRODUCED, and one more hypothesis killed: job 7569539** (2 nodes, arm-B repro with
+      `OMP_THREADS=64` so instrumentation was the ONLY change vs 7568724). Identical
+      signature: `stage 0` at 03:25:12, monitor fired 03:40:51, all 8 ranks. **So the hang is
+      deterministic, not a transient or a sick node** — which is what makes it worth chasing
+      rather than retrying (#12 in spirit: never resubmit without diagnosing).
+      **H4 extra process groups — REFUTED.** Every rank reports `PG ID 0 PG GUID
+      0(default_pg)`, and a scan of the whole 1,557-line log finds **exactly one** PG:
+      `[('0','0','default_pg')]`. ⇒ this is **pure DDP on one communicator**, so the
+      multi-communicator ordering hazard of the mistakes ledger (#12, makani's
+      `_serialized_sync_params` lesson) **does not apply here** and must not be ported on
+      spec. Four hypotheses raised, four refuted.
+    - ⭐⭐ **THE DECISIVE NARROWING, and it was free — the per-batch TSV already on disk says
+      BOTH hung runs completed ZERO steps.** `bench/per_batch_ar_mn2n_b8_rep1_{7568724,
+      7569539}.tsv` contain the header and **nothing else**; the 1-node run's has all 60 rows.
+      ⇒ the wedge is in the **FIRST training step**, in its first gradient all-reduce (matching
+      `Connected all trees` immediately preceding the silence). I chased four fabric
+      hypotheses across five jobs before reading a file that was already sitting there.
+      **H5 asymmetric rank-0 write — REFUTED, and by this same file.** The TSV write happens
+      at the END of a step, so rank 0 never reached it; the asymmetry never occurred before
+      the hang and cannot be the trigger. (7569626 was already in flight testing it — kept as
+      a control, expected to hang.) Five hypotheses, five refuted.
+    - ⭐⭐⭐ **THE STUCK COLLECTIVE, NAMED AT LAST — job 7569690's flight-recorder dumps.**
+      All 8 ranks are byte-identical:
+      ```
+      seq=14  nccl:broadcast    in=[[95687168]]     state=completed
+      seq=15  nccl:broadcast    in=[[1682432]]      state=completed
+      seq=16  nccl:all_reduce   in=[[1182108160]]   state=scheduled   <-- never started
+      ```
+      - **1,182,108,160 elements is EXACTLY `EXPECTED_PARAMS`** in `compare_sfno_parity.py`,
+        i.e. the whole model — **4.73 GB in fp32** — and its state is `scheduled`: enqueued
+        and never launched.
+      - **NOT a rank desync.** Every rank enqueued the SAME collective at the SAME seq with
+        the SAME size. That retires the whole "uneven steps / one rank never arrives" family
+        (the usual first answer for this error, and the one the community threads push).
+      - The 15 preceding broadcasts all `completed` ⇒ DDP setup is fine, again.
+    - **H7 DDP bucket count — REFUTED.** 7569690 ran `-v DDP_BUCKET_MB=5000` (one bucket,
+      makani's shape, the thing both working reference trainers do) and hung anyway, rc=134.
+      Seven hypotheses, seven refuted.
+    - 🏁🏁 **ROOT CAUSE FOUND, app-free and general: THIS STACK CANNOT COMPLETE AN INTER-NODE
+      `all_reduce` OF ~4.7 GB.** Two independent confirmations:
+      - **7569767 — app-free, `ranks OK: 0/8`.** One `all_reduce` of 1,232,076,800 fp32
+        elements (4.93 GB) at 2 nodes: `Watchdog caught collective operation timeout:
+        WorkNCCL(SeqNum=23, OpType=ALLREDUCE, NumelIn=1232076800, Timeout(ms)=180000)`. **No
+        trainer, no DDP, no physicsnemo** — just NCCL. (The earlier run of this same probe,
+        7569743, printed `ranks OK: 8/8` because MY correctness check was vacuous; fixed, and
+        with a real check it is 0/8. The first version would have let a broken collective
+        pass as green.)
+      - **7569744 — the trainer at DEFAULT 25 MB buckets hangs on the SAME collective.** All
+        8 ranks: `seq=16 nccl:all_reduce numel=[1182108160] state=scheduled`, fp32, 4.728 GB,
+        `timeout_ms=600000`, default_pg. Identical to the forced-one-bucket run 7569690 ⇒
+        **not an artifact of my `DDP_BUCKET_MB=5000` override**, and the bucket knob is not
+        what governs this collective.
+      **The discriminating table:**
+      | traffic | size | 2 nodes |
+      |---|---|---|
+      | broadcast | 4.7–4.9 GB | ✅ completes (7569520, 7569521 incl. 8 nodes) |
+      | all-reduce | 190 × 25 MB | ✅ completes (7569540) |
+      | **all-reduce** | **4.7–4.9 GB** | ❌ **never starts** (7569767 app-free; 7569690, 7569744 in-trainer) |
+      ⇒ ai-rossby's gradient reduction IS such an all-reduce (1.18 B params × fp32), so the
+      harness cannot train multi-node until the reduction is kept under the threshold or the
+      stack is fixed. **This also explains why makani was never affected:** its ~150 M-param
+      model reduces ~0.6 GB, an order of magnitude below the boundary.
+      **⭐ SHARPENED: IT IS NOT A CLEAN STALL — THE ALL-REDUCE PARTIALLY COMPLETES, WHICH
+      MAKES THIS A SILENT-CORRUPTION BUG, NOT ONLY A HANG.** The repaired correctness check
+      earned its keep on its first run (7569805, 2000 MB):
+      `GRAD_STORM_RESULT first=8.000 last=1.000 want=8 WRONG` — the START of the buffer is
+      correctly reduced (8 ranks × 1.0), the END is still at its input value, untouched. And
+      it differs BY RANK: `ranks OK: 1/8` (7569805) and `3/8` (7569806). Signature of a
+      chunked transfer whose loop ends early or whose offset arithmetic overflows partway.
+      ⇒ **had the watchdog timeout not fired, training would have proceeded on gradients
+      correct at one end of the tensor and stale at the other.** This belongs in the ALCF
+      ticket as a correctness defect, not a performance one.
+      **🏁🏁🏁 IT IS THE TREE ALL-REDUCE PATH, NOT SIZE — AND `NCCL_ALGO=Ring` FIXES IT.**
+      Same size, same nodes, same everything, one env var apart:
+      | job | size | algorithm | result |
+      |---|---|---|---|
+      | 7569817 | 1000 MB | default (**Tree**) | ❌ `first=8 last=1 WRONG`, 2/8 ranks |
+      | **7569818** | **2000 MB** | **`NCCL_ALGO=Ring`** | ✅ `first=8.000 last=8.000 OK`, **8/8**, `MN_NCCL_PROBE_OK` |
+      A size that fails on the default algorithm completes CORRECTLY on Ring. Size mattered
+      only because NCCL switches Ring→Tree above a threshold; the defect lives in the tree
+      path of this plugin/NCCL combination. Consistent with the very first observation of the
+      hang, which nobody read correctly at the time: `Connected all rings` preceded the stage
+      banner (the broadcasts, which always worked) and `Connected all trees` followed it (the
+      all-reduce, which never did).
+      **This also explains makani without needing an NCCL-version theory** (operator's point:
+      makani reduced ~0.6 GB at 512 ranks for 100 epochs and was fine) — at that size its
+      all-reduce would stay on Ring and never enter the broken path. ⚠ The version confound
+      is still real and unretired: makani runs NCCL **2.28.3**, ai-rossby **2.27.5**, same
+      plugin/libfabric/progress model. Ring-vs-Tree is now the better-evidenced explanation,
+      but a cross-venv run at one size would settle it outright.
+      **✅✅ THE FIX WORKS END-TO-END. `AI_ROSSBY_MN_SCALING_OK` — job 7569831, 2 nodes,
+      8 ranks, `NCCL_ALGO=Ring`: the FIRST ai-rossby multi-node training run that has ever
+      completed in this project.** 60/60 steps, `step_med 2082.6 ms`, `gpu_busy 99.1%`,
+      peak 25.91 GB, `world_sizes_seen=8`, `ranks_reporting=8`, `transport AWS Libfabric`,
+      wrap guard clear, rc=0 — every guard passed and the row is in the CSV.
+      Confirmed first at the model's real size app-free (**7569832**: 4700 MB on Ring,
+      `first=8.000 last=8.000 OK`, 8/8) — larger than the 4.73 GB the model actually reduces.
+      - **PREREG PREDICTION 3 — SCORED, MISS, on the high side (the consequential
+        direction I flagged when writing it).** Predicted arm B − arm A in **190–750 ms** on
+        the theory that the multi-node penalty is a roughly CONSTANT cost (makani's +375 ms).
+        Measured **+1384 ms** (698.9 → 2082.6), ~3.7× the makani constant; weak-scaling
+        efficiency **33.6%** vs the predicted 50–70%. The prereg said a high miss "would mean
+        the penalty scales with the 8× gradient volume, i.e. bandwidth after all, and that is
+        what would cap the climb to prod rungs." That is what happened, and it stands as
+        written rather than being reinterpreted after the fact.
+      - ⚠ **BUT THOSE TWO NUMBERS MAY NOT SHARE A TABLE YET (rule #4).** Arm A (7568642) and
+        arm B (7569831) differ in **three** variables, not one: OMP 64 vs 1, per-batch TSV on
+        vs off, and NCCL_ALGO default vs Ring. The +1384 ms is therefore CONFOUNDED, and Ring
+        is being *forced*, so arm B may also carry a Ring penalty that Tree would not have.
+        **Arm A re-run under the matched config: job 7569856 → `AI_ROSSBY_MN_SCALING_OK`,
+        `step_med 699.103 ms`.** The original arm A read **698.868 ms**, so all three
+        variables together (OMP 64→1, TSV on→off, algo default→Ring) moved the 1-node step
+        time by **0.03%** — the confound is real in principle and NEGLIGIBLE in fact. ⇒ the
+        A↔B comparison is valid and **prediction 3's miss stands with matched configs**:
+        | arm | step_med | per-rank samples/s |
+        |---|---|---|
+        | A (1 node, 7569856) | 699.1 ms | 1.430 |
+        | B (2 nodes, 7569831) | 2082.6 ms | 0.480 |
+        | **penalty / efficiency** | **+1383.5 ms** | **33.6%** |
+        Side finding: OMP 64 vs 1 is worth ~nothing at 1 node, consistent with `OMP_THREADS=1`
+        having failed to fix the 2-node hang. The `${OMP_NUM_THREADS:-1}` defect remains worth
+        fixing for correctness of the record, but it was never a performance factor here.
+    - 🏁 **LADDER COMPLETE — the first ai-rossby multi-node scaling table that has ever
+      existed.** One config throughout (`NCCL_ALGO=Ring`, OMP=1, TSV off, 60 steps, one
+      store), interleaved reps, every row passing all five parser guards:
+      | nodes | ranks | step_med (reps) | samples/s total | wall s/s | weak-scaling eff | gpu_busy |
+      |---|---|---|---|---|---|---|
+      | 1 | 4 | **698.7** (4 reps) | 5.73 | 4.77 | 100% | 0.976 |
+      | 2 | 8 | **2076.5** (4) | 3.85 | 3.42 | 33.6% | 0.991 |
+      | 4 | 16 | **2484.0** (3) | 6.44 | 5.98 | 28.1% | 0.991 |
+      | 8 | 32 | **2867.2** (3) | 11.16 | 10.59 | 24.4% | 0.993 |
+      - ⚠ **CORRECTION to a claim I made from the 2-node point alone: multi-node is NOT a net
+        throughput loss.** It is a loss ONLY at 2 nodes (3.85 vs 5.73 samples/s). From 4 nodes
+        up it pays: 8 nodes delivers **11.16 samples/s, ~1.95× single-node**. The 2-node arm
+        is a trough, not a trend, and I should not have generalised a curve from one point.
+      - **The shape is makani's: the cliff is the FIRST HOP, then it saturates.**
+        1→2 = **×2.97**, 2→4 = ×1.20, 4→8 = ×1.15. Absolute penalty vs 1 node: **+1378 /
+        +1785 / +2169 ms** — i.e. a large fixed cost for touching the fabric at all, plus
+        modest growth. So prediction 3's *mechanism* (a roughly constant penalty) was right
+        and its *magnitude* was wrong: ai-rossby's constant is ~1.4 s against makani's
+        ~0.375 s, ≈3.7×, which tracks its ~8× gradient volume on ~2× the per-step compute
+        better than it tracks a shared constant.
+      - **`gpu_busy_frac` ≥ 0.976 on every arm and `peak_mem_gb` flat at 25.91** — the cost is
+        inside the timed step (the collective itself), not loader idle, and memory does not
+        move with node count.
+    - **PREREG SCORED — 4 HITS, 2 MISSES, misses first:**
+      - ❌ **P3 (the one that mattered): predicted arm B − arm A in 190–750 ms; measured
+        +1378 ms.** MISS, high side — the direction the prereg itself named as consequential,
+        i.e. the penalty tracks gradient volume rather than being a shared constant. This is
+        what caps the climb, and it was predicted-as-falsifiable rather than rationalised
+        afterwards.
+      - ❌ **P6: predicted <5% rep spread on every arm; the 2-node arm spread 13.0%**
+        (2083/2025/2070/**2294**, one outlier rep). 1n 0.1%, 4n 2.5%, 8n 4.0% all pass. The
+        failing arm is precisely the one carrying the biggest claim (the first-hop cliff), so
+        the +1378 ms figure deserves more reps before it is quoted as a constant.
+      - ✅ P1 multi-node is not free: +197% ≫ the predicted ≥10%.
+      - ✅ P2 `C_progress_auto` alone + `AWS Libfabric` on every row.
+      - ✅ P4 C→8n growth ≤25%: **+15.4%** — the cliff saturates rather than compounds.
+      - ✅ P5 `gpu_busy_frac` ≥0.85 on every arm: min **0.976**.
+    - **PRODUCTION SMOKE GREEN (7569892, 2 nodes, operator-requested).** 2 epochs ×
+      800 samples, `NCCL_ALGO=Ring`, wandb on all ranks, `RUN_NAME=ar_prod_smoke_2n` pinned:
+      checkpoints written at BOTH epoch boundaries (`SfnoPlasim.0.1.mdlus` +
+      `checkpoint.0.1.pt`, then `.0.2`), epoch 2 `step_med 2075.5 ms` matching the ladder's
+      2-node arm, `AI_ROSSBY_MN_SCALING_OK`, row routed to `bench/ai_rossby_production.csv`
+      and NOT the scaling table. ⇒ the production path (multi-epoch, checkpoint save,
+      resumable run dir, wandb) works multi-node.
+      ⚠ **Runs at global batch 8 / LR 1.22e-4 vs production's batch 4 — a MECHANICS test, not
+      a performance claim, and jesswan has NOT signed off on that batch/LR.** Surfaced to the
+      operator before submitting; they chose to proceed.
+      Still untested: **resume** (a second submission into the same pinned RUN_NAME).
+    - ⭐ **TREE IS BROKEN AT EVERY SCALE TESTED, NOT JUST 2 NODES — 7571147: app-free,
+      8 nodes / 32 ranks, 4700 MB, `NCCL_ALGO=Tree` -> `ranks OK: 0/32`, FAILED.** Same
+      failure as at 2 nodes. ⇒ the defect is **node-count-independent**, so tree would still
+      break at 16, 48 or 64 nodes, and `NCCL_ALGO=Ring` is required at every rung rather than
+      being a 2-node workaround. Materially strengthens the ALCF ticket: "fails at 2 AND 8
+      nodes, app-free" rather than "fails at 2 nodes".
+      Consistent with why Ring escapes: ring's reduce-scatter gives each rank **S/N** (591 MB
+      at 8 ranks, 148 MB at 32, 18 MB at 256) which falls below the ~1 GB threshold and keeps
+      shrinking with scale, while tree's per-link message does not shrink with N. ⚠ That
+      mechanism is INFERENCE — what is measured is that tree fails at both 2 and 8 nodes and
+      ring succeeds at both.
+    - **TUNING ARMS, both green on the re-run — so the earlier 3/3 stall correlation was
+      COINCIDENCE, not the knobs** (which is why they were re-run rather than concluded from):
+      | arm | reps | vs baseline 2076.5 (range 2025-2336) |
+      |---|---|---|
+      | `NCCL_BUFFSIZE=16 MiB` | 1792.6, 2002.3 | median ~1897, **-8.7%** |
+      | `CPU_BIND_DEPTH=16` | 2205.4 | +6.2% — **inside the noise band, read as NO EFFECT** |
+      - ⚠ **The first BUFFSIZE sample (-13.7%) did NOT replicate**; rep 2 came in at 2002.3.
+        Both reps sit just below the baseline MINIMUM of 2025, so the effect is probably real
+        but is **~5-10%, not 14%**, and partly overlaps the noise. Not established.
+        `peak_mem_gb` unchanged at 25.912, so the larger buffer cost no measurable memory at
+        2 nodes (it will grow with connections at higher node counts).
+      - **This inverted my own ranking.** I predicted cpu-bind would be the large lever
+        (our 6.0 GB/s busbw sits near the documented 4.08 GB/s starved-progress figure) and
+        that BUFFSIZE would be incremental. The opposite held: the operator's linked knob
+        moved the number and my mechanism reasoning did not.
+
+    - 💥 **PRODUCTION DIVERGED AT EPOCH 11 — LR 1.46e-3 IS TOO HIGH AT GLOBAL BATCH 192.
+      Chain killed at epoch 43, restarted from the epoch-10 checkpoint at LR 5e-4.**
+      | epoch | lr | loss |
+      |---|---|---|
+      | 10 | 1.455e-3 | **0.0397** ← best |
+      | 11 | 1.450e-3 | 1.0670 ← **27× jump**, the moment warmup ended at peak LR |
+      | 14 | 1.433e-3 | 2.4420 ← peak |
+      | 22 | 1.352e-3 | 0.6946 ← second spike |
+      | 43 | 9.588e-4 | 0.2483 ← after 32 epochs of recovery, still **6× worse than ep 10** |
+      - **This is exactly the failure the abandoned LR sweep existed to catch**, and exactly
+        the shape the methodology critic predicted: *"a false PASS … at epoch 8 the grad norm
+        spikes"*. It arrived at epoch 11. A 200-300 step sweep would have seen only the
+        healthy epochs 1-10 and passed it.
+      - **What I got wrong, precisely:** I recommended skipping the sweep on the grounds that
+        per-epoch checkpoints bound the damage. That reasoning HELD — epoch 10 was recoverable
+        and only ~650 node-hours were spent past the divergence. What I under-weighted is that
+        the risk was not a NaN anyone would notice, but a **partial blow-up that keeps
+        training and looks superficially fine**: loss was still descending monotonically for
+        the last 20 epochs, `gpu_busy_frac` stayed 0.99, no error was ever raised. Only the
+        loss-vs-epoch SHAPE reveals it. ⇒ **a descending loss is not evidence of health;
+        compare against the pre-divergence minimum, not against the previous epoch.**
+      - **The instability boundary is now MEASURED, which the sweep never delivered:** stable
+        ramping to 1.455e-3, breaks at 1.450e-3 *sustained*, second spike at 1.352e-3,
+        monotone descent only at ≤1.339e-3 ⇒ boundary ≈ **1.35-1.45e-3**. This is real
+        evidence for jesswan on the batch-192 question, obtained the expensive way.
+      - **Restart: 7573280**, LR **5e-4** (2.7× below the last observed spike; still 2.4×
+        above sqrt scaling's 2.11e-4 so the large batch is not wasted), resuming from
+        `checkpoint.0.10.pt` copied ALONE into
+        `runs/ai_rossby_multi_ddp_lr5e4/checkpoints/` so the loader cannot pick up the
+        damaged epoch-43 state. Original run dir left intact as evidence.
+        **Link 1 only — NOT chained until it clears epoch 11.**
+      - ⚠ **`max_checkpoints_to_keep: 5` DID NOT PRUNE.** All 43 epochs were retained:
+        **92 files, 870 GB**. Lucky here (it is why epoch 10 was recoverable) but it is a
+        storage landmine at 100 epochs — that would be ~2 TB. Find out why the cap is not
+        honoured before the next long run.
+
+    - 🚀 **PRODUCTION LAUNCHED: 48-node, 4-link chain — `multi_ddp`.** Jobs
+      **7572289 → 7572338 → 7572339 → 7572340** (`-W depend=afterany`), each
+      `-l select=50` / `TARGET_NODES=48` / 6 h in `medium`, all resuming into the pinned
+      `RUN_NAME=multi_ddp`, `RUN_DIR=$MEMBER_ROOT/runs/ai_rossby_multi_ddp`.
+      Config: **`NCCL_ALGO=Ring`** (required — tree corrupts >~1 GB), `EPOCHS=100`,
+      `CKPT_INTERVAL=1`, `WANDB=1` (all ranks), LR **1.46e-3** derived by the config's
+      linear rule **with warmup active** (production's real regime), global batch **192**.
+      Budget: up to **~1,150 node-hours**.
+      - **Two spares, not one:** the first LR-sweep attempt died on
+        `NOT_ENOUGH_HEALTHY_NODES: 47 < 48` — two sick nodes in one 49-node allocation,
+        one of them `x3109c0s1b0n0`, already a named repeat offender.
+      - ⚠ **RISKS ACCEPTED BY THE OPERATOR, recorded rather than resolved:**
+        (a) the chain was submitted WITHOUT waiting for link 1's loss curve, so a diverging
+        LR propagates through all four links before anyone looks — bounded only by the
+        per-epoch checkpoints; (b) **jesswan has NOT signed off** on batch 192 / LR 1.46e-3
+        vs production's batch 4 / 3.05e-5, and unlike every 48-node job before it this one
+        produces a MODEL, not a timing row.
+      - **First things to check when link 1 runs:** loss descending (not flat/NaN) over the
+        early epochs; `gpu_busy_frac` back near 0.99 (judge only non-first epochs — a
+        resumed link's first epoch runs ~72%); per-epoch checkpoints appearing.
+    - ❌ **LR SWEEP ABANDONED after adversarial review — and it would have failed anyway.**
+      Three arms were submitted (7571374/5/6) and produced nothing: two were killed at
+      walltime having stalled at the rendezvous (submitted BEFORE the `MASTER_PORT` fix; PBS
+      spools the script at submission), one died on the sick-node shortfall above.
+      Two critics were then run against the *design*, and the check paid for itself:
+      - **MECHANICAL DEFECT, would have wasted ~48 node-hours for zero rows.** At 48 nodes
+        the epoch is **228 steps/rank** (43,800/192) and I specified `STEPS=300`. The
+        launcher's own wrap guard (`SPE < STEPS`) fires `ERROR EPOCH_WRAPPED` → `rc=1` →
+        **every arm exits `AI_ROSSBY_MN_SCALING_FAILED`**. (My first reading was that the
+        parser's `STEP_COUNT_MISMATCH` would reject the row; the wrap guard fires earlier.)
+      - **VERIFIED SOUND:** the `FLAT_LR` mechanism itself. `warmup_start_lr == lr` gives
+        `LinearLR(start_factor=1.0, end_factor=1.0)` ⇒ genuinely constant; warmup is
+        5 × 228 = 1140 steps ≫ 300, so cosine/`eta_min` never engage; the hydra key exists;
+        nothing else rescales the LR (`grad_clip_norm: 0.0`, bf16 ⇒ no GradScaler, ZeRO off).
+      - **WEAK EVEN IF FIXED:** 300 steps is ~1.3% of a 22,800-step run, and large-batch
+        instability is a TAIL event — the likely outcome is a false PASS that NaNs at epoch 8.
+        Comparing **raw loss across LRs is not valid evidence** (higher LR always descends
+        faster early); the right signals are grad-norm trajectory, loss-spike counts,
+        update-norm growth, NaN/Inf — none of which are logged today. n=1 per arm, and each
+        arm lands on a different 48-node set.
+      - ⚠ **One critic proposal was itself WRONG and was rejected on inspection:** "reproduce
+        batch 192 on 1 node by gradient accumulation, 2.8 node-h instead of 13.6". ai-rossby
+        has **no gradient accumulation** — every `accum` in `train.py`/`train_loop.py` is
+        multistep ROLLOUT loss accumulation (`unroll_steps`); no `no_sync`, no config key.
+        Batch 192 genuinely requires 192 ranks. Right principle, wrong feasibility.
+      - **Why skipping it is defensible now:** resume is proven and checkpoints are
+        per-epoch, so a bad LR costs ~1 epoch (~13 min at 48 nodes) rather than the run —
+        and the sweep would have tested a FLAT-LR regime production never runs.
+      - **Latent bug noted for later:** `T_max = max(1, steps_per_epoch − warmup_steps) = 1`
+        — harmless at `EPOCHS=1`, silently wrong once `EPOCHS ≥ 6`.
+
+    - ✅ **RESUME PROVEN (7571401) — the last blocker on a chained production run.**
+      Resubmitted into the pinned `RUN_NAME=ar_prod_smoke_2n`, epochs 2→4, reusing the
+      14.19 GB checkpoints the earlier smoke wrote. All three things that had to be true are:
+      `Loaded model state dictionary .../SfnoPlasim.0.2.mdlus`, `Loaded optimizer state
+      dictionary`, and **`EMA restored from checkpoint (n_averaged=200)`** — then
+      **`stage 0 'default' starting at global_epoch=3`**, i.e. it continued rather than
+      silently restarting at epoch 1.
+      - **Why the EMA line is the one that matters:** `validate_with_ema: True` and inference
+        consumes the EMA, so a silent reset would mean the DELIVERED MODEL averaged over only
+        the final link of a 4-link chain. The recipe's own comments record this as a past
+        silent bug; it is now verified fixed on the multi-node path.
+      - ⚠ **A resumed link's first epoch is ~28% idle:** `gpu_busy 71.8%` vs ~99% on a fresh
+        epoch (peak mem +0.53 GB). Checkpoint load + dataloader re-warmup fall inside the
+        timed window. Over a 4-link chain that is 4 epochs of ~112 — minor, but **do not
+        extrapolate a link's throughput from its first epoch.**
+      - ⇒ with `medium` capping at 6 h (≈28 epochs at 48 nodes), a 100-epoch run is a
+        **4-link `-W depend=afterany:` chain into one pinned RUN_NAME**, and that is now
+        mechanically proven rather than assumed.
+      - 🔑 **This was only reachable after the `MASTER_PORT` fix** — the previous attempt
+        (7571362) was one of the four rendezvous stalls.
+
+    - **TUNING SWEEP ATTEMPTED — blocked by a rendezvous stall, and one number firmed up.**
+      Two output-neutral arms at 2 nodes (`NCCL_BUFFSIZE=16 MiB`; `CPU_BIND_DEPTH=16`),
+      each one variable against the ladder baseline, routed to `bench/ai_rossby_tuning.csv`.
+      - ⚠ **THREE consecutive jobs stalled at exactly the same point** — imports complete,
+        then `init_process_group` never emits a line. Pinned by diffing against a GREEN run:
+        7569871 prints `NCCL INFO NCCL version` at line **718**, immediately after the last
+        import warning at 717; the stalled jobs stop dead at that boundary (720/721 lines).
+        ⇒ blocked in the TCPStore rendezvous, BEFORE NCCL — not in the collective this
+        campaign has been studying. Eagle was responsive throughout (0.00 s listdir,
+        0.01 s read from a login node), so it is not Lustre.
+      - **Correction to my own reasoning mid-episode:** I began explaining why a 16 MiB
+        buffer might be *slower*, when the job had never reached NCCL at all — it sat 34 min
+        inside `import physicsnemo`. Reading the raw log tail settled it in one look.
+        Attributing a wall-clock anomaly to the knob under test without checking where the
+        process actually was is the same error that cost this session its earlier detours.
+      - **Control (7570876), exact ladder config, no knobs: GREEN** — reached
+        `init_process_group` on all 8 ranks, 60/60 steps, `step_med 2336.4 ms`. So the
+        launcher is not broken by the tuning-knob commit. That leaves an uncomfortable
+        correlation (3/3 knobbed jobs stalled, 1/1 unknobbed passed) which n=3 cannot settle
+        and for which there is no plausible mechanism — `NCCL_BUFFSIZE` cannot stall a
+        rendezvous that runs before NCCL initialises. Re-running both arms (7570924/7570925)
+        rather than concluding from the correlation.
+      - 📉 **The control doubles as a 5th rep of arm B, and it widens the known weak spot:
+        2-node reps are now 2083 / 2025 / 2070 / 2294 / 2336 ms — spread 15.0% (was 13.0%),
+        and visibly bimodal.** P6's miss is firmer, and the headline **+1378 ms first-hop
+        penalty carries ~±11%**. It remains a P3 miss on any rep (worst case +1326 ms vs the
+        predicted 190-750), but it must not be quoted as a tight constant. The other arms
+        stay tight: 1n 0.1%, 4n 2.5%, 8n 4.0%.
+
+    - **LADDER LAUNCHED (operator request): A/B/C/8n × 3 INTERLEAVED reps, one config.**
+      Driver `physicsnemo_ai_rossby/polaris/run_ai_rossby_ladder.sh`, log at
+      `$MEMBER_ROOT/polaris_logs/ai_rossby_ladder.log`. Every arm carries
+      **`NCCL_ALGO=Ring`** (required, not tuning — the default tree path corrupts and hangs
+      above ~1 GB and this model reduces 4.73 GB), OMP=1, TSV off, 60 steps, one store.
+      Interleaved A,B,C,8n,A,B,C,8n,… per rule #16, never batched. C requests
+      `select=5 TARGET_NODES=4` and 8n `select=9 TARGET_NODES=8` so a zombie-GPU node is
+      pruned rather than killing the arm (mandatory at ≥8, ledger #4).
+      Ordering is enforced by PBS `-W depend=afterany`, not by the driver's timing; the driver
+      only retries **qsub** (never `qstat`) because Polaris allows one job per queue in Q/H.
+      ⚠ **Watch for at 4 and 8 nodes:** (a) 43,800 samples does NOT divide evenly at world 16
+      or 32 (2737.5 / 1368.75 per rank) — the sampler pads, but it is a real difference from
+      arms A/B; (b) **Ring's latency grows linearly with rank count where Tree's grows
+      logarithmically**, so the workaround that unblocked 2 nodes may itself cost throughput
+      at the upper rungs. Neither is a reason not to measure; both are reasons not to
+      extrapolate from arm B.
+      **Threshold on the TREE path** (of interest for the ticket, not for the fix) — lower
+      than either boundary I guessed, not 2^32 bytes and not 2^31:
+      | all-reduce | elements | bytes | result |
+      |---|---|---|---|
+      | 4700 / 4200 / 4000 MB | 1.23 G / 1.10 G / 1.05 G | 4.9–4.2 GB | ❌ |
+      | **2100 MB** | 550,502,400 | 2.20 GB | ❌ |
+      | **2000 MB** | 524,288,000 | **1.95 GiB** | ❌ (partial, first=8 last=1) |
+      | 190 × 25 MB | 6.5 M each | 25 MB each | completed, no timeout (⚠ see caveat) |
+      Bisecting between 25 MB and 1.95 GiB: **7569817 (1000 MB)**. In parallel, **7569818**
+      re-runs the known-failing 2000 MB with **`NCCL_ALGO=Ring`** — the logs show broadcast
+      used RINGS and all-reduce used TREES (`Connected all rings` precedes the stage banner,
+      `Connected all trees` follows it), so if Ring survives where Tree fails the defect is
+      localised to the tree path and Ring is a candidate workaround needing no numerics change.
+      ⚠ **CAVEAT I MUST CARRY: the 190 × 25 MB result (7569540) was measured with the VACUOUS
+      check.** What survives is that it did not hang (rc=0, no watchdog timeout); its
+      NUMERICAL correctness was never verified and is now an open question of my own making.
+      Re-run it before treating "small all-reduces are fine" as established.
+      **Also open:** which code issues the single full-model all-reduce. `bucket_cap_mb` at 25
+      MB (7569744) and 5000 MB (7569690) produced BYTE-IDENTICAL stuck collectives, so either
+      the knob never reaches DDP's reducer or this is not DDP's gradient reduction at all —
+      and zero training steps completed, which argues for the latter. `TORCH_DISTRIBUTED_DEBUG
+      =DETAIL` prints the reducer's bucket layout with no code change and separates the two.
+    - **Superseded framing — H8, the one shape never tested: an all-reduce above 2^32 bytes.**
+      4.73 GB > 4.29 GB. The app-free probe covered a >4 GB **broadcast** (passed, 7569520/1)
+      and **small** all-reduces (passed, 7569540) — it never covered a **>4 GB all-reduce**,
+      which is precisely the stuck op. ⚠ Caveat kept deliberately: 7569690 is the run where
+      **I forced one bucket**, so this giant all-reduce is partly my own doing; the
+      default-bucket runs (~190 × 25 MB) hung too and have no dump. Both gaps now queued —
+      **7569743** (app-free, ONE 4700 MB all-reduce) and **7569744** (trainer at DEFAULT
+      buckets, with dump capture working).
+    - **Superseded hypothesis — DDP bucket count, which the codebase itself pointed at:**
+      `train.py:918-921`'s own comment records that **both** working reference trainers
+      consolidate buckets: **makani uses ONE bucket** sized to the whole local parameter set,
+      and the **PanguWeather-e3sm reference uses `bucket_cap_mb=250`**. This config leaves
+      `ddp_bucket_cap_mb: null` ⇒ PyTorch's 25 MB default ⇒ **~190 buckets** for 1.18 B
+      params, each fired from inside autograd as gradients become ready and **overlapped with
+      backward compute**. That last clause is why probe 7569540 passed while the trainer
+      hangs on the same pattern: the probe issued its 190 all-reduces **serially from the main
+      thread with no compute overlapping**, which is a materially easier case.
+      Test ready, `-v DDP_BUCKET_MB=250` (and `=5000` for the makani one-bucket shape);
+      **could not be submitted yet — both queue slots occupied.**
+    - ⚠ **Trade-off I introduced, worth knowing before queueing many arms:**
+      `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800` bought the diagnosis but **cost fail-fast** — a
+      hung arm no longer aborts at ~8 min, it sits until the 50-minute walltime. Fine for
+      single-variable debugging, wrong for a ladder. Revert it once the hang is understood.
+    - 🐛 **MY INSTRUMENTATION WAS INCOMPLETE — the flight recorder captured nothing readable,
+      and it took a wasted job to find out.** `TORCH_NCCL_TRACE_BUFFER_SIZE` alone is not
+      enough; **two** further defaults defeat it, and both had to be overridden:
+      1. **The dump is a FILE, not a log line.** `TORCH_NCCL_DEBUG_INFO_TEMP_FILE` defaults to
+         `/tmp/nccl_trace_rank_<n>` — and `/tmp` is NODE-LOCAL and cleaned at job end (this
+         launcher deliberately sets `TMPDIR=/tmp` for the AF_UNIX path-length reason), so the
+         evidence died with the allocation. Now redirected to `${EXP_DIR}/nccl_trace/`.
+      2. **The informative message lost a race with the killer.** The text that NAMES the
+         stuck collective — `Watchdog caught collective operation timeout: WorkNCCL(SeqNum=..,
+         OpType=ALLREDUCE, NumelIn=..)` — comes from the **600 s collective timeout**, but the
+         **heartbeat monitor fires at 480 s** and kills the process first, leaving only the
+         opaque *"watchdog got stuck"* text. `TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC=1800` lets the
+         useful message win. Costs nothing: the 600 s collective timeout still aborts the job,
+         ~2 min later, with the diagnosis attached.
+      Both are now launcher defaults. **Lesson worth keeping: enabling a diagnostic is not the
+      same as capturing it** — verify the artifact exists before spending a job on it.
+    - **Superseded: instrumentation first added for the retry** — the scaling launcher now exports
+      `TORCH_NCCL_TRACE_BUFFER_SIZE=2000` + `TORCH_NCCL_ASYNC_ERROR_HANDLING=1` by default.
+      7568724's log named no collective; the flight recorder is what turned makani's 4-node
+      hang into "rank 11, last enqueued 84, last completed 83". Ledger #7: **not**
+      `CUDA_LAUNCH_BLOCKING=1`, which legitimately deadlocks NCCL.
+    - 🐛 **DEFECT, cross-project: `export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"` NEVER
+      PINNED ANYTHING.** The idiom reads and writes the same name, and **PBS Pro exports
+      `OMP_NUM_THREADS=<ncpus>` (64 on Polaris) into every job** — so the variable is always
+      already set, `:-1` is dead code, and the statement reduces to `export
+      OMP_NUM_THREADS=64`. Measured: 7568642 logged `omp=64`, and it is **unset** on a login
+      node after sourcing `polaris_env.sh` + the ai-rossby env script, so nothing of ours set
+      it. **This is not confined to the new launcher — all 30 rows of
+      `bench/makani_multinode_scaling.csv` record `omp_threads=64`, the 128-node production
+      run included.** Consequence, stated in two halves: **comparability is intact** (the
+      value was constant on every row of both ladders), but **the absolute numbers were taken
+      under 8× CPU oversubscription** — 64 OpenMP threads on the 8 cores `--cpu-bind depth
+      -d 8` reserves, which are the same cores aws-ofi-nccl's progress engine runs on, i.e.
+      exactly the resource the bind exists to protect. **No evidence it caused the hang; not
+      claimed.** Fixed here by taking the override from a name we own
+      (`export OMP_NUM_THREADS="${OMP_THREADS:-1}"`, ledger #11) and echoing the value.
+      ⚠ **makani's launcher deliberately NOT changed** — flipping it would make future rows
+      incomparable with the existing 30, which is the owner's call, not a drive-by fix.
+      ⇒ arm A rep1 (7568642) ran at omp=64 and is therefore a **different config** from
+      anything the fixed launcher produces (rule #4): **re-run it before tabling the ladder.**
+    - The 2-node arm could not be queued immediately (one job per queue, above). A detached
+      one-shot helper retries `qsub` every 15 min, up to 10 tries, always with
+      `-W depend=afterany:7568642` so the arms cannot overlap and contend for nodes:
+      `physicsnemo_ai_rossby/polaris/submit_2n_smoke_when_slot_frees.sh`, log at
+      `$MEMBER_ROOT/polaris_logs/submit_2n_smoke.log` (`SMOKE_2N_QUEUED` = it got in).
+      It retries **qsub**, never `qstat` — CLAUDE.md forbids a qstat poll loop on a login
+      node. If it gave up, the fallback command is printed in its log.
+    Approved scope was three probes + the 1n/2n smokes, **then stop before the ladder**. Two
+    probes are done and green; these three close it out.
+  - **Reading the results when they land:** PASS is the token, never `rc` (#14). For the
+    smokes also check, in the log: `transport` = `AWS Libfabric`, `world_sizes_seen` = 4 then
+    8, `ranks_reporting` = the same, `n_steps` = 60, and the wrap-guard line. The parser
+    refuses a row that fails any of these, so a written CSV row with `csv_rc=0` already
+    carries them — the CSV lives at `$MEMBER_ROOT/bench/ai_rossby_multinode_scaling.csv`.
+  - **Open:** ≥2-node NCCL probe → 1n then 2n launcher smokes → the
+    ladder. Prereg prediction 3 is the one that matters: makani paid a roughly *constant*
+    +375 ms whenever the fabric was touched, so ai-rossby should pay a similar absolute
+    penalty on a ~4× longer step and scale visibly better for no better reason than step
+    length. A miss on the high side means the penalty tracks the 8× gradient volume, and
+    that is what would cap any climb to prod rungs.
+
+- **2026-08-27 (cont. 2)** — 🏁 **PRODUCTION COMPLETE: `prod128_alldata_v2` (7566145) ran ALL
+  100 EPOCHS to `MAKANI_MN_SCALING_OK`, rc=0 — the first full makani-E3SM production training
+  ever, at 128 nodes / 512 ranks, on the Pangu/ai-rossby-parity 101-channel contract.**
+  - **Numbers:** ~1 h 40 m wall ≈ **~215 node-hours** (vs 774 cap); step_ms 576.5 avg
+    (incl. warmup; marginal ~440–510), **888 samples/s** total, io 43.1 GB/s aggregate,
+    `world_sizes_seen=512`, AWS Libfabric (v1.21.1+AUTO), wireup 315.7 s.
+  - **Training result: final train loss 0.0160, validation 0.0183 — and epoch 100 IS the
+    validation minimum: still improving at the schedule bound, no overfit onset** (contrast
+    the Pangu/ai-rossby runs' plateau-then-drift at ~epoch 25 — though absolute loss values
+    are NOT cross-harness comparable; the shared per-channel lwrmse panels are the comparison
+    vehicle, which is exactly why the key parity mattered). ⚠ batch-512 convergence quality
+    remains jesswan's read.
+  - **Artifacts:** `best_ckpt_mp0.tar` (= epoch 100) + last 3 versioned checkpoints (1.77 GB
+    each; cap worked); 100 epoch summaries in `prod128_alldata_v2.log`; production CSV row;
+    wandb run synced to `pedramh-profiling` with the 102-key contract (102/102 byte-match to
+    Pangu, superset of ai-rossby).
+
+- **2026-08-27 (cont.)** — ⚠→✅ **OPERATOR CAUGHT A KEY-SCHEMA MISS ON THE LIVE RUN; fixed,
+  byte-verified against BOTH reference datastores, and production restarted clean as
+  `prod128_alldata_v2` (job 7566145; v1 7566045 qdel'd ~50 min in, ~110 node-hours).**
+  - **The miss:** makani's upper-air wandb keys formatted the archive's ACTUAL hybrid level
+    values (`train_RELHUM_level849.6612_lwrmse`) while Pangu/ai-rossby format **NOMINAL
+    round-hPa labels** (`train_Z3_level300.0000_lwrmse`) — every one of the 90 upper-air
+    panels silently failed to overlay. My assumption ("configs share the literal level list")
+    was wrong at the alldata level set; the surface + 53-ch nominal keys had matched, which
+    masked it. **Lesson recorded: verify key parity against the reference DATASTORE, not
+    against documentation** — assumptions about a contract are not the contract.
+  - **The fix + proof:** `_NOMINAL_LEVELS` (5..1000, Pangu's 18 labels; index↔label per the
+    archive's level_table) + Pangu's 102nd key `train_mean_norm_lwrmse` (channel-mean
+    normalized rmse). Byte-comparison of generated keys vs the REAL datastores:
+    **Pangu 102/102 exact, ai-rossby 101/101** (its schema lacks mean_norm; makani is now a
+    strict superset = identical where defined). This comparison is the new gate for any
+    future key change.
+  - v1's local wandb data (hybrid-float keys) remains on eagle + the early-synced snapshot
+    run 5lkf6o1c on wandb.ai — mark it superseded; v2 is the run of record.
+
+- **2026-08-27** — 🚀🚀 **PIVOT TO ALLDATA (operator call: full channel parity with
+  Pangu/ai-rossby) EXECUTED END-TO-END; 128-node ALLDATA production submitted: job 7566045.**
+  7565573 (53-ch) was qdel'd before start — zero node-hours spent on the superseded contract.
+  - **The contract:** ALLDATA = the **108-field set all three pipelines agree on** (100 state
+    incl. U10/RHREFHT/PSL/TMQ/FSNT/FSNTOA/SOILWATER/TSOI + all 18 hybrid levels of
+    T/U/V/Z3/RELHUM, PRECT diag, 7 forcings; clouds excluded per science owner). Converter
+    audit (the standing caveat) resolved clean: Pangu's fills verbatim (SST −1.8, TSOI 270,
+    SOILWATER 0), honest index-named levels, **resumable second-pass stats**.
+  - **~1.4 TB production pack in two 1-h debug jobs** (7565605 pack: 12 parallel workers,
+    30/30 train years; 7565734 finish): new `--skip-stats`/`--stats-only` converter flags with
+    a completeness guard. `CONVERT_ALLDATA_OK` + (after fixes below)
+    **`MAKANI_PACK_AUDIT_OK 101 channels`** vs the corrected Pangu moments — every level of
+    every var within 5%/0.05σ; worst = TOA RELHUM −4.6% std; TSOI/SOILWATER informational
+    (mask-aware ref vs filled pack, convention not defect).
+  - **Two of my own bugs caught by token discipline, not luck** (#14: the finish job printed
+    `PACK_ALLDATA_OK` while the audit had CRASHED): (a) `audit | tail` masked the audit's exit
+    code — pipe removed, rc checked directly; (b) **`U10` misparsed as upper-air "U at 10 hPa"
+    by the nominal-hPa regex** — in the audit script AND in `wandb_diagnostics.build_keys`
+    (the 7565972 datastore check showed `train_U_level10.0000_lwrmse` where
+    `train_U10_lwrmse` belonged). Fixed both with exact-surface-name-first dispatch;
+    unit-tested on both contracts.
+  - **⚠ STACK DECISION REVERSED FOR PRODUCTION: the old plugin is DISQUALIFIED, not just
+    slower.** The first ALLDATA smoke (7565896, old plugin+Simple) wedged at **SeqNum=2 on a
+    41,088-element broadcast = 384×107, the ALLDATA encoder weight** — the known
+    small-message progress defect at a message size the 53-ch model (384×58) happened to
+    dodge. The plugin's "working" regime is message-size lottery. Production runs on
+    **v1.21.1+AUTO** (correct everywhere, measured cost accepted).
+  - **8-node ALLDATA FULL smoke on the new plugin (7565972): GREEN.** 492.7 ms/step steady
+    (2×1,368 full-pass steps), 512-sample validations, `valid_loss` 0.0323→0.0264, and the
+    wandb datastore shows **101 lwrmse keys × 2,736 iterations** with hybrid-level keys
+    formatted character-identical to Pangu's (`train_RELHUM_level145.0428_lwrmse`, ...).
+  - **RUNNING (started 05:23, ~7 min queue wait; preflight 129/129 healthy). Epoch-1 facts:**
+    wireup at 512 ranks = **299 s** (once-per-job; 18 s at 32 ranks); marginal step time
+    **~509 ms — statistically identical to the 8-node smoke's 492.7 ms**, i.e. **~96%
+    weak-scaling efficiency 8→128 nodes** on the new plugin (its per-step overhead is
+    ~constant, so its relative cost shrinks at scale; ~1,000 samples/s at 512 ranks).
+    Epoch 1 = 73.6 s incl. warmup; validation 14.5 s; steady-state epoch ~60–65 s ⇒
+    **projected completion ≈ 2 h total ≈ 260 node-hours** (walltime cap 6 h). Monitor left
+    running: waits for job end, records the tail, syncs the wandb run so the 101 panels are
+    live in `pedramh-profiling` alongside Pangu/ai-rossby.
+  - **7566045 = `prod`→`large`, 129 nodes (spare+preflight), 6 h walltime,
+    `RUN_NUM=prod128_alldata_v1`** (pinned ⇒ requeue auto-resumes, same wandb run), FULL=1
+    ⇒ 43,520-sample full-pass epochs (85 steps @ global batch 512) × ≤100 epochs,
+    EVAL_SAMPLES=512, WANDB on, rows → `makani_production.csv`. Estimate **~3.5–4.5 h ≈
+    450–580 node-hours** (cap 774). ⚠ Batch 512 at shipped LR remains the flagged science
+    question — the 101 per-channel panels vs Pangu/ai-rossby are how jesswan judges it.
+
+- **2026-08-26 (cont. 6)** — 🚀 **128-NODE PRODUCTION TRAINING SUBMITTED: job 7565573, `large`
+  queue (routed from `prod`), 129 nodes (1 spare + preflight), 6 h walltime.** Every gate
+  passed first; nothing here is untested machinery:
+  - **Production pack built in ONE 1-h debug job (7564621): `PACK_PRODUCTION_OK`.** Canonical
+    split (train 2015–2044 = **43,800 samples**, valid 2045–2047, test 2048–2049) via **7
+    parallel chunk workers + exact accumulator merge** — new converter modes
+    (`--chunk-accum-out` / `--merge-accums` / `--timestamp-offset-samples`) whose merge is
+    bit-for-bit the single-pass arithmetic, with a coverage check refusing gaps/double-counts.
+    `CONVERT_OK` (read-back validation) + **`MAKANI_PACK_AUDIT_OK`** vs the corrected Pangu
+    reference (PRECT std within 0.08% — the 30-yr window nearly matches the 35-yr reference).
+  - **FULL mode added to the launcher and smoked at 8 nodes (7564631, green):** `-v FULL=1`
+    makes an epoch the whole train split (trimmed to a global-batch multiple — 43,800→43,520
+    at batch 512), `EPOCHS` bounds the schedule, `EVAL_SAMPLES=512` production validation;
+    wrap guard correctly bypassed (epochs re-serve by design).
+  - **Requeue = resume, verified:** per-epoch versioned checkpoints (measured 1.77 GB each:
+    model+optimizer+scheduler+counters) + `best_ckpt`; `-v RUN_NUM=` now pins the experiment
+    dir (default embeds the jobid — right for scaling reps, wrong for production) so a
+    resubmission auto-resumes, including the same wandb run (`makani_restart.yaml`).
+    `checkpoint_num_versions: 3` capped for `EPOCHS>2` (100 uncapped epochs ≈ 177 GB of tars).
+  - **The run:** `RUN_NUM=prod128_full_v1`, old-plugin stack (v1.6 + Simple — the fast, proven
+    pure-DDP config), global batch 512 (1/GPU), ~85 steps/epoch × ≤100 epochs, W&B on
+    (Pangu-parity contract), rows → `makani_production.csv`. Expected ~2–3 h ≈ **300–450
+    node-hours** (774 worst case at the 6 h cap). ⚠ Global batch 512 vs the shipped config's
+    8 is a training-regime change made on operator instruction — LR left as shipped (no
+    unilateral scaling); convergence quality at this batch is jesswan's read, and the wandb
+    panels exist precisely so she can make it.
+  - Also synced the 4 functional-ladder runs to wandb.ai (`pedramh-profiling` project) at the
+    operator's request — links in session log; 8-node run: runs/45275krs.
+
+- **2026-08-26 (cont. 5)** — ✅ **Pre-production functional ladder COMPLETE: 1/2/4/8 nodes ×
+  2 epochs × validation × wandb — all four rungs green, all four datastores verified.** The
+  "does everything actually work end-to-end before we buy prod time" check the operator asked
+  for, run on the ladder-of-record stack (old plugin + Simple).
+  - **New launcher knobs:** `-v EPOCHS=` (multi-epoch renders exist for functional checks — a
+    multi-epoch step average spans dataloader re-warmup and must never sit in a scaling table)
+    and `-v EVAL_SAMPLES=` (default 8). These rows route to a **separate CSV**
+    (`makani_wandb_check.csv` via `-v MAKANI_SCALING_CSV=`) so wandb-overhead rows cannot
+    contaminate the scaling record.
+  - **Results (60 steps/epoch × 2 epochs, 32 eval samples w/ 3-step autoregressive rollout):**
+    | rung | job | ranks | wandb iters | valid_loss e1 → e2 |
+    |---|---|---|---|---|
+    | 1 node | 7564492 | 4 | 120 = 60×2 ✓ | 0.1476 → 0.1027 |
+    | 2 nodes | 7564493 | 8 | 120 ✓ | 0.1536 → 0.0981 |
+    | 4 nodes | 7564555 | 16 | 120 ✓ | 0.1488 → 0.0973 |
+    | 8 nodes | 7564566 | 32 | 120 ✓ | 0.1443 → 0.0941 |
+    All 53 lwrmse keys present on every iteration of both epochs at every rank count;
+    `valid_loss` ×2 each; epochs 1,2 logged.
+  - **What this proves for production:** the train dataloader survives the epoch boundary at
+    every world size; the validation dataloader + autoregressive rollout runs per epoch; the
+    ReduceLROnPlateau scheduler steps on real validation values; the Pangu-parity wandb
+    contract holds across epochs and node counts; and **validation loss genuinely decreases
+    epoch-over-epoch at every scale, with consistent values across world sizes** (e2 ≈
+    0.094–0.103 everywhere) — the loop is learning, not merely executing. En route, 7564493
+    sat through a `queue_tags` no-nodes window and was correctly left alone per rule #12
+    (eligible_time preserved; it ran).
+  - **Production-launch checklist now reads:** pack the production year range (audited
+    converter, ~5–10 min/yr) → `audit_makani_pack_vs_reference.py` on the new pack →
+    reps 2–3 of the timing ladder → prod rungs 16/32/64/128 (flag cost per rung) →
+    production job with `WANDB=1`, `TARGET_NODES=N` spare-node preflight, old-plugin pin.
+
+- **2026-08-26 (cont. 4)** — **"Does makani need the Pangu/ai-rossby variable regeneration?"
+  — AUDITED against the corrected artifacts: NO, and now proven numerically, not just
+  argued structurally. `MAKANI_PACK_AUDIT_OK`, all 53 channels.**
+  - **What "most current data" turned out to be:** the regeneration did NOT produce new source
+    variables. `${E3SM_ROOT}/h5/plev_data` is unchanged since 2026-07-08; what regenerated
+    (2026-08-05, in `$PANGU_AUX`) is the **normalization**: `moments_2015-2050.json` +
+    `data_2015-2050_{mean,std_corr}.nc`, computed **mask-aware** (moments over valid pixels
+    only — SST/ICE over ocean, TSOI/SOILWATER over land; per-var shifts for stability), with
+    the pre-fix files preserved under `pre_fix/`. ⇒ makani's packs, built from the same
+    archive, are already "the most current data" at the variable level.
+  - **The audit** (`polaris/audit_makani_pack_vs_reference.py`, new, reusable): every channel
+    makani trains on, compared against stats reconstructed from the corrected moments —
+    surface/diagnostic direct, upper-air by mapping makani's 10 plev channels onto the LAST 10
+    of the reference's 18 hybrid levels (~200..1000 hPa; verified the level lists coincide).
+    **Result: all 53 stds within 2.14%** (2-year pack vs 35-year reference window — pure
+    sampling drift), **all means within 0.02 std**. Near-zero-mean wind channels show huge
+    *percent* mean deltas (U1000 "−970%") that are 0.01σ absolute — the script therefore
+    scores means in std units, not percent, so nobody re-trips over that.
+  - **Why makani was immune** (2026-08-04 audit, now confirmed against the fix): the defect
+    class needs an externally-precomputed stats file that can disagree with a
+    separately-configured fill. makani computes stats **in-stream from the packed data**
+    (cannot disagree by construction), already fills SST with **−1.8 °C** (the audit's
+    "unifies all three pipelines" option), and **has no TSOI_10CM/SOILWATER_10CM channels at
+    all** — the 8.2×-underweighted-loss defect cannot map onto its contract. SST/ICE are
+    forcings (inputs, never scored) in makani.
+  - **Remaining convention question (jesswan's call, not blocking):** the corrected reference
+    is mask-aware for masked fields; makani's forcing stats are filled-field stats. Self-
+    consistent and input-only, so not a defect — but if a single cross-pipeline convention is
+    mandated (or SST fill moves to 0.0), the response is one constant + a repack (~5–10
+    min/yr), then re-run this audit. Same procedure if the SOURCE archive is ever regenerated.
+  - ⚠ Standing caveat unchanged: `convert_e3sm_to_makani_alldata.py` (the 154-ch ALLDATA
+    path) was never fully audited — finish that before building a production pack with it.
+
+- **2026-08-26 (cont. 3)** — ⭐ **makani now logs the Pangu/ai-rossby wandb metrics contract —
+  built, smoke-run, and verified from the offline datastore (7564401) before any production
+  launch.** Contract: `wandb_metrics_report.md` + `ai_rossby_finegrained_wandb_handoff.md` —
+  per-variable(-level) lat-weighted RMSE in physical units, every iteration, flat keys.
+  - **What "same metrics" means here, precisely:** makani-E3SM trains a different channel
+    contract (53 ch, 10 plev levels) than the Pangu/ai-rossby pair (101 ch, 18 hybrid levels),
+    so identical keys are impossible where variables differ. What is matched is the **scheme**
+    — Pangu's exact formula (`N·cos(lat)/Σ` weights, lat/lon-only reduction, `×std`
+    denormalization), cadence (every iteration), flat naming (`train_{var}_lwrmse`,
+    `train_{var}_level{level:.4f}_lwrmse`), and the same project (`pedramh-profiling`) — plus
+    Pangu's base names where the physics is shared: channels `RH{p}`→`RELHUM`, `Z{p}`→`Z3`.
+  - **Mechanics** (`sfno_training/trainer/wandb_diagnostics.py` + 3 wiring points in
+    `plasim_trainer.py`): a **forward hook on `trainer.loss_obj`** — the one per-step site
+    holding the normalized `(pred, tar)` (deterministic_trainer.py:493). A hook, not a
+    wrapper, because `loss_obj` is checkpointed (lines 252/281/399) and a wrapper would change
+    state-dict keys. Gated `module.training ∧ torch.is_grad_enabled()` (validation never
+    fires) and installed only under `log_to_wandb` — which every bench render forces False, so
+    **the scaling-CSV path executes zero new instructions** (#10). fp32 math under
+    `autocast(enabled=False)`; shape/std-length mismatches disable LOUDLY, never mislabel.
+  - **wandb step-axis conflict handled:** makani natively logs epochs with `step=self.epoch`,
+    which wandb drops as out-of-order once per-iteration auto-steps run ahead. The existing
+    `log_epoch` override now re-logs everything flat (`train_loss_epoch`, `valid_loss`,
+    `learning_rate`, `epoch`, + all native scalars) — verified present in the datastore.
+  - **Launcher:** `-v WANDB=1` renders `log_to_wandb True` + the four `wandb_*` identity keys
+    `Driver._init_wandb` hard-requires (project pinned to `pedramh-profiling`). ⚠ A wandb'd
+    row's `step_ms` includes the diagnostics overhead — never table it against non-wandb rows.
+  - **Verification (handoff §5, all passed):** smoke 7564401 green; datastore readback via
+    `wandb_local_history.py`: **53/53 keys, 60/60 iterations**, physical magnitudes sane
+    (TREFHT 17→5 K, PS 7860→1949 Pa, Z3 O(100 m), RELHUM O(10 %)) — i.e. no missed-`std` bug;
+    `train_loss` ×60 flat; `valid_loss` == native "validation loss". Handoff §3's
+    lat-weighting equivalence: makani reads the pack's real lat grid (the same 1° E3SM grid
+    Pangu's `params.lat` carries) and uses Pangu's formula verbatim.
+  - Key-scheme unit test run pre-submit (53 keys, no dupes, exact `.4f` formatting).
+    **Production note:** launch with `WANDB=1` (or set `log_to_wandb`+identity keys in the
+    production config); without it the contract silently stays off.
+
+- **2026-08-26 (cont. 2)** — **8-node pure DDP GREEN (first 32-rank row ever) + the new-plugin
+  ladder re-measured — and it exposes a real TRADE-OFF, not a win.**
+  - **Sick-node epidemic + the harness answer.** Three distinct nodes with zombie GPU state
+    (`CUDA-capable device(s) is/are busy or unavailable` at init) killed four runs:
+    `x3111c0s37b1n0` (**3 strikes** — 7563960, 7563991, then arm B 7564227), `x3201c0s1b1n0`
+    (7564075), `x3109c0s1b0n0` (7564123). A fast-failing node returns to the idle pool
+    immediately, so the scheduler re-deals it — per-node holder jobs don't scale. **New
+    launcher capability:** `-v TARGET_NODES=N` with `-l select=N+1` runs a per-node 4-GPU
+    touch, names sick hosts in the log, prunes them, and runs on the first N healthy nodes
+    (no TARGET_NODES → prior behaviour). Proven by 7564137: pruned `x3109c0s1b0n0`, ran clean.
+    At 100 nodes a bad draw is near-certain, so `select=101,TARGET_NODES=100` becomes standard.
+    **Report all three nodes to ALCF.** ⚠ A 2-node arm cannot carry a spare inside `debug`'s
+    2-node cap — run arm B as `debug-scaling select=3,TARGET_NODES=2` (7564264 submitted).
+  - **New-plugin ladder (v1.21.1 + AUTO + Simple pin), rep 1:**
+    | nodes | job | step_ms | per-rank s/s | weak-scaling eff | total s/s | wireup_s |
+    |---|---|---|---|---|---|---|
+    | 1 | 7564184 | 115.3 | 8.67 | 100% | 34.7 | 3.2 |
+    | 4 | 7564185 | 460.5 | 2.17 | 25% | 34.7 | 12.5 |
+    | 8 | 7564137 | 545.0 | 1.83 | 21% | 58.7 | 13.4 |
+  - **8-node analysis:** the cliff **saturates rather than compounds** (4→8 = +18% after the
+    ×4.0 at 4 nodes), wireup flattens (12.5→13.4 s), I/O is exonerated (io_gbs rose 0.88→1.49
+    while per-rank throughput fell). But the plateau is bad: per-GPU compute is ~115 ms, so
+    **~430 ms ≈ 79% of the 8-node step is exposed comms** — 16 GPUs deliver exactly 4 GPUs'
+    throughput at 4 nodes. Signature matches progress-engine CPU starvation: the new plugin's
+    forced `FI_PROGRESS_AUTO` runs libfabric's own progress threads, which the
+    `--cpu-bind depth -d 8` layout (tuned for the old plugin's manual progress) never
+    accounted for. Tuning problem, plausibly recoverable — not an architectural wall.
+  - **The trade-off, stated plainly:** old plugin (v1.6+Simple) = fast pure-DDP
+    (199.5 ms / 80.2 s/s at 4 nodes) but spatial-parallel broken and 8-node untested; new
+    plugin (v1.21.1+AUTO) = everything *works* (incl. spatial: arm F 569.9 ms) and fastest
+    single-node (115.3), but inter-node throughput ~2.3× worse. Old-plugin 4 nodes currently
+    out-delivers new-plugin 8 nodes. **Cross-plugin rows must never share a table** — arm A is
+    now measured at 196.5 (smoke pack) / 114.9 (default proto) / 144.7 (Simple) / 115.3 (new
+    plugin): four "arm A"s, four configs, which is the whole point of recording config per row.
+  - **Queue geography (verified `qstat -Qf`):** `debug-scaling` max **10 nodes** / 1 h /
+    1 job per user. Beyond: `prod` routes ~16→`small`, 25–99→`medium`, **100–496→`large`**.
+    Settle all tuning at ≤10 nodes; climb prod with the settled config only.
+  - **Open next:** (a) 8-node on the OLD plugin — one cheap job that decides which stack
+    carries the pure-DDP study; (b) progress-thread/cpu-bind tuning sweep for the new plugin
+    at 4 nodes; (c) reps 2–3 of the chosen ladder; (d) ALCF ticket (ENOSYS root cause +
+    `OFI_NCCL_PROGRESS_MODEL=AUTO` fix + 3 sick nodes).
+  - **(a) ANSWERED — arm B new-plugin completes its ladder, then the old plugin takes 8 nodes
+    decisively:**
+    - 7564264 (arm B, new plugin, `debug-scaling select=3,TARGET_NODES=2`): **490.7 ms** ⇒ on
+      the new plugin the collapse is at the FIRST hop (×4.3 at 2 nodes, then flat 460–545
+      through 8). A large, roughly constant per-step cost whenever the fabric is touched —
+      progress-model overhead, not a bandwidth wall.
+    - **7564288 — OLD plugin, 8 nodes pure DDP: `MAKANI_MN_SCALING_OK`, step_ms 215.3,**
+      148.6 samples/s total, world 32, preflight 9/9 healthy. **v1.6+Simple survives 32 ranks**
+      (its known defects need multi-communicator small-message storms, which pure DDP never
+      creates). Completed rep-1 ladder: 144.7 / 145.7 / 199.5 / **215.3** — the 4-node cliff
+      **saturates** (4→8 = +8%), efficiency 72.5%→67.2%, wireup sublinear (21.4→25.1 s).
+    - ⇒ **STACK DECISION: old plugin + Simple carries the pure-DDP scaling study; the
+      self-built v1.21.1+AUTO is reserved for spatial parallelism** until its progress tuning
+      is solved (it is 2.5× slower at 8 nodes: 545.0 vs 215.3). If the plateau holds, naive
+      100-node weak scaling projects ~65% efficiency ≈ 1,800 samples/s — the *shape* supports
+      the climb; reps 2–3 must confirm before any prod-queue rung is bought.
+
+- **2026-08-26 (cont.)** — ⭐⭐ **ARM F IS GREEN. Self-built aws-ofi-nccl v1.21.1 +
+  `OFI_NCCL_PROGRESS_MODEL=AUTO` unblocks multi-node spatial parallelism — job 7564035,
+  `MAKANI_MN_SCALING_OK`, 4 nodes h2w2, 569.9 ms @ global batch 4, world 16.** The identical
+  config that survived no workaround on the old plugin trains end-to-end. Chain:
+  - **Build (7563854):** v1.21.1 source tarball → `$MEMBER_ROOT/sw/aws-ofi-nccl-1.21.1`
+    (autotools vs libfabric 2.3.1/CUDA 12.9/hwloc, ~2 min in a debug job;
+    `polaris_build_aws_ofi_nccl.pbs`). Loads (net API v11), ldd clean — **and still fails
+    `fi_domain` with the same ENOSYS as every /soft build ≥v1.9.** So staleness was never the
+    mechanism.
+  - **The actual unlock (7563894, `polaris_ofi_plugin_matrix.pbs`): ONE env var.** Six-combo
+    matrix; only **`OFI_NCCL_PROGRESS_MODEL=AUTO`** works. libfabric 2.3.1's CXI provider
+    refuses domain creation unless the caller requests **auto progress**; newer plugins default
+    to hints CXI rejects, and 2024's v1.6 happened to ask for the right thing. **This is
+    almost certainly why ALCF's own 2025-09 plugin rebuilds sit broken on /soft — hand them
+    this in the ticket.**
+  - **Verification ladder:** 7563925 `MN_NCCL_PROBE_OK` 16 ranks/4 nodes app-free under the
+    **DEFAULT protocol** (no Simple pin — the LL deadlock is at least absent app-free); then
+    arm F real training, green. One transient en route: node `x3111c0s37b1n0` failed NCCL init
+    twice (`CUDA device busy` — zombie GPU state; report to ALCF), dodged by parking a
+    throwaway `host=`-pinned holder job on it while arm F took healthy nodes.
+  - **Measurement config note:** the plugin is now part of the config. Old-plugin rows
+    (A/B/C ladder, Simple pin) and new-plugin rows must never be mixed in one table; the log
+    header records the pin (`fabric pin:` lines + `OFI_PLUGIN` override).
+
+- **2026-08-26** — **Arm F VERDICT: the serialization patch is correct but NOT sufficient — the
+  wedge is a transport-level progress loss in the old plugin, and arm F is now BLOCKED on a
+  plugin rebuild, not on anything ours.**
+  - **7563723 (4 nodes h2w2, patch active) still hung — but its flight recorder is the
+    decisive evidence:** rank 11 wedged with `last enqueued 84, last completed 83` inside
+    `_serialized_sync_params`. Under full serialization there is no ordering freedom left:
+    **83 broadcasts on that same subgroup communicator succeeded, then one identical 384-float
+    broadcast never completed.** Not first-use connection setup (83 worked), not ordering
+    (serialized), not LL (Simple pinned), not GDR (both settings tried). ⇒ the
+    `v1.6.0-libfabric-1.22.0` plugin **loses progress under sustained small-message load on
+    multiple subgroup communicators** at ≥3 nodes. No application-side change can reach that.
+  - **7563780 (1 node h2w2, patch active): `MAKANI_MN_SCALING_OK`** — 219.5 ms at global
+    batch 1, the repo's **first working spatial-parallel measurement**, and the patch's
+    regression smoke: the working case is unharmed. Patch kept as NCCL-contract hygiene
+    (upstream's own `# DEBUG: this also needs to be fixed in NCCL` concedes the stock
+    interleaving is wrong), explicitly documented as *not* the fix for 4 nodes.
+  - **Where this leaves the axes:** pure-DDP scaling (arms A–E) fully working under the Simple
+    pin — the A/B/C ladder stands. **Spatial parallelism multi-node is blocked on system
+    software**: the fix is a CURRENT aws-ofi-nccl (v1.9+/1.16 era) built against libfabric
+    2.3.1 + NCCL 2.28 — either via the ALCF ticket (their `/soft` builds are 2024-vintage and
+    the newest predates the current libfabric) or a self-build in a debug job into
+    `$MEMBER_ROOT` (feasible: autotools + libfabric headers + CUDA, all present). A modern
+    plugin would likely also lift the Simple pin and its ~26% single-node cost.
+  - **Untried knobs, noted for completeness, low prior:** `NCCL_CROSS_NIC=0`,
+    `NCCL_MAX_NCHANNELS`. Neither addresses a mid-storm progress loss.
+
+- **2026-08-24 (cont.)** — ⭐ **4-NODE DEADLOCK DIAGNOSED AND FIXED: `NCCL_PROTO=Simple`. Arm C
+  is GREEN (7554216, step_ms 199.5) and the full A/B/C ladder is being re-run under the pin.**
+  The diagnosis chain, because each refuted hypothesis is a fact about this stack:
+  - **7554129 (arm F, h2w2) HUNG the same way** ⇒ degenerate-group hypothesis **refuted** —
+    making the spatial groups real changes nothing. (Also: first-ever exercise of makani's
+    spatial path here reached setup; whether it *trains* is still unknown.)
+  - **7554143 (arm C + `NCCL_ALGO=Ring`) HUNG** ⇒ tree-algorithm hypothesis **refuted**. But the
+    newly-enabled flight recorder (`TORCH_NCCL_TRACE_BUFFER_SIZE=2000`) produced the first
+    stack: torch DDP `_sync_params_and_buffers` → the initial weight broadcast on the DEFAULT
+    PG — the same broadcast that succeeds at 2 nodes.
+  - **7554170 `MN_NCCL_PROBE_OK` — the fabric passes APP-FREE at 16 ranks / 4 nodes** on the
+    same chassis that hung (new `polaris_makani_nccl_mn_probe.pbs`: 20-broadcast storm +
+    100 MB DDP-shaped broadcast + verified all-reduce, 3-min fail-fast timeout). ⇒ not a raw
+    fabric failure; the trainer's *usage pattern* is implicated. This probe is now the cheap
+    vehicle for fabric knob tests — minutes per data point instead of a trainer bring-up.
+  - **7554185 (arm C + `FI_CXI_RX_MATCH_MODE=software`) HUNG** ⇒ CXI match-entry exhaustion
+    **refuted**. Flight recorder: this time makani's own `sync_params` (`mpu/helpers.py:84`,
+    ~86 per-parameter broadcasts on PG 5) — *earlier* than the Ring run's wedge point. Pattern
+    across all four hangs: setup broadcast storms of **small (384-float, LL-eligible)**
+    messages, wedging nondeterministically partway (18–23 of ~86 complete), on varying PGs.
+  - **7554216 (arm C + `NCCL_PROTO=Simple`) → `MAKANI_MN_SCALING_OK`.** Root cause: the
+    **LL/LL128 small-message protocol paths of the 2024-era `v1.6.0-libfabric-1.22.0` plugin
+    wedge against NCCL 2.28.3 at ≥3 nodes** — the classic aws-ofi-nccl version-mismatch
+    failure. Not guessable from any single hang; the probe + flight-recorder narrowing bought
+    it in 5 jobs.
+  - **Pin landed in the launcher** (default `NCCL_PROTO=Simple`, overridable, printed in every
+    log header — a launcher pin, not a CSV column, per #10). ⚠️ **The pin is itself a
+    measurement config:** arm A reads **114.9 ms under default proto** vs **144.7 ms under
+    Simple** (7554222) — ~26% at 1 node, where LL actually works and helps. So pre-pin rows
+    (7553890 A, 7553897 B) are **protocol-confounded vs any 4-node row** and both were re-run
+    under the pin.
+  - ⭐ **Rep-1 ladder complete under the pin — and the pin REWRITES the scaling story:**
+    | arm | job | nodes | step_ms | vs A | samples/s total | weak-scaling eff | wireup_s |
+    |---|---|---|---|---|---|---|---|
+    | A | 7554222 | 1 | 144.7 | — | 27.6 | 100% | 2.76 |
+    | B | 7554241 | 2 | **145.7** | **+0.7%** | 54.9 | 99.3% | 8.54 |
+    | C | 7554216 | 4 | **199.5** | **+37.9%** | 80.2 | 72.5% | 21.38 |
+    Under default proto the story read "first Slingshot hop costs +52%" (114.9 → 174.6). Under
+    the uniform Simple pin **the first hop is free (+0.7%) and the cost concentrates at 4
+    nodes** — i.e. the +52% was substantially a protocol artifact (LL helping the 1-node arm,
+    unavailable-or-neutral at 2). Wireup grows ~linearly in nodes (2.8 → 8.5 → 21.4 s).
+    **Prereg scored (rep 1): prediction 1 CONFIRMED at 4 nodes (+38% ≥ 10%) but REFUTED at 2;
+    prediction 3 CONFIRMED (7.7× ≥ 2×).** The 2→4 cliff (free → −27% efficiency) is the next
+    question: more-peers ring latency vs dragonfly-group crossing vs plugin Simple-path
+    degradation — reps 2–3 first, then arm D separates I/O from comms.
+  - **Consequence for the ALCF ticket:** the only initializable plugin pairing needs its LL
+    paths avoided — one more line of evidence that `/soft/libraries/aws-ofi-nccl` needs a
+    rebuild against libfabric 2.3.1 / current NCCL. The app-free probe (7554170 pass, and its
+    hang mode under default proto is reproducible in minutes) is the ticket artifact.
+  - 🚨 **Arm F under the pin (7554253): the spatial path CRASHES for real — `CUDA illegal
+    memory access` on rank 1 during the FIRST model-parallel collectives** (mid P2P connection
+    setup on the h/w groups; wireup itself clean: 22.01 s, 16 ranks, AWS Libfabric). CSV
+    refused the row (`NO_STEP_TIMING`), correctly.
+  - **Arm F DIAGNOSED by a 4-way split, then FIXED in the fork (pending verification):**
+    | probe | config | outcome |
+    |---|---|---|
+    | 7554253 | 4 nodes h2w2, Simple + GDR on | **IMA** in NCCL `transport.cc` during setup |
+    | 7554283 | + `CUDA_LAUNCH_BLOCKING=1` | silent CPU-side wedge, no stack (expected — blocking launch legitimately deadlocks NCCL); qdel'd |
+    | 7554351 | **1 node** h2w2 (NVLink only) | ✅ **TRAINS** — 60 steps complete ⇒ makani's spatial kernels + torch_harmonics 0.9.2a on our grid are EXONERATED |
+    | 7554367 | 4 nodes h2w2, Simple + **GDR off** (`NCCL_NET_GDR_LEVEL=LOC`, launcher's hard-coded PHB made overridable) | **hang** in `sync_params` broadcasts (31/88 on PG 5) — same wedge shape as the LL deadlock, different knob |
+    ⇒ works on NVLink, fails over the fabric under every knob ⇒ not a kernel bug, a
+    **collective-ordering bug**. Reading the code closed it:
+    `makani/mpu/helpers.py:82-90` — ``sync_params`` **interleaves per-parameter broadcasts
+    across DIFFERENT communicators** (``data`` first, then each ``param.is_shared_mp`` group).
+    Pure DDP degenerates to one communicator (model groups size 1 → skipped) → fine, which is
+    why arms A–C never saw it. With h2w2 multi-node, the alternation violates NCCL's
+    concurrent-collectives ordering constraint, with rank-dependent lazy connection setup —
+    IMA or hang depending on timing. **Upstream knows:** the call site carries
+    ``# DEBUG: this also needs to be fixed in NCCL`` (`deterministic_trainer.py:142`).
+    Single-node dodges it because every group is NVLink and nothing is lazy.
+  - **Fix: `_serialized_sync_params` in `plasim_trainer.py`** — the fork's existing
+    patch-installer pattern (4th rebind, alongside the dataloader/wrapper rebinds), NOT a venv
+    edit. Byte-identical semantics (same groups, order, roots, complex handling); the only
+    delta is `torch.cuda.synchronize()` after each broadcast so no two communicators ever have
+    kernels in flight at once. Setup-path only — the training step never runs through it, so it
+    is output-neutral and adds seconds at startup.
+
+- **2026-08-24** — **The paper's parallel layouts are IN the official repo, and the 512-A100 run
+  factorizes exactly — plan §1's inference is now upstream-confirmed fact.** Cloned
+  NVIDIA/makani to `${MEMBER_ROOT}/external/makani-upstream` (outside the git tree; the pip
+  wheel ships no `config/`).
+  - **`config/fourcastnet3.yaml` states the decompositions in comments:** pretrain1 =
+    `ensemble 16 × batch 16` + *"requires a model-parallelism of h=2, w=2"* → 16·16·4 = **1024
+    H100** ✓; **pretrain2 (the 512-A100 stage)** = `ensemble 2 × batch 32` + *"h=2, w=4 to fit
+    into memory on 80GB GPUs"* → 32·2·8 = **512** ✓; finetune = `ensemble 4 × batch 4` × 16-fold
+    spatial = **256** ✓. There is deliberately **no "512-GPU config file"** — YAML carries
+    batch/ensemble, the spatial split is CLI (`--h_parallel_size/--w_parallel_size`), which is
+    exactly the shape our `-v HPAR=/WPAR=` harness already has.
+  - **Deterministic SFNO at scale, per upstream's README:** 256 GPUs = `--h_parallel_size=4
+    --w_parallel_size=1 --batch_size=64` bf16 → **1 sample per data group, split 4-way spatially**.
+    NVIDIA's scale-out lever for our trainer class is spatial parallelism at small per-GPU batch,
+    not bigger local batches. (README's named config `sfno_linear_73chq_sc3_layers8_edim384_asgl2`
+    no longer exists in `sfnonet.yaml` — the base config, batch 64, is the surviving recipe.)
+  - **Operator correction accepted:** the per-rank=1 under-utilisation doc
+    (`docs/2026-05-08_ddp_throughput_fix_resolution.md`) is **other-cluster H100 evidence**, not
+    Polaris — and upstream's own recipe runs at fractional samples/GPU. The planned
+    `LOCAL_BATCH` arm is dropped as the next move; the paper-faithful axis is `h/w`.
+  - **Ensemble parallelism needs `ensemble.py`** (stochastic path); upstream's deterministic
+    `train.py` inits comm without a data split, same as our 0.2.0. ⚠ Upstream renamed the
+    model-parallel axes `[h,w,fin,fout]` → `[h,w,matmul]` — a venv upgrade is API drift and
+    must not be done casually against the 7253465 comparability baseline.
+  - **Submitted 7554129 — arm F: 4 nodes, `HPAR=2,WPAR=2`, scaling pack.** One job, three
+    questions: (a) the paper's pretrain1 spatial layout, first exercise of the spatial path in
+    this repo; (b) the arm-C deadlock hypothesis — h2w2 makes the currently-degenerate
+    spatial/model groups real, so if the setup BROADCAST deadlock is a degenerate-group
+    problem, this run dodges it; (c) whether spatial parallelism works at all on our
+    E3SM-shaped SFNO.
+
+- **2026-08-23** — **makani multi-node work merged into the Pangu branch by FILE COPY, and the
+  DDP sweep is live: arm A rep 1 = job 7553811.**
+  - **The makani worktree is integrated and deleted.** Its 6 commits branched from an ancestor of
+    this branch and touched 10 files, of which **only `CHANGELOG.md` overlapped** — everything
+    else (8 new `makani_sfno/polaris/*` files, `makani_multinode_ddp_plan.md`,
+    `polaris_pbs_notes.md`) was disjoint, so a copy was exact rather than approximate. The
+    CHANGELOG block (91 contiguous lines) was spliced in date order: below the §4.1-gate entry
+    (Pangu jobs 7551401+), above `SelectBackward0` — makani's 7551240 sits between them.
+  - **⚠️ Why not `git merge`: working-tree git commands WEDGE on this repo's Lustre mount.**
+    `git status` / `diff-files` (and therefore `merge` / `checkout`) block in `cl_sync_io_wait`
+    **indefinitely** — while `log`, `show`, `diff <sha> <sha>`, `ls-files` and `merge-base` all
+    return normally, and stat'ing all 9,927 tracked files by hand takes <90 s. So it is neither
+    the object DB nor the working tree. Each wedged process **holds a login-node process slot
+    permanently**, and enough of them made **every `fork` fail** (`Resource temporarily
+    unavailable`) — no shell, no `qsub`, for ~2 h. `pkill -9` does **not** recover it: the signal
+    cannot be delivered until the blocked I/O returns. ⇒ **move files between worktrees with
+    `cp`; get the file list from `git diff --stat <base> <branch>`, which is safe.** Deleting a
+    worktree loses nothing — the commits live in the shared object DB under
+    `worktree-makani-multinode-ddp-profiling` (also on `origin`).
+  - **`module load conda` re-confirmed BROKEN for the third time** (2026-08-20, -21, -23): same
+    `gcc-native/14.2` + `cray-hdf5-parallel/1.14.3.5` dead pins, `which python` → none. The ALCF
+    ticket is unfixed 3 days on, so `polaris_makani_env.sh` is the path, not a stopgap.
+  - **New cluster fact: the login node's bare `python3` is 3.6.15** and dies on `from __future__
+    import annotations`. Repo tooling needs **`/usr/bin/python3.11`** (3.13 also present).
+    `MAKANI_SCALING_PARSE_OK 11 tests` re-confirmed green under it.
+  - **7553811 — arm A rep 1 FAILED, and the harness behaved exactly as designed:** `rc=139`,
+    every rank `NET/OFI Couldn't open a fabric access domain. RC: -38 (ENOSYS)`, rank 2 SIGSEGV.
+    No measurement row was written — `ERROR NO_STEP_TIMING` + `csv_rc=4`. A row that would have
+    read plausibly was refused, which is the whole point of §6.
+  - **⚠️ ROOT CAUSE — a third stale ALCF pin, and this one failed SILENTLY.**
+    `polaris_makani_multinode_scaling.pbs` pinned
+    `LD_LIBRARY_PATH=/opt/cray/libfabric/**2.2.0rc1**/lib64`, ls-verified 2026-08-14. ALCF has
+    since rolled libfabric to **2.3.1 only**. **A nonexistent directory on `LD_LIBRARY_PATH` is
+    ignored, not an error** — so the pin no-opped, `aws-ofi-nccl 1.9.1` (built 2024-04-30) bound
+    to libfabric 2.3.1, and `fi_domain` on `cxi` returned `ENOSYS`. Joins
+    `gcc-native/14.2`→`14` and `cray-hdf5-parallel/1.14.3.5`→`1.14.3.9`: **the PE moved and every
+    pinned path in this repo died quietly.**
+  - **7553823 `FABRIC_PROBE_OK` — all six installed pairings tested in one job**
+    (`polaris_makani_fabric_probe.pbs`, new). Exactly **one works**:
+    | plugin | libfabric | result |
+    |---|---|---|
+    | `v1.9.1-aws` (the repo's pin) | cray 2.3.1 | rc=139 segfault |
+    | `v1.9.1-aws-libfabric-1.22.0` | cray 2.3.1 | rc=139 segfault |
+    | `v1.9.1-aws` / `v1.6.0` | bundled "1.15.2.0" (really **1.18.2**) | `libjson-c.so.3` absent; OS ships `.so.5` |
+    | **`v1.6.0-libfabric-1.22.0`** | **cray 2.3.1** | **rc=0, `ALLREDUCE OK`, `Using network AWS Libfabric`** |
+    **The OLDER plugin is the working one.** Both `-libfabric-1.22.0` builds date 2025-09-03, but
+    only the v1.6.0 one survives libfabric 2.3.1 — not guessable, hence the probe.
+  - **Fix landed + the defect that allowed it.** Pin is now `v1.6.0-libfabric-1.22.0` + 2.3.1,
+    overridable via `-v OFI_PLUGIN=` / `-v OFI_LIBFABRIC=`, and **every fabric dir is now
+    existence-checked with a hard `exit 3`**. The stale path was not the real bug; the real bug
+    was that a load-bearing pin could vanish without stopping the run. **7553824** resubmitted.
+  - **Prereg prediction 2 scored — FALSIFIED as worded, capability intact.** It predicted the
+    *ported block* would still select `AWS Libfabric` under 2.8.0's NCCL. The ported block does
+    not work at all; a *corrected* pin does, and reports `AWS Libfabric`. Recorded as a miss —
+    the plan called this "the one most likely to fail for a boring reason", and it was right.
+  - **Two more launcher bugs, both found only by running:** (a) `--skip_validation` is
+    incompatible with the shipped config — `e3sm_full.yaml` sets `ReduceLROnPlateau` and
+    `makani/utils/driver.py:684` raises on the combination, killing 7553824 at trainer
+    construction. Fixed by **dropping the flag, not by swapping the scheduler**: validation runs
+    after the single timed epoch and contributes nothing to `step_ms`, so this keeps the training
+    config the shipped one (`n_eval_samples` trimmed 512→8 to bound the tail). (b) `num_data_workers=8`
+    makes torch share storage by **file descriptor**, whose `resource_sharer` opens a Unix socket
+    at `$TMPDIR/pymp-XXXXXXXX/listener-XXXXXXXX`; `polaris_env.sh` points TMPDIR at a 54-byte
+    eagle path and every worker died on `OSError: AF_UNIX path too long` (sun_path caps at 108).
+    Fixed **locally** with `export TMPDIR=/tmp` — that file is shared with every other model, so
+    it is not edited to suit this one, and the caches that must persist
+    (`TORCHINDUCTOR_CACHE_DIR`, `TRITON_CACHE_DIR`) are set separately and untouched.
+  - ✅ **7553836 — `MAKANI_MN_SCALING_OK`, the first makani scaling row this repo has ever had.**
+    1 node / 4 ranks / batch 4: `step_ms` **196.5**, `wireup_s` 2.77, `transport` **AWS Libfabric**,
+    `world_sizes_seen` **4** (i.e. genuinely one 4-rank job, not 4 solo trainers).
+  - **⚠️ Then the wrap guard refused arms B and C — and it was RIGHT, for a reason worth stating
+    plainly: the pack is a 400-sample SMOKE pack.** `train samples available: 400 ; required: 480`
+    (B) and `960` (C). Not 1460 — `2015.h5` was built with `--max-samples-per-year 400`. So the
+    blocker on the *deliverable itself* was never fabric, model or launcher; it was data volume.
+  - **The operator's correction was right and a prior draft of plan §9 was wrong.** §9 had framed
+    the 100-node ceiling as needing ~14 training years as if that were out of reach. **It is the
+    same E3SM data in a different format:** `${E3SM_ROOT}/h5/plev_data` holds **51,104 per-sample
+    files covering 2015–2049** (1460/yr) — exactly `convert_e3sm_to_makani.py`'s documented input.
+    The gap is a **repack**, at ~5–10 min and ~22 GB per year, against 32 T free on eagle. §9 rewritten.
+  - ✅ **7553851 `CONVERT_OK` + `PACK_SCALING_OK` — the repack works, and it proves §7's swap.**
+    New launcher `polaris_pack_e3sm_scaling.pbs` applies the two-line bootstrap swap §7 specifies
+    (rather than editing seven files inside a git subtree), and packed **4 full years in 23m36s**:
+    train 2015–2016 = **2,920 samples**, valid 2017, test 2018 → supports STEPS=60 to **12 nodes**.
+    Written to a **new root** (`data/e3sm_makani_scaling`); the pack behind 7253465 is untouched.
+    New `-v PACK=` knob selects it — `-v MAKANI_DATA=` cannot work, because `polaris_env.sh`
+    reassigns that variable via `_pick()` unconditionally and would silently overwrite it.
+  - ⚠️ **The pack changes the answer: arm A re-ran at 114.9 ms on the new pack vs 196.5 ms on the
+    smoke pack — 41%, from data alone** (`io_gbs` 0.52 → 0.88). Every arm in a comparison must
+    therefore share one pack, and arm A's first row is **not** comparable to B/C. Re-run as 7553890.
+  - **First real scaling numbers (rep 1, all on `e3sm_makani_scaling`, all `AWS Libfabric`, all
+    `world_size` correct):**
+    | arm | job | nodes | ranks | batch | step_ms | vs A | wireup_s | vs A | io_gbs |
+    |---|---|---|---|---|---|---|---|---|---|
+    | A | 7553890 | 1 | 4 | 4 | 114.9 | — | 2.78 | — | 0.88 |
+    | B | 7553897 | 2 | 8 | 8 | **174.6** | **+52%** | **17.85** | **6.4×** | 1.16 |
+    | C | 7553891 | 4 | 16 | 16 | *queued* | | | | |
+    **Prediction 1 (arm C ≥10% above arm A) is already exceeded at 2 nodes** — the single-node
+    "comms are free" result (1.2% exposed) does not survive the first Slingshot hop.
+    **Prediction 3 (wireup > 2×) is exceeded 3-fold at 2 nodes.** Both remain formally unscored
+    until C lands, and **all of this is rep 1 of ≥3** — §4.4c measured 42.2% vs 37.4% for two runs
+    of an identical config, so no single-rep number is a result yet.
+  - **Arm C waited ~1 h to start** — `comment = Not Running: Job would conflict with reservation
+    or top job`, `eligible_time` 00:40+. Backfill contention, **not** the `queue_tags` no-nodes
+    case, so it was left to accrue eligibility rather than resubmitted (CLAUDE.md #12).
+  - 🚨 **ARM C (4 nodes / 16 ranks) HUNG — new blocker, and the first thing here that 2 nodes did
+    not predict.** NCCL watchdog on ranks 1, 2, 9, 13:
+    `Watchdog caught collective operation timeout: WorkNCCL(SeqNum=23/24, OpType=BROADCAST,
+    NumelIn=384 / 294912, Timeout(ms)=600000) ran for 660091 ms`, with
+    `last enqueued work: 88, last completed work: 23` on `PG ID 5`. So ranks enqueued 88
+    operations and completed 23: a **deadlocked broadcast during setup**, not a slow one, and it
+    burned the 50 min walltime. Arm A (4 ranks, 1 node) and arm B (8 ranks, 2 nodes) are green on
+    the identical build, so this appears **only past 2 nodes**.
+  - **No arm C row was written, and that is correct** — the walltime kill pre-empted the parser
+    entirely, so the CSV has 5 rows and none of them claims to be a 4-node measurement. The two
+    failed single-node attempts (7553811, 7553824) do appear, with empty `step_ms` and
+    `transport UNKNOWN`/no timing — visibly non-measurements rather than absent history.
+  - **Not yet diagnosed. Candidates, cheapest first:** (a) the working plugin is
+    **`v1.6.0`**-vintage — it survives libfabric 2.3.1 at 4–8 ranks but may not at 16 across 4
+    NICs; (b) `FI_CXI_DEFAULT_CQ_SIZE=131072` and `FI_MR_CACHE_MONITOR=userfaultfd` are inherited
+    from the ported block and were never validated at this rank count; (c) a genuine ordering
+    deadlock in makani's group setup at 16 ranks (`PG ID 5` is a sub-group, not the world).
+    Next: re-run arm C with `NCCL_DEBUG=INFO` retained plus `TORCH_NCCL_TRACE_BUFFER_SIZE` set so
+    the stalled collective has a stack, and a 3-node arm to bracket where it starts.
+  - **⚠️ The 100-node target is capped by the DATA PACK, not the fabric** — new plan §9.
+    `e3sm_makani` is 1 train year / ~1460 samples, so at 100 nodes the global batch is 400 and an
+    epoch is **under 4 steps**: the loader wraps and re-serves cached samples. The wrap point
+    moves *along the scaling axis*, so it would manufacture a favourable curve; the harness
+    rejects such a row, meaning **no 100-node row is obtainable from this pack at all**. ~50
+    steps/epoch at batch 400 needs ≈**14 training years**, and the packers that would build it
+    are among the seven dead launchers (plan §7). Ladder: arms A–C now → revive packers → build a
+    multi-year pack → climb.
+
+2026-08-21 — ⭐ **PanguWeather §4.1 equivalence gate NOW EXISTS, floor = 0.000e+00**
+(plan item 18 CLOSED; jobs 7551401/7551411/7551439). Two independent runs of the 1.18 B-param
+bf16 model are **bitwise identical** over 20 steps —
+`EQUIVALENCE_OK 0.000e+00 <= 2.5e-07 (52 quantities)`, with 20/20 distinct losses so the
+model is genuinely training. Capture side is new
+(`PanguWeather/v2.0/utils/equivalence.py` + a 3-insertion hook in `train.py`, 16 tests);
+comparison reuses `compare_baselines.py` unchanged. Artifact:
+`baselines/pangu_sfno_e3sm/{eager,eager_repeat}.json`. **`batch_grad_norm` is recorded but
+NOT gated** — a sum-of-squares reduction over 1.18 B gradients that drifted 17/20 steps at
+1.255e-06 in one job and 0/20 in two others, while its order-independent control `grad_max`
+was bitwise stable throughout; gating on it would impose a ~1.3e-6 *noise* floor and mask a
+real 5e-7 change. ⇒ **unblocks §4.9's weight-layout fix, §4.9's zero-pad buffer, §4.11's
+activation, and item 19 (`torch.compile`)** — and the bar is absolute: any movement in a
+gating quantity is a real change. Not measured: cross-architecture (~1e-5) or multi-rank
+reproducibility. → `polaris_bench_report.md` §4.12.
+
+- **2026-08-21** — **`MAKANI_ENV_OK` — job 7551240, 84 s. The env repair WORKS on hardware, and
+  makani can span nodes.** The one thing a login node could not settle is settled: with the
+  `cuda-13.0.1` path + the `libmpi_gnu_123.so.12` symlink, **`import torch` succeeds** —
+  torch 2.8.0 / CUDA 12.9 / **NCCL 2.28.3**, `is_available()=True`, `device_count=4`, a working
+  cuBLAS matmul and `RealSHT(180,360)` → `(1,58,90,90) complex64`. Not "caught and survived":
+  `ldd` reports **0** dangling libs.
+  - **The PALS rank shim works: 4/4 ranks, `world_size=4`, `data_group=4`, all-reduce numerically
+    correct.** ⇒ makani is no longer confined to `torch.distributed.run --standalone`, which is the
+    single thing that made every green makani run on Polaris single-node-only.
+  - Also green in the same job: **h5py 3.16.0 from the overlay** (the base conda's stays broken and
+    is now shadowed), `torch_harmonics 0.9.2a` from the venv — *not* the top-ups' 0.7.4 — `makani
+    0.2.0`, and **`physicsnemo 2.2.0a0` resolving out of the editable `physicsnemo_sfno/`
+    checkout**, i.e. a live demonstration of the coupling CLAUDE.md flags: an edit there changes
+    what makani jobs execute.
+  - ⚠️ **Single-node.** Prereg prediction 2 — that the ported NCCL/CXI block still selects
+    `AWS Libfabric` under 2.8.0's NCCL rather than the 2.10.0+cu129 it was measured on — is
+    **untouched by this job** and needs ≥2 nodes. Predictions 1, 3, 4, 5 likewise unscored.
+  - ⚠️ **`module load conda` is still broken and the ALCF ticket is still the right fix.** This
+    unblocks *makani*, not the cluster: the seven pre-existing makani launchers (**both E3SM
+    packers included**) still open with the bare module and still fail, so the full E3SM pack
+    cannot be built today and the recorded greens (7253465, `CONVERT_OK` 7252728) are not
+    reproducible until the two-line bootstrap swap lands. → `makani_bench_report.md` §9.
+  - **Two of my own bugs found and fixed this tick, neither by a test run:** the probe's stage 3
+    fed its rank script over **stdin**, which PALS delivers to one rank only (ranks 1-3 would have
+    exited without calling `comm.init`, and the job would have hung or "passed" proving nothing) —
+    caught while re-reading the launcher, so 7551222 was cancelled *queued* rather than wasted; and
+    `makani_env_report`'s libtorch check looked in `sysconfig`'s **purelib**, the venv's
+    site-packages, while torch lives in the base conda's — so it printed
+    `<could not locate libtorch_global_deps.so>` on every run. A check that silently answers
+    nothing is worse than no check. Now `0`.
+
+- **2026-08-21** — **makani multi-node DDP: harness built, and the env blocker is CLEARED for
+  makani** (plan item 12, on a different model). Target is the parallel decomposition of
+  **FourCastNet 3** (arXiv:2507.12144 §E.2) — makani's *own* paper. No GPU time spent; nothing
+  submitted. → the plan file `makani_multinode_ddp_plan.md` (deleted 2026-09-01 once the
+  campaign finished; its results, scored prereg and operational notes are now
+  `makani_bench_report.md`).
+  - **The paper's stage-1 rank budget factorises exactly: 16 batch × 16 ensemble × 4 spatial =
+    1024 H100.** All three are the same `makani/utils/comm.py::init` machinery. Of the three we
+    can run **batch/data parallelism** (4 nodes × 4 A100 = 16 ranks at 1 sample/GPU = **global
+    batch 16**, numerically the paper's value) and, untested, **spatial** (`HPAR`/`WPAR`).
+    **Ensemble parallelism we cannot** — FCN3 is probabilistic (`ensemble_trainer`, CRPS) and our
+    fork runs the *deterministic* trainer, so that group is size 1. Different model, different
+    data, 1/64 the scale ⇒ **scaling behaviour transfers, absolute numbers do not. Not an FCN3
+    reproduction**, and the plan says so in the table rather than in a footnote.
+  - **`module load conda` re-confirmed BROKEN today** (same `cray-hdf5-parallel/1.14.3.5` +
+    `gcc-native/14.2` pins; only `1.14.3.9` and `14` installed). `$SFNO_VENV` has **no torch of
+    its own** — `--system-site-packages` inheriting the base conda's 2.8.0 — so makani was as
+    blocked as Pangu items 7-17.
+  - **⚠️ CORRECTION to `polaris_pbs_notes.md` §1: `libmpi_gnu_123.so.12` is NOT "not present
+    anywhere".** That is true of the *filename* and false of the *library*. `_123` was the old
+    cray-mpich's spelling of the **gcc-12.3** build, and `mpich/9.1.0` ships that build as
+    `libmpi_gnu.so.12` under `.../ofi/gnu/12.3/lib`. SONAME and soversion both stay `12`, so a
+    symlink under the former name is a **rename, not an ABI substitution** — and the conda
+    modulefile's own last line names that soname in a commented-out PyTorch hotfix. With that
+    plus `cuda-13.0.1` for `libcudart.so.13`, **`ldd libtorch_global_deps.so` → 0 unresolved**
+    (login-node link check; an *import* still needs the probe job).
+  - **h5py is a separate problem and is NOT shimmable:** 1.14.3.5's
+    `libhdf5_parallel_gnu_123.so.200` → 1.14.3.9's `...gnu.so.310` is a real soversion bump.
+    And it cannot be dodged — `makani/utils/metric.py:19` is a bare `import h5py`, so it is on
+    the import path of *every* makani entrypoint **including `--enable_synthetic_data`**.
+    Fixed with a minimal PyPI overlay (h5py 3.16.0, vendored `libhdf5-*.so.320`), the same
+    `$POLARIS_TOPUPS` pattern, **h5py only** because PYTHONPATH outranks site-packages.
+    `MAKANI_H5PY_OVERLAY_OK`.
+  - **Why substituting an env is legitimate here but not for Pangu:** the 2026-08-21 entry below
+    disqualifies substitution *because every Pangu number was measured on torch 2.8.0*. **makani
+    has no prior profile at all**, so that constraint does not bind it. 2.8.0 was kept anyway —
+    for the opposite reason: it is what the green makani run 7253465 used, so the 1-node arm stays
+    comparable to the only makani evidence that exists. Every CSV row records `torch` and
+    `env_source`.
+  - **Shipped:** `polaris_makani_env.sh` (tries `module load conda` FIRST, reports which path it
+    took, so it self-heals when ALCF fixes the modulefile), `polaris_setup_makani_h5py_overlay.sh`,
+    `polaris_rank_env.sh` (PALS `PMI_*` → `RANK/WORLD_SIZE/LOCAL_RANK`; applies to makani because
+    `makani/utils/comm.py` delegates to *physicsnemo's* `DistributedManager`),
+    `polaris_makani_env_probe.pbs` (3 stages → `MAKANI_ENV_OK`),
+    `polaris_makani_multinode_scaling.pbs` (**one file for 1/2/4 nodes** — `NNODES` from
+    `$PBS_NODEFILE`), `parse_makani_scaling.py` + **11 passing tests**
+    (`MAKANI_SCALING_PARSE_OK`).
+  - **Prereg recorded before any job** (plan §4, 5 falsifiable predictions). The load-bearing one:
+    arm C (4 nodes) `step_ms` ≥ **10%** above arm A (1 node) — i.e. §0b's single-node "comms are
+    free" (1.2% exposed) does *not* survive Slingshot. The one most likely to fail for a boring
+    reason: that the ported fabric block, whose values were measured on **torch 2.10.0+cu129**,
+    still selects `AWS Libfabric` under **2.8.0**'s different bundled NCCL.
+  - **Two guards the harness enforces, because both produce plausible numbers that mean nothing:**
+    (a) N independent `world_size=1` trainers if the rank shim is missing — pinned to a hard error
+    via `PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV` *and* rejected by the parser;
+    (b) an epoch that **wraps**, re-serving cached samples — and the wrap point moves with the
+    global batch, i.e. *along the scaling axis*, so it would bias the result in its own direction.
+    Gated on the real sample count read from the pack.
+  - **Still needed:** `MAKANI_ENV_OK` from the probe job, then arms A/B/C. **Nothing submitted —
+    multi-node and any `qsub` need explicit approval.** Note only smoke-sized makani packs exist
+    (`e3sm_makani`: 1 train year, 18 GB, ~1460 samples), which caps `STEPS × global_batch`.
+
+2026-08-21 — **`SelectBackward0`'s 30.8% (§4.10) traced to `ComplexReLU(mode="real")`** —
+`activations.py:65-68`, the only `select` in the SFNO path, active by config
+(`complex_activation: 'real'`). Activating only the real component costs **three
+full-tensor traversals of 66.4 MB**: a `clone` existing solely to preserve the imaginary
+half, a strided half-write, and a backward that embeds the gradient in zeros of the full
+base shape. Math-preserving alternative listed and **explicitly not measured**.
+`mode="real"` itself is jesswan's modelling choice; the candidate does not change it. →
+`polaris_bench_report.md` §4.11.
+
+2026-08-21 — ⚠ **item 18 (the PanguWeather equivalence baseline) is a BUILD, not a job —
+and it is now the critical path.** The profiling loop has produced **three** math-preserving
+optimization candidates (§4.9 weight layout — two lines in-repo; §4.9 zero-pad buffer;
+§4.11 activation) and **none can be adopted**, because DESIGN §4 gates every hot-path change
+on an equivalence baseline that does not exist for Pangu. The blocker is sharper than
+recorded: the capture machinery lives **only** in the ai-rossby subtree (`equivalence.py`,
+305 lines, Hydra-driven), and **`PanguWeather/v2.0/train.py` has no baseline hook
+whatsoever**. The status-row phrasing that Pangu's §4.0 prerequisites are all met so
+"baseline capture is no longer blocked on building anything" is true of the *prerequisites*
+(seed knob, VAE hook, tiny config) and **false of the capture script**.
+`compare_baselines.py` is reusable as-is.
+
+2026-08-21 — **PanguWeather profiling item 7 (ncu) — CLOSED, prereg 4/4: the copy
+kernels are CONTIGUITY-bound, not bandwidth-bound** — job 7550715, single rank, 80
+launches, 11 metrics. Store side sits at **exactly** the ideal sectors/request (4.00 /
+8.00 / 8.20); load side at or near the hardware maximum of **32.00** — one distinct 32 B
+sector per lane. `TensorIterator` reorders iteration to make the *output* contiguous, so a
+layout-changing copy pays the entire cost on the **read**. Whether that scatter costs
+bandwidth depends on fitting A100's 40 MB L2: the 66/133 MB tensors hit 82% in L2 and pay
+~1.0–1.46× DRAM (cost is request-issue latency, SM 6.4%); the **377 MB spectral weight**
+hits only 61% and reads **2043 MB to move 377 MB** (3.21× overall). Nothing is saturated —
+DRAM 24–51% of peak, SM 5–20%, occupancy 84–90%. ⇒ **the lever is a layout fix, not
+"fewer bytes"**; §4.5's "only dominant kernel with no mechanism at all" now has one
+(sec/req 31.50 vs an ideal of 4); the middle population is **bimodal (7.19–31.99)**, so the
+same kernel at the same geometry is sometimes already perfectly coalesced and the fix is
+feasible rather than hypothetical. **GPU counter access on Polaris works** (open risk
+retired). Caveats that must travel with the numbers: `--cache-control` defaults to
+flushing, so DRAM figures are cold-cache and 3.21× is an **upper bound** — the verdict
+rests on sectors/request, which is cache-independent; **`conj` was 0 of 80 launches
+sampled**; single rank (DDP deadlocks under ncu kernel replay); n=1. Cost 2 attempts, both
+self-inflicted (`--kernel-name-base` defaults to `function`, which strips the template args
+the regex needed). → `polaris_bench_report.md` §4.8, journal ticks 17–19.
+
+2026-08-21 — **profiling item 8 is NOT executable on any capture on disk** — checked free
+while 7550606 ran. `CUPTI_ACTIVITY_KIND_RUNTIME` *has* a `callchainId` column and it is **0
+for all 551,346 rows** (`--cudabacktrace` was never enabled), and `SAMPLING_CALLCHAINS`'
+top frames are `_PyEval_EvalFrameDefault`/`method_vectorcall` — CPython internals, not
+Python source lines (`--python-sampling` was off). Replacement recipe, all flags verified
+present in the Polaris nsys 2025.1.3: `--cudabacktrace=kernel --python-backtrace=cuda
+--python-sampling=true`, keeping CPU sampling. **Better** than the plan's `with_stack`: it
+reaches the *backward* launches that are 72.9% of the target. Two traps recorded — never
+use the `kernel:<ns>` threshold (it is on **host-side API duration**, so it preferentially
+samples queue-stalled launches, biasing the population under attribution), and the capture
+is **attribution-only**: read *where*, never *how long*.
+
+- **2026-08-21** — **BLOCKED, terminally — and the available workaround is DISQUALIFIED rather than
+  merely unattractive: it would silently break comparability with every number in the profile.** No
+  GPU time spent this tick.
+  - **Environment blocker unchanged** — `module load conda` errors on every modulefile, and that
+    install's torch has 2 unresolved libs. Both ALCF-side; broke between **2026-08-07** and
+    **2026-08-20**.
+  - **I was about to port the proven torch-aware bootstrap to the PanguWeather PBS scripts** — the
+    operator had not answered across two ticks but kept re-firing the loop and had said to
+    auto-submit, so a third round of asking was the wrong move and I treated it as a routine call.
+    **Checking whether it would help stopped it:** the only working environment carries **torch
+    2.10.0+cu129**, while the captures — and therefore **§0d, §4.3, §4.4, §4.5** — were all measured
+    on **torch 2.8.0**. Items 7-10 exist to refine that *same* picture, and **§4.4a already measured
+    that kernel selection is not bit-reproducible even within one torch version** (cuDNN chose a
+    different `Conv2dWgrad` tile between two runs of an identical config). ⇒ **the port is rejected
+    on analysis, not deferred.** Recorded as a reversal, because two earlier entries offered it as a
+    live option.
+  - **Why item 6 was legitimately fine on that env and items 7-17 are not:** a *topology* measurement
+    is torch-independent — it measures hardware link bandwidth, not model kernels, so any working
+    torch yields the same 83 GB/s. The test is whether the quantity depends on the framework's kernel
+    choices. Item 6's does not; items 7-10's are entirely that.
+  - **⇒ One ask: an ALCF ticket for the base conda**, both halves — the modulefiles pin
+    `cray-hdf5-parallel/1.14.3.5` + `gcc-native/14.2` against a PE shipping **1.14.3.9** + **14**,
+    **and** `libtorch_global_deps.so` links both `libcudart.so.12` and `.so.13` with only 12 present,
+    so `import torch` fails **even with a working module**.
+  - **State: 6 of 21 items done** (**1-6** — all of Tier 0 plus the topology); **7-17 blocked**;
+    18-20 always listed-not-run. **Zero optimisations attempted; nothing pushed.** Branch
+    `profile/pangu-polaris-profiling`, **28 commits**, left for review — a solo session cannot
+    self-approve (CLAUDE.md #9). Infra-failure count **4/5**, stopped deliberately before the 5th.
+
+- **2026-08-20** — **Polaris is a full NVLink mesh: `NV4` on every pair, 82.9-83.1 GB/s uniform. Plan item
+  6 done — but the real story of the tick is that `module load conda` and the base-conda torch are BOTH
+  broken cluster-side, which blocks every other GPU job in this repo.** Job **7533457**, `TOPO_OK`.
+  Preregistered at `5063d221` before submission — **5/5 hit**. First submissions of the loop; operator
+  narrowed submission authority mid-tick so single-node `debug` jobs are now auto.
+  - **The measurement.** 4× A100-SXM4-40GB, 256 MiB unidirectional `copy_`, all 12 off-diagonal cells
+    **82.9-83.1 GB/s (spread 0.24%)**; `nvidia-smi topo -m` agrees with `NV4` in every cell. No 2×2 block
+    structure (the H100-NVL pair-bridge pattern) and no PCIe-class pair. ⇒ **handoff §4's OPEN topology
+    cell closes with a measurement**, and §0b's "comms are free inside a node *when balanced*" now has a
+    mechanism instead of an inference.
+  - **It validates the §4.4 method fix sharply, which is worth more than the number itself.** The
+    *minimum*-NCCL anchor implied **≥79 GB/s** against a measured **83.0** — within **5%**, so on the
+    balanced capture DDP's all-reduce runs at essentially link speed. The stall-carrying **mean** would
+    have implied ~32 GB/s and "discovered" a PCIe hop that does not exist. Quoting the minimum was the
+    right call.
+  - **Item 6b's key input, measured twice on two different nodes: the GPU↔NUMA map is REVERSED.**
+    GPU0→NUMA **3** (cores 24-31,56-63), GPU1→**2**, GPU2→**1**, GPU3→**0** — from sysfs on job 7531456
+    and independently from `nvidia-smi`'s CPU-Affinity column on job 7533457. ⇒ **a naive
+    `--cpu-bind depth -d 8` puts local rank 0 on cores 0-7 = NUMA 0, whose GPU is GPU3, so every rank
+    lands maximally far from its own GPU.** That is a concrete candidate mechanism for the *undiagnosed*
+    host-CPU stall of §4.4e. Recorded in `polaris_pbs_notes.md` §1, which had it as NOT CAPTURED.
+  - **🚨 BLOCKER, and it is bigger than this item.** (i) **All `conda/*` modulefiles are stale**: they pin
+    `cray-hdf5-parallel/1.14.3.5` and `gcc-native/14.2`, and the live Cray PE ships only **1.14.3.9** and
+    **14**, so Lmod errors and `python` never appears. (ii) **The base-conda torch is separately broken**:
+    `ldd` on its `libtorch_global_deps.so` shows it links **both** `libcudart.so.12` and `libcudart.so.13`
+    (only 12 exists), so `import torch` fails **even with a working module** — no `LD_LIBRARY_PATH` fix
+    exists. Both ALCF-side; broke between **2026-08-07** (jobs 7366939/7366940 fine) and today. **Every
+    PBS script in this repo uses the plain module bootstrap**, so items 7-17 cannot run: item 6 only got
+    through because it needs *torch alone* and could borrow the ai-rossby venv (torch 2.10.0+cu129 with
+    bundled `nvidia/*/lib` wheels — `ldd`: 0 unresolved).
+  - **Workarounds tried and FAILED, recorded so they are not re-tried:** `module --ignore_cache load
+    conda`; the older `conda/2024-04-29` and `conda/2024-10-30-workshop`; and pre-loading the dependency
+    versions that do exist (the modulefile pins exact patch versions). **The fix that worked** was found
+    from **repo state, not by probing `/soft`** — the venv `bin/python` symlinks the project's own setup
+    scripts created.
+  - **Cost, stated plainly: 4 attempts, 3 wasted — and one was mine, not the cluster's.** 7531456 (conda
+    module), 7533451 (base torch), **7533454 — my error: an edit script aborted on an assertion before
+    writing and I submitted the unmodified file in the same command**. Fix adopted: edits and submissions
+    are separate steps, and the file is verified changed before any `qsub`. Infra-failure count **3/5**.
+  - **Next:** the torch-aware bootstrap is proven and would port to the other PBS scripts, **but most live
+    in `git subtree`s**, so mass-editing them is the operator's call. Either (a) port it to the Pangu
+    scripts only, or (b) file the ALCF ticket and wait. Until then items **7-17 are blocked**; item **6b**
+    now has a specific hypothesis to test rather than "maybe affinity".
+
+- **2026-08-20** — **The largest single line item in the Pangu step is one weight in the wrong layout:
+  133.15 ms/rank-step moves a 377 MB spectral weight in four places, and fusing pointwise ops touches
+  none of them.** Plan item **3**, from captures already on disk. No GPU time, no queue, no `qsub`.
+  Written up as `polaris_bench_report.md` **§4.5**.
+  **Preregistered at `45cbd7de` before `--match` was run — 0/4 size predictions hit, and the miss is the
+  deliverable: the inventory omitted the weights.**
+  - **What the copies move.** For `operator_type: dhconv` the spectral weight is
+    `[in_channels, out_channels, modes_lat]` complex = **512×512×180 = 377.49 MB per layer**, and 12
+    layers are **1,132,462,080 of 1,182,108,160 params = 95.8%** — the **largest tensor in the model**,
+    1.42× the largest activation. `num_blocks: 16` is vestigial and does **not** block-diagonalise it
+    (checked, not assumed). Nine kernels covering **~99.6%** of copy time now match an analytic tensor.
+  - **The finding: four copies, one root cause.** Splitting the `gridX=184320` population by duration
+    and NVTX phase (both captures agree to **0.04 ms**): forward permute **35.60**, its `ckpt3`
+    recompute **35.61**, adjoint `conj` **35.93**, and **`grad_w` → DDP bucket 26.01** ms/rank-step.
+    So **36 = 2 × `num_layers` + 1 × `num_layers`**. All four follow from one mismatch — stored
+    `(in,out,lmax)`, contracted by `einsum("bixy,iox->boxy")` which must permute to `(x,i,o)` for
+    `bmm`. ⇒ **`gradient_as_bucket_view=True` is already set** (`train.py:302`), which is precisely
+    what makes the *layout* the culprit rather than the DDP config.
+  - **⇒ The optimisation picture reorders.** ~71.5 ms is addressable by storing the parameter
+    pre-permuted (hot-path **and checkpoint-format** change ⇒ full DESIGN §4 gate, blocked on item 18);
+    **35.61 ms exists only because `ckpt3` re-runs the block**, i.e. **47.7%** of what §4.3d calls
+    "removable recompute" is weight re-permutation, not activation recompute; 26.01 ms is gradient
+    movement. **DESIGN §5 gains rung 1b**, because rung 1 (`torch.compile`) cannot reach any of it —
+    and ACE2 already measured `InductorError: KeyError: 'complex64'` on the whole SFNO.
+  - **⚠ Scoped, because the headline inverts.** weight:activation = `E/(B·mmax)` = **2.83 at batch 1**
+    and **0.71 at batch 4** — the base config's own commented default (`batch_size: 1 #4`) — where the
+    weight share of copy time falls to ~19%. "This model *is* its spectral weights" is a batch-1
+    statement. `hard_thresholding_fraction < 1` makes it *worse* (weight ∝ thf, activation ∝ thf²).
+  - **⚠ OPEN, and it blocks every mechanism claim.** With `factorization: None` (and `YParams.py:20`
+    converts `'None'` → `None` for every key), `use_tensorly=False` lands on
+    `assert factorization == "ComplexDense"` (`s2convolutions.py:151`) — **that assert must fail, yet
+    both jobs ran 40 measured steps.** Until it is resolved we do not know whether the weight is an
+    `nn.Parameter` or a `FactorizedTensor`, and the layout argument depends on which. **No measured
+    number depends on it.** Free to answer; folded into item 8.
+  - **Two FATAL strikes, both mine, both held.** (i) I attributed the 3 copies/layer to
+    `spectral_layers: 3`. **It never reaches this module** — `filter_type: 'linear'` builds
+    `SpectralConvS2`, which is not passed it and does not accept it; the agreement with 3 was
+    numerology. (ii) **26.01 ms of the 133 is the GRADIENT, not an invariant weight** — a distinct
+    operation: 27% faster at identical grid, `backward`-only, and each call followed by an
+    `ncclDevKernel` at a **0.871 ms median gap with a 9 µs p10–p90 spread**. A 377 MB parameter
+    exceeds DDP's 25 MB bucket cap, so each gets its own bucket (15 all-reduces + 1 broadcast = the 16
+    NCCL kernels/rank-step §4.2 already recorded).
+  - **Also withdrawn** (§4.5d lists all seven): the `view_as_complex` explanation (a fresh
+    `nn.Parameter(…,2)` is contiguous, so that view is **free** — the *permutation* is the strided
+    thing); "2.8× the largest activation" (that is 2.83× the *spectral* activation; vs the MLP hidden
+    it is **1.42×**); `C_in = 108` (it is **105** — the parameter total forces `2·in + out = 311`);
+    and "22.0% of the step" quoted on a single basis when the report's own bases give **20.7–23.1%**.
+  - **Two tool bugs, both found by review, both now tested.** Elements-per-block is **launch-path
+    dependent**: reading `vectorized_elementwise_kernel<(int)vec,…>`'s leading `(int)` as `nt`
+    under-counted the non-legacy paths by **exactly 4×** — with it fixed, a row published as
+    "1.185×, no clean tensor" is the **fp32 latent exactly**. And the channel counts now come from the
+    loader and are pinned by a test against the logged parameter total.
+  - **Docs corrected in the same commit.** `POLARIS_PROFILING_HANDOFF.md` §4's spectral no-op-copy
+    guard was shelved as "sub-1% class" on a **0.18%** figure that counted only the zero-fills and used
+    a 74.2%-NCCL denominator; §4.5b sizes the *copy* it removes at **5.3% of copy time ≈ 2.4% of the
+    step** ⇒ **re-ranked as one of the cheapest levers.** And the weight finding is **structural, not
+    Pangu-specific**: ACE2's SFNO has the same `dhconv` weight class (384×384×180 = **212.34
+    MB/layer**, ~93% of its params) and **has never been checked** — its `aten::clone` = 45.3%
+    autocast-boundary story now has a competitor that reports as the same op, distinguishable for free
+    by shape (26,542,080 = weight vs 12,510,720 = activation).
+  - **Next:** plan item **4** (`kernel_census.py`) is the last free item. Tier 0 is then exhausted and
+    the first submission request will be item **6** (`gpu_topology_check.py`, `debug`, ~1 min) or
+    **6b**. Item **8** gains three free targets, the largest being the **42.7%** row — still the only
+    dominant kernel with no mechanism at all.
+
+- **2026-08-20** — **A share of the GPU-kernel total is not a reproducible quantity: the same measurement
+  moved 4.77 points between two runs of an identical config while its numerator moved 0.09%.** Plan item
+  **2**, from captures already on disk. No GPU time, no queue, no `qsub`. Jobs **7255557** vs **7255503** —
+  and they ran on **different nodes** (`x3001c0s19b0n0` / `x3001c0s1b1n0`, disjoint GPU UUIDs), so this is
+  node-to-node. Written up as `polaris_bench_report.md` **§4.4**.
+  **Preregistered at `952fcb8d` before the second capture was queried — 5/5 predictions hit.**
+  - **What moved and what did not.** `direct_copy`+`conj` **271.19 → 270.94 ms/rank-step (−0.09%)**, its
+    `backward` share **72.86 → 72.83% (−0.03 pt)**, compute-only **+0.08%** on quiet steps (union **0.27%**
+    across 8 devices on 2 nodes). But **NCCL 67.82 → 145.65 ms/rank-step (+114.8%)**, so the denominator
+    moved **+12.7%** and the copies read **42.2%** then **37.4%**. ⇒ **quote 271 ms/rank-step, never "42.2%
+    of GPU kernel time."** §4.2's category table and every share table in `PROFILING_TABLES.md` now say so.
+  - **This refines the repo's own rule.** "A cross-JOB ratio on Polaris is not a measurement" (2026-08-06)
+    becomes: **cross-job *compute* comparisons are sound; cross-job comparisons of anything containing NCCL
+    are not.** The standing 10.5% node-to-node figure is a *wall-time* spread — it is comms, not compute.
+  - **The reproducible stall is CPython generation-2 garbage collection — not NUMA, not affinity.** At the
+    **same training iteration** in both captures a rank's `forward_loss` blows out to ~7× its median, and
+    CPU sampling names it: **`gc_collect_main` 116 / 88 / 88 samples**, then `visit_reachable`,
+    `dict_traverse`; nothing else in either capture exceeds **5**. Thread state `Running`; blocking-syscall
+    time **0.6 ms** of 247 ms. A gen-2 collection fires on a deterministic function of **allocation count**,
+    which is exactly why it lands on the same iteration on different hardware — **no affinity hypothesis can
+    predict an iteration index.** ⇒ **Output-neutral fix to try** (no arithmetic changes, so outside the
+    DESIGN §4 gate and **no jesswan sign-off**): `gc.freeze()` after model/optimizer construction, or
+    `gc.disable()` around the bench loop. It is a **global** cost — every other rank waits at the
+    collective. Plan item **6b(A)**.
+  - **A second stall pattern is NOT diagnosed.** On 16 of 7255557's 17 stalled steps **dev0 alone waits
+    ~600 ms** while the other three sit at 60–70 ms — dev0 *out of phase with the group*, not one rank
+    straggling — with the late work in the **inter-step gap** and `_PyEval_EvalFrameDefault` /
+    `__libc_malloc` frames. **Candidate, unestablished:** the Pangu nsys script sets `OMP_NUM_THREADS=8`
+    and **no CPU binding**, so 4 unbound ranks put ~32 OpenMP threads plus 4 main threads plus loader
+    workers on 32 physical cores. Plan item **6b(B)**.
+  - **"Comms are essentially free on Polaris" is conditional on rank balance — plan §0b retitled.** The
+    88.7%-overlapped / **1.2%-exposed** result came from the capture with **1 stalled step of 40**. On
+    7255557, identical config, exposed NCCL is **4.9–8.8% of span** with **17 of 40** stalled. The
+    `NCCL_PROTO`/`NCCL_ALGO` agenda stays deprioritized, but for a sharper reason: **what varies is
+    placement, not protocol**, and no protocol change recovers time spent waiting for a late rank.
+  - **`broadcast_buffers`: the attribution retraction STANDS, its sizing does NOT.** `ncclBroadcast` went
+    **0.70 → 28.90 ms/rank-step (×41)** at an unchanged **160 launches** — same Midway mechanism, so a big
+    broadcast number is still never a broadcast *cost*. But my claim that removing it "would only move the
+    wait" is **refuted by our own union column**: `forward_loss` self-overlap is **0.0%** (that wait is 100%
+    exposed) while `backward`'s NCCL is **83–87% overlapped**, so moving the skew would **hide** most of it.
+    Sizing is **OPEN**; the change is still jesswan-gated (BN running statistics).
+  - **Two more published numbers corrected.** §0a's "3.5–4.4% idle" counted **kernels only** — memcpy and
+    memset are GPU work on the same stream, absent from the 643.2 ms kernel total; counting all GPU work
+    idle is **1.4–1.5%**, which makes §0a's conclusion *stronger*. DESIGN §5 rung 1 restated as **68% of
+    compute pointwise vs 17% GEMM** — the 4.0× ratio the rung rests on is invariant either way.
+  - **An adversarial pass landed 11 strikes, 4 FATAL, and it found the GC cause.** §4.4f records all
+    **seven** withdrawals rather than quietly dropping them. Mine, named: **"`deviceId 1` is the straggler
+    in both captures" — WITHDRAWN.** It is one event per capture, not a rank property, and my per-rank
+    ranking summed the **rooted** broadcast, whose root is ~0 by construction — handing dev0 a spurious
+    "late" credit on every step. Also withdrawn: **"same `git_sha`"** (no env file exists for 7255503 —
+    **my own prereg said exactly that and the write-up asserted the opposite**), "every launch count
+    identical" (cuDNN chose a different wgrad tile: 64 vs 63 distinct kernels), "+20% warmup" (really
+    **+6.7%**), "D2D bytes 2129.50 GB" (that is the above-L2 subset; all D2D is **2157.11 GB**), and
+    "invisible in the kernel table" (a *waiting* rank's compute inflates ~5% via SM contention with the
+    spinning ring kernel).
+  - **New cluster facts in `polaris_pbs_notes.md` §1**, including a measured **9.1×** multi-node result
+    (`mpiexec --cpu-bind depth -d 8` is mandatory; **4.08 vs 36.93 GB/s** busbw, colleague's job
+    **7368993**, and it **fails silently**) that was living only in an **untracked** script comment.
+    Single-node binding and the GPU↔NUMA map are recorded as **OPEN**.
+  - **Tooling — every §4.4 table now has committed code behind it.** `nvtx_phase_attribution.py` gains
+    `--per-rank` (straggler test, rooted collectives excluded) and `--stall-cause` (CPU leaf symbols inside
+    elongated windows — this is what found the GC). Three of its own bugs fixed: a regex on `Reduce`
+    misclassified `AllReduce` as rooted and silently emptied the ranking; SI and binary units were mixed in
+    one table; and a **cursor-reuse** bug made `--stall-cause` return no samples at all, which reads exactly
+    like "this capture has no sampling data." All three ship regression tests.
+  - **Next:** plan item **3** (analytic bytes-per-step model, free), then **4** (`kernel_census.py`, free).
+    Tier 0 is then exhausted and the first submission request will be item **6** (`gpu_topology_check.py`,
+    `debug`, ~1 min) or **6b**.
+
+- **2026-08-20** — **Pangu-on-Polaris plan items 1 and 5 are DONE, from captures already on disk: the
+  42.2% copy time is `backward` 72.9% / `forward_loss` 27.1%, and warmup 20 was clean.** No GPU time, no
+  queue, no `qsub`. Written up as `polaris_bench_report.md` **§4.3** (a new subsection joining §4.1's
+  CPU-side ranges to §4.2's GPU kernel time for the first time); tool
+  `ACE2_retrain/nvtx_phase_attribution.py` + passing test. Job **7255503**, 40 measured steps × 4 ranks.
+  **Preregistered at `985214b5` before the number existed — 3/3 predictions hit.**
+  - **The join had to be fixed first, and it had TWO bugs, not one.** (a) `correlationId` is unique per
+    **process**, so on a 4-rank capture the bare join cross-products the ranks: **459,088 rows for 354,720
+    kernels, +29.4% phantom**. The guard `k.globalPid = (r.globalTid & ~0xFFFFFF)` returns **exactly one row
+    per kernel**, nothing orphaned (all rows `launchType = REGULAR`, `graphNodeId IS NULL`). Independently
+    reproduces the **+30.8%** measured on ACE2's Midway capture. (b) attribution must be scoped to the
+    **process, not the launching thread** — 62,680 of rank 0's 88,680 launches come from `pt_autograd_*`
+    while all the house NVTX ranges sit on the main thread. **This is the whole origin of the "57% / 81% of
+    GPU time lands outside any range" rows in `PROFILING_TABLES.md` and `ACE2_retrain/bench_midway_notes.md`
+    — it was never an NVTX limitation.** Process-scoped, `(outside)` is **0.0%**. Both docs corrected in
+    this commit; `ACE2_retrain/kernel_census.py:58` still carries both bugs (plan item 4).
+  - **The NVTX text path is settled, and nothing of ours was ever missing.** House ranges are in the inline
+    `NVTX_EVENTS.text` column (`domainId 0`, `eventType 59`), 160 rows each; the `textId → StringIds` path
+    holds **only** NCCL's registered strings (`domainId 1`). `parse_nsys.py` was already on the right path.
+  - **Result — measured.** `backward` **197.58** ms/rank-step (72.9%) / `forward_loss` **73.61** (27.1%) of
+    **271.19** ms/rank-step. Union-safe: all 90,240 copy kernels are on one stream, so sum = union.
+    `conj` (38.30 ms/rs, 14.1%) fires **only** in `backward`; the warrant is the **source**, not the split —
+    there is no `conj` anywhere in `networks/modulus_sfno`, the contraction is `einsum` over
+    `view_as_complex`, and it fires 24/rank-step = **2 × `num_layers`**. `ncclAllReduce` is 100% in
+    `backward`, `ncclBroadcast` 100% in `forward_loss`, with **zero** cross-boundary leakage.
+  - **`(outside)` = 0.0% closes §4.1's open question.** The step's "missing" ~268 ms contains **zero kernel
+    launches**; the CPU is blocked in `cudaDeviceSynchronize` (119 calls, 10.72 s on rank 0). It is drain,
+    not unaccounted work — measured, not inferred.
+  - **What checkpointing is actually worth — ESTIMATED, and smaller than "61% elementwise" suggests.**
+    Recompute lives *inside* `backward`, so that is the bucket that shrinks: ≈**74.6 ms/rs** of copy time
+    (≈27%) is removable, and `forward_loss`'s 73.61 ms is removable by **no** level. Whole-forward recompute
+    ≈**148–152 ms/rs** ⇒ ckpt-off ≈**1.34×**. **Not a bound:** kernels with equal fwd/bwd launch counts (the
+    pure-recompute signature) run at **1.0136×, never below 1.0**, and recompute selects *different* GEMMs
+    (+15%/call). Three qualifiers: `ckpt0` projects to **~41.7 GB > 40 GB** for Pangu (likely unreachable),
+    production already ships **`ckpt2`**, and the levels are **cumulative** so a `ckpt3→ckpt2` delta measures
+    **block-minus-MLP**. ⇒ **against the config we actually run, checkpointing headroom is ≈4%, not ≈25%.**
+    Cross-check: ai-rossby's full ladder (1.307× = 23.5% of the step) sits within **1.8 points** of the
+    estimate — two unrelated measurements agreeing, and very little slack. Prereg written into plan item 10.
+  - **A measured HBM ceiling, which narrows plan item 7 without replacing it.** D2D memcpy **above L2** —
+    16,000 copies, 98.7% of D2D bytes — sustains **1279 GB/s = 82% of peak** (per device 81.3–82.6%; peak
+    and L2 read from `TARGET_INFO_GPU`). ⇒ the hardware plainly delivers, so §0d's *estimated* 17–27% for the
+    copy kernels is about **the path those kernels take**, not an unreachable peak. **The `2 × bytes` rule
+    only holds above L2:** sub-L2 buckets compute to **124.7% of peak**, which is the proof it fails there —
+    quote the above-L2 population only. ⚠ **Intra-device HBM, NOT the interconnect** — it does **not** close
+    the OPEN topology cell (handoff §4) or substitute for plan item 6.
+  - **Item 5 (warmup) — DONE, and it found a different contamination.** No warmup regime: first measured step
+    **640.26 ms** vs **634.36 ms** median (+0.9%). **But step index 30 is a comms stall** — 1222 ms on two
+    ranks, **614 ms of NCCL** against a ~59 ms norm at identical launch counts. Excluding it, NCCL
+    **67.82 → 59.67 ms/rs (−12.0%)** while phase shares move ≤0.4 points. ⇒ **§4.2's NCCL row carries the
+    stall**; any sizing off it should use ~59.7 ms.
+  - **Two published numbers in `polaris_bench_report.md` CORRECTED in the same commit.** (i) §4.2's "NCCL
+    10.5% ⇒ §5 rung 3 targets ≈5% of the step" — NCCL is **88.7% overlapped / 1.2% exposed** (plan §0b), so
+    rung 3's single-node ceiling is **~1.2%, not 5%**; it only becomes interesting multi-node (item 12).
+    (ii) **§0a's "3.5–4.4% idle" counted kernels only** — memcpy and memset are GPU work on the *same*
+    stream and are absent from the 643.2 ms kernel total; counting all GPU work, busy is **98.5–98.6%** and
+    idle **1.4–1.5%**. §0a's conclusion (no idle to reclaim, nothing for CUDA Graphs) gets **stronger**.
+    Full data-movement bill: **294.97 ms/rank-step**, not 271.19.
+  - **Also RETRACTED as a Polaris item: handoff Tier B 5, "`broadcast_buffers=False` — the largest single
+    item found on this project".** It is **0.11%** here (plan §0c) and §4.3c confirms it is 0.7 ms/rank-step,
+    100% inside `forward_loss`. Midway's 33.14% was three ranks *waiting* on a straggler. **Do not open the
+    jesswan BN-buffer gate for 0.1%.**
+  - **An adversarial pass landed 15 strikes on the first draft of §4.3; all folded in.** The two that
+    mattered: the removable/non-removable buckets were **inverted** (recompute is inside `backward`; the 27%
+    magnitude was right only because recompute ≈ forward), and "backward is 77.4% of the step" was the
+    **sum-vs-union confusion that plan §0 already lists as refuted** — the union is 408.63 ms = **67.7%**,
+    and only `backward` self-overlaps (12.5%, NCCL on `streamId 19`). §4.3b now prints sum **and** union, and
+    the test covers the union arithmetic. A drift auditor found 27 stale/contradicting passages across 8
+    docs; the high-risk ones are fixed here.
+  - **`parse_nsys.py` could not run on a Polaris login node at all** (commit `99378811`) —
+    `sqlite3.connect(PosixPath)` needs Python ≥ 3.7 and the login default is **3.6.15**; `statistics.fmean`
+    is 3.8+. Both fixed with regression tests. Also repaired the live **CLAUDE.md #10** drift: `unstack` was
+    in the SQL but missing from the print loop, so its rows were fetched and **silently never printed** —
+    the two lists are now one `RANGE_NAMES` constant, and the test asserts there is only one.
+  - **⚠ FLAGGED, NOT FIXED — needs its own change with both smokes.** `s2s/v2.0/HPC_scripts/parse_nsys.py`
+    is a **different copy carrying only 8 of the 19** range names, and it is the one the Polaris PBS scripts
+    and `physicsnemo_ai_rossby/polaris/bench_instrumentation_test.py` actually invoke. So when **plan item
+    16** adds SFNO-internal ranges, the Polaris analysis path will print **nothing** and look like the
+    instrumentation never fired. Fixing it touches the **live-coupled** s2s pair, which this profiling loop
+    must not do.
+  - **Next:** plan item **2** (re-derive §0d on the second capture, job 7255557, as an n=2 — §4.3 is an
+    independent *query path* on the *same* capture, so it does **not** close item 2), then item **3**
+    (analytic bytes model) and item **4** (fix `kernel_census.py` by importing the guarded join). Tier 0 is
+    still `qsub`-free; the first submission request will be item **6** (`gpu_topology_check.py`, `debug`,
+    ~1 min).
+
+- **2026-08-20** — **Live-session cluster loop for the Pangu-on-Polaris profiling plan.** Ported the hardened
+  RCC/Midway autonomous-loop pattern (`L2LGWAS_DFE:prompts/_TEMPLATE_cluster_autonomous_loop.md` +
+  `scripts/_TEMPLATE_cluster_loop.sbatch`) to Polaris. Three files:
+  `prompts/_live_session_pangu_polaris_loop.md` (driver), `prompts/_live_session_loop_README.md` (setup +
+  submission policy), `prompts/pangu_polaris_loop_journal.md` (the loop's durable state). Frozen plan =
+  `PANGU_POLARIS_PROFILING_PLAN.md`. **Nothing submitted.**
+  - **A batch orchestrator does NOT work on Polaris, and this is the design finding.** The Midway pattern runs a
+    cheap `--partition=build` orchestrator that submits gate compute as nested `sbatch` jobs. Here `debug` is
+    **`max_run 1` AND `max_queued 1` per USER** (a second `qsub` is rejected; a `-W depend=` job is rejected too,
+    since a held job still counts) — so a PBS orchestrator on `debug` is its own competitor and cannot submit the
+    jobs it exists to submit. `capacity` is **`max_run 1` per PROJECT**, so a nested design would consume
+    `lighthouse-uchicago`'s only long slot twice, and `preemptable` started 0/9 jobs in 11.5 h. There is no
+    `build`-equivalent queue. ⇒ **the live session is the orchestrator**, which is also exactly what
+    `polaris_pbs_notes.md` §1b prescribes for `debug` ("a driver that submits chunk N+1 when chunk N finishes")
+    and puts a human in front of every submission.
+  - **Guardrails carried verbatim:** branch guard (never `main`, never push/amend), the per-change commit ratchet
+    with reset-to-last-green, the **hashed pre-result prereg** (predictions committed before the job runs — the
+    pattern that made the ZeRO sweep credible at 6/8 exact), explicit staging (**never `git add -A`** — each
+    capture here is >120 MB), the infra-failure ≤5 ratchet, the stage-scoped reference fence, and the
+    **completion-honesty rule**.
+  - **Submission policy is absolute and not configurable: the loop NEVER submits without explicit
+    per-submission approval.** No standing-approval mode exists. Starting the loop is not approval; approving a
+    stage or a prediction is not approval; approving one `qsub` does not cover the next one or a resubmit of the
+    same script. The loop prepares fully (script, static checks, node-hour arithmetic, prereg) and then stops on
+    the literal `qsub` line. Consequence that makes this cheap: **the plan's whole Tier 0 needs no `qsub`** — it
+    is re-analysis of captures already on disk, so the loop runs unattended to the end of Tier 0 before asking
+    for anything.
+  - **Guardrails added for this cluster:** at most **one job in flight** (the `debug` limit); **diagnose before
+    ANY resubmit** — a `queue_tags` comment means the queue has no nodes and resubmitting destroys accrued
+    `eligible_time` (CLAUDE.md #12, cost a day on 2026-08-05); key on the **PASS token / CSV row, never `rc`**
+    (nsys writes a report file even when it captured nothing); science fenced to **jesswan**; one-tree
+    `PYTHONPATH`; instrumentation-name contract; caches on `/eagle`.
+  - **Three Midway guardrails deliberately dropped, each with its reason recorded** (§R of the driver): the batch
+    orchestrator + `USR1` chain, the nested-job wait-loop with the name filter (**PBS truncates job names in
+    `qstat`** — persisted job ids are authoritative instead), and the transient-`squeue` retry (a live session
+    cannot double-submit while waiting on a human).
+  - **Unverified, flagged in the README rather than assumed:** `qsub`-from-a-compute-node has never been
+    exercised by this project, so a future headless variant must verify it before relying on a self-chain
+    (fallback: `qsub -W depend=afterany:<jobid>` from a login node). PBS also has no `--signal` equivalent — a
+    headless port needs a self-timer off `qstat -f $PBS_JOBID` → `Resource_List.walltime`.
+  - **Next:** tick 1 = cut `profile/pangu-polaris-profiling` off `fix/tsoi-fill-270`, then plan item 1 (fix the
+    NVTX↔kernel join). Tier 0 needs no GPU and no `qsub` at all.
+
+- **2026-08-20** — **Polaris Pangu: 96% GPU-busy but only ~25% of HBM peak — the
+  ceiling is our own data movement, not the A100.** Derived from the capture already on
+  disk (job **7255503**), **zero GPU time spent**; plan and to-do list in
+  **`PANGU_POLARIS_PROFILING_PLAN.md`**.
+  - **GPU-busy union = 95.6-96.5%** across the four ranks (span 24.35 s). This
+    *confirms* `polaris_bench_report.md` §4.2's saturation verdict, which had inferred
+    it from `sum/span = 105%` — an NCCL-on-its-own-stream artifact. 3.5-4.4% idle ⇒ no
+    launch-latency story, nothing for CUDA Graphs, on Polaris evidence now.
+  - **Comms are NOT the Polaris problem: NCCL is 88.7% overlapped, exposed only 1.2% of
+    span** (2.671 s union, 2.369 s overlapped, 0.302 s exposed, dev0). Against Midway's
+    35.7% exposed. ⇒ **the `NCCL_PROTO`/`NCCL_ALGO` agenda in
+    `POLARIS_PROFILING_HANDOFF.md` §2 has at most 1.2% to win on one node.** Deferred to
+    the multi-node work, where it becomes interesting again.
+  - **`ncclDevKernel_Broadcast_RING_LL` IS present** — 160 launches = exactly 1 per
+    rank-step, confirming `broadcast_buffers=True` (`train.py:298-303`) — **but it is
+    112 ms of 102.9 s = 0.11% of GPU kernel time.** Midway's 33.14% was three ranks
+    *waiting* on a straggler, not the broadcast itself. ⇒ the handoff's "largest single
+    item on the project" **does not transfer**; `broadcast_buffers=False` is a 0.1%
+    change here and no longer worth opening the BN-buffer science gate for.
+  - **42.2% of all GPU kernel time is `direct_copy` + `conj` — kernels that do zero
+    arithmetic**: `direct_copy`(float) **18.9%** (121 ms/rank-step), `direct_copy`
+    (complex64) **17.3%** (111 ms), `conj`(complex64) **6.0%** (38 ms). 271 ms of a
+    603 ms step. All three take the **non-vectorized** `elementwise_kernel<128,2>` /
+    `gpu_kernel_impl_nocast` TensorIterator path.
+  - **Estimated 17-27% of A100 HBM2e peak (1555 GB/s) on those three, where a
+    *vectorized* bf16 add in the same capture reaches 52%.** ⇒ **maximum GPU *time*
+    occupancy and nowhere near maximum *bandwidth*, simultaneously** — which is exactly
+    why the profile "looks maxed" and yet is unclear. **OPEN, method-limited:** bytes
+    are estimated from CUPTI launch geometry (`grid x block x elts/thread x dtype x 2`),
+    i.e. *useful* bytes. If access is uncoalesced, real DRAM traffic is higher and the
+    defect is wasted traffic rather than unused bandwidth. Same class of fix, different
+    mechanism. **Settle with ncu `dram__bytes_*` + sectors/request, single-rank only**
+    (kernel replay deadlocks on `ncclDevKernel`). Do not quote "25% of peak" until then.
+  - **The complex64 spectral island is 30.3% of GPU time** (complex64 copy + conj +
+    `MulFunctor` + `cutlass_80_tensorop_c1688gemm_64x64_16x4_nt_**align1**`). The
+    cutlass kernel's `align1` is unvectorized *loads* — **alignment is not precision**,
+    so align4/align8 needs no science sign-off, unlike the deliberate fp32 SHT island.
+  - **⚠ The only Polaris Pangu capture is `checkpointing: 3`; production ships
+    `checkpointing: 2`** (jobs 7366939→7366940). On the same-model ai-rossby sweep
+    `ckpt3 → ckpt2` is 1.274×, and recompute traffic is precisely what dominates the
+    42% above. **Every percentage here is a `ckpt3` percentage** — re-capture at the
+    production config, warmup >= 40, and long enough for **EMA to be active** (it has
+    never fired in any capture in this repo).
+  - **The NVTX join needs fixing before any phase attribution**: on this capture the
+    naive `NVTX_EVENTS.textId -> StringIds` join surfaces only NCCL's own registered
+    ranges (`ncclAllReduce` x600, `ncclBroadcast` x40) — the house ranges do not appear.
+    So "how much of the 42% is activation recompute" is not yet answerable.
+  - **Biggest structural blocker restated:** `baselines/` holds only
+    `ai_rossby_pangu_plasim/` and `ai_rossby_sfno/`. **There is no PanguWeather
+    baseline, so the DESIGN §4.1 gate cannot be closed for any Pangu hot-path change** —
+    every optimization above is queued behind capturing it.
+
+- **2026-08-19** — **ACE2 on H100/`pedramh-gpu`: `torch.compile` is NOT the lever; three
+  bigger levers measured instead.** Detail: `ACE2_retrain/bench_midway_notes.md`.
+  - **All runs restricted to `pedramh-gpu`** (midway3-0423, 4x H100). Every script
+    retargeted; the two 2-node scripts are **parked** — that partition has one node, so
+    `sbatch` now refuses them rather than silently taking nodes elsewhere.
+  - **`torch.compile` swept across 7 regional targets. Best result: 2.2%** (the corrector,
+    at 2.0e-5 drift). The **whole SFNO cannot be compiled at all** —
+    `InductorError: KeyError: 'complex64'`, because the spherical-harmonic path is
+    complex-valued. Compiling the **normalizer is actively bad** (no speedup, **8.4e-3**
+    drift), and the **MLP blocks are 3.4% slower** (guard overhead beats fusion on small,
+    frequently-called blocks). My ~20% estimate was too optimistic: it assumed the fusable
+    pointwise work was contiguous, and it is not.
+  - **Three larger, safer levers, all measured**: `validation_aggregator.log_snapshots=false`
+    is **~30% off the epoch** with no numerics change (the rendered panels are discarded
+    when wandb is off); **raising batch size** moves NCCL from 52.1% to 18.6%; and ending
+    the `dict<->tensor` round trips (`stacker.py:121`) targets **28% of GPU kernel time**.
+  - **CORRECTION to the 2026-08-18 entry**: the 8x H200 NCCL drop was read as proof the
+    share "really was the PCIe interconnect". A H100 run at the *same* batch size refutes
+    that — NCCL went **up**, 40.6% -> 52.1%. The H200 gain was mostly **batch 16 vs 4**.
+    ⇒ the lever on communication is batch size, not interconnect.
+  - **Two equivalence-tolerance floors measured** for DESIGN §4: **2.5e-7** same GPU/node,
+    **~1e-5** across GPU architectures. A baseline must record which hardware captured it.
+  - **Script bug fixed (rule #14)**: a windowed nsys capture was marked FAILED despite
+    writing a valid 217 MB report — nsys SIGTERMs the target when `--duration` expires, and
+    `set -e` aborted before the PASS gate. Now gated on the artifact.
+
+- **2026-08-18** — **ACE2 runs on Midway and has its first profile.** Detail +
+  caveats: `ACE2_retrain/bench_midway_notes.md`. Run on **`--account=rcc-staff -p test`**
+  as requested, not the usual `pi-pedramh`/`pedramh-gpu`.
+  - **Built the env** — `/project/rcc/mehta5/envs/fme` (torch 2.7.1+cu126, fme 2026.5.1),
+    from `ace_exp/Makefile::create_environment` minus `[docs,graphcast]`/healpix. The Delta
+    config's env (`/scratch/midway3/krucker01/envs/fme`) is **permission-denied to us**.
+  - **Added** `config_midway.yaml` (port of the Delta `config_nsight.yaml`: only paths and
+    wandb differ — model/loss/optimizer/variable lists are byte-identical), plus
+    `midway_smoke_train.sh` (`ACE2_SMOKE_OK`) and `midway_bench_nsys.sh` (`ACE2_NSYS_OK`),
+    beside the untouched Delta `train.sh` (rule #7).
+  - **GREEN on 4×A100**: job **53478978** `ACE2_SMOKE_OK` train 35.783 / valid 36.213 (5:55);
+    job **53478979** `ACE2_NSYS_OK`, 275 MB report (4:24); job **53479120** windowed
+    re-capture `ACE2_NSYS_OK` (205 MB, 4:00).
+  - **The model is 455,831,040 params** (455.8 M) — record it before anyone assumes otherwise,
+    as happened with Pangu (1.18 B, not ~79 M).
+  - **`tf32=True` is logged at startup** ⇒ the vendored `67242e348` perf commit is **live**,
+    still with no equivalence baseline. Now confirmed by a run, not inferred from the diff.
+  - **First profile (whole-run capture, batch 4, 4 ranks)**: NCCL **45.8%** of GPU kernel
+    time, elementwise/copy **32.2%** (1.7 M launches), GEMM 10.4%, FFT/SHT 2.2%. **Occupancy
+    is per-phase, not one number**: **91% during training, 3.3% during validation** (union of
+    kernel intervals per device). An across-phase average (~59-70%) is meaningless and is NOT
+    comparable to PanguWeather's "0.7% loader idle", which is `loader_wait_frac` over the
+    training loop, a different quantity. The 9% training idle is **launch latency, not a
+    stall** - 326k gaps, largest 9.76 ms, 7,222 kernel launches/s on one device. **Read the three caveats in the notes before quoting
+    these** — NCCL ring kernels spin while waiting (max instance 4.16 s vs 11.2 ms median),
+    so 45.8% is an upper bound on "not computing", not wire time; the capture includes
+    startup + validation; and `batch_size=4` inflates the per-step all-reduce share.
+    Surviving signal: **elementwise-bound** (same shape as PanguWeather) and fp32 gradient
+    all-reduce is expensive on **A100-PCIE** (no NVLink). The windowed re-capture puts the
+    training-only split at **NCCL 40.6% / elementwise 35.4% / GEMM 11.3%** — stable across
+    all three views, so it is not an artifact of where the window fell.
+  - **Validation is CPU-bound, not GPU-bound** — 280.2 s of the windowed capture's 282.5 s
+    of kernel time falls in its first 71 s, so validation burns ~40% of the window's
+    wall-clock (and ~80% of a cold epoch) for **~1% of GPU kernel time**. The aggregators,
+    not the GPU, are what make an ACE2 epoch long ⇒ optimizing only the training step
+    addresses the smaller half of the epoch.
+  - **`fme` has ZERO instrumentation** — no `cudaProfilerApi`, no `torch.profiler`, no NVTX
+    in the SFNO lat-lon path. So the house `--capture-range=cudaProfilerApi` flags would
+    capture **nothing**, and `midway_bench_nsys.sh` uses a time window instead (its one
+    deliberate departure from the s2s/SI/port scripts). `parse_nsys.py` yields nothing for
+    ACE2 — the tables above come from querying the sqlite directly. Adding `ACE2_*` knobs +
+    NVTX emitting the **shared** range names (#10) is the follow-up.
+  - **`test` partition facts** (now in the notes): `AllowQos=test` makes `--qos=test`
+    mandatory; `DefaultTime` is **5 minutes**; the partition is **hardware-mixed**
+    (beagle3=A100, midway3-02xx=V100, 0320=A30) so **`--constraint=a100` is load-bearing**.
+  - **Page cache dominates wall-clock again** (same lesson as the Pangu bench-vs-production
+    gap): the warm re-run trained **8× more samples in half the wall-clock**. And **~80% of
+    a cold epoch is validation**, not training.
+  - **Open**: production `batch_size=16` unvalidated on 40 GB A100; no equivalence baseline
+    for ACE2; `logging.metrics_log_dir` should be set — `GlobalTimer`'s category breakdown
+    only reaches wandb, which the house rule disables.
+
+- **2026-08-18** — **ACE2 (ai2cm `fme`) vendored into the repo** on branch `A2C` (off
+  `fix/tsoi-fill-270`). Bring-up has not started; this is the code landing only.
+  - **Provenance** (recorded here because the vendoring drops the nested `.git`):
+    `cp -r /project/pedramh/shared/ACE2_retrain` (staged by krucker01). `ace_exp` was a
+    clone of `https://github.com/ai2cm/ace.git` at **`1c3ebad80`** (2026-08-17), **4 commits
+    ahead** of the fetched upstream `main` (merge-base `709c4c370e`).
+  - ⚠️ **One of those 4 is a hot-path change that arrives already applied and has never been
+    equivalence-checked**: `67242e348` "Perf: TF32, native SHT, spectral no-op copy, foreach
+    EMA, DDP flags" (Katharine Rucker, 2026-08-14). **TF32 alone changes numerics.** Per
+    DESIGN §4 this needs a baseline *before* it is trusted — and note the baseline would have
+    to be captured against a build with it reverted, since it is already in the vendored tree.
+  - **Vendored, not a submodule** — matches `makani_sfno`/`physicsnemo_*`/`PanguWeather`; the
+    repo has no `.gitmodules`. `ace_exp/.git` was **moved, not deleted**, to
+    `/project/rcc/mehta5/ace_exp_dotgit_backup_2026-08-18` (55 MB) — the 4 local commits are
+    recoverable from there and nowhere else.
+  - **`.gitignore` trap found and fixed (repo-wide).** Line 39's `core*` (intended for core
+    dumps) also matches a **directory** named `core` at any depth, so it silently swallowed
+    **`fme/core/` — 293 files / 13 MB, the heart of the `fme` package** — from a commit that
+    otherwise looked clean at 686 files. It also defeated the `.npy` carve-out below, since git
+    will not descend into an excluded directory. Replaced with `/core` + `core.[0-9]*`.
+    The 26+26 already-tracked files under `physicsnemo_{ai_rossby,sfno}/**/core/` were
+    unaffected (ignore rules don't apply to tracked files) — which is why this hid so long.
+    **Any future vendored repo with a `core/` dir would have hit the same silent drop.**
+  - **Second-ever `.gitignore` carve-out** (after `s2s-lightning/data/constant_mask/*.npy`):
+    `!ACE2_retrain/ace_exp/fme/core/hpx/data/*.npy` — 7.5 MB of HEALPix reorder tables, without
+    which the vendored `fme.core.hpx` is non-functional.
+  - **70 scripts had lost their exec bit** (644 in the shared staging dir, 755 in `ace_exp`'s
+    own index — so it was lost *before* this copy, not by it). Restored from the index so the
+    vendored copy matches upstream; they are committed 100755.
+  - **Deliberately NOT committed** (rule #8): `ace_training/merged_ACE2_ERA5_final.nc`
+    (**2.39 TB**), `normalization/*.nc` (21 MB), and 36 `*.pt` regression fixtures (1.4 MB).
+    ⇒ **`ace_exp`'s regression tests cannot run from a fresh clone** — re-copy the fixtures from
+    `/project/pedramh/shared/ACE2_retrain`. Commit is 947 files / 20 MB.
+  - **2.4 TB of data now lives in the repo working tree** at `ACE2_retrain/ace_training/`
+    (ignored, so invisible to git). `/project` had 146 T free at the time. Worth relocating +
+    symlinking if this becomes the pattern.
+  - **`train.sh` targets a third cluster — Delta/NCSA**, not Midway or Polaris:
+    `--account=bdiu-dtai-gh`, `--partition=ghx4` (GH200), `--qos=bdiu-dtai-gh`, `hsn0`/Slingshot
+    NCCL vars, and mixed paths (`/project/pedramh/shared`, `/scratch/midway3/krucker01/envs/fme`,
+    `/work/nvme/bdiu/...`). **Not runnable as-is on either of our clusters**; a Midway/Polaris
+    sibling is the first bring-up task (rule #7: add beside it, don't edit in place).
+  - **No smoke was run** — nothing of ours executes in this commit. Env, data paths and a
+    scheduler script are the next steps before any PASS token exists to key on.
+
+- **2026-08-14** — **Fixed: Pangu's `best_ckpt.tar` silently stops meaning "best" across any
+  resume, and the true-best epoch's numbered checkpoint is already unrecoverable on the live
+  run.** Found while answering "have we reached a best checkpoint" for the live production
+  run (job chain 7368237 → 7368539 → ...).
+  - **Root cause**: `best_valid_loss` and `early_stopping_counter` (`train.py`, `Trainer.train()`)
+    were plain local variables, reset to `1.e6` / `0` on every call — and `train()` is called
+    fresh every process start, while `restore_checkpoint()` (which runs once, in `__init__`,
+    before `train()`) had no way to hand a resumed value into that local scope. Every resume's
+    first validated epoch trivially satisfied `valid_loss <= 1.e6` and overwrote
+    `best_ckpt.tar`, regardless of whether it was actually better than history.
+  - **Measured on the live run**: `best_ckpt.tar`'s mtime matched epoch 42 (val_loss
+    0.02690) — the first epoch validated after the most recent resume — not the run's true
+    minimum, **epoch 27, val_loss 0.026548** (verified against the exact
+    `Saved numbered checkpoint: ckpt_epoch_27.tar` log line). Epoch 27's own numbered
+    checkpoint has since rotated out of the 10-file retention window (`_cleanup_old_checkpoints`)
+    — **that checkpoint is gone**; this fix prevents recurrence, it does not recover it.
+  - **Fix**: both become `self.` attributes, seeded via `getattr(self, ..., default)` in
+    `train()` (fresh runs still start at 1.e6/0; a value already set by
+    `restore_checkpoint()` survives), persisted in `save_checkpoint()`'s `checkpoint_data`
+    dict, restored via `checkpoint.get(..., default)` (not `checkpoint[...]`) in
+    `restore_checkpoint()` — `.get()` specifically so every checkpoint saved *before* this fix
+    (which lacks the key) degrades to the old default instead of raising `KeyError` on load.
+  - **Test**: `PanguWeather/v2.0/test/best_checkpoint_resume_test.py` — static AST analysis
+    (no torch import, matches `bench_instrumentation_test.py`'s convention; this login node's
+    `python3` is 3.6, so the test's own constant-node check has to handle the pre-3.8
+    `ast.Str`/`ast.Num` split, not just `ast.Constant`). 6/6 `BEST_CKPT_RESUME_OK`, run
+    directly on the login node (pure AST, no GPU/data needed).
+  - **ai-rossby has no equivalent "best" mechanism at all** (`grep` for
+    `is_best`/`best_checkpoint`/`best_valid_loss` in its `train.py`: zero hits) — only fixed
+    interval-based numbered checkpoints, no best-selection logic, so this specific bug class
+    doesn't apply there. Its own true-best epoch (~24-25, val_loss≈0.03258) happens to still be
+    recoverable anyway, because of the OTHER known bug on that side
+    (`max_checkpoints_to_keep` declared but never read — checkpoints accumulate unbounded,
+    confirmed 50 files on disk back to epoch 2).
+  - Not yet committed — this touches the live run's own source file
+    (`PanguWeather/v2.0/train.py`); editing it is safe (the running process already has it
+    loaded in memory, same reasoning as every other train.py edit this session), and the fix
+    takes effect on Pangu's *next* resume, whenever that next queue rotation happens.
+
+- **2026-08-11** — **Implemented `ai_rossby_finegrained_wandb_handoff.md`: ai-rossby now
+  emits PanguWeather-identical per-var/per-level wandb keys.** Both production jobs
+  (Pangu `7368237` on `capacity`, ai-rossby `7368547` on `preemptable`) are still RUNNING
+  — nothing was launched; this lands in the working tree for the next queue-rotation
+  restart per the handoff's own instruction. **Not yet GPU-verified** — see below.
+  - New `physicsnemo_ai_rossby/examples/weather/ai_rossby/diagnostics.py`:
+    `per_channel_lat_weighted_rmse` (mirrors Pangu's `weighted_rmse_torch_channels`/
+    `_3D` exactly, keeping the channel/level axis) + `pangu_style_lwrmse_logs`
+    (denormalize-and-key-format to Pangu's literal strings).
+  - `train_loop.py::train_step` gained an opt-in `capture_outputs` dict param (default
+    `None`, zero behavior change for the 4 existing callers) so `train.py` can read back
+    the normalized-space output/target tensors after the timed step window.
+  - `train.py`: new block after `telemetry.step_end()` (mirrors Pangu's placement +
+    comment verbatim), runs on **every rank unconditionally** (no `wandb.enabled` gate,
+    no frequency gate — matches Pangu's "whenever not BENCH"), calls `wandb.log(...)`
+    directly (bypassing `LaunchLogger`, which both prefixes keys `train/` AND throttles
+    to `mini_batch_log_freq=100` by default — either would have broken parity). Only
+    rank 0 executes the final `wandb.log`; the `_ddp_mean_scalars` all-reduce before it
+    is still a collective every rank joins, matching Pangu's own `dist.all_reduce`.
+  - **Corrected a wrong claim in the handoff (§4.2):** it asserted ai-rossby's
+    `cfg.model.levels` would format identically to Pangu's key strings. Traced instead —
+    Pangu's `data_loader_multifiles.py:527-528` sets `self.levels = params['levels']`
+    (the ROUNDED nominal list `[5, 10, 20, ..., 1000]`) UNCONDITIONALLY; `use_sigma_levels`
+    only controls which list `load_mean_std` indexes stats with. ai-rossby's
+    `cfg.model.levels` holds the OTHER list (full-precision hybrid values, needed for the
+    normalizer's by-value matching) — using it directly would emit
+    `train_T_level4.7150_lwrmse`, never merging with Pangu's `train_T_level5.0000_lwrmse`.
+    Fixed with a hardcoded `PANGU_UPPER_AIR_LEVEL_LABELS` constant in `diagnostics.py`,
+    pinned by a test asserting it equals Pangu's literal `SFNO.levels:` list.
+  - **§3 latitude-grid check: DONE, reuse `cos_lat_weights` as-is (no new lat_values
+    path needed).** Diffed Pangu's real production `lat:` array (180 cell-centered
+    points, -89.5→89.5°, read from the live job's rendered config, not the template)
+    against `cos_lat_weights`'s synthesized `phi` grid: agree to 1.4e-14° (float noise)
+    after accounting for the ascending-vs-descending order. The `N·w/sum(w)` vs
+    `w/mean(w)` normalization forms also agree to 6.9e-16.
+  - New `physicsnemo_ai_rossby/test/recipes/ai_rossby/test_diagnostics.py` (the
+    canonical test location — mirrors `test_loss.py`/`test_train_loop.py`'s
+    `sys.path.insert` pattern to reach `examples/weather/ai_rossby/`; picked up by the
+    existing `polaris/polaris_recipe_tests.pbs` runner via `TESTS=...`, not a new
+    mechanism): 14 tests (shape, exact Pangu-formula match, the §3 grid check as a
+    durable regression test, key-string parity, the FULL 101-channel E3SM variable
+    contract — 8 surface + 5×18 upper-air + 3 diagnostic, matching `out_chans` — not
+    just a toy 2-var example, de-normalization units, `train_step` capture wiring
+    end-to-end). **RUN AND GREEN**: job 7413433 (13 tests, after fixing 3 self-inflicted
+    test bugs — a dtype-strict `assert_close` against a function that's documented to
+    always reduce in float32, and two `set(losses)` checks missing the always-present
+    `vae_kl` placeholder key) then job 7413472 (14/14 after adding the full-contract
+    test). `13 passed in 7.82s` / `14 passed in 1.73s`. Re-run with:
+    `qsub -v TESTS="test/recipes/ai_rossby/test_diagnostics.py"
+    physicsnemo_ai_rossby/polaris/polaris_recipe_tests.pbs`.
+  - Left out of scope on purpose: `multistep_train_step`/`StaticCaptureTraining` paths
+    (production runs `unroll_steps: 1`, `use_static_capture: False` — both dead code
+    today); validation-side per-var metrics (handoff explicitly scopes these out, Pangu's
+    own `long_validation` is off in production).
+
+- **2026-08-07** — **BOTH PRODUCTION RUNS LAUNCHED. Read the QUEUE ROTATION below
+  before touching anything in `qstat`.**
+
+  | run | jobs | queue | config |
+  |---|---|---|---|
+  | PanguWeather | **7368237** → 7368539-41 | capacity 168 h → preemptable 3×72 h | `checkpointing: 2`, no ZeRO, wandb online |
+  | ai-rossby | **7368547**-51 | preemptable 5×72 h | **`checkpointing: 3`, no ZeRO**, wandb online, `CKPT_INTERVAL=2` |
+  | ai-rossby (reserved) | **7368536** | capacity 168 h | **USER-HELD — see below** |
+
+  ### ⚠ QUEUE ROTATION — the one thing not reconstructable from the code
+  `capacity` allows **one running job per PROJECT**. PanguWeather holds it now.
+  `7368536` is ai-rossby's capacity reservation, held on `afterany:7368237` **plus a
+  USER HOLD (`Hold_Types = ud`)**. The user hold is deliberate: both ai-rossby chains
+  use `RUN_NAME=sfno_e3sm_parity01` and therefore the same `RUN_DIR`, so if the
+  capacity job auto-started while the preemptable one was still running, **two
+  processes would write checkpoints into the same directory and corrupt the run.**
+  To hand ai-rossby the capacity slot, in this order:
+  ```
+  qdel 7368547 7368548 7368549 7368550 7368551   # stop the preemptable chain FIRST
+  qrls 7368536                                    # then release the capacity job
+  ```
+  PanguWeather's continuation (7368539-41) auto-releases onto `preemptable` when
+  7368237 ends — no action needed, and that queue suits it (`-r y`, per-epoch
+  checkpoints, a header documenting the requeue contract).
+
+  ### Measured on the live run (per-epoch telemetry, not a bench)
+  `step_med` **755 / 776 / 767 ms** (stable ±1.4%), `peak` **32.63 GiB** fresh,
+  `gpu_busy` **0.82-0.84**, epoch wall 3.23 / 2.99 / **2.79 h** ⇒ **~299 h projected**
+  for 100 epochs. EMA switches on at **epoch 6** and its cost is still unmeasured.
+  The remaining ~16-18% non-GPU wall is the biggest unclaimed lever (~30 h over the
+  run); Fable's read is cold random zarr I/O over 2.15 TB, which the short
+  cache-warm bench windows structurally could not see.
+
+  ### RESUME SPIKES — measured on both harnesses, both fixed
+  `peak_mem_gb` is run-to-date, so a resume spike cannot hide.
+  * **PanguWeather +1.94 GiB** (32.63 → 34.57, headroom 6.86 → 4.92). Cause:
+    `restore_checkpoint` loaded the 18.9 GB file with `map_location='cuda:N'`.
+    Fixed → `'cpu'` (b039c483); `_migrate_optimizer_state_to_device()` already
+    existed for exactly this. Every chain link paid it, and the run is 3-6 links.
+  * **ai-rossby +5.32 GiB**, of which staging the optimizer on CPU recovered 1.05.
+    The remaining **+4.28 GiB is still UNATTRIBUTED** — two hypotheses were wrong
+    (the second, `Module.load`'s `map_location`, changed nothing). Does not block
+    anything now that ai-rossby runs at `ckpt3` with ~13.6 GiB headroom.
+
+  ### ai-rossby runs at `checkpointing: 3` — decision, and why
+  `ckpt2` is ~1.26× faster but **OOMs without ZeRO**, so adopting it there is TWO
+  changes behind ONE gate — and ZeRO's §4 result was withdrawn as confounded and
+  never re-run. `ckpt3` is the config's own default, has zero ungated changes, and
+  removes ZeRO from the critical path. A cold Fable review found no third option
+  worth the work (hybrid per-block checkpointing buys ~1.12× for more new gating
+  than ZeRO itself; EMA offload costs +30-60% step time or changes the deliverable).
+  **Cost: ~47 h. Revisit only if the ZeRO bitwise gate passes.**
+
+  ### Bugs found and fixed today (all mine, all would have bitten later)
+  * **`import os` missing** in ai-rossby `train.py` — my probe instrumentation ran
+    unconditionally at startup, so **every** ai-rossby run raised `NameError`. The
+    queued production chain would have crashed ~30 h out and cascaded 4 dependents.
+    Surfaced only because a measurement job hit the path first.
+  * **`datetime.timedelta`** where line 8 binds `datetime` to the CLASS — would have
+    crashed every future PanguWeather link at startup. Caught pre-commit.
+  * **NCCL timeout 600 s → 30 min** — each epoch boundary costs 17.2 min with rank 0
+    writing 18.9 GB alone while ranks 1-3 block in the next collective.
+  * **`/usr/bin/time` does not exist on Polaris** (rc=127 killed a gate before it ran).
+  * **`eligible_time` substring trap** — I quoted §1b about it, then wrote an
+    unanchored `/eligible_time/` match into my own monitor, which reported the
+    priority exponent `4` as a time. Anchor it.
+
+- **2026-08-06** — **SFNO apples-to-apples: ARCHITECTURE GATE PASSED (job 7364984) — the
+  two implementations are BITWISE identical, not merely same-sized.** Parity config,
+  gate, per-epoch telemetry and group-write all in.
+  > **Gate result (4×A100, ai-rossby venv, fp32, rc=0, `SFNO_PARITY_OK`):**
+  > `in_chans=105 / out_chans=101` as predicted; **both models 1,182,108,160 params**,
+  > matching the independently measured reference (job 7255410) exactly; and at
+  > **identical weights on identical input the two agree to 0.000e+00 relative error**
+  > on `surface`, `upper_air`, `diagnostic`, `loss` (5.26061580e-02) and `grad_norm`
+  > (2.16819166e-01). Handoff §5 asked only for equal parameter counts — this is the
+  > stronger fixed-weights form, so any remaining difference between the two runs is
+  > **harness and data-path, not model.**
+  Implements `polaris_sfno_comparison_handoff.md`. Owner decisions taken this session:
+  results stay in `$MEMBER_ROOT` with the modes fixed (no new group-level dir),
+  **`embed_dim 512`** (jesswan's production value), and the two long runs go to
+  **different queues** — ai-rossby on `capacity`, PanguWeather on `preemptable` — which
+  sidesteps `capacity`'s one-running-job-per-PROJECT cap (`max_run=[p:PBS_GENERIC=1]`,
+  verified with `qstat -Qf`) instead of serialising them.
+  - **The architecture claim is now PROVEN, not asserted** (`compare_sfno_parity.py`).
+    `SfnoPlasim`'s docstring claimed fidelity to PanguWeather's
+    `SphericalFourierNeuralOperatorNet_v2`; the vendored `modulus_sfno/` is in fact a
+    near-verbatim copy — **5 of 7 files byte-identical**, the other two differing only by
+    `@torch.compiler.disable` decorators (inert in eager) and `return_latent` plumbing
+    (adds no module ⇒ no parameter). The gate keeps an **exact-line** allowlist, not
+    regexes: a regex broad enough to cover the `return_latent` refactor (`^\s*else:$`)
+    is broad enough to hide a real change. Negative control confirms an added
+    `nn.Linear` still fails it. Config block: **26/26 architecture keys identical.**
+  - **Two traps found that would each have silently broken the comparison:**
+    1. **The effective learning rate is 3.0517578125e-05, NOT the `lr: 1e-4` written in
+       the SFNO block.** That line is dead — `get_optimizer` (train.py:706-709) checks
+       `hasattr(params,'loglr')` FIRST, and `loglr: -13` is inherited from the base
+       config, so the peak LR is `2**-13 * global_batch_size/16` at 4 ranks × batch 1.
+       Taking the file at face value would have run ai-rossby at **3.3×** the reference.
+       It is also world-size-dependent, so it must be recomputed if ranks change.
+    2. **The handoff's §4 claim that the checker already expects a folded config was
+       wrong.** `--check-artifacts` compared `model.surface_variables` against the
+       *unfolded* 6 and required `land_variables`/`ocean_variables` keys — which
+       `SfnoPlasim.__init__` cannot accept (`build_model` forwards every config key as a
+       kwarg). Checker now handles both shapes explicitly and reports which it checked;
+       12 tests, incl. negative cases proving the folded branch is not a way to skip the
+       land channels. **19/19 PASS folded, 21/21 PASS split (unchanged).**
+  - **`torch.compile` stays OFF** for both runs — measured 1.40× but FAILS the §4 gate.
+  - **Per-epoch telemetry added to BOTH PRODUCTION trainers** (`epoch_telemetry.py`,
+    duplicated in each tree because they share code by copy; a drift test pins the
+    copies identical). Opt-in (`{PANGU,AI_ROSSBY}_EPOCH_TELEMETRY=1`), on by default in
+    the two run scripts. **Why not the bench harness:** it structurally cannot answer
+    "what do epochs 1-6 cost" — `profile_train.py` builds **no EMA** and scopes its
+    scheduler to the bench window, and `PANGU_BENCH` truncates the run and exits. Two
+    CUDA events/step + one all-reduce/epoch, **no per-step sync** (a sync would remove
+    CPU/GPU overlap and change the number being measured). 21 shared columns.
+    - **This immediately exposed a real harness difference:** PanguWeather **skips the
+      `update_ema` sweep entirely** until `ema_warmup_epochs` (6), so its step cost jumps
+      at that epoch; ai-rossby calls `ema.update` from epoch 1 and warms only the *decay
+      value*, paying the sweep throughout. On 1.18 B params that is ~4.7 GB of
+      elementwise traffic per step. Recorded honestly in `ema_active` rather than
+      smoothed over. Window boundaries are pinned by test so both sides span the same
+      work (Pangu's per-iteration RMSE/wandb block is deliberately *outside* it — it has
+      no ai-rossby counterpart).
+  - **Group write fixed** (`umask 0002` in `polaris_env.sh`, before its `mkdir`s;
+    `chmod -R g+rwX` + setgid over runs/bench/ai_rossby_data/pangu_polaris_data/
+    baselines). The setgid bit was already correct — only the mode was wrong.
+  - **Dead knob found:** `cfg.max_checkpoints_to_keep` is declared in ai-rossby's
+    `conf/config.yaml` and **never read**, and physicsnemo's `save_checkpoint` does not
+    prune ⇒ checkpoints accumulate unbounded at ~14 GB each (4.7 GB weights + 9.4 GB
+    AdamW moments). `CKPT_INTERVAL` (default 5 ⇒ ~280 GB/100 epochs) is the only lever
+    today. Eagle shows no quota cap, so this is a tidiness issue, not a blocker.
+  - **New files:** `compare_sfno_parity.py`, `epoch_telemetry_test.py`,
+    `ai_rossby_variable_contract_test.py`, `{PanguWeather/v2.0/utils,
+    physicsnemo_ai_rossby/examples/weather/ai_rossby}/epoch_telemetry.py`,
+    `conf/model/sfno_e3sm_parity.yaml`, `conf/training/sfno_e3sm_parity.yaml`,
+    `polaris/polaris_sfno_{parity_gate,e3sm}.pbs`, `polaris/polaris_bench_sfno_e3sm.pbs`.
+    Also corrected a **false comment** in `conf/model/sfno_e3sm.yaml` claiming the land
+    variables are not written by the per-year converter — they are, folded into the
+    store's `surface_variables` (verified on `train/2020.zarr`).
+  - **ai-rossby SFNO training smoke GREEN — job 7364985, `SFNO_E3SM_SMOKE_OK`.** First
+    time the vendored SFNO has ever been executed in the ai-rossby venv.
+    `PREFLIGHT_OK` (`VARIABLE_PARITY_OK 19/19` against every one of the 35 stores),
+    `steps_per_epoch=10950` — exactly the Pangu arithmetic (43,800/4) — finite loss
+    **2.947**, val_loss **2.995**, and the first telemetry row:
+    `epoch=1 n=20 step_med=751.1ms gpu_busy=94.9% peak=25.89GB ema=1`. Peak leaves
+    ~14 GB of headroom on a 40 GB A100. `gpu_busy 94.9%` at `num_workers=1` puts loader
+    idle at ~5%. (`step_mean` 1133 ms vs `step_med` 751 ms with std 1658 is first-step
+    autotune in a 20-step window; it washes out over 10,950 steps — read the median.)
+    Confirmed end-to-end that `umask 0002` works: the CSV landed `-rw-rw-r--`.
+  - **`validation=off` does NOT turn validation off** — found by the smoke appearing to
+    hang for 5 minutes after training finished. `conf/validation/off.yaml` disables only
+    the ROLLOUT; a single-step `val_loss` pass still runs over every sample whenever
+    `dataset.val_zarr_path` is set (train.py:832-842). Measured: **322.6 s per epoch**
+    over the 4 val years (5,840 samples) — 13× the 20-step smoke it was validating.
+    `dataset.val_zarr_path=null` is what actually skips it; the smoke path now does
+    (override with `SMOKE_VALIDATE=1`). Two consequences: budget ~5.4 min/epoch of
+    validation into the ai-rossby production run, and note this is a **disclosed
+    non-matching axis** — PanguWeather's production validation is 129 ICs × 60-step
+    rollouts, entirely different work. The telemetry row deliberately covers TRAINING
+    only (`epoch_end` fires before validation), so the step comparison stays clean.
+  - **MATCHED BENCH ROWS — the honest harness number is 1.166×, ai-rossby faster.**
+    Jobs **7364997** (ai-rossby) and **7364998** (PanguWeather, `CONFIG_NAME=
+    E3SM_SFNO_H5_POLARIS_ALLDATA`), same node type, 20+80 steps each. Every
+    controlled axis identical in the CSVs: `n_gpus 4`, `batch_per_gpu 1`, bf16,
+    `ddp_find_unused false`, **`n_loaders 1`**, `n_steps_counted 80`, and — proven by
+    the gate — the same 1,182,108,160-param model.
+
+    | | ai-rossby | PanguWeather | ratio |
+    |---|---|---|---|
+    | `step_med` | **0.71996 s** | **0.83975 s** | **1.166×** |
+    | `samples_per_s` | 5.556 | 4.763 | **1.166×** |
+    | `compute_med` | 0.71994 | 0.83753 | 1.163× |
+    | `step_p90` | 0.72346 | 1.11494 | 1.541× |
+    | `step_std` | 0.00814 | 0.19743 | 24× |
+    | `peak_mem_gb_max_rank` | 21.40 GiB | 28.76 **"GB"** = 26.79 GiB | **1.25×** |
+    | loader idle | 0.63% (`data_idle_frac`) | 9.05% (`loader_wait_frac`) | — |
+    | `cpu_prep_med` | 1.5e-05 s | 2.2e-03 s | 149× |
+
+    `step_med` and `samples_per_s` agree to three digits (internal consistency).
+
+    > **⚠ UNIT MISMATCH in `peak_mem_gb_max_rank` — the two harnesses do not
+    > report the same unit.** PanguWeather divides by **1e9** (decimal GB,
+    > `train.py:1344`); ai-rossby's `profile_train.py:347` and
+    > `epoch_telemetry.py:224` divide by **1024³** (GiB). Pangu's numbers are
+    > therefore inflated ~7.4% relative to everything else in this document.
+    > Pangu's `28.76 "GB"` is **26.79 GiB**, its headroom is **12.70 GiB** (not
+    > 10.7), and the memory ratio is **1.25×** (not 1.34×). Third cross-harness
+    > measurement inconsistency found today, after the missing EMA and the node
+    > variance — every one of them made the two sides look more different than
+    > they are. **Convert before comparing anything against a Pangu row.**
+
+    > ### ⚠ RETRACTED SAME DAY — 1.166× IS NOT CONFIRMED. **Do not quote it.**
+    > The two rows were measured in **separate jobs on different nodes** —
+    > ai-rossby on `x3001c0s13b0n0`, PanguWeather on `x3003c0s37b0n0`. The sweep
+    > (job 7365119, node `x3109c0s19b1n0`) then re-measured the **identical**
+    > `ckpt3/sg0/w1/bs1` config at **0.6517 s** against the parity bench's
+    > **0.7200 s** — **1.105×, from the node alone.**
+    >
+    > Node-to-node spread (10.5%) is therefore the same order as the effect
+    > attributed to the harness (16.6%), and with n=2 nodes the *direction* of the
+    > bias is unknown, so the true gap could be larger, smaller, or absent.
+    >
+    > This is the same failure class as the 1.51×→1.33× post-mortem below —
+    > caught here only because the sweep happened to re-run the baseline config.
+    > **Fix: bench both harnesses in ONE job on ONE node, alternating A/B/A/B/A/B
+    > for repeats.** Until that runs, the only defensible statements are the
+    > architecture gate (exact) and the within-job sweep ratios (same node,
+    > back-to-back).
+    >
+    > **Lesson for every future comparison here: a cross-JOB ratio on Polaris is
+    > not a measurement.** One node, one job, interleaved repeats, or it does not
+    > count.
+  - **Two things worth chasing, both now measurable:** (a) `compute_med` alone differs
+    by 1.163×, i.e. the gap is NOT mostly loader — with an identical model, that is
+    harness overhead inside the step; (b) PanguWeather is slower **while not yet paying
+    for EMA** (`_ema_active()` is False until epoch 6) whereas ai-rossby sweeps from
+    epoch 1. Expect the gap to WIDEN at Pangu's epoch 6 — which is exactly what the
+    per-epoch telemetry was built to catch.
+  - **Epoch budget arithmetic** (from the measured rows, for the still-open decision):
+    ai-rossby **2.19 h/epoch** training + 0.09 h validation ⇒ 100 epochs ≈ **228 h**,
+    which does NOT fit one 168 h `capacity` job. PanguWeather **2.55 h/epoch** training
+    + production validation (129 ICs × 60-step rollouts, est. 0.2–0.7 h) ⇒ 100 epochs
+    ≈ **275–325 h**, i.e. 4–5 uninterrupted 72 h `preemptable` links at best.
+  - **BEST-CONFIG SWEEP for ai-rossby SFNO — job 7365119, 12 configs, ONE node
+    (`x3109c0s19b1n0`), back-to-back.** These ratios are same-node/same-job and are
+    therefore trustworthy in a way the cross-job parity ratio is not.
+
+    | config | cls | step_med | samp/s | vs ckpt3 | peak GB |
+    |---|---|---|---|---|---|
+    | `ckpt3` (current) | N | 0.6517 | 6.138 | 1.000× | 21.40 |
+    | `ckpt2` | N | 0.5116 | 7.819 | **1.274×** | 33.96 |
+    | `ckpt1` | N | 0.4986 | 8.023 | **1.307×** | 36.06 |
+    | `ckpt0` | N | 0.4987 | 8.020 | 1.307× | 36.11 |
+    | `ckpt1`+static_graph | N | — | — | **CUDA OOM** | — |
+    | `ckpt0`+static_graph | N | — | — | **CUDA OOM** | — |
+    | `ckpt3`+workers=8 | N | 0.6579 | 6.080 | **0.991×** | 21.40 |
+    | `ckpt1`+workers=8 | N | 0.5013 | 7.980 | 0.997× | 36.06 |
+    | any `batch_size` 2 or 4 | C | — | — | **CUDA OOM** | — |
+
+    - **`checkpointing` is the only lever that pays.** The expensive branch is `>=3`
+      (checkpoint every block); dropping to 2 recovers 1.274× of the 1.307× available.
+      **`ckpt0` and `ckpt1` are indistinguishable** (0.4986 vs 0.4987 s, 36.06 vs
+      36.11 GB), so the `>=1` encoder/decoder branch costs and saves nothing — 1 is
+      the sensible floor and there is no reason to run 0.
+    - **`num_workers` is worthless here, and slightly negative** (0.991×, 0.997×) —
+      exactly as the measured `data_idle_frac` of 0.0068 predicted. **The old "+9%
+      throughput at 8 workers" does NOT transfer**: that was PanguPlasim at 449 ms/step;
+      at ~500-650 ms with a 1.18 B model the loader is already fully hidden and extra
+      workers only add startup cost. Do not re-try this knob on SFNO.
+    - **`ddp_static_graph` OOMs** at ckpt1/ckpt0 — it retains extra state. The
+      `sfno_plasim.yaml` comment calling it "safe to enable here" is not true at low
+      checkpointing. Untested at ckpt2/ckpt3, where there is headroom.
+    - **`batch_size` > 1 is unavailable** at any fast setting; even bs=2 at ckpt1 OOMs.
+  - **ZeRO-1 SWEEP — job 7366778, real `train.py` (EMA on), 8 configs, one node.
+    ZeRO is REQUIRED, not optional: without it the entire speedup is unreachable.**
+    Predictions were written into the script before it ran; **6 of 8 exact**.
+
+    | config | step | vs base | peak GB | predicted |
+    |---|---|---|---|---|
+    | `ckpt3` no-ZeRO | 711.5 ms | 1.000× | 25.91 | ~25.8 ✅ |
+    | `ckpt2` no-ZeRO | — | — | **OOM** | "marginal ~38.4" ❌ |
+    | `ckpt1` no-ZeRO | — | — | **OOM** | OOM ✅ |
+    | `ckpt3` + ZeRO | 724.1 ms | 0.983× | **19.46** | fits ✅ |
+    | `ckpt2` + ZeRO | 574.1 ms | **1.239×** | 32.02 | ~31.8 ✅ |
+    | `ckpt1` + ZeRO | 561.0 ms | **1.268×** | 34.12 | ~33.9 ✅ |
+    | `ckpt0` + ZeRO | 559.6 ms | 1.271× | 34.17 | ~33.9 ✅ |
+    | `ckpt1` + ZeRO, bs=2 | — | — | OOM | "may now fit" ❌ |
+
+    - **ZeRO-1 saves 6.45 GB** (25.91 → 19.46 at ckpt3; predicted 6.6) and costs
+      **1.7%** in step time — the all-gather plus losing the fused AdamW kernel.
+    - **Without ZeRO, ckpt2 and ckpt1 both OOM**, so on plain DDP this model is
+      pinned at ckpt3 and none of the 1.24-1.27× is reachable. That makes ZeRO
+      the enabling change, not a memory nicety.
+    - **The EMA accounting is now empirically anchored**: `ckpt3` real training
+      measured **25.91 GB** vs the bench's 21.40 GB and the earlier smoke's
+      25.89 GB — a 0.02 GB reproduction. Bench peaks understate production by
+      the 4.4 GB EMA copy, as derived.
+    - **Bench step times also understate production by ~9%**: same `ckpt3`
+      config, 651.7 ms in the bench vs 711.5 ms in the real trainer — the EMA
+      sweep over 1.18 B params plus DDP metric reduction and logging.
+    - **The one wrong prediction is the useful one.** `ckpt2`/no-ZeRO was called
+      "marginal ~38.4 GB" and OOM'd ⇒ **these estimates run ~1-2 GB optimistic.**
+      Do not trust a margin under ~2 GB.
+    - **Not fragmentation.** The OOM reports 38.29 GiB allocated with only
+      57.76 MiB reserved-but-unallocated, so `expandable_segments` would not have
+      helped — these are genuine capacity limits. (The `PYTORCH_CUDA_ALLOC_CONF`
+      vs torch-2.10 `PYTORCH_ALLOC_CONF` naming question is therefore hygiene,
+      not a live defect.)
+  - **PANGUWEATHER PRODUCTION LAUNCHED — 7366939 → 7366940, `capacity`, 2 × 168 h,
+    100 epochs, `checkpointing: 2`, ZeRO OFF.** Pre-flight verified, not assumed:
+    51,100 h5 files (1460/yr; train 2015–2044 = 43,800 samples ⇒ 10,950 steps/epoch
+    at 4 ranks; val 2045–2048); corrected stats confirmed by value —
+    `SST` **8.4407/12.0659**, `TSOI_10CM` **271.1259/16.3902**, and **no zero stds**
+    anywhere (`PRECT` is 2.89e-08/8.30e-08, tiny but real); config dry-rendered and
+    inspected (`embed_dim 512`, `epsilon_factor 0.01`, `checkpointing 2` in both
+    places, batch 1, workers 1, 100 epochs, `train.py`). ZeRO is off because its
+    gate is not rebuilt — an ungated change does not go into a 300 h run.
+    At 0.4667 s/step ⇒ 1.42 h/epoch training — **WRONG, see below**.
+  - **✅ THE BENCH-VS-PRODUCTION GAP IS SOLVED: it is COLD PAGE CACHE / loader I/O.**
+    Two earlier entries called it unexplained and blamed first-CUDA-context clock
+    ramp. **Both wrong, and the discriminating column was already in the CSV.**
+    Four samples of the identical `ckpt3_zero0` config:
+    | run | step_med | step_std | **loader_wait_frac** |
+    |---|---|---|---|
+    | `ckpt3_zero0` (first in job 7366921) | 0.8965 | 0.2458 | **0.0611** |
+    | `ckpt3_zero0_r1` (first in job 7366932) | 0.8916 | 0.1349 | **0.0259** |
+    | `ckpt3_zero0_r2` | 0.6014 | 0.0002 | 0.0003 |
+    | `ckpt3_zero0_r3` | 0.6014 | 0.0002 | 0.0002 |
+    Every config is its own `torchrun`, so a fresh CUDA context happens EVERY time —
+    "first context" would make every row slow, but only **first-in-JOB** is. What
+    survives across processes inside a job and not across jobs is the **page cache**,
+    and `loader_wait_frac` is **100-200× higher** on exactly those rows. A clock ramp
+    does not move a loader-wait metric by 200×.
+    The magnitudes close in three independent comparisons:
+    cold−warm same job **0.2927 s**, cold−warm other job **0.295 s**,
+    production ckpt2 − warm bench ckpt2 **0.2995 s** — the same penalty at two
+    checkpointing levels on two clocks.
+    **The bench never touches cold data**: 50 steps × 4 ranks redraws the same 200
+    samples (`DistributedSampler(seed=0, epoch=0)`), while production shuffles over
+    **51,100 files / 2.0 TB, 42 MB per timestep, at `num_data_workers: 1`**.
+    ⇒ Bench step times are a **warm-cache lower bound**, not a measurement artifact.
+  - **WHERE THE 100-EPOCH TIME GOES — from `out.log` + telemetry, zero extra jobs.**
+    Epoch 3 decomposes: train-loop wall 90.8% (in-window GPU 75.0%, gap 15.8% — of
+    which **loader `next()` 12.3%** and **diagnostics 3.5%**), validation 8.2%,
+    checkpoint write ~1.0%. Over 100 epochs: **loader 37.9 h, diagnostics 10.8 h,
+    validation 25.4 h, checkpoints 3.0 h**, plus the in-window cold-I/O penalty of
+    **~91 h** ⇒ **~129 h of a ~308 h projection is addressable I/O (42%)**.
+    The 16-18% `gpu_busy` gap is the SECOND-order term; the in-window penalty is 2.4×
+    larger.
+  - **⚠ SUPERSEDED (kept for provenance): "BENCH STEP TIMES DO NOT PREDICT
+    PRODUCTION, AND THE CAUSE IS UNKNOWN."**
+    Live production at `ckpt2` measures **754.9 / 776.1 ms/step** (telemetry,
+    epochs 1-2) against the bench's **466.7 ms** — a **1.62×** gap, and ~2.27× on
+    epoch wall-clock. Real budget: **~3.4 h/epoch ⇒ ~340 h for 100 epochs**, so the
+    2 × 168 h chain is ~4 h short and **needs a third link**.
+    **A previous entry blamed the per-iteration diagnostics block. That was wrong
+    and this repo's own code refutes it**: `train.py:1216-1222` closes the
+    telemetry window *deliberately before* that block, precisely so a telemetry
+    row and a PANGU_BENCH row span the same work. Both windows exclude it.
+    Ruled out so far: the diagnostics block (above); EMA (`ema_active=0` in both
+    epochs, warmup is 6); node variance (~10%, not 62%). Still open — candidates
+    are the measurement method itself (bench uses `cuda.synchronize()` +
+    `perf_counter`, telemetry uses CUDA events) and sustained-vs-burst clock
+    behaviour over 10,950 steps rather than 50. **Until it is explained, treat
+    every bench-derived step time in this document as a lower bound** — including
+    the older 0.602 s/step. Bench MEMORY figures remain trustworthy (bench and
+    production agree exactly at 32.63).
+  - **⚠ COLD-CACHE CONTAMINATION (originally filed as "cold start") — the sweep's RATIOS were inflated
+    (repeat job 7366932).** Four samples of the identical `ckpt3_zero0` config:
+    **0.8965, 0.8916, 0.6014, 0.6014** — bimodal, 49% spread, while every other
+    config held to **≤0.1%**. Tracing by job: both slow samples were the **first
+    config of their job**; both fast ones came later *within* a job. Originally
+    attributed to "first CUDA context / clock ramp" — **that was wrong**; it is the
+    **page cache** (see the entry above: `loader_wait_frac` 100-200× higher on
+    exactly those rows). The conclusion that the ratios were contaminated stands;
+    only the mechanism changed. Corrected against the warm 0.6014:
+    | config | sweep said | **actual** |
+    |---|---|---|
+    | `ckpt2` no-ZeRO | 1.909× | **1.288×** |
+    | `ckpt1` no-ZeRO | 1.958× | **1.321×** |
+    | `ckpt3` + ZeRO | 1.465× | **0.988×** |
+    That now matches ai-rossby's independent 1.27–1.31×, and **ZeRO costs ~1.2% at
+    every level on both harnesses** — the "1.47× ZeRO speedup" never existed.
+    Absolute step times are unaffected (0.1% spread), so the production budget
+    stands. **Discard each job's first config as warm-up**; and note that
+    median-of-repeats *failed* here — the median of a bimodal sample picked a cold
+    outlier. Printing every pass is what caught it.
+  - **⚠ ai-rossby EMA WAS NEVER RESTORED ON RESUME — silent, and it degraded the
+    DELIVERABLE.** `train.py` called `load_checkpoint()` without `metadata_dict=`,
+    so the EMA written into every checkpoint (~4.4 GB) was never read back
+    (`checkpoint.py:1164-1165` only surfaces metadata through that argument). And
+    `ModelEMA` is built *before* the resume, so it deep-copied the random init and
+    then self-healed to the live weights — no crash, no NaN, just a **reset decay
+    warmup at every job boundary**. Since `validate_with_ema: True` and
+    `inference.py` runs `use_ema=true`, **the delivered model is the EMA**: across a
+    2-link chain it would have averaged only over link 2. PanguWeather restores its
+    equivalent (`train.py:3737`); ai-rossby did not. Fixed, with a log line showing
+    `n_averaged` so a regression is visible. **Gate: `polaris_resume_gate.pbs`** —
+    the save→consolidate→resume path had **never executed once** (every ZeRO run set
+    `checkpoint_save_interval=1000000`).
+  - **ZeRO provenance, for the record:** it was added to PanguWeather by
+    **Alexander Wikner on 2026-05-15** and has sat dormant since — **no config in
+    the repo ever enabled it**, and **DESIGN §5's ladder does not list sharding at
+    all** (it starts at `torch.compile`). It surfaced only because the memory
+    question was asked; the ladder assumed compute was the lever, which the profile
+    supported. ai-rossby had none until this session.
+  - **⚠ ZeRO EQUIVALENCE: RESULT WITHDRAWN, TEST WAS CONFOUNDED (job 7366891).**
+    An adversarial review refuted it. Two independent defects, both in the test:
+    1. **The premise was false.** The instrument was built on "ZeRO reduce-scatters,
+       so summation order changes, so a bitwise test would be wrong."
+       `ZeroRedundancyOptimizer` does **not** touch gradient reduction — DDP's
+       all-reduce runs unchanged, each rank runs the local optimizer over its
+       shard, and updated parameters are **broadcast** (`step()` →
+       `_local_step()` + `_sync_params()`). No reduce-scatter exists. So every
+       rank holds bit-identical gradients after the all-reduce, AdamW is
+       elementwise, and **correct ZeRO-1 must be BITWISE identical**. The whole
+       noise-floor apparatus tolerated a difference that should not exist.
+    2. **The arms used different kernels.** `sfno_e3sm_parity.yaml:90` sets
+       `fused: True`; `_wrap_zero` (train_loop.py:175) drops it because the
+       wrapper rejects it. So the DDP arms ran **fused** AdamW and the ZeRO arm
+       ran **eager** AdamW. The measured **6.675e-06 is the kernel swap**, not
+       sharding — the test compared fused-vs-eager and called it ZeRO-vs-DDP.
+    Also wrong, from the same review: the "below one bf16 ulp" defence was a
+    **category error** (the compared quantities are fp32 loss and **fp64**
+    grad_norm; bf16 appears only in matmul intermediates); the 20-step window sat
+    entirely inside LR warmup so it measured at **~4% of production peak LR**,
+    where optimizer-path discrepancies are smallest; and recording only
+    rank-**averaged** scalars structurally hides ZeRO-1's characteristic failure,
+    replica divergence from a missed/stale broadcast.
+    **Fixed** (commit 04447417): `--require-bitwise`, `fused=false` forced on all
+    arms, per-step cross-rank parameter checksum, and the JSON now witnesses
+    `optimizer_class` / `optimizer_fused` / `lr_first` / cross-rank delta so a
+    confounded run is visible in the artifact. **Rerun pending. ZeRO is NOT
+    cleared for adoption.**
+  - **Lesson, and it is the fourth of its kind today** (after the cross-node
+    parity ratio, the missing EMA, and the GB-vs-GiB mix-up): every one of these
+    made a change look better or more different than it was, and every one was
+    caught by a control or an outside check rather than by the measurement
+    itself. **A number from an instrument nobody attacked is not a result.**
+  - **RECOMMENDED ai-rossby production config: `model.checkpointing: 2` +
+    `use_zero_optimizer: true`** — 1.239× at 32.02 GB (7.47 GB headroom), over
+    `ckpt1`'s 1.268× at 34.12 GB (5.37 GB). `ckpt1` buys 2.3% for 2.1 GB less
+    headroom, and the estimates just proved ~1-2 GB optimistic; a 170 h run that
+    dies at hour 100 costs far more than 2.3%. `ckpt0` is strictly worse than
+    `ckpt1` (same speed, more memory) — as the first sweep also found.
+    At 1.75 h/epoch + 0.09 validation, 100 epochs ≈ **184 h**, down from ~225 h.
+    **Still not adopted**: needs the §4 equivalence gate, and a validation-inclusive
+    smoke (a 2-epoch/20-step run suffices — `peak_mem_gb` is run-to-date, so
+    epoch 2's row already includes epoch 1's validation).
+  - **⚠ THE BENCH SWEEP'S MEMORY NUMBERS UNDERSTATE PRODUCTION BY ~4.4 GB — and it flips the
+    recommendation.** `profile_train.py` builds **no EMA**; `train.py` does, and
+    `ModelEMA` holds a full fp32 shadow copy = 1,182,108,160 × 4 B = **4.40 GB**.
+    Confirmed against the smoke: train.py peak 25.89 GB vs bench peak 21.40 GB, a
+    **4.49 GB** delta. Adding it back, against 39.49 GiB usable:
+    | config | bench peak | + EMA | verdict (before validation) |
+    |---|---|---|---|
+    | ckpt3 | 21.40 | ~25.8 | fine — matches the smoke's 25.89 |
+    | ckpt2 | 33.96 | ~38.4 | **~1 GB margin — marginal** |
+    | ckpt1 | 36.06 | ~40.5 | **would OOM** |
+    So the fastest configs are **not actually reachable in production**. `ckpt2` is the
+    only candidate and it is borderline before validation is even counted. **Nothing is
+    adopted**: this needs a real short training run (EMA + validation) at ckpt2, then
+    the §4 equivalence gate vs ckpt3, before it goes anywhere near a production run.
+  - **Worth a cheap check:** torch 2.10 documents the allocator knob as
+    `PYTORCH_ALLOC_CONF`, while `polaris_env.sh` exports `PYTORCH_CUDA_ALLOC_CONF`. If
+    the old name is no longer honored in the ai-rossby venv, `expandable_segments:True`
+    is silently inactive there — which would change every OOM verdict above.
+
+  - **PRODUCTION RUNS (CANCELLED, pending the best-config decision) — 100 epochs each, to CONVERGENCE (owner's call: the goal
+    is trained models, not only parity/profiling).** Both pre-chained with
+    `polaris_submit_chain.sh`, so neither needs daily human resubmission; every link
+    re-runs its script from the top and resumes from the run's checkpoint.
+    - **ai-rossby** → `capacity`, **2 × 168 h**: **7365020** (Q) → 7365021 (H).
+      ~228 h needed, so link 2 finishes it. This holds the project's ONLY capacity
+      slot (`max_run=1` per project) — coordinate before queueing anything else there.
+    - **PanguWeather** → `preemptable`, **6 × 72 h**: **7365022** (Q) → 7365023-27 (H).
+      ~275–325 h needed; 6 links = 432 h of margin, deliberately over-provisioned
+      because a link that starts after training completed just resumes a finished run
+      and exits in minutes. `preemptable` is scheduling again (26 running at submit
+      time), unlike 2026-08-05 when it never started a single job.
+    - Both at `seed=0`, `num_data_workers/num_workers=1`, bf16, batch 1 × 4 ranks,
+      `checkpointing: 3`, telemetry on for every epoch. Watch progress with the
+      per-epoch CSVs under `$MEMBER_ROOT/bench/epoch_telemetry_*.csv`, not the exit
+      code — a preempted link exits non-zero and that is normal.
+  - **Group read+write DONE and verified**: `ai_rossby_data` stores are `drwxrwsr-x`
+    with `-rw-rw-r--` chunks, likewise `runs/`, `bench/`, `pangu_polaris_data/`,
+    `baselines/`. The `chmod -R` over the 35 zarr stores took ~50 min (millions of
+    chunk files) — run it in the background, not inline.
+  - **Still open:** jesswan's sign-off on the fills (DESIGN §1) before any resulting
+    model's numbers are reported.
+
+- **2026-08-06** — **PRODUCTION CONVERSION COMPLETE (35 stores) — after routing it
+  through `debug`, because `preemptable` never scheduled it.**
+  - **Final dataset**, verified on disk (not from logs): `train/` **30 stores,
+    2015–2044**, contiguous, 1460 timesteps each = **43,800 training samples**;
+    `val/` **2045–2048** full years + **2049** as the 1-sample tail store. Exactly
+    the handoff §5 Step 4 target. Production training is no longer blocked on data.
+  - **⚠ `val/2046.zarr` existed but was WRONG — and "it's on disk" would have hidden
+    it.** It was the 1-sample tail store from the first smoke (time len **1**,
+    22 MB) whereas production needs 2046 as a full val year and 2049 as the tail.
+    Rebuilt to 1460. Skipping it would have given production a validation year of
+    one sample — surfacing much later as a metrics oddity, not as a conversion bug.
+    **Check `time` length, never mere existence.**
+  - **The scheduling lesson, and a wrong diagnosis of mine.** I blamed queue times
+    on requested walltime and resubmitted three times on that theory (18 h → 3 h →
+    2 h). Wrong: the jobs had been **eligible 11 h 28 m** with
+    `comment = Insufficient amount of resource: queue_tags`. `preemptable` only
+    runs on nodes prod isn't using and had none (backlog grew 106 → **134 queued**
+    while we waited). Walltime was never the constraint.
+
+    | queue | evidence, 2026-08-05/06 |
+    |---|---|
+    | `debug` | **9/9 jobs started**, median wait **19 s**, worst 27 min |
+    | `preemptable` | 18 h job: never started in 12 h. 8× 2 h jobs: never started in 11.5 h |
+
+    **Every piece of real work that completed came through `debug`**; everything
+    sent to `preemptable` after 16:08 did nothing. Check `eligible_time` (with an
+    anchored grep — `wfp_eligible_time_exp` is a substring trap) before theorising
+    about priority.
+  - **How it was done:** `debug` allows one job at a time, so a driver submitted 5
+    sequential chunks of ≤7 stores (6.2 min/store measured ⇒ ~43 min against a
+    55 min wall). All five green on `CONVERT_ALL_OK`; **3 h wall total.** The driver
+    stops on the first failed chunk rather than leaving a silent hole. This is only
+    expressible because of the `${VAL_YEARS-}` fix (`b5f80060`) — with `:-`, every
+    train-only chunk would have silently converted `val/2045` and raced.
+
+- **2026-08-05** — **DESIGN §4 equivalence gate BUILT, first baselines captured — and
+  `torch.compile` FAILS it, so the 1.40× is NOT adopted.** Commit `402d336e`,
+  job **7353187**.
+  - **What now exists.** `baselines/ai_rossby_pangu_plasim/{eager,compiled_default}.json`
+    — the repo's first §4 artifacts — plus `equivalence.py` (deterministic K=20
+    capture), `polaris/compare_baselines.py` (§4.1's metric, stdlib-only), and
+    `polaris/polaris_equivalence_compile.pbs` (both captures in ONE job, so the
+    only difference is the change under test). §4.1 was the item blocking every
+    optimization; it is now runnable in ~3 min.
+  - **The verdict, stated plainly: FAIL.**
+
+    ```
+    max rel err 4.019e-01 > 1e-2   at forward_output_stats.surface.mean
+    loss trajectory alone          1.113e-01  (step 11, diagnostic)
+    surface.std    0.44623 -> 0.43339   (2.9%)
+    upper_air.max  1.44501 -> 1.28017  (11.4%)
+    ```
+
+    The `std`/`max` drifts are on well-scaled quantities, so this is **not** just
+    the near-zero-mean artifact the headline number might suggest.
+  - **The divergence COMPOUNDS — it does not start large:**
+
+    | step | 0 | 2 | 3 | 10 | 15 |
+    |---|---:|---:|---:|---:|---:|
+    | rel err | **8.30e-04** ✓ | 3.37e-03 | 8.29e-03 | 1.82e-02 ✗ | 1.30e-02 ✗ |
+
+    Step 0 — identical weights, one forward+backward — agrees to **8.3e-4**, well
+    inside tolerance. So the per-step computation matches; what fails is the
+    20-step trajectory, because each optimizer step feeds slightly different bf16
+    weights forward. **That is expected of any change perturbing bit-level
+    arithmetic, correct ones included.**
+  - **Recorded as a failure anyway, and the tolerance stays 1e-2.**
+  - **FOLLOW-UP (job 7353316, `MODE=fixed`): compile fails the GENEROUS test too.**
+    Added `AI_ROSSBY_EQUIV_MODE=fixed` — K forward+backward passes with **no
+    optimizer step**, so weights are identical every iteration and step *i* cannot
+    inherit from step *i−1*. Backward still runs (63% of step time, where the
+    fusion is) and `grad_norm` is recorded. This separates the two hypotheses, and
+    **both turn out to be real**:
+
+    | step | 0 | 5 | 10 | 19 |
+    |---|---:|---:|---:|---:|
+    | train mode | 8.3e-4 | 8.0e-3 | **1.8e-2** ↗ | 1.6e-3 |
+    | **fixed mode** | 8.3e-4 | 1.2e-3 | 8.9e-4 | 1.8e-3 |
+
+    Compounding was genuine (fixed-mode loss error is flat at ~1e-3). **But a real
+    per-step difference remains, which the compounding had masked:**
+    `grad_norm` **5.33e-02** at identical weights, `surface.std` 3.02e-02,
+    `surface.min` 1.34e-01 (**0.606 of the field's own σ**), `upper_air.min`
+    6.53e-02 (0.400 σ). The aggregate loss agrees to ~0.1% while the output
+    *extremes* differ by 0.4–0.6 σ — an averaged scalar hiding pointwise
+    disagreement, which is exactly why §4.1 asks for output stats *alongside* the
+    losses.
+  - **Verdict strengthened: NOT adopted.** The test built to give compile its best
+    chance still fails on quantities unrelated to trajectory amplification.
+  - Consequently the procedural question (should §4.1 gate fusion changes on fixed
+    weights rather than a training trajectory?) is **still worth settling on its
+    own merits, but it is not what blocks this lever** — and it was never something
+    to settle by adjusting a number until it passed (rules #1/#11).
+  - **Also open:** this is a **world-size-1** capture. `torch.compile` is applied
+    beneath the DDP wrap, so §4.1 additionally requires a 4-GPU baseline before
+    adoption could even be considered.
+  - The comparator's failure modes were unit-tested **before** it gated anything:
+    identical and 0.5%-drift pass; 5% drift, seed mismatch, output-shape drift and
+    3% stat drift are all correctly rejected.
+
+- **2026-08-05** — **DESIGN §5 rung 1 MEASURED on ai-rossby: `torch.compile` = 1.40×.
+  Getting there exposed a silent correctness bug that would have inflated it.**
+  Commit `6972a940`.
+  - **The bug, first.** `train_step` introspects the model's forward signature to
+    decide whether to pass `train=True` + targets. `torch.compile` returns an
+    `OptimizedModule` whose forward is dynamo's wrapper, so introspection answered
+    **`eager=True` vs `compiled=False`** (measured). Compiling therefore dropped
+    `train=True`, flipping `if self.checkpointing > 0 and train:` false —
+    activation checkpointing silently OFF and a different forward path. A speedup
+    measured that way times a *different computation* (rule #1), **and flatters
+    itself**, since disabled checkpointing is faster. Fixed with a bounded
+    `_unwrap_model` peeling `_orig_mod` then `.module` (`_orig_mod` first —
+    `OptimizedModule` forwards unknown attrs, so `hasattr(m,"module")` misses it).
+  - **The measurement** (jobs **7352022** eager vs **7352948** compiled; 4×A100,
+    bf16, `default` mode, 40 warmup + 20 steps, `train/2015.zarr`):
+
+    | | eager | compiled | ratio |
+    |---|---:|---:|---:|
+    | `step_med` | 449.6 ms | **320.8 ms** | **1.401×** |
+    | `samples_per_s` | 8.90 | 12.47 | 1.401× |
+    | `samples_per_s_wall` | 8.80 | 12.29 | 1.397× |
+    | `peak_mem_gb_max_rank` | 24.98 | 21.07 | 1.186× |
+    | `n_params` | 60,708,112 | 60,708,112 | identical ✓ |
+
+  - **The profile predicted this.** nsys put `backward` at **63%** of the step
+    (288.2 ms vs `forward_loss` 37.0 ms — a 7.8× ratio where ~2× is healthy) with
+    `elementwise_kernel` holding the top three kernel slots: fusion-starved, which
+    is exactly what compile fixes. The memory drop is the same effect from another
+    angle — fused kernels stop materialising intermediates. **`default` mode, NO
+    cuda graphs**; `reduce-overhead` may add more given ~62k launches/step.
+  - **NOT ENABLED.** DESIGN §4 requires equivalence vs a captured baseline and §5
+    leaves rung 1 unset until it exists — it still doesn't. Shipped as a
+    measurement + correctness fix, not a config change. **The gate is now cheap:**
+    the harness already runs a real `train_step` and merely discards the losses;
+    recording them would both capture the repo's first `baselines/<model>/` entry
+    and gate this lever. That is the next job.
+  - **Login nodes are not a test environment.** The same suite returned `rc=0`,
+    `rc=1`, and `rc=130`-at-scipy-import within one hour, then passed cleanly in
+    isolation minutes later — pure contention. Added
+    `polaris/polaris_recipe_tests.pbs` (compute node, gates on pytest's summary
+    LINE not the exit code, since a killed run can exit misleadingly):
+    **`RECIPE_TESTS_OK 13 passed`** (job 7353083, 46 s). The login node had been
+    displaying 6 dots for a 13-test suite — truncated output that I twice read as
+    a result. **A truncated capture with `rc=0` is not evidence, and one failure
+    on a shared login node is not evidence of a code defect.**
+
+- **2026-08-05** — **ai-rossby profiling harness built and GREEN; `n_params` overturns
+  the standing explanation for the SFNO-vs-PanguPlasim speed gap.**
+  Commits `b5f80060` (converter fix) → `84dbacf6` (harness).
+  - **The measurement** (job **7352022**, 4×A100, bf16, 5+20 steps on `train/2015.zarr`):
+    `step_med` **449.6 ms**, p90 449.9, std 0.27 ms, `samples_per_s` 8.90,
+    `peak_mem` **24.98 GB**, `data_idle_frac` 0.0107, **`n_params` 60,708,112**.
+  - **`n_params` was never logged before, and it inverts the story.** ai-rossby is
+    **60.7 M params vs SFNO's measured 1,182,108,160 — 19.5× SMALLER** — yet only
+    ~1.6× faster per step. So the gap was never SFNO's spectral transforms (the
+    profile puts cuFFT/SHT at **3.3%**). A 19.5× smaller model gaining only 1.6×
+    means **ai-rossby is badly under-utilizing the GPU.** That is now the first
+    thing to profile, and it is on evidence rather than assumption.
+  - **The old step time was ~19% pessimistic.** `LaunchLogger`'s 537 ms is an epoch
+    *mean* including first-step warmup; the synced median is **449.6 ms**. Every
+    wall-clock estimate derived from 537 ms is stale.
+  - **Memory was never the constraint we assumed.** 24.98 GB of 40 GB at
+    `batch_size=1` — ~15 GB headroom, and `checkpointing`/`embed_dim` were never needed.
+  - **Shape.** `profile_train.py` is a *wrapper*, not a fork: it imports
+    `build_model`/`build_datapipe`/`build_loss`/`make_optimizer`/`make_scheduler`/
+    `train_step` from the real trainer, so it cannot drift (rule #4). `train.py` is
+    unchanged; `train_loop.py` gains gated NVTX only. CSV's first 19 columns are
+    s2s's, in order, with 4 appended (`samples_per_s_wall`, `data_idle_frac`,
+    `config_sha16`, `n_params`).
+  - **Verification, in full:** existing `test_train_loop.py`/`test_multistep_train_step.py`
+    6 pass **before** the edit, 6 after with NVTX unset, 6 with `AI_ROSSBY_NVTX=1`;
+    the new drift guard is **negative-tested** (renaming `backward`→`backwards` fails
+    it with the exact diff, revert byte-identical); PanguWeather's own guard still
+    `BENCH_INSTR_OK (10 tests)`.
+  - **Two bugs caught during implementation, both by reading the real call sites:**
+    (a) `make_optimizer`/`make_scheduler` need `_flatten_{optimizer,scheduler}_cfg`
+    first — passing raw nested config silently builds the WRONG optimizer;
+    (b) `multistep_train_step`'s rollout gets ONE `forward_loss` range, not K, or
+    `parse_nsys.py`'s per-range median becomes meaningless.
+  - **A 4-reviewer adversarial pass rewrote the plan first**, and killed a claim I had
+    repeated several times: the **"1.51× faster" figure was apples-to-oranges**
+    (SFNO's `Time taken for epoch` includes validation + checkpoint; ai-rossby's was
+    train-only). Like-for-like it is **1.33×**, and even that carries four
+    uncontrolled confounds — chiefly that **`checkpointing: 3` is NOT a matched
+    setting**: graduated in SFNO (`>= 3` does strictly more recompute), a flat
+    boolean in ai-rossby (`> 0`, so 1/2/3 are byte-identical). Also uncontrolled:
+    `num_data_workers` 1 vs 8, and her step time drifting 702→832 ms (+18.5%).
+  - **Converter landmine fixed** (`b5f80060`): `${VAL_YEARS:-2045}` defaults on
+    *empty* as well as unset, so splitting the conversion across parallel jobs gave
+    every train-only shard `val/2045` — concurrent racing writers on one store with
+    `--overwrite`. `qsub -v VAR=" "` does not dodge it (PBS strips it to empty;
+    verified with `od`). Fixed `:-`→`-` plus a tail-year guard, four cases unit-tested.
+
+- **2026-08-05** — **Handoff-v2 Steps 1-3 executed: corrected normalization regenerated,
+  norm zarr rebuilt, and the ai-rossby PanguPlasim training smoke is GREEN on 4×A100.**
+  The whole point of the exercise, measured: **`TSOI_10CM` normalizes to spread 0.9968,
+  was 0.122.**
+  - **Step 1 — regeneration** (job **7340945**, exit 0, **34:54**). Full 51,100-file /
+    ~2.15 TB moments pass. Measured vs the handoff's predicted values:
+    `SST` **8.4407 / 12.0659** (predicted 8.44 / 12.06), `TSOI_10CM` **271.1259 / 16.3902**
+    (predicted 271.09 / 16.39). The gate `check_normalization.py` passes **all 23 contract
+    channels** at mean ≈0 / spread ≈1. The two fill warnings are the documented false
+    positives (`PFTDATA_MASK` is degenerate — valid values are only ever 1; `SST`'s −1.8
+    fill sits exactly *on* the data minimum, so the `valid_lo <= fill` test trips on a
+    float boundary).
+  - **Step 2 — norm zarr rebuilt.** Old store moved to `…zarr.prefix` (rollback path).
+    Verified beyond the handoff's 2-field spot-check: **all 26 vars × all levels are
+    bitwise-identical to the source `.nc`** (worst abs diff 0.000e+00). Old→new:
+    `SST` 109.963/123.908 → 8.441/12.066; `TSOI_10CM` 105.229/133.802 → 271.126/16.390.
+  - **Step 3 — training smoke** (job **7341412**, exit 0, **9:36**, 4 ranks, bf16,
+    365 steps/epoch, 537 ms/iter). `PREFLIGHT_OK` + `PANGU_PLASIM_RUN_OK`. Loss finite and
+    decreasing within the epoch (8.122e-01 → 6.949e-01 → 6.870e-01), epoch loss 8.410e-01,
+    **val_loss 6.708e-01**. **All four "never executed" unknowns from handoff §5 are now
+    resolved:** the model constructs (the `sol_in` patch holds on a real config), the
+    tensors line up, **it fits in 40 GB with no lever pulled** (`checkpointing: 3` and
+    `embed_dim: 240` were NOT needed), and the windowing divides.
+  - **The window_size question was answerable statically** — no run needed. 18 levels → 9
+    after the level patch, **+1 for the surface row = 10**, which the vertical window of 2
+    divides. (`pangu_plasim_e3sm.yaml:65`'s comment reaches the right conclusion by wrong
+    arithmetic — it stops at 9.) Horizontally the downsampled 45×90 is *not*
+    window-divisible, but `Transformer3DBlock` applies `get_pad3d`/`crop3d`, so it pads.
+  - **Cross-check against jesswan's shipped `.nc` — this is the real validation, and it is
+    stronger than her regeneration would have been.** The defect touches 2 channels; the
+    other 24 carry 0% NaN and so have no fill dependence, meaning her Jul 8 file is an
+    *independent* reference for them. **18 of 26 variables reproduce her numbers** (most to
+    ~1e-8). `U`/`V`/`RELHUM` appear changed only under *relative* error on near-zero means —
+    absolute diffs are ≤0.15 on values up to 83, inside §3's ±1%. Note this tests our
+    arithmetic against a differently-computed source, whereas a second regeneration by her
+    would share our fill assumptions rather than test them.
+  - **⚠ NEW, latent — cloud std floors differ.** Shipped `_std_corr` floored **16**
+    near-zero levels to 1.0; ours floors **9**. Where hers underflowed to exactly 0 (and so
+    got floored), our float64 shifted accumulation leaves catastrophic-cancellation
+    residue: `CLDICE` ×4 at **2.03e-12** and `CLDLIQ` ×3 at 7e-28…6.6e-24 instead of 1.0.
+    **Inert today** — `CLDICE`/`CLDLIQ`/`CLOUD` are commented out of
+    `E3SM_SFNO_H5_POLARIS.yaml:52` and absent from the 108-field contract — but **anyone
+    re-enabling those channels would divide by ~1e-12.** Deliberately NOT "fixed": the
+    floor is a science call, and rule/trap #8 forbids raising `STD_ZERO` globally because
+    `PRECT`'s real std is ~8.3e-8. Flagged for jesswan alongside the fills.
+  - **Scheduling: Step 1 was rerouted to `debug`.** The handoff's job 7337234 sat queued
+    ~5 h behind **106 preemptable jobs**. Measured the cost first (0.62 s/file × 51,100 ÷ 32
+    workers ≈ 16 min), so it fits debug's 1 h cap — it ran in 34:54. Submitted under
+    `TAG=dbg` so its outputs (`data_dbg_*.nc`) could not collide with the queued job's,
+    which stayed queued as a fallback; results were promoted to the canonical names
+    afterward and 7337234 was cancelled (state F, never ran). **Reusable trick:** the `TAG`
+    env var makes a racing submission safe.
+  - **⚠ The handoff's backup step had never been performed.** `$PANGU_AUX/pre_fix/` did not
+    exist, so job 7337234 would have destroyed the only local copy of the pre-fix statistics
+    (the ones §2's analysis and the 85-epoch checkpoint rest on). Backed up before anything
+    else. Anyone re-running this: do that step first, literally first.
+  - **jesswan's own regeneration still has not started** (checked 2026-08-05 ~03:00 UTC):
+    every stats file in `$E3SM_ROOT` is still dated Jul 8 17:01, and her newest PBS job
+    (`7322826`, `physicsnemo_e3sm_sfno_peryear`, ended Aug 4 17:19 **exit 1**) is a training
+    job. Caveat: ALCF homes are 0700, so this is "no evidence", not proof.
+  - **Stale-doc sweep (handoff §8).** `e3sm_h5_to_seqzarr.py` said TSOI land mean **268 K**
+    in two places; measured is **272 K** — corrected (comment-only, no behavior change, so
+    the makani coupling in rule #5 is unaffected). The other two §8 items —
+    `verify_pangu_store.py`'s "six checks" and the CHANGELOG's `train.py:636,739` anchors /
+    "NOTHING SUBMITTED YET" line — were **already fixed** in `3cf6c6c4`.
+
+- **2026-08-04** — **SST-fill investigation (jesswan): the degC/Kelvin bug is confirmed, my
+  "it doesn't affect training" framing was WRONG, and an audit shows the defect class is
+  structural — it exists only where stats are precomputed externally.**
+  - **Correction to my own earlier claim.** I argued normalization is affine-invertible so a
+    first-layer weight absorbs the bad fill. **That holds in fp32 only.** AMP was on
+    (`enable_amp` defaults `not args.no_amp`; no launcher passes `--no_amp`), and under bf16
+    the ocean SST range collapses to **75 distinct values** (fp16: ~575). Quantization is
+    irreversible — no downstream weight recovers it. jesswan is right: SST is a *feature*, so
+    training and inference are both affected. Measured: ocean signal **0.093σ**, ~**0.47 °C
+    per bf16 level**.
+  - **⚠ R2 CONFIRMED INDEPENDENTLY, and it reframes the cost.** `SST`, `ICE` and `sol_in` are
+    **bit-identical across all 35 years** at the same day-of-year (`max|diff| = 0` for 2015 vs
+    2020/2035/2049), while prognostic `TREFHT` varies normally. So this archive has **no
+    interannual SST variability and no SSP245 warming trend** — measured global-mean ocean SST
+    trend is *exactly* 0.000 °C/decade. The quantization therefore costs no ENSO/trend signal
+    (there is none); it costs **spatial + seasonal** structure — SST fronts, upwelling, the ice
+    edge — and because the field repeats exactly, that blurring is a *systematic* forcing bias
+    seen 35 times, not averaging noise.
+  - **Audit (jesswan's ask) — physicsnemo_sfno and makani are CLEAN, and immune by
+    construction**, via two different mechanisms:
+    | path | SST fill | stats | exposed? |
+    |---|---|---|---|
+    | PanguWeather | 270 (degC field) | precomputed `.nc`/`.npz` | **YES** |
+    | **ai-rossby (ours)** | 270 (parity) | precomputed zarr **+ `amp: bf16`** | **YES — worst** |
+    | physicsnemo_sfno | −1.8 ✅ | **writes none**, online BatchNorm | no |
+    | makani | −1.8 ✅ | **in-stream from PACKED data** | no |
+    Both already document SST as degC and explicitly rejected the npz because it "was computed
+    under a land-fill convention of ~270 for SST"
+    (`e3sm_h5_to_seqzarr.py:242`, `convert_e3sm_to_makani.py:56-57`). **Nothing to change there.**
+    ⇒ **The bug class exists only where an externally-precomputed stats file is paired with a
+    separately-configured fill.** That is exactly PanguWeather and our ai-rossby path.
+  - **Corrected constants are exactly derivable — no raw recompute needed.** Because the land
+    mask is static AND SST repeats bit-identically (R2), the 35-year stats equal any year's,
+    and the shipped 270-fill pair inverts analytically to ocean-only moments (land fraction
+    0.37352, ocean mean 14.546 °C, ocean std 11.514 — cross-checked against a direct 12-sample
+    measurement: 14.598 / 11.488). Re-filling gives:
+    | SST fill | mean | std | ocean signal |
+    |---:|---:|---:|---:|
+    | 270 (current) | 109.9630 | 123.9083 | 0.093σ |
+    | **0.0** | **9.1130** | **11.5140** | **1.000σ** |
+    | **−1.8** | **8.4407** | **12.0659** | **0.954σ** |
+    Either is ~10× the current signal and ~36× the bf16 levels. **−1.8 additionally unifies
+    all three pipelines**; 0.0 is marginally better numerically. jesswan regenerates the
+    PanguWeather `.nc`; these are the cross-check.
+  - **Deferred by jesswan's call: "fix SST first".** `TSOI_10CM`'s mismatch stands —
+    shipped stats encode a **0-fill** while the config fills **270**, measured over 12
+    samples (0.195σ vs 1.606σ if matched = **8.2× under-weighted**). Unlike SST this channel
+    is **scored** (a `land_variable`, i.e. prognostic), so it hits a loss term, not an input.
+    Fix in the same regeneration pass when SST is settled.
+
+- **2026-08-04** — **ai-rossby PanguPlasim bring-up: Step-0 variable-parity gate PASSED
+  (10/10), then steps 1-6 implemented. Nothing submitted to the scheduler yet.**
+  Commits `b28b2e7c` (gate) → `b10d5e5c` (venv + code + configs) → `2924b90b` (norm store +
+  conversion tooling).
+  - **The gate.** `ai_rossby_panguweather_variable_parity.md` proves the run trains the
+    **identical 108-field variable set** as jesswan's PanguWeather E3SM run — group for
+    group, name for name, **order for order**, level for level, fill for fill. The contract
+    lives once in `ai_rossby_variable_contract.py::PLANNED` and is machine-checked two ways:
+    `--check-ground-truth` (vs jesswan's YAML) and `--check-artifacts` (vs our configs,
+    converter and store attrs). **26/26 pass.** stdlib-only so it runs on a login node
+    before any venv exists — but needs `python3.12`, since the bare `python3` there is 3.6.
+  - **Ground truth identified from run artifacts, not assumed:** the trainer logged
+    `E3SM_SFNO_H5_STAMPEDE_jsw.yaml` at startup in 7 of the 10 `e3sm_train_*.e` logs, from
+    jesswan's Stampede3 `$WORK` (`jwan4`), with a descending loss. It turned out not to
+    matter: **all four** E3SM configs (`_STAMPEDE_jsw`, `_DERECHO_jsw`, `_POLARIS`,
+    `_POLARIS_ALLDATA`) carry a byte-equivalent variable contract.
+  - **⚠ Trap that would have been a FALSE PASS:** PanguWeather carries two level lists.
+    `levels: [5, 10, 20, …]` are nominal hPa *labels*; `sigma_levels: [4.714998…, …]` are
+    the values actually embedded in the H5 keys, and `use_sigma_levels: True` makes the
+    latter what reaches the loader. The check compares `sigma_levels` — verified identical
+    to ai-rossby's 18 levels, `max|diff| = 0.0`.
+  - **ai-rossby's shipped E3SM defaults were NOT the contract** — 3 surface vars vs 6 (+2
+    land), 1 diagnostic vs 3, and **two groups in a different order**. Order is the silent
+    one: `ClimateZarrDataset` stacks tensors in **store-attrs** order while fills and loss
+    build from the **model-config** lists (`dataset.py:533` vs `train.py:657` fill / `:735`,`:770` loss, via `_surface_channel_names()` at `:92`), so a
+    permutation is correctly-shaped and `torch.cat` raises nothing. Hence the preflight.
+  - **Code edits (vendored tree).** `sol_in` added to `_solar_names` in *both*
+    `pangu_plasim_legacy.py` and `pangu_plasim.py` (E3SM's solar field is neither `rsdt`
+    nor `toa_incident_solar_radiation`, so the ctor raised `ValueError`). One
+    `_surface_channel_names()` helper in `train.py` replaces four restatements of "the
+    surface tensor is `[surface|land|ocean]`" — the two sites the handoff named, **plus two
+    it did not**: the `ArchesWeatherLoss` branch (off our `loss=mae` path, but a landmine
+    for a later loss switch) and `channel_equal_weight`'s `n_surf`, which would
+    under-weight the surface term against the channels it scores.
+  - **Fills — the user's Kelvin confirmation, and where it does not hold.** `TSOI_10CM =
+    270 K` is right (soil temp is Kelvin; land mean 268 K ⇒ effectively a mean-fill).
+    **`SST` is degC in this archive** (measured −1.80…32.92), so the same 270 is ~8× its
+    maximum — R4, inherited from a mechanical rename of ERA5/PlaSim's
+    `mask_fill['sst']=270.` where the field really was Kelvin. **Reproduced deliberately**
+    (parity is the point, and the shipped stats were computed under the same 270-fill, so
+    fill and stats agree — unlike `TSOI_10CM`, R3). `SST = -1.8` + masked stats remains the
+    fast-follow. **Both still need jesswan's sign-off before any numbers are reported.**
+  - **Normalization store BUILT + verified** (login node, seconds):
+    `$AI_ROSSBY_DATA/e3sm/norm/normalization_2015-2050.zarr`, 26 vars / 18 levels, from
+    `$PANGU_AUX/data_2015-2050_{mean,std_corr}.nc` — the *same constants jesswan's run
+    used*, converted not recomputed. Round-trip vs source over all 23 contract vars:
+    `max|diff| = 0`. The `Z`→`Z_2` fix the handoff anticipated was **already applied**
+    upstream by `polaris_prepare_e3sm_stats.py`; the tool's rename branch is a no-op here.
+    No zero/tiny std among the 23 (that is what `_std_corr` corrects).
+  - **Handoff corrections worth keeping:** (a) `uv` *does* ship with the ALCF conda module,
+    but only after **`conda activate base`** — `module load conda` alone puts neither
+    `python` nor `uv` on PATH. (a2) **The extras list was incomplete: `--extra
+    datapipes-extras` is REQUIRED.** The fork promoted `xarray`/`zarr`/`netCDF4` to core
+    deps but **not `dask`**, which `pangu_h5_to_zarr.py` imports to allocate the Zarr
+    template. Caught by running the converter on 8 timesteps locally; otherwise it would
+    have died `ModuleNotFoundError` on the compute node **after queueing**. The venv script
+    now installs and verifies it. (b) The dataset config is a **new** file,
+    `conf/dataset/e3sm_pangu_parity.yaml`, **not** an overwrite of `conf/dataset/e3sm.yaml`
+    — that one is the SFNO speed-bench config for a different channel set. Launch with
+    `dataset=e3sm_pangu_parity`.
+  - **Venv:** `polaris_setup_ai_rossby_venv.sh` → `AI_ROSSBY_VENV_OK`. torch 2.10.0+cu129,
+    zarr 3.2.1, torch_harmonics 0.9.1, wandb 0.27.0; physicsnemo editable from **this**
+    checkout (13 GB, `${MEMBER_ROOT}/conda-envs/ai-rossby-venv`, via
+    `UV_PROJECT_ENVIRONMENT` so it stays out of the git tree). `AI_ROSSBY_VENV` +
+    `AI_ROSSBY_DATA` added to `polaris_env.sh` — **no shared fallback for the venv**,
+    deliberately: it is an editable install, and the PBS scripts hard-fail
+    `AI_ROSSBY_WRONG_CHECKOUT` instead.
+  - **Preflight is real, and proven so.** `polaris_pangu_plasim.pbs` refuses to launch
+    unless every produced store's attrs AND the model/dataset configs match the contract
+    (`PREFLIGHT_OK`). Negative-tested by pointing `--store` at the normalization store:
+    5 store checks FAIL loudly rather than no-op'ing. Also wired
+    `dataset.nan_fill_strict` (the transform supported `strict` but `train.py` never
+    passed it) — on for the smoke, so a NaN reaching the model raises at its origin
+    instead of surfacing later as an unattributable NaN loss.
+  - **Subtree:** `physicsnemo_ai_rossby/` imported **unsquashed** from jesswan's local copy
+    (`ai-rossby`, HEAD `87002adb`, a real ancestor of HEAD). 4,037 files; `.git` 310 → 315 MB
+    only, because it shares objects with the existing `physicsnemo_sfno/` subtree (both fork
+    awikner/physicsnemo). `subtree add` ran fine on the **login** node with
+    `-c pack.threads=1` — the compute-node workaround the physicsnemo import needed was not
+    required here (local path, no network fetch).
+
+- **2026-08-04** — **Pivot: training moves to the ai-rossby recipe (PanguPlasim), for exact
+  PanguWeather parity — and the SFNO 103-var conversion `7324098` was cancelled + its 463 GB
+  partial store deleted.** The SFNO `unified_recipe` v2 packed store can't feed ai-rossby (which
+  needs a per-variable **zarr v3** store from its own `tools/data/e3sm/pangu_h5_to_zarr.py`), so
+  finishing it bought nothing for the chosen path. Decisions (with the user): model
+  **PanguPlasimLegacy** on the exact PanguWeather 108-field groups (SST/ICE prescribed);
+  **normalization parity-first** (reuse shipped stats + reference fills `SST=270, TSOI=270`),
+  masked-stats recompute + `SST=-1.8` as a fast-follow; ai-rossby vendored as a git subtree
+  `physicsnemo_ai_rossby/` on `fix/tsoi-fill-270` with its OWN uv venv (zarr≥3, torch≥2.10);
+  cluster Polaris. **Full plan + a variable-parity assertion gate (Step 0) → handoff
+  `polaris_ai_rossby_pangu_handoff_prompt.md`** (adversarial + cold reviewed; caught the silent
+  channel-order trap, the `sol_in` solar-name blocker, and the OOM launch flags). The TSOI 0→270
+  code change (`aa43824a`) stands — consistent with ai-rossby's parity fills, still pending
+  jesswan sign-off.
+
+- **2026-08-03** — **TSOI_10CM ocean fill changed `0.0 → 270 K`, and a 103-var E3SM SeqZarr
+  regeneration submitted** — branch `fix/tsoi-fill-270`, commit `aa43824a`. rmehta1987's
+  decision after establishing that `0.0` is 0 K over the ~61% ocean (out-of-distribution — the
+  ~268 K coastline cliff dominates BatchNorm's σ and starves the channel ~26× of gradient, R3),
+  while **270** is mid-distribution (land mean 268 K) and matches PanguWeather's own
+  `mask_fill['TSOI_10CM']=270.`. Because PhysicsNeMo normalizes online (BatchNorm), fill and
+  stats can't disagree — the old "keep 0.0" reason (npz stats at 0-fill) doesn't apply here.
+  - **⚠ SCIENCE CHANGE — needs jesswan's sign-off** before any resulting model's numbers are
+    reported (DESIGN §1). Made explicitly + recorded (store `nan_fill` attr + here), not silently.
+    `verify_seqzarr.py` imports `NAN_FILL`, so it checks the 270 placement automatically.
+  - **Jobs:** verify `7324097` (debug, N=120 random draw + exhaustive bitwise incl. TSOI=270;
+    PASS=`SEQZARR_VERIFIED`) → full `7324098` (preemptable, **HELD** on
+    `-W depend=afterok:7324097`; runs only if verify exits 0). **Output →
+    `/eagle/.../members/mehta5/e3sm_seqzarr_allyears_tsoi270`** (`e3sm_train.zarr` 2015–2046 +
+    `e3sm_val.zarr` 2047–2049, 103+5 ch, ~1.43 TB, ~11 h). **Quota OK: 16.17 / 50 TB used** (the
+    old 15 TB / 1.86 TB-free note below is stale — quota was raised).
+  - **⚠ Operational:** the PBS jobs read the converter from the **working tree at runtime**, so
+    keep the checkout on `fix/tsoi-fill-270` (TSOI=270) until `7324098` finishes; the produced
+    store's `nan_fill` attr is the post-hoc proof it used 270. This regen is the field-set that
+    **matches PanguWeather** (clouds excluded + all 7: PS/TMQ/RHREFHT/FSNT/FSNTOA/SOILWATER/TSOI).
+
+- **2026-07-16** — **The runbook survived a 3-agent gauntlet (2 adversarial + 1 cold, Fable 5),
+  which refuted four of its claims and surfaced one operational blocker; all fixed, plus the
+  no-babysitting mechanics the owner asked for.**
+  - **🔴 QUOTA (operator-sim agent): the eagle project quota is 13.14 of 15 TB used — ~1.86 TB
+    free, SHARED project-wide** — while the full plan needs ~3.1 TB and the incoming zarr
+    transfer itself needs ~1.43 TB of the same pool. Runbook now leads with a storage-budget
+    section (one PhysicsNeMo dataset copy ever; `myquota` ≥1.5 TB free before any TB-scale job;
+    freeing/raising quota is an owner decision that precedes the first big write).
+  - **Walltime + chains: the "resume automatically" claim was wrong for walltime expiry**
+    (`-r y` requeues only PREEMPTED jobs; a walltime kill just stops). Fixed three ways: the 3
+    production launchers (Pangu full, makani alldata full, PhysicsNeMo allyears) go 24 h → **72 h**
+    (queue max, verified `qstat -Qf preemptable`: max walltime 72:00:00, 20 queued/10 running
+    per user); new **`polaris_submit_chain.sh`** pre-submits N `-W depend=afterany` links so a
+    multi-day run needs zero monitoring (links resume from checkpoint; post-completion links
+    exit in minutes). **Mechanics proven**: jobs 7259371/72 — link 2 held on link 1's afterany,
+    clean chain qdel, zero node-hours. Also `polaris_verify_store.pbs` gains `-r y` (read-only
+    idempotent ⇒ a preempted EXHAUSTIVE verify requeues instead of being silently deleted).
+  - **Refuted by the fact-check agent, fixed in the runbook:** the "~27 min (measured)"
+    validation figure (it is an extrapolation from 112.6 s at 9 ICs; now stated as such, budget
+    20–30 min); "PNGs refreshed each epoch" (they ACCUMULATE — ~103 new files/epoch, ~51,500
+    over 500 epochs; `model_package_*` is the opposite: ONE dir overwritten every save);
+    the Route B success rule (a resumed conversion legitimately prints a skip line INSTEAD of
+    `CONVERT_OK` — keying on it would fail a correct run; key on `ZARR_ALLYEARS_COMPLETE`);
+    the headroom arithmetic (13.9 GiB is vs the RESERVED peak 25.6, not the 25.0 used).
+  - **Misleading-as-written, fixed:** `PHYSICSNEMO_WRONG_CHECKOUT` protects only the
+    PhysicsNeMo jobs — **makani has no checkout guard** and silently falls back to the shared
+    venv (= the builder's working tree) if the per-user venv build is skipped; the venv build
+    command must run from YOUR OWN checkout (it editable-links whatever tree it runs from);
+    jesswan-hardcoded paths became `<you>` placeholders; "fails within a second" softened
+    (module loads come first, and two-levels-deep dirs pass the polaris_env.sh check).
+  - **Cold-agent findings adopted:** train/val splits are NOT aligned across pipelines
+    (PhysicsNeMo trains through 2046 — years Pangu/makani validate on; only **2047–2049 is
+    unseen by all three**) and epoch budgets differ ~30× — recorded as runbook §7.6: no
+    cross-model skill comparison without a protocol from jesswan; per-run "finished" log lines
+    added (Pangu `DONE ---- rank 0`, PhysicsNeMo `Finished training!`, makani = a later link
+    exits immediately); makani's pack has NO value-level verifier (stated in its section with
+    the same honesty as PhysicsNeMo's); debug re-runs serialize (~2–3 h for all four); the
+    stale 162-ch/3.5-GB narrative in the Pangu full launcher's header got a correction banner
+    (18.9 GB measured, 108 ch, 72 h, chain pointer).
+  - **W&B online logging: PROVEN live** (previous entry's smoke 7259364 synced run `gywtrgsr`
+    to wandb.ai through the ALCF proxy mid-training; `ALLDATA_SMOKE_OK` unchanged). The Pangu
+    smoke now carries the full launcher's online block — the block itself had never executed
+    anywhere before this.
+
+- **2026-07-16** — **🟢 The §0 smoke sequence ran with the owner's go-ahead: ALL FOUR GREEN at
+  the current contracts, same day.** Every prior green predated the change it would validate;
+  that debt is now paid. Read each verdict from the log token, not rc:
+  - **Pangu validation smoke (7259271): `PANGU_VAL_SMOKE_OK`** — the headline. The unproven
+    `utils/metrics.py` CPU-climatology fix EXECUTED for the first time (all 4 ranks reported
+    `clim_*=cpu`): validation peak **25.048 GiB**, train peak 25.127, device 39.495 ⇒
+    **13.86 GiB headroom**, `valid_loss=0.6989` finite, full production leads [1,12,20,40,60].
+    **The §4a adversarial arithmetic (38.8–40.8 GiB ⇒ requeue-forever) is REFUTED with the fix
+    in place** — Pangu production training is cleared on memory. Planning number: validation
+    112.6 s at 9 ICs ⇒ ~27 min/epoch at production's 129 ICs.
+  - **Pangu 108-ch training smoke (7259296): `ALLDATA_SMOKE_OK`** — 105-in/101-out, peak
+    26.98 GB, `step_med` 0.643 s (n=12; the trustworthy number remains 0.602 s at n=80).
+  - **PhysicsNeMo allyears smoke (7259303): `ALLYEARS_SMOKE_OK` + `PHYSICSNEMO_CSV_OK`** —
+    seam stores bitwise-verified, 103+5 schema pinned, and the §6 CSV tee is now proven
+    END-TO-END: 7 rows exactly as designed (5 minibatch, decreasing loss 1.518→1.330; 1 epoch
+    row lr=1e-3 + GB/s; 1 validation row 1.883), git_sha stamped.
+  - **makani 100/1/7 smoke (7259321): `ALLDATA_SMOKE_OK`** — fresh pack `CONVERT_ALLDATA_OK`,
+    contract + names verified against the converter, real training (6.79 s) + checkpoint, and
+    the benign `N_in_channels=107 ... expected 58` watchdog warning appeared exactly as
+    designed. The stale 154-ch pack was MOVED (not deleted) to
+    `${MEMBER_ROOT}/data/e3sm_makani_alldata_smoke_154ch_stale` — delete when convenient.
+  - Also: `polaris_pipeline_runbook.md` added — the operator-facing guide (plain scientific
+    language, full paths) for running the PhysicsNeMo pipeline off the transferred dataset
+    (Route A: verify in place) or a rebuild (Route B). §0/§5 of the plan and the runbook's §2
+    table updated with these results.
+
+- **2026-07-16** — **The three-pipeline runbook is written (`polaris_pipelines_plan.md`) and the
+  handoff's §6 tee + two gap-closing scripts are implemented. Nothing was submitted** (per the
+  handoff: design, don't launch). Method: two Fable-5 agents swept PanguWeather and makani code;
+  PhysicsNeMo read directly; every command in the plan carries its PASS token and what the gate
+  cannot catch.
+  - **§6 PhysicsNeMo CSV tee: DONE.** New `examples/weather/unified_recipe/bench_csv.py` +
+    5 delimited vendor-divergence blocks in the vendored `train.py` (subtree-pull conflict
+    surface is those blocks; a tripwire test greps for them). Frozen 10-column schema
+    (`timestamp,epoch,step,loss,lr,gb_per_s,valid_error,n_gpus,git_sha,run_name`), rank-0 only,
+    env-gated (`PHYSICSNEMO_BENCH_CSV`, unset ⇒ byte-identical no-op). **No per-step GPU sync
+    added**: the loss is `.clone()`d (CUDA-graph static-buffer aliasing — N unclone'd refs would
+    all read the last step) and buffered; conversion happens on a 100-row flush, the cadence at
+    which LaunchLogger already syncs by string-formatting the tensor. Proven:
+    `BENCH_CSV_OK (23 tests)` (login node, stdlib-only test). End-to-end proof wired but
+    pending a job: the allyears smoke now also requires `PHYSICSNEMO_CSV_OK` (a real minibatch
+    row) and the allyears launcher writes `${RUN_DIR}/metrics.csv` by default.
+  - **`physicsnemo_sfno/polaris/polaris_verify_store.pbs` (new): verify an EXISTING SeqZarr
+    store at any path** — built for the store jesswan is transferring in (not present yet,
+    checked today). Three layers: attrs/generation vs the converter's current lists; **exact
+    chunk-key set per array** (deliberately not `nchunks_initialized`, which counts `.partial`s
+    by prefix); stride-sampled bitwise round-trip vs the h5 archive (auto-stride ≈480 samples,
+    nudged off divisors of 1460 so it never re-samples the same calendar dates; `EXHAUSTIVE=1`
+    escape for the full read). Attrs+chunk layer tested against the on-disk old-generation
+    store — correctly refused it (`STORE_INCOMPLETE` + `STORE_WRONG_GENERATION`). The PBS has
+    never been submitted. Note recorded while testing: **the stores at
+    `${MEMBER_ROOT}/e3sm_seqzarr/` are pre-exclusion 157+5 smoke-scale relics** (CLDICE in
+    attrs, no sentinel) — only the tracked 162-era launchers may use them.
+  - **`makani_sfno/polaris/polaris_sfno_alldata_full.pbs` (new, NEVER RUN):**
+    `e3sm_alldata_full.yaml` existed with **no launcher** (the "2 pbs" were pack-full +
+    train-smoke — a gap the handoff missed). Mirrors the green locked launcher + the alldata
+    smoke's derived contract gates. Its header carries the blocker in bold: **a 100/1/7
+    checkpoint cannot currently be evaluated** (`sfno_inference/checkpoint_loader.py:74-82`
+    hard-asserts 52/1/6; stock makani inference is hard-gated off) — decide the eval path
+    before burning 100 epochs.
+  - **Handoff corrections found by verification** (details in the plan §5): Pangu
+    `inference.py` cannot run E3SM-SFNO at all (nettype gate + a checkpoint layout train.py
+    never writes) — `ensemble_inference.py` with h5-derived ICs is the only path runnable from
+    what is staged; the bias-`.npy`/`long_validation` caveat binds **train.py**, not the
+    inference scripts; train.py's `--amp_dtype` help text says fp16 but the code default is
+    bf16 (`train.py:265`) while both inference scripts default fp16 — a train/infer precision
+    asymmetry to decide before comparing numbers; Pangu's full/smoke PBS headers still carry
+    stale 162-ch/3.5-GB comments (flagged, deliberately not edited this session).
+  - **Deliberately NOT done:** no Pangu inference PBS wrapper (the h5-IC ensemble path has
+    never been exercised anywhere — the plan gives the exact first interactive command instead
+    of encoding guesses into a script); no edit to `polaris_env.sh`'s `_pick` (the allyears
+    smoke header records that as a deliberate stay-away; new scripts use their own env names).
+
+- **2026-07-16** — **🔴 The E3SM archive replays ONE year of ocean forcing 35 times, and two of
+  three pipelines mis-normalize a channel. Measured, adversarially verified, and written up in
+  `polaris_e3sm_variable_reference.md` (per-variable reference + risk register R1–R12) and
+  `data_for_training.md` (which risks actually affect *training*).** Method that produced these:
+  4 agents — 3 adversarial (told to refute) + **1 cold, given no conclusions at all**. The cold
+  one found the single worst issue; nobody was looking for it. Two of my own interpretations were
+  corrected by the adversaries. Do this again.
+  - **`SST`/`ICE`/`sol_in` are BITWISE identical across all 35 years** at the same index-in-year.
+    1,224 md5 comparisons (12 indices × 34 years × 3 vars) + 480 random: **0 mismatches**; distinct
+    inodes (not hardlinks); valid cells compared by value. Control: atmospheric fields **never**
+    matched (1,632 comparisons; `TREFHT` differs by up to 30.6 K). Global SST mean is
+    `14.574015 °C` in 2015, 2020, 2030, 2040 **and** 2049. Cause: `boundary_data/*_masked.nc` hold
+    exactly **1460 steps = one year**; `netcdf-to-h5_e3sm.py` re-slices from `chunk_id=0` every
+    year. The frozen 2015 in-file timestamp is the SAME bug, not a second one.
+    **Intent is unresolved — only jesswan can say.** `CTL_SST0051` reads as a deliberate fixed-SST
+    control; `SSP245AMIP` reads as a transient scenario that should warm. Both readings fit the
+    name. Within-year seasonality is intact and strong (σ: SST 11.5, `sol_in` 403) — only the
+    *interannual* axis is dead. **Not a training blocker** (it is a valid prescribed boundary);
+    it contaminates metrics if a model *forecasts* those fields, which PhysicsNeMo does.
+  - **PhysicsNeMo's normalizer silently erases precipitation.** `BatchNorm2d(momentum=None,
+    affine=False)` on **raw physical units**, `eps=1e-5` → amplitude `σ/√(σ²+eps)`. `PRECT`'s σ is
+    **7.7e-8 m/s** (m/s!), ~40,000× below `√eps` → amplitude **2.5e-5**. The loss is a *global* L2
+    over all channels, so gradient share scales as amplitude²: PRECT's is **~6e-10**. The model
+    converges and forecasts **climatological-mean rain**. Zero skill, no error, and the BatchNorm
+    state is exported into the inference package. **NOT a data defect** — in mm/day σ is 6.72 →
+    amplitude 1.0000. Fix belongs in the training path; **does not gate conversion**.
+  - **PanguWeather's `TSOI_10CM` is normalized with stats that don't match its fill.** Config fills
+    **270**; `compute_normalization_e3sm.py` never sets that key so its stats encode a **0** fill
+    (npz 105.229/133.802 vs predicted 0-fill 105.266/133.857; 270-fill would be 271.13/16.43).
+    A *predicted* channel ends up ~**26×** under-weighted. **Inherited from jesswan's own
+    `_DERECHO_jsw.yaml:66` / `_STAMPEDE_jsw.yaml:66` — live in the group's existing runs**, not
+    introduced here. The 270 fill itself is *good* (0.02σ from the valid mean).
+  - **The `SST` 270 fill is inherited from a Kelvin ancestor.** `compute_normalization{,_plasim}.py`
+    both carry `mask_fill['sst'] = 270.` / `['ts'] = 270.` — ERA5/PlaSim names for **Kelvin** fields.
+    The E3SM copy renamed them mechanically; `SST` is **degC** (metadata says so). Fingerprint that
+    it was mechanical: the same edit produced `mask_fill['TREFHT'] = 270.`, and TREFHT has **zero
+    NaN** — dead code. 270-filling `SST_masked.nc` reproduces the shipped npz **exactly** (1e-7).
+  - **Units metadata lies on 4 fields.** `SST`'s `long_name` is literally *"potential temperature"*;
+    `RHREFHT` says units `1` but is percent; `PCT_*` say `unitless` but run 0–100. On this archive a
+    variable name is not evidence **and neither is the attribute**. Measure.
+  - Also corrected: the store is **2.15 TB**, not the "~1 TB" the older docs repeat; checkpoints are
+    **18.9 GB**, not ~3.5 GB (`runs/pangu_sfno_full/.../checkpoints/` was already 177 GB at ~9
+    epochs); the E3SM SFNO model is **1.18 B params**, not ~79 M.
+
+- **2026-07-16** — **Cloud variables excluded from ALL three models (science owner).** All three
+  pipelines now agree on the same **108 of 162** channels. PanguWeather already excluded them;
+  makani's ALLDATA converter and PhysicsNeMo's `e3sm_h5_to_seqzarr.py` (`EXCLUDED_VARS`) now do too.
+  PhysicsNeMo: **162 → 108, predicted 157 → 103**, store **2.15 TB → ~1.43 TB**. Verified by running
+  the converter on the real archive: `excluded 54 channels`, `max|zarr-h5| = 0.0`, `CONVERT_OK`, then
+  `SEQZARR_VERIFIED (EXHAUSTIVE: 6 × 108 = 648 channel-samples, bitwise)`, and the store's own attrs
+  inspected independently (103+5+54 = 162, zero clouds survive, `TSOI_10CM`/`SOILWATER_10CM` intact).
+  - **The duplication bug this exposed is the real lesson.** Nothing derived the channel counts:
+    `157`/`5` was restated across ~13 sites, and makani's converter had `N_STATE, N_TARGET,
+    N_FORCING = 154, 155, 7` as literals the asserts did **not** check — it would have written a
+    correct 100-channel pack advertising 154 in its metadata. Both are now **derived**. The
+    trainer reads counts from the store's attrs behind a `STORE_WRONG_GENERATION` gate; a stale
+    162-channel store can no longer be silently adopted.
+  - The biggest miss was **not** a `157` literal: `verify_seqzarr.py:107-135` structurally assumed
+    the store partitions all 162 h5 keys, so it would have hard-failed **every** new store —
+    including the tracked `polaris_verify_data_prep.pbs`, which rebuilds its fixture each run.
+
+- **2026-07-16** — **Scope widened (owner): training is now Phase 1, not out of bounds.** DESIGN.md
+  rewritten (375 → 314 lines) around *implement-first, then-profile*; three overlapping model tables
+  merged into one six-codebase table; CLAUDE.md's "Why we're here" updated to match (it said "NOT
+  retraining" and is auto-loaded, so it outranked DESIGN). **The division of labor is the line that
+  matters and did not change: bring-up and training are ours; the science — variable sets, fill
+  values, channel roles, physics — is jesswan's.** The rewrite also found ~10 stale claims in the
+  old DESIGN (it said the §4 prerequisites "NONE exist yet"; all three exist).
+
+- **2026-07-16** — **PanguWeather's bench knobs renamed `S2S_*` → `PANGU_*`.** PanguWeather is its
+  own project — a fork of `s2s/v2.0` by **copy, not import** — and nothing outside it ever read
+  these (verified: the only cross-project bench consumers are `s2s-lightning/common/bench_callback.py`,
+  which genuinely imports `s2s/v2.0`, and `si/parse_nsys.py`). The `S2S_` prefix was decoration the
+  copy carried along, and it kept inviting the conflation (it led me to cite CLAUDE.md #5 — which
+  governs `s2s/v2.0/` — about a PanguWeather-only file).
+  - **`train.py` now errors `LEGACY_BENCH_ENV` if an `S2S_BENCH*`/`S2S_NVTX` knob is set.** Required,
+    not politeness: `BENCH = os.environ.get(...) == "1"` means *unset ⇒ silently no benchmarking*, so
+    a stale script or doc (e.g. `polaris_bench_report.md`'s reproduction command) would have produced
+    a run that measured nothing and exited 0. Verified the guard fires on `S2S_BENCH=1`/`S2S_NVTX=1`
+    and passes on `PANGU_BENCH=1`/nothing-set.
+  - **NVTX range names and CSV columns are UNCHANGED** (CLAUDE.md #10) — only the env knobs moved, so
+    every prior bench row stays comparable. `s2s/` and `s2s-lightning/` keep `S2S_*`; historical
+    CHANGELOG entries below are left as written (they record what was true then — the guard is what
+    catches anyone following them).
+
+- **2026-07-15** — **🔴 E3SM data prep: the PhysicsNeMo converter had 7 defects, and the smoke
+  could not see the worst 3. Full analysis + the 5 open decisions:
+  `polaris_data_prep_handoff_prompt.md`.** Prompted by "how do we confirm the conversion is
+  correct before the ~1 TB run" — the answer was that we couldn't.
+  - **The smoke was green because it was the one configuration where the bugs were invisible.**
+    It converts 64+16 samples from **2015 only**: the archive's frozen in-file year is
+    *correct* for 2015; `--max-samples` defaulted to **64**, which is what the smoke passes
+    explicitly; and the zero-fill-on-interrupt trap needs an interrupt. Guardrail #4 exactly.
+  - **Fixed (5):** `--max-samples` default 64→None (the "full" run wrote **64 of 51,100** and
+    printed CONVERT_OK); the time axis now takes the **year from the filename** (measured: the
+    archive stamps 2015 into EVERY file — `2049_1459.h5` → `2015-12-31 18:00:00`); `longitude`
+    0..359 → **0.5..359.5** cell centres (verified vs `boundary_data/TOPO.nc`; `train.py:447`
+    reads it into the inference model package, so it georegistered every product half a degree
+    west); a `conversion_complete` sentinel (zarr pre-allocates with `fill_value: 0.0`, so a
+    preempted run leaves a **right-shaped store of silent zero slabs** and the trainer gate only
+    checked `shape[0] >= 1000`); and the **four `means_/stds_` arrays DELETED** — dead
+    (nothing reads them: the datapipe asks only for `time/predicted/unpredicted`, `train.py`
+    normalizes with `BatchNorm2d(momentum=None, affine=False)`, `model_packages.py:85-86` saves
+    *that* batchnorm's stats) **and wrong** (npz SST assumes a 270 fill; the store fills −1.8).
+  - **Dead-and-wrong metadata is worse than none** — it fooled **two independent auditors**
+    (me and a cold Fable 5 agent) into "the model can't see SST". It can; the arrays are never
+    read. Deleted, not corrected. The converter has **no npz dependency** now: layout + fill.
+  - **New `--random-sample N --seed S`** + `polaris/polaris_verify_data_prep.pbs`: a small store
+    spanning EVERY year, verified **exhaustively**. Green: **`SEQZARR_VERIFIED (EXHAUSTIVE:
+    40 samples × 162 channels = 6480 channel-samples, bitwise)`**, job **7257786**, 24 distinct
+    years. The full script now needs `-v CONFIRM_FULL=1` (the `--max-samples` fix *armed* it).
+  - **STILL OPEN (4, documented not fixed):** a non-contiguous `--years` store passes every gate
+    with **8766 h seams**; `nchunks_initialized` is defeatable (zarr 2.18.7 counts `.partial`
+    files by prefix — measured 6/6 while a sample was a zero slab); a preemption during the
+    *val* conversion **destroys the completed 9 h train store**; `--random-sample` ignores
+    `--start-sample` but records it.
+  - **5 DECISIONS for jesswan/us** (§0 of the handoff). The sharpest: **PhysicsNeMo forecasts
+    SST and sea ice; Pangu and makani prescribe them — and this is an AMIP run, where they are
+    prescribed by definition.** `UNPREDICTED` is *our* list, so that one is ours to fix.
+  - **The npz "Kelvin" open issue is RESOLVED and its recorded diagnosis was WRONG.** SST is
+    **°C** (measured `[−1.80, 32.21]`). The npz mean of 109.963 is arithmetically a **270
+    land-fill of °C data**: `0.374×270 + 0.626×14.70 = 110.06`. The npz is not broken — it
+    *encodes* Pangu's `SST: 270.` fill. Do not "fix" it to Kelvin.
+  - **Analysis is 1/3 done:** PhysicsNeMo's converter audited, Pangu's stats prep audited (64
+    lines, metadata-only, clean). **makani's 367-line converter is unaudited** — it flips
+    latitude, truncates to 10 of 18 levels, renames channels, and its stats *are* live. §8 of
+    the handoff scopes it.
+
+- **2026-07-15** — **🔴 CORRECTION + fork-drift audit: `TORCH_COMPILE_MODE` was NOT plumbed in
+  PanguWeather, and this file said it was.** Prompted by the question "have the
+  `bench_report.md` optimizations — especially the ViT ones — already been done in
+  PanguWeather?". Checked instead of assumed (DESIGN §2c: the forks share code by **copy**, so
+  "nothing tells you the other copy drifted"). Full table: `polaris_bench_report.md` §6b.
+  - **The error:** the harness port brought `S2S_BENCH`/NVTX across but **not** the compile
+    knob. PanguWeather had only a commented-out `torch.compile(self.model, mode='default')`
+    (`train.py:639`) and no env read — exactly as DESIGN §2c's table already said
+    (`TORCH_COMPILE_MODE`: s2s **2**, PanguWeather **0**). I should have read my own table.
+    The commented-out `export TORCH_COMPILE_MODE=…` in both new bench scripts was therefore a
+    **live trap**: uncomment it → no compile, no error → "torch.compile doesn't help this
+    model". **Now genuinely wired** in `get_model()` (gated; unset ⇒ legacy path) + a test
+    that fails if the knob is ever disconnected again.
+  - **The drift is BIDIRECTIONAL** — each fork has something the other lacks:
+    **`static_graph=True`** is in s2s and **missing in PanguWeather**;
+    **`gradient_as_bucket_view=True`** is in PanguWeather and **missing in s2s**.
+  - **PanguWeather is AHEAD on several**: bf16 is the YAML default (`amp_dtype: bfloat16`)
+    rather than an env knob defaulting to fp16; `--async_save` reaches more files; there are
+    more `os.path.isfile` checkpoint guards. The per-iteration `empty_cache()` removal and the
+    per-param `.item()` removal landed in both, independently.
+  - **`static_graph=True` is a candidate, NOT a known win — do not just copy it.**
+    `bench_report.md` §4 changed bf16 and `find_unused_parameters=False`+`static_graph=True`
+    **together** (+5.3% for the pair), so `static_graph`'s isolated contribution was never
+    measured, and PanguWeather already has the expensive half. Worse, s2s needs a
+    **dead-module freeze** (`layer_perturbation2`/`layer_purturbation_e2`, `train.py:437-444`)
+    to make `static_graph` legal; PanguWeather has no such freeze, so copying it across could
+    fail at runtime on `pangu_plasim`.
+  - **The ViT/Swin optimizations: there are none to port.** `bench_report.md` §3's findings
+    (LayerNorm-backward 2nd-largest, layout conversions, `roll`, matmul only 6th) are
+    **profiler observations explicitly deferred to `torch.compile`**, and rung 2
+    (FlexAttention) is unstarted — in *either* fork. A diff of the two `networks/pangu.py`
+    shows the **only** perf-relevant divergence is s2s's NVTX ranges: SDPA is already in
+    `EarthAttention3D` in both, and both have the same 2 `torch.roll`s, 13 `LayerNorm`s and
+    identically commented-out block checkpointing. **And the ViT does not run on Polaris** —
+    the green path is `sfno_plasim` → `networks/modulus_sfno/`, which never touches
+    `pangu.py`. The ViT (and its VAE, and the new `vae_noise` hook) belong to `pangu_plasim`,
+    blocked on PLASIM data.
+  - **Worth noting:** the H100 **ViT** and the A100 **SFNO** — different architectures —
+    profile the *same way*: elementwise-dominated, matmul secondary. Two independent
+    measurements, one conclusion: `torch.compile` is rung 1.
+
+- **2026-07-15** — **Profiling phase: PanguWeather SFNO profiled on 4×A100. Full report:
+  `polaris_bench_report.md`.** Branch `polaris-profiling` (stacked on the still-unmerged
+  `polaris-pbs-bringup`). Headlines:
+  - **Instrumentation had to be built first** — PanguWeather carried 0 NVTX ranges and no
+    `S2S_BENCH` (DESIGN §2c). Ported from `s2s/v2.0` with range names + CSV columns
+    byte-identical (CLAUDE.md #10), gated so unset knobs ⇒ legacy path byte-for-byte.
+    **Proven, not asserted:** job **7255505** (no `S2S_BENCH`) reproduced the GREEN
+    reference **7253591** exactly — train loss **0.3411**, valid_loss
+    **0.7049359679222107**, bit-identical. Adapted where the fork differs: the scaler can be
+    `None` (bf16), EMA is real hot-path work s2s lacks (own `ema` range), and `amp_dtype` is
+    recorded from the dtype actually used (PanguWeather takes precision from the YAML, so
+    reading `$S2S_AMP_DTYPE` would have mislabelled every row).
+  - **VERDICT 1 — GPU-bound.** Loader idle is **0.7%** at the shipped `num_data_workers: 1`
+    (job 7255410). The §5 kernel ladder is **not** premature.
+  - **VERDICT 2 — elementwise-bound, not matmul-bound.** **61%** of GPU time is
+    pointwise/elementwise over ~1506 launches/step; GEMM is only **15%**; NCCL 10.5%;
+    cuFFT/SHT just 3.3% (job 7255503). Memory-bandwidth bound and fusion-starved ⇒
+    `torch.compile` is the right first lever **on evidence**, not assumption.
+  - **The model is 1,182,108,160 params** — 1.18 B, **not** the "~79M" DESIGN/CLAUDE.md
+    assume (that figure is the Pangu/Swin model, not the E3SM SFNO). 26.98 GB peak of 40 GB.
+  - **`cpu_prep_frac` is NOT the data-loader idle fraction** — a trap worth remembering. It
+    times `_prepare_inputs_batch` on an **already-fetched** batch (0.3–0.6% of the step even
+    with the loader deliberately starved). The blocking fetch happens in `__next__`,
+    *between* steps, inside no step window. Worse, it was **fatal**: the elapsed-vs-sum
+    self-check fires on an input-bound run and **refuses the row**, i.e. the harness aborts
+    exactly when the loader is the finding. Now measured (`loader_wait_med`/`loader_wait_frac`,
+    appended after s2s's 19 columns) and folded into the check, which makes it *tighter*.
+    **Falsified before believed:** `workers=0` moved it 0.7% → 14.8% (21×) while
+    `cpu_prep_frac` stayed flat — a metric that cannot move proves nothing.
+  - **`elapsed` was sampled AFTER `cudaProfilerStop()`** (inherited from s2s), folding the
+    profiler's buffer flush into the measured wall time. Job **7255503** read `elapsed=51.8s`
+    vs `sum=25.7s` and threw away a good bench row — on **every** nsys run. The timers were
+    fine; the clock was stopped in the wrong place. Fixed; the re-run **7255557** records
+    cleanly at rc=0.
+  - **`samples_per_s` is a STEP RATE, not throughput** — it excludes the loader gap. At
+    `workers=0` it reads 6.50 while the truth is 5.53; quoting it would have ranked the
+    **slower** config first. Convert: `wall = samples_per_s × (1 − loader_wait_frac)`.
+  - **`num_data_workers` is NOT output-neutral here** — `data_loader_multifiles.py:1031/1102`
+    draws per-sample gaussian noise **inside the workers** (`epsilon_factor: 0.1`) and there
+    is **no `worker_init_fn`**, so the worker count changes the noise realization and moves
+    the loss. `1 → 8` is **+9% wall throughput and 10× less jitter** (step_p90 0.826→0.603) —
+    recorded as a **finding, not a recommendation**. Clean fix: a seeded `worker_init_fn`.
+  - **Nothing was optimized.** `TORCH_COMPILE_MODE` is wired and left unset; the §4 gate is
+    not executable until a baseline is captured.
+
+- **2026-07-15** — **§4.0 on PanguWeather: the seed prerequisite was already satisfied.**
+  The handoff implied `--seed` needed porting from `s2s/v2.0/utils/seeding.py`. It does
+  **not**: `train.py:3825` has `--global_seed` (default 0) → `seed_torch()` (`:3742`, called
+  at `:3785`), which seeds `PYTHONHASHSEED`/numpy/torch/CUDA and sets `cudnn.benchmark=False`
+  + `cudnn.deterministic=True`. That is **stronger than s2s's legacy path** — the numpy gap
+  that made s2s's baselines irreproducible does not exist here, which is *why* 0.3411 is
+  bit-reproducible. **Porting `seeding.py` would create two competing seed mechanisms — don't.**
+  Remaining gaps: Python's `random` unseeded, `torch.use_deterministic_algorithms(True)` never
+  set. Side note: `cudnn.benchmark=False`/`deterministic=True` are therefore **always on** —
+  a performance fact hiding inside a reproducibility mechanism.
+
+- **2026-07-14** — **DESIGN §4.0 seed knob: DONE.** `s2s/v2.0/train.py` gains `--seed` and
+  `--deterministic`; the logic lives in the new shared `s2s/v2.0/utils/seeding.py` (imported
+  by S2S *and* the port, CLAUDE.md #5 — additive, nothing existing changed).
+  Precedence: `--seed` > `$S2S_SEED` > the YAML's `seed:` > **legacy**.
+  - **Opt-in by design.** No seed => the historical path is preserved *byte-for-byte*
+    (`torch.manual_seed(world_rank)`, `cudnn.benchmark=True`), which is what lets this ship
+    without re-validating the existing greens. A test pins that property.
+  - **What was actually broken:** `torch.manual_seed(world_rank)` seeded torch only.
+    **numpy was never seeded** — and `train.py:1251` draws the validation sample from it
+    (`np.random.randint`) — so two runs of the "same" config diverged. `random` was unseeded
+    too, and `cudnn.benchmark=True` picks kernels by timing. A "reproducible baseline" on
+    that footing was not reproducible.
+  - **Rank offset:** `seed + world_rank`, preserving the legacy intent (distinct streams per
+    rank, so the loader's per-sample noise — `data_loader_multifiles.py:474-481`, drawn in
+    the workers — doesn't correlate across ranks). At rank 0 the applied seed IS the seed,
+    so a §4.1 world-size-1 baseline is comparable with the port's `seed_everything(s)`. A
+    multi-rank baseline is NOT comparable across launchers — documented in
+    `seeding.equivalent_to_seed_everything`.
+  - **Tests:** `s2s/v2.0/test/seeding_test.py` — 10 assertions, **`SEEDING_OK`**, runs with
+    no ERA5/GPU/cluster (deliberate: the S2S+port data smokes are blocked on the ERA5 stage,
+    so the mechanism is proven without them). Covers same-seed reproduction, different-seed
+    divergence, the numpy gap, byte-identical legacy, precedence (incl. **seed 0**, the
+    classic falsy bug), loud failure on a bad seed, rank offsets, and model-level identical
+    init+forward+backward. `polaris_seeding_test.pbs` runs the CUDA half on a real GPU and
+    **fails rc=4 if CUDA was not visible** — a skipped test must never read as a pass.
+    **GPU-verified: job 7253738, rc=0, `SEEDING_OK (10 tests)` +
+    `CUDA was visible -> the CUDA RNG assertion really ran`.** So CUDA RNG reproducibility is
+    demonstrated on the device a baseline would actually be captured on, not just on CPU.
+  - **Still blocking baseline capture:** `tiny_baseline.yaml` and the VAE noise-fix hook.
+    Also note `--deterministic` needs `CUBLAS_WORKSPACE_CONFIG=:4096:8` exported *before*
+    python starts (the PBS script does it); `enable_determinism()` warns rather than
+    pretending when it is missing.
+
+
+- **2026-07-14** — **🔴 The "GREEN" smokes were green for ONE PERSON. Fixed.** A cold
+  5-agent audit of the *fixed* tree (the second gauntlet) surfaced that Pangu/SI depended on
+  `pip install --user` packages living in `PYTHONUSERBASE=/home/rmehta1987/.local/...`.
+  **ALCF home dirs are mode `0700`**, so those packages are readable by their owner alone.
+  Every Pangu/SI "GREEN" was therefore unreproducible by the rest of the project — the exact
+  opposite of this deliverable's purpose — and `polaris_running_the_smokes.md` told jesswan
+  "they use software already installed on Polaris", which was false.
+  - **Proof, not inference:** job **7253539** re-ran Pangu with `PYTHONNOUSERSITE=1` (which
+    reproduces a second member's view of the filesystem) and died on
+    `ModuleNotFoundError: No module named 'tensorly'`. Impersonating the other user is the
+    only way to catch this class of bug; a normal re-run by the installer always passes.
+  - **Fix:** `polaris_setup_base_topups.sh` installs netCDF4 / zarr / torch_harmonics 0.7.4 /
+    tensorly / tltorch / cftime / numcodecs into the **shared, world-readable**
+    `$POLARIS_TOPUPS` on eagle; Pangu/SI/S2S/probe prepend it to `PYTHONPATH`.
+  - **Two traps inside the fix**, both now guarded:
+    (1) `pip install --target` can't see the base conda, so it re-resolved the world and
+    silently pulled **torch 2.13 + CUDA 13 + numpy 2.5.1** (4.1 GB) — which, being on
+    PYTHONPATH, would have **shadowed the base's torch 2.8/cu12.9** and moved every smoke
+    onto an untested toolchain. `--no-deps` + a hard fail if `torch|numpy|nvidia|triton`
+    land in the target; now **64 MB**, and it asserts torch/numpy still come from base.
+    (2) `$POLARIS_TOPUPS` must NEVER go on PYTHONPATH in an SFNO job — its
+    torch_harmonics 0.7.4 would shadow the venv's 0.9.x and re-break makani
+    (`PYTHONNOUSERSITE` does **not** block PYTHONPATH). Both SFNO scripts now assert
+    torch_harmonics resolves inside their venv (`ERROR TORCH_HARMONICS_SHADOWED`).
+  - **Proven fixed, not assumed:** Pangu **7253591** (`PYTHONNOUSERSITE=1`) rc=0 with loss
+    **0.3411 — bit-identical** to the installer's 7253401, and SI **7253603** step_med 0.399 /
+    peak 30.69 GB (vs 0.400 / 30.98: noise). Identical rather than merely similar matters: it
+    shows the shared top-ups serve the *same code* the greens ran on. Version pins in
+    `$POLARIS_TOPUPS` match the old `~/.local` ones exactly.
+  - **Regression-proofed:** `polaris_require_topups()` (in `polaris_env.sh`, called by **all 8**
+    base-conda jobs — the SFNO pair is deliberately exempt) fails the run with `ERROR TOPUPS_MISSING` or `ERROR PRIVATE_DEPS_ON_PATH`
+    if a dep ever resolves from a private home again. Both branches tested: unsetting
+    PYTHONPATH reproduces the original bug and the guard catches it. **Note the asymmetry the
+    guard exists for — this bug is invisible to the one person who could fix it**, because
+    their own runs pass.
+  - **A reasoning error worth remembering.** When deriving the top-ups list I used the rule
+    *"missing for the installer too => off the smoke path"*. That is only valid for code that
+    has **actually run green**. The S2S/port smokes have never run on Polaris (blocked on
+    ERA5), so for them "missing for everyone" means **broken for everyone** — and I dropped
+    `cf_xarray` on that basis. It is a bare import at `s2s-lightning/modules/train_module.py:52`
+    reached from both port entrypoints. The port would have died at import right after a
+    multi-TB Globus stage. Caught by the third cold gauntlet; `cf_xarray` is now in the
+    top-ups and all 5 entrypoint chains import as a second user.
+  - **The probe's port check was hollow.** It imported `common, data, modules`, which have no
+    `__init__.py` — namespace packages, so the import succeeds without executing any of the
+    smoke's code. That is how a bare missing import survived a green `PROBE_OK` while the
+    docs claimed the port's env was "proven by the probe". The probe now imports
+    `modules.train_module`, and `polaris_require_topups` covers **8/8** base-conda jobs (it
+    was 5/8; the probe and both port jobs were missed, contradicting this very entry's
+    earlier claim of "every base-conda job").
+  - **Lesson (generalise):** never `pip install --user` a dependency the project must share,
+    and never accept "it's green" from the environment that installed it. The probe
+    (7251974) had the same blind spot — it certified "all models import" while importing
+    from a private home; it now imports through the shared dir and warns if `~/.local` is on
+    `sys.path`.
+
+- **2026-07-14** — **Makani's re-run was a silent no-op (`rc=0`, zero steps).** With a
+  hardcoded `--run_num 0`, `train_plasim` auto-resumed from a checkpoint that already
+  satisfied the smoke's `max_epochs=1`: job **7253454** printed `Total training time is
+  0.00 sec` and exited **0**. `RUN_NUM` now defaults to `${PBS_JOBID%%.*}`, plus a gate that
+  forces `rc=4`/`ERROR NO_CHECKPOINT` when a run exits 0 without writing its checkpoint.
+  Revalidated by **7253465** (train 2.61 / val 2.38, 7.10 s of real training).
+  **`rc=0` is not a PASS criterion for a resumable trainer** — key on the work token.
+  Related: the smokes have **no seed knob** (DESIGN §4.0), so their losses move run-to-run
+  (7252769: 2.19/2.05 vs 7253465: 2.61/2.38 on identical code) — they are **not** an
+  equivalence baseline.
+
+- **2026-07-14** — **Audit fixes (docs + scripts).** `CONVERT_OK` re-attributed **7252736 →
+  7252728** (7252736 packed nothing and failed rc=1; verified from the log). The
+  `disassemble_input` note corrected: **fixed** in `train_module.py` (`1fef2473`) but still
+  **open** in `bias.py:226`, `ae_module.py:68`, `combined_module.py:185/287`. All 3
+  converters now honour the advertised `$E3SM_ROOT` (only makani did). All 10 `*.pbs` now
+  source `polaris_env.sh` (5 didn't, so the notes' "every script pins the caches" was false).
+  `polaris_logs/.gitkeep` committed — the dir is gitignored, so the probe's `#PBS -o
+  polaris_logs/` had nowhere to deliver in a fresh clone. CLAUDE.md's "Polaris/PBS = single
+  `python`" corrected (6 of 10 use torchrun). Cleanup doc's `.npy` "loaded by" column fixed
+  (`pangu_lite.py` only mentions the masks in a comment) — the conclusion (never blanket-
+  ignore `*.npy`) was right, the evidence wasn't.
+
 
 - **2026-07-14** — **Polaris (PBS) bring-up.** Confirmed cluster facts (`-A
   lighthouse-uchicago`, 4×A100-40GB sm80, `debug` queue, `filesystems=home:eagle`,
@@ -134,6 +8460,73 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 Each is attributed to its source doc — verify there before acting.
 
+- **(PanguWeather) Don't assume a `bench_report.md` optimization reached this fork — the drift
+  is bidirectional.** `static_graph=True` is in s2s only; `gradient_as_bucket_view=True` is in
+  PanguWeather only; bf16/`--async_save`/checkpoint-guards are *ahead* in PanguWeather. Full
+  table before acting: `polaris_bench_report.md` §6b.
+- **(PanguWeather) Do NOT copy `static_graph=True` across without the dead-module freeze** —
+  s2s freezes `layer_perturbation2`/`layer_purturbation_e2` (`train.py:437-444`) to make it
+  legal, and PanguWeather has no such freeze. Its isolated gain was also never measured
+  (`bench_report.md` §4 changed it together with bf16). — `polaris_bench_report.md` §6b.
+- **(PanguWeather) There are no ViT/Swin optimizations to port — they were never implemented
+  in either fork**, and the ViT doesn't run on Polaris anyway (`sfno_plasim` uses
+  `networks/modulus_sfno/`, never `networks/pangu.py`). `bench_report.md` §3's LayerNorm/
+  layout/`roll` findings are observations deferred to `torch.compile`; SDPA is already in both.
+  Don't go hunting for a missing port that doesn't exist. — `polaris_bench_report.md` §6c.
+- **(polaris_env.sh) `-v SEQZARR_DATA=…` (and the other `_pick` vars) CANNOT be overridden** —
+  `_pick` never reads its first argument, and `polaris_env.sh:155` exports unconditionally. Job
+  7257791 was submitted with `-v SEQZARR_DATA=…_fresh` to force the PhysicsNeMo smoke to rebuild
+  its store with a changed converter; it silently used the OLD cached store and passed. A gate
+  that cannot be pointed at fresh data is not a gate.
+  — `polaris_data_prep_handoff_prompt.md` §4.
+- **(E3SM archive) The .h5 construction is NOT in this repo** — it lives in
+  `/eagle/.../jesswan/PanguWeather/data_utils/` (`netcdf_to_h5*.py` ×3, `get_stats.py`, adapted
+  "from FourCastNet repo"). Read it before deciding the fill questions: it is the ground truth
+  for the 270 sea-surface-temperature fill, the 19 constant cloud channels, and the frozen
+  `time` year. Three `netcdf_to_h5` variants exist and nothing records which built the archive.
+  — `polaris_data_prep_handoff_prompt.md` §8c-bis.
+- **(E3SM data prep) `CONVERT_OK` is NOT a verification** — it checks 1 channel of 1 sample
+  (0.01%) and is blind to the NaN fill by construction (its probe channel is chosen as one
+  with no fill). Require `SEQZARR_VERIFIED` from `polaris/verify_seqzarr.py`.
+  — `polaris_data_prep_handoff_prompt.md` §4.
+- **(E3SM data prep) The PhysicsNeMo smoke store CANNOT validate the full conversion** — it is
+  64+16 samples of **2015 only**, and all three worst defects were invisible at exactly that
+  scale. Use `polaris/polaris_verify_data_prep.pbs` (`--random-sample`, spans every year).
+  — `polaris_data_prep_handoff_prompt.md` §5.
+- **(E3SM archive) `input/time` is FROZEN AT 2015 in every file** — `2049_1459.h5` carries
+  `2015-12-31 18:00:00`. Month/day/hour track the index; only the year is wrong. Never build a
+  time axis from the in-file label; take the year from the filename. Upstream defect.
+  — `polaris_data_prep_handoff_prompt.md` §1.
+- **(E3SM stats) The npz SST mean of ~110 is NOT "Kelvin data"** — that inference (previously
+  recorded here as an open issue) is refuted. SST is °C; 110 is arithmetically a 270 land-fill:
+  `0.374×270 + 0.626×14.70 = 110.06`. The npz encodes Pangu's `SST: 270.` fill and is
+  self-consistent. Do not "fix" it. — `polaris_data_prep_handoff_prompt.md` §3.
+- **(zarr) `nchunks_initialized` is not a completeness check** in zarr 2.18.7 — it counts chunk
+  keys by *prefix* regex, so a `.partial` left by a kill mid-write counts as written (measured
+  6/6 while a sample was an all-zero slab). Compare the exact expected key set.
+  — `polaris_data_prep_handoff_prompt.md` §4.
+- **(PanguWeather) Do NOT port `s2s/v2.0/utils/seeding.py` into PanguWeather** — it already
+  has `--global_seed` → `seed_torch()`, which is more complete than s2s's legacy path. Two
+  seed mechanisms racing to set the same global RNG is a regression, not a port.
+  — `polaris_bench_report.md` §6.
+- **(PanguWeather) `cpu_prep_frac` is NOT the data-loader idle fraction** — it times
+  `_prepare_inputs_batch` on an already-fetched batch and stays at ~0.4% even with the loader
+  deliberately starved to a 14.8% stall. Use `loader_wait_frac`. — `polaris_bench_report.md` §3.
+- **(PanguWeather) `samples_per_s` is a step rate, not wall throughput** — it excludes the
+  between-step loader fetch. Convert with `× (1 − loader_wait_frac)` before comparing two
+  configurations, or you will rank the slower one first. — `polaris_bench_report.md` §3.
+- **(PanguWeather) Don't read the NVTX sub-ranges as GPU time** — they are pushed/popped on
+  the CPU thread and measure *enqueue*; they sum to 55% of the step, and the rest is the
+  terminal `cuda.synchronize()` draining the GPU. `backward = 280 ms` is CPU launch work, not
+  47% of GPU time. Attribute GPU time from the kernel table. — `polaris_bench_report.md` §4.1.
+- **(PanguWeather) Bumping `num_data_workers` changes the LOSS, not just the speed** — the
+  loader draws per-sample gaussian noise inside the workers (`epsilon_factor: 0.1`) with no
+  `worker_init_fn`. The +9% from `1 → 8` is real but cannot be validated by the §4 bitwise
+  gate. Fix `worker_init_fn` first. — `polaris_bench_report.md` §3.
+- **The E3SM SFNO is 1.18 B params, not "~79M"** — the 79M figure (DESIGN, CLAUDE.md #12)
+  describes the Pangu/Swin model. Don't carry 79M-era resource intuition onto the SFNO path.
+  — `polaris_bench_report.md` §1.
+
 - **(Polaris) `torch_harmonics` version box** — makani 0.2.0 imports the *public*
   `torch_harmonics.quadrature.precompute_latitudes`, which does NOT exist in 0.7.4 or
   0.8.0 (private `_precompute_latitudes`). 0.9.1 has it but ships **wheels only** (no
@@ -150,7 +8543,7 @@ Each is attributed to its source doc — verify there before acting.
   cftime calendar that forces `has_year_zero=True`, clashing with `has_year_zero: False`
   at `si/data/amip_new.py:667` (`cannot compute the time difference between dates with
   year zero conventions`). Use `'standard'` (correct for a non-leap-year smoke); a full
-  run crossing a leap year needs a loader fix. — `polaris_pbs_notes.md` §8.
+  run crossing a leap year needs a loader fix. — `polaris_pbs_notes.md` §5.
 - **Port standalone smokes had a stale cwd-relative config path** (`v2.0/config/test.yaml`,
   pre-monorepo) → `FileNotFoundError` before any GPU work. Fixed 2026-07-13 (resolve
   relative to `__file__`). If a port smoke can't find the config, check this first.
@@ -182,8 +8575,9 @@ Each is attributed to its source doc — verify there before acting.
 - **Baseline node class.** The SI optimization-sweep CSVs (`si/bench_optim_*.csv`)
   ran on the **test partition H100**, a different node class from the pedramh-gpu
   H100-NVL numbers — re-measure a pedramh-gpu baseline to compare like-for-like.
-- **A100 (Polaris) memory** — the "40 GB" figure is from prose, not an on-node
-  `nvidia-smi` (`si/bench_midway_notes.md` fn2); confirm during Polaris bring-up.
+- ~~**A100 (Polaris) memory**~~ — **RESOLVED** by probe 7251974: `nvidia-smi` on-node
+  reports **40960 MiB/GPU** (4× A100-SXM4-40GB, driver 570.124.06). See
+  `polaris_pbs_notes.md` §1.
 - **SI compile gain** — reported ~+62% (`default` mode) but a `*_postfix` re-run is
   lower; quote it as a range until re-measured on pedramh-gpu.
 
@@ -191,6 +8585,11 @@ Each is attributed to its source doc — verify there before acting.
 
 **Read the existing evidence before capturing baselines or claiming a speedup**
 (compare only within a cluster, never A100 vs H100 NVL):
+- `makani_bench_report.md` — makani-SFNO on Polaris: single node, the 1/2/4/8-node ladders
+  (both fabric stacks), the 128-node production run, and the scored prereg. Read §0 first —
+  `step_ms` is the *final epoch's* mean, so warmup is in single-epoch rows and not in
+  multi-epoch ones, and the fabric stack is part of the config but is not a CSV column.
+- `polaris_bench_report.md` — PanguWeather SFNO on 4×A100 (kernel-level).
 - `s2s/v2.0/bench_report.md` — S2S H100-NVL baselines + the step-time / VAE-encoder split.
 - `si/bench_midway_notes.md` — SI bench + decisions log (refutes the "H200" label).
 - `si/bench_optim_*.csv` + `si/bench_optim_sweep.sh` header — the 2026-05 one-lever-

@@ -7,7 +7,6 @@
 #PBS -l filesystems=home:eagle
 #PBS -l walltime=01:00:00
 #PBS -j oe
-#PBS -o /eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/polaris_logs/pangu_plasim_train.log
 # ============================================================================
 # PanguWeather **deterministic** (nettype pangu_plasim, --config=PLASIM) Polaris
 # launcher — handoff deliverable 6: the original Pangu-Weather 3D Earth-Specific
@@ -35,16 +34,20 @@ V20_DIR="${PBS_O_WORKDIR}"
 module use /soft/modulefiles
 module load conda
 conda activate base                       # base keeps torch_harmonics 0.7.4 (Pangu path)
-export WANDB_MODE=offline
+# The shared Polaris env: TMPDIR + inductor/triton caches on eagle, the WANDB/HDF5 knobs,
+# and $POLARIS_TOPUPS (netCDF4 / torch_harmonics / tensorly — absent from the base conda,
+# and NOT in a private ~/.local, so any member can run this).
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+# Offline by default (polaris_env.sh); override with: qsub -v WANDB_MODE=online
+export WANDB_MODE="${WANDB_MODE:-offline}"
 export HDF5_USE_FILE_LOCKING=FALSE
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export MPLBACKEND=Agg
 export OMP_NUM_THREADS=8
 export MKL_NUM_THREADS=8
-export TMPDIR=/eagle/projects/lighthouse-uchicago/members/mehta5/tmp
-export TORCHINDUCTOR_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/torchinductor_cache
-export TRITON_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/triton_cache
-export PYTHONPATH="${V20_DIR}:${PYTHONPATH:-}"
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
 
 NPROC="${NPROC:-4}"
 # Repoint this to a Polaris copy once the PLASIM tree is staged.

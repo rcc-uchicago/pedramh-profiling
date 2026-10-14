@@ -1,0 +1,215 @@
+#!/bin/bash -l
+#PBS -N makani_env_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Does Makani run AT ALL on Polaris after the Cray PE roll?  One cheap `debug`
+# job that answers it, before anything expensive is queued.
+#
+# CONTEXT.  Every Makani PBS script in this repo opens with `module load conda`,
+# which has been broken cluster-side since ~2026-08-20 and is still broken on
+# 2026-08-21.  polaris_makani_env.sh reconstructs that environment by hand.  Two
+# pieces of it are settled STATICALLY (both verified on a login node, so this job
+# does not re-litigate them):
+#   * `ldd libtorch_global_deps.so` -> 0 unresolved, via cuda-13.0.1 for
+#     libcudart.so.13 and a symlink for libmpi_gnu_123.so.12.
+#   * the h5py overlay imports, with a vendored libhdf5.
+# What a login node CANNOT settle, and this job exists for:
+#   * `import torch` actually succeeding and initialising CUDA (CLAUDE.md #3
+#     forbids importing torch on a login node -- and the repo root's core.*
+#     files are what that rule is made of),
+#   * makani + torch_harmonics' compiled extensions loading against that torch,
+#   * NCCL coming up across 4 ranks through the PALS rank shim rather than
+#     torchrun --standalone, which is the launcher every green Makani run used.
+#
+# PASS = MAKANI_ENV_OK.  Per CLAUDE.md #14, rc=0 is NOT the pass signal.
+#
+# Submit from makani_sfno/:
+#     qsub polaris/polaris_makani_env_probe.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Order matters and is documented in polaris_makani_env.sh: repo paths first
+# (they define MEMBER_ROOT), then the interpreter/library bootstrap.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+# A --system-site-packages venv re-enables the USER site, which site.py ranks
+# ABOVE the venv.
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+PY="${SFNO_VENV}/bin/python"
+
+echo "=== makani_env_probe: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+nvidia-smi -L
+makani_env_report
+echo
+
+# ---- stage 1: single-process imports ---------------------------------------
+# Deliberately before any distributed work: a failure here is an env failure,
+# and reading it as a comms failure is how a day gets lost.
+echo "--- stage 1: imports (single process) ---"
+"${PY}" - <<'PY' || { echo "ERROR STAGE1_IMPORTS_FAILED"; exit 4; }
+import os, sys, traceback
+
+def where(mod):
+    return getattr(mod, "__file__", "<namespace>")
+
+try:
+    import torch
+    print("torch                %s  (cuda %s)" % (torch.__version__, torch.version.cuda))
+    print("  from               %s" % where(torch))
+    print("  cuda available     %s   device_count=%d"
+          % (torch.cuda.is_available(), torch.cuda.device_count()))
+    print("  nccl               %s" % (".".join(map(str, torch.cuda.nccl.version())),))
+    import h5py
+    print("h5py                 %s  (hdf5 %s)" % (h5py.__version__, h5py.version.hdf5_version))
+    print("  from               %s" % where(h5py))
+    import torch_harmonics as th
+    print("torch_harmonics      %s" % th.__version__)
+    print("  from               %s" % where(th))
+    import physicsnemo
+    print("physicsnemo          %s" % getattr(physicsnemo, "__version__", "?"))
+    print("  from               %s" % where(physicsnemo))
+    import makani
+    print("makani               %s" % getattr(makani, "__version__", "?"))
+    print("  from               %s" % where(makani))
+    # The two that pull in the compiled extensions and the fork's own tree.
+    from makani.utils import comm                       # noqa: F401
+    import sfno_training.train_plasim                   # noqa: F401
+    print("makani.utils.comm + sfno_training.train_plasim: OK")
+except Exception:
+    traceback.print_exc()
+    sys.exit(4)
+
+# torch_harmonics MUST come from the venv: PYTHONPATH outranks site-packages and
+# $POLARIS_TOPUPS carries an older 0.7.4 that shadows it. Same gate the green
+# Makani launchers already carry -- restated here because this probe is the
+# thing a future session will run first.
+venv = os.path.realpath(os.environ["VIRTUAL_ENV"])
+got = os.path.realpath(where(th))
+if not got.startswith(venv + os.sep):
+    print("ERROR TORCH_HARMONICS_SHADOWED: %s not under %s" % (got, venv))
+    print("  PYTHONPATH=%s" % os.environ.get("PYTHONPATH", ""))
+    sys.exit(4)
+if not torch.cuda.is_available():
+    print("ERROR NO_CUDA: torch imported but sees no GPU.")
+    sys.exit(4)
+print("STAGE1_OK")
+PY
+
+# ---- stage 2: a real CUDA kernel + an SHT --------------------------------
+# `import torch` succeeding is not the same as the CUDA runtime working, and
+# torch_harmonics importing is not the same as its extension running: the
+# repaired libcudart/libmpi links are exactly the kind of thing that fails at
+# first kernel launch rather than at import.
+echo "--- stage 2: CUDA kernel + spherical harmonic transform ---"
+"${PY}" - <<'PY' || { echo "ERROR STAGE2_CUDA_FAILED"; exit 5; }
+import sys, torch, torch_harmonics as th
+try:
+    d = torch.device("cuda:0")
+    a = torch.randn(512, 512, device=d, dtype=torch.float32)
+    b = (a @ a).sum().item()                     # a GEMM, i.e. cuBLAS
+    assert b == b, "matmul produced NaN"
+    # The E3SM pack's grid, so this exercises the transform the model uses.
+    sht = th.RealSHT(180, 360, grid="equiangular").to(d)
+    x = torch.randn(1, 58, 180, 360, device=d, dtype=torch.float32)
+    y = sht(x)
+    print("matmul ok; RealSHT(180,360) -> %s %s" % (tuple(y.shape), y.dtype))
+    print("peak alloc %.2f GB" % (torch.cuda.max_memory_allocated() / 2**30))
+    print("STAGE2_OK")
+except Exception:
+    import traceback; traceback.print_exc(); sys.exit(5)
+PY
+
+# ---- stage 3: 4-rank NCCL through the PALS shim ----------------------------
+# The launcher change is the point. Every green Makani run on Polaris used
+# `torch.distributed.run --standalone`, which cannot span nodes; the multi-node
+# script uses mpiexec + this shim, so prove the shim single-node FIRST, where a
+# failure cannot be blamed on the fabric.
+echo "--- stage 3: 4-rank NCCL via mpiexec + rank shim ---"
+NODEFILE="${PBS_NODEFILE:-}"
+if [ ! -s "${NODEFILE}" ]; then echo "ERROR NO_NODEFILE"; exit 6; fi
+export GPUS_PER_NODE=4
+export MASTER_ADDR="$(head -1 "${NODEFILE}")"
+export MASTER_PORT="${MASTER_PORT:-29500}"
+# Fail loudly rather than degrade: without this, physicsnemo's manager.py falls
+# through to warn("Assuming this is a single process job") and you get 4
+# independent world_size=1 processes that all "pass".
+export PHYSICSNEMO_DISTRIBUTED_INITIALIZATION_METHOD=ENV
+export OMP_NUM_THREADS=1
+SHIM="${MAKANI_ROOT}/polaris/polaris_rank_env.sh"
+
+# The rank script goes in a FILE, not a heredoc on stdin. PALS mpiexec forwards
+# stdin to ONE rank (rank 0 by default), so `python -` would leave ranks 1-3
+# reading an empty stdin: they would exit without ever calling comm.init and the
+# job would either hang in rank 0's collective or "pass" having proved nothing.
+# The ai-rossby multi-node script passes a path for the same reason.
+RANK_PY="${TMPDIR:-/tmp}/makani_probe_stage3_${PBS_JOBID%%.*}.py"
+cat > "${RANK_PY}" <<'PY'
+import os, sys, torch
+from makani.utils import comm
+
+comm.init(model_parallel_sizes=[1, 1, 1, 1],
+          model_parallel_names=["h", "w", "fin", "fout"], verbose=False)
+rank, world = comm.get_world_rank(), comm.get_world_size()
+torch.cuda.set_device(comm.get_local_rank())
+if world != 4:
+    print("ERROR WRONG_WORLD_SIZE: %d (expected 4)" % world); sys.exit(7)
+
+# An all-reduce whose answer is known, so a silently-wrong comm is caught.
+t = torch.full((1024, 1024), float(rank + 1), device="cuda")
+torch.distributed.all_reduce(t)
+expect = float(sum(range(1, world + 1)))
+got = t[0, 0].item()
+ok = abs(got - expect) < 1e-6
+print("rank %d/%d local=%d dev=%s data_group=%d allreduce=%.1f (want %.1f) %s"
+      % (rank, world, comm.get_local_rank(), torch.cuda.current_device(),
+         comm.get_size("data"), got, expect, "OK" if ok else "MISMATCH"))
+if not ok:
+    sys.exit(7)
+if rank == 0:
+    print("STAGE3_OK")
+comm.cleanup()
+PY
+
+mpiexec -n 4 --ppn 4 --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 --label --line-buffer \
+    bash "${SHIM}" "${PY}" "${RANK_PY}"
+rc=$?
+rm -f "${RANK_PY}"
+echo "--- stage 3 rc=${rc} ---"
+if [ ${rc} -ne 0 ]; then
+    echo "ERROR STAGE3_NCCL_FAILED rc=${rc}"
+    echo "  Read the FIRST rank's error, not the last."
+    exit 6
+fi
+
+echo
+echo "MAKANI_ENV_OK  env_source=${MAKANI_ENV_SOURCE}"
+echo "  Record MAKANI_ENV_SOURCE in any table built on this env: 'module-conda' and"
+echo "  'manual-reconstruction' are not guaranteed to be the same environment."
+echo "=== makani_env_probe done $(date -Iseconds) ==="

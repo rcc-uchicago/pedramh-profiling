@@ -16,7 +16,12 @@ PlasimForcingDataset" and docs/sfno_training_implementation_plan.md §1.
 
 from __future__ import annotations
 
+import glob
 import logging
+import math
+import operator
+import os
+from itertools import accumulate
 from typing import Tuple
 
 import h5py
@@ -27,8 +32,17 @@ import torch
 # MultifilesDataset reads the int64 /timestamp. Required on Stampede3
 # (Python 3.12). Removable once upstream Makani fixes the cast.
 from sfno_training import compat  # noqa: F401
+from sfno_training.compat import MAKANI_HAS_BACKENDS
 
 from makani.utils.dataloaders.data_loader_multifiles import MultifilesDataset
+
+
+class _ChunkOnlyBackend:
+    """What makani main's ``MultifilesDataset.__init__`` and ``DataShapes.from_loader`` read off
+    ``self.backend`` -- the rank's grid chunk -- and nothing else. Reads never go through it."""
+
+    def __init__(self, chunk):
+        self.chunk = chunk
 
 
 class PlasimForcingDataset(MultifilesDataset):
@@ -65,6 +79,15 @@ class PlasimForcingDataset(MultifilesDataset):
         **kwargs,
     ):
         kwargs.setdefault("dataset_path", "fields_state")
+        if MAKANI_HAS_BACKENDS:
+            # makani main dropped these from MultifilesDataset (its kwargs swallow them);
+            # our own HDF5 reads below still need them.
+            if kwargs.get("enable_s3", False):
+                raise NotImplementedError("PlasimForcingDataset on makani main: enable_s3 is not supported")
+            self.dataset_path = kwargs["dataset_path"]
+            self.file_suffix = kwargs.get("file_suffix", "h5")
+            self.file_driver = None
+            self.file_driver_kwargs = {}
         super().__init__(**kwargs)
 
         self.diagnostic_dataset_path = diagnostic_dataset_path
@@ -159,6 +182,84 @@ class PlasimForcingDataset(MultifilesDataset):
         self.dhours = step_seconds // 3600
 
         return
+
+    if MAKANI_HAS_BACKENDS:
+        # makani main builds a storage backend here, which would (a) re-order files by time and
+        # refuse PlaSim's split-spanning timestamp resets, and (b) verify the grid declaration.
+        # Keep the pin's file-stats logic instead (c9704308 data_loader_multifiles.py), so file
+        # order, timestamps, crop/read geometry and every read stay what they were.
+        def _get_files_stats(self, enable_logging):
+            from torch_harmonics.distributed import compute_split_shapes
+            from makani.utils.dataloaders.backends.base import GridSpec
+
+            if isinstance(self.location, str):
+                self.location = [self.location]
+            if os.path.isfile(self.location[0]):
+                self.files_paths = list(self.location)
+            else:
+                self.files_paths = []
+                for location in self.location:
+                    if not os.path.isdir(location):
+                        raise IOError(f"Location {location} is neither a path nor a directory.")
+                    self.files_paths += glob.glob(os.path.join(location, f"*.{self.file_suffix}"))
+            if not self.files_paths:
+                raise IOError(f"Error, the specified file path {self.location} does not contain hdf5 files.")
+            self.file_format = "h5"
+            self.files_paths.sort()
+            self._get_stats_h5(enable_logging)
+
+            if not self.relative_timestamp:
+                self.years = sorted({date.year for date in self.datestamps.tolist()})
+                self.n_years = len(self.years)
+            self.files = [None for _ in self.files_paths]
+            self.start_date = self.datestamps[0]
+            self.end_date = self.datestamps[-1]
+
+            crop_x, crop_y = self.crop_size
+            crop_x = self.img_shape[0] if crop_x is None else crop_x
+            crop_y = self.img_shape[1] if crop_y is None else crop_y
+            self.crop_size = (crop_x, crop_y)
+            assert self.crop_anchor[0] + self.crop_size[0] <= self.img_shape[0]
+            assert self.crop_anchor[1] + self.crop_size[1] <= self.img_shape[1]
+            split_x = compute_split_shapes(self.crop_size[0], self.io_grid[0])
+            split_y = compute_split_shapes(self.crop_size[1], self.io_grid[1])
+            self.read_anchor = (self.crop_anchor[0] + sum(split_x[: self.io_rank[0]]),
+                                self.crop_anchor[1] + sum(split_y[: self.io_rank[1]]))
+            self.read_shape = (split_x[self.io_rank[0]], split_y[self.io_rank[1]])
+            self.return_shape = (math.ceil(self.read_shape[0] / self.subsampling_factor),
+                                 math.ceil(self.read_shape[1] / self.subsampling_factor))
+
+            self.file_offsets = list(accumulate(self.n_samples_file, operator.add))[:-1]
+            self.file_offsets.insert(0, 0)
+            self.n_samples_available = sum(self.n_samples_file)
+            self.n_samples_total = self.n_samples_available
+            if enable_logging:
+                logging.info("Found data at path %s. Number of examples: %d. Full image shape: %d x %d x %d. "
+                             "Read shape: %d x %d x %d", self.location, self.n_samples_available,
+                             self.img_shape[0], self.img_shape[1], self.total_channels,
+                             self.read_shape[0], self.read_shape[1], self.n_in_channels)
+
+            self.img_shape_x, self.img_shape_y = self.img_shape[0], self.img_shape[1]
+            self.img_crop_shape_x, self.img_crop_shape_y = self.crop_size
+            self.img_crop_offset_x, self.img_crop_offset_y = self.crop_anchor[0], self.crop_anchor[1]
+            self.img_local_shape_x, self.img_local_shape_y = self.read_shape
+            self.img_local_offset_x, self.img_local_offset_y = self.read_anchor
+            self.img_shape_resampled = (math.ceil(self.img_shape[0] / self.subsampling_factor),
+                                        math.ceil(self.img_shape[1] / self.subsampling_factor))
+            self.img_local_shape_x_resampled, self.img_local_shape_y_resampled = self.return_shape
+            self.img_shape_x_resampled, self.img_shape_y_resampled = self.img_shape_resampled
+
+            # local coordinates exactly as the pin's __init__ derives them
+            latitude, longitude = np.array(self.lat_lon[0]), np.array(self.lat_lon[1])
+            lat_loc = latitude[self.read_anchor[0]: self.read_anchor[0] + self.read_shape[0]][:: self.subsampling_factor]
+            lon_loc = longitude[self.read_anchor[1]: self.read_anchor[1] + self.read_shape[1]][:: self.subsampling_factor]
+            self.lat_lon_local = (lat_loc.tolist(), lon_loc.tolist())
+            self.backend = _ChunkOnlyBackend(
+                GridSpec(getattr(self, "grid_type", "equiangular"), tuple(self.return_shape), lat_loc, lon_loc))
+
+        def _open_file(self, file_idx):
+            _file = h5py.File(self.files_paths[file_idx], "r", driver=self.file_driver, **self.file_driver_kwargs)
+            self.files[file_idx] = _file[self.dataset_path]
 
     @staticmethod
     def _infer_step_seconds(timestamps: list[np.ndarray]) -> int:

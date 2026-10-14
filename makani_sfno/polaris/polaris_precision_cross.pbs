@@ -1,0 +1,127 @@
+#!/bin/bash -l
+#PBS -N makani_pxc
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# One cell of the 2 x 2 precision cross (docs/2026-10-13_precision_cross_prereg.md, docs/makani-knowledge).
+#   1. Roll the cell's arms with polaris_climate_run.pbs (inherits ARMS, RUNDIR_/CKPT_/WEIGHTS_/FLAGS_<arm>).
+#   2. CELL=bf16roll also runs the gate AMP_BF16_EQUIV_OK: FSEQ15 (F-scratch EMA e15, --amp bf16) vs
+#      climate_protocol_7732901/member_FSE15<i>.nc global_mean, bitwise over the first 120 steps.
+#   3. Write $PXC_DIR/done_<CELL> (this job's id). The job that finds both done_* files and wins the
+#      atomic `mkdir score.lock` scores both run dirs (polaris_protocol_score.pbs, TAG=pxc, stride-1
+#      TGM) and runs precision_cross_analysis.py. Every marker is written before the other is read, so
+#      at least one job sees both; the lock stops both scoring. No login-node watcher.
+# Submit with polaris/submit_precision_cross.sh, never by hand.
+# -v DRY_RUN=1 stubs the rollouts, gate, scoring and env bootstrap: it tests the chaining on a login node.
+# PASS = PRECISION_CROSS_RESULT (in the scoring job) / PXC_CELL_OK cell=<CELL> (in each job).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR:?}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+DRY="${DRY_RUN:-0}"
+CELL="${CELL:?set -v CELL=bf16roll|fp32roll}"
+case "${CELL}" in bf16roll|fp32roll) ;; *) echo "ERROR PXC_CELL_INVALID ${CELL}"; exit 2 ;; esac
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EVAL="${EVAL_ROOT:-${MEMBER_ROOT}/runs/makani_eval}"
+X="${PXC_DIR:-${EVAL}/precision_cross_2026-10-13}"
+JOB="${PBS_JOBID%%.*}"
+mkdir -p "${X}"
+echo "=== makani_pxc cell=${CELL} job=${JOB} dry=${DRY} $(date -Iseconds) host=$(hostname) ==="
+
+if [ "${DRY}" = "1" ]; then
+    PY=python3
+else
+    # Env bootstrap copied verbatim from polaris_climate_run.pbs.
+    # shellcheck disable=SC1091
+    source "${REPO}/polaris_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+    if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+        echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+        exit 3
+    fi
+    PY="${SFNO_VENV}/bin/python"
+fi
+
+# --- 1. rollouts -----------------------------------------------------------------------------------
+RUNLOG="${X}/run_${CELL}_${JOB}.log"
+if [ "${DRY}" = "1" ]; then
+    mkdir -p "${EVAL}/climate_protocol_${JOB}"
+    echo "CLIMATE_RUN_OK arms='${ARMS:-}' (dry)" > "${RUNLOG}"
+else
+    bash "${MAKANI_ROOT}/polaris/polaris_climate_run.pbs" > "${RUNLOG}" 2>&1
+fi
+tail -25 "${RUNLOG}"
+grep -q "^CLIMATE_RUN_OK" "${RUNLOG}" || { echo "ERROR PXC_RUN_FAILED cell=${CELL} (see ${RUNLOG})"; exit 4; }
+
+# --- 2. gate (bf16 cell only) --------------------------------------------------------------------
+if [ "${CELL}" = "bf16roll" ]; then
+    if [ "${DRY}" = "1" ]; then
+        echo "AMP_BF16_EQUIV_OK members=8 steps=120 (dry)" > "${X}/gate.txt"
+    else
+        CUDA_VISIBLE_DEVICES="" "${PY}" - "${EVAL}/climate_protocol_${JOB}" "${EVAL}/climate_protocol_7732901" 120 \
+            > "${X}/gate.txt" 2>&1 <<'PY'
+import sys
+import numpy as np
+import netCDF4
+new, ref, n = sys.argv[1], sys.argv[2], int(sys.argv[3])
+def gm(p):
+    with netCDF4.Dataset(p) as ds:
+        return np.asarray(ds["global_mean"][:], dtype=np.float64)
+first_ok, full_ok, worst = 0, 0, ""
+for i in range(8):
+    a = gm(f"{new}/member_FSEQ15{i:02d}.nc")
+    b = gm(f"{ref}/member_FSE15{i:02d}.nc")
+    f = a.shape[1:] == b.shape[1:] and np.array_equal(a[:n], b[:n])
+    full = a.shape == b.shape and np.array_equal(a, b)
+    first_ok += f
+    full_ok += full
+    if not f and not worst:
+        m = min(len(a), len(b), n)
+        d = np.abs(a[:m] - b[:m])
+        k = np.unravel_index(np.nanargmax(d), d.shape)
+        worst = f" first mismatch member {i:02d}: max|diff|={np.nanmax(d):.3e} at step {k[0] + 1}"
+    print(f"member {i:02d}: first-{n}-steps bitwise={bool(f)} full-length bitwise={bool(full)} steps={len(a)}/{len(b)}")
+if first_ok == 8:
+    print(f"AMP_BF16_EQUIV_OK members=8 steps={n} full_length_bitwise={full_ok}/8")
+else:
+    print(f"ERROR AMP_BF16_NOT_BITWISE members_ok={first_ok}/8{worst}")
+PY
+    fi
+    cat "${X}/gate.txt"
+fi
+
+# --- 3. mark done; the second finisher scores and analyses --------------------------------------
+echo "${JOB}" > "${X}/done_${CELL}"
+echo "PXC_CELL_OK cell=${CELL} job=${JOB}"
+if [ -f "${X}/done_bf16roll" ] && [ -f "${X}/done_fp32roll" ] && mkdir "${X}/score.lock" 2>/dev/null; then
+    DIRS="$(cat "${X}/done_bf16roll") $(cat "${X}/done_fp32roll")"
+    echo "both cells done -> scoring DIRS='${DIRS}'"
+    if [ "${DRY}" = "1" ]; then
+        echo "PROTOCOL_SCORE_OK tag=pxc (dry)" > "${X}/score.log"
+    else
+        TAG=pxc DIRS="${DIRS}" TGM="${EVAL}/window_truth/truth_annual_gm_2015_2047_stride1.npz" \
+            bash "${MAKANI_ROOT}/polaris/polaris_protocol_score.pbs" > "${X}/score.log" 2>&1
+    fi
+    tail -5 "${X}/score.log"
+    grep -q "^PROTOCOL_SCORE_OK" "${X}/score.log" || { echo "ERROR PXC_SCORE_FAILED (see ${X}/score.log)"; exit 5; }
+    S="${EVAL}/protocol_scores"
+    "${PY}" "${MAKANI_ROOT}/polaris/precision_cross_analysis.py" \
+        --existing "${S}/g1fs_channels.csv" --new "${S}/pxc_channels.csv" --gate "${X}/gate.txt" \
+        --budget "${S}/g1fs_budget.txt" "${S}/pxc_budget.txt" --out "${X}/results.txt" \
+        || { echo "ERROR PXC_ANALYSIS_FAILED"; exit 6; }
+else
+    echo "PXC_WAITING other cell not done yet (or already scored); this job ends here"
+fi
+echo "=== makani_pxc done $(date -Iseconds) ==="

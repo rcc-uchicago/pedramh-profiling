@@ -1,0 +1,85 @@
+#!/bin/bash -l
+#PBS -N makani_protocol_score
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Score climate-protocol runs on the SELECTION window (prereg §3-§5,
+# docs/makani-knowledge d06b4916 + amendments). No rollouts; reads member NetCDFs.
+#   1. floor (once): member-vs-member, pooled over B22 (7707597), FSEMA (7720705),
+#      DRYAIR24 (7711720), FD22 (7727731), window 2045-2047 -> window_truth/floor_2045_2047.npz
+#   2. A / W / legacy mean per arm on 2045-2047        (score_window_protocol.py)
+#   3. drift census 2047-2045 + global TREFHT/PS drift  (drift_census.py)
+#   4. gates 2-3: global TMQ > 0, negative-area, |dPS|  (dryair_budget_readout.py, full run)
+# -v DIRS="<job> <job> ..." (climate_protocol_<job> under $EVAL), -v TAG=<name>.
+# Outputs: $EVAL/protocol_scores/<TAG>_{scores,census,budget}.*
+# PASS = PROTOCOL_SCORE_OK
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_run.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EVAL="${MEMBER_ROOT}/runs/makani_eval"
+WT="${EVAL}/window_truth"
+TRUTH="${WT}/truth_2045_2047.npz"
+# -v TGM=<npz> overrides the drift census's truth annual means. The default file was built at
+# a 5-step stride and failed its own equivalence check (makani_truth_gm.o7732604, 1.205 SD vs
+# tol 0.1); window_truth/truth_annual_gm_2015_2047_stride1.npz is the stride-1 rebuild.
+TGM="${TGM:-${WT}/truth_annual_gm_2015_2047.npz}"
+FLOOR="${WT}/floor_2045_2047.npz"
+TAG="${TAG:-score}"
+OUT="${EVAL}/protocol_scores"
+mkdir -p "${OUT}"
+echo "=== makani_protocol_score: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} tag=${TAG} dirs='${DIRS:-}' ==="
+for f in "${TRUTH}" "${TGM}"; do [ -f "${f}" ] || { echo "ERROR MISSING ${f}"; exit 3; }; done
+S="${MAKANI_ROOT}/polaris/score_window_protocol.py"
+
+if [ ! -f "${FLOOR}" ]; then
+    "${PY}" "${S}" --true "${TRUTH}" --window 2045 2047 \
+        --member "${EVAL}"/climate_protocol_7707597/member_B22[0-9][0-9].nc \
+                 "${EVAL}"/climate_protocol_7720705/member_FSEMA[0-9][0-9].nc \
+                 "${EVAL}"/climate_protocol_7711720/member_DRYAIR24[0-9][0-9].nc \
+                 "${EVAL}"/climate_protocol_7727731/member_FD22[0-9][0-9].nc \
+        --floor-arms B22 FSEMA DRYAIR24 FD22 --write-floor "${FLOOR}" | tail -6 || exit 4
+fi
+
+MEMBERS=()
+for d in ${DIRS:?set -v DIRS}; do
+    for f in "${EVAL}/climate_protocol_${d}"/member_*.nc; do MEMBERS+=("${f}"); done
+done
+echo "members: ${#MEMBERS[@]}"
+"${PY}" "${S}" --true "${TRUTH}" --window 2045 2047 --member "${MEMBERS[@]}" --floor "${FLOOR}" \
+    --out "${OUT}/${TAG}_channels.csv" --summary "${OUT}/${TAG}_scores.csv" | tail -40
+"${PY}" "${MAKANI_ROOT}/polaris/drift_census.py" --truth-gm "${TGM}" --member "${MEMBERS[@]}" \
+    --out "${OUT}/${TAG}_census.csv" | tail -40
+"${PY}" "${MAKANI_ROOT}/scripts/dryair_budget_readout.py" "${MEMBERS[@]}" > "${OUT}/${TAG}_budget.txt" 2>&1
+tail -3 "${OUT}/${TAG}_budget.txt"
+echo "PROTOCOL_SCORE_OK tag=${TAG} members=${#MEMBERS[@]} out=${OUT}"
+echo "=== makani_protocol_score done $(date -Iseconds) ==="

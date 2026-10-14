@@ -1,0 +1,72 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Default training config for the AMIP diffusion recipes (SI / SI_X /
+# ERDM / RFM). Mirrors upstream amip's hyperparameter choices:
+# Muon optimizer, EMA decay 0.999 with 6-epoch warmup, fp32, no
+# gradient clipping, single-stage curriculum.
+#
+# bf16-native variant (Phase 8f, F3): select ``training=amip_diffusion_bf16``
+# for the identical config with ``amp: bf16`` — see
+# ``benchmarks/physicsnemo/experimental/models/amip_si/RESULTS.md`` for the
+# fp32-vs-bf16 throughput/memory/loss comparison.
+#
+# Per-stage diffusion knobs:
+# Each entry under ``stages`` may carry a ``loss_overrides`` mapping
+# whose contents are merged on top of ``cfg.loss`` before
+# ``hydra.utils.instantiate`` for that stage. Use this for multi-stage
+# curricula — e.g. a W=3 pretrain stage followed by a W=6 finetune
+# stage on a rolling scheduler (RFM / ERDM):
+#
+#   stages:
+#     - name: pretrain
+#       num_epochs: 20
+#       loss_overrides:
+#         window_size: 3
+#       ...
+#     - name: finetune
+#       num_epochs: 30
+#       loss_overrides:
+#         window_size: 6
+#       ...
+#
+# The train_diffusion recipe rebuilds the DataLoader (and the
+# scheduler loss instance) at every stage boundary where the merged
+# ``window_size`` changes — single-step ↔ rolling transitions are
+# allowed and trigger a SequenceDataset (re)wrap.
+#
+# Validation:
+# Mid-training rollout validation is wired in train_diffusion.py via
+# ``cfg.validation`` (Hydra group). The recommended override for any
+# diffusion run is ``validation=diffusion_rollout`` — that picks up
+# the 5-epoch cadence + the (RMSE, ACC, ensemble spread) metric stack
+# from ``conf/validation/diffusion_rollout.yaml``. The default
+# ``validation=off`` from ``config.yaml`` disables rollout validation.
+
+use_static_capture: False
+amp: none                       # fp32 default per Phase 8 decision A5
+grad_clip_norm: 0.0
+max_epochs: 50
+
+optimizer:
+  type: Muon                    # ``uv pip install muon`` required
+  lr: 5.0e-5
+  weight_decay: 3.0e-6
+  fused: null
+
+ema:
+  enabled: True
+  decay: 0.999
+  warmup_epochs: 6
+
+stages:
+  - name: default
+    num_epochs: ${training.max_epochs}
+    unroll_steps: 1             # diffusion train loop ignores this — window
+                                # length comes from cfg.loss.window_size
+    max_iterations: .inf
+    batch_size: null
+    scheduler:
+      type: CosineAnnealingLR
+      cosine_eta_min: 1.0e-7

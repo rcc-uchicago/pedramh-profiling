@@ -1,0 +1,178 @@
+#!/bin/bash -l
+#PBS -N makani_fabric_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:25:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Which (aws-ofi-nccl plugin, libfabric) PAIR still opens a CXI domain?
+#
+# WHY THIS EXISTS.  polaris_makani_multinode_scaling.pbs line ~286 pinned
+#     /opt/cray/libfabric/2.2.0rc1/lib64
+# which was ls-verified 2026-08-14 and NO LONGER EXISTS -- /opt/cray/libfabric
+# now ships 2.3.1 only.  A nonexistent directory on LD_LIBRARY_PATH is silently
+# ignored, so job 7553811 ran aws-ofi-nccl 1.9.1 (built 2024-04-30) against
+# libfabric 2.3.1 and every rank hit
+#     device_prepare_for_connection:2165 NCCL WARN NET/OFI
+#     Couldn't open a fabric access domain. RC: -38, ERROR: Function not implemented
+# then died on SIGSEGV (rc=139).  Same class as the broken conda modulefile:
+# ALCF rolled the PE forward and every pinned path in this repo died QUIETLY.
+#
+# The candidates are not guesses -- they are what /soft/libraries/aws-ofi-nccl
+# actually contains, and their mtimes tell a story: the two `-libfabric-1.22.0`
+# builds are dated 2025-09-03, sixteen months after v1.9.1-aws (2024-04-30),
+# i.e. somebody rebuilt the plugin when libfabric moved.  Note also that
+# `libfabric_1.15.2.0/` is misnamed: the shared object in it is libfabric.so.1.18.2.
+#
+# ONE JOB, ALL COMBOS.  Each is a full 4-rank NCCL all-reduce, because plugin
+# init is where the failure lands and 4 ranks on 1 node reach it.  A pair that
+# passes here still has to be confirmed on >=2 nodes -- single-node NCCL can
+# fall back to P2P/NVLink and never truly carry traffic over the fabric, so
+# PASS here means "the domain opens", NOT "inter-node works".
+#
+# PASS = FABRIC_PROBE_OK plus at least one combo marked WORKS.
+# Per CLAUDE.md #14 the token is the result, not rc.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+
+export GPUS_PER_NODE=4
+NRANKS=4
+MASTER_ADDR="$(head -1 "${PBS_NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29511
+
+# LD_LIBRARY_PATH as it stands BEFORE any fabric pin. Every combo below is
+# layered on this exact base, never on the previous combo's leftovers.
+LD_BASE="${LD_LIBRARY_PATH}"
+
+OUT="${MEMBER_ROOT}/runs/makani_fabric_probe/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+# ---- the rank program -------------------------------------------------------
+# Written to a FILE, never fed over stdin: PALS delivers the job script's stdin
+# to rank 0 only, so an mpiexec'd `python -` leaves ranks 1..3 with an empty
+# program. That bug was caught in the env probe and must not come back here.
+RANKPY="${OUT}/allreduce.py"
+cat > "${RANKPY}" <<'PY'
+import os, sys, torch, torch.distributed as dist
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+dist.init_process_group("nccl")
+t = torch.full((1024, 1024), float(dist.get_rank() + 1), device="cuda")
+dist.all_reduce(t)
+n = dist.get_world_size()
+want = float(n * (n + 1) // 2)
+ok = abs(t[0, 0].item() - want) < 1e-3
+if dist.get_rank() == 0:
+    print("ALLREDUCE %s world=%d got=%.1f want=%.1f"
+          % ("OK" if ok else "WRONG", n, t[0, 0].item(), want), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+# ---- candidates -------------------------------------------------------------
+# name | plugin lib dir | libfabric lib dir ("-" = system default, no pin)
+CAND=(
+"A_v1.9.1-aws__cray-2.3.1|/soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib|/opt/cray/libfabric/2.3.1/lib64"
+"B_v1.9.1-lf1.22__cray-2.3.1|/soft/libraries/aws-ofi-nccl/v1.9.1-aws-libfabric-1.22.0/lib|/opt/cray/libfabric/2.3.1/lib64"
+"C_v1.9.1-aws__bundled-1.18.2|/soft/libraries/aws-ofi-nccl/v1.9.1-aws/lib|/soft/libraries/aws-ofi-nccl/libfabric_1.15.2.0/lib64"
+"D_v1.9.1-lf1.22__bundled-1.18.2|/soft/libraries/aws-ofi-nccl/v1.9.1-aws-libfabric-1.22.0/lib|/soft/libraries/aws-ofi-nccl/libfabric_1.15.2.0/lib64"
+"E_v1.6.0-lf1.22__cray-2.3.1|/soft/libraries/aws-ofi-nccl/v1.6.0-libfabric-1.22.0/lib|/opt/cray/libfabric/2.3.1/lib64"
+"F_v1.6.0__bundled-1.18.2|/soft/libraries/aws-ofi-nccl/v1.6.0/lib|/soft/libraries/aws-ofi-nccl/libfabric_1.15.2.0/lib64"
+)
+
+echo "=== makani_fabric_probe: $(date -Iseconds) ==="
+echo "node=$(hostname)  ranks=${NRANKS}"
+makani_env_report
+echo
+echo "system libfabric present:"
+ls -d /opt/cray/libfabric/*/ 2>/dev/null | sed 's/^/  /'
+echo
+
+WORKED=""
+for entry in "${CAND[@]}"; do
+    name="${entry%%|*}"; rest="${entry#*|}"
+    plug="${rest%%|*}"; fab="${rest##*|}"
+    log="${OUT}/${name}.log"
+
+    echo "---------------------------------------------------------------"
+    echo "COMBO ${name}"
+    echo "  plugin    = ${plug}"
+    echo "  libfabric = ${fab}"
+    if [ ! -d "${plug}" ]; then echo "  SKIP missing plugin dir"; continue; fi
+    if [ ! -d "${fab}"  ]; then echo "  SKIP missing libfabric dir"; continue; fi
+
+    # Rebuilt from LD_BASE each iteration. libfabric FIRST so it outranks the
+    # system copy; hwloc is required because libnccl-net.so needs libhwloc.so.0
+    # and nothing else on the default path provides it.
+    export LD_LIBRARY_PATH="${fab}:${plug}:/soft/libraries/hwloc/lib:${LD_BASE}"
+    export NCCL_NET="AWS Libfabric"
+    export NCCL_NET_GDR_LEVEL=PHB
+    export NCCL_CROSS_NIC=1
+    export FI_CXI_DISABLE_HOST_REGISTER=1
+    export FI_MR_CACHE_MONITOR=userfaultfd
+    export FI_CXI_DEFAULT_CQ_SIZE=131072
+    export NCCL_DEBUG=INFO
+    export NCCL_DEBUG_SUBSYS=INIT,NET
+
+    mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${PBS_NODEFILE}" \
+        --cpu-bind depth -d 8 \
+        bash "${MAKANI_ROOT}/polaris/polaris_rank_env.sh" "${PY}" "${RANKPY}" \
+        > "${log}" 2>&1
+    rc=$?
+
+    # Classify on the LOG, not on rc: a plugin that cannot open a domain still
+    # sometimes exits 0 after NCCL falls back, and that is a different result
+    # from working -- it must not be recorded as a pass.
+    dom_fail=$(grep -c "Couldn't open a fabric access domain" "${log}" 2>/dev/null)
+    allred=$(grep -c "ALLREDUCE OK" "${log}" 2>/dev/null)
+    used=$(grep -m1 "NCCL INFO Using network" "${log}" 2>/dev/null | sed 's/.*Using network //')
+
+    echo "  rc=${rc}  domain_errors=${dom_fail}  allreduce_ok=${allred}"
+    echo "  network  = ${used:-<none reported>}"
+    if [ "${rc}" -eq 0 ] && [ "${allred}" -ge 1 ] && [ "${dom_fail}" -eq 0 ]; then
+        echo "  => WORKS"
+        WORKED="${WORKED} ${name}"
+    else
+        echo "  => FAILS"
+        grep -m2 -E "NCCL WARN|Error|error:" "${log}" 2>/dev/null | sed 's/^/     /'
+    fi
+    echo "  log: ${log}"
+done
+
+echo
+echo "==============================================================="
+if [ -n "${WORKED}" ]; then
+    echo "FABRIC_PROBE_OK working combos:${WORKED}"
+    echo "  Pin the FIRST of these in polaris_makani_multinode_scaling.pbs, and"
+    echo "  re-confirm on >=2 nodes before trusting it: this job is single-node,"
+    echo "  so it proves the domain opens, NOT that inter-node traffic flows."
+else
+    echo "ERROR FABRIC_PROBE_NO_WORKING_COMBO"
+    echo "  Every installed aws-ofi-nccl build fails against every installed"
+    echo "  libfabric. That is an ALCF-side gap, not a config error here --"
+    echo "  the newest plugin (2025-09-03) predates the current libfabric 2.3.1."
+    echo "  Next: file a ticket, and meanwhile record arms A-C with NCCL_NET"
+    echo "  unset (P2P/NVLink single-node, TCP sockets multi-node) -- which"
+    echo "  FALSIFIES prereg prediction 2 and must be tabled as such."
+fi
+echo "=== done $(date -Iseconds) ==="

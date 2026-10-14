@@ -1,0 +1,194 @@
+#!/bin/bash -l
+#PBS -N makani_longroll_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Long-rollout probe -- a sibling of polaris_eval_inference.pbs (CLAUDE.md #7),
+# not an edit to it.  Puts numbers under jesswan's proposed protocol:
+#
+#   "initialise Oct 2044, roll to 2049, discard Oct-Dec 2044, compare 2045-2049
+#    to climatology"
+#
+# before anyone builds the streaming multi-year driver that protocol needs.
+#
+# WHAT IT RUNS.  Two single rollouts from the SAME calendar frame -- Oct 1 00:00 =
+# frame 1092 on the noleap calendar (273 days x 4) -- of a TRAINING year (2044,
+# from the pack's train/ split) and a TEST year (2048, test/), as long as one
+# A100 holds.  Then it scores both with score_rollout_nc.py and reads them side
+# by side with longroll_probe_summary.py:
+#   1. spin-up survival -- where the median NRMSE crosses 1.0x / 1.41x std, whether
+#      it is decelerating, which channels are past the 3x blow-up clause;
+#   2. training-year contamination -- does the 2044 arm beat the 2048 arm at the
+#      first leads (n=1 each: indicative);
+#   3. forcing repetition -- are the 7 forcing channels identical across years.
+#
+# WHY K IS A LADDER, NOT 368.  Her discard is 368 steps; the file allows 367 from
+# frame 1092.  But rollout_one_ic holds ~6 copies of the K-frame block on the GPU
+# (truth in, prediction list, cat, two de-normalised copies) at 26.2 MB/frame, so
+# K=367 is ~58 GB and K=200 is ~34 GB on a 40 GB A100.  The ladder tries 200 (50
+# days), then 144, then 96, and reports the K that ran.  Both predicted crossings
+# (steps ~95 and ~154, longroll doc §2) are inside 200.  Per-step cost is ~1.3 s
+# (77 s at K=56, 9 s at K=4), so each arm is ~5 min and the job fits in debug.
+#
+# Knobs (-v):
+#   RUN / CKPT          as polaris_eval_inference.pbs
+#   TRAIN_YEAR=2044     year file under train/ to initialise from
+#   TEST_YEAR=2048      year file under test/ (control arm)
+#   START_FRAME=1092    frame within each file (Oct 1 00:00)
+#   K_LADDER="200 144 96"
+#   OUT_ROOT            default $MEMBER_ROOT/runs/makani_eval/<RUN>_longroll_probe_f<START_FRAME>
+#
+# PASS = LONGROLL_PROBE_OK (CLAUDE.md #14 -- rc=0 means nothing).  Intermediate
+# tokens: PROBE_ROLLOUT_OK per arm, K56_SCORE_OK per arm, FORCING_REPEATS_ANNUAL_CYCLE=.
+#
+# Submit from makani_sfno/:
+#   qsub polaris/polaris_longroll_probe.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_perlead_metrics_test.pbs -- module
+# ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
+# script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+RUN="${RUN:-prod1n_b32_sgdr}"
+RUN_DIR="${EXPROOT}/${RUN}"
+CKPT="${CKPT:-${RUN_DIR}/training_checkpoints/best_ckpt_mp0.tar}"
+PACK="${PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"
+TRAIN_YEAR="${TRAIN_YEAR:-2044}"
+TEST_YEAR="${TEST_YEAR:-2048}"
+START_FRAME="${START_FRAME:-1092}"
+K_LADDER="${K_LADDER:-200 144 96}"
+OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/${RUN}_longroll_probe_f${START_FRAME}}"
+
+for _p in "${RUN_DIR}/config.json" "${CKPT}" "${PACK}/train/${TRAIN_YEAR}.h5" \
+          "${PACK}/test/${TEST_YEAR}.h5" "${PACK}/stats/time_means.npy"; do
+    if [ ! -e "${_p}" ]; then
+        echo "ERROR PROBE_INPUT_MISSING: ${_p}"
+        exit 3
+    fi
+done
+mkdir -p "${OUT_ROOT}"
+
+echo "=== makani_longroll_probe: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+echo "run=${RUN}  train_year=${TRAIN_YEAR}  test_year=${TEST_YEAR}  start_frame=${START_FRAME}  k_ladder='${K_LADDER}'"
+echo "ckpt=${CKPT}"
+echo "out_root=${OUT_ROOT}"
+makani_env_report
+echo
+
+SHA7="$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null || echo unknown)"
+
+# One rollout from START_FRAME of <year>.h5 in <holdout>, at the first K of the
+# ladder that fits.  Lagged mode with stride=K and n_targets=1 is the one existing
+# path that lets a start frame be chosen; it yields exactly one start (starts.py).
+# Launched under torch.distributed.run for the reason polaris_eval_inference.pbs
+# records at length: makani's comm.init needs a real process group even at world
+# size 1, and PBS supplies none of the ENV it looks for.
+run_arm() {
+    local holdout="$1" year="$2" out="$3" K rc log
+    for K in ${K_LADDER}; do
+        log="${out}/eval_K${K}.log"
+        mkdir -p "${out}"
+        rm -rf "${out}/inference"
+        echo "--- arm ${year}: K=${K} from frame ${START_FRAME} ($(date -Iseconds)) ---"
+        "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+            "${MAKANI_ROOT}/scripts/eval_inference.py" \
+            --run-dir "${RUN_DIR}" \
+            --ckpt "${CKPT}" \
+            --test-holdout "${holdout}" \
+            --test-file-glob "${year}.h5" \
+            --out-root "${out}" \
+            --mode nwp \
+            --nwp-K "${K}" \
+            --nwp-n-ic 1 \
+            --ic-mode lagged --ic-stride "${K}" --n-targets 1 --first-start "${START_FRAME}" \
+            --limit-ics 1 \
+            --eval-sha7 "${SHA7}" --data-sha7 "${SHA7}" --train-sha7 "${SHA7}" \
+            --run-tag "$(date -u +%Y%m%d)_${RUN}_longroll_${year}_K${K}_${SHA7}" \
+            --device auto 2>&1 | tee "${log}"
+        rc=${PIPESTATUS[0]}
+        if [ "${rc}" -eq 0 ] && ls "${out}/inference/lagged/"*.nc >/dev/null 2>&1; then
+            echo "${K}" > "${out}/K_used"
+            echo "PROBE_ROLLOUT_OK year=${year} K=${K} nc=$(ls "${out}/inference/lagged/"*.nc)"
+            return 0
+        fi
+        if grep -qiE "out of memory|OutOfMemoryError|CUDA error: out of memory" "${log}"; then
+            echo "PROBE_OOM year=${year} K=${K} -- stepping down the ladder"
+            continue
+        fi
+        echo "ERROR PROBE_ROLLOUT_FAILED year=${year} K=${K} rc=${rc} (see ${log})"
+        return 1
+    done
+    echo "ERROR PROBE_OOM_ALL year=${year}: every K in '${K_LADDER}' ran out of memory"
+    return 1
+}
+
+score_arm() {
+    local year="$1" out="$2"
+    "${PY}" "${MAKANI_ROOT}/polaris/score_rollout_nc.py" \
+        --nc-dir "${out}/inference/lagged" \
+        --time-means "${PACK}/stats/time_means.npy" \
+        --out-dir "${out}/scores" \
+        --provenance "job ${PBS_JOBID} sha ${SHA7} year ${year} start ${START_FRAME} K $(cat "${out}/K_used")" \
+        2>&1 | tee "${out}/score.log"
+    # The scorer's own verdict is the K=56 prereg's and is not what this probe reads;
+    # only K56_SCORE_OK (curves written to 336 h and beyond) matters here.
+    grep -q "K56_SCORE_OK" "${out}/score.log"
+}
+
+TRAIN_OUT="${OUT_ROOT}/train_${TRAIN_YEAR}"
+TEST_OUT="${OUT_ROOT}/test_${TEST_YEAR}"
+
+run_arm "${PACK}/train" "${TRAIN_YEAR}" "${TRAIN_OUT}" || exit 4
+run_arm "${PACK}/test"  "${TEST_YEAR}"  "${TEST_OUT}"  || exit 4
+
+echo "--- scoring ($(date -Iseconds)) ---"
+score_arm "${TRAIN_YEAR}" "${TRAIN_OUT}" || { echo "ERROR PROBE_SCORE_FAILED year=${TRAIN_YEAR}"; exit 5; }
+score_arm "${TEST_YEAR}"  "${TEST_OUT}"  || { echo "ERROR PROBE_SCORE_FAILED year=${TEST_YEAR}"; exit 5; }
+
+echo "--- forcing repetition check ($(date -Iseconds)) ---"
+"${PY}" "${MAKANI_ROOT}/polaris/longroll_probe_summary.py" forcing-check \
+    "${PACK}/train/${TRAIN_YEAR}.h5" "${PACK}/valid/2045.h5" "${PACK}/test/${TEST_YEAR}.h5" \
+    --frames 0 "${START_FRAME}" 1459 2>&1 | tee "${OUT_ROOT}/forcing_check.log"
+
+echo "--- read-out ($(date -Iseconds)) ---"
+"${PY}" "${MAKANI_ROOT}/polaris/longroll_probe_summary.py" summarize \
+    --train-scores "${TRAIN_OUT}/scores/k56_metrics.h5" \
+    --test-scores  "${TEST_OUT}/scores/k56_metrics.h5" 2>&1 | tee "${OUT_ROOT}/summary.log"
+rc=${PIPESTATUS[0]}
+if [ "${rc}" -ne 0 ] || ! grep -q "LONGROLL_PROBE_OK" "${OUT_ROOT}/summary.log"; then
+    echo "ERROR PROBE_SUMMARY_FAILED rc=${rc}"
+    exit 6
+fi
+echo "K used: train=$(cat "${TRAIN_OUT}/K_used") test=$(cat "${TEST_OUT}/K_used")  out=${OUT_ROOT}"
+echo "=== makani_longroll_probe done $(date -Iseconds) ==="

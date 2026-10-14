@@ -13,19 +13,38 @@
 # Confirms nvidia-smi sees the A100s, node-local scratch exists, torch sees CUDA,
 # and every model package imports under its Polaris PYTHONPATH.
 # Submit from the repo root:   qsub polaris_probe.pbs
-# PASS = the line "PROBE_OK" in polaris_logs/polaris_probe.o<jobid>.
+# PASS = the line "PROBE_OK" in polaris_logs/<full_jobid>.OU  (a DIRECTORY -o target makes
+# PBS name the file after the job id, not the job name — see polaris_pbs_notes.md §1).
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}"
 export REPO_ROOT="${PBS_O_WORKDIR}"
 
-# ---- Polaris env (base ALCF conda: torch 2.8 / cu12.9; +user netCDF4/zarr) ----
+# ---- Polaris env (base ALCF conda: torch 2.8 / cu12.9 + the shared top-ups) ----
 module use /soft/modulefiles
 module load conda
 conda activate base
-export WANDB_MODE=offline
-export HDF5_USE_FILE_LOCKING=FALSE
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# shellcheck disable=SC1091
+source "${REPO_ROOT}/polaris_env.sh" || exit 2
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics / tensorly, which the base conda lacks.
+# The probe MUST import through it: the original run (7251974) resolved those from the
+# author's private ~/.local, so its "all models import" verdict was true for exactly one
+# person and told us nothing about anyone else. Importing from the shared dir is the claim
+# we actually want to test.
+export PYTHONPATH="${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+# Prove the probe is not silently leaning on a private ~/.local again.
+# polaris_require_topups (above) already hard-fails if a dep resolves from a private home.
+# This is the softer sibling: a ~/.local on sys.path is not fatal by itself — the top-ups
+# outrank it on PYTHONPATH — but the probe exists to certify what OTHER members will see,
+# so say plainly when the answer might be personalised.
+if python -c "import sys; sys.exit(0 if not any('/.local/' in p for p in sys.path) else 1)"; then
+    echo "sys.path is free of ~/.local -> imports below are reproducible by any member"
+else
+    echo "NOTE: a user site-packages dir is on sys.path. \$POLARIS_TOPUPS outranks it, and"
+    echo "      polaris_require_topups verified no dep resolves from it — but for a strict"
+    echo "      second-member check, re-run with:  qsub -v PYTHONNOUSERSITE=1 polaris_probe.pbs"
+fi
 
 echo "=== polaris_probe: $(date -Iseconds) ==="
 echo "hostname=$(hostname)  PBS_JOBID=${PBS_JOBID}"

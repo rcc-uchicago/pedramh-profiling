@@ -58,6 +58,7 @@ from utils.losses import Latitude_weighted_MSELoss, Latitude_weighted_L1Loss, Ma
      Masked_MSELoss, Latitude_weighted_masked_L1Loss, Latitude_weighted_masked_MSELoss,\
      Latitude_weighted_CRPSLoss, Kl_divergence_gaussians
 from utils.lr_scheduler_sfno import LinearWarmupCosineAnnealingLR
+from utils.epoch_telemetry import EpochTelemetry
 from ensemble_inference import Stepper
 logging_utils.config_logger()
 
@@ -65,8 +66,59 @@ torch._dynamo.config.optimize_ddp = False
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 torch.set_float32_matmul_precision('high')
-torch.cuda.empty_cache()           
+torch.cuda.empty_cache()
 logging.info("Torch version: {}".format(torch.__version__))
+
+# --- PANGU_BENCH instrumentation (gated; no effect when PANGU_BENCH unset) ---
+# The IDEA is ported from s2s/v2.0/train.py — s2s and PanguWeather are forks that share
+# code by COPY, not by import (DESIGN §2c) — but PanguWeather is its own project and owns
+# its own knobs. Renamed S2S_* -> PANGU_* on 2026-07-16: nothing outside PanguWeather ever
+# read these (verified: the only cross-project bench consumers are s2s-lightning's
+# bench_callback.py, which genuinely imports s2s/v2.0, and si/parse_nsys.py). The prefix was
+# decoration the copy carried along, and it kept inviting the conflation.
+#
+# What did NOT change, and must not: the NVTX range names and the CSV columns are still
+# byte-identical to s2s's. Renaming either breaks parse_nsys.py and silently invalidates
+# every prior comparison (CLAUDE.md #10). Only the env knobs are PanguWeather's own.
+import hashlib, subprocess, statistics, csv
+import torch.cuda.nvtx as nvtx
+
+
+def _reject_legacy_bench_env():
+    """Fail loudly if the pre-rename S2S_* knobs are set.
+
+    `BENCH` is an equality test against "1", so an unset var means "don't benchmark" —
+    silently. Without this guard a stale script or doc still exporting S2S_BENCH=1 (e.g.
+    polaris_bench_report.md's reproduction command) would produce a run that measures
+    nothing, writes no CSV row, and still exits 0. A benchmark that quietly doesn't
+    benchmark is exactly the failure mode CLAUDE.md #10 exists to prevent.
+    """
+    legacy = [k for k in ("S2S_BENCH", "S2S_BENCH_WARMUP", "S2S_BENCH_STEPS",
+                          "S2S_BENCH_CSV", "S2S_NVTX") if os.environ.get(k)]
+    if legacy and not (os.environ.get("PANGU_BENCH") or os.environ.get("PANGU_NVTX")):
+        raise SystemExit(
+            "ERROR LEGACY_BENCH_ENV: {} set, but PanguWeather's knobs are now PANGU_*.\n"
+            "  These were renamed 2026-07-16 (PanguWeather is independent of s2s; nothing\n"
+            "  shared reads them). Unset would have meant 'no benchmarking', silently.\n"
+            "  Fix: S2S_BENCH -> PANGU_BENCH, S2S_BENCH_{{WARMUP,STEPS,CSV}} -> PANGU_BENCH_*,\n"
+            "  S2S_NVTX -> PANGU_NVTX. (s2s/ and s2s-lightning/ keep the S2S_* names.)"
+            .format(", ".join(legacy)))
+
+
+_reject_legacy_bench_env()
+BENCH = os.environ.get("PANGU_BENCH") == "1"
+BENCH_WARMUP = int(os.environ.get("PANGU_BENCH_WARMUP", "20"))
+BENCH_STEPS  = int(os.environ.get("PANGU_BENCH_STEPS",  "80"))
+BENCH_CSV    = os.environ.get("PANGU_BENCH_CSV", "bench_results.csv")
+# NVTX ranges for Nsight Systems. Set PANGU_NVTX=1 together with nsys capture-range.
+# When BENCH=1 the code also emits cudaProfilerStart/Stop to bracket only the
+# measured steps, so nsys --capture-range=cudaProfilerApi skips warmup entirely.
+NVTX = os.environ.get("PANGU_NVTX") == "1"
+
+# Deliberate divergence from s2s: precision is NOT read from an $AMP_DTYPE env knob here.
+# PanguWeather already resolves it from the YAML (`amp_dtype`, Trainer.__init__), and a
+# second, silently-winning source of truth is how a bench ends up mislabelling its own
+# row. The amp_dtype CSV column is filled from the dtype the run actually used.
 
 @torch.no_grad()
 def update_ema(ema_model, model, decay=0.9999):
@@ -152,7 +204,13 @@ def to_ensemble_batch(data, ens_members):
     Uses repeat_interleave to keep all work on the GPU with no auxiliary tensor creation
     or CPU/GPU data transfers.
     """
-    return data.repeat_interleave(ens_members, dim=0)
+    # Range name matches s2s/v2.0/train.py:188 (CLAUDE.md #10). Unlike s2s — which calls
+    # this per-step from cal_loss/validate — PanguWeather only calls it once, at Trainer
+    # init, so this range does not appear in a training-loop trace.
+    if NVTX: nvtx.range_push("to_ensemble_batch")
+    out = data.repeat_interleave(ens_members, dim=0)
+    if NVTX: nvtx.range_pop()  # End to_ensemble_batch
+    return out
 
 
 class Trainer():
@@ -166,6 +224,11 @@ class Trainer():
         if world_rank == 0:
             logging.info(f"Initialized wandb_step: {self.wandb_step}")
         self.startEpoch = 0
+        # DESIGN §4.1 equivalence baseline (plan item 18). Inert unless
+        # PANGU_EQUIV_JSON names an output path, so a normal run pays nothing —
+        # this rides inside the bench-instrumented step (CLAUDE.md #10).
+        from utils.equivalence import EquivalenceRecorder
+        self._equiv = EquivalenceRecorder()
         self.early_stop_epoch = params['early_stop_epoch'] - 1 if 'early_stop_epoch' in params else None
         #################################################
         self.run_uuid = str(uuid.uuid4())
@@ -623,8 +686,23 @@ class Trainer():
         else:
             raise Exception("not implemented")
 
+        # torch.compile: set TORCH_COMPILE_MODE=reduce-overhead (or max-autotune) to enable.
+        # Ported from s2s/v2.0/train.py:429 — PanguWeather had only a commented-out
+        # `torch.compile(self.model, mode='default')` (:639) and NO env knob, so the
+        # TORCH_COMPILE_MODE that every bench script advertises was silently inert here.
+        # Compile before the DDP wrap (which happens in __init__, after this returns) so the
+        # compiled graph covers the full forward pass. fullgraph=False tolerates graph breaks
+        # from custom ops / activation checkpointing (`checkpointing: 3` is on by default).
+        #
+        # Unset => no compile => legacy path, byte for byte. Turning it ON is DESIGN §5 rung 1
+        # and is gated on the §4 equivalence check — this only makes the lever reachable.
+        _compile_mode = os.environ.get("TORCH_COMPILE_MODE", "")
+        if _compile_mode:
+            self.model = torch.compile(self.model, mode=_compile_mode, fullgraph=False)
+            logging.info("torch.compile enabled (mode=%s)", _compile_mode)
+
         return self.model
-        
+
     def count_parameters(self):
         """
         Count the trainable parameters
@@ -808,8 +886,20 @@ class Trainer():
     def train(self):
         if self.params.log_to_screen:
             logging.info("Starting Training Loop...")
-        best_valid_loss = 1.e6
-        early_stopping_counter = 0
+        # `getattr` default lets a fresh run start at 1.e6/0 as before, but if
+        # restore_checkpoint() already set self.best_valid_loss /
+        # self.early_stopping_counter from a resumed checkpoint (it runs in
+        # __init__, before train() is ever called), that value survives here
+        # instead of being silently reset. Previously these were plain local
+        # variables: every resume reset best_valid_loss to 1.e6, so the first
+        # validated epoch after ANY resume trivially satisfied
+        # `valid_loss <= best_valid_loss` and overwrote best_ckpt.tar with a
+        # worse epoch — confirmed on the live run (best_ckpt.tar held epoch 42
+        # at val_loss 0.02690, while the true minimum was epoch 27 at
+        # 0.026548, whose own numbered checkpoint had already rotated off
+        # disk by the time this was caught).
+        self.best_valid_loss = getattr(self, 'best_valid_loss', 1.e6)
+        self.early_stopping_counter = getattr(self, 'early_stopping_counter', 0)
         early_stop_epoch_triggered = False
 
         for epoch in range(self.startEpoch, self.params.max_epochs):
@@ -908,13 +998,13 @@ class Trainer():
             
             # Early stopping logic should be outside of world_rank check
             # Check if validation improved BEFORE updating best_valid_loss
-            is_best = valid_logs['valid_loss'] <= best_valid_loss
-            
+            is_best = valid_logs['valid_loss'] <= self.best_valid_loss
+
             if is_best:
-                best_valid_loss = valid_logs['valid_loss']
-                early_stopping_counter = 0  # Reset the counter
+                self.best_valid_loss = valid_logs['valid_loss']
+                self.early_stopping_counter = 0  # Reset the counter
             else:
-                early_stopping_counter += 1  # Increment the counter
+                self.early_stopping_counter += 1  # Increment the counter
 
             self.model.eval() # important! This disables randomized embedding dropout
 
@@ -934,9 +1024,9 @@ class Trainer():
                         logging.info(f'Find best checkpoint at {epoch}.')
             if self.params.log_to_wandb and self.world_rank == 0:
                 self.log_wandb_epoch(epoch)
-                self.log_screen_epoch(epoch, start, train_logs, valid_logs, early_stopping_counter)
+                self.log_screen_epoch(epoch, start, train_logs, valid_logs, self.early_stopping_counter)
             # Early stopping check
-            if self.params.early_stopping and early_stopping_counter >= self.params.early_stopping_patience:
+            if self.params.early_stopping and self.early_stopping_counter >= self.params.early_stopping_patience:
                 if self.params.log_to_screen and world_rank == 0:
                     logging.info('Early stopping triggered. Terminating training.')
                 break # Exit the train method
@@ -990,10 +1080,51 @@ class Trainer():
 
         self.model.train()
 
+        # --- per-epoch step-timing telemetry (opt-in; PANGU_EPOCH_TELEMETRY=1) ---
+        # Built lazily so the edit stays contiguous and __init__ is untouched.
+        # Every call is a no-op when the knob is unset, so the training path is
+        # byte-identical without it. This measures the REAL run — unlike
+        # PANGU_BENCH, which truncates it after WARMUP+STEPS and exits.
+        if not hasattr(self, '_epoch_telemetry'):
+            self._epoch_telemetry = EpochTelemetry(
+                prefix="PANGU",
+                harness="panguweather",
+                # params has no `run_num` (it lives on args), so the old
+                # getattr defaulted to "unknown" and every row in a shared CSV
+                # was unattributable. experiment_dir ends with the run_num.
+                run_name=str(getattr(self.params, 'run_num', None)
+                             or os.path.basename(
+                                 str(getattr(self.params, 'experiment_dir', '')).rstrip('/'))
+                             or 'unknown'),
+                n_gpus=int(self.params['world_size']),
+                batch_per_gpu=int(self.params.batch_size),
+                amp_dtype=str(getattr(self, 'amp_dtype', 'none')),
+                n_loaders=int(getattr(self.params, 'num_data_workers', 0)),
+                rank=self.world_rank,
+                repo_dir=os.path.dirname(os.path.abspath(__file__)),
+            )
+        self._epoch_telemetry.epoch_start(self.epoch)
+
         pbar = tqdm(total=total_iterations, bar_format='{l_bar}{bar:30}{r_bar}',
                     dynamic_ncols=True, file=logging_utils.tqdm_stream,
-                    disable=(self.world_rank != 0))
+                    disable=(self.world_rank != 0) or BENCH)
         running_results = {"batch_sizes": 0, "loss": 0.0}
+
+        # --- PANGU_BENCH state ---
+        bench_step_times, bench_data_times, bench_compute_times = [], [], []
+        bench_scaler_skips = 0
+        bench_done = False
+        bench_loop_t0 = None
+        bench_n_loaders = len(self.train_data_loaders)
+        # Loader idle (PanguWeather addition — s2s does not measure this). The blocking
+        # fetch happens inside the loader's __next__, i.e. BETWEEN the previous step's end
+        # and the top of this body, so it lands in no step window: cpu_prep_med times
+        # _prepare_inputs_batch (H2D + reshape) on an ALREADY-fetched batch, not the wait
+        # for it. Unmeasured, that gap still shows up in `elapsed` and drives the
+        # elapsed-vs-sum self-check into rejecting the row — so an input-bound run would
+        # abort instead of reporting the very thing being asked about.
+        bench_loader_waits = []
+        bench_prev_step_end = None
 
         for year_idx, train_data_loader in enumerate(self.train_data_loaders):
             logging.debug(f"Processing year idx {year_idx}")
@@ -1004,6 +1135,19 @@ class Trainer():
                 logging.debug(f"Processing years {self.params.train_year_start} to {self.params.train_year_end}")
       
             for i, data in enumerate(train_data_loader):
+                if BENCH and self.iters >= BENCH_WARMUP + BENCH_STEPS:
+                    bench_done = True
+                    break
+                # Opens the timed window before data prep, closing it after the
+                # EMA sweep, so it spans the same work as the ai-rossby side.
+                # Loader wait falls BETWEEN windows and surfaces as
+                # `gpu_busy_frac` < 1 rather than inflating step_med.
+                self._epoch_telemetry.step_start()
+                if BENCH and bench_loop_t0 is not None and bench_prev_step_end is not None:
+                    # Guarded on bench_loop_t0 so only gaps INSIDE the measured window are
+                    # collected: that keeps sum(steps)+sum(waits) reconcilable against
+                    # `elapsed`, which starts at the first measured step's t0.
+                    bench_loader_waits.append(time.perf_counter() - bench_prev_step_end)
                 if self.params.mode == "test":
                     logging.info("training on batch %d of year %d" % (i, self.params.train_year_start + year_idx))
                 if self.params.mode == "test" and i >= self.params.test_iterations:
@@ -1012,89 +1156,418 @@ class Trainer():
                     data_time += time.time() - data_start
 
                 else:
+                    if NVTX: nvtx.range_push(f"step_{self.iters}")
                     self.iters += 1
                     data_start = time.time()
+
+                    # Bench timing: sync, then start the fetch+H2D window.
+                    if BENCH:
+                        torch.cuda.synchronize()
+                        bench_t0 = time.perf_counter()
+                        if bench_loop_t0 is None and self.iters > BENCH_WARMUP:
+                            bench_loop_t0 = bench_t0
+                            if NVTX:
+                                torch.cuda.cudart().cudaProfilerStart()
+
+                    if NVTX: nvtx.range_push("data_prep")
                     input_surface, input_upper_air, target_surface, target_upper_air, target_diagnostic, varying_boundary_data = self._prepare_inputs_batch(data)
+                    if NVTX: nvtx.range_pop()  # data_prep
+
+                    if BENCH:
+                        torch.cuda.synchronize()
+                        bench_t1 = time.perf_counter()
+
                     data_time += time.time() - data_start
                     if self.params.mode == "test":
                         logging.info(f"Data preparation took {time.time() - data_start:.4f} seconds per iteration")
 
                     tr_start = time.time()
-                    self.model.zero_grad()                
+                    self.model.zero_grad()
                     #define loss
+                    if NVTX: nvtx.range_push("forward_loss")
                     output_surface, output_upper_air, output_diagnostic, loss_sfc, loss_pl, loss_diagnostic, loss_vae, loss= self.cal_loss(
                         input_surface, self.constant_boundary_data, varying_boundary_data, input_upper_air,
                         target_diagnostic, target_surface, target_upper_air
                     )
-                    
-                    
+                    if NVTX: nvtx.range_pop()  # forward_loss
+
+                    # fp16 only: GradScaler skips the step on an inf/NaN grad. A skipped step
+                    # does less work than a real one, so it must not enter the timing sample.
+                    # bf16 (the SFNO default) has no scaler => nothing to skip.
+                    bench_scale_before = (self.scaler.get_scale()
+                                          if BENCH and self.scaler is not None else None)
+
                     if self.scaler is not None:
                         # fp16 path — GradScaler is required to avoid underflow.
+                        if NVTX: nvtx.range_push("backward")
                         self.scaler.scale(loss).backward()
+                        if NVTX: nvtx.range_pop()  # backward
+                        if NVTX: nvtx.range_push("optimizer")
                         # Unscale gradients before clipping
                         self.scaler.unscale_(self.optimizer)
                         # Clip gradients to prevent explosion
                         #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
                         self.scaler.step(self.optimizer)
                         self.scaler.update()
+                        if NVTX: nvtx.range_pop()  # optimizer
                     else:
                         # bfloat16 (full range, no scaling) or AMP disabled.
+                        if NVTX: nvtx.range_push("backward")
                         loss.backward()
+                        if NVTX: nvtx.range_pop()  # backward
+                        if NVTX: nvtx.range_push("optimizer")
                         # Clip gradients to prevent explosion
                         #torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=2.0)
                         self.optimizer.step()
+                        if NVTX: nvtx.range_pop()  # optimizer
                     if self._ema_active():
+                        # PanguWeather-only range (s2s has no EMA). It sweeps every parameter
+                        # each step, so it is real hot-path work and belongs inside the
+                        # measured window — but it needs its own range to be attributable.
+                        if NVTX: nvtx.range_push("ema")
                         if dist.is_initialized():
                             update_ema(self.ema, self.model.module, decay=self.params.ema_decay)
                         else:
                             update_ema(self.ema, self.model, decay=self.params.ema_decay)
+                        if NVTX: nvtx.range_pop()  # ema
                     tr_end_time = time.time()
                     if self.params.mode == "test":
                         logging.info(f"Backpropagation and optimizer step took {tr_end_time - tr_start:.4f} seconds/ iteration")
                     if self.params.scheduler in ['OneCycleLR', 'LinearWarmupCosineAnnealingLR']:
                         self.scheduler.step()
 
-                    with torch.no_grad():
+                    # Closes the timed window at exactly `bench_t2`'s position, so
+                    # a telemetry row and a PANGU_BENCH row measure the same span.
+                    # Deliberately BEFORE the `if not BENCH:` per-iteration
+                    # diagnostics (RMSE + wandb) below: that block has no
+                    # counterpart inside ai-rossby's window, and including it here
+                    # would make the two harnesses' step times incomparable.
+                    self._epoch_telemetry.step_end()
 
-                        if self.params.predict_delta:
-                            output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
-                            target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
+                    if BENCH:
+                        torch.cuda.synchronize()
+                        bench_t2 = time.perf_counter()
+                        bench_prev_step_end = bench_t2
+                        bench_skipped = (bench_scale_before is not None
+                                         and self.scaler.get_scale() < bench_scale_before)
+                        if self.iters > BENCH_WARMUP:
+                            if bench_skipped:
+                                bench_scaler_skips += 1
+                            else:
+                                bench_data_times.append(bench_t1 - bench_t0)
+                                bench_compute_times.append(bench_t2 - bench_t1)
+                                bench_step_times.append(bench_t2 - bench_t0)
 
-                        surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
-                        upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
+                    # Skipped under BENCH, mirroring s2s: this block is per-iteration
+                    # diagnostics (RMSE + wandb), it runs AFTER the measured window, and
+                    # leaving it in would inflate loop wall-time until the elapsed-vs-sum
+                    # self-check in _bench_finalize rejected the row.
+                    if not BENCH:
+                        with torch.no_grad():
 
-                        if self.params.has_diagnostic:
-                            diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
-                        else:
-                            diagnostic_lwrmse  = 0
-                            mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            if self.params.predict_delta:
+                                output_surface, output_upper_air = self.integrator(input_surface, input_upper_air, output_surface, output_upper_air)
+                                target_surface, target_upper_air = self.integrator(input_surface, input_upper_air, target_surface, target_upper_air)
 
-                        ######diagnoistic logging per iteration ###################
-                        diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
-                                                                        train_batch_loss = loss, 
-                                                                        train_batch_loss_sfc = loss_sfc, 
-                                                                        train_batch_loss_upper_air = loss_pl,
-                                                                        train_batch_loss_diagnostic =loss_diagnostic,
-                                                                        train_batch_loss_vae = loss_vae,
-                                                                        train_mean_norm_lwrmse = mean_norm_lwrmse)
-                    ##########################################################
-                        if self.world_rank == 0 and self.params.log_to_wandb:
-                            #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
-                            # Use wandb_step to ensure monotonicity, then increment it
-                            wandb.log(diagnostic_logs, step=self.wandb_step)
-                            self.wandb_step += 1
+                            surface_lwrmse = weighted_rmse_torch_channels(output_surface, target_surface, self.latitudes)
+                            upper_air_lwrmse = weighted_rmse_torch_3D(output_upper_air, target_upper_air, self.latitudes)
 
+                            if self.params.has_diagnostic:
+                                diagnostic_lwrmse = weighted_rmse_torch_channels(output_diagnostic, target_diagnostic, self.latitudes)
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, diagnostic_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+                            else:
+                                diagnostic_lwrmse  = 0
+                                mean_norm_lwrmse = torch.mean(torch.cat((surface_lwrmse, upper_air_lwrmse.reshape(output_upper_air.shape[0], -1)), dim = -1))
+
+                            ######diagnoistic logging per iteration ###################
+                            diagnostic_logs = self.diagnostic_log_per_iter(diagnostic_logs, diagnostic_lwrmse, surface_lwrmse, upper_air_lwrmse, current_dataset,
+                                                                            train_batch_loss = loss,
+                                                                            train_batch_loss_sfc = loss_sfc,
+                                                                            train_batch_loss_upper_air = loss_pl,
+                                                                            train_batch_loss_diagnostic =loss_diagnostic,
+                                                                            train_batch_loss_vae = loss_vae,
+                                                                            train_mean_norm_lwrmse = mean_norm_lwrmse)
+                            ##########################################################
+                            if self.world_rank == 0 and self.params.log_to_wandb:
+                                #wandb.log(diagnostic_logs, step=(self.epoch-1) * total_iterations + self.iters)
+                                # Use wandb_step to ensure monotonicity, then increment it
+                                wandb.log(diagnostic_logs, step=self.wandb_step)
+                                self.wandb_step += 1
+
+                    if self._equiv.enabled:
+                        # §4.1 trajectory, from the REAL step — the same `loss` the
+                        # optimizer just consumed. float() syncs; acceptable because
+                        # this path is off unless PANGU_EQUIV_JSON is set, and an
+                        # equivalence run is not a timing run.
+                        self._equiv.record_step(
+                            train_batch_loss=float(loss),
+                            batch_grad_max=float(grad_max(self.model)))
+                        # NOT gated — measured non-deterministic at ~1.3e-6 (17/20
+                        # steps) because it is an order-dependent sum-of-squares
+                        # reduction. See EquivalenceRecorder.record_diagnostic.
+                        self._equiv.record_diagnostic(
+                            batch_grad_norm=float(grad_norm(self.model)))
+                        # Item 18 asks for a trajectory AND output stats. These three
+                        # are bound unconditionally by cal_loss() above; the dict is
+                        # overwritten each step, so the record holds the FINAL step's
+                        # outputs — deterministic, since the code path does not vary.
+                        for _n, _t in (("output_surface", output_surface),
+                                       ("output_upper_air", output_upper_air),
+                                       ("output_diagnostic", output_diagnostic)):
+                            if _t is not None and hasattr(_t, "shape"):
+                                self._equiv.record_output(_n, _t)
                     # torch.cuda.empty_cache()
                     tr_time += time.time() - tr_start
-                
-                    pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                    # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
-                    pbar.update(1)
+
+                    if not BENCH:
+                        pbar.set_description(f"Epoch [{self.epoch}/{self.params.max_epochs}], Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                        # pbar.set_description(f"Year {self.params.train_year_start + year_idx}, Loss: {diagnostic_logs['train_batch_loss']:.4f}")
+                        pbar.update(1)
+                    if NVTX: nvtx.range_pop()  # step_{N}
+
+            if bench_done:
+                break
+
         pbar.close()
+
+        # `ema_active` is `self._ema_active()`, not an epoch test: PanguWeather
+        # SKIPS the `update_ema` sweep entirely until `ema_warmup_epochs`, so the
+        # step cost visibly jumps at that epoch. ai-rossby instead sweeps from
+        # epoch 1 and warms only the decay value — the two are recorded honestly
+        # rather than made to look alike. All ranks reach this (it all-reduces
+        # peak memory); it is a no-op when the knob is unset.
+        self._epoch_telemetry.epoch_end(
+            lr=self.optimizer.param_groups[0]['lr'],
+            ema_active=self._ema_active(),
+        )
+
+        # Written BEFORE _bench_finalize on purpose: its timer self-check can
+        # exit(3) (it did, on job 7550606), and losing the §4.1 baseline to a
+        # *timing* guard would be absurd. Rank 0 only — the trajectory is
+        # replicated, and four ranks racing one path is a corrupt file.
+        if self._equiv.enabled and self.world_rank == 0:
+            from utils.equivalence import config_sha256_from_env, effective_seed
+            _p = self._equiv.finalize(
+                seed=effective_seed(),
+                world_size=dist.get_world_size() if dist.is_initialized() else 1,
+                n_params=self.count_parameters(),
+                batch_size=int(self.params.batch_size),
+                amp_dtype=str(getattr(self, 'amp_dtype', 'none')),
+                config_yaml_sha256=config_sha256_from_env(),
+                mode=str(self.params.mode))
+            logging.info("EQUIV_BASELINE_WRITTEN %s", _p)
+
+        if BENCH:
+            self._bench_finalize(
+                step_times=bench_step_times,
+                data_times=bench_data_times,
+                compute_times=bench_compute_times,
+                scaler_skips=bench_scaler_skips,
+                loop_t0=bench_loop_t0,
+                n_loaders=bench_n_loaders,
+                loader_waits=bench_loader_waits,
+            )
 
         logs = self.diagnostic_log_per_epoch(diagnostic_logs, train_loss = loss, epoch = self.epoch)
         return tr_time, data_time, logs
+
+    def _bench_finalize(self, step_times, data_times, compute_times, scaler_skips,
+                        loop_t0, n_loaders, loader_waits=()):
+        """Aggregate bench timings, write CSV row + env side-car on rank 0, then exit.
+
+        Ported from s2s/v2.0/train.py. s2s's 19 columns are reproduced verbatim, in order —
+        parse_nsys.py and every prior comparison depend on them (CLAUDE.md #10). The two
+        loader_wait_* columns are APPENDED after them, never inserted, so a reader keyed on
+        either name or position still works. They are PanguWeather-only; s2s's own CSV
+        schema is untouched (the two trees are forks with separate files, DESIGN §2c).
+        """
+        # Stop the loop clock FIRST — before cudaProfilerStop() and before the all_reduce.
+        # s2s computes `elapsed` further down, after both, which silently folds the profiler
+        # teardown into the measured wall time. Under nsys that flush is enormous: job
+        # 7255503 measured elapsed=51.8s against sum(steps)+sum(waits)=25.7s (a 50%
+        # "disagreement") purely because cudaProfilerStop() was inside the window. The timer
+        # was fine; the clock was stopped in the wrong place, and the self-check then threw
+        # away a perfectly good bench row on every profiled run.
+        loop_end = time.perf_counter()
+
+        # Close the nsys capture range before the all_reduce so the profiler
+        # doesn't record collective ops that aren't part of a training step.
+        if NVTX:
+            torch.cuda.cudart().cudaProfilerStop()
+
+        n = len(step_times)
+
+        # Cross-rank max of peak GPU memory (bytes -> GB).
+        peak_local = torch.tensor([torch.cuda.max_memory_allocated()], device=self.device,
+                                  dtype=torch.float64)
+        if dist.is_initialized():
+            dist.all_reduce(peak_local, op=dist.ReduceOp.MAX)
+        peak_mem_gb = float(peak_local.item()) / 1e9
+
+        if self.world_rank != 0:
+            if dist.is_initialized():
+                dist.barrier()
+            sys.exit(0)
+
+        if n == 0:
+            logging.error("BENCH: no steps recorded (warmup=%d, requested=%d). Aborting.",
+                          BENCH_WARMUP, BENCH_STEPS)
+            if dist.is_initialized():
+                dist.barrier()
+            sys.exit(2)
+
+        elapsed = loop_end - loop_t0 if loop_t0 is not None else sum(step_times)
+        step_med   = statistics.median(step_times)
+        step_p90   = sorted(step_times)[int(n * 0.9)] if n >= 10 else max(step_times)
+        step_mean  = statistics.fmean(step_times)
+        step_std   = statistics.pstdev(step_times) if n > 1 else 0.0
+        data_med   = statistics.median(data_times)
+        comp_med   = statistics.median(compute_times)
+        cpu_prep_frac = data_med / step_med if step_med > 0 else 0.0
+        world      = dist.get_world_size() if dist.is_initialized() else 1
+        bs_per_gpu = int(self.params.batch_size)
+        global_bs  = bs_per_gpu * world
+        # ⚠ samples_per_s is a STEP RATE, not wall throughput: step_med excludes the
+        # between-step loader fetch, so this OVERSTATES throughput whenever the loader is
+        # not keeping up. Column kept as-is (it is s2s's, CLAUDE.md #10) — convert with
+        #     wall throughput = samples_per_s * (1 - loader_wait_frac)
+        # Measured example (job 7255434, num_data_workers=0): samples_per_s=6.5 while the
+        # real rate was 6.5*(1-0.1485)=5.5. Comparing that 6.5 against the num_data_workers=1
+        # run's 6.1 would have ranked the SLOWER configuration first.
+        samples_s  = global_bs / step_med if step_med > 0 else 0.0
+
+        # Loader idle. s2s reconciles `elapsed` against sum(step_times) alone, which holds
+        # there only because its loader (8 workers) keeps ahead of the GPU. It is NOT an
+        # identity: the between-step fetch is in `elapsed` and in no step window, so on an
+        # input-bound run that check fires and the row is refused — the harness would abort
+        # exactly when the loader is the finding. Accounting for the gap explicitly makes
+        # the check TIGHTER, not looser: elapsed is now reconciled against everything the
+        # loop actually spent, and any residual >10% is a genuine timer bug again.
+        loader_wait_sum = sum(loader_waits)
+        loader_wait_med = statistics.median(loader_waits) if loader_waits else 0.0
+        loader_wait_frac = loader_wait_sum / elapsed if elapsed > 0 else 0.0
+
+        expected = sum(step_times) + loader_wait_sum
+        if scaler_skips:
+            # A skipped step's time is in `elapsed` but deliberately not in step_times, so
+            # the identity cannot hold. Report instead of asserting.
+            logging.warning("BENCH: %d scaler-skipped step(s) excluded from the sample; "
+                            "skipping the elapsed-vs-sum self-check.", scaler_skips)
+        elif elapsed > 0 and abs(elapsed - expected) / elapsed > 0.10:
+            logging.error("BENCH: timer self-disagreement (elapsed=%.3fs, "
+                          "sum(steps)+sum(loader_waits)=%.3fs, deviation=%.1f%%). "
+                          "Refusing to record row.",
+                          elapsed, expected, 100 * abs(elapsed - expected) / elapsed)
+            if dist.is_initialized():
+                dist.barrier()
+            sys.exit(3)
+
+        # Resolve env: git sha, yaml hash, gpu, driver, torch/cuda.
+        def _safe_run(cmd):
+            try:
+                return subprocess.check_output(cmd, stderr=subprocess.DEVNULL,
+                                               text=True, timeout=10).strip()
+            except Exception:
+                return ""
+        git_sha = _safe_run(["git", "rev-parse", "--short=12", "HEAD"]) or "unknown"
+        gpu_info = _safe_run(["nvidia-smi", "--query-gpu=name,driver_version",
+                              "--format=csv,noheader"]).splitlines()
+        gpu_name = gpu_info[0] if gpu_info else "unknown"
+        yaml_path = (getattr(self.params, "_yaml_filename", None)
+                     or os.environ.get("S2S_YAML", ""))
+        yaml_sha = ""
+        if yaml_path and os.path.isfile(yaml_path):
+            with open(yaml_path, "rb") as fh:
+                yaml_sha = hashlib.sha256(fh.read()).hexdigest()[:16]
+
+        # Unlike s2s, precision here is a YAML knob, not $S2S_AMP_DTYPE — record what the
+        # run actually used, and say so when AMP is off entirely.
+        if not self.params.enable_amp:
+            amp_dtype = "off"
+        else:
+            amp_dtype = {torch.float16: "fp16", torch.bfloat16: "bf16"}.get(
+                self.amp_dtype, str(self.amp_dtype))
+
+        # Number of loaders is a confound flag.
+        run_num = getattr(self.params, "run_num", "") or os.environ.get("S2S_RUN_NUM", "")
+
+        row = {
+            "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "git_sha": git_sha,
+            "run_num": run_num,
+            "n_gpus": world,
+            "batch_per_gpu": bs_per_gpu,
+            "amp_dtype": amp_dtype,
+            "ddp_find_unused": "false",
+            "n_loaders": n_loaders,
+            "step_med": f"{step_med:.6f}",
+            "step_p90": f"{step_p90:.6f}",
+            "step_mean": f"{step_mean:.6f}",
+            "step_std": f"{step_std:.6f}",
+            "cpu_prep_med": f"{data_med:.6f}",
+            "compute_med": f"{comp_med:.6f}",
+            "cpu_prep_frac": f"{cpu_prep_frac:.4f}",
+            "samples_per_s": f"{samples_s:.3f}",
+            "peak_mem_gb_max_rank": f"{peak_mem_gb:.3f}",
+            "scaler_skips": scaler_skips,
+            "n_steps_counted": n,
+            # --- appended after s2s's 19; see the docstring ---
+            "loader_wait_med": f"{loader_wait_med:.6f}",
+            "loader_wait_frac": f"{loader_wait_frac:.4f}",
+        }
+
+        write_header = not os.path.exists(BENCH_CSV)
+        with open(BENCH_CSV, "a", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=list(row.keys()))
+            if write_header:
+                w.writeheader()
+            w.writerow(row)
+
+        env_path = os.path.join(os.path.dirname(os.path.abspath(BENCH_CSV)) or ".",
+                                f"bench_env_{run_num or git_sha}.txt")
+        with open(env_path, "w") as fh:
+            fh.write(f"run_num: {run_num}\n")
+            fh.write(f"git_sha: {git_sha}\n")
+            fh.write(f"torch: {torch.__version__}\n")
+            fh.write(f"torch.cuda: {torch.version.cuda}\n")
+            fh.write(f"gpu: {gpu_name}\n")
+            fh.write(f"yaml_path: {yaml_path}\n")
+            fh.write(f"yaml_sha256_16: {yaml_sha}\n")
+            fh.write(f"slurm_job_id: {os.environ.get('SLURM_JOB_ID','')}\n")
+            fh.write(f"slurm_nodelist: {os.environ.get('SLURM_NODELIST','')}\n")
+            # Polaris/PBS analogs of the two SLURM lines above — a Midway-authored
+            # side-car would otherwise attribute every Polaris row to a blank job.
+            fh.write(f"pbs_jobid: {os.environ.get('PBS_JOBID','')}\n")
+            fh.write(f"pbs_nodefile: {os.environ.get('PBS_NODEFILE','')}\n")
+            fh.write(f"nettype: {getattr(self.params, 'nettype', '')}\n")
+            fh.write(f"num_data_workers: {getattr(self.params, 'num_data_workers', '')}\n")
+            fh.write(f"checkpointing: {getattr(self.params, 'checkpointing', '')}\n")
+            fh.write(f"use_ema: {getattr(self.params, 'use_ema', '')}\n")
+            fh.write(f"world_size: {world}\n")
+            fh.write(f"bench_warmup: {BENCH_WARMUP}\n")
+            fh.write(f"bench_steps: {BENCH_STEPS}\n")
+
+        logging.info(
+            "BENCH n=%d  step_med=%.3fs  step_p90=%.3fs  data_med=%.3fs  compute_med=%.3fs  "
+            "cpu_prep_frac=%.1f%%  loader_wait_med=%.3fs  loader_wait_frac=%.1f%%  "
+            "samples/s=%.1f  peak_mem=%.2fGB  scaler_skips=%d  n_loaders=%d  csv=%s",
+            n, step_med, step_p90, data_med, comp_med, 100 * cpu_prep_frac,
+            loader_wait_med, 100 * loader_wait_frac,
+            samples_s, peak_mem_gb, scaler_skips, n_loaders, BENCH_CSV,
+        )
+        # The headline the profiling phase actually needs: where does wall time go?
+        logging.info(
+            "BENCH VERDICT: %.1f%% of loop wall time is the GPU step, %.1f%% is waiting on "
+            "the data loader (num_data_workers=%s). %s",
+            100 * (1 - loader_wait_frac), 100 * loader_wait_frac,
+            getattr(self.params, "num_data_workers", "?"),
+            "INPUT-BOUND: optimising kernels is premature — fix the loader first."
+            if loader_wait_frac > 0.20 else "GPU-BOUND: the step itself is the target.",
+        )
+
+        if dist.is_initialized():
+            dist.barrier()
+        sys.exit(0)
 
     # @log_gpu_memory
     def _prepare_inputs_batch(self, data:torch.Tensor):
@@ -3202,6 +3675,11 @@ class Trainer():
             'wandb_step': self.wandb_step,
             'ema_state': self.ema.state_dict() if self.ema is not None else None,
             'scheduler_state_dict': self.scheduler.state_dict() if self.scheduler is not None else None,
+            # Must round-trip across a resume, or the first validated epoch of
+            # every new process trivially looks "best" against a fresh 1.e6 —
+            # see the comment at the top of train().
+            'best_valid_loss': getattr(self, 'best_valid_loss', 1.e6),
+            'early_stopping_counter': getattr(self, 'early_stopping_counter', 0),
         }
         if hasattr(self, 'finetune_startEpoch'):
             checkpoint_data['finetune_startEpoch'] = self.finetune_startEpoch
@@ -3250,7 +3728,16 @@ class Trainer():
         """ We intentionally require a checkpoint_dir to be passed
             in order to allow Ray Tune to use this function """
         logging.info(f'Restoring from checkpoint: {checkpoint_path}')
-        checkpoint = torch.load(checkpoint_path, map_location='cuda:{}'.format(self.params.local_rank), weights_only=False)
+        # map_location='cpu', NOT the local CUDA device. This file is ~18.9 GB
+        # (model + optimizer + EMA); loading it straight onto the GPU stages the
+        # whole thing alongside the already-resident model and EMA. MEASURED on
+        # job 7368237: the first post-resume epoch peaked at 34.57 GiB against
+        # 32.63 GiB for a fresh run — +1.94 GiB, cutting headroom from 6.86 to
+        # 4.92 GiB. Every chain link pays it, and the run is 3-6 links.
+        # Safe because load_state_dict copies into the existing GPU tensors, and
+        # _migrate_optimizer_state_to_device() below exists precisely to move
+        # CPU-loaded optimizer state back for the fused kernel.
+        checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
         
         # Get model state dict keys (accounting for DDP wrapper)
         model_state_dict = self.model.state_dict()
@@ -3336,6 +3823,19 @@ class Trainer():
             
         # Restore optimizer and scheduler state only when resuming training (not finetuning)
         self.epoch = checkpoint['epoch']
+        # `.get(..., default)`, not `checkpoint[...]`: checkpoints saved before this fix
+        # (every ckpt_latest.tar / ckpt_epoch_N.tar / best_ckpt.tar written prior to
+        # 2026-08-14) have neither key, and must fall back to the pre-fix defaults
+        # rather than KeyError. Once a checkpoint saved AFTER this fix is resumed from,
+        # the real value round-trips correctly from here on.
+        self.best_valid_loss = checkpoint.get('best_valid_loss', 1.e6)
+        self.early_stopping_counter = checkpoint.get('early_stopping_counter', 0)
+        if self.world_rank == 0:
+            logging.info(
+                f"Restored best_valid_loss={self.best_valid_loss} "
+                f"early_stopping_counter={self.early_stopping_counter} from checkpoint "
+                f"(1.e6/0 means the checkpoint predates this fix or truly had no prior best)"
+            )
         # Restore wandb_step from checkpoint if available, otherwise use iters
         if 'wandb_step' in checkpoint:
             self.wandb_step = checkpoint['wandb_step']
@@ -3443,7 +3943,16 @@ def setup_distributed(params: YParams, args: argparse.Namespace) -> tuple[int, i
     script is launched with ``torchrun`` or plain ``python``.
     """
     if params['world_size'] > 1:
-        dist.init_process_group(backend='nccl', init_method='env://')
+        # timeout: PyTorch's default NCCL watchdog is 600 s, but each epoch
+        # boundary here has rank 0 writing an 18.9 GB checkpoint ALONE while
+        # ranks 1-3 block in the next collective. The measured boundary cost is
+        # 17.2 min (validation + save); the save alone has survived every epoch
+        # so far, so it is under 600 s — but the margin is unmeasured and Lustre
+        # write speed varies with cluster load. 30 min keeps a genuine hang
+        # detectable while removing a slow-filesystem false positive that would
+        # kill a 168 h job at an epoch boundary.
+        dist.init_process_group(backend='nccl', init_method='env://',
+                                timeout=timedelta(minutes=30))
         rank = dist.get_rank()
         device = rank % torch.cuda.device_count()
         seed = args.global_seed * dist.get_world_size() + rank

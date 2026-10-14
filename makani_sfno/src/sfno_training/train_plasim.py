@@ -26,11 +26,11 @@ from math import prod
 import torch
 
 from makani.utils import argument_parser, comm, logging_utils, profiling
-from makani.utils.parse_dataset_metada import parse_dataset_metadata
 from makani.utils.profiling import Timer
 from makani.utils.YParams import YParams
 
-from sfno_training.trainer import PlasimTrainer
+from sfno_training import compat
+from sfno_training.trainer import PlasimEnsembleTrainer, PlasimTrainer
 
 
 logger = logging.getLogger(__name__)
@@ -186,15 +186,30 @@ def _world_size_from_env(names: tuple[str, ...], default: int = 1) -> int:
     return world_size
 
 
+def _feature_parallel_sizes(args: Namespace):
+    """``(fin, fout, matmul)`` from whichever flags the installed makani's parser defines:
+    ``--fin/--fout_parallel_size`` on the pin, ``--matmul_parallel_size`` on main."""
+    fin = int(getattr(args, "fin_parallel_size", 1))
+    fout = int(getattr(args, "fout_parallel_size", 1))
+    matmul = getattr(args, "matmul_parallel_size", None)
+    return fin, fout, (None if matmul is None else int(matmul))
+
+
+def _odirect_params(args: Namespace) -> dict:
+    """O_DIRECT params from whichever flag the installed makani's parser defines.
+
+    makani main replaced ``--enable_odirect`` with ``--odirect_config``; the params keys
+    are unchanged and set the way upstream ``train.py:119`` sets them.
+    """
+    if hasattr(args, "odirect_config"):
+        enable, alignment = argument_parser.parse_odirect_config(args.odirect_config)
+        return {"enable_odirect": enable, "odirect_alignment": alignment}
+    return {"enable_odirect": args.enable_odirect}
+
+
 def _model_parallel_size(args: Namespace) -> int:
-    return prod(
-        [
-            args.h_parallel_size,
-            args.w_parallel_size,
-            args.fin_parallel_size,
-            args.fout_parallel_size,
-        ]
-    )
+    fin, fout, matmul = _feature_parallel_sizes(args)
+    return prod([args.h_parallel_size, args.w_parallel_size, fin * fout if matmul is None else matmul])
 
 
 def _should_skip_distributed_init(args: Namespace) -> bool:
@@ -243,17 +258,10 @@ def main() -> None:
     params = YParams(os.path.abspath(args.yaml_config), args.config)
 
     # distributed wireup
-    params["fin_parallel_size"] = args.fin_parallel_size
-    params["fout_parallel_size"] = args.fout_parallel_size
-    params["h_parallel_size"] = args.h_parallel_size
-    params["w_parallel_size"] = args.w_parallel_size
-    params["model_parallel_sizes"] = [
-        args.h_parallel_size,
-        args.w_parallel_size,
-        args.fin_parallel_size,
-        args.fout_parallel_size,
-    ]
-    params["model_parallel_names"] = ["h", "w", "fin", "fout"]
+    sizes, names = compat.model_parallel_layout(
+        args.h_parallel_size, args.w_parallel_size, *_feature_parallel_sizes(args)
+    )
+    compat.set_model_parallel_params(params, sizes, names)
     params["parameters_reduction_buffer_count"] = args.parameters_reduction_buffer_count
 
     params["load_checkpoint"] = args.load_checkpoint
@@ -324,7 +332,8 @@ def main() -> None:
     params["jit_mode"] = args.jit_mode
     params["skip_validation"] = args.skip_validation
     params["skip_training"] = args.skip_training
-    params["enable_odirect"] = args.enable_odirect
+    for key, value in _odirect_params(args).items():
+        params[key] = value
     params["enable_s3"] = args.enable_s3
     params["checkpointing_level"] = args.checkpointing_level
     params["enable_synthetic_data"] = args.enable_synthetic_data
@@ -358,7 +367,7 @@ def main() -> None:
     params["log_to_screen"] = (world_rank == 0) and params["log_to_screen"]
 
     if "metadata_json_path" in params:
-        params, _ = parse_dataset_metadata(params["metadata_json_path"], params=params)
+        params, _ = compat.parse_dataset_metadata_scoped(params["metadata_json_path"], params=params)
     else:
         raise RuntimeError(
             "params is missing 'metadata_json_path' — required for sfno_training "
@@ -368,7 +377,40 @@ def main() -> None:
     if world_rank == 0:
         _write_warmstart_provenance(params, expDir)
 
-    trainer = PlasimTrainer(params, world_rank)
+    # ---- trainer selection: deterministic vs ensemble/CRPS ------------------
+    # `ensemble_size` > 1 routes to makani's EnsembleTrainer, which folds the
+    # ensemble dim into the batch and hands probabilistic losses a 5-D
+    # (B, E, C, H, W) tensor. Below 2 members a CRPS loss degenerates to MAE,
+    # so the knob is the config's `ensemble_size` and nothing else.
+    #
+    # ⚠ `local_ensemble_size` MUST be set here. makani sets it in
+    # train_stochastic.py:93 and inference.py:157 but NOT in train.py, which is
+    # the entrypoint this file is modelled on -- so EnsembleTrainer would hit an
+    # AttributeError on params.local_ensemble_size. comm.init already creates
+    # the `ensemble` data-parallel group at size 1 by default
+    # (comm.py:117-118, data_parallel_names=["ensemble","batch"]), so with no
+    # ensemble parallelism this is just ensemble_size.
+    ensemble_size = int(params.get("ensemble_size", 1))
+    if ensemble_size > 1:
+        ens_group = comm.get_size("ensemble")
+        if ensemble_size % ens_group != 0:
+            raise ValueError(
+                f"ensemble_size {ensemble_size} does not divide evenly across "
+                f"{ens_group} ensemble-parallel ranks"
+            )
+        params["local_ensemble_size"] = ensemble_size // ens_group
+        if world_rank == 0:
+            logging.info(
+                "ENSEMBLE mode: ensemble_size=%d, ensemble_parallel=%d, "
+                "local_ensemble_size=%d -> PlasimEnsembleTrainer",
+                ensemble_size,
+                ens_group,
+                params["local_ensemble_size"],
+            )
+        trainer = PlasimEnsembleTrainer(params, world_rank)
+    else:
+        params["local_ensemble_size"] = 1
+        trainer = PlasimTrainer(params, world_rank)
 
     # torch.profiler / CUPTI capture branch ported from
     # makani-src/makani/train.py:147-169. Default behaviour
@@ -379,7 +421,16 @@ def main() -> None:
             os.makedirs(out_dir, exist_ok=True)
 
     if params.get("skip_training", False):
-        pass
+        # ⚠ MUST call train(). `skip_training` is handled INSIDE makani's train
+        # loop -- deterministic_trainer.py:362 skips train_one_epoch, and :370
+        # still runs validate_one_epoch -- so calling it is what makes
+        # "restore and validate only" work. A bare `pass` here (the previous
+        # behaviour) skipped the entire run: the job restored the checkpoint,
+        # printed its init timers and exited 0 having validated NOTHING, with
+        # no error and no output. That silently broke the `-v SKIP_TRAIN=1`
+        # path both checkpoint-usage docs advertise as the one-command Polaris
+        # validation run. Measured 2026-09-04 (7592332/3/6, 7592575/6/7).
+        trainer.train()
     elif world_rank in args.capture_ranks:
         if args.capture_type == "torch":
             capture_prefix = (

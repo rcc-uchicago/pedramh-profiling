@@ -1,0 +1,171 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_ofi_matrix
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:25:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Which runtime knobs let the self-built aws-ofi-nccl v1.21.1 open a CXI domain
+# UNDER THE AI-ROSSBY VENV (torch 2.10.0+cu129)?
+#
+# Sibling of makani_sfno/polaris/polaris_ofi_plugin_matrix.pbs — rank program
+# and combo loop copied unchanged, env-activation block swapped.  The makani
+# file is not edited in place (both dirs are git subtrees).
+#
+# WHY RERUN IT.  On torch 2.8.0 / NCCL 2.28.3 exactly one of six combos worked:
+# OFI_NCCL_PROGRESS_MODEL=AUTO (job 7563894).  The mechanism is CXI-side —
+# libfabric 2.3.1's CXI provider refuses domain creation unless the caller
+# requests auto progress — so AUTO is EXPECTED to carry to any NCCL.  Expected
+# is not measured, and the whole plugin<->NCCL net-API handshake changes with
+# the bundled NCCL version.  Handoff §1 makes this mandatory per venv.
+#
+# PASS = OFI_MATRIX_OK with >=1 WORKS combo; every combo is a 4-rank NCCL
+# all-reduce with a verified answer, DEFAULT NCCL protocol (no Simple pin --
+# lifting that pin is half the value of a modern plugin).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then
+    AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${AR_ROOT}/polaris/polaris_ai_rossby_env.sh" || exit 2
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${AI_ROSSBY_VENV}/bin/python"
+
+VER="${VER:-1.21.1}"
+PREFIX="${MEMBER_ROOT}/sw/aws-ofi-nccl-${VER}"
+LIBFABRIC_DIR=/opt/cray/libfabric/2.3.1
+[ -e "${PREFIX}/lib/libnccl-net.so" ] || {
+    echo "ERROR PLUGIN_MISSING ${PREFIX}"
+    echo "  Build it once with makani_sfno/polaris/polaris_build_aws_ofi_nccl.pbs — the"
+    echo "  install is shared across harnesses, so it is built once, not per venv."
+    exit 2
+}
+[ -d "${LIBFABRIC_DIR}/lib64" ] || { echo "ERROR LIBFABRIC_MISSING ${LIBFABRIC_DIR}"; exit 2; }
+
+SHIM="${AR_ROOT}/polaris/polaris_rank_env.sh"
+[ -f "${SHIM}" ] || { echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 3; }
+
+export GPUS_PER_NODE=4
+MASTER_ADDR="$(head -1 "${PBS_NODEFILE}")"
+export MASTER_ADDR
+export MASTER_PORT=29521
+
+OUT="${MEMBER_ROOT}/runs/ai_rossby_ofi_matrix/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+RANKPY="${OUT}/allreduce.py"
+cat > "${RANKPY}" <<'PY'
+import os, sys, torch, torch.distributed as dist
+lr = int(os.environ["LOCAL_RANK"])
+torch.cuda.set_device(lr)
+dist.init_process_group("nccl")
+t = torch.full((1024, 1024), float(dist.get_rank() + 1), device="cuda")
+dist.all_reduce(t)
+n = dist.get_world_size()
+ok = abs(t[0, 0].item() - float(n * (n + 1) // 2)) < 1e-3
+if dist.get_rank() == 0:
+    print("ALLREDUCE %s world=%d" % ("OK" if ok else "WRONG", n), flush=True)
+    print("TORCH %s NCCL %s" % (torch.__version__,
+          ".".join(map(str, torch.cuda.nccl.version()))), flush=True)
+dist.destroy_process_group()
+sys.exit(0 if ok else 1)
+PY
+
+LD_BASE="${LIBFABRIC_DIR}/lib64:${PREFIX}/lib:/soft/libraries/hwloc/lib:${LD_LIBRARY_PATH}"
+
+# name|extra env (';'-separated KEY=VAL; 'CLEARCXI' clears the FI_CXI trio)
+CAND=(
+"A_default|"
+"B_progress_manual|OFI_NCCL_PROGRESS_MODEL=MANUAL"
+"C_progress_auto|OFI_NCCL_PROGRESS_MODEL=AUTO"
+"D_proto_rdma|OFI_NCCL_PROTOCOL=RDMA"
+"E_rdma_manual|OFI_NCCL_PROTOCOL=RDMA;OFI_NCCL_PROGRESS_MODEL=MANUAL"
+"F_manual_clean_cxi|OFI_NCCL_PROGRESS_MODEL=MANUAL;CLEARCXI"
+)
+
+echo "=== ai_rossby ofi_plugin_matrix v${VER}: $(date -Iseconds) on $(hostname) ==="
+ai_rossby_env_report
+echo
+WORKED=""
+for entry in "${CAND[@]}"; do
+    name="${entry%%|*}"; extras="${entry#*|}"
+    log="${OUT}/${name}.log"
+    echo "---------------------------------------------------------------"
+    echo "COMBO ${name}   extras='${extras}'"
+
+    # Rebuilt per combo, never layered on the previous one's leftovers.
+    env_args=(
+        LD_LIBRARY_PATH="${LD_BASE}"
+        NCCL_NET="AWS Libfabric"
+        NCCL_NET_GDR_LEVEL=PHB
+        NCCL_CROSS_NIC=1
+        NCCL_DEBUG=INFO
+        NCCL_DEBUG_SUBSYS=INIT,NET
+        FI_CXI_DISABLE_HOST_REGISTER=1
+        FI_MR_CACHE_MONITOR=userfaultfd
+        FI_CXI_DEFAULT_CQ_SIZE=131072
+    )
+    IFS=';' read -ra kvs <<< "${extras}"
+    for kv in "${kvs[@]}"; do
+        [ -z "${kv}" ] && continue
+        if [ "${kv}" = "CLEARCXI" ]; then
+            env_args=( "${env_args[@]/FI_CXI_DISABLE_HOST_REGISTER=1}" )
+            env_args=( "${env_args[@]/FI_MR_CACHE_MONITOR=userfaultfd}" )
+            env_args=( "${env_args[@]/FI_CXI_DEFAULT_CQ_SIZE=131072}" )
+        else
+            env_args+=( "${kv}" )
+        fi
+    done
+
+    mpiexec -n 4 --ppn 4 --hostfile "${PBS_NODEFILE}" --cpu-bind depth -d 8 \
+        env "${env_args[@]}" \
+        bash "${SHIM}" "${PY}" "${RANKPY}" \
+        > "${log}" 2>&1
+    rc=$?
+    dom_fail=$(grep -c "Couldn't create domain\|Couldn't open a fabric access domain" "${log}")
+    allred=$(grep -c "ALLREDUCE OK" "${log}")
+    used=$(grep -m1 "NCCL INFO Using network" "${log}" | sed 's/.*Using network //')
+    echo "  rc=${rc} domain_errors=${dom_fail} allreduce_ok=${allred} network=${used:-<none>}"
+    grep -m1 "^TORCH " "${log}" 2>/dev/null | sed 's/^/  /'
+    if [ ${rc} -eq 0 ] && [ "${allred}" -ge 1 ] && [ "${dom_fail}" -eq 0 ]; then
+        echo "  => WORKS"; WORKED="${WORKED} ${name}"
+    else
+        echo "  => FAILS"
+        grep -m2 "NCCL WARN" "${log}" | sed 's/^/     /'
+    fi
+    echo "  log: ${log}"
+done
+
+echo "==============================================================="
+if [ -n "${WORKED}" ]; then
+    echo "OFI_MATRIX_OK working combos:${WORKED}"
+    echo "  makani's answer on torch 2.8.0 was C_progress_auto ALONE (job 7563894)."
+    echo "  Same single answer here => the pin is CXI-side and carries; record that."
+    echo "  A DIFFERENT answer is the more interesting result and must be recorded"
+    echo "  loudly: it means the pin is NCCL-version-dependent and every makani"
+    echo "  fabric conclusion needs a per-venv caveat."
+    echo "  Next: polaris_ai_rossby_nccl_mn_probe.pbs at >=2 nodes with the winner."
+else
+    echo "ERROR OFI_MATRIX_NO_WORKING_COMBO"
+    echo "  v${VER} cannot open a CXI domain under this venv on any runtime knob."
+    echo "  Fall back to what the fabric probe found working, and say in CHANGELOG"
+    echo "  that the ai-rossby ladder runs a DIFFERENT stack from makani's — the two"
+    echo "  sets of rows may then never share a table (handoff rule #4)."
+fi
+echo "=== done $(date -Iseconds) ==="

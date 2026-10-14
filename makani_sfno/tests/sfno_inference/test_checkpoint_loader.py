@@ -4,7 +4,11 @@ Coverage (per docs/sfno_eval_plan.md §B.0):
 
   - ``load_eval_params``:
       * applies BOTH ``valid_autoreg_steps = K-1`` and ``n_future = K-1``;
-      * preserves the channel-count assertions (58, 53, 52, 1, 6);
+      * preserves the channel-count check — since 2026-09-17 a
+        self-consistency test (state + forcing == N_in, state + diagnostic
+        == N_out) rather than the PLaSim literals 58/53/52/1/6, so that other
+        contracts load. Cross-contract cases live in
+        ``tests/sfno_inference/test_e3sm_port.py``;
       * derives ``amp_enabled`` / ``amp_dtype`` from ``amp_mode``
         (none, fp16, bf16);
       * pins normalization paths to the run dir;
@@ -174,9 +178,21 @@ class TestLoadEvalParamsGuards:
 
     def test_channel_count_drift_breaks(self, tmp_path):
         # Forge a config that claims 60 input channels — would silently
-        # build the wrong model if we didn't assert.
+        # build the wrong model if we didn't check.
+        #
+        # 2026-09-17: this used to expect `AssertionError` matching "58", the
+        # PLaSim literal. The check is now `n_state + n_forcing == N_in`, which
+        # catches the same forgery (52 + 6 != 60) without rejecting other
+        # contracts — E3SM ALLDATA is 100 + 7 == 107. Intent unchanged, exception
+        # type and message changed. → docs/2026-09-10_e3sm_inference_port_scope.md §2.1 A
         run = _make_run_dir(tmp_path, cfg_overrides={"N_in_channels": 60})
-        with pytest.raises(AssertionError, match="58"):
+        with pytest.raises(ValueError, match="CHANNEL_CONTRACT_INCONSISTENT"):
+            cl.load_eval_params(run, K=10)
+
+    def test_output_channel_drift_breaks(self, tmp_path):
+        """The output half of the same check — 52 + 1 != 55."""
+        run = _make_run_dir(tmp_path, cfg_overrides={"N_out_channels": 55})
+        with pytest.raises(ValueError, match="CHANNEL_CONTRACT_INCONSISTENT"):
             cl.load_eval_params(run, K=10)
 
 

@@ -25,6 +25,24 @@ makani = pytest.importorskip("makani")
 import torch.nn as nn  # noqa: E402  -- after importorskip
 
 
+def set_unit_model_parallel(params) -> None:
+    """Model parallelism off, in the installed makani's own layout.
+
+    The pin initialises ``[h, w, fin, fout]``; makani main (``f9b6e787``) has
+    ``[h, w, matmul]``. Reading ``comm.init``'s defaults keeps one test source
+    valid on both venvs, and on the pin sets exactly the params it always did.
+    """
+    import inspect
+
+    from makani.utils import comm
+
+    names = list(inspect.signature(comm.init).parameters["model_parallel_names"].default)
+    for name in names:
+        params[f"{name}_parallel_size"] = 1
+    params["model_parallel_sizes"] = [1] * len(names)
+    params["model_parallel_names"] = names
+
+
 class RecordingDummyModel(nn.Module):
     """Minimal nettype that:
 
@@ -104,8 +122,19 @@ def load_params(output_root: Path):
     return params
 
 
-def build_dataset(params, output_root: Path, *, n_future: int = 0, split: str = "train"):
-    """Build a PlasimForcingDataset against the packaged synthetic data."""
+def build_dataset(
+    params,
+    output_root: Path,
+    *,
+    n_future: int = 0,
+    split: str = "train",
+    in_channels=None,
+    out_channels=None,
+):
+    """Build a PlasimForcingDataset against the packaged synthetic data.
+
+    ``in_channels`` / ``out_channels`` default to the full-width contiguous
+    lists; pass pack-relative index lists to build a channel subset."""
     from sfno_training.data import PlasimForcingDataset
 
     location = {
@@ -113,11 +142,16 @@ def build_dataset(params, output_root: Path, *, n_future: int = 0, split: str = 
         "valid": params.valid_data_path,
     }[split]
 
+    if in_channels is None:
+        in_channels = list(range(params.n_state_channels))
+    if out_channels is None:
+        out_channels = list(range(params.n_state_channels + params.n_diagnostic_channels))
+
     return PlasimForcingDataset(
         location=location,
         dt=1,
-        in_channels=list(range(params.n_state_channels)),
-        out_channels=list(range(params.n_state_channels + params.n_diagnostic_channels)),
+        in_channels=in_channels,
+        out_channels=out_channels,
         n_forcing_channels=params.n_forcing_channels,
         n_history=0,
         n_future=n_future,

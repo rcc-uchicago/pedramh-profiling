@@ -15,6 +15,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
+
 import torch
 
 
@@ -181,6 +183,21 @@ def _contract_diagonal(
     return res
 
 
+def dhconv_weight_is_xio():
+    """True when the dhconv weight is stored `[modes_lat, in, out]` (§4.9's layout fix).
+
+    Off by default and deliberately so: flipping it changes the **shape** of 95.8% of the
+    model's parameters, so every existing checkpoint would fail `load_state_dict`.
+    Adoption needs a conversion pass; this knob makes the change *testable* against the
+    §4.12 gate first.
+
+    Read in plain Python, never inside the scripted contraction: `_contract_dhconv` is
+    `@torch.jit.script`, and TorchScript cannot compile `os.environ`. Hence two scripted
+    variants selected by the (unscripted) caller rather than one branching function.
+    """
+    return os.environ.get("PANGU_DHCONV_XIO", "0") == "1"
+
+
 @torch.jit.script
 def _contract_dhconv(
     a: torch.Tensor, b: torch.Tensor
@@ -192,6 +209,25 @@ def _contract_dhconv(
     ac = torch.view_as_complex(a)
     bc = torch.view_as_complex(b)
     resc = torch.einsum("bixy,iox->boxy", ac, bc)
+    res = torch.view_as_real(resc)
+    return res
+
+
+@torch.jit.script
+def _contract_dhconv_xio(
+    a: torch.Tensor, b: torch.Tensor
+) -> torch.Tensor:  # pragma: no cover
+    """`_contract_dhconv` with the weight stored x-major — §4.9's layout fix.
+
+    Identical arithmetic to `_contract_dhconv`; the ONLY difference is that `b` arrives as
+    `[modes_lat, in, out]` instead of `[in, out, modes_lat]`, so `einsum`'s lowering to a
+    batched matmul (`x` is a batch index, `i` is contracted) needs no permute. Stored
+    `[i, o, x]` that permute moves 377 MB per call at **32.00 sectors/request** — the
+    counter's ceiling — reading 2043 MB to move 377 MB (§4.8).
+    """
+    ac = torch.view_as_complex(a)
+    bc = torch.view_as_complex(b)
+    resc = torch.einsum("bixy,xio->boxy", ac, bc)
     res = torch.view_as_real(resc)
     return res
 

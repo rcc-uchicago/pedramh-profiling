@@ -1,0 +1,7 @@
+# Tracked ONLY so this directory exists in a fresh clone.
+#
+# polaris_probe.pbs uses `#PBS -o polaris_logs/`. PBS resolves that path when the job
+# exits, and will NOT create it — if the directory is missing the job's output is not
+# delivered here at all (it goes to ~/undelivered or is mailed), so the documented
+# PASS token "PROBE_OK" can never be found and gate 1 looks like it produced nothing.
+# Git cannot track an empty directory, hence this file.

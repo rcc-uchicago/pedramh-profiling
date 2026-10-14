@@ -59,7 +59,9 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--mode", choices=["nwp", "climate"], default="nwp",
                    help="Rollout mode (default: nwp)")
     p.add_argument("--nwp-K", type=int, default=56,
-                   help="Rollout horizon in NWP mode (default: 56 = 14 days)")
+                   help="Rollout length in NWP mode, in 6 h frames: K predictions at leads "
+                        "6 h … 6K h, no lead-0 (default: 56 = 14 days). In lagged mode also "
+                        "the age of the oldest member; must be a multiple of --ic-stride.")
     p.add_argument("--nwp-n-ic", type=int, default=12,
                    help="ICs per file in NWP mode (default: 12)")
     p.add_argument("--eval-sha7", required=True, type=str)
@@ -72,8 +74,38 @@ def _parse_args() -> argparse.Namespace:
                    help="Disable per-step 58→53 contract assertions (faster; default off)")
     p.add_argument("--limit-files", type=int, default=None,
                    help="Process only the first N files (debugging)")
+    p.add_argument("--test-file-glob", type=str, default=None,
+                   help="Glob for holdout h5 files (default: any *.h5). The PLaSim packs "
+                        "are MOST.*.h5 and the E3SM ALLDATA packs are YYYY.h5; pass this "
+                        "only to narrow a directory holding more than one pack.")
     p.add_argument("--limit-ics", type=int, default=None,
                    help="Process only the first N ICs per file (debugging)")
+    # --- lagged ensemble (end-to-end plan stage 1 / task 11) ---
+    # Additive: --ic-mode defaults to `monthly`, which is nwp_ic_offsets and the
+    # behaviour every existing caller gets. The SLURM path passes neither flag.
+    p.add_argument("--ic-mode", choices=["monthly", "lagged"], default="monthly",
+                   help="IC placement. 'monthly' = nwp_ic_offsets, far-apart starts for a "
+                        "scorecard (default). 'lagged' = starts spaced --ic-stride apart so "
+                        "rollouts OVERLAP on common targets, which is what a lagged ensemble "
+                        "needs and what the monthly spacing deliberately prevents.")
+    p.add_argument("--ic-stride", type=int, default=4,
+                   help="Lagged mode: spacing d between starts, in 6 h frames, and so the "
+                        "spacing in age between members at one target. Must divide --nwp-K; "
+                        "members per target is K/d (default 4 = 24 h => 14 at K=56)")
+    p.add_argument("--n-targets", type=int, default=32,
+                   help="Lagged mode: how many consecutive target frames (valid times) must "
+                        "receive all K/d members. Sets the rollout count, "
+                        "ceil((n_targets + K)/d) - 1 (default 32 => 21 at K=56, d=4). "
+                        "⚠ COST: ~1.95 GB and ~77 s per rollout at the production shape")
+    p.add_argument("--first-start", type=int, default=0,
+                   help="Lagged mode: frame index of the first start within each file. "
+                        "Translates the whole sweep without changing any count; its residue "
+                        "mod d picks which targets carry the on-lattice depths d, 2d, … K.")
+    # --- port A (polaris_makani_ace2_ports_handoff.md §2) ---
+    p.add_argument("--force-positive-names", nargs="*", default=[],
+                   help="DIAGNOSTIC. Clamp these output channels at 0 (physical units) after "
+                        "every step, as ACE2's corrector does. Default: none (off). Which "
+                        "channels are non-negative by physics is the science owner's call.")
     return p.parse_args()
 
 
@@ -86,10 +118,28 @@ def _resolve_device(spec: str):
     return torch.device("cpu")
 
 
-def _list_test_files(test_holdout: Path) -> list[Path]:
-    files = sorted(test_holdout.glob("MOST.*.h5"))
+def _list_test_files(test_holdout: Path, pattern: str | None = None) -> list[Path]:
+    """List the holdout's h5 files, in the order the dataset concatenates them.
+
+    The glob used to be the literal ``MOST.*.h5``, which is the PLaSim packer's
+    filename convention. The E3SM ALLDATA packer names files by year
+    (``2048.h5``, ``2049.h5``), so this raised ``no MOST.*.h5 found`` before a
+    single rollout ran (job 7630665). Default to *any* ``.h5`` and let
+    ``--test-file-glob`` narrow it when a directory holds more than one pack.
+
+    Sorted by name, which is what makes ``dataset.file_offsets`` line up with
+    this list — both PLaSim's ``MOST.NNNN.h5`` and E3SM's ``YYYY.h5`` sort
+    chronologically as strings, and the two are never mixed in one directory.
+    """
+    if pattern:
+        files = sorted(test_holdout.glob(pattern))
+        if not files:
+            raise SystemExit(f"no files matching {pattern!r} under {test_holdout}")
+        return files
+
+    files = sorted(test_holdout.glob("*.h5"))
     if not files:
-        raise SystemExit(f"no MOST.*.h5 found under {test_holdout}")
+        raise SystemExit(f"no .h5 files found under {test_holdout}")
     return files
 
 
@@ -202,6 +252,17 @@ def _resolve_and_check_channel_names(
         return h5_names
     cfg_names = [str(c) for c in cfg_names]
     h5_names = [str(c) for c in h5_names]
+    # A model trained on a channel SUBSET of the pack (makani maps channel_names
+    # to pack indices and records them as out_channels): its names must be the h5
+    # names AT those indices, position by position. Returns the model's names --
+    # what the predictions actually are.
+    idx = cfg.get("out_channels")
+    if (idx is not None and len(cfg_names) < len(h5_names) and len(idx) == len(cfg_names)
+            and all(0 <= int(i) < len(h5_names) for i in idx)
+            and [h5_names[int(i)] for i in idx] == cfg_names):
+        logger.info("channel subset: model has %d of the %d h5 channels",
+                    len(cfg_names), len(h5_names))
+        return cfg_names
     if cfg_names != h5_names:
         n = max(len(cfg_names), len(h5_names))
         diff_lines = []
@@ -236,17 +297,19 @@ def run_nwp(args: argparse.Namespace) -> int:
         write_rollout_nc,
     )
     from sfno_inference.rollout_driver import _load_run_norm_stats
+    from sfno_ensemble import plan_lagged_sweep
     from sfno_training.trainer.plasim_trainer import _plasim_get_dataloader
 
     device = _resolve_device(args.device)
     logger.info("device: %s", device)
 
-    test_files = _list_test_files(args.test_holdout)
+    test_files = _list_test_files(args.test_holdout, args.test_file_glob)
     if args.limit_files:
         test_files = test_files[: args.limit_files]
     logger.info("test files: %s", [f.name for f in test_files])
 
     eval_params = load_eval_params(args.run_dir, K=args.nwp_K)
+    eval_params.force_positive_names = args.force_positive_names  # port A; [] = off
     wrapper = build_wrapper_from_checkpoint(eval_params, args.ckpt, device=device)
     out_bias, out_scale = _load_run_norm_stats(eval_params, device)
 
@@ -255,7 +318,10 @@ def run_nwp(args: argparse.Namespace) -> int:
     channel_names = _resolve_and_check_channel_names(args.run_dir, test_files[0])
     lat, lon = _read_lat_lon_from_run(args.run_dir, test_files[0])
 
-    out_dir = args.out_root / "inference" / "nwp"
+    # A lagged sweep writes to its own subdirectory: its members overlap in time and
+    # would otherwise be scored as if they were the monthly sweep's independent ICs.
+    sweep = "lagged" if args.ic_mode == "lagged" else "nwp"
+    out_dir = args.out_root / "inference" / sweep
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # NWP mode: one dataset built per file (the dataset config has all
@@ -275,7 +341,15 @@ def run_nwp(args: argparse.Namespace) -> int:
         )
         file_start_global = int(dataset.file_offsets[file_idx])
 
-        offsets = nwp_ic_offsets(n, K=args.nwp_K, n_ic=args.nwp_n_ic)
+        if args.ic_mode == "lagged":
+            plan = plan_lagged_sweep(
+                n, K=args.nwp_K, stride=args.ic_stride,
+                n_targets=args.n_targets, first_start=args.first_start,
+            )
+            offsets = plan.starts
+            logger.info("%s: %s", fpath.name, plan.summary())
+        else:
+            offsets = nwp_ic_offsets(n, K=args.nwp_K, n_ic=args.nwp_n_ic)
         if args.limit_ics:
             offsets = offsets[: args.limit_ics]
 
@@ -292,15 +366,18 @@ def run_nwp(args: argparse.Namespace) -> int:
                 out_scale=out_scale,
                 assert_contract=not args.no_assert_contract,
             )
-            result.rollout_mode = "nwp"
-            out_nc = out_dir / f"{fpath.stem}_ic{ic_n:03d}.nc"
+            result.rollout_mode = sweep
+            # Lagged members are named by their START index, not by IC ordinal: the
+            # start is what identifies a member, and alignment regroups by start+depth.
+            out_nc = out_dir / (f"{fpath.stem}_s{sample_idx:05d}.nc" if sweep == "lagged"
+                                else f"{fpath.stem}_ic{ic_n:03d}.nc")
             write_rollout_nc(
                 out_nc, result=result,
                 channel_names=channel_names, lat=lat, lon=lon,
                 ckpt_path=str(args.ckpt),
                 eval_sha7=args.eval_sha7, data_sha7=args.data_sha7,
                 train_sha7=args.train_sha7, run_tag=args.run_tag,
-                rollout_mode="nwp",
+                rollout_mode=sweep,
             )
             elapsed = time.time() - t_start
             logger.info(
@@ -310,8 +387,8 @@ def run_nwp(args: argparse.Namespace) -> int:
             n_written += 1
 
     total = time.time() - t0
-    logger.info("nwp mode done: %d files, %d ICs written, %.1f min",
-                len(test_files), n_written, total / 60.0)
+    logger.info("%s mode done: %d files, %d ICs written, %.1f min",
+                sweep, len(test_files), n_written, total / 60.0)
     return 0
 
 
@@ -328,7 +405,7 @@ def run_climate(args: argparse.Namespace) -> int:
 
     device = _resolve_device(args.device)
 
-    test_files = _list_test_files(args.test_holdout)
+    test_files = _list_test_files(args.test_holdout, args.test_file_glob)
     if args.limit_files:
         test_files = test_files[: args.limit_files]
 
@@ -346,6 +423,7 @@ def run_climate(args: argparse.Namespace) -> int:
         logger.info("climate rollout: %s  K=%d  (n_samples=%d)", fpath.name, K, n)
 
         eval_params = load_eval_params(args.run_dir, K=K)
+        eval_params.force_positive_names = args.force_positive_names  # port A; [] = off
         wrapper = build_wrapper_from_checkpoint(eval_params, args.ckpt, device=device)
         out_bias, out_scale = _load_run_norm_stats(eval_params, device)
 

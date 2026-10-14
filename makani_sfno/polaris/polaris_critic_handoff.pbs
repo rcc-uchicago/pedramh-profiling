@@ -1,0 +1,125 @@
+#!/bin/bash -l
+#PBS -N critic_handoff
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Run TWO independent Fable 5 critics against the multi-node port handoff, on
+# a COMPUTE node via the ALCF proxy (login nodes must not run this: the claude
+# CLI is a node.js process tree and CLAUDE.md's shell rules apply).
+#
+# Why a compute-node job at all: the in-session critique pass (commit 4133802a)
+# shares context with the author. These two run as separate `claude -p`
+# processes with fresh contexts — the closest thing to independent review
+# available without a human. Auth: the user's existing Claude Code credentials
+# on the shared $HOME; network: compute nodes reach api.anthropic.com ONLY via
+# the ALCF proxy (verified pattern from job 7253810 — direct connections fail).
+#
+# Critic A (adversarial): attack the document — factual errors, unverifiable
+#   claims, contradictions, missing failure modes, over-promises.
+# Critic B (cold): a fresh session pretending to EXECUTE the handoff — every
+#   point where it would be blocked, confused, or forced to guess.
+#
+# PASS = CRITIC_JOB_OK + two non-empty reports under
+# $MEMBER_ROOT/runs/critic_handoff/<jobid>/. rc=0 is not the signal (#14).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+DOC="${REPO}/polaris_multinode_ddp_port_handoff.md"
+[ -f "${DOC}" ] || { echo "ERROR DOC_MISSING ${DOC}"; exit 2; }
+OUT="${MEMBER_ROOT}/runs/critic_handoff/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+# ---- proxy: the ONLY route out from a compute node --------------------------
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+export HTTP_PROXY="${http_proxy}" HTTPS_PROXY="${https_proxy}"
+export no_proxy="localhost,127.0.0.1" NO_PROXY="${no_proxy}"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ || echo 000)
+echo "api.anthropic.com via proxy: HTTP ${code}"
+[ "${code}" != "000" ] || { echo "ERROR NO_ROUTE_VIA_PROXY"; exit 3; }
+
+CLAUDE="${HOME}/.local/bin/claude"
+[ -x "${CLAUDE}" ] || { echo "ERROR CLAUDE_CLI_MISSING ${CLAUDE}"; exit 2; }
+"${CLAUDE}" --version || true
+
+# ---- critic A: adversarial --------------------------------------------------
+{
+cat <<'EOP'
+You are an adversarial reviewer. Below is a handoff document meant to let a
+fresh engineering session port a multi-node DDP capability to three ML
+harnesses on the ALCF Polaris cluster. Your job is to BREAK it, not improve
+its prose. Report, as a numbered list ordered by severity:
+  - factual or technical claims that are wrong or unverifiable as written
+  - internal contradictions
+  - failure modes the document should anticipate but does not
+  - over-promises (claims a reader would repeat that the evidence given does
+    not support)
+  - instructions that cannot actually be executed as written
+For each finding: quote the offending line, say why it fails, and what
+concrete change fixes it. Do not praise anything. Do not summarize the
+document. Do not use any tools; output only the findings report. If, after a
+genuine attempt, you find nothing substantive, output exactly:
+NO_SUBSTANTIVE_FINDINGS
+
+--- DOCUMENT UNDER REVIEW ---
+EOP
+cat "${DOC}"
+} > "${OUT}/prompt_adversarial.txt"
+
+# ---- critic B: cold executor ------------------------------------------------
+{
+cat <<'EOP'
+You are a brand-new engineering session with ZERO prior context about this
+project. The document below is the ONLY thing you have been given, and you
+have been told to execute it on the ALCF Polaris cluster. Walk through it as
+the executor you are and report, as a numbered list in document order, every
+point where you would be:
+  - BLOCKED (missing prerequisite, file, credential, or permission the
+    document assumes but does not provide or locate)
+  - CONFUSED (ambiguous instruction, undefined term or path, two readings)
+  - GUESSING (a decision the document forces you to make without criteria)
+Quote the line that triggers each item. Do not evaluate writing style. Do not
+use any tools; output only the report. If nothing would block, confuse, or
+force a guess, output exactly: COLD_READ_CLEAN
+
+--- DOCUMENT ---
+EOP
+cat "${DOC}"
+} > "${OUT}/prompt_cold.txt"
+
+run_critic() {  # run_critic <label> <promptfile> <outfile>
+    echo "--- critic $1 start $(date -Iseconds) ---"
+    "${CLAUDE}" -p --model claude-fable-5 < "$2" > "$3" 2> "${OUT}/$1.err"
+    rc=$?
+    lines=$(wc -l < "$3" 2>/dev/null || echo 0)
+    echo "--- critic $1 rc=${rc} lines=${lines} ---"
+    [ ${rc} -eq 0 ] && [ "${lines}" -ge 1 ]
+}
+
+ok=0
+run_critic adversarial "${OUT}/prompt_adversarial.txt" "${OUT}/report_adversarial.md" || ok=1
+run_critic cold        "${OUT}/prompt_cold.txt"        "${OUT}/report_cold.md"        || ok=1
+
+if [ ${ok} -eq 0 ]; then
+    echo "CRITIC_JOB_OK ${OUT}"
+else
+    echo "ERROR CRITIC_JOB_FAILED (see ${OUT}/*.err)"
+    tail -3 "${OUT}"/*.err 2>/dev/null
+fi
+echo "=== done $(date -Iseconds) ==="
+exit ${ok}

@@ -1,0 +1,270 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_sfno_e3sm
+#PBS -A lighthouse-uchicago
+#PBS -q capacity
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=168:00:00
+#PBS -r y
+# ^ RERUNNABLE. `capacity` is not preemptable, so this is insurance against a node
+# failure rather than the load-bearing mechanism it is on `preemptable` — but it is
+# only safe because this script is idempotent: RUN_NAME is stable, hydra chdir's into
+# the same RUN_DIR, and train.py resumes from ./checkpoints (train.py:1004-1011).
+# Do not add anything here that cannot survive being re-run from the top.
+#PBS -j oe
+# ============================================================================
+# SfnoPlasim on E3SM at PanguWeather PRODUCTION parity — Polaris, 4x A100.
+#
+# The ai-rossby half of the apples-to-apples SFNO comparison. The other half is
+# PanguWeather/v2.0/HPC_scripts/polaris_train_e3sm_sfno_alldata_full.pbs. Both
+# train the SAME architecture (1,182,108,160 params) on the SAME E3SM data with
+# the SAME corrected normalization — the difference under test is the HARNESS.
+# → polaris_sfno_comparison_handoff.md
+#
+# ⚠ RUN THE ARCHITECTURE GATE FIRST. The comparison is worthless if the two
+#   models differ:  qsub polaris/polaris_sfno_parity_gate.pbs   (PASS = SFNO_PARITY_OK)
+#
+# ⚠ PREREQUISITES, in order (each PASSes on a token, not an exit code):
+#   1. LOGIN node, once:  bash <repo>/polaris_setup_ai_rossby_venv.sh   -> AI_ROSSBY_VENV_OK
+#   2. LOGIN node, once:  build the normalization store (seconds) —
+#        $AI_ROSSBY_VENV/bin/python tools/data/e3sm/build_normalization_zarr.py \
+#          --source-dir $PANGU_AUX --std data_2015-2050_std_corr.nc \
+#          --output $AI_ROSSBY_DATA/e3sm/norm/normalization_2015-2050.zarr
+#   3. COMPUTE:  qsub polaris/polaris_e3sm_pangu_convert.pbs  -> CONVERT_ALL_OK
+#
+# --- QUEUE ------------------------------------------------------------------
+# `capacity`: 1-4 nodes, <=168 h, Priority 150, and it actively schedules.
+# `preemptable` is the fallback and MAY NEVER START — it did not start a single
+# one of 9 jobs in 11.5 h on 2026-08-05.
+# ⚠ `capacity` allows ONE RUNNING JOB PER PROJECT (max_run=[p:PBS_GENERIC=1],
+#   max_queued 2), so taking it blocks every other lighthouse-uchicago job.
+#   Check first, and coordinate:
+#       qstat -a | awk 'NR>5 && $3 ~ /capacity/ {print $2, $10}'
+#   That is why the PanguWeather side runs on `preemptable` (it is built for it:
+#   -r y + per-epoch checkpoints) and this side takes the capacity slot.
+#
+# --- SMOKE FIRST ------------------------------------------------------------
+# Never queue 168 h against an unproven config. On the debug queue (<=1 h):
+#     qsub -q debug -l walltime=01:00:00 -v SMOKE=1 polaris/polaris_sfno_e3sm.pbs
+# SMOKE=1 caps the run at MAX_ITERS steps and keys RUN_NAME to the job id, so a
+# resumed smoke can never train 0 steps and still exit 0 (that false green cost
+# a day on the Pangu side, job 7253454).
+# PASS = "SFNO_E3SM_SMOKE_OK" + PREFLIGHT_OK + a finite, advancing loss.
+#
+# --- PRODUCTION -------------------------------------------------------------
+#     qsub polaris/polaris_sfno_e3sm.pbs
+#     qsub -v MAX_EPOCHS=100,RUN_NAME=sfno_parity01 polaris/polaris_sfno_e3sm.pbs
+# PASS is NOT rc=0. Progress = advancing epoch metrics + a checkpoint newer than
+# the last run in $RUN_DIR/checkpoints. DONE = "SFNO_E3SM_RUN_OK".
+# A NaN loss is a FAILURE, not a slow start — dataset.nan_fill_strict is on, so
+# any NaN reaching the model raises.
+#
+# ⚠ CHECKPOINT STORAGE: `cfg.max_checkpoints_to_keep` is DEAD in this recipe —
+#   declared in conf/config.yaml but never read, and physicsnemo's
+#   save_checkpoint does not prune. Checkpoints accumulate without bound at
+#   ~14 GB each (4.7 GB fp32 weights + 9.4 GB AdamW moments on a 1.18 B model),
+#   so CKPT_INTERVAL, not a retention count, is the only lever. Default 5 =>
+#   20 saves over 100 epochs => ~280 GB, comparable to the Pangu side's rolling
+#   window. Lower it only if you also plan to prune by hand.
+#
+# Offline wandb by default (polaris_env.sh). Upload later from a LOGIN node:
+#     wandb sync $WANDB_DIR/<run>
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base                                # CUDA/NCCL env
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+# The venv is NOT --system-site-packages, but keep the user site out regardless:
+# ALCF homes are mode 0700, so anything resolving from ~/.local makes the run
+# reproducible by exactly one person — which is to say, not a result.
+export PYTHONNOUSERSITE=1
+
+# physicsnemo is EDITABLE in that venv, so it imports from whichever checkout
+# built it. Training from tree A against a store converted with tree B's channel
+# lists is the exact silent mismatch this pipeline exists to prevent.
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+SMOKE="${SMOKE:-0}"
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+DATA="${AI_ROSSBY_DATA}/e3sm"
+NORM="${DATA}/norm/normalization_2015-2050.zarr"
+
+SMOKE_OVERRIDES=()
+if [ "${SMOKE}" = "1" ]; then
+    # Unique per job: a resumed smoke would train 0 steps and still exit 0.
+    RUN_NAME="${RUN_NAME:-sfno_e3sm_parity_smoke_${PBS_JOBID%%.*}}"
+    MAX_EPOCHS="${MAX_EPOCHS:-1}"
+    MAX_ITERS="${MAX_ITERS:-20}"
+    CKPT_INTERVAL="${CKPT_INTERVAL:-1000000}"   # effectively never; nothing to resume
+    # ⚠ `validation=off` is NOT enough to skip validation — it only disables the
+    # ROLLOUT (conf/validation/off.yaml). A single-step val_loss pass still runs
+    # over every sample whenever dataset.val_zarr_path is set (train.py:832-842),
+    # which here is 4 years = 5,840 samples: ~5-7 min, i.e. more than 10x the
+    # 20-step smoke it is supposed to be validating. Nulling the path is what
+    # actually leaves `val_datapipe` None. Set SMOKE_VALIDATE=1 to keep it.
+    if [ "${SMOKE_VALIDATE:-0}" != "1" ]; then
+        SMOKE_OVERRIDES=("dataset.val_zarr_path=null")
+    fi
+else
+    # STABLE by default — the opposite of the smoke. Production wants exactly the
+    # resume the smoke forbids.
+    RUN_NAME="${RUN_NAME:-sfno_e3sm_parity01}"
+    MAX_EPOCHS="${MAX_EPOCHS:-100}"
+    MAX_ITERS="${MAX_ITERS:-.inf}"
+    CKPT_INTERVAL="${CKPT_INTERVAL:-5}"
+fi
+# Run dir on EAGLE, not the (job-scoped) node scratch and not the repo: hydra
+# chdir's into it, and checkpoints/wandb must outlive the job. Keying it to
+# RUN_NAME (not the job id) is what makes -r y and manual re-submission resume.
+RUN_DIR="${RUN_DIR:-${MEMBER_ROOT}/runs/ai_rossby_sfno_e3sm/${RUN_NAME}}"
+# Pinned to 1 to match the PanguWeather reference (`num_data_workers: 1`). This
+# is a COMPARISON AXIS, not a tuning knob: a prior sweep measured ~9% wall
+# throughput and 10x step-time jitter between 1 and 8, which is the same order
+# as the harness difference being measured. Change it only in lockstep with the
+# Pangu side, and record the value with the result.
+LOADER_WORKERS="${LOADER_WORKERS:-1}"
+SEED="${SEED:-0}"
+
+# --- per-epoch step-timing telemetry ----------------------------------------
+# ON by default. It rides along on this run — two CUDA events per step and one
+# all-reduce per epoch, no per-step sync — so it costs no extra node-hours and
+# measures the REAL configuration. That matters because the bench harness
+# cannot: profile_train.py builds no EMA and scopes its scheduler to the bench
+# window, while epochs 1-6 here are exactly where the 5-epoch LR warmup and the
+# EMA schedule are still changing what a step costs.
+# TELEMETRY_EPOCHS=0 records every epoch; set e.g. 6 to stop after the warmup.
+# Its counterpart is $PANGU_EPOCH_TELEMETRY on the PanguWeather side; the two
+# files share a column contract and a `harness` column, so they concatenate.
+export AI_ROSSBY_EPOCH_TELEMETRY="${TELEMETRY:-1}"
+export AI_ROSSBY_EPOCH_TELEMETRY_EPOCHS="${TELEMETRY_EPOCHS:-0}"
+export AI_ROSSBY_EPOCH_TELEMETRY_CSV="${AI_ROSSBY_EPOCH_TELEMETRY_CSV:-${MEMBER_ROOT}/bench/epoch_telemetry_ai_rossby_sfno.csv}"
+mkdir -p "$(dirname "${AI_ROSSBY_EPOCH_TELEMETRY_CSV}")"
+
+for d in "${DATA}/train" "${DATA}/val" "${NORM}"; do
+    [ -e "${d}" ] || {
+        echo "ERROR AI_ROSSBY_DATA_MISSING: ${d}"
+        echo "  Run the converter first:  qsub polaris/polaris_e3sm_pangu_convert.pbs"
+        exit 3
+    }
+done
+
+polaris_env_report
+echo "--- run ---"
+echo "  recipe   = ${RECIPE}"
+echo "  mode     = $([ "${SMOKE}" = "1" ] && echo SMOKE || echo PRODUCTION)"
+echo "  ranks    = ${NPROC}   (global batch = ${NPROC} x 1)"
+echo "  data     = ${DATA}"
+echo "  run dir  = ${RUN_DIR}"
+echo "  epochs   = ${MAX_EPOCHS}   max_iters/stage = ${MAX_ITERS}   ckpt every ${CKPT_INTERVAL}"
+echo "  workers  = ${LOADER_WORKERS}   seed = ${SEED}"
+echo "  telemetry= ${AI_ROSSBY_EPOCH_TELEMETRY} (first ${AI_ROSSBY_EPOCH_TELEMETRY_EPOCHS:-0} epochs, 0=all) -> ${AI_ROSSBY_EPOCH_TELEMETRY_CSV}"
+echo "  wandb    = ${WANDB_MODE} (project ${WANDB_PROJECT}, name ${RUN_NAME})"
+echo
+
+# --- PREFLIGHT 1: the architecture is the one we certified -------------------
+# Static half of the gate (source + config parity). Milliseconds, and it catches
+# a config edit made after the GPU gate last ran. It does NOT replace
+# polaris_sfno_parity_gate.pbs, which additionally builds both models.
+echo "=== preflight: SFNO architecture parity (static) ==="
+python "${REPO}/compare_sfno_parity.py" --static || {
+    echo "ERROR PREFLIGHT_FAILED — architecture diverged from PanguWeather."
+    exit 4
+}
+echo
+
+# --- PREFLIGHT 2: the variable contract, against what will actually be read ---
+# Channel order is a SILENT failure: ClimateZarrDataset stacks tensors in the
+# STORE's attrs order while the NaN fill and the loss are built from the MODEL
+# CONFIG's lists, and a permutation produces correctly-shaped tensors that
+# torch.cat cannot object to. So compare both against the one contract, and
+# refuse to burn node-hours on a mismatch.
+echo "=== preflight: variable contract ==="
+PREFLIGHT_RC=0
+for store in "${DATA}"/train/*.zarr "${DATA}"/val/*.zarr; do
+    [ -e "${store}" ] || continue
+    python "${REPO}/ai_rossby_variable_contract.py" \
+        --check-artifacts \
+        --model-config "${RECIPE}/conf/model/sfno_e3sm_parity.yaml" \
+        --dataset-config "${RECIPE}/conf/dataset/e3sm_pangu_parity.yaml" \
+        --converter "${AR_ROOT}/tools/data/e3sm/pangu_h5_to_zarr.py" \
+        --store "${store}" || PREFLIGHT_RC=1
+done
+if [ "${PREFLIGHT_RC}" -ne 0 ]; then
+    echo "ERROR PREFLIGHT_FAILED — not launching training."
+    exit 4
+fi
+echo "PREFLIGHT_OK"
+echo
+
+# --- launch ------------------------------------------------------------------
+# `python -m torch.distributed.run`, never bare `torchrun`: the bare name can
+# resolve to the BASE conda's launcher, whose shebang pins the wrong python.
+cd "${RECIPE}" || exit 2
+mkdir -p "${RUN_DIR}"
+
+# max_iterations is passed ONLY when capping. The config's own value is YAML
+# `.inf`, which train.py:1058-1060 maps to "no cap"; passing `.inf` back through
+# Hydra's override grammar would arrive as the STRING ".inf" and die in int().
+EXTRA_OVERRIDES=("${SMOKE_OVERRIDES[@]}")
+if [ "${MAX_ITERS}" != ".inf" ]; then
+    EXTRA_OVERRIDES+=("training.stages.0.max_iterations=${MAX_ITERS}")
+fi
+
+python -m torch.distributed.run --standalone --nnodes=1 --nproc_per_node="${NPROC}" \
+    train.py \
+    model=sfno_e3sm_parity \
+    dataset=e3sm_pangu_parity \
+    training=sfno_e3sm_parity \
+    loss=raw_l2 \
+    training.max_epochs="${MAX_EPOCHS}" \
+    "${EXTRA_OVERRIDES[@]}" \
+    dataset.batch_size=1 \
+    dataset.num_workers="${LOADER_WORKERS}" \
+    seed="${SEED}" \
+    checkpoint_save_interval="${CKPT_INTERVAL}" \
+    run_name="${RUN_NAME}" \
+    hydra.run.dir="${RUN_DIR}" \
+    wandb.mode="${WANDB_MODE}" \
+    wandb.project="${WANDB_PROJECT}" \
+    wandb.name="${RUN_NAME}"
+rc=$?
+
+echo
+if [ "${rc}" -eq 0 ]; then
+    if [ "${SMOKE}" = "1" ]; then
+        echo "SFNO_E3SM_SMOKE_OK  run_dir=${RUN_DIR}"
+    else
+        echo "SFNO_E3SM_RUN_OK  run_dir=${RUN_DIR}"
+    fi
+    echo "  Upload the offline wandb run from a LOGIN node:  wandb sync ${WANDB_DIR}/<run>"
+else
+    echo "ERROR SFNO_E3SM_RUN_FAILED rc=${rc}"
+    echo "  Re-submit the same command to resume from ${RUN_DIR}/checkpoints."
+fi
+exit "${rc}"

@@ -1,0 +1,95 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: Copyright (c) 2026 The University of Chicago.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# PanguPlasimLegacy on the E3SM archive, at PanguWeather variable parity.
+#
+# The variable groups below are IDENTICAL — names, roles, order, levels — to
+# jesswan's trained PanguWeather E3SM run
+# (PanguWeather/v2.0/config/E3SM_SFNO_H5_STAMPEDE_jsw.yaml). That equality is
+# asserted, not asserted-by-comment: `ai_rossby_variable_contract.py` holds the
+# contract once and checks this file against it (`--check-artifacts`), which the
+# PBS launcher runs as a preflight. Full evidence:
+# `ai_rossby_panguweather_variable_parity.md` (PASS 10/10).
+#
+# The ARCHITECTURE is the intended difference: jesswan ran SFNO on these
+# variables; this runs Pangu. Geometry/capacity is based on
+# `pangu_plasim_s2s.yaml` (already 180x360), retuned for 18 levels.
+#
+# ⚠ Group ORDER is load-bearing and unchecked at runtime by the framework:
+# `ClimateZarrDataset` stacks tensors in the *store's* attrs order while the NaN
+# fill and the loss are built from the lists below. A permutation yields
+# correctly-shaped tensors with transposed channels and raises nothing. Keep
+# these lists and `PANGU_E3SM_CHANNELS` in `tools/data/e3sm/pangu_h5_to_zarr.py`
+# in lockstep.
+
+name: PanguPlasimLegacy
+module: physicsnemo.experimental.models.pangu_plasim
+
+# --- Variable groups — the PanguWeather E3SM contract, 108 fields -----------
+# 5 upper-air x 18 levels (90) + surface 6 + land 2 + ocean 0 + diagnostic 3
+#   + constant_boundary 4 + varying_boundary 3 = 108.
+# CLDLIQ / CLDICE / CLOUD excluded (162 -> 108), per the science owner.
+upper_air_variables: ["T", "U", "V", "Z3", "RELHUM"]
+surface_variables: ["TREFHT", "U10", "RHREFHT", "PS", "PSL", "TMQ"]
+diagnostic_variables: ["FSNTOA", "FSNT", "PRECT"]
+# Land is masked NaN over ~61% ocean. Kept as its own group so the model keeps
+# its distinct land head; the *store* folds these into `surface_variables` last
+# because PanguPlasimLegacy slices its surface tensor as [surface|land|ocean].
+land_variables: ["SOILWATER_10CM", "TSOI_10CM"]
+# Empty on purpose: SST/ICE are PRESCRIBED boundaries below, not forecast
+# fields. This is the single most consequential role assignment in the contract
+# and the thing that makes the run PanguWeather-comparable.
+ocean_variables: []
+constant_boundary_variables: ["PCT_GLACIER", "PFTDATA_MASK", "PCT_NATVEG", "TOPO"]
+varying_boundary_variables: ["SST", "ICE", "sol_in"]
+
+# --- Grid / level geometry --------------------------------------------------
+# The 18 E3SM hybrid levels in hPa, at the archive's full precision — these are
+# the values embedded in the H5 keys (`T_998.4964394917621`) and are what
+# PanguWeather selects on via `sigma_levels` (`use_sigma_levels: True`). They
+# are terrain-following hybrid levels, not isobaric, despite the hPa labels.
+#
+# The Zarr store rounds its `pressure_level` coord to float32 (~1e-7 relative),
+# so these float64 literals do not compare == to the store's. Both consumers
+# tolerate that: train.py's level-subset guard only fires for a strict subset,
+# and the normalizer matches by nearest value at atol=1e-3.
+levels: [4.714998332947841, 10.655023096474308, 19.235455601758737, 28.79458853709195,
+         50.11779996521295, 69.59908688413749, 96.46377266572703, 145.04282239200347,
+         200.99889546355382, 256.72368590525895, 302.21364012188303, 385.999023919911,
+         492.46857402252755, 608.6437744215842, 713.7046383204334, 849.6612491105952,
+         925.5197481473349, 998.4964394917621]
+horizontal_resolution: [180, 360]
+patch_size: [2, 2, 2]
+# 18 levels -> 9 after the level patch, so the vertical window of 2 divides it.
+window_size: [2, 6, 10]
+vertical_windowing: True
+
+# --- Backbone capacity (from pangu_plasim_s2s.yaml) -------------------------
+depths: [2, 6, 6, 2]
+num_heads: [6, 12, 12, 6]
+embed_dim: 240
+updown_scale_factor: 2
+
+# --- Heads + behaviour switches --------------------------------------------
+predict_delta: False
+# False, matching PanguWeather's E3SM configs. It gates the land/ocean masking
+# of outputs; with it off, no `mask_fill` is needed here (the NaN fill happens
+# on INPUTS, from conf/dataset/e3sm.yaml).
+mask_output: False
+upper_air_boundary: False
+subpixel_deconv: True
+# E3SM's 180x360 grid is cell-centred (lat -89.5 .. 89.5), so no pole row.
+polar_pad: False
+grid_has_poles: False
+recovery_head: True
+diagnostic_head: False
+has_diagnostic: True
+
+# --- Regularization / activation checkpointing ------------------------------
+drop_rate: 0.0
+# Only gates the recovery heads; bf16 + batch_size are the real memory levers
+# on a 40 GB A100.
+checkpointing: 3
+use_reentrant: False

@@ -1,0 +1,156 @@
+#!/bin/bash -l
+#PBS -N pploop-dhconv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# §4.9's dhconv layout fix, run against the §4.12 gate — the first optimization
+# this loop can actually test.
+#
+#   arm A  PANGU_DHCONV_XIO=0  weight stored [in, out, modes_lat]  (today)
+#   arm B  PANGU_DHCONV_XIO=1  weight stored [modes_lat, in, out]
+#
+# Identical arithmetic and identical initial weights by construction: the draw
+# happens in the original order and is permuted afterwards, because torch.randn
+# consumes the same RNG values either way but would place them at DIFFERENT
+# positions if given the reordered shape.
+#
+# ⚠ A layout change CAN legitimately alter floating-point accumulation order
+#   inside the bmm, so a tiny non-bitwise difference would not be a "bug" in the
+#   usual sense — but the §4.12 floor is 0.000e+00 and CLAUDE.md #1/#11 forbid
+#   loosening a tolerance to let a faster version through. If it fails the floor,
+#   that is a TRADE for the owner to judge, not something to wave past here.
+#
+# WARMUP=5/STEPS=20 for both arms: equivalence stays valid (same shape both
+# sides) while step_med is measured over warm steps. These records are therefore
+# NOT comparable to the committed 20-step eager.json — only to each other.
+#
+# PASS = DHCONV_AB_DONE plus both records. Never rc.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+
+# ---- LIVE progress, written to a FILE from the first line -------------------
+# Jobs 7551491 and 7551521 both hung and both told us nothing: PBS only returns
+# the .o file at job end, so a hang leaves no readable trace at all. Mirroring
+# everything to /eagle makes the hang point observable WHILE it hangs.
+# Prime suspect is the env bootstrap (`conda activate` has stalled on this
+# cluster before), NOT the model code — arm A runs the unchanged path, and
+# contractions.py already scripts the identical "bixy,xio->boxy" einsum at
+# line 130, so TorchScript is not the problem.
+PROG="/eagle/projects/lighthouse-uchicago/members/mehta5/bench/progress_${PBS_JOBID%%.*}.log"
+mkdir -p "$(dirname "${PROG}")" 2>/dev/null || true
+exec > >(tee -a "${PROG}") 2>&1
+mark () { echo "[$(date +%H:%M:%S)] $*"; }
+mark "job ${PBS_JOBID} started on $(hostname); live log -> ${PROG}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+mark "-> module use"
+module use /soft/modulefiles
+mark "   module use done"
+mark "-> module load conda"
+module load conda 2>/dev/null || true
+mark "   module load conda done"
+mark "-> conda activate base"
+conda activate base 2>/dev/null || true
+mark "   conda activate base done"
+# shellcheck disable=SC1091
+mark "-> source polaris_env.sh"
+source "${REPO}/polaris_env.sh" || exit 2
+mark "   source polaris_env.sh done"
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+export PYTHONPATH="${V20_DIR}:${SHIM}"
+
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.equiv.rendered.yaml"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+# config_sha256_from_env() reads this and REFUSES to write a record without it:
+# two records both hashing "unknown" would compare clean across different configs.
+export S2S_YAML="${CONFIG_FILE}"
+
+export PANGU_BENCH=1 PANGU_NVTX=0
+export PANGU_BENCH_WARMUP=5 PANGU_BENCH_STEPS=20     # warm step_med + K=25 record
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_equiv_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+OUT_DIR="${REPO}/baselines/pangu_sfno_e3sm"
+mkdir -p "${OUT_DIR}"
+
+echo "=== preflight: import the model modules (bounded) ==="
+# Job 7551491 hung for 27 min at 5 s of CPU with only the arm banner in the log, and
+# nothing distinguished "import deadlock" from "training stall". This separates them in
+# seconds. @torch.jit.script compiles BOTH contraction variants at import time whatever
+# the knob says, so this is the first place a TorchScript problem would appear.
+for KNOB in 0 1; do
+    echo "--- PANGU_DHCONV_XIO=${KNOB} ---"
+    PANGU_DHCONV_XIO=${KNOB} timeout -k 30 300 "${PY}" -c "
+import time, sys
+t0 = time.time()
+import networks.modulus_sfno.contractions as C
+import networks.modulus_sfno.s2convolutions as S
+print('  import OK in %.1fs  xio=%s' % (time.time() - t0, C.dhconv_weight_is_xio()))
+" || { echo "ERROR IMPORT_HUNG_OR_FAILED at knob=${KNOB} (rc=$?)"; exit 6; }
+done
+
+run_arm () {   # $1 = record name
+    echo "=== arm $1 (seed 0, world_size 1, K=20) ==="
+    local LOG="${MEMBER_ROOT}/bench/arm_$1_${PBS_JOBID%%.*}.log"
+    # NOT `| tail`: a pipe buffers until the pipeline ends, so a hang prints NOTHING —
+    # which is exactly how job 7551491 burned 27 minutes and told us nothing. Write to a
+    # file, bound the arm, then tail the FILE (readable even if this is killed).
+    PANGU_EQUIV_JSON="${OUT_DIR}/$1.json" PANGU_DHCONV_XIO="${PANGU_DHCONV_XIO:-0}" \
+    timeout -k 30 900 "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
+        --run_num="equiv_$1_${PBS_JOBID%%.*}" --config=SFNO --fresh_start \
+        --epochs 1 --global_seed 0 > "${LOG}" 2>&1
+    local RC=$?
+    tail -20 "${LOG}"
+    echo "arm $1 rc=${RC} (124 = timed out; bench guard exits 3 AFTER a good capture)"
+    [ "${RC}" = "124" ] && { echo "ERROR ARM_TIMEOUT $1 — full log: ${LOG}"; exit 7; }
+}
+
+PANGU_DHCONV_XIO=0 run_arm dhconv_iox
+PANGU_DHCONV_XIO=1 run_arm dhconv_xio
+
+for f in dhconv_iox dhconv_xio; do
+    [ -s "${OUT_DIR}/${f}.json" ] || { echo "ERROR EQUIV_NO_RECORD ${f}.json"; exit 5; }
+done
+
+echo
+echo "=== §4.12 gate: layout fix vs today, at the MEASURED floor ==="
+# compare_baselines.py needs python 3.7+ (`from __future__ import annotations`);
+# the login node's python3 is 3.6.15, so use the venv interpreter. It imports no
+# torch — pure json/argparse.
+CMP="${REPO}/physicsnemo_ai_rossby/polaris/compare_baselines.py"
+for TOL in 2.5e-7 1e-5 1e-2; do
+    echo "--- tolerance ${TOL} ---"
+    "${PY}" "${CMP}" "${OUT_DIR}/dhconv_iox.json" "${OUT_DIR}/dhconv_xio.json" \
+        --tolerance "${TOL}" && { echo "FLOOR<=${TOL}"; break; }
+done
+
+echo
+echo "=== speedup: step_med, both arms (bench CSV) ==="
+"${PY}" - "${PANGU_BENCH_CSV}" <<'PY'
+import csv, sys
+rows = list(csv.DictReader(open(sys.argv[1])))[-2:]
+if len(rows) == 2:
+    a, b = (float(r["step_med"]) for r in rows)
+    print("  arm A (iox) step_med = %.4f s" % a)
+    print("  arm B (xio) step_med = %.4f s" % b)
+    print("  speedup = %.4fx  (%.1f%%)" % (a / b, 100.0 * (a - b) / a))
+else:
+    print("  ERROR ONLY %d CSV ROWS — cannot compare" % len(rows))
+PY
+echo "DHCONV_AB_DONE  ${OUT_DIR}/"

@@ -30,6 +30,7 @@ makani = pytest.importorskip("makani")
 
 from makani.utils.YParams import YParams  # noqa: E402
 
+from helpers import set_unit_model_parallel  # noqa: E402
 from sfno_training.trainer import EMAModel, PlasimTrainer  # noqa: E402
 
 
@@ -68,12 +69,7 @@ def _populate_runtime_params(params, exp_dir: Path) -> None:
     params["batch_size"] = 1
     params["data_num_shards"] = 1
     params["data_shard_id"] = 0
-    params["fin_parallel_size"] = 1
-    params["fout_parallel_size"] = 1
-    params["h_parallel_size"] = 1
-    params["w_parallel_size"] = 1
-    params["model_parallel_sizes"] = [1, 1, 1, 1]
-    params["model_parallel_names"] = ["h", "w", "fin", "fout"]
+    set_unit_model_parallel(params)
     params["parameters_reduction_buffer_count"] = 1
     params["optimizer_max_grad_norm"] = 1.0
     params["log_to_screen"] = True
@@ -229,6 +225,7 @@ def test_ema_disabled_path_unchanged(packaged_dataset: Path, tmp_path: Path):
         optimizer=pt.optimizer,
         scheduler=pt.scheduler,
         counters={"iters": pt.iters, "epoch": pt.epoch},
+        dataloader_state=None,  # makani main's trainer passes this keyword (4693db4)
         checkpoint_mode="legacy",
     )
     saved = torch.load(

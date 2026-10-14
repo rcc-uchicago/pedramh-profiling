@@ -20,6 +20,8 @@ calendars (no-leap, 360-day, etc.) used by different climate models are supporte
 
 import sys
 
+import warnings
+
 import cftime
 import h5py
 import numpy as np
@@ -243,7 +245,6 @@ class GetDataset(Dataset):
         self.data_dir = params['data_dir']
         self.train = train
         self.num_inferences = num_inferences
-        self.has_year_zero = params['has_year_zero']
         self.epsilon_factor = params['epsilon_factor']
         self.diagnostic_input = params.get('diagnostic_input', False) # whether to use diagnostic as prognostic
         self.validate = validate if not self.train else False
@@ -271,6 +272,25 @@ class GetDataset(Dataset):
         self.timedelta_hours = params["timedelta_hours"]
         self.data_timedelta_hours = params["data_timedelta_hours"]
         self.datetime_class = CALENDAR_TO_DATETIME[self.calendar]
+        # has_year_zero is a PROPERTY OF THE CALENDAR, not a free choice, and forcing the
+        # config's value is what blocked E3SM. cftime's defaults: Gregorian -> False;
+        # the idealized calendars (noleap / all_leap / 360_day) -> True. Every config in this
+        # repo pins False, which silently AGREES with Gregorian — which is exactly why this
+        # never surfaced on Midway ('standard') — but CONTRADICTS noleap, and mixing a
+        # forced-False date with a default-True one raises
+        #   TypeError: cannot compute the time difference between dates with year zero conventions
+        # Take the calendar's own default; warn if the config disagrees rather than silently
+        # ignoring the key.
+        self.has_year_zero = self.datetime_class(2000, 1, 1).has_year_zero
+        _cfg_hyz = params['has_year_zero'] if 'has_year_zero' in params else None
+        if _cfg_hyz is not None and bool(_cfg_hyz) != bool(self.has_year_zero):
+            warnings.warn(
+                "config has_year_zero=%r contradicts calendar %r (cftime default %r); using the "
+                "calendar's. Forcing the other value raises 'cannot compute the time difference "
+                "between dates with year zero conventions'."
+                % (_cfg_hyz, params['calendar'], self.has_year_zero),
+                RuntimeWarning, stacklevel=2)
+
 
         days, hours = divmod(self.timedelta_hours, 24)
         self.timedelta = (
@@ -609,17 +629,17 @@ class GetDataset(Dataset):
             raise ValueError('solstice_bias_peak_multiplier must be >= 1.0')
 
         ref_year = self.year_start
-        yr_start = self.datetime_class(ref_year, 1, 1, has_year_zero=self.has_year_zero)
-        jun_doy = (self.datetime_class(ref_year, 6, 21, has_year_zero=self.has_year_zero) - yr_start).days
-        dec_doy = (self.datetime_class(ref_year, 12, 21, has_year_zero=self.has_year_zero) - yr_start).days
-        year_len = (self.datetime_class(ref_year + 1, 1, 1, has_year_zero=self.has_year_zero) - yr_start).days
+        yr_start = self.datetime_class(ref_year, 1, 1)
+        jun_doy = (self.datetime_class(ref_year, 6, 21) - yr_start).days
+        dec_doy = (self.datetime_class(ref_year, 12, 21) - yr_start).days
+        year_len = (self.datetime_class(ref_year + 1, 1, 1) - yr_start).days
 
         order = []
         near_solstice = 0
         for idx in self.inference_idxs:
             sample_time = self.start_date + timedelta(hours=float(self.dates[idx]))
             sample_yr_start = self.datetime_class(
-                sample_time.year, 1, 1, has_year_zero=self.has_year_zero,
+                sample_time.year, 1, 1,
             )
             doy = (sample_time - sample_yr_start).total_seconds() / 86400.0
 
@@ -664,8 +684,7 @@ class GetDataset(Dataset):
         """
         data_year = data_datetime.year
         seconds_into_year = int(
-            (data_datetime - self.datetime_class(data_year, 1, 1, hour=0,
-                                                  has_year_zero=self.has_year_zero)).total_seconds()
+            (data_datetime - self.datetime_class(data_year, 1, 1, hour=0)).total_seconds()
         )
         data_idx = seconds_into_year // 3600 // self.data_timedelta_hours
         data_file_path = get_out_path(self.data_dir, data_year, data_idx)
@@ -680,8 +699,7 @@ class GetDataset(Dataset):
         # Returns (second_of_day, day_of_year). DOY is 1-indexed.
         data_year = time.year
         seconds_into_year = int(
-            (time - self.datetime_class(data_year, 1, 1, hour=0,
-                                        has_year_zero=self.has_year_zero)).total_seconds()
+            (time - self.datetime_class(data_year, 1, 1, hour=0)).total_seconds()
         )
         doy = (seconds_into_year // 86400) + 1
         sod = seconds_into_year % 86400
@@ -694,8 +712,8 @@ class GetDataset(Dataset):
         prior_time = current_time - timedelta(hours=self.delta_boundary_hours)
         if prior_time < self.start_date:
             days_in_year = (
-                self.datetime_class(self.year_start + 1, 1, 1, has_year_zero=self.has_year_zero)
-                - self.datetime_class(self.year_start, 1, 1, has_year_zero=self.has_year_zero)
+                self.datetime_class(self.year_start + 1, 1, 1)
+                - self.datetime_class(self.year_start, 1, 1)
             ).days
             prior_time = prior_time + timedelta(days=days_in_year)
         return prior_time

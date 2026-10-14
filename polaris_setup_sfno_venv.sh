@@ -14,18 +14,29 @@
 #
 # HOW: a `--system-site-packages` venv layered on the ALCF base conda, so it
 # INHERITS the CUDA-12.9-matched torch 2.8 (no 2.5 GB reinstall) and only the
-# SFNO-specific packages are installed/overridden here. venvs disable the user
-# site-packages, so the base's --user torch_harmonics 0.7.4 is NOT visible inside.
+# SFNO-specific packages are installed/overridden here.
 #
-# RUN ON A LOGIN NODE (compute nodes have no outbound network):
+# ⚠ A --system-site-packages venv does NOT hide the user site — site.py re-enables it and
+#   ranks ~/.local ABOVE the venv, so a --user torch_harmonics 0.7.4 silently shadows this
+#   venv's 0.9.x and makani dies on "cannot import name precompute_latitudes". That is why
+#   PYTHONNOUSERSITE=1 is set here and in both SFNO PBS scripts. (PYTHONNOUSERSITE does not
+#   block PYTHONPATH, so $POLARIS_TOPUPS must never be added to it in an SFNO job either.)
+#
+# RUN ON A LOGIN NODE (compute nodes reach PyPI only via the ALCF proxy, and a 10-minute
+# source build has no business on an allocation):
 #     bash polaris_setup_sfno_venv.sh
 # PASS = the final line "SFNO_VENV_OK".
 # The makani / physicsnemo polaris_*.pbs scripts activate this venv.
 # ============================================================================
 set -uo pipefail
 
-VENV=/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv
-REPO=/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling
+# Resolve YOUR dirs (works for any project member) — the repo root is this script's dir.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# Build into YOUR member dir. NOTE: polaris_env.sh would have pointed SFNO_VENV at the
+# shared read-only one if you have none yet — for BUILDING we always want your own.
+VENV="${POLARIS_SFNO_VENV:-${MEMBER_ROOT}/conda-envs/sfno-venv}"
 MAKANI_PIN=c97043086e60d44a3adc3bede9a6b3dc71f5005d   # README-mandated pin (0.2.0 wheel lacks the
                                                       # cache_unpredicted_features clone fix)
 
@@ -39,7 +50,7 @@ export OMP_NUM_THREADS=1
 export MAX_JOBS=4
 export TORCH_CUDA_ARCH_LIST=8.0        # A100 sm80
 export HDF5_USE_FILE_LOCKING=FALSE
-export PIP_CACHE_DIR=/eagle/projects/lighthouse-uchicago/members/mehta5/pip_cache
+export PIP_CACHE_DIR="${MEMBER_ROOT}/pip_cache"
 
 echo "=== creating venv (inherits base conda torch) : ${VENV} ==="
 python -m venv --system-site-packages "${VENV}"
@@ -99,8 +110,9 @@ except Exception as e:
     ok = False
     print("  FAIL precompute_latitudes: %s" % e)
 
-# Provenance gate: torch_harmonics/makani MUST resolve from the venv, not from the
-# base env's --user site (~/.local), which still holds 0.7.4 for the Pangu/SI smokes.
+# Provenance gate: torch_harmonics/makani MUST resolve from the venv — not from a stale
+# ~/.local, and not from $POLARIS_TOPUPS (the shared dir that carries 0.7.4 for the Pangu/SI
+# smokes; it is on PYTHONPATH for those jobs, and PYTHONPATH outranks this venv).
 import os
 import torch_harmonics, makani
 venv = os.environ.get("VIRTUAL_ENV", "")

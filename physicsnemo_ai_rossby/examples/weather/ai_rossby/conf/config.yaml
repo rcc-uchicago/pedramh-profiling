@@ -1,0 +1,79 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# Top-level config for the ai_rossby training recipe.
+#
+# Compositional structure (Hydra groups):
+#   model      — model architecture + variable-group routing
+#   loss       — loss-function family (raw/lat-weighted L1/L2, +/- VAE-KL)
+#   dataset    — Zarr store paths, normalization stats, batch/loader knobs
+#   training   — optimizer + EMA + multi-stage curriculum (each stage names
+#                its own scheduler + unroll_steps + num_epochs)
+#   validation — rollout validator + ensemble settings
+#
+# Defaults pick the PanguPlasimLegacy + OneCycle + raw L1 + single-step
+# combination that matches PanguWeather v2.0 PANGU_PLASIM_H5_DERECHO_0514.yaml.
+# Override on the command line, e.g.
+#   python train.py model=sfno_plasim_5412 training=sfno_plasim \
+#                   dataset=plasim_sim52_year12 validation=rollout_5412
+
+defaults:
+  - _self_
+  - model: pangu_plasim_legacy
+  - loss: mae
+  - dataset: plasim_sim52_year12
+  - training: pangu_plasim_legacy
+  - validation: "off"  # quoted — YAML otherwise parses bare `off` as bool False
+  - sampler: from_loss   # Phase 8d: inference-only diffusion sampler. Ignored
+                         # by train.py; train_diffusion.py uses cfg.loss as
+                         # the training scheduler. inference.py instantiates
+                         # cfg.sampler when the model is a diffusion wrapper.
+
+hydra:
+  job:
+    chdir: True
+  run:
+    dir: ./outputs/${run_name}
+
+run_name: pangu_plasim_legacy
+
+# --- Run control -----------------------------------------------------------
+start_epoch: 1
+seed: 0
+checkpoint_save_interval: 10
+max_checkpoints_to_keep: 5
+log_every_n_steps: 1
+
+# --- Wandb (default logging backend) ---------------------------------------
+# On by default. On rank 0 initialize_wandb runs and LaunchLogger routes all
+# log_minibatch / log_epoch dicts through wandb under the 'train/' and
+# 'valid/' namespaces (training loss components + validation val_loss / RMSE
+# / ACC). `mode: offline` writes a local ./wandb/ run with no login or network
+# — run `wandb sync ./wandb/<run>` later to upload, or set `mode: online` to
+# stream live (requires `wandb login`). If the `wandb` package is not
+# installed the trainer logs a warning and falls back to console logging.
+# Set enabled=False to disable entirely.
+#
+# Multi-GPU: wandb is initialized on EVERY rank (only rank 0 logs metrics).
+# Running wandb on all ranks makes its background-thread GIL/CUDA jitter
+# symmetric, which keeps DDP's NCCL collectives in lockstep — initializing it
+# on rank 0 alone desyncs the ranks and deadlocks training. To avoid one run
+# per GPU, only rank 0 uses `mode` below; other ranks are forced to `offline`
+# (local, not synced) so the UI shows exactly ONE run. Training + validation
+# metrics are aggregated across all GPUs to rank 0 before logging (per-step
+# minibatch + epoch train reduced in-band; val_loss all-reduced), so that one
+# run reflects every GPU. See _maybe_init_wandb / _ddp_mean_scalars in train.py.
+wandb:
+  enabled: True
+  project: ai-rossby
+  entity: null                    # wandb team/username; null = your default entity
+  name: ${run_name}
+  mode: offline                   # offline | online | disabled (rank 0 only; others offline)
+  init_timeout: 300               # seconds for wandb.init; raise if rank 0 times out at launch
+
+# --- Bench-time per-batch TSV emission (optional) --------------------------
+# When non-null and rank 0, every training-step's loss components are
+# appended to a TSV at this path. Used by benchmarks/.../sfno_plasim/.
+bench:
+  per_batch_tsv: null

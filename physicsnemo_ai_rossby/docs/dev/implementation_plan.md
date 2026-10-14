@@ -1,0 +1,1265 @@
+# AI-Rossby Implementation Plan — Porting PanguWeather v2.0 & amip into PhysicsNeMo
+
+Status: **in progress (Phase 1)** · Author: Claude (analysis + port) · Updated: 2026-06-16
+
+This plan covers the first objective in [`project_outline.md`](project_outline.md): porting all current
+models, training/inference code, and mid-training & after-the-fact validation from **PanguWeather/v2.0** and
+**amip** into the **PhysicsNeMo** framework. It is grounded in a deep read of all three repositories
+(findings summarized in §1).
+
+## Decisions locked in (from review)
+
+1. **Repo strategy — Fork & in-tree.** `ai-rossby` work happens in the user's PhysicsNeMo fork
+   (`awikner/physicsnemo`, local at `/work/nvme/bdiu/awikner/physicsnemo`, branch `ai-rossby`).
+   Ported models live under `physicsnemo/models/...`, recipes under `examples/weather/...`, tests under
+   `test/models/...`, registered via PhysicsNeMo entry-point/registry conventions. Upstream tracked for merges.
+2. **Fidelity — weight-compatible, two flavors per architecture.** Every ported model ships as:
+   - a **faithful** variant: an exact reproduction of the original architecture (same submodule names, same
+     forward math) so existing trained checkpoints load via translation scripts; and
+   - a **native** variant: the same model rebuilt on native PhysicsNeMo building blocks (`physicsnemo.nn`,
+     diffusion stack, StaticCapture-friendly, AMP/cuda-graph metadata).
+   Both variants implement the **same input/output contract** so a single datapipe + recipe serves both.
+   (These are the "legacy/updated" flavors from review, renamed **faithful/native** to avoid colliding with
+   the separate *legacy Pangu architecture* — see Naming.)
+3. **Sequence — Pangu_Plasim first**, end-to-end (model → data → train → validate → translate), establishing
+   the shared skeleton the diffusion port reuses. amip stochastic-interpolant model follows.
+4. **Validation — on HPC.** Logic is unit-tested locally on synthetic data; real training/inference and
+   numerical-fidelity checks run on the cluster (PBS: Derecho/Casper; SLURM: Midway). PhysicsNeMo's
+   `DistributedManager` auto-detects SLURM and torchrun; PBS is handled via MPI/env vars.
+
+### Naming (two orthogonal axes — read this to avoid confusion)
+- **Architecture axis** (which PanguWeather network): `pangu_plasim` = the *current* `networks/pangu.py`
+  model (with the training-only VAE dual-encoder + KL); `pangu_plasim_legacy` = the *predecessor*
+  `networks/pangu_legacy.py` model (no VAE). "Legacy Pangu" always means this no-VAE architecture.
+- **Fidelity axis** (how we port it): `faithful` (weight-compatible reproduction) vs `native` (rebuilt on
+  PhysicsNeMo blocks). The faithful flavor is the default class name; native variants carry a `Native` suffix.
+
+## 1. Source-repo findings (the facts this plan is built on)
+
+### PanguWeather/v2.0 (deterministic, custom PyTorch)
+- **Models** (`networks/`): `PanguModel_Plasim` (`pangu.py`, primary) — Pangu-style 3D Swin / Earth-Specific
+  transformer with a *training-only VAE dual-encoder + KL term*, **separate surface vs. upper-air streams**,
+  constant/varying boundary conditioning (TOA solar radiation special-cased into the 3D stream), optional
+  `predict_delta` mode (+ `Integrator`), configurable grid (PLASIM 64×128, ERA5/S2S 180×360). Plus a
+  **legacy `PanguModel_Plasim`** (`pangu_legacy.py`, no VAE; forward returns 4–5 values, selected via
+  `use_legacy_model`), a vendored **SFNO** (`networks/modulus_sfno/`, Modulus/makani-derived), and `pangu_lite`.
+- **Forward contract** (model-agnostic across current/legacy Pangu & SFNO):
+  `forward(surface, const_boundary, varying_boundary, upper_air, train=False, ...)` →
+  `(out_surface, out_upper_air[, out_diag], mu, sigma, mu2, sigma2)`.
+- **Training** (`train.py`, ~4.4k lines, custom `Trainer`): DDP (`find_unused_parameters=True`), bf16 AMP
+  (fp16 w/ GradScaler), **EMA**, AdamW (`fused`)/optional ZeRO-1, OneCycle/cosine/warmup schedulers,
+  loss = `surface*0.25 + pl (+ diag*0.25)` or raw channel-weighted, optional VAE-KL, no grad-accum.
+- **Data**: per-timestep **HDF5** `{year}_{idx:04d}.h5` (one dataset per variable), z-score stats in
+  **NetCDF**; separate surface/upper-air tensors; config-driven channel lists.
+- **Checkpoints**: plain dict `{iters, epoch, model_state, optimizer_state_dict, ema_state, scheduler_state_dict, ...}`;
+  possible `module.` prefix; `ema_state` preferred at inference; `Integrator` std buffers reconstructed from norm stats.
+- **Mid-training validation**: autoregressive rollout → lat-weighted **RMSE + ACC** (dayofyear climatology),
+  long-rollout climate **bias**, ensemble forecast validation, power spectra/GIF diagnostics.
+- **After-the-fact**: `inference*.py`/`long_inference.py`/`ensemble_inference.py` (shared `Stepper`), NetCDF
+  output, MC-dropout + IC-perturbation ensembles, observation/event metrics.
+- **Config**: YAML + argparse (`utils/YParams.py`). **Optional deps**: transformer_engine (FP8, off),
+  torch_harmonics (SFNO + spectral loss), apex (optional). No flash-attn/xformers/external makani.
+
+### amip (stochastic-interpolant latent diffusion, PyTorch Lightning)
+- **Models** (`modules/`): `TrainModule` dispatching `SI`/`SI_X`/`ERDM`; primary = **`SI_X`** = **DiT** backbone +
+  custom **x-prediction stochastic interpolant** (`DynamicInterpolant`, exponential integrator, ~5 steps,
+  spherical-harmonic noise). Also `SI` (velocity), `ERDM` (rolling diffusion), `x_DDC` downscaler, and an
+  eval-only `CombinedModule`.
+- **"Latent" is a fixed bilinear ×4 downsample** (180×360→45×90), **not a learned VAE**; autoregression on the
+  coarse physical grid. **Channels = 151** = surface(6)+diagnostic(15)+multilevel(5×26).
+- **Conditioning splits three ways**: `cond` (current state, channel-concat), `c_grid` (5 spatial forcings:
+  SST, sea-ice, TOA insolation + orography, LSM; stride-4 conv-embedded), `c_scalar` (calendar `[sod, doy]`
+  cyclic + `co2` acyclic).
+- **Training** (Lightning): **Muon** optimizer (2 param groups, ≥2D weights at 10×lr) + EMA
+  (`EMAWeightAveraging`), `precision=32-true`, `StepLR`. **All diffusion is hand-written** (no `diffusers`).
+- **Diffusion math** (`modules/diffusion/`): interpolant `X_t=(1-t)x+t·y+(1-t)σ√t·noise`; x-prediction loss;
+  exponential/log-uniform sampler `x_next = r·x_t + (1-r)·x1_pred + σ(1-t)·dW`. Spherical-harmonic noise
+  via `torch_harmonics`. 2D RoPE on physical lat/lon; `SphereConv2d`; pole-aware `sphere_pad`.
+- **Data**: per-timestep **HDF5** + per-var/per-level z-score stats in **NetCDF**; conditioning forcings;
+  `cftime` calendars; global-scalar CO₂ appended to calendar.
+- **Checkpoints**: Lightning `.ckpt`; backbone under `model.*`, per-channel noise buffer under
+  `scheduler.noise_scales`; full config under `hyper_parameters` (+ sibling `config.yml`).
+- **Validation**: lat-weighted RMSE at {1,3,5,10}-day leads + power spectra (mid-training); climatology/bias,
+  **QBO time-height**, global-mean t2m timeseries, ensemble envelopes (`evals/`, `bias.py`). No ACC.
+- **Live coupling to `old/`**: `modulate_fused`, `MLP` (`old/fa_basics.py`), `contractions.*` — must travel
+  with the port.
+
+### PhysicsNeMo (target framework, v2.2.0a0)
+- **Pangu already ships** (`physicsnemo/models/pangu/pangu.py`, `Pangu(Module)`) with a full recipe
+  (`examples/weather/pangu_weather/`) — **but** it's the standard 721×1440 ERA5 single-tensor `forward(x)`
+  variant; it does **not** match `PanguModel_Plasim` (dual-stream/boundary/VAE/delta). It's a **template**, not
+  a drop-in. Reusable building blocks: Earth-Specific attention, patch embed/recovery.
+- **`physicsnemo.Module`** (`physicsnemo/core/module.py`): base class with **JSON-serializable `__init__`
+  args** (auto-captured), `.mdlus` checkpoints (ZIP of `model.pt`+`args.json`+`metadata.json`),
+  `.save()`/`.load()`/`.from_checkpoint()`, `ModelMetaData` capability flags, entry-point + runtime registry.
+- **No Trainer abstraction** — example-based loops over building blocks: `DistributedManager`
+  (`physicsnemo/distributed`), `save_checkpoint`/`load_checkpoint` (`physicsnemo/utils/checkpoint.py`, FSDP/DTensor-aware),
+  `LaunchLogger` (`physicsnemo/utils/logging`), `StaticCaptureTraining` (`physicsnemo/utils/capture.py`,
+  CUDA-graphs+AMP+GradScaler).
+- **Diffusion** (`physicsnemo/diffusion`): prediction-agnostic, protocol-based (x0/score/epsilon — **no
+  v/velocity loss, no interpolants, no flow-matching, no latent-diffusion/VAE example**). EDM preconditioners,
+  noise schedulers (`LinearGaussianNoiseScheduler` base), samplers/solvers (`sample()`, Euler/Heun/stochastic),
+  losses (`MSEDSMLoss` w/ `*_to_x0_fn` callbacks), guidance, multi-diffusion. Backbones: `SongUNet*`, `DhariwalUNet`,
+  **`DiT`**. **TopoDiff** example is the canonical "custom scheduler/solver in user code" pattern.
+- **Datapipes** (`physicsnemo/datapipes`): `ERA5HDF5Datapipe` expects **per-year** HDF5 with a single
+  `fields(T,C,H,W)` array + `.npy` stats — **mismatch** with both source repos (per-timestep, per-variable,
+  NetCDF stats). Legacy `Datapipe` base + new `Reader/Transform/Dataset/DataLoader` arch both available.
+- **Metrics** (`physicsnemo/metrics`): `acc` (lat-weighted), lat-weighting reductions, `mse`/`rmse`
+  (unweighted), `crps`/`kcrps`, `power_spectrum`, ensemble metrics. (RMSE lat-weighting = compose mse + reductions.)
+- **Config**: Hydra + OmegaConf throughout examples (flat vs. composed `conf/base/*` groups).
+- **Distributed/HPC**: `DistributedManager` auto-detects ENV(torchrun)/SLURM/OpenMPI; no native PBS (use MPI/env).
+- **Tests**: `test/common` validators — `validate_forward_accuracy`, `validate_checkpoint`,
+  jit/cuda-graph/amp/onnx validators gated by `ModelMetaData` flags. Per-model `test/models/<name>/test_<name>.py`.
+
+## 2. Target architecture in the fork
+
+```
+ai-rossby (= awikner/physicsnemo, branch ai-rossby)
+├── physicsnemo/
+│   ├── models/
+│   │   ├── pangu_plasim/               # NEW — phases 1 & 6
+│   │   │   ├── __init__.py
+│   │   │   ├── pangu_plasim.py         # PanguPlasim — faithful port of pangu.py (VAE)         [P1]
+│   │   │   ├── pangu_plasim_legacy.py  # PanguPlasimLegacy — faithful port of pangu_legacy.py  [P1]
+│   │   │   ├── pangu_plasim_native.py  # PanguPlasimNative + PanguPlasimLegacyNative           [P6]
+│   │   │   ├── layers.py               # EarthSpecific{Layer,Block,Attention3D}, patch embed/recovery,
+│   │   │   │                           #   earth_position_index, up/down sample, mask, Integrator
+│   │   │   └── vae.py                  # training-only dual-encoder + KL (used by PanguPlasim)
+│   │   ├── sfno_plasim/                # NEW — phase 7 (reuse physicsnemo SFNO/makani where possible)
+│   │   └── stochastic_interpolant/     # NEW — phase 8+ (DiT faithful + native)
+│   ├── diffusion/
+│   │   └── noise_schedulers/
+│   │       └── interpolant.py          # NEW — DynamicInterpolant/Drift/DataDependent as NoiseScheduler+Solver
+│   ├── datapipes/climate/
+│   │   └── plasim_hdf5.py              # NEW — reads native per-timestep HDF5 + NetCDF stats, channel routing
+│   └── metrics/climate/
+│       └── ai_rossby.py                # NEW — anything missing (dayofyear-clim ACC aggregator, bias, QBO helpers)
+├── examples/weather/ai_rossby/         # NEW — recipes (Hydra)
+│   ├── conf/                           # model/data/training/validation config groups
+│   ├── train.py                        # shared training loop (deterministic + diffusion modes)
+│   ├── inference.py                    # autoregressive rollout (+ ensemble)
+│   ├── validate.py                     # after-the-fact metrics + plots
+│   └── README.md
+├── tools/checkpoint_translation/       # NEW
+│   ├── pangu_plasim.py                 # old .tar dict -> .mdlus (faithful variants)
+│   └── amip_si.py                      # Lightning .ckpt -> .mdlus
+├── test/models/pangu_plasim/           # NEW — forward/constructor/checkpoint/optim validators + synthetic data
+├── skills/                             # NEW — Claude skills for dev/test/optimization (per outline)
+└── hpc/                                # NEW — PBS (Derecho/Casper) + SLURM (Midway) job templates
+```
+
+## 3. Phased delivery
+
+### Phase 1 — Pangu_Plasim faithful ports (BOTH architectures, weight-compatible) ← *substantively complete*
+Port both PanguWeather Pangu networks into `physicsnemo/experimental/models/pangu_plasim/` as
+`physicsnemo.Module`s, faithful flavor:
+- **`PanguPlasim`** — faithful port of the current `pangu.py` model (with the training-only VAE dual-encoder + KL).
+- **`PanguPlasimLegacy`** — faithful port of the predecessor `pangu_legacy.py` model (no VAE; forward returns
+  the same six- (or seven- with diagnostics) tuple shape as `PanguPlasim` eval mode, with **all four** latent
+  slots zero-tensor placeholders — matches the original source so downstream code targets one return shape).
+  Ported *together* with `PanguPlasim` so they share the `layers.py` building blocks.
+
+Per MOD-002a, both models live in `physicsnemo/experimental/models/` while iteration is ongoing. They are
+re-exported via entry-points in `pyproject.toml` so `Module.from_checkpoint` and the smoke-test workflow
+work as for production models. **Promotion** to `physicsnemo/models/pangu_plasim/` happens once (a) the
+MOD-008b non-regression fixtures stabilize across ≥1 fork release cycle, and (b) the Phase-5 fidelity gate
+validates the faithful flavor against a real PanguWeather checkpoint.
+
+Shared Earth-Specific blocks / patch embed-recovery / up-down sample / mask / Integrator go in `layers.py`.
+Refactor both constructors from the `params`/YParams blob to explicit **JSON-serializable kwargs** while keeping
+internal math and **submodule names bit-identical** (so checkpoints map cleanly). Preserve the
+`(surface, const_boundary, varying_boundary, upper_air, ...)` forward contract for both.
+
+**Coding-standards compliance** (`CODING_STANDARDS/MODELS_IMPLEMENTATION.md`):
+- **MOD-003** docstrings: `r"""` prefix, NumPy-style sections (`Parameters` / `Forward` / `Outputs` /
+  `Notes` / `Examples`), tensor shapes in `:math:` LaTeX, double-backtick inline code,
+  `name : type, optional, default=value` single-line param format.
+- **MOD-005** shape validation at the top of `forward`, guarded by
+  `if not torch.compiler.is_compiling():` and using the standardized
+  ``"Expected ... got shape {actual_shape}"`` format.
+- **MOD-006** `jaxtyping.Float[torch.Tensor, "..."]` annotations on `__init__` and public-method
+  tensor arguments.
+- **MOD-007** both models declare `__model_checkpoint_version__ = "1.0"`.
+- **MOD-011** the original source's broken `USE_TE` opt-in (referenced `te.Linear` etc. without a guarded
+  `transformer_engine` import) is **removed** from `layers.py`. Reintroduce cleanly behind
+  `check_version_spec("transformer_engine", ...)` if/when FP8 is actually wanted.
+
+**Tests** (per model):
+- *Unit* (CPU, login-node-runnable):
+  - **MOD-008a** `test_pangu_plasim_constructor` — 3-variant sweep (baseline / `upper_air_boundary` /
+    `diagnostic_variables`).
+  - **MOD-008b** `test_pangu_plasim_non_regression` — load committed reference
+    `test/models/pangu_plasim/data/<ClassName>_v1.0.pth` (seeded by `init_seed=0`, `input_seed=42`,
+    `forward_seed=123`) and compare forward output. Note: MOD-008b's example template overrides params
+    with raw `randn` — that saturates this transformer to `NaN`, so we seed `torch.manual_seed` *before*
+    the constructor (letting the default trunc-normal / Kaiming initializers run deterministically) and
+    document the deviation.
+  - **MOD-008c** `test_pangu_plasim_checkpoint` — `.mdlus` roundtrip via `Module.from_checkpoint`.
+- *Smoke* (Delta `gpuA40x4-interactive`): per the smoke-test contract in `hpc/delta.md` — instantiate on
+  CUDA, forward + backward + AdamW step on synthetic tiny tensors, `save_checkpoint`/`from_checkpoint`
+  roundtrip.
+
+### Phase 2 — `PlasimClimateDatapipe` ← *substantively complete*
+At `physicsnemo/experimental/datapipes/plasim/` per MOD-002a. After comparative review (see
+`pangu_plasim_reuse_plan.md` Phase 2 discussion) the underlying store format is **Zarr v3 via xarray**,
+not the per-year HDF5 the original ERA5 pattern uses — Zarr supports the dual sigma + pressure level
+systems PanguWeather configs need (`use_sigma_levels=True` w/ `Z` and `Z_2` coord systems coexisting),
+irregular time axes for sparse `train_data_sets.json` date ranges without padding, and async chunk-granular
+sharding for DDP. xarray + zarr + netCDF4 promoted to core deps in `pyproject.toml`.
+
+Components:
+
+- **Converter** (`tools/data/plasim/pangu_h5_to_zarr.py`): CLI reading the same PanguWeather v2.0 YAML
+  config (e.g. `SFNO_PLASIM_H5_DERECHO_5412.yaml`) the user already has, walks the per-timestep
+  `{year}_{idx:04d}.h5` archive, parses sigma / pressure level keys by numeric matching, writes a Zarr v3
+  store. Channel-group bookkeeping, calendar, and timedelta go into the store `.attrs`.
+- **Dataset** (`dataset.py`): `PlasimClimateDataset` — `torch.utils.data.Dataset` opening the Zarr lazily,
+  concatenating sigma upper-air vars (first) and pressure upper-air vars (second) along the variable axis
+  so `PanguPlasim.forward` consumes a single `(n_upper, n_levels, H, W)` tensor.
+- **Sampler** (`samplers.py`): `LeadTimePairSampler` — multi-lead-time `(start, lead)` pair generator,
+  shuffle-determined-by-`(seed, epoch)`, DDP-aware via rank/world_size positional slicing (matches
+  `DistributedSampler`'s contract).
+- **Transform** (`transforms.py`): `PlasimNormalizer` — loads PanguWeather's NetCDF per-variable mean/std,
+  subsets pressure stats to the model's pressure levels, applies broadcast-shaped z-score to surface /
+  upper-air / varying-boundary / target tensors. Constant boundaries and diagnostics pass through by
+  default (toggleable). `.to(device)` moves buffers; composes as the dataset's `transform=` arg.
+
+**Tests** (`test/datapipes/plasim/`):
+- *Unit* (CPU, login-node-runnable): 13 cases covering layout-from-attrs, sample shapes / paired-target
+  semantics / int-index shorthand / out-of-range, sampler determinism / DDP positional partitioning /
+  validation, normalizer alignment / near-zero-mean+unit-std output / transform composition. All use the
+  real PLASIM Zarr fixture at `$AI_ROSSBY_TEST_DATA/plasim/smoke_month.zarr` (30 days, PanguWeather sim52
+  year 100, generated by the converter). Skip cleanly when the fixture is missing.
+- *Smoke* (Delta `gpuA40x4-interactive`): 2 tests — real Zarr → iterate N batches on cuda:0 (shape /
+  dtype / device / channel-routing contract per `hpc/delta.md`), and real Zarr → normalizer → PanguPlasim
+  forward + backward + AdamW step on cuda:0 (the end-to-end pipeline gate). The model-forward smoke
+  applies `torch.nan_to_num(0)` to constant_boundary + varying_boundary before the model — PLASIM's `lsm`
+  carries NaN at the poles by convention; a proper `NanFillTransform` is a follow-up.
+
+**Completed Phase 2 follow-ups** (commits `f0a7d412`, `578c3630`, etc.):
+- ✅ `PlasimClimateDatapipe(Datapipe)` wrapper.
+- ✅ Batched-async Zarr reads → 3× faster, now beats PanguH5 (commit `578c3630`).
+- ✅ `predict_delta` mode in `PlasimNormalizer` (constructor `predict_delta=True` +
+  `delta_std_path=...`). Tendency computation is `target = (raw_target − raw_state) / delta_std`
+  (no mean subtraction per PanguWeather convention). Delta-std NetCDF generated via
+  `tools/data/plasim/compute_delta_stats.py` (a small CLI walking the Zarr to compute per-variable
+  per-level tendency std).
+- ✅ `NanFillTransform` — composable CPU-side transform with per-variable fill dict
+  (`{"sst": 273.15, ...}`) + `default=0.0` + `strict=False`. Default scope is
+  `constant_boundary + varying_boundary`. Strict mode raises if any NaN survives the fill
+  (sentinel for stats changes). `ComposeTransform` chains nan-fill → normalizer.
+- ✅ Yearly-repeating boundary substitution: `boundary_zarr_path` (single-year), or
+  `yearly_repeating_boundary=True` + `leap_boundary_zarr_path` + `non_leap_boundary_zarr_path`
+  (PanguWeather convention; cycles via `cftime.is_leap_year(prog_year)` and day-of-year mapping).
+  When all three boundary kwargs are unset, varying boundaries come from the prognostic Zarr at the
+  same time index (the pre-Phase-2-follow-up behavior).
+
+**Deferred (not yet implemented)**:
+- Bias-correction `.npy` loader for the `bias_data_dir` files (separate per-variable / per-level
+  annual + diurnal-cycle 2D fields). This is a distinct concept from boundary substitution —
+  applied at training-time / inference-time to model outputs or to inputs as a residual correction.
+  Lives more naturally in the training recipe (Phase 3) once the recipe defines exactly when
+  bias correction runs (pre-loss vs post-output).
+
+### Phase 2 follow-up: shared `ClimateZarrDataset` + unified data format ← *complete*
+
+After the initial PLASIM datapipe shipped (`PlasimClimateDataset` / `PlasimClimateDatapipe`),
+we generalized the loader and built per-dataset converters for ERA5 and E3SM under one schema.
+The loader is metadata-driven (channel groups + level coords + calendar from store ``attrs``),
+so a single class handles all three datasets.
+
+- **Rename + alias** (`3ed6c25c`): `PlasimClimateDataset` → `ClimateZarrDataset`,
+  `PlasimMultiYearDataset` → `ClimateZarrMultiYearDataset`,
+  `PlasimStoreLayout` → `ClimateZarrStoreLayout`, in a new sub-package
+  [`physicsnemo.experimental.datapipes.climate`](physicsnemo/experimental/datapipes/climate/).
+  PLASIM-flavored names retained as backward-compat aliases.
+- **Climatology schema v1.1** (`faf6eb1b`): every `{var}` climatology array carries a leading
+  `stat` axis (`mean`, `std`). PLASIM sources have no separate std → NaN-filled.
+- **Yearly-repeating boundary tests** (`bd285dc7`): cftime + numpy.datetime64 robustness for the
+  three boundary modes (inline / single-year / yearly-repeating leap+non-leap).
+- **cftime everywhere** (`39eb9dd2`, `d95eca63`): all xarray opens force
+  `decode_times=CFDatetimeCoder(use_cftime=True)` so the time-coord semantics are uniform
+  across PLASIM (pre-1582 year 1) and ERA5/E3SM (post-1582 dates). Loader bench shows < 1%
+  impact on the hot path; see
+  [`benchmarks/.../RESULTS.md`](benchmarks/physicsnemo/experimental/datapipes/plasim/RESULTS.md)
+  cftime parity check.
+- **ERA5 converters** (`ed5ae9d7`): per-year H5→Zarr, 5 normalization variants (pangu_s2s ±
+  withnino / log_precip), climatology+std Zarr.
+- **E3SM converters** (`041dbfec`, `481f79d2`, `4573e437`): per-year H5→Zarr (uppercase var
+  names, hybrid pressure levels in hPa, noleap calendar), normalization, climatology+bias with
+  soil-level (`levgrnd`) decomposition into per-depth flat 2D channels.
+- **Full-archive SLURM scripts** (`71048006`): three sbatch jobs at
+  [`hpc/scripts/convert_{plasim,era5,e3sm}_full_archive.sbatch`](hpc/scripts/) covering PLASIM
+  (12–132), ERA5 (1979–2018), E3SM (2015–2049). All target
+  `/work/hdd/bdiu/awikner/physicsnemo-zarr/{dataset}/`.
+
+### Phase 3 — Training recipe (shared, deterministic mode) ← *v1 in progress*
+Hydra config groups translated from the YParams YAML schema. Custom loop on `DistributedManager` +
+`save/load_checkpoint` + `LaunchLogger` + `StaticCaptureTraining`, reproducing: AdamW(`fused`)/ZeRO-1,
+OneCycle/cosine/warmup, bf16 AMP, EMA, loss combination + VAE-KL + `predict_delta`/`Integrator`. Modular
+(pluggable model/loss/optimizer/scheduler) so the diffusion port reuses the loop.
+
+**v1 (PanguPlasimLegacy, deterministic, no VAE-KL)** at
+[`examples/weather/ai_rossby/`](examples/weather/ai_rossby/):
+
+- [`loss.py`](examples/weather/ai_rossby/loss.py): `PanguPlasimLoss` — per-variable + cos(lat) weighted
+  L1 / L2 residual on surface + upper-air + (optional) diagnostic; diagnostic head off for `LEGACY` config.
+  Both MSE and MAE supported via `loss_type`.
+- [`ema.py`](examples/weather/ai_rossby/ema.py): `ModelEMA` with PanguWeather decay=0.999, warmup
+  ramp `(1+epoch)/(warmup_epochs+1)`.
+- [`train_loop.py`](examples/weather/ai_rossby/train_loop.py): `make_optimizer`/`make_scheduler`/`train_step`
+  factories. OneCycleLR (`oc_pct_start=0.1`, `oc_div_factor=1e5`, `oc_final_div_factor=0.00025` per
+  `PANGU_PLASIM_H5_DERECHO_0514.yaml`) for `PanguPlasimLegacy`; LinearWarmup + CosineAnnealing reserved for
+  the VAE variant.
+- [`train.py`](examples/weather/ai_rossby/train.py): Hydra entrypoint composing
+  `model` / `scheduler` / `loss` groups, wiring `DistributedManager` + DDP + `LaunchLogger` + `ModelEMA` +
+  `save/load_checkpoint`. Drives a `PlasimClimateDatapipe` with `PlasimNormalizer` + `NanFillTransform`
+  attached as the dataset's CPU-side transform.
+- [`conf/`](examples/weather/ai_rossby/conf/): top-level `config.yaml` + `model/pangu_plasim_legacy.yaml`
+  + `scheduler/{onecycle,cosine_warmup}.yaml` + `loss/{mae,mse}.yaml`.
+- [`hpc/scripts/pangu_plasim_legacy_shake_out.sbatch`](hpc/scripts/pangu_plasim_legacy_shake_out.sbatch):
+  SLURM script for the longer real-data shake-out on Delta `gpuA40x4` (non-interactive, 4× A40,
+  `torchrun --standalone --nproc-per-node=4`).
+
+**Tests** at [`test/recipes/ai_rossby/`](test/recipes/ai_rossby/):
+- *Unit* (21 cases, CPU): `test_loss.py` (cos-lat weights, identity, per-var amplification, gradient flow,
+  unknown-type rejection), `test_ema.py` (warmup clamp, post-warmup decay, apply/restore round-trip,
+  apply-twice raises, state-dict round-trip), `test_train_loop.py` (AdamW factory, OneCycleLR + cosine
+  composition + unknown rejections, end-to-end loss reduction on a toy model).
+- *Smoke* (Delta `gpuA40x4-interactive`): `test_smoke_single_gpu.py` — real Zarr → datapipe → 2 train steps
+  on a tiny PanguPlasimLegacy + checkpoint roundtrip on cuda:0. `test_smoke_ddp.py` —
+  `torchrun --standalone --nproc-per-node=2` 2-GPU DDP variant that all-gathers params after one step to
+  assert byte-identical sync.
+- Longer shake-out: SLURM script above; not a smoke test.
+
+**v2 — PanguPlasim (VAE) wired** (commits leading up to *Phase 3 v2*):
+
+- ✅ `vae_kl_loss(mu_q, logvar_q, mu_p, logvar_p)` in
+  [`examples/weather/ai_rossby/loss.py`](examples/weather/ai_rossby/loss.py)
+  — faithful port of PanguWeather v2.0 `utils/losses.Kl_divergence_gaussians`.
+- ✅ [`train_loop.train_step`](examples/weather/ai_rossby/train_loop.py) gains
+  `vae_kl_weight` kwarg. Branches on whether the model returned real tensor latents
+  (`torch.Tensor`) vs the int `0` placeholders the legacy model emits.
+- ✅ [`train.py`](examples/weather/ai_rossby/train.py) `build_model` selects
+  PanguPlasim vs PanguPlasimLegacy via `cfg.model.model_type`; the VAE-KL weight
+  comes from `cfg.loss.vae_kl_weight`.
+- ✅ Hydra: [`conf/model/pangu_plasim.yaml`](examples/weather/ai_rossby/conf/model/pangu_plasim.yaml)
+  + [`conf/loss/{mae,mse}_with_kl.yaml`](examples/weather/ai_rossby/conf/loss/);
+  `conf/scheduler/cosine_warmup.yaml` already in place from v1.
+- ✅ Tests: 9 new unit cases (KL analytic properties, train_step VAE-on / VAE-off
+  branches, sanity loss-reduction) + 1 new Delta GPU smoke
+  ([`test_smoke_vae_single_gpu.py`](test/recipes/ai_rossby/test_smoke_vae_single_gpu.py))
+  exercising the full VAE training path with `vae_kls_nonzero > 0` guard. All
+  30 non-smoke recipe tests stay green.
+
+**Deferred (Phase 3 v3)**:
+- bf16 AMP via `StaticCaptureTraining` (currently disabled by default; `cfg.amp=True` no-op until wired).
+- Fused AdamW / ZeRO-1 / gradient clip enable path (config keys present, factories pending).
+- Long-validation rollout + bias correction (Phase 4 territory; rolls into the recipe via the validation
+  hooks already stubbed in `train.py`).
+
+**Phase 3 v4 — unified-recipe patterns** *(complete; commits `7e15f4cd` → `842d2839`)*:
+After reviewing `examples/weather/unified_recipe/` we adopted four patterns and refactored ai_rossby
+to match the rest of the repo's training conventions.
+
+- **Config restructure** (commit `7e15f4cd`): split `conf/` into separate `dataset/`, `training/`,
+  and `validation/` groups (plus the existing `model/` and `loss/`). `conf/scheduler/` dissolved into
+  per-stage `training.stages[*].scheduler` blocks. New configs:
+  * `conf/dataset/{plasim_sim52_year12, plasim_sim52_train_val, era5_sfno_s2s_1981}.yaml`
+  * `conf/training/{pangu_plasim_legacy, pangu_plasim, sfno_plasim, sfno_plasim_curriculum}.yaml`
+  * `conf/validation/{off, rollout_short, rollout_5412, rollout_ensemble}.yaml`
+  Top-level config.yaml composes the five groups via `defaults:` exactly like unified_recipe.
+
+- **Multi-stage training with multi-step rollouts** (commit `15d72906`): training configs now declare
+  a list of `stages` with per-stage `(num_epochs, unroll_steps, batch_size, max_iterations, scheduler)`.
+  The trainer iterates stages, builds a fresh scheduler each stage, and rebuilds the datapipe in
+  sequence-emit mode when `unroll_steps > 1`. New
+  [`SequenceDataset`](physicsnemo/experimental/datapipes/plasim/sequence.py) wraps the base
+  ClimateZarrDataset to emit `(T+1, …)` rollout windows; `PlasimNormalizer` recognizes the matching
+  `*_seq` batch keys. The `multistep_train_step` accumulates per-step losses inside one
+  AMP-autocast region and divides by K so per-step LR scale matches the single-step recipe.
+  Smoke-validated: `unroll_steps=1` path bit-matches the original `train_step` on the first frame;
+  `unroll_steps>1` ramps loss across the rollout and decreases over 10 steps of training. The
+  example curriculum config `conf/training/sfno_plasim_curriculum.yaml` exercises a 3-stage 1→4→8
+  unroll progression.
+
+- **`Module.instantiate` model registry** (commit `9456f009`): replaces `build_model`'s hand-rolled
+  `if model_type == 'SfnoPlasim': …` switch with one
+  `Module.instantiate({"__name__", "__module__", "__args__"})` call. Model configs now declare
+  `name:` (class name) + `module:` (Python import path); the rest of the cfg.model dict flows through
+  as constructor kwargs. Adding a new model architecture just requires its config under
+  `conf/model/<name>.yaml`.
+
+- **StaticCaptureTraining (opt-in CUDA graphs)** (commit `842d2839`):
+  `training.use_static_capture: bool` (default False) enables a PhysicsNeMo
+  [`StaticCaptureTraining`](physicsnemo/utils/capture.py) wrapper around the per-step train function
+  for both single-step and multi-step rollout paths. The decorator folds forward + loss + backward +
+  optimizer.step + grad-clip + AMP autocast into one CUDA graph after the warmup iterations.
+  Per-stage build re-captures when `unroll_steps` or batch shape changes. Auto-disabled when
+  `loss.vae_kl_weight > 0` (the latent-tuple return is incompatible with scalar-loss capture);
+  per-component loss breakdowns are zero-filled in the LaunchLogger dict on the captured path.
+
+- **W&B integration** (commit `93543572`, retained): `cfg.wandb.enabled=True` triggers
+  `initialize_wandb` on rank 0 and `LaunchLogger` routes all `log_minibatch`/`log_epoch` dicts
+  through wandb under the `train/` and `valid/` namespaces. Academic account → run online; HPC
+  jobs use `WANDB_MODE=offline` + post-job `wandb sync`. Decision recorded in the project memory:
+  stay with wandb over MLflow.
+
+**Carried forward** (queued in §6 *Remaining items*):
+- `save_inference_model_package` from unified_recipe (write a self-contained NetCDF + config
+  artifact). Useful for Phase 5; not in scope yet.
+- The `cfg.training.use_static_capture=True` path is not exercised by GPU smoke tests yet.
+
+### Phase 4 — Validation (mid-training + after-the-fact)
+Mid-training: autoregressive rollout → lat-weighted RMSE (mse+reductions) + ACC (`physicsnemo.metrics.climate.acc`
+with dayofyear climatology), long-rollout bias, ensemble validation, power spectra. After-the-fact:
+`inference.py` (shared stepper, IC-perturbation + MC-dropout ensembles) → NetCDF; `validate.py` →
+RMSE/ACC/spectra/bias/CRPS + plots. Port the DDP all-reduce `MetricsAggregator` behavior.
+
+> **Convention — units for validation metrics.** Unless a metric is explicitly
+> *correlation-shaped* (and therefore unit-invariant under affine z-scoring —
+> ACC, anomaly correlation, pattern correlation, rank correlations), every
+> per-variable validation metric this project adds **must be computed in
+> physical units**. The rollout itself runs in normalized space to match the
+> training-loss frame, so any new metric that consumes ``pred`` / ``truth``
+> tensors is responsible for calling ``PlasimNormalizer.denormalize_state``
+> (or its equivalent) before its aggregator update — same pattern
+> ``RolloutValidator`` (per-variable RMSE) and ``run_climatology``
+> (per-variable mean / variance / binned stats) follow today. Same rule for
+> on-disk forecast dumps (inference + climatology chunks) — those are in
+> physical units. ACC's climatology vector is the one place where matching
+> *spaces* across the three inputs (pred / truth / climatology) is what
+> matters, not the absolute unit; document the chosen space explicitly when
+> wiring a new ACC variant.
+**Tests**:
+- *Unit*: each new metric (dayofyear-clim ACC aggregator, bias, CRPS, QBO) against analytic/reference values
+  on synthetic tensors.
+- *Smoke* (Delta): same metrics run on real CUDA tensors; for the aggregator, a 2-GPU DDP smoke verifies the
+  all-reduce produces the single-GPU value.
+
+**Phase 4a — mid-training rollout validator** *(complete; commits `93543572`, `a6cedddc`)*:
+- New [`examples/weather/ai_rossby/validate.py`](examples/weather/ai_rossby/validate.py) module with
+  `Perturber` API (`Deterministic` / `ReplicateOnly` / `GaussianIC`), streaming
+  lat-weighted `RMSE` + `ACC` aggregators (sufficient-statistic state + DDP all-reduce in `finalize`),
+  and the `RolloutValidator` orchestrator. Ensemble-aware (E replicas per IC live in the batch dim);
+  per-step state held in memory only — no rollout history kept.
+- Wired into [`train.py`](examples/weather/ai_rossby/train.py)'s validation block; metrics flow to
+  W&B via `LaunchLogger` under the `valid/` namespace when `cfg.wandb.enabled=True`.
+- Hydra knobs under `validation.rollout.*` and `wandb.*` in
+  [`conf/config.yaml`](examples/weather/ai_rossby/conf/config.yaml).
+- **Tests**: 15 CPU unit cases (perturbers, streaming-metric closed-form sanity, ACC=1 for identity /
+  ~0 for independent fields, accumulator-over-batches invariance, perfect-model rollout RMSE=0) plus
+  2 Delta A40 smoke cases (deterministic + 3-member GaussianIC ensemble). All green.
+
+**Phase 4b — after-the-fact rollout + score CLIs** *(complete; commit `fe9db8f8`)*:
+Two new Hydra-driven scripts under `examples/weather/ai_rossby/`:
+
+- [`inference.py`](examples/weather/ai_rossby/inference.py): loads a trained checkpoint via
+  `Module.instantiate` + `load_checkpoint`, rolls each requested IC out `cfg.inference.max_step`
+  times (optionally with an ensemble via the Phase 4a perturber API), and writes per-channel-group
+  predictions to NetCDF/Zarr with dims `(ic, ensemble, step, [surface|upper_air|diag]_var, [level,]
+  lat, lon)`. Memory-conscious — at any moment GPU holds one rollout-window working set and
+  predictions are copied to CPU numpy after each step.
+- [`validate_cli.py`](examples/weather/ai_rossby/validate_cli.py): reads a predictions file +
+  reference Zarr + optional climatology, computes per-(step, channel) lat-weighted RMSE + ACC using
+  the same Phase 4a streaming aggregators, and emits a JSON summary + optional markdown table with
+  channel-mean rows. Ensemble-mean reduction before RMSE/ACC; CRPS / spread-skill / power-spectra
+  deferred.
+- **Tests** (CPU, 5 cases): `_build_xr_dataset` shape correctness; `run_inference` deterministic +
+  ensemble shapes; persistence-model first-step bit-matches IC; NetCDF roundtrip.
+
+**Phase 4c — climatological-statistic validation** *(complete; commit pending)*:
+
+For multi-year autoregressive rollouts, holding every predicted state in memory
+is infeasible. The Phase 4c pieces accumulate the *time-aggregate* statistics
+we care about — climatological mean, variance, and per-(day-of-year) mean —
+in O(C × H × W) memory regardless of how long the rollout runs.
+
+- [`examples/weather/ai_rossby/climatology.py`](examples/weather/ai_rossby/climatology.py):
+  three streaming-time aggregators with DDP-safe finalize.
+  * `StreamingTimeMean`: running sum / count (f64 accumulator).
+  * `StreamingTimeVariance`: Chan / Welford parallel-update online variance.
+    Numerically stable for the large-mean / small-variance regime typical of
+    climate fields (raw temperatures ~273 K, variances ~10²); the naive
+    `E[X²] − E[X]²` formula cancels catastrophically there.
+  * `StreamingBinnedMean`: per-bin running mean keyed by a caller-supplied
+    bin index per sample. Drives daily / monthly / season-of-year climatology
+    by binning each frame into one of `n_bins` accumulators.
+
+- [`examples/weather/ai_rossby/climatology_cli.py`](examples/weather/ai_rossby/climatology_cli.py):
+  Hydra entry that loads a trained checkpoint, drives a long autoregressive
+  rollout from each IC, and feeds both predicted and reference frames into
+  paired aggregator sets. Writes a NetCDF with `pred_*_mean`, `truth_*_mean`,
+  `bias_*` (mean diff), `pred_*_var`, `truth_*_var`, `var_bias_*`,
+  `pred_*_daily_clim`, `truth_*_daily_clim`, `daily_bias_*` fields across the
+  three channel groups (surface / upper_air / diagnostic). The
+  `pred_*_daily_clim` series is the model's emergent climatology; the
+  `bias` and `var_bias` fields are the climatological-statistic deltas vs
+  the ground-truth dataset. No bias correction is applied — we just
+  measure the bias as a model-diagnostic.
+
+- **Tests** (CPU, 19 cases in `test/recipes/ai_rossby/test_climatology.py`):
+  Aggregator-vs-numpy invariants, Welford stability under the
+  climate-data regime, single-sample / empty-bin conventions, end-to-end
+  climatological-bias pattern, `StreamingBinnedVariance` group-by match,
+  `lat_weighted_global_scalars` invariants + shape correctness.
+
+**Phase 4c follow-ups** *(complete; commits `a9184375`, `…`)*:
+
+- **Async forecast writer** at
+  [`examples/weather/ai_rossby/async_writer.py`](examples/weather/ai_rossby/async_writer.py).
+  Bounded-concurrency `ThreadPoolExecutor` wrapper (mirrors corrdiff /
+  regen's inline pattern but adds backpressure via a semaphore,
+  extension auto-dispatch, and exception surfacing in `wait_all()`).
+  15 CPU unit tests.
+- **Per-IC forecast files for short-term inference** — `inference.py`
+  now writes one zarr per IC containing the IC frame at index 0 and
+  the rollout predictions at frames 1..max_step. Filenames follow
+  `{model}__{run}__{ic_iso}_{final_iso}.zarr`. Disk I/O overlaps the
+  next IC's GPU rollout via the async writer's max_in_flight queue.
+- **Chunked forecast dumps for long-term climatology validation** —
+  `climatology_cli.py` gains `forecast_chunk_steps`,
+  `forecast_output_dir`, `include_ic_in_forecast`, and
+  `track_binned_variance` knobs. When chunking is on, forecasts are
+  streamed to disk in **non-overlapping** time-range files — each
+  step appears in exactly one chunk file (the user's "no repeated
+  dates" requirement is verified by an explicit set-membership
+  invariant in the CPU + GPU smoke tests).
+- **Lat-weighted global scalars** — `lat_weighted_global_scalars`
+  helper adds `global_*` variables to the climatology NetCDF
+  alongside the full-grid `(C, H, W)` fields. Tiny per-channel
+  summaries that downstream consumers can plot/tabulate without
+  re-loading the whole grid.
+- **Aggregator additions** — `StreamingBinnedVariance` (per-bin
+  Chan/Welford) and the `lat_weighted_global_scalars` helper.
+- **GPU smoke test** at
+  [`test/recipes/ai_rossby/test_smoke_climatology_single_gpu.py`](test/recipes/ai_rossby/test_smoke_climatology_single_gpu.py)
+  — passes on Delta `gpuA40x4-interactive` in ~27 s, exercises the
+  full path (tiny PanguPlasimLegacy → run_climatology with chunked
+  forecast dumping → aggregator-finite + no-duplicate-step + IC at
+  chunk-0 frame-0 assertions).
+
+**Phase 4c follow-up — needs in-practice testing with a trained model.**
+All the streaming aggregators + async writer + chunked-dump path are
+covered by unit + GPU smoke tests on tiny synthetic / fixture data.
+The performance characteristics on a real workload aren't yet
+measured:
+- Does the writer's `max_in_flight=4` default keep the queue full
+  enough on a 25M-param SfnoPlasim run? Or does the GPU stall waiting
+  on `submit()` when the disk falls behind?
+- For a 1-year (1460-step) PLASIM rollout writing ~70 MB chunks, what
+  fraction of wall-time is the rollout vs the disk drain?
+- Does the async writer overlap improve end-to-end wall vs the
+  baseline (synchronous `to_zarr` at the end)?
+- Memory: are the f64 aggregators + chunk buffer + GPU model state
+  comfortably under 40 GB at the SFNO_PLASIM_5412 scale?
+
+Action: once a real checkpoint is available (Phase 5 fidelity gate
+or a long training run), run `climatology_cli.py` and `inference.py`
+end-to-end and record (a) writer queue depth over time, (b) GPU
+utilization, (c) disk throughput, (d) total wall vs synchronous
+baseline. Tune `writer_max_in_flight` / `writer_num_workers` from
+those numbers.
+
+### Phase 5 — Checkpoint translation + numerical fidelity
+`tools/checkpoint_translation/pangu_plasim.py`: normalize `module.` prefix, prefer `ema_state`, remap keys →
+faithful module state_dict (handles both `PanguPlasim` and `PanguPlasimLegacy`), reconstruct `Integrator`
+buffers from norm `.nc`, emit `.mdlus`.
+
+**Translator + tests delivered** *(commit pending)*:
+
+- [`tools/checkpoint_translation/sfno_plasim.py`](tools/checkpoint_translation/sfno_plasim.py) (Phase 7 work):
+  PanguWeather SFNO_v2 ``.pt`` → ``SfnoPlasim`` ``.mdlus``. Strips
+  ``module.`` (DDP) and ``_orig_mod.`` (torch.compile) prefixes
+  *iteratively* — stacked combinations like
+  ``module._orig_mod.encoder.0.weight`` collapse to
+  ``encoder.0.weight`` before the ``sfno.`` re-prefix. Prefers
+  ``ema_state`` over ``model_state`` by default (PanguWeather's
+  documented inference-time preference). Falls back to bare
+  ``OrderedDict`` blobs on older checkpoint formats.
+- [`tools/checkpoint_translation/pangu_plasim.py`](tools/checkpoint_translation/pangu_plasim.py)
+  (new this phase): PanguWeather Pangu_Plasim ``.pt`` →
+  ``PanguPlasim`` / ``PanguPlasimLegacy`` ``.mdlus``. ``--target-class``
+  CLI flag picks the class; auto-detected from the YAML's ``name:``
+  field. Same iterative prefix-strip helper as the SFNO version —
+  factored into ``_strip_wrap_prefixes`` and shared between both
+  modules.
+- **Unit tests** (CPU, 26 cases across `test_sfno_plasim.py` +
+  `test_pangu_plasim.py`):
+  * The pure prefix-stripper covers 6 cases (no-prefix, single
+    `module.`, single `_orig_mod.`, stacked
+    `module._orig_mod.`/`_orig_mod.module.`, repeated `module.module.`,
+    idempotence).
+  * ``translate_state_dict`` handles single + stacked prefixes for
+    both target families.
+  * ``load_panguweather_state_dict`` prefers ``ema_state``, falls back
+    to ``model_state`` / bare-OrderedDict.
+  * ``build_target_model_from_yaml`` resolves both
+    ``PanguPlasim`` / ``PanguPlasimLegacy``, accepts CLI override,
+    rejects unknown ``name:`` fields.
+  * **Round-trip prediction tests** — build a source model, save
+    state-dict three ways (raw / DDP-wrapped / DDP+compile stacked),
+    translate each, load into a fresh target, and verify the forward
+    output is **bit-equivalent** to the source on identical input.
+    Also asserts predictions are non-degenerate (finite, non-zero).
+    Covers both ``PanguPlasimLegacy`` (deterministic) and
+    ``PanguPlasim`` (VAE — re-seeds before each forward to compare
+    the deterministic mean-field paths). Same end-to-end test added
+    to the existing SFNO suite with DDP-wrapped checkpoints.
+- **GPU smoke test** at
+  [`test/recipes/ai_rossby/test_smoke_pangu_translator_single_gpu.py`](test/recipes/ai_rossby/test_smoke_pangu_translator_single_gpu.py)
+  — parameterized over 4 wrapper kinds (``raw`` /
+  ``ddp_only`` / ``ddp_then_compile`` / ``compile_then_ddp``); all 4
+  pass on Delta ``gpuA40x4-interactive`` in ~25 s. Verifies the
+  translated CUDA-resident model's forward output bit-matches the
+  source for every wrapper variation.
+
+**Fidelity gate harness delivered** *(commit pending)*:
+
+- [`tools/checkpoint_translation/fidelity_compare.py`](tools/checkpoint_translation/fidelity_compare.py)
+  — generic per-class comparison: loads a translated ``.mdlus``, runs
+  forward on the IC + boundary from a reference NetCDF, asserts
+  per-channel-group max-abs-diff against the saved reference is
+  under tolerance. Same harness covers all three target classes
+  (``PanguPlasim`` / ``PanguPlasimLegacy`` / ``SfnoPlasim``) via the
+  ``--target-class`` flag.
+- [`hpc/scripts/fidelity_pangu_plasim.sbatch`](hpc/scripts/fidelity_pangu_plasim.sbatch)
+  — non-interactive Delta ``gpuA40x4`` (4-hour cap) that runs the
+  3-step pipeline: (1) translate the PanguWeather ``.pt``, (2) call
+  PanguWeather's own inference utility on the source checkpoint to
+  produce a reference NetCDF, (3) run ``fidelity_compare.py``.
+  Step (2) is intentionally stubbed in the committed sbatch — the
+  exact PanguWeather inference invocation depends on the checkpoint
+  layout, which only the operator knows at submission time. Submit
+  with ``sbatch --export=ALL,PW_CHECKPOINT=…,PW_YAML=…,TARGET_YAML=…,TARGET_CLASS=…``.
+
+**Outstanding — needs live validation with the user's checkpoints**:
+The user will provide paths to real checkpoints + their corresponding
+configuration files for all three model types (``PanguPlasimLegacy``,
+``PanguPlasim``, ``SfnoPlasim``). For each:
+
+1. Run the translator end-to-end to produce a ``.mdlus``.
+2. Step 2 of the fidelity sbatch needs the actual PanguWeather
+   inference command edited in to match the checkpoint's data
+   pipeline (which year of ERA5 / PLASIM, which IC, what
+   normalization stats).
+3. Submit the fidelity sbatch; verify ``fidelity_compare.py``
+   reports PASS within the chosen tolerance (default ``1e-4`` — may
+   need loosening if the source used bf16 / non-deterministic CUDA
+   kernels).
+
+### Phase 6 — Pangu_Plasim native variants ← *Track A landed*
+Rebuild both architectures on native PhysicsNeMo blocks (`PanguPlasimNative`, `PanguPlasimLegacyNative`),
+reusing the shipped Pangu's Earth-Specific attention/patch ops where compatible; StaticCapture-friendly, richer
+`ModelMetaData`. Same I/O contract, own configs; trained via the Phase-3 recipe. (New training runs; not
+checkpoint-compatible with the faithful variants — that's the faithful variants' role.)
+**Tests**: same unit + smoke contract as Phase 1, both variants.
+
+**Track A delivered** (upstream-first migration):
+
+- Three additive kwargs landed on the upstream PhysicsNeMo nn blocks (all
+  defaults preserve historical behavior):
+  - [`physicsnemo/nn/module/utils/shift_window_mask.py`](physicsnemo/nn/module/utils/shift_window_mask.py)
+    gains `cyclic_longitude: bool = False` — the Issue
+    [#1599](https://github.com/NVIDIA/physicsnemo/issues/1599) fix
+    treating longitude as cyclic.
+  - [`physicsnemo/nn/module/transformer_layers.py`](physicsnemo/nn/module/transformer_layers.py):
+    `Transformer3DBlock` + `FuserLayer` gain `vertical_windowing`,
+    `cyclic_longitude`, `use_sdpa`, and `mlp_layer` kwargs. The
+    `mlp_layer` slot lets callers inject a custom Mlp class — Pangu_Plasim
+    uses it to preserve PanguWeather's `fc1`/`fc2` parameter names.
+  - [`physicsnemo/nn/module/attention_layers.py`](physicsnemo/nn/module/attention_layers.py):
+    `EarthAttention3D` gains `use_sdpa: bool = False`. Under
+    `use_sdpa=True` the attention routes through
+    `F.scaled_dot_product_attention` for the fused fast path.
+- [`physicsnemo/experimental/models/pangu_plasim/_vendored_physicsnemo_nn/`](physicsnemo/experimental/models/pangu_plasim/)
+  **deleted**. `pangu_plasim/layers.py` now defines `PanguMlp` locally
+  (timm-style `fc1`/`fc2` names for PanguWeather state-dict compatibility),
+  and `EarthSpecificLayer` / `EarthSpecificBlock` are thin subclasses of
+  upstream `FuserLayer` / `Transformer3DBlock` that pin
+  `cyclic_longitude=True`, `use_sdpa=True`, `mlp_layer=PanguMlp`.
+- New native classes at
+  [`physicsnemo/experimental/models/pangu_plasim/pangu_plasim_native.py`](physicsnemo/experimental/models/pangu_plasim/pangu_plasim_native.py):
+  `PanguPlasimLegacyNative` + `PanguPlasimNative` are subclasses of the
+  faithful pair with a CUDA-graph-friendly `_NativeMetaData`
+  (`cuda_graphs=True`, `amp=True`, `bf16=True`, `auto_grad=True`). Same
+  layer composition, same forward, same state-dict layout as the
+  faithful classes — only metadata differs. CUDA-graph caveat: set
+  `checkpointing=0` (the new YAMLs default this).
+- New configs:
+  [`conf/model/pangu_plasim_native.yaml`](examples/weather/ai_rossby/conf/model/pangu_plasim_native.yaml) +
+  [`conf/model/pangu_plasim_legacy_native.yaml`](examples/weather/ai_rossby/conf/model/pangu_plasim_legacy_native.yaml).
+  The trainer's `build_model` reads `cfg.model.name`/`module` and routes
+  via `Module.instantiate` — no other trainer code changed.
+- Tests:
+  - [`test/models/pangu_plasim/test_pangu_plasim_native.py`](test/models/pangu_plasim/test_pangu_plasim_native.py)
+    — 6 cases covering MetaData advertisement, forward parity with
+    faithful (bit-identical under matched RNG + matched state dict),
+    and `.mdlus` round-trip preserving the native MetaData.
+  - [`test/models/pangu_plasim/test_shift_window_mask.py`](test/models/pangu_plasim/test_shift_window_mask.py)
+    — rewritten to pin upstream's new `cyclic_longitude=True` behavior
+    (was a regression guard for the vendored copy).
+- A Delta `gpuA100x4-interactive` smoke run verified the new pipeline
+  trains under StaticCapture + AMP for one mini-epoch on PLASIM sim52
+  year 12.
+
+### Phase 7 — SFNO (rest of v2.0) — *faithful substantively complete; native deferred*
+Map the vendored SFNO to PhysicsNeMo's SFNO (makani plugin) or port the vendored copy as `sfno_plasim`
+(faithful + native). (Legacy Pangu moved into Phase 1; `pangu_lite` deferred unless needed.)
+**Tests**: same unit + smoke contract as Phase 1, applied to the SFNO variants.
+
+**Faithful side delivered** (commits `d0ff0619` → `094e72b2`):
+- Vendored Modulus SFNO at [`physicsnemo/experimental/models/modulus_sfno/`](physicsnemo/experimental/models/modulus_sfno/)
+  (sfnonet.py + layers.py + s2convolutions.py + factorizations.py + contractions.py + activations.py +
+  initialization.py — same upstream commit PanguWeather uses).
+- [`SfnoPlasim`](physicsnemo/experimental/models/sfno_plasim/sfno_plasim.py) wrapper — PLASIM channel
+  routing (surface + constants + varying + sigma+pressure upper-air + diagnostic concat) over the base
+  SFNO. Same 6/7-tuple forward contract as `PanguPlasim` so `train_step` is unchanged.
+- Trainer wired (`cfg.model.model_type='SfnoPlasim'`); model config `conf/model/sfno_plasim_5412.yaml`
+  mirrors PanguWeather v2.0 `SFNO_PLASIM_H5_DERECHO_5412_test.yaml`.
+- Checkpoint translator at
+  [`tools/checkpoint_translation/sfno_plasim.py`](tools/checkpoint_translation/sfno_plasim.py)
+  (strips `module.` prefix, prefers `ema_state`, prefixes with `sfno.`).
+- Unit + smoke tests at [`test/models/sfno_plasim/`](test/models/sfno_plasim/) and
+  [`test/recipes/ai_rossby/test_smoke_sfno_single_gpu.py`](test/recipes/ai_rossby/test_smoke_sfno_single_gpu.py).
+- **Benchmark**: end-to-end head-to-head against PanguWeather v2.0 on PLASIM sim52 year 12
+  (4× A100, fp32, batch=8/rank, 1 epoch) →
+  [`benchmarks/.../sfno_plasim/RESULTS.md`](benchmarks/physicsnemo/experimental/models/sfno_plasim/RESULTS.md):
+  median per-batch |Δ loss| 1.4%, max 12.6% (concentrated in last batches), steady-state throughput
+  identical (~194.7 samples/s on both stacks after the CUDA tuning).
+
+**Native variant** (PhysicsNeMo's built-in SFNO/Makani backbone) — deferred until a use case demands it.
+
+### Phase 8+ — amip diffusion / stochastic-interpolant models (second major effort)
+
+> **Plan rebaselined 2026-06-23** after surveying upstream amip
+> [commit `497827e` "BIG changes" on 2026-06-17](file:///work/nvme/bdiu/awikner/amip).
+> The original Phase 8 sketch (single-step DiT + DynamicInterpolant +
+> bilinear-×4 latent) is now one *baseline* model among five upstream
+> variants. Updated structure below.
+
+#### Upstream snapshot (2026-06-17, commit `497827e`)
+
+| Class | Diffusion family | Backbone | Status in amip | YAML(s) |
+|---|---|---|---|---|
+| `SI` | DriftScheduler (stochastic interpolant) | DiT | baseline | `configs/SI_*` |
+| `SI_X` | DynamicInterpolant (x-prediction) | DiT | baseline | `configs/SI_NCAR*.yaml` |
+| `EDM` | Elucidated diffusion (Karras et al.) | DiT | baseline | `configs/EDM.yaml` |
+| `ERDM` | Elucidated *rolling* diffusion (Jun 2025) | `RollingDiT` *or* `ERDMUnet` | **active** | `configs/ERDM*.yaml` |
+| `RFM` | Rolling Flow Matching (new in BIG changes) | `RollingDiT` *or* UNet | **active** | `configs/RFM.yaml` |
+| `x_DDC` | Data-Dependent Cascade (super-res autoencoder) | `DiTAE` + UNet decoder | **active** | `configs/DDC*.yaml` |
+| `CombinedModule` | two-stage SI-forecast → x_DDC-downscale ensemble | n/a (composite) | **active** | `configs/combined.yaml` |
+
+The active models (ERDM, RFM, x_DDC, CombinedModule) all involve
+*temporal rolling-window* training (window length W=6 frames at 24 h
+cadence per the typical config). The single-step models (SI, SI_X, EDM)
+predate this and are kept as baselines.
+
+#### Key upstream pieces to reproduce
+
+- **Schedulers / solvers**
+  - `DriftScheduler` + `DynamicInterpolant` (the original stochastic-interpolant pair).
+  - `ERDMScheduler` — rolling-window EDM-style schedule with `rho`, `P_mean`, `P_std` per-frame.
+  - `RFMScheduler` — rolling-window flow matching with weighting modes (`midrange` / `uniform` /
+    `lognormal_logit`) and init modes (`oracle` / `fanout`).
+  - `EDMScheduler` (Karras) — baseline.
+  - `x_DDCScheduler` — data-dependent-cascade variant of EDM for the super-resolution path.
+
+- **Backbones**
+  - `DiT` (denoising transformer; ~20 kB) — used by SI / SI_X / EDM.
+  - `RollingDiT` (causal temporal attention; new in BIG changes) — used by ERDM / RFM.
+  - `ERDMUnet` (UNet variant for ERDM, drop-in for `RollingDiT`).
+  - `DiTAE` (DiT-based autoencoder) — used by `x_DDC` for super-resolution.
+  - `AE` / `Decoder` / `Unet` (smaller helpers used by the cascade + baselines).
+
+- **Data pipeline**
+  - `data/amip_new.py` (1723 LOC) — per-timestep HDF5 reader with cftime-aware calendar
+    (no-leap / 360-day), rolling-window batching, delta-boundary fields, NaN-smoothing,
+    epsilon-noise augmentation, predict-delta mode.
+  - `data/amip_fast.py` (920 LOC, new in BIG changes) — pre-assembled `(T, C, H, W)` memmap
+    stores built once by `scripts/reassemble.py`. Drop-in API replacement for the slow loader.
+  - Channel groups (per typical NCAR-AMIP config):
+    - **Upper-air** (5 vars × 26 hPa levels = 130 channels): T, U, V, Z, Q.
+    - **Surface** (6 channels): t_skin, p_s, 2m T, 2m q, 10m U, 10m V.
+    - **Diagnostic** (15 channels — output only, in supervised loss): TOA + surface SW/LW radiation,
+      latent + sensible heat fluxes, PRATE, hcc/mcc/lcc cloud cover, mn2t / mx2t / mxtpr.
+    - **Varying boundary** (input only): SST, sea-ice, TOA solar (TSI), optional CO₂.
+    - **Constant boundary** (one-shot): LSM, surface geopotential.
+
+- **Training infrastructure**
+  - PyTorch Lightning end-to-end (`L.LightningModule` + `L.Trainer`); DDP / FSDP via strategy config.
+  - Custom `EMAWeightAveraging` callback wrapping PyTorch `get_ema_avg_fn`.
+  - Muon optimizer (configured as `optimizer: muon` in YAML; separate pip install).
+  - Mixed precision (32-true default; bf16 path exists), grad accumulation, sanity-check steps.
+
+- **Inference + evals**
+  - `rollout_single.py` (329 LOC) — per-IC autoregressive rollout, loads Lightning `.ckpt` directly,
+    writes NetCDF inline (no async writer yet).
+  - `bias.py` (344 LOC) — validation-set sweep computing latitude-weighted RMSE per (variable,
+    lead time).
+
+#### Re-use surface (what plugs into existing ai-rossby plumbing)
+
+| ai-rossby asset | Re-use plan |
+|---|---|
+| `PlasimClimateDataset` / `ClimateZarrDataset` | **New `AMIPClimateDataset` needed.** AMIP variables (radiation, fluxes, precipitation diagnostics, sea ice + TSI forcings) don't exist in PLASIM; pressure levels (26 hPa) differ from PLASIM's 13. Build a new dataset class with the same Plasim-shaped API (`surface_in`, `upper_air_in`, `constant_boundary`, `varying_boundary`, `diagnostic`, `target_*`) wrapping the upstream `amip_new.py` / `amip_fast.py` readers. |
+| `PlasimNormalizer` | **Generalize.** The normalizer's z-score logic + denormalize-state helper already match AMIP's per-channel-NetCDF stat format; only the channel-group ordering needs the AMIP variable list. |
+| `PanguPlasimLoss` (lat-weighted RMSE per group) | **Reuse as the *training* loss target shape.** The amip loss lives inside each scheduler (`scheduler.compute_loss`); we lift the lat-weighted lat-weighted RMSE out and feed scheduler outputs through it for symmetry with Pangu / SFNO. |
+| `AsyncForecastWriter` + `subset_forecast_dataset` + `make_forecast_filename` | **Reuse as-is.** Disk I/O is model-agnostic; amip rollout adopts the per-IC streaming pattern (3.7s / IC savings already measured). |
+| `run_inference_streaming_per_ic` / `_build_per_ic_dataset` | **Reuse.** Forward signature differs (scheduler.sample takes a noise sample + conditioning), but the IC-loop / `ic_time` coord / denormalize-before-write pattern slots in. |
+| RolloutValidator + Streaming{RMSE,ACC} | **Reuse.** Lat-weighted RMSE is computed in physical units already (Phase 4 convention) — the diffusion model's *ensemble-mean* prediction plugs in unchanged. |
+| Train loop (`train_loop.py` + `StaticCaptureTraining`) | **Open question** — see "Decisions needed" below. Lightning has different ergonomics. |
+| EMA (Phase 3 `ema.py`) | **Reuse with adapter.** Pangu uses our own EMA wrapper; amip uses Lightning's `EMAWeightAveraging`. Either we extend our EMA wrapper to support callback-style hooks (cheap), or call our existing `ema.py` directly inside the LightningModule. |
+| Muon optimizer | **New dependency.** Pip-install (single repo) or vendor — same call as a normal optimizer once installed. |
+
+#### Locked-in decisions (2026-06-23)
+
+| Topic | Decision |
+|---|---|
+| **Training stack** | Port amip off Lightning onto our existing `examples/weather/ai_rossby/train_loop.py`. |
+| **Model scope** | All five diffusion variants ported (SI, SI_X, EDM, ERDM, RFM). `x_DDC` super-res cascade + `CombinedModule` deferred to Phase 8f follow-ups (after single-model recipes stable). |
+| **Data loader** | **Single `ClimateZarrDataset` class** parameterized by YAML channel groups (no PLASIM/AMIP/ERA5/E3SM split). YAML drives which variables are forcings vs. prognostic. |
+| **Data format** | AMIP HDF5 → Zarr via a one-shot conversion tool (mirroring `tools/data/era5/pangu_h5_to_zarr.py`). No memmap "fast store" layer — Zarr V3 chunked delivers equivalent throughput, and unification is more valuable than a parallel path. |
+| **Scheduler location** | `physicsnemo/experimental/diffusion/` (parallel to `physicsnemo/experimental/models/`). |
+| **Loss-as-Hydra-group** | Each scheduler is callable via `loss=` group entry. `loss.compute_loss(model, …)` drives the training step. |
+| **Inference scheduler** | Option (i) — scheduler owns both methods. Each scheduler exposes `compute_loss(model, …)` and `sample(model, …)`; recipes wire a *training* scheduler under `loss=` and an *inference* scheduler under `inference.sampler=`. Same scheduler at both ends is one common case; different schedulers (e.g., train ERDM, sample EDM) is one yaml-line change. |
+| **EMA** | **Switch all EMA usage to `torch.optim.swa_utils.AveragedModel`** with a custom `avg_fn`. This replaces the current bespoke `examples/weather/ai_rossby/ema.py` (`ModelEMA` class). Scope is broader than Phase 8 — touches the existing Pangu/SFNO recipes too — and is treated as a Phase 8 pre-requisite (task **8-pre-1** below). |
+| **Multi-stage curriculum** | Reuse our existing `training.stages` list to express rolling-window curricula (e.g., short window pretrain → long window finetune). |
+| **Mixed precision** | fp32 default for first commits (matches upstream + our existing recipes). bf16 path benchmarked + advertised in `_NativeMetaData` as a Phase 8f follow-up. |
+| **Validation cadence** | Skip `RolloutValidator` for the first commits — diffusion rollout is 10–20× more expensive per IC than deterministic. Training loss is itself a sufficient signal. **Escalation point**: once training is converging, add `DiffusionRolloutValidator` with per-step sample limits + ensemble spread (Phase 8f). |
+| **Optimizer** | Muon via pip install (`uv pip install muon`). |
+| **Recipe layout** | Single recipe at `examples/weather/ai_rossby/`. New Hydra groups (`model=si`, `model=erdm`, …) reuse the existing trainer + `Module.instantiate` machinery. |
+| **Lightning `.ckpt` translator** | End-of-Phase 8e. Converts amip's `.ckpt` blobs into PhysicsNeMo `.mdlus` so user-trained weights load via our recipe. Live-validated against your existing checkpoints. |
+| **Eval suite** | Climatology / bias / QBO / global-mean / ensemble envelopes — deferred to Phase 8f after translator. |
+
+#### File / directory plan (locked)
+
+```
+physicsnemo/experimental/
+├── diffusion/                              [NEW — Phase 8a]
+│   ├── __init__.py
+│   ├── dynamic_interpolant.py              # SI + SI_X (DriftScheduler + DynamicInterpolant)
+│   ├── erdm.py                             # Elucidated Rolling Diffusion scheduler
+│   ├── rfm.py                              # Rolling Flow Matching scheduler
+│   ├── edm.py                              # Elucidated Diffusion (Karras) — single-step baseline
+│   └── x_DDC.py                            # Data-Dependent Cascade — deferred to 8f
+└── models/
+    └── amip_si/                            [NEW — Phase 8a]
+        ├── __init__.py
+        ├── dit.py                          # DiT (denoising transformer)
+        ├── rolling_dit.py                  # RollingDiT (causal temporal attention)
+        ├── erdm_unet.py                    # UNet variant for ERDM
+        ├── dit_ae.py                       # DiTAE for x_DDC — deferred to 8f
+        └── layers.py                       # Local building blocks (attention, mlp, embeddings)
+
+physicsnemo/experimental/datapipes/
+├── plasim/                                  [EXISTING — to be REFACTORED in 8b]
+│   ├── dataset.py                          # PlasimClimateDataset → renamed to ClimateZarrDataset
+│   ├── multiyear.py                        # MultiYearPlasimClimateDataset → ClimateZarrMultiYearDataset
+│   ├── transforms.py                       # PlasimNormalizer → ClimateNormalizer (channel-group-agnostic)
+│   ├── datapipe.py                         # PlasimClimateDatapipe → ClimateDatapipe
+│   └── sequence.py                         # unchanged (used by rolling-window training in Phase 8c)
+└── climate/                                 [NEW — Phase 8b, new package home]
+    ├── __init__.py                          # Re-exports ClimateZarrDataset etc. under new name
+    └── (above modules relocated)
+
+examples/weather/ai_rossby/conf/
+├── model/
+│   ├── si.yaml                              [NEW — Phase 8c]
+│   ├── si_x.yaml                            [NEW — Phase 8c]
+│   ├── edm.yaml                             [NEW — Phase 8c]
+│   ├── erdm.yaml                            [NEW — Phase 8c]
+│   └── rfm.yaml                             [NEW — Phase 8c]
+├── loss/                                    [EXISTING — extended]
+│   ├── erdm_loss.yaml                       [NEW — wraps ERDMScheduler]
+│   ├── rfm_loss.yaml                        [NEW — wraps RFMScheduler]
+│   ├── si_loss.yaml                         [NEW — wraps DriftScheduler]
+│   ├── si_x_loss.yaml                       [NEW — wraps DynamicInterpolant]
+│   └── edm_loss.yaml                        [NEW — wraps EDMScheduler]
+├── training/                                [EXISTING — extended]
+│   ├── erdm.yaml                            [NEW — Muon + EMA + 2-stage curriculum]
+│   ├── rfm.yaml                             [NEW]
+│   ├── si.yaml                              [NEW]
+│   ├── si_x.yaml                            [NEW]
+│   └── edm.yaml                             [NEW]
+├── dataset/                                 [EXISTING — extended]
+│   ├── amip_ncar_test.yaml                  [NEW — single-year AMIP smoke fixture]
+│   └── amip_ncar_full.yaml                  [NEW — full multi-year]
+└── inference/                               [NEW group]
+    ├── sampler_erdm.yaml                    # default: same scheduler as training
+    ├── sampler_edm_fast.yaml                # shorter sampling schedule
+    └── ...
+
+tools/
+├── data/amip/                                [NEW — Phase 8b]
+│   ├── amip_h5_to_zarr.py                   # HDF5 (per-timestep, /input groups) → multi-year Zarr
+│   └── channel_configs/
+│       └── amip_ncar_v1.json                # default channel set (130 upper + 6 surf + 15 diag + 4 fc + 2 cst)
+└── checkpoint_translation/
+    └── amip_si.py                            [NEW — Phase 8e]   # Lightning .ckpt → .mdlus
+
+examples/weather/ai_rossby/
+├── train_loop.py                            [EDITED — Phase 8c]   # Loss group invocation already supports scheduler.compute_loss
+├── inference.py                             [EDITED — Phase 8d]   # Adds inference.sampler dispatch + ensemble loop
+└── train.py                                 [EDITED — Phase 8c]   # New Muon optimizer branch in build_optimizer
+```
+
+#### Phase 8 sub-phases
+
+##### Phase 8-pre-1 — Migrate EMA off `ModelEMA` onto `torch.optim.swa_utils`
+
+This is a prerequisite touching the existing Pangu_Plasim + SFNO_Plasim
+recipes, so it lands cleanly before Phase 8a (and is fully test-covered
+before any diffusion code shows up).
+
+**Why now**: keeps a single EMA implementation across the codebase — both
+the deterministic and diffusion recipes share one well-tested path that
+mirrors what upstream amip (and most of the PyTorch ecosystem) uses.
+
+**Concretely**:
+
+1. Replace the body of [`examples/weather/ai_rossby/ema.py`](examples/weather/ai_rossby/ema.py)
+   (`ModelEMA` class). The public API stays unchanged so the four call
+   sites in [`train.py`](examples/weather/ai_rossby/train.py) (lines
+   568, 772, 805/849, 865) don't need to move:
+   - `__init__(model, *, decay, warmup_epochs, steps_per_epoch)` constructs
+     an `AveragedModel` with a custom `avg_fn` that mirrors our existing
+     `_effective_decay = min(decay, (1 + step) / (warmup_steps + 1))`
+     schedule. (Note: swa_utils's `num_averaged` counter is per-step,
+     so we translate `warmup_epochs → warmup_steps = warmup_epochs ×
+     steps_per_epoch` at construction time.)
+   - `update(model, epoch)` → `self.avg_model.update_parameters(model)`.
+     The `epoch` arg is kept on the signature for back-compat but ignored
+     (warmup is now step-counted; `epoch` was only used by the old
+     `_effective_decay`).
+   - `apply_to(model)` + `restore(model)` preserve their existing
+     swap-then-forward-then-restore semantics. Implementation: copy
+     `avg_model.module.state_dict()` into `model.state_dict()`, back up
+     the original, restore on `restore()`. (Trainer call sites at
+     train.py:805/849 keep working unchanged.)
+   - `state_dict()` / `load_state_dict()` wraps `avg_model.state_dict()`.
+2. **Tests**:
+   - Unit (CPU): parity test — for a tiny model + synthetic optimizer
+     loop, the new wrapper produces parameter values within 1e-6 of the
+     old `ModelEMA` after 10 steps × 3 epochs at decay=0.999,
+     warmup_epochs=2, steps_per_epoch=4. Guards the schedule.
+   - Unit: `state_dict` round-trip; `apply_to` / `restore` correctness
+     (model params equal EMA after apply, equal original after restore).
+3. **Regression**: run the existing Pangu_Plasim + SFNO_Plasim test
+   suites (already 133+ tests) to confirm no behavior change for the
+   deterministic recipes. The Phase 6 Track A native smoke test
+   (job 19567762 from this conversation) gets re-run with the new EMA
+   wrapper as a live cross-check.
+4. **No new Hydra config knobs** — `cfg.training.ema.{enabled,decay,warmup_epochs}`
+   stay the same.
+
+Done before Phase 8a starts.
+
+##### Phase 8a — Backbones + schedulers (no training yet)
+
+1. Vendor `DiT`, `RollingDiT`, `ERDMUnet` into `physicsnemo/experimental/models/amip_si/`.
+   Each subclasses `physicsnemo.Module` with a `MetaData` (fp32-only at first;
+   `_NativeMetaData` with bf16 + cuda_graphs follows in 8f).
+2. Vendor schedulers into `physicsnemo/experimental/diffusion/`. Each scheduler
+   exposes **both halves of the train/inference asymmetry on one class**:
+   - `compute_loss(model, c_grid, c_scalar, y, **kwargs) → loss_dict` (training)
+   - `sample(model, c_grid, c_scalar, init_x=None, generator=None, **kwargs) → x_pred` (inference)
+   - `to(device)` for buffer placement
+   - `state_dict()` / `load_state_dict()` for any registered buffers
+     (noise schedules, σ tables, position embeddings used by the sampler)
+
+   Training and inference can pick *different* scheduler instances. Concretely:
+   the training config picks one via `loss=` (driving `train_loop.py`'s
+   `scheduler.compute_loss(model, …)`), while the inference config picks
+   another via `inference.sampler=` (driving `inference.py`'s
+   `sampler.sample(model, …)`). Same scheduler at both ends is the common
+   case; e.g. training with ERDM and sampling with the EDM solver for
+   faster wall time at inference is a one-yaml-line change. The scheduler
+   classes themselves are stateless about which mode the recipe is in —
+   each method is callable independently of the other.
+3. **Unit tests** (CPU): per-scheduler `compute_loss` + `sample` on synthetic tiny
+   inputs; per-backbone forward-shape match; state-dict round-trip via
+   `Module.from_checkpoint`.
+4. **GPU smoke** (Delta A40, `delta-smoke-test` skill): one forward+backward on
+   each scheduler × each compatible backbone (e.g., ERDM × RollingDiT, ERDM ×
+   ERDMUnet, SI × DiT, etc.). One sample step on the same setup to verify
+   gradients flow + numerics finite.
+
+##### Phase 8b — Data refactor + AMIP HDF5→Zarr converter
+
+5. **Refactor `PlasimClimateDataset` → `ClimateZarrDataset`** in
+   `physicsnemo/experimental/datapipes/climate/` (new package home; the
+   `datapipes/plasim/` re-exports for back-compat during the transition,
+   then deprecated when no callers remain).
+   - All channel-group semantics (which variables are surface vs. upper-air
+     vs. constant boundary vs. varying boundary vs. land vs. ocean vs.
+     diagnostic) are driven **entirely by the YAML config**. The dataset
+     class itself has no model-family-specific defaults.
+   - Same for `PlasimClimateDatapipe`, `PlasimNormalizer`, and
+     `MultiYearPlasimClimateDataset` — renamed to `ClimateDatapipe`,
+     `ClimateNormalizer`, `ClimateZarrMultiYearDataset`. Each becomes
+     channel-group-agnostic.
+   - Update all in-tree callers: `train.py`, `train_loop.py`, `inference.py`,
+     `validate.py`, `climatology_cli.py`, tests, recipes.
+6. **New tool** `tools/data/amip/amip_h5_to_zarr.py`:
+   - Reads upstream amip's per-timestep HDF5 files (one file per 6h step,
+     with `/input` groups per variable).
+   - Writes per-year multi-variable Zarr matching the existing per-year
+     layout we use for ERA5 / PLASIM / E3SM (one Zarr per year, channels
+     as data_vars, time/lat/lon/pressure_level coords).
+   - Channel config JSON identical in structure to
+     `tools/data/era5/pangu_h5_to_zarr.py`'s `--channel-config`.
+   - Cftime-aware (non-standard calendars supported).
+   - Default channel set: 130 upper-air (5 vars × 26 levels) + 6 surface +
+     15 diagnostics + 4 varying boundary (SST, sea ice, TSI, CO₂) + 2
+     constant boundary (LSM, geopotential).
+7. **New tests** (CPU + Delta CPU):
+   - Unit: `ClimateZarrDataset` returns correct channel-group shapes on the
+     existing PLASIM fixture, *and* on a tiny AMIP fixture (1-day, 4-var).
+   - Unit: `ClimateNormalizer` denormalize round-trips on AMIP stats.
+   - Conversion: `amip_h5_to_zarr.py` on a 1-day fixture, schema sanity.
+8. **AMIP dataset YAMLs**:
+   - `conf/dataset/amip_ncar_test.yaml` — single-year test fixture
+   - `conf/dataset/amip_ncar_full.yaml` — full multi-year run
+9. **AMIP data conversion** (Delta CPU, batch job): convert your existing
+   amip HDF5 archive to the new Zarr layout under
+   `/work/hdd/bdiu/awikner/physicsnemo-zarr/amip_ncar/` once you confirm
+   the channel-config JSON.
+
+##### Phase 8c — Training recipe (single-model, five variants)
+
+10. Install Muon: `uv pip install muon`; new branch in
+    `examples/weather/ai_rossby/train.py:build_optimizer` for
+    `cfg.training.optimizer.kind == "muon"`.
+11. New Hydra `loss=` group entries (`erdm_loss.yaml`, `rfm_loss.yaml`,
+    `si_loss.yaml`, `si_x_loss.yaml`, `edm_loss.yaml`). Each instantiates
+    the corresponding scheduler from Phase 8a.
+12. **`train_loop.py` minimal edit**: the current `train_step` calls
+    `loss(pred, target, ...)`. Add a branch: when `loss.is_scheduler`
+    (attribute on the new diffusion loss objects), invoke
+    `loss.compute_loss(model, c_grid, c_scalar, y)` directly — no
+    pre-forward through the model needed.
+13. **New model configs** (`conf/model/{si,si_x,edm,erdm,rfm}.yaml`):
+    each declares `name:` + `module:` for `Module.instantiate`. Backbones
+    are paired with their default scheduler in 8c.11 but easily swappable.
+14. **New training configs** (`conf/training/{si,si_x,edm,erdm,rfm}.yaml`):
+    - Muon optimizer + cosine warmup
+    - EMA enabled, decay=0.999
+    - Multi-stage curriculum for rolling-window models (ERDM, RFM):
+      stage 0 = short window (W=3, 50% of epochs), stage 1 = full window
+      (W=6, remaining 50%).
+    - Mixed precision: fp32 default.
+15. **Skip `RolloutValidator` for diffusion** — explicit `validation=off`
+    in each new training config. Add a `# TODO Phase 8f` comment noting
+    the escalation point to add a `DiffusionRolloutValidator`.
+16. **Tests**:
+    - Unit: train_loop dispatches to `loss.compute_loss` when the loss
+      object is a scheduler (mock model + scheduler).
+    - Delta A40 smoke (`delta-smoke-test` skill): one full mini-epoch on
+      the AMIP test fixture for each of the 5 models. Verify final loss
+      finite + checkpoint produced + EMA shadow weights present.
+
+##### Phase 8d — Inference + per-IC streaming
+
+17. **Extend `inference.py`** with a diffusion-aware branch:
+    - When the model has a `sample(...)` method (set during 8a's vendoring),
+      the rollout loop calls `sampler.sample(model, c_grid, c_scalar, …)`
+      instead of `model.forward(…)`.
+    - New `inference.sampler=` Hydra group selects the inference scheduler
+      (defaults to the training scheduler from the matching `loss=` group).
+    - Ensemble support: replicate the IC's noise seed N times, run N
+      independent samples per IC, write each as an ensemble axis in the
+      per-IC Dataset.
+18. **Reuse**: `AsyncForecastWriter`, `subset_forecast_dataset`,
+    `make_forecast_filename`, `ic_time` scalar coord, denormalize-before-write
+    — all stay in place.
+19. **Tests**:
+    - Unit: synthetic model + scheduler stub, verify per-IC streaming writes
+      ensemble axis correctly.
+    - Delta A40 smoke: full rollout (max_step=4, ensemble_size=2) on the
+      AMIP test fixture for ERDM model. Verify outputs finite, on-disk Zarr
+      has expected shape + `ic_time` coord.
+
+##### Phase 8e — Lightning `.ckpt` translator
+
+20. New `tools/checkpoint_translation/amip_si.py` (mirrors
+    `pangu_plasim.py` structure):
+    - Loads amip's Lightning `.ckpt` blob.
+    - Strips Lightning's wrapping keys (`pl_state_dict["model.*"]` →
+      bare `state_dict`).
+    - Optional `_orig_mod.` / `module.` prefix stripping (DDP / torch.compile
+      robustness — same shared helper as `pangu_plasim.py`).
+    - Detects scheduler type from saved hyperparameters; instantiates the
+      matching ai-rossby Module + loads state.
+    - Saves as `.mdlus`.
+21. **Live-validate** against the three checkpoint families you've trained
+    upstream (SI, ERDM, RFM at minimum). Mirror of Phase 5's live-validation
+    pattern: assert 0 missing / 0 unexpected keys, finite + non-degenerate
+    predictions, matching channel layout.
+22. **Tests**:
+    - Unit: synthetic Lightning-style ckpt → translator → load into
+      ai-rossby `Module` → forward → assert finite.
+    - Live A40 GPU smoke against the user-provided real checkpoints.
+
+##### Phase 8f — Follow-ups (post-translator)
+
+23. `x_DDC` super-res cascade + `CombinedModule` two-stage
+    forecaster+downscaler.
+24. `DiffusionRolloutValidator` (per-step sample limits + ensemble spread)
+    — escalation point from 8c.15.
+25. bf16-default native variants of the diffusion models (advertise
+    `cuda_graphs=False` because of the iterative sampling loop, but `amp=True`
+    + `bf16=True`).
+26. Eval suite: climatology, bias, QBO, global-mean timeseries, ensemble
+    envelopes. Reuse Phase 4c `StreamingTimeMean` / `StreamingBinned*`
+    aggregators in physical units (Phase 4 convention).
+
+#### Risk + open items
+
+- **Refactor blast radius (Phase 8b).** Renaming `PlasimClimateDataset`
+  touches every existing recipe + test that imports it (~30 call sites).
+  Mitigation: keep the `physicsnemo/experimental/datapipes/plasim/`
+  package as a thin re-export shim for one release, then deprecate.
+  Run the full test suite after the rename to flush out missed import sites.
+- **Muon × DDP interaction.** Muon has a recent reputation for working
+  cleanly with DDP but some optimizers don't with FSDP. We don't use FSDP
+  yet, so deferred until needed.
+- **Rolling-window batching with our existing `PlasimClimateDatapipe`.**
+  The upstream amip `multistep_rollout` / `window_train` flags pull a
+  `(T+W, ...)` slice per sample. Our existing `sequence.py` already
+  supports multi-step rollouts (Phase 4 / Phase 3 v3); Phase 8c will
+  thread a `window_train=True` flag through to use it for rolling diffusion
+  training.
+- **The user's existing `.ckpt` files may have non-standard hyperparameter
+  storage** (some have `partial_checkpoint` keys, see the iteration commits
+  before BIG changes). The translator (Phase 8e) needs to handle that
+  variation. Plan to discover the variants live during 8e step 21.
+
+**Tests** (carry the Phase 1 contract):
+- *Unit*: per-scheduler `compute_loss` + `sample` on synthetic tiny inputs;
+  per-backbone forward-shape match; `ClimateZarrDataset` shapes on AMIP
+  fixture; `ClimateNormalizer` denormalize round-trip; `amip_h5_to_zarr.py`
+  schema sanity on a 1-day fixture; train_loop dispatch to
+  `loss.compute_loss` on a scheduler-shaped object.
+- *Smoke* (Delta A40, `delta-smoke-test` skill): one full mini-epoch on
+  AMIP test fixture for each of the 5 models; one diffusion rollout
+  (max_step=4, ensemble_size=2) for ERDM; Lightning `.ckpt` translator
+  on real checkpoints.
+
+### Cross-cutting (throughout)
+- **Claude skills** (`skills/`) for model dev, test scaffolding, and optimization (per outline objective).
+  Two skills are wired up for the smoke-test workflow: `delta-smoke-test` (submit a pytest target to
+  `gpuA40x4-interactive`) and `delta-shell` (interactive A40 srun).
+- **HPC docs and job templates** (`hpc/`): `install.md` (portable uv + system-PyTorch recipe), `delta.md`
+  (NCSA Delta specifics — partition, account, env, smoke-test patterns); PBS templates for Derecho/Casper and
+  SLURM templates for Midway/Delta non-interactive added as those clusters come online.
+- **Robust unit + smoke tests** as the base-class contract for new models/datapipes/metrics (outline objective).
+  Smoke-test contract is normative — see `hpc/delta.md`.
+- **Config system**: Hydra groups mirroring the model/data/training/validation separation the outline asks for.
+
+### Smoke tests on Delta interactive queue (normative)
+
+Every newly added feature — model, datapipe, metric, training-recipe component, checkpoint translator,
+interpolant solver — ships **both** a CPU-runnable unit test **and** a GPU smoke test on Delta's
+`gpuA40x4-interactive` partition. Full contract: `hpc/delta.md`. Highlights:
+
+- Smoke tests are marked `@pytest.mark.smoke` and `@pytest.mark.cuda`, live alongside the unit tests in
+  `test/`. `pytest -m "smoke and cuda"` selects them on a GPU node.
+- Run on **1 node, ≤ 4 A40 GPUs, ≤ 5 min wall** (interactive queue cap is 1 hr).
+- Synthetic tiny tensors **except** for data-loading code, which must read a real fixture from
+  `$AI_ROSSBY_TEST_DATA` (gitignored scratch path, symlinked at `test/_data` for IDE convenience).
+- DDP smoke tests use exactly 2 GPUs.
+- Anything that can't fit (Phase 5 fidelity gate, Phase 3 real-data shake-out) goes to `gpuA40x4`
+  non-interactive with its own job script under `hpc/scripts/`.
+
+## 4. Reuse map (build off what exists)
+
+| Need | Reuse from PhysicsNeMo | New work |
+|---|---|---|
+| Model base/checkpoint/registry | `physicsnemo.Module`, `.mdlus`, entry points | refactor constructors to JSON-serializable args |
+| Earth-Specific attention/patch ops | shipped `Pangu` building blocks | dual-stream + boundary + VAE + delta wrapping |
+| Training infra | `DistributedManager`, `save/load_checkpoint`, `LaunchLogger`, `StaticCaptureTraining` | the loop, EMA, loss combo, VAE-KL, Muon |
+| Diffusion core | protocol API, `sample()`, samplers, `MSEDSMLoss`, DiT/SongUNet | interpolant scheduler + solver (net-new) |
+| Data | `Datapipe` base / Reader-Transform arch | native HDF5+NetCDF reader, channel routing |
+| Metrics | `acc`, lat-weight reductions, `crps`, `power_spectrum` | dayofyear-clim ACC aggregator, bias, QBO |
+| Tests | `test/common` validators | per-model/datapipe test files + fixtures |
+| HPC | `DistributedManager` SLURM/MPI detection | PBS job templates |
+
+## 5. Key risks & mitigations
+- **Constructor refactor breaks weight mapping.** Keep submodule names/order identical in the faithful variants;
+  gate translation behind the Phase-5 fidelity test against original outputs.
+- **Interpolant has no framework analog.** Follow the TopoDiff "custom scheduler/solver in user code" pattern;
+  validate the sampler against amip outputs before wiring into training.
+- **Data-format mismatch.** Custom datapipe reading native files (no mass migration); validate against the
+  original loader's tensors on identical files.
+- **PBS clusters.** No native detection — provide tested PBS templates that set torchrun/MPI env vars.
+- **VAE/KL & Muon fidelity.** Port both faithfully in faithful/training paths; make them optional/pluggable in
+  the native variants.
+
+## 6. Resolved & remaining items
+
+Resolved (was §6 in earlier drafts):
+1. **HPC specifics** — Delta first. Smoke-test partition `gpuA40x4-interactive`, account `bdiu-delta-gpu`,
+   env via `pytorch-conda/2.8` + uv `--system-site-packages`. Repo at `/work/nvme/bdiu/awikner/physicsnemo`,
+   test data under `$AI_ROSSBY_TEST_DATA` = `/work/nvme/bdiu/awikner/physicsnemo_test_data`
+   (symlinked at `test/_data`, gitignored). Full recipe: `hpc/delta.md`,
+   portable template: `hpc/install.md`.
+2. **SFNO scope** — *in scope* (Phase 7), faithful + native variants, same unit + smoke contract as Pangu_Plasim.
+3. **Per-cluster HPC docs** — done (Phase 9). Five clusters mirror `hpc/delta.md`, each with a passing
+   `smoke and cuda` test: `hpc/deltaai.md` (GH200 aarch64, Option A cu129), `hpc/stampede3.md`
+   (H100, cu128), `hpc/derecho.md` (A100, **PBS**, cu129), `hpc/midway3.md` (H100/A100, **SLURM**, cu129),
+   `hpc/dsi.md` (H100, cu129). Env propagation via `hpc/scripts/sync-all-clusters.sh`; per-cluster CUDA
+   matched to each site's system Nsight (`phase9_implementation_plan.md` § 9f); Mac-side SSH/ControlMaster
+   in `hpc/mac-setup.md`. **Casper** intentionally out of scope — it's NCAR's viz/analysis cluster, not
+   part of the training/smoke workflow (Derecho already covers NCAR/GLADE).
+
+Remaining:
+- **Phase 5 fidelity-gate job script** — non-interactive `gpuA40x4` submission script + tolerance choices.
+  Drafted when the translator lands.
+- **SFNO + Pangu_Plasim performance optimizations beyond CUDA-lever parity** — the Phase 7 benchmark
+  closed a 17% throughput gap to PanguWeather via TF32 + cudnn.benchmark + DDP bucket-view + fused
+  AdamW (commit `094e72b2`). To go *beyond* parity, follow-up candidates (none in scope yet):
+  - `torch.compile` on the SfnoPlasim / PanguPlasim modules (Inductor or AOTI). Watch out for the
+    SHT custom ops that the vendored Modulus SFNO calls — they may need `dynamic=False` or compile-only-blocks.
+  - Channels-last memory format for the conv-heavy encoder/decoder paths.
+  - Per-rank batch size sweep — the benchmark used batch=8/rank (matching PanguWeather's reference);
+    on A100-40 the SFNO_PLASIM_5412 model has headroom for larger.
+  - bf16 AMP (`cfg.amp=bf16`) — already wired through `_resolve_amp_dtype`; we just haven't benched it
+    for SFNO. Would also need to re-validate loss parity since PanguWeather defaults to bf16.
+  - Optional FlashAttention / Mamba-style attention swaps inside the SFNO MLP blocks where applicable.
+  - ZeRO-1 optimizer sharding (already a config key, factory pending).
+
+## 7. Phase 9 — Multi-cluster dev setup → see `phase9_implementation_plan.md`
+
+Six-cluster development workflow (SSH/ControlMaster, per-cluster install, env
+propagation, Nsight/CUDA alignment, smoke validation). **Done** (see §6.3).
+
+## 8. Phase 10 — Release preparation → see `phase10_implementation_plan.md`
+
+Getting the fork ready to hand to other group members: onboarding docs
+(README + recipe README + data-acquisition guide) plus an onboarding PDF
+presentation (Marp text-source → PDF), de-personalizing hardcoded
+config/argparse defaults so a fresh checkout runs, licensing/attribution
+(NOTICE + amip/PanguWeather provenance + copyright headers), a focused code
+cleanup, and repo/CI hygiene. **Planned; scope decisions locked 2026-07-09:**
+internal/private release, mixed/collaborator-owned derived code, Pangu/SFNO
+supported + diffusion experimental + healda dropped, ship the `ai-rossby`
+branch as-is. Critical path: de-personalize → onboarding docs → correctness
+fixes. See the phase-10 doc's §0.
+
+## 9. Phase 11 — Data conversion completion + multi-cluster catalog → see `phase11_implementation_plan.md`
+
+Convert all remaining raw archives to the ai-rossby Zarr format (ERA5
+1979–2024, AMIP 1978–2024, E3SM 2015–2040, PLASIM-plev to match sigma, +
+PLASIM/AMIP norm stats → Zarr). Conversion runs **on Stampede3** (`spr` queue,
+`TG-ATM170020`) — raw H5 is Globus'd there, converted, and the Zarr copied to
+**Derecho scratch as the master** (campaign lacks the quota; the 60-day purge is
+accepted). Stampede3 keeps its copy as the second replica. A
+**multi-location registry** (`hpc/data_registry.yaml`) records every copy of
+each dataset plus its raw source, and a Globus `sync_dataset.py` (with a
+`--rehydrate` mode) moves data to any cluster before training and restores
+purged copies from a peer. Master on Derecho scratch; **second copy on
+Stampede3 scratch** (both volatile, independent purge clocks; Delta raw is the
+durable fallback). PLASIM-plev (79–104) converts on **Derecho** from a complete
+per-year `.h5` source with the existing converter — no enrichment needed.
+**Planned.**

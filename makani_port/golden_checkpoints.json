@@ -1,0 +1,11 @@
+{
+  "root": "/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling",
+  "ic": {"year": 2048, "start_frame": 1092, "K": 56},
+  "checkpoints": [
+    {"tag": "A_e243",        "run": "prod1n_b32_sgdr",          "file": "best_ckpt_mp0.tar",     "epoch": 243},
+    {"tag": "B_e22",         "run": "nf4_prod_b16_r1",          "file": "ckpt_mp0_v1.tar",       "epoch": 22},
+    {"tag": "C1_e24",        "run": "c1_rollout_full_b16",      "file": "ckpt_mp0_v23.tar",      "epoch": 24},
+    {"tag": "nf4p_r1_e1",    "run": "nf4_proxy_b8_r1",          "file": "best_ckpt_mp0.tar",     "epoch": 1},
+    {"tag": "ema_smoke_e1",  "run": "smoke_nosoil_4n_b32_r2",   "file": "best_ckpt_ema_mp0.tar", "epoch": 1}
+  ]
+}

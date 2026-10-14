@@ -1,0 +1,98 @@
+#!/bin/bash -l
+#PBS -N pploop-equiv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Plan item 18 — capture the missing PanguWeather DESIGN §4.1 equivalence
+# baseline, and in the same job answer the question that decides whether the
+# gate is USABLE AT ALL:
+#
+#   ⭐ do two identical runs (same seed, same config, world_size 1) agree?
+#
+# If they do not, a baseline is worthless: every future "the optimization
+# changed the numbers" verdict would be indistinguishable from run-to-run noise.
+# So this runs the SAME configuration TWICE and compares the two records against
+# each other. Nothing about an optimization is being tested here — this measures
+# the floor.
+#
+# world_size 1 and a fixed --global_seed 0 per item 18. `seed_torch()` seeds
+# numpy/torch/CUDA and forces cudnn.deterministic; whether that is *sufficient*
+# for SFNO (cuFFT, scatter/atomic backward) is exactly what is unknown.
+#
+# PANGU_BENCH=1 with WARMUP=0/STEPS=20 is used only to BOUND the run at K=20
+# steps (`bench_done` breaks the loop). Its timings are irrelevant here, and its
+# timer self-check may well exit(3) — which is why the recorder finalizes BEFORE
+# _bench_finalize. The JSON is written either way.
+#
+# PASS = EQUIV_FLOOR_MEASURED plus two JSONs. NOT rc=0: the bench guard can exit
+# non-zero after a perfectly good capture (CLAUDE.md #14).
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || true
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1 WANDB_MODE=offline HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MPLBACKEND=Agg
+export OMP_NUM_THREADS=8 MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+export PYTHONPATH="${V20_DIR}:${SHIM}"
+
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.equiv.rendered.yaml"
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml" > "${CONFIG_FILE}"
+# config_sha256_from_env() reads this and REFUSES to write a record without it:
+# two records both hashing "unknown" would compare clean across different configs.
+export S2S_YAML="${CONFIG_FILE}"
+
+export PANGU_BENCH=1 PANGU_NVTX=0
+export PANGU_BENCH_WARMUP=0 PANGU_BENCH_STEPS=20     # bound the run at K=20
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_equiv_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+OUT_DIR="${REPO}/baselines/pangu_sfno_e3sm"
+mkdir -p "${OUT_DIR}"
+
+run_arm () {   # $1 = record name
+    echo "=== arm $1 (seed 0, world_size 1, K=20) ==="
+    PANGU_EQUIV_JSON="${OUT_DIR}/$1.json" \
+    "${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${V20_DIR}/train.py" --yaml_config="${CONFIG_FILE}" \
+        --run_num="equiv_$1_${PBS_JOBID%%.*}" --config=SFNO --fresh_start \
+        --epochs 1 --global_seed 0 2>&1 | tail -18
+    echo "arm $1 child rc=${PIPESTATUS[0]} (bench guard may exit 3 AFTER a good capture)"
+}
+
+run_arm eager
+run_arm eager_repeat
+
+for f in eager eager_repeat; do
+    [ -s "${OUT_DIR}/${f}.json" ] || { echo "ERROR EQUIV_NO_RECORD ${f}.json"; exit 5; }
+done
+
+echo
+echo "=== the floor: two IDENTICAL runs compared against each other ==="
+# compare_baselines.py needs python 3.7+ (`from __future__ import annotations`);
+# the login node's python3 is 3.6.15, so use the venv interpreter. It imports no
+# torch — pure json/argparse.
+CMP="${REPO}/physicsnemo_ai_rossby/polaris/compare_baselines.py"
+for TOL in 2.5e-7 1e-5 1e-2; do
+    echo "--- tolerance ${TOL} ---"
+    "${PY}" "${CMP}" "${OUT_DIR}/eager.json" "${OUT_DIR}/eager_repeat.json" \
+        --tolerance "${TOL}" && { echo "FLOOR<=${TOL}"; break; }
+done
+echo "EQUIV_FLOOR_MEASURED  ${OUT_DIR}/"

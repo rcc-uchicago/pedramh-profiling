@@ -1,0 +1,65 @@
+#!/bin/bash -l
+#PBS -N a_best_ckpt_aw
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Measurement only, OLD venv, 4 GPUs (operator request 2026-10-01): does A's best_ckpt (e243, chosen by makani's
+# naive-weighted validation loss) stay best under band-area weights? Scores the 8 lowest-logged-validation epochs
+# of prod1n_b32_sgdr on the same validation ICs, K=4 (valid_autoreg_steps 3 + 1), naive vs band weights.
+# 2 epochs per GPU; one shuffled IC order shared by all, cut by a time budget; summary on the common ICs.
+# PASS = BEST_CKPT_CHECK line with naive_matches_logged=yes (otherwise the proxy does not reproduce makani's
+# choice and the band result is not interpretable). Key on tokens (#14).
+# Submit from makani_sfno/:   qsub polaris/polaris_best_ckpt_area_weights.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+JOBID="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/runs/makani_eval/best_ckpt_area_weights/${JOBID}"
+mkdir -p "${OUT}" || exit 2
+OLD_VENV="${MEMBER_ROOT}/conda-envs/sfno-venv"
+RUN="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling/prod1n_b32_sgdr"
+BUDGET_S="${BUDGET_S:-2400}"
+
+SHA="$(cd "${REPO}" && git rev-parse HEAD 2>/dev/null)"
+DIRTY="$(cd "${REPO}" && git status --porcelain --untracked-files=no 2>/dev/null | wc -l)"
+echo "=== a_best_ckpt_aw: $(date -Iseconds) job=${JOBID} host=$(hostname) ==="
+echo "BEST_CKPT_PROVENANCE sha=${SHA} dirty_tracked_files=${DIRTY} run=${RUN} out=${OUT} budget_s=${BUDGET_S}"
+
+# env bootstrap verbatim from polaris_makani_port_m1.pbs (stage 1, old venv)
+EPOCH_SETS=("243 223" "203 241" "242 222" "221 183")
+for g in 0 1 2 3; do
+  (
+    # shellcheck disable=SC1091
+    source "${REPO}/polaris_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${OLD_VENV}/bin/activate"
+    export PYTHONNOUSERSITE=1
+    export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+    export HDF5_USE_FILE_LOCKING=FALSE
+    export CUDA_VISIBLE_DEVICES=${g}
+    # shellcheck disable=SC2086
+    "${OLD_VENV}/bin/python" -m torch.distributed.run --standalone --nproc_per_node=1 \
+        "${MAKANI_ROOT}/scripts/best_ckpt_area_weights.py" \
+        --run-dir "${RUN}" --epochs ${EPOCH_SETS[$g]} --out "${OUT}" --k 4 --budget-s "${BUDGET_S}"
+  ) > "${OUT}/gpu${g}.log" 2>&1 &
+done
+wait
+grep -hE "^(AREA_WEIGHTS|BEST_CKPT_EPOCH|ERROR)|Traceback|Error:" "${OUT}"/gpu*.log | sort -u | head -20
+
+/usr/bin/python3.11 "${MAKANI_ROOT}/scripts/best_ckpt_area_weights_summary.py" \
+    --dir "${OUT}" --out-log "${RUN}/out.log" | tee "${OUT}/summary.txt"
+echo "=== done $(date -Iseconds) ==="

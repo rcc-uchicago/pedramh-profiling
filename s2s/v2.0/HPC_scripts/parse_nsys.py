@@ -62,7 +62,7 @@ def nvtx_summary(cur):
         SELECT text, (end - start) AS dur_ns
         FROM NVTX_EVENTS
         WHERE text IN ('data_prep','forward_loss','backward','optimizer',
-                       'vae_encoder1','vae_encoder2')
+                       'vae_encoder1','vae_encoder2','ema')
           AND end IS NOT NULL AND end > start
         ORDER BY text
     """)
@@ -78,8 +78,11 @@ def nvtx_summary(cur):
         by_name[name].append(dur_ns / 1e6)  # → ms
 
     out = []
+    # 'ema' is PanguWeather-only (s2s has no EMA); absent ranges are skipped below, so
+    # this list stays valid for both trees. Never remove a name — a dropped range
+    # silently invalidates every prior comparison (CLAUDE.md #10).
     for name in ('data_prep', 'forward_loss', 'backward', 'optimizer',
-                 'vae_encoder1', 'vae_encoder2'):
+                 'vae_encoder1', 'vae_encoder2', 'ema'):
         vals = by_name.get(name, [])
         if not vals:
             continue

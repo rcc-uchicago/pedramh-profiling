@@ -1,0 +1,94 @@
+#!/bin/bash -l
+#PBS -N sfno_parity_gate
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -j oe
+# ============================================================================
+# THE ARCHITECTURE GATE for the SFNO apples-to-apples comparison.
+#
+# The comparison rests on one claim: that ai-rossby's `SfnoPlasim` is the same
+# network as PanguWeather v2.0's `SphericalFourierNeuralOperatorNet_v2`. If it
+# is not, we are comparing two different models and every downstream throughput
+# or loss number is meaningless. This job proves or disproves it in <30 min,
+# BEFORE anything long is queued.
+#
+# Four checks (see compare_sfno_parity.py):
+#   1. source parity  — vendored implementation vs PanguWeather's, file by file
+#   2. config parity  — the two YAMLs' architecture blocks, key by key
+#   3. PARAMETER COUNT — build both, compare, and check against the 1,182,108,160
+#                        measured in PanguWeather's own environment (job 7255410)
+#   4. fixed weights  — load one model's weights into the other, identical input,
+#                       compare outputs + grad_norm with NO optimizer step
+#
+# 1 and 2 are login-node-safe (`python3.12 compare_sfno_parity.py --static`);
+# 3 and 4 build a 1.18 B-param model and need a GPU, hence this job.
+#
+# ⚠ Runs from the AI-ROSSBY VENV, which is the only environment satisfying both
+#   implementations (torch 2.10 + torch_harmonics 0.9.1 + tltorch). It is NOT
+#   the environment PanguWeather trains in (base conda, torch_harmonics 0.7.4),
+#   so this proves IMPLEMENTATION parity; check 3's comparison against the
+#   measured reference count is what ties it back to the real Pangu runtime.
+#
+# ⚠ $POLARIS_TOPUPS is deliberately NOT on PYTHONPATH: it carries
+#   torch_harmonics 0.7.4, and PYTHONPATH outranks a venv's site-packages, so
+#   adding it would silently downgrade the transform under both models.
+#
+# Submit from physicsnemo_ai_rossby/ (or its polaris/ subdir):
+#     qsub polaris/polaris_sfno_parity_gate.pbs
+#
+# PASS = "SFNO_PARITY_OK" in the log. Not rc=0 — key on the token.
+# A parameter MISMATCH is not a reason to loosen anything: characterise the
+# difference and report it. → polaris_sfno_comparison_handoff.md §5
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+
+if [ ! -x "${AI_ROSSBY_VENV}/bin/python" ]; then
+    echo "ERROR AI_ROSSBY_VENV_MISSING: ${AI_ROSSBY_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ai_rossby_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+
+# physicsnemo is installed EDITABLE, so it imports from whichever checkout built
+# the venv. A gate run against a different tree than the one whose config we are
+# certifying proves nothing.
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+THIS_PN="$(cd "${AR_ROOT}/physicsnemo" && pwd -P)"
+if [ "${VENV_PN}" != "${THIS_PN}" ]; then
+    echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"
+    echo "  venv imports physicsnemo from: ${VENV_PN}"
+    echo "  this job is running from:      ${THIS_PN}"
+    exit 3
+fi
+
+echo "=== sfno_parity_gate: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}"
+nvidia-smi -L
+python -c "import torch, torch_harmonics; print('torch', torch.__version__, '| torch_harmonics', torch_harmonics.__version__)"
+echo
+
+cd "${REPO}" || exit 2
+python compare_sfno_parity.py --all --device cuda
+rc=$?
+
+echo
+echo "=== sfno_parity_gate done (rc=${rc}) $(date -Iseconds) ==="
+exit "${rc}"

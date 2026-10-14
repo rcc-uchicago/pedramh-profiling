@@ -1,0 +1,207 @@
+#!/bin/bash -l
+#PBS -N ai_rossby_mem_breakdown
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:40:00
+#PBS -j oe
+# ============================================================================
+# WHY DOES ai-rossby NEED ~5.8 GiB MORE THAN PanguWeather FOR THE SAME MODEL?
+#
+# Both run a BITWISE IDENTICAL SFNO (job 7364984: 0.000e+00 on outputs, loss and
+# grad_norm at fixed weights). Yet at checkpointing=2:
+#
+#     Pangu    no-ZeRO : 32.63 GiB   (bench AND production agree exactly)
+#     ai-rossby +ZeRO  : 32.02 GiB
+#     ai-rossby no-ZeRO: OOM, reported 38.29 GiB allocated  => ~5.8 GiB more
+#
+# That gap is the ONLY reason ai-rossby is gated on ZeRO while PanguWeather is
+# not. If it turns out to be an avoidable transient, ai-rossby reaches ckpt2
+# unaided and the ZeRO equivalence question stops blocking its production launch.
+#
+# ALREADY RULED OUT (do not re-test):
+#   * units — Pangu reports bytes/1e9, ai-rossby bytes/1024^3; corrected above
+#   * gradient_as_bucket_view — BOTH set True (ai-rossby train.py:940,
+#     PanguWeather train.py:302)
+#   * EMA — both hold exactly one extra full model copy (~4.4 GiB)
+#   * the per-iteration diagnostics block — Pangu's bench skips it and
+#     production does not, and BOTH report 32.63 GiB. It costs ~60% in TIME and
+#     nothing in memory.
+#   * the epsilon perturbation — ~25 MB, three orders too small
+#
+# WHAT THIS DOES: tallies GPU memory by component at a fixed point in the step,
+# so the gap is attributed rather than guessed. Runs ai-rossby WITHOUT ZeRO at
+# ckpt3 (which fits, 25.91 GiB) so it can complete and report, then again at
+# ckpt2 to capture the growth. Reports:
+#
+#     params / grads / optimizer state / EMA / everything else (= activations)
+#
+# plus torch.cuda.memory_summary() so a large unattributed block is visible.
+#
+# ⚠ The comparison target is PanguWeather's 32.63 GiB at ckpt2. This job cannot
+#   measure Pangu (different venv, and its production run owns the capacity
+#   slot); it establishes ai-rossby's breakdown, and the same tally is applied
+#   to Pangu separately.
+#
+# PASS = "MEM_BREAKDOWN_OK" + the tables. There is no pass/fail verdict here —
+# it is a measurement, and the point is the attribution.
+# ============================================================================
+
+set -o pipefail
+
+cd "${PBS_O_WORKDIR}" || exit 2
+AR_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${AR_ROOT}/examples/weather/ai_rossby" ]; then AR_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"; fi
+RECIPE="${AR_ROOT}/examples/weather/ai_rossby"
+REPO="$(cd "${AR_ROOT}/.." && pwd)"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+[ -x "${AI_ROSSBY_VENV}/bin/python" ] || { echo "ERROR AI_ROSSBY_VENV_MISSING"; exit 3; }
+# shellcheck disable=SC1091
+source "${AI_ROSSBY_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+VENV_PN="$(python -c 'import physicsnemo,os;print(os.path.realpath(os.path.dirname(physicsnemo.__file__)))' 2>/dev/null)"
+[ "${VENV_PN}" = "$(cd "${AR_ROOT}/physicsnemo" && pwd -P)" ] || { echo "ERROR AI_ROSSBY_WRONG_CHECKOUT"; exit 3; }
+
+NPROC="${NPROC:-$(nvidia-smi -L | wc -l)}"
+RUN_ROOT="${MEMBER_ROOT}/runs/ai_rossby_mem/${PBS_JOBID%%.*}"
+mkdir -p "${RUN_ROOT}"
+polaris_env_report
+echo "--- memory breakdown: ranks=${NPROC} ---"; echo
+
+cat > "${RUN_ROOT}/mem_probe.py" <<'PROBE'
+"""Attribute ai-rossby's GPU memory by component at a fixed point in the step.
+
+Reuses train.py's own builders so the numbers describe what actually trains,
+not a reimplementation. Measures at three points, because WHEN matters:
+  after model      -> parameters
+  after backward   -> + gradients + activations
+  after opt.step() -> + optimizer state (Adam allocates lazily on first step)
+"""
+import os, sys, contextlib
+import hydra, torch
+from omegaconf import DictConfig
+from physicsnemo.distributed import DistributedManager
+from train import (_flatten_optimizer_cfg, _flatten_scheduler_cfg, _resolve_path,
+                   build_datapipe, build_loss, build_model)
+from train_loop import _resolve_amp_dtype, make_optimizer, make_scheduler, train_step
+from ema import ModelEMA
+
+GiB = 1024 ** 3
+def alloc(): return torch.cuda.memory_allocated() / GiB
+def peak():  return torch.cuda.max_memory_allocated() / GiB
+def tensor_gib(ts): return sum(t.numel() * t.element_size() for t in ts) / GiB
+
+@hydra.main(version_base="1.2", config_path="conf", config_name="config")
+def main(cfg: DictConfig) -> None:
+    DistributedManager.initialize(); dist = DistributedManager()
+    torch.manual_seed(int(cfg.seed) + dist.rank)
+    cfg_train = cfg.training
+    stages = list(cfg_train.stages)
+    tag = os.environ.get("MEM_TAG", "?")
+
+    m0 = alloc()
+    datapipe = build_datapipe(cfg, zarr_path=_resolve_path(cfg.dataset.zarr_path),
+                              distributed=(dist.world_size > 1), device=dist.device,
+                              shuffle=False, seed=int(cfg.seed), unroll_steps=1)
+    inner = build_model(cfg.model).to(dist.device)
+    m_params = alloc() - m0
+    from torch.nn.parallel import DistributedDataParallel
+    model = DistributedDataParallel(inner, device_ids=[dist.local_rank],
+                                    output_device=dist.device,
+                                    broadcast_buffers=dist.broadcast_buffers,
+                                    find_unused_parameters=dist.find_unused_parameters,
+                                    gradient_as_bucket_view=True)
+    m_ddp = alloc() - m0 - m_params
+
+    ema = None
+    if bool(cfg_train.ema.enabled):
+        ema = ModelEMA(inner, decay=float(cfg_train.ema.decay),
+                       warmup_epochs=int(cfg_train.ema.warmup_epochs),
+                       steps_per_epoch=len(datapipe))
+    m_ema = alloc() - m0 - m_params - m_ddp
+
+    loss_fn = build_loss(cfg).to(dist.device)
+    optimizer = make_optimizer(inner, _flatten_optimizer_cfg(cfg_train.optimizer))
+    scheduler = make_scheduler(optimizer, _flatten_scheduler_cfg(
+        stages[0].scheduler, lr=float(cfg_train.optimizer.lr),
+        steps_per_epoch=8, num_epochs=1), total_steps=8)
+    amp_dtype = _resolve_amp_dtype(cfg_train.get("amp", None))
+    before_steps = alloc()
+
+    for i, batch in enumerate(datapipe):
+        if i >= 3: break
+        train_step(model=model, loss_fn=loss_fn, optimizer=optimizer,
+                   scheduler=scheduler, batch=batch,
+                   has_diagnostic=inner.has_diagnostic,
+                   vae_kl_weight=float(cfg.loss.get("vae_kl_weight", 0.0)),
+                   amp_dtype=amp_dtype, grad_scaler=None,
+                   epsilon_factor=float(cfg_train.get("epsilon_factor", 0.0)))
+        if ema is not None: ema.update(inner, epoch=1)
+
+    p = [q for q in inner.parameters()]
+    g = [q.grad for q in inner.parameters() if q.grad is not None]
+    opt_states = []
+    for st in optimizer.state.values():
+        if isinstance(st, dict):
+            opt_states += [v for v in st.values() if torch.is_tensor(v) and v.is_cuda]
+    ema_t = ([q for q in ema.avg_model.parameters()] if ema is not None else [])
+
+    if dist.rank == 0:
+        print(f"\n===== MEMORY BREAKDOWN [{tag}] (rank 0, GiB) =====")
+        rows = [("parameters", tensor_gib(p)), ("gradients", tensor_gib(g)),
+                ("optimizer state", tensor_gib(opt_states)),
+                ("EMA shadow", tensor_gib(ema_t))]
+        acct = sum(v for _, v in rows)
+        print(f"  {'component':22s} {'GiB':>8s}")
+        for k, v in rows: print(f"  {k:22s} {v:8.2f}")
+        print(f"  {'--- accounted':22s} {acct:8.2f}")
+        print(f"  {'live allocated now':22s} {alloc():8.2f}")
+        print(f"  {'unattributed (live)':22s} {alloc()-acct:8.2f}   <- buffers/workspace")
+        print(f"  {'PEAK (run-to-date)':22s} {peak():8.2f}")
+        print(f"  {'peak - live':22s} {peak()-alloc():8.2f}   <- transient activations")
+        print(f"\n  build-phase deltas: params={m_params:.2f} ddp={m_ddp:.2f} ema={m_ema:.2f}")
+        print(f"  optimizer allocated lazily: {alloc()-before_steps:.2f} GiB after 3 steps")
+        print("\n--- torch.cuda.memory_summary (abridged) ---")
+        for line in torch.cuda.memory_summary(abbreviated=True).splitlines():
+            if any(k in line for k in ("Allocated memory", "Reserved memory",
+                                       "Non-releasable", "Allocations", "GPU reserved")):
+                print("   " + line.strip())
+        print(f"MEM_PROBE_OK [{tag}]")
+
+if __name__ == "__main__":
+    main()
+PROBE
+
+cd "${RECIPE}" || exit 2
+cp "${RUN_ROOT}/mem_probe.py" ./mem_probe_tmp.py
+trap 'rm -f "${RECIPE}/mem_probe_tmp.py"' EXIT
+
+rc=0
+for spec in "ckpt3_nozero|3|false" "ckpt2_nozero|2|false" "ckpt2_zero|2|true"; do
+    IFS='|' read -r tag ck zero <<< "${spec}"
+    echo "=============================================================="
+    echo "${tag}: checkpointing=${ck} use_zero_optimizer=${zero}"
+    echo "=============================================================="
+    MEM_TAG="${tag}" python -m torch.distributed.run --standalone --nnodes=1 \
+        --nproc_per_node="${NPROC}" mem_probe_tmp.py \
+        model=sfno_e3sm_parity dataset=e3sm_pangu_parity training=sfno_e3sm_parity \
+        loss=raw_l2 training.amp=bf16 model.checkpointing="${ck}" \
+        training.optimizer.use_zero_optimizer="${zero}" \
+        dataset.batch_size=1 dataset.num_workers=1 dataset.val_zarr_path=null seed=0 \
+        hydra.run.dir="${RUN_ROOT}/${tag}" wandb.mode=disabled 2>&1 | \
+        grep -vE "^\s*$|Warning|warn" | tail -30
+    prc=${PIPESTATUS[0]}
+    [ "${prc}" -eq 0 ] || echo "  --> ${tag}: rc=${prc} (an OOM here is the RESULT, not a failure)"
+    echo
+done
+
+echo "MEM_BREAKDOWN_OK — compare 'accounted' vs 'unattributed' and 'peak - live'"
+echo "  PanguWeather reference at ckpt2, no ZeRO: 32.63 GiB peak"
+exit 0

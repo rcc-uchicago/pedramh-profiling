@@ -142,8 +142,8 @@ class MetricsAggregator:
                 clim_surface_list.append(torch.zeros(shape, dtype=torch.float32))
         
         if clim_surface_list:
-            # Stack to [366, num_vars, lat, lon]
-            self.clim_surface = torch.stack(clim_surface_list, dim=1).to(self.device)
+            # Stack to [366, num_vars, lat, lon]. Held on CPU — see _prepare_climatology's note.
+            self.clim_surface = torch.stack(clim_surface_list, dim=1)
         else:
             self.clim_surface = None
         
@@ -166,8 +166,9 @@ class MetricsAggregator:
                 clim_upper_air_list.append(torch.zeros(shape, dtype=torch.float32))
         
         if clim_upper_air_list:
-            # Stack to [366, num_vars, num_levels, lat, lon]
-            self.clim_upper_air = torch.stack(clim_upper_air_list, dim=1).to(self.device)
+            # Stack to [366, num_vars, num_levels, lat, lon]. Held on CPU — this is the big one:
+            # [365, 8, 18, 180, 360] f32 = 13.5 GiB with all 8 upper-air vars enabled.
+            self.clim_upper_air = torch.stack(clim_upper_air_list, dim=1)
         else:
             self.clim_upper_air = None
         
@@ -181,7 +182,7 @@ class MetricsAggregator:
                 else:
                     shape = (n_clim_days, climatology.dims['lat'], climatology.dims['lon'])
                     clim_diag_list.append(torch.zeros(shape, dtype=torch.float32))
-            self.clim_diagnostic = torch.stack(clim_diag_list, dim=1).to(self.device)
+            self.clim_diagnostic = torch.stack(clim_diag_list, dim=1)
         else:
             self.clim_diagnostic = None
     
@@ -356,10 +357,14 @@ class MetricsAggregator:
         
         # Get climatology for these timestamps
         clim_idx = self._get_climatology_indices(timestamps)  # [batch]
-        
+        # The climatology tensors live on CPU (13.5 GiB for upper air alone at 8 vars x 18 levels,
+        # which does not fit alongside training state on a 40 GiB A100). Gather the [batch] slice
+        # on CPU and move only that to the GPU: ~9 MB per batch instead of 13.5 GiB resident.
+        clim_idx_cpu = clim_idx.cpu()
+
         # Surface anomalies
         if self.clim_surface is not None:
-            clim_sfc = self.clim_surface[clim_idx]  # [batch, vars, lat, lon]
+            clim_sfc = self.clim_surface[clim_idx_cpu].to(self.device, non_blocking=True)
             fa_sfc = pred_sfc_denorm - clim_sfc
             a_sfc = target_sfc_denorm - clim_sfc
             self._update_acc_accumulators(self.acc_sfc, fa_sfc, a_sfc, 
@@ -367,7 +372,7 @@ class MetricsAggregator:
         
         # Upper air anomalies
         if self.clim_upper_air is not None:
-            clim_ua = self.clim_upper_air[clim_idx]  # [batch, vars, levels, lat, lon]
+            clim_ua = self.clim_upper_air[clim_idx_cpu].to(self.device, non_blocking=True)
             fa_ua = pred_ua_denorm - clim_ua
             a_ua = target_ua_denorm - clim_ua
             self._update_acc_accumulators(self.acc_ua, fa_ua, a_ua,
@@ -378,7 +383,7 @@ class MetricsAggregator:
             pred_diag_denorm = pred_diagnostic * self.diagnostic_std.view(1, -1, 1, 1)
             target_diag_denorm = target_diagnostic * self.diagnostic_std.view(1, -1, 1, 1)
             if self.clim_diagnostic is not None:
-                clim_diag = self.clim_diagnostic[clim_idx]
+                clim_diag = self.clim_diagnostic[clim_idx_cpu].to(self.device, non_blocking=True)
                 fa_diag = pred_diag_denorm - clim_diag
                 a_diag = target_diag_denorm - clim_diag
                 self._update_acc_accumulators(self.acc_diag, fa_diag, a_diag,

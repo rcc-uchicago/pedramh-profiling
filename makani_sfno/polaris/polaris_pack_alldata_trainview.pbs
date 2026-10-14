@@ -1,0 +1,151 @@
+#!/bin/bash -l
+#PBS -N makani_trainview
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# A SPLIT VIEW of the ALLDATA production pack, with its own normalization.
+#
+# Operator decision rmehta1987 2026-09-29: train on 2020-2044 only -- the first
+# five years of the E3SM run (2015-2019) are treated as model spin-up and
+# excluded. Valid 2045-2047 and test 2048-2049 are unchanged.
+#
+# Nothing is repacked and the production pack is never written. The view is:
+#   ${OUT}/train/{2020..2044}.h5  -> symlinks into the production pack
+#   ${OUT}/valid/{2045..2047}.h5  -> symlinks
+#   ${OUT}/test/{2048,2049}.h5    -> symlinks
+#   ${OUT}/stats/*.npy            REAL files: the converter's --stats-only pass
+#                                 over exactly the 25 linked train years
+#   ${OUT}/metadata/data.json     REAL file, train_years = 2020..2044
+# The stats are what change: global_means/stds, time_means and time_diff_stds
+# are all train-split quantities, so a 2015-2044 model's stats do NOT describe
+# this split and vice versa. -v PACK=${OUT} selects it in any makani launcher.
+#
+#   qsub -v RUN_TESTS=1 polaris/polaris_pack_alldata_trainview.pbs   (from makani_sfno/)
+#
+# Steps: (0) the converter's stats tests (RUN_TESTS=1, default) -- the --workers
+# pool path is new and this job is its first real use; (1) link; (2) stats with
+# a process pool (sequential 30 yr = 52 min in 7565734, too close to 1 h);
+# (3) compare against the production stats (informational: a split change is
+# SUPPOSED to move them; the table says by how much).
+#
+# PASS = CONVERT_STATS_TESTS_OK (if run) + CONVERT_ALLDATA_OK + TRAINVIEW_OK.
+# rc=0 is not the signal.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+CONV="${MAKANI_ROOT}/polaris/convert_e3sm_to_makani_alldata.py"
+
+SRC="${PACK_SRC:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"
+TRAIN_Y0="${TRAIN_Y0:-2020}"; TRAIN_Y1="${TRAIN_Y1:-2044}"
+VALID_Y0=2045; VALID_Y1=2047
+TEST_Y0=2048;  TEST_Y1=2049
+OUT="${MEMBER_ROOT}/data/${VIEW_NAME:-e3sm_makani_alldata_train${TRAIN_Y0}_${TRAIN_Y1}}"
+WORKERS="${WORKERS:-13}"
+
+echo "=== makani_trainview: $(date -Iseconds) on $(hostname) ==="
+echo "src:  ${SRC}"
+echo "out:  ${OUT}"
+echo "split train ${TRAIN_Y0}-${TRAIN_Y1} / valid ${VALID_Y0}-${VALID_Y1} / test ${TEST_Y0}-${TEST_Y1}; workers=${WORKERS}"
+echo "git:  $(git -C "${REPO}" rev-parse --short HEAD 2>/dev/null)"
+
+if [ "${RUN_TESTS:-1}" = "1" ]; then
+    TLOG="$(mktemp)"
+    if ! (cd "${MAKANI_ROOT}/polaris" && "${PY}" -m pytest -q -p no:cacheprovider \
+            test_convert_stats_workers.py test_convert_time_diff.py > "${TLOG}" 2>&1); then
+        tail -30 "${TLOG}"; echo "ERROR CONVERT_STATS_TESTS_FAILED"; exit 3
+    fi
+    tail -2 "${TLOG}"; rm -f "${TLOG}"
+    echo "CONVERT_STATS_TESTS_OK"
+fi
+
+[ -f "${SRC}/metadata/data.json" ] || { echo "ERROR SRC_PACK_MISSING: ${SRC}"; exit 2; }
+if [ -e "${OUT}/stats" ] && [ "${OVERWRITE:-0}" != "1" ]; then
+    echo "ERROR VIEW_EXISTS: ${OUT}/stats (-v OVERWRITE=1 to recompute; the links are idempotent)"
+    exit 2
+fi
+
+# ---- (1) links: one per year file, never a directory link --------------------
+# A directory link would make ${OUT}/train the production train dir, and the
+# stats pass would then read all 30 years.
+link_years() {  # split y0 y1 src_split
+    local split=$1 y0=$2 y1=$3 src_split=$4 y
+    mkdir -p "${OUT}/${split}" || return 1
+    for (( y = y0; y <= y1; y++ )); do
+        local s="${SRC}/${src_split}/${y}.h5" d="${OUT}/${split}/${y}.h5"
+        [ -f "${s}" ] || { echo "ERROR SRC_YEAR_MISSING: ${s}"; return 1; }
+        if [ -L "${d}" ]; then
+            [ "$(readlink "${d}")" = "${s}" ] || { echo "ERROR STALE_LINK: ${d} -> $(readlink "${d}")"; return 1; }
+        elif [ -e "${d}" ]; then
+            echo "ERROR NOT_A_LINK: ${d} is a real file; refusing to touch it"; return 1
+        else
+            ln -s "${s}" "${d}" || return 1
+        fi
+    done
+}
+link_years train "${TRAIN_Y0}" "${TRAIN_Y1}" train || exit 2
+link_years valid "${VALID_Y0}" "${VALID_Y1}" valid || exit 2
+link_years test  "${TEST_Y0}"  "${TEST_Y1}"  test  || exit 2
+n_train=$(ls "${OUT}/train/"*.h5 | wc -l)
+n_want=$(( TRAIN_Y1 - TRAIN_Y0 + 1 ))
+extra=$(ls "${OUT}/train/" | python3 -c "
+import sys; y0, y1 = ${TRAIN_Y0}, ${TRAIN_Y1}
+print(' '.join(n.strip() for n in sys.stdin if not (n.strip().endswith('.h5') and y0 <= int(n.strip()[:4]) <= y1)))")
+[ -z "${extra}" ] || { echo "ERROR VIEW_TRAIN_HAS_EXTRA: ${extra}"; exit 2; }
+[ "${n_train}" -eq "${n_want}" ] || { echo "ERROR VIEW_TRAIN_COUNT ${n_train} != ${n_want}"; exit 2; }
+echo "linked: train ${n_train}, valid $(ls "${OUT}/valid" | wc -l), test $(ls "${OUT}/test" | wc -l)"
+
+# ---- (2) stats over the linked train years ----------------------------------
+t0=$(date +%s)
+"${PY}" "${CONV}" \
+    --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
+    --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
+    --valid-years "${VALID_Y0}" "${VALID_Y1}" \
+    --test-years "${TEST_Y0}" "${TEST_Y1}" \
+    --stats-only --validate --workers "${WORKERS}" \
+    || { echo "ERROR TRAINVIEW_FAILED (stats)"; exit 3; }
+echo "stats pass: $(( $(date +%s) - t0 )) s"
+
+# ---- (3) what the split change did to the normalization ---------------------
+"${PY}" - "${SRC}" "${OUT}" <<'PY' || { echo "ERROR TRAINVIEW_FAILED (compare)"; exit 3; }
+import json, sys
+import numpy as np
+src, out = sys.argv[1], sys.argv[2]
+ms, mo = (json.load(open(f"{r}/metadata/data.json")) for r in (src, out))
+for k in ("channel", "channel_state", "channel_diagnostic", "channel_forcing"):
+    if ms["coords"][k] != mo["coords"][k]:
+        print(f"ERROR VIEW_CHANNELS_DIFFER: coords.{k}"); sys.exit(2)
+names = mo["coords"]["channel"]
+print(f"train_years {mo['attrs']['train_years'][0]}..{mo['attrs']['train_years'][-1]} "
+      f"({len(mo['attrs']['train_years'])}) vs production "
+      f"{ms['attrs']['train_years'][0]}..{ms['attrs']['train_years'][-1]}")
+for f in ("global_means.npy", "global_stds.npy", "time_diff_stds.npy"):
+    a = np.load(f"{src}/stats/{f}").ravel().astype(np.float64)
+    b = np.load(f"{out}/stats/{f}").ravel().astype(np.float64)
+    sd = np.load(f"{src}/stats/global_stds.npy").ravel().astype(np.float64)
+    # means move in units of the production std (what a z-score sees); stds as ratios
+    rel = (b - a) / sd if f == "global_means.npy" else b / a - 1.0
+    i = int(np.argmax(np.abs(rel)))
+    print(f"  {f:20s} median |d| {np.median(np.abs(rel)):.3e}   max {rel[i]:+.3e} at {names[i]}")
+PY
+echo "TRAINVIEW_OK ${OUT}"
+echo "=== done $(date -Iseconds) ==="

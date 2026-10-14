@@ -1,0 +1,151 @@
+#!/bin/bash -l
+#PBS -N pploop-rebase
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# ============================================================================
+# Re-baseline the Pangu SFNO nsys profile on the env that still works.
+#
+# WHY: the base conda that produced jobs 7255503/7255557 (torch 2.8.0) is
+# orphaned by a Cray PE migration and is not coming back in that form -- its
+# torch and h5py link *_gnu_123.* sonames the PE roll removed, and hdf5 moved
+# soversion 200 -> 310 (a real ABI break). The ai-rossby venv works: torch
+# 2.10.0+cu129, and job 7541487 confirmed Pangu's whole import set green there.
+#
+# Every number in polaris_bench_report.md §0d/§4.3/§4.4/§4.5 is a torch-2.8.0
+# number. Items 9 and 10 produce RATIOS against those, so they need a reference
+# measured on this env. Items 6b/7/8/12 ask mechanism questions that are not
+# version-sensitive and do not depend on this.
+#
+# ⚠ This writes to DIFFERENT paths than the 2.8.0 run on purpose -- `_t210_` in
+# the capture name and a separate CSV. Never let two torch versions share a
+# results file; §4.4c already showed how easily incomparable numbers get tabled
+# together.
+#
+# Env: NOT the base conda. The venv, by absolute interpreter path, plus
+# $PANGU_SHIM which holds ONLY cartopy/natsort/pyproj/shapely/pyshp -- the five
+# the venv lacks. A shim with only those cannot shadow the venv's torch or
+# torch_harmonics; the whole top-ups on PYTHONPATH WOULD (polaris_env.sh:139).
+#
+# PASS = "REBASE_OK" AND a non-empty NVTX table with the house ranges. Never rc:
+# nsys writes a .nsys-rep even when the capture range never fired.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+V20_DIR="${REPO}/PanguWeather/v2.0"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || echo "NOTE module load conda still broken (expected; not used)"
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1
+export WANDB_MODE=offline
+export HDF5_USE_FILE_LOCKING=FALSE
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+unset NCCL_DEBUG TORCH_DISTRIBUTED_DEBUG
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+ulimit -l unlimited
+
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+[ -x "${PY}" ] || { echo "ERROR VENV_MISSING: ${PY}"; exit 3; }
+# Exactly ONE model tree on PYTHONPATH (CLAUDE.md §Repo architecture), then the shim.
+export PYTHONPATH="${V20_DIR}:${SHIM}"
+
+NSYS_BIN="${NSYS_BIN:-/soft/compilers/cudatoolkit/cuda-12.9.1/bin/nsys}"
+[ -x "${NSYS_BIN}" ] || { echo "ERROR NSYS_NOT_FOUND: ${NSYS_BIN}"; exit 2; }
+
+# Knobs identical to the 2.8.0 run so the two are comparable in SHAPE.
+export PANGU_BENCH=1
+export PANGU_BENCH_WARMUP="${PANGU_BENCH_WARMUP:-20}"
+export PANGU_BENCH_STEPS="${PANGU_BENCH_STEPS:-40}"
+export PANGU_NVTX=1
+export PANGU_BENCH_CSV="${MEMBER_ROOT}/bench/pangu_sfno_polaris_nsys_t210.csv"
+mkdir -p "$(dirname "${PANGU_BENCH_CSV}")"
+
+NPROC="${NPROC:-4}"
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+CONFIG_FILE="${MEMBER_ROOT}/pangu_e3sm_sfno.t210.rendered.yaml"
+RUN_NUM="polaris_t210_${PBS_JOBID%%.*}"
+export S2S_YAML="${CONFIG_FILE}" S2S_RUN_NUM="${RUN_NUM}"
+
+echo "=== rebaseline: $(date -Iseconds) ==="
+echo "host=$(hostname)  JOBID=${PBS_JOBID}  NPROC=${NPROC}  run=${RUN_NUM}"
+nvidia-smi -L
+"${PY}" -c "import torch;print(f'torch {torch.__version__} cuda={torch.version.cuda} avail={torch.cuda.is_available()}')"
+echo "nsys=$(${NSYS_BIN} --version | head -1)"
+
+CLIM="${PANGU_AUX}/climatology.nc"
+[ -s "${CLIM}" ] || { echo "ERROR CLIM_MISSING: ${CLIM}"; exit 2; }
+echo "climatology: $(stat -c%s "${CLIM}") bytes"
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}"
+echo "rendered config -> ${CONFIG_FILE}"
+mkdir -p "${MEMBER_ROOT}/runs/pangu_sfno"
+
+NSYS_OUT="${MEMBER_ROOT}/bench/nsys_pangu_sfno_t210_${PBS_JOBID%%.*}"
+echo "nsys output: ${NSYS_OUT}.nsys-rep"
+
+# ABSOLUTE interpreter + `-m torch.distributed.run`, never bare `torchrun`: the
+# Aug-14 ai-rossby script records that bare-name launchers pick up the base
+# python's shebang and ranks die with ModuleNotFoundError.
+"${NSYS_BIN}" profile \
+    --trace=cuda,nvtx,cudnn,cublas,osrt \
+    --capture-range=cudaProfilerApi \
+    --capture-range-end=stop \
+    --output="${NSYS_OUT}" \
+    --force-overwrite=true \
+    "${PY}" -m torch.distributed.run \
+        --standalone \
+        --nproc_per_node="${NPROC}" \
+        "${V20_DIR}/train.py" \
+        --yaml_config="${CONFIG_FILE}" \
+        --run_num="${RUN_NUM}" \
+        --config=SFNO \
+        --fresh_start \
+        --epochs 1
+rc=$?
+echo "--- nsys rc=${rc} ---"
+
+[ -s "${NSYS_OUT}.nsys-rep" ] || { echo "ERROR NO_NSYS_REP"; exit 4; }
+echo "--- exporting sqlite ---"
+"${NSYS_BIN}" export --type=sqlite --force-overwrite=true \
+    --output="${NSYS_OUT}.sqlite" "${NSYS_OUT}.nsys-rep" || { echo "ERROR NSYS_EXPORT_FAILED"; exit 4; }
+
+"${PY}" - "${NSYS_OUT}.sqlite" <<'_PY' || exit 4
+import sqlite3, sys
+db = sqlite3.connect(f"file:{sys.argv[1]}?mode=ro", uri=True)
+cur = db.cursor()
+cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='NVTX_EVENTS'")
+if not cur.fetchone():
+    print("ERROR NO_NVTX_TABLE: the capture range never fired.")
+    sys.exit(4)
+cur.execute("SELECT text, COUNT(*) FROM NVTX_EVENTS WHERE text IN "
+            "('data_prep','forward_loss','backward','optimizer','ema') GROUP BY 1")
+rows = cur.fetchall()
+if not rows:
+    print("ERROR NO_BENCH_RANGES: no house NVTX ranges in the capture.")
+    sys.exit(4)
+for t, n in rows:
+    print(f"  NVTX {t:14} {n}")
+cur.execute("SELECT COUNT(*) FROM CUPTI_ACTIVITY_KIND_KERNEL")
+print(f"  kernels: {cur.fetchone()[0]:,}")
+_PY
+
+echo "--- phase attribution on the new capture ---"
+"${PY}" "${REPO}/ACE2_retrain/nvtx_phase_attribution.py" "${NSYS_OUT}.sqlite" \
+    --kernel-regex 'direct_copy|conj' --top 8 || true
+echo "--- what the copies are moving (item 3's model, on torch 2.10) ---"
+"${PY}" "${REPO}/ACE2_retrain/sfno_bytes_model.py" --match "${NSYS_OUT}.sqlite" || true
+
+echo "REBASE_OK  ${NSYS_OUT}.sqlite"

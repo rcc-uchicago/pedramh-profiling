@@ -1,0 +1,606 @@
+#!/bin/bash -l
+#PBS -N ace2_train
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+# ^ `-r n` EXPLICITLY. PBS defaults to rerunnable, and a silent re-run under the
+#   same job id would append a SECOND row to the scaling CSV from a different
+#   allocation, with nothing in the file saying so.
+#PBS -j oe
+# ============================================================================
+# ACE2 (ai2cm `fme`) on Polaris -- ONE SCRIPT, ANY NODE COUNT.
+#
+# This is the first ACE2 path on Polaris at all: ACE2_retrain/ carried zero
+# polaris_* files, and its Midway script activates a /project/rcc/ env.
+#
+#     # the anchor -- run this FIRST, and read gpu_busy_frac
+#     qsub                  -l select=1:system=polaris ACE2_retrain/polaris/polaris_ace2_train.pbs
+#     qsub                  -l select=2:system=polaris ACE2_retrain/polaris/polaris_ace2_train.pbs
+#     qsub -q debug-scaling -l select=5:system=polaris -v TARGET_NODES=4 ACE2_retrain/polaris/...
+#     qsub -q debug-scaling -l select=9:system=polaris -v TARGET_NODES=8 ACE2_retrain/polaris/...
+#
+# A command-line `-l select` overrides the directive above; NNODES is derived
+# from $PBS_NODEFILE, so the whole ladder is this one file submitted four times.
+# `debug` allows 1-2 nodes; 3-10 needs `debug-scaling` (<=1 h, one queued-or-
+# running job per user).
+#
+# ⚠ RUN THE 1-NODE ARM FIRST, AND DO NOT TREAT IT AS A FORMALITY.
+#   The makani campaign measured (makani_bench_report.md §5) that at a FIXED
+#   global batch MORE NODES MADE TRAINING SLOWER -- one node was both cheapest
+#   and fastest, because touching the fabric costs a fixed ~234 ms per step, and
+#   ai-rossby reproduced the same 2-node trough on an unrelated model. So the
+#   first ACE2 question is "what is the fewest GPUs that hold the batch", not
+#   "how well does it scale out". A ladder with no 1-node rung cannot tell a
+#   comms win from an occupancy win.
+#
+# WHAT THE 1-NODE ARM DECIDES: **gpu_busy_frac**.
+#   Every rank reads the SAME 2,388.77 GB NetCDF, and `lfs getstripe` says that
+#   file has lmm_stripe_count 1 -- it lives on ONE Lustre OST. ai-rossby held
+#   >=0.976 on every arm, which is what let its penalty be attributed to the
+#   collective. If ACE2 comes in materially lower, the loss is I/O, the
+#   2.4 TB -> zarr conversion (handoff §2a) becomes justified, and the whole
+#   ring/tree/comms analysis is the wrong lens for this model. The parser prints
+#   a LOW_GPU_BUSY_FRAC warning under 0.85 so this cannot be read past.
+#
+# WEAK SCALING, AND WHY IT IS NOT THE OBVIOUS THING
+#   ⚠ fme's `batch_size` is **GLOBAL** -- `Distributed.local_batch_size` divides
+#   by `total_ranks` (fme/core/distributed/torch_distributed.py:110). So holding
+#   one batch_size fixed across arms SHRINKS per-rank work as nodes grow: that is
+#   STRONG scaling, and it is not comparable to ai-rossby's or makani's tables.
+#   This script therefore takes `-v LOCAL_BATCH` (samples per GPU) and derives
+#   `batch_size = LOCAL_BATCH * 4 * NNODES`. Per-GPU work is constant, and fme's
+#   `batch_size % world_size == 0` requirement is satisfied by construction.
+#
+#   ⚠ Weak scaling GROWS THE GLOBAL BATCH, which for training is a SCIENCE change
+#   (CLAUDE.md: "the science is jesswan's"). These arms train 60 steps for TIMING
+#   and are thrown away; they are not a production configuration and the LR is not
+#   a proposal. Raising the batch for production was approved 2026-08-28; the LR
+#   that goes with it has not been measured.
+#
+# ⚠ THE LARGEST LOCAL BATCH IS 2. MEASURED, not fitted (2026-09-02):
+#     local 1 -> 21.316 GiB   local 2 -> 33.959 GiB   local 3 -> OOM at 38.20
+#   (jobs 7586496 / 7586506 / 7586526, of a 39.49 GiB card). +12.64 GiB per added
+#   sample and NO CLIFF -- makani's discrete 12->16 jump did not reproduce here.
+#   ⇒ the config's global `batch_size: 16` does NOT fit one node; it needs 8 GPUs
+#     at local 2, so ACE2 must pay the fabric toll that makani could avoid.
+#   ⚠ Fixed state is ~7.3 GB, not the ~10.7 GB the handoff quotes: the dhconv
+#     weights are declared FLOAT32 with a trailing size-2 dim
+#     (`s2convolutions.py:148`), `view_as_complex` is applied at use time, and the
+#     2-node flight recorder confirms `dtype=['Float']` on every collective. The
+#     handoff's complex64 "correction" double-counts. Gradient volume is 1.823 GB.
+#
+# INTERLEAVE REPS, NEVER BATCH THEM: A,B,C,D,A,B,C,D,...  Two runs of an
+# IDENTICAL config once measured 42.2% vs 37.4% for the same quantity
+# (CHANGELOG §4.4c). That is a validity requirement, not tidiness.
+#
+# PREREQUISITE (fails loudly below, keys on its own token)
+#   LOGIN, once:  bash <repo>/polaris_setup_ace2_venv.sh   -> ACE2_VENV_OK
+#
+# PASS = the line `ACE2_POLARIS_TRAIN_OK` plus a new row in $SCALING_CSV. Per
+# CLAUDE.md #14, rc=0 is not the pass signal: fme can exit 0 after a rank dies
+# mid-epoch.
+#
+# Knobs:
+#   -v LOCAL_BATCH=1     samples per GPU (global batch = LOCAL_BATCH * 4 * nodes)
+#   -v STEPS=60          timed steps; the epoch is sized to give exactly this many
+#   -v EPOCHS=1          >1 crosses real epoch boundaries -- NOT a ladder row
+#   -v LOADER_WORKERS=4  dataloader workers per rank
+#   -v REP=2             label a repetition; interleave reps, never batch them
+#   -v TARGET_NODES=N    with -l select=N+1: prune sick nodes, run on N healthy
+#   -v OMP_THREADS=2     see the OMP block -- the obvious spelling does not work
+#   -v NCCL_ALGO=Ring    default Ring; -v NCCL_ALGO= (empty) leaves NCCL to choose
+#   -v FR_DUMP=1         dump the NCCL flight recorder even on a SUCCESSFUL run --
+#                        the per-collective sizes that settle prereg P2. Pair it
+#                        with a 2-node arm.
+#   -v GPU_ORDER=reverse pair each rank with the GPU on its own NUMA node
+#   -v LR=<float>        the config's LR is FLAT (fme's default scheduler is None
+#                        -- there is nothing to pin), so this alone is a valid
+#                        LR arm. Its rows go in their own CSV.
+#   -v VALIDATE=1        32 validation batches/rank instead of 4 (its own arm)
+#   -v ACE2_SCALING_CSV=<path>   route rows elsewhere
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+# Tolerate submission from either the repo root or ACE2_retrain/.
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+if [ ! -d "${ACE2_DIR}/ace_exp" ]; then
+    echo "ERROR ACE2_TREE_NOT_FOUND from PBS_O_WORKDIR=${PBS_O_WORKDIR}"
+    echo "  Submit from the repo root or from ACE2_retrain/."
+    exit 2
+fi
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+SHIM="${ACE2_DIR}/polaris/polaris_rank_env.sh"
+CONFIG="${CONFIG:-${ACE2_DIR}/config_polaris.yaml}"
+
+# ---- environment ------------------------------------------------------------
+# polaris_env.sh FIRST (MEMBER_ROOT, TMPDIR, wandb, HDF5_USE_FILE_LOCKING -- the
+# last is REQUIRED on Lustre: a bare netCDF open without it can hang), then the
+# interpreter + fabric bootstrap that survives the broken `conda` modulefile.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+
+if [ ! -x "${ACE2_VENV}/bin/python" ]; then
+    echo "ERROR ACE2_VENV_MISSING: ${ACE2_VENV}"
+    echo "  Build it on a LOGIN node first:  bash ${REPO}/polaris_setup_ace2_venv.sh"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${ACE2_VENV}/bin/activate"
+# ALCF homes are mode 0700, so anything resolving from ~/.local makes the run
+# reproducible by exactly one person -- which is to say, not a result.
+export PYTHONNOUSERSITE=1
+PY="${ACE2_VENV}/bin/python"
+
+[ -f "${SHIM}" ] || { echo "ERROR RANK_SHIM_MISSING: ${SHIM}"; exit 3; }
+[ -f "${CONFIG}" ] || { echo "ERROR CONFIG_MISSING: ${CONFIG}"; exit 3; }
+
+# fme is EDITABLE in that venv, so it imports from whichever checkout built it.
+# ace2_telemetry.py and ace2_nvtx.py monkeypatch fme by attribute path; patching
+# a different tree than the one they were written against fails SILENTLY -- the
+# attribute is simply absent and the hook is skipped, leaving a run with no
+# measurement and no error.
+VENV_FME="$("${PY}" -c 'import fme,os;print(os.path.realpath(os.path.dirname(fme.__file__)))' 2>/dev/null)"
+THIS_FME="$(cd "${ACE2_DIR}/ace_exp/fme" && pwd -P)"
+if [ "${VENV_FME}" != "${THIS_FME}" ]; then
+    echo "ERROR ACE2_WRONG_CHECKOUT"
+    echo "  venv imports fme from: ${VENV_FME:-<import failed>}"
+    echo "  this job runs from:    ${THIS_FME}"
+    exit 3
+fi
+
+# fme takes the srun code path ONLY when this is 1, and that path then requires
+# SRUN_DIST_FILE_PATH and SLURM_PROCID -- neither of which exists under PBS. An
+# inherited export would kill every rank with a KeyError inside
+# TorchDistributed.__init__, which reads as a torch problem.
+if [ "${FME_USE_SRUN:-0}" = "1" ]; then
+    echo "ERROR FME_USE_SRUN_SET: unset it. Polaris is PBS/PALS, not SLURM (CLAUDE.md)."
+    exit 3
+fi
+
+# ---- allocation shape -------------------------------------------------------
+NODEFILE="${PBS_NODEFILE:-}"
+[ -s "${NODEFILE}" ] || { echo "ERROR NO_NODEFILE"; exit 2; }
+export GPUS_PER_NODE=4
+
+# ---- GPU health preflight (optional): -v TARGET_NODES=N with -l select=N+1 ---
+# 2026-08-26: three DIFFERENT nodes handed to consecutive debug-scaling jobs had
+# a GPU stuck in 'CUDA-capable device(s) is/are busy or unavailable'
+# (x3111c0s37b1n0 THREE times, x3201c0s1b1n0, x3109c0s1b0n0). A sick node kills
+# the run at init and the fast failure puts that node straight back in the free
+# pool for the retry. Request one spare, touch every GPU, run on the first N
+# healthy nodes, and name the sick ones for the ALCF ticket. Mandatory at >=8
+# nodes: it earned its keep on its first production use (48 healthy of 49).
+if [ -n "${TARGET_NODES:-}" ]; then
+    _hc="$(mktemp -d)" || exit 2
+    cat > "${_hc}/gpucheck.py" <<'PY'
+import socket, sys
+try:
+    import torch
+    for i in range(4):
+        torch.zeros(8, device="cuda:%d" % i)
+    print("GPUHEALTH OK %s prefix=%s" % (socket.gethostname(), sys.prefix), flush=True)
+except Exception as exc:  # noqa: BLE001
+    # sys.prefix on failure too: the first version of this check reported all 5
+    # nodes SICK because it was importing the wrong torch, and without the prefix
+    # that is indistinguishable from real hardware failure.
+    print("GPUHEALTH SICK %s prefix=%s %r"
+          % (socket.gethostname(), sys.prefix, exc), flush=True)
+PY
+    # ⚠ `bash -c "exec ${PY} ..."`, NOT `${PY} ...`. Invoking the venv interpreter
+    # directly under PALS loses the venv: bin/python is a symlink into the base
+    # conda, PALS execs the resolved target, pyvenv.cfg is never found, and the
+    # base conda's torch gets imported. Measured, job 7569872: 5 healthy nodes
+    # reported as sick, reading exactly like an ALCF hardware fault.
+    mpiexec -n "$(sort -u "${NODEFILE}" | wc -l)" --ppn 1 --hostfile "${NODEFILE}" \
+        bash -c "exec '${PY}' '${_hc}/gpucheck.py'" > "${_hc}/health.log" 2>&1
+    grep "GPUHEALTH SICK" "${_hc}/health.log" | sed 's/^/  /'
+    grep "GPUHEALTH OK" "${_hc}/health.log" | awk '{print $3}' | sort -u \
+        > "${_hc}/healthy_hosts"
+    n_ok=$(wc -l < "${_hc}/healthy_hosts")
+    echo "gpu preflight: ${n_ok} healthy of $(sort -u "${NODEFILE}" | wc -l) allocated (want ${TARGET_NODES})"
+    if [ "${n_ok}" -lt "${TARGET_NODES}" ]; then
+        echo "ERROR NOT_ENOUGH_HEALTHY_NODES: ${n_ok} < ${TARGET_NODES}."
+        exit 2
+    fi
+    head -n "${TARGET_NODES}" "${_hc}/healthy_hosts" > "${_hc}/nodefile"
+    NODEFILE="${_hc}/nodefile"
+    echo "running on: $(paste -sd' ' "${NODEFILE}")"
+fi
+
+NNODES=$(sort -u "${NODEFILE}" | wc -l)
+case "${NNODES}" in
+    ''|*[!0-9]*|0) echo "ERROR PBS_NODEFILE_UNREADABLE: '${NODEFILE}' gave NNODES='${NNODES}'"; exit 3 ;;
+esac
+NRANKS=$(( NNODES * GPUS_PER_NODE ))
+
+# The head node must have the GPUs-per-node this script assumes, or NRANKS -- and
+# therefore the global batch -- is wrong from the start.
+HEAD_GPUS="$(nvidia-smi -L | wc -l)"
+if [ "${HEAD_GPUS}" != "${GPUS_PER_NODE}" ]; then
+    echo "ERROR GPUS_PER_NODE_MISMATCH: nvidia-smi sees ${HEAD_GPUS}, script assumes ${GPUS_PER_NODE}"
+    exit 3
+fi
+
+LOCAL_BATCH="${LOCAL_BATCH:-1}"
+STEPS="${STEPS:-60}"
+EPOCHS="${EPOCHS:-1}"
+LOADER_WORKERS="${LOADER_WORKERS:-4}"
+REP="${REP:-1}"
+GPU_ORDER="${GPU_ORDER:-forward}"
+VALIDATE="${VALIDATE:-0}"
+JOBID="${PBS_JOBID%%.*}"
+GLOBAL_BATCH=$(( NRANKS * LOCAL_BATCH ))
+
+# fme hard-requires this (ace_exp/fme/ace/data_loading/config.py __post_init__,
+# "batch_size must be divisible by the number of data-parallel workers"). The
+# derivation above satisfies it by construction; this check exists so a
+# hand-passed GLOBAL_BATCH can never sneak past it.
+if [ $(( GLOBAL_BATCH % NRANKS )) -ne 0 ]; then
+    echo "ERROR ACE2_BATCH_NOT_DIVISIBLE: global ${GLOBAL_BATCH} % ranks ${NRANKS}"
+    exit 3
+fi
+
+# ---- run identity + CSV routing ---------------------------------------------
+RUN_NAME="${RUN_NAME:-ace2_${NNODES}n_b${GLOBAL_BATCH}_rep${REP}_${JOBID}}"
+EXP_ROOT="${MEMBER_ROOT}/runs/ace2_polaris"
+EXP_DIR="${EXP_ROOT}/${RUN_NAME}"
+mkdir -p "${EXP_DIR}" "${MEMBER_ROOT}/bench" || exit 2
+
+# A multi-epoch row's step average spans epoch boundaries and dataloader
+# re-warmup, and a row taken at a different LR is a different config. Neither may
+# sit in the ladder's table: the CSV has no column for either, because config
+# lives in the log header, not in new columns (CLAUDE.md #10). Route them here
+# rather than leaving it to whoever reads the file.
+_tuned=0
+[ "${EPOCHS}" -gt 1 ] && _tuned=1
+[ -n "${LR:-}" ] && _tuned=1
+if [ "${_tuned}" = "1" ]; then
+    DEFAULT_CSV="${MEMBER_ROOT}/bench/ace2_polaris_tuning.csv"
+    echo "TUNING MODE (epochs=${EPOCHS} lr=${LR:-<config>}): rows routed to a SEPARATE csv"
+    echo "  -- a multi-epoch or re-LR'd row is not a point on the ladder."
+else
+    DEFAULT_CSV="${MEMBER_ROOT}/bench/ace2_polaris_scaling.csv"
+fi
+SCALING_CSV="${ACE2_SCALING_CSV:-${DEFAULT_CSV}}"
+TELEMETRY_CSV="${ACE2_EPOCH_TELEMETRY_CSV:-${MEMBER_ROOT}/bench/epoch_telemetry_ace2_polaris.csv}"
+export ACE2_EPOCH_TELEMETRY=1
+export ACE2_EPOCH_TELEMETRY_EPOCHS=0
+export ACE2_EPOCH_TELEMETRY_CSV="${TELEMETRY_CSV}"
+export ACE2_RUN_NAME="${RUN_NAME}"
+export ACE2_N_LOADERS="${LOADER_WORKERS}"
+export ACE2_MEM_LOG=1
+
+# ---- data preflight ---------------------------------------------------------
+# fme's XarrayDataConfig takes a DIRECTORY plus a glob (default "*.nc"), not a
+# file. Pointing data_path at the .nc itself gives "No files found matching
+# '<path>/*.nc'" -- after the ranks are up and the allocation is spent.
+DATA_DIR="/eagle/projects/lighthouse-uchicago/ace2/ace_training"
+NORM_DIR="/eagle/projects/lighthouse-uchicago/ace2/normalization"
+for f in "${DATA_DIR}/merged_ACE2_ERA5_final.nc" \
+         "${NORM_DIR}/centering.nc" "${NORM_DIR}/scaling-full-field.nc" \
+         "${NORM_DIR}/scaling-residual.nc" "${NORM_DIR}/time-mean.nc"; do
+    [ -r "${f}" ] || { echo "ERROR ACE2_DATA_MISSING: ${f}"; exit 3; }
+done
+
+echo "=== ace2_train: $(date -Iseconds) ==="
+echo "jobid=${JOBID}  nodes=${NNODES}  ranks=${NRANKS}  gpus/node=${GPUS_PER_NODE}"
+echo "local_batch=${LOCAL_BATCH}  global_batch=${GLOBAL_BATCH}  steps=${STEPS}  epochs=${EPOCHS}  rep=${REP}"
+# fme's default SchedulerConfig.type is None and this config sets no scheduler,
+# so the LR is FLAT at the config's 1e-4 for the whole run. An LR arm therefore
+# needs nothing but -v LR= -- unlike ai-rossby, where a short run sat entirely
+# inside a warmup ramp and every arm looked identical.
+echo "lr=${LR:-1e-4 from the config, and FLAT: fme builds no scheduler by default}"
+echo "run_name=${RUN_NAME}"
+echo "config=${CONFIG}"
+echo "csv=${SCALING_CSV}"
+echo "telemetry=${TELEMETRY_CSV}"
+echo "--- the store, and its Lustre layout (read this before blaming NCCL) ---"
+ls -l "${DATA_DIR}/merged_ACE2_ERA5_final.nc"
+lfs getstripe "${DATA_DIR}/merged_ACE2_ERA5_final.nc" 2>&1 | sed 's/^/  /'
+echo "--- nodes in this allocation ---"
+sort -u "${NODEFILE}" | sed 's/^/  /'
+nvidia-smi -L
+polaris_env_report
+ace2_env_report
+echo
+
+# ---- NCCL ------------------------------------------------------------------
+# ⚠ NCCL_ALGO=Ring is INSURANCE, not a diagnosis. Measured on Polaris, app-free:
+# a TREE all-reduce between 25 MiB and 1000 MiB SILENTLY RETURNS PARTIALLY
+# REDUCED DATA and then hangs -- head of the buffer correctly reduced, tail
+# untouched at its input value, and different ranks disagreeing (jobs
+# 7569805/7569817/7571147, at 2 nodes AND at 8). Ring's reduce-scatter gives each
+# rank S/N and escapes it.
+#
+# ACE2's largest single collective is ~165-212 MB (11.4 buckets/step at ~165 MB
+# each -- PROFILING_PLAN.md:171 -- and DDP never splits one parameter, so the
+# 212.34 MB dhconv weight gets its own bucket). That lands in the UNTESTED gap
+# between our largest passing probe (25 MB) and smallest failing one (1000 MiB),
+# so ACE2's exposure is UNKNOWN, not certain either way. Removing the failure
+# mode costs one env var and nothing measurable at <=32 ranks; arguing about it
+# costs a corrupted training run.
+#
+# Set on the 1-node arm too, where NCCL never leaves NVLink and the choice is
+# inert: leaving it unset there and set on the rungs would make the anchor a
+# different configuration from the ladder it anchors.
+NCCL_ALGO="${NCCL_ALGO-Ring}"
+if [ -n "${NCCL_ALGO}" ]; then
+    export NCCL_ALGO
+    echo "NCCL_ALGO=${NCCL_ALGO} (tree-corruption insurance; -v NCCL_ALGO= to let NCCL choose)"
+else
+    unset NCCL_ALGO
+    echo "NCCL_ALGO=<unset> -- NCCL chooses. That is its own arm, not the ladder's config."
+fi
+export NCCL_DEBUG="${NCCL_DEBUG:-INFO}"
+export NCCL_DEBUG_SUBSYS="${NCCL_DEBUG_SUBSYS:-INIT,NET}"
+
+# Flight recorder: a ring buffer, off the timed path, so it stays on by default
+# rather than being something to remember after the fact.
+# ⚠ THREE SETTINGS ARE NEEDED TOGETHER; the buffer alone captures nothing
+# readable -- job 7569539 had it set and produced no SeqNum and no OpType.
+#   1. the dump goes to a FILE, defaulting to /tmp, which is node-local and dies
+#      with the job (and this launcher sets TMPDIR=/tmp on purpose);
+#   2. it has to be ASKED FOR (TORCH_NCCL_DUMP_ON_TIMEOUT=1);
+#   3. torch renamed the buffer knob around 2.9/2.10, so BOTH spellings are set.
+# This is also the artifact that settles ACE2's exposure to the tree defect
+# above: read it with `pickle.load` and the per-collective sizes are right there.
+export TORCH_NCCL_TRACE_BUFFER_SIZE="${TORCH_NCCL_TRACE_BUFFER_SIZE:-2000}"
+export TORCH_FR_BUFFER_SIZE="${TORCH_FR_BUFFER_SIZE:-2000}"
+export TORCH_NCCL_DUMP_ON_TIMEOUT=1
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+NCCL_TRACE_DIR="${EXP_DIR}/nccl_trace"
+mkdir -p "${NCCL_TRACE_DIR}" || exit 2
+export TORCH_NCCL_DEBUG_INFO_TEMP_FILE="${NCCL_TRACE_DIR}/rank_"
+# SHORT on purpose. Raising this hoping the collective timeout will name the
+# stuck op is backwards: evaluating that timeout is the WATCHDOG's job and the
+# watchdog is what is stuck, so the message can never fire. Only the monitor
+# thread reports this class of hang, and it writes the dump on its way out.
+# Raising it to 1800 cost two jobs' diagnostics to walltime.
+export TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC="${TORCH_NCCL_HEARTBEAT_TIMEOUT_SEC:-300}"
+echo "nccl flight recorder -> ${TORCH_NCCL_DEBUG_INFO_TEMP_FILE}<rank>  (ON TIMEOUT ONLY)"
+
+# ---- -v FR_DUMP=1 : dump the flight recorder on a SUCCESSFUL run ------------
+# ⚠ Everything above writes the buffer only when the WATCHDOG FIRES. A run that
+# succeeds leaves nothing on disk -- and the per-collective sizes in that buffer
+# are what settle whether ACE2's largest all-reduce lands in the untested
+# 25 MiB..1000 MiB gap where a Polaris TREE all-reduce silently returns
+# partially reduced data. `PROFILING_PLAN.md:240` specifies exactly this dump;
+# handoff §1a calls it "cheap, decisive, no new allocation".
+#
+# Pair it with a 2-node arm: at 1 node NCCL never leaves NVLink, so the sizes are
+# the same but the fabric question does not arise.
+# Read the result with polaris/read_nccl_trace.py (PASS NCCL_TRACE_READ_OK).
+if [ "${FR_DUMP:-0}" = "1" ]; then
+    export ACE2_FR_DUMP="${NCCL_TRACE_DIR}/fr_"
+    echo "FR_DUMP=1 -> every rank dumps its flight recorder at epoch end to ${ACE2_FR_DUMP}<rank>.pickle"
+    echo "  then:  ${PY} ${ACE2_DIR}/polaris/read_nccl_trace.py ${NCCL_TRACE_DIR}/fr_*.pickle"
+fi
+
+# ---- OMP --------------------------------------------------------------------
+# ⚠ `export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"` DOES NOTHING inside a PBS
+# job. PBS Pro exports OMP_NUM_THREADS=<ncpus> (64 on a Polaris node) into every
+# job, so the `:-` default is dead code -- all 30 makani ladder rows ran 64
+# OpenMP threads per rank on the 8 cores aws-ofi-nccl's progress engine needs,
+# because of exactly this. Hence an override name we own. Default 2 matches the
+# ACE2 Midway scripts, so Polaris and Midway step times are not separated by a
+# thread-count change as well as by hardware.
+export OMP_NUM_THREADS="${OMP_THREADS:-2}"
+export MKL_NUM_THREADS="${OMP_NUM_THREADS}"
+echo "OMP_NUM_THREADS=${OMP_NUM_THREADS} (PBS handed us ${PBS_NCPUS:-?} cpus; override -v OMP_THREADS=)"
+
+# ---- rank -> GPU pairing ----------------------------------------------------
+# polaris_pbs_notes.md §1 measured the GPU<->NUMA map to be REVERSED
+# (dev0->NUMA3 ... dev3->NUMA0, job 7531456), so under `--cpu-bind depth -d 8`
+# the default pairing puts every rank maximally far from its own GPU. Default
+# stays FORWARD: makani measured `reverse` at +0.88% WORSE at 1 node and -7.0%
+# better at 4 nodes sharded -- config-dependent, not a free win, so it is flipped
+# deliberately as its own arm and never inherited.
+# CUDA_VISIBLE_DEVICES gets the SAME reversed list on every rank (not one GPU per
+# rank), because fme selects cuda:{LOCAL_RANK} and would fail with one visible.
+case "${GPU_ORDER}" in
+    forward) echo "GPU_ORDER=forward -> stock device order (notes §1)" ;;
+    reverse) export CUDA_VISIBLE_DEVICES=3,2,1,0
+             echo "GPU_ORDER=reverse -> CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES}" ;;
+    *) echo "ERROR GPU_ORDER_INVALID: '${GPU_ORDER}' (forward|reverse)"; exit 3 ;;
+esac
+
+# ---- distributed wireup -----------------------------------------------------
+# The rank shim does NOT set these -- they are identical across ranks, so they
+# belong here -- and `env://` init hard-requires them.
+export MASTER_ADDR
+MASTER_ADDR="$(head -n1 "${NODEFILE}")"
+# ⚠ PORT DERIVED FROM THE JOB ID, not fixed. A hard-coded 29500 hung FOUR
+# ai-rossby jobs with every rank blocked in the TCPStore rendezvous -- imports
+# complete, then init_process_group never emits a line (a green run prints
+# "NCCL INFO NCCL version" immediately after the last import warning). Cause: an
+# orphaned rank from a qdel'd job holding the port on a re-allocated node. Nodes
+# are exclusive here, so it can only ever be our own leftovers.
+export MASTER_PORT="${MASTER_PORT:-$(( 20000 + JOBID % 20000 ))}"
+echo "rendezvous = ${MASTER_ADDR}:${MASTER_PORT}   launcher = PALS mpiexec + polaris_rank_env.sh"
+
+# ---- TMPDIR -----------------------------------------------------------------
+# torch/multiprocessing's resource_sharer opens a Unix socket under $TMPDIR and
+# AF_UNIX caps the whole path at 108 bytes (sun_path). polaris_env.sh points
+# TMPDIR at ${MEMBER_ROOT}/tmp for the caches that must persist across jobs; that
+# file is shared with every other model and is not edited to suit this one.
+# ⚠ This becomes load-bearing the moment the store is converted: fme forces the
+# FORKSERVER start method whenever the zarr engine is used with
+# num_data_workers > 0 (ace/data_loading/getters.py:100), and forkserver is what
+# opens those sockets.
+echo "TMPDIR inherited = ${TMPDIR:-<unset>}  (len ${#TMPDIR})"
+export TMPDIR=/tmp
+
+# ---- overrides --------------------------------------------------------------
+# Every deviation from the production config is HERE, visible, rather than hidden
+# in a forked yaml -- the rule config_midway.yaml + midway_smoke_train.sh follow.
+#
+#   sample_with_replacement = STEPS * GLOBAL_BATCH
+#       fme divides it by the rank count (getters.py:57) and the loader drops the
+#       last partial batch, so every rank runs EXACTLY `STEPS` steps at every
+#       node count. That is what makes the parser's STEP_COUNT_MISMATCH guard
+#       meaningful, and it removes the wrap hazard by construction:
+#       RandomSampler(replacement=True) draws from all ~230k samples of a 2.4 TB
+#       file, so a 60-step arm cannot re-serve a page-cached window the way a
+#       sequential epoch would -- and that hazard would otherwise grow with the
+#       global batch, i.e. along the very axis being swept.
+#   train_evaluation_samples = GLOBAL_BATCH
+#       ONE batch. It buys the "Train loss:" line the PASS gate reads. It runs
+#       AFTER the timed window closes (ace2_telemetry.py hooks epoch_end to
+#       alternate_shuffle, which fme calls between the two loops), so it enters
+#       neither step_med_ms nor gpu_busy_frac.
+#   validation_loader.batch_size
+#       the config's 128 is (a) not divisible by every world size and (b) an OOM
+#       on a 40 GB A100 on its own.
+#   inference=null
+#       the config's inline inference is 7300 forward steps.
+OVERRIDES=(
+    "experiment_dir=${EXP_DIR}"
+    "max_epochs=${EPOCHS}"
+    "segment_epochs=${EPOCHS}"
+    "save_checkpoint=false"
+    "checkpoint_save_epochs=null"
+    "inference=null"
+    "train_loader.batch_size=${GLOBAL_BATCH}"
+    "train_loader.num_data_workers=${LOADER_WORKERS}"
+    "train_loader.sample_with_replacement=$(( STEPS * GLOBAL_BATCH ))"
+    "train_evaluation_samples=${GLOBAL_BATCH}"
+    "validation_loader.num_data_workers=${LOADER_WORKERS}"
+    "log_train_every_n_batches=10"
+)
+[ -n "${LR:-}" ] && OVERRIDES+=( "optimization.lr=${LR}" )
+# ---- validation window: MUST scale with the world size ----------------------
+# Validation is 61% of an epoch at 3.3% GPU on the Midway profile and fme has no
+# switch to skip it, so it is shortened. But a FIXED short window does not
+# survive the ladder:
+#
+# ⚠ MEASURED, job 7588719 (8 nodes, 32 ranks): a fixed 4-day window
+#   (1996-01-01..01-05, 16 timesteps => ~14 samples) killed every rank at
+#   construction with
+#       ValueError: No batches in dataloader: 0 samples, batch size is 2
+#   14 samples over 32 ranks is under one local batch each, and `drop_last=True`
+#   turns that into zero batches. It passed at 4 and 16 ranks and failed at 32 --
+#   i.e. the launcher worked for every rung that had already been run, which is
+#   exactly how a ladder finds this class of bug and why the 8-node rung is worth
+#   running rather than extrapolating.
+#
+# So: size the window from NRANKS, and pin the validation batch to ONE SAMPLE PER
+# RANK (`batch_size = NRANKS`) rather than reusing the training global batch.
+# Both are decoupled from the training config on purpose -- validation runs
+# entirely OUTSIDE the timed window (ace2_telemetry.py closes the epoch at
+# `alternate_shuffle`, which fme calls before validation), so neither touches
+# step_med_ms, gpu_busy_frac or epoch_wall_s.
+#   ⇒ arms taken before and after this change remain comparable. `peak_mem_gb`
+#     is the only column that could in principle move, and it does not: it read
+#     33.959 GiB identically at 1, 2 and 4 nodes, i.e. it is set by training, and
+#     this change only ever LOWERS the validation footprint.
+VAL_BATCHES_PER_RANK="${VAL_BATCHES_PER_RANK:-4}"
+[ "${VALIDATE}" = "1" ] && VAL_BATCHES_PER_RANK=32
+# samples wanted -> timesteps (+2 for the n_forward_steps=2 window) -> days at 6-hourly
+VAL_SAMPLES=$(( NRANKS * VAL_BATCHES_PER_RANK ))
+VAL_DAYS=$(( (VAL_SAMPLES + 2 + 3) / 4 ))
+[ "${VAL_DAYS}" -lt 5 ] && VAL_DAYS=5
+VAL_STOP="$(date -u -d "1996-01-01 + ${VAL_DAYS} days" +%Y-%m-%d)" || {
+    echo "ERROR VAL_STOP_DATE_FAILED"; exit 3; }
+OVERRIDES+=( "validation_loader.batch_size=${NRANKS}" )
+OVERRIDES+=( "validation_loader.dataset.subset.stop_time=${VAL_STOP}" )
+echo "validation: ${VAL_SAMPLES} samples wanted over ${NRANKS} ranks"
+echo "            -> 1996-01-01..${VAL_STOP} (${VAL_DAYS} d), batch ${NRANKS} (1/rank)"
+
+# ---- preflight: pure dacite parsing, no data opened -------------------------
+# fme parses strict, so one stale key anywhere aborts. Catch that in seconds
+# rather than after N*4 GPUs are allocated and a 2.39 TB dataset is opened.
+# ⚠ It cannot check batch/world-size divisibility: on this head node there is no
+# RANK in the environment, so Distributed falls back to world_size 1 and the
+# modulo passes trivially. That check is the bash one above.
+echo "=== preflight: config parse ==="
+"${PY}" -m fme.ace.validate_config "${CONFIG}" --config_type train \
+    --override "${OVERRIDES[@]}" \
+    || { echo "ERROR ACE2_CONFIG_INVALID ${CONFIG}"; exit 4; }
+echo "PREFLIGHT_OK"
+echo
+
+# ---- launch -----------------------------------------------------------------
+#  * `--cpu-bind depth -d 8` IS MANDATORY. Without it aws-ofi-nccl's CPU-side
+#    progress engine starves and inter-node all-reduce drops 9.1x (4.08 vs
+#    36.93 GB/s busbw). It fails SILENTLY -- no error, just a slow run -- so on a
+#    scaling study it would masquerade as the very result being measured.
+#    4 ranks/node x depth 8 = 32 = the node's physical cores. Kept on the 1-node
+#    arm too, so the anchor and the rungs share a binding.
+#  * `--label --line-buffer`: PALS defaults to neither. The parser's
+#    ranks_reporting guard COUNTS those labels, and a walltime kill loses the
+#    tail of an unbuffered log entirely (#14).
+#  * `bash "${SHIM}" "${PY}" ...`, never "${PY}" directly -- see the shim header.
+#  * ace2_telemetry.py, NOT `-m fme.ace.train`: it installs the banner both
+#    world-size guards read and the timers gpu_busy_frac comes from. Launching
+#    fme directly produces a run with no measurement in it.
+LOG="${EXP_DIR}/${RUN_NAME}.log"
+echo "--- launching (log tee'd to ${LOG}) ---"
+set -o pipefail
+mpiexec -n "${NRANKS}" --ppn "${GPUS_PER_NODE}" --hostfile "${NODEFILE}" \
+    --cpu-bind depth -d 8 \
+    --label --line-buffer \
+    bash "${SHIM}" \
+    "${PY}" "${ACE2_DIR}/ace2_telemetry.py" "${CONFIG}" \
+    --override "${OVERRIDES[@]}" 2>&1 | tee "${LOG}"
+rc=$?
+set +o pipefail
+echo "--- train rc=${rc} ---"
+[ -s "${LOG}" ] || { echo "ERROR NO_LOG"; exit 4; }
+
+# ---- results ----------------------------------------------------------------
+# Delegated to parse_ace2_scaling.py rather than an inline heredoc so it can be
+# tested without an allocation (test_parse_ace2_scaling.py, 16 checks). That is
+# not tidiness: its guards -- world_size, ranks reporting, telemetry n_gpus, step
+# count, transport -- are the difference between a scaling number and a
+# plausible-looking number.
+"${PY}" "${ACE2_DIR}/polaris/parse_ace2_scaling.py" \
+    --log "${LOG}" --csv "${SCALING_CSV}" \
+    --telemetry-csv "${TELEMETRY_CSV}" --run-name "${RUN_NAME}" \
+    --jobid "${JOBID}" \
+    --nodes "${NNODES}" --ranks "${NRANKS}" \
+    --local-batch "${LOCAL_BATCH}" --global-batch "${GLOBAL_BATCH}" \
+    --data nc --rep "${REP}" --gpu-order "${GPU_ORDER}" \
+    --steps "$( [ "${EPOCHS}" -gt 1 ] && echo 0 || echo "${STEPS}" )" \
+    --env-source "${ACE2_ENV_SOURCE}" --omp-threads "${OMP_NUM_THREADS}"
+csv_rc=$?
+
+# ---- PASS gate: read the run's own log, not the exit code -------------------
+FME_LOG="${EXP_DIR}/out.log"
+train_loss=""
+if [ -f "${FME_LOG}" ]; then
+    train_loss=$(awk -F'Train loss: ' '/Train loss: /{v=$2} END{print v}' "${FME_LOG}")
+fi
+loss_rc=0
+case "${train_loss}" in
+    ""|*[nN][aA][nN]*|*[iI][nN][fF]*)
+        echo "ERROR ACE2_LOSS_NOT_FINITE train=${train_loss:-<none>} (log ${FME_LOG})"
+        loss_rc=1 ;;
+esac
+
+echo
+sed -n 's/.*\(ACE2_MEM .*\)/  \1/p' "${LOG}" | sort -u
+echo "TRAIN_DONE nodes=${NNODES} ranks=${NRANKS} local_batch=${LOCAL_BATCH} \
+global_batch=${GLOBAL_BATCH} rep=${REP} omp=${OMP_NUM_THREADS} rc=${rc}"
+if [ ${rc} -eq 0 ] && [ ${csv_rc} -eq 0 ] && [ ${loss_rc} -eq 0 ]; then
+    echo "ACE2_POLARIS_TRAIN_OK nodes=${NNODES} train_loss=${train_loss} exp_dir=${EXP_DIR} csv=${SCALING_CSV}"
+    if [ "${NNODES}" -eq 1 ]; then
+        echo "  This is the ANCHOR. Read gpu_busy_frac in the row above before anything"
+        echo "  else: it decides whether this port's problem is the fabric or the"
+        echo "  2.4 TB single-OST read, and no ladder rung means anything without it."
+    else
+        echo "  Before comparing node counts: confirm the transport line above, and"
+        echo "  remember the 1-node arm is the only one where NCCL never leaves NVLink."
+    fi
+else
+    echo "ERROR ACE2_POLARIS_TRAIN_FAILED train_rc=${rc} csv_rc=${csv_rc} loss_rc=${loss_rc}"
+    echo "  Read the FIRST rank's error, not the last: a fabric problem surfaces as"
+    echo "  ${NRANKS} stacks of which only the first is the cause."
+fi
+exit $(( rc | csv_rc | loss_rc ))

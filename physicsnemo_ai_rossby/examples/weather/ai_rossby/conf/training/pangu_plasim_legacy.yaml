@@ -1,0 +1,54 @@
+# SPDX-FileCopyrightText: Copyright (c) 2023 - 2026 NVIDIA CORPORATION & AFFILIATES.
+# SPDX-FileCopyrightText: All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+#
+# PanguPlasimLegacy single-stage training config.
+# Mirrors PanguWeather v2.0 PANGU_PLASIM_H5_DERECHO_0514.yaml:
+#   AdamW(lr=1e-4, wd=3e-6), OneCycleLR(pct_start=0.1, div=1e5, fdiv=2.5e-4),
+#   no AMP, no grad clip, EMA on with 6-epoch warmup.
+
+use_static_capture: False             # opt-in StaticCaptureTraining + CUDA graphs (PhysicsNeMo decorator)
+# bf16 AMP: measured 1.19x step-time speedup on A100 vs fp32 at PLASIM 64x128
+# (loss within noise). Pangu's Swin attention is GEMM-heavy, so tensor-core
+# bf16 helps far more than it did for the SHT-bound SFNO. See
+# hpc/scripts/bench_pangu_plasim.sbatch for the full A/B.
+amp: bf16                       # none/off | bf16 | fp16
+grad_clip_norm: 0.0             # 0 disables gradient clipping
+max_epochs: 100                 # sum of stage num_epochs; redundant guard
+# torch.compile (jit_compile=True) is unusable on Delta: torch-inductor's C++
+# codegen fails at link (`ld: undefined reference to 'main'`, gcc-toolset-13);
+# and it was only ~1.3% for SFNO anyway. Left off; field present so a future
+# `+`-free override doesn't hit Hydra struct mode.
+jit_compile: False
+
+optimizer:
+  type: AdamW
+  lr: 1.0e-4
+  weight_decay: 3.0e-6
+  fused: True                   # measured ~1.6% on top of bf16 (fused AdamW kernel)
+
+ema:
+  enabled: True
+  decay: 0.999
+  warmup_epochs: 6
+
+# Training is organized as a list of stages. Each stage:
+#   * runs `num_epochs` epochs from the dataset
+#   * unrolls the model `unroll_steps` times per step
+#     (use unroll_steps=1 for the standard single-step training; >1
+#      requires the dataset's sequence-mode emission, set via dataset config)
+#   * builds its own scheduler from `scheduler.{type, ...}` against
+#     `len(datapipe) * num_epochs` total iterations
+#   * stops early when `max_iterations` is hit (.inf means no cap)
+#   * may override `batch_size` (null inherits cfg.dataset.batch_size)
+stages:
+  - name: default
+    num_epochs: ${training.max_epochs}
+    unroll_steps: 1
+    max_iterations: .inf
+    batch_size: null
+    scheduler:
+      type: OneCycleLR
+      oc_pct_start: 0.1
+      oc_div_factor: 1.0e5
+      oc_final_div_factor: 0.00025

@@ -1,0 +1,14 @@
+# F's D7 (raw vs EMA) screen -- docs/2026-09-24_climate_screen_prereg.md §A3.
+# Primary pair (what each path would ship) + matched-pair raw side (epoch 43,
+# same file as the primary raw) + 6 raw snapshots (earliest, midpoint, last 4
+# before epoch 43). No EMA snapshots exist beyond best_ckpt_ema -- only one EMA
+# file is on disk, so the epoch-43 EMA side of the matched pair is unavailable
+# (§A3.1's documented contingency: "best-epoch confound uncontrolled").
+raw_best=f_nosoil_2n_b32_e43_warm:best_ckpt_mp0.tar
+ema_best=f_nosoil_2n_b32_e43_warm:best_ckpt_ema_mp0.tar
+raw_e01=f_nosoil_2n_b32_e43_warm:ckpt_mp0_v0.tar
+raw_e22=f_nosoil_2n_b32_e43_warm:ckpt_mp0_v21.tar
+raw_e39=f_nosoil_2n_b32_e43_warm:ckpt_mp0_v38.tar
+raw_e40=f_nosoil_2n_b32_e43_warm:ckpt_mp0_v39.tar
+raw_e41=f_nosoil_2n_b32_e43_warm:ckpt_mp0_v40.tar
+raw_e42=f_nosoil_2n_b32_e43_warm:ckpt_mp0_v41.tar

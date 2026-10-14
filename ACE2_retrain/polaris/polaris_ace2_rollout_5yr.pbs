@@ -1,0 +1,64 @@
+#!/bin/bash -l
+#PBS -N ace2_5yr
+#PBS -A lighthouse-uchicago
+#PBS -q debug-scaling
+#PBS -l select=4:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# ACE2 5-year rollout test: 2 arms (ai2's Hugging Face ACE2-ERA5 and ACE2-EAMv3) x 8
+# start dates = 16 independent fme inference runs, one per GPU on 4 nodes (debug-scaling):
+#   run r = node*4 + gpu;  arm = [era5_ai2, eamv3_ai2][r // 8];  start = r % 8
+# Steps per arm come from the prep job's measured rate (probe.json): 7300 = 5 years
+# if it fits the walltime, else whole years, flagged TRUNCATED in probe.log.
+# Stability readout afterwards: first non-finite month, global-mean PS drift (hPa).
+#
+#   qsub -v PREP_JOB=<prep jobid> -W depend=afterok:<prep jobid> \
+#        ACE2_retrain/polaris/polaris_ace2_rollout_5yr.pbs              (from the repo root)
+# PASS = ACE2_5YR_OK  (after ACE2_5YR_READOUT_OK)
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+ACE2_DIR="$(cd "${PBS_O_WORKDIR}" && pwd)"
+[ -d "${ACE2_DIR}/ace_exp" ] || ACE2_DIR="${ACE2_DIR}/ACE2_retrain"
+[ -d "${ACE2_DIR}/ace_exp" ] || { echo "ERROR ACE2_TREE_NOT_FOUND"; exit 2; }
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+[ -x "${ACE2_VENV}/bin/python" ] || { echo "ERROR ACE2_VENV_MISSING: ${ACE2_VENV}"; exit 3; }
+PY="${ACE2_VENV}/bin/python"
+
+[ -n "${PREP_JOB:-}" ] || { echo "ERROR PREP_JOB_UNSET (qsub -v PREP_JOB=<id>)"; exit 2; }
+ROOT="${MEMBER_ROOT}/runs/ace2_5yr/${PREP_JOB}"
+[ -s "${ROOT}/probe.json" ] || { echo "ERROR NO_PROBE_JSON ${ROOT}"; exit 2; }
+ORIENT="$("${PY}" -c "import json;print(json.load(open('${ROOT}/probe.json'))['orientation'])")"
+if [ "${ORIENT}" != "asc" ]; then
+    echo "ERROR ORIENTATION_${ORIENT}: the EAMv3 checkpoint prefers north-first rows; rebuild"
+    echo "  inputs with build_eamv3_inputs.py --flip (full) before rolling out."
+    exit 3
+fi
+NODEFILE="${PBS_NODEFILE}"
+NNODES="$(sort -u "${NODEFILE}" | wc -l)"
+[ "${NNODES}" -eq 4 ] || { echo "ERROR NODES=${NNODES} (need 4)"; exit 2; }
+echo "=== ace2_5yr: $(date -Iseconds) job=${PBS_JOBID%%.*} prep=${PREP_JOB} nodes=${NNODES} ==="
+echo "repo sha=$(git -C "${REPO}" rev-parse --short=12 HEAD 2>/dev/null)"
+grep -E 'probe|ORIENTATION' "${ROOT}/probe.log"
+
+export ROOT PY ACE2_DIR REPO
+mpiexec -n "${NNODES}" --ppn 1 --hostfile "${NODEFILE}" --cpu-bind none \
+    --env ROOT="${ROOT}" --env PY="${PY}" --env ACE2_DIR="${ACE2_DIR}" --env REPO="${REPO}" \
+    bash "${ACE2_DIR}/polaris/ace2_rollout_node.sh"
+echo "mpiexec rc=$?"
+
+"${PY}" "${ACE2_DIR}/polaris/ace2_rollout.py" readout --root "${ROOT}" | tee "${ROOT}/readout.log"
+if grep -q ACE2_5YR_READOUT_OK "${ROOT}/readout.log"; then
+    echo "ACE2_5YR_OK root=${ROOT}"
+else
+    echo "ERROR ACE2_5YR_INCOMPLETE (see ${ROOT}/readout.log, ${ROOT}/run_*/inference_out.log)"
+    exit 1
+fi

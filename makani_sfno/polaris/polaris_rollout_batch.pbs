@@ -1,0 +1,120 @@
+#!/bin/bash -l
+#PBS -N makani_rollbatch
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# One batch of a multi-job rollout campaign on the 5-yr protocol, scored by whichever batch finishes last.
+#   -v BATCH=<name> EXPECT="<all batch names>" XDIR=<campaign dir> TAG=<score tag> [ANALYSIS=<polaris/*.py>]
+#      ARMS="<arms on the head node>" [ARMS2="<arms on the 2nd node>"]  plus RUNDIR_/CKPT_/WEIGHTS_/FLAGS_<arm>
+#   1. ARMS run on the head node through polaris_climate_run.pbs (out: climate_protocol_<job>). With ARMS2 and a
+#      2-node allocation, ARMS2 run concurrently on the second node through PALS mpiexec, from an env file of
+#      the per-arm variables (out: climate_protocol_<job>_n2).
+#   2. $XDIR/done_<BATCH> lists the batch's run dirs. The batch that sees every EXPECT done file and wins the
+#      atomic `mkdir $XDIR/score.lock` scores all of them (polaris_protocol_score.pbs, stride-1 TGM), then
+#      runs ANALYSIS --scores-dir --tag --out $XDIR/results.txt. Same hand-off as polaris_precision_cross.pbs.
+# -v DRY_RUN=1 stubs rollouts, mpiexec and scoring (login-node chaining test: test_rollout_batch_chain.sh).
+# PASS = ROLLBATCH_OK batch=<BATCH> in every job; the analysis prints its own token in the scoring job.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR:?}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+DRY="${DRY_RUN:-0}"
+BATCH="${BATCH:?set -v BATCH}"; EXPECT="${EXPECT:?set -v EXPECT}"; TAG="${TAG:?set -v TAG}"
+XDIR="${XDIR:?set -v XDIR}"
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EVAL="${EVAL_ROOT:-${MEMBER_ROOT}/runs/makani_eval}"
+JOB="${PBS_JOBID%%.*}"
+mkdir -p "${XDIR}"
+echo "=== makani_rollbatch batch=${BATCH} job=${JOB} dry=${DRY} $(date -Iseconds) host=$(hostname) ==="
+
+if [ "${DRY}" = "1" ]; then
+    PY=python3
+else
+    # Env bootstrap copied verbatim from polaris_climate_run.pbs.
+    # shellcheck disable=SC1091
+    source "${REPO}/polaris_env.sh" || exit 2
+    # shellcheck disable=SC1091
+    source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+    if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+        echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+        exit 3
+    fi
+    PY="${SFNO_VENV}/bin/python"
+fi
+
+DIRS_HERE="${JOB}"
+LOG1="${XDIR}/run_${BATCH}_${JOB}.log"
+LOG2=""
+# --- 2nd node (optional), launched first so both nodes roll concurrently ---------------------------
+if [ -n "${ARMS2:-}" ]; then
+    LOG2="${XDIR}/run_${BATCH}_${JOB}_n2.log"
+    DIRS_HERE="${DIRS_HERE} ${JOB}_n2"
+    if [ "${DRY}" = "1" ]; then
+        mkdir -p "${EVAL}/climate_protocol_${JOB}_n2"
+        echo "CLIMATE_RUN_OK arms='${ARMS2}' (dry n2)" > "${LOG2}" &
+    else
+        NODE2="$(sort -u "${PBS_NODEFILE}" | sed -n 2p)"
+        [ -n "${NODE2}" ] || { echo "ERROR ROLLBATCH_NO_SECOND_NODE (ARMS2 set but PBS_NODEFILE has one host)"; exit 3; }
+        ENVF="${XDIR}/env_${BATCH}_${JOB}.sh"
+        {
+            for v in $(compgen -v | grep -E '^(RUNDIR|CKPT|WEIGHTS|FLAGS)_'); do printf 'export %s=%q\n' "${v}" "${!v}"; done
+            for v in PBS_O_WORKDIR PBS_JOBID MEMBER_ROOT; do printf 'export %s=%q\n' "${v}" "${!v}"; done
+            printf 'export ARMS=%q\n' "${ARMS2}"
+            printf 'export OUT_ROOT=%q\n' "${EVAL}/climate_protocol_${JOB}_n2"
+        } > "${ENVF}"
+        echo "${NODE2}" > "${XDIR}/hostfile_${BATCH}_${JOB}"
+        echo "node 2 = ${NODE2}: arms '${ARMS2}'"
+        mpiexec -n 1 --ppn 1 --hostfile "${XDIR}/hostfile_${BATCH}_${JOB}" --cpu-bind none \
+            bash -c "source '${ENVF}' && bash '${MAKANI_ROOT}/polaris/polaris_climate_run.pbs'" > "${LOG2}" 2>&1 &
+    fi
+    PID2=$!
+fi
+# --- head node -------------------------------------------------------------------------------------
+echo "head node: arms '${ARMS:?set -v ARMS}'"
+if [ "${DRY}" = "1" ]; then
+    mkdir -p "${EVAL}/climate_protocol_${JOB}"
+    echo "CLIMATE_RUN_OK arms='${ARMS}' (dry)" > "${LOG1}"
+else
+    bash "${MAKANI_ROOT}/polaris/polaris_climate_run.pbs" > "${LOG1}" 2>&1
+fi
+[ -n "${LOG2}" ] && wait "${PID2}"
+ok=1
+for lg in "${LOG1}" ${LOG2}; do
+    tail -4 "${lg}"
+    grep -q "^CLIMATE_RUN_OK" "${lg}" || { echo "ERROR ROLLBATCH_RUN_FAILED (see ${lg})"; ok=0; }
+done
+[ "${ok}" = 1 ] || exit 4
+
+echo "${DIRS_HERE}" > "${XDIR}/done_${BATCH}"
+echo "ROLLBATCH_OK batch=${BATCH} dirs='${DIRS_HERE}'"
+all=1
+for b in ${EXPECT}; do [ -f "${XDIR}/done_${b}" ] || all=0; done
+if [ "${all}" = 1 ] && mkdir "${XDIR}/score.lock" 2>/dev/null; then
+    DIRS="$(for b in ${EXPECT}; do cat "${XDIR}/done_${b}"; done | tr '\n' ' ')"
+    echo "all batches done -> scoring TAG=${TAG} DIRS='${DIRS}'"
+    if [ "${DRY}" = "1" ]; then
+        echo "PROTOCOL_SCORE_OK tag=${TAG} (dry)" > "${XDIR}/score.log"
+    else
+        TAG="${TAG}" DIRS="${DIRS}" TGM="${EVAL}/window_truth/truth_annual_gm_2015_2047_stride1.npz" \
+            bash "${MAKANI_ROOT}/polaris/polaris_protocol_score.pbs" > "${XDIR}/score.log" 2>&1
+    fi
+    tail -4 "${XDIR}/score.log"
+    grep -q "^PROTOCOL_SCORE_OK" "${XDIR}/score.log" || { echo "ERROR ROLLBATCH_SCORE_FAILED"; exit 5; }
+    if [ -n "${ANALYSIS:-}" ]; then
+        "${PY}" "${MAKANI_ROOT}/polaris/${ANALYSIS}" --scores-dir "${EVAL}/protocol_scores" --tag "${TAG}" \
+            --out "${XDIR}/results.txt" || { echo "ERROR ROLLBATCH_ANALYSIS_FAILED"; exit 6; }
+    fi
+else
+    echo "ROLLBATCH_WAITING other batches not done yet (or already scored); this job ends here"
+fi
+echo "=== makani_rollbatch done $(date -Iseconds) ==="

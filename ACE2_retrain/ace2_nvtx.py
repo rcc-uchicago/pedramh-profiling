@@ -1,0 +1,258 @@
+"""NVTX instrumentation for ACE2, injected without editing the vendored tree.
+
+WHY THIS EXISTS
+fme ships no profiling hooks at all -- no cudaProfilerApi, no torch.profiler, no
+NVTX in the SFNO lat-lon path. Two consequences the profiling work kept hitting:
+`midway_bench_nsys.sh` cannot use the house
+`--capture-range=cudaProfilerApi` flags (nothing would be captured), and
+`parse_nsys.py` produces no phase breakdown, so every attribution so far --
+including "copies come from the stacker" -- is inferred from kernel names plus
+code reading rather than measured.
+
+RANGE NAMES ARE A CROSS-PROJECT CONTRACT (CLAUDE.md #10). The shared names are
+reused verbatim, never renamed:
+
+    step_{N}      one training step, the outer range
+    forward_loss  the network forward + loss
+    backward      gradient computation
+    optimizer     the weight update
+    ema           the EMA update (name borrowed from PanguWeather, same meaning)
+
+ACE2-SPECIFIC ADDITIONS follow the precedent that SI added `preprocess` and
+Pangu added `ema` -- new phases get new names, existing phases never get
+renamed. These four exist to settle the copy attribution:
+
+    stack         Stacker._stack_levels -- gathers ~43 named tensors into one
+    unstack       stacker.unstack -- splits the output back into ~50 tensors
+    normalize     normalizer._normalize
+    denormalize   normalizer._denormalize
+
+DELIBERATE GAP: there is no `data_prep` range. The shared contract has one, but
+fme's loader wait happens in `for batch in epoch_data:` inside the trainer, and
+wrapping the iterator from outside is more invasive than it is worth. In the
+timeline the loader wait is the gap BETWEEN consecutive step_{N} ranges. Do not
+add a differently-named range for it -- add `data_prep` properly, or leave it.
+
+READ BEFORE USING THESE NUMBERS: an NVTX range bounds CPU time. CUDA is async,
+so a range around a launch site does NOT contain the GPU time of the kernels it
+launches -- `stack` measures 0.07 ms of launch cost while its kernels run later.
+To attribute GPU time to a range, join CUPTI_ACTIVITY_KIND_RUNTIME to
+CUPTI_ACTIVITY_KIND_KERNEL on correlationId and find the range enclosing the
+LAUNCH. Note also that backward-pass kernels are launched from autograd worker
+threads, so they fall outside any range pushed on the main thread.
+
+KNOBS (per-project by convention, ACE2_* like PANGU_*/SI_*):
+    ACE2_NVTX=1          master gate; no effect when unset
+    ACE2_NVTX_WARMUP     steps to skip before cudaProfilerStart (default 20)
+    ACE2_NVTX_STEPS      steps to capture before cudaProfilerStop (default 80)
+
+The cudaProfilerStart/Stop pair is what makes
+`nsys profile --capture-range=cudaProfilerApi --capture-range-end=stop` work, so
+the capture window is exactly the steady-state steps -- no warmup, no NCCL init,
+and no need for the hand-derived --delay/--duration this project has been using.
+"""
+
+import os
+
+import torch
+
+ENABLED = os.environ.get("ACE2_NVTX", "0") == "1"
+WARMUP = int(os.environ.get("ACE2_NVTX_WARMUP", "20"))
+STEPS = int(os.environ.get("ACE2_NVTX_STEPS", "80"))
+
+_state = {"step": 0, "profiling": False}
+
+
+def _range(name):
+    """Wrap a callable in an NVTX push/pop pair."""
+
+    def decorate(fn):
+        def wrapper(*args, **kwargs):
+            torch.cuda.nvtx.range_push(name)
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                torch.cuda.nvtx.range_pop()
+
+        return wrapper
+
+    return decorate
+
+
+def _cm_range(name):
+    """Wrap a @contextmanager method so the NVTX range spans the `with` BODY.
+
+    The plain _range decorator is wrong for these: it would pop as soon as the
+    context manager object is returned, giving a range of microseconds around
+    the setup instead of the region it guards.
+    """
+
+    def decorate(fn):
+        import contextlib
+
+        @contextlib.contextmanager
+        def wrapper(*args, **kwargs):
+            torch.cuda.nvtx.range_push(name)
+            try:
+                with fn(*args, **kwargs):
+                    yield
+            finally:
+                torch.cuda.nvtx.range_pop()
+
+        return wrapper
+
+    return decorate
+
+
+def install():
+    if not ENABLED:
+        return []
+    applied = []
+
+    import fme.core.normalizer as _norm
+    import fme.core.optimization as _opt
+    import fme.core.stacker as _stacker
+    import fme.core.step.single_module as _step
+    from fme.ace.stepper.single_module import TrainStepper
+
+    # --- shared contract names -------------------------------------------
+    # Map onto what fme ACTUALLY does, not onto method names. With
+    # use_gradient_accumulation: false (our config) `accumulate_loss` only does
+    # `_accumulated_loss += loss` -- the real backward runs inside
+    # `step_weights`. Wrapping those two by name gave backward=0.12 ms and
+    # optimizer=263 ms in job 53533290, i.e. `optimizer` was silently swallowing
+    # the backward pass. Under CLAUDE.md #10 that is worse than no range at all:
+    # the name would mean something different here than in every other project.
+    _opt.Optimization._backward = _range("backward")(_opt.Optimization._backward)
+    _opt.Optimization._step_weights = _range("optimizer")(
+        _opt.Optimization._step_weights
+    )
+    _step.SingleModuleStep.step = _range("forward_loss")(_step.SingleModuleStep.step)
+    applied += ["backward", "optimizer", "forward_loss"]
+
+    # --- ACE2-specific: the copy attribution ------------------------------
+    _stacker.Stacker._stack_levels = _range("stack")(_stacker.Stacker._stack_levels)
+    # NO `unstack` range: fme's training path never calls stacker.unstack (grep
+    # finds no callers outside its own definition). Job 53533290 recorded zero
+    # events for it. The "dict -> tensor -> dict round trip" this file originally
+    # set out to measure is a stack-only path in training.
+    _norm._normalize = _range("normalize")(_norm._normalize)
+    _norm._denormalize = _range("denormalize")(_norm._denormalize)
+    applied += ["stack", "normalize", "denormalize"]
+
+    # --- autocast boundaries ---------------------------------------------
+    # Where AMP is turned ON (Optimization.autocast, used by the stepper) and
+    # where it is turned OFF again around the spherical transform (sht_fix's
+    # `with torch.autocast("cuda", enabled=False)` guards). Every crossing is a
+    # candidate fp32<->bf16 conversion, i.e. a candidate copy.
+    _opt.Optimization.autocast = _cm_range("amp_region")(_opt.Optimization.autocast)
+    applied.append("amp_region")
+
+    # Patch torch_harmonics' OWN classes, not fme.sht_fix's. The perf commit
+    # 67242e348 stopped monkeypatching the 2022 fork over the installed 0.8.0,
+    # so fme.sht_fix.RealSHT is dead code on this path -- patching it recorded
+    # ZERO events in job 53533290 while the transform ran happily elsewhere.
+    # The banner confirms which is live: "RealSHT from torch_harmonics.sht".
+    try:
+        import torch_harmonics as _th
+
+        _th.RealSHT.forward = _range("sht_fwd")(_th.RealSHT.forward)
+        _th.InverseRealSHT.forward = _range("sht_inv")(_th.InverseRealSHT.forward)
+        applied += ["sht_fwd", "sht_inv"]
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: torch_harmonics ranges not installed: {err}", flush=True)
+
+    # --- per-variable loops: one kernel per NAMED VARIABLE ------------------
+    # These are the kernel-count multipliers. The corrector iterates over 16
+    # force_positive names, the loss over 17 weights, normalize over ~50 -- each
+    # a separate tiny kernel where one batched op would do. Ranges here let the
+    # analysis report LAUNCHES per site, which is what matters when the goal is
+    # fewer kernels rather than less time.
+    try:
+        from fme.core.corrector.atmosphere import AtmosphereCorrector
+
+        AtmosphereCorrector.__call__ = _range("corrector")(AtmosphereCorrector.__call__)
+        applied.append("corrector")
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: corrector range not installed: {err}", flush=True)
+
+    # EMA: the perf commit notes it kept "a per-step device sync at the decay
+    # min()". A sync stalls the launch pipeline, and an unattributed stall looks
+    # exactly like launch latency -- which is what the 9% idle was blamed on.
+    try:
+        from fme.core.ema import EMATracker
+
+        EMATracker.__call__ = _range("ema")(EMATracker.__call__)
+        applied.append("ema")
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: ema range not installed: {err}", flush=True)
+
+    # --- inside the SFNO --------------------------------------------------
+    try:
+        import fme.ace.models.modulus.layers as _layers
+        import fme.ace.models.modulus.sfnonet as _sfno
+
+        _sfno.SphericalFourierNeuralOperatorNet.forward = _range("sfno_net")(
+            _sfno.SphericalFourierNeuralOperatorNet.forward
+        )
+        _sfno.FourierNeuralOperatorBlock.forward = _range("sfno_block")(
+            _sfno.FourierNeuralOperatorBlock.forward
+        )
+        _sfno.SpectralFilterLayer.forward = _range("spectral_filter")(
+            _sfno.SpectralFilterLayer.forward
+        )
+        _layers.MLP.forward = _range("sfno_mlp")(_layers.MLP.forward)
+        applied += ["sfno_net", "sfno_block", "spectral_filter", "sfno_mlp"]
+    except (ImportError, AttributeError) as err:
+        print(f"ACE2_NVTX WARNING: SFNO ranges not installed: {err}", flush=True)
+
+    # --- outer step_{N} + the cudaProfilerApi capture window --------------
+    _orig_train_on_batch = TrainStepper.train_on_batch
+
+    def train_on_batch(self, *args, **kwargs):
+        n = _state["step"]
+        if n == WARMUP and not _state["profiling"]:
+            torch.cuda.cudart().cudaProfilerStart()
+            _state["profiling"] = True
+            print(f"ACE2_NVTX capture started at step {n}", flush=True)
+        torch.cuda.nvtx.range_push(f"step_{n}")
+        try:
+            return _orig_train_on_batch(self, *args, **kwargs)
+        finally:
+            torch.cuda.nvtx.range_pop()
+            _state["step"] = n + 1
+            if _state["profiling"] and _state["step"] >= WARMUP + STEPS:
+                torch.cuda.cudart().cudaProfilerStop()
+                _state["profiling"] = False
+                print(f"ACE2_NVTX capture stopped at step {_state['step']}", flush=True)
+
+    TrainStepper.train_on_batch = train_on_batch
+    applied.append("step_{N}+cudaProfilerApi")
+
+    print(
+        f"ACE2_NVTX enabled: warmup={WARMUP} steps={STEPS} ranges={applied}",
+        flush=True,
+    )
+    return applied
+
+
+if __name__ == "__main__":
+    import contextlib
+    import runpy
+
+    install()
+    # 58% of copy-kernel time is launched from autograd worker threads, which
+    # sit outside any range pushed on the main thread. emit_nvtx annotates every
+    # autograd op -- including backward -- so those kernels finally land inside
+    # a named range. It is verbose and slows the run down, so it is opt-in and
+    # must NOT be used for timing numbers.
+    _autograd = (
+        torch.autograd.profiler.emit_nvtx(record_shapes=False)
+        if os.environ.get("ACE2_NVTX_AUTOGRAD", "0") == "1" and ENABLED
+        else contextlib.nullcontext()
+    )
+    if os.environ.get("ACE2_NVTX_AUTOGRAD", "0") == "1" and ENABLED:
+        print("ACE2_NVTX autograd annotation ON -- timings are NOT valid", flush=True)
+    with _autograd:
+        # argv is already (config, --override ...) as fme.ace.train expects.
+        runpy.run_module("fme.ace.train", run_name="__main__")

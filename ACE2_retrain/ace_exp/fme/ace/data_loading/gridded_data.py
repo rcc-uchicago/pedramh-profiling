@@ -1,0 +1,284 @@
+import datetime
+from collections.abc import Mapping
+from typing import Literal
+
+import numpy as np
+import xarray as xr
+
+from fme.ace.data_loading.augmentation import BatchModifierABC, NullModifier
+from fme.ace.data_loading.batch_data import BatchData, PrognosticState
+from fme.ace.data_loading.dataloader import DataLoaderABC
+from fme.ace.requirements import PrognosticStateDataRequirements
+from fme.core.coordinates import HorizontalCoordinates, VerticalCoordinate
+from fme.core.dataset.data_typing import VariableMetadata
+from fme.core.dataset.properties import DatasetProperties
+from fme.core.dataset_info import DatasetInfo
+from fme.core.generics.data import (
+    DataLoader,
+    GriddedDataABC,
+    InferenceDataABC,
+    SizedMap,
+)
+
+
+class GriddedData(GriddedDataABC[BatchData]):
+    """
+    Data as required for pytorch training.
+
+    The data is assumed to be gridded, and attributes are included for
+    performing operations on gridded data.
+
+    All data exposed from this class is on the current device.
+    """
+
+    def __init__(
+        self,
+        loader: DataLoaderABC,
+        properties: DatasetProperties,
+        modifier: BatchModifierABC = NullModifier(),
+    ):
+        """
+        Args:
+            loader: Returns batches of BatchData.
+                Data can be on any device (but will typically be on CPU).
+            properties: Batch-constant properties for the dataset, such as variable
+                metadata and coordinate information. Data can be on any device.
+            modifier: Modifier for the data loader.
+
+        Note:
+            While input data can be on any device, all data exposed from this class
+            will be on the current device.
+        """
+        self._loader = loader
+        self._global_properties = properties.to_device()
+        shape = self._global_properties.horizontal_coordinates.shape
+        self._global_img_shape: tuple[int, int] = (shape[-2], shape[-1])
+        self._properties = self._global_properties.localize()
+        self._timestep = self._properties.timestep
+        self._vertical_coordinate = self._properties.vertical_coordinate
+        self._modifier = modifier
+        self._batch_size: int | None = None
+
+    @property
+    def loader(self) -> DataLoader[BatchData]:
+        return self._get_gpu_loader(self._loader)
+
+    def subset_loader(
+        self, start_batch: int | None = None, stop_batch: int | None = None
+    ) -> DataLoader[BatchData]:
+        return self._get_gpu_loader(
+            self._loader.subset(start_batch=start_batch, stop_batch=stop_batch)
+        )
+
+    def _get_gpu_loader(
+        self, base_loader: DataLoader[BatchData]
+    ) -> DataLoader[BatchData]:
+        def modify_and_on_device(batch: BatchData) -> BatchData:
+            batch = self._modifier(batch)
+            return batch.to_device().scatter_spatial(self._global_img_shape)
+
+        return SizedMap(modify_and_on_device, base_loader)
+
+    @property
+    def variable_metadata(self) -> dict[str, VariableMetadata]:
+        return self._properties.variable_metadata
+
+    @property
+    def dataset_info(self) -> DatasetInfo:
+        return DatasetInfo(
+            horizontal_coordinates=self._global_properties.horizontal_coordinates,
+            vertical_coordinate=self._global_properties.vertical_coordinate,
+            mask_provider=self._global_properties.mask_provider,
+            timestep=self._timestep,
+            variable_metadata=self._global_properties.variable_metadata,
+            all_labels=self._global_properties.all_labels,
+        )
+
+    @property
+    def horizontal_coordinates(self) -> HorizontalCoordinates:
+        return self._properties.horizontal_coordinates
+
+    @property
+    def coords(self) -> Mapping[str, np.ndarray]:
+        return {
+            **self.horizontal_coordinates.coords,
+            **self._vertical_coordinate.coords,
+        }
+
+    @property
+    def grid(self) -> Literal["equiangular", "legendre-gauss", "healpix"]:
+        return self.horizontal_coordinates.grid
+
+    @property
+    def n_samples(self) -> int:
+        return self.n_batches * self.batch_size
+
+    @property
+    def n_batches(self) -> int:
+        return len(self._loader)
+
+    @property
+    def batch_size(self) -> int:
+        return self._loader.batch_size
+
+    def log_info(self, name: str):
+        self._loader.log_info(name)
+
+    def set_epoch(self, epoch: int):
+        """
+        Set the epoch for the data loader sampler, if it is a distributed sampler.
+        """
+        self._loader.set_epoch(epoch)
+
+    def alternate_shuffle(self):
+        """
+        Change the random shuffle of the data loader for the current epoch.
+        """
+        self._loader.alternate_shuffle()
+
+
+def _get_initial_condition(
+    loader: DataLoader[BatchData],
+    requirements: PrognosticStateDataRequirements,
+) -> PrognosticState:
+    for batch in loader:
+        return batch.to_device().get_start(
+            prognostic_names=requirements.names,
+            n_ic_timesteps=requirements.n_timesteps,
+        )
+    raise ValueError("No initial condition found in loader")
+
+
+class InferenceGriddedData(InferenceDataABC[PrognosticState, BatchData]):
+    """
+    Data as required for inference.
+
+    All data exposed from this class is on the current device.
+    """
+
+    def __init__(
+        self,
+        loader: DataLoader[BatchData],
+        initial_condition: PrognosticState | PrognosticStateDataRequirements,
+        properties: DatasetProperties,
+    ):
+        """
+        Args:
+            loader: DataLoader, which returns batches of type BatchData.
+                Data can be on any device (but will typically be on CPU).
+            initial_condition: Initial condition for the inference, or a requirements
+                object specifying how to extract the initial condition from the first
+                batch of data. Data can be on any device.
+            properties: Batch-constant properties for the dataset, such as variable
+                metadata and coordinate information. Data can be on any device.
+
+        Note:
+            While input data can be on any device, all data exposed from this class
+            will be on the current device.
+        """
+        self._loader = loader
+        self._global_properties = properties.to_device()
+        shape = self._global_properties.horizontal_coordinates.shape
+        self._global_img_shape: tuple[int, int] = (shape[-2], shape[-1])
+        self._properties = self._global_properties.localize()
+        self._n_initial_conditions: int | None = None
+        if isinstance(initial_condition, PrognosticStateDataRequirements):
+            self._initial_condition: PrognosticState = _get_initial_condition(
+                self.loader, initial_condition
+            )
+        else:
+            self._initial_condition = initial_condition.to_device()
+
+    @property
+    def loader(self) -> DataLoader[BatchData]:
+        def scatter_and_on_device(batch: BatchData) -> BatchData:
+            return batch.to_device().scatter_spatial(self._global_img_shape)
+
+        return SizedMap(scatter_and_on_device, self._loader)
+
+    @property
+    def variable_metadata(self) -> dict[str, VariableMetadata]:
+        return self._properties.variable_metadata
+
+    @property
+    def dataset_info(self) -> DatasetInfo:
+        """Always returns global datasets regardless of model parallelism."""
+        return DatasetInfo(
+            horizontal_coordinates=self._global_properties.horizontal_coordinates,
+            vertical_coordinate=self._global_properties.vertical_coordinate,
+            mask_provider=self._global_properties.mask_provider,
+            timestep=self.timestep,
+            all_labels=self._global_properties.all_labels,
+        )
+
+    @property
+    def _vertical_coordinate(self) -> VerticalCoordinate:
+        return self._properties.vertical_coordinate
+
+    @property
+    def horizontal_coordinates(self) -> HorizontalCoordinates:
+        return self._properties.horizontal_coordinates
+
+    @property
+    def timestep(self) -> datetime.timedelta:
+        if self._properties.timestep is None:
+            raise ValueError(
+                "ACE datasets must have a valid, uniform timestep. "
+                "Requires XarrayDataConfig.infer_timestep==True"
+            )
+        return self._properties.timestep
+
+    @property
+    def coords(self) -> Mapping[str, np.ndarray]:
+        return {
+            **self.horizontal_coordinates.coords,
+            **self._vertical_coordinate.coords,
+        }
+
+    @property
+    def n_initial_conditions(self) -> int:
+        if self._n_initial_conditions is None:
+            example_data = next(iter(self.loader)).data
+            example_tensor = next(iter(example_data.values()))
+            self._n_initial_conditions = example_tensor.shape[0]
+        return self._n_initial_conditions
+
+    @property
+    def initial_condition(self) -> PrognosticState:
+        return self._initial_condition
+
+    @property
+    def initial_time(self) -> xr.DataArray:
+        return self.initial_condition.as_batch_data().time.isel(time=0)
+
+
+class PSType:
+    pass
+
+
+class FDType:
+    pass
+
+
+class ErrorInferenceData(InferenceDataABC[PSType, FDType]):
+    """
+    A inference data class that raises an error when accessed.
+
+    Necessary because in some contexts inference is not run,
+    and no data is configured (but also we don't need data).
+    """
+
+    def __init__(self):
+        pass
+
+    @property
+    def initial_condition(self) -> PSType:
+        raise ValueError("No inference data available")
+
+    @property
+    def loader(self) -> DataLoader[FDType]:
+        raise ValueError("No inference data available")
+
+    @property
+    def initial_inference_times(self) -> xr.DataArray:
+        raise ValueError("No inference data available")

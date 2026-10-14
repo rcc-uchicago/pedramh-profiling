@@ -1,0 +1,87 @@
+#!/bin/bash -l
+#PBS -N pploop-pangu-env
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:15:00
+#PBS -j oe
+# ============================================================================
+# Can PanguWeather run in the ai-rossby venv? One job, two answers.
+#
+# WHY this env and not the base conda: the base conda is orphaned by a Cray PE
+# migration -- its torch and h5py link `*_gnu_123.*` sonames (gcc 12.3) that the
+# PE roll removed, and hdf5 went soversion 200 -> 310, which is a real ABI break
+# and NOT symlinkable. The ai-rossby venv's torch and h5py are self-contained
+# wheels, so they are unaffected. Confirmed by job 7540797.
+#
+# The cost: torch 2.10.0+cu129 here vs 2.8.0 for every number in the existing
+# profile. That is a re-baseline, not a blocker -- items 6b/7/8/12 ask questions
+# that are not torch-version-sensitive in mechanism, and 9/10 produce ratios that
+# just need to be measured against a new reference on this env. Any table must
+# say which torch it used.
+#
+# The shim: the venv lacks cartopy (which train.py needs transitively --
+# utils/power_spectrum.py:15 imports it at module top level) and natsort (only
+# the inference scripts use it). $PANGU_SHIM links ONLY those two out of the
+# top-ups. A directory containing only those cannot shadow the venv's torch or
+# torch_harmonics, which is the hazard polaris_env.sh:139 warns about -- putting
+# the whole top-ups on PYTHONPATH WOULD shadow them.
+#
+# PASS = PANGU_ENV_OK. Read the per-import lines for the verdict, not rc.
+# ============================================================================
+set -u
+cd "${PBS_O_WORKDIR}"
+REPO="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda 2>/dev/null || echo "NOTE module load conda still failing (expected)"
+conda activate base 2>/dev/null || true
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${AI_ROSSBY_VENV}/bin/python"
+SHIM="${MEMBER_ROOT}/conda-envs/pangu-shim"
+[ -x "${PY}" ] || { echo "ERROR VENV_MISSING ${PY}"; exit 3; }
+
+echo "=== host $(hostname)  $(date -Is) ==="
+echo "python: ${PY}"
+# PanguWeather/v2.0 FIRST and alone as a model tree (CLAUDE.md: exactly one), then
+# the two-package shim.
+export PYTHONPATH="${REPO}/PanguWeather/v2.0:${SHIM}"
+echo "PYTHONPATH=${PYTHONPATH}"
+
+echo
+echo "--- 1. Pangu's import set ---"
+"${PY}" - <<'_PY' 2>&1 | sed 's/^/    /'
+mods = ["torch", "torch_harmonics", "h5py", "netCDF4", "cartopy", "natsort",
+        "tensorly", "xarray", "wandb", "matplotlib"]
+bad = []
+for m in mods:
+    try:
+        __import__(m)
+        print(f"{m:16} OK")
+    except Exception as exc:
+        bad.append(m)
+        print(f"{m:16} FAIL {type(exc).__name__}: {str(exc)[:120]}")
+import torch
+print(f"\ntorch {torch.__version__}  cuda_built={torch.version.cuda}  "
+      f"available={torch.cuda.is_available()}  devices={torch.cuda.device_count()}")
+print("BAD:", bad or "none")
+_PY
+
+echo
+echo "--- 2. the module train.py actually pulls in (the cartopy path) ---"
+"${PY}" -c "
+from utils.power_spectrum import zonal_averaged_power_spectrum, plot_bias
+print('    utils.power_spectrum OK  (this is what needs cartopy)')
+" 2>&1 | tail -3
+
+echo
+echo "--- 3. build the real SFNO net + settle the §4.5c factorization question ---"
+"${PY}" "${REPO}/polaris_factorization_probe.py" \
+    "${MEMBER_ROOT}/pangu_e3sm_sfno.nsys.rendered.yaml" 2>&1 | sed 's/^/    /'
+
+echo
+echo "PANGU_ENV_OK"

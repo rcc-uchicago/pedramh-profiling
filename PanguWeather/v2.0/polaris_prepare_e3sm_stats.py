@@ -20,7 +20,9 @@ Run once on a login node (CPU, a few seconds):
     bash -lc 'module use /soft/modulefiles; module load conda; conda activate base; \
         python polaris_prepare_e3sm_stats.py'
 
-Outputs go to PanguWeather/v2.0/polaris_data/ (gitignored via *.nc).
+Outputs go to $PANGU_AUX (set by the PBS script to a shared read-only dir OUTSIDE the
+repo, so the ~17 GB is not re-encoded into every clone); if PANGU_AUX is unset they fall
+back to PanguWeather/v2.0/polaris_data/ (gitignored via *.nc).
 The Polaris config (config/E3SM_SFNO_H5_POLARIS.yaml) points at them with
 absolute paths — os.path.join(data_dir, <abs path>) returns the abs path,
 so no loader code changes are needed.
@@ -28,9 +30,18 @@ so no loader code changes are needed.
 import os
 import xarray as xr
 
-SRC = ("/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
-       "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/plev_data")
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "polaris_data")
+# Default source archive. $E3SM_ROOT (exported by polaris_env.sh, overridable with
+# POLARIS_E3SM_ROOT) wins, so the advertised knob actually works; the literal is the
+# fallback for a bare run outside a PBS job.
+SRC = os.path.join(
+    os.environ.get("E3SM_ROOT") or (
+        "/eagle/lighthouse-uchicago/members/jesswan/AI4SRM/data/"
+        "E3SMv3_SSP245AMIP_CTL_SST0051_REST0101"),
+    "h5/plev_data")
+# Default OUT is passed in by the PBS script (PANGU_AUX, outside the repo) so the
+# ~17 GB is shared read-only instead of re-encoded into every user's clone.
+OUT = os.environ.get("PANGU_AUX") or os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "polaris_data")
 os.makedirs(OUT, exist_ok=True)
 
 # 1) stats: rename the level dim Z -> Z_2 (values already sigma levels)

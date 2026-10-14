@@ -1,0 +1,166 @@
+# PanguWeather SFNO on Midway — bench notes
+
+Companion to `polaris_bench_report.md` (the A100/Polaris profile). Same model,
+different cluster. **Read the hardware caveat before comparing any percentage.**
+
+## What exists
+
+| Piece | Path |
+|---|---|
+| Config | `config/E3SM_SFNO_H5_MIDWAY.yaml` — port of `E3SM_SFNO_H5_POLARIS.yaml`, paths only |
+| nsys bench | `HPC_scripts/midway_bench_nsys_e3sm_sfno.sh` → `PANGU_NSYS_OK` |
+| Stats prep | `midway_prepare_e3sm_stats.py` |
+| Env | `/project/pedramh/shared/conda/envs/py311_pip_sfno_cu129` (torch 2.9.1+cu129) |
+| Data | `/project/pedramh/E3SM/E3SMv3_SSP245AMIP_CTL_SST0051_REST0101/h5/sigma_data` |
+
+⚠ **The normalisation in the staged stats is NOT correct for this data** (per the
+data owner). These runs are **profiling only** — ignore their loss values, and do
+not use them for any equivalence or convergence claim. Shapes and channel counts
+are right, which is all a performance profile needs.
+
+## Result — job 53539872, 4x H100 NVL (midway3-0423)
+
+`PANGU_NSYS_OK`, 44 MB report, bench CSV row written.
+
+| | **Midway H100 NVL** | **Polaris A100** (7255410) |
+|---|---|---|
+| step_med | **1.100 s** | 0.652 s |
+| samples_per_s | **3.64** | 6.13 |
+| peak mem | 26.97 GB | 26.98 GB |
+| loader_wait_frac | 8.8% | 0.7% |
+
+**Pangu is ~1.7x SLOWER on the newer H100s.** Peak memory matches to 0.01 GB, so
+it is the same model at the same shape — not a config difference.
+
+### Where the time goes
+
+| bucket | Midway H100 | Polaris A100 |
+|---|---|---|
+| **NCCL (comm + wait)** | **74.2%** | **10.5%** |
+| elementwise / copy | 13.5% | 61.0% |
+| GEMM | 5.7% | 15.1% |
+
+NVTX phases (median over the captured steps):
+
+| range | n | median | min | max |
+|---|---|---|---|---|
+| `data_prep` | 160 | 0.5 ms | 0.2 | 2.3 |
+| `forward_loss` | 160 | 46.3 ms | 42.5 | 73.7 |
+| **`backward`** | 160 | **539.8 ms** | **112.2** | **993.1** |
+| `optimizer` | 160 | 4.5 ms | 3.4 | 6.3 |
+| step total | 156 | 995.5 ms (std 278.3) | | |
+
+### The backward's 9x swing is two regimes, not noise — and the bench under-reports
+
+Within a single rank the backward is rock-steady at ~114 ms for 10 steps, then
+jumps and stays high:
+
+    first 12: 114, 128, 115, 115, 115, 114, 114, 115, 116, 117, 552, 869
+    last 6:   746, 656, 664, 809, 354, 807
+
+| phase | early (1-10) | late (11+) | ratio |
+|---|---|---|---|
+| step total | 563 ms | **1166 ms** | 2.07x |
+| `backward` | 115 ms | **734 ms** | **6.39x** |
+| `forward_loss` | 62 ms | 43.5 ms | 0.70x |
+
+Real added time, not attribution moving between phases: the step total itself
+doubles. `forward_loss` gets *faster* (ordinary warm-up), so it is not a general
+slowdown — the whole +620 ms lands in the backward. Time outside any NVTX range
+is ~380 ms in both regimes.
+
+**Mechanism: all-reduce back-pressure.** DDP issues gradient all-reduces
+asynchronously, so early backwards return without waiting — the exchange is only
+queued. Once the queue saturates, every backward blocks until prior exchanges
+drain, and the steady state is the interconnect's throughput. The arithmetic
+agrees: a ring all-reduce of 4.73 GB moves 1.5 x 4.73 = **7.1 GB per rank per
+step**, and 7.1 GB / 0.62 s of added time = **11.5 GB/s** — the cross-pair PCIe
+path (measured 18 GB/s) after ring inefficiency.
+
+⇒ **`PANGU_BENCH_WARMUP=20` is too short on this node.** The fill period outlasts
+the warmup because the link is slow, so the bench averaged fill steps into its
+result. The CSV's `step_med 1.100 s` is contaminated; **steady state is ~1.17 s**,
+i.e. ~1.8x slower than Polaris, not 1.7x. Raise the warmup before quoting a step
+time from this node.
+
+### ⚠ Read this before quoting any of the above
+
+**Three-quarters of GPU time is gradient exchange, because of this node's
+interconnect.** `midway3-0423` is H100 NVL: NVLink joins GPU pairs only
+(GPU0<->1, GPU2<->3) and the pairs are joined by PCIe across a NUMA boundary —
+**measured 261 vs 18 GB/s** by `gpu_topology_check.py`. A 4-GPU ring all-reduce
+crosses that boundary twice. Polaris A100 nodes do not.
+
+Pangu carries **1.18 B parameters = 4.73 GB of gradients**, 2.6x ACE2's, so it
+suffers more than ACE2 did on the identical node: **74.2% NCCL vs ACE2's 52.1%**.
+The same effect was isolated directly by running one job on an NVLink pair vs
+across pairs: **+28.9% per step** (`ACE2_retrain/bench_midway_notes.md`).
+
+Consequences for reading this profile:
+
+1. **The 1.7x slowdown is the interconnect, not the GPU.** H100 compute is
+   faster; the node cannot feed the all-reduce.
+2. **The backward's 9x swing (112–993 ms) is all-reduce wait**, not compute
+   variance — DDP overlaps gradient exchange with the backward pass, so the wait
+   lands inside that range.
+3. **The Polaris "61% elementwise" finding does NOT contradict this.**
+   Elementwise work did not shrink; NCCL swamped the denominator. Shares are
+   relative — always state the hardware alongside them.
+
+⇒ For any Pangu optimisation work on elementwise/pointwise kernels, **profile on
+Polaris or on an H200 node (NV6 full mesh)**. On this node the signal is buried
+under communication.
+
+## ⭐ NCCL_PROTO=LL128 is a free 12.9% for Pangu
+
+Jobs 53546942/943/944/945, 4x H100 NVL, `PANGU_BENCH_WARMUP=40`, no nsys.
+
+| arm | step_med | vs control | samples/s |
+|---|---|---|---|
+| control (`RING_LL`) | 1.2870 s | — | 3.108 |
+| `NCCL_PROTO=Simple` | 1.1872 s | **-7.8%** | 3.369 |
+| **`NCCL_PROTO=LL128`** | **1.1205 s** | **-12.9%** | **3.570** |
+| `NCCL_ALGO=Tree` | FAILED — Tree has no AllGather, which DDP needs | | |
+
+Peak memory identical at 26.966 GB across all arms, so nothing else moved.
+
+**This is the opposite of ACE2 on the same node.** ACE2 measured LL128 at **+27%
+SLOWER** (jobs 53546801-805) while Simple was a null. Same hardware, same
+topology, same NCCL build.
+
+The plausible mechanism is message size: Pangu all-reduces **4.73 GB** of
+gradients against ACE2's 1.82 GB. LL128's ~94% wire efficiency beats LL's ~50%
+once buckets are large enough to amortise its 128-byte granularity; ACE2's
+smaller buckets fall the other side of that threshold. ACE2's vendored perf
+commit also sets `gradient_as_bucket_view=True` and `broadcast_buffers=False`,
+which changes the message profile again.
+
+⇒ **Sweep the protocol per model. Do not generalise either result.** A single
+env var is worth 12.9% here and -27% there.
+
+**Not adopted yet.** It changes no numerics (encoding only, not arithmetic), but
+it is an environment change to a benchmarked configuration: re-run the bench and
+record the protocol in the CSV before making it a default. Also verify on
+Polaris independently -- its A100 nodes have a different topology and the
+protocol choice may differ again.
+
+## Port notes — three environment differences, none of them code faults
+
+1. **`tensorly` missing.** `sfnonet.py` imports it for factorizations; the S2S
+   venv lacks it (job 53539649). Fixed by using the shared SFNO env rather than
+   installing into a venv S2S and the Lightning port also depend on.
+2. **CUDA module vs torch build.** That env is cu129, so `module load cuda/12.6`
+   would put mismatched CUDA libs ahead of torch's bundled ones. `nsys` is taken
+   from an explicit `NSYS_BIN` path instead — the same pattern the Polaris script
+   already uses.
+3. **Stats level-dimension naming** (job 53539745, `KeyError: 'Z_2'`).
+   `load_mean_std(use_sigma_levels=True)` indexes every non-`zg` variable on a
+   `Z_2` coordinate; the Midway stats name that dimension `Z`, and this dataset
+   calls geopotential `Z3`, so nothing took the `Z` branch.
+   `midway_prepare_e3sm_stats.py` renames the dimension. Values are unchanged —
+   `Z` already held the sigma levels, verified equal to the config's
+   `sigma_levels` to 3 dp. It must be the DIMENSION, not a coordinate alias:
+   `where(..., dims=['Z_2'])` broadcasts rather than selects otherwise.
+
+Unlike Polaris, no `climatology.nc` conversion is needed — the Midway copy opens
+directly with xarray.

@@ -1,0 +1,175 @@
+#!/bin/bash -l
+#PBS -N pangu_e3sm_sfno_full
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=24:00:00
+#PBS -r y
+# ^ RERUNNABLE — this is what makes preemption self-healing, and it is NOT the default.
+# Polaris' scheduler has `preempt_order = RD`: it tries to REQUEUE a preempted job first and
+# only DELETES if it cannot. A job is only requeueable if it is rerunnable, and PBS defaults
+# to `Rerunable = False` (verified on our own finished jobs) — so without this line a
+# preempted job falls straight through to D and is simply killed, and someone has to notice
+# and resubmit by hand.
+# With `-r y`, PBS puts the job back in the queue itself and re-runs THIS SCRIPT from the
+# top. That is only safe because the script is idempotent and resumes from its checkpoint:
+# a stable RUN_NUM, and a trainer that restores state on startup. Re-running from the top is
+# the whole contract — do not add anything to this script that cannot survive it.
+# (`preempt_sort = min_time_since_start`: the most recently started jobs get preempted first,
+# so the longer a run survives, the safer it gets.)
+#PBS -j oe
+# ============================================================================
+# PanguWeather SFNO on E3SM — FULL TRAINING (not the smoke).
+#
+# Sibling of polaris_train_e3sm_sfno.pbs, which is the bounded smoke. That script stays
+# as-is: the smoke is the thing you run to prove the code works, and it must stay cheap.
+#
+# WHAT DIFFERS FROM THE SMOKE (only these; the model was already full size):
+#   queue      debug (1 h cap)      -> preemptable (up to 72 h; 24 h here, see below)
+#   epochs     --epochs 1           -> the config's max_epochs (100), i.e. no CLI cap
+#   years      2015-2016 (1 year)   -> $TRAIN_YEAR_START..$TRAIN_YEAR_END (default all 35)
+#   run_num    per-job              -> STABLE (resume across preemptions)
+#   resume     irrelevant           -> mandatory
+# The network is unchanged: the smoke already runs the real SFNO (embed_dim 512,
+# num_layers 12) on real data — it is bounded by TIME, not by size. So this is the one
+# model where "full training" really is just turning the bounds off.
+#
+# ⚠ PREEMPTABLE MEANS YOUR JOB WILL BE KILLED, possibly minutes in, with no warning.
+#   That is the price of >1 h on a single node (prod needs >=10 nodes; debug caps at 1 h).
+#   Training therefore MUST resume, and this script keeps RUN_NUM stable so it does:
+#   train.py reconstructs checkpoint_path from exp_dir/config/run_num and restores when
+#   the file exists. Re-submit the SAME command after a preemption and it picks up.
+#   Chain it if you like:  qsub -W depend=afterany:<jobid> polaris_train_e3sm_sfno_full.pbs
+#
+# Submit from PanguWeather/v2.0:
+#     qsub HPC_scripts/polaris_train_e3sm_sfno_full.pbs
+#     qsub -v RUN_NUM=full02,TRAIN_YEAR_END=2030 HPC_scripts/polaris_train_e3sm_sfno_full.pbs
+#
+# PASS is NOT "rc=0" — a preempted job is killed and that is normal and expected.
+# Progress = the "Epoch [n/N]" lines advancing and a checkpoint newer than the last run in
+#   ${MEMBER_ROOT}/runs/pangu_sfno_full/SFNO/<RUN_NUM>/training_checkpoints/
+# DONE = the epoch counter reaches max_epochs and "DONE ---- rank 0" appears.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}"                              # submit from PanguWeather/v2.0
+V20_DIR="${PBS_O_WORKDIR}"
+
+module use /soft/modulefiles
+module load conda
+conda activate base
+# shellcheck disable=SC1091
+source "${V20_DIR}/../../polaris_env.sh" || exit 2
+
+export MPLBACKEND=Agg
+export OMP_NUM_THREADS=8
+export MKL_NUM_THREADS=8
+# $POLARIS_TOPUPS carries netCDF4 / torch_harmonics 0.7.4 / tensorly, which the base conda
+# lacks. Shared and world-readable on purpose: a `pip install --user` copy lives in a 0700
+# home and is readable by one person, so every other member's job dies on ModuleNotFoundError.
+export PYTHONPATH="${V20_DIR}:${POLARIS_TOPUPS}:${PYTHONPATH:-}"
+polaris_require_topups || exit 3
+
+NPROC="${NPROC:-4}"
+# STABLE by default — the opposite of the smoke, which keys run_num to $PBS_JOBID so that
+# every smoke starts clean (a resumed smoke would train 0 steps and still exit 0 — that
+# false green cost us job 7253454). Full training wants exactly the resume the smoke forbids.
+RUN_NUM="${RUN_NUM:-full01}"
+TRAIN_YEAR_START="${TRAIN_YEAR_START:-2015}"
+# E3SM covers 2015..2049. train.py's loop is `range(train_year_start, train_year_end)`, so
+# train_year_end is EXCLUSIVE: 2049 trains through 2048 and leaves 2049 for validation.
+TRAIN_YEAR_END="${TRAIN_YEAR_END:-2049}"
+
+CONFIG_TEMPLATE="${V20_DIR}/config/E3SM_SFNO_H5_POLARIS.yaml"
+EXP_DIR="${MEMBER_ROOT}/runs/pangu_sfno_full"
+CONFIG_FILE="${EXP_DIR}/E3SM_SFNO_H5_POLARIS.full.rendered.yaml"
+mkdir -p "${EXP_DIR}"
+
+echo "=== pangu_e3sm_sfno_full: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  NPROC=${NPROC}  RUN_NUM=${RUN_NUM}"
+echo "years=[${TRAIN_YEAR_START},${TRAIN_YEAR_END})  exp_dir=${EXP_DIR}"
+nvidia-smi -L
+polaris_env_report
+
+sed -e "s|{{PANGU_AUX}}|${PANGU_AUX}|g" -e "s|{{MEMBER_ROOT}}|${MEMBER_ROOT}|g" \
+    "${CONFIG_TEMPLATE}" > "${CONFIG_FILE}" || exit 2
+
+# Full-run overrides on the rendered copy (never the template — the smoke reads it too).
+python - "${CONFIG_FILE}" "${TRAIN_YEAR_START}" "${TRAIN_YEAR_END}" "${EXP_DIR}" <<'PY' || exit 2
+import sys, re
+path, y0, y1, exp_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+src = open(path).read()
+# Line-scoped substitution: these keys appear once each in the BASE block the SFNO section
+# inherits. A YAML round-trip would reorder/strip the anchors (&SFNO / <<: *BASE) the file
+# depends on, so patch the lines in place instead.
+# save_checkpoint MUST be re-enabled: the template pins it False to keep the smoke cheap
+# ("skip ~3.5 GB ckpt writes; re-enable for real runs"). Inheriting that here would make the
+# whole resume design a no-op — job 7253898 reached Epoch [12/100] in 50 minutes and wrote
+# nothing, so a preemption would have lost every hour of it.
+for key, val in (("train_year_start", y0), ("train_year_end", y1), ("exp_dir", exp_dir),
+                 ("save_checkpoint", "!!bool True")):
+    new, n = re.subn(r"(?m)^(\s*%s:\s*)\S+.*$" % key, lambda m: m.group(1) + str(val), src, count=1)
+    if n != 1:
+        print("ERROR CONFIG_PATCH_FAILED: %s matched %d times (expected 1)" % (key, n))
+        sys.exit(2)
+    src = new
+open(path, "w").write(src)
+print("config patched: train_year_start=%s train_year_end=%s exp_dir=%s" % (y0, y1, exp_dir))
+PY
+
+
+# ---- W&B: flip the config's own switch, not just the client's mode --------------
+# $WANDB_MODE only controls the wandb CLIENT. This config sets `log_to_wandb: False`, and
+# train.py:513 guards `wandb.init` behind it — so `-v WANDB_MODE=online` alone logs NOTHING.
+# Flip the rendered copy (never the template) when the user asks for online.
+# `entity` in the template is hardcoded to one person's W&B account; wandb.init(entity=None)
+# falls back to the account the API key belongs to, which is what any other member needs.
+if [ "${WANDB_MODE}" = "online" ]; then
+    python - "${CONFIG_FILE}" "${WANDB_PROJECT}" "${WANDB_ENTITY:-}" <<'_PY' || exit 2
+import re, sys
+path, project, entity = sys.argv[1], sys.argv[2], sys.argv[3]
+src = open(path).read()
+src, n = re.subn(r"(?m)^(\s*log_to_wandb:\s*).*$", lambda m: m.group(1) + "!!bool True", src, count=1)
+if n != 1:
+    print("ERROR WANDB_PATCH_FAILED: log_to_wandb matched %d times" % n); sys.exit(2)
+src = re.subn(r"(?m)^(\s*entity:\s*).*$", lambda m: m.group(1) + (("'%s'" % entity) if entity else "null"), src, count=1)[0]
+src = re.subn(r"(?m)^(\s*project:\s*).*$", lambda m: m.group(1) + "'%s'" % project, src, count=1)[0]
+open(path, "w").write(src)
+print("  wandb ON: log_to_wandb=True, project=%s, entity=%s" % (project, entity or "<your default>"))
+_PY
+else
+    echo "  wandb: offline (set -v WANDB_MODE=online to log live)"
+fi
+
+# train.py builds expDir as os.path.join(params.exp_dir, args.config, run_num) — so the
+# directory is named after --config (SFNO), NOT after the config FILE. Getting this wrong made
+# the banner below always claim "starting fresh".
+CKPT="${EXP_DIR}/SFNO/${RUN_NUM}/training_checkpoints/ckpt.tar"
+if [ -f "${CKPT}" ]; then
+    echo "RESUMING from ${CKPT} ($(du -h "${CKPT}" | cut -f1), $(date -r "${CKPT}" -Iseconds))"
+else
+    echo "starting fresh (no checkpoint at ${CKPT})"
+fi
+
+# NOTE: no --epochs. That flag is the SMOKE's bound (train.py:3562 overrides max_epochs when
+# args.epochs > 0); omitting it lets the config's max_epochs: 100 stand.
+# Do NOT add --debug: it hardcodes world_size=1, so under torchrun every rank would init as
+# rank-0-on-GPU-0 and OOM (job 7252261).
+torchrun --standalone --nproc_per_node="${NPROC}" \
+    "${V20_DIR}/train.py" \
+    --yaml_config="${CONFIG_FILE}" \
+    --config=SFNO \
+    --run_num="${RUN_NUM}"
+rc=$?
+
+echo "=== pangu_e3sm_sfno_full done (rc=${rc}) $(date -Iseconds) ==="
+# rc!=0 on preemptable usually means PREEMPTED, not broken. Say so, so nobody "fixes" a
+# working run: PBS kills the job, torchrun reports a non-zero rc, and the fix is to
+# re-submit — the checkpoint carries the progress.
+if [ ${rc} -ne 0 ]; then
+    echo "NOTE: a non-zero rc on the preemptable queue is most often a PREEMPTION, not a bug."
+    echo "      Check for a traceback above. If there is none, just re-submit the same command;"
+    echo "      it resumes from ${CKPT}."
+fi
+exit ${rc}

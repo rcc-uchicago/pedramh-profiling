@@ -1,0 +1,79 @@
+#!/bin/bash -l
+#PBS -N read_duncan2024
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Read Duncan et al. 2024 (ACE on EAMv2, JGR-MLC) + its Supporting Information
+# in full with a headless Claude (Fable 5.1) on a compute node, through the
+# ALCF proxy.  Runs here, not on the login node, because the login node is
+# process-capped (CLAUDE.md shell rules: no agents there).
+#
+# Inputs / output live in ${PAPERS} (outside the repo; PDFs are binaries).
+# Output: ${PAPERS}/duncan2024_readout.md
+# PASS = DUNCAN_READOUT_OK (last line of the readout, echoed below).
+# ============================================================================
+
+PAPERS=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/papers
+OUT="${PAPERS}/duncan2024_readout.md"
+CLAUDE_BIN="${HOME}/.local/bin/claude"
+MODEL="${MODEL:-claude-fable-5-1}"
+
+export https_proxy=http://proxy.alcf.anl.gov:3128 http_proxy=http://proxy.alcf.anl.gov:3128
+export HTTPS_PROXY="${https_proxy}" HTTP_PROXY="${http_proxy}"
+
+cd "${PAPERS}" || { echo "ERROR PAPERS_DIR_MISSING"; exit 2; }
+for f in Duncan2024_ACE_EAMv2_JGRMLC.pdf Duncan2024_ACE_EAMv2_SI.pdf; do
+    [ -s "${f}" ] || { echo "ERROR MISSING_PDF ${f}"; exit 2; }
+done
+[ -x "${CLAUDE_BIN}" ] || { echo "ERROR NO_CLAUDE_CLI ${CLAUDE_BIN}"; exit 3; }
+rm -f "${OUT}"
+echo "=== read_duncan2024: $(date -Iseconds) host=$(hostname) model=${MODEL} ==="
+
+read -r -d '' PROMPT <<'EOF'
+Read BOTH PDFs in this directory IN FULL, every page (use the Read tool with the
+`pages` parameter in ranges of at most 20 pages until you reach the end of each):
+  - Duncan2024_ACE_EAMv2_JGRMLC.pdf  (main paper, ACE emulating EAMv2)
+  - Duncan2024_ACE_EAMv2_SI.pdf      (its Supporting Information)
+
+Then write duncan2024_readout.md in this directory containing:
+
+1. Coverage: page count of each PDF and confirmation you read every page.
+2. Tables S2 and S3 transcribed VERBATIM (every row, every column). These define
+   the variables. Then a clean list split into PROGNOSTIC (input and output),
+   FORCING (input only) and DIAGNOSTIC (output only), with EAMv2 source names,
+   units and vertical-layer counts. Total counts per class.
+3. Table S4 (training/optimization config) verbatim, and Table S1 and S5 verbatim.
+4. Anything in the main text or SI about: conservation/corrector steps, positivity,
+   ocean/SST handling, loss definition and per-channel weights, normalization
+   (full-field vs residual), number of forward steps in training, rollout length
+   and stability. Quote with page numbers.
+5. A comparison against our makani E3SM (EAMv3) setup, which feeds back 100
+   prognostic channels: PS, TREFHT, U10, RHREFHT, PSL, TMQ, FSNT, FSNTOA,
+   SOILWATER_10CM, TSOI_10CM, and T, U, V, Z3, RELHUM on 18 terrain-following
+   levels each; forcing: lsm, topo, glacier, natveg, sst, solin, ice; diagnostic:
+   PRECT only. For each of our channels say whether ACE-EAMv2 treats the
+   corresponding quantity as prognostic, diagnostic, forcing, or absent.
+6. Anything you could not read or that is ambiguous, stated plainly.
+
+Do not guess table contents: if a cell is unreadable, write UNREADABLE.
+The final line of the file must be exactly: DUNCAN_READOUT_OK
+EOF
+
+"${CLAUDE_BIN}" -p "${PROMPT}" --model "${MODEL}" \
+    --allowedTools "Read" "Write" --add-dir "${PAPERS}" \
+    --output-format text
+rc=$?
+echo "claude exit rc=${rc}"
+if [ -s "${OUT}" ] && [ "$(tail -n1 "${OUT}")" = "DUNCAN_READOUT_OK" ]; then
+    echo "readout: ${OUT} ($(wc -l < "${OUT}") lines)"
+    echo "DUNCAN_READOUT_OK"
+else
+    echo "ERROR READOUT_INCOMPLETE rc=${rc} (see above; file ${OUT})"
+    exit 1
+fi
