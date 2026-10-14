@@ -1,0 +1,197 @@
+#!/bin/bash -l
+#PBS -N makani_pack_equiv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Check that the E3SM converters in this tree write the same files as a reference
+# copy. Run it after any change to the converters that should not alter their output.
+#
+# REF is a directory holding the reference convert_e3sm_to_makani.py and
+# convert_e3sm_to_makani_alldata.py (and e3sm_makani_pack.py, if they import it).
+# To make one from a commit:
+#   mkdir -p REF; for f in convert_e3sm_to_makani.py convert_e3sm_to_makani_alldata.py; do
+#       git show <commit>:makani_sfno/polaris/$f > REF/$f; done
+#
+# Each mode below runs twice on 8 samples per year (train 2015-2016, valid 2017,
+# test 2018), once with REF and once with this tree. compare_packs.py then compares
+# the two outputs file by file, bit for bit.
+#   locked_single   one run with --validate
+#   locked_chunks   two train chunks and a valid+test chunk, then --merge-accums
+#   locked_rerun    locked_single again without --overwrite; it must fail
+#   alldata_single  one run with --validate
+#   alldata_split   two --skip-stats runs, then --stats-only
+#   alldata_workers one --skip-stats run, then --stats-only --workers 2
+#   alldata_tdonly  pack train only, then --time-diff-only --workers 2 with only
+#                   --train-years given; a second run without --overwrite must fail
+# Then the converter's own tests run against this tree's code, and the new
+# read-back check runs on the existing production packs, read-only.
+#
+# Submit from makani_sfno/:  qsub -v REF=<dir> polaris/polaris_pack_equivalence.pbs
+# PASS = PACK_EQUIVALENCE_OK. Outputs go to $MEMBER_ROOT/tmp/pack_equiv_<job id>
+# and are deleted on PASS.
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/polaris" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# polaris_env.sh first: it defines MEMBER_ROOT, which polaris_makani_env.sh needs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate" || exit 2
+export PYTHONNOUSERSITE=1
+PY="${SFNO_VENV}/bin/python"
+NEW="${MAKANI_ROOT}/polaris"
+
+[ -n "${REF}" ] && [ -f "${REF}/convert_e3sm_to_makani.py" ] \
+    || { echo "ERROR REF_MISSING: '${REF}'"; exit 2; }
+WORK="${MEMBER_ROOT}/tmp/pack_equiv_${PBS_JOBID%%.*}"
+mkdir -p "${WORK}" || exit 2
+echo "=== makani_pack_equiv: $(date -Iseconds) on $(hostname) ==="
+echo "ref ${REF}"
+echo "new ${NEW}"
+echo "work ${WORK}"
+
+N=8
+YEARS=(--train-years 2015 2016 --valid-years 2017 2017 --test-years 2018 2018
+       --max-samples-per-year "${N}")
+NONE=(--valid-years 1 0 --test-years 1 0)
+fail=0
+
+# conv <code dir> <script> <log> <args...>: run one converter, appending to log.
+conv() {
+    local dir=$1 script=$2 log=$3
+    shift 3
+    "${PY}" "${dir}/${script}" --e3sm-root "${E3SM_ROOT}" "$@" >> "${log}" 2>&1
+}
+# step <label> <command...>: run a command; record a failure.
+step() {
+    local label=$1
+    shift
+    if "$@"; then echo "  ok   ${label}"; else echo "ERROR ${label} failed"; fail=1; fi
+}
+
+for side in ref new; do
+    if [ "${side}" = ref ]; then dir="${REF}"; else dir="${NEW}"; fi
+    out="${WORK}/${side}"
+    mkdir -p "${out}/locked_chunks/.chunk_accums"
+    echo "--- ${side} ---"
+    L=convert_e3sm_to_makani.py
+    A=convert_e3sm_to_makani_alldata.py
+
+    step "${side} locked_single" conv "${dir}" ${L} "${out}/locked_single.log" \
+        --output-root "${out}/locked_single" "${YEARS[@]}" --validate
+
+    acc="${out}/locked_chunks/.chunk_accums"
+    step "${side} locked_chunks 2015" conv "${dir}" ${L} "${out}/locked_chunks.log" \
+        --output-root "${out}/locked_chunks" --train-years 2015 2015 "${NONE[@]}" \
+        --max-samples-per-year "${N}" --overwrite --chunk-accum-out "${acc}/train_2015.npz"
+    step "${side} locked_chunks 2016" conv "${dir}" ${L} "${out}/locked_chunks.log" \
+        --output-root "${out}/locked_chunks" --train-years 2016 2016 "${NONE[@]}" \
+        --max-samples-per-year "${N}" --overwrite --timestamp-offset-samples "${N}" \
+        --chunk-accum-out "${acc}/train_2016.npz"
+    step "${side} locked_chunks validtest" conv "${dir}" ${L} "${out}/locked_chunks.log" \
+        --output-root "${out}/locked_chunks" --train-years 1 0 --valid-years 2017 2017 \
+        --test-years 2018 2018 --max-samples-per-year "${N}" --overwrite \
+        --chunk-accum-out "${acc}/validtest.npz"
+    step "${side} locked_chunks merge" conv "${dir}" ${L} "${out}/locked_chunks.log" \
+        --output-root "${out}/locked_chunks" "${YEARS[@]}" --validate \
+        --merge-accums "${acc}/train_2015.npz" "${acc}/train_2016.npz" "${acc}/validtest.npz"
+
+    # Every train year exists now, so the converter must refuse to write statistics.
+    if conv "${dir}" ${L} "${out}/locked_rerun.log" \
+            --output-root "${out}/locked_single" "${YEARS[@]}"; then
+        echo "ERROR ${side} locked_rerun succeeded; it must refuse partial statistics"; fail=1
+    else
+        echo "  ok   ${side} locked_rerun refused: $(grep -m1 ERROR "${out}/locked_rerun.log")"
+    fi
+
+    step "${side} alldata_single" conv "${dir}" ${A} "${out}/alldata_single.log" \
+        --output-root "${out}/alldata_single" "${YEARS[@]}" --validate
+
+    step "${side} alldata_split train" conv "${dir}" ${A} "${out}/alldata_split.log" \
+        --output-root "${out}/alldata_split" --train-years 2015 2016 "${NONE[@]}" \
+        --max-samples-per-year "${N}" --skip-stats
+    step "${side} alldata_split validtest" conv "${dir}" ${A} "${out}/alldata_split.log" \
+        --output-root "${out}/alldata_split" --train-years 1 0 --valid-years 2017 2017 \
+        --test-years 2018 2018 --max-samples-per-year "${N}" --skip-stats
+    step "${side} alldata_split stats" conv "${dir}" ${A} "${out}/alldata_split.log" \
+        --output-root "${out}/alldata_split" "${YEARS[@]}" --stats-only --validate
+
+    step "${side} alldata_workers pack" conv "${dir}" ${A} "${out}/alldata_workers.log" \
+        --output-root "${out}/alldata_workers" "${YEARS[@]}" --skip-stats
+    step "${side} alldata_workers stats" conv "${dir}" ${A} "${out}/alldata_workers.log" \
+        --output-root "${out}/alldata_workers" "${YEARS[@]}" --stats-only --validate --workers 2
+
+    # --time-diff-only writes into an existing stats/ directory, as on a real pack.
+    mkdir -p "${out}/alldata_tdonly/stats"
+    step "${side} alldata_tdonly pack" conv "${dir}" ${A} "${out}/alldata_tdonly.log" \
+        --output-root "${out}/alldata_tdonly" --train-years 2015 2016 "${NONE[@]}" \
+        --max-samples-per-year "${N}" --skip-stats
+    step "${side} alldata_tdonly time-diff" conv "${dir}" ${A} "${out}/alldata_tdonly.log" \
+        --output-root "${out}/alldata_tdonly" --train-years 2015 2016 --time-diff-only --workers 2
+    if conv "${dir}" ${A} "${out}/alldata_tdonly_rerun.log" \
+            --output-root "${out}/alldata_tdonly" --train-years 2015 2016 --time-diff-only; then
+        echo "ERROR ${side} alldata_tdonly rerun succeeded; it must refuse to replace the file"; fail=1
+    else
+        echo "  ok   ${side} alldata_tdonly rerun refused: $(grep -m1 ERROR "${out}/alldata_tdonly_rerun.log")"
+    fi
+done
+
+echo "--- compare ref vs new ---"
+for mode in locked_single locked_chunks alldata_single alldata_split alldata_workers alldata_tdonly; do
+    step "compare ${mode}" "${PY}" "${NEW}/compare_packs.py" \
+        "${WORK}/ref/${mode}" "${WORK}/new/${mode}"
+done
+
+echo "--- converter tests against this tree ---"
+step "converter tests" bash -c "cd '${NEW}' && '${PY}' -m pytest -q -p no:cacheprovider \
+    test_convert_stats_workers.py test_convert_time_diff.py test_channel_subset_gate.py"
+
+echo "--- new read-back check on the production packs (read-only) ---"
+step "production validate" "${PY}" - "${NEW}" "${MEMBER_ROOT}/data" <<'PY'
+import os
+import sys
+
+sys.path.insert(0, sys.argv[1])
+import convert_e3sm_to_makani as locked
+import convert_e3sm_to_makani_alldata as alldata
+import e3sm_makani_pack as pack
+
+print("alldata channels: %d state, %d diag, %d forcing"
+      % (alldata.N_STATE, len(alldata.DIAG_CHANNELS), alldata.N_FORCING))
+years = {"train": list(range(2015, 2045)), "valid": [2045, 2046, 2047], "test": [2048, 2049]}
+for name, module in (("e3sm_makani_production", locked),
+                     ("e3sm_makani_alldata_production", alldata)):
+    root = os.path.join(sys.argv[2], name)
+    if not os.path.isdir(os.path.join(root, "stats")):
+        print("skip, not found: %s" % root)
+        continue
+    print(root)
+    pack.validate(root, years, module.SPECS)
+PY
+
+if [ ${fail} -eq 0 ]; then
+    rm -rf "${WORK:?}"
+    echo "PACK_EQUIVALENCE_OK"
+else
+    echo "ERROR PACK_EQUIVALENCE_FAILED; outputs and logs kept in ${WORK}"
+    for log in "${WORK}"/*/*.log; do
+        grep -l -E "Traceback|ERROR" "${log}" >/dev/null 2>&1 \
+            && { echo "--- ${log} ---"; tail -6 "${log}"; }
+    done
+fi
+echo "=== done $(date -Iseconds) ==="
+exit ${fail}
