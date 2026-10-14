@@ -9,28 +9,26 @@
 #PBS -r n
 #PBS -j oe
 # ============================================================================
-# Build the FULL production makani pack (canonical split: train 2015-2044,
-# valid 2045-2047, test 2048-2049 -- the same 30-year train span the
-# PanguWeather/ai-rossby production runs use) in ONE 1-hour debug job.
+# Build the full production pack, locked 52-channel set (convert_e3sm_to_makani.py),
+# in one 1-hour debug job. Train 2015-2044, valid 2045-2047, test 2048-2049: the
+# same split as the PanguWeather and ai-rossby production runs.
 #
-# 35 years x ~6 min/yr sequential (measured: 4 yr in 23m36s) does not fit an
-# hour, so the years are packed by 7 PARALLEL converter invocations (chunk
-# mode, --chunk-accum-out) and their raw stats accumulators are then SUMMED
-# (merge mode) -- bit-for-bit the same arithmetic as a single pass, verified
-# by a coverage check that refuses gaps and double-counted years.  Train
-# chunks carry --timestamp-offset-samples (1460/yr, uniform 365-day years) so
-# /timestamp stays split-global despite parallel packing; the dataset would
-# tolerate resets anyway (PlasimForcingDataset synthesizes a continuous axis)
-# but exact is better than tolerated.
+# One converter run takes about 6 minutes per year (4 years took 23m36s), so 35
+# years in sequence do not fit in an hour. Seven runs pack in parallel instead: six
+# take 5 train years each and save their running sums (--chunk-accum-out), and one
+# packs valid and test. A final run adds up the sums (--merge-accums), checks they
+# cover every train year once, and writes the statistics and metadata. Train chunks
+# pass --timestamp-offset-samples (1460 per earlier year), so timestamps run on
+# across the whole train split.
 #
-# PASS = CONVERT_OK (merge, with --validate read-back) + MAKANI_PACK_AUDIT_OK
-# (the new pack's stats vs the corrected Pangu moments -- the same audit that
-# cleared the scaling pack) + PACK_PRODUCTION_OK.  rc=0 is not the signal.
+# Then audit_makani_pack_vs_reference.py compares the pack's statistics with the
+# corrected PanguWeather moments.
 #
-# Size: ~35 x 22 GB ~ 770 GB under $MEMBER_ROOT/data/e3sm_makani_production.
-# If the job dies mid-pack: rerun; finished chunks are re-packed (--overwrite)
-# rather than trusted, because a truncated .h5 and a finished one look alike
-# from the filename. Cheap insurance at ~6 min/yr/worker.
+# Output: $MEMBER_ROOT/data/$PACK_NAME (default e3sm_makani_production), ~770 GB.
+# If the job dies, rerun it. Every chunk repacks with --overwrite, because a cut-off
+# .h5 file and a finished one look the same from the name.
+#
+# PASS = CONVERT_OK, MAKANI_PACK_AUDIT_OK and PACK_PRODUCTION_OK; rc=0 alone is not.
 # ============================================================================
 
 cd "${PBS_O_WORKDIR}" || exit 2
@@ -40,6 +38,7 @@ if [ ! -d "${MAKANI_ROOT}/src/sfno_training" ]; then
 fi
 REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
 
+# polaris_env.sh first: it defines MEMBER_ROOT, which polaris_makani_env.sh needs.
 # shellcheck disable=SC1091
 source "${REPO}/polaris_env.sh" || exit 2
 # shellcheck disable=SC1091
@@ -53,37 +52,35 @@ CONV="${MAKANI_ROOT}/polaris/convert_e3sm_to_makani.py"
 TRAIN_Y0=2015; TRAIN_Y1=2044
 VALID_Y0=2045; VALID_Y1=2047
 TEST_Y0=2048;  TEST_Y1=2049
-PACK_NAME="${PACK_NAME:-e3sm_makani_production}"
-OUT="${MEMBER_ROOT}/data/${PACK_NAME}"
+OUT="${MEMBER_ROOT}/data/${PACK_NAME:-e3sm_makani_production}"
 ACCUMS="${OUT}/.chunk_accums"
 mkdir -p "${ACCUMS}" || exit 2
 
 echo "=== makani_pack_prod: $(date -Iseconds) on $(hostname) ==="
-echo "out: ${OUT}   train ${TRAIN_Y0}-${TRAIN_Y1}  valid ${VALID_Y0}-${VALID_Y1}  test ${TEST_Y0}-${TEST_Y1}"
+echo "out ${OUT}  train ${TRAIN_Y0}-${TRAIN_Y1}  valid ${VALID_Y0}-${VALID_Y1}  test ${TEST_Y0}-${TEST_Y1}"
 df -h /eagle 2>/dev/null | tail -1
 [ -d "${E3SM_ROOT}/h5/plev_data" ] || { echo "ERROR E3SM_SOURCE_MISSING"; exit 2; }
 
-# ---- 7 parallel chunks: 6 x 5 train years + 1 x (valid+test) ---------------
-# `--valid-years 1 0` is an EMPTY range (range(1, 1)) -- train chunks must not
-# also pack the default valid/test years.
+# ---- 7 parallel chunks: 6 x 5 train years, then valid + test ----------------
+# `1 0` is an empty year range: each chunk packs only its own years.
 pids=(); labels=()
 for i in 0 1 2 3 4 5; do
     y0=$(( TRAIN_Y0 + i * 5 )); y1=$(( y0 + 4 ))
-    off=$(( i * 5 * 1460 ))
+    label="train_${y0}_${y1}"
     "${PY}" "${CONV}" \
         --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
         --train-years "${y0}" "${y1}" --valid-years 1 0 --test-years 1 0 \
-        --timestamp-offset-samples "${off}" --overwrite \
-        --chunk-accum-out "${ACCUMS}/train_${y0}_${y1}.npz" \
-        > "${ACCUMS}/chunk_${y0}_${y1}.log" 2>&1 &
-    pids+=($!); labels+=("train_${y0}_${y1}")
+        --timestamp-offset-samples $(( i * 5 * 1460 )) --overwrite \
+        --chunk-accum-out "${ACCUMS}/${label}.npz" \
+        > "${ACCUMS}/${label}.log" 2>&1 &
+    pids+=($!); labels+=("${label}")
 done
 "${PY}" "${CONV}" \
     --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
     --train-years 1 0 --valid-years "${VALID_Y0}" "${VALID_Y1}" \
     --test-years "${TEST_Y0}" "${TEST_Y1}" --overwrite \
     --chunk-accum-out "${ACCUMS}/validtest.npz" \
-    > "${ACCUMS}/chunk_validtest.log" 2>&1 &
+    > "${ACCUMS}/validtest.log" 2>&1 &
 pids+=($!); labels+=("validtest")
 
 rc_all=0
@@ -91,15 +88,14 @@ for idx in "${!pids[@]}"; do
     if wait "${pids[$idx]}"; then
         echo "chunk ${labels[$idx]}: OK"
     else
-        echo "ERROR chunk ${labels[$idx]} FAILED -- tail of its log:"
-        tail -5 "${ACCUMS}/chunk_${labels[$idx]#train_}.log" 2>/dev/null \
-            || tail -5 "${ACCUMS}"/chunk_*"${labels[$idx]}"*.log 2>/dev/null
+        echo "ERROR chunk ${labels[$idx]} FAILED; end of its log:"
+        tail -5 "${ACCUMS}/${labels[$idx]}.log"
         rc_all=1
     fi
 done
 [ ${rc_all} -eq 0 ] || { echo "ERROR PACK_PRODUCTION_FAILED (chunks)"; exit 3; }
 
-# ---- merge accumulators -> stats + metadata + read-back validation ----------
+# ---- add up the sums; write statistics and metadata; read the pack back -----
 "${PY}" "${CONV}" \
     --e3sm-root "${E3SM_ROOT}" --output-root "${OUT}" \
     --train-years "${TRAIN_Y0}" "${TRAIN_Y1}" \
@@ -108,22 +104,18 @@ done
     --merge-accums "${ACCUMS}"/train_*.npz "${ACCUMS}/validtest.npz" \
     --validate || { echo "ERROR PACK_PRODUCTION_FAILED (merge)"; exit 3; }
 
-# ---- normalization audit vs the corrected Pangu reference -------------------
-"${PY}" "${MAKANI_ROOT}/polaris/audit_makani_pack_vs_reference.py" \
-    --pack "${OUT}" \
-    --moments "${SHARED_ROOT}/pangu_polaris_data/moments_2015-2050.json" \
-    | tail -3 || { echo "ERROR PACK_PRODUCTION_FAILED (audit)"; exit 3; }
+# ---- audit the statistics against the PanguWeather reference ----------------
+# Log to a file and check the audit's own exit code. Piping it into `tail` would
+# report tail's exit code and hide a crashed audit (job 7565734, 2026-08-27).
+AUDIT_LOG="${ACCUMS}/audit.log"
+if ! "${PY}" "${MAKANI_ROOT}/polaris/audit_makani_pack_vs_reference.py" \
+        --pack "${OUT}" \
+        --moments "${SHARED_ROOT}/pangu_polaris_data/moments_2015-2050.json" \
+        > "${AUDIT_LOG}" 2>&1; then
+    tail -8 "${AUDIT_LOG}"
+    echo "ERROR PACK_PRODUCTION_FAILED (audit)"; exit 3
+fi
+tail -3 "${AUDIT_LOG}"
 
-total=$("${PY}" - "${OUT}" <<'PYEOF'
-import glob, sys
-import h5py
-tot = 0
-for p in sorted(glob.glob(sys.argv[1] + "/train/*.h5")):
-    with h5py.File(p, "r") as f:
-        tot += f["fields_state"].shape[0]
-print(tot)
-PYEOF
-)
-echo "train samples total: ${total}"
 echo "PACK_PRODUCTION_OK ${OUT}"
 echo "=== done $(date -Iseconds) ==="
