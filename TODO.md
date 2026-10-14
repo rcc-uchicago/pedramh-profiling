@@ -345,7 +345,8 @@ warm-started from that checkpoint. → `makani_bench_report.md` §5k, CHANGELOG 
    results they produced (7253465, `CONVERT_OK` 7252728) are not reproducible today. The fix is
    a two-line swap in a fixed order, already proven on real work by
    `polaris_pack_e3sm_scaling.pbs`. ⚠ Seven files inside a `git subtree` — keep the edits
-   minimal and contiguous (notes §6b).
+   minimal and contiguous (notes §6b). **2026-10-14:** the two data packers now use the working
+   start-up lines (branch `refactor/e3sm-pack-scripts-port-main`); not yet run end to end. Five remain.
 
 11. **Arm D, never run** (prereg 4, unscored): `-v DATA=synthetic` separates an I/O loss from a
    comms loss. *Cost: 1 job.* (Arm E, `GPU_ORDER=reverse`, has moved up into P0-3 — it is a
