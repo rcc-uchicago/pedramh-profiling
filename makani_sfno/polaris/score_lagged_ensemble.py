@@ -12,6 +12,32 @@ curve `sigma(k)` from `score_rollout_nc.py`'s `k56_metrics.h5`, and answers plan
   3. Is the rank histogram flat?  (diagnostic only -- members are not exchangeable)
   4. Does CRPS beat the deterministic baseline?
 
+THE HEADLINE IS ACE2 EQ 8, and the four above are now secondary.  Watt-Meyer et al.,
+arXiv:2411.11268 §4.3 defines the metric this lagged ensemble is meant to be scored
+under, and it is not an RMSE:
+
+    alpha = (1/C) sum_c sqrt( sum_{phi,lambda} w ( MEAN_{t,ens}[y_c - yhat_c] )^2 )
+
+The time-and-ensemble average sits INSIDE the square, so alpha is the RMS of the
+*mean* error -- a bias metric.  Squaring per snapshot first, as checks 1-4 do, keeps
+the random component too, and the two answer different questions: a construction that
+loses on instantaneous RMSE can still win on alpha, because averaging signed errors is
+precisely what cancels random error.
+
+Two further details of the paper's framework that checks 1-4 do not follow:
+
+  * ACE2's own ensemble in eq 8 IS a lagged ensemble -- "eight 5-year long simulations,
+    initialized at evenly spaced intervals", each supplying its prediction "for the
+    corresponding time, from a simulation initialized at some previous time" -- and it
+    is combined with a PLAIN, UNWEIGHTED mean.  No inverse-variance weighting appears
+    anywhere in it.  We report alpha under both rules so the weighting has to earn
+    itself against the paper's default rather than being assumed.
+  * eq 8 is defined on NORMALISED fields, which is what licenses its arithmetic
+    `(1/C) sum_c` channel reduction.  Checks 1-4 work in physical units and are
+    therefore stuck with a median over 101 disparate scales -- a reduction that hides
+    a single blown-up channel.  `ace2_dominant_channels` in the readout is the
+    replacement for that blind spot.
+
 Every number is latitude-weighted on the **equiangular** grid, never Gauss-Legendre
 (change G: GL over-weights the polar row by 1.50x here and the only guard downstream
 is a shape check that 180-vs-180 passes).
@@ -93,6 +119,39 @@ def _load_sigma(path: Path, channels: list[str]) -> np.ndarray:
     return sigma
 
 
+def _load_norm_sigma(path: Path, n_channels: int) -> np.ndarray:
+    """Return the `(C,)` standard scaling for ACE2 eq 8's *normalised* units.
+
+    Eq 8 is defined on standard-scaled fields, but the scaling **mean cancels** in the
+    difference `y - yhat`, so only a per-channel sigma is needed and no new input file
+    is required: `a_truth_mean` in `k56_metrics.h5` is already the truth's own
+    lat-weighted anomaly amplitude about the pack climatology -- the project's existing
+    normalisation convention (`score_rollout_nc.py` divides by it to form NRMSE).
+
+    Averaged over the 56 leads because it is a property of the truth field, not of the
+    forecast: it varies with lead only through which validation times each lead lands
+    on, and the mean over an independent 24-IC sweep is the steadiest estimate we have.
+    Using the lagged sweep's own 8 targets instead would make the normaliser depend on
+    the sample being scored.
+    """
+    import h5py
+
+    with h5py.File(path, "r") as f:
+        a_truth = np.asarray(f["a_truth_mean"][:], dtype=np.float64)   # (K, C)
+    sig = a_truth.mean(axis=0)
+    if sig.shape != (n_channels,):
+        raise SystemExit(
+            f"NORM_SHAPE_MISMATCH: a_truth_mean reduced to {sig.shape}, expected "
+            f"({n_channels},). Eq 8 would normalise the wrong axis."
+        )
+    if not np.all(np.isfinite(sig)) or np.any(sig <= 0):
+        raise SystemExit(
+            "NORM_DEGENERATE: a_truth_mean has a non-positive or non-finite channel; "
+            "that channel's contribution to alpha would be infinite."
+        )
+    return sig
+
+
 def main() -> int:
     args = _parse_args()
     logging.basicConfig(level=logging.INFO,
@@ -150,10 +209,24 @@ def main() -> int:
     with xr.open_dataset(idxs[0].path, decode_timedelta=False) as ds0:
         channels = [str(c) for c in ds0["channel"].values]
         n_lat = int(ds0.sizes["lat"])
+        n_lon = int(ds0.sizes["lon"])
     sigma = _load_sigma(args.sigma_h5, channels)
     lat_w = S.equiangular_weights(n_lat)
     C, E = len(channels), len(table[targets[0]])
+    norm_c = _load_norm_sigma(args.sigma_h5, C)
     logger.info("scoring %d targets x %d members x %d channels", len(targets), E, C)
+
+    # --- ACE2 eq 8 accumulators (arXiv:2411.11268 §4.3) ---------------------------
+    # The overbar is a time- AND ensemble-average of the SIGNED error, taken before
+    # squaring, so scalars-per-target are not enough: the error FIELD has to be
+    # summed over targets.  We accumulate one running sum per MEMBER rather than one
+    # per ensemble configuration, because `member_weights` depends only on (depth,
+    # channel) and never on the target -- so every combination rule (uniform, the
+    # 1/sigma^2 weights, any nested prefix) is an exact linear recombination of these
+    # afterwards, at no extra read and no extra memory per rule.
+    member_sum = np.zeros((E, C, n_lat, n_lon))
+    truth_sum = np.zeros((C, n_lat, n_lon))
+    weights_full = np.zeros((E, C))
 
     acc = {k: np.zeros((len(targets), C)) for k in
            ("rmse_weighted", "rmse_uniform", "rmse_shallowest", "rmse_best_member",
@@ -204,6 +277,11 @@ def main() -> int:
                 wm = w[:m] / w[:m].sum(axis=0, keepdims=True)
                 nested_rmse[n, m - 1, sl] = S.rmse(_wm(st.members[:m], wm), truth, lat_w)
 
+            # ACE2 eq 8: sum the raw fields, not any scalar reduction of them.
+            member_sum[:, sl] += st.members
+            truth_sum[sl] += truth
+            weights_full[:, sl] = w
+
         if n % 8 == 0 or n == len(targets) - 1:
             logger.info("target %d (%d/%d, %.1f min)", target, n + 1, len(targets),
                         (time.time() - t0) / 60)
@@ -214,6 +292,43 @@ def main() -> int:
     gain_vs_shallow = 1.0 - mean_over_t["rmse_weighted"] / mean_over_t["rmse_shallowest"]
     gain_vs_uniform = 1.0 - mean_over_t["rmse_weighted"] / mean_over_t["rmse_uniform"]
     crps_gain = 1.0 - mean_over_t["crps_ensemble"] / mean_over_t["crps_shallowest"]
+
+    # --- ACE2 eq 8 (arXiv:2411.11268 §4.3) ----------------------------------------
+    # Every rule below is an exact recombination of `member_sum`, so the uniform mean
+    # the PAPER prescribes and the 1/sigma^2 mean this scorecard has been using can be
+    # compared on identical data with no second pass.
+    nt = len(targets)
+
+    def _alpha(w_rule: np.ndarray, cw: np.ndarray | None = None) -> tuple[float, np.ndarray]:
+        pred = np.einsum("ec,echw->chw", w_rule, member_sum)
+        return S.ace2_alpha(S.time_mean_bias(pred, truth_sum, nt), lat_w, norm_c,
+                            channel_weights=cw)
+
+    def _prefix(w_rule: np.ndarray, m: int) -> np.ndarray:
+        """`m` freshest members, renormalised, zero-padded back to `(E, C)`."""
+        out = np.zeros_like(w_rule)
+        out[:m] = w_rule[:m] / w_rule[:m].sum(axis=0, keepdims=True)
+        return out
+
+    uniform_full = np.full((E, C), 1.0 / E)
+    alpha_uniform, alpha_uniform_per_c = _alpha(uniform_full)      # the ACE2 headline
+    alpha_sigma, _ = _alpha(weights_full)
+    alpha_det, _ = _alpha(_prefix(uniform_full, 1))                # single freshest
+    alpha_nested_uniform = [_alpha(_prefix(uniform_full, m))[0] for m in range(1, E + 1)]
+    alpha_nested_sigma = [_alpha(_prefix(weights_full, m))[0] for m in range(1, E + 1)]
+    best_m_alpha = int(np.argmin(alpha_nested_uniform)) + 1
+    dom = np.argsort(alpha_uniform_per_c)[::-1][:5]
+
+    # ACE2's one documented carve-out, applied to whichever channel dominates HERE:
+    # "we downweighted the contribution of q0 to the calculation of alpha by a factor
+    # of 10, since our poor skill in predicting the time-mean of this variable
+    # otherwise dominated alpha".  Reported as a sensitivity, never as the headline --
+    # if the verdict flips when one channel is quietened, that is the finding.
+    cw_dw = np.ones(C)
+    cw_dw[dom[0]] = 0.1
+    alpha_uniform_dw, _ = _alpha(uniform_full, cw_dw)
+    alpha_det_dw, _ = _alpha(_prefix(uniform_full, 1), cw_dw)
+    dom_share = float(alpha_uniform_per_c[dom[0]] / (alpha_uniform_per_c.sum()))
 
     verdict = {
         "beats_shallowest_member": bool(med["rmse_weighted"] < med["rmse_shallowest"]),
@@ -229,6 +344,24 @@ def main() -> int:
         "ssr_undefined_cells": n_ssr_undefined,
         "member_depths": [int(m.depth_steps) for m in table[targets[0]]],
         "truth_max_disagreement": truth_disagreement,
+        # --- ACE2 eq 8, the paper-aligned framework ---
+        "ace2_alpha_uniform": alpha_uniform,
+        "ace2_alpha_sigma_weighted": alpha_sigma,
+        "ace2_alpha_deterministic": alpha_det,
+        "ace2_alpha_gain_vs_deterministic_pct": float((1.0 - alpha_uniform / alpha_det) * 100),
+        "ace2_alpha_beats_deterministic": bool(alpha_uniform < alpha_det),
+        "ace2_uniform_beats_sigma_weighted": bool(alpha_uniform < alpha_sigma),
+        "ace2_alpha_nested_uniform": alpha_nested_uniform,
+        "ace2_alpha_nested_sigma_weighted": alpha_nested_sigma,
+        "ace2_best_n_members": best_m_alpha,
+        "ace2_dominant_channels": [[channels[i], float(alpha_uniform_per_c[i])] for i in dom],
+        "ace2_dominant_channel_share": dom_share,
+        "ace2_alpha_uniform_downweighted": alpha_uniform_dw,
+        "ace2_alpha_deterministic_downweighted": alpha_det_dw,
+        "ace2_alpha_gain_downweighted_pct": float((1.0 - alpha_uniform_dw / alpha_det_dw) * 100),
+        "ace2_verdict_survives_downweighting": bool(
+            (alpha_uniform < alpha_det) == (alpha_uniform_dw < alpha_det_dw)),
+        "ace2_n_time_samples": nt,
     }
 
     # Which nested sub-ensemble is best, per channel, then the modal choice.
@@ -250,6 +383,17 @@ def main() -> int:
         f.create_dataset("rank_histogram", data=rank_hist)
         f.create_dataset("nested_rmse", data=nested_rmse, compression="gzip",
                          compression_opts=4)
+        f.create_dataset("ace2_alpha_per_channel", data=alpha_uniform_per_c)
+        f.create_dataset("ace2_alpha_nested_uniform", data=np.asarray(alpha_nested_uniform))
+        f.create_dataset("ace2_alpha_nested_sigma", data=np.asarray(alpha_nested_sigma))
+        f.create_dataset("ace2_norm_sigma", data=norm_c)
+        # The eq-8 bias map itself: the per-channel field whose area-weighted RMS is
+        # alpha. Kept because "which channel, and where" is the actionable part and it
+        # cannot be recovered from the scalars.
+        f.create_dataset("ace2_bias_uniform", compression="gzip", compression_opts=4,
+                         data=S.time_mean_bias(
+                             np.einsum("ec,echw->chw", uniform_full, member_sum),
+                             truth_sum, nt))
         f.create_dataset("target", data=np.asarray(targets, dtype=np.int64))
         f.create_dataset("depth", data=np.asarray([m.depth_steps for m in table[targets[0]]]))
         f.create_dataset("channel", data=np.array(channels, dtype=h5py.string_dtype()))
@@ -288,6 +432,19 @@ def main() -> int:
     print("  rmse: " + "  ".join(f"{x:7.4f}" for x in nested_med))
     print(f"  best m = {best_m} (deepest member {verdict['best_n_members_depth_h']} h); "
           f"{verdict['channels_preferring_single_member']}/{C} channels prefer m=1")
+    print(f"ACE2 eq 8 (arXiv:2411.11268 §4.3) -- RMS of the time+ensemble-mean error, "
+          f"normalised, channel-MEAN over {C}; time average is {nt} targets:")
+    print(f"  alpha  uniform(ACE2) {alpha_uniform:.5g}   1/sigma^2-weighted "
+          f"{alpha_sigma:.5g}   single freshest member {alpha_det:.5g}")
+    print(f"  vs deterministic: {verdict['ace2_alpha_gain_vs_deterministic_pct']:+.2f}%"
+          f"   (lower alpha is better)")
+    print("  alpha by m (uniform): " + "  ".join(f"{x:.4f}" for x in alpha_nested_uniform))
+    print(f"  best m = {best_m_alpha};  dominant channels: " +
+          ", ".join(f"{channels[i]} {alpha_uniform_per_c[i]:.3f}" for i in dom[:3]))
+    print(f"  sensitivity, ACE2's q0 rule applied to {channels[dom[0]]} "
+          f"({dom_share * 100:.0f}% of alpha) at 0.1x: ensemble {alpha_uniform_dw:.5g} vs "
+          f"deterministic {alpha_det_dw:.5g} ({verdict['ace2_alpha_gain_downweighted_pct']:+.2f}%"
+          f", verdict {'holds' if verdict['ace2_verdict_survives_downweighting'] else 'FLIPS'})")
     print(f"wrote {args.out_dir}/lagged_metrics.h5, lagged_summary.csv, lagged_readout.json")
 
     if truth_disagreement > 0:

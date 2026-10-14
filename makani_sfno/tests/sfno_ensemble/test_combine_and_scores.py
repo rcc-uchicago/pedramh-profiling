@@ -265,5 +265,168 @@ def test_equiangular_differs_from_gauss_legendre():
     assert gl[0] / eq[0] > 1.4, "Gauss-Legendre over-weights the polar row"
 
 
+# ---------------------------------------------------------------------------
+# ACE2 eq 8 -- arXiv:2411.11268 §4.3
+#
+# The load-bearing one here is `test_alpha_is_a_bias_metric_not_an_rmse`: it is the
+# single property that separates eq 8 from the `rmse()` this scorecard used before,
+# and getting the overbar on the wrong side of the square silently turns eq 8 back
+# into an ordinary RMSE that happens to be normalised.
+# ---------------------------------------------------------------------------
+
+def _latw():
+    return S.equiangular_weights(H)
+
+
+def test_alpha_matches_the_equation_written_out_by_hand():
+    """Eq 8 term by term, with no helper in the loop."""
+    rng = np.random.default_rng(11)
+    bias = rng.normal(size=(C, H, W))
+    sigma_c = np.array([1.0, 2.0, 0.5])
+    lat_w = _latw()
+
+    want = 0.0
+    for c in range(C):
+        acc = 0.0
+        for h in range(H):
+            for x in range(W):
+                acc += (lat_w[h] / W) * bias[c, h, x] ** 2
+        want += np.sqrt(acc) / sigma_c[c]
+    want /= C
+
+    got, _ = S.ace2_alpha(bias, lat_w, sigma_c)
+    assert np.isclose(got, want), (got, want)
+
+
+def test_alpha_is_a_bias_metric_not_an_rmse():
+    """Zero-bias, high-variance error must score alpha ~ 0 while RMSE stays large.
+
+    This is the whole point of the overbar being INSIDE the square.  A forecast whose
+    error flips sign from target to target has no systematic component, so eq 8 sees
+    almost nothing; `rmse()` -- which squares each snapshot first -- sees all of it.
+    If this test ever passes with alpha ~ rmse, the average moved outside the square.
+    """
+    rng = np.random.default_rng(3)
+    lat_w = _latw()
+    n = 400
+    truth = rng.normal(size=(C, H, W))
+    # Error is mean-zero across the n "targets": pure random, no bias.
+    pred_sum = np.zeros((C, H, W))
+    snap_rmse = []
+    for _ in range(n):
+        err = rng.normal(size=(C, H, W))
+        pred_sum += truth + err
+        snap_rmse.append(S.rmse(truth + err, truth, lat_w))
+    bias = S.time_mean_bias(pred_sum, truth * n, n)
+    alpha, _ = S.ace2_alpha(bias, lat_w, np.ones(C))
+    mean_rmse = np.mean(snap_rmse)
+
+    assert mean_rmse > 0.9, mean_rmse            # the random error really is there
+    assert alpha < 0.15 * mean_rmse, (alpha, mean_rmse)
+
+
+def test_alpha_sees_a_bias_that_rmse_cannot_distinguish():
+    """The converse: a constant offset is invisible to neither, but alpha keeps it whole.
+
+    A pure +d offset survives the time average intact, so alpha = d / sigma exactly.
+    """
+    lat_w = _latw()
+    d = 0.37
+    bias = np.full((C, H, W), d)
+    alpha, per_c = S.ace2_alpha(bias, lat_w, np.ones(C))
+    assert np.allclose(per_c, d)
+    assert np.isclose(alpha, d)
+
+
+def test_alpha_normalisation_only_needs_sigma_because_the_mean_cancels():
+    """Standard scaling subtracts a per-channel mean; it cancels in `y - yhat`.
+
+    So eq 8 is computable from a sigma alone -- which is why the driver needs no new
+    input file.  Offsetting truth and prediction by the same per-channel constant must
+    leave alpha bit-identical.
+    """
+    rng = np.random.default_rng(5)
+    lat_w = _latw()
+    truth = rng.normal(size=(C, H, W))
+    pred = truth + rng.normal(size=(C, H, W)) * 0.3
+    mu = np.array([10.0, -4.0, 1e3])[:, None, None]
+    sigma_c = np.array([1.0, 2.0, 0.5])
+
+    a0, _ = S.ace2_alpha(S.time_mean_bias(pred, truth, 1), lat_w, sigma_c)
+    a1, _ = S.ace2_alpha(S.time_mean_bias(pred + mu, truth + mu, 1), lat_w, sigma_c)
+    assert np.isclose(a0, a1)
+
+
+def test_alpha_channel_reduction_is_the_mean_so_one_bad_channel_shows():
+    """ACE2 uses `(1/C) sum_c`, not a median -- a median hides a blown-up channel.
+
+    The scorecard's pre-ACE2 reduction was `np.nanmedian` over 101 channels, which is
+    forced when channels are in disparate physical units but does exactly this.
+    """
+    lat_w = _latw()
+    bias = np.zeros((C, H, W))
+    bias[1] = 30.0                                   # one channel is catastrophic
+    alpha, per_c = S.ace2_alpha(bias, lat_w, np.ones(C))
+    assert np.isclose(np.median(per_c), 0.0), "a median would report this as perfect"
+    assert alpha > 9.0, alpha
+
+
+def test_alpha_channel_weights_reduce_to_the_flat_mean_and_can_downweight():
+    """The paper's q0 carve-out: `w=1` everywhere must equal the default flat mean."""
+    rng = np.random.default_rng(7)
+    lat_w = _latw()
+    bias = rng.normal(size=(C, H, W))
+    sigma_c = np.ones(C)
+    flat, per_c = S.ace2_alpha(bias, lat_w, sigma_c)
+    same, _ = S.ace2_alpha(bias, lat_w, sigma_c, channel_weights=np.ones(C))
+    assert np.isclose(flat, same)
+
+    cw = np.ones(C)
+    cw[int(np.argmax(per_c))] = 0.1                  # ACE2 downweights q0 by 10x
+    down, _ = S.ace2_alpha(bias, lat_w, sigma_c, channel_weights=cw)
+    assert down < flat, (down, flat)
+
+
+def test_alpha_rejects_a_degenerate_normalisation():
+    lat_w = _latw()
+    bias = np.ones((C, H, W))
+    for bad in (np.array([1.0, 0.0, 1.0]), np.array([1.0, np.nan, 1.0])):
+        with pytest.raises(ValueError):
+            S.ace2_alpha(bias, lat_w, bad)
+
+
+def test_time_mean_bias_from_running_sums_matches_the_direct_mean():
+    """The driver streams targets, so eq 8's overbar is built from running sums."""
+    rng = np.random.default_rng(13)
+    n = 9
+    truth = rng.normal(size=(n, C, H, W))
+    pred = rng.normal(size=(n, C, H, W))
+    got = S.time_mean_bias(pred.sum(0), truth.sum(0), n)
+    assert np.allclose(got, (truth - pred).mean(0))
+
+
+def test_uniform_and_sigma_weighted_alpha_differ_only_through_the_weights():
+    """A recombination check: alpha from per-member sums == alpha from the combined field.
+
+    The driver accumulates one running sum PER MEMBER and forms every combination rule
+    afterwards, which is only valid because the weights do not depend on the target.
+    """
+    rng = np.random.default_rng(17)
+    lat_w = _latw()
+    n = 5
+    members = rng.normal(size=(n, E, C, H, W))
+    truth = rng.normal(size=(n, C, H, W))
+    w = member_weights(np.linspace(1.0, 4.0, 8)[:, None].repeat(C, 1), depths=[1, 2, 3, 4, 5, 6])
+
+    member_sum = members.sum(0)                                  # (E, C, H, W)
+    pooled = np.einsum("ec,echw->chw", w, member_sum)
+    a_pooled, _ = S.ace2_alpha(S.time_mean_bias(pooled, truth.sum(0), n), lat_w, np.ones(C))
+
+    per_target = np.stack([weighted_mean(members[i], w) for i in range(n)])
+    a_direct, _ = S.ace2_alpha(
+        S.time_mean_bias(per_target.sum(0), truth.sum(0), n), lat_w, np.ones(C))
+    assert np.isclose(a_pooled, a_direct)
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q", "-p", "no:cacheprovider"]))
