@@ -144,6 +144,35 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-10-14 (makani data prep)** — We simplified the E3SM-to-makani converters and their five
+  pack scripts without changing what they write. Branch `refactor/e3sm-makani-pack-scripts`, from
+  `a5b83ae2`; PR not opened.
+  - The two converters shared most of their code. It now lives in
+    `makani_sfno/polaris/e3sm_makani_pack.py`. Each converter keeps its channel lists, command
+    line, public names and its own way of computing the statistics. Docstrings are Google style.
+  - `--validate` now also checks that every requested year file exists and holds 1460 samples
+    (or the `--max-samples-per-year` cap). The converters refuse a train year that is also a valid
+    or test year. These replace the shell checks in the two `*_full.pbs` scripts.
+  - `polaris_pack_e3sm_full.pbs` and `polaris_pack_e3sm_alldata_full.pbs` now use the start-up
+    lines of `polaris_pack_e3sm_scaling.pbs`, not the broken `module load conda` (TODO #10, 2 of 7).
+    Neither has been run end to end.
+  - Bug fixed: `polaris_pack_e3sm_production.pbs` piped its audit into `tail`, so a crashed audit
+    still printed `PACK_PRODUCTION_OK`. It now checks the audit's own exit code, as
+    `polaris_pack_alldata_production.pbs` already did after job 7565734.
+  - **Equivalence: debug job 7745695, `PACK_EQUIVALENCE_OK`.** On 8 samples per year (train
+    2015–2016, valid 2017, test 2018), the old and new converters wrote bit-identical files in all
+    four modes: locked single run, locked chunks + merge, all-data single run, and all-data
+    `--skip-stats` + `--stats-only`. Both refused the rerun that would give partial statistics. The
+    new `--validate` passed on both production packs (35 year files × 1460 samples). Test:
+    `polaris_pack_equivalence.pbs` + `compare_packs.py`.
+  - Found, not fixed: `polaris_pack_e3sm_full.pbs` cannot finish after a preemption. The rerun
+    packs the missing years, then stops before the statistics, because the locked converter only
+    counts train years it writes itself. Use `polaris_pack_e3sm_production.pbs` instead.
+  - ⚠ The all-data converter on `feat/makani-f-finetune` and `feat/makani-port-main` is newer
+    (+157/−40: `time_diff_stds.npy` and a parallel statistics pass; 227e3f20, e7d0175f). This
+    refactor does not include them. Port it onto that branch, and rerun the equivalence job against
+    it, before merging.
+
 - **2026-09-21 (makani, cont.)** — 🔴 **THE LAGGED ENSEMBLE IS FINISHED, AND IT DOES NOT IMPROVE THE
   DETERMINISTIC FORECAST. All 15 plan tasks are now closed.** `LAGGED_ENSEMBLE_OK` job **7643271**;
   tooling `E3SM_PORT_OK` job **7643249** (100 passed / 4 skipped). Full write-up →
