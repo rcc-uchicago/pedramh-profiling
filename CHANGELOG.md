@@ -142,6 +142,72 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
+## Decisions / changes log
+
+- **2026-10-14 (makani) — open makani branches merged into `integrate/makani-2026-10-14`; PR into
+  `main` opened for review.** Built from `feat/makani-b-continuation-dryair` (`bac79ea9`). Its 19
+  commits that existed only on the login node's disk were pushed first.
+  - Merged: `eval/pipeline-protocol` (fast-forward), `arm/g1-fp32-dryair` (which also covers
+    `arm/g1-fp32` and `arm/fd-dryair`), `refactor/e3sm-pack-scripts-port-main`,
+    `feat/makani-climate-driver`, `measure/a-best-ckpt-area-weights`, `docs/makani-knowledge`,
+    `feat/ace2-alpha-lagged`, `feat/makani-spatial-cxi` and `docs/makani-port-tolerance-table`.
+    Already contained before: `feat/makani-port-main`, `feat/makani-f-finetune`,
+    `feat/makani-dryair-negativity`, `feat/makani-finetune-stability`,
+    `docs/lagged-ensemble-docstrings` and `feat/multinode-ddp-port`.
+  - Conflicts: `polaris_climate_run.pbs` kept both sides (the EMA-weights block and the
+    second-user `inputs=` echo). CHANGELOG kept both sides' new entries. Two one-line conflicts in
+    `makani_port/` went to this branch's newer text, so the tolerance-table merge changed no file.
+  - `main` was merged with `-s ours`. Its two squash merges (#9, #15) conflict in 51 files, and in
+    each one `main`'s version is an earlier version in this branch's own history of that file.
+    #15's doc is byte-identical here. The one file the merge would add,
+    `panguweather_repo_cleanup.md`, was deleted on purpose in `b821fff9`. So the tree is unchanged
+    and the PR merges cleanly.
+  - Tests: job 7745972, `SUITE_NO_NEW_FAILURES`. The makani suite (`makani_sfno/tests` and
+    `polaris/test_*.py`, CPU only) ran 1017 tests here (720 passed) and 1007 on the base (710
+    passed). The same 15 tests fail on both, so they predate the merge: 10 in
+    `sfno_inference_5410/test_pipeline_chain.py`, 2 in `sfno_training/test_ddp_logging.py`, and 1
+    each in `test_ensemble_trainer_wiring.py`, `test_preflight.py` and
+    `test_convert_long_inference_output.py`. Not investigated.
+  - Not merged: `worktree-makani-multinode-ddp-profiling` (2026-08-21; its fixes are here in newer
+    form, and merging would revert 4 files), `refactor/e3sm-makani-pack-scripts` (replaced by the
+    port-main version) and `worktree-cpu-only-pbs-handoff` (#14, general docs, its own PR). The arm
+    worktrees with jobs (7740992 running, 7742231 queued) were not touched.
+  - Restored this `## Decisions / changes log` heading. `7d125997` (2026-10-04) replaced it with
+    its new entry by accident.
+
+- **2026-10-14 (makani data prep)** — We simplified the E3SM-to-makani converters and their five
+  pack scripts without changing what they write. Branch `refactor/e3sm-pack-scripts-port-main`,
+  from `6d2357e0`; PR not opened. It replaces `refactor/e3sm-makani-pack-scripts`, which was built
+  on the older all-data converter of `feat/multinode-ddp-port`.
+  - The two converters shared most of their code. It now lives in
+    `makani_sfno/polaris/e3sm_makani_pack.py`. Each converter keeps its channel lists, command
+    line, public names and its own way of computing the statistics. The all-data converter keeps
+    the names its tests call (`_accumulate_stats_file`, `_write_stats`, ...), and its statistics
+    code reads `H`, `W` and `STATS_CHUNK_T` from the converter, so the tests can shrink the grid.
+    Docstrings are Google style.
+  - `--validate` now also checks that every requested year file exists and holds 1460 samples
+    (or the `--max-samples-per-year` cap). The converters refuse a train year that is also a valid
+    or test year, except in `--time-diff-only`, where valid and test years play no part
+    (`polaris_makani_ports_smoke.pbs` passes only `--train-years`).
+  - `polaris_pack_e3sm_full.pbs` and `polaris_pack_e3sm_alldata_full.pbs` now use the start-up
+    lines of `polaris_pack_e3sm_scaling.pbs`, not the broken `module load conda` (TODO #10, 2 of 7).
+    Neither has been run end to end.
+  - Bug fixed: `polaris_pack_e3sm_production.pbs` piped its audit into `tail`, so a crashed audit
+    still printed `PACK_PRODUCTION_OK`. It now checks the audit's own exit code, as
+    `polaris_pack_alldata_production.pbs` already did after job 7565734.
+  - **Equivalence: debug job 7745923, `PACK_EQUIVALENCE_OK`.** On 8 samples per year (train
+    2015–2016, valid 2017, test 2018), the converters at `6d2357e0` and the new ones wrote
+    bit-identical files in all six modes: locked single run, locked chunks + merge, all-data
+    single run, all-data `--skip-stats` + `--stats-only`, `--stats-only --workers 2`, and
+    `--time-diff-only --workers 2`. Both refused the partial-statistics rerun and the second
+    `--time-diff-only` without `--overwrite`. The converter tests passed against the new code
+    (16 passed), and the new `--validate` passed on both production packs (35 year files × 1460
+    samples). Test: `polaris_pack_equivalence.pbs` + `compare_packs.py`. The first branch passed
+    the same check against `a5b83ae2` (job 7745695).
+  - Found, not fixed: `polaris_pack_e3sm_full.pbs` cannot finish after a preemption. The rerun
+    packs the missing years, then stops before the statistics, because the locked converter only
+    counts train years it writes itself. Use `polaris_pack_e3sm_production.pbs` instead.
+
 - **2026-10-07 (makani) — three jobs read out. F-scratch e43 trained, but stays 2.8 % behind A at every
   matched epoch. The depth-4 F fine-tune died at e16/24 yet shows the depth-4 trade-off: −8 % RMSE at
   24 h for +5.5 % at 6 h. SOILFIX 5-yr is the worst B-lineage survival so far (e21 7/8, e24 5/8).**
@@ -933,39 +999,6 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
     fine-tune on B_e01 (§3) — still blocked on F's current job (`7660250`) finishing.
   - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7707597/` (`readout.log` has every
     member's full drift series; `member_*.log` has the per-member provenance line).
-
-- **2026-10-14 (makani data prep)** — We simplified the E3SM-to-makani converters and their five
-  pack scripts without changing what they write. Branch `refactor/e3sm-pack-scripts-port-main`,
-  from `6d2357e0`; PR not opened. It replaces `refactor/e3sm-makani-pack-scripts`, which was built
-  on the older all-data converter of `feat/multinode-ddp-port`.
-  - The two converters shared most of their code. It now lives in
-    `makani_sfno/polaris/e3sm_makani_pack.py`. Each converter keeps its channel lists, command
-    line, public names and its own way of computing the statistics. The all-data converter keeps
-    the names its tests call (`_accumulate_stats_file`, `_write_stats`, ...), and its statistics
-    code reads `H`, `W` and `STATS_CHUNK_T` from the converter, so the tests can shrink the grid.
-    Docstrings are Google style.
-  - `--validate` now also checks that every requested year file exists and holds 1460 samples
-    (or the `--max-samples-per-year` cap). The converters refuse a train year that is also a valid
-    or test year, except in `--time-diff-only`, where valid and test years play no part
-    (`polaris_makani_ports_smoke.pbs` passes only `--train-years`).
-  - `polaris_pack_e3sm_full.pbs` and `polaris_pack_e3sm_alldata_full.pbs` now use the start-up
-    lines of `polaris_pack_e3sm_scaling.pbs`, not the broken `module load conda` (TODO #10, 2 of 7).
-    Neither has been run end to end.
-  - Bug fixed: `polaris_pack_e3sm_production.pbs` piped its audit into `tail`, so a crashed audit
-    still printed `PACK_PRODUCTION_OK`. It now checks the audit's own exit code, as
-    `polaris_pack_alldata_production.pbs` already did after job 7565734.
-  - **Equivalence: debug job 7745923, `PACK_EQUIVALENCE_OK`.** On 8 samples per year (train
-    2015–2016, valid 2017, test 2018), the converters at `6d2357e0` and the new ones wrote
-    bit-identical files in all six modes: locked single run, locked chunks + merge, all-data
-    single run, all-data `--skip-stats` + `--stats-only`, `--stats-only --workers 2`, and
-    `--time-diff-only --workers 2`. Both refused the partial-statistics rerun and the second
-    `--time-diff-only` without `--overwrite`. The converter tests passed against the new code
-    (16 passed), and the new `--validate` passed on both production packs (35 year files × 1460
-    samples). Test: `polaris_pack_equivalence.pbs` + `compare_packs.py`. The first branch passed
-    the same check against `a5b83ae2` (job 7745695).
-  - Found, not fixed: `polaris_pack_e3sm_full.pbs` cannot finish after a preemption. The rerun
-    packs the missing years, then stops before the statistics, because the locked converter only
-    counts train years it writes itself. Use `polaris_pack_e3sm_production.pbs` instead.
 
 - **2026-10-01 (makani/ACE2) — code-level audit of makani vs ACE2 landed; ACE2 5-year rollout test
   submitted.** Audit = debug job **7703518** (`polaris_makani_ace2_audit.pbs`, 4 Fable 5.1 section
