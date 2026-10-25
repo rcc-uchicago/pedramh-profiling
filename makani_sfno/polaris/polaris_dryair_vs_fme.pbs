@@ -1,0 +1,49 @@
+#!/bin/bash -l
+#PBS -N dryair_vs_fme
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:15:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# makani DryAirFix vs ACE2 fme _force_conserve_dry_air on one synthetic state
+# (polaris/test_dryair_vs_fme.py). Runs in the ACE2 fme-venv, whose editable fme
+# is the main checkout's ACE2_retrain/ace_exp; makani's mass_fix.py is loaded by
+# path from this tree (numpy + torch only). CPU only.
+#
+# PASS = DRYAIR_VS_FME_OK
+# Submit from makani_sfno/:   qsub polaris/polaris_dryair_vs_fme.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+ACE2_DIR="${ACE2_DIR:-/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/ACE2_retrain}"
+REPO="$(cd "${ACE2_DIR}/.." && pwd)"
+
+# ---- environment: copied from ACE2_retrain/polaris/polaris_ace2_evaluator.pbs --
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${ACE2_DIR}/polaris/polaris_ace2_env.sh" || exit 2
+[ -x "${ACE2_VENV}/bin/python" ] || { echo "ERROR ACE2_VENV_MISSING ${ACE2_VENV}"; exit 3; }
+# shellcheck disable=SC1091
+source "${ACE2_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+PY="${ACE2_VENV}/bin/python"
+
+VENV_FME="$("${PY}" -c 'import fme,os;print(os.path.realpath(os.path.dirname(fme.__file__)))' 2>/dev/null)"
+THIS_FME="$(cd "${ACE2_DIR}/ace_exp/fme" && pwd -P)"
+[ "${VENV_FME}" = "${THIS_FME}" ] || {
+    echo "ERROR ACE2_WRONG_CHECKOUT venv=${VENV_FME:-<import failed>} job=${THIS_FME}"; exit 3; }
+
+export FME_FORCE_CPU=1 OMP_NUM_THREADS=8
+MASS_FIX="${MAKANI_ROOT}/src/sfno_training/models/mass_fix.py"
+echo "=== dryair_vs_fme: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} sha=$(cd "${MAKANI_ROOT}" && git rev-parse --short=12 HEAD 2>/dev/null) ==="
+echo "fme=${VENV_FME}  mass_fix=${MASS_FIX}"
+"${PY}" "${MAKANI_ROOT}/polaris/test_dryair_vs_fme.py" --mass-fix "${MASS_FIX}"

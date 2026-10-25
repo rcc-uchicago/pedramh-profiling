@@ -1,0 +1,56 @@
+#!/bin/bash -l
+#PBS -N makani_dryair_budget
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Is DRYAIR24's -21 hPa PS drift water loss (H1) or dry-mass leakage (H2)?
+# (polaris_makani_b_dryair_findings_handoff.md §2, §4.1.) Reads the existing
+# 5-year member NetCDFs -- no rollout, no GPU work; a compute node only because
+# the venv may not run on login nodes.
+#
+# DIRS="<climate_protocol dir> ..." (default: 7711720 DRYAIR arms + 7707597 B arms).
+# PASS = DRYAIR_BUDGET_SELFTEST_OK line, then DRYAIR_BUDGET_OK n=<members>.
+# Submit from makani_sfno/:   qsub polaris/polaris_dryair_budget_readout.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_negativity_probe.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EVAL="${MEMBER_ROOT}/runs/makani_eval"
+DIRS="${DIRS:-${EVAL}/climate_protocol_7711720 ${EVAL}/climate_protocol_7707597}"
+SHA="$(cd "${REPO}" && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+echo "=== makani_dryair_budget: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} sha=${SHA} ==="
+
+"${PY}" "${MAKANI_ROOT}/scripts/dryair_budget_readout.py" --selftest || exit 5
+for d in ${DIRS}; do
+    echo "--- ${d}"
+    "${PY}" "${MAKANI_ROOT}/scripts/dryair_budget_readout.py" "${d}"/member_*.nc
+done

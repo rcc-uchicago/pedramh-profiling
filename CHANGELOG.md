@@ -142,7 +142,737 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
   repointed. **PhysicsNeMo 4-GPU is GREEN too** (job 7252933, rc=0: 4 ranks, loss 0.889,
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
-## Decisions / changes log
+- **2026-10-07 (makani) — three jobs read out. F-scratch e43 trained, but stays 2.8 % behind A at every
+  matched epoch. The depth-4 F fine-tune died at e16/24 yet shows the depth-4 trade-off: −8 % RMSE at
+  24 h for +5.5 % at 6 h. SOILFIX 5-yr is the worst B-lineage survival so far (e21 7/8, e24 5/8).**
+  - **F-scratch e43 (7721577, capacity):** all 20 epochs trained, 04:30 → 10:06
+    (`Total training time is 20032.31 sec`, `ckpt_mp0_v23..v42`). Then the third `mpiexec` post-train
+    hang ran into the 7 h wall: Exit -29, no OK token.
+    - Single-step val is +2.2 to +2.9 % above A at every matched epoch, e.g. e43 **0.013776** vs A
+      0.013407 (+2.8 %). The gap was +2.5 % at e23, so a second cycle did not close it. Part of it may be
+      the 99- vs 101-channel denominator, which is still unseparated.
+    - EMA best is **0.013758 at e41** (the log's "@ epoch 40" is 0-based). `best_ckpt_ema_mp0.tar` is
+      now EMA e41 and `best_ckpt_mp0.tar` is raw e43. The e23 pair survives as `*_e23_stable.tar`.
+    - Versus e23, per-channel RMSE median is −3.6 % at 6 h and −3.5 % at 24 h (raw), similar for EMA.
+    - The extension rule fires: cycle 2 improved val by −4.2 %, above the 0.5 % threshold. e63 would
+      need `capacity` and waits for the operator's word.
+    - Read-out addendum `0d4ed389`, written before any rollout: "EMA e43" is read as EMA-best e41.
+      1-yr screen f1092 = **7725618** (debug, queued on `queue_tags`; leave it, CLAUDE.md #12). The
+      operator will decide e63 after the screens.
+    - **Pending screens, one per debug slot** (`runs/makani_eval/next_screens_2026-10-07.sh`):
+      - `fsF1092`: the depth-4 F list.
+      - `both1156`: the F e43 list plus the depth-4 F list.
+  - **Depth-4 F fine-tune (7719538, `fsF_anneal_nf4_b16_rtmax100_scratch`, capacity):** the 12 h wall
+    killed it after **16/24 epochs** (≈ 2670 s/epoch; `ckpt_mp0_v0..v15`). The prereg's e21–e24 / e22+e24
+    read-out is unreachable without a resume.
+    - Single-step val is best at e1 (raw 0.015667, EMA 0.015267), then flat at 0.01583–0.01588. That is
+      +9–10 % over its base (F-scratch e23, 0.014380).
+    - B's own run behaves the same way, at half the size: 0.012839 (A e243) → 0.013411 at e1 (+4.5 %) →
+      0.013612 at e24 (+6.0 %). So a rising single-step val is normal for this recipe and not a failure.
+    - **The per-lead log shows the depth-4 trade-off** (median over 99 channels of RMSE / base RMSE).
+      At e16, 24 h is **−8.3 %** raw and **−12.6 %** EMA, while 6 h is +5.5 % / +3.9 %.
+    - Within the run (e1 → e16), 24 h −6.1 % and 6 h −0.3 %. B's e1 → e24 is 24 h −5.2 % and 6 h +0.5 %.
+    - The 24 h gain was still accruing in EMA at e16.
+    - **Against B on the 99 shared channels** (same valid set):
+      - fsF e16 EMA is +8.7 % at 6 h and +4.4 % at 24 h vs B22. It wins 2/99 and 5/99 channels.
+      - F-scratch e43 raw is +0.9 % at 6 h (wins 35/99) but +14.5 % at 24 h.
+      - FSEMA (e23) is +4.3 % / +19.0 %.
+      - Single-step F has nearly caught B at 6 h, but not at 24 h. Depth-4 F at e16 is still behind
+        B at both leads.
+      - Confounded with base maturity, as the prereg says (base val 0.01438 vs A e243 0.01284).
+    - No rollout yet. Not attributable to soil.
+    - Operator (2026-10-07): "screen e16 now, then decide" on a resume to e24. The prereg amendment
+      `b6a0f7cc` (docs/makani-knowledge) was written before the rollout. It screens e1, e8, e14–e16, EMA
+      and best (= e1) at both starts. Outcomes S/D stay defined on e22/e24 at 5 yr.
+  - **SOILFIX 5-yr (debug 7724006, `CLIMATE_RUN_OK`, sha 7330fca5, no prereg found, so descriptive):**
+    - SOILFIX21 (`ckpt_mp0_v20`) is **7/8**. Member 01 goes non-finite at PS at step 4884 (3.3 yr).
+      SOILFIX24 (`best_ckpt_mp0`, epoch 24) is **5/8**. Members 00/03/07 go non-finite at 5721/5371/6168
+      (3.7–4.2 yr).
+    - Plain B22/B24 and DRYAIR24 are all 8/8 on the same protocol.
+    - PS drift at the last lead (Pa ÷ 100):
+      - SOILFIX21 completes run **+17 to +42 hPa** (median ≈ +25), so it runs away upward after
+        2 yr.
+      - SOILFIX24 completes end at −2.2..+4.2 hPa, but all dip −8.6..−15.4 hPa at L1828 (1.25 yr).
+    - Every member leaves 3σ first at `V_l00` (@1139–2067), as plain B does.
+    - **The trained soil-moisture fix costs 5-yr stability and does not control mass.** It is consistent
+      with its 1-yr screen 7719183 (−8.8..−17.6 hPa, worse than B). Out:
+      `runs/makani_eval/climate_protocol_7724006/readout.log`.
+
+- **2026-10-06 (makani) — F-scratch e43 extension queued (7721577, 2 nodes, no spare). DRYAIR24's
+  trained-in fix costs accuracy (0.332 σ vs B22 0.251). A's 1-yr stability by epoch is erratic, not a
+  trend: e83 and e143 survive cleanly, while e43/63/103/123/163/183 go non-finite.**
+  Prereg `2328ed62` (`docs/2026-10-06_fscratch_e43_extension_prereg.md`).
+  - **Extension 7721577** (capacity, `select=2`, `TARGET_NODES=2`, 7 h; the operator wants no spare node):
+    an in-place resume of `f_nosoil_2n_b32_e23_scratch` to `EPOCHS=43`, identical to 7718436 otherwise,
+    from the `makani-ace2-ports` tree @ `a530bf65`. That tree is frozen until it ends. The e23 bests are kept
+    byte-verified as `best_ckpt_{ema_,}mp0_e23_stable.tar` (FSEMA = the ema one). The live
+    `best_*` files will be overwritten.
+  - **DRYAIR24 fidelity (debug 7721578):** median 0.332 σ (0.321–0.339) on 101 ch. B22 0.251,
+    B24 0.317, B22+fix 0.256, B24+fix 0.315. On the 99 shared ch: 0.325 vs FSEMA 0.234. By the
+    prereg rule (> +0.02 σ vs B22) that is a **cost**. PS is pinned (bias −13 Pa), but PSL, which is not
+    corrected, sits at **+657 Pa** bias (rmse 0.54 σ vs B22 0.17). Also `U_l01` −9.0 m/s (0.80 σ vs
+    0.25), TREFHT −1.28 K, T_l17 −1.18 K. It is confounded with its `T_max 22` anneal and the B_e01 restart.
+    The inference-only fix on B (+0.006 σ) shows the constraint alone is nearly free, so most of
+    DRYAIR24's cost is probably the recipe. Not separated.
+  - **A by epoch, 1 yr at f1092 (debug 7721629), all cycle-end checkpoints:**
+
+    | epoch | 43 | 63 | 83 | 103 | 123 | 143 | 163 | 183 |
+    |---|---|---|---|---|---|---|---|---|
+    | non-finite at step | 875 | 906 | — | 619 | 911 | — | 890 | 1291 |
+    | channels past 3σ | 101 | 101 | 1 | 101 | 101 | 0 | 101 | 101 |
+
+    - e83 survives with PS −6.8 hPa and e143 with +8.3 hPa. Earlier screens: e21 survived, e22/e23
+      collapsed but stayed finite, e200/e220/e243 went non-finite at 490–664.
+    - **There is no maturity trend to predict from.** Single-step checkpoints are a per-epoch lottery
+      (n = 1 rollout each). That weakens the e43 prereg's stated reason for its prediction (the
+      prediction itself stands as written).
+    - It strengthens two points: screen several F epochs (raw e39–e43 + EMA), not one; and EMA
+      averaging is doing real work.
+  CSVs: `makani_sfno/docs/2026-10-06_climate_fidelity_7721578_dryair24.csv`,
+  `makani_sfno/docs/2026-10-06_climate_screen_7721629_A_by_epoch.csv`.
+
+- **2026-10-06 (makani) — `DryAirFix` vs ACE2's `_force_conserve_dry_air`: numerically confirmed a
+  correct port (debug 7721257, `DRYAIR_VS_FME_OK`).** New `polaris/test_dryair_vs_fme.py` +
+  `polaris_dryair_vs_fme.pbs` (fme-venv, real fme, makani `mass_fix.py` by path). On a synthetic
+  180×360 state, 8 levels, +349 Pa error:
+  - g is equal and the weights agree to 4e-16.
+  - Each side conserves its own dry air to < 5e-11 Pa.
+  - ΔPS_ACE·(1 − ΣΔb·q) = ΔPS_makani to 7e-11 Pa.
+  - The difference is ≤ 2.4 Pa (≤ 0.7 %) per column, 1.2 Pa global under ACE2's definition.
+  - bf16 is promoted to fp32 with a 1e-5 Pa residual.
+  Side-by-side table of all correctors: `makani_sfno/docs/2026-10-06_corrector_comparison_ace2_vs_makani.md`.
+  The only differences are by design: TMQ is vapour only and held fixed, water is not clamped before the
+  solve, the positivity clamp is RELHUM-only and inference-only and runs after dry air, and the moisture
+  budget is not portable. The RELHUM clamp and `SoilMoistureFix` have not been checked numerically.
+
+- **2026-10-06 (makani) — FSEMA + inference-only dry-air fix at 5 yr: 0/8 healthy (outcome PH2).
+  The same checkpoint without the fix is 8/8. Inference-only dry air is checkpoint-dependent, not safe.**
+  Prereg addendum `77633969`, written before submission; it predicted 8/8, which was wrong. Debug jobs: run **7721233**
+  (`CLIMATE_RUN_OK`), readout **7721248**, budget **7721251**, fidelity **7721253**.
+  - 6/8 went non-finite at PS, steps 3386–7015 (2.3–4.8 yr). Members 02 and 05 "complete" but are
+    collapsed at the end: PS drift −101 hPa (L7555) and −840 hPa, global TMQ → −4.7e6 / −2.6e6 kg/m².
+    The fidelity CSV (`climate_fidelity_7721253`) is therefore not meaningful. Don't quote it.
+  - **The fix itself held:** PS drift stays within −3..−24 Pa (≤ 0.25 hPa) from L120 to L6208 in every
+    member until collapse. Without the fix, the same leads dip −330..−485 Pa. Dry air is pinned. The run-away
+    is in **water**: TMQ goes hugely negative, and PS is dragged down with it because PS − g·TMQ is held.
+    The first 3σ crossings look like plain FSEMA's (`U_l01` @ 546–681 in 4/8, then RELHUM/V/T). The
+    mechanism is not established.
+  - **Pattern across checkpoints, inference-only fix:**
+    - B22 and B24: helps (16/16, |dPS| ≤ 0.41).
+    - B_e01: hurts (fails earlier than without the fix, 7707597).
+    - FSEMA: hurts (8/8 → 0/8 healthy).
+    - Trained-in fix (DRYAIR24): 8/8.
+    So applying the constraint to a model that never saw it can push the state somewhere the model
+    cannot handle. **Train it in rather than bolting it on.** This is a working reading, n = 4 checkpoints.
+
+- **2026-10-06 (makani) — B22/B24 + inference-only dry-air fix at 5 yr: 16/16, |dPS| ≤ 0.41 hPa,
+  accuracy "free" (outcome PH1). FSEMA fidelity is comparable to B22 (−0.005 σ) and better than B24.**
+  Prereg `863419d0` + deviation `661673ae` (both before the read). Jobs, all debug: run **7721150**
+  (`CLIMATE_RUN_OK`), readout **7721209**, budget **7721211** (`DRYAIR_BUDGET_OK n=16`), fidelity
+  **7721213** (B+fix) and **7721221** (FSEMA), both `CLIMATE_FIDELITY_RUN_OK`. The first FSEMA attempt,
+  **7720814**, hit the 1-h walltime rebuilding a 99-ch truth through F's channel-subset loader
+  (4000/7299 samples, about 5× slower than the 101-ch build). The fix was to cut the 99 rows from the
+  101-ch truth by name: new `polaris/subset_true_climatology.py` (`--selftest`), `TRUE_SUPERSET` in
+  `polaris_climate_fidelity_run.pbs` (parametrised in `a8dc98e5`; the defaults reproduce 7709968).
+  - **B+fix (same B weights, `--dry-air-fix=on` only at inference):** B22dryair 8/8, dPS
+    −0.08..−0.17 hPa. B24dryair 8/8, +0.28..+0.41 hPa. dDRY 0.00, max step |dDRY| 0.000. All the
+    remaining dPS is g·ΔTMQ. **The constraint alone reproduces DRYAIR24's mass behaviour (−0.14..−0.24)**;
+    retraining and annealing are not needed for that. B24's moistening is untouched: TMQ 26.5–27.2 →
+    30.0–30.9 kg/m², as in plain B24. The model top still leaves 3σ at `V_l00` @ 1373–2193, as in
+    plain B. The fix does not touch that failure.
+  - **B+fix fidelity** (101 ch, same members): B22 0.251 → 0.256 σ (Δmed +0.006), B24 0.317 →
+    0.315 (−0.002), so **free**. The PS bias collapses: B22 −495 → −7 Pa, B24 +961 → +31 Pa. PS
+    `rmse_sigma` barely moves (0.41 → 0.41), because pattern error dominates. The cost lands on **PSL**
+    (B22 0.165 → 0.207 σ, bias +65 → +191 Pa; PSL is not corrected) and on the model-top **T_l00–l03**
+    (+0.05..+0.08 σ). B22+fix TREFHT bias −0.30 → −0.57 K, the same sign as DRYAIR24's cold bias.
+  - **FSEMA fidelity, 99 shared channels** (B rows from 7709968 restricted to the same names): FSEMA
+    0.231–0.241 σ, median **0.234**. B22 0.235–0.247 (0.239), B24 0.301–0.318 (0.308), B22+fix 0.245.
+    Δ vs B22 = −0.005 σ, so **comparable**. Δ vs B24 = −0.074, so **better**. Prediction ("FSEMA less
+    accurate than B22") was wrong.
+    It beats B22 on 44 of 99 channels: the model-top T_l00 (0.21 vs 0.63 σ; B22's bias there is +6.5 K),
+    T_l01, RELHUM_l00, PS (0.26 vs 0.41), TREFHT (0.07 vs 0.11), RHREFHT, U10 and Z3_l17. It is worse on
+    U_l01/U_l04 (+0.26..+0.28 σ), PSL (0.33 vs 0.17) and mid-level RELHUM_l05/l14.
+  - **Where that leaves the candidates (5 yr, one seed each):** FSEMA (single-step, soil-free, EMA, no
+    corrector) has dPS ≤ 0.83 hPa and B22-level fidelity. B22+fix has dPS ≤ 0.17 hPa and fidelity 0.245
+    on the same channels. Neither has fixed the model-top 3σ departures. Accuracy of DRYAIR24 itself is
+    still unscored.
+
+- **2026-10-06 (makani) — 5-yr protocol on F-scratch epoch 23: EMA 8/8 with |dPS| ≤ 0.83 hPa
+  (outcome S5). Raw 0/8 (outcome D). It is the first single-step checkpoint to pass the 5-yr protocol.**
+  Prereg addendum `078369c0`, written before submission. Jobs: run **7720705** (`CLIMATE_RUN_OK`, debug), readout
+  **7720726** (`CLIMATE_READOUT_OK`), budget **7720728** (`DRYAIR_BUDGET_OK n=16`). Out:
+  `EVAL/climate_protocol_7720705/` (`readout.log`, `member_*.nc`).
+  - **FSEMA** (`best_ckpt_ema_mp0.tar`, `ckpt_epoch` 23): **8/8 complete.** dPS at the last lead
+    (lead L − lead 1) is −0.83 / +0.37 / −0.39 / −0.50 / −0.25 / −0.19 / −0.57 / −0.41 hPa, median
+    |dPS| **0.40 hPa**. That is ~17× below B22 (−6.8) and in DRYAIR24's range (−0.21), with no
+    corrector. dDRY ≈ dPS. Global TMQ 26.5–27.2 → 25.7–26.8 kg/m². Local monthly TMQ minima reach
+    −10.7 to −13.4 kg/m² (≤ 1 % of area), like B22/DRYAIR24.
+  - **The endpoint hides a transient.** Every FSEMA member's PS drops 3.3–4.8 hPa in the first
+    1–5 months (L120–L480: −327 to −485 Pa) and recovers over ~4 yr. B22's excursion is larger and
+    does not recover: down to −10.8 hPa (B2203 L6208), ending −6.1..−8.5. Quote the excursion beside
+    the endpoint.
+  - 3σ (anom_rms): 2/8 FSEMA members never cross. 4 first cross at 2779–4535 (model top V/RELHUM_l01–03).
+    FSEMA05/06 cross at `U_l01` @ 618/644, earlier than B22's `V_l00` @ 1545–1941. Mixed on this
+    measure. No member reaches a median crossing.
+  - **FS23** (raw `ckpt_mp0_v22.tar`): **0/8**, all non-finite at PS, steps 1766–4830 (1.2–3.3 yr),
+    led by `U_l01` / `RELHUM_l00` at the model top. That is still 2–6× A e243's 317–849.
+  - Prediction ("≥ 1 arm < 8/8; FSEMA ≥ FS23") held.
+  - **Reading (not pre-registered):** the largest effect here is EMA vs raw on the same training
+    trajectory: 0/8 → 8/8. A never kept an EMA. So the A-vs-F-scratch difference mixes soil (raw vs
+    raw, one seed each: A e23 collapses in 1 yr, F e23 lasts 1.2–3.3 yr) with EMA availability. F-warm's
+    EMA (epoch 30) died in < 1 yr, so EMA alone does not rescue A-derived weights.
+  - Open: accuracy. FSEMA has no fidelity score yet (B22 0.246–0.259 σ, `climate_fidelity_7709968`). It
+    is an immature single-step model (val 0.01438 vs A best 0.01284). One training seed.
+
+- **2026-10-06 (makani) — F-scratch base 1-yr screen vs A at matched epochs: every member survives
+  both starts, so the pre-registered verdict is "indistinguishable at n = 6". But A e22/e23
+  "survive" only as finite numbers: their PS drifts are −527 to −1442 hPa. F-scratch stays within ±10 hPa.**
+  Prereg `makani_sfno/docs/2026-10-06_fscratch_base_screen_prereg.md` (`d2a12198`, committed before
+  submit). Debug jobs **7720637** (f1092) and **7720644** (f1156), `DRY_AIR_FIX=off`, both
+  `CLIMATE_SCREEN_OK n=8`. CSVs: `docs/2026-10-06_climate_screen_77206{37,44}.csv`.
+  - **The prediction was wrong.** All 16 member-runs reached step 1460 with no truncation. That
+    includes A. The prior from A e200/e220/e243 (truncated at 490–664) does not carry back to A's
+    early epochs.
+  - **Primary rule** (truncation step, 6 matched pairs): all 6 are ties, so **indistinguishable at
+    n = 6**. That is the pre-registered answer.
+  - **Descriptive, not the pre-registered measure.** F-scratch has fewer channels past 3σ **and**
+    smaller |PS drift| in **6 of 6** pairs (fs vs A, PS at step 1460, hPa; channels past 3σ):
+
+    | start | e21 | e22 | e23 |
+    |---|---|---|---|
+    | f1092 | −9.6 (4) vs +14.8 (14) | −4.0 (0) vs **−527 (81)** | +7.5 (0) vs **−1025 (86)** |
+    | f1156 | −8.1 (5) vs +12.1 (13) | −2.8 (0) vs **−937 (84)** | +6.8 (1) vs **−1442 (90)** |
+
+    A e22/e23 are a collapsed climate that stayed finite: TREFHT +18 to +72 K, 81–90 channels
+    past 3σ. A's early 3σ crossings include `SOILWATER_10CM` (steps 574–614). F has no soil channel.
+    The screen's `survived=1` means finite, not physical. Read `n_past_3sigma` beside it.
+  - **Gate passed:** `fs_best` reads `ckpt_epoch` 23 at both starts, and its numbers are identical to
+    `fs_e23`. 7719538's base is the epoch-23 raw checkpoint, as its prereg says.
+  - **EMA epoch correction:** `fs_ema` reads `ckpt_epoch` **23**, not 22. The trainer's
+    "saved EMA-best checkpoint @ epoch N" line is 0-based, and "Epoch N summary" is 1-based. So the
+    real raw-vs-EMA pair is fs_e23 vs fs_ema: PS +7.5/+6.8 vs **−2.3/−2.4** hPa, past-3σ 0/1 vs 0/0.
+    EMA is better at both starts (n = 2, directional only).
+  - **Against plain B (f1092, 7649647):** fs_e22/e23/ema (−4.0 / +7.5 / −2.3 hPa) fall in the range of B's
+    good checkpoints (B_e22 +0.7, B_e24 +4.6) and well inside B_e21/B_e23 (−58 / −68). That is
+    1 yr only. B is proven at 5 yr and F-scratch is not.
+  - Per the prereg, every F-scratch member is a **5-yr protocol candidate** (fs_ema, fs_e23 first).
+    Not run without the operator's word.
+  - Does not decide soil under B's recipe (7719538), nor why F-warm (A e243 sliced + 43 ep) collapsed
+    within a year when F-scratch e23 did not. Init and maturity both differ.
+
+- **2026-10-06 (makani) — F-scratch 7718436 trained all 23 epochs; val 0.01438 = A + 2.5 % at
+  epoch 23. No `MAKANI_MN_SCALING_OK`: `mpiexec` hung ~4 h after training and walltime killed it.**
+  - Training is complete: 23 `Epoch N summary` blocks, `Total training time is 21436.66 sec`
+    (01:45 → 07:43), and wandb closed. `ckpt_mp0_v0..v22.tar` and `best_ckpt_mp0.tar` were both
+    written at 07:43. Val falls monotonically, so `best_ckpt_mp0.tar` holds epoch 23 (inferred from
+    the curve and mtime; confirmed `ckpt_epoch` 23 by screen 7720637). EMA best is epoch 23 (the log's
+    "@ epoch 22" is 0-based), `1.4381e-02`.
+    Then nothing more was logged until `PBS: job killed: walltime 36108 exceeded limit 36000`
+    (11:46, Exit -29). No CSV row was written.
+  - **This is a repeat, not new.** F-warm 7660250 printed `Total training time is 38549.19 sec` and
+    then hung until its 12 h walltime (`.o7660250`). The 2026-10-03 note that its walltime kill
+    "interrupted a trailing per-lead eval printout" is wrong: nothing ran after training. Both F runs
+    were launched from the `makani-ace2-ports` tree. Soil-fix 7715005 (b-continuation tree) exited
+    cleanly. Cause not diagnosed; it costs walltime only, not results.
+  - **vs A at matched epochs** (single-step val; F averages 99 channels, A 101; `RUNS/prod1n_b32_sgdr.log`):
+    e3 +4.3 %, e9 +3.3 %, e14 +2.4 %, e18 +2.6 %, e20 +2.5 %, e23 **0.01438 vs 0.01402, +2.5 %**.
+    The gap stopped narrowing after e14. The channel-count share of it is still unseparated (needs a
+    validate-only run of A on the 99 shared channels).
+  - **vs B:** no comparable number yet. F-scratch is single-step and has no rollout screen. The
+    recipe-matched B comparison is F-nf4 **7719538** (capacity, still `Q`, "Not enough free nodes").
+    Its base, F-scratch's raw `best_ckpt_mp0.tar` at epoch 23, is valid.
+  - Debug jobs 7719173 (`DRYAIR_BUDGET_OK`) and 7719183 (`CLIMATE_SCREEN_OK n=6`) finished at
+    03:33/03:36, before this. Their results are in the entry below. Against plain B, use 7649647, not
+    7650512 (KNOWLEDGE.md §9a).
+
+- **2026-10-06 (makani) — correction: DRYAIR24's 5-yr PS drift is −0.21 hPa, not −21 hPa (Pa read
+  as hPa). Soil-fix 7715005 done; F-scratch 7718436 running.**
+  - `readout.log`'s `drift PS (phys, lead L − lead 1)` is in **Pa** (`lead1=98565`). The 2026-10-04
+    Step-2 table converted B22 (−680 Pa = −6.8 hPa) and B24 (+1600 Pa = +16 hPa) but copied DRYAIR raw.
+    Correct: **DRYAIR24 −0.10 to −0.26 hPa (med ≈ −0.21)** over 5 yr, ~30× smaller than B22, ~75×
+    smaller than B24; DRYAIR01 −0.8 → −5 → −15 hPa before truncating. Agrees with the 1-yr screen
+    (`climate_screen_7711659`: e24 −0.145 hPa, `dry_drift` +0.000, `tmq_drift` −1.48 kg/m²).
+  - Consequences for `polaris_makani_b_dryair_findings_handoff.md` (correction banner added): TL;DR 2
+    reversed (dry-air drifts *less* than plain B, by >30×); the inferred TMQ ≈ −214 kg/m² is void
+    (implied ΔTMQ ≈ −2 kg/m²). Still true: survival (8/8) is not attributable to dry-air, and the
+    port is 1 of ACE2's 3 corrector steps.
+  - Confirming from the member NetCDFs (`global_mean` PS/TMQ every lead, PS − g·TMQ, monthly TMQ
+    min/%neg): new `scripts/dryair_budget_readout.py` (+ `--selftest`) and
+    `polaris/polaris_dryair_budget_readout.pbs`, debug job **7719173**: `DRYAIR_BUDGET_OK` n=16 + n=40.
+    **The fix's formula (`PS − g·TMQ`) is right; the earlier error was units only.** 5-yr, per member:
+    - DRYAIR24: dPS −0.14 to −0.24 hPa, **dDRY = 0.00** (max one-step |dDRY| 0.000), so all of dPS is
+      g·ΔTMQ. Global-mean TMQ 26.4–27.1 → 24.3–25.7 kg/m², never negative. Monthly cell minima reach
+      −6.7 to −12.5 kg/m² (local negatives, ≤0.1% of area in the last month).
+    - B22 (no fix): dPS −6.0 to −8.5, of which dDRY −5.9 to −8.4. **The plain-B drift is dry-mass
+      leak**, and water contributes only −0.03 to −0.14. B24: dPS +12.7 to +17.7, dDRY +12.4 to +17.4.
+      B22 + positivity clamp at inference: dPS −3.6 to −7.1, still almost all dry.
+    - DRYAIR01 and B_e01 + inference-only fix: blow up (TMQ → −1e17). These are the collapsed members.
+    ⇒ The dry-air fix does what it says. It removes the dry-mass drift, 30–75× below plain B. Survival is
+    still not attributable to it (B22/B24 also 8/8).
+  - Soil-fix fine-tune **7715005 finished**: `MAKANI_MN_SCALING_OK`, 24 epochs, 412.1 ms/step, 7h40m;
+    checkpoints `fs_anneal_soilfix_nf4_b16_rb01/training_checkpoints/ckpt_mp0_v{0..23}.tar` + best.
+    Its Stage-0 screen (epochs 1/21–24/best, `_tmq` truth) was first rejected at qsub (debug per-user
+    queued-job limit), then submitted as **7719183**: `CLIMATE_SCREEN_OK n=6`. All 6 survive 1 yr, 0
+    past 3σ. But 1-yr PS drift is **−8.8 (e21) to −17.6 hPa (e22)**, e24/best −13.2, e01 +6.4, and
+    dry_drift ≈ ps_drift in every row (TMQ −0.2 to −0.7 kg/m²). The soil corrector leaves dry mass
+    free, and its PS is **worse than plain B's**. Same screen, model − truth at 1 yr (7650512):
+    B e21/22/23/24 = −6.7 / +0.25 / −10.4 / +2.3 vs soil-fix −8.8 / −17.6 / −17.2 / −13.2.
+    DRYAIR24 is −0.145. Note: the 5-yr budget numbers above are lead L − lead 1 (Oct start → Dec 31
+    end), so they include the seasonal TMQ change. The screens are vs truth.
+    Out: `climate_screen_7719183/screen_summary.csv`.
+  - F-from-scratch **7718436 running** (started 01:44, capacity, 10 h walltime): epoch 9/23 at
+    ~920 s/epoch (631 ms/step, 50.7 samples/s), so ~5.9 h total, which fits. Val loss epochs 4→9:
+    0.02376 → 0.02149 → 0.01985 → 0.01899 → 0.01829 → **0.01761** (EMA 0.01658), falling steadily. The
+    matched target is A's ep-23 val 0.01402.
+
+- **2026-10-05 (makani) — F from scratch queued: job 7718436, `capacity`, 2 nodes (+1 spare), 10 h,
+  23 epochs.** Operator request: compare scratch F with A. `bash polaris/submit_f_nosoil.sh 2 23
+  10:00:00 scratch` from `.claude/worktrees/makani-ace2-ports/makani_sfno` @ `a530bf65`, the same tree
+  as warm F (7660250). Run `f_nosoil_2n_b32_e23_scratch`; provenance in
+  `$MEMBER_ROOT/runs/makani_mn_scaling/f_nosoil_2n_b32_e23_scratch.warmstart_provenance.txt`.
+  Recipe is A's (`prod1n_b32_sgdr`) at global batch 32, 99 channels, EMA 0.9995, random init.
+  - **Why 23, not the 27 asked for:** the wrapper requires 3 + 20k epochs (a cycle boundary), and
+    A only has cycle-end checkpoints (ep 23, 43, …). The matched comparison is A ep 23 vs F-scratch
+    ep 23 (A's val at ep 23 = 0.01402). The operator chose 23.
+  - Queued behind 7715005 (capacity max_run 1/project). **The `makani-ace2-ports` worktree is
+    read-only until 7718436 ends** (the PBS imports `PBS_O_WORKDIR/src` at start).
+
+- **2026-10-05 (makani) — dry-air findings review: DRYAIR24's 5-yr survival is not attributable
+  to dry-air, and our fix is one of ACE2's three corrector steps.** Discussion handoff, no jobs run:
+  `polaris_makani_b_dryair_findings_handoff.md`.
+  - Plain B22/B24 also survive 8/8, so the extra 4-step training explains survival. DRYAIR24's
+    drift (med ≈ −21 hPa) is larger than B22's (−6.8).
+  - Verified from `climate_protocol_7711720/member_*.log`: both DRYAIR arms ran `dry_air_fix=1` at
+    inference. With dry mass pinned, −21 hPa implies global-mean TMQ fell by ≈ 214 kg/m²
+    (negative). **Inferred, not measured.** Next step: the negativity probe with `DRY_AIR_FIX=on`.
+  - ACE2 runs force-positive (water) → conserve_dry_air → moisture budget
+    (`fme/core/corrector/atmosphere.py` ~L182–216). We ported only the middle step.
+  - Correction: DRYAIR01 is ≈ B_e01. Epoch 1 runs at a constant 4e-6 (warmup steps per epoch).
+
+- **2026-10-05 (makani) — session checkpoint: handed off to TODO.md P0.** Job 7715005
+  (`anneal_soilfix`, 24 epochs, `capacity`) still queued, not yet running, at the time of
+  writing. Added a "Continue B-continuation / `anneal_soilfix`" pointer to the top of TODO.md's
+  P0 — the next steps (check the job, Stage-0 screen with the correct `_tmq` truth file, promote
+  to the 5-year protocol only if that looks reasonable, and the still-missing PBS-level
+  equivalence gate) are there in order, not duplicated here. This entry and the two below it are
+  the full evidence trail a new session needs.
+
+- **2026-10-05 (makani) — `anneal_soilfix` moved to 24 epochs on `capacity`: job 7714685 (25
+  epochs, preemptable) cancelled before it ever started, resubmitted as job 7715005.**
+  - **Epoch count, recommended and applied (24, not 25):** every other arm in this recipe family
+    (`anneal_dryair`, and the handoff's T-anneal/T-d8/T-d16 design) uses 24 epochs with
+    `SCHED_TMAX` set so the cosine schedule reaches `eta_min` exactly at the last epoch
+    (`TMAX = EP - 2`, gate S1a). The prior entry's 25/`TMAX=23` was mechanically correct (same
+    formula) but broke the matched-arms comparison this project runs on — same batch/LR/schedule/
+    epoch budget, varying only the flag under test. No evidence favors 25: B's own validation
+    loss across epochs 1→24 was nearly flat (0.013411→0.013612), and `anneal_dryair` at 24 epochs
+    already reached full 5-year survival, so 24 is proven sufficient for this schedule. Reverted
+    the `anneal_soilfix` case in `submit_finetune_stability_arm.sh` to fall through to the
+    script's own top-of-file defaults (`EP=24, CKV=25, TMAX_DEFAULT=22`) instead of overriding
+    them — now byte-for-byte identical to `anneal_dryair`'s settings except the one flag
+    (`SOILFIX` vs `DRYAIR`).
+  - **Queue move to `capacity`**: the job that held it yesterday (`7713242`, "m2p-rerun") is gone;
+    only a queued (not running) `7713243` from that same unrelated work remains, so `capacity`'s
+    `max_run=1` per-project slot is currently free, though `7713243` is still ahead in the queue.
+  - Verified before resubmitting: job 7714685 never left `Q` state and never created its expDir
+    on disk, so cancelling and reusing the same rep tag (`b01`) was safe — no partial run to lose.
+  - New job **7715005**: confirmed via the launcher's own echo — `epochs=24 sched_tmax=22
+    queue=capacity` — queued, not yet running.
+
+- **2026-10-04 (makani) — `anneal_soilfix` launched: job 7714685, 25 epochs, `preemptable`, after
+  a clean debug smoke.** Operator picked 25 epochs + `capacity`, but `capacity`'s `max_run=1`
+  per-project slot was already held by a running job not from this session (`7713242`,
+  "m2p-rerun", 1 node, 24h walltime) plus one held behind it — surfaced per CLAUDE.md's "coordinate
+  before taking the slot," operator switched to `preemptable` (same queue `anneal_dryair`/Step 2
+  already used).
+  - **Added the arm** to `submit_finetune_stability_arm.sh` (`anneal_soilfix` case, mirroring
+    `anneal_dryair`: same recipe, `SOILFIX=1` → `CONSERVE_SOIL_MOISTURE=1`, `EP=25`/`CKV=26`/
+    `TMAX_DEFAULT=23` for the operator's 25-epoch choice vs the other arms' 24).
+    `CONFIG_YAML=e3sm_alldata_full.yaml` was already the script's unconditional default for every
+    arm in this file, so no channel-config change was needed to restore `SOILWATER_10CM`/
+    `TSOI_10CM` — warm-starting from B's own checkpoint onto the config it was already trained on.
+  - **Debug smoke first (job 7714105, `QUEUE=debug WALLTIME=00:15:00`, rep `smoke01`)**, before
+    committing a real allocation: this validates the launcher/YAML-rendering path the unit tests
+    don't reach (the `_bools` dict edit, `conserve_soil_moisture` actually flowing through to the
+    rendered config and into `PlasimPreprocessor` on real GPU hardware). Reached 2137/2737 steps
+    (78%) of epoch 1 before the walltime kill (expected, not a failure) — log confirms
+    `conserve_soil_moisture True`, loss stable and finite throughout (~0.019–0.022), zero
+    NaN/Traceback/CUDA-error hits anywhere in the 1.7 MB log. Clean enough to proceed.
+  - **Real run**: `fs_anneal_soilfix_nf4_b16_rb01`, job 7714685, `QUEUE=preemptable`, 2 nodes,
+    12h walltime, queued (not yet started at time of writing — preemptable start latency is
+    load-dependent per prior history, not a stuck-job signal).
+  - **Not done yet**: the end-to-end bitwise equivalence gate (flag-off vs pre-fix behavior,
+    mirroring `DRYAIR_OFF_EQUIV_OK`) still hasn't run at the PBS level — the smoke above proves
+    the flag-ON path runs cleanly, not that flag-OFF is unchanged. Unit-level proof of that
+    (object-identity pass-through) still stands from the previous entry. Once 7714685 produces
+    checkpoints, climate-screen them the same way `anneal_dryair`'s were (Stage-0 1-year screen
+    first, 5-year protocol only if that looks reasonable) — same tools, same discipline, no new
+    pre-registered rule exists for ranking this specific comparison yet.
+
+- **2026-10-04 (makani) — operator decision: continue the B lineage as main; prototype an ACE2-
+  inspired frozen-soil-moisture corrector as a NEW diagnostic arm (not literally "F") to see
+  whether constraining soil physics, rather than dropping the channels, changes the outcome.
+  Code written and unit-tested (`CLIMATE_SCREEN_TEST_OK`, job 7713397); fine-tune NOT launched.**
+  - **Checked before building anything**: F (`e3sm_alldata_nosoil.yaml`) drops `SOILWATER_10CM`/
+    `TSOI_10CM` entirely (confirmed from the file: `dropped_channel_names: ["SOILWATER_10CM",
+    "TSOI_10CM"]`), so there is no soil state left in F for any corrector to act on. "Incorporate
+    the constraint in F" isn't literally executable as F is defined — the sensible version
+    restores the two channels (back toward B's set) and constrains them instead of dropping
+    them. Operator confirmed this reframing (AskUserQuestion, "ignore jesswan signoff" — read as:
+    don't block prototyping on her sign-off, same as the dry-air fix's own precedent, not as
+    skip-the-gate-on-shipping).
+  - **The literal ACE2 field doesn't resolve to real code.** The config this is modeled on
+    (`ACE2_retrain/ace_exp/configs/experiments/2025-04-20-lsm-offline/ace-train-config-lsmv0.yaml`)
+    sets a `corrector.soil_moisture_corrector` block (`temperature_threshold: 272.0`) plus
+    `force_positive_names` on soil/snow channels. Checked: `fme/core/corrector/atmosphere.py`'s
+    `AtmosphereCorrectorConfig` — the class this config loads into — has no
+    `soil_moisture_corrector` field, and its loader (`dacite.Config(strict=True)`) would refuse
+    the key outright. The one other checked location (`worktree-ace2-fme-perf-handoff`'s
+    `ACE2_retrain/` tree) is untracked there, unreadable without checking out another worktree.
+    So this is a FRESH REIMPLEMENTATION of the documented physical intent, same as the dry-air
+    fix was — not a code port of working ACE2 code.
+  - **What's new**: `src/sfno_training/models/soil_moisture_fix.py` — `SoilMoistureFix`, a
+    pointwise `(inp_z, pred_z) -> pred_z` corrector: where the step's INPUT `TSOI_10CM` < 272.0 K,
+    freeze `SOILWATER_10CM` at its input value (no transport while frozen); clamp
+    `SOILWATER_10CM` ≥ 0 everywhere (ACE2's `force_positive_names`, folded into the same
+    corrector rather than using the existing inference-only `rollout_driver.py` mechanism, so it
+    also applies during TRAINING — matching the "trained-with beats post-hoc" lesson from the
+    2026-10-04 dry-air climate-comparison entry below). Unlike `DryAirFix`, this needs no area
+    weights or `h/w_parallel_size` restriction (pointwise, not a global reduction).
+  - **Wiring** (`preprocessor.py`): extended to carry a second, independent fix alongside
+    `dry_air_fix` (`self.soil_moisture_fix`, flag `params.conserve_soil_moisture`), composed in
+    `history_denormalize` — both off is an exact pass-through (same object, proven in the unit
+    test, not just numerically close); either or both can be on independently. Launcher knob
+    `CONSERVE_SOIL_MOISTURE` added to `polaris_makani_multinode_scaling.pbs`'s existing `_bools`
+    map (one line, same pattern as `CONSERVE_DRY_AIR`).
+  - **Test, and a real bug caught in the test, not the implementation**: 18 new tests
+    (`tests/sfno_training/test_soil_moisture_fix.py`), including composing both fixes together
+    and confirming the dry-air fix's own behavior is unchanged by the soil fix's presence. One
+    test failed on first run (1/72 elements off by a noise-scale amount) — added a debug dump
+    before touching anything (CLAUDE.md #11), which proved the frozen mask was 100% correct
+    (72/72). The real cause: the positivity clamp applies to frozen cells too (intentional —
+    moisture shouldn't read negative even when frozen), so the test's expectation of "frozen
+    cell == raw input" was wrong whenever that input's random draw was already below the floor.
+    Fixed the test's expected value to `clamp(input, min=floor)`, not the implementation.
+    `CLIMATE_SCREEN_TEST_OK` after the fix, job 7713397 (debug, ~30s compute).
+  - **Not done yet, surfacing before any job beyond debug**: (1) an end-to-end bitwise
+    equivalence gate mirroring F2's `CLIMATE_DRIVER_EQUIV_OK`/`DRYAIR_OFF_EQUIV_OK` (the unit
+    tests prove pass-through at the exact hook level dry-air already uses and is end-to-end
+    gated for, but no PBS-level equivalence job has run for this specific change yet); (2) the
+    actual fine-tune — warm-start from B's `best_ckpt_mp0.tar` (`nf4_prod_b16_r1`), full 101-channel
+    `e3sm_alldata_full.yaml` (not F's nosoil config), `CONSERVE_SOIL_MOISTURE=1`, same recipe
+    family as `anneal_dryair` (Step 2) — queue/nodes/epochs need surfacing first (preemptable or
+    capacity, not debug). (3) No letter was assigned (A–H are already taken across two different
+    registries — checkpoint lineages and `polaris_makani_ace2_ports_handoff.md`'s mechanism
+    ports, where `E` is explicitly reserved/blocked); named `anneal_soilfix` instead, mirroring
+    how `anneal_dryair` itself was never given a letter.
+
+- **2026-10-04 (makani) — docs consolidation handoff revised after a 2-seed Opus review; the
+  review found the handoff itself committing the exact unverified-citation error it warns
+  against.** 2 independent `claude-opus-5-5` reviewers (feasibility lens, parsimony lens), run via
+  the Workflow tool after a raw `claude -p` subprocess attempt was blocked by this session's
+  auto-mode classifier (a separate gate from the login-node-vs-compute-node question, resolved in
+  favor of a login-node-equivalent run; Workflow was the sanctioned path, not a workaround).
+  Both independently verified real, checkable problems — spot-checked 2 of them before trusting
+  the rest: (1) `## Known issues / failed approaches (do NOT re-attempt)` really is at
+  CHANGELOG.md line 7769 of 7,926 total, a section the original handoff never pointed to despite
+  it being the most direct "what doesn't work and why" source in the repo; (2)
+  `polaris_makani_analysis_ensemble_handoff.md` really does have an eleventh-or-later trap beyond
+  the "9" the handoff quoted — line 53 literally reads "Tenth silent-failure trap of this
+  campaign." Other confirmed findings: the handoff's own scope count ("~70 files") was the
+  origin/main count (69), not this branch's (~180, across 91 `.md` + 4 undiscussed subdirectories
+  + `makani_port/` + `MONITOR_makani_streaming_driver.md`, all missed); the handoff and ~30 of its
+  own inputs exist **only** on `feat/makani-b-continuation-dryair`, not on `origin/main` — a fresh
+  worktree defaulting to `origin/main` would never see them, confirmed via
+  `git show origin/main:polaris_makani_docs_consolidation_handoff.md` → file not found there; the
+  CHANGELOG `(makani)` tag covers only entries from ~2026-09-19 on, missing older untagged ones;
+  `os.walk('.')` run from one worktree can only prove absence from that worktree, not "anywhere";
+  `qstat -xf` is a poor verification source (PBS purges history, and the shell rules cap it at
+  once per request); and the "every claim verified" standard was infeasible at this scale without
+  a tiering rule and an explicit stop point. Handoff rewritten incorporating all of the above:
+  added a "Step 0: branch and scope" section, a Tier-1/Tier-2 verification split with a stop
+  point, named the missing inputs, settled the archive-vs-header question (header only, never
+  move — moving breaks existing citations), and added an explicit "don't fix code you find
+  broken" scope guard. Not started — this and the prior entry record the handoff only.
+
+- **2026-10-04 (makani) — docs consolidation handoff written: `polaris_makani_docs_consolidation_handoff.md`.**
+  Prompted directly by the dangling-citation finding in the Step 2 climate-comparison entry just
+  below: makani_sfno's documentation (~70 files in `makani_sfno/docs/`, ~12 root
+  `polaris_makani_*_handoff.md` files, plus the CHANGELOG/TODO makani entries) has drifted enough
+  to cause a real, verified incident, not a hypothetical one. Handoff is docs-only (zero compute),
+  spells out a verify-before-citing discipline (don't propagate a citation you haven't opened),
+  and targets a merged `makani_sfno/KNOWLEDGE.md` organized by topic (checkpoint lineages,
+  hyperparameters, depth, mass conservation, scaling, climate screening, retired/contradicted
+  claims) with every entry tagged confirmed/broken/retired/unverified and cited to a primary
+  source. Not started — this entry records the handoff only. TODO.md P0 pointer added.
+
+- **2026-10-04 (makani) — Step 2 climate comparison: `anneal_dryair` (B-continuation, trained-with
+  dry-air conservation) survives the full 5-year protocol at epoch 24 (8/8 complete, matching
+  B22/B24), but its PS drift at 5 yr is NOT smaller than plain B's — the opposite of what the
+  1-year screen suggested. No pre-registered rule exists to call a winner at the 5-year horizon;
+  this is a measurement, not a verdict.**
+  - **Citation gap found before trusting anything:** the 2026-10-02/2026-10-03 CHANGELOG entries for
+    Step 1/Step 2 both cite `docs/2026-10-02_b_continuation_dryair_handoff.md` (§2, §2.3, §3) as the
+    source of the pre-registered outcome categories (a)/(b)/(c) used to read B22/B24's result. That
+    file **does not exist** anywhere in this worktree, on any local or remote branch, or in git
+    history (checked: `git log --all -- '*b_continuation*'` and `*dryair_handoff*`, zero hits; full
+    `os.walk` of the tree, zero hits). The underlying job data (7707597, 7650652, 7649647) are real
+    and independently verified from their CSVs/logs below, but the (a)/(b)/(c) framing has no
+    citable source. Used `polaris_makani_finetune_stability_handoff.md` §2b instead — genuinely
+    pre-registered (committed 2026-09-24, before any of today's jobs existed): survivors first, then
+    fewest `n_past_3sigma`, then smallest `|ps_drift_hpa@1460|`. That rule covers the 1-year screen
+    only; nothing pre-registers a 5-year-horizon ranking, so the 5-year numbers below are reported
+    without a verdict.
+  - **Stage-0 1-year screen, jobs 7711659 → 7711705 (`CLIMATE_SCREEN_SUMMARY_OK n=6`):** 6 checkpoints
+    from `fs_anneal_dryair_nf4_b16_rb01` (epochs 1, 21–24, `best_ckpt`=e24), same tool/truth/start
+    (2044 f1092) as the existing B/C1 numbers so they're directly comparable without re-running the
+    baseline. First attempt (7711659) **failed outright** — `TRUTH_MISSING_CHANNEL: ['TMQ']`, the
+    same pre-existing bug F3 already found and fixed; I'd pointed at the pre-fix
+    `screen_truth_2044f1092.npz` instead of the `..._tmq.npz` rebuild. Rollouts (the expensive part)
+    had already completed, so the resubmit reused them via `OUT_ROOT=` and only re-ran the cheap
+    summary step against the correct truth file — no wasted compute.
+    All 6 survived the full year, **zero** channels ever crossed 3σ, PS drift @1460 leads
+    **−0.04 to −0.49 hPa** — 60–1500× smaller than plain B's matched epochs at the same horizon
+    (B_e01 −31.0 hPa, B_e21 −58.0, B_e22 +0.67, B_e24 +4.64; `docs/2026-09-24_climate_screen_7649647.csv`).
+  - **Did not stop there:** the post-hoc dry-air correction applied to these *same* plain-B
+    checkpoints (`...7650652_dryair_on.csv`) looked just as clean at 1 year (−0.07 to +0.30 hPa) and
+    then went 8/8 non-finite by 2.28–2.48 yr in the 5-year protocol (job 7707597, 2026-10-02 entry
+    below) — exactly the trap a 1-year-only read can't see. So the real test has to be the 5-year
+    protocol, same as B22/B24/B01.
+  - **5-year protocol, job 7711720 (`CLIMATE_RUN_OK arms='DRYAIR24 DRYAIR01' members=8`, 12 min
+    compute on debug), 8 members × 2 checkpoints, same 2044-Oct-start/2049 protocol as 7707597:**
+    | arm | survival | PS drift @ ~5 yr (8 members) | first >3σ |
+    |---|---|---|---|
+    | **DRYAIR24** (e24, 24 annealed epochs, trained-with) | **8/8 complete**, zero truncations | −9.5 to −25.6 hPa (med ≈ −21) | `V_l00`/`V_l01`, leads 1292–2149 (≈0.88–1.47 yr) |
+    | DRYAIR01 (e01, 1 epoch, trained-with) | 8/8 **non-finite** (PS), leads 5661–6046 (≈3.88–4.14 yr) | N/A (diverged) | `V_l00`/`U_l00`/`RELHUM_l05`/`T_l00`, leads 1413–2520 (≈0.97–1.73 yr) |
+    | B22 (plain, for reference) | 8/8 finite | −6.1 to −8.8 hPa (med ≈ −6.8) | leads 1545–2088 (≈1.06–1.43 yr) |
+    | B24 (plain, for reference) | 8/8 finite | +13.0 to +17.5 hPa (med ≈ +16) | leads 1394–2010 (≈0.95–1.37 yr) |
+    | B01 + `--dry-air-fix=on` (post-hoc, for reference) | 8/8 non-finite | N/A (diverged) | leads 1157–1680 (≈0.79–1.15 yr), truncates 2.28–2.48 yr |
+  - **Reading, stated as measurement not verdict (no pre-registered 5-yr rule exists):** training
+    with dry-air conservation fixes the catastrophic failure mode of applying it post-hoc — DRYAIR24
+    survives clean to 5 years like B22/B24, and even 1 epoch of it (DRYAIR01) pushes the post-hoc
+    arm's 2.3–2.5 yr collapse out to 3.9–4.1 yr. **But the 1-year screen's 60–1500× smaller PS-drift
+    advantage does not hold at 5 years**: DRYAIR24's end-of-run drift (med ≈ −21 hPa) is larger in
+    magnitude than B22's (−6.8) and in the same ballpark as B24's (+16, opposite sign). First->3σ
+    timing for DRYAIR24 is indistinguishable from plain B22/B24 (~0.9–1.5 yr either way) — dry-air
+    training doesn't delay or prevent the standard `V_l00`/`RELHUM` instability onset; it just
+    happens not to blow up in absolute PS by year 5, same as B22/B24 already did without it. So on
+    this evidence, trained-with dry-air conservation buys **survival parity with the best existing B
+    checkpoints**, not a demonstrated mass-drift improvement over them — the opposite of what the
+    cheap 1-year screen alone would have suggested. Needs jesswan before any interpretation beyond
+    this measurement (§7 of the finetune-stability handoff: changing/adding a conservation
+    constraint is her call).
+  - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_screen_7711659/` (1-yr screen, both attempts)
+    and `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7711720/` (5-yr protocol; `readout.log` has
+    every member's full drift series).
+
+- **2026-10-03 (makani) — F3 result: D7 = "neither; F not shippable as screened" — none of F's 8
+  checkpoints survive 1 year, raw or EMA, any epoch. A bigger finding than D7 itself.** Jobs
+  7709775+7709891 (f1092, rollouts + re-summary), 7709776+7709892 (f1156, same) —
+  `CLIMATE_SCREEN_OK` both. Two bugs surfaced and fixed along the way, not science results:
+  (1) the reused truth files predated `TRUTH_CHANNELS` gaining `TMQ`, so the summary step hard-
+  refused on `TRUTH_MISSING_CHANNEL` until rebuilt fresh (`screen_truth_2044f{1092,1156}_tmq.npz`,
+  new paths, old ones untouched) — rollouts didn't need rerunning, `OUT_ROOT` reuse skipped them;
+  (2) `ema_best`'s `ckpt_epoch` reads **30**, not 43 — confirms from inside the file (not inferred)
+  that §A3.1's "epoch-43 EMA unavailable, best-epoch confound uncontrolled" contingency is the live
+  case, not a hypothetical.
+  - **Every checkpoint went non-finite at PS within 1 year, at both starts**: raw epochs 1, 22, 39,
+    40, 41, 42, 43 and `ema_best` (epoch 30) all truncated between 281–1243 steps (≈2.3–10.2
+    months) — with ~1e16 Pa PS values immediately before truncation (genuine numerical blow-up,
+    not a gentle drift). First-failing channels are model-top `V_l00`/`RELHUM_l00/04` throughout,
+    the same signature as every other lineage screened so far.
+  - **D7 per the pre-registered rule (§A3.4 Step 1, survival gate):** since nothing survived even
+    one full year at either start, the rule's own language fires directly — **"neither; F not
+    shippable as screened."** Not a raw-vs-EMA preference; a verdict that F isn't ready to ship
+    either way.
+  - **The real finding is bigger than D7.** F and B share the same depth-4 (`n_future=4`) fine-tune
+    recipe; F's only structural difference is dropping soil channels. B survives 2.5–5 **years**
+    on the same protocol family; F survives 2–10 **months** — roughly 5–20× worse. First full
+    43-epoch-trained evidence that dropping soil severely destabilizes this recipe, independent of
+    raw-vs-EMA. Directly weakens G's case further (G drops even more channels than F) — see the
+    2026-10-03 "G reconsidered, not queued" entry below; this result strengthens that read, not a
+    new separate concern.
+  - **One directional signal, reported but not decisive:** `ema_best` lasted longest at both starts
+    (10.2 / 7.5 months vs raw's best 6.0 / 4.4 months) — consistent with EMA damping some
+    instability, not nearly enough to flip D7's verdict.
+  - Checkpoint list `polaris/climate_screen_f_d7.list`, bugfix `polaris/build_true_climatology.py`
+    (missing `scripts/` on `sys.path` — unrelated to F3 itself, found while re-checking the
+    fidelity-run job in parallel).
+
+- **2026-10-03 (makani) — F3 launched: jobs 7709775 (2044 f1092) + 7709776 (f1156), both starts per
+  §A3.2.** List `polaris/climate_screen_f_d7.list`: `raw_best`/`ema_best` (primary pair) + 6 raw
+  snapshots (e01, e22-midpoint, e39-e42, the last four before 43) per §A3.1's selection rule. **No
+  EMA snapshots exist** beyond `best_ckpt_ema_mp0.tar` (checked the actual checkpoint directory:
+  only one EMA file, no rotating `ckpt_mp0_ema_v*.tar`) — the epoch-43 matched-pair's EMA side is
+  genuinely unavailable, triggering §A3.1's documented "best-epoch confound uncontrolled"
+  contingency rather than a clean matched-pair control. Confirmed before trusting the existing
+  truth files (`screen_truth_2044f1092.npz`/`f1156.npz`, reused unchanged): `climate_screen_summary.py`'s
+  `drift()` pairs truth and model channels **by name** (`names.index(ch)`), not by index, so F's
+  99-channel set vs the files' 101-channel origin is safe — §A3.3's check (b) passes, no rebuild
+  needed. `DRY_AIR_FIX=off` per §A3.2 (D7 asks which checkpoint conserves mass *without* help).
+
+- **2026-10-03 (makani) — F3's missing prereg written: D7 (raw vs EMA) decision rule, drafted by a
+  3-process debate, committed.** `docs/2026-09-24_climate_screen_prereg.md` §A3. F3 was blocked on
+  a written-in-advance scoring rule for choosing F's raw vs EMA checkpoint (D7) -- without it,
+  running the screen and picking a winner after seeing the numbers would be exactly the
+  rationalization this project's prereg discipline exists to prevent. Produced by a 2-analyst
+  debate (Debater A: stability-first; Debater B: mass-conservation-first) + moderator, three
+  independent `claude-opus-5-5` processes run directly in-session **on the login node**, per
+  explicit operator override of the usual restriction (2026-10-03) -- no PBS compute-node job, no
+  Task/Agent tool (checked: not available in this session's toolset regardless). Process headroom
+  checked before/after each of the three: 117→127→140→123/256, no leak. Operator reviewed and
+  committed the moderator's output.
+  - **Core rule:** survival gates first (more surviving starts wins D7 outright, regardless of PS).
+    Among survivors, PS drift (`max(|drift@600|, |drift@1460|)`, averaged over shared starts)
+    decides, requiring a noise-scaled gap (≥ max(2 hPa, 20% of the larger value)) **and** agreement
+    at every shared start. `n_past_3sigma` breaks remaining ties. A matched-epoch (raw vs EMA, both
+    at epoch 43) pair controls for the best-epoch-selection confound separately from the "EMA
+    smooths" question. Default on any tie/no-separation/confound: **raw** — EMA has to show an
+    effect, not the other way around.
+  - **Moderator's ruling, where the debaters disagreed:** PS decides among survivors (B's position;
+    A's stability-ranking rule would have made PS effectively unreachable). B's proposed hard
+    mass-flag cutoff (10 hPa) was dropped as too noise-sensitive — replaced by the continuous
+    noise-scaled gap already in Step 2. A's survival-gate concern was kept in full.
+  - **Unblocks** NR's item #3 (F3+F4). F4 already passed (job 7709269). **F3 itself is not launched
+    by this commit** — only the prereg it needed.
+
+- **2026-10-03 (makani) — climate-fidelity scoring: 2-reviewer adversarial pass found real bugs,
+  all fixed, 12/12 tests pass.** Two independent `claude-opus-5-5` processes (adversarial bug-hunt
+  + from-scratch math re-derivation), run directly in-session per operator override of the
+  login-node Task/Agent restriction (explicit: "no do it overrule", after the risk was raised) --
+  checked process headroom before/after each (137→117/256, no leak), not via the PBS compute-node
+  path this time since the debug queue was per-user job-count capped. Both independently converged
+  on the same core bug: `build_true_climatology.py` assumed `config.json`'s `channel_names` was
+  the pack's *full* channel list needing an `out_idx` reduction; it's actually already the run's
+  own N_out-sized list for a subset run (confirmed against `eval_inference.py`'s resolver before
+  "fixing" it the wrong way). Also found: `global_stds`/`global_means` read from a separately
+  specified `--std-path` could silently drift out of channel-order alignment with the true
+  climatology; netCDF4's auto-mask on `_FillValue` cells was discarded by a bare `np.asarray()`,
+  letting ~9.97e36 fill sentinels enter the bias/RMSE math undetected; no grid/orientation check
+  between a member and the true climatology; the builder's own equivalence test was tautological
+  (computed "ground truth" via the same `dataset[idx]` loop it was checking -- confirmed empty by
+  rerunning the OLD test suite against the buggy code: passed 6/6 anyway). All fixed: channel names
+  now come from the same h5-cross-checked resolver `climate_rollout.py` uses; `global_means/stds`
+  + `lat`/`lon` now travel inside the true-climatology `.npz` itself (removed `--std-path` --
+  structurally can't misalign anymore); masked cells are filled with NaN and refused; grid mismatch
+  is a hard error. New tests: an independent h5-based ground-truth check (replacing the tautological
+  one) plus a seeded off-by-one fault test proving it actually goes red, and 4 scorer `main()`-level
+  contract tests (clean score, channel-mismatch/masked-cell/grid-mismatch refusal -- `main()` was
+  never called by any test before). `CLIMATE_FIDELITY_TEST_OK` 12/12, job 7709661.
+  Also: minimal rollout-reproduction instructions for jesswan,
+  `docs/2026-10-03_jesswan_climate_rollout_instructions.md`.
+
+- **2026-10-03 (makani) — F4 (`lrcheck`, job 7709269) PASSED: `MAKANI_MN_SCALING_OK`, 3 epochs,
+  `rc=0`, real per-channel validation RMSE logged throughout, no errors.** Confirms the launcher
+  loads F's checkpoint/config correctly (NR's item #3, "does the launcher load F?" — yes).
+  `fsF_lrcheck_nf4_b8_r1`.
+
+- **2026-10-03 (makani) — climate-fidelity scoring built for jesswan: true 5-year climatology vs
+  rollout.** Per her request, clarified first that instantaneous RMSE/ACC isn't meaningful at a
+  5-year lead (predictability horizon is ~2 weeks; any model's skill saturates to climatological
+  noise well before then) — what's meaningful is **mean-state fidelity**: does the rollout's
+  long-run climate match the real one. Built two scripts (`polaris/build_true_climatology.py`,
+  `polaris/score_climate_fidelity.py`) computing the true 2045-2049 time-mean from real data
+  (`valid/2045-2047.h5` + `test/2048-2049.h5`, reusing the same dataset/channel/normalization path
+  the eval pipeline already uses — never hand-parses raw h5 layout) and scoring each rollout
+  member's own `time_mean` (already written by `climate_driver.py`'s `MemberWriter`) against it:
+  area-weighted bias + pattern RMSE per channel, physical and σ units. Tests: streaming-vs-direct
+  equivalence for the builder, pure-math checks for the bias/RMSE weighting (identical→zero,
+  uniform offset→exact, pole-vs-equator weighting, bias-cancels-but-RMSE-doesn't).
+  `polaris_climate_fidelity_test.pbs` (debug, CPU-only pytest) submitted as job 7709505.
+  `polaris_climate_fidelity_review.pbs` — two independent `claude-opus-5-5` reviewers (adversarial
+  bug-hunt + from-scratch math re-derivation) on a compute node via the ALCF proxy, pattern from
+  `polaris_critic_handoff.pbs` — **not yet submitted**: hit the per-user queued-job cap (several
+  other pending jobs — `ace2_train`, `marshal`, `decrypto`, B's capacity job — already occupy
+  slots). Will retry once one clears; not cancelling any of them to make room.
+
+- **2026-10-03 (makani) — Step 2 launched: B-specific `anneal_dryair` (trained-with dry-air
+  conservation) on B_e01, plus F4 (`lrcheck`, the launcher load gate for F).** Resolved the
+  handoff's open "anneal" ambiguity first, from source (not a guess):
+  `polaris/submit_finetune_stability_arm.sh`'s own inline comment, written when the arm was first
+  built (operator request 2026-09-24): "T-anneal + the dry-air mass fix in every
+  training/validation/inference step. Differs from `anneal` in that one flag only." Confirmed
+  against `mass_fix.py`'s `DryAirFix.__call__`: the correction is full-strength, unscaled, every
+  call — no ramp/weight parameter exists anywhere in the code. "Anneal" names the pre-existing
+  LR schedule (CosineAnnealingLR, unrelated to the dry-air mechanism); there never was a second
+  reading to choose between.
+  - **Code**: `submit_finetune_stability_arm.sh`'s `CKPT` is now `${CKPT:-<A's best_ckpt>}`
+    (was hardcoded to A) — a one-line override so the same proven arm can warm-start from any
+    checkpoint, B included. Default (unset `CKPT`) behaviour for A-based arms is unchanged.
+  - **Job 7709268**: `CKPT=nf4_prod_b16_r1/training_checkpoints/best_ckpt_mp0.tar` (B_e01)
+    `QUEUE=capacity bash polaris/submit_finetune_stability_arm.sh anneal_dryair b01` →
+    `fs_anneal_dryair_nf4_b16_rb01`, `CONSERVE_DRY_AIR=1`, 24 epochs, 2 nodes, 12 h, **capacity**
+    (operator's choice, 2026-10-03 — capacity was free, reserved by convention for the single
+    longest job per project; G is currently on hold, see below, so nothing else was waiting on
+    the slot). Verified via `qstat -f` before and after: `PRETRAINED_CKPT`/`CONSERVE_DRY_AIR=1`
+    confirmed correct, not a stale default.
+  - **Job 7709269**: F4 (`lrcheck`) via `submit_subset_finetune_arm.sh F lrcheck`,
+    `PRETRAINED_CKPT`=F's `best_ckpt_mp0.tar` (the warm-start run that completed all 43 epochs,
+    see the entry below) → `FINETUNE_BASE_OK n_out=99`, debug, 1 node, 1 h. Answers "does the
+    launcher load F" per NR's `what to run next` table item #3.
+  - **F3 (climate screen: raw-best vs EMA-best vs snapshots, for D7) NOT launched.** Its own
+    stated gate — "the 99-channel addendum with a PS clause" — does not exist anywhere in the
+    repo (checked). Pre-registering a stability-scoring rule before running the screen is this
+    project's own established practice (same pattern as the B protocol's prereg); writing one on
+    the fly to unblock a job isn't a substitute. Held, not skipped.
+  - **G reconsidered, not queued.** NR's own default was already "accept G without TMQ/dry-air
+    *because* B_e22 held PS below 1 hPa/yr with no corrector" — Step 1 (above) confirmed that
+    holds over the full 5 years, not just 1, which only weakens G's case further. G's remaining
+    unique value (Z3_l17 loss-blindness fix, channel-matched comparison to ACE2-EAMv3) is real but
+    separate from the mass-conservation motivation. jesswan's TMQ decision (D6) was never actually
+    made. Operator's call to hold rather than queue, 2026-10-03.
+
+- **2026-10-02 (makani) — B-continuation handoff Step 1: B_e22 and B_e24 both run the full 5-year
+  protocol clean (8/8 finite); post-hoc dry-air on B_e01 is a clear negative result; fp32-feedback
+  arm measured no-op; RELHUM positivity clamp is mixed.** Per
+  `docs/2026-10-02_b_continuation_dryair_handoff.md` §2. Branch `feat/makani-b-continuation-dryair`
+  (cut from `feat/makani-port-main` @ `6d2357e0`, commit `dbcfe604`).
+  - **Checkpoints stabilised first** (handoff's own hazard warning): `ckpt_mp0_v1.tar` →
+    `ckpt_mp0_e22_stable.tar`, `ckpt_mp0_v3.tar` → `ckpt_mp0_e24_stable.tar`, both copied out of
+    `nf4_prod_b16_r1/training_checkpoints/` (the rotating slot) before anything else touched that
+    run. Epochs confirmed **from inside each file** by the job itself (`ckpt_epoch=22` / `=24` on
+    every member's own readout line) — matches the mtime ordering inferred beforehand (v0..v3 =
+    e21..e24, ~21 min apart), not just assumed.
+  - **Code** (gate: job **7707535**, `CLIMATE_DRIVER_TEST_OK` 34/34 + `CLIMATE_DRIVER_EQUIV_OK`
+    bitwise vs `rollout_one_ic` at chunk_len 40/7/1 on ckpt A — default behaviour unchanged):
+    `climate_driver.stream_rollout`/`run_member` gained opt-in `out_bias`/`out_scale` +
+    `feedback_fp32` params, reusing `rollout_driver`'s `force_positive` clamp instead of
+    duplicating it (both no-ops unless a caller passes them). `climate_rollout.py` gained
+    `--feedback-fp32` and `--force-positive {config,off,relhum}`, mirroring the existing
+    `--dry-air-fix` pattern. `polaris_climate_run.pbs`'s `ARMS` now accepts any name via
+    `RUNDIR_<ARM>`/`CKPT_<ARM>`/`FLAGS_<ARM>`, not just hardcoded A/B.
+  - **Job 7707597** (debug, 1 node, 18 min compute): 5 arms × 8 members, 2044 Oct starts, same
+    8-start/5-year protocol as 7649597. `CLIMATE_RUN_OK`. Results (global-mean PS drift, phys →
+    hPa; "first >3σ" = first channel past 3σ anom_rms):
+    | arm | survival | PS drift @ ~5yr (8 members) | first >3σ |
+    |---|---|---|---|
+    | **B22** (plain) | **8/8 finite**, zero truncations | −6.1 to −8.8 hPa (med ≈ −6.8) | `V_l00`/`V_l01`/`RELHUM_l00`, leads 1545–2088 (≈1.06–1.43 yr) |
+    | **B24** (plain) | **8/8 finite**, zero truncations | +13.0 to +17.5 hPa (med ≈ +16) | same channels, leads 1394–2010 (≈0.95–1.37 yr) |
+    | B22 + `--feedback-fp32` | 8/8 finite | **bit-identical to plain B22** at every reported lead | identical |
+    | B22 + `--force-positive=relhum` (18 ch) | 8/8 finite | mixed vs plain B22: 3/4 checked members smaller \|drift\| (e.g. −7.18→−3.59, −6.81→−4.87, −6.84→−4.61 hPa), 1/4 larger (−6.10→−6.53); crossing timing shifts both earlier and later across members | mixed |
+    | B01 (`best_ckpt_mp0.tar`) + `--dry-air-fix=on` | **8/8 non-finite**, channel PS, leads 3328–3614 (≈2.28–2.48 yr) | N/A (diverged) | `U_l00`/`T_l00`/`RELHUM_l05`/`V_l00`, leads 1157–1680 (≈0.79–1.15 yr) — earlier than B22/B24 |
+  - **Reading, against the handoff's pre-registered outcomes (§2.3):** B22 and B24 both survive the
+    full 5 years with bounded (not runaway) mass drift — a real improvement over every earlier B
+    lineage result (B_e01 fix-off: 7/8 non-finite, the one survivor at −269 hPa). Neither is a clean
+    match to outcome (a): the model top crosses 3σ at ~1–1.4 yr while |ΔPS| is still small (closer
+    to outcome b), **and** |ΔPS| keeps growing after that to several× the 1-year screen value by
+    5 yr (B22: 0.7→~7 hPa; B24: 4.6→~16 hPa) — outcome (c). Both effects are present; NR's own
+    ruling ("go by the timing, not by 'dies at PS'") anticipated exactly this ambiguity.
+  - **Dry-air on B01 is a clean negative, not "mixed."** Unlike the earlier post-hoc F result
+    (16→14 survivors), this is strictly worse on both counts: survival drops from 7/8 to 0/8, and
+    the surviving runs' failure point moves *earlier* (3328–3614 vs 3639–7339). The corrector did
+    not fix B01's problem on this checkpoint.
+  - **fp32-feedback measured a true no-op, not a bug in the new flag.** Per-member logs confirm the
+    flag fired correctly (`feedback_fp32=1`, `feedback_dtype=torch.float32`, vs plain B22's
+    `feedback_dtype=torch.bfloat16`), yet the resulting trajectories are bit-for-bit identical to
+    bf16 feedback at every reported lead out to 5 years. Most likely explanation (not confirmed by
+    reading the source — `Preprocessor2D.append_history` is in the installed `makani` package, not
+    this repo): the preprocessor's history buffer silently re-casts to a fixed dtype on the next
+    step regardless of what's fed in. Open item for whoever picks this up next, not resolved here.
+  - **Not run this session (per the handoff, held for F):** the trained-with `conserve_dry_air`
+    fine-tune on B_e01 (§3) — still blocked on F's current job (`7660250`) finishing.
+  - Raw outputs: `$MEMBER_ROOT/runs/makani_eval/climate_protocol_7707597/` (`readout.log` has every
+    member's full drift series; `member_*.log` has the per-member provenance line).
 
 - **2026-10-01 (makani/ACE2) — code-level audit of makani vs ACE2 landed; ACE2 5-year rollout test
   submitted.** Audit = debug job **7703518** (`polaris_makani_ace2_audit.pbs`, 4 Fable 5.1 section

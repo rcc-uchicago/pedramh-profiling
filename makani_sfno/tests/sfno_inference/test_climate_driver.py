@@ -617,3 +617,122 @@ def test_subset_stats_loaders_refuse_what_matches_neither_width(pack, tmp_path):
         cd.load_time_means_z(pack / "stats/time_means.npy", ref, std, H, W))
     with pytest.raises(cd.ClimateDriverError, match="STATS_CHANNEL_MISMATCH"):
         cd.load_time_means_z(tm_wide, ref, std, H, W)
+
+
+# ---------------------------------------------------------------------------
+# §9  force_positive clamp + fp32 feedback (makani-B-continuation handoff,
+#     2026-10-02, §2 item 4: the fp32-feedback and positivity-clamp arms).
+# ---------------------------------------------------------------------------
+
+class ConstWrapper(torch.nn.Module):
+    """Ignores its input; always predicts ``value`` on ``channel``, 0 elsewhere."""
+
+    def __init__(self, cs=CS, value=0.0, channel=0):
+        super().__init__()
+        self.preprocessor = _real_preprocessor(cs, 1)
+        self.channel, self.value = channel, value
+
+    def forward(self, inp):
+        self.preprocessor.append_unpredicted_features(inp)
+        out = torch.zeros(1, C_OUT, inp.shape[-2], inp.shape[-1])
+        out[0, self.channel] = self.value
+        return out
+
+
+class DtypeWrapper(MixWrapper):
+    """MixWrapper, but the returned prediction is cast to ``dtype`` (default
+    bf16) -- a stand-in for an autocast forward pass without needing CUDA."""
+
+    def __init__(self, dtype=torch.bfloat16, **kw):
+        super().__init__(**kw)
+        self.dtype = dtype
+        self.seen_input_dtypes = []
+
+    def forward(self, inp):
+        self.seen_input_dtypes.append(inp.dtype)
+        return super().forward(inp).to(self.dtype)
+
+
+def test_force_positive_is_a_noop_without_out_bias_scale(pack, yd):
+    """``run_member``'s calling convention: out_bias/out_scale absent (every
+    existing caller of ``stream_rollout`` directly) means the clamp never
+    fires, even if ``eval_params.force_positive_names`` is set."""
+    ep = _eval_params(pack)
+    ep.channel_names = [f"c{i}" for i in range(C_OUT)]
+    ep.force_positive_names = ["c0"]
+    preds = []
+
+    def on_step(k, pred):
+        preds.append(pred.clone())
+        return True
+
+    cd.stream_rollout(wrapper=ConstWrapper(value=-1e6), dataset=_dataset(yd, pack),
+                      ic_global_idx=FPY + 100, n_steps=2, chunk_len=2, eval_params=ep,
+                      device="cpu", on_step=on_step)
+    got = torch.cat(preds, 0)
+    assert torch.all(got[:, 0] == -1e6)
+
+
+def test_force_positive_clamps_the_configured_channel(pack, yd):
+    ep = _eval_params(pack)
+    ep.channel_names = [f"c{i}" for i in range(C_OUT)]
+    ep.force_positive_names = ["c0"]
+    out_bias, out_scale = rd._load_run_norm_stats(ep, "cpu")
+    floor_z = float(-out_bias[0, 0] / out_scale[0, 0])
+    preds = []
+
+    def on_step(k, pred):
+        preds.append(pred.clone())
+        return True
+
+    cd.stream_rollout(wrapper=ConstWrapper(value=floor_z - 50.0), dataset=_dataset(yd, pack),
+                      ic_global_idx=FPY + 100, n_steps=2, chunk_len=2, eval_params=ep,
+                      device="cpu", on_step=on_step, out_bias=out_bias, out_scale=out_scale)
+    got = torch.cat(preds, 0)
+    assert torch.allclose(got[:, 0], torch.full_like(got[:, 0], floor_z), atol=1e-5)
+    assert torch.all(got[:, 1] == 0.0)          # an unlisted channel is untouched
+
+
+def test_force_positive_leaves_channel_alone_above_the_floor(pack, yd):
+    ep = _eval_params(pack)
+    ep.channel_names = [f"c{i}" for i in range(C_OUT)]
+    ep.force_positive_names = ["c0"]
+    out_bias, out_scale = rd._load_run_norm_stats(ep, "cpu")
+    floor_z = float(-out_bias[0, 0] / out_scale[0, 0])
+    preds = []
+
+    def on_step(k, pred):
+        preds.append(pred.clone())
+        return True
+
+    cd.stream_rollout(wrapper=ConstWrapper(value=floor_z + 50.0), dataset=_dataset(yd, pack),
+                      ic_global_idx=FPY + 100, n_steps=2, chunk_len=2, eval_params=ep,
+                      device="cpu", on_step=on_step, out_bias=out_bias, out_scale=out_scale)
+    got = torch.cat(preds, 0)
+    assert torch.allclose(got[:, 0], torch.full_like(got[:, 0], floor_z + 50.0), atol=1e-5)
+
+
+def test_feedback_fp32_off_keeps_native_dtype(pack, yd):
+    wrapper = DtypeWrapper(dtype=torch.bfloat16)
+
+    def on_step(k, pred):
+        return True
+
+    info = cd.stream_rollout(wrapper=wrapper, dataset=_dataset(yd, pack), ic_global_idx=FPY + 100,
+                             n_steps=3, chunk_len=3, eval_params=_eval_params(pack), device="cpu",
+                             on_step=on_step)
+    assert info.feedback_dtype == "torch.bfloat16"
+    assert wrapper.seen_input_dtypes[1:] == [torch.bfloat16, torch.bfloat16]
+
+
+def test_feedback_fp32_on_upcasts_the_fed_back_state(pack, yd):
+    wrapper = DtypeWrapper(dtype=torch.bfloat16)
+
+    def on_step(k, pred):
+        return True
+
+    info = cd.stream_rollout(wrapper=wrapper, dataset=_dataset(yd, pack), ic_global_idx=FPY + 100,
+                             n_steps=3, chunk_len=3, eval_params=_eval_params(pack), device="cpu",
+                             on_step=on_step, feedback_fp32=True)
+    assert info.feedback_dtype == "torch.float32"
+    assert wrapper.seen_input_dtypes[1:] == [torch.float32, torch.float32]

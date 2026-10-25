@@ -490,6 +490,7 @@ _bools = {
     "override_lr": "OVERRIDE_LR",
     "strict_restore": "STRICT_RESTORE",
     "conserve_dry_air": "CONSERVE_DRY_AIR",   # DIAGNOSTIC mass fix, sfno_training/models/mass_fix.py
+    "conserve_soil_moisture": "CONSERVE_SOIL_MOISTURE",   # DIAGNOSTIC fix, sfno_training/models/soil_moisture_fix.py
 }
 for _key, _env in _bools.items():
     _val = _os.environ.get(_env)

@@ -1,0 +1,161 @@
+#!/bin/bash -l
+#PBS -N climate_fidelity_review
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Two independent Opus reviewers for build_true_climatology.py /
+# score_climate_fidelity.py (jesswan's climate-fidelity request, 2026-10-03),
+# on a COMPUTE node via the ALCF proxy -- pattern from polaris_critic_handoff.pbs
+# (login nodes must not run this: the claude CLI is a node.js process tree and
+# CLAUDE.md's shell rules apply; this session wrote the code under review, so
+# an in-session pass would share context with the author).
+#
+# Reviewer A (adversarial): find a correctness bug that would silently produce
+#   a WRONG number -- not style, not naming, only things that change the math.
+# Reviewer B (independent re-derivation): re-derive the indexing/area-weighting
+#   math from scratch against the stated contract and flag any mismatch,
+#   without reading reviewer A's conclusions.
+#
+# PASS = CLIMATE_FIDELITY_REVIEW_OK + two non-empty reports under
+# $MEMBER_ROOT/runs/climate_fidelity_review/<jobid>/. rc=0 is not the signal (#14).
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+
+OUT="${MEMBER_ROOT}/runs/climate_fidelity_review/${PBS_JOBID%%.*}"
+mkdir -p "${OUT}" || exit 2
+
+CODE="${OUT}/code_under_review.txt"
+{
+    echo "=== polaris/build_true_climatology.py ==="
+    cat "${MAKANI_ROOT}/polaris/build_true_climatology.py"
+    echo
+    echo "=== polaris/score_climate_fidelity.py ==="
+    cat "${MAKANI_ROOT}/polaris/score_climate_fidelity.py"
+    echo
+    echo "=== polaris/test_build_true_climatology.py ==="
+    cat "${MAKANI_ROOT}/polaris/test_build_true_climatology.py"
+    echo
+    echo "=== polaris/test_score_climate_fidelity.py ==="
+    cat "${MAKANI_ROOT}/polaris/test_score_climate_fidelity.py"
+} > "${CODE}"
+
+# ---- proxy: the ONLY route out from a compute node --------------------------
+export http_proxy="http://proxy.alcf.anl.gov:3128"
+export https_proxy="http://proxy.alcf.anl.gov:3128"
+export HTTP_PROXY="${http_proxy}" HTTPS_PROXY="${https_proxy}"
+export no_proxy="localhost,127.0.0.1" NO_PROXY="${no_proxy}"
+
+code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 https://api.anthropic.com/ || echo 000)
+echo "api.anthropic.com via proxy: HTTP ${code}"
+[ "${code}" != "000" ] || { echo "ERROR NO_ROUTE_VIA_PROXY"; exit 3; }
+
+CLAUDE="${HOME}/.local/bin/claude"
+[ -x "${CLAUDE}" ] || { echo "ERROR CLAUDE_CLI_MISSING ${CLAUDE}"; exit 2; }
+"${CLAUDE}" --version || true
+
+CONTRACT=$(cat <<'EOC'
+CONTRACT this code is supposed to satisfy:
+1. build_true_climatology.py computes the TRUE 5-year (2045-2049) time-mean
+   state, per channel, in PHYSICAL units, shape (N_out, H, W), by streaming
+   through a PlasimForcingDataset built over those years and averaging the
+   `tar` (target) tensor at every valid index in z-space, then de-normalising
+   ONCE at the end (de-norm is affine per channel, so sum-then-convert is
+   exact). It must cover (almost) every 6h frame from 2045-01-01 00:00 through
+   2049-12-31 18:00 (7300 frames total across the 5 files), with channel order
+   matching --run-dir's config.json channel_names exactly (so the saved .npz
+   lines up channel-for-channel with that run's own member_*.nc:time_mean).
+2. score_climate_fidelity.py compares a rollout member's time_mean field
+   (same shape/channel convention, already written by climate_driver.py's
+   MemberWriter) against that true climatology: per channel, AREA-WEIGHTED
+   (equiangular cos-latitude) bias = mean(member - true) and pattern RMSE =
+   sqrt(mean((member - true)^2)), both also reported divided by the channel's
+   global_std (sigma units). It must refuse silently-wrong input: a channel
+   order mismatch between the member and the true climatology must be a hard
+   error, not a silent misalignment.
+EOC
+)
+
+# ---- reviewer A: adversarial bug hunt ---------------------------------------
+{
+cat <<EOP
+You are an adversarial code reviewer. Below is Python code and its tests,
+newly written in this session, meant to satisfy the contract given. Find
+correctness bugs ONLY -- things that would make the computed numbers wrong,
+not style/naming/readability issues. Pay special attention to: off-by-one
+errors in dataset indexing, z-space vs physical-space ordering mistakes,
+axis/broadcast mistakes in the area-weighting math, channel-alignment
+assumptions that are asserted in prose but not actually checked in code, and
+whether the tests would actually catch the bugs you find (or whether they're
+too weak to). For each finding: quote the offending code, say exactly what
+input would trigger wrong output and what the wrong output would be, and
+what fixes it. Do not use any tools; output only the findings report, as a
+numbered list ordered by severity. If, after a genuine attempt, you find
+nothing substantive, output exactly: NO_SUBSTANTIVE_FINDINGS
+
+${CONTRACT}
+
+--- CODE UNDER REVIEW ---
+EOP
+cat "${CODE}"
+} > "${OUT}/prompt_adversarial.txt"
+
+# ---- reviewer B: independent re-derivation ----------------------------------
+{
+cat <<EOP
+You are re-deriving this code's math from scratch, independently, against the
+contract given -- do not assume the implementation below is correct. Work out
+by hand: (a) which dataset index's target tensor corresponds to which real
+6-hourly timestamp, and whether the code's loop range actually covers
+2045-01-01 00:00 through 2049-12-31 18:00 as claimed; (b) the correct
+area-weighted bias/RMSE formula for cos-latitude weights that sum to 1, and
+whether the code's einsum/axis choices implement it correctly, including the
+weights' own normalisation; (c) whether accumulating in z-space and
+de-normalising once at the end is mathematically equivalent to de-normalising
+every frame first (show the algebra). Then compare your derivation against
+the actual code and report every mismatch. Do not use any tools; output only
+the report, as a numbered list. If your derivation matches the code exactly
+with no mismatches, output exactly: DERIVATION_MATCHES
+
+${CONTRACT}
+
+--- CODE UNDER REVIEW ---
+EOP
+cat "${CODE}"
+} > "${OUT}/prompt_rederive.txt"
+
+run_reviewer() {  # run_reviewer <label> <promptfile> <outfile>
+    echo "--- reviewer $1 start $(date -Iseconds) ---"
+    "${CLAUDE}" -p --model claude-opus-5-5 < "$2" > "$3" 2> "${OUT}/$1.err"
+    rc=$?
+    lines=$(wc -l < "$3" 2>/dev/null || echo 0)
+    echo "--- reviewer $1 rc=${rc} lines=${lines} ---"
+    [ ${rc} -eq 0 ] && [ "${lines}" -ge 1 ]
+}
+
+ok=0
+run_reviewer adversarial "${OUT}/prompt_adversarial.txt" "${OUT}/report_adversarial.md" || ok=1
+run_reviewer rederive    "${OUT}/prompt_rederive.txt"    "${OUT}/report_rederive.md"    || ok=1
+
+if [ ${ok} -eq 0 ]; then
+    echo "CLIMATE_FIDELITY_REVIEW_OK ${OUT}"
+else
+    echo "ERROR CLIMATE_FIDELITY_REVIEW_FAILED (see ${OUT}/*.err)"
+    tail -3 "${OUT}"/*.err 2>/dev/null
+fi
+echo "=== done $(date -Iseconds) ==="
+exit ${ok}

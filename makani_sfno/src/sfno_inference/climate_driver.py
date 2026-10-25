@@ -47,6 +47,8 @@ from typing import Callable, Sequence
 import numpy as np
 import torch
 
+from sfno_inference.rollout_driver import _apply_force_positive, _force_positive_setup
+
 logger = logging.getLogger(__name__)
 
 
@@ -289,6 +291,9 @@ def stream_rollout(
     eval_params,
     device,
     on_step: Callable[[int, torch.Tensor], bool],
+    out_bias: torch.Tensor | None = None,
+    out_scale: torch.Tensor | None = None,
+    feedback_fp32: bool = False,
     assert_contract: bool = True,
 ) -> StreamInfo:
     """Roll ``n_steps`` leads from ``ic_global_idx`` holding one state.
@@ -299,6 +304,17 @@ def stream_rollout(
 
     ``dataset`` must have ``n_future == 0`` (``valid_autoreg_steps=0``): the IC
     fetch then reads one target frame, not a K-frame block.
+
+    ``out_bias``/``out_scale``: same tensors ``rollout_one_ic`` loads via
+    ``_load_run_norm_stats``, ``(1, N_out, 1, 1)`` on ``device``. Both ``None``
+    (the default) is a no-op; otherwise they drive ``rollout_driver``'s
+    ``force_positive_names`` clamp (DIAGNOSTIC, off unless ``eval_params`` names
+    channels — makani-B-continuation handoff §2 item 4).
+
+    ``feedback_fp32``: cast the prediction to fp32 before feeding it back as the
+    next step's state, instead of leaving it at ``pred``'s native (autocast)
+    dtype. Off by default, which keeps this function bitwise identical to
+    before this parameter existed (handoff §2 item 4, the fp32-feedback arm).
     """
     if dataset.n_future != 0:
         raise ClimateDriverError(
@@ -320,6 +336,11 @@ def stream_rollout(
 
     autocast_enabled = bool(eval_params.amp_enabled) and (torch.device(device).type == "cuda")
     autocast_dtype = eval_params.amp_dtype if autocast_enabled else torch.float32
+
+    pos_idx, pos_floor_z = (
+        _force_positive_setup(eval_params, out_bias, out_scale)
+        if out_bias is not None and out_scale is not None else (None, None)
+    )
 
     feedback_dtype = ""
     inpt = None
@@ -353,18 +374,22 @@ def stream_rollout(
                 dtype=autocast_dtype,
             ):
                 pred = wrapper(inpt)
+                pred = _apply_force_positive(pred, pos_idx, pos_floor_z)  # no-op unless configured
 
             if assert_contract:
                 assert pred.shape == (1, n_out, H, W), (
                     f"step {k}: pred shape {tuple(pred.shape)} != (1, {n_out}, {H}, {W})")
+
+            fed = pred.to(torch.float32) if feedback_fp32 else pred
             if not feedback_dtype:
-                # Logged, not changed: G2 must match rollout_one_ic as it is (§2b).
-                feedback_dtype = str(pred.dtype)
+                # Logged: the dtype actually fed back. Matches rollout_one_ic exactly
+                # (G2, §2b) when feedback_fp32 is off, the default.
+                feedback_dtype = str(fed.dtype)
 
             if not on_step(k, pred.detach().to(torch.float32).clone()):
                 return StreamInfo(k, True, feedback_dtype)
 
-            inpt = preprocessor.append_history(inpt, pred, local)
+            inpt = preprocessor.append_history(inpt, fed, local)
             if assert_contract:
                 assert inpt.shape == (1, n_state, H, W), (
                     f"step {k}: post-append_history inpt shape "
@@ -742,8 +767,14 @@ def run_member(
     frames_per_year: int = FRAMES_PER_YEAR,
     provenance: dict | None = None,
     assert_contract: bool = True,
+    feedback_fp32: bool = False,
 ) -> MemberResult:
-    """Roll one member from ``start=(year, frame)`` for ``n_steps`` leads; write its NetCDF."""
+    """Roll one member from ``start=(year, frame)`` for ``n_steps`` leads; write its NetCDF.
+
+    ``feedback_fp32``: see :func:`stream_rollout`. The ``force_positive_names``
+    clamp (same function) needs no argument here — it is read off ``eval_params``
+    and this function always has ``mean``/``std`` on hand to drive it.
+    """
     years = check_year_axis(dataset, frames_per_year)
     n_out = int(eval_params.N_out_channels)
     if len(channel_names) != n_out:
@@ -752,6 +783,8 @@ def run_member(
     out_idx = getattr(eval_params, "out_channels", None)
     mean = load_stats_f64(eval_params.global_means_path, n_out, "global_means", out_idx)
     std = load_stats_f64(eval_params.global_stds_path, n_out, "global_stds", out_idx)
+    out_bias = torch.as_tensor(mean, dtype=torch.float32, device=device).reshape(1, n_out, 1, 1)
+    out_scale = torch.as_tensor(std, dtype=torch.float32, device=device).reshape(1, n_out, 1, 1)
     H, W = len(lat), len(lon)
     tm_z = (load_time_means_z(time_means_path, mean, std, H, W, out_idx)
             if time_means_path else None)
@@ -821,7 +854,9 @@ def run_member(
     try:
         info = stream_rollout(wrapper=wrapper, dataset=dataset, ic_global_idx=ic,
                               n_steps=n_steps, chunk_len=chunk_len, eval_params=eval_params,
-                              device=device, on_step=on_step, assert_contract=assert_contract)
+                              device=device, on_step=on_step, out_bias=out_bias,
+                              out_scale=out_scale, feedback_fp32=feedback_fp32,
+                              assert_contract=assert_contract)
     except BaseException:
         writer.abort()
         raise
@@ -846,7 +881,8 @@ def run_member(
         chunk_len=chunk_len, frames_per_year=frames_per_year, calendar="noleap",
         truncated_at_step=reducer.truncated_at_step, truncated_channel=trunc_ch,
         feedback_dtype=info.feedback_dtype, amp_dtype=str(eval_params.amp_dtype),
-        amp_enabled=bool(eval_params.amp_enabled),
+        amp_enabled=bool(eval_params.amp_enabled), feedback_fp32=bool(feedback_fp32),
+        force_positive_names=list(getattr(eval_params, "force_positive_names", None) or []),
         year_files=[[Path(p).name, os.path.realpath(p)] for p in dataset.files_paths],
         handoffs=handoffs, time_means_path=str(time_means_path or ""),
         s_per_step=elapsed / max(info.n_steps_run, 1), wall_seconds=elapsed,
