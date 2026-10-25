@@ -1,0 +1,89 @@
+#!/bin/bash -l
+#PBS -N makani_climate_equiv
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Gates G1 + G2 of polaris_makani_streaming_driver_handoff.md, one debug job.
+#
+#   G1  tests/sfno_inference/test_climate_driver.py on CPU (handoff §5, tests
+#       1-8, each seeded fault asserted red inside the suite).
+#       PASS = CLIMATE_DRIVER_TEST_OK
+#   G2  scripts/climate_driver_equiv.py on one A100: streaming driver vs
+#       rollout_one_ic, ckpt A, 2048 frame 1092, K=56, chunk_len 40/7/1,
+#       bitwise, per lead. Pre-registered in
+#       docs/2026-09-24_climate_driver_g2_prereg.md before submission.
+#       PASS = CLIMATE_DRIVER_EQUIV_OK
+#
+# G2 runs even if G1 fails (the two answer different questions); the job's
+# final line says which gates are green. Key on the tokens (CLAUDE.md #14).
+#
+# Submit from makani_sfno/:   qsub polaris/polaris_climate_equiv.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_eval_inference.pbs -- module
+# ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
+# script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+RUN_DIR="${EXPROOT}/prod1n_b32_sgdr"
+CKPT="${RUN_DIR}/training_checkpoints/best_ckpt_mp0.tar"
+HOLDOUT="${MEMBER_ROOT}/data/e3sm_makani_alldata_production/test"
+
+echo "=== makani_climate_equiv: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null)"
+makani_env_report
+echo
+
+# --- G1: CPU-only by construction ---
+CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
+    "${MAKANI_ROOT}/tests/sfno_inference/test_climate_driver.py" 2>&1 | tail -40
+g1_rc=${PIPESTATUS[0]}
+if [ "${g1_rc}" -eq 0 ]; then
+    echo "CLIMATE_DRIVER_TEST_OK"
+else
+    echo "ERROR CLIMATE_DRIVER_TEST_FAILED rc=${g1_rc}"
+fi
+
+# --- G2: GPU; torch.distributed.run for makani's comm.init (see
+# polaris_eval_inference.pbs header, job 7632577) ---
+export CUDA_VISIBLE_DEVICES=0
+"${PY}" -m torch.distributed.run --standalone --nproc_per_node=1 \
+    "${MAKANI_ROOT}/scripts/climate_driver_equiv.py" \
+    --run-dir "${RUN_DIR}" --ckpt "${CKPT}" --holdout "${HOLDOUT}" \
+    --year 2048 --start-frame 1092 --K 56 --chunks 40 7 1 2>&1 \
+    | tee "${PBS_O_WORKDIR}/climate_equiv_${PBS_JOBID%%.*}.log" \
+    | grep -E "^(EQUIV|CLIMATE_DRIVER_EQUIV_OK|ERROR)|Error|error:" | head -30
+g2_ok=0
+grep -q "^CLIMATE_DRIVER_EQUIV_OK" "${PBS_O_WORKDIR}/climate_equiv_${PBS_JOBID%%.*}.log" && g2_ok=1
+
+echo "GATES g1=$([ "${g1_rc}" -eq 0 ] && echo green || echo red) g2=$([ "${g2_ok}" -eq 1 ] && echo green || echo red)"
+echo "=== makani_climate_equiv done $(date -Iseconds) ==="

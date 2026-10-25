@@ -1,0 +1,122 @@
+#!/bin/bash -l
+#PBS -N makani_climate_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Gate G3 of polaris_makani_streaming_driver_handoff.md: the streaming climate
+# driver (scripts/climate_rollout.py) on checkpoints A and B in parallel, one
+# member per GPU, from 2044 frame 1092 (Oct 1) for 600 leads (150 d). That
+# crosses 2044.h5 -> 2045.h5 at lead 368 and ends 2045-02-28 18:00.
+#
+# A = prod1n_b32_sgdr        (single-step production)
+# B = nf4_prod_b16_r1        (n_future=4, warm-started from A; job 7630639)
+# Both use best_ckpt_mp0.tar; the epoch read from inside the checkpoint is
+# printed and written to the NetCDF.
+#
+# This is a STABILITY measurement, n=1 per checkpoint. It is not a climate result.
+#
+# PASS = CLIMATE_SMOKE_OK. It requires, for BOTH members: a
+# CLIMATE_ROLLOUT_OK or CLIMATE_ROLLOUT_TRUNCATED token (a truncation is a
+# measurement, not a failure), the NetCDF on disk, and (untruncated runs) a
+# HANDOFF line at step=368 with forcing_direct_match=True. Each background PID
+# is waited on individually (no `set -e`), so a member cannot go missing silently.
+#
+# Knobs (-v): N_STEPS (600)  START_YEAR (2044)  START_FRAME (1092)
+#             CHUNK_LEN (40)  SNAPSHOT_EVERY (120)  OUT_ROOT
+# Submit from makani_sfno/:   qsub polaris/polaris_climate_smoke.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_eval_inference.pbs -- module
+# ordering differs per model on purpose (CLAUDE.md, "Writing a new submission
+# script").
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling"
+N_STEPS="${N_STEPS:-600}"
+START_YEAR="${START_YEAR:-2044}"
+START_FRAME="${START_FRAME:-1092}"
+CHUNK_LEN="${CHUNK_LEN:-40}"
+SNAPSHOT_EVERY="${SNAPSHOT_EVERY:-120}"
+JOB="${PBS_JOBID%%.*}"
+OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/climate_smoke_${JOB}}"
+SHA="$(cd "${REPO}" && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+mkdir -p "${OUT_ROOT}"
+
+echo "=== makani_climate_smoke: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}"
+echo "start=${START_YEAR}/${START_FRAME}  n_steps=${N_STEPS}  chunk_len=${CHUNK_LEN}  out=${OUT_ROOT}"
+makani_env_report
+echo
+
+declare -A RUNS=([A]=prod1n_b32_sgdr [B]=nf4_prod_b16_r1)
+declare -A GPU=([A]=0 [B]=1)
+declare -A PIDS
+for arm in A B; do
+    run_dir="${EXPROOT}/${RUNS[$arm]}"
+    ckpt="${run_dir}/training_checkpoints/best_ckpt_mp0.tar"
+    for _p in "${run_dir}/config.json" "${ckpt}"; do
+        [ -e "${_p}" ] || { echo "ERROR SMOKE_INPUT_MISSING: ${_p}"; exit 3; }
+    done
+    # Each arm gets its own symlinked years dir so the two never race on it.
+    CUDA_VISIBLE_DEVICES="${GPU[$arm]}" "${PY}" -m torch.distributed.run --standalone \
+        --nproc_per_node=1 "${MAKANI_ROOT}/scripts/climate_rollout.py" \
+        --run-dir "${run_dir}" --ckpt "${ckpt}" \
+        --start "${START_YEAR}" "${START_FRAME}" --n-steps "${N_STEPS}" \
+        --member-id "smoke_${arm}" --chunk-len "${CHUNK_LEN}" \
+        --snapshot-every "${SNAPSHOT_EVERY}" --zonal-mean \
+        --years-dir "${OUT_ROOT}/years_${arm}" \
+        --out "${OUT_ROOT}/member_${arm}.nc" --git-sha "${SHA}" \
+        > "${OUT_ROOT}/member_${arm}.log" 2>&1 &
+    PIDS[$arm]=$!
+    echo "launched arm ${arm} (${RUNS[$arm]}) on GPU ${GPU[$arm]} pid=${PIDS[$arm]}"
+done
+
+ok=1
+for arm in A B; do
+    wait "${PIDS[$arm]}"
+    rc=$?
+    log="${OUT_ROOT}/member_${arm}.log"
+    echo "--- arm ${arm} (${RUNS[$arm]}) rc=${rc} ---"
+    grep -E "^(member=|HANDOFF|PERF|STABILITY|CLIMATE_ROLLOUT_|ERROR)" "${log}" | head -12
+    if ! grep -qE "^CLIMATE_ROLLOUT_(OK|TRUNCATED)" "${log}"; then
+        echo "ERROR SMOKE_MEMBER_FAILED arm=${arm} rc=${rc} (see ${log})"; ok=0; continue
+    fi
+    [ -f "${OUT_ROOT}/member_${arm}.nc" ] || { echo "ERROR SMOKE_NO_NETCDF arm=${arm}"; ok=0; }
+    if grep -q "^CLIMATE_ROLLOUT_OK" "${log}" && \
+       ! grep -q "^HANDOFF step=368 .*forcing_direct_match=True" "${log}"; then
+        echo "ERROR SMOKE_HANDOFF_NOT_368 arm=${arm}"; ok=0
+    fi
+done
+
+if [ "${ok}" -eq 1 ]; then
+    echo "CLIMATE_SMOKE_OK arms=A,B n_steps=${N_STEPS} out=${OUT_ROOT}"
+fi
+echo "=== makani_climate_smoke done $(date -Iseconds) ==="
