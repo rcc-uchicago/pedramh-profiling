@@ -144,6 +144,172 @@ epochs); the next moves are a science read of it and an evaluation path — `TOD
 
 ## Decisions / changes log
 
+- **2026-09-24 (makani, cont.) — Stage 1 started: S1a green (`SCHED_TMAX=22`), T-anneal queued,
+  depth-8 fits, depth-16 OOMs.** Operator approved Stage 1 on `preemptable`, one arm at a time,
+  warm start A. Tooling `5a997a9d`: the harness gains one additive `_sched` line
+  (`scheduler_T_max` ← `SCHED_TMAX`); `submit_finetune_stability_arm.sh` is a sibling launcher
+  (`submit_nfuture_ladder.sh` is not edited); `lr_schedule_check.py` and
+  `polaris_lr_schedule_check.pbs` implement the S1a check.
+  - **S1a ✅** job **7649946** `S1A_OK`. Three readings agree:
+    (1) makani's own `get_scheduler` under torch 2.8.0: only `T_max=22` puts epoch 24 at 1e-6;
+    T_max 23 ends at 2.86e-6.
+    (2) The LR saved in all 24 C1 checkpoints and B's last 4 matches epoch e training at cosine
+    t = e − 2. A checkpoint is saved after `scheduler.step()`, so it holds the next epoch's LR.
+    C1's v0 holds exactly 4.000e-4.
+    (3) Short run **7649926** (`fs_lrcheck_nf4_b8_r1`, 3 epochs × 20 steps, `SCHED_TMAX=1`): the
+    rendered config carries `scheduler_T_max: 1`, and the LRs went 4e-4 → 1e-6 → 4e-4.
+    ⇒ Warmup and cosine step **once per epoch**, and **epoch 1 runs at a constant 4e-6**.
+    `submit_nfuture_ladder.sh:154-159`'s "entire first epoch was a ramp" is **wrong**. The script
+    is not edited, because it is protected.
+  - **T-anneal queued:** job **7650020**, `preemptable`, 2 nodes, 12 h, `fs_anneal_nf4_b16_r1`,
+    `SCHED_TMAX=22`, 25 checkpoints kept. Held on `queue_tags` (no free node); **do not resubmit**
+    (CLAUDE.md #12).
+  - **Probes** (`submit_nfuture_ladder.sh probe`, local batch 1, 1 node):
+    - depth 8, job **7650039**: trained clean, **peak torch 19.66 GB**, 7.10 samples/s over 4 GPUs.
+    - depth 16, job **7650263**: **CUDA OOM** on all 4 ranks. That matches the model's 46.4 GiB
+      prediction. T-d16 is blocked until activation recompute (`checkpointing_level`) is proven
+      bitwise on one step (handoff §3a.2).
+    - Both jobs report `rc=1` from the known `SCALING_CSV_SCHEMA_DRIFT` on the ladder CSV. Depth 8's
+      training itself returned rc 0. The Stage-1 arms write a new CSV.
+    - **T-d8 cost, estimated from the probe:** ~28 samples/s at 16 ranks and ~43.8k samples/epoch
+      gives ~1,550 s of training per epoch. That is ≈ 11–12 h for 24 epochs on 4 nodes, ≈ 45–50
+      node-hours.
+  - ⚠ **Isolation incident, caught by the monitor.** The dry-air fix (operator request) was first
+    edited in *this* worktree's `src/` while T-anneal was queued from it. The harness puts
+    `PBS_O_WORKDIR/src` first on `PYTHONPATH` (`:86`, `:120`), so the control arm would have
+    trained on uncommitted code. The files were copied out, and `src/`, `scripts/`, `polaris/` and
+    `tests/` were restored to HEAD `356dd2ea` before 7650020 started. The depth-16 probe
+    (19:34:59–19:37:13) did run with the flag-off hooks present. Those are pass-throughs, so its
+    OOM reading stands. **Rule: a worktree that has a queued or running training job is
+    read-only. Develop in another worktree.** The dry-air fix and the negativity probe continue
+    on `feat/makani-dryair-negativity` (worktree `dryair-negativity`).
+
+- **2026-09-24 (makani, cont.) — second-start re-screen: B epoch 22 is the Stage-0 winner, and PS
+  drift is a fixed property of each checkpoint, not noise.** Operator (first-hand): "re-screen first
+  and then do stage 1". Prereg addendum A1 (`a27c59b2` 19:16:44Z < `stime` 19:16:54Z) fixed the combined
+  rule before the job ran. Job **7649792** `CLIMATE_SCREEN_OK n=16`: B e01/e21–24 and C1's 11 one-year
+  survivors from **2044 f1156 (Oct 17)**. Output `$MEMBER_ROOT/runs/makani_eval/climate_screen_7649792/`, CSV
+  `makani_sfno/docs/2026-09-24_climate_screen_7649792_f1156.csv`.
+
+  | comb | label | survived both | n>3σ (sum) | mean abs PS@1460 hPa | rank Oct 1 | rank Oct 17 | PS@1460 Oct 1 / Oct 17 |
+  |---|---|---|---|---|---|---|---|
+  | 1 | **B_e22** | yes | 0 | 0.6 | 1 | 1 | +0.67 / −0.46 |
+  | 2 | B_e24 | yes | 0 | 4.6 | 2 | 2 | +4.64 / +4.54 |
+  | 3 | B_e21 | yes | 1 | 57.2 | 3 | 5 | −57.96 / −56.49 |
+  | 4 | B_e01 | yes | 2 | 31.5 | 8 | 3 | −30.98 / −31.98 |
+  | 5 | C1_e18 | yes | 2 | 50.6 | 10 | 4 | −51.10 / −50.18 |
+  | 6 | C1_e24 | yes | 3 | 25.7 | 7 | 6 | −26.49 / −24.95 |
+  | 7 | C1_e20 | yes | 3 | 62.9 | 11 | 8 | −57.56 / −68.27 |
+  | 8 | B_e23 | yes | 4 | 68.8 | 12 | 9 | −68.09 / −69.51 |
+  | 9 | C1_e12 | yes | 5 | 27.7 | 13 | 7 | −25.33 / −30.08 |
+  | 10 | C1_e19 | yes | 5 | 48.9 | 9 | 10 | −46.29 / −51.49 |
+  | 11 | C1_e13 | yes | 7 | 81.6 | 15 | 11 | −81.27 / −82.00 |
+  | 12 | C1_e23 | yes* | 102 | — | 6 | 13 | −13.6 / −1.7e16 |
+  | 13 | C1_e03 | yes | 132 | 472.4 | 19 | 12 | −152 / −793 |
+  | 14–16 | C1_e14, C1_e09, C1_e07 | no (die at 1370 / 778 / 1433 from Oct 17) | | | | | |
+
+  - **Winner by rule A1: `B_e22` = `nf4_prod_b16_r1/training_checkpoints/ckpt_mp0_v1.tar`**, rank 1 at
+    both starts (the A1 condition is top-3 at each). n=2 starts. ⚠ `ckpt_mp0_v1.tar` is a rotating
+    version slot: resuming `nf4_prod_b16_r1` would overwrite it. Do not resume that run. Copy the file
+    to a stable name before the protocol run.
+  - **PS drift is reproducible per checkpoint** to ~1–2 hPa across the two starts (B e21 −58/−56,
+    e22 +0.7/−0.5, e23 −68/−70, e24 +4.6/+4.5). The epoch-to-epoch swing seen in 7649647 is therefore a
+    **fixed mass bias that each checkpoint carries**, not chaotic sensitivity to the IC. Consecutive
+    epochs of one run differ by up to 70 hPa/yr. Validation loss cannot see this. The trajectory-level
+    screen can.
+  - Survival is **not** reproducible for C1: e07, e09 and e14 survive from Oct 1 and die from Oct 17.
+    All 5 B checkpoints survive both starts. Depth reread at Oct 17 alone: B above C1 at both matched
+    epochs present (e23, e24); the combined order is headed by B. That is consistent with "depth 4 helps".
+  - ⚠ `survived` means finite, not sane: C1 e23 stays finite from Oct 17 while its global means reach
+    ~1e16. Its 101 channels past 3σ rank it low anyway. A reader of `survived` alone would be misled.
+  - Next: Stage 1 (operator-approved): S1a short run **7649926** (debug, `fs_lrcheck_nf4_b8_r1`), then
+    the LR check, probes at depth 8/16, then T-anneal on `preemptable`.
+
+- **2026-09-24 (makani) — Stage-0 stability screen: depth 4 helps survival, more epochs help, and
+  mass loss is the rule. Operator decision on Stage 1 pending.** Branch `feat/makani-finetune-stability`
+  (cut from `feat/makani-climate-driver` @ `d8d884a2`), handoff `polaris_makani_finetune_stability_handoff.md`.
+  New files only: `makani_sfno/polaris/{climate_screen_summary.py, polaris_climate_screen.pbs,
+  polaris_climate_screen_test.pbs, climate_screen_stage0.list}`, `tests/test_climate_screen_summary.py`,
+  `docs/2026-09-24_climate_screen_prereg.md`, `docs/2026-09-24_climate_screen_7649647.csv`.
+  - **S0a ✅** job **7649642** `CLIMATE_SCREEN_TEST_OK`: 15/15 screen tests (real `MemberWriter`; seeded
+    faults shown red: a truncated member ranks last, drift sign, truth off by one lead as a start and
+    per lead) + 25/25 driver tests.
+  - **S0b ✅** prereg `7f6ecfb5` committed 18:59:57Z < screen `stime` 19:00:08Z.
+  - **S0c run ✅** job **7649647** `CLIMATE_SCREEN_OK n=38` (11 min for 38 one-year rollouts, 0.021–0.026
+    s/lead, 1.44 GiB). One rollout per checkpoint from 2044 f1092, 1460 leads. Drift = model − truth
+    global mean (`screen_truth_2044f1092.npz`, equiangular weights). Outputs:
+    `$MEMBER_ROOT/runs/makani_eval/climate_screen_7649647/`. Every `epoch_check` = ok (file→epoch
+    mapping confirmed from inside each checkpoint). Cross-check: A e243 truncates at lead 595 again,
+    the same as job 7649567.
+
+    | rank | label | surv | trunc | med3σ | n>3σ | PS@600 hPa | PS@1460 hPa | T17 K | Z10 m | TREFHT K | first >3σ |
+    |---|---|---|---|---|---|---|---|---|---|---|---|
+    | 1 | B_e22 | 1 | -1 | -1 | 0 | +0.6 | +0.7 | -0.4 | -3.9 | -0.3 |  |
+    | 2 | B_e24 | 1 | -1 | -1 | 0 | -2.7 | +4.6 | +1.8 | +53.2 | +1.7 |  |
+    | 3 | B_e21 | 1 | -1 | -1 | 0 | -27.2 | -58.0 | -1.4 | +254.1 | -1.4 |  |
+    | 4 | nf4p_r1_e01 | 1 | -1 | -1 | 0 | -26.2 | -62.9 | -2.9 | +268.0 | -3.1 |  |
+    | 5 | C1_e14 | 1 | -1 | -1 | 1 | -6.1 | -5.1 | +0.2 | +6.1 | +0.3 | V_l00@425 |
+    | 6 | C1_e23 | 1 | -1 | -1 | 1 | -4.8 | -13.6 | -0.3 | +64.7 | -0.4 | V_l00@716 |
+    | 7 | C1_e24 | 1 | -1 | -1 | 1 | -17.0 | -26.5 | -0.4 | +111.7 | -0.2 | V_l00@465 |
+    | 8 | B_e01 | 1 | -1 | -1 | 1 | -13.3 | -31.0 | -0.8 | +125.1 | -0.9 | V_l00@1458 |
+    | 9 | C1_e19 | 1 | -1 | -1 | 1 | -19.5 | -46.3 | -0.3 | +242.1 | -0.4 | V_l00@301 |
+    | 10 | C1_e18 | 1 | -1 | -1 | 1 | -30.4 | -51.1 | -0.9 | +223.7 | -0.8 | V_l00@243 |
+    | 11 | C1_e20 | 1 | -1 | -1 | 1 | -29.1 | -57.6 | -2.0 | +220.3 | -1.9 | V_l00@430 |
+    | 12 | B_e23 | 1 | -1 | -1 | 1 | -34.9 | -68.1 | -0.6 | +323.2 | -0.6 | SOILWATER_10CM@733 |
+    | 13 | C1_e12 | 1 | -1 | -1 | 3 | -8.2 | -25.3 | -1.0 | +106.8 | -0.9 | V_l00@640 |
+    | 14 | C1_e09 | 1 | -1 | -1 | 3 | -21.8 | -38.1 | -1.3 | +152.4 | -1.2 | V_l01@673 |
+    | 15 | C1_e13 | 1 | -1 | -1 | 3 | -49.6 | -81.3 | -0.9 | +395.9 | -0.9 | V_l00@670 |
+    | 16 | nf4p_r2_e01 | 1 | -1 | -1 | 6 | -49.2 | -148.5 | -9.3 | +644.4 | -8.6 | V_l00@867 |
+    | 17 | nf3p_r1_e01 | 1 | -1 | -1 | 18 | -56.1 | -246.9 | -7.0 | +1173.6 | -7.2 | RELHUM_l00@799 |
+    | 18 | crps_e01 | 1 | -1 | -1 | 30 | -66.1 | -206.9 | -3.6 | +1193.1 | -1.8 | SOILWATER_10CM@995 |
+    | 19 | C1_e03 | 1 | -1 | -1 | 33 | -40.6 | -152.1 | -11.3 | +815.4 | -11.0 | V_l00@355 |
+    | 20 | C1_e07 | 1 | -1 | 1442 | 70 | -47.2 | -318.8 | -74.0 | +1903.1 | -69.8 | V_l00@672 |
+    | 21 | C1_e05 | 0 | 1389 | 1234 | 101 | -60.6 | nan | nan | nan | nan | V_l00@400 |
+    | 22 | nf1p_r1_e01 | 0 | 1381 | 1220 | 101 | -89.4 | nan | nan | nan | nan | V_l00@536 |
+    | 23 | C1_e04 | 0 | 1204 | 1038 | 101 | -25.6 | nan | nan | nan | nan | V_l00@420 |
+    | 24 | C1_e21 | 0 | 1167 | 1021 | 101 | -26.9 | nan | nan | nan | nan | V_l00@562 |
+    | 25 | C1_e15 | 0 | 1095 | 931 | 101 | -14.4 | nan | nan | nan | nan | V_l00@526 |
+    | 26 | C1_e06 | 0 | 981 | 825 | 101 | +6.3 | nan | nan | nan | nan | V_l00@580 |
+    | 27 | C1_e08 | 0 | 948 | 804 | 101 | -21.4 | nan | nan | nan | nan | V_l00@286 |
+    | 28 | C1_e17 | 0 | 905 | 762 | 101 | -56.0 | nan | nan | nan | nan | V_l00@496 |
+    | 29 | nf1p_r2_e01 | 0 | 888 | 719 | 101 | -105.8 | nan | nan | nan | nan | V_l00@485 |
+    | 30 | C1_e02 | 0 | 874 | 716 | 101 | -39.7 | nan | nan | nan | nan | RELHUM_l04@585 |
+    | 31 | C1_e22 | 0 | 868 | 736 | 101 | -23.1 | nan | nan | nan | nan | RELHUM_l00@497 |
+    | 32 | C1_e16 | 0 | 751 | 620 | 101 | -68.0 | nan | nan | nan | nan | V_l00@313 |
+    | 33 | C1_e11 | 0 | 714 | 515 | 101 | -1709.6 | nan | nan | nan | nan | V_l00@349 |
+    | 34 | C1_e01 | 0 | 667 | 531 | 101 | blow-up | nan | nan | nan | nan | V_l00@158 |
+    | 35 | A_e200 | 0 | 664 | 554 | 101 | blow-up | nan | nan | nan | nan | V_l00@417 |
+    | 36 | C1_e10 | 0 | 640 | 478 | 101 | blow-up | nan | nan | nan | nan | RELHUM_l04@314 |
+    | 37 | A_e243 | 0 | 595 | 488 | 101 | blow-up | nan | nan | nan | nan | V_l00@382 |
+    | 38 | A_e220 | 0 | 490 | 382 | 101 | blow-up | nan | nan | nan | nan | RELHUM_l04@312 |
+
+  - **Reading by the pre-registered rules** (prereg §3; n=1 per checkpoint, one start date):
+    (1) **Depth 4 helps stability.** B ranks above C1 at **4 of 5** matched epochs (1, 21, 22, 24; C1 wins at 23).
+    All 5 B checkpoints survive the year with 0–1 channels past 3σ; only 2 of the 5 matched C1
+    epochs survive. The 1-epoch proxies agree: both nf1 die (leads 888, 1381), nf3 and both nf4 survive.
+    (2) **More epochs help at the fixed schedule.** C1 epochs 1–6 have 1 survivor (median 101
+    channels past 3σ), epochs 19–24 have 4 (median 1). The series is not monotone: e10, e11,
+    e21 and e22 still die. (3) **Mass:** 17 of 20 survivors have |PS drift @1460| > 10 hPa. Only
+    B e22 (+0.7), B e24 (+4.6) and C1 e14 (−5.1) are under. In B the sign and size swing between
+    neighbouring epochs (−58, +0.7, −68, +4.6 hPa for e21–24). (4) **The small-gap rule is not
+    triggered.** The top three span 57 hPa in |PS drift|. But the e21–24 swing says one start
+    date cannot rank neighbouring epochs, so B e22 is **not** named a winner. The upper-level
+    `V_l00` (model top) is still the first channel to leave range almost everywhere.
+  - **Stage 1 is indicated by §3.** Depth and epochs both matter, so the handoff's default is to
+    run T-anneal first. It needs operator decisions (queue: `preemptable`, ~18 node-hours; warm start
+    from A). Recommended before that, on debug (pre-authorized, ~5 min): re-screen B e01/e21–24 and
+    C1's 11 survivors (16 rollouts) from 2044 f1156, so the epoch swing is measured and not guessed.
+  - **S1a prep, read-only.** makani `driver.py:701-706` builds `SequentialLR([LinearLR(lr_start, 1 epoch),
+    CosineAnnealingLR(T_max)], milestones=[1])`. It steps once per epoch (`deterministic_trainer.py:380`);
+    `PlasimTrainer` overrides nothing. So the cosine counts from the end of warmup: epoch e≥2 runs at
+    t=e−2. **`SCHED_TMAX=22`** puts epoch 24 at `SCHED_MIN_LR`. B's epoch 24 ran at ≈3.54e-4 (89% of peak).
+    The handoff's 2-epoch S1a check cannot show the minimum, because epoch 2 is always at peak.
+    Use **3 epochs with `SCHED_TMAX=1`**, expecting LRs 4e-6, 4e-4, 1e-6. The printed LR settles
+    t=e−2 vs e−1, i.e. TMAX 22 vs 23. Shortening the epoch to fit debug (`_sample_limit`) is unverified.
+  - **For jesswan (handoff §7):** surviving is not conserving. The best-ranked checkpoints still
+    gain or lose tens of hPa of global-mean PS within a year. ACE2's `conserve_dry_air` is the
+    candidate fix, and it needs her sign-off.
+
 - **2026-09-24 (makani) — jesswan's multi-year protocol, inference only: neither A nor B yields an
   admissible 5-year climate.** Job **7649597** (`polaris/polaris_climate_run.pbs` @ `d8b301ea`,
   `CLIMATE_RUN_OK`, ~8 min of compute): 8 start dates (Oct 1, 5, …, 29 2044 = frames 1092+16i),

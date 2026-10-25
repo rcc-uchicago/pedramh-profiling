@@ -391,6 +391,7 @@ _sched = {
     "lr": "LR",
     "scheduler": "SCHED",
     "scheduler_T_0": "SCHED_T0",
+    "scheduler_T_max": "SCHED_TMAX",   # CosineAnnealingLR; counts from END of warmup (finetune-stability S1a)
     "scheduler_T_mult": "SCHED_TMULT",
     "scheduler_min_lr": "SCHED_MIN_LR",
     "lr_warmup_steps": "WARMUP_EPOCHS",

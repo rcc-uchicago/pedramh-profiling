@@ -1,0 +1,61 @@
+#!/bin/bash -l
+#PBS -N makani_climate_screen_test
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Gate S0a of polaris_makani_finetune_stability_handoff.md: unit tests for the
+# Stage-0 screen summary (tests/test_climate_screen_summary.py), CPU only.
+# Seeded faults (truncated member ranks last; drift sign; truth off by one lead)
+# are asserted red inside the suite. The climate-driver suite runs alongside
+# because the screen's member files come from its MemberWriter.
+#
+# PASS = CLIMATE_SCREEN_TEST_OK. Key on the token (CLAUDE.md #14).
+# Submit from makani_sfno/:   qsub polaris/polaris_climate_screen_test.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_equiv.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+echo "=== makani_climate_screen_test: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null)"
+
+CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
+    "${MAKANI_ROOT}/tests/test_climate_screen_summary.py" 2>&1 | tail -40
+rc=${PIPESTATUS[0]}
+CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
+    "${MAKANI_ROOT}/tests/sfno_inference/test_climate_driver.py" 2>&1 | tail -5
+rc_drv=${PIPESTATUS[0]}
+
+if [ "${rc}" -eq 0 ] && [ "${rc_drv}" -eq 0 ]; then
+    echo "CLIMATE_SCREEN_TEST_OK"
+else
+    echo "ERROR CLIMATE_SCREEN_TEST_FAILED screen_rc=${rc} driver_rc=${rc_drv}"
+fi
+echo "=== makani_climate_screen_test done $(date -Iseconds) ==="
