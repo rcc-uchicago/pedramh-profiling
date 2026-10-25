@@ -1,0 +1,171 @@
+#!/bin/bash -l
+#PBS -N makani_negativity_probe
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# How often do the moisture channels go negative in our rollouts?
+# (operator, 2026-09-24; ACE2 clamps its water/precip fields at 0 -- its
+# force_positive_names, ACE2_retrain/config_polaris.yaml:172-188.)
+#
+# Per checkpoint: scripts/negativity_rollout.py rolls START (default 2044 f1092)
+# for N_LEADS (default 1460 = 1 yr) with the unchanged climate-driver step and
+# records, per lead, the area-weighted % of cells < 0, the min and the mean
+# negative part for RELHUM_l00..l17, RHREFHT, PRECT, TMQ, SOILWATER_10CM.
+# Measurement only -- predictions are never modified.
+# Truth: the same statistics from the pack, every TRUTH_STRIDE leads (default 4 =
+# daily), built once per start into $MEMBER_ROOT/runs/makani_eval/.
+#
+# CKPTS="label=run_dir:ckpt ..." (run_dir relative to $EXPROOT, ckpt relative to
+# <run_dir>/training_checkpoints), four per round, one per GPU.
+# DRY_AIR_FIX=config|on|off is passed through (default config = off for all
+# existing runs).
+#
+# PASS = NEGATIVITY_PROBE_OK n=<members>. A truncated member is a measurement.
+# Submit from makani_sfno/:   qsub polaris/polaris_negativity_probe.pbs
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_screen.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+MEMBER_ROOT="${MEMBER_ROOT:-/eagle/projects/lighthouse-uchicago/members/mehta5}"
+EXPROOT="${EXPROOT:-${MEMBER_ROOT}/runs/makani_mn_scaling/e3sm_mn_scaling}"
+PACK="${PACK:-${MEMBER_ROOT}/data/e3sm_makani_alldata_production}"
+START_YEAR="${START_YEAR:-2044}"
+START_FRAME="${START_FRAME:-1092}"
+N_LEADS="${N_LEADS:-1460}"
+CHUNK_LEN="${CHUNK_LEN:-40}"
+TRUTH_STRIDE="${TRUTH_STRIDE:-4}"
+DRY_AIR_FIX="${DRY_AIR_FIX:-config}"
+# Default set: base model (dies ~day 150), depth-1 control e24, B e01, the Stage-0 winner B e22.
+CKPTS="${CKPTS:-A_e243=prod1n_b32_sgdr:ckpt_mp0_v242.tar C1_e24=c1_rollout_full_b16:ckpt_mp0_v23.tar B_e01=nf4_prod_b16_r1:best_ckpt_mp0.tar B_e22=nf4_prod_b16_r1:ckpt_mp0_v1.tar}"
+TRUTH="${TRUTH:-${MEMBER_ROOT}/runs/makani_eval/negativity_truth_${START_YEAR}f${START_FRAME}_s${TRUTH_STRIDE}.npz}"
+JOB="${PBS_JOBID%%.*}"
+OUT_ROOT="${OUT_ROOT:-${MEMBER_ROOT}/runs/makani_eval/negativity_${JOB}}"
+SHA="$(cd "${REPO}" && git rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+mkdir -p "${OUT_ROOT}"
+read -r -a ENTRIES <<< "${CKPTS}"
+
+echo "=== makani_negativity_probe: $(date -Iseconds) ==="
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}  start=${START_YEAR}f${START_FRAME}  leads=${N_LEADS}  n=${#ENTRIES[@]}  dry_air_fix=${DRY_AIR_FIX}  out=${OUT_ROOT}"
+makani_env_report
+echo
+
+declare -A RUN_OF CKPT_OF
+LABELS=()
+ok=1
+for e in "${ENTRIES[@]}"; do
+    label="${e%%=*}"; rest="${e#*=}"; run="${rest%%:*}"; ck="${rest#*:}"
+    [[ "${run}" = /* ]] || run="${EXPROOT}/${run}"
+    [[ "${ck}" = /* ]] || ck="${run}/training_checkpoints/${ck}"
+    if [ -z "${label}" ] || [ "${label}" = "${e}" ] || [ ! -f "${run}/config.json" ] || [ ! -f "${ck}" ]; then
+        echo "ERROR NEGATIVITY_BAD_ENTRY '${e}'"; ok=0; continue
+    fi
+    RUN_OF[$label]="${run}"; CKPT_OF[$label]="${ck}"; LABELS+=("${label}")
+done
+[ "${ok}" -eq 1 ] || { echo "=== aborted: bad CKPTS ==="; exit 4; }
+
+# Truth channels = the rollout script's default regex applied to the first run's names.
+mapfile -t TCH < <("${PY}" - "${RUN_OF[${LABELS[0]}]}/config.json" "${MAKANI_ROOT}/scripts" <<'PYEOF'
+import json, re, sys
+sys.path.insert(0, sys.argv[2])
+from negativity_rollout import DEFAULT_CHANNELS
+for n in json.load(open(sys.argv[1]))["channel_names"]:
+    if re.match(DEFAULT_CHANNELS, n):
+        print(n)
+PYEOF
+)
+echo "channels (${#TCH[@]}): ${TCH[*]}"
+
+TRUTH_PID=""
+if [ ! -f "${TRUTH}" ]; then
+    CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/negativity_summary.py" truth \
+        --pack "${PACK}" --start "${START_YEAR}" "${START_FRAME}" --n-leads "${N_LEADS}" \
+        --stride "${TRUTH_STRIDE}" --channels "${TCH[@]}" --out "${TRUTH}" \
+        > "${OUT_ROOT}/truth.log" 2>&1 &
+    TRUTH_PID=$!
+    echo "truth: building ${TRUTH} pid=${TRUTH_PID}"
+else
+    echo "truth: reusing ${TRUTH}"
+fi
+
+# Launched inline, NOT via $(function): `wait` must see each member as a child.
+for ((t = 0; t < ${#LABELS[@]}; t += 4)); do
+    declare -A PIDS=()
+    g=0
+    for ((j = t; j < t + 4 && j < ${#LABELS[@]}; j++)); do
+        label="${LABELS[$j]}"
+        CUDA_VISIBLE_DEVICES="${g}" "${PY}" -m torch.distributed.run --standalone \
+            --nproc_per_node=1 "${MAKANI_ROOT}/scripts/negativity_rollout.py" \
+            --run-dir "${RUN_OF[$label]}" --ckpt "${CKPT_OF[$label]}" \
+            --start "${START_YEAR}" "${START_FRAME}" --n-steps "${N_LEADS}" \
+            --member-id "${label}" --chunk-len "${CHUNK_LEN}" --dry-air-fix "${DRY_AIR_FIX}" \
+            --years-dir "${OUT_ROOT}/years/${label}" --out "${OUT_ROOT}/neg_${label}.npz" \
+            > "${OUT_ROOT}/neg_${label}.log" 2>&1 &
+        PIDS[$label]=$!
+        echo "launched ${label} gpu=${g} pid=${PIDS[$label]} ($(date +%T))"
+        g=$((g + 1))
+    done
+    for label in $(printf '%s\n' "${!PIDS[@]}" | sort); do
+        wait "${PIDS[$label]}"
+        rc=$?
+        log="${OUT_ROOT}/neg_${label}.log"
+        line=$(grep -E "^(NEGATIVITY_ROLLOUT_(OK|TRUNCATED)|ERROR)" "${log}" | tail -1)
+        perf=$(grep -E "^PERF" "${log}" | tail -1)
+        echo "  ${label} rc=${rc} ${perf} :: ${line}"
+        if ! grep -qE "^NEGATIVITY_ROLLOUT_(OK|TRUNCATED)" "${log}" || [ ! -f "${OUT_ROOT}/neg_${label}.npz" ]; then
+            echo "ERROR NEGATIVITY_MEMBER_FAILED ${label} (see ${log})"; ok=0
+        fi
+    done
+    unset PIDS
+done
+
+if [ -n "${TRUTH_PID}" ]; then
+    wait "${TRUTH_PID}"
+    tail -3 "${OUT_ROOT}/truth.log"
+    grep -q "^NEGATIVITY_TRUTH_OK" "${OUT_ROOT}/truth.log" || { echo "ERROR NEGATIVITY_TRUTH_FAILED"; ok=0; }
+fi
+
+NPZ=()
+for label in "${LABELS[@]}"; do
+    [ -f "${OUT_ROOT}/neg_${label}.npz" ] && NPZ+=("${OUT_ROOT}/neg_${label}.npz")
+done
+sum_ok=0
+if [ -f "${TRUTH}" ] && [ "${#NPZ[@]}" -gt 0 ]; then
+    CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/polaris/negativity_summary.py" summarize \
+        --truth "${TRUTH}" --csv "${OUT_ROOT}/negativity.csv" --md "${OUT_ROOT}/negativity.md" \
+        "${NPZ[@]}" > "${OUT_ROOT}/summary.log" 2>&1
+    cat "${OUT_ROOT}/summary.log"
+    grep -q "^NEGATIVITY_SUMMARY_OK" "${OUT_ROOT}/summary.log" && sum_ok=1
+fi
+[ "${sum_ok}" -eq 1 ] || ok=0
+[ "${#NPZ[@]}" -eq "${#LABELS[@]}" ] || ok=0
+
+[ "${ok}" -eq 1 ] && echo "NEGATIVITY_PROBE_OK n=${#NPZ[@]} out=${OUT_ROOT}"
+echo "=== makani_negativity_probe done $(date -Iseconds) ==="

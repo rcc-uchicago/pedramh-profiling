@@ -65,6 +65,9 @@ START_YEAR="${START_YEAR:-2044}"
 START_FRAME="${START_FRAME:-1092}"
 N_LEADS="${N_LEADS:-1460}"
 CHUNK_LEN="${CHUNK_LEN:-40}"
+# DRY_AIR_FIX=config|on|off -> climate_rollout.py --dry-air-fix (DIAGNOSTIC mass fix;
+# "on" applies it post hoc to checkpoints trained without it).
+DRY_AIR_FIX="${DRY_AIR_FIX:-config}"
 WALL_BUDGET_S="${WALL_BUDGET_S:-2880}"          # stop launching rounds after 48 min
 CKPT_LIST="${CKPT_LIST:-${MAKANI_ROOT}/polaris/climate_screen_stage0.list}"
 TRUTH="${TRUTH:-${MEMBER_ROOT}/runs/makani_eval/screen_truth_${START_YEAR}f${START_FRAME}.npz}"
@@ -81,7 +84,7 @@ else
 fi
 
 echo "=== makani_climate_screen: $(date -Iseconds) ==="
-echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}  start=${START_YEAR}f${START_FRAME}  leads=${N_LEADS}  n=${#ENTRIES[@]}  out=${OUT_ROOT}"
+echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=${SHA}  start=${START_YEAR}f${START_FRAME}  leads=${N_LEADS}  dry_air_fix=${DRY_AIR_FIX}  n=${#ENTRIES[@]}  out=${OUT_ROOT}"
 echo "list=${CKPTS:+CKPTS env}${CKPTS:-${CKPT_LIST}}  truth=${TRUTH}"
 makani_env_report
 echo
@@ -133,7 +136,7 @@ for ((t = 0; t < ${#LABELS[@]}; t += 4)); do
             --nproc_per_node=1 "${MAKANI_ROOT}/scripts/climate_rollout.py" \
             --run-dir "${RUN_OF[$label]}" --ckpt "${CKPT_OF[$label]}" \
             --start "${START_YEAR}" "${START_FRAME}" --n-steps "${N_LEADS}" \
-            --member-id "${label}" --chunk-len "${CHUNK_LEN}" \
+            --member-id "${label}" --chunk-len "${CHUNK_LEN}" --dry-air-fix "${DRY_AIR_FIX}" \
             --years-dir "${OUT_ROOT}/years/${label}" \
             --out "${OUT_ROOT}/screen_${label}.nc" --git-sha "${SHA}" \
             > "${OUT_ROOT}/screen_${label}.log" 2>&1 &

@@ -63,6 +63,10 @@ def _parse_args(argv=None) -> argparse.Namespace:
     p.add_argument("--git-sha", default="unknown")
     p.add_argument("--device", default="auto")
     p.add_argument("--no-assert-contract", action="store_true")
+    p.add_argument("--dry-air-fix", choices=("config", "on", "off"), default="config",
+                   help="Dry-air mass fix (sfno_training/models/mass_fix.py; DIAGNOSTIC). "
+                        "'config' = the run's conserve_dry_air (absent = off); 'on'/'off' "
+                        "override it, e.g. to apply it post hoc to a checkpoint trained without")
     return p.parse_args(argv)
 
 
@@ -101,6 +105,10 @@ def main(argv=None) -> int:
     score_start = tuple(args.score_start) if args.score_start else (start[0] + 1, 0)
 
     eval_params = load_eval_params(args.run_dir, K=1)       # valid_autoreg_steps = 0
+    trained_with_fix = bool(eval_params.get("conserve_dry_air", False))
+    if args.dry_air_fix != "config":
+        eval_params.conserve_dry_air = args.dry_air_fix == "on"
+    dry_air_fix = bool(eval_params.get("conserve_dry_air", False))
     pack = args.pack
     if pack is None:
         tdp = eval_params.train_data_path
@@ -124,7 +132,10 @@ def main(argv=None) -> int:
         ckpt_sha256_16=_sha256_prefix(args.ckpt), ckpt_epoch=_ckpt_epoch(args.ckpt),
         git_sha=args.git_sha, pack=str(pack), years_dir=str(years_dir),
         timestamp_axis=ts_mode, created=time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+        dry_air_fix=int(dry_air_fix), dry_air_fix_in_training=int(trained_with_fix),
     )
+    if dry_air_fix and wrapper.preprocessor.dry_air_fix is None:
+        raise RuntimeError("DRY_AIR_FIX requested but the wrapper's preprocessor has none")
     res = cd.run_member(
         wrapper=wrapper, dataset=dataset, eval_params=eval_params, device=device,
         start=start, n_steps=args.n_steps, score_start=score_start,
@@ -140,7 +151,7 @@ def main(argv=None) -> int:
             if torch.device(device).type == "cuda" else 0.0)
     print(f"member={args.member_id} ckpt_epoch={provenance['ckpt_epoch']} "
           f"sha={provenance['ckpt_sha256_16']} timestamps={ts_mode['mode']} "
-          f"feedback_dtype={res.feedback_dtype}")
+          f"feedback_dtype={res.feedback_dtype} dry_air_fix={int(dry_air_fix)}")
     for h in res.handoffs:
         print(f"HANDOFF step={h['step']} {h['from']}->{h['to']} local={h['to_local_idx']} "
               f"forcing_direct_match={h['forcing_direct_match']}")

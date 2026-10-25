@@ -10,7 +10,8 @@
 #PBS -j oe
 # ============================================================================
 # Gate S0a of polaris_makani_finetune_stability_handoff.md: unit tests for the
-# Stage-0 screen summary (tests/test_climate_screen_summary.py), CPU only.
+# Stage-0 screen summary (tests/test_climate_screen_summary.py) and the dry-air
+# mass fix (tests/sfno_training/test_mass_fix.py), CPU only.
 # Seeded faults (truncated member ranks last; drift sign; truth off by one lead)
 # are asserted red inside the suite. The climate-driver suite runs alongside
 # because the screen's member files come from its MemberWriter.
@@ -47,7 +48,9 @@ echo "=== makani_climate_screen_test: $(date -Iseconds) ==="
 echo "host=$(hostname)  PBS_JOBID=${PBS_JOBID}  sha=$(cd "${REPO}" && git rev-parse --short=7 HEAD 2>/dev/null)"
 
 CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
-    "${MAKANI_ROOT}/tests/test_climate_screen_summary.py" 2>&1 | tail -40
+    "${MAKANI_ROOT}/tests/test_climate_screen_summary.py" \
+    "${MAKANI_ROOT}/tests/sfno_training/test_mass_fix.py" \
+    "${MAKANI_ROOT}/tests/test_negativity.py" 2>&1 | tail -40
 rc=${PIPESTATUS[0]}
 CUDA_VISIBLE_DEVICES="" "${PY}" -m pytest -q -p no:cacheprovider \
     "${MAKANI_ROOT}/tests/sfno_inference/test_climate_driver.py" 2>&1 | tail -5

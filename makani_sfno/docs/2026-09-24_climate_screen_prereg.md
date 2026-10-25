@@ -90,6 +90,27 @@ operator asked for a broader re-screen than §3's top three.
 - Stage 1 goes ahead on the operator's instruction (2026-09-24) whatever this shows; the re-screen
   sets the reference those arms are compared against.
 
+## A2. Addendum (2026-09-24): inference-only dry-air fix — DIAGNOSTIC
+
+Operator asked for ACE2's dry-air conservation (`conserve_dry_air`) in the fine-tune; chose
+"test at inference first, then train" and "dry-air mass". It changes what the model computes, so
+it is a labelled diagnostic until jesswan signs off, and **no checkpoint is selected from it**.
+
+- Gate first: `polaris_dryair_equiv.pbs` must print `DRYAIR_OFF_EQUIV_OK` (flag off = bitwise the
+  pre-fix code) before any fix-on number is read.
+- Run: `polaris_climate_screen.pbs -v DRY_AIR_FIX=on,CKPT_LIST=climate_screen_rescreen_f1156.list`
+  from **2044 f1092**, i.e. the same 16 checkpoints and start as their fix-off rows in 7649647.
+- **Sanity (the fix acts):** every fix-on member has `|dry_drift_hpa@1460| < 1` (or at its last
+  lead). E3SM's own global dry-air mass is ~constant, so model − truth dry drift ≈ 0 by
+  construction. A violation means the fix is not wired, and nothing else is read.
+- **Effect, per checkpoint (fix-on vs its own fix-off row):** survived, `n_past_3sigma`, and
+  `|ps_drift_hpa@1460|` (now ≈ g·TMQ drift).
+  "Post-hoc fix helps stability" if, over the 16, **survivors increase by ≥ 2 and** median
+  `n_past_3sigma` does not rise. "Hurts" if survivors fall by ≥ 2 or median `n_past_3sigma` rises by ≥ 2.
+  Otherwise: "no stability effect; mass only". n = 1 start.
+- The training arm (`anneal_dryair`) is compared against T-anneal by §2's rule once both exist;
+  that comparison, not this one, is the fix's real test.
+
 ## 5. Threats
 
 - **One start date, one year.** Chaotic sensitivity can reorder close checkpoints; §3's re-screen rule
