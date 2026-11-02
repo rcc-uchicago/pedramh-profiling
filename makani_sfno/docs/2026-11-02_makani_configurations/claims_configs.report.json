@@ -2,9 +2,9 @@
  "run": "emitall",
  "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/makani-knowledge/makani_sfno/docs/2026-11-02_makani_configurations/claims_configs.json",
  "campaign": "makani SFNO configurations 2026-11-02",
- "register": "configuration tables (Tables 1a, 1b, 1c, 3) of 2026-11-02_makani_configurations.md",
+ "register": "configuration tables (Tables 1a, 1b, 1c, 3) and protocol detail bullets of 2026-11-02_makani_configurations.md",
  "quote_source": "2026-11-02_makani_configurations.md, as printed (parsed by build_claims.py)",
- "date_utc": "2026-11-02T21:18:12Z",
+ "date_utc": "2026-11-02T21:28:12Z",
  "receipts": [
   {
    "alias": "c",
@@ -13,8 +13,8 @@
    "status": "loaded"
   }
  ],
- "headlines_emitted": 515,
- "matches": 515,
+ "headlines_emitted": 568,
+ "matches": 568,
  "findings_count": 0,
  "FINDINGS": [],
  "table": [
@@ -5122,6 +5122,536 @@
   {
    "section": "Table 3",
    "label": "1-yr screen col4",
+   "mode": "printed",
+   "quoted": "164",
+   "note": "",
+   "emitted": 164,
+   "emitted_printed": "164",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "rolled out (\\d+) times",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "starts at frames (\\d+) \\+ (\\d+) \u00d7 i of the year ",
+   "mode": "printed",
+   "quoted": "1092",
+   "note": "",
+   "emitted": 1092,
+   "emitted_printed": "1092",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "starts at frames (\\d+) \\+ (\\d+) \u00d7 i of the year ",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "starts at frames (\\d+) \\+ (\\d+) \u00d7 i of the year ",
+   "mode": "printed",
+   "quoted": "2044",
+   "note": "",
+   "emitted": 2044,
+   "emitted_printed": "2044",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) starts four days apart",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "runs (\\d+) \u2212 (\\d+) \u00d7 i six-hour steps",
+   "mode": "printed",
+   "quoted": "7667",
+   "note": "",
+   "emitted": 7667,
+   "emitted_printed": "7667",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "runs (\\d+) \u2212 (\\d+) \u00d7 i six-hour steps",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "\\((\\d+) steps for the first member, (\\d+) for th",
+   "mode": "printed",
+   "quoted": "7667",
+   "note": "",
+   "emitted": 7667,
+   "emitted_printed": "7667",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "\\((\\d+) steps for the first member, (\\d+) for th",
+   "mode": "printed",
+   "quoted": "7555",
+   "note": "",
+   "emitted": 7555,
+   "emitted_printed": "7555",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "last 6-hour step of (\\d+)-(\\d+)-(\\d+)",
+   "mode": "printed",
+   "quoted": "2049",
+   "note": "",
+   "emitted": 2049,
+   "emitted_printed": "2049",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "last 6-hour step of (\\d+)-(\\d+)-(\\d+)",
+   "mode": "printed",
+   "quoted": "12",
+   "note": "",
+   "emitted": 12,
+   "emitted_printed": "12",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "last 6-hour step of (\\d+)-(\\d+)-(\\d+)",
+   "mode": "printed",
+   "quoted": "31",
+   "note": "",
+   "emitted": 31,
+   "emitted_printed": "31",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "selection window (\\d+)\u2013(\\d+)",
+   "mode": "printed",
+   "quoted": "2045",
+   "note": "",
+   "emitted": 2045,
+   "emitted_printed": "2045",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "selection window (\\d+)\u2013(\\d+)",
+   "mode": "printed",
+   "quoted": "2047",
+   "note": "",
+   "emitted": 2047,
+   "emitted_printed": "2047",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "reporting window (\\d+)\u2013(\\d+)",
+   "mode": "printed",
+   "quoted": "2048",
+   "note": "",
+   "emitted": 2048,
+   "emitted_printed": "2048",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "reporting window (\\d+)\u2013(\\d+)",
+   "mode": "printed",
+   "quoted": "2049",
+   "note": "",
+   "emitted": 2049,
+   "emitted_printed": "2049",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "start set R \\(frames (\\d+) \\+ (\\d+) \u00d7 i\\)",
+   "mode": "printed",
+   "quoted": "364",
+   "note": "",
+   "emitted": 364,
+   "emitted_printed": "364",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "start set R \\(frames (\\d+) \\+ (\\d+) \u00d7 i\\)",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "over the (\\d+) member pairs",
+   "mode": "printed",
+   "quoted": "28",
+   "note": "",
+   "emitted": 28,
+   "emitted_printed": "28",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "mode": "printed",
+   "quoted": "9",
+   "note": "",
+   "emitted": 9,
+   "emitted_printed": "9",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "median of that over the (\\d+) members",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "all (\\d+) members reach the end",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "at most (\\d+) % of the globe",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "changes by at most (\\d+) hPa",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "at most (\\d+) of the (\\d+) groups drift",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "at most (\\d+) of the (\\d+) groups drift",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "more than (\\d+)\\s+interannual standard deviation",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "mode": "printed",
+   "quoted": "12",
+   "note": "",
+   "emitted": 12,
+   "emitted_printed": "12",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "mode": "printed",
+   "quoted": "2048",
+   "note": "",
+   "emitted": 2048,
+   "emitted_printed": "2048",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "mode": "printed",
+   "quoted": "2049",
+   "note": "",
+   "emitted": 2049,
+   "emitted_printed": "2049",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) six-hour steps = (\\d+) h = (\\d+) days",
+   "mode": "printed",
+   "quoted": "56",
+   "note": "",
+   "emitted": 56,
+   "emitted_printed": "56",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) six-hour steps = (\\d+) h = (\\d+) days",
+   "mode": "printed",
+   "quoted": "336",
+   "note": "",
+   "emitted": 336,
+   "emitted_printed": "336",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) six-hour steps = (\\d+) h = (\\d+) days",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) target times; for each, (\\d+) forecasts",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) target times; for each, (\\d+) forecasts",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "Each member is a (\\d+)-step forecast",
+   "mode": "printed",
+   "quoted": "56",
+   "note": "",
+   "emitted": 56,
+   "emitted_printed": "56",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "lags of (\\d+)\\s+to (\\d+) steps \\(starts are (\\d+",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "lags of (\\d+)\\s+to (\\d+) steps \\(starts are (\\d+",
+   "mode": "printed",
+   "quoted": "56",
+   "note": "",
+   "emitted": 56,
+   "emitted_printed": "56",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "lags of (\\d+)\\s+to (\\d+) steps \\(starts are (\\d+",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "first start (\\d+) of test file (\\d+)",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "first start (\\d+) of test file (\\d+)",
+   "mode": "printed",
+   "quoted": "2048",
+   "note": "",
+   "emitted": 2048,
+   "emitted_printed": "2048",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "the sweep had (\\d+)\\s+rollouts",
+   "mode": "printed",
+   "quoted": "21",
+   "note": "",
+   "emitted": 21,
+   "emitted_printed": "21",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "One rollout per checkpoint, (\\d+) six-hour steps",
+   "mode": "printed",
+   "quoted": "1460",
+   "note": "",
+   "emitted": 1460,
+   "emitted_printed": "1460",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "from (\\d+) frame (\\d+) \\(a second\\s+start at fra",
+   "mode": "printed",
+   "quoted": "2044",
+   "note": "",
+   "emitted": 2044,
+   "emitted_printed": "2044",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "from (\\d+) frame (\\d+) \\(a second\\s+start at fra",
+   "mode": "printed",
+   "quoted": "1092",
+   "note": "",
+   "emitted": 1092,
+   "emitted_printed": "1092",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "from (\\d+) frame (\\d+) \\(a second\\s+start at fra",
+   "mode": "printed",
+   "quoted": "1156",
+   "note": "",
+   "emitted": 1156,
+   "emitted_printed": "1156",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) screen jobs, (\\d+) screen labels",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) screen jobs, (\\d+) screen labels",
    "mode": "printed",
    "quoted": "164",
    "note": "",

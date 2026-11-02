@@ -459,7 +459,7 @@ files named in `configs.json` (`k56_arms`).
 ### Table 3. Evaluation protocols (configuration only)
 
 As Table 3 shows, four protocols were used; their settings are the defaults of the named scripts, read by the
-extractor. The five-year protocol's score and gates are those of the 2026-10-09 pre-registration.
+extractor. Table 3 is the summary; the list after it spells out each protocol. The five-year protocol's score and gates are those of the 2026-10-09 pre-registration.
 
 | protocol | members / ICs | start | length | what is scored, and how | source |
 |---|---|---|---|---|---|
@@ -468,9 +468,66 @@ extractor. The five-year protocol's score and gates are those of the 2026-10-09 
 | **Lagged ensemble** | 32 targets × 14 members (starts 4 steps apart) | first start 0, test file 2048 | 56 steps; member lags 4 … 56 steps | ensemble mean and CRPS per target; for G4D16, 21 rollouts | `polaris_eval_inference.pbs` (`IC_MODE=lagged`), G4D16 prereg |
 | **1-yr screen** | one rollout per checkpoint | year 2044, frame 1092; second start 1156 | 1460 six-hour steps (one year) | survival and drift against the screen truth; retired as a selection gate by the pipeline-comparison prereg. 14 screen jobs, 164 screen labels on disk | `polaris_climate_screen.pbs` |
 
-Five-year members are rolled 4 at a time, one per GPU, with `climate_rollout.py`; a member that goes non-finite
-stops and is counted as a measurement (`CLIMATE_ROLLOUT_TRUNCATED`). EMA arms are rebuilt from a checkpoint's
-`ema_state` by `extract_ema_ckpt.py` before the rollout.
+**The protocols in detail.**
+
+- **Five-year climate protocol**: the main test for choosing a checkpoint.
+  - **What is run.** Each checkpoint ("arm") is rolled out 8 times ("members"). A member starts from a true E3SM
+    state and then runs on its own predictions, with E3SM's sea-surface temperature prescribed.
+  - **Start dates.** Member i (i = 0 … 7) starts at frames 1092 + 16 × i of the year 2044, one frame being 6 hours.
+    That gives 8 starts four days apart in October 2044.
+  - **Length.** Member i runs 7667 − 16 × i six-hour steps (7667 steps for the first member, 7555 for the last).
+    Every member therefore ends on the last 6-hour step of 2049-12-31, after about 5¼ years. October–December 2044
+    is spin-up and is not scored.
+  - **How it is run.**
+    - Members are rolled 4 at a time, one per GPU, with `climate_rollout.py`.
+    - A member that blows up stops early and is counted as a result (`CLIMATE_ROLLOUT_TRUNCATED`), not as an
+      error.
+    - EMA arms are first rebuilt from a checkpoint's `ema_state` by `extract_ema_ckpt.py`.
+  - **Windows.**
+    - Scores use the selection window 2045–2047.
+    - The reporting window 2048–2049 stays sealed until the finalists are frozen.
+    - A second reporting start set R (frames 364 + 16 × i) is defined but not yet run.
+  - **Score A** (lower is better):
+    - For each channel c, e_c is the area-weighted pattern RMSE between a member's 2045–2047 time-mean map and
+      E3SM's.
+    - floor_c is the run-to-run noise: the RMS, over the 28 member pairs of the reference runs, of the same
+      pattern RMSE between two members.
+    - r_c = e_c / floor_c, so r_c = 1 means the climate error equals the run-to-run noise.
+    - The channels are sorted into 24 groups (9 surface channels + 5 level families × 3 height bands). r_c is
+      averaged within each group, then over the groups, and A is the median of that over the 8 members.
+    - W is the worst group's median r_c.
+  - **Gates.** A checkpoint counts as usable only if it passes all four:
+    1. *Finite*: all 8 members reach the end without blowing up.
+    2. *Water*: global-mean column water vapour (TMQ) stays positive at every step, and at most 1 % of the globe
+       has negative TMQ in the last month.
+    3. *Mass*: global-mean surface pressure changes by at most 1 hPa from the first to the last step.
+    4. *Drift*: at most 3 of the 24 groups drift. A group drifts when its median channel moves by more than 2
+       interannual standard deviations of E3SM between 2045 and 2047.
+  - **Code and rules.** `polaris_climate_run.pbs` (rollouts) and `score_window_protocol.py` (scores). The rules
+    come from `2026-10-09_pipeline_comparison_prereg.md`.
+- **14-day forecast sweep (K=56)**: weather-scale accuracy.
+  - **What is run.** 24 forecasts per checkpoint: 12 start dates spread monthly through each of the 2 test years,
+    2048 and 2049.
+  - **Length.** 56 six-hour steps = 336 h = 14 days.
+  - **What is scored.** RMSE and anomaly correlation (ACC) against E3SM at every lead, on the channels the compared
+    models share.
+  - **Code.** `polaris_eval_inference.pbs` (forecasts) and `polaris_score_k56.pbs` (scores).
+- **Lagged ensemble**: tests whether averaging older and newer forecasts helps.
+  - **What is run.** 32 target times; for each, 14 forecasts that all verify at that target but were started at
+    different times.
+  - **Lags.** Each member is a 56-step forecast. A target's members started 4, 8, … steps earlier, i.e. lags of 4
+    to 56 steps (starts are 4 steps, 24 h, apart).
+  - **Where.** From first start 0 of test file 2048.
+  - **What is scored.** The weighted ensemble mean (RMSE) and the CRPS per target. For G4D16 the sweep had 21
+    rollouts.
+  - **Code.** `polaris_eval_inference.pbs` with `IC_MODE=lagged`.
+- **One-year screen**: an earlier, cheaper stability check, now retired as a selection gate.
+  - **What is run.** One rollout per checkpoint, 1460 six-hour steps (one year), from 2044 frame 1092 (a second
+    start at frame 1156 for some checkpoints).
+  - **What is scored.** Whether the rollout survives the year, and how far it drifts from E3SM. The
+    pipeline-comparison pre-registration replaced it with the five-year protocol.
+  - **On disk.** 14 screen jobs, 164 screen labels.
+  - **Code.** `polaris_climate_screen.pbs`.
 
 ## 3. Sweeps and levels
 

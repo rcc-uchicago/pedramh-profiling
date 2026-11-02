@@ -6,7 +6,8 @@ cells, each cell's numbers are pulled out in order, and each number is paired wi
 configs.json pointer that should reproduce it. A cell whose number count does not match
 its field list aborts the build, so a number cannot slip into a covered table unchecked.
 Covered: Tables 1a, 1b, 1c (the main training tables, each split into narrow parts that are joined
-back by run, so columns are found by header name, not position) and Table 3 (protocols). Label
+back by run, so columns are found by header name, not position), Table 3 (protocols) and the protocol detail
+bullets after it (each number found by its own sentence; a missing sentence fails the build). Label
 columns (role/run label, run tag, acronyms, git hash, script names) are names, not numbers,
 and are skipped.
 
@@ -228,9 +229,59 @@ def main():
         for j, ptrs in enumerate(colspec):
             take("Table 3", rowkey.strip("*"), "col%d" % (j + 1), cs[j + 1], ptrs)
 
+    # ---- protocol detail bullets (after Table 3): each number is found by its own sentence, so editing a
+    # sentence away fails the build instead of silently dropping the check
+    sec = md[md.index("**The protocols in detail.**"):]
+    sec = sec[:sec.index("\n## ")]
+    G = "/k56_arms/G4D16_lagged_K56_d4/"
+    phrases = [
+        (r"rolled out (\d+) times", [fy + "N_MEMBERS"]),
+        (r"starts at frames (\d+) \+ (\d+) × i of the year (\d+)",
+         [fy + "START_FRAME0", fy + "MEMBER_STRIDE", fy + "start_year"]),
+        (r"(\d+) starts four days apart", [fy + "N_MEMBERS"]),
+        (r"runs (\d+) − (\d+) × i six-hour steps", [fy + "N_STEPS0", fy + "MEMBER_STRIDE"]),
+        (r"\((\d+) steps for the first member, (\d+) for the last\)", [fy + "N_STEPS0", fy + "last_member_steps"]),
+        (r"last 6-hour step of (\d+)-(\d+)-(\d+)", [fy + "end_date/0", fy + "end_date/1", fy + "end_date/2"]),
+        (r"selection window (\d+)–(\d+)", [fy + "selection_window/0", fy + "selection_window/1"]),
+        (r"reporting window (\d+)–(\d+)", [fy + "reporting_window_sealed/0", fy + "reporting_window_sealed/1"]),
+        (r"start set R \(frames (\d+) \+ (\d+) × i\)",
+         [fy + "reporting_set_R_frames/0", fy + "reporting_set_R_frames/1"]),
+        (r"over the (\d+) member pairs", [fy + "member_pairs"]),
+        (r"into (\d+) groups \((\d+) surface channels \+ (\d+) level families × (\d+) height bands\)",
+         [sco + "n_groups", sco + "n_surface_groups", sco + "n_level_families", sco + "n_bands"]),
+        (r"median of that over the (\d+) members", [fy + "N_MEMBERS"]),
+        (r"all (\d+) members reach the end", [fy + "N_MEMBERS"]),
+        (r"at most (\d+) % of the globe", [fy + "gate2_neg_tmq_area_max_pct"]),
+        (r"changes by at most (\d+) hPa", [fy + "gate3_abs_dps_max_hpa"]),
+        (r"at most (\d+) of the (\d+) groups drift", [fy + "gate4_max_drifting_groups", sco + "n_groups"]),
+        (r"more than (\d+)\s+interannual standard deviations", [fy + "gate4_drift_threshold_sd"]),
+        (r"(\d+) forecasts per checkpoint: (\d+) start dates spread monthly through each of the (\d+) test years,"
+         r"\s+(\d+) and (\d+)", [k + "n_ics", k + "N_IC", k + "n_test_files", P + "data_split/test/first",
+                                 P + "data_split/test/last"]),
+        (r"(\d+) six-hour steps = (\d+) h = (\d+) days", [k + "K", k + "horizon_h", k + "horizon_days"]),
+        (r"(\d+) target times; for each, (\d+) forecasts", [lg + "N_TARGETS", lg + "members_per_target"]),
+        (r"Each member is a (\d+)-step forecast", [lg + "K"]),
+        (r"lags of (\d+)\s+to (\d+) steps \(starts are (\d+) steps", [G + "depth_min", G + "depth_max", lg + "STRIDE"]),
+        (r"first start (\d+) of test file (\d+)", [k + "FIRST_START", G + "test_file_year"]),
+        (r"the sweep had (\d+)\s+rollouts", [G + "rollouts"]),
+        (r"One rollout per checkpoint, (\d+) six-hour steps", [sc + "N_LEADS"]),
+        (r"from (\d+) frame (\d+) \(a second\s+start at frame (\d+)",
+         [sc + "START_YEAR", sc + "START_FRAME", sc + "second_start_frame"]),
+        (r"(\d+) screen jobs, (\d+) screen labels", ["/counts/screen_jobs", "/counts/screen_labels"]),
+    ]
+    for rx, ptrs in phrases:
+        hits = re.findall(rx, sec)
+        if len(hits) != 1:
+            raise SystemExit("ERROR PROTOCOL_PHRASE %r found %d times" % (rx, len(hits)))
+        nums = hits[0] if isinstance(hits[0], tuple) else (hits[0],)
+        if len(nums) != len(ptrs):
+            raise SystemExit("ERROR PROTOCOL_PHRASE_FIELDS %r" % rx)
+        for q, ptr in zip(nums, ptrs):
+            add("Protocols (detail)", rx[:48], q, ptr)
+
     spec = {
         "campaign": "makani SFNO configurations 2026-11-02",
-        "register": "configuration tables (Tables 1a, 1b, 1c, 3) of 2026-11-02_makani_configurations.md",
+        "register": "configuration tables (Tables 1a, 1b, 1c, 3) and protocol detail bullets of 2026-11-02_makani_configurations.md",
         "quote_source": "2026-11-02_makani_configurations.md, as printed (parsed by build_claims.py)",
         "base": HERE,
         "receipts": {"c": {"path": "configs.json"}},

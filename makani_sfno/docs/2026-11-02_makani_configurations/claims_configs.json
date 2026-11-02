@@ -1,6 +1,6 @@
 {
  "campaign": "makani SFNO configurations 2026-11-02",
- "register": "configuration tables (Tables 1a, 1b, 1c, 3) of 2026-11-02_makani_configurations.md",
+ "register": "configuration tables (Tables 1a, 1b, 1c, 3) and protocol detail bullets of 2026-11-02_makani_configurations.md",
  "quote_source": "2026-11-02_makani_configurations.md, as printed (parsed by build_claims.py)",
  "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/makani-knowledge/makani_sfno/docs/2026-11-02_makani_configurations",
  "receipts": {
@@ -3135,6 +3135,324 @@
   {
    "section": "Table 3",
    "label": "1-yr screen col4",
+   "quoted": "164",
+   "expr": "f('c','/counts/screen_labels')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "rolled out (\\d+) times",
+   "quoted": "8",
+   "expr": "f('c','/protocols/five_year/N_MEMBERS')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "starts at frames (\\d+) \\+ (\\d+) × i of the year ",
+   "quoted": "1092",
+   "expr": "f('c','/protocols/five_year/START_FRAME0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "starts at frames (\\d+) \\+ (\\d+) × i of the year ",
+   "quoted": "16",
+   "expr": "f('c','/protocols/five_year/MEMBER_STRIDE')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "starts at frames (\\d+) \\+ (\\d+) × i of the year ",
+   "quoted": "2044",
+   "expr": "f('c','/protocols/five_year/start_year')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) starts four days apart",
+   "quoted": "8",
+   "expr": "f('c','/protocols/five_year/N_MEMBERS')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "runs (\\d+) − (\\d+) × i six-hour steps",
+   "quoted": "7667",
+   "expr": "f('c','/protocols/five_year/N_STEPS0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "runs (\\d+) − (\\d+) × i six-hour steps",
+   "quoted": "16",
+   "expr": "f('c','/protocols/five_year/MEMBER_STRIDE')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "\\((\\d+) steps for the first member, (\\d+) for th",
+   "quoted": "7667",
+   "expr": "f('c','/protocols/five_year/N_STEPS0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "\\((\\d+) steps for the first member, (\\d+) for th",
+   "quoted": "7555",
+   "expr": "f('c','/protocols/five_year/last_member_steps')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "last 6-hour step of (\\d+)-(\\d+)-(\\d+)",
+   "quoted": "2049",
+   "expr": "f('c','/protocols/five_year/end_date/0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "last 6-hour step of (\\d+)-(\\d+)-(\\d+)",
+   "quoted": "12",
+   "expr": "f('c','/protocols/five_year/end_date/1')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "last 6-hour step of (\\d+)-(\\d+)-(\\d+)",
+   "quoted": "31",
+   "expr": "f('c','/protocols/five_year/end_date/2')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "selection window (\\d+)–(\\d+)",
+   "quoted": "2045",
+   "expr": "f('c','/protocols/five_year/selection_window/0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "selection window (\\d+)–(\\d+)",
+   "quoted": "2047",
+   "expr": "f('c','/protocols/five_year/selection_window/1')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "reporting window (\\d+)–(\\d+)",
+   "quoted": "2048",
+   "expr": "f('c','/protocols/five_year/reporting_window_sealed/0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "reporting window (\\d+)–(\\d+)",
+   "quoted": "2049",
+   "expr": "f('c','/protocols/five_year/reporting_window_sealed/1')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "start set R \\(frames (\\d+) \\+ (\\d+) × i\\)",
+   "quoted": "364",
+   "expr": "f('c','/protocols/five_year/reporting_set_R_frames/0')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "start set R \\(frames (\\d+) \\+ (\\d+) × i\\)",
+   "quoted": "16",
+   "expr": "f('c','/protocols/five_year/reporting_set_R_frames/1')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "over the (\\d+) member pairs",
+   "quoted": "28",
+   "expr": "f('c','/protocols/five_year/member_pairs')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "quoted": "24",
+   "expr": "f('c','/protocols/score/n_groups')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "quoted": "9",
+   "expr": "f('c','/protocols/score/n_surface_groups')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "quoted": "5",
+   "expr": "f('c','/protocols/score/n_level_families')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "into (\\d+) groups \\((\\d+) surface channels \\+ (\\",
+   "quoted": "3",
+   "expr": "f('c','/protocols/score/n_bands')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "median of that over the (\\d+) members",
+   "quoted": "8",
+   "expr": "f('c','/protocols/five_year/N_MEMBERS')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "all (\\d+) members reach the end",
+   "quoted": "8",
+   "expr": "f('c','/protocols/five_year/N_MEMBERS')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "at most (\\d+) % of the globe",
+   "quoted": "1",
+   "expr": "f('c','/protocols/five_year/gate2_neg_tmq_area_max_pct')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "changes by at most (\\d+) hPa",
+   "quoted": "1",
+   "expr": "f('c','/protocols/five_year/gate3_abs_dps_max_hpa')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "at most (\\d+) of the (\\d+) groups drift",
+   "quoted": "3",
+   "expr": "f('c','/protocols/five_year/gate4_max_drifting_groups')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "at most (\\d+) of the (\\d+) groups drift",
+   "quoted": "24",
+   "expr": "f('c','/protocols/score/n_groups')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "more than (\\d+)\\s+interannual standard deviation",
+   "quoted": "2",
+   "expr": "f('c','/protocols/five_year/gate4_drift_threshold_sd')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "quoted": "24",
+   "expr": "f('c','/protocols/k56/n_ics')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "quoted": "12",
+   "expr": "f('c','/protocols/k56/N_IC')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "quoted": "2",
+   "expr": "f('c','/protocols/k56/n_test_files')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "quoted": "2048",
+   "expr": "f('c','/protocols/data_split/test/first')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) forecasts per checkpoint: (\\d+) start date",
+   "quoted": "2049",
+   "expr": "f('c','/protocols/data_split/test/last')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) six-hour steps = (\\d+) h = (\\d+) days",
+   "quoted": "56",
+   "expr": "f('c','/protocols/k56/K')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) six-hour steps = (\\d+) h = (\\d+) days",
+   "quoted": "336",
+   "expr": "f('c','/protocols/k56/horizon_h')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) six-hour steps = (\\d+) h = (\\d+) days",
+   "quoted": "14",
+   "expr": "f('c','/protocols/k56/horizon_days')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) target times; for each, (\\d+) forecasts",
+   "quoted": "32",
+   "expr": "f('c','/protocols/lagged/N_TARGETS')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) target times; for each, (\\d+) forecasts",
+   "quoted": "14",
+   "expr": "f('c','/protocols/lagged/members_per_target')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "Each member is a (\\d+)-step forecast",
+   "quoted": "56",
+   "expr": "f('c','/protocols/lagged/K')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "lags of (\\d+)\\s+to (\\d+) steps \\(starts are (\\d+",
+   "quoted": "4",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/depth_min')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "lags of (\\d+)\\s+to (\\d+) steps \\(starts are (\\d+",
+   "quoted": "56",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/depth_max')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "lags of (\\d+)\\s+to (\\d+) steps \\(starts are (\\d+",
+   "quoted": "4",
+   "expr": "f('c','/protocols/lagged/STRIDE')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "first start (\\d+) of test file (\\d+)",
+   "quoted": "0",
+   "expr": "f('c','/protocols/k56/FIRST_START')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "first start (\\d+) of test file (\\d+)",
+   "quoted": "2048",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/test_file_year')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "the sweep had (\\d+)\\s+rollouts",
+   "quoted": "21",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/rollouts')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "One rollout per checkpoint, (\\d+) six-hour steps",
+   "quoted": "1460",
+   "expr": "f('c','/protocols/screen/N_LEADS')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "from (\\d+) frame (\\d+) \\(a second\\s+start at fra",
+   "quoted": "2044",
+   "expr": "f('c','/protocols/screen/START_YEAR')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "from (\\d+) frame (\\d+) \\(a second\\s+start at fra",
+   "quoted": "1092",
+   "expr": "f('c','/protocols/screen/START_FRAME')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "from (\\d+) frame (\\d+) \\(a second\\s+start at fra",
+   "quoted": "1156",
+   "expr": "f('c','/protocols/screen/second_start_frame')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) screen jobs, (\\d+) screen labels",
+   "quoted": "14",
+   "expr": "f('c','/counts/screen_jobs')"
+  },
+  {
+   "section": "Protocols (detail)",
+   "label": "(\\d+) screen jobs, (\\d+) screen labels",
    "quoted": "164",
    "expr": "f('c','/counts/screen_labels')"
   }
