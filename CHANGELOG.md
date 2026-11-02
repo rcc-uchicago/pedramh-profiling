@@ -95,6 +95,28 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-02** — **SQG online-training efficiency: temporal decorrelation measured** (`SQG/analysis/decorrelation.py`,
+  caslake CPU job 62084323, `DECORR_OK`, 104 windows; results in `SQG/analysis/results/decorrelation_full*`).
+  Context: online run `o1.2` costs ~142 h vs ~21 h offline, ~120 h of it solver time that re-integrates the 3500
+  archived time units, sampling a pair every Δt/100 = 2e-4 (STRIDE 40 × DT 5e-6). Read-only from
+  `/project/pedramh/weidong/SQG/SQG_deterForcing/{trainingdata (0.02 archive, 7 members), AllTrainData (0.0025 dense,
+  4 members)}`, on the training view θ[::16, ::16]:
+  - θ (network input): C(0.0025)=0.997, C(Δt=0.02)=0.963, C(1)=0.25, e-fold **0.69** (≈ τ_f 0.67). Plateaus at
+    C≈0.06–0.08 beyond 5 units (probably the time-mean pattern of the frozen forcing; not verified), so use the e-fold
+    time, not the integral time.
+  - 0.02 increment (the residual target): C(0.0025)=**0.917**, C(0.005)=0.77, C(0.01)=0.47, C(0.02)=**−0.07**
+    (consecutive offline targets are already uncorrelated). Below 0.0025 is extrapolated: a 1−C=aτ^p fit on
+    0.0025–0.01 (p≈1.35) gives 1−C(2e-4)≈**3e-3** for targets and 1e-4 for inputs. That is an upper bound on novelty,
+    since smooth-in-time fields go to p=2.
+  - By band (256² grid): |k|<4 e-fold ≈1.1; |k|>32 decorrelates within Δt (θ C(0.02) 0.04–0.27; increment C(0.02)
+    −0.35 to −0.48, close to the −0.5 signature of differencing uncorrelated frames). The point-subsampled
+    (aliased) small scales look nearly unpredictable over one step from the 256² input → possible irreducible val
+    floor that more data cannot fix. Next check: per-band val error of the trained UViT.
+  - Meaning: neighbouring Δt/100 pairs are near-duplicates (input changes ~1%, target ~3–8%). New *input* states cost
+    ~0.7–1.4 time units of solver (~10–20 GPU-min each); the archive holds ≈2500 of them, and o1.2 re-generates the
+    same ones. Online sampling at Δt/10–Δt/4 keeps most target diversity while spanning 10–25× more time in the same
+    buffer. Withdrawn: sampling only every Δt (would drop intermediate targets with C_incr 0.5–0.9).
+
 - **2026-07-14** — **Polaris (PBS) bring-up.** Confirmed cluster facts (`-A
   lighthouse-uchicago`, 4×A100-40GB sm80, `debug` queue, `filesystems=home:eagle`,
   `/local/scratch`); env = base ALCF conda (`module load conda`, torch 2.8/cu12.9) +
