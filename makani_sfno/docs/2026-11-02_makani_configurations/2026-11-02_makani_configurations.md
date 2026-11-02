@@ -14,6 +14,36 @@ chose to vary one recipe component at a time where the queue allowed it, startin
   is the same model and data at a 16-times-larger global batch, kept as the large-batch reference.
 - **Depth fine-tunes of the A lineage.** **B** fine-tunes A's best checkpoint with a 5-step (30 h) loss.
   **DRYAIR** and **SOILFIX** fine-tune B's best checkpoint again, with a conservation constraint trained in.
+  - **DRYAIR** (`fs_anneal_dryair_nf4_b16_rb01`, job 7709268) trains with the dry-air mass constraint on
+    (`conserve_dry_air: True`; `DryAirFix` in `sfno_training/models/mass_fix.py`, makani's adaptation of ACE2's
+    `conserve_dry_air`). After every predicted 6-h step, in training, validation and rollout alike, it does three
+    things:
+    - It computes dry-air surface pressure as PS − g·TMQ. Here PS is the surface pressure in Pa, TMQ the column
+      water vapour in kg m⁻², and g = 9.81 m s⁻², so g·TMQ is the water column's share of PS in Pa.
+    - It shifts the predicted PS by one globally uniform amount, so that the area-weighted global mean of dry-air
+      pressure equals the input state's. TMQ is left unchanged, and the correction is applied at full strength on
+      every call, with no ramp.
+    - In effect, the global dry-air mass of the atmosphere cannot change from one step to the next. The model
+      learns its weights with that constraint inside the 5-step loss.
+    - The fix was checked numerically against ACE2's own `_force_conserve_dry_air` (job 7721257 UNVERIFIED).
+  - **SOILFIX** (`fs_anneal_soilfix_nf4_b16_rb01`, job 7715005) is the same fine-tune with a soil-moisture
+    constraint in place of the dry-air one (`conserve_soil_moisture: True`; `SoilMoistureFix` in
+    `sfno_training/models/soil_moisture_fix.py`). It reimplements the intent of ACE2's land
+    `soil_moisture_corrector`, whose code is not in our vendored ACE2 tree. Per grid cell:
+    - where the step's input 10-cm soil temperature `TSOI_10CM` is below 272.0 K (frozen soil), the predicted
+      10-cm soil water `SOILWATER_10CM` is replaced by its input value, so frozen soil water cannot change;
+    - predicted soil water is then floored at 0, so it is never negative.
+
+    Unlike the dry-air fix it is purely local: there is no global sum, and it does not touch PS or the atmosphere.
+  - **What the two share.** Both start from B e01, B's lowest-validation-loss `best_ckpt`, not from B22: by the
+    2026-10-03 (UNVERIFIED) ruling, B22 barely drifts in mass, which leaves a corrector nothing to fix. Both use the same
+    fine-tune recipe (Table 1b):
+    - 24 epochs on a 5-step loss;
+    - peak LR 0.0004 with a cosine schedule of T_max 22 (B itself used T_max 100);
+    - global batch 16 on 2 nodes, bf16, no EMA.
+
+    They differ only in which constraint is on, plus the code commit (`43a2476a` vs `d6489f5d`). The "anneal" in
+    both tags names that cosine LR schedule, not a ramp of the constraint.
 - **The F family (no soil outputs, EMA on).** **F-warm** continues A after its two soil outputs are cut off;
   **F-scratch** trains A's recipe on the 99-output channel set from random weights; **F-depth4** applies B's
   depth recipe to F-scratch epoch 23; **F-depth4-dry** is F-depth4 with dry air trained in, run as a 4-epoch
