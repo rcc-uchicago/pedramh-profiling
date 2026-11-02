@@ -4,7 +4,7 @@
  "campaign": "makani SFNO configurations 2026-11-02",
  "register": "configuration tables (Tables 1a, 1b, 1c, 3) of 2026-11-02_makani_configurations.md",
  "quote_source": "2026-11-02_makani_configurations.md, as printed (parsed by build_claims.py)",
- "date_utc": "2026-11-02T21:03:00Z",
+ "date_utc": "2026-11-02T21:18:12Z",
  "receipts": [
   {
    "alias": "c",

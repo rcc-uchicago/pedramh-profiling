@@ -8,7 +8,43 @@ settings, sizes and costs, and no scores, rankings or verdicts on the models.
 **What the set of runs was built to compare.** The project needs a makani spherical Fourier neural operator
 (SFNO) emulator of E3SM whose own predictions can be fed back as inputs for five years without the run breaking
 down or its climate drifting. The training campaign was geared towards finding the recipe that does this, so we
-chose to vary one recipe component at a time where the queue allowed it, starting from two baselines:
+chose to vary one recipe component at a time where the queue allowed it, starting from two baselines.
+
+**Terms used below.**
+- **Epoch.** One pass over the training data: 30 years of 6-hourly E3SM states, 2015–2044. "Epoch 23" or "e23"
+  names the weights saved after the 23rd pass.
+- **Single-step vs 5-step loss (the loss "depth").**
+  - In **single-step** training the model is given a true E3SM state and scored on its 6-hour prediction.
+  - With the **5-step loss**, its own prediction is fed back as input 4 more times (30 hours in all), and the
+    error at every step counts. This teaches the model to stay stable when it runs on its own output, as it must
+    in a five-year rollout.
+  - The trainer calls this `multistep_count` 5 / `n_future` 4. The **"4" in F-depth4, G4E and G4D counts the 4
+    extra steps**.
+- **From scratch vs fine-tune.** *From scratch* starts from random weights. A *fine-tune* (or *warm start*)
+  starts from another run's saved weights and keeps training.
+- **Soil outputs.** E3SM's 10-cm soil water and soil temperature (`SOILWATER_10CM`, `TSOI_10CM`). With them the
+  model predicts 101 fields; without them, 99.
+- **EMA (weight averaging).** Besides its normal ("raw") weights, the trainer keeps a running average of recent
+  weights: an exponential moving average with decay 0.9995 per update, roughly the last 1/(1 − 0.9995) = 2,000
+  updates.
+- **bf16 vs fp32.** *bf16 mixed precision* does most arithmetic with 16-bit numbers, about 2–3 significant
+  digits, for speed. *fp32* does it in full 32-bit precision; the G-family logs show `amp_mode none`.
+- **Learning-rate schedules.**
+  - *Warm restarts* (SGDR, A's recipe): the learning rate starts at 0.002, decays along a cosine over 20 epochs,
+    then jumps back up and repeats.
+  - *One long cosine* (B's recipe): it starts at 0.0004 and decays once, over 100 epochs (T_max 100), with no
+    restart.
+- **Dry-air constraint.** Each predicted step's surface pressure is adjusted so the atmosphere's total dry-air
+  mass cannot change. See DRYAIR below.
+- **Names.**
+  - A run's name is also the stem of its checkpoint labels: a number appended is the epoch, e.g. G4D16 = G4D at
+    epoch 16.
+  - In the G family, **E** and **D** mark the run without and with the dry-air constraint (G1E/G1D, G4E/G4D).
+    Their checkpoints were always read with EMA weights.
+  - In G1 the digit is the number of steps in the loss (1). In G4 it is the number of extra steps (4, so 5 in
+    all).
+
+**The runs.**
 
 - **Baselines.** **A** is the single-step production run trained from scratch on one node. The **128-node run**
   is the same model and data at a 16-times-larger global batch, kept as the large-batch reference.
@@ -44,12 +80,46 @@ chose to vary one recipe component at a time where the queue allowed it, startin
 
     They differ only in which constraint is on, plus the code commit (`43a2476a` vs `d6489f5d`). The "anneal" in
     both tags names that cosine LR schedule, not a ramp of the constraint.
-- **The F family (no soil outputs, EMA on).** **F-warm** continues A after its two soil outputs are cut off;
-  **F-scratch** trains A's recipe on the 99-output channel set from random weights; **F-depth4** applies B's
-  depth recipe to F-scratch epoch 23; **F-depth4-dry** is F-depth4 with dry air trained in, run as a 4-epoch
-  stop-early chain.
-- **The G family (F-scratch's recipe without mixed precision).** **G1** is F-scratch in fp32; **G1-dry** adds the
-  trained-in dry-air constraint; **G4E** trains G1's recipe at depth 5 from scratch; **G4D** is G4E with dry air.
+- **The F family: A's setup without the two soil outputs, with EMA on.** All four predict 99 fields and train in
+  bf16.
+  - **F-warm**
+    - Starts from A's final weights (epoch 243), with the two soil outputs cut off.
+    - Trains with A's recipe for 43 epochs: single-step loss, warm-restart learning rate (peak 0.002), global
+      batch 32.
+    - Differs from A in: no soil outputs; EMA on; a warm start instead of random weights.
+  - **F-scratch**
+    - Starts from random weights.
+    - Trains exactly as F-warm does, for 43 epochs: single-step loss, warm restarts at peak 0.002, global batch 32.
+    - Differs from F-warm only in the starting weights.
+  - **F-depth4**
+    - Starts from F-scratch's raw (not averaged) weights at epoch 23.
+    - Trains with B's fine-tune recipe for 63 epochs: the 5-step loss, one long cosine from 0.0004 (T_max 100),
+      global batch 16.
+    - Differs from F-scratch in the 5-step loss. Because B's whole recipe was reused, it also differs in learning
+      rate, schedule and batch size.
+  - **F-depth4-dry**
+    - Starts from the same F-scratch epoch-23 raw weights as F-depth4.
+    - Trains with F-depth4's recipe plus the dry-air constraint.
+    - A short go/no-go test, not a full run: 4 epochs, one per debug-scaling-queue job, on 4 nodes. The global batch
+      stayed 16.
+    - Differs from F-depth4 in the dry-air constraint and in run length (4 vs 63 epochs).
+- **The G family: F-scratch's setup trained in full precision (fp32) instead of bf16.**
+  - What all four share: they start from random weights, predict 99 fields, keep EMA on, and use A's
+    warm-restart learning rate (peak 0.002) at global batch 32.
+  - **G1**
+    - F-scratch's recipe in fp32: single-step loss, 23 epochs on 2 nodes.
+    - Differs from F-scratch in precision, and in length (23 vs 43 epochs).
+  - **G1-dry**
+    - G1 plus the dry-air constraint: 63 epochs on 2 nodes.
+    - Differs from G1 in the dry-air constraint, and in length.
+  - **G4E**
+    - G1 with the 5-step loss from the very first epoch: 23 epochs on 4 nodes.
+    - Unlike F-depth4, it is not a fine-tune of a single-step model, and it keeps G1's learning-rate schedule.
+      So only the loss depth changes.
+    - Differs from G1 in the 5-step loss, and in node count (4 vs 2, at the same global batch of 32).
+  - **G4D**
+    - G4E plus the dry-air constraint: 23 epochs, later resumed to 63.
+    - Differs from G4E in the dry-air constraint, and in length.
 
 **Replicates.** Each arm is **one training run with one seed**. No recipe was trained twice, so no comparison
 between arms carries an estimate of run-to-run training noise. The seed is not printed in the trainer logs and was
