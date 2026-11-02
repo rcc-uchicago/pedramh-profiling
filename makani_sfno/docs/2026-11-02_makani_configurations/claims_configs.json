@@ -1,0 +1,3142 @@
+{
+ "campaign": "makani SFNO configurations 2026-11-02",
+ "register": "configuration tables (Tables 1a, 1b, 1c, 3) of 2026-11-02_makani_configurations.md",
+ "quote_source": "2026-11-02_makani_configurations.md, as printed (parsed by build_claims.py)",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/makani-knowledge/makani_sfno/docs/2026-11-02_makani_configurations",
+ "receipts": {
+  "c": {
+   "path": "configs.json"
+  }
+ },
+ "claims": [
+  {
+   "section": "Table 1a",
+   "label": "128-node job ids",
+   "quoted": "7566145",
+   "expr": "f('c','/runs/128-node/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node output channels",
+   "quoted": "101",
+   "expr": "f('c','/runs/128-node/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node loss depth",
+   "quoted": "1",
+   "expr": "f('c','/runs/128-node/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node loss depth",
+   "quoted": "0",
+   "expr": "f('c','/runs/128-node/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A job ids",
+   "quoted": "7585080",
+   "expr": "f('c','/runs/A/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A output channels",
+   "quoted": "101",
+   "expr": "f('c','/runs/A/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A loss depth",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A loss depth",
+   "quoted": "0",
+   "expr": "f('c','/runs/A/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B job ids",
+   "quoted": "7630639",
+   "expr": "f('c','/runs/B/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B output channels",
+   "quoted": "101",
+   "expr": "f('c','/runs/B/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/B/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/B/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR job ids",
+   "quoted": "7709268",
+   "expr": "f('c','/runs/DRYAIR/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR output channels",
+   "quoted": "101",
+   "expr": "f('c','/runs/DRYAIR/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/DRYAIR/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/DRYAIR/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX job ids",
+   "quoted": "7715005",
+   "expr": "f('c','/runs/SOILFIX/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX output channels",
+   "quoted": "101",
+   "expr": "f('c','/runs/SOILFIX/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/SOILFIX/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/SOILFIX/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm job ids",
+   "quoted": "7660250",
+   "expr": "f('c','/runs/F-warm/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/F-warm/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm loss depth",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-warm/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm loss depth",
+   "quoted": "0",
+   "expr": "f('c','/runs/F-warm/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/F-warm/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch job ids",
+   "quoted": "7718436",
+   "expr": "f('c','/runs/F-scratch/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch job ids",
+   "quoted": "7721577",
+   "expr": "f('c','/runs/F-scratch/jobs/1')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/F-scratch/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch loss depth",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-scratch/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch loss depth",
+   "quoted": "0",
+   "expr": "f('c','/runs/F-scratch/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/F-scratch/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 job ids",
+   "quoted": "7719538",
+   "expr": "f('c','/runs/F-depth4/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 job ids",
+   "quoted": "7725884",
+   "expr": "f('c','/runs/F-depth4/jobs/1')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/F-depth4/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/F-depth4/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/F-depth4/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "quoted": "7732625",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "quoted": "7733190",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/1')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "quoted": "7733283",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/2')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "quoted": "7733346",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/3')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/F-depth4-dry/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/F-depth4-dry/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/F-depth4-dry/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 job ids",
+   "quoted": "7731784",
+   "expr": "f('c','/runs/G1/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/G1/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 loss depth",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 loss depth",
+   "quoted": "0",
+   "expr": "f('c','/runs/G1/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/G1/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry job ids",
+   "quoted": "7735732",
+   "expr": "f('c','/runs/G1-dry/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/G1-dry/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry loss depth",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1-dry/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry loss depth",
+   "quoted": "0",
+   "expr": "f('c','/runs/G1-dry/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/G1-dry/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E job ids",
+   "quoted": "7740992",
+   "expr": "f('c','/runs/G4E/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/G4E/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/G4E/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4E/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/G4E/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D job ids",
+   "quoted": "7742231",
+   "expr": "f('c','/runs/G4D/jobs/0')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D job ids",
+   "quoted": "7771394",
+   "expr": "f('c','/runs/G4D/jobs/1')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D output channels",
+   "quoted": "99",
+   "expr": "f('c','/runs/G4D/output_channels')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D loss depth",
+   "quoted": "5",
+   "expr": "f('c','/runs/G4D/multistep_count')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D loss depth",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4D/n_future')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D EMA",
+   "quoted": "0.9995",
+   "expr": "f('c','/runs/G4D/ema_decay')"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node run tag",
+   "quoted": "prod128_alldata_v2",
+   "expr": "f('c','/runs/128-node/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/128-node/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A run tag",
+   "quoted": "prod1n_b32_sgdr",
+   "expr": "f('c','/runs/A/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/A/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B run tag",
+   "quoted": "nf4_prod_b16_r1",
+   "expr": "f('c','/runs/B/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/B/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR run tag",
+   "quoted": "fs_anneal_dryair_nf4_b16_rb01",
+   "expr": "f('c','/runs/DRYAIR/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/DRYAIR/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX run tag",
+   "quoted": "fs_anneal_soilfix_nf4_b16_rb01",
+   "expr": "f('c','/runs/SOILFIX/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/SOILFIX/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm run tag",
+   "quoted": "f_nosoil_2n_b32_e43_warm",
+   "expr": "f('c','/runs/F-warm/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/F-warm/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch run tag",
+   "quoted": "f_nosoil_2n_b32_e23_scratch",
+   "expr": "f('c','/runs/F-scratch/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/F-scratch/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 run tag",
+   "quoted": "fsF_anneal_nf4_b16_rtmax100_scratch",
+   "expr": "f('c','/runs/F-depth4/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/F-depth4/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry run tag",
+   "quoted": "fsF_dryair_nf4_b16_rtmax100_scratch",
+   "expr": "f('c','/runs/F-depth4-dry/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry amp_mode",
+   "quoted": "bf16",
+   "expr": "f('c','/runs/F-depth4-dry/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 run tag",
+   "quoted": "f_nosoil_2n_b32_e23_scratch_fp32",
+   "expr": "f('c','/runs/G1/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 amp_mode",
+   "quoted": "none",
+   "expr": "f('c','/runs/G1/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry run tag",
+   "quoted": "f_nosoil_2n_b32_e63_scratch_fp32_dryair",
+   "expr": "f('c','/runs/G1-dry/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry amp_mode",
+   "quoted": "none",
+   "expr": "f('c','/runs/G1-dry/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E run tag",
+   "quoted": "f_nosoil_4n_b32_e23_scratch_fp32_nf4",
+   "expr": "f('c','/runs/G4E/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E amp_mode",
+   "quoted": "none",
+   "expr": "f('c','/runs/G4E/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D run tag",
+   "quoted": "f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4",
+   "expr": "f('c','/runs/G4D/run_tag')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D amp_mode",
+   "quoted": "none",
+   "expr": "f('c','/runs/G4D/amp_mode')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/128-node/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/128-node/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node peak LR",
+   "quoted": "0.001",
+   "expr": "f('c','/runs/128-node/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node LR schedule",
+   "quoted": "0.5",
+   "expr": "f('c','/runs/128-node/scheduler_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/128-node/scheduler_patience')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node warmup epochs",
+   "quoted": "0",
+   "expr": "f('c','/runs/128-node/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node local batch",
+   "quoted": "1",
+   "expr": "f('c','/runs/128-node/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node GPUs",
+   "quoted": "512",
+   "expr": "f('c','/runs/128-node/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node nodes",
+   "quoted": "128",
+   "expr": "f('c','/runs/128-node/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node global batch",
+   "quoted": "512",
+   "expr": "f('c','/runs/128-node/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/128-node/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/128-node/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node epochs trained",
+   "quoted": "100",
+   "expr": "f('c','/runs/128-node/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node updates",
+   "quoted": "8500",
+   "expr": "f('c','/runs/128-node/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node training time (h)",
+   "quoted": "1.6",
+   "expr": "f('c','/runs/128-node/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node node-hours",
+   "quoted": "204.4",
+   "expr": "f('c','/runs/128-node/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node median epoch time (s)",
+   "quoted": "58",
+   "expr": "f('c','/runs/128-node/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/128-node/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/128-node/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/A/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/A/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/A/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/A/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/A/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/A/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A local batch",
+   "quoted": "8",
+   "expr": "f('c','/runs/A/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A GPUs",
+   "quoted": "4",
+   "expr": "f('c','/runs/A/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A nodes",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/A/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A epochs trained",
+   "quoted": "243",
+   "expr": "f('c','/runs/A/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A updates",
+   "quoted": "332424",
+   "expr": "f('c','/runs/A/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A training time (h)",
+   "quoted": "46.3",
+   "expr": "f('c','/runs/A/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A node-hours",
+   "quoted": "46.3",
+   "expr": "f('c','/runs/A/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A median epoch time (s)",
+   "quoted": "672",
+   "expr": "f('c','/runs/A/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/A/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/A/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/B/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/B/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B peak LR",
+   "quoted": "0.0004",
+   "expr": "f('c','/runs/B/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B LR schedule",
+   "quoted": "100",
+   "expr": "f('c','/runs/B/scheduler_T_max')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/B/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B warmup epochs",
+   "quoted": "1",
+   "expr": "f('c','/runs/B/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B local batch",
+   "quoted": "2",
+   "expr": "f('c','/runs/B/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/B/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/B/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B global batch",
+   "quoted": "16",
+   "expr": "f('c','/runs/B/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/B/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/B/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B epochs trained",
+   "quoted": "24",
+   "expr": "f('c','/runs/B/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B updates",
+   "quoted": "65688",
+   "expr": "f('c','/runs/B/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B training time (h)",
+   "quoted": "8.7",
+   "expr": "f('c','/runs/B/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B node-hours",
+   "quoted": "17.4",
+   "expr": "f('c','/runs/B/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B median epoch time (s)",
+   "quoted": "1305",
+   "expr": "f('c','/runs/B/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/B/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/B/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/DRYAIR/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/DRYAIR/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR peak LR",
+   "quoted": "0.0004",
+   "expr": "f('c','/runs/DRYAIR/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR LR schedule",
+   "quoted": "22",
+   "expr": "f('c','/runs/DRYAIR/scheduler_T_max')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/DRYAIR/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR warmup epochs",
+   "quoted": "1",
+   "expr": "f('c','/runs/DRYAIR/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR local batch",
+   "quoted": "2",
+   "expr": "f('c','/runs/DRYAIR/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/DRYAIR/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/DRYAIR/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR global batch",
+   "quoted": "16",
+   "expr": "f('c','/runs/DRYAIR/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/DRYAIR/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/DRYAIR/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR epochs trained",
+   "quoted": "24",
+   "expr": "f('c','/runs/DRYAIR/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR updates",
+   "quoted": "65688",
+   "expr": "f('c','/runs/DRYAIR/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR training time (h)",
+   "quoted": "7.9",
+   "expr": "f('c','/runs/DRYAIR/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR node-hours",
+   "quoted": "15.7",
+   "expr": "f('c','/runs/DRYAIR/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR median epoch time (s)",
+   "quoted": "1180",
+   "expr": "f('c','/runs/DRYAIR/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/DRYAIR/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/DRYAIR/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/SOILFIX/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/SOILFIX/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX peak LR",
+   "quoted": "0.0004",
+   "expr": "f('c','/runs/SOILFIX/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX LR schedule",
+   "quoted": "22",
+   "expr": "f('c','/runs/SOILFIX/scheduler_T_max')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/SOILFIX/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX warmup epochs",
+   "quoted": "1",
+   "expr": "f('c','/runs/SOILFIX/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX local batch",
+   "quoted": "2",
+   "expr": "f('c','/runs/SOILFIX/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/SOILFIX/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/SOILFIX/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX global batch",
+   "quoted": "16",
+   "expr": "f('c','/runs/SOILFIX/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/SOILFIX/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/SOILFIX/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX epochs trained",
+   "quoted": "24",
+   "expr": "f('c','/runs/SOILFIX/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX updates",
+   "quoted": "65688",
+   "expr": "f('c','/runs/SOILFIX/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX training time (h)",
+   "quoted": "7.6",
+   "expr": "f('c','/runs/SOILFIX/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX node-hours",
+   "quoted": "15.3",
+   "expr": "f('c','/runs/SOILFIX/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX median epoch time (s)",
+   "quoted": "1142",
+   "expr": "f('c','/runs/SOILFIX/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/SOILFIX/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/SOILFIX/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/F-warm/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/F-warm/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/F-warm/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/F-warm/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-warm/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/F-warm/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-warm/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm local batch",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-warm/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/F-warm/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-warm/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/F-warm/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-warm/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-warm/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm epochs trained",
+   "quoted": "43",
+   "expr": "f('c','/runs/F-warm/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm updates",
+   "quoted": "58824",
+   "expr": "f('c','/runs/F-warm/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm training time (h)",
+   "quoted": "10.7",
+   "expr": "f('c','/runs/F-warm/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm node-hours",
+   "quoted": "21.4",
+   "expr": "f('c','/runs/F-warm/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm median epoch time (s)",
+   "quoted": "894",
+   "expr": "f('c','/runs/F-warm/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-warm/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/F-warm/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/F-scratch/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/F-scratch/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/F-scratch/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/F-scratch/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-scratch/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/F-scratch/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-scratch/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch local batch",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-scratch/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/F-scratch/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-scratch/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/F-scratch/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-scratch/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-scratch/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch epochs trained",
+   "quoted": "43",
+   "expr": "f('c','/runs/F-scratch/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch updates",
+   "quoted": "58824",
+   "expr": "f('c','/runs/F-scratch/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch training time (h)",
+   "quoted": "11.5",
+   "expr": "f('c','/runs/F-scratch/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch node-hours",
+   "quoted": "23.0",
+   "expr": "f('c','/runs/F-scratch/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch median epoch time (s)",
+   "quoted": "931",
+   "expr": "f('c','/runs/F-scratch/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-scratch/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/F-scratch/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/F-depth4/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/F-depth4/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 peak LR",
+   "quoted": "0.0004",
+   "expr": "f('c','/runs/F-depth4/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 LR schedule",
+   "quoted": "100",
+   "expr": "f('c','/runs/F-depth4/scheduler_T_max')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/F-depth4/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 warmup epochs",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 local batch",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/F-depth4/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 global batch",
+   "quoted": "16",
+   "expr": "f('c','/runs/F-depth4/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 epochs trained",
+   "quoted": "63",
+   "expr": "f('c','/runs/F-depth4/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 updates",
+   "quoted": "172431",
+   "expr": "f('c','/runs/F-depth4/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 training time (h)",
+   "quoted": "47.5",
+   "expr": "f('c','/runs/F-depth4/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 node-hours",
+   "quoted": "95.1",
+   "expr": "f('c','/runs/F-depth4/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 median epoch time (s)",
+   "quoted": "2717",
+   "expr": "f('c','/runs/F-depth4/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-depth4/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/F-depth4/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/F-depth4-dry/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/F-depth4-dry/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry peak LR",
+   "quoted": "0.0004",
+   "expr": "f('c','/runs/F-depth4-dry/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry LR schedule",
+   "quoted": "100",
+   "expr": "f('c','/runs/F-depth4-dry/scheduler_T_max')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/F-depth4-dry/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry warmup epochs",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry local batch",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry GPUs",
+   "quoted": "16",
+   "expr": "f('c','/runs/F-depth4-dry/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry nodes",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry global batch",
+   "quoted": "16",
+   "expr": "f('c','/runs/F-depth4-dry/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry epochs trained",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry updates",
+   "quoted": "10948",
+   "expr": "f('c','/runs/F-depth4-dry/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry training time (h)",
+   "quoted": "1.4",
+   "expr": "f('c','/runs/F-depth4-dry/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry node-hours",
+   "quoted": "5.6",
+   "expr": "f('c','/runs/F-depth4-dry/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry median epoch time (s)",
+   "quoted": "1256",
+   "expr": "f('c','/runs/F-depth4-dry/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-depth4-dry/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/F-depth4-dry/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/G1/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/G1/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/G1/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/G1/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/G1/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/G1/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 local batch",
+   "quoted": "4",
+   "expr": "f('c','/runs/G1/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/G1/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/G1/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/G1/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 epochs trained",
+   "quoted": "23",
+   "expr": "f('c','/runs/G1/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 updates",
+   "quoted": "31464",
+   "expr": "f('c','/runs/G1/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 training time (h)",
+   "quoted": "5.7",
+   "expr": "f('c','/runs/G1/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 node-hours",
+   "quoted": "11.4",
+   "expr": "f('c','/runs/G1/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 median epoch time (s)",
+   "quoted": "886",
+   "expr": "f('c','/runs/G1/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/G1/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/G1/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/G1-dry/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/G1-dry/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/G1-dry/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/G1-dry/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1-dry/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/G1-dry/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/G1-dry/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry local batch",
+   "quoted": "4",
+   "expr": "f('c','/runs/G1-dry/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry GPUs",
+   "quoted": "8",
+   "expr": "f('c','/runs/G1-dry/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry nodes",
+   "quoted": "2",
+   "expr": "f('c','/runs/G1-dry/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/G1-dry/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1-dry/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1-dry/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry epochs trained",
+   "quoted": "63",
+   "expr": "f('c','/runs/G1-dry/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry updates",
+   "quoted": "86184",
+   "expr": "f('c','/runs/G1-dry/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry training time (h)",
+   "quoted": "15.1",
+   "expr": "f('c','/runs/G1-dry/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry node-hours",
+   "quoted": "30.3",
+   "expr": "f('c','/runs/G1-dry/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry median epoch time (s)",
+   "quoted": "864",
+   "expr": "f('c','/runs/G1-dry/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/G1-dry/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/G1-dry/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/G4E/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/G4E/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/G4E/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/G4E/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4E/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/G4E/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/G4E/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E local batch",
+   "quoted": "2",
+   "expr": "f('c','/runs/G4E/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E GPUs",
+   "quoted": "16",
+   "expr": "f('c','/runs/G4E/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E nodes",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4E/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/G4E/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4E/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4E/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E epochs trained",
+   "quoted": "23",
+   "expr": "f('c','/runs/G4E/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E updates",
+   "quoted": "31464",
+   "expr": "f('c','/runs/G4E/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E training time (h)",
+   "quoted": "8.1",
+   "expr": "f('c','/runs/G4E/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E node-hours",
+   "quoted": "32.5",
+   "expr": "f('c','/runs/G4E/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E median epoch time (s)",
+   "quoted": "1261",
+   "expr": "f('c','/runs/G4E/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/G4E/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/G4E/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D optimizer",
+   "quoted": "0.95",
+   "expr": "f('c','/runs/G4D/optimizer_beta2')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D optimizer",
+   "quoted": "32",
+   "expr": "f('c','/runs/G4D/optimizer_max_grad_norm')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D peak LR",
+   "quoted": "0.002",
+   "expr": "f('c','/runs/G4D/lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D LR schedule",
+   "quoted": "20",
+   "expr": "f('c','/runs/G4D/scheduler_T_0')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D LR schedule",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4D/scheduler_T_mult')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D LR schedule",
+   "quoted": "0.000001",
+   "expr": "f('c','/runs/G4D/scheduler_min_lr')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D warmup epochs",
+   "quoted": "3",
+   "expr": "f('c','/runs/G4D/lr_warmup_steps')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D local batch",
+   "quoted": "2",
+   "expr": "f('c','/runs/G4D/local_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D GPUs",
+   "quoted": "16",
+   "expr": "f('c','/runs/G4D/gpus')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D nodes",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4D/nodes')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D global batch",
+   "quoted": "32",
+   "expr": "f('c','/runs/G4D/global_batch')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4D/h_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D h x w",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4D/w_parallel_size')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D epochs trained",
+   "quoted": "63",
+   "expr": "f('c','/runs/G4D/epochs_trained')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D updates",
+   "quoted": "86184",
+   "expr": "f('c','/runs/G4D/updates')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D training time (h)",
+   "quoted": "22.8",
+   "expr": "f('c','/runs/G4D/training_h')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D node-hours",
+   "quoted": "91.0",
+   "expr": "f('c','/runs/G4D/node_hours')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D median epoch time (s)",
+   "quoted": "1300",
+   "expr": "f('c','/runs/G4D/median_epoch_time_s')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D scale_factor",
+   "quoted": "3",
+   "expr": "f('c','/runs/G4D/scale_factor')"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D optimizer",
+   "quoted": "AdamW",
+   "expr": "f('c','/runs/G4D/optimizer_type')",
+   "mode": "exact"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node job (segment 0)",
+   "quoted": "7566145",
+   "expr": "f('c','/runs/128-node/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/128-node/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node epochs (segment 0)",
+   "quoted": "100",
+   "expr": "f('c','/runs/128-node/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node nodes (segment 0)",
+   "quoted": "128",
+   "expr": "f('c','/runs/128-node/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node max_epochs (segment 0)",
+   "quoted": "100",
+   "expr": "f('c','/runs/128-node/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node training s (segment 0)",
+   "quoted": "5749.22",
+   "expr": "f('c','/runs/128-node/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A job (segment 0)",
+   "quoted": "7585080",
+   "expr": "f('c','/runs/A/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A epochs (segment 0)",
+   "quoted": "243",
+   "expr": "f('c','/runs/A/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A nodes (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/A/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A max_epochs (segment 0)",
+   "quoted": "243",
+   "expr": "f('c','/runs/A/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A training s (segment 0)",
+   "quoted": "166683.54",
+   "expr": "f('c','/runs/A/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B job (segment 0)",
+   "quoted": "7630639",
+   "expr": "f('c','/runs/B/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/B/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/B/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/B/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B max_epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/B/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B training s (segment 0)",
+   "quoted": "31291.86",
+   "expr": "f('c','/runs/B/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR job (segment 0)",
+   "quoted": "7709268",
+   "expr": "f('c','/runs/DRYAIR/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/DRYAIR/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/DRYAIR/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/DRYAIR/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR max_epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/DRYAIR/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR training s (segment 0)",
+   "quoted": "28336.04",
+   "expr": "f('c','/runs/DRYAIR/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX job (segment 0)",
+   "quoted": "7715005",
+   "expr": "f('c','/runs/SOILFIX/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/SOILFIX/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/SOILFIX/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/SOILFIX/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX max_epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/SOILFIX/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX training s (segment 0)",
+   "quoted": "27497.24",
+   "expr": "f('c','/runs/SOILFIX/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm job (segment 0)",
+   "quoted": "7660250",
+   "expr": "f('c','/runs/F-warm/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-warm/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm epochs (segment 0)",
+   "quoted": "43",
+   "expr": "f('c','/runs/F-warm/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-warm/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm max_epochs (segment 0)",
+   "quoted": "43",
+   "expr": "f('c','/runs/F-warm/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm training s (segment 0)",
+   "quoted": "38549.19",
+   "expr": "f('c','/runs/F-warm/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch job (segment 0)",
+   "quoted": "7718436",
+   "expr": "f('c','/runs/F-scratch/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-scratch/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/F-scratch/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-scratch/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch max_epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/F-scratch/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch training s (segment 0)",
+   "quoted": "21436.66",
+   "expr": "f('c','/runs/F-scratch/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch job (segment 1)",
+   "quoted": "7721577",
+   "expr": "f('c','/runs/F-scratch/jobs/1')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 1)",
+   "quoted": "24",
+   "expr": "f('c','/runs/F-scratch/segments/1/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 1)",
+   "quoted": "43",
+   "expr": "f('c','/runs/F-scratch/segments/1/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch nodes (segment 1)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-scratch/segments/1/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch max_epochs (segment 1)",
+   "quoted": "43",
+   "expr": "f('c','/runs/F-scratch/segments/1/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch training s (segment 1)",
+   "quoted": "20032.31",
+   "expr": "f('c','/runs/F-scratch/segments/1/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 job (segment 0)",
+   "quoted": "7719538",
+   "expr": "f('c','/runs/F-depth4/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 0)",
+   "quoted": "16",
+   "expr": "f('c','/runs/F-depth4/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 max_epochs (segment 0)",
+   "quoted": "24",
+   "expr": "f('c','/runs/F-depth4/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 training s (segment 0)",
+   "quoted": "43012.38",
+   "expr": "f('c','/runs/F-depth4/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 killed elapsed (segment 0)",
+   "quoted": "43229",
+   "expr": "f('c','/runs/F-depth4/segments/0/stdout/killed_walltime_elapsed_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 job (segment 1)",
+   "quoted": "7725884",
+   "expr": "f('c','/runs/F-depth4/jobs/1')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 1)",
+   "quoted": "17",
+   "expr": "f('c','/runs/F-depth4/segments/1/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 1)",
+   "quoted": "63",
+   "expr": "f('c','/runs/F-depth4/segments/1/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 nodes (segment 1)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4/segments/1/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 max_epochs (segment 1)",
+   "quoted": "63",
+   "expr": "f('c','/runs/F-depth4/segments/1/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 training s (segment 1)",
+   "quoted": "128166.85",
+   "expr": "f('c','/runs/F-depth4/segments/1/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 0)",
+   "quoted": "7732625",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 0)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/F-depth4-dry/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 0)",
+   "quoted": "1292.51",
+   "expr": "f('c','/runs/F-depth4-dry/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 1)",
+   "quoted": "7733190",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/1')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 1)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4-dry/segments/1/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 1)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4-dry/segments/1/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 1)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/1/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 1)",
+   "quoted": "2",
+   "expr": "f('c','/runs/F-depth4-dry/segments/1/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 1)",
+   "quoted": "1252.84",
+   "expr": "f('c','/runs/F-depth4-dry/segments/1/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 2)",
+   "quoted": "7733283",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/2')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 2)",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-depth4-dry/segments/2/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 2)",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-depth4-dry/segments/2/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 2)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/2/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 2)",
+   "quoted": "3",
+   "expr": "f('c','/runs/F-depth4-dry/segments/2/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 2)",
+   "quoted": "1256.65",
+   "expr": "f('c','/runs/F-depth4-dry/segments/2/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 3)",
+   "quoted": "7733346",
+   "expr": "f('c','/runs/F-depth4-dry/jobs/3')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 3)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/3/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 3)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/3/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 3)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/3/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 3)",
+   "quoted": "4",
+   "expr": "f('c','/runs/F-depth4-dry/segments/3/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 3)",
+   "quoted": "1254.96",
+   "expr": "f('c','/runs/F-depth4-dry/segments/3/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 job (segment 0)",
+   "quoted": "7731784",
+   "expr": "f('c','/runs/G1/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/G1/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/G1/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 max_epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/G1/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 training s (segment 0)",
+   "quoted": "20549.66",
+   "expr": "f('c','/runs/G1/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 killed elapsed (segment 0)",
+   "quoted": "43204",
+   "expr": "f('c','/runs/G1/segments/0/stdout/killed_walltime_elapsed_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry job (segment 0)",
+   "quoted": "7735732",
+   "expr": "f('c','/runs/G1-dry/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/G1-dry/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry epochs (segment 0)",
+   "quoted": "63",
+   "expr": "f('c','/runs/G1-dry/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry nodes (segment 0)",
+   "quoted": "2",
+   "expr": "f('c','/runs/G1-dry/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry max_epochs (segment 0)",
+   "quoted": "63",
+   "expr": "f('c','/runs/G1-dry/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry training s (segment 0)",
+   "quoted": "54479.49",
+   "expr": "f('c','/runs/G1-dry/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry killed elapsed (segment 0)",
+   "quoted": "66676",
+   "expr": "f('c','/runs/G1-dry/segments/0/stdout/killed_walltime_elapsed_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E job (segment 0)",
+   "quoted": "7740992",
+   "expr": "f('c','/runs/G4E/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4E/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/G4E/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E nodes (segment 0)",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4E/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E max_epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/G4E/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E training s (segment 0)",
+   "quoted": "29221.49",
+   "expr": "f('c','/runs/G4E/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E killed elapsed (segment 0)",
+   "quoted": "50441",
+   "expr": "f('c','/runs/G4E/segments/0/stdout/killed_walltime_elapsed_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D job (segment 0)",
+   "quoted": "7742231",
+   "expr": "f('c','/runs/G4D/jobs/0')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 0)",
+   "quoted": "1",
+   "expr": "f('c','/runs/G4D/segments/0/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/G4D/segments/0/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D nodes (segment 0)",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4D/segments/0/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D max_epochs (segment 0)",
+   "quoted": "23",
+   "expr": "f('c','/runs/G4D/segments/0/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D training s (segment 0)",
+   "quoted": "29200.77",
+   "expr": "f('c','/runs/G4D/segments/0/training_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D killed elapsed (segment 0)",
+   "quoted": "50451",
+   "expr": "f('c','/runs/G4D/segments/0/stdout/killed_walltime_elapsed_s')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D job (segment 1)",
+   "quoted": "7771394",
+   "expr": "f('c','/runs/G4D/jobs/1')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 1)",
+   "quoted": "24",
+   "expr": "f('c','/runs/G4D/segments/1/epoch_first')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 1)",
+   "quoted": "63",
+   "expr": "f('c','/runs/G4D/segments/1/epoch_last')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D nodes (segment 1)",
+   "quoted": "4",
+   "expr": "f('c','/runs/G4D/segments/1/nodes')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D max_epochs (segment 1)",
+   "quoted": "63",
+   "expr": "f('c','/runs/G4D/segments/1/max_epochs_printed')"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D training s (segment 1)",
+   "quoted": "52725.88",
+   "expr": "f('c','/runs/G4D/segments/1/training_s')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col1",
+   "quoted": "8",
+   "expr": "f('c','/protocols/five_year/N_MEMBERS')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "quoted": "2044",
+   "expr": "f('c','/protocols/five_year/start_year')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "quoted": "1092",
+   "expr": "f('c','/protocols/five_year/START_FRAME0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "quoted": "16",
+   "expr": "f('c','/protocols/five_year/MEMBER_STRIDE')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "quoted": "2044",
+   "expr": "f('c','/protocols/five_year/start_year')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "7667",
+   "expr": "f('c','/protocols/five_year/N_STEPS0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "16",
+   "expr": "f('c','/protocols/five_year/MEMBER_STRIDE')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "7667",
+   "expr": "f('c','/protocols/five_year/N_STEPS0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "7555",
+   "expr": "f('c','/protocols/five_year/last_member_steps')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "2049",
+   "expr": "f('c','/protocols/five_year/end_date/0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "12",
+   "expr": "f('c','/protocols/five_year/end_date/1')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "quoted": "31",
+   "expr": "f('c','/protocols/five_year/end_date/2')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "2045",
+   "expr": "f('c','/protocols/five_year/selection_window/0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "2047",
+   "expr": "f('c','/protocols/five_year/selection_window/1')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "2048",
+   "expr": "f('c','/protocols/five_year/reporting_window_sealed/0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "2049",
+   "expr": "f('c','/protocols/five_year/reporting_window_sealed/1')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "364",
+   "expr": "f('c','/protocols/five_year/reporting_set_R_frames/0')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "16",
+   "expr": "f('c','/protocols/five_year/reporting_set_R_frames/1')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "28",
+   "expr": "f('c','/protocols/five_year/member_pairs')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "24",
+   "expr": "f('c','/protocols/score/n_groups')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "9",
+   "expr": "f('c','/protocols/score/n_surface_groups')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "5",
+   "expr": "f('c','/protocols/score/n_level_families')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "3",
+   "expr": "f('c','/protocols/score/n_bands')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "1",
+   "expr": "f('c','/protocols/five_year/gate2_neg_tmq_area_max_pct')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "1",
+   "expr": "f('c','/protocols/five_year/gate3_abs_dps_max_hpa')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "3",
+   "expr": "f('c','/protocols/five_year/gate4_max_drifting_groups')"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "quoted": "2",
+   "expr": "f('c','/protocols/five_year/gate4_drift_threshold_sd')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "quoted": "12",
+   "expr": "f('c','/protocols/k56/N_IC')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "quoted": "2",
+   "expr": "f('c','/protocols/k56/n_test_files')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "quoted": "2048",
+   "expr": "f('c','/protocols/data_split/test/first')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "quoted": "2049",
+   "expr": "f('c','/protocols/data_split/test/last')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "quoted": "24",
+   "expr": "f('c','/protocols/k56/n_ics')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col3",
+   "quoted": "56",
+   "expr": "f('c','/protocols/k56/K')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col3",
+   "quoted": "336",
+   "expr": "f('c','/protocols/k56/horizon_h')"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col3",
+   "quoted": "14",
+   "expr": "f('c','/protocols/k56/horizon_days')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col1",
+   "quoted": "32",
+   "expr": "f('c','/protocols/lagged/N_TARGETS')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col1",
+   "quoted": "14",
+   "expr": "f('c','/protocols/lagged/members_per_target')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col1",
+   "quoted": "4",
+   "expr": "f('c','/protocols/lagged/STRIDE')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col2",
+   "quoted": "0",
+   "expr": "f('c','/protocols/k56/FIRST_START')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col2",
+   "quoted": "2048",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/test_file_year')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col3",
+   "quoted": "56",
+   "expr": "f('c','/protocols/lagged/K')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col3",
+   "quoted": "4",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/depth_min')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col3",
+   "quoted": "56",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/depth_max')"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col4",
+   "quoted": "21",
+   "expr": "f('c','/k56_arms/G4D16_lagged_K56_d4/rollouts')"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col2",
+   "quoted": "2044",
+   "expr": "f('c','/protocols/screen/START_YEAR')"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col2",
+   "quoted": "1092",
+   "expr": "f('c','/protocols/screen/START_FRAME')"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col2",
+   "quoted": "1156",
+   "expr": "f('c','/protocols/screen/second_start_frame')"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col3",
+   "quoted": "1460",
+   "expr": "f('c','/protocols/screen/N_LEADS')"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col4",
+   "quoted": "14",
+   "expr": "f('c','/counts/screen_jobs')"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col4",
+   "quoted": "164",
+   "expr": "f('c','/counts/screen_labels')"
+  }
+ ]
+}

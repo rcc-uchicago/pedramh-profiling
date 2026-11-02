@@ -1,0 +1,5133 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/makani-knowledge/makani_sfno/docs/2026-11-02_makani_configurations/claims_configs.json",
+ "campaign": "makani SFNO configurations 2026-11-02",
+ "register": "configuration tables (Tables 1a, 1b, 1c, 3) of 2026-11-02_makani_configurations.md",
+ "quote_source": "2026-11-02_makani_configurations.md, as printed (parsed by build_claims.py)",
+ "date_utc": "2026-11-02T20:45:51Z",
+ "receipts": [
+  {
+   "alias": "c",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/.claude/worktrees/makani-knowledge/makani_sfno/docs/2026-11-02_makani_configurations/configs.json",
+   "mtime_utc": "2026-11-02T20:44:18Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 515,
+ "matches": 515,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "Table 1a",
+   "label": "128-node job ids",
+   "mode": "printed",
+   "quoted": "7566145",
+   "note": "",
+   "emitted": 7566145,
+   "emitted_printed": "7566145",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node output channels",
+   "mode": "printed",
+   "quoted": "101",
+   "note": "",
+   "emitted": 101,
+   "emitted_printed": "101",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node loss depth",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node loss depth",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A job ids",
+   "mode": "printed",
+   "quoted": "7585080",
+   "note": "",
+   "emitted": 7585080,
+   "emitted_printed": "7585080",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A output channels",
+   "mode": "printed",
+   "quoted": "101",
+   "note": "",
+   "emitted": 101,
+   "emitted_printed": "101",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A loss depth",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A loss depth",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B job ids",
+   "mode": "printed",
+   "quoted": "7630639",
+   "note": "",
+   "emitted": 7630639,
+   "emitted_printed": "7630639",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B output channels",
+   "mode": "printed",
+   "quoted": "101",
+   "note": "",
+   "emitted": 101,
+   "emitted_printed": "101",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR job ids",
+   "mode": "printed",
+   "quoted": "7709268",
+   "note": "",
+   "emitted": 7709268,
+   "emitted_printed": "7709268",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR output channels",
+   "mode": "printed",
+   "quoted": "101",
+   "note": "",
+   "emitted": 101,
+   "emitted_printed": "101",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX job ids",
+   "mode": "printed",
+   "quoted": "7715005",
+   "note": "",
+   "emitted": 7715005,
+   "emitted_printed": "7715005",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX output channels",
+   "mode": "printed",
+   "quoted": "101",
+   "note": "",
+   "emitted": 101,
+   "emitted_printed": "101",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm job ids",
+   "mode": "printed",
+   "quoted": "7660250",
+   "note": "",
+   "emitted": 7660250,
+   "emitted_printed": "7660250",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm loss depth",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm loss depth",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch job ids",
+   "mode": "printed",
+   "quoted": "7718436",
+   "note": "",
+   "emitted": 7718436,
+   "emitted_printed": "7718436",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch job ids",
+   "mode": "printed",
+   "quoted": "7721577",
+   "note": "",
+   "emitted": 7721577,
+   "emitted_printed": "7721577",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch loss depth",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch loss depth",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 job ids",
+   "mode": "printed",
+   "quoted": "7719538",
+   "note": "",
+   "emitted": 7719538,
+   "emitted_printed": "7719538",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 job ids",
+   "mode": "printed",
+   "quoted": "7725884",
+   "note": "",
+   "emitted": 7725884,
+   "emitted_printed": "7725884",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "mode": "printed",
+   "quoted": "7732625",
+   "note": "",
+   "emitted": 7732625,
+   "emitted_printed": "7732625",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "mode": "printed",
+   "quoted": "7733190",
+   "note": "",
+   "emitted": 7733190,
+   "emitted_printed": "7733190",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "mode": "printed",
+   "quoted": "7733283",
+   "note": "",
+   "emitted": 7733283,
+   "emitted_printed": "7733283",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry job ids",
+   "mode": "printed",
+   "quoted": "7733346",
+   "note": "",
+   "emitted": 7733346,
+   "emitted_printed": "7733346",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 job ids",
+   "mode": "printed",
+   "quoted": "7731784",
+   "note": "",
+   "emitted": 7731784,
+   "emitted_printed": "7731784",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 loss depth",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 loss depth",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry job ids",
+   "mode": "printed",
+   "quoted": "7735732",
+   "note": "",
+   "emitted": 7735732,
+   "emitted_printed": "7735732",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry loss depth",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry loss depth",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E job ids",
+   "mode": "printed",
+   "quoted": "7740992",
+   "note": "",
+   "emitted": 7740992,
+   "emitted_printed": "7740992",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D job ids",
+   "mode": "printed",
+   "quoted": "7742231",
+   "note": "",
+   "emitted": 7742231,
+   "emitted_printed": "7742231",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D job ids",
+   "mode": "printed",
+   "quoted": "7771394",
+   "note": "",
+   "emitted": 7771394,
+   "emitted_printed": "7771394",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D output channels",
+   "mode": "printed",
+   "quoted": "99",
+   "note": "",
+   "emitted": 99,
+   "emitted_printed": "99",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D loss depth",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D loss depth",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D EMA",
+   "mode": "printed",
+   "quoted": "0.9995",
+   "note": "",
+   "emitted": 0.9995,
+   "emitted_printed": "0.9995",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node run tag",
+   "mode": "exact",
+   "quoted": "prod128_alldata_v2",
+   "note": "",
+   "emitted": "prod128_alldata_v2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "128-node amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A run tag",
+   "mode": "exact",
+   "quoted": "prod1n_b32_sgdr",
+   "note": "",
+   "emitted": "prod1n_b32_sgdr",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "A amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B run tag",
+   "mode": "exact",
+   "quoted": "nf4_prod_b16_r1",
+   "note": "",
+   "emitted": "nf4_prod_b16_r1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "B amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR run tag",
+   "mode": "exact",
+   "quoted": "fs_anneal_dryair_nf4_b16_rb01",
+   "note": "",
+   "emitted": "fs_anneal_dryair_nf4_b16_rb01",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "DRYAIR amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX run tag",
+   "mode": "exact",
+   "quoted": "fs_anneal_soilfix_nf4_b16_rb01",
+   "note": "",
+   "emitted": "fs_anneal_soilfix_nf4_b16_rb01",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "SOILFIX amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm run tag",
+   "mode": "exact",
+   "quoted": "f_nosoil_2n_b32_e43_warm",
+   "note": "",
+   "emitted": "f_nosoil_2n_b32_e43_warm",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-warm amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch run tag",
+   "mode": "exact",
+   "quoted": "f_nosoil_2n_b32_e23_scratch",
+   "note": "",
+   "emitted": "f_nosoil_2n_b32_e23_scratch",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-scratch amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 run tag",
+   "mode": "exact",
+   "quoted": "fsF_anneal_nf4_b16_rtmax100_scratch",
+   "note": "",
+   "emitted": "fsF_anneal_nf4_b16_rtmax100_scratch",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4 amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry run tag",
+   "mode": "exact",
+   "quoted": "fsF_dryair_nf4_b16_rtmax100_scratch",
+   "note": "",
+   "emitted": "fsF_dryair_nf4_b16_rtmax100_scratch",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "F-depth4-dry amp_mode",
+   "mode": "exact",
+   "quoted": "bf16",
+   "note": "",
+   "emitted": "bf16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 run tag",
+   "mode": "exact",
+   "quoted": "f_nosoil_2n_b32_e23_scratch_fp32",
+   "note": "",
+   "emitted": "f_nosoil_2n_b32_e23_scratch_fp32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1 amp_mode",
+   "mode": "exact",
+   "quoted": "none",
+   "note": "",
+   "emitted": "none",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry run tag",
+   "mode": "exact",
+   "quoted": "f_nosoil_2n_b32_e63_scratch_fp32_dryair",
+   "note": "",
+   "emitted": "f_nosoil_2n_b32_e63_scratch_fp32_dryair",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G1-dry amp_mode",
+   "mode": "exact",
+   "quoted": "none",
+   "note": "",
+   "emitted": "none",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E run tag",
+   "mode": "exact",
+   "quoted": "f_nosoil_4n_b32_e23_scratch_fp32_nf4",
+   "note": "",
+   "emitted": "f_nosoil_4n_b32_e23_scratch_fp32_nf4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4E amp_mode",
+   "mode": "exact",
+   "quoted": "none",
+   "note": "",
+   "emitted": "none",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D run tag",
+   "mode": "exact",
+   "quoted": "f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4",
+   "note": "",
+   "emitted": "f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1a",
+   "label": "G4D amp_mode",
+   "mode": "exact",
+   "quoted": "none",
+   "note": "",
+   "emitted": "none",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node peak LR",
+   "mode": "printed",
+   "quoted": "0.001",
+   "note": "",
+   "emitted": 0.001,
+   "emitted_printed": "0.001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node LR schedule",
+   "mode": "printed",
+   "quoted": "0.5",
+   "note": "",
+   "emitted": 0.5,
+   "emitted_printed": "0.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node warmup epochs",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node local batch",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node GPUs",
+   "mode": "printed",
+   "quoted": "512",
+   "note": "",
+   "emitted": 512,
+   "emitted_printed": "512",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node nodes",
+   "mode": "printed",
+   "quoted": "128",
+   "note": "",
+   "emitted": 128,
+   "emitted_printed": "128",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node global batch",
+   "mode": "printed",
+   "quoted": "512",
+   "note": "",
+   "emitted": 512,
+   "emitted_printed": "512",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node epochs trained",
+   "mode": "printed",
+   "quoted": "100",
+   "note": "",
+   "emitted": 100,
+   "emitted_printed": "100",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node updates",
+   "mode": "printed",
+   "quoted": "8500",
+   "note": "",
+   "emitted": 8500,
+   "emitted_printed": "8500",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node training time (h)",
+   "mode": "printed",
+   "quoted": "1.6",
+   "note": "",
+   "emitted": 1.5970055555555556,
+   "emitted_printed": "1.6",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node node-hours",
+   "mode": "printed",
+   "quoted": "204.4",
+   "note": "",
+   "emitted": 204.4167111111111,
+   "emitted_printed": "204.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node median epoch time (s)",
+   "mode": "printed",
+   "quoted": "58",
+   "note": "",
+   "emitted": 57.515,
+   "emitted_printed": "58",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "128-node optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A local batch",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A GPUs",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A nodes",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A epochs trained",
+   "mode": "printed",
+   "quoted": "243",
+   "note": "",
+   "emitted": 243,
+   "emitted_printed": "243",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A updates",
+   "mode": "printed",
+   "quoted": "332424",
+   "note": "",
+   "emitted": 332424,
+   "emitted_printed": "332424",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A training time (h)",
+   "mode": "printed",
+   "quoted": "46.3",
+   "note": "",
+   "emitted": 46.300983333333335,
+   "emitted_printed": "46.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A node-hours",
+   "mode": "printed",
+   "quoted": "46.3",
+   "note": "",
+   "emitted": 46.300983333333335,
+   "emitted_printed": "46.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A median epoch time (s)",
+   "mode": "printed",
+   "quoted": "672",
+   "note": "",
+   "emitted": 671.92,
+   "emitted_printed": "672",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "A optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B peak LR",
+   "mode": "printed",
+   "quoted": "0.0004",
+   "note": "",
+   "emitted": 0.0004,
+   "emitted_printed": "0.0004",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B LR schedule",
+   "mode": "printed",
+   "quoted": "100",
+   "note": "",
+   "emitted": 100,
+   "emitted_printed": "100",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B warmup epochs",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B local batch",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B global batch",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B epochs trained",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B updates",
+   "mode": "printed",
+   "quoted": "65688",
+   "note": "",
+   "emitted": 65688,
+   "emitted_printed": "65688",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B training time (h)",
+   "mode": "printed",
+   "quoted": "8.7",
+   "note": "",
+   "emitted": 8.692183333333334,
+   "emitted_printed": "8.7",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B node-hours",
+   "mode": "printed",
+   "quoted": "17.4",
+   "note": "",
+   "emitted": 17.38436666666667,
+   "emitted_printed": "17.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B median epoch time (s)",
+   "mode": "printed",
+   "quoted": "1305",
+   "note": "",
+   "emitted": 1304.865,
+   "emitted_printed": "1305",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "B optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR peak LR",
+   "mode": "printed",
+   "quoted": "0.0004",
+   "note": "",
+   "emitted": 0.0004,
+   "emitted_printed": "0.0004",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR LR schedule",
+   "mode": "printed",
+   "quoted": "22",
+   "note": "",
+   "emitted": 22,
+   "emitted_printed": "22",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR warmup epochs",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR local batch",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR global batch",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR epochs trained",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR updates",
+   "mode": "printed",
+   "quoted": "65688",
+   "note": "",
+   "emitted": 65688,
+   "emitted_printed": "65688",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR training time (h)",
+   "mode": "printed",
+   "quoted": "7.9",
+   "note": "",
+   "emitted": 7.871122222222223,
+   "emitted_printed": "7.9",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR node-hours",
+   "mode": "printed",
+   "quoted": "15.7",
+   "note": "",
+   "emitted": 15.742244444444445,
+   "emitted_printed": "15.7",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR median epoch time (s)",
+   "mode": "printed",
+   "quoted": "1180",
+   "note": "",
+   "emitted": 1180.455,
+   "emitted_printed": "1180",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "DRYAIR optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX peak LR",
+   "mode": "printed",
+   "quoted": "0.0004",
+   "note": "",
+   "emitted": 0.0004,
+   "emitted_printed": "0.0004",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX LR schedule",
+   "mode": "printed",
+   "quoted": "22",
+   "note": "",
+   "emitted": 22,
+   "emitted_printed": "22",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX warmup epochs",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX local batch",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX global batch",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX epochs trained",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX updates",
+   "mode": "printed",
+   "quoted": "65688",
+   "note": "",
+   "emitted": 65688,
+   "emitted_printed": "65688",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX training time (h)",
+   "mode": "printed",
+   "quoted": "7.6",
+   "note": "",
+   "emitted": 7.638122222222223,
+   "emitted_printed": "7.6",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX node-hours",
+   "mode": "printed",
+   "quoted": "15.3",
+   "note": "",
+   "emitted": 15.276244444444446,
+   "emitted_printed": "15.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX median epoch time (s)",
+   "mode": "printed",
+   "quoted": "1142",
+   "note": "",
+   "emitted": 1142.115,
+   "emitted_printed": "1142",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "SOILFIX optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm local batch",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm epochs trained",
+   "mode": "printed",
+   "quoted": "43",
+   "note": "",
+   "emitted": 43,
+   "emitted_printed": "43",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm updates",
+   "mode": "printed",
+   "quoted": "58824",
+   "note": "",
+   "emitted": 58824,
+   "emitted_printed": "58824",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm training time (h)",
+   "mode": "printed",
+   "quoted": "10.7",
+   "note": "",
+   "emitted": 10.708108333333334,
+   "emitted_printed": "10.7",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm node-hours",
+   "mode": "printed",
+   "quoted": "21.4",
+   "note": "",
+   "emitted": 21.416216666666667,
+   "emitted_printed": "21.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm median epoch time (s)",
+   "mode": "printed",
+   "quoted": "894",
+   "note": "",
+   "emitted": 894.48,
+   "emitted_printed": "894",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-warm optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch local batch",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch epochs trained",
+   "mode": "printed",
+   "quoted": "43",
+   "note": "",
+   "emitted": 43,
+   "emitted_printed": "43",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch updates",
+   "mode": "printed",
+   "quoted": "58824",
+   "note": "",
+   "emitted": 58824,
+   "emitted_printed": "58824",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch training time (h)",
+   "mode": "printed",
+   "quoted": "11.5",
+   "note": "",
+   "emitted": 11.519158333333333,
+   "emitted_printed": "11.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch node-hours",
+   "mode": "printed",
+   "quoted": "23.0",
+   "note": "",
+   "emitted": 23.038316666666667,
+   "emitted_printed": "23.0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch median epoch time (s)",
+   "mode": "printed",
+   "quoted": "931",
+   "note": "",
+   "emitted": 931.28,
+   "emitted_printed": "931",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-scratch optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 peak LR",
+   "mode": "printed",
+   "quoted": "0.0004",
+   "note": "",
+   "emitted": 0.0004,
+   "emitted_printed": "0.0004",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 LR schedule",
+   "mode": "printed",
+   "quoted": "100",
+   "note": "",
+   "emitted": 100,
+   "emitted_printed": "100",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 warmup epochs",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 local batch",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 global batch",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 epochs trained",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 updates",
+   "mode": "printed",
+   "quoted": "172431",
+   "note": "",
+   "emitted": 172431,
+   "emitted_printed": "172431",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 training time (h)",
+   "mode": "printed",
+   "quoted": "47.5",
+   "note": "",
+   "emitted": 47.54978611111111,
+   "emitted_printed": "47.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 node-hours",
+   "mode": "printed",
+   "quoted": "95.1",
+   "note": "",
+   "emitted": 95.09957222222222,
+   "emitted_printed": "95.1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 median epoch time (s)",
+   "mode": "printed",
+   "quoted": "2717",
+   "note": "",
+   "emitted": 2717.24,
+   "emitted_printed": "2717",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4 optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry peak LR",
+   "mode": "printed",
+   "quoted": "0.0004",
+   "note": "",
+   "emitted": 0.0004,
+   "emitted_printed": "0.0004",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry LR schedule",
+   "mode": "printed",
+   "quoted": "100",
+   "note": "",
+   "emitted": 100,
+   "emitted_printed": "100",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry warmup epochs",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry local batch",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry GPUs",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry nodes",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry global batch",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry epochs trained",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry updates",
+   "mode": "printed",
+   "quoted": "10948",
+   "note": "",
+   "emitted": 10948,
+   "emitted_printed": "10948",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry training time (h)",
+   "mode": "printed",
+   "quoted": "1.4",
+   "note": "",
+   "emitted": 1.404711111111111,
+   "emitted_printed": "1.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry node-hours",
+   "mode": "printed",
+   "quoted": "5.6",
+   "note": "",
+   "emitted": 5.618844444444444,
+   "emitted_printed": "5.6",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry median epoch time (s)",
+   "mode": "printed",
+   "quoted": "1256",
+   "note": "",
+   "emitted": 1255.7350000000001,
+   "emitted_printed": "1256",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "F-depth4-dry optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 local batch",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 epochs trained",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 updates",
+   "mode": "printed",
+   "quoted": "31464",
+   "note": "",
+   "emitted": 31464,
+   "emitted_printed": "31464",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 training time (h)",
+   "mode": "printed",
+   "quoted": "5.7",
+   "note": "",
+   "emitted": 5.708238888888888,
+   "emitted_printed": "5.7",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 node-hours",
+   "mode": "printed",
+   "quoted": "11.4",
+   "note": "",
+   "emitted": 11.416477777777777,
+   "emitted_printed": "11.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 median epoch time (s)",
+   "mode": "printed",
+   "quoted": "886",
+   "note": "",
+   "emitted": 886.19,
+   "emitted_printed": "886",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1 optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry local batch",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry GPUs",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry nodes",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry epochs trained",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry updates",
+   "mode": "printed",
+   "quoted": "86184",
+   "note": "",
+   "emitted": 86184,
+   "emitted_printed": "86184",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry training time (h)",
+   "mode": "printed",
+   "quoted": "15.1",
+   "note": "",
+   "emitted": 15.133191666666667,
+   "emitted_printed": "15.1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry node-hours",
+   "mode": "printed",
+   "quoted": "30.3",
+   "note": "",
+   "emitted": 30.266383333333334,
+   "emitted_printed": "30.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry median epoch time (s)",
+   "mode": "printed",
+   "quoted": "864",
+   "note": "",
+   "emitted": 864.29,
+   "emitted_printed": "864",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G1-dry optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E local batch",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E GPUs",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E nodes",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E epochs trained",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E updates",
+   "mode": "printed",
+   "quoted": "31464",
+   "note": "",
+   "emitted": 31464,
+   "emitted_printed": "31464",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E training time (h)",
+   "mode": "printed",
+   "quoted": "8.1",
+   "note": "",
+   "emitted": 8.117080555555557,
+   "emitted_printed": "8.1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E node-hours",
+   "mode": "printed",
+   "quoted": "32.5",
+   "note": "",
+   "emitted": 32.46832222222223,
+   "emitted_printed": "32.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E median epoch time (s)",
+   "mode": "printed",
+   "quoted": "1261",
+   "note": "",
+   "emitted": 1261.45,
+   "emitted_printed": "1261",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4E optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D optimizer",
+   "mode": "printed",
+   "quoted": "0.95",
+   "note": "",
+   "emitted": 0.95,
+   "emitted_printed": "0.95",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D optimizer",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D peak LR",
+   "mode": "printed",
+   "quoted": "0.002",
+   "note": "",
+   "emitted": 0.002,
+   "emitted_printed": "0.002",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D LR schedule",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D LR schedule",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D LR schedule",
+   "mode": "printed",
+   "quoted": "0.000001",
+   "note": "",
+   "emitted": 1e-06,
+   "emitted_printed": "0.000001",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D warmup epochs",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D local batch",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D GPUs",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D nodes",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D global batch",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D h x w",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D epochs trained",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D updates",
+   "mode": "printed",
+   "quoted": "86184",
+   "note": "",
+   "emitted": 86184,
+   "emitted_printed": "86184",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D training time (h)",
+   "mode": "printed",
+   "quoted": "22.8",
+   "note": "",
+   "emitted": 22.757402777777777,
+   "emitted_printed": "22.8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D node-hours",
+   "mode": "printed",
+   "quoted": "91.0",
+   "note": "",
+   "emitted": 91.02961111111111,
+   "emitted_printed": "91.0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D median epoch time (s)",
+   "mode": "printed",
+   "quoted": "1300",
+   "note": "",
+   "emitted": 1300.11,
+   "emitted_printed": "1300",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D scale_factor",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1b",
+   "label": "G4D optimizer",
+   "mode": "exact",
+   "quoted": "AdamW",
+   "note": "",
+   "emitted": "AdamW",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node job (segment 0)",
+   "mode": "printed",
+   "quoted": "7566145",
+   "note": "",
+   "emitted": 7566145,
+   "emitted_printed": "7566145",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "100",
+   "note": "",
+   "emitted": 100,
+   "emitted_printed": "100",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "128",
+   "note": "",
+   "emitted": 128,
+   "emitted_printed": "128",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "100",
+   "note": "",
+   "emitted": 100,
+   "emitted_printed": "100",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "128-node training s (segment 0)",
+   "mode": "printed",
+   "quoted": "5749.22",
+   "note": "",
+   "emitted": 5749.22,
+   "emitted_printed": "5749.22",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A job (segment 0)",
+   "mode": "printed",
+   "quoted": "7585080",
+   "note": "",
+   "emitted": 7585080,
+   "emitted_printed": "7585080",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "243",
+   "note": "",
+   "emitted": 243,
+   "emitted_printed": "243",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "243",
+   "note": "",
+   "emitted": 243,
+   "emitted_printed": "243",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "A training s (segment 0)",
+   "mode": "printed",
+   "quoted": "166683.54",
+   "note": "",
+   "emitted": 166683.54,
+   "emitted_printed": "166683.54",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B job (segment 0)",
+   "mode": "printed",
+   "quoted": "7630639",
+   "note": "",
+   "emitted": 7630639,
+   "emitted_printed": "7630639",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "B training s (segment 0)",
+   "mode": "printed",
+   "quoted": "31291.86",
+   "note": "",
+   "emitted": 31291.86,
+   "emitted_printed": "31291.86",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR job (segment 0)",
+   "mode": "printed",
+   "quoted": "7709268",
+   "note": "",
+   "emitted": 7709268,
+   "emitted_printed": "7709268",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "DRYAIR training s (segment 0)",
+   "mode": "printed",
+   "quoted": "28336.04",
+   "note": "",
+   "emitted": 28336.04,
+   "emitted_printed": "28336.04",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX job (segment 0)",
+   "mode": "printed",
+   "quoted": "7715005",
+   "note": "",
+   "emitted": 7715005,
+   "emitted_printed": "7715005",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "SOILFIX training s (segment 0)",
+   "mode": "printed",
+   "quoted": "27497.24",
+   "note": "",
+   "emitted": 27497.24,
+   "emitted_printed": "27497.24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm job (segment 0)",
+   "mode": "printed",
+   "quoted": "7660250",
+   "note": "",
+   "emitted": 7660250,
+   "emitted_printed": "7660250",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "43",
+   "note": "",
+   "emitted": 43,
+   "emitted_printed": "43",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "43",
+   "note": "",
+   "emitted": 43,
+   "emitted_printed": "43",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-warm training s (segment 0)",
+   "mode": "printed",
+   "quoted": "38549.19",
+   "note": "",
+   "emitted": 38549.19,
+   "emitted_printed": "38549.19",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch job (segment 0)",
+   "mode": "printed",
+   "quoted": "7718436",
+   "note": "",
+   "emitted": 7718436,
+   "emitted_printed": "7718436",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch training s (segment 0)",
+   "mode": "printed",
+   "quoted": "21436.66",
+   "note": "",
+   "emitted": 21436.66,
+   "emitted_printed": "21436.66",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch job (segment 1)",
+   "mode": "printed",
+   "quoted": "7721577",
+   "note": "",
+   "emitted": 7721577,
+   "emitted_printed": "7721577",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "43",
+   "note": "",
+   "emitted": 43,
+   "emitted_printed": "43",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch nodes (segment 1)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch max_epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "43",
+   "note": "",
+   "emitted": 43,
+   "emitted_printed": "43",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-scratch training s (segment 1)",
+   "mode": "printed",
+   "quoted": "20032.31",
+   "note": "",
+   "emitted": 20032.31,
+   "emitted_printed": "20032.31",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 job (segment 0)",
+   "mode": "printed",
+   "quoted": "7719538",
+   "note": "",
+   "emitted": 7719538,
+   "emitted_printed": "7719538",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 training s (segment 0)",
+   "mode": "printed",
+   "quoted": "43012.38",
+   "note": "",
+   "emitted": 43012.38,
+   "emitted_printed": "43012.38",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 killed elapsed (segment 0)",
+   "mode": "printed",
+   "quoted": "43229",
+   "note": "",
+   "emitted": 43229,
+   "emitted_printed": "43229",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 job (segment 1)",
+   "mode": "printed",
+   "quoted": "7725884",
+   "note": "",
+   "emitted": 7725884,
+   "emitted_printed": "7725884",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "17",
+   "note": "",
+   "emitted": 17,
+   "emitted_printed": "17",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 nodes (segment 1)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 max_epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4 training s (segment 1)",
+   "mode": "printed",
+   "quoted": "128166.85",
+   "note": "",
+   "emitted": 128166.85,
+   "emitted_printed": "128166.85",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 0)",
+   "mode": "printed",
+   "quoted": "7732625",
+   "note": "",
+   "emitted": 7732625,
+   "emitted_printed": "7732625",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 0)",
+   "mode": "printed",
+   "quoted": "1292.51",
+   "note": "",
+   "emitted": 1292.51,
+   "emitted_printed": "1292.51",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 1)",
+   "mode": "printed",
+   "quoted": "7733190",
+   "note": "",
+   "emitted": 7733190,
+   "emitted_printed": "7733190",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 1)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 1)",
+   "mode": "printed",
+   "quoted": "1252.84",
+   "note": "",
+   "emitted": 1252.84,
+   "emitted_printed": "1252.84",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 2)",
+   "mode": "printed",
+   "quoted": "7733283",
+   "note": "",
+   "emitted": 7733283,
+   "emitted_printed": "7733283",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 2)",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 2)",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 2)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 2)",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 2)",
+   "mode": "printed",
+   "quoted": "1256.65",
+   "note": "",
+   "emitted": 1256.65,
+   "emitted_printed": "1256.65",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry job (segment 3)",
+   "mode": "printed",
+   "quoted": "7733346",
+   "note": "",
+   "emitted": 7733346,
+   "emitted_printed": "7733346",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 3)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry epochs (segment 3)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry nodes (segment 3)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry max_epochs (segment 3)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "F-depth4-dry training s (segment 3)",
+   "mode": "printed",
+   "quoted": "1254.96",
+   "note": "",
+   "emitted": 1254.96,
+   "emitted_printed": "1254.96",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 job (segment 0)",
+   "mode": "printed",
+   "quoted": "7731784",
+   "note": "",
+   "emitted": 7731784,
+   "emitted_printed": "7731784",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 training s (segment 0)",
+   "mode": "printed",
+   "quoted": "20549.66",
+   "note": "",
+   "emitted": 20549.66,
+   "emitted_printed": "20549.66",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1 killed elapsed (segment 0)",
+   "mode": "printed",
+   "quoted": "43204",
+   "note": "",
+   "emitted": 43204,
+   "emitted_printed": "43204",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry job (segment 0)",
+   "mode": "printed",
+   "quoted": "7735732",
+   "note": "",
+   "emitted": 7735732,
+   "emitted_printed": "7735732",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry training s (segment 0)",
+   "mode": "printed",
+   "quoted": "54479.49",
+   "note": "",
+   "emitted": 54479.49,
+   "emitted_printed": "54479.49",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G1-dry killed elapsed (segment 0)",
+   "mode": "printed",
+   "quoted": "66676",
+   "note": "",
+   "emitted": 66676,
+   "emitted_printed": "66676",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E job (segment 0)",
+   "mode": "printed",
+   "quoted": "7740992",
+   "note": "",
+   "emitted": 7740992,
+   "emitted_printed": "7740992",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E training s (segment 0)",
+   "mode": "printed",
+   "quoted": "29221.49",
+   "note": "",
+   "emitted": 29221.49,
+   "emitted_printed": "29221.49",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4E killed elapsed (segment 0)",
+   "mode": "printed",
+   "quoted": "50441",
+   "note": "",
+   "emitted": 50441,
+   "emitted_printed": "50441",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D job (segment 0)",
+   "mode": "printed",
+   "quoted": "7742231",
+   "note": "",
+   "emitted": 7742231,
+   "emitted_printed": "7742231",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D nodes (segment 0)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D max_epochs (segment 0)",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D training s (segment 0)",
+   "mode": "printed",
+   "quoted": "29200.77",
+   "note": "",
+   "emitted": 29200.77,
+   "emitted_printed": "29200.77",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D killed elapsed (segment 0)",
+   "mode": "printed",
+   "quoted": "50451",
+   "note": "",
+   "emitted": 50451,
+   "emitted_printed": "50451",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D job (segment 1)",
+   "mode": "printed",
+   "quoted": "7771394",
+   "note": "",
+   "emitted": 7771394,
+   "emitted_printed": "7771394",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D nodes (segment 1)",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D max_epochs (segment 1)",
+   "mode": "printed",
+   "quoted": "63",
+   "note": "",
+   "emitted": 63,
+   "emitted_printed": "63",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 1c",
+   "label": "G4D training s (segment 1)",
+   "mode": "printed",
+   "quoted": "52725.88",
+   "note": "",
+   "emitted": 52725.88,
+   "emitted_printed": "52725.88",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col1",
+   "mode": "printed",
+   "quoted": "8",
+   "note": "",
+   "emitted": 8,
+   "emitted_printed": "8",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "mode": "printed",
+   "quoted": "2044",
+   "note": "",
+   "emitted": 2044,
+   "emitted_printed": "2044",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "mode": "printed",
+   "quoted": "1092",
+   "note": "",
+   "emitted": 1092,
+   "emitted_printed": "1092",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col2",
+   "mode": "printed",
+   "quoted": "2044",
+   "note": "",
+   "emitted": 2044,
+   "emitted_printed": "2044",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "7667",
+   "note": "",
+   "emitted": 7667,
+   "emitted_printed": "7667",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "7667",
+   "note": "",
+   "emitted": 7667,
+   "emitted_printed": "7667",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "7555",
+   "note": "",
+   "emitted": 7555,
+   "emitted_printed": "7555",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "2049",
+   "note": "",
+   "emitted": 2049,
+   "emitted_printed": "2049",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "12",
+   "note": "",
+   "emitted": 12,
+   "emitted_printed": "12",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col3",
+   "mode": "printed",
+   "quoted": "31",
+   "note": "",
+   "emitted": 31,
+   "emitted_printed": "31",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "2045",
+   "note": "",
+   "emitted": 2045,
+   "emitted_printed": "2045",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "2047",
+   "note": "",
+   "emitted": 2047,
+   "emitted_printed": "2047",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "2048",
+   "note": "",
+   "emitted": 2048,
+   "emitted_printed": "2048",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "2049",
+   "note": "",
+   "emitted": 2049,
+   "emitted_printed": "2049",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "364",
+   "note": "",
+   "emitted": 364,
+   "emitted_printed": "364",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "16",
+   "note": "",
+   "emitted": 16,
+   "emitted_printed": "16",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "28",
+   "note": "",
+   "emitted": 28,
+   "emitted_printed": "28",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "9",
+   "note": "",
+   "emitted": 9,
+   "emitted_printed": "9",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "5-yr protocol col4",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "mode": "printed",
+   "quoted": "12",
+   "note": "",
+   "emitted": 12,
+   "emitted_printed": "12",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "mode": "printed",
+   "quoted": "2048",
+   "note": "",
+   "emitted": 2048,
+   "emitted_printed": "2048",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "mode": "printed",
+   "quoted": "2049",
+   "note": "",
+   "emitted": 2049,
+   "emitted_printed": "2049",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col1",
+   "mode": "printed",
+   "quoted": "24",
+   "note": "",
+   "emitted": 24,
+   "emitted_printed": "24",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col3",
+   "mode": "printed",
+   "quoted": "56",
+   "note": "",
+   "emitted": 56,
+   "emitted_printed": "56",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col3",
+   "mode": "printed",
+   "quoted": "336",
+   "note": "",
+   "emitted": 336,
+   "emitted_printed": "336",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "K=56 sweep col3",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col1",
+   "mode": "printed",
+   "quoted": "32",
+   "note": "",
+   "emitted": 32,
+   "emitted_printed": "32",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col1",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col1",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col2",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col2",
+   "mode": "printed",
+   "quoted": "2048",
+   "note": "",
+   "emitted": 2048,
+   "emitted_printed": "2048",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col3",
+   "mode": "printed",
+   "quoted": "56",
+   "note": "",
+   "emitted": 56,
+   "emitted_printed": "56",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col3",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col3",
+   "mode": "printed",
+   "quoted": "56",
+   "note": "",
+   "emitted": 56,
+   "emitted_printed": "56",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "Lagged ensemble col4",
+   "mode": "printed",
+   "quoted": "21",
+   "note": "",
+   "emitted": 21,
+   "emitted_printed": "21",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col2",
+   "mode": "printed",
+   "quoted": "2044",
+   "note": "",
+   "emitted": 2044,
+   "emitted_printed": "2044",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col2",
+   "mode": "printed",
+   "quoted": "1092",
+   "note": "",
+   "emitted": 1092,
+   "emitted_printed": "1092",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col2",
+   "mode": "printed",
+   "quoted": "1156",
+   "note": "",
+   "emitted": 1156,
+   "emitted_printed": "1156",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col3",
+   "mode": "printed",
+   "quoted": "1460",
+   "note": "",
+   "emitted": 1460,
+   "emitted_printed": "1460",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col4",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "Table 3",
+   "label": "1-yr screen col4",
+   "mode": "printed",
+   "quoted": "164",
+   "note": "",
+   "emitted": 164,
+   "emitted_printed": "164",
+   "status": "MATCH"
+  }
+ ]
+}
