@@ -1,15 +1,7 @@
 # Configurations: the makani SFNO training runs and rollout variants on E3SM
 
 *Written 2026-11-02. This is a record of **what was run and what was compared**, not an analysis: it reports
-settings, sizes and costs, and no scores, rankings or verdicts on the models. Every number in Tables 1–3 is read
-from [`configs.json`](configs.json), which [`extract_configs.py`](extract_configs.py) (stdlib only) writes from
-the primary records: each run's rank-0 trainer log (`e3sm_mn_scaling/<tag>/out.log`, cumulative across resumed
-jobs), the PBS stdout `makani_mn_scaling.o<job>`, the rendered yaml, the launcher's provenance sidecars, the
-rollout jobs' stdouts and per-member logs, and the evaluation scripts' defaults. A number that the extractor did
-not compute from a primary record carries the tag **UNVERIFIED**. [`claims_configs.json`](claims_configs.json)
-checks every number in Tables 1a, 1b, 1c and 3 against `configs.json` with emitall (spec built from the
-doc's own table cells by [`build_claims.py`](build_claims.py)); its report is
-[`claims_configs.report.json`](claims_configs.report.json).*
+settings, sizes and costs, and no scores, rankings or verdicts on the models.
 
 ## 1. Question and design
 
