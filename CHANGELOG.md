@@ -50,6 +50,23 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## In progress
 
+- **SQG online-training profiling (jobs A/B/C, 2026-11-02)** — scripts in `SQG/analysis/`, Midway env =
+  Weidong's `wdenv` (jax 0.4.28, torch 2.3.1, timm 0.9.12) + `module load cuda/12.9` (nsys/NVTX; the harness logs
+  which cuFFT/cudart JAX loads since the module prepends LD_LIBRARY_PATH). No training data needed: A/B use one AB3
+  checkpoint (`AllTrainData/...m01.../checkpoint/ckpt_t0100.00.npz`), C uses random input.
+  - **A** `profile_solver_midway.sh` (solver ms/step, dispatch blocking, HLO op counts, donate / fixed-AB3-level
+    variants checked bitwise, nsys) — **queued as job 62088260**.
+  - **B** `profile_overlap_midway.sh` (does the solver overlap the UViT step? serial vs background thread, pyqg AB3 vs
+    fixed level) and **C** `profile_uvit_midway.sh` (torch.profiler of the UViT step) — built, CPU-smoked (C), **not
+    submitted**.
+  - **Blocked on GPUs:** pedramh-gpu midway3-0423 is fully held by Weidong's no-time-limit generator job; midway3-0608
+    is reserved (`node_test`, user ndtrung) until 2026-11-04 00:00. The `gpu` partition is V100 (not representative).
+  - Hypothesis under test (two independent Opus reviews): pyqg_jax `AB3Stepper.apply_updates` uses a runtime
+    `lax.switch` on `_ablevel` (steppers.py:478) that may sync the host every step, which would serialise solver
+    and network (2.6 s ≈ 2.2 + 0.4). Also found by review, no profiling needed: the host FIFO stores every frame twice
+    (137 → ~69 GB/rank possible with identical samples); o1.2 cannot run on Midway as-is (torch 2.3.1 lacks
+    `torch.backends.fp32_precision`; fixed_ring `DT_SAVE=0.0025` breaks o1.2's LAG assertion; hard-coded paths).
+
 - **Polaris bring-up PR open for review** — branch `polaris-pbs-bringup` pushed; open at
   https://github.com/rcc-uchicago/pedramh-profiling/compare/main...polaris-pbs-bringup
   (a solo session cannot self-approve — maintainer review/merge needed).
