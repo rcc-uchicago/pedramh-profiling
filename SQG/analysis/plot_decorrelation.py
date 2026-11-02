@@ -60,11 +60,64 @@ def guides(ax, label_y):
             ax.text(x * 1.08, label_y, lab, color=INK2, fontsize=7, va="top")
 
 
+def plot_bands(tag, summ):
+    """Multigrid summary (decorrelation.py --factors 1 ... 16): per |k| band, full 4096^2 grid (filled) vs the
+    256^2 training view (hollow): (a) variance fraction, (b) C(0.02), (c) e-folding time."""
+    full, coarse = summ["m1"], summ["m16"]
+    bands = [b for b in full["theta"]["bandvar"] if (full["theta"]["bandvar"][b] or 0) > 1e-7
+             or (full["incr"]["bandvar"][b] or 0) > 1e-7]
+    xs = np.arange(len(bands))
+    lim = next((i for i, b in enumerate(bands) if b.startswith("k128-")), None)   # first band beyond 256^2 Nyquist
+    fig, axs = plt.subplots(1, 3, figsize=(16, 4.8), facecolor=SURF)
+    panels = [("bandvar", "share of variance in band", "(a) where the variance sits", True),
+              ("bands_C_at_0.02", "correlation after one step C(0.02)", "(b) correlation after one step Δt = 0.02", False),
+              ("bands_efold_time", "e-folding time (model time)", "(c) e-folding time by band", True)]
+    for ax, (key, ylab, title, logy) in zip(axs, panels):
+        style(ax)
+        for f, (col, mk, lab) in SERIES.items():
+            for grid, filled in ((full, True), (coarse, False)):
+                d = grid[f][key]
+                y = np.array([d.get(b) if d.get(b) is not None else np.nan for b in bands], dtype=float)
+                kw = dict(color=col, marker=mk, ms=7, mew=1.5)
+                kw |= dict(mfc=col, mec=SURF, lw=2) if filled else dict(mfc=SURF, mec=col, lw=0)
+                name = f"{lab.split(' (')[0]} — {'4096² full grid' if filled else '256² training view'}"
+                ax.plot(xs + (0 if filled else 0.12), y, label=name, **kw)
+        if lim is not None:
+            ax.axvline(lim - 0.5, color=INK2, lw=1)
+            ax.text(lim - 0.45, 0.98, " beyond 256²\n grid limit", transform=ax.get_xaxis_transform(), color=INK2,
+                    fontsize=7, va="top")
+        if key == "bands_C_at_0.02":
+            ax.axhline(0, color=AXIS, lw=0.8)
+            ax.axhline(-0.5, color=MUTED, lw=0.8, ls=(0, (3, 3)))
+            ax.text(0, -0.53, "−0.5 = differencing uncorrelated frames", color=INK2, fontsize=7, va="top")
+            ax.set_ylim(-0.65, 1.08)
+        if key == "bands_efold_time":
+            for x, lab in GUIDES:
+                ax.axhline(x, color=MUTED, lw=0.8, ls=(0, (3, 3)), zorder=0)
+                ax.text(len(bands) - 0.6, x * 1.12, lab.replace("\n", " "), color=INK2, fontsize=7, ha="right")
+        if logy:
+            ax.set_yscale("log")
+        ax.set_xticks(xs, [b.replace("k", "") for b in bands], rotation=35, fontsize=8)
+        ax.set_xlabel("|k| band (octaves)", color=INK2, fontsize=9)
+        ax.set_ylabel(ylab, color=INK2, fontsize=9)
+        ax.set_title(title, color=INK, fontsize=10, loc="left")
+    axs[0].legend(frameon=False, fontsize=7.5, labelcolor=INK2, loc="lower left")
+    fig.suptitle("SQG θ: per-band decorrelation, full 4096² grid (filled) vs 256² point-subsampled training view "
+                 "(hollow); the 1024² view matches the full grid up to its own limit", color=INK, fontsize=11, x=0.01,
+                 ha="left")
+    fig.tight_layout()
+    out = os.path.join(HERE, "results", f"decorrelation_{tag}_bands.png")
+    fig.savefig(out, dpi=130, facecolor=SURF)
+    print(f"PLOT_OK {out}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--tag", default="full")
     args = ap.parse_args()
     rows, summ = load(args.tag)
+    if "m1" in summ:
+        return plot_bands(args.tag, summ)
 
     fig, axs = plt.subplots(1, 3, figsize=(15, 4.6), facecolor=SURF)
     # (a) C(tau)

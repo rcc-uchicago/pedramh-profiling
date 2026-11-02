@@ -95,6 +95,25 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-02** — **SQG decorrelation on the full 4096² grid vs the 1024²/256² views** (`decorrelation.py
+  --factors 1 4 16`, caslake job 62086140 under pi-pedramh, `DECORR_OK`, 104 windows, 7 min; results
+  `SQG/analysis/results/decorrelation_multigrid*`, figure `_bands.png`).
+  - Whole-field numbers are identical on all grids (θ C(0.02)=0.963, e-fold 0.69; increment C(0.0025)=0.92,
+    C(0.02)=−0.066), because θ variance is 89% at |k|<8.
+  - **Per band, 256² == 4096² up to |k|=64.** The fast small-scale decorrelation is real physics, not an aliasing
+    artifact. Aliasing only shows in the 256² top band |k| 64–128: its increment variance share goes 17.1%→20.5%
+    and C(0.0025) 0.85→0.81. The 1024² view equals the full grid up to its own Nyquist.
+  - **The target is small-scale:** 70% of the increment variance is at |k| 16–128 (e-fold 0.007–0.013 < Δt). Only
+    23% is at |k|<16. Beyond |k|≈128, increments one step apart are at the −0.50 uncorrelated-differencing limit.
+  - **Sweeping:** from |k|≈16 up, e-fold ∝ 1/k with 1/(k_mid·τ) ≈ 1.3 constant (1.23, 1.35, 1.31, 1.26, 1.26 for
+    the 16–32 … 256–512 octaves). Small eddies are advected by a ~1.3 large-scale velocity, i.e. moved ≈0.026 ≈ one
+    256² grid cell per Δt and ≈1% of a cell per online interval Δt/100. Deterministic and in principle predictable
+    from the large scales of θ itself, so this is *not* an irreducible floor. (This corrects the 256²-only entry below.)
+  - The genuinely unrepresentable part at 256² is |k|>128: 7.3% of increment variance, vs val MSE ≈ 5.6% of
+    persistence (0.0043 / ≈0.076). Same order, so it is consistent with a resolution floor but not proof.
+    Next: per-band val error of the trained UViT.
+  - Caveat: e-folds for |k|≥512 come from one lag point (below the 0.0025 frame spacing).
+
 - **2026-11-02** — **SQG online-training efficiency: temporal decorrelation measured** (`SQG/analysis/decorrelation.py`,
   caslake CPU job 62084323, `DECORR_OK`, 104 windows; results in `SQG/analysis/results/decorrelation_full*`).
   Context: online run `o1.2` costs ~142 h vs ~21 h offline, ~120 h of it solver time that re-integrates the 3500
@@ -109,9 +128,9 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
     0.0025–0.01 (p≈1.35) gives 1−C(2e-4)≈**3e-3** for targets and 1e-4 for inputs. That is an upper bound on novelty,
     since smooth-in-time fields go to p=2.
   - By band (256² grid): |k|<4 e-fold ≈1.1; |k|>32 decorrelates within Δt (θ C(0.02) 0.04–0.27; increment C(0.02)
-    −0.35 to −0.48, close to the −0.5 signature of differencing uncorrelated frames). The point-subsampled
-    (aliased) small scales look nearly unpredictable over one step from the 256² input → possible irreducible val
-    floor that more data cannot fix. Next check: per-band val error of the trained UViT.
+    −0.35 to −0.48, close to the −0.5 signature of differencing uncorrelated frames). *Superseded by the 4096²
+    multigrid entry above:* this is real physics (sweeping), not an aliasing artifact, and linear decorrelation ≠
+    unpredictability.
   - Meaning: neighbouring Δt/100 pairs are near-duplicates (input changes ~1%, target ~3–8%). New *input* states cost
     ~0.7–1.4 time units of solver (~10–20 GPU-min each); the archive holds ≈2500 of them, and o1.2 re-generates the
     same ones. Online sampling at Δt/10–Δt/4 keeps most target diversity while spanning 10–25× more time in the same
