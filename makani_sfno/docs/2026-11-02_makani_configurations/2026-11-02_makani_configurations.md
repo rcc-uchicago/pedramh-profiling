@@ -81,27 +81,63 @@ As Table 1a shows, the 13 runs split into two channel sets, two loss depths, two
 conservation settings. **Output channels** = `n_state_channels` + `n_diagnostic_channels` as printed by the
 trainer (100 + 1 with soil, 98 + 1 without); the inputs add the 7 forcing channels. **Loss depth** is the
 trainer's `multistep_count`, the number of chained 6-hour predictions inside one training loss, followed by
-`n_future` = `multistep_count` − 1. The last column lists every checkpoint label derived from the run; Table 2
+`n_future` = `multistep_count` − 1. Every part of Tables 1a–1c starts with the run's name, which is also its
+acronym family; the last column of part 1 lists every checkpoint label derived from the run, and Table 2
 defines the suffixes.
 
-**Table 1a. Identity, data and loss of each training run.** Read from `out.log` (trainer-printed values), the PBS
-stdout and the provenance sidecars.
+**Table 1a, part 1. What each run is.** The last column lists every checkpoint acronym derived from the run (Table 2 defines the suffixes).
 
-| role in plain words | run tag | PBS job id(s) | initialised from | output channels (count; soil) | loss depth (multistep_count / n_future) | dry-air constraint in training | training precision (amp_mode) | EMA (decay) | ACRONYMS |
-|---|---|---|---|---|---|---|---|---|---|
-| **128-node** — large-batch baseline on many nodes | `prod128_alldata_v2` | 7566145 | random | 101; soil yes | 1 / 0 | none | bf16 | none | none (no checkpoint of this run was rolled out) |
-| **A** — single-step baseline from scratch | `prod1n_b32_sgdr` | 7585080 | random | 101; soil yes | 1 / 0 | none | bf16 | none | A (= A243, `best_ckpt` = e243); K=56: A243, A16, A243_repro, A243rr; lagged: A243; 1-yr screen: A_e21…A_e243 |
-| **B** — depth fine-tune of A | `nf4_prod_b16_r1` | 7630639 | A e243 (A's `best_ckpt`), fresh optimizer | 101; soil yes | 5 / 4 | none | bf16 | none | B (= B01, `best_ckpt` = e01), B22, B24; B22fp32, B22posclamp; B01dryair, B22dryair, B24dryair; BF22, BF24, BF22fix, BF24fix; 1-yr screen: B_e01, B_e21…B_e24 |
-| **DRYAIR** — depth fine-tune of B, dry air trained in | `fs_anneal_dryair_nf4_b16_rb01` | 7709268 | B e01 (B's `best_ckpt`), fresh optimizer | 101; soil yes | 5 / 4 | trained in (`conserve_dry_air True`) | bf16 | none | DRYAIR01, DRYAIR24, DRYAIRF24; 1-yr screen: dryair_* |
-| **SOILFIX** — as DRYAIR with the soil-moisture fix instead of dry air | `fs_anneal_soilfix_nf4_b16_rb01` | 7715005 | B e01 (B's `best_ckpt`), fresh optimizer | 101; soil yes | 5 / 4 | none (soil-moisture fix trained in, `conserve_soil_moisture True`) | bf16 | none | SOILFIX21, SOILFIX24; 1-yr screen: soilfix_* |
-| **F-warm** — A's recipe without soil outputs, warm-started from A | `f_nosoil_2n_b32_e43_warm` | 7660250 UNVERIFIED | A e243 with the soil outputs sliced off (surgical file), fresh optimizer | 99; soil no | 1 / 0 | none | bf16 | 0.9995 | 1-yr screen only: raw_best, ema_best, raw_e01, raw_e22, raw_e39…raw_e42 |
-| **F-scratch** — A's recipe without soil outputs, from scratch, EMA on | `f_nosoil_2n_b32_e23_scratch` | 7718436 + 7721577 | random | 99; soil no | 1 / 0 | none | bf16 | 0.9995 | FS20…FS23, FS41…FS43; FSE15…FSE43; FSEMA (= FSE23), FSEMAdryair; FSEF15…FSEF19, FSEF23…FSEF32; FSEQ15; 1-yr screen: fs_*, fs43_* |
-| **F-depth4** — B's depth recipe applied to F-scratch | `fsF_anneal_nf4_b16_rtmax100_scratch` | 7719538 + 7725884 | F-scratch e23 raw (`best_ckpt` at the end of its first job) | 99; soil no | 5 / 4 | none | bf16 | 0.9995 | FD14, FD22, FD24, FD22dryair, FD24dryair; FDE04…FDE60 (every 4th epoch), FDE63; FDEF28, FDEF32; 1-yr screen: fsF_* |
-| **F-depth4-dry** — F-depth4 plus trained-in dry air, stop-early chain | `fsF_dryair_nf4_b16_rtmax100_scratch` | 7732625 + 7733190 + 7733283 + 7733346 | F-scratch e23 raw (stable copy) | 99; soil no | 5 / 4 | trained in (`conserve_dry_air True`) | bf16 | 0.9995 | DAE02, DAE04, DAR02, DAR04 |
-| **G1** — F-scratch in full precision | `f_nosoil_2n_b32_e23_scratch_fp32` | 7731784 | random | 99; soil no | 1 / 0 | none | none (fp32 weights and activations) | 0.9995 | G1E15…G1E23; G1E15fix, G1E16fix, G1E19fix; G1EB15…G1EB19 |
-| **G1-dry** — G1 plus trained-in dry air | `f_nosoil_2n_b32_e63_scratch_fp32_dryair` | 7735732 | random | 99; soil no | 1 / 0 | trained in (`conserve_dry_air True`) | none (fp32 weights and activations) | 0.9995 | G1D15…G1D23, G1D39…G1D43, G1D59…G1D63; K=56: G1D16 |
-| **G4E** — G1's recipe at depth from scratch | `f_nosoil_4n_b32_e23_scratch_fp32_nf4` | 7740992 | random | 99; soil no | 5 / 4 | none | none (fp32 weights and activations) | 0.9995 | G4E15…G4E23; G4E15fix…G4E23fix |
-| **G4D** — G4E plus trained-in dry air | `f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4` | 7742231 + 7771394 | random | 99; soil no | 5 / 4 | trained in (`conserve_dry_air True`) | none (fp32 weights and activations) | 0.9995 | G4D15…G4D23, G4D36, G4D43, G4D56, G4D63; K=56: G4D16, G4D16rr, G4D36, G4D43, G4D56, G4D63; lagged: G4D16 |
+| run | role | initialised from | checkpoint acronyms |
+|---|---|---|---|
+| **128-node** | large-batch baseline on many nodes | random | none (no checkpoint of this run was rolled out) |
+| **A** | single-step baseline from scratch | random | A (= A243, `best_ckpt` = e243); K=56: A243, A16, A243_repro, A243rr; lagged: A243; 1-yr screen: A_e21…A_e243 |
+| **B** | depth fine-tune of A | A e243 (A's `best_ckpt`), fresh optimizer | B (= B01, `best_ckpt` = e01), B22, B24; B22fp32, B22posclamp; B01dryair, B22dryair, B24dryair; BF22, BF24, BF22fix, BF24fix; 1-yr screen: B_e01, B_e21…B_e24 |
+| **DRYAIR** | depth fine-tune of B, dry air trained in | B e01 (B's `best_ckpt`), fresh optimizer | DRYAIR01, DRYAIR24, DRYAIRF24; 1-yr screen: dryair_* |
+| **SOILFIX** | as DRYAIR with the soil-moisture fix instead of dry air | B e01 (B's `best_ckpt`), fresh optimizer | SOILFIX21, SOILFIX24; 1-yr screen: soilfix_* |
+| **F-warm** | A's recipe without soil outputs, warm-started from A | A e243 with the soil outputs sliced off (surgical file), fresh optimizer | 1-yr screen only: raw_best, ema_best, raw_e01, raw_e22, raw_e39…raw_e42 |
+| **F-scratch** | A's recipe without soil outputs, from scratch, EMA on | random | FS20…FS23, FS41…FS43; FSE15…FSE43; FSEMA (= FSE23), FSEMAdryair; FSEF15…FSEF19, FSEF23…FSEF32; FSEQ15; 1-yr screen: fs_*, fs43_* |
+| **F-depth4** | B's depth recipe applied to F-scratch | F-scratch e23 raw (`best_ckpt` at the end of its first job) | FD14, FD22, FD24, FD22dryair, FD24dryair; FDE04…FDE60 (every 4th epoch), FDE63; FDEF28, FDEF32; 1-yr screen: fsF_* |
+| **F-depth4-dry** | F-depth4 plus trained-in dry air, stop-early chain | F-scratch e23 raw (stable copy) | DAE02, DAE04, DAR02, DAR04 |
+| **G1** | F-scratch in full precision | random | G1E15…G1E23; G1E15fix, G1E16fix, G1E19fix; G1EB15…G1EB19 |
+| **G1-dry** | G1 plus trained-in dry air | random | G1D15…G1D23, G1D39…G1D43, G1D59…G1D63; K=56: G1D16 |
+| **G4E** | G1's recipe at depth from scratch | random | G4E15…G4E23; G4E15fix…G4E23fix |
+| **G4D** | G4E plus trained-in dry air | random | G4D15…G4D23, G4D36, G4D43, G4D56, G4D63; K=56: G4D16, G4D16rr, G4D36, G4D43, G4D56, G4D63; lagged: G4D16 |
+
+**Table 1a, part 2. Run tag and PBS jobs.**
+
+| run | run tag | PBS job id(s) |
+|---|---|---|
+| **128-node** | `prod128_alldata_v2` | 7566145 |
+| **A** | `prod1n_b32_sgdr` | 7585080 |
+| **B** | `nf4_prod_b16_r1` | 7630639 |
+| **DRYAIR** | `fs_anneal_dryair_nf4_b16_rb01` | 7709268 |
+| **SOILFIX** | `fs_anneal_soilfix_nf4_b16_rb01` | 7715005 |
+| **F-warm** | `f_nosoil_2n_b32_e43_warm` | 7660250 UNVERIFIED |
+| **F-scratch** | `f_nosoil_2n_b32_e23_scratch` | 7718436 + 7721577 |
+| **F-depth4** | `fsF_anneal_nf4_b16_rtmax100_scratch` | 7719538 + 7725884 |
+| **F-depth4-dry** | `fsF_dryair_nf4_b16_rtmax100_scratch` | 7732625 + 7733190 + 7733283 + 7733346 |
+| **G1** | `f_nosoil_2n_b32_e23_scratch_fp32` | 7731784 |
+| **G1-dry** | `f_nosoil_2n_b32_e63_scratch_fp32_dryair` | 7735732 |
+| **G4E** | `f_nosoil_4n_b32_e23_scratch_fp32_nf4` | 7740992 |
+| **G4D** | `f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4` | 7742231 + 7771394 |
+
+**Table 1a, part 3. Data and loss.** Read from `out.log` (trainer-printed values), the PBS stdout and the provenance sidecars.
+
+| run | output channels (count; soil) | loss depth (multistep_count / n_future) | dry-air constraint in training | training precision (amp_mode) | EMA (decay) |
+|---|---|---|---|---|---|
+| **128-node** | 101; soil yes | 1 / 0 | none | bf16 | none |
+| **A** | 101; soil yes | 1 / 0 | none | bf16 | none |
+| **B** | 101; soil yes | 5 / 4 | none | bf16 | none |
+| **DRYAIR** | 101; soil yes | 5 / 4 | trained in (`conserve_dry_air True`) | bf16 | none |
+| **SOILFIX** | 101; soil yes | 5 / 4 | none (soil-moisture fix trained in, `conserve_soil_moisture True`) | bf16 | none |
+| **F-warm** | 99; soil no | 1 / 0 | none | bf16 | 0.9995 |
+| **F-scratch** | 99; soil no | 1 / 0 | none | bf16 | 0.9995 |
+| **F-depth4** | 99; soil no | 5 / 4 | none | bf16 | 0.9995 |
+| **F-depth4-dry** | 99; soil no | 5 / 4 | trained in (`conserve_dry_air True`) | bf16 | 0.9995 |
+| **G1** | 99; soil no | 1 / 0 | none | none (fp32 weights and activations) | 0.9995 |
+| **G1-dry** | 99; soil no | 1 / 0 | trained in (`conserve_dry_air True`) | none (fp32 weights and activations) | 0.9995 |
+| **G4E** | 99; soil no | 5 / 4 | none | none (fp32 weights and activations) | 0.9995 |
+| **G4D** | 99; soil no | 5 / 4 | trained in (`conserve_dry_air True`) | none (fp32 weights and activations) | 0.9995 |
 
 Every EMA run printed `EMA enabled: decay=0.9995, warmup=True`, i.e. the effective decay ramps up to 0.9995
 over the first epochs. The initialisations were read from the trainer's `pretrained_checkpoint_path`. Three of
@@ -119,24 +155,77 @@ not spare nodes. **Median epoch time** = the median of the logged `epoch time [s
 **Warmup epochs** is the printed `lr_warmup_steps`; the warmup starts at `lr_start` 0.01 × peak LR in every run
 that has one, and the launcher passes it as `WARMUP_EPOCHS` (provenance sidecars).
 
-**Table 1b. Optimisation and compute of each training run.** All runs: AdamW, `h_parallel_size` × `w_parallel_size`
-as shown (no spatial parallelism), `scale_factor` as shown.
+**Table 1b, part 1. Settings shared by every run.** Listed per run so each value is checked; all 13 rows are identical.
 
-| run | optimizer, β₂, max grad norm | peak LR | LR schedule (type, T₀ / T_mult / T_max, min LR) | warmup epochs | local batch per GPU | GPUs | nodes | global batch | spatial parallel (h × w) | epochs trained | updates | wall-clock training time (h) | node-hours | median epoch time (s) | scale_factor | ACRONYMS |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| **128-node** | AdamW, 0.95, 32 | 0.001 | reduce-on-plateau: factor 0.5, patience 1, no min printed | 0 | 1 | 512 | 128 | 512 | 1 x 1 | 100 | 8500 | 1.6 | 204.4 | 58 | 3 | none |
-| **A** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 8 | 4 | 1 | 32 | 1 x 1 | 243 | 332424 | 46.3 | 46.3 | 672 | 3 | A, A243, A16, A243rr, A243_repro |
-| **B** | AdamW, 0.95, 32 | 0.0004 | cosine: T_max 100, min 0.000001 | 1 | 2 | 8 | 2 | 16 | 1 x 1 | 24 | 65688 | 8.7 | 17.4 | 1305 | 3 | B (B01), B22, B24, BF*, B*dryair, B22fp32, B22posclamp |
-| **DRYAIR** | AdamW, 0.95, 32 | 0.0004 | cosine: T_max 22, min 0.000001 | 1 | 2 | 8 | 2 | 16 | 1 x 1 | 24 | 65688 | 7.9 | 15.7 | 1180 | 3 | DRYAIR01, DRYAIR24, DRYAIRF24 |
-| **SOILFIX** | AdamW, 0.95, 32 | 0.0004 | cosine: T_max 22, min 0.000001 | 1 | 2 | 8 | 2 | 16 | 1 x 1 | 24 | 65688 | 7.6 | 15.3 | 1142 | 3 | SOILFIX21, SOILFIX24 |
-| **F-warm** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 4 | 8 | 2 | 32 | 1 x 1 | 43 | 58824 | 10.7 | 21.4 | 894 | 3 | screen labels only |
-| **F-scratch** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 4 | 8 | 2 | 32 | 1 x 1 | 43 | 58824 | 11.5 | 23.0 | 931 | 3 | FS*, FSE*, FSEMA, FSEF*, FSEQ15 |
-| **F-depth4** | AdamW, 0.95, 32 | 0.0004 | cosine: T_max 100, min 0.000001 | 1 | 2 | 8 | 2 | 16 | 1 x 1 | 63 | 172431 | 47.5 | 95.1 | 2717 | 3 | FD*, FDE*, FDEF* |
-| **F-depth4-dry** | AdamW, 0.95, 32 | 0.0004 | cosine: T_max 100, min 0.000001 | 1 | 1 | 16 | 4 | 16 | 1 x 1 | 4 | 10948 | 1.4 | 5.6 | 1256 | 3 | DAE02, DAE04, DAR02, DAR04 |
-| **G1** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 4 | 8 | 2 | 32 | 1 x 1 | 23 | 31464 | 5.7 | 11.4 | 886 | 3 | G1E*, G1E*fix, G1EB* |
-| **G1-dry** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 4 | 8 | 2 | 32 | 1 x 1 | 63 | 86184 | 15.1 | 30.3 | 864 | 3 | G1D* |
-| **G4E** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 2 | 16 | 4 | 32 | 1 x 1 | 23 | 31464 | 8.1 | 32.5 | 1261 | 3 | G4E*, G4E*fix |
-| **G4D** | AdamW, 0.95, 32 | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 | 2 | 16 | 4 | 32 | 1 x 1 | 63 | 86184 | 22.8 | 91.0 | 1300 | 3 | G4D*, G4D16rr |
+| run | optimizer | β₂ | max grad norm | spatial parallel (h × w) | scale_factor |
+|---|---|---|---|---|---|
+| **128-node** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **A** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **B** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **DRYAIR** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **SOILFIX** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **F-warm** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **F-scratch** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **F-depth4** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **F-depth4-dry** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **G1** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **G1-dry** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **G4E** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+| **G4D** | AdamW | 0.95 | 32 | 1 x 1 | 3 |
+
+**Table 1b, part 2. Learning rate.**
+
+| run | peak LR | LR schedule (type, T₀ / T_mult / T_max, min LR) | warmup epochs |
+|---|---|---|---|
+| **128-node** | 0.001 | reduce-on-plateau: factor 0.5, patience 1, no min printed | 0 |
+| **A** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+| **B** | 0.0004 | cosine: T_max 100, min 0.000001 | 1 |
+| **DRYAIR** | 0.0004 | cosine: T_max 22, min 0.000001 | 1 |
+| **SOILFIX** | 0.0004 | cosine: T_max 22, min 0.000001 | 1 |
+| **F-warm** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+| **F-scratch** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+| **F-depth4** | 0.0004 | cosine: T_max 100, min 0.000001 | 1 |
+| **F-depth4-dry** | 0.0004 | cosine: T_max 100, min 0.000001 | 1 |
+| **G1** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+| **G1-dry** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+| **G4E** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+| **G4D** | 0.002 | SGDR: T₀ 20, T_mult 1, min 0.000001 | 3 |
+
+**Table 1b, part 3. Batch and hardware.**
+
+| run | local batch per GPU | GPUs | nodes | global batch |
+|---|---|---|---|---|
+| **128-node** | 1 | 512 | 128 | 512 |
+| **A** | 8 | 4 | 1 | 32 |
+| **B** | 2 | 8 | 2 | 16 |
+| **DRYAIR** | 2 | 8 | 2 | 16 |
+| **SOILFIX** | 2 | 8 | 2 | 16 |
+| **F-warm** | 4 | 8 | 2 | 32 |
+| **F-scratch** | 4 | 8 | 2 | 32 |
+| **F-depth4** | 2 | 8 | 2 | 16 |
+| **F-depth4-dry** | 1 | 16 | 4 | 16 |
+| **G1** | 4 | 8 | 2 | 32 |
+| **G1-dry** | 4 | 8 | 2 | 32 |
+| **G4E** | 2 | 16 | 4 | 32 |
+| **G4D** | 2 | 16 | 4 | 32 |
+
+**Table 1b, part 4. Length and cost.**
+
+| run | epochs trained | updates | wall-clock training time (h) | node-hours | median epoch time (s) |
+|---|---|---|---|---|---|
+| **128-node** | 100 | 8500 | 1.6 | 204.4 | 58 |
+| **A** | 243 | 332424 | 46.3 | 46.3 | 672 |
+| **B** | 24 | 65688 | 8.7 | 17.4 | 1305 |
+| **DRYAIR** | 24 | 65688 | 7.9 | 15.7 | 1180 |
+| **SOILFIX** | 24 | 65688 | 7.6 | 15.3 | 1142 |
+| **F-warm** | 43 | 58824 | 10.7 | 21.4 | 894 |
+| **F-scratch** | 43 | 58824 | 11.5 | 23.0 | 931 |
+| **F-depth4** | 63 | 172431 | 47.5 | 95.1 | 2717 |
+| **F-depth4-dry** | 4 | 10948 | 1.4 | 5.6 | 1256 |
+| **G1** | 23 | 31464 | 5.7 | 11.4 | 886 |
+| **G1-dry** | 63 | 86184 | 15.1 | 30.3 | 864 |
+| **G4E** | 23 | 31464 | 8.1 | 32.5 | 1261 |
+| **G4D** | 63 | 86184 | 22.8 | 91.0 | 1300 |
 
 As Table 1c shows, four runs were trained in more than one job, and five jobs were ended by the PBS walltime
 rather than by the trainer. A job that hung after training (the post-training `mpiexec`/wandb hang) ran to its
@@ -145,29 +234,53 @@ elapsed time we read. For F-depth4's first job the trainer never printed `Total 
 during epoch 17, so its training time is the sum of its 16 logged epoch times, and the partial epoch 17 is not
 counted.
 
-**Table 1c. Jobs of each training run.** "max_epochs printed" is the target the trainer was given for that job.
+**Table 1c, part 1. Jobs and epochs of each training run.** "max_epochs printed" is the target the trainer was given for that job.
 
-| run | job | epochs in this job | nodes | max_epochs printed | training time (s) | basis | PBS-killed elapsed (s) | git hash (trainer log) |
-|---|---|---|---|---|---|---|---|---|
-| 128-node | 7566145 | 1–100 | 128 | 100 | 5749.22 | Total training time | not recorded | `53770be6` |
-| A | 7585080 | 1–243 | 1 | 243 | 166683.54 | Total training time | not recorded | `38c493d7` |
-| B | 7630639 | 1–24 | 2 | 24 | 31291.86 | Total training time | not recorded | `a5b83ae2` |
-| DRYAIR | 7709268 | 1–24 | 2 | 24 | 28336.04 | Total training time | not recorded | `43a2476a` |
-| SOILFIX | 7715005 | 1–24 | 2 | 24 | 27497.24 | Total training time | not recorded | `d6489f5d` |
-| F-warm | 7660250 UNVERIFIED | 1–43 | 2 | 43 | 38549.19 | Total training time | not recorded | `a530bf65` |
-| F-scratch | 7718436 | 1–23 | 2 | 23 | 21436.66 | Total training time | not recorded | `a530bf65` |
-| F-scratch | 7721577 | 24–43 | 2 | 43 | 20032.31 | Total training time | not recorded | `a530bf65` |
-| F-depth4 | 7719538 | 1–16 | 2 | 24 | 43012.38 | epoch-time sum | 43229 | `a1b27d79` |
-| F-depth4 | 7725884 | 17–63 | 2 | 63 | 128166.85 | Total training time | not recorded | `a1b27d79` |
-| F-depth4-dry | 7732625 | 1–1 | 4 | 1 | 1292.51 | Total training time | not recorded | `9018ec79` |
-| F-depth4-dry | 7733190 | 2–2 | 4 | 2 | 1252.84 | Total training time | not recorded | `9018ec79` |
-| F-depth4-dry | 7733283 | 3–3 | 4 | 3 | 1256.65 | Total training time | not recorded | `9018ec79` |
-| F-depth4-dry | 7733346 | 4–4 | 4 | 4 | 1254.96 | Total training time | not recorded | `9018ec79` |
-| G1 | 7731784 | 1–23 | 2 | 23 | 20549.66 | Total training time | 43204 | `9018ec79` |
-| G1-dry | 7735732 | 1–63 | 2 | 63 | 54479.49 | Total training time | 66676 | `faf610d2` |
-| G4E | 7740992 | 1–23 | 4 | 23 | 29221.49 | Total training time | 50441 | `9018ec79` |
-| G4D | 7742231 | 1–23 | 4 | 23 | 29200.77 | Total training time | 50451 | `faf610d2` |
-| G4D | 7771394 | 24–63 | 4 | 63 | 52725.88 | Total training time | not recorded | `faf610d2` |
+| run | job | epochs in this job | nodes | max_epochs printed |
+|---|---|---|---|---|
+| 128-node | 7566145 | 1–100 | 128 | 100 |
+| A | 7585080 | 1–243 | 1 | 243 |
+| B | 7630639 | 1–24 | 2 | 24 |
+| DRYAIR | 7709268 | 1–24 | 2 | 24 |
+| SOILFIX | 7715005 | 1–24 | 2 | 24 |
+| F-warm | 7660250 UNVERIFIED | 1–43 | 2 | 43 |
+| F-scratch | 7718436 | 1–23 | 2 | 23 |
+| F-scratch | 7721577 | 24–43 | 2 | 43 |
+| F-depth4 | 7719538 | 1–16 | 2 | 24 |
+| F-depth4 | 7725884 | 17–63 | 2 | 63 |
+| F-depth4-dry | 7732625 | 1–1 | 4 | 1 |
+| F-depth4-dry | 7733190 | 2–2 | 4 | 2 |
+| F-depth4-dry | 7733283 | 3–3 | 4 | 3 |
+| F-depth4-dry | 7733346 | 4–4 | 4 | 4 |
+| G1 | 7731784 | 1–23 | 2 | 23 |
+| G1-dry | 7735732 | 1–63 | 2 | 63 |
+| G4E | 7740992 | 1–23 | 4 | 23 |
+| G4D | 7742231 | 1–23 | 4 | 23 |
+| G4D | 7771394 | 24–63 | 4 | 63 |
+
+**Table 1c, part 2. Time and code of each job.**
+
+| run | job | training time (s) | basis | PBS-killed elapsed (s) | git hash (trainer log) |
+|---|---|---|---|---|---|
+| 128-node | 7566145 | 5749.22 | Total training time | not recorded | `53770be6` |
+| A | 7585080 | 166683.54 | Total training time | not recorded | `38c493d7` |
+| B | 7630639 | 31291.86 | Total training time | not recorded | `a5b83ae2` |
+| DRYAIR | 7709268 | 28336.04 | Total training time | not recorded | `43a2476a` |
+| SOILFIX | 7715005 | 27497.24 | Total training time | not recorded | `d6489f5d` |
+| F-warm | 7660250 UNVERIFIED | 38549.19 | Total training time | not recorded | `a530bf65` |
+| F-scratch | 7718436 | 21436.66 | Total training time | not recorded | `a530bf65` |
+| F-scratch | 7721577 | 20032.31 | Total training time | not recorded | `a530bf65` |
+| F-depth4 | 7719538 | 43012.38 | epoch-time sum | 43229 | `a1b27d79` |
+| F-depth4 | 7725884 | 128166.85 | Total training time | not recorded | `a1b27d79` |
+| F-depth4-dry | 7732625 | 1292.51 | Total training time | not recorded | `9018ec79` |
+| F-depth4-dry | 7733190 | 1252.84 | Total training time | not recorded | `9018ec79` |
+| F-depth4-dry | 7733283 | 1256.65 | Total training time | not recorded | `9018ec79` |
+| F-depth4-dry | 7733346 | 1254.96 | Total training time | not recorded | `9018ec79` |
+| G1 | 7731784 | 20549.66 | Total training time | 43204 | `9018ec79` |
+| G1-dry | 7735732 | 54479.49 | Total training time | 66676 | `faf610d2` |
+| G4E | 7740992 | 29221.49 | Total training time | 50441 | `9018ec79` |
+| G4D | 7742231 | 29200.77 | Total training time | 50451 | `faf610d2` |
+| G4D | 7771394 | 52725.88 | Total training time | not recorded | `faf610d2` |
 
 Each job id was tied to its log segment by the PBS stdout's `jobid=`, `run_num=` and rendered `max_epochs`, and,
 where both exist, by an identical `Total training time`. F-scratch's two stdouts were in a worktree that no longer
@@ -188,42 +301,77 @@ file the member log's `ckpt_epoch` equals N + 1 (G4D16 = EMA weights of epoch 16
 exception that names its files differently: it kept 4 rotating slots (`checkpoint_num_versions` 4), so B22 and B24
 were rolled from the stable copies `ckpt_mp0_e22_stable.tar` and `ckpt_mp0_e24_stable.tar`.
 
-**Table 2a. Five-year-protocol arm families.** "fp32"/"bf16" = the dtype of the fed-back state in the rollout
+**Table 2a, part 1. Five-year-protocol arm families and their acronyms.** "fp32"/"bf16" = the dtype of the fed-back state in the rollout
 (`feedback_dtype`). "Dry-air fix" = the inference-time `DryAirFix` (PS shifted so global dry-air mass is
 conserved); "from config" means the run trained with the constraint and the rollout keeps it on.
 
-| training run | arm family | arms | epochs rolled | weights | rollout precision | dry-air fix in rollout | extra flags | 5-yr job(s) | acronym rule |
-|---|---|---|---|---|---|---|---|---|---|
-| A | A | 1 | e243 | raw | bf16 | not logged | — | 7649597, 7649650 | A = A's `best_ckpt` = epoch 243; called A243 elsewhere |
-| B | B | 1 | e1 | raw | bf16 | not logged | — | 7649597 | B = B's `best_ckpt` = epoch 1; called B01 / B_e01 elsewhere |
-| B | B‹e› | 2 | e22, e24 | raw | bf16 | off | — | 7707597 | B + epoch |
-| B | B‹e›fp32 | 1 | e22 | raw | fp32 | off | `--feedback-fp32` | 7707597 | suffix fp32 = only the fed-back state kept in fp32 |
-| B | B‹e›posclamp | 1 | e22 | raw | bf16 | off | `--force-positive=relhum` | 7707597 | suffix posclamp = humidity positivity clamp at prediction time |
-| B | B‹e›dryair | 3 | e1, e22, e24 | raw | fp32 | on | `--dry-air-fix=on` | 7707597, 7721150 | suffix dryair = inference-only dry-air fix; B22dryair is the "B22fix" / "B22 + fix" of later tables |
-| B | BF‹e› | 2 | e22, e24 | raw | fp32 | off | `--amp off` | 7743369 | infix F = bf16-trained weights re-rolled in fp32 (autocast off) |
-| B | BF‹e›fix | 2 | e22, e24 | raw | fp32 | on | `--amp off --dry-air-fix on` | 7743369 | F re-roll + fix |
-| DRYAIR | DRYAIR‹e› | 2 | e1, e24 | raw | fp32 | on (from config) | — | 7711720 | DRYAIR + epoch of the DRYAIR run (DRYAIR01 is not B e01) |
-| DRYAIR | DRYAIRF‹e› | 1 | e24 | raw | fp32 | on (from config) | `--amp off` | 7743369 | F re-roll |
-| SOILFIX | SOILFIX‹e› | 2 | e21, e24 | raw | fp32 | off | — | 7724006 | SOILFIX24 was rolled from `best_ckpt_mp0.tar`, whose `ckpt_epoch` is 24 |
-| F-scratch | FS‹e› | 7 | e20–e23, e41–e43 | raw | bf16 | off | — | 7720705, 7727625 | FS = F-scratch raw |
-| F-scratch | FSE‹e› | 29 | e15–e43 | EMA | bf16 | off | — | 7732901, 7732928, 7733015, 7733110, 7733210, 7733258 | FSE = F-scratch EMA |
-| F-scratch | FSEMA | 1 | e23 | EMA (EMA-best file) | bf16 | off | — | 7720705 | FSEMA = `best_ckpt_ema_mp0.tar` = EMA e23 = FSE23 |
-| F-scratch | FSEMAdryair | 1 | e23 | EMA (EMA-best file) | fp32 | on | `--dry-air-fix=on` | 7721233 | FSEMA + fix |
-| F-scratch | FSEF‹e› | 15 | e15–e19, e23–e32 | EMA | fp32 | off | `--amp off` | 7742849, 7743368, 7743369 | FSE re-rolled in fp32 |
-| F-scratch | FSEQ‹e› | 1 | e15 | EMA | bf16 | off | `--amp bf16` | 7742848 | Q = the bf16-path equivalence gate (must equal FSE15 bitwise) |
-| F-depth4 | FD‹e› | 3 | e14, e22, e24 | raw | bf16 | off | — | 7727731 | FD = F-depth4 raw |
-| F-depth4 | FD‹e›dryair | 2 | e22, e24 | raw | fp32 | on | `--dry-air-fix=on` | 7731448 | FD + fix |
-| F-depth4 | FDE‹e› | 16 | e4–e60 every 4th, e63 | EMA | bf16 | off | — | 7731806, 7731807, 7732564, 7732686 | FDE = F-depth4 EMA |
-| F-depth4 | FDEF‹e› | 2 | e28, e32 | EMA | fp32 | off | `--amp off` | 7743369 | FDE re-rolled in fp32 |
-| F-depth4-dry | DAE‹e› | 2 | e2, e4 | EMA | fp32 | on (from config) | — | 7734370 | DA = the dry-air chain; E = EMA |
-| F-depth4-dry | DAR‹e› | 2 | e2, e4 | raw | fp32 | on (from config) | — | 7734370 | R = raw |
-| G1 | G1E‹e› | 9 | e15–e23 | EMA | fp32 | off | — | 7734960, 7734961 | G1E = G1 EMA |
-| G1 | G1E‹e›fix | 3 | e15, e16, e19 | EMA | fp32 | on | `--dry-air-fix on` | 7735162 | suffix fix = inference-only dry-air fix |
-| G1 | G1EB‹e› | 5 | e15–e19 | EMA | bf16 | off | `--amp bf16` | 7742848 | suffix B = fp32-trained weights rolled in bf16 |
-| G1-dry | G1D‹e› | 19 | e15–e23, e39–e43, e59–e63 | EMA | fp32 | on (from config) | — | 7738106, 7738107, 7738185, 7738283 | G1D = G1-dry EMA |
-| G4E | G4E‹e› | 9 | e15–e23 | EMA | fp32 | off | — | 7749890, 7749891 | G4E = G4E EMA |
-| G4E | G4E‹e›fix | 9 | e15–e23 | EMA | fp32 | on | `--dry-air-fix on` | 7750375, 7750376 | G4E + fix |
-| G4D | G4D‹e› | 13 | e15–e23, e36, e43, e56, e63 | EMA | fp32 | on (from config) | — | 7760862, 7760863, 7807790, 7808258 | G4D = G4D EMA; G4D16 was re-rolled in 7808258 after the NetCDFs were deleted |
+| arm family | training run | arms | epochs rolled | acronym rule |
+|---|---|---|---|---|
+| A | A | 1 | e243 | A = A's `best_ckpt` = epoch 243; called A243 elsewhere |
+| B | B | 1 | e1 | B = B's `best_ckpt` = epoch 1; called B01 / B_e01 elsewhere |
+| B‹e› | B | 2 | e22, e24 | B + epoch |
+| B‹e›fp32 | B | 1 | e22 | suffix fp32 = only the fed-back state kept in fp32 |
+| B‹e›posclamp | B | 1 | e22 | suffix posclamp = humidity positivity clamp at prediction time |
+| B‹e›dryair | B | 3 | e1, e22, e24 | suffix dryair = inference-only dry-air fix; B22dryair is the "B22fix" / "B22 + fix" of later tables |
+| BF‹e› | B | 2 | e22, e24 | infix F = bf16-trained weights re-rolled in fp32 (autocast off) |
+| BF‹e›fix | B | 2 | e22, e24 | F re-roll + fix |
+| DRYAIR‹e› | DRYAIR | 2 | e1, e24 | DRYAIR + epoch of the DRYAIR run (DRYAIR01 is not B e01) |
+| DRYAIRF‹e› | DRYAIR | 1 | e24 | F re-roll |
+| SOILFIX‹e› | SOILFIX | 2 | e21, e24 | SOILFIX24 was rolled from `best_ckpt_mp0.tar`, whose `ckpt_epoch` is 24 |
+| FS‹e› | F-scratch | 7 | e20–e23, e41–e43 | FS = F-scratch raw |
+| FSE‹e› | F-scratch | 29 | e15–e43 | FSE = F-scratch EMA |
+| FSEMA | F-scratch | 1 | e23 | FSEMA = `best_ckpt_ema_mp0.tar` = EMA e23 = FSE23 |
+| FSEMAdryair | F-scratch | 1 | e23 | FSEMA + fix |
+| FSEF‹e› | F-scratch | 15 | e15–e19, e23–e32 | FSE re-rolled in fp32 |
+| FSEQ‹e› | F-scratch | 1 | e15 | Q = the bf16-path equivalence gate (must equal FSE15 bitwise) |
+| FD‹e› | F-depth4 | 3 | e14, e22, e24 | FD = F-depth4 raw |
+| FD‹e›dryair | F-depth4 | 2 | e22, e24 | FD + fix |
+| FDE‹e› | F-depth4 | 16 | e4–e60 every 4th, e63 | FDE = F-depth4 EMA |
+| FDEF‹e› | F-depth4 | 2 | e28, e32 | FDE re-rolled in fp32 |
+| DAE‹e› | F-depth4-dry | 2 | e2, e4 | DA = the dry-air chain; E = EMA |
+| DAR‹e› | F-depth4-dry | 2 | e2, e4 | R = raw |
+| G1E‹e› | G1 | 9 | e15–e23 | G1E = G1 EMA |
+| G1E‹e›fix | G1 | 3 | e15, e16, e19 | suffix fix = inference-only dry-air fix |
+| G1EB‹e› | G1 | 5 | e15–e19 | suffix B = fp32-trained weights rolled in bf16 |
+| G1D‹e› | G1-dry | 19 | e15–e23, e39–e43, e59–e63 | G1D = G1-dry EMA |
+| G4E‹e› | G4E | 9 | e15–e23 | G4E = G4E EMA |
+| G4E‹e›fix | G4E | 9 | e15–e23 | G4E + fix |
+| G4D‹e› | G4D | 13 | e15–e23, e36, e43, e56, e63 | G4D = G4D EMA; G4D16 was re-rolled in 7808258 after the NetCDFs were deleted |
+
+**Table 2a, part 2. How each arm family was rolled out.**
+
+| arm family | weights | rollout precision | dry-air fix in rollout | extra flags | 5-yr job(s) |
+|---|---|---|---|---|---|
+| A | raw | bf16 | not logged | — | 7649597, 7649650 |
+| B | raw | bf16 | not logged | — | 7649597 |
+| B‹e› | raw | bf16 | off | — | 7707597 |
+| B‹e›fp32 | raw | fp32 | off | `--feedback-fp32` | 7707597 |
+| B‹e›posclamp | raw | bf16 | off | `--force-positive=relhum` | 7707597 |
+| B‹e›dryair | raw | fp32 | on | `--dry-air-fix=on` | 7707597, 7721150 |
+| BF‹e› | raw | fp32 | off | `--amp off` | 7743369 |
+| BF‹e›fix | raw | fp32 | on | `--amp off --dry-air-fix on` | 7743369 |
+| DRYAIR‹e› | raw | fp32 | on (from config) | — | 7711720 |
+| DRYAIRF‹e› | raw | fp32 | on (from config) | `--amp off` | 7743369 |
+| SOILFIX‹e› | raw | fp32 | off | — | 7724006 |
+| FS‹e› | raw | bf16 | off | — | 7720705, 7727625 |
+| FSE‹e› | EMA | bf16 | off | — | 7732901, 7732928, 7733015, 7733110, 7733210, 7733258 |
+| FSEMA | EMA (EMA-best file) | bf16 | off | — | 7720705 |
+| FSEMAdryair | EMA (EMA-best file) | fp32 | on | `--dry-air-fix=on` | 7721233 |
+| FSEF‹e› | EMA | fp32 | off | `--amp off` | 7742849, 7743368, 7743369 |
+| FSEQ‹e› | EMA | bf16 | off | `--amp bf16` | 7742848 |
+| FD‹e› | raw | bf16 | off | — | 7727731 |
+| FD‹e›dryair | raw | fp32 | on | `--dry-air-fix=on` | 7731448 |
+| FDE‹e› | EMA | bf16 | off | — | 7731806, 7731807, 7732564, 7732686 |
+| FDEF‹e› | EMA | fp32 | off | `--amp off` | 7743369 |
+| DAE‹e› | EMA | fp32 | on (from config) | — | 7734370 |
+| DAR‹e› | raw | fp32 | on (from config) | — | 7734370 |
+| G1E‹e› | EMA | fp32 | off | — | 7734960, 7734961 |
+| G1E‹e›fix | EMA | fp32 | on | `--dry-air-fix on` | 7735162 |
+| G1EB‹e› | EMA | bf16 | off | `--amp bf16` | 7742848 |
+| G1D‹e› | EMA | fp32 | on (from config) | — | 7738106, 7738107, 7738185, 7738283 |
+| G4E‹e› | EMA | fp32 | off | — | 7749890, 7749891 |
+| G4E‹e›fix | EMA | fp32 | on | `--dry-air-fix on` | 7750375, 7750376 |
+| G4D‹e› | EMA | fp32 | on (from config) | — | 7760862, 7760863, 7807790, 7808258 |
 
 **Table 2b. K=56 and lagged-ensemble arms** (14-day forecasts, Table 3). Definitions are quoted from the campaign
 files named in `configs.json` (`k56_arms`).
