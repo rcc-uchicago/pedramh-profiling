@@ -1,0 +1,118 @@
+2026-11-02T17:39:53Z queued j1=7807789
+2026-11-02T17:39:53Z queued jc=7807790
+2026-11-02T18:09:54Z queued s56=7807874
+2026-11-02T18:19:28Z --- v1 driver stopped by hand (operator asked for map figures); v2 takes over ---
+2026-11-02T18:38:29Z queued jp=7807956 (debug-scaling, protocol score g4d63)
+2026-11-02T19:24:30Z queued s_G4D36=7808129 (debug-scaling, G4D36 K=56 sweep)
+2026-11-02T19:56:14Z --- v2 stopped by hand (operator: use preemptable); v3 takes over ---
+2026-11-02T19:56:15Z queued k56=7808253
+2026-11-02T19:56:15Z queued s63=7808254
+2026-11-02T19:56:16Z queued sA=7808255
+2026-11-02T19:56:16Z queued s43=7808256
+2026-11-02T19:56:16Z queued s16=7808257
+2026-11-02T19:56:17Z queued c16=7808258
+2026-11-02T20:16:21Z c16 OK (CLIMATE_RUN_OK)
+2026-11-02T20:21:23Z k56 OK (K56_SCORE_OK)
+2026-11-02T20:28:24Z sA OK (EVAL_INFERENCE_OK)
+2026-11-02T20:43:27Z s63 OK (EVAL_INFERENCE_OK)
+2026-11-02T20:43:27Z s43 OK (EVAL_INFERENCE_OK)
+2026-11-02T20:43:27Z s16 OK (EVAL_INFERENCE_OK)
+2026-11-02T20:43:27Z queued k63=7808430
+2026-11-02T20:43:28Z queued k43=7808431
+2026-11-02T20:51:29Z s36 OK (EVAL_INFERENCE_OK)
+2026-11-02T20:51:29Z queued k36=7808453
+2026-11-02T21:23:33Z queued xc=7808496
+2026-11-02T21:39:35Z k63 OK (K56_SCORE_OK)
+2026-11-02T21:39:36Z queued xkd=7808522
+2026-11-02T21:43:36Z k43 OK (K56_SCORE_OK)
+2026-11-02T21:44:36Z k36 OK (K56_SCORE_OK)
+2026-11-02T21:44:37Z queued xks=7808531
+2026-11-02T23:31:43Z xc OK (MAPS_CLIM_OK)
+2026-11-02T23:34:43Z xkd OK (MAPS_K56_OK)
+2026-11-02T23:37:43Z xks OK (MAPS_K56_OK)
+2026-11-02T23:37:44Z queued plot=7808845
+2026-11-02T23:39:44Z plot OK (MAPS_PLOT_OK)
+s56=ok jp=ok s36=ok k56=ok s63=ok sA=ok s43=ok s16=ok c16=ok k63=ok k36=ok k43=ok xkd=ok xks=ok xc=ok plot=ok 
+TEST_G4D_E63_OK
+== PART 1. K=56 RMSE ratio by lead, median over the 99 common channels (>1 = numerator worse) ==
+  lead h              6      12      24      36      48      72     126     168     336
+  G4D36/G4D16     0.934   0.940   0.950   0.957   0.962   0.964   0.964   0.963   0.980
+  G4D56/G4D16     0.908   0.915   0.931   0.940   0.948   0.950   0.952   0.961   0.982
+  G4D43/G4D16     0.904   0.916   0.932   0.942   0.947   0.951   0.953   0.954   0.988
+  G4D63/G4D16     0.886   0.898   0.916   0.926   0.936   0.939   0.944   0.957   0.980
+  G4D16/A243      1.385   1.223   1.082   1.023   0.977   0.935   0.919   0.918   0.939
+  G4D56/A243      1.245   1.111   1.010   0.961   0.929   0.893   0.874   0.877   0.927
+  G4D63/A243      1.221   1.092   0.993   0.944   0.916   0.884   0.867   0.872   0.923
+  A16/A243        1.142   1.145   1.156   1.170   1.177   1.177   1.159   1.140   1.049
+  numerator worse on (of 99 channels):
+  G4D36/G4D16         1       2       2       2       1       6       2       3      27
+  G4D56/G4D16         2       2       2       2       1       5       4       2      32
+  G4D43/G4D16         1       1       1       2       3       5       4       5      29
+  G4D63/G4D16         1       1       1       1       3       4       4       4      25
+  G4D16/A243         98      98      88      69      28       9       6       3       3
+  G4D56/A243         98      91      60      10       5       4       3       2       0
+  G4D63/A243         99      88      45       7       5       4       3       2       0
+  A16/A243           98      98      98      99      99      99      99      98      86
+
+== gap closed: channel-mean ln(G4D16/X) / channel-mean ln(G4D16/A243), where G4D16's median gap > 1.02 ==
+  G4D36    6 h 0.21 (NO)    12 h 0.30 (PARTLY)    24 h 0.54 (MOSTLY)
+  G4D56    6 h 0.30 (PARTLY)    12 h 0.41 (PARTLY)    24 h 0.75 (MOSTLY)
+  G4D63    6 h 0.38 (PARTLY)    12 h 0.52 (MOSTLY)    24 h 0.93 (MOSTLY)
+
+== 14-day accuracy, median over the 99 common channels ==
+          NRMSE126  NRMSE336    ACC126    ACC336
+  A243       0.519     0.969     0.867     0.542
+  A16        0.614     1.058     0.808     0.460
+  G4D16      0.486     0.900     0.879     0.574
+  G4D36      0.468     0.895     0.889     0.592
+  G4D56      0.466     0.895     0.890     0.594
+  G4D43      0.462     0.886     0.892     0.595
+  G4D63      0.461     0.902     0.892     0.591
+
+== pre-registered read-out ==
+  rule 1,  6 h: G4D56/G4D16 0.908, better on 97/99 -> HELPS   (G4D36/G4D16 0.934 -> HELPS)
+  rule 1, 24 h: G4D56/G4D16 0.931, better on 97/99 -> HELPS   (G4D36/G4D16 0.950 -> HELPS)
+  rule 2,  6 h: gap closed by G4D56 0.30 -> PARTLY
+  rule 2, 12 h: gap closed by G4D56 0.41 -> PARTLY
+  rule 2, 24 h: gap closed by G4D56 0.75 -> MOSTLY
+
+== PART 2. 5-yr protocol, new arms (fp32 rollouts, trained-in dry air) ==
+  G4D36  8/8 healthy  pass        A= 1.063 W= 1.66 drifting=3 med|dPS|=0.13 hPa
+  G4D56  8/8 healthy  pass        A= 1.149 W= 1.86 drifting=4 med|dPS|=0.13 hPa
+  G4D43  8/8 healthy  pass        A= 1.082 W= 1.63 drifting=2 med|dPS|=0.12 hPa
+  G4D63  8/8 healthy  pass        A= 1.217 W= 1.96 drifting=5 med|dPS|=0.12 hPa
+  G4D16  8/8 healthy  pass        A= 1.131 W= 2.01 drifting=1 med|dPS|=0.13 hPa   (reference)
+  G4D23  8/8 healthy  pass        A= 1.132 W= 1.93 drifting=7 med|dPS|=0.12 hPa   (reference)
+  paired dA (by start date, healthy in both):
+    G4D36 - G4D16 = -0.052 +- 0.018 (p=0.022, n8)
+    G4D56 - G4D16 = +0.027 +- 0.015 (p=0.12, n8)
+    G4D43 - G4D23 = -0.050 +- 0.015 (p=0.012, n8)
+    G4D63 - G4D23 = +0.097 +- 0.028 (p=0.01, n8)
+
+== parent sec.5 rule: fp32 pool + f32a + g4e + g4fix + g4d + g4d63: 84 arms, 26 pass gates 1-3 ==
+  G4D36      A=1.063 W=1.66 drifting=3 leader  [tie set]
+  G4D43      A=1.082 W=1.63 drifting=2 +0.009 +- 0.025; p=0.73; n8  [tie set]
+  G4D19      A=1.087 W=1.98 drifting=3 +0.030 +- 0.022; p=0.23; n8  [tie set]
+  G4D18      A=1.130 W=2.12 drifting=3 +0.059 +- 0.020; p=0.023; n8  [tie set]
+  G4D16      A=1.131 W=2.01 drifting=1 +0.052 +- 0.018; p=0.022; n8  [tie set]
+  G4D23      A=1.132 W=1.93 drifting=7 +0.059 +- 0.026; p=0.057; n8  [tie set]
+  G4D20      A=1.138 W=2.05 drifting=4 +0.070 +- 0.017; p=0.0042; n8
+  G4D15      A=1.140 W=2.03 drifting=1 +0.068 +- 0.022; p=0.016; n8  [tie set]
+  G4E15fix   A=1.146 W=2.06 drifting=3 +0.081 +- 0.023; p=0.0092; n8
+  G4D56      A=1.149 W=1.86 drifting=4 +0.079 +- 0.014; p=0.00093; n8
+  G4E17fix   A=1.151 W=1.85 drifting=4 +0.087 +- 0.024; p=0.0078; n8
+  G4E18fix   A=1.152 W=1.78 drifting=4 +0.081 +- 0.019; p=0.0042; n8
+  G4D21      A=1.157 W=2.16 drifting=7 +0.087 +- 0.025; p=0.011; n8
+  G4E19fix   A=1.160 W=1.87 drifting=4 +0.093 +- 0.027; p=0.011; n8
+  G4D22      A=1.170 W=2.01 drifting=9 +0.084 +- 0.027; p=0.016; n8  [tie set]
+  G4D17      A=1.179 W=2.17 drifting=2 +0.091 +- 0.022; p=0.004; n8
+  G4E16fix   A=1.188 W=2.15 drifting=7 +0.109 +- 0.038; p=0.025; n8  [tie set]
+  G4D63      A=1.217 W=1.96 drifting=5 +0.156 +- 0.022; p=0.00021; n8
+  G4E20fix   A=1.228 W=1.83 drifting=6 +0.132 +- 0.032; p=0.0047; n8
+  G4E21fix   A=1.258 W=1.91 drifting=5 +0.193 +- 0.018; p=1.2e-05; n8
+  ... 6 more passers, none in the tie set
+winner: G4D16 (tie-break among G4D36,G4D43,G4D19,G4D18,G4D16,G4D23,G4D15,G4D22,G4E16fix)  (unchanged)
+g4d63 gate 1-3 passers: G4D36, G4D43, G4D56, G4D63
+
+G4D_E63_OK parts=K56+5yr rule1_6h=HELPS rule1_24h=HELPS close6=PARTLY winner=G4D16 replaces=0
+2026-11-02T23:39:54Z CHAIN_DONE

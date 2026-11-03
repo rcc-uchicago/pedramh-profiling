@@ -1,0 +1,26 @@
+=== maps_smoke: 2026-11-02T21:18:49+00:00 host=x3212c0s31b0n0 PBS_JOBID=7808469.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+sfno python 3.12.11 {'numpy': True, 'matplotlib': True, 'scipy': True, 'netCDF4': True, 'h5py': True, 'xarray': True, 'torch': True}
+ok   map leads in extract leads
+TEST_MAPS_LIB_OK
+lsm (180, 360) land fraction (area) 0.326 range 0.0 1.0
+SMOKE_STEP3_OK
+plot python: /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv/bin/python
+FAKE_INPUTS_OK /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/smoke/fake
+wrote rmse_vs_G4D16_Z3_l12.png
+wrote rmse_curves.png
+wrote rmse_ratio_to_A243.png
+wrote bias_maps.png
+wrote summary_table.csv (565 rows)
+MAPS_PLOT_OK figures=18
+SMOKE: 24 ICs, 99 channels, 49 s; gate vs G4D56_K56/scores: 1188 values, max rel diff 4.77e-08
+MAPS_K56_ARM_OK SMOKE -> k56_SMOKE.npz
+G4D36: 8 members used, 0 skipped; gate vs g4d63_channels.csv: 40 values, max rel diff 2.65e-16
+MAPS_CLIM_ARM_OK G4D36 -> clim_G4D36.npz
+G4D43: 8 members used, 0 skipped; gate vs g4d63_channels.csv: 40 values, max rel diff 2.07e-16
+MAPS_CLIM_ARM_OK G4D43 -> clim_G4D43.npz
+G4D56: 8 members used, 0 skipped; gate vs g4d63_channels.csv: 40 values, max rel diff 2.19e-16
+MAPS_CLIM_ARM_OK G4D56 -> clim_G4D56.npz
+G4D63: 8 members used, 0 skipped; gate vs g4d63_channels.csv: 40 values, max rel diff 2.98e-16
+MAPS_CLIM_ARM_OK G4D63 -> clim_G4D63.npz
+MAPS_SMOKE_OK
+=== maps_smoke done 2026-11-02T21:21:37+00:00 ===

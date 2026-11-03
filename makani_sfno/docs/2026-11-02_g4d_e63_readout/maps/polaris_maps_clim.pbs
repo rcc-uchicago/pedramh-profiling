@@ -1,0 +1,39 @@
+#!/bin/bash -l
+#PBS -N maps_clim
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# 5-yr bias-map inputs (extract_clim_maps.py) from climate_protocol_<job> dirs, then delete those dirs' member
+# NetCDFs once every arm has written its npz (operator 2026-11-02). The G4D16 dir is a re-roll, so its gate is
+# against the original g4d scores and a difference is a WARN. CPU only.
+# -v CDIRS="<job> <job>" or "<job>+<job>". Submit from eval-protocol/makani_sfno/.   PASS = MAPS_CLIM_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+CDIRS="${CDIRS:?set -v CDIRS}"
+CDIRS="${CDIRS//+/ }"      # qsub -v cannot carry spaces through the v3 driver; job ids arrive '+'-joined
+echo "=== maps_clim: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} dirs='${CDIRS}' ==="
+"${PY}" "${M}/extract_clim_maps.py" --out-dir "${M}" --dirs ${CDIRS} --ref-tag G4D16=g4d --default-tag g4d63 \
+    --reroll G4D16
+rc=$?
+if [ ${rc} -ne 0 ] || [ ! -s "${M}/clim_truth.npz" ]; then
+    echo "ERROR MAPS_CLIM_FAILED rc=${rc}; NetCDFs kept"
+    exit 1
+fi
+for d in ${CDIRS}; do
+    n=0; b=0
+    for f in "${E}/climate_protocol_${d}"/member_*.nc; do
+        [ -f "${f}" ] || continue
+        sz=$(stat -c %s "${f}"); echo "${f} ${sz} $(date -u -r "${f}" +%FT%TZ)" >> "${M}/freed_clim.txt"
+        rm -f "${f}" && n=$(( n + 1 )) && b=$(( b + sz ))
+    done
+    echo "freed climate_protocol_${d}: ${n} NetCDFs, $(( b / 1000000000 )) GB"
+done
+echo "MAPS_CLIM_OK"
+echo "=== maps_clim done $(date -Iseconds) ==="

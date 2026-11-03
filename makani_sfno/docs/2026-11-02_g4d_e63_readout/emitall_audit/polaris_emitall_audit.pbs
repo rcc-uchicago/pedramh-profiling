@@ -1,0 +1,45 @@
+#!/bin/bash -l
+#PBS -N emitall_audit
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# emitall audit (operator 2026-11-02, "do both, but use the preemptable queue"):
+#   1. battery.py retraction guard over 4 text views (audit_views.py builds them + one spec each)
+#   2. lint.py over the receipt/summary emitters, comparison scripts and evaluation scorers
+# Read-only on everything except this directory. Findings are results, not job failures: each tool's exit code is
+# recorded; the job fails only if a tool could not run (exit 2 = malformed spec, or a crash).
+# PASS = EMITALL_AUDIT_DONE
+# ============================================================================
+A=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/receipts/audit_2026-11-02
+EM=/lus/eagle/projects/lighthouse-uchicago/members/mehta5/external/emitall
+cd "${A}" || exit 2
+PY=/usr/bin/python3.11
+[ -x "${PY}" ] || PY=$(command -v python3)
+echo "=== emitall_audit: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} python=$(${PY} --version 2>&1) ==="
+"${PY}" audit_views.py || { echo "ERROR AUDIT_VIEWS_FAILED"; exit 3; }
+
+brc=""
+for v in knowledge changelog writeup_1013 configs_1102; do
+    echo "--- battery ${v}"
+    "${PY}" "${EM}/battery.py" "battery_${v}.json" > "battery_${v}.out" 2>&1
+    rc=$?
+    tail -n 25 "battery_${v}.out"
+    brc="${brc} ${v}=${rc}"
+    [ ${rc} -ge 2 ] && { echo "ERROR BATTERY_REFUSED ${v} rc=${rc}"; exit 4; }
+done
+
+echo "--- lint"
+mapfile -t T < lint_targets.txt
+"${PY}" "${EM}/lint.py" "${T[@]}" --json lint_report.json > lint.out 2>&1
+lrc=$?
+tail -n 60 lint.out
+[ ${lrc} -ge 2 ] && { echo "ERROR LINT_FAILED rc=${lrc}"; exit 5; }
+
+echo "EMITALL_AUDIT_DONE battery:${brc} lint=${lrc} (0 clean, 1 findings)"
+echo "=== emitall_audit done $(date -Iseconds) ==="

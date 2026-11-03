@@ -1,0 +1,203 @@
+{
+ "campaign": "G4D e63 final read-out",
+ "register": "K=56 test years 2048-2049; 5-yr selection window",
+ "quote_source": "Claude's final report 2026-11-02",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02",
+ "receipts": {
+  "r": {
+   "path": "results.json",
+   "newer_than": [
+    "../G4D56_K56/scores/k56_summary.csv",
+    "../G4D63_K56/scores/k56_summary.csv",
+    "../protocol_scores/g4d63_scores.csv"
+   ]
+  }
+ },
+ "claims": [
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_G4D16 6h",
+   "quoted": "0.908",
+   "expr": "f('r','/part1/ratio_median/G4D56_over_G4D16/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_G4D16 24h",
+   "quoted": "0.931",
+   "expr": "f('r','/part1/ratio_median/G4D56_over_G4D16/24')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D36_over_G4D16 6h",
+   "quoted": "0.934",
+   "expr": "f('r','/part1/ratio_median/G4D36_over_G4D16/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D63_over_G4D16 6h",
+   "quoted": "0.886",
+   "expr": "f('r','/part1/ratio_median/G4D63_over_G4D16/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D16_over_A243 6h",
+   "quoted": "1.385",
+   "expr": "f('r','/part1/ratio_median/G4D16_over_A243/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_A243 6h",
+   "quoted": "1.245",
+   "expr": "f('r','/part1/ratio_median/G4D56_over_A243/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_A243 24h",
+   "quoted": "1.010",
+   "expr": "f('r','/part1/ratio_median/G4D56_over_A243/24')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D63_over_A243 6h",
+   "quoted": "1.221",
+   "expr": "f('r','/part1/ratio_median/G4D63_over_A243/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D63_over_A243 24h",
+   "quoted": "0.993",
+   "expr": "f('r','/part1/ratio_median/G4D63_over_A243/24')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "A16_over_A243 6h",
+   "quoted": "1.142",
+   "expr": "f('r','/part1/ratio_median/A16_over_A243/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56/G4D16 6h channels worse",
+   "quoted": "2",
+   "expr": "f('r','/part1/worse_count/G4D56_over_G4D16/6')"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56/G4D16 24h channels worse",
+   "quoted": "2",
+   "expr": "f('r','/part1/worse_count/G4D56_over_G4D16/24')"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D56 6h",
+   "quoted": "0.30",
+   "expr": "f('r','/part1/gap_closed/G4D56/6')"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D56 24h",
+   "quoted": "0.75",
+   "expr": "f('r','/part1/gap_closed/G4D56/24')"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D63 6h",
+   "quoted": "0.38",
+   "expr": "f('r','/part1/gap_closed/G4D63/6')"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D63 24h",
+   "quoted": "0.93",
+   "expr": "f('r','/part1/gap_closed/G4D63/24')"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D36 6h",
+   "quoted": "0.21",
+   "expr": "f('r','/part1/gap_closed/G4D36/6')"
+  },
+  {
+   "section": "14-day",
+   "label": "A243 acc336",
+   "quoted": "0.542",
+   "expr": "f('r','/part1/acc14/A243/acc336')"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D16 acc336",
+   "quoted": "0.574",
+   "expr": "f('r','/part1/acc14/G4D16/acc336')"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D56 acc336",
+   "quoted": "0.594",
+   "expr": "f('r','/part1/acc14/G4D56/acc336')"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D43 acc336",
+   "quoted": "0.595",
+   "expr": "f('r','/part1/acc14/G4D43/acc336')"
+  },
+  {
+   "section": "14-day",
+   "label": "A243 nrmse336",
+   "quoted": "0.969",
+   "expr": "f('r','/part1/acc14/A243/nrmse336')"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D16 nrmse336",
+   "quoted": "0.900",
+   "expr": "f('r','/part1/acc14/G4D16/nrmse336')"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D43 nrmse336",
+   "quoted": "0.886",
+   "expr": "f('r','/part1/acc14/G4D43/nrmse336')"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D63 nrmse336",
+   "quoted": "0.902",
+   "expr": "f('r','/part1/acc14/G4D63/nrmse336')"
+  },
+  {
+   "section": "rules",
+   "label": "rule1 6h",
+   "quoted": "HELPS",
+   "expr": "f('r','/part1/rule1/6')",
+   "mode": "exact"
+  },
+  {
+   "section": "rules",
+   "label": "rule1 24h",
+   "quoted": "HELPS",
+   "expr": "f('r','/part1/rule1/24')",
+   "mode": "exact"
+  },
+  {
+   "section": "rules",
+   "label": "rule2 6h",
+   "quoted": "PARTLY",
+   "expr": "f('r','/part1/rule2/6')",
+   "mode": "exact"
+  },
+  {
+   "section": "rules",
+   "label": "rule2 24h",
+   "quoted": "MOSTLY",
+   "expr": "f('r','/part1/rule2/24')",
+   "mode": "exact"
+  },
+  {
+   "section": "pick",
+   "label": "winner",
+   "quoted": "G4D16",
+   "expr": "f('r','/part2/pool/winner')",
+   "mode": "exact"
+  }
+ ]
+}

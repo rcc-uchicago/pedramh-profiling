@@ -1,0 +1,130 @@
+{
+ "campaign": "G4D e63 map figures",
+ "register": "figures/summary_table.csv re-keyed",
+ "quote_source": "Claude's final report 2026-11-02",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/figures",
+ "receipts": {
+  "s": {
+   "path": "summary_index.json",
+   "newer_than": [
+    "summary_table.csv"
+   ]
+  }
+ },
+ "claims": [
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE A243 6h",
+   "quoted": "0.554",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/A243/6/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D16 6h",
+   "quoted": "0.741",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/G4D16/6/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D56 6h",
+   "quoted": "0.669",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/G4D56/6/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D63 6h",
+   "quoted": "0.657",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/G4D63/6/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE A243 270h",
+   "quoted": "3.12",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/A243/270/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D16 270h",
+   "quoted": "2.92",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/G4D16/270/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D56 270h",
+   "quoted": "2.81",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/G4D56/270/value')"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D63 270h",
+   "quoted": "2.80",
+   "expr": "f('s','/rmse_maps_TREFHT/TREFHT/G4D63/270/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS TREFHT G4D16",
+   "quoted": "0.690",
+   "expr": "f('s','/bias_maps/TREFHT/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS TREFHT G4D43",
+   "quoted": "0.638",
+   "expr": "f('s','/bias_maps/TREFHT/G4D43/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS TREFHT G4D63",
+   "quoted": "0.738",
+   "expr": "f('s','/bias_maps/TREFHT/G4D63/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS Z3_l12 G4D16",
+   "quoted": "66.3",
+   "expr": "f('s','/bias_maps/Z3_l12/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS Z3_l12 G4D43",
+   "quoted": "52.3",
+   "expr": "f('s','/bias_maps/Z3_l12/G4D43/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS PRECT G4D16",
+   "quoted": "0.380",
+   "expr": "f('s','/bias_maps/PRECT/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS PRECT G4D63",
+   "quoted": "0.408",
+   "expr": "f('s','/bias_maps/PRECT/G4D63/2045-2047/value')"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area PRECT G4D16",
+   "quoted": "3",
+   "expr": "f('s','/bias_maps/PRECT/G4D16/2045-2047/sig_area_pct')"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area PRECT G4D63",
+   "quoted": "7",
+   "expr": "f('s','/bias_maps/PRECT/G4D63/2045-2047/sig_area_pct')"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area TREFHT G4D43",
+   "quoted": "48",
+   "expr": "f('s','/bias_maps/TREFHT/G4D43/2045-2047/sig_area_pct')"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area TREFHT G4D63",
+   "quoted": "61",
+   "expr": "f('s','/bias_maps/TREFHT/G4D63/2045-2047/sig_area_pct')"
+  }
+ ]
+}

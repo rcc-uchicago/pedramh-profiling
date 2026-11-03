@@ -1,0 +1,49 @@
+#!/bin/bash -l
+#PBS -N maps_k56
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Gridpoint error maps from K=56 sweeps (extract_k56_maps.py), then delete those sweeps' NetCDFs (operator
+# 2026-11-02: rollouts are not kept) once every arm has written its npz. CPU only.
+# -v ARMS="ARM:SWEEP:REFSWEEP ..." (dirs under runs/makani_eval). Submit from eval-protocol/makani_sfno/.
+# PASS = MAPS_K56_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+echo "=== maps_k56: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} arms='${ARMS:?set -v ARMS}' ==="
+if ! "${PY}" "${M}/test_maps_lib.py" > "${M}/.test_k56_${PBS_JOBID%%.*}.log" 2>&1; then
+    tail -3 "${M}/.test_k56_${PBS_JOBID%%.*}.log"
+    echo "ERROR MAPS_K56_FAILED unit tests failed; nothing extracted, NetCDFs kept"
+    exit 1
+fi
+tail -1 "${M}/.test_k56_${PBS_JOBID%%.*}.log"
+"${PY}" "${M}/extract_k56_maps.py" --out-dir "${M}" ${ARMS}
+rc=$?
+n_ok=0; n_arm=0
+for spec in ${ARMS}; do
+    n_arm=$(( n_arm + 1 ))
+    arm=${spec%%:*}
+    [ ${rc} -eq 0 ] && [ -s "${M}/k56_${arm}.npz" ] && n_ok=$(( n_ok + 1 ))
+done
+if [ ${rc} -ne 0 ] || [ ${n_ok} -ne ${n_arm} ]; then
+    echo "ERROR MAPS_K56_FAILED rc=${rc} arms_ok=${n_ok}/${n_arm}; NetCDFs kept"
+    exit 1
+fi
+for spec in ${ARMS}; do
+    sweep=$(echo "${spec}" | cut -d: -f2)
+    n=0; b=0
+    for f in "${E}/${sweep}"/inference/nwp/*.nc; do
+        [ -f "${f}" ] || continue
+        sz=$(stat -c %s "${f}"); echo "${f} ${sz} $(date -u -r "${f}" +%FT%TZ)" >> "${M}/freed_k56.txt"
+        rm -f "${f}" && n=$(( n + 1 )) && b=$(( b + sz ))
+    done
+    echo "freed ${sweep}: ${n} NetCDFs, $(( b / 1000000000 )) GB (scores/ kept)"
+done
+echo "MAPS_K56_OK arms=${n_arm}"
+echo "=== maps_k56 done $(date -Iseconds) ==="

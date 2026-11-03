@@ -1,0 +1,63 @@
+#!/bin/bash -l
+#PBS -N maps_smoke
+#PBS -A lighthouse-uchicago
+#PBS -q debug-scaling
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:45:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Smoke of the map pipeline on a debug node before the chain is released (maps/READY):
+#   1. which python has matplotlib/scipy/netCDF4/h5py/xarray
+#   2. test_maps_lib.py in the SFNO env
+#   3. land-sea mask from the pack (coastlines)
+#   4. fake inputs -> plot_maps.py -> smoke/figures (layout check only)
+#   5. if present: K=56 extraction on all ICs of a real, scored sweep (-v SWEEP=G4D56_K56): the full gate + timing
+#   6. if present: 5-yr extraction on climate_protocol_7807790 with the full gate vs g4d63_channels.csv
+# Submit from eval-protocol/makani_sfno/.   PASS = MAPS_SMOKE_OK (steps 2-4; 5-6 report OK or SKIPPED)
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+set -o pipefail      # `cmd | tail` must carry cmd's status, or a failed step reads as a pass (code review 11-02)
+S=${M}/smoke
+mkdir -p ${S}/fake ${S}/real
+echo "=== maps_smoke: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+"${PY}" - <<'PYEOF'
+import importlib.util as u, sys
+print("sfno python", sys.version.split()[0], {m: bool(u.find_spec(m)) for m in
+      ("numpy", "matplotlib", "scipy", "netCDF4", "h5py", "xarray", "torch")})
+PYEOF
+fail=0
+"${PY}" "${M}/test_maps_lib.py" | tail -2 || fail=1
+"${PY}" - <<'PYEOF' || fail=1
+import sys; sys.path.insert(0, "/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps")
+import numpy as np, maps_io, maps_lib as ml
+lsm, lat, lon = maps_io.land_sea_mask()
+print("lsm", lsm.shape, "land fraction (area) %.3f" % ml.area_mean(lsm, ml.lat_weights(lat)), "range", lsm.min(), lsm.max())
+print("SMOKE_STEP3_OK")
+PYEOF
+PLOTPY="${PY}"
+if ! "${PLOTPY}" -c "import matplotlib, scipy" 2>/dev/null; then
+    # shellcheck disable=SC1091
+    source /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/ACE2_retrain/polaris/polaris_ace2_env.sh \
+        > /dev/null || exit 2
+    PLOTPY="${ACE2_VENV}/bin/python"
+fi
+echo "plot python: ${PLOTPY}"
+"${PLOTPY}" "${M}/make_fake_inputs.py" --out-dir ${S}/fake | tail -1 || fail=1
+"${PLOTPY}" "${M}/plot_maps.py" --in-dir ${S}/fake --out-dir ${S}/figures | tail -6 || fail=1
+SW=${SWEEP:-G4D56_K56}
+if ls ${E}/${SW}/inference/nwp/*.nc > /dev/null 2>&1 && [ -s ${E}/${SW}/scores/k56_summary.csv ]; then
+    "${PY}" "${M}/extract_k56_maps.py" --out-dir ${S}/real "SMOKE:${SW}:${SW}" | tail -4 || fail=1
+else
+    echo "step 5 SKIPPED (no scored NetCDFs in ${SW})"
+fi
+if ls ${E}/climate_protocol_7807790/member_*.nc > /dev/null 2>&1 && [ -s ${E}/protocol_scores/g4d63_channels.csv ]; then
+    "${PY}" "${M}/extract_clim_maps.py" --out-dir ${S}/real --dirs 7807790 --default-tag g4d63 | tail -8 || fail=1
+else
+    echo "step 6 SKIPPED (climate_protocol_7807790 or g4d63 scores not there yet)"
+fi
+[ ${fail} -eq 0 ] && echo "MAPS_SMOKE_OK" || echo "ERROR MAPS_SMOKE_FAILED"
+echo "=== maps_smoke done $(date -Iseconds) ==="

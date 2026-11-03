@@ -1,0 +1,212 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/figures/claims_figures.json",
+ "campaign": "G4D e63 map figures",
+ "register": "figures/summary_table.csv re-keyed",
+ "quote_source": "Claude's final report 2026-11-02",
+ "date_utc": "2026-11-02T23:44:20Z",
+ "receipts": [
+  {
+   "alias": "s",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/figures/summary_index.json",
+   "mtime_utc": "2026-11-02T23:44:19Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 19,
+ "matches": 19,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE A243 6h",
+   "mode": "printed",
+   "quoted": "0.554",
+   "note": "",
+   "emitted": 0.5535834850495793,
+   "emitted_printed": "0.554",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D16 6h",
+   "mode": "printed",
+   "quoted": "0.741",
+   "note": "",
+   "emitted": 0.7412824891306875,
+   "emitted_printed": "0.741",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D56 6h",
+   "mode": "printed",
+   "quoted": "0.669",
+   "note": "",
+   "emitted": 0.6692710742219767,
+   "emitted_printed": "0.669",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D63 6h",
+   "mode": "printed",
+   "quoted": "0.657",
+   "note": "",
+   "emitted": 0.6570449116028744,
+   "emitted_printed": "0.657",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE A243 270h",
+   "mode": "printed",
+   "quoted": "3.12",
+   "note": "",
+   "emitted": 3.11913188072019,
+   "emitted_printed": "3.12",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D16 270h",
+   "mode": "printed",
+   "quoted": "2.92",
+   "note": "",
+   "emitted": 2.9247647473957246,
+   "emitted_printed": "2.92",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D56 270h",
+   "mode": "printed",
+   "quoted": "2.81",
+   "note": "",
+   "emitted": 2.8050129181826784,
+   "emitted_printed": "2.81",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "TREFHT RMSE G4D63 270h",
+   "mode": "printed",
+   "quoted": "2.80",
+   "note": "",
+   "emitted": 2.7963898013512387,
+   "emitted_printed": "2.80",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS TREFHT G4D16",
+   "mode": "printed",
+   "quoted": "0.690",
+   "note": "",
+   "emitted": 0.6901397217640262,
+   "emitted_printed": "0.690",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS TREFHT G4D43",
+   "mode": "printed",
+   "quoted": "0.638",
+   "note": "",
+   "emitted": 0.6384665407178776,
+   "emitted_printed": "0.638",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS TREFHT G4D63",
+   "mode": "printed",
+   "quoted": "0.738",
+   "note": "",
+   "emitted": 0.7379862991117032,
+   "emitted_printed": "0.738",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS Z3_l12 G4D16",
+   "mode": "printed",
+   "quoted": "66.3",
+   "note": "",
+   "emitted": 66.25593040341461,
+   "emitted_printed": "66.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS Z3_l12 G4D43",
+   "mode": "printed",
+   "quoted": "52.3",
+   "note": "",
+   "emitted": 52.2530280211113,
+   "emitted_printed": "52.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS PRECT G4D16",
+   "mode": "printed",
+   "quoted": "0.380",
+   "note": "",
+   "emitted": 0.37996339010734637,
+   "emitted_printed": "0.380",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias RMS PRECT G4D63",
+   "mode": "printed",
+   "quoted": "0.408",
+   "note": "",
+   "emitted": 0.4079249327184395,
+   "emitted_printed": "0.408",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area PRECT G4D16",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3.217327145493324,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area PRECT G4D63",
+   "mode": "printed",
+   "quoted": "7",
+   "note": "",
+   "emitted": 6.85381253932395,
+   "emitted_printed": "7",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area TREFHT G4D43",
+   "mode": "printed",
+   "quoted": "48",
+   "note": "",
+   "emitted": 47.939584613565515,
+   "emitted_printed": "48",
+   "status": "MATCH"
+  },
+  {
+   "section": "figures",
+   "label": "bias sig area TREFHT G4D63",
+   "mode": "printed",
+   "quoted": "61",
+   "note": "",
+   "emitted": 60.517704054523904,
+   "emitted_printed": "61",
+   "status": "MATCH"
+  }
+ ]
+}

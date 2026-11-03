@@ -1,0 +1,16 @@
+=== maps_k56: 2026-11-02T23:27:57+00:00 host=x3212c0s31b1n0 PBS_JOBID=7808531.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov arms='G4D36:G4D36_K56:G4D36_K56 G4D43:G4D43_K56:G4D43_K56 G4D16:G4D16rr_K56:G4D16_K56' ===
+TEST_MAPS_LIB_OK
+=== maps_k56: 2026-11-02T23:34:31+00:00 host=x3211c0s37b0n0 PBS_JOBID=7808531.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov arms='G4D36:G4D36_K56:G4D36_K56 G4D43:G4D43_K56:G4D43_K56 G4D16:G4D16rr_K56:G4D16_K56' ===
+TEST_MAPS_LIB_OK
+G4D36: 24 ICs, 99 channels, 48 s; gate vs G4D36_K56/scores: 1188 values, max rel diff 4.82e-08
+MAPS_K56_ARM_OK G4D36 -> k56_G4D36.npz
+G4D43: 24 ICs, 99 channels, 46 s; gate vs G4D43_K56/scores: 1188 values, max rel diff 4.66e-08
+MAPS_K56_ARM_OK G4D43 -> k56_G4D43.npz
+G4D16: 24 ICs, 99 channels, 47 s; gate vs G4D16_K56/scores: 1188 values, max rel diff 4.84e-08
+REROLL_REPRODUCES G4D16: within the scores' 8-digit rounding (max rel 4.8e-08)
+MAPS_K56_ARM_OK G4D16 -> k56_G4D16.npz
+freed G4D36_K56: 24 NetCDFs, 57 GB (scores/ kept)
+freed G4D43_K56: 24 NetCDFs, 57 GB (scores/ kept)
+freed G4D16rr_K56: 24 NetCDFs, 57 GB (scores/ kept)
+MAPS_K56_OK arms=3
+=== maps_k56 done 2026-11-02T23:37:21+00:00 ===

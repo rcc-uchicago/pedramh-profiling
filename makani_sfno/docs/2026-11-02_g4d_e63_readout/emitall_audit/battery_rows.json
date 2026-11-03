@@ -1,0 +1,109 @@
+{
+ "_doc": "Retracted-claim guard (emitall battery.py), one rule per KNOWLEDGE.md section-9 retraction that a sentence could plausibly resurrect. NEVER = the claim must not appear unless the surrounding 120 characters say it is retracted/corrected; FROZEN = must be present (applied to the recent-CHANGELOG view only). Patterns run on whitespace-normalised text. Built 2026-11-02 at the operator's request. 2026-11-02 run 1 found two false positives in KNOWLEDGE.md (sentences that state the correction: 'do **not** share the same SFNO' under 'Its single biggest correction', and \"'multi-node is not faster' was a fabric artifact\"); 'correction' and 'artifact' were added to the whitelist.",
+ "retraction_context": [
+  "RETRACTED",
+  "Retracted",
+  "retracted",
+  "RETIRED",
+  "retired",
+  "REFUTED",
+  "refuted",
+  "WRONG",
+  "corrected",
+  "CORRECTION",
+  "was Pa",
+  "Pa was read",
+  "not the same",
+  "never ran",
+  "overturned",
+  "confound",
+  "dead key",
+  "full next state",
+  "Do not resurrect",
+  "~~",
+  "correction",
+  "Correction",
+  "artifact",
+  "do **not**",
+  "**not** share"
+ ],
+ "rows": [
+  {
+   "class": "NEVER",
+   "name": "soil-destabilizes",
+   "pattern": "dropping soil (severely )?destabili[sz]",
+   "i": true
+  },
+  {
+   "class": "NEVER",
+   "name": "F-B-same-depth-recipe",
+   "pattern": "F and B share the same depth",
+   "i": true
+  },
+  {
+   "class": "NEVER",
+   "name": "dryair24-minus-21-hPa",
+   "pattern": "(?<![0-9.])[−-] ?21 hPa"
+  },
+  {
+   "class": "NEVER",
+   "name": "tmq-fell-214",
+   "pattern": "214 kg"
+  },
+  {
+   "class": "NEVER",
+   "name": "append-history-recast",
+   "pattern": "append_history[^.]{0,80}re-?cast"
+  },
+  {
+   "class": "NEVER",
+   "name": "16-to-14-on-F",
+   "pattern": "16 ?(→|->) ?14[^.]{0,60}\\bon F\\b"
+  },
+  {
+   "class": "NEVER",
+   "name": "same-SFNO",
+   "pattern": "same SFNO",
+   "i": true
+  },
+  {
+   "class": "NEVER",
+   "name": "beta2-0999-helps",
+   "pattern": "0\\.999 will help"
+  },
+  {
+   "class": "NEVER",
+   "name": "capacity-no-successor",
+   "pattern": "cannot hold a queued successor"
+  },
+  {
+   "class": "NEVER",
+   "name": "ace2-verdict-unread",
+   "pattern": "verdict[^.]{0,40}unread"
+  },
+  {
+   "class": "NEVER",
+   "name": "predicts-a-tendency",
+   "pattern": "predicts a tendency",
+   "i": true
+  },
+  {
+   "class": "NEVER",
+   "name": "multinode-not-faster",
+   "pattern": "multi-node is not faster",
+   "i": true
+  },
+  {
+   "class": "NEVER",
+   "name": "sharding-1.71x",
+   "pattern": "1\\.71 ?×"
+  }
+ ],
+ "frozen_recent_changelog": [
+  {
+   "class": "FROZEN",
+   "name": "current-pick-G4D16",
+   "pattern": "(NEW PICK|pick)[^.]{0,40}G4D16"
+  }
+ ]
+}

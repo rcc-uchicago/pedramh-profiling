@@ -1,0 +1,296 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/receipts/claims_chat_2026-11-02.json",
+ "campaign": "makani aggregate + G4D e63 (chat answers 2026-11-02)",
+ "register": "5-yr protocol, selection window 2045-2047",
+ "quote_source": "Claude's 2026-11-02 answers: aggregate scoreboard (\u00a72) and the production-CSV message",
+ "date_utc": "2026-11-02T18:50:05Z",
+ "receipts": [
+  {
+   "alias": "ps",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/receipts/protocol_scores_index.json",
+   "mtime_utc": "2026-11-02T18:49:39Z",
+   "status": "loaded"
+  },
+  {
+   "alias": "prod",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/bench/makani_production.csv",
+   "mtime_utc": "2026-11-02T17:34:36Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 27,
+ "matches": 27,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "S2 scoreboard",
+   "label": "B22 score A",
+   "mode": "printed",
+   "quoted": "3.47",
+   "note": "",
+   "emitted": 3.466789186951096,
+   "emitted_printed": "3.47",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "B22 drifting groups",
+   "mode": "printed",
+   "quoted": "21",
+   "note": "",
+   "emitted": 21,
+   "emitted_printed": "21",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "B22fix (arm B22dryair) score A",
+   "mode": "printed",
+   "quoted": "3.52",
+   "note": "",
+   "emitted": 3.5221151195875624,
+   "emitted_printed": "3.52",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "B22fix (arm B22dryair) drifting groups",
+   "mode": "printed",
+   "quoted": "21",
+   "note": "",
+   "emitted": 21,
+   "emitted_printed": "21",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "DRYAIR24 score A",
+   "mode": "printed",
+   "quoted": "4.35",
+   "note": "",
+   "emitted": 4.353253119531535,
+   "emitted_printed": "4.35",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "DRYAIR24 drifting groups",
+   "mode": "printed",
+   "quoted": "22",
+   "note": "",
+   "emitted": 22,
+   "emitted_printed": "22",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FSEMA score A",
+   "mode": "printed",
+   "quoted": "3.10",
+   "note": "",
+   "emitted": 3.0972173552927194,
+   "emitted_printed": "3.10",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FSEMA drifting groups",
+   "mode": "printed",
+   "quoted": "18",
+   "note": "",
+   "emitted": 18,
+   "emitted_printed": "18",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FDE32 score A",
+   "mode": "printed",
+   "quoted": "1.99",
+   "note": "",
+   "emitted": 1.9949634193173216,
+   "emitted_printed": "1.99",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FDE32 drifting groups",
+   "mode": "printed",
+   "quoted": "18",
+   "note": "",
+   "emitted": 18,
+   "emitted_printed": "18",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15 score A",
+   "mode": "printed",
+   "quoted": "1.59",
+   "note": "",
+   "emitted": 1.5935630609935054,
+   "emitted_printed": "1.59",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15 drifting groups",
+   "mode": "printed",
+   "quoted": "15",
+   "note": "",
+   "emitted": 15,
+   "emitted_printed": "15",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15fix score A",
+   "mode": "printed",
+   "quoted": "1.68",
+   "note": "",
+   "emitted": 1.6751826299882282,
+   "emitted_printed": "1.68",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15fix drifting groups",
+   "mode": "printed",
+   "quoted": "17",
+   "note": "",
+   "emitted": 17,
+   "emitted_printed": "17",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1D39 score A",
+   "mode": "printed",
+   "quoted": "1.52",
+   "note": "",
+   "emitted": 1.5175970629627042,
+   "emitted_printed": "1.52",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1D39 drifting groups",
+   "mode": "printed",
+   "quoted": "14",
+   "note": "",
+   "emitted": 14,
+   "emitted_printed": "14",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4E15 score A",
+   "mode": "printed",
+   "quoted": "1.19",
+   "note": "",
+   "emitted": 1.1902451708239112,
+   "emitted_printed": "1.19",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4E15fix score A",
+   "mode": "printed",
+   "quoted": "1.146",
+   "note": "",
+   "emitted": 1.1457807793096288,
+   "emitted_printed": "1.146",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4E15fix drifting groups",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D19 score A",
+   "mode": "printed",
+   "quoted": "1.087",
+   "note": "",
+   "emitted": 1.086547617188002,
+   "emitted_printed": "1.087",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D19 drifting groups",
+   "mode": "printed",
+   "quoted": "3",
+   "note": "",
+   "emitted": 3,
+   "emitted_printed": "3",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D16 (pick) score A",
+   "mode": "printed",
+   "quoted": "1.131",
+   "note": "",
+   "emitted": 1.1313232224226049,
+   "emitted_printed": "1.131",
+   "status": "MATCH"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D16 (pick) drifting groups",
+   "mode": "printed",
+   "quoted": "1",
+   "note": "",
+   "emitted": 1,
+   "emitted_printed": "1",
+   "status": "MATCH"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 step time ms",
+   "mode": "printed",
+   "quoted": "957.4",
+   "note": "",
+   "emitted": 957.4,
+   "emitted_printed": "957.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 samples/s",
+   "mode": "printed",
+   "quoted": "33.4",
+   "note": "",
+   "emitted": 33.4239,
+   "emitted_printed": "33.4",
+   "status": "MATCH"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 provider",
+   "mode": "exact",
+   "quoted": "cxi",
+   "note": "",
+   "emitted": "cxi",
+   "status": "MATCH"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 job id in row",
+   "mode": "exact",
+   "quoted": "7771394",
+   "note": "",
+   "emitted": "7771394",
+   "status": "MATCH"
+  }
+ ]
+}

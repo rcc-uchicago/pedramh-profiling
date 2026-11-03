@@ -1,0 +1,32 @@
+#!/bin/bash -l
+#PBS -N maps_plot
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# Figures from the extracted npz (plot_maps.py). Uses the SFNO env's python if it imports matplotlib + scipy,
+# else the ACE2 fme-venv through its own bootstrap. -v IN=<npz dir> OUT=<figure dir> (defaults: maps/, maps/figures).
+# Submit from eval-protocol/makani_sfno/.   PASS = MAPS_PLOT_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+echo "=== maps_plot: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+PLOTPY="${PY}"
+if ! "${PLOTPY}" -c "import matplotlib, scipy" 2>/dev/null; then
+    # shellcheck disable=SC1091
+    # the eval tree has no ACE2_retrain/; the main checkout carries the ACE2 bootstrap
+    source /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/ACE2_retrain/polaris/polaris_ace2_env.sh \
+        > /dev/null || exit 2
+    PLOTPY="${ACE2_VENV}/bin/python"
+fi
+echo "plot python: ${PLOTPY} ($("${PLOTPY}" -c 'import matplotlib, scipy; print("matplotlib", matplotlib.__version__, "scipy", scipy.__version__)'))"
+"${PLOTPY}" "${M}/plot_maps.py" --in-dir "${IN:-${M}}" --out-dir "${OUT:-${M}/figures}"
+rc=$?
+[ ${rc} -eq 0 ] || echo "ERROR MAPS_PLOT_FAILED rc=${rc} (2 = missing inputs, see WARN above)"
+echo "=== maps_plot done $(date -Iseconds) ==="
+exit ${rc}

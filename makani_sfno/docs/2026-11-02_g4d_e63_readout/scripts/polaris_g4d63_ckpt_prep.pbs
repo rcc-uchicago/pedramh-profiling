@@ -1,0 +1,70 @@
+#!/bin/bash -l
+#PBS -N g4d63_ckpt
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:30:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# EMA weights of G4D36/G4D43/G4D56/G4D63 (ckpt_mp0_v35/v42/v55/v62 of the G4D run, resumed to e63 by 7771394)
+# for polaris_eval_inference.pbs, which takes a ready checkpoint and has no WEIGHTS knob. prereg.md here.
+# Gate first: v(E-1) must rebuild the trainer's best_ckpt_ema_mp0.tar bitwise, E = that file's own epoch --
+# pins version N = epoch N+1 on this run after the resume; then each source must report its epoch.
+# Submit from eval-protocol/makani_sfno/ (PBS_O_WORKDIR locates the tree). CPU only; read-only on the run.
+# PASS = G4D63_CKPT_OK
+# ============================================================================
+
+cd "${PBS_O_WORKDIR}" || exit 2
+MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}" && pwd)"
+if [ ! -d "${MAKANI_ROOT}/src/sfno_inference" ]; then
+    MAKANI_ROOT="$(cd "${PBS_O_WORKDIR}/.." && pwd)"
+fi
+REPO="$(cd "${MAKANI_ROOT}/.." && pwd)"
+
+# Env bootstrap copied verbatim from polaris_climate_run.pbs.
+# shellcheck disable=SC1091
+source "${REPO}/polaris_env.sh" || exit 2
+# shellcheck disable=SC1091
+source "${MAKANI_ROOT}/polaris/polaris_makani_env.sh" || exit 2
+
+if [ ! -x "${SFNO_VENV}/bin/python" ]; then
+    echo "ERROR SFNO_VENV_MISSING: ${SFNO_VENV}"
+    exit 3
+fi
+# shellcheck disable=SC1091
+source "${SFNO_VENV}/bin/activate"
+export PYTHONNOUSERSITE=1
+export PYTHONPATH="${MAKANI_ROOT}/src:${PYTHONPATH:-}"
+export HDF5_USE_FILE_LOCKING=FALSE
+PY="${SFNO_VENV}/bin/python"
+
+CK=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints
+D=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02
+echo "=== g4d63_ckpt: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+
+be="$(CUDA_VISIBLE_DEVICES="" "${PY}" -c "import torch; print(torch.load('${CK}/best_ckpt_ema_mp0.tar', \
+map_location='cpu', weights_only=False)['epoch'])")" || { echo "ERROR BEST_EPOCH_UNREADABLE"; exit 4; }
+gate="$(CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/scripts/extract_ema_ckpt.py" \
+        --ckpt "${CK}/ckpt_mp0_v$((be - 1)).tar" --check-against "${CK}/best_ckpt_ema_mp0.tar" 2>&1)"
+echo "${gate}" | tail -2
+case "${gate}" in
+    *EMA_EXTRACT_MATCH*) echo "gate: v$((be - 1)) == best_ckpt_ema_mp0.tar (epoch ${be}; version N = epoch N+1)" ;;
+    *) echo "ERROR EMA_GATE_MISMATCH best_epoch=${be}"; exit 4 ;;
+esac
+
+for e in 36 43 56 63; do
+    out="${D}/ema_ckpt_G4D${e}.tar"
+    ext="$(CUDA_VISIBLE_DEVICES="" "${PY}" "${MAKANI_ROOT}/scripts/extract_ema_ckpt.py" \
+           --ckpt "${CK}/ckpt_mp0_v$((e - 1)).tar" --out "${out}" 2>&1)" \
+        || { echo "${ext}"; echo "ERROR EXTRACT_FAILED G4D${e}"; exit 5; }
+    echo "${ext}"
+    case "${ext}" in *" epoch=${e} "*) ;; *) echo "ERROR V$((e - 1))_NOT_EPOCH${e}"; exit 5 ;; esac
+    [ -s "${out}" ] || { echo "ERROR OUT_MISSING ${out}"; exit 5; }
+    echo "G4D${e}_EMA_OK out=${out} bytes=$(stat -c %s "${out}")"
+done
+
+echo "G4D63_CKPT_OK best_ema_epoch=${be}"
+echo "=== g4d63_ckpt done $(date -Iseconds) ==="

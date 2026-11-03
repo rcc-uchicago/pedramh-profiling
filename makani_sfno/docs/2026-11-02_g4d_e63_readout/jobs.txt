@@ -1,0 +1,23 @@
+prereg sha256 3b5707fe29b80614 at 2026-11-02T17:39:52Z, before any submission
+j1=7807789 (debug, EMA pins + extraction)
+jc=7807790 (debug-scaling, 5-yr protocol G4D36 G4D43 G4D56 G4D63)
+s56=7807874 (debug, G4D56 K=56 sweep)
+v2 driver started 2026-11-02T18:19:28Z; adopts j1=7807789 (done), jc=7807790, s56=7807874
+jp=7807956 (debug-scaling, protocol score g4d63)
+smoke=7808081 (debug) submitted 2026-11-02T19:11:52Z
+s_G4D36=7808129 (debug-scaling, G4D36 K=56 sweep)
+v3 driver started 2026-11-02T19:56:14Z: preemptable -r y DAG, MAXQ=6; adopts s56/jp done, s36=7808129
+k56=7808253 (preemptable -r y)
+s63=7808254 (preemptable -r y)
+sA=7808255 (preemptable -r y)
+s43=7808256 (preemptable -r y)
+s16=7808257 (preemptable -r y)
+c16=7808258 (preemptable -r y)
+k63=7808430 (preemptable -r y)
+k43=7808431 (preemptable -r y)
+k36=7808453 (preemptable -r y)
+smoke2=7808469 (preemptable, Z500 dropped) 2026-11-02T21:08:54Z
+xc=7808496 (preemptable -r y)
+xkd=7808522 (preemptable -r y)
+xks=7808531 (preemptable -r y)
+plot=7808845 (preemptable -r y)

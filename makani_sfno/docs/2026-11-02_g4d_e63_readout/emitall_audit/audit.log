@@ -1,0 +1,77 @@
+=== emitall_audit: 2026-11-02T21:41:39+00:00 host=x3212c0s31b0n0 PBS_JOBID=7808527.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov python=Python 3.11.15 ===
+view knowledge       42707 chars -> battery_knowledge.json
+view changelog       48172 chars -> battery_changelog.json
+view writeup_1013    55263 chars -> battery_writeup_1013.json
+view configs_1102    47813 chars -> battery_configs_1102.json
+AUDIT_VIEWS_OK views=4 lint_targets=46
+--- battery knowledge
+[PASS] NEVER    soil-destabilizes  (clean (25 whitelisted ctx))
+[PASS] NEVER    F-B-same-depth-recipe  (clean (25 whitelisted ctx))
+[PASS] NEVER    dryair24-minus-21-hPa  (clean (25 whitelisted ctx))
+[PASS] NEVER    tmq-fell-214  (clean (25 whitelisted ctx))
+[PASS] NEVER    append-history-recast  (clean (25 whitelisted ctx))
+[PASS] NEVER    16-to-14-on-F  (clean (25 whitelisted ctx))
+[PASS] NEVER    same-SFNO  (clean (25 whitelisted ctx))
+[PASS] NEVER    beta2-0999-helps  (clean (25 whitelisted ctx))
+[PASS] NEVER    capacity-no-successor  (clean (25 whitelisted ctx))
+[PASS] NEVER    ace2-verdict-unread  (clean (25 whitelisted ctx))
+[PASS] NEVER    predicts-a-tendency  (clean (25 whitelisted ctx))
+[PASS] NEVER    multinode-not-faster  (clean (25 whitelisted ctx))
+[PASS] NEVER    sharding-1.71x  (clean (25 whitelisted ctx))
+
+13/13 rows pass
+--- battery changelog
+[PASS] NEVER    soil-destabilizes  (clean (25 whitelisted ctx))
+[PASS] NEVER    F-B-same-depth-recipe  (clean (25 whitelisted ctx))
+[PASS] NEVER    dryair24-minus-21-hPa  (clean (25 whitelisted ctx))
+[PASS] NEVER    tmq-fell-214  (clean (25 whitelisted ctx))
+[PASS] NEVER    append-history-recast  (clean (25 whitelisted ctx))
+[PASS] NEVER    16-to-14-on-F  (clean (25 whitelisted ctx))
+[PASS] NEVER    same-SFNO  (clean (25 whitelisted ctx))
+[PASS] NEVER    beta2-0999-helps  (clean (25 whitelisted ctx))
+[PASS] NEVER    capacity-no-successor  (clean (25 whitelisted ctx))
+[PASS] NEVER    ace2-verdict-unread  (clean (25 whitelisted ctx))
+[PASS] NEVER    predicts-a-tendency  (clean (25 whitelisted ctx))
+[PASS] NEVER    multinode-not-faster  (clean (25 whitelisted ctx))
+[PASS] NEVER    sharding-1.71x  (clean (25 whitelisted ctx))
+[PASS] FROZEN   current-pick-G4D16  (present: (NEW PICK|pick)[^.]{0,40}G4D16)
+
+14/14 rows pass
+--- battery writeup_1013
+[PASS] NEVER    soil-destabilizes  (clean (25 whitelisted ctx))
+[PASS] NEVER    F-B-same-depth-recipe  (clean (25 whitelisted ctx))
+[PASS] NEVER    dryair24-minus-21-hPa  (clean (25 whitelisted ctx))
+[PASS] NEVER    tmq-fell-214  (clean (25 whitelisted ctx))
+[PASS] NEVER    append-history-recast  (clean (25 whitelisted ctx))
+[PASS] NEVER    16-to-14-on-F  (clean (25 whitelisted ctx))
+[PASS] NEVER    same-SFNO  (clean (25 whitelisted ctx))
+[PASS] NEVER    beta2-0999-helps  (clean (25 whitelisted ctx))
+[PASS] NEVER    capacity-no-successor  (clean (25 whitelisted ctx))
+[PASS] NEVER    ace2-verdict-unread  (clean (25 whitelisted ctx))
+[PASS] NEVER    predicts-a-tendency  (clean (25 whitelisted ctx))
+[PASS] NEVER    multinode-not-faster  (clean (25 whitelisted ctx))
+[PASS] NEVER    sharding-1.71x  (clean (25 whitelisted ctx))
+
+13/13 rows pass
+--- battery configs_1102
+[PASS] NEVER    soil-destabilizes  (clean (25 whitelisted ctx))
+[PASS] NEVER    F-B-same-depth-recipe  (clean (25 whitelisted ctx))
+[PASS] NEVER    dryair24-minus-21-hPa  (clean (25 whitelisted ctx))
+[PASS] NEVER    tmq-fell-214  (clean (25 whitelisted ctx))
+[PASS] NEVER    append-history-recast  (clean (25 whitelisted ctx))
+[PASS] NEVER    16-to-14-on-F  (clean (25 whitelisted ctx))
+[PASS] NEVER    same-SFNO  (clean (25 whitelisted ctx))
+[PASS] NEVER    beta2-0999-helps  (clean (25 whitelisted ctx))
+[PASS] NEVER    capacity-no-successor  (clean (25 whitelisted ctx))
+[PASS] NEVER    ace2-verdict-unread  (clean (25 whitelisted ctx))
+[PASS] NEVER    predicts-a-tendency  (clean (25 whitelisted ctx))
+[PASS] NEVER    multinode-not-faster  (clean (25 whitelisted ctx))
+[PASS] NEVER    sharding-1.71x  (clean (25 whitelisted ctx))
+
+13/13 rows pass
+--- lint
+
+0 findings (clean) in 60 files scanned; 0 literal(s) allowed by pragma
+report -> lint_report.json
+EMITALL_AUDIT_DONE battery: knowledge=0 changelog=0 writeup_1013=0 configs_1102=0 lint=0 (0 clean, 1 findings)
+=== emitall_audit done 2026-11-02T21:41:40+00:00 ===

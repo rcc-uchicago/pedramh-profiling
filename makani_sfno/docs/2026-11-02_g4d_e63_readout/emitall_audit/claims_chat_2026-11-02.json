@@ -1,0 +1,201 @@
+{
+ "campaign": "makani aggregate + G4D e63 (chat answers 2026-11-02)",
+ "register": "5-yr protocol, selection window 2045-2047",
+ "quote_source": "Claude's 2026-11-02 answers: aggregate scoreboard (\u00a72) and the production-CSV message",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5",
+ "receipts": {
+  "ps": {
+   "path": "runs/makani_eval/receipts/protocol_scores_index.json",
+   "newer_than": [
+    "runs/makani_eval/protocol_scores/ref1_scores.csv",
+    "runs/makani_eval/protocol_scores/ref1_census.csv",
+    "runs/makani_eval/protocol_scores/ref2_scores.csv",
+    "runs/makani_eval/protocol_scores/ref2_census.csv",
+    "runs/makani_eval/protocol_scores/fd1_scores.csv",
+    "runs/makani_eval/protocol_scores/fd1_census.csv",
+    "runs/makani_eval/protocol_scores/g1fs_scores.csv",
+    "runs/makani_eval/protocol_scores/g1fs_census.csv",
+    "runs/makani_eval/protocol_scores/g1fix_scores.csv",
+    "runs/makani_eval/protocol_scores/g1fix_census.csv",
+    "runs/makani_eval/protocol_scores/g1dry_c_scores.csv",
+    "runs/makani_eval/protocol_scores/g1dry_c_census.csv",
+    "runs/makani_eval/protocol_scores/g4e_scores.csv",
+    "runs/makani_eval/protocol_scores/g4e_census.csv",
+    "runs/makani_eval/protocol_scores/g4fix_scores.csv",
+    "runs/makani_eval/protocol_scores/g4fix_census.csv",
+    "runs/makani_eval/protocol_scores/g4d_scores.csv",
+    "runs/makani_eval/protocol_scores/g4d_census.csv"
+   ]
+  },
+  "prod": {
+   "path": "bench/makani_production.csv",
+   "format": "csv"
+  }
+ },
+ "claims": [
+  {
+   "section": "S2 scoreboard",
+   "label": "B22 score A",
+   "quoted": "3.47",
+   "expr": "f('ps','/ref1/B22/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "B22 drifting groups",
+   "quoted": "21",
+   "expr": "f('ps','/ref1/B22/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "B22fix (arm B22dryair) score A",
+   "quoted": "3.52",
+   "expr": "f('ps','/ref2/B22dryair/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "B22fix (arm B22dryair) drifting groups",
+   "quoted": "21",
+   "expr": "f('ps','/ref2/B22dryair/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "DRYAIR24 score A",
+   "quoted": "4.35",
+   "expr": "f('ps','/ref1/DRYAIR24/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "DRYAIR24 drifting groups",
+   "quoted": "22",
+   "expr": "f('ps','/ref1/DRYAIR24/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FSEMA score A",
+   "quoted": "3.10",
+   "expr": "f('ps','/ref1/FSEMA/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FSEMA drifting groups",
+   "quoted": "18",
+   "expr": "f('ps','/ref1/FSEMA/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FDE32 score A",
+   "quoted": "1.99",
+   "expr": "f('ps','/fd1/FDE32/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "FDE32 drifting groups",
+   "quoted": "18",
+   "expr": "f('ps','/fd1/FDE32/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15 score A",
+   "quoted": "1.59",
+   "expr": "f('ps','/g1fs/G1E15/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15 drifting groups",
+   "quoted": "15",
+   "expr": "f('ps','/g1fs/G1E15/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15fix score A",
+   "quoted": "1.68",
+   "expr": "f('ps','/g1fix/G1E15fix/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1E15fix drifting groups",
+   "quoted": "17",
+   "expr": "f('ps','/g1fix/G1E15fix/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1D39 score A",
+   "quoted": "1.52",
+   "expr": "f('ps','/g1dry_c/G1D39/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G1D39 drifting groups",
+   "quoted": "14",
+   "expr": "f('ps','/g1dry_c/G1D39/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4E15 score A",
+   "quoted": "1.19",
+   "expr": "f('ps','/g4e/G4E15/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4E15fix score A",
+   "quoted": "1.146",
+   "expr": "f('ps','/g4fix/G4E15fix/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4E15fix drifting groups",
+   "quoted": "3",
+   "expr": "f('ps','/g4fix/G4E15fix/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D19 score A",
+   "quoted": "1.087",
+   "expr": "f('ps','/g4d/G4D19/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D19 drifting groups",
+   "quoted": "3",
+   "expr": "f('ps','/g4d/G4D19/drifting_groups')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D16 (pick) score A",
+   "quoted": "1.131",
+   "expr": "f('ps','/g4d/G4D16/A')"
+  },
+  {
+   "section": "S2 scoreboard",
+   "label": "G4D16 (pick) drifting groups",
+   "quoted": "1",
+   "expr": "f('ps','/g4d/G4D16/drifting_groups')"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 step time ms",
+   "quoted": "957.4",
+   "expr": "float(f('prod','/0/step_ms'))"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 samples/s",
+   "quoted": "33.4",
+   "expr": "float(f('prod','/0/samples_s_total'))"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 provider",
+   "quoted": "cxi",
+   "mode": "exact",
+   "expr": "f('prod','/0/provider')"
+  },
+  {
+   "section": "CSV rename",
+   "label": "7771394 job id in row",
+   "quoted": "7771394",
+   "mode": "exact",
+   "expr": "f('prod','/0/jobid')"
+  }
+ ]
+}

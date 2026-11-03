@@ -1,0 +1,317 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/claims_final.json",
+ "campaign": "G4D e63 final read-out",
+ "register": "K=56 test years 2048-2049; 5-yr selection window",
+ "quote_source": "Claude's final report 2026-11-02",
+ "date_utc": "2026-11-02T23:40:44Z",
+ "receipts": [
+  {
+   "alias": "r",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/results.json",
+   "mtime_utc": "2026-11-02T23:39:54Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 30,
+ "matches": 30,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_G4D16 6h",
+   "mode": "printed",
+   "quoted": "0.908",
+   "note": "",
+   "emitted": 0.9075113863964587,
+   "emitted_printed": "0.908",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_G4D16 24h",
+   "mode": "printed",
+   "quoted": "0.931",
+   "note": "",
+   "emitted": 0.9307674766628825,
+   "emitted_printed": "0.931",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D36_over_G4D16 6h",
+   "mode": "printed",
+   "quoted": "0.934",
+   "note": "",
+   "emitted": 0.9343501282220815,
+   "emitted_printed": "0.934",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D63_over_G4D16 6h",
+   "mode": "printed",
+   "quoted": "0.886",
+   "note": "",
+   "emitted": 0.8857917354288104,
+   "emitted_printed": "0.886",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D16_over_A243 6h",
+   "mode": "printed",
+   "quoted": "1.385",
+   "note": "",
+   "emitted": 1.3845026614237255,
+   "emitted_printed": "1.385",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_A243 6h",
+   "mode": "printed",
+   "quoted": "1.245",
+   "note": "",
+   "emitted": 1.2450594868647051,
+   "emitted_printed": "1.245",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56_over_A243 24h",
+   "mode": "printed",
+   "quoted": "1.010",
+   "note": "",
+   "emitted": 1.0101908144671226,
+   "emitted_printed": "1.010",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D63_over_A243 6h",
+   "mode": "printed",
+   "quoted": "1.221",
+   "note": "",
+   "emitted": 1.2206119690793875,
+   "emitted_printed": "1.221",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D63_over_A243 24h",
+   "mode": "printed",
+   "quoted": "0.993",
+   "note": "",
+   "emitted": 0.9929550268551106,
+   "emitted_printed": "0.993",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "A16_over_A243 6h",
+   "mode": "printed",
+   "quoted": "1.142",
+   "note": "",
+   "emitted": 1.1423928435934962,
+   "emitted_printed": "1.142",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56/G4D16 6h channels worse",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "K56 ratio",
+   "label": "G4D56/G4D16 24h channels worse",
+   "mode": "printed",
+   "quoted": "2",
+   "note": "",
+   "emitted": 2,
+   "emitted_printed": "2",
+   "status": "MATCH"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D56 6h",
+   "mode": "printed",
+   "quoted": "0.30",
+   "note": "",
+   "emitted": 0.30180074259781337,
+   "emitted_printed": "0.30",
+   "status": "MATCH"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D56 24h",
+   "mode": "printed",
+   "quoted": "0.75",
+   "note": "",
+   "emitted": 0.7450575065240824,
+   "emitted_printed": "0.75",
+   "status": "MATCH"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D63 6h",
+   "mode": "printed",
+   "quoted": "0.38",
+   "note": "",
+   "emitted": 0.3815343856710069,
+   "emitted_printed": "0.38",
+   "status": "MATCH"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D63 24h",
+   "mode": "printed",
+   "quoted": "0.93",
+   "note": "",
+   "emitted": 0.9344461237596342,
+   "emitted_printed": "0.93",
+   "status": "MATCH"
+  },
+  {
+   "section": "gap closed",
+   "label": "G4D36 6h",
+   "mode": "printed",
+   "quoted": "0.21",
+   "note": "",
+   "emitted": 0.21393685486334352,
+   "emitted_printed": "0.21",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "A243 acc336",
+   "mode": "printed",
+   "quoted": "0.542",
+   "note": "",
+   "emitted": 0.54203785,
+   "emitted_printed": "0.542",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D16 acc336",
+   "mode": "printed",
+   "quoted": "0.574",
+   "note": "",
+   "emitted": 0.57413263,
+   "emitted_printed": "0.574",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D56 acc336",
+   "mode": "printed",
+   "quoted": "0.594",
+   "note": "",
+   "emitted": 0.59437516,
+   "emitted_printed": "0.594",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D43 acc336",
+   "mode": "printed",
+   "quoted": "0.595",
+   "note": "",
+   "emitted": 0.59499777,
+   "emitted_printed": "0.595",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "A243 nrmse336",
+   "mode": "printed",
+   "quoted": "0.969",
+   "note": "",
+   "emitted": 0.96885142,
+   "emitted_printed": "0.969",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D16 nrmse336",
+   "mode": "printed",
+   "quoted": "0.900",
+   "note": "",
+   "emitted": 0.8995167,
+   "emitted_printed": "0.900",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D43 nrmse336",
+   "mode": "printed",
+   "quoted": "0.886",
+   "note": "",
+   "emitted": 0.88637492,
+   "emitted_printed": "0.886",
+   "status": "MATCH"
+  },
+  {
+   "section": "14-day",
+   "label": "G4D63 nrmse336",
+   "mode": "printed",
+   "quoted": "0.902",
+   "note": "",
+   "emitted": 0.9023068,
+   "emitted_printed": "0.902",
+   "status": "MATCH"
+  },
+  {
+   "section": "rules",
+   "label": "rule1 6h",
+   "mode": "exact",
+   "quoted": "HELPS",
+   "note": "",
+   "emitted": "HELPS",
+   "status": "MATCH"
+  },
+  {
+   "section": "rules",
+   "label": "rule1 24h",
+   "mode": "exact",
+   "quoted": "HELPS",
+   "note": "",
+   "emitted": "HELPS",
+   "status": "MATCH"
+  },
+  {
+   "section": "rules",
+   "label": "rule2 6h",
+   "mode": "exact",
+   "quoted": "PARTLY",
+   "note": "",
+   "emitted": "PARTLY",
+   "status": "MATCH"
+  },
+  {
+   "section": "rules",
+   "label": "rule2 24h",
+   "mode": "exact",
+   "quoted": "MOSTLY",
+   "note": "",
+   "emitted": "MOSTLY",
+   "status": "MATCH"
+  },
+  {
+   "section": "pick",
+   "label": "winner",
+   "mode": "exact",
+   "quoted": "G4D16",
+   "note": "",
+   "emitted": "G4D16",
+   "status": "MATCH"
+  }
+ ]
+}
