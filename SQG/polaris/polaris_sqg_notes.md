@@ -132,7 +132,7 @@ against a cited number.
 | A | 7809356 | debug | x3001c0s19b0n0 | — | `PROFILE_OK bench`, `NSYS_SUMMARY_OK` ×2 (ref, fixed) | `results/polaris_solver_7809356/` |
 | B | 7809385 | debug | x3001c0s19b0n0 | 16 (buf 8192) | `OVERLAP_OK` | `results/polaris_overlap_7809385/` |
 | C rep 2 | 7809408 | debug | x3001c0s19b0n0 | 16 | `UVIT_OK`, `UVIT_TRACE_OK` | `results/polaris_uvit_7809408/` |
-| A rep 2 | 7809412 | debug | | — | | `results/polaris_solver_7809412/` (nsys: ref, donate) |
+| A rep 2 | 7809412 | debug | x3001c0s19b0n0 | — | `PROFILE_OK bench`, `NSYS_SUMMARY_OK` ×2 (ref, donate) | `results/polaris_solver_7809412/` |
 
 ## A — the solver step (random IC at AB3 level 2; 4096² float64)
 
@@ -184,18 +184,25 @@ There are **two separate reasons the host cannot run ahead of the solver, and th
   (read + write). These are XLA's loop-carry copies, not something `donate` touches; the 4 per call are the
   likeliest candidates for what donation removes. `ref`'s conditional adds 3 more tiny D2D copies + 1 DtoH per step,
   which cost under 0.01 ms/step on the GPU (their cost is the host sync in A1).
-- **`donate`:** whole-module HLO `copy` count 21 → 15 (`ref`), 10 → 4 (`fixed`). ms/step 9.2905 → 9.3137
-  (+0.25%). `donate` was not in this nsys capture, so whether it removes a 400 MB copy per call is open until the
-  repeat job captures it.
+- **`donate` removes exactly the 400 MB carry copy per call, and nothing inside the loop.** The repeat job 7809412
+  captured `ref` and `donate` under nsys. Full-field D2D copies went from 12,240 to 12,060 over the same 60 calls:
+  **3 × 134.283 MB = 403 MB fewer per 40-step call**, i.e. the AB3 carry (`qh` and its two update histories). Three
+  tiny copies per call also go. The ~5 full-field copies per *step* inside the `while` are untouched (5.03/step,
+  0.977 ms/step). The whole-module HLO `copy` count goes 21 → 15 (`ref`) and 10 → 4 (`fixed`). The time does not
+  improve: ms/step +0.25% / +0.26% (n = 2), within the predicted 5%. 0.6 ms of copies per 373 ms call is too small
+  to see.
 
-### A3. Throughput (n = 1 so far; median of 3 × 60 calls)
+### A3. Throughput (n = 2: jobs 7809356 / 7809412; each a median of 3 × 60 calls)
 
 | variant | ms/step | ms/step with `coarse` | solver per optimizer step (480 steps + 12 coarse) |
 |---|---|---|---|
-| `ref` | 9.2905 | 9.3175 | 4.472 s |
-| `donate` | 9.3137 | — | — |
-| `fixed` | 9.4521 | 9.4775 | 4.549 s |
-| `fixed_donate` | 9.4599 | — | — |
+| `ref` | 9.2905 / 9.2802 | 9.3175 / 9.3069 | 4.472 / 4.467 s |
+| `donate` | 9.3137 / 9.3042 | — | — |
+| `fixed` | 9.4521 / 9.4457 | 9.4775 / 9.4712 | 4.549 / 4.546 s |
+| `fixed_donate` | 9.4599 / 9.4542 | — | — |
+
+The two runs agree to ≤ 0.11%. The dispatch pattern repeats exactly (`ref` 4.464 s of 4.469 s; `fixed` 4.160 s of
+4.544 s), and bitwise equality holds again in the repeat.
 
 `coarse()` (irfft2 + `[::16, ::16]`) is 1.02 ms. **`fixed` is 1.7% slower than `ref` while computing the same
 bits.** The kernel time per step is 8.47 vs 8.29 ms. The difference is one fusion: without the switch, XLA fuses
