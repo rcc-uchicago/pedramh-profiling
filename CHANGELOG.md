@@ -59,6 +59,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **B** `profile_overlap_midway.sh` (does the solver overlap the UViT step? serial vs background thread, pyqg AB3 vs
     fixed level) and **C** `profile_uvit_midway.sh` (torch.profiler of the UViT step) — built, CPU-smoked (C), **not
     submitted**.
+  - **Polaris route (unblocks GPUs):** paste `SQG/polaris/PROFILING_PROMPT.md` into a session on a Polaris
+    login node (branch `sqg`). Code-only profiling on the `debug` queue; no checkpoint or data transfer needed.
   - **Blocked on GPUs:** pedramh-gpu midway3-0423 is fully held by Weidong's no-time-limit generator job; midway3-0608
     is reserved (`node_test`, user ndtrung) until 2026-11-04 00:00. The `gpu` partition is V100 (not representative).
   - Hypothesis under test (two independent Opus reviews): pyqg_jax `AB3Stepper.apply_updates` uses a runtime
@@ -111,6 +113,27 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-11-02** — **SQG Polaris `debug`-queue profiling prompt** (`SQG/polaris/PROFILING_PROMPT.md`, commit
+  41570a38). Self-contained handoff for a Polaris session to port jobs A/B/C to PBS. Scope is the **code**: solver
+  host sync, copies, solver/UViT overlap. Not a GPU comparison (no A100-vs-H100 ratios), not data loading.
+  Nothing has run on Polaris yet.
+  - **No checkpoint needed:** `SQG_INIT=random` starts from the solver's own IC and runs `advance(…, 2)` to reach
+    AB3 level 2. DT is fixed and the CFL checks are host-side, so every step costs the same 4096² FFTs whatever the
+    field values. The default stays `checkpoint` (Midway behaviour).
+  - **Vendored `SQG/fixed_ring/{A-SQG_data.py, sqg.py, SHA256SUMS}`**, byte-identical to Weidong's Midway
+    `fixed_ring/` (≠ the older `SQG/A-SQG_data.py`). Found while writing the prompt:
+    - The solver hashes its own bytes and `sqg.py`'s into `CONFIG_HASH`, so editing it, even its
+      hard-coded `TRAINING_ROOT` (line 76), breaks checkpoint loading. The harness must patch that line in memory.
+    - It `mkdir`s under `TRAINING_ROOT` at import.
+    - It raises `JAX is not using the allocated GPU` on a CPU import (line 272), so a login-node import test is
+      impossible.
+  - **Env:** `SQG/polaris/requirements-sqg.txt` (top-level pins) + `requirements-wdenv.txt` (full wdenv pip freeze,
+    used as constraints). Dry-run resolved against PyPI (cp310) to wdenv's exact CUDA stack: cuDNN 8.9.2.26, cuFFT
+    11.0.2.54, nvcc/nvjitlink 12.9.86. Use `jax[cuda12]`; `jax-cuda12-plugin[with_cuda]` is not an extra in 0.4.28,
+    and the nvcc wheel (ptxas) is easy to drop.
+  - Batch size is a knob (`SQG_BATCH`/`SQG_BUF`; halve on OOM). B's `sample()` gather+H2D gets its own timer. The
+    prompt's fallback table stops only on unpushed files or no GPU allocation.
 
 - **2026-11-02** — **SQG decorrelation on the full 4096² grid vs the 1024²/256² views** (`decorrelation.py
   --factors 1 4 16`, caslake job 62086140 under pi-pedramh, `DECORR_OK`, 104 windows, 7 min; results
