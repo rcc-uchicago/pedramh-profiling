@@ -1,0 +1,15 @@
+# Top-level packages the SQG profiling harnesses (SQG/analysis/profile_*.py, SQG/fixed_ring/*) import.
+# Install with the full wdenv freeze as CONSTRAINTS, so every transitive version matches Midway's wdenv:
+#   pip install -r SQG/polaris/requirements-sqg.txt -c SQG/polaris/requirements-wdenv.txt
+jax[cuda12]==0.4.28            # extra pulls jax-cuda12-plugin + the nvidia-*-cu12 wheels incl. nvcc (ptxas)
+jaxlib==0.4.28
+jax-cuda12-plugin==0.4.28
+jax-cuda12-pjrt==0.4.28
+pyqg-jax==0.8.1
+numpy==1.26.4
+netCDF4==1.7.1.post2
+h5py==3.14.0
+torch==2.3.1
+torchvision==0.18.1
+timm==0.9.12
+nvidia-cuda-nvcc-cu12==12.9.86  # explicit: ptxas for XLA's GPU compile, as in wdenv
