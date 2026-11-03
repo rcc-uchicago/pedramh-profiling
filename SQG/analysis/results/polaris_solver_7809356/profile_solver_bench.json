@@ -1,0 +1,150 @@
+{
+ "device": "cuda:0",
+ "device_kind": "NVIDIA A100-SXM4-40GB",
+ "jax": "0.4.28",
+ "init": "random",
+ "checkpoint": null,
+ "completed_blocks": null,
+ "stride": 40,
+ "calls_per_optstep": 12,
+ "import_s": 27.61,
+ "LD_LIBRARY_PATH": "/soft/perftools/darshan/darshan-3.5.0/lib:/opt/cray/pals/1.8/lib:/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/lib:/opt/cray/pe/papi/7.3.0.1/lib64:/opt/cray/libfabric/2.3.1/lib64",
+ "compile_s": {
+  "ref": 2.11,
+  "donate": 1.94,
+  "fixed": 2.21,
+  "fixed_donate": 2.09
+ },
+ "hlo": {
+  "ref": {
+   "fft": 5,
+   "conditional": 1,
+   "while": 1,
+   "copy": 21,
+   "fusion": 35,
+   "custom_call": 0,
+   "send_recv_host": 0
+  },
+  "donate": {
+   "fft": 5,
+   "conditional": 1,
+   "while": 1,
+   "copy": 15,
+   "fusion": 31,
+   "custom_call": 0,
+   "send_recv_host": 0
+  },
+  "fixed": {
+   "fft": 5,
+   "conditional": 0,
+   "while": 1,
+   "copy": 10,
+   "fusion": 23,
+   "custom_call": 0,
+   "send_recv_host": 0
+  },
+  "fixed_donate": {
+   "fft": 5,
+   "conditional": 0,
+   "while": 1,
+   "copy": 4,
+   "fusion": 19,
+   "custom_call": 0,
+   "send_recv_host": 0
+  }
+ },
+ "cost_one_step": {
+  "ref": {
+   "flops": 67978846208.0,
+   "bytes accessed": 4229726208.0,
+   "effective_GBps": 455.3
+  },
+  "fixed": {
+   "flops": 67978846208.0,
+   "bytes accessed": 4229726208.0,
+   "effective_GBps": 447.5
+  }
+ },
+ "bitwise_vs_ref_480_steps": {
+  "donate": {
+   "equal": true,
+   "max_abs_dqh": 0.0
+  },
+  "fixed": {
+   "equal": true,
+   "max_abs_dqh": 0.0
+  },
+  "fixed_donate": {
+   "equal": true,
+   "max_abs_dqh": 0.0
+  }
+ },
+ "dispatch": {
+  "ref": {
+   "dispatch_all_12_s": 4.4688,
+   "complete_12_s": 4.4735,
+   "dispatch_fraction": 0.999,
+   "per_call_dispatch_ms": [
+    368.04,
+    372.86,
+    372.71,
+    372.85,
+    372.7,
+    372.86,
+    372.78,
+    372.85,
+    372.78,
+    372.85,
+    372.7,
+    372.79
+   ]
+  },
+  "fixed": {
+   "dispatch_all_12_s": 4.1629,
+   "complete_12_s": 4.5471,
+   "dispatch_fraction": 0.916,
+   "per_call_dispatch_ms": [
+    2.83,
+    371.04,
+    378.77,
+    379.07,
+    378.89,
+    378.95,
+    378.86,
+    379.0,
+    378.89,
+    378.89,
+    378.82,
+    378.86
+   ]
+  }
+ },
+ "ms_per_step": {
+  "ref": 9.2905,
+  "donate": 9.3137,
+  "fixed": 9.4521,
+  "fixed_donate": 9.4599
+ },
+ "ms_per_step_with_coarse": {
+  "ref": 9.3175,
+  "fixed": 9.4775
+ },
+ "coarse_ms": 1.021,
+ "optstep_solver_s": {
+  "ref": 4.472,
+  "fixed": 4.549
+ },
+ "jax_memory_GiB": {
+  "bytes_in_use": 2.73,
+  "peak_bytes_in_use": 4.49,
+  "bytes_limit": 29.62
+ },
+ "loaded_cuda_libs": [
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib/libcublas.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cublas/lib/libcublasLt.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cuda_runtime/lib/libcudart.so.12",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cudnn/lib/libcudnn.so.8",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cudnn/lib/libcudnn_ops_infer.so.8",
+  "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sqg-env/lib/python3.10/site-packages/nvidia/cufft/lib/libcufft.so.11"
+ ]
+}

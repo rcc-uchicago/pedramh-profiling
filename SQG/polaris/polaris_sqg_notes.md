@@ -127,3 +127,124 @@ against a cited number.
 | job | id | queue | node | batch | PASS token | result dir |
 |---|---|---|---|---|---|---|
 | probe | 7809334 | debug | x3001c0s19b0n0 | — | `SQG_ENV_OK`, `SQG_IMPORT_OK` | `results/polaris_probe_7809334/` |
+| C | 7809340 | debug | x3001c0s19b0n0 | 32 | — (**CUDA OOM** in the UViT forward) | — |
+| C | 7809341 | debug | x3001c0s19b0n0 | 16 | `UVIT_OK` | `results/polaris_uvit_7809341/` |
+| A | 7809356 | debug | x3001c0s19b0n0 | — | `PROFILE_OK bench`, `NSYS_SUMMARY_OK` ×2 (ref, fixed) | `results/polaris_solver_7809356/` |
+| B | 7809385 | debug | | 16 | | |
+
+## A — the solver step (random IC at AB3 level 2; 4096² float64)
+
+Nsight Systems: `/opt/nvidia/hpc_sdk/Linux_x86_64/25.9/compilers/bin/nsys`, version 2025.5.1. It is on `PATH`
+through the login-shell default `nvidia/25.9` module, so the `/soft/compilers/cudatoolkit` fallback was not
+needed. Compile time per variant is 1.9–2.2 s. Python's import of the solver takes 27.6 s, most of it the
+import-time forcing setup on the GPU. JAX peak memory is 4.49 GiB.
+
+### A1. What blocks the Python thread
+
+| | `ref` (pyqg_jax AB3, as production) | `fixed` (AB3 level fixed at 2) |
+|---|---|---|
+| optimized HLO, per 40-step call | 5 fft, **1 conditional**, 1 while, 21 copy, 35 fusion | 5 fft, **0 conditional**, 1 while, 10 copy, 23 fusion |
+| dispatch of 12 calls (+ coarse) vs completion | **4.469 s of 4.474 s (0.999)** | **4.163 s of 4.547 s (0.916)** |
+| per-call dispatch, ms | 368, then 373 ×11 | **2.8**, then 371–379 ×11 |
+| nsys: `cuStreamSynchronize` per solver step | **1.0** (98.8% of CUDA-API time) | **0** |
+| nsys: DtoH copies per step | **1.0** | **0** |
+| nsys: mean `cuLaunchKernel` | 2.7 µs | **414 µs** (81% of CUDA-API time) |
+| nsys: mean `cuMemcpyDtoDAsync` / `cuGraphLaunch` | 4.2 / 9.6 µs | 204 / 188 µs |
+| GPU busy / span, ms per step | 9.29 / 9.36 (0.992) | 9.47 / 9.50 (0.996) |
+
+*Sources: `profile_solver_bench.json` (`hlo`, `dispatch`), `nsys_{ref,fixed}_summary.json`,
+`nsys_{ref,fixed}_cuda_api_sum.csv`; capture = 5 × 12 × 40 = 2,400 steps per variant.*
+
+There are **two separate reasons the host cannot run ahead of the solver, and the `lax.switch` is only the first.**
+
+1. **`ref` syncs the host once per solver step.** pyqg_jax's `AB3Stepper.apply_updates` branches on the runtime
+   `_ablevel` with `lax.switch`. XLA:GPU executes that `conditional` by copying the branch index to the host
+   (1 DtoH per step) and blocking on the stream (1 `cuStreamSynchronize` per step, 2,400 calls averaging 9.2 ms,
+   i.e. one whole step each). So every 40-step call returns only when its GPU work is done: the first call already
+   takes 368 ms. The `while` loop of `lax.scan` does **not** sync: `fixed` keeps the `while` and shows 0 syncs, so
+   XLA runs it with a known trip count. The hypothesis's mechanism is confirmed.
+2. **Without the switch, the CUDA launch queue limits the host to about one call ahead.** `fixed` has no sync at all,
+   and its first call returns in 2.8 ms. A solver step is ~25 launches (17 `cuLaunchKernel` + 3 `cudaLaunchKernel`
+   + 2 `cuGraphLaunch` + 3 D2D memcpys), so a 40-step call is ~1,000. Enqueueing them fills the stream's launch queue.
+   From the second call on, every launch waits for a free slot: `cuLaunchKernel` averages 414 µs instead of 2.7 µs.
+   Each call then takes as long on the host as on the GPU (371–379 ms). This is not a JAX or pyqg_jax sync. It is
+   the CUDA runtime pacing a thread that has queued too much work. **The consequence for o1.2's loop is the same as
+   a sync:** a single Python thread that dispatches 12 × 40 solver steps cannot get to the ML step until about 11 of
+   the 12 calls have finished on the GPU, with or without the `lax.switch`.
+
+### A2. Equivalence and copies
+
+- **Bitwise:** after 480 steps (12 calls), `donate`, `fixed` and `fixed_donate` are all `equal: True` vs `ref`,
+  max |Δqh| = 0.0.
+- **The loop carry is copied ~5× per solver step, in both variants.** nsys records 12,240 device-to-device memcpys
+  of **134.283 MB**, which is exactly one `qh` field (1 × 4096 × 2049 complex128). That is 204 per 40-step call,
+  i.e. 5 per step + 4 per call. They take **0.99 ms per step**, **10.7% of the 9.29 ms step**, at 1,378 GB/s
+  (read + write). These are XLA's loop-carry copies, not something `donate` touches; the 4 per call are the
+  likeliest candidates for what donation removes. `ref`'s conditional adds 3 more tiny D2D copies + 1 DtoH per step,
+  which cost under 0.01 ms/step on the GPU (their cost is the host sync in A1).
+- **`donate`:** whole-module HLO `copy` count 21 → 15 (`ref`), 10 → 4 (`fixed`). ms/step 9.2905 → 9.3137
+  (+0.25%). `donate` was not in this nsys capture, so whether it removes a 400 MB copy per call is open until the
+  repeat job captures it.
+
+### A3. Throughput (n = 1 so far; median of 3 × 60 calls)
+
+| variant | ms/step | ms/step with `coarse` | solver per optimizer step (480 steps + 12 coarse) |
+|---|---|---|---|
+| `ref` | 9.2905 | 9.3175 | 4.472 s |
+| `donate` | 9.3137 | — | — |
+| `fixed` | 9.4521 | 9.4775 | 4.549 s |
+| `fixed_donate` | 9.4599 | — | — |
+
+`coarse()` (irfft2 + `[::16, ::16]`) is 1.02 ms. **`fixed` is 1.7% slower than `ref` while computing the same
+bits.** The kernel time per step is 8.47 vs 8.29 ms. The difference is one fusion: without the switch, XLA fuses
+the AB3 update differently, and `loop_add_multiply_fusion_1` takes 3,407 µs vs 3,280 µs. So removing the switch
+buys host freedom, not GPU time. The step is memory-bound: XLA's cost analysis gives 68.0 GFLOP and 4.23 GB per
+step, i.e. 455 GB/s effective. Its biggest kernels are the one AB3/RHS fusion (~40% of GPU time) and the cuFFT
+kernels (`regular_fft_factor` 24%, `vector_fft_c2r` 7.6%), plus a cuBLAS `scal` (7.2%), which is likely FFT
+normalisation.
+
+## C — the UViT training step (random input; batch 16)
+
+**Batch 32 does not fit.** With the production batch of 32, the UViT training step alone fails with a CUDA OOM on
+the 40 GB A100, in the forward pass at the last conv of `ConvNextUViT.forward` (job 7809340). At batch 16 the
+step peaks at **20.24 GiB** of torch allocations. The activations of this U-Net at 256² are the memory cost, not
+the 40.8 M parameters. Every ML number in these notes is therefore at **batch 16**, and job B uses 16 as well.
+
+| quantity (CUDA events, median of 20) | baseline (strict fp32, `cudnn.benchmark=False`, NCHW) | `cudnn.benchmark=True` | `channels_last` |
+|---|---|---|---|
+| fwd ms | 137.46 | 136.49 | 133.54 |
+| bwd ms | 274.85 | 274.48 | **436.66** |
+| clip ms | 0.50 | 0.49 | 0.49 |
+| opt ms | 3.10 | 3.13 | 5.51 |
+| **total ms** | **415.91** | 414.65 (−0.3%) | **576.22 (+38.5%)** |
+| forward max rel. diff vs baseline | — | **0.0** (bitwise) | 9.3e-8 |
+
+*Source: `results/polaris_uvit_7809341/profile_uvit.json`.*
+
+What the code does with this:
+- **Backward is two-thirds of the step** (275 of 416 ms). The optimizer (AdamW, 3.1 ms) and gradient clipping
+  (0.5 ms) are negligible.
+- **`cudnn.benchmark` buys nothing.** The autotuner picks the same algorithms as the heuristic (the forward is
+  bitwise identical) and the step moves by −0.3%.
+- **`channels_last` makes the step 38.5% slower, and all of the loss is in backward** (437 vs 275 ms; forward
+  −3%). Which kernels slow down is not resolved here: only the NCHW baseline was traced.
+- **The 7×7 depthwise convs run on PyTorch's native kernels, not cuDNN.** Under strict fp32 NCHW,
+  `conv_depthwise2d_grad_weight_kernel` (41/step), `conv_depthwise2d_backward_kernel` (41/step) and
+  `conv_depthwise2d_forward_kernel` (40/step) are all in the top 20 by GPU time.
+- **Many small copies, and the model code explains them.** `aten::copy_` is called **1,271 times per step**,
+  launching ~1,012 `direct_copy_kernel`s per step. There are two sources in `model_UViT.py`, both deliberate:
+  - `ConvNextUViT.__init__` sets `padding_mode="circular"` on every padded `Conv2d`, because the domain is
+    periodic. Every 3×3 / 7×7 conv therefore runs an `F.pad(..., mode="circular")` first, which is a copy of its
+    input, in forward and again in backward.
+  - `ConvNeXtBlock.forward` permutes NCHW → NHWC for the LayerNorm + MLP and back.
+
+  Each copy is cheap, but the launch count is a code fact. Removing either source changes what the model computes
+  at the boundary (circular → zeros) or needs an equivalence check (fusing the permutes), so it belongs to the
+  ranked list, not this task.
+
+**The op shares in `profile_uvit.json` (`top_ops`) are not shares of GPU time.** The harness divides each row's
+self CUDA time by the sum over *all* `key_averages()` rows. Those rows mix aten ops, the kernels they launch, and
+the `fwd`/`bwd`/`clip`/`opt` `record_function` ranges, so kernel time is counted more than once. The profiler's own
+"Self CUDA time total" is 5.70 s for 10 steps that took 4.16 s by CUDA events, and the top "op" is the `fwd` range
+itself (14.0%). Prediction 6 ("no single op > 40% of CUDA time") is scored from `summarize_uvit_trace.py`, which
+reads only GPU-side events of the chrome trace. It runs inside the next C job.

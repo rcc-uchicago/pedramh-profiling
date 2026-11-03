@@ -11,6 +11,7 @@
 # standalone profile of the A-SQG solver step, started from the random IC at AB3 level 2 (SQG_INIT=random).
 #   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ [-v PHASE=bench|nsys|all] \
 #        SQG/analysis/profile_solver_polaris.pbs                                  (from the repo root)
+#   -v NSYS_VARIANTS="ref donate": which variants phase nsys captures (default "ref fixed", as the _midway.sh).
 # Phase bench: profile_solver.py --mode bench (timings, dispatch-blocking test, HLO op counts, bitwise checks of the
 #              donate / fixed-AB3-level variants) with nvidia-smi dmon alongside.
 # Phase nsys:  nsys capture of the production pattern (12 x 40 steps + coarse, x5) for ref and fixed, nsys stats
@@ -65,12 +66,12 @@ if [ "$PHASE" != nsys ]; then
     DMON=""
 fi
 
-# ---- phase 2: nsys, ref and fixed (flags as profile_solver_midway.sh) ----
+# ---- phase 2: nsys, ref and fixed by default (flags as profile_solver_midway.sh) ----
 REPS=5
 if [ "$PHASE" != bench ] && [ -z "$NSYS" ]; then
     echo "WARN NSYS_NOT_FOUND: bench phase only"
 elif [ "$PHASE" != bench ]; then
-    for V in ref fixed; do
+    for V in ${NSYS_VARIANTS:-ref fixed}; do
         "$NSYS" profile -t cuda,nvtx,osrt --cuda-graph-trace=node \
             --capture-range=cudaProfilerApi --capture-range-end=stop \
             --force-overwrite=true -o "$OUT/nsys_$V" \
