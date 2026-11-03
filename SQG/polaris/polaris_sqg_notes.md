@@ -16,7 +16,30 @@ the solver's own random IC, stepped to AB3 level 2 (`SQG_INIT=random`, §2b of t
 
 ## Summary
 
-*(Filled in after jobs A/B/C; see Part III.)*
+The hypothesis was that pyqg_jax's AB3 `lax.switch` on the runtime `_ablevel` syncs the host every step. Its
+mechanism is **confirmed**. In the production solver (`ref`), each solver step copies the branch index to the host
+and blocks on the stream: nsys records one DtoH and one `cuStreamSynchronize` per step. Python is therefore blocked
+for the whole of every 40-step jitted call (dispatch 4.469 s of 4.474 s for 12 calls). The `while` loop of
+`lax.scan` itself does not sync. Replacing the switch with its level-2 branch (`fixed`) gives bitwise-identical
+results after 480 steps and removes every sync. Yet the host is still blocked after the first call. A 40-step call
+is ~1,000 kernel launches, which fill CUDA's launch queue, and further launches then wait (414 µs each instead of
+2.7 µs). **A single Python thread cannot run more than about one 40-step call ahead of this solver, with or without
+the switch.**
+
+Removing the host blocking does not produce the overlap production assumes, either. o1.2's order is a pure sum:
+4.887 s per optimizer step = 4.471 s of solver + 0.417 s of UViT. Even when a background thread dispatches the
+`fixed` solver, with nothing on the host serialising, only 21% of the ML step is hidden. The network's kernels then
+take 4.6× longer, because they share a GPU that the solver alone keeps 99% busy. The best arm, `thread_ref`, is
+1.4% faster than production. **Production's sum is GPU contention, not mainly host sync.** The data step
+(`sample()`, gather + H2D) is 0.3% of the ML step.
+
+The largest code-level cost the profile exposes is data movement inside the solver step: **~5 full-field (134 MB)
+device-to-device copies of the loop carry per solver step**, 0.99 ms of 9.29 ms (10.6%). Buffer donation removes a
+different, per-call 403 MB copy and does not touch them. On the UViT side, batch 32 does not fit a 40 GB GPU, so
+every ML number here is at batch 16. The step's GPU time is spread over 3,562 kernel launches: GEMM 26%,
+elementwise 20%, PyTorch-native depthwise conv 19%, LayerNorm 15%. `cudnn.benchmark` changes nothing, and
+`channels_last` is 38.5% slower. Part IV ranks the changes the evidence supports, each with its equivalence gate.
+None were implemented in this task.
 
 ---
 
@@ -324,3 +347,72 @@ which reads only the GPU-side events of the chrome trace. It ran inside the repe
   handful of columns.
 - **One GroupNorm statistics kernel takes 7.4 ms per step.** This is `RowwiseMomentsCUDAKernel` for
   `GroupNorm(8, n_feat)` in `ConvNextUViT.out`, at full 256² resolution: 1.7% of the step in one kernel.
+
+## Scorecard of the pre-registered predictions (Part II)
+
+| # | prediction | verdict | the number |
+|---|---|---|---|
+| 1 | `ref` blocks Python, with a `conditional` inside the `while` body | **confirmed** | dispatch 4.469 s of 4.474 s; the one `conditional` is in `region_0.116`, the `while` body; 1 DtoH + 1 `cuStreamSynchronize` per step |
+| 1 | `fixed`: no `conditional`, and dispatch ≪ completion | **half refuted** | 0 `conditional` and 0 syncs, and the first call returns in 2.8 ms. But over 12 calls dispatch is 4.163 s of 4.547 s (0.92), because the CUDA launch queue fills: `cuLaunchKernel` averages 414 µs vs 2.7 µs |
+| 2 | `donate`, `fixed`, `fixed_donate` bitwise == `ref` after 480 steps | **confirmed** (n = 2) | `equal: True`, max \|Δqh\| = 0.0, in both A jobs |
+| 3 | `donate` removes one ~400 MB D2D copy per call; ms/step changes < 5% | **confirmed** | −3 × 134.283 MB = −403 MB per call (nsys 7809412); +0.25% / +0.26% |
+| 4 | `serial_ref` ≈ solver + ML | **confirmed** | 4.887 s vs 4.471 + 0.417 = 4.888 s |
+| 4 | `thread_fixed` ≈ max(solver, ML) | **refuted** | 4.880 s vs max 4.549 s; overlap efficiency 0.21; ML GPU time 416 → 1,910 ms |
+| 4 | overlap efficiency for `ref` < 20% | **confirmed** | `serial_ref` 0.004, `thread_ref` 0.171 |
+| 5 | `sample()` gather + H2D < 10% of `ml_only` | **confirmed** | 1.22 ms of 416.47 ms = 0.3% |
+| 6 | no single op > 40% of CUDA time | **confirmed** | the largest kernel is 8.3% (LayerNorm `GammaBetaBackward`) |
+| 6 | a few conv/attention kernels dominate | **refuted** | the time is spread out: GEMM 26%, elementwise 20%, native depthwise conv 19%, LayerNorm 15%; 111 distinct kernels; attention is not in the top 20 |
+| 6 | `cudnn.benchmark` changes step time < 15% | **confirmed** | −0.3% (n = 2), forward bitwise identical |
+| 6 | `channels_last` changes step time < 15% | **refuted** | **+38.5%** (n = 2), all of it in backward |
+
+The fallback the brief asked for under #1 ("if `ref` does not block, look for the sync elsewhere") was not needed
+for `ref`, which does block, exactly as hypothesised. It *was* needed to explain `fixed`, and the cause is not a
+sync at all: it is launch-queue back-pressure (A1). Under #4, "if `thread_ref` already overlaps well, the blocking
+is in o1.2's call order": `thread_ref` does not overlap well (0.17). The second half of the explanation is GPU
+contention, not call order (B).
+
+---
+
+# Part IV — Code changes the evidence supports (ranked; not implemented here)
+
+Shares are of the production optimizer step as measured here (`serial_ref`, batch 16): the solver is 4.47 s of
+4.89 s (**91%**), the UViT step 0.42 s (8.5%), `sample()` 0.001 s. Each item names the equivalence check it needs
+(DESIGN §4). On the solver side the bar is **bitwise** state equality, the check job A already runs; that is stricter
+than §4.1's fp32 tolerance.
+
+1. **Remove the ~5 full-field loop-carry copies per solver step.** They cost 0.98–0.99 ms of 9.29 ms, **10.6% of
+   solver time, ~9.7% of the optimizer step**, and are the largest single item the evidence shows. They are XLA
+   copy-insertion copies inside the `lax.scan` body over the `AB3State` carry; `donate` does not reach them (A2).
+   The first step is diagnosis: map the `copy` instructions of the `while` body (`hlo_ref.txt`, `region_0.116`) to
+   carry leaves. The likely suspects are the `_updates` history rotation and the `state.update(...)` rebuilds.
+   The fix belongs in o1.2's own step function, the way the harness builds `inner_fixed`, so the hash-pinned
+   `A-SQG_data.py` stays untouched. **Gate:** bitwise full-state equality vs `ref` after 480 steps
+   (`bitwise_vs_ref_480_steps`), then ms/step.
+2. **Fuse the UViT's glue.** Elementwise (19.8%), LayerNorm (15.3%), copies (5.2%) and memcpy (3.8%) are ~44% of
+   the UViT step's GPU time, spread over 3,562 launches per step. `torch.compile` of `ConvNeXtBlock` is the standard
+   tool for this. The ceiling is a few percent of the optimizer step, since the UViT is 8.5% of it. **Gate:**
+   DESIGN §4.1: fixed seed, K = 20-step loss trajectory, strict fp32 kept; compiled-path tolerance ≤ 1e-2, as §4.1
+   states for compiled paths. It is not bitwise.
+3. **Dispatch the solver from a background thread in o1.2** (B's `thread_ref` arm). Measured **−1.4%** (4.817 vs
+   4.887 s). It is small because the solver alone already keeps the GPU 99% busy. **Gate:** bitwise solver state vs
+   the serial loop after N optimizer steps, *and* the same sampled (x, y) pairs per step. The flush-previous-chunk-
+   then-train order of `OnlinePairs` must be kept, which B's thread arm does. Check with the §4.1 loss trajectory,
+   eager fp32 ≤ 1e-5.
+4. **Replace pyqg_jax's runtime `lax.switch` with its level-2 branch once `_ablevel == 2`** (the `fixed` variant).
+   It is bitwise identical (n = 2) and removes the per-step host sync, DtoH and 3 tiny D2D copies. **On its own it
+   does not pay:** one AB3 fusion gets slower (3,407 vs 3,280 µs), so the GPU step is +1.7%. In B it is neutral or
+   worse in every arm: `serial_fixed` +1.1%, `thread_fixed` vs `thread_ref` +1.3%. Adopt only together with item 3,
+   and only if that fusion regression is fixed. **Gate:** bitwise (passes today). A fresh spin-up must still take
+   levels 0 → 1 → 2 through the switch.
+5. **Do not adopt `channels_last` (+38.5%) or `cudnn.benchmark` (−0.3%) for the UViT.** Both are measured n = 2.
+
+Two facts that are not code changes, recorded for the model owners:
+- **Batch 32 does not fit a 40 GB GPU for the UViT training step** (job 7809340). Activation checkpointing would
+  restore it without changing the math. **Gate:** §4.1 loss trajectory, eager fp32 ≤ 1e-5.
+- **The solver dominates and saturates the GPU.** No scheduling change can hide it. Any large gain in online-
+  training throughput has to reduce solver GPU work per optimizer step, e.g. STRIDE, solver steps per sample, or
+  precision. That changes what is computed, so it is a science decision (jesswan / Weidong), not a code change.
+
+The optional NUMA-bound arm of B (§3.6) was **not run**. B shows the step is GPU-bound: the solver keeps the GPU
+99% busy, and the host-side data step is 0.3% of the ML step. A CPU/memory binding can only move host-side time,
+and there is almost none to move.

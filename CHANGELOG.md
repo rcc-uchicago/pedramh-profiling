@@ -59,8 +59,8 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   - **B** `profile_overlap_midway.sh` (does the solver overlap the UViT step? serial vs background thread, pyqg AB3 vs
     fixed level) and **C** `profile_uvit_midway.sh` (torch.profiler of the UViT step) — built, CPU-smoked (C), **not
     submitted**.
-  - **Polaris route (unblocks GPUs):** paste `SQG/polaris/PROFILING_PROMPT.md` into a session on a Polaris
-    login node (branch `sqg`). Code-only profiling on the `debug` queue; no checkpoint or data transfer needed.
+  - **Polaris route: DONE 2026-11-03** (branch `sqg-polaris-profiling`, draft PR against `sqg`; see the dated
+    entry below and `SQG/polaris/polaris_sqg_notes.md`). All three jobs PASS on Polaris debug, n = 2 each.
   - **Blocked on GPUs:** pedramh-gpu midway3-0423 is fully held by Weidong's no-time-limit generator job; midway3-0608
     is reserved (`node_test`, user ndtrung) until 2026-11-04 00:00. The `gpu` partition is V100 (not representative).
   - Hypothesis under test (two independent Opus reviews): pyqg_jax `AB3Stepper.apply_updates` uses a runtime
@@ -113,6 +113,36 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
   val err 0.541) — so all four runnable models are green on 4 GPUs.
 
 ## Decisions / changes log
+
+- **2026-11-03** — **SQG online-training profiling ran on Polaris (jobs A/B/C, n = 2 each, `debug`, 1 A100 per
+  job)** (branch `sqg-polaris-profiling`; write-up `SQG/polaris/polaris_sqg_notes.md`; summaries in
+  `SQG/analysis/results/polaris_*`). Code findings only, with no cross-GPU ratios:
+  - **The `lax.switch` hypothesis: mechanism confirmed, consequence incomplete.** `ref` does 1 DtoH + 1
+    `cuStreamSynchronize` per solver step, so Python is blocked for every 40-step call. The `fixed` AB3 level is
+    bitwise identical and has 0 syncs, but the host still cannot run more than ~1 call ahead: ~1,000 launches per
+    call fill the CUDA launch queue (`cuLaunchKernel` 414 µs vs 2.7 µs).
+  - **Overlap is limited by the GPU, not the host.** `serial_ref` = solver + ML exactly (4.887 s). A background-
+    thread solver hides at most 21% of the ML step, because the solver alone keeps the GPU 99% busy. The best arm
+    is −1.4%. `sample()` is 0.3% of the ML step.
+  - **~5 × 134 MB loop-carry D2D copies per solver step** = 10.6% of solver time; `donate` removes a different
+    3 × 134 MB copy per call.
+  - **UViT:** batch 32 OOMs a 40 GB A100, so ML numbers are at batch 16 (416 ms/step). Kernel time is spread
+    (GEMM 26%, elementwise 20%, native depthwise conv 19%, LayerNorm 15%; 3,562 launches/step). `channels_last`
+    is +38.5%, and `cudnn.benchmark` −0.3%.
+  - Of the 6 pre-registered predictions, #2, #3 and #5 are confirmed in full. #1, #4 and #6 are confirmed in part;
+    the refuted sub-claims are #1's `fixed` half, #4's `thread_fixed` ≈ max, #6's "few kernels dominate" and #6's
+    `channels_last` < 15%. The scorecard is in the notes. Ranked code changes with their
+    gates are in the notes' Part IV. None are implemented.
+  - **Env:** `module load conda` works again (ALCF fixed the modulefile 2026-09-16; makani jobs already log
+    `MAKANI_ENV_SOURCE = module-conda`). SQG has its own `$MEMBER_ROOT/conda-envs/sqg-env` (py3.10, pip copy of
+    wdenv; CUDA from the wheels, no modules at run time; `SQG/polaris/setup_sqg_env.sh`). The login-node import
+    check was replaced by a GPU probe job (09-24 ruling).
+  - **Gotchas:** `profile_uvit.py`'s `top_ops` percentages double-count (ops + kernels + ranges); use
+    `summarize_uvit_trace.py`. `SQG/analysis/results/` is gitignored, so add results with `git add -f`. The brief's
+    default `MEMBER_ROOT=/eagle/lighthouse-uchicago/members/$USER` doesn't exist for every user (rmehta1987 →
+    mehta5).
+  - Optional NUMA arm not run: the step is GPU-bound. Jobs: probe 7809334, C 7809340 (OOM @32) / 7809341 /
+    7809408, A 7809356 / 7809412, B 7809385 / 7809433.
 
 - **2026-11-02** — **SQG Polaris `debug`-queue profiling prompt** (`SQG/polaris/PROFILING_PROMPT.md`, commit
   41570a38). Self-contained handoff for a Polaris session to port jobs A/B/C to PBS. Scope is the **code**: solver
