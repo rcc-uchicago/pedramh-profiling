@@ -1,0 +1,98 @@
+#!/bin/bash -l
+#PBS -N sqg_prof_solver
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:55:00
+#PBS -j oe
+# profile_solver_polaris.pbs -- Job A on one Polaris A100 (sibling of profile_solver_midway.sh, which is unchanged):
+# standalone profile of the A-SQG solver step, started from the random IC at AB3 level 2 (SQG_INIT=random).
+#   qsub -o /eagle/projects/lighthouse-uchicago/members/<you>/sqg_profile/logs/ [-v PHASE=bench|nsys|all] \
+#        SQG/analysis/profile_solver_polaris.pbs                                  (from the repo root)
+# Phase bench: profile_solver.py --mode bench (timings, dispatch-blocking test, HLO op counts, bitwise checks of the
+#              donate / fixed-AB3-level variants) with nvidia-smi dmon alongside.
+# Phase nsys:  nsys capture of the production pattern (12 x 40 steps + coarse, x5) for ref and fixed, nsys stats
+#              CSVs, summarize_nsys.py. Optional: without nsys it prints WARN NSYS_NOT_FOUND and skips.
+# PASS = "PROFILE_OK bench" (+ 2x "NSYS_SUMMARY_OK" when nsys ran) in the .o file. Summaries (JSON/CSV/txt):
+# SQG/analysis/results/polaris_solver_<jobid>/; .nsys-rep/.sqlite stay in $MEMBER_ROOT/sqg_profile/profile_solver_<jobid>/.
+set -eo pipefail
+cd "${PBS_O_WORKDIR}"
+
+# ---- env bootstrap (the same block in every SQG Polaris script; no module is loaded: CUDA comes from the wheels) --
+MEMBERS=/eagle/projects/lighthouse-uchicago/members
+if [ -z "${MEMBER_ROOT:-}" ]; then                     # as polaris_env.sh: the member dir is not always $USER
+    if [ -w "${MEMBERS}/${USER}" ]; then MEMBER_ROOT="${MEMBERS}/${USER}"
+    else for d in "${MEMBERS}"/*/; do if [ -O "$d" ] && [ -w "$d" ]; then MEMBER_ROOT="${d%/}"; break; fi; done; fi
+fi
+[ -n "${MEMBER_ROOT:-}" ] && [ -w "$MEMBER_ROOT" ] || { echo "ERROR SQG_NO_MEMBER_ROOT: ${MEMBER_ROOT:-<unset>}"; exit 2; }
+PY="${SQG_PY:-${MEMBER_ROOT}/conda-envs/sqg-env/bin/python}"
+[ -x "$PY" ] || { echo "ERROR SQG_ENV_MISSING: $PY (build it: bash -l SQG/polaris/setup_sqg_env.sh)"; exit 3; }
+unset PYTHONPATH PYTHONHOME
+export PYTHONNOUSERSITE=1 XLA_PYTHON_CLIENT_PREALLOCATE=false HDF5_USE_FILE_LOCKING=FALSE \
+       OMP_NUM_THREADS=8 PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True CUDA_VISIBLE_DEVICES=0 \
+       TMPDIR="${MEMBER_ROOT}/tmp" WANDB_MODE=offline
+export SQG_ASQG_PY="${PBS_O_WORKDIR}/SQG/fixed_ring/A-SQG_data.py"
+export SQG_TRAINING_ROOT="${SQG_TRAINING_ROOT:-${MEMBER_ROOT}/sqg_stage/AllTrainData}"   # the solver mkdirs here
+export SQG_INIT="${SQG_INIT:-random}"
+JOB="${PBS_JOBID%%.*}"
+OUT="${MEMBER_ROOT}/sqg_profile/profile_solver_${JOB}"
+RES="SQG/analysis/results/polaris_solver_${JOB}"
+mkdir -p "$OUT" "$RES" "$TMPDIR" "$SQG_TRAINING_ROOT"
+(cd SQG/fixed_ring && sha256sum -c --quiet SHA256SUMS) || { echo "ERROR SQG_SOLVER_SHA_MISMATCH"; exit 4; }
+echo "=== profile_solver on $(hostname) job $JOB: $(date '+%F %T') ==="
+echo "host=$(hostname) job=$JOB py=$PY init=$SQG_INIT batch=${SQG_BATCH:-32} buf=${SQG_BUF:-8192}"
+echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
+echo "modules: $(module -t list 2>&1 | tr '\n' ' ')"
+nvidia-smi --query-gpu=name,driver_version,memory.total,clocks.max.sm,power.limit --format=csv | tee "$OUT/gpu.csv"
+# ------------------------------------------------------------------------------------------------------------------
+
+PHASE="${PHASE:-all}"
+case "$PHASE" in bench|nsys|all) ;; *) echo "ERROR SQG_BAD_PHASE: $PHASE (bench|nsys|all)"; exit 5 ;; esac
+# No nsight module on Polaris; the cudatoolkit installs carry nsys (2026-08: cuda-12.9.1).
+NSYS="$(command -v nsys 2>/dev/null || ls -1 /soft/compilers/cudatoolkit/cuda-*/bin/nsys 2>/dev/null | sort -V | tail -1 || true)"
+echo "phase=$PHASE nsys=${NSYS:-<none>} $([ -n "$NSYS" ] && "$NSYS" --version 2>&1 | head -1)"
+DMON=""
+trap '[ -n "$DMON" ] && kill "$DMON" 2>/dev/null || true' EXIT
+
+# ---- phase 1: bench (+ GPU power/clock/util log) ----
+if [ "$PHASE" != nsys ]; then
+    nvidia-smi dmon -s pucvm -d 1 -i 0 > "$OUT/dmon_bench.txt" 2>&1 &
+    DMON=$!
+    "$PY" SQG/analysis/profile_solver.py --mode bench --out "$OUT"
+    kill "$DMON" 2>/dev/null || true
+    DMON=""
+fi
+
+# ---- phase 2: nsys, ref and fixed (flags as profile_solver_midway.sh) ----
+REPS=5
+if [ "$PHASE" != bench ] && [ -z "$NSYS" ]; then
+    echo "WARN NSYS_NOT_FOUND: bench phase only"
+elif [ "$PHASE" != bench ]; then
+    for V in ref fixed; do
+        "$NSYS" profile -t cuda,nvtx,osrt --cuda-graph-trace=node \
+            --capture-range=cudaProfilerApi --capture-range-end=stop \
+            --force-overwrite=true -o "$OUT/nsys_$V" \
+            "$PY" SQG/analysis/profile_solver.py --mode nsys --variant "$V" --reps "$REPS" --out "$OUT" \
+            || { echo "ERROR SQG_NSYS_PROFILE_FAILED $V"; continue; }
+        "$NSYS" stats --report cuda_gpu_kern_sum,cuda_api_sum,cuda_gpu_trace --format csv --force-export=true \
+            --output "$OUT/nsys_$V" "$OUT/nsys_$V.nsys-rep" > /dev/null \
+            || { echo "ERROR SQG_NSYS_STATS_FAILED $V"; continue; }
+        # nsys writes a report even when the capture range caught nothing: require a kernel row.
+        if [ "$(wc -l < "$OUT/nsys_${V}_cuda_gpu_kern_sum.csv" 2>/dev/null || echo 0)" -lt 2 ]; then
+            echo "ERROR SQG_NSYS_EMPTY_CAPTURE $V"; continue
+        fi
+        "$PY" SQG/analysis/summarize_nsys.py "$OUT/nsys_$V" --steps $((REPS * 12 * 40)) \
+            --out "$OUT/nsys_${V}_summary.json" || echo "ERROR SQG_NSYS_SUMMARY_FAILED $V"
+    done
+fi
+
+# ---- summaries into the repo (text only; the per-kernel trace CSV and the reports stay in $OUT) ----
+for f in "$OUT"/*.json "$OUT"/gpu.csv "$OUT"/dmon_*.txt "$OUT"/nsys_*_cuda_gpu_kern_sum.csv "$OUT"/nsys_*_cuda_api_sum.csv; do
+    [ -e "$f" ] && cp "$f" "$RES"/
+done
+for f in "$OUT"/hlo_*.txt; do                            # optimized HLO: keep in the repo only while it is small
+    [ -e "$f" ] && [ "$(stat -c %s "$f")" -lt 2000000 ] && cp "$f" "$RES"/
+done
+echo "=== end $(date '+%F %T') ==="
