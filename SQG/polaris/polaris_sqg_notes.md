@@ -131,6 +131,8 @@ against a cited number.
 | C | 7809341 | debug | x3001c0s19b0n0 | 16 | `UVIT_OK` | `results/polaris_uvit_7809341/` |
 | A | 7809356 | debug | x3001c0s19b0n0 | — | `PROFILE_OK bench`, `NSYS_SUMMARY_OK` ×2 (ref, fixed) | `results/polaris_solver_7809356/` |
 | B | 7809385 | debug | x3001c0s19b0n0 | 16 (buf 8192) | `OVERLAP_OK` | `results/polaris_overlap_7809385/` |
+| C rep 2 | 7809408 | debug | x3001c0s19b0n0 | 16 | `UVIT_OK`, `UVIT_TRACE_OK` | `results/polaris_uvit_7809408/` |
+| A rep 2 | 7809412 | debug | | — | | `results/polaris_solver_7809412/` (nsys: ref, donate) |
 
 ## A — the solver step (random IC at AB3 level 2; 4096² float64)
 
@@ -284,5 +286,34 @@ What the code does with this:
 self CUDA time by the sum over *all* `key_averages()` rows. Those rows mix aten ops, the kernels they launch, and
 the `fwd`/`bwd`/`clip`/`opt` `record_function` ranges, so kernel time is counted more than once. The profiler's own
 "Self CUDA time total" is 5.70 s for 10 steps that took 4.16 s by CUDA events, and the top "op" is the `fwd` range
-itself (14.0%). Prediction 6 ("no single op > 40% of CUDA time") is scored from `summarize_uvit_trace.py`, which
-reads only GPU-side events of the chrome trace. It runs inside the next C job.
+itself (14.0%). Prediction 6 ("no single op > 40% of CUDA time") is therefore scored from `summarize_uvit_trace.py`,
+which reads only the GPU-side events of the chrome trace. It ran inside the repeat job 7809408.
+
+**Repeat 7809408 (n = 2).** The step is 416.27 ms (fwd 137.54, bwd 275.18), `cudnn.benchmark` 415.10 ms,
+`channels_last` 576.45 ms, peak 20.24 GiB. Every number is within 0.1% of 7809341.
+
+**Kernel-only breakdown** (`results/polaris_uvit_7809408/uvit_trace_summary.json`; 10 profiled steps; GPU time
+426.8 ms/step under the profiler, busy 98.4% of the span):
+
+| family | % of GPU time | biggest kernels (share, launches/step, mean) |
+|---|---|---|
+| GEMM (fp32 SGEMM: `Linear` pw1/pw2, attention qkv/proj) | 26.4 | `ampere_sgemm_128x64_tn` 6.5% (28, 988 µs), `_32x128_tn` 4.7%, `_64x32_sliced1x4_nt` 3.1% |
+| elementwise | 19.8 | 250-launch vectorized functor 3.8%, GELU backward 2.7%, fill 1.7% (493/step) |
+| depthwise 7×7 conv, PyTorch native kernels | 19.2 | `grad_weight` 7.9% (41, 815 µs), `backward` 6.7% (41, 693 µs), `forward` 4.7% (40, 500 µs) |
+| LayerNorm | 15.3 | `GammaBetaBackward` **8.3%** (49, 720 µs), forward 3.5%, grad-input 2.4% |
+| copies (`direct_copy_kernel`) | 5.2 | 1,012 launches/step at 21 µs |
+| cuDNN conv (the dense 3×3 / 1×1 / stride-2 convs) | 4.5 | |
+| memcpy / memset | 3.8 | |
+| reduce | 3.1 | |
+| other | 1.9 | `RowwiseMomentsCUDAKernel` (GroupNorm in `out`), **1 launch, 7.4 ms** |
+| optimizer (AdamW, foreach) | 0.9 | |
+
+- **3,562 kernel launches per training step**, 111 distinct kernels. The largest single kernel is 8.3% of GPU time.
+- **Attention is not in the top 20.** The four `AttnBlock`s run at the bottleneck resolution, so their cost is
+  small. The time goes into the ConvNeXt blocks at the high resolutions: depthwise conv, LayerNorm over few
+  channels, the pointwise `Linear` GEMMs, and the elementwise and copy glue between them.
+- **LayerNorm's weight/bias gradient (`GammaBetaBackward`) is the single most expensive kernel.** `ConvNeXtBlock`
+  normalises over only `in_ch` channels at every pixel of every image, so this kernel reduces ~10⁶ rows into a
+  handful of columns.
+- **One GroupNorm statistics kernel takes 7.4 ms per step.** This is `RowwiseMomentsCUDAKernel` for
+  `GroupNorm(8, n_feat)` in `ConvNextUViT.out`, at full 256² resolution: 1.7% of the step in one kernel.
