@@ -130,7 +130,7 @@ against a cited number.
 | C | 7809340 | debug | x3001c0s19b0n0 | 32 | — (**CUDA OOM** in the UViT forward) | — |
 | C | 7809341 | debug | x3001c0s19b0n0 | 16 | `UVIT_OK` | `results/polaris_uvit_7809341/` |
 | A | 7809356 | debug | x3001c0s19b0n0 | — | `PROFILE_OK bench`, `NSYS_SUMMARY_OK` ×2 (ref, fixed) | `results/polaris_solver_7809356/` |
-| B | 7809385 | debug | | 16 | | |
+| B | 7809385 | debug | x3001c0s19b0n0 | 16 (buf 8192) | `OVERLAP_OK` | `results/polaris_overlap_7809385/` |
 
 ## A — the solver step (random IC at AB3 level 2; 4096² float64)
 
@@ -202,6 +202,44 @@ buys host freedom, not GPU time. The step is memory-bound: XLA's cost analysis g
 step, i.e. 455 GB/s effective. Its biggest kernels are the one AB3/RHS fusion (~40% of GPU time) and the cuFFT
 kernels (`regular_fft_factor` 24%, `vector_fft_c2r` 7.6%), plus a cuBLAS `scal` (7.2%), which is likely FFT
 normalisation.
+
+## B — does the solver overlap the UViT step? (batch 16, host buffer 8192, random IC)
+
+One GPU, no DDP, 4 warm-up + 20 timed optimizer steps per arm. Each optimizer step is 480 solver steps (12 × 40 +
+coarse) and one UViT training step. Wall time is the median per optimizer step. "ML GPU" is the CUDA-event time on
+torch's stream. Overlap efficiency = (solver_only + ml_only − combined) / min(solver_only, ml_only): 1 = the ML step is
+fully hidden, 0 = serial.
+
+| arm | wall s | overlap eff. | ML GPU ms (of which `sample()`) | network-only GPU ms |
+|---|---|---|---|---|
+| `ml_only` | 0.4174 | — | 416.47 (1.22) | 415.27 |
+| `solver_only_ref` | 4.4710 | — | — | — |
+| `solver_only_fixed` | 4.5494 | — | — | — |
+| **`serial_ref`** (o1.2's order and solver) | **4.8868** | **0.004** | 419.74 (1.27) | 418.44 |
+| `serial_fixed` | 4.9386 | 0.068 | 773.11 (1.27) | 771.73 |
+| `thread_ref` | 4.8169 | 0.171 | 1371.57 (1.42) | 1370.16 |
+| `thread_fixed` | 4.8797 | 0.209 | **1910.05** (1.45) | 1908.52 |
+
+*Source: `results/polaris_overlap_7809385/profile_overlap.json`. Peak memory: torch 20.26 GiB, JAX 3.23 GiB.*
+
+What this says about the code:
+- **o1.2's order is a pure sum.** `serial_ref` is 4.887 s, and `solver_only_ref` + `ml_only` is 4.888 s. The
+  docstring's claim that the solver steps "run alongside" the ML step does not hold. A1 says why: with `ref`,
+  `advance()` returns only after all 480 steps have run on the GPU.
+- **Removing the host blocking does not produce the overlap either.** In `thread_fixed` nothing on the host
+  serialises: the solver is dispatched and waited on in a background thread, and its calls have no sync. It still
+  hides only 21% of the ML step, and is 0.15% faster than production. The ML step's own GPU time stretches 4.6×,
+  from 416 to 1,910 ms, because its kernels now share the GPU with the solver's. A measured that the solver keeps
+  the GPU busy 99.2–99.6% of the time on its own, so there is no idle GPU time for the network to fill. Concurrency
+  can only come from two kernels sharing SMs and memory bandwidth, and that bought ≤ 21% here.
+- `serial_fixed` sits in between: Python gets back the last ~1 call early (A1, launch queue), so the ML step
+  overlaps that last call. The ML GPU time rises 1.9× to 773 ms, and the wall time does not improve (+1.1% vs
+  `serial_ref`).
+- **The fastest arm is `thread_ref`, 1.4% faster than production** (4.817 vs 4.887 s). `fixed` loses its host-side
+  advantage to its 1.7% slower AB3 fusion (A3).
+- **The data path is not the cost.** `sample()` (gather of 16 pairs from the pageable host buffer + H2D) is
+  1.22 ms on the GPU and 1.18 ms on the host, **0.3% of `ml_only`**. That is about the same in every arm (1.27–1.45
+  ms), including when a background thread is dispatching the solver.
 
 ## C — the UViT training step (random input; batch 16)
 
