@@ -156,6 +156,7 @@ against a cited number.
 | B | 7809385 | debug | x3001c0s19b0n0 | 16 (buf 8192) | `OVERLAP_OK` | `results/polaris_overlap_7809385/` |
 | C rep 2 | 7809408 | debug | x3001c0s19b0n0 | 16 | `UVIT_OK`, `UVIT_TRACE_OK` | `results/polaris_uvit_7809408/` |
 | A rep 2 | 7809412 | debug | x3001c0s19b0n0 | — | `PROFILE_OK bench`, `NSYS_SUMMARY_OK` ×2 (ref, donate) | `results/polaris_solver_7809412/` |
+| B rep 2 | 7809433 | debug | x3001c0s19b0n0 | 16 (buf 8192) | `OVERLAP_OK` | `results/polaris_overlap_7809433/` |
 
 ## A — the solver step (random IC at AB3 level 2; 4096² float64)
 
@@ -242,17 +243,20 @@ coarse) and one UViT training step. Wall time is the median per optimizer step. 
 torch's stream. Overlap efficiency = (solver_only + ml_only − combined) / min(solver_only, ml_only): 1 = the ML step is
 fully hidden, 0 = serial.
 
+n = 2: each cell gives job 7809385 / repeat 7809433.
+
 | arm | wall s | overlap eff. | ML GPU ms (of which `sample()`) | network-only GPU ms |
 |---|---|---|---|---|
-| `ml_only` | 0.4174 | — | 416.47 (1.22) | 415.27 |
-| `solver_only_ref` | 4.4710 | — | — | — |
-| `solver_only_fixed` | 4.5494 | — | — | — |
-| **`serial_ref`** (o1.2's order and solver) | **4.8868** | **0.004** | 419.74 (1.27) | 418.44 |
-| `serial_fixed` | 4.9386 | 0.068 | 773.11 (1.27) | 771.73 |
-| `thread_ref` | 4.8169 | 0.171 | 1371.57 (1.42) | 1370.16 |
-| `thread_fixed` | 4.8797 | 0.209 | **1910.05** (1.45) | 1908.52 |
+| `ml_only` | 0.4174 / 0.4174 | — | 416.47 (1.22) / 416.52 (1.55) | 415.27 / 414.95 |
+| `solver_only_ref` | 4.4710 / 4.4718 | — | — | — |
+| `solver_only_fixed` | 4.5494 / 4.5494 | — | — | — |
+| **`serial_ref`** (o1.2's order and solver) | **4.8868 / 4.8871** | **0.004 / 0.005** | 419.74 / 419.71 | 418.44 / 418.39 |
+| `serial_fixed` | 4.9386 / 4.9390 | 0.068 / 0.067 | 773.11 / 773.52 | 771.73 / 772.19 |
+| `thread_ref` | 4.8169 / 4.8167 | 0.171 / 0.174 | 1371.57 / 1371.88 | 1370.16 / 1370.41 |
+| `thread_fixed` | 4.8797 / 4.8803 | 0.209 / 0.207 | **1910.05 / 1897.86** | 1908.52 / 1896.37 |
 
-*Source: `results/polaris_overlap_7809385/profile_overlap.json`. Peak memory: torch 20.26 GiB, JAX 3.23 GiB.*
+*Sources: `results/polaris_overlap_{7809385,7809433}/profile_overlap.json`. Every wall time agrees to ≤ 0.02%.
+Peak memory: torch 20.26 GiB, JAX 3.23 GiB, in both runs.*
 
 What this says about the code:
 - **o1.2's order is a pure sum.** `serial_ref` is 4.887 s, and `solver_only_ref` + `ml_only` is 4.888 s. The
@@ -270,8 +274,8 @@ What this says about the code:
 - **The fastest arm is `thread_ref`, 1.4% faster than production** (4.817 vs 4.887 s). `fixed` loses its host-side
   advantage to its 1.7% slower AB3 fusion (A3).
 - **The data path is not the cost.** `sample()` (gather of 16 pairs from the pageable host buffer + H2D) is
-  1.22 ms on the GPU and 1.18 ms on the host, **0.3% of `ml_only`**. That is about the same in every arm (1.27–1.45
-  ms), including when a background thread is dispatching the solver.
+  1.22 / 1.55 ms on the GPU and 1.18 / 1.51 ms on the host, **0.3–0.4% of `ml_only`**. That is about the same in
+  every arm (1.27–1.45 ms), including when a background thread is dispatching the solver.
 
 ## C — the UViT training step (random input; batch 16)
 
@@ -359,7 +363,7 @@ which reads only the GPU-side events of the chrome trace. It ran inside the repe
 | 4 | `serial_ref` ≈ solver + ML | **confirmed** | 4.887 s vs 4.471 + 0.417 = 4.888 s |
 | 4 | `thread_fixed` ≈ max(solver, ML) | **refuted** | 4.880 s vs max 4.549 s; overlap efficiency 0.21; ML GPU time 416 → 1,910 ms |
 | 4 | overlap efficiency for `ref` < 20% | **confirmed** | `serial_ref` 0.004, `thread_ref` 0.171 |
-| 5 | `sample()` gather + H2D < 10% of `ml_only` | **confirmed** | 1.22 ms of 416.47 ms = 0.3% |
+| 5 | `sample()` gather + H2D < 10% of `ml_only` | **confirmed** (n = 2) | 1.22 ms of 416.47 ms = 0.3%; 1.55 of 416.52 = 0.4% |
 | 6 | no single op > 40% of CUDA time | **confirmed** | the largest kernel is 8.3% (LayerNorm `GammaBetaBackward`) |
 | 6 | a few conv/attention kernels dominate | **refuted** | the time is spread out: GEMM 26%, elementwise 20%, native depthwise conv 19%, LayerNorm 15%; 111 distinct kernels; attention is not in the top 20 |
 | 6 | `cudnn.benchmark` changes step time < 15% | **confirmed** | −0.3% (n = 2), forward bitwise identical |
