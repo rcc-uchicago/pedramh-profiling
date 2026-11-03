@@ -22,7 +22,14 @@ AdamW(5e-4, wd 0.05, betas 0.9/0.95), clip 1.0, strict fp32 (torch 2.3: allow_tf
 Differences: host buffer 8192 pairs (not 262144; gather cost from a 137 GB array may differ), no DDP all-reduce,
 no wandb, no OneCycle (LR schedule does not affect cost).
 
+The data step inside the ML step (sample(): host gather + H2D) is also timed on its own, on the host and with a CUDA
+event between it and the network (NVTX range "sample"), so the network time can be reported without it.
+
 Writes <out>/profile_overlap.json; prints OVERLAP_OK.
+
+Polaris overrides (profile_overlap_polaris.pbs; each one unset = the Midway path above, unchanged):
+  SQG_ASQG_PY, SQG_TRAINING_ROOT, SQG_INIT=random   as in profile_solver.py
+  SQG_BATCH (default 32), SQG_BUF (default 8192)    batch and host-buffer pairs (an A100 has 40 GB)
 """
 import os
 
@@ -41,23 +48,44 @@ import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ASQG_PY = "/project/pedramh/weidong/SQG/fixed_ring/A-SQG_data.py"
+ASQG_PY = os.environ.get("SQG_ASQG_PY", "/project/pedramh/weidong/SQG/fixed_ring/A-SQG_data.py")
 CKPT_NAME = "ckpt_t0100.00.npz"
 STRIDE, CALLS, M = 40, 12, 16            # o1.2: STRIDE, S // STRIDE, subsampling
 LAG = 100                                # ring frames between x and y (o1.2 LAG at DT_SAVE = 0.02)
 THETA_SCALE = 8.0
-BATCH = 32
-BUF = 8192
+BATCH = int(os.environ.get("SQG_BATCH", 32))
+BUF = int(os.environ.get("SQG_BUF", 8192))
+
+
+def patch_training_root(src, root):
+    """`src` with its one `TRAINING_ROOT = ...` line replaced by `TRAINING_ROOT = Path(r"<root>")`.
+
+    Same as profile_solver.patch_training_root (the two harnesses are standalone copies): A-SQG_data.py mkdirs under
+    the hard-coded Midway TRAINING_ROOT at import and hashes its own bytes, so the file itself must not be edited.
+    """
+    lines = src.split("\n")
+    hits = [i for i, line in enumerate(lines) if line.startswith("TRAINING_ROOT = ")]
+    if len(hits) != 1:
+        raise RuntimeError(f"expected one TRAINING_ROOT line in {ASQG_PY}, found {len(hits)}")
+    lines[hits[0]] = f'TRAINING_ROOT = Path(r"{root}")'
+    return "\n".join(lines)
 
 
 def import_asqg():
+    """A-SQG_data.py as a module, as o1.2 (--member 1, silenced, signal handlers restored); see profile_solver.py."""
     argv, handlers = sys.argv, {s: signal.getsignal(s) for s in (signal.SIGUSR1, signal.SIGTERM)}
     sys.argv = [ASQG_PY, "--member", "1"]
     try:
         spec = importlib.util.spec_from_file_location("asqg_data", ASQG_PY)
         mod = importlib.util.module_from_spec(spec)
+        root = os.environ.get("SQG_TRAINING_ROOT")
         with contextlib.redirect_stdout(io.StringIO()):
-            spec.loader.exec_module(mod)
+            if root:
+                with open(ASQG_PY, "rb") as fh:
+                    src = patch_training_root(importlib.util.decode_source(fh.read()), root)
+                exec(compile(src, ASQG_PY, "exec", dont_inherit=True), mod.__dict__)
+            else:
+                spec.loader.exec_module(mod)
     finally:
         sys.argv = argv
         for s, h in handlers.items():
@@ -92,7 +120,13 @@ def main():
 
     # ---- solver (as profile_solver.py) -----------------------------------------------------------------------
     template = GD.sqg.init(GD.p, jax.random.key(GD.SEED_INITIAL_CONDITION))
-    st0, _ = GD.load_checkpoint(template, GD.CHECKPOINT_DIR / CKPT_NAME)
+    init = os.environ.get("SQG_INIT", "checkpoint")
+    if init == "random":                                 # as profile_solver.py: same code per step, AB3 level 2
+        st0 = GD.advance(template, 2)
+    elif init == "checkpoint":
+        st0, _ = GD.load_checkpoint(template, GD.CHECKPOINT_DIR / CKPT_NAME)
+    else:
+        raise ValueError(f"SQG_INIT={init!r}: expected random or checkpoint")
     assert int(st0._ablevel) == 2
     dt = GD.sm.stepper.dt
     c1, c2, c3 = (23 / 12) * dt, (-16 / 12) * dt, (5 / 12) * dt
@@ -159,9 +193,16 @@ def main():
     opt = torch.optim.AdamW(model.parameters(), lr=5e-4, weight_decay=0.05, betas=(0.9, 0.95))
     model.train()
 
-    def ml_step(online, ev):
+    def ml_step(online, ev, sample_s):
+        """o1.2's ML step. ev = (start, end, after_sample): ev[0]..ev[1] is the step as before (ml_gpu_ms), ev[2]
+        splits it into sample() (gather + H2D, kept out of the compute numbers) and the network."""
         ev[0].record()
+        t0 = time.perf_counter()
+        torch.cuda.nvtx.range_push("sample")
         x, y = online.sample(BATCH)
+        torch.cuda.nvtx.range_pop()
+        sample_s.append(time.perf_counter() - t0)
+        ev[2].record()
         loss = F.mse_loss(model(x), y)
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -176,19 +217,19 @@ def main():
             online.advance()
             online.wait()
         online.flush()
-        wall, ml_ms = [], []
+        wall, ml_ms, sample_ms, net_ms, sample_s = [], [], [], [], []
         worker = None
         for i in range(args.warmup + args.steps):
-            ev = (torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True))
+            ev = tuple(torch.cuda.Event(enable_timing=True) for _ in range(3))
             t0 = time.perf_counter()
             if mode == "ml_only":
-                ml_step(online, ev)
+                ml_step(online, ev, sample_s)
             elif mode == "solver_only":
                 online.advance()
                 online.wait()
             elif mode == "serial":                       # production order
                 online.advance()
-                ml_step(online, ev)
+                ml_step(online, ev, sample_s)
             elif mode == "thread":
                 if worker is not None:
                     worker.join()
@@ -199,7 +240,7 @@ def main():
                     online.wait()
                 worker = threading.Thread(target=chunk)
                 worker.start()
-                ml_step(online, ev)
+                ml_step(online, ev, sample_s)
             if mode != "solver_only":
                 ev[1].synchronize()                      # torch stream only
             t1 = time.perf_counter()
@@ -207,6 +248,8 @@ def main():
                 wall.append(t1 - t0)
                 if mode != "solver_only":
                     ml_ms.append(ev[0].elapsed_time(ev[1]))
+                    sample_ms.append(ev[0].elapsed_time(ev[2]))
+                    net_ms.append(ev[2].elapsed_time(ev[1]))
         if worker is not None:
             worker.join()
         if mode in ("serial", "thread"):                 # the last chunk's GPU work is part of the cost
@@ -214,6 +257,9 @@ def main():
         r = {"wall_s_median": round(statistics.median(wall), 4), "wall_s_mean": round(statistics.mean(wall), 4)}
         if ml_ms:
             r["ml_gpu_ms_median"] = round(statistics.median(ml_ms), 2)
+            r["sample_host_ms_median"] = round(1e3 * statistics.median(sample_s[args.warmup:]), 2)
+            r["sample_gpu_ms_median"] = round(statistics.median(sample_ms), 2)
+            r["net_gpu_ms_median"] = round(statistics.median(net_ms), 2)
         print(f"  {name:18s} {r}", flush=True)
         return r
 
@@ -221,7 +267,8 @@ def main():
                ("solver_only_fixed", "solver_only", "fixed"), ("serial_ref", "serial", "ref"),
                ("serial_fixed", "serial", "fixed"), ("thread_ref", "thread", "ref"), ("thread_fixed", "thread", "fixed")]
     res = {"device": torch.cuda.get_device_name(0), "torch": torch.__version__, "jax": jax.__version__,
-           "steps": args.steps, "warmup": args.warmup, "buffer_pairs": BUF, "batch": BATCH, "results": {}}
+           "init": init, "steps": args.steps, "warmup": args.warmup, "buffer_pairs": BUF, "batch": BATCH,
+           "results": {}}
     print(f"overlap harness on {res['device']} (torch {torch.__version__}, jax {jax.__version__})", flush=True)
     for name, mode, v in configs:
         res["results"][name] = run(name, mode, v)
@@ -234,12 +281,15 @@ def main():
         for mode in ("serial", "thread"):
             comb = R[f"{mode}_{v}"]["wall_s_median"]
             res["overlap_efficiency"][f"{mode}_{v}"] = round((so + ml - comb) / min(so, ml), 3)
+    res["sample_fraction_of_ml_only"] = round(R["ml_only"]["sample_gpu_ms_median"] / R["ml_only"]["ml_gpu_ms_median"], 3)
     res["torch_peak_GiB"] = round(torch.cuda.max_memory_allocated() / 2**30, 2)
     ms = jax.devices()[0].memory_stats() or {}
     res["jax_peak_GiB"] = round(ms.get("peak_bytes_in_use", 0) / 2**30, 2)
     with open(os.path.join(args.out, "profile_overlap.json"), "w") as fh:
         json.dump(res, fh, indent=1)
     print(f"overlap efficiency (1 = solver fully hidden behind the ML step, 0 = serial): {res['overlap_efficiency']}")
+    print(f"sample() gather+H2D, ml_only: {R['ml_only']['sample_gpu_ms_median']} ms of "
+          f"{R['ml_only']['ml_gpu_ms_median']} ms ({res['sample_fraction_of_ml_only']}), batch {BATCH}")
     print(f"peak memory: torch {res['torch_peak_GiB']} GiB, jax {res['jax_peak_GiB']} GiB")
     print(f"OVERLAP_OK -> {args.out}/profile_overlap.json")
 
