@@ -531,3 +531,37 @@ confirmed, but the host wait stays in the launch calls, not in `flush`); 5 confi
 
 **Consequence for Part IV:** the ranking is unchanged. The host side holds nothing to fix beyond item 4 (the
 switch), which does not pay on its own (A3, B). The remaining target is the solver's GPU work (the addendum above).
+
+---
+
+# Part VI — The solver's GPU work: float32 (job E) and Nsight Compute on the AB3 fusion (job F)
+
+**Job E** (`profile_solver_fp32.py`, `profile_solver_fp32_polaris.pbs`) times the production step in float32 against
+float64 on one node. **Timing only**: a float32 solver computes something else. The f32 step is `GD.inner`'s four
+lines with `sqg.aux(GD.p._replace(f64=False))`, `F0_hat` as complex64 and `decay` as float32. It reports only if the
+builder is bitwise equal to `GD.inner` in float64, and only if neither the f32 state nor the optimized HLO (fused
+bodies included) holds a full-size f64/c128 field. JAX runs with x64 enabled, so a stray constant would silently
+time float64 again.
+
+**Job F** (`profile_ab3_ncu.py`, `profile_ab3_ncu_polaris.pbs`, `summarize_ncu.py` + `test_summarize_ncu.py`; written
+by a subagent, reviewed here) runs one `ncu --set full` pass per kernel: the AB3 fusion `loop_add_multiply_fusion_1`,
+and for contrast `wrapped_multiply_1`, `loop_multiply_fusion_9` and one cuFFT `regular_fft_factor`. Each pass
+profiles 3 steady-state launches at production clocks (`--clock-control none`). The parser reads the raw-page CSVs;
+`NCU_TEST_OK` on polaris-login (system python3).
+
+## Predictions (written before jobs E and F)
+
+1. **E, checks:** both pass (builder bitwise; 0 full-size f64/c128 arrays in the f32 HLO).
+2. **E, speed:** float64 / float32 ms per step is between **1.6 and 2.0**. The step is bandwidth-bound and float32
+   halves the bytes; it stays below 2 if the AB3 fusion's inefficiency does not scale with the bytes.
+3. **E, cost model:** XLA's bytes accessed per step roughly halve (4.23 → ≈2.1 GB). The AB3 fusion stays the largest
+   kernel in the f32 nsys breakdown.
+4. **F, bandwidth:** the AB3 fusion reaches ≤ 30% of peak DRAM throughput. `wrapped_multiply_1` and
+   `regular_fft_factor` reach ≥ 75%.
+5. **F, not compute-bound:** the AB3 fusion's SM throughput is < 40% of peak and its FP64 pipe < 30%.
+6. **F, cause:** latency, not bandwidth. Achieved occupancy is low, from registers (≥ 64 per thread, theoretical
+   occupancy ≤ 50%) and/or local-memory spills, and the top stall reason is waiting on memory (long scoreboard).
+
+## Results
+
+*(to be filled in when jobs E and F land)*
