@@ -463,7 +463,7 @@ extractor. Table 3 is the summary; the list after it spells out each protocol. T
 
 | protocol | members / ICs | start | length | what is scored, and how | source |
 |---|---|---|---|---|---|
-| **5-yr protocol** | 8 members per arm | year 2044, frame 1092 + 16 × i for member i (October 2044) | 7667 − 16 × i six-hour steps (7667 for the first member, 7555 for the last), to the last frame of 2049-12-31 | Selection window 2045–2047; reporting window 2048–2049, sealed until finalists are frozen, plus a reporting start set R at frames 364 + 16 × i. Score A: per channel, e_c = area-weighted pattern RMSE of the window time-mean map vs truth; floor_c = RMS over the 28 member pairs of the same quantity between members; r_c = e_c / floor_c; A = median over members of the mean over 24 groups (9 surface channels + 5 level families × 3 bands) of the group-mean r_c. Gates: *finite*, every member finite to the end; *water*, global-mean TMQ positive at every lead and at most 1 % negative-TMQ area in the last month; *mass*, \|dPS\| at most 1 hPa; *drift*, at most 3 drifting groups, a group drifting when its median channel drift exceeds 2 interannual SDs. | `polaris_climate_run.pbs`, `score_window_protocol.py`, `2026-10-09_pipeline_comparison_prereg.md` |
+| **5-yr protocol** | 8 members per arm | year 2044, frame 1092 + 16 × i for member i (October 2044) | 7667 − 16 × i six-hour steps (7667 for the first member, 7555 for the last), to the last frame of 2049-12-31 | Selection window 2045–2047; reporting window 2048–2049, sealed until finalists are frozen (one exception, see below), plus a reporting start set R at frames 364 + 16 × i. Score A: per channel, e_c = area-weighted pattern RMSE of the window time-mean map vs truth; floor_c = RMS over the 28 member pairs of the same quantity between members; r_c = e_c / floor_c; A = median over members of the mean over 24 groups (9 surface channels + 5 level families × 3 bands) of the group-mean r_c. Gates: *finite*, every member finite to the end; *water*, global-mean TMQ positive at every lead and at most 1 % negative-TMQ area in the last month; *mass*, \|dPS\| at most 1 hPa; *drift*, at most 3 drifting groups, a group drifting when its median channel drift exceeds 2 interannual SDs. | `polaris_climate_run.pbs`, `score_window_protocol.py`, `2026-10-09_pipeline_comparison_prereg.md` |
 | **K=56 sweep** | 12 ICs per test file × 2 files (2048, 2049) = 24 ICs | the ICs' monthly offsets in the test years | 56 six-hour steps = 336 h = 14 days | RMSE / ACC by lead on the common channels | `polaris_eval_inference.pbs`, `polaris_score_k56.pbs` |
 | **Lagged ensemble** | 32 targets × 14 members (starts 4 steps apart) | first start 0, test file 2048 | 56 steps; member lags 4 … 56 steps | ensemble mean and CRPS per target; for G4D16, 21 rollouts | `polaris_eval_inference.pbs` (`IC_MODE=lagged`), G4D16 prereg |
 | **1-yr screen** | one rollout per checkpoint | year 2044, frame 1092; second start 1156 | 1460 six-hour steps (one year) | survival and drift against the screen truth; retired as a selection gate by the pipeline-comparison prereg. 14 screen jobs, 164 screen labels on disk | `polaris_climate_screen.pbs` |
@@ -486,6 +486,10 @@ extractor. Table 3 is the summary; the list after it spells out each protocol. T
   - **Windows.**
     - Scores use the selection window 2045–2047.
     - The reporting window 2048–2049 stays sealed until the finalists are frozen.
+      - One exception (2026-11-03). The five-year figures of the G4D63 read-out
+        (`2026-11-02_g4d_e63_readout/fiveyear/`) plot 2048–2049 for G4D16, G4D36, G4D43, G4D56 and G4D63.
+      - That came after G4D16 was picked and nothing was selected on it, but for those five checkpoints the
+        window is no longer unseen.
     - A second reporting start set R (frames 364 + 16 × i) is defined but not yet run.
   - **Score A** (lower is better):
     - For each channel c, e_c is the area-weighted pattern RMSE between a member's 2045–2047 time-mean map and
@@ -505,6 +509,14 @@ extractor. Table 3 is the summary; the list after it spells out each protocol. T
        interannual standard deviations of E3SM between 2045 and 2047.
   - **Code and rules.** `polaris_climate_run.pbs` (rollouts) and `score_window_protocol.py` (scores). The rules
     come from `2026-10-09_pipeline_comparison_prereg.md`.
+  - **Climatological bias maps** (descriptive; not part of the score or the gates). First drawn in the G4D63
+    read-out (`2026-11-02_g4d_e63_readout/`, `maps/extract_clim_maps.py` and `maps/plot_maps.py`).
+    - **The map.** Each member's 2045–2047 time mean is computed by the scorer's `window_mean`. The 8 members are
+      averaged, and E3SM's 2045–2047 mean is subtracted, cell by cell. 2048–2049 is not used.
+    - **Dots.** Cells where t = bias / (s·√(1/8 + 1)) is significant, s being the members' spread, at a
+      Benjamini–Hochberg false discovery rate of 10 %. The + 1 counts E3SM's single realisation as one more draw.
+    - **Each title.** The RMS bias, i.e. the cos-latitude-weighted global RMS of the map. Its CI is a bootstrap
+      over the members, re-centred on the estimate.
 - **14-day forecast sweep (K=56)**: weather-scale accuracy.
   - **What is run.** 24 forecasts per checkpoint: 12 start dates spread monthly through each of the 2 test years,
     2048 and 2049.
