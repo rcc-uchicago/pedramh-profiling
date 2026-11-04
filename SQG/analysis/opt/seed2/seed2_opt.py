@@ -22,7 +22,11 @@ field at a production-like CFL, all of the following must hold:
   - every value is finite, here and after 40, 480 and 4,000 steps (wherever the reference is finite);
   - the FFTs run in the precision the variant claims, and the lean32 loop body holds no full-size f64/c128 array.
 Information only: bitwise equality after 480 steps; after 4,000 steps (one 0.02 interval), the relative L2
-difference of the 256^2 coarse() field and the 0.5<theta^2> (SPE) difference and drift.
+difference of the 256^2 coarse() field and the 0.5<theta^2> (SPE) difference and drift. Added by the main session
+before the first run (report-only, never gating): the 1-step relative error per |k| octave band (so errors in
+low-energy high-k modes are not hidden by the energetic large scales), and the ORIGINAL step run in float32 (job E's
+profile_solver_fp32.make_inner) through the same 1-step and 4,000-step comparisons, so mixed/lean32's errors can be
+split into plain float32 rounding vs anything the restructuring adds (rel1_over_f32_original).
 TIMING: profile_solver.py's method (median of 3 x 60 jitted 40-step calls after 3 warm-up calls, ms per step). Then
 the o1.2 optimizer-step pattern (12 calls + coarse()) for every passing variant.
 
@@ -269,6 +273,29 @@ def main():
         values, _, umax = jax.device_get(diag(st))
         return float(values[0]), float(umax)
 
+    # ---- report-only: relative error per |k| octave band [2^b, 2^(b+1)), b = 0..11; k = 0 in its own bucket ---------
+    bidx = jnp.where(GD.kap >= 1, jnp.floor(jnp.log2(jnp.maximum(GD.kap, 1.0))), 12).astype(jnp.int32).ravel()
+
+    @jax.jit
+    def band_dev(x, y, idx):                                          # idx as an argument: no 33 MB baked constant
+        x, y = x.astype(jnp.complex128), y.astype(jnp.complex128)
+        num = jax.ops.segment_sum((jnp.abs(x - y) ** 2).ravel(), idx, num_segments=13)
+        den = jax.ops.segment_sum((jnp.abs(y) ** 2).ravel(), idx, num_segments=13)
+        return num, den
+
+    def band_rel(x, y):
+        num, den = (np.asarray(v, dtype=np.float64) for v in jax.device_get(band_dev(x, y, bidx)))
+        return {f"{2 ** b}-{2 ** (b + 1)}": (float(np.sqrt(num[b] / den[b])) if den[b] > 0 else None) for b in range(12)}
+
+    def bands_1step(s1, r1):
+        """theta_hat and the newest tendency (_updates[0]) after 1 step, per band, vs the reference."""
+        return {"theta_hat": band_rel(s1.state.qh[0], r1.state.qh[0]),
+                "T_new": band_rel(s1._updates[0].qh[0], r1._updates[0].qh[0])}
+
+    def worst_band(b):
+        ks = [k for k, v in b.items() if v is not None]
+        return (max(ks, key=lambda k: b[k]), b[max(ks, key=lambda k: b[k])]) if ks else ("-", float("nan"))
+
     def long_run(adv, st):
         """{1: state after 40 steps, CALLS: after 480, long_calls: after 4,000} from st."""
         snaps = {}
@@ -342,7 +369,17 @@ def main():
             adv = lambda st, f=call_j, C=C: f(st, C)                  # noqa: E731  (drop-in: AB3State -> AB3State)
             vr["gate"], vr["long"] = {}, {}
             for ic, st in ics.items():
-                g = vr["gate"][ic] = compare(block(one_j(st, C)), ref1[ic])
+                s1 = block(one_j(st, C))
+                g = vr["gate"][ic] = compare(s1, ref1[ic])
+                try:                                                  # report-only: never gates, never raises
+                    b1 = vr.setdefault("band_rel_1step", {})[ic] = bands_1step(s1, ref1[ic])
+                    if ic == "synthetic":
+                        wb, wv = worst_band(b1["theta_hat"])
+                        print(f"SEED2_BANDS {name} synthetic theta_hat worst |k| band {wb}: rel {wv:.2e} "
+                              f"(report only)", flush=True)
+                except Exception as exc:
+                    vr.setdefault("band_rel_1step", {})[ic] = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+                del s1
                 if not g["rel_l2_max"] <= GATE[name]:
                     reasons.append(f"rel1_{ic}={g['rel_l2_max']:.3e}>{GATE[name]:.0e}")
                 if not g["finite"]:
@@ -387,6 +424,52 @@ def main():
             vr["traceback"] = traceback.format_exc()[-6000:]
             msg = str(exc).strip().splitlines()[0][:200] if str(exc).strip() else ""
             print(f"ERROR SEED2_GATE_FAIL {name} exception:{type(exc).__name__}:{msg}", flush=True)
+
+    # ---- report-only: the ORIGINAL step in float32 (job E's builder) through the same comparisons ----------------------
+    # Separates plain float32 rounding from anything the restructuring (C2C packing, ring, lean AB3) adds: for mixed and
+    # lean32, rel1_over_f32_original ~ 1 or below means the restructured code adds nothing beyond float32 itself.
+    try:
+        import profile_solver_fp32 as PF
+        sm32 = GD.sqg.aux(GD.p._replace(f64=False))[0]
+        inner32 = PF.make_inner(sm32, GD.F0_hat.astype(jnp.complex64), GD.decay.astype(jnp.float32))
+        one32 = jax.jit(lambda st: inner32(st, None)[0])
+        call32 = jax.jit(lambda st: lax.scan(inner32, st, None, length=STRIDE)[0])
+        dn = {np.dtype("complex128"): jnp.complex64, np.dtype("float64"): jnp.float32}
+        to32 = lambda st: jax.tree_util.tree_map(lambda x: x.astype(dn[x.dtype]) if x.dtype in dn else x, st)  # noqa: E731
+        to64 = lambda st: jax.tree_util.tree_map(                                                            # noqa: E731
+            lambda x: x.astype(jnp.complex128) if x.dtype == jnp.complex64 else x, st)
+        base = res["f32_original_baseline"] = {
+            "what": "A-SQG_data.inner's four lines with pyqg_jax Precision.SINGLE, F0_hat complex64, decay float32 "
+                    "(profile_solver_fp32.make_inner, job E); state cast once at the start, kept complex64",
+            "gate": {}, "band_rel_1step": {}, "long": {}}
+        for ic, st in ics.items():
+            s1 = to64(block(one32(to32(st))))
+            base["gate"][ic] = compare(s1, ref1[ic])
+            base["band_rel_1step"][ic] = bands_1step(s1, ref1[ic])
+            del s1
+            s = to32(st)
+            for _ in range(args.long_calls):
+                s = call32(s)
+            end = to64(block(s))
+            cv = np.asarray(coarse(end), dtype=np.float64)
+            spe_v, _ = spe_umax(end)
+            base["long"][ic] = {"coarse_rel_l2_end": float(np.linalg.norm(cv - ref_end[ic]["coarse"])
+                                                           / np.linalg.norm(ref_end[ic]["coarse"])),
+                                "spe_rel_diff_end": spe_v / ref_end[ic]["spe"] - 1.0}
+            del s, end
+        for name in names:
+            g = res["variants"][name].get("gate", {})
+            res["variants"][name]["rel1_over_f32_original"] = {
+                ic: (g[ic]["rel_l2_max"] / base["gate"][ic]["rel_l2_max"]
+                     if ic in g and base["gate"][ic]["rel_l2_max"] > 0 else None) for ic in ics}
+        print(f"SEED2_F32BASE original code in float32: rel1 random={base['gate']['random']['rel_l2_max']:.2e} "
+              f"synthetic={base['gate']['synthetic']['rel_l2_max']:.2e}; {args.long_calls * STRIDE}-step coarse rel diff "
+              f"{base['long']['random']['coarse_rel_l2_end']:.2e}/{base['long']['synthetic']['coarse_rel_l2_end']:.2e} "
+              f"(random/synthetic; report only)", flush=True)
+    except Exception as exc:
+        res["f32_original_baseline"] = {"error": f"{type(exc).__name__}: {exc}"[:2000],
+                                        "traceback": traceback.format_exc()[-4000:]}
+        print(f"WARN SEED2_F32BASE_FAILED {type(exc).__name__} (report-only section; gates unaffected)", flush=True)
     del ref_long, ref1
 
     # ---- timing: profile_solver.py's method -------------------------------------------------------------------------

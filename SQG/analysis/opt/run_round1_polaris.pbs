@@ -113,7 +113,7 @@ done
 
 # ---- token roll-up for the reader of the .o file -----------------------------------------------------------------
 echo "--- tokens:"
-cat "$OUT"/seed1.log "$OUT"/seed2.log 2>/dev/null | grep -E '^(SEED[12]_(GATE_OK|BENCH|OPTSTEP|LONG|DONE)|ERROR |WARN )' || true
+cat "$OUT"/seed1.log "$OUT"/seed2.log 2>/dev/null | grep -E '^(SEED[12]_(GATE_OK|BENCH|OPTSTEP|LONG|BANDS|F32BASE|DONE)|ERROR |WARN )' || true
 echo "summaries: $RES ($(ls -1 "$RES" 2>/dev/null | wc -l) files); raw dir: $OUT"
 echo "=== end $(date '+%F %T'), $(( $(date +%s) - T_JOB0 ))s, failures=$FAILS ==="
 echo "OPT_ROUND1_DONE failures=$FAILS"

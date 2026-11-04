@@ -123,4 +123,16 @@ FFT-cost table (C2C vs C2R vs R2C, f64 and f32) shows directly whether the C2C p
 - **The 1-step gate runs a 1-step jit, not the timed 40-step scan program.** The two compile to different fusions.
   Their agreement is reported at 40/480/4,000 steps.
 - **Job F (Nsight Compute on the f64 AB3 fusion)** is still pending. The lean fusion drops the `exp`/`sqrt` that are
-  the likely cause, but this is not confirmed.
+  the likely cause, but this is not confirmed. *(Update, main session: job F found the fusion DRAM-bound with ~4×
+  over-fetch from uncoalesced 4-per-thread complex128 access, FP64 pipe 6% — the exp/sqrt are not the cost.)*
+
+## Report-only additions (main session, before the first run)
+
+Neither gates anything, and each is wrapped so a failure prints a `WARN` and leaves the gates and the bench untouched:
+- **Per-band 1-step error** (`band_rel_1step` per variant and start state; `SEED2_BANDS` line for the synthetic
+  state): the relative error of θ̂ and the newest tendency per |k| octave [2^b, 2^(b+1)). A whole-field relative L2 is
+  dominated by the energetic large scales, so this shows whether low-energy high-k modes carry larger errors.
+- **The original step in float32** (`f32_original_baseline`; `SEED2_F32BASE` line): job E's
+  `profile_solver_fp32.make_inner` through the same 1-step, per-band and 4,000-step comparisons.
+  `rel1_over_f32_original` per variant divides its 1-step error by this baseline's. For `mixed` and `lean32`, ≈ 1 or
+  below means the restructured code adds nothing beyond plain float32 rounding.
