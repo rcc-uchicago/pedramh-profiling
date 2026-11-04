@@ -637,6 +637,17 @@ What it says:
   8.39 M elements is 4 complex128 elements per thread (64 B per operand), and with ~9 operands per thread the data
   in flight overruns the 40 MB L2 (L1 hit 10%, L2 hit 44%). This is the over-fetch the seeds' analysis predicted
   (round 1).
+- **ncu's own rules name the access pattern** (`ncu_ab3_details.txt`): "uncoalesced global accesses resulting in a
+  total of 52454400 excessive sectors (52% of the total 101308512 sectors)" (est. speedup 51.6%). Loads use "only 15.2
+  of the 32 bytes transmitted per sector" (89.8% of L2-missed sectors) and stores 16.0 of 32 — "possibly caused by a
+  stride between threads". With 4 consecutive complex128 per thread, one warp-wide load touches 32 addresses 64 B
+  apart: each 32 B sector delivers the 16 B of one element, and its other half (the thread's next element) is
+  evicted before reuse at L1 10% / L2 44% hit. Our estimate: ≈600 B in flight per thread × ≈960 resident threads per
+  SM × 108 SMs ≈ 63 MB > the 40 MB L2. In f32 the same is ≈31 MB and fits, consistent with job E's 5.1×.
+- **No flag in this jaxlib (0.4.28)** sets XLA's per-thread unroll: a byte search of `xla_extension.so` and
+  `xla_cuda_plugin.so` finds no `xla_gpu_*unroll*` / `*vectoriz*` option, only compiler-internal symbols. A fix has to
+  come from how the computation is written: one element per thread (round 1's `lean_u1` cos(±0) trigger, unverified),
+  fewer operands per kernel (`lean`, `lean_split`), or no separate AB3 kernel at all (callbacks, newer CUDA).
 - **Not FP64-bound:** SM 6%, FP64 pipe 6%. The no-op filter's f64 sqrt/exp, suspected after job E, is not the cost.
   float32 gained 5.1× because it halves the bytes per element and the in-flight working set, so it stops
   thrashing.
