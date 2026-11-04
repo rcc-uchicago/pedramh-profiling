@@ -114,6 +114,12 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-04** — **SQG: the 5 full-field copies per solver step are traced** (job A capture, each copy attributed to
+  its issuing XLA thunk). 2/step are the AB3 history rotation inside the AB3 update graph (pyqg_jax
+  `AB3Stepper.apply_updates`, steppers.py:501, under `lax.scan`'s one-buffer-per-slot carry). 3/step are the three
+  inverse (C2R) FFTs copying their inputs (θ̂, û, v̂); the forward FFTs copy nothing. Removable: rotation ≈0.39 ms
+  bitwise (unroll by 3 / ring index); û, v̂ ≈0.39 ms only with an input-overwriting FFT call; θ̂'s copy is needed.
+  This **corrects** the "≈1 ms, all loop-carry" estimate to ≈0.4–0.8 ms. Notes Part IV addendum.
 - **2026-11-04** — **SQG job E 7813816 PASS: a float32 solver step is 2.6× faster (9.30 → 3.61 ms; 4.47 → 1.74 s of
   solver per optimizer step).** Checks pass: the builder is bitwise equal to `GD.inner`, and there is no hidden f64 in
   the f32 HLO. Every kernel scales ≈2× with its bytes (cuFFT 3,059 → 1,512 µs/step) **except the AB3 fusion: 3,288 →

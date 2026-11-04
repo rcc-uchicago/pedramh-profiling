@@ -429,6 +429,24 @@ stays hash-pinned) is a candidate for the **bitwise** gate. Estimate, not measur
 FFT-like bandwidth would take ≈0.7–0.8 ms, i.e. up to ≈2.5 ms/step (≈27%) of headroom. Nsight Compute on the fusion
 should come first, to see why it sits at ≈390 GB/s (15 operands, c128 arithmetic, f64 sqrt/exp).
 
+**Addendum (2026-11-04): where item 1's ≈5 full-field copies per step come from.** Each 134,283,264 B
+device-to-device copy in job A's capture (7809412, `nsys_ref.sqlite`) was attributed to the XLA thunk range open
+when it was issued (domain-1 NVTX, as `summarize_nsys_phases.py` does for syncs). The result is 5.000 per step:
+- **2.000 from `call.14`** (`%command_buffer.2`, the AB3 update graph): `wrapped_copy.22` writes the old T₋₁ into
+  the T₋₂ carry slot and `wrapped_copy.23` writes the new tendency into the T₋₁ slot. This is pyqg_jax's history
+  rotation, `new_updates = (updates, updates_p)` in `AB3Stepper.apply_updates` (steppers.py:501). `lax.scan` keeps one
+  buffer per carry slot, so the shift is done by copying.
+- **1.000 each from `fft.0.0`, `fft.1.0`, `fft.3.0`**, the three inverse (C2R) FFTs of û, θ̂ and v̂: the FFT thunk
+  copies its input before running. The two forward (R2C) FFTs issue none. This is consistent with cuFFT's
+  multi-dimensional C2R transforms overwriting their input.
+- Per call: `call.12` copies the 3 carry fields once on loop entry (what donation removes), and `coarse()`'s inverse
+  FFT copies once. Also 4 tiny `wrapped_copy.12–15` per step from the conditional.
+
+At ≈0.195 ms per copy, the rotation is ≈0.39 ms/step and is removable bitwise (unroll the scan by 3 so the slots
+change roles, or a ring index). The û and v̂ FFT copies (≈0.39 ms) protect temporaries that are dead after the
+FFT; avoiding them needs an FFT call that may overwrite its input (custom call). θ̂'s copy protects live state and
+stays. So item 1 is ≈0.4 ms easily and ≈0.8 ms at most, not the ≈1 ms first estimated.
+
 Two facts that are not code changes, recorded for the model owners:
 - **Batch 32 does not fit a 40 GB GPU for the UViT training step** (job 7809340). Activation checkpointing would
   restore it without changing the math. **Gate:** §4.1 loss trajectory, eager fp32 ≤ 1e-5.
