@@ -1,0 +1,9 @@
+=== truth_series: 2026-11-03T04:49:22+00:00 host=x3212c0s25b0n0 PBS_JOBID=7809287.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov years='2044 2045 2046 2047 2048 2049' ===
+  2044 rc=0: gate: none (no window_truth/truth_2044.npz)
+  2045 rc=0: gate: time mean vs truth_2045.npz: 99 shared channels, max rel diff 0.000e+00 (n 1459 vs 1459)
+  2046 rc=0: gate: time mean vs truth_2046.npz: 99 shared channels, max rel diff 0.000e+00 (n 1459 vs 1459)
+  2047 rc=0: gate: time mean vs truth_2047.npz: 99 shared channels, max rel diff 0.000e+00 (n 1459 vs 1459)
+  2048 rc=0: gate: none (no window_truth/truth_2048.npz)
+  2049 rc=0: gate: none (no window_truth/truth_2049.npz)
+TRUTH_SERIES_ALL_OK years='2044 2045 2046 2047 2048 2049'
+=== truth_series done 2026-11-03T05:10:59+00:00 ===

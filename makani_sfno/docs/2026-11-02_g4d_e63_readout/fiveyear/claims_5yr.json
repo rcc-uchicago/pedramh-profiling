@@ -1,0 +1,212 @@
+{
+ "campaign": "G4D five-year figures",
+ "register": "five-year runs, 2045-2049 (selection window 2045-2047)",
+ "quote_source": "Claude's report 2026-11-03",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear",
+ "receipts": {
+  "s": {
+   "path": "summary_5yr_index.json",
+   "newer_than": [
+    "figures/summary_5yr.csv",
+    "trefht_band_bias.csv",
+    "extract_7809283.log",
+    "truth_series.log"
+   ]
+  }
+ },
+ "claims": [
+  {
+   "section": "gates",
+   "label": "G4D16 re-roll float32 cells identical",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D16/cells_identical')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D16 re-roll cells compared",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D16/cells')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D36 re-roll float32 cells identical",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D36/cells_identical')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D36 re-roll cells compared",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D36/cells')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D43 re-roll float32 cells identical",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D43/cells_identical')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D43 re-roll cells compared",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D43/cells')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D56 re-roll float32 cells identical",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D56/cells_identical')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D56 re-roll cells compared",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D56/cells')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D63 re-roll float32 cells identical",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D63/cells_identical')"
+  },
+  {
+   "section": "gates",
+   "label": "G4D63 re-roll cells compared",
+   "quoted": "2,592,000",
+   "expr": "f('s','/gates/reroll/G4D63/cells')"
+  },
+  {
+   "section": "gates",
+   "label": "max e rel diff (G4D63)",
+   "quoted": "2.98e-16",
+   "expr": "str(f('s','/gates/reroll/G4D63/e_max_rel'))",
+   "mode": "exact"
+  },
+  {
+   "section": "gates",
+   "label": "truth 2045 max rel diff",
+   "quoted": "0",
+   "expr": "f('s','/gates/truth/2045/max_rel')"
+  },
+  {
+   "section": "gates",
+   "label": "truth 2046 max rel diff",
+   "quoted": "0",
+   "expr": "f('s','/gates/truth/2046/max_rel')"
+  },
+  {
+   "section": "gates",
+   "label": "truth 2047 max rel diff",
+   "quoted": "0",
+   "expr": "f('s','/gates/truth/2047/max_rel')"
+  },
+  {
+   "section": "global mean",
+   "label": "max |TREFHT| annual global bias K",
+   "quoted": "0.08",
+   "expr": "f('s','/derived/max_abs_annual_global_bias/TREFHT')"
+  },
+  {
+   "section": "global mean",
+   "label": "max |PS| annual global bias hPa",
+   "quoted": "0.015",
+   "expr": "f('s','/derived/max_abs_annual_global_bias/PS')"
+  },
+  {
+   "section": "global mean",
+   "label": "max |TMQ| annual global bias kg/m2",
+   "quoted": "0.15",
+   "expr": "f('s','/derived/max_abs_annual_global_bias/TMQ')"
+  },
+  {
+   "section": "global mean",
+   "label": "TREFHT trends with CI excluding 0",
+   "quoted": "0",
+   "expr": "f('s','/derived/n_trend_ci_excluding_0/TREFHT')"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2045 min",
+   "quoted": "0.54",
+   "expr": "f('s','/derived/trefht_annual_rms/2045/min')"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2045 max",
+   "quoted": "0.59",
+   "expr": "f('s','/derived/trefht_annual_rms/2045/max')"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2046-2049 min",
+   "quoted": "0.75",
+   "expr": "f('s','/derived/trefht_annual_rms/2046-2049/min')"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2046-2049 max",
+   "quoted": "1.01",
+   "expr": "f('s','/derived/trefht_annual_rms/2046-2049/max')"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2045 min",
+   "quoted": "-0.18",
+   "expr": "f('s','/derived/south60_mean_bias/2045/min')"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2045 max",
+   "quoted": "0.31",
+   "expr": "f('s','/derived/south60_mean_bias/2045/max')"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2046 min",
+   "quoted": "0.50",
+   "expr": "f('s','/derived/south60_mean_bias/2046/min')"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2046 max",
+   "quoted": "1.38",
+   "expr": "f('s','/derived/south60_mean_bias/2046/max')"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D16 % cells significant",
+   "quoted": "11",
+   "expr": "f('s','/csv/hovmoller_TREFHT/TREFHT/G4D16/2044-11 to 2049-12/sig_area_pct')"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D36 % cells significant",
+   "quoted": "13",
+   "expr": "f('s','/csv/hovmoller_TREFHT/TREFHT/G4D36/2044-11 to 2049-12/sig_area_pct')"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D43 % cells significant",
+   "quoted": "4",
+   "expr": "f('s','/csv/hovmoller_TREFHT/TREFHT/G4D43/2044-11 to 2049-12/sig_area_pct')"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D56 % cells significant",
+   "quoted": "10",
+   "expr": "f('s','/csv/hovmoller_TREFHT/TREFHT/G4D56/2044-11 to 2049-12/sig_area_pct')"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D63 % cells significant",
+   "quoted": "30",
+   "expr": "f('s','/csv/hovmoller_TREFHT/TREFHT/G4D63/2044-11 to 2049-12/sig_area_pct')"
+  },
+  {
+   "section": "hovmoller",
+   "label": "PRECT max % cells significant",
+   "quoted": "0.2",
+   "expr": "f('s','/derived/hovmoller_PRECT_max_sig_pct')"
+  }
+ ]
+}

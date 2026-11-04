@@ -1,0 +1,20 @@
+=== fiveyear smoke: 2026-11-03T04:54:17+00:00 host=x3212c0s31b0n0 PBS_JOBID=7809296.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+plot python: /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv/bin/python
+FAKE_5YR_OK /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/smoke
+wrote ts_global_G4D16.png
+wrote ts_global_G4D36.png
+wrote ts_global_G4D43.png
+wrote ts_global_G4D56.png
+wrote ts_global_G4D63.png
+wrote ts_bias_all.png
+wrote bias_by_year.png
+wrote hovmoller_TREFHT.png
+wrote hovmoller_PRECT.png
+wrote annual_bias_TREFHT.png
+wrote annual_bias_PRECT.png
+wrote annual_bias_U10.png
+wrote annual_bias_U_l17.png
+wrote annual_bias_Z3_l12.png
+wrote summary_5yr.csv (345 rows)
+FIVEYEAR_PLOT_OK figures=14
+FIVEYEAR_SMOKE_OK

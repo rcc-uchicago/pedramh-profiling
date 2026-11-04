@@ -8,7 +8,12 @@ checkpoints are compared with G4D16 and with A243:
 
 Each was evaluated on two protocols, described in `../2026-11-02_makani_configurations/`:
 - the 14-day forecast sweep (24 forecasts started across the test years 2048–2049);
-- the five-year climate protocol (8 runs per checkpoint, scored on 2045–2047).
+- the five-year climate protocol: 8 runs per checkpoint.
+  - Each run starts in October 2044 and runs to 31 December 2049. "Five-year" is the length of the run, not the
+    averaging period.
+  - Oct–Dec 2044 is spin-up.
+  - Every score, gate and climate-bias map uses only **2045–2047**, the selection window (years 1–3 of the runs).
+  - **2048–2049** is the reporting window, held back from selection.
 
 The decision rules were written down before any result existed: `prereg.md`, and `addendum1_extend_rule.md` for
 whether to train G4D further.
@@ -16,7 +21,7 @@ whether to train G4D further.
 ## Results
 
 All numbers below are checked against their result files with emitall (`claims_final.json`: 30/30 match;
-`figures/claims_figures.json`: 19/19 match).
+`figures/claims_figures.json`: 19/19 match; `fiveyear/claims_5yr.json`: 32/32 match).
 
 **14-day forecasts: longer training keeps helping.** Median RMSE ratio over the 99 shared channels (below 1 =
 more accurate):
@@ -41,8 +46,9 @@ by the pre-registered tie-break). Score A and gates are in `results.txt`, part 2
   use of compute.
 
 **Reading.** More epochs keep improving weather-scale skill, from 6 hours to 14 days. The five-year climate peaks
-around epochs 36–43 and degrades after that. All of this rests on one training seed, and every five-year number
-is on the 2045–2047 selection window.
+around epochs 36–43 and degrades after that. All of this rests on one training seed, and every five-year score
+is on the 2045–2047 selection window. The five-year figures in `fiveyear/` also show 2048–2049, but descriptively:
+nothing was chosen on them.
 
 ## Figures (`figures/`)
 
@@ -56,7 +62,7 @@ colorbar's quantity and unit.
 | `rmse_vs_G4D16_<VAR>.png` | G4D36, G4D56 and G4D63 minus G4D16: the effect of training longer | same dots |
 | `rmse_curves.png` | global RMSE vs lead time for A243, G4D16 and G4D56 | 95 % band over start dates |
 | `rmse_ratio_to_A243.png` | the same curves divided by A243's (below 1 = better than A243) | 95 % paired bootstrap band |
-| `bias_maps.png` | five-year climate bias, 2045–2047 mean minus E3SM, for all five G4D checkpoints | dots where the bias exceeds internal variability (FDR 10 %); RMS-bias CI in each title |
+| `bias_maps.png` | climate bias averaged over 2045–2047 only (years 1–3 of the five-year runs, the selection window; 2048–2049 not included): mean of the 8 runs minus E3SM, for all five G4D checkpoints | dots where the bias exceeds internal variability (FDR 10 %); RMS-bias CI in each title, bootstrap over the runs re-centred on the estimate (since 11-04) |
 | `summary_table.csv` | every number plotted, with its CI | — |
 
 **Variables.**
@@ -77,6 +83,29 @@ because all its five-year runs blow up within 0.6 years.
   for G4D43 and 66.3 m for G4D16.
 - Precipitation biases are mostly within internal variability: 3–7 % of the area is significant.
 - Near-surface Southern-Ocean westerlies are too strong in every G4D checkpoint.
+
+**Re-centred bias CIs (2026-11-04).** The RMS-bias CI in `bias_maps.png` was first a raw bootstrap percentile
+interval. Resampling runs with repeats gives a noisier ensemble mean, which pushes every resampled RMS up, so
+that interval sat above its estimate: for PRECT G4D43 and G4D63 the estimate was in its bottom tenth. The figure was
+re-rendered with each interval shifted by the bootstrap bias, the same correction as the five-year annual maps.
+- The bootstrap draws are the same, and so are the interval widths.
+- The maps, estimates, dots and every other number in `summary_table.csv` are unchanged.
+- `maps/check_recentre.py` checks this against the first rendering.
+
+## Five-year figures (`fiveyear/`, 2026-11-03)
+
+Four more views of the same five-year runs, covering the whole run, 2045–2049, rather than the 2045–2047 mean.
+`fiveyear/README.md` has the method, the gates and the numbers.
+- **Views.** Global-mean time series, bias by year, zonal-mean Hovmöller diagrams and annual bias maps.
+- **Source.** The NetCDFs had been deleted for quota, so the runs were re-made. The re-run is bit-identical to the
+  scored run in its 2045–2047 means and reproduces the protocol scores (gates in `fiveyear/README.md`).
+- **No global-mean drift** in any checkpoint.
+- **TREFHT.** The spatial bias grows over the first ~15 months, then stays flat. The growth is mostly a
+  high-latitude winter warm bias, largest south of 60°S.
+- **PRECT** zonal and annual biases are within internal variability.
+- **Caveat.** These figures plot 2048–2049, the window the protocol keeps sealed until finalists are frozen. That
+  happened after the pick (G4D16) and the stop decision, so no choice was made on it. For these five checkpoints,
+  though, it is no longer an unseen hold-out.
 
 ## How the numbers were checked
 
@@ -102,6 +131,9 @@ use absolute paths there. `scripts/` and `maps/` here are snapshots of them.
    the jobs used are listed in `jobs.txt` and `driver.log`.
 2. The extraction jobs write `k56_<ARM>.npz` / `clim_<ARM>.npz`. These are not committed (`*.npz` is gitignored;
    1.4 GB).
-3. `maps/polaris_maps_plot.pbs` renders the figures from them.
+3. `maps/polaris_maps_plot.pbs` renders the figures from them. Then run `maps/build_summary_index.py` to rebuild
+   the emitall receipt `figures/summary_index.json`.
+4. `fiveyear/polaris_fiveyear.pbs` makes the five-year figures, after `fiveyear/polaris_truth_series.pbs`. Its
+   npz and the layout-smoke outputs are not committed.
 
 The raw forecast NetCDFs were deleted after extraction.

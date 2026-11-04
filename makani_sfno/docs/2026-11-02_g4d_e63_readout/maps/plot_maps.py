@@ -10,7 +10,8 @@ Uncertainty, by figure:
   * RMSE-vs-lead curves: 95% t-interval of the mean over start dates of the per-start global RMSE (bands).
   * Bias maps: dots where the ensemble-mean bias exceeds internal variability (t-test with the members' spread,
     variance inflated by (1 + 1/n) for E3SM's single realisation; FDR 10%); bootstrap CI over members of the
-    global RMS bias in the title.
+    global RMS bias in the title, re-centred on the estimate (see fig_bias: the raw percentile interval is
+    shifted up by resampling).
 Colour: sequential = one blue ramp light->dark; diverging = blue <-> red around a neutral grey; categorical lines
 use the first three slots of the dataviz reference palette in fixed order (the all-pairs-safe cap for small
 multiples). PASS = MAPS_PLOT_OK
@@ -73,9 +74,12 @@ def plain_unit(u):
     return u.replace("$^{-1}$", "^-1")
 
 
-def boot_ci(stat, n):
-    """Percentile 95% CI of stat(indices) over NBOOT resamples of range(n) with replacement."""
+def boot_ci(stat, n, centre=None):
+    """Percentile 95% CI of stat(indices) over NBOOT resamples of range(n) with replacement. With centre (the
+    full-sample estimate), the resamples are first shifted by the bootstrap bias, mean(vals) - centre."""
     vals = np.array([stat(RNG.integers(0, n, n)) for _ in range(NBOOT)])
+    if centre is not None:
+        vals = vals - (vals.mean() - centre)
     return np.percentile(vals, [2.5, 97.5])
 
 
@@ -351,7 +355,11 @@ def fig_bias(C, T, lsm, out):
             p = 2 * stats.t.sf(np.abs(t), n - 1)
             sig = ml.fdr_mask(p, ALPHA_FDR)
             rms = np.sqrt(ml.area_mean(bias ** 2, w))
-            lo, hi = boot_ci(lambda ix: np.sqrt(ml.area_mean(((mm[ix].mean(axis=0) - truth) * fac) ** 2, w)), n)
+            # Re-centred on rms, as the five-year annual maps are (fiveyear/plot_5yr.py): a resample with repeated
+            # members has a noisier mean, which pushes every resampled RMS up, so the raw percentile interval sits
+            # above the estimate. Same draws as before; only the interval's position changes.
+            lo, hi = boot_ci(lambda ix: np.sqrt(ml.area_mean(((mm[ix].mean(axis=0) - truth) * fac) ** 2, w)), n,
+                             centre=rms)
             cells.append((m, bias, sig, rms, lo, hi, n))
         vmax = np.nanpercentile(np.abs(np.stack([c[1] for c in cells])), 98)
         norm, lev = nice_norm(-vmax, vmax, diverging=True)
@@ -364,17 +372,21 @@ def fig_bias(C, T, lsm, out):
                          % (LABEL[m], var, s3(rms), unit, s3(lo), s3(hi), area, n), fontsize=6.8, color=INK,
                          loc="left")
             ROWS.append(dict(figure="bias_maps", variable=var, model=m, lead_h="", window="2045-2047",
-                             metric="global RMS of ensemble-mean bias (model - E3SM)", value=rms, ci_lo=lo, ci_hi=hi,
+                             metric="global RMS of ensemble-mean bias (model - E3SM); CI = bootstrap over runs, "
+                             "re-centred", value=rms, ci_lo=lo, ci_hi=hi,
                              unit=plain_unit(unit), n=n, sig_area_pct=area))
         pos = axs[i, -1].get_position()
         cax = fig.add_axes([0.915, pos.y0, 0.009, pos.height])
         cb = fig.colorbar(im, cax=cax, ticks=lev)
         cb.set_label("%s bias,\nmodel - E3SM (%s)" % (var, unit), color=INK, fontsize=7.5)
         cb.ax.tick_params(labelsize=6.5, colors=INK2)
-    fig.suptitle("Climatological bias, 2045-2047 mean: ensemble mean of the five-year runs (8 starts, Oct 2044) "
-                 "minus E3SM\nDots: bias larger than internal variability at a 10% false discovery rate (t-test "
-                 "against the member spread, inflated for E3SM's single realisation). A243 is not shown: all its "
-                 "five-year runs blow up within 0.6 years.", fontsize=9.5, color=INK, x=0.05, ha="left")
+    fig.suptitle("Climatological bias averaged over 2045-2047 only: mean of the 8 five-year runs minus E3SM. The runs "
+                 "start in Oct 2044 and end in Dec 2049;\n2045-2047 (their years 1-3) is the selection window the "
+                 "checkpoints were ranked on, and 2048-2049 is not included. CI = bootstrap over the runs, "
+                 "re-centred on the estimate.\nDots: bias larger than internal variability at a 10% false discovery "
+                 "rate (t-test against the member spread, inflated for E3SM's single realisation). A243 is not "
+                 "shown: all its five-year runs blow up within 0.6 years.", fontsize=9.5, color=INK, x=0.05,
+                 ha="left")
     finish(fig, os.path.join(out, "bias_maps.png"))
 
 

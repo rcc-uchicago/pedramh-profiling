@@ -1,0 +1,12 @@
+truth: 99 channels; annual counts [1459, 1459, 1459, 1459, 1459]; months with data 63/63
+G4D16: 8 members, ends [(2049, 1459)]; gate 1 vs clim_G4D16.npz: max rel 0.00e+00, 2592000/2592000 float32 cells identical; gate 2 vs g4d_channels.csv: 40 values, max rel 2.94e-16
+FIVEYEAR_ARM_OK G4D16 -> fiveyear_G4D16.npz
+G4D36: 8 members, ends [(2049, 1459)]; gate 1 vs clim_G4D36.npz: max rel 0.00e+00, 2592000/2592000 float32 cells identical; gate 2 vs g4d63_channels.csv: 40 values, max rel 2.65e-16
+FIVEYEAR_ARM_OK G4D36 -> fiveyear_G4D36.npz
+G4D43: 8 members, ends [(2049, 1459)]; gate 1 vs clim_G4D43.npz: max rel 0.00e+00, 2592000/2592000 float32 cells identical; gate 2 vs g4d63_channels.csv: 40 values, max rel 2.07e-16
+FIVEYEAR_ARM_OK G4D43 -> fiveyear_G4D43.npz
+G4D56: 8 members, ends [(2049, 1459)]; gate 1 vs clim_G4D56.npz: max rel 0.00e+00, 2592000/2592000 float32 cells identical; gate 2 vs g4d63_channels.csv: 40 values, max rel 2.19e-16
+FIVEYEAR_ARM_OK G4D56 -> fiveyear_G4D56.npz
+G4D63: 8 members, ends [(2049, 1459)]; gate 1 vs clim_G4D63.npz: max rel 0.00e+00, 2592000/2592000 float32 cells identical; gate 2 vs g4d63_channels.csv: 40 values, max rel 2.98e-16
+FIVEYEAR_ARM_OK G4D63 -> fiveyear_G4D63.npz
+FIVEYEAR_EXTRACT_OK arms=5

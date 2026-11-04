@@ -1,0 +1,192 @@
+=== makani_climate_run: 2026-11-03T04:48:14+00:00 ===
+host=x3212c0s1b1n0  PBS_JOBID=7809283.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov  sha=5848643de503  arms='G4D16 G4D36 G4D43 G4D56 G4D63'  members=8  out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283
+source=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v15.tar epoch=16 iters=21888 ema_step=21888 shadowed=87 tensors=87
+wrote /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D16.tar
+weights G4D16: ema from /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v15.tar
+source=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v35.tar epoch=36 iters=49248 ema_step=49248 shadowed=87 tensors=87
+wrote /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D36.tar
+weights G4D36: ema from /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v35.tar
+source=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v42.tar epoch=43 iters=58824 ema_step=58824 shadowed=87 tensors=87
+wrote /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D43.tar
+weights G4D43: ema from /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v42.tar
+source=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v55.tar epoch=56 iters=76608 ema_step=76608 shadowed=87 tensors=87
+wrote /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D56.tar
+weights G4D56: ema from /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v55.tar
+source=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v62.tar epoch=63 iters=86184 ema_step=86184 shadowed=87 tensors=87
+wrote /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D63.tar
+weights G4D63: ema from /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4/training_checkpoints/ckpt_mp0_v62.tar
+ckpt G4D16: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D16.tar flags='--zonal-mean'
+ckpt G4D36: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D36.tar flags='--zonal-mean'
+ckpt G4D43: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D43.tar flags='--zonal-mean'
+ckpt G4D56: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D56.tar flags='--zonal-mean'
+ckpt G4D63: /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/ema_ckpt_G4D63.tar flags='--zonal-mean'
+MAKANI_ENV_SOURCE      = module-conda
+python                 = /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv/bin/python
+CUDA_HOME              = /soft/compilers/cudatoolkit/cuda-12.9.1/
+mpi shim dir           = /eagle/projects/lighthouse-uchicago/members/mehta5/lib-shims/polaris-mpich-compat
+h5py overlay           = /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/makani-h5py-overlay
+libtorch dangling libs = 0
+
+launched G4D1600 frame=1092 n=7667 gpu=0 pid=2099410 (04:48:47)
+launched G4D1601 frame=1108 n=7651 gpu=1 pid=2099413 (04:48:47)
+launched G4D1602 frame=1124 n=7635 gpu=2 pid=2099416 (04:48:47)
+launched G4D1603 frame=1140 n=7619 gpu=3 pid=2099419 (04:48:47)
+  G4D1600 rc=0 PERF s_per_step=0.023 steps=7667 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D1600 steps=7667 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1600.nc
+  G4D1601 rc=0 PERF s_per_step=0.023 steps=7651 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D1601 steps=7651 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1601.nc
+  G4D1602 rc=0 PERF s_per_step=0.023 steps=7635 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D1602 steps=7635 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1602.nc
+  G4D1603 rc=0 PERF s_per_step=0.023 steps=7619 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D1603 steps=7619 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1603.nc
+launched G4D1604 frame=1156 n=7603 gpu=0 pid=2102750 (04:52:32)
+launched G4D1605 frame=1172 n=7587 gpu=1 pid=2102753 (04:52:32)
+launched G4D1606 frame=1188 n=7571 gpu=2 pid=2102756 (04:52:32)
+launched G4D1607 frame=1204 n=7555 gpu=3 pid=2102759 (04:52:32)
+  G4D1604 rc=0 PERF s_per_step=0.022 steps=7603 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D1604 steps=7603 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1604.nc
+  G4D1605 rc=0 PERF s_per_step=0.022 steps=7587 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D1605 steps=7587 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1605.nc
+  G4D1606 rc=0 PERF s_per_step=0.022 steps=7571 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D1606 steps=7571 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1606.nc
+  G4D1607 rc=0 PERF s_per_step=0.022 steps=7555 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D1607 steps=7555 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D1607.nc
+launched G4D3600 frame=1092 n=7667 gpu=0 pid=2105749 (04:55:48)
+launched G4D3601 frame=1108 n=7651 gpu=1 pid=2105752 (04:55:48)
+launched G4D3602 frame=1124 n=7635 gpu=2 pid=2105755 (04:55:48)
+launched G4D3603 frame=1140 n=7619 gpu=3 pid=2105758 (04:55:48)
+  G4D3600 rc=0 PERF s_per_step=0.022 steps=7667 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D3600 steps=7667 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3600.nc
+  G4D3601 rc=0 PERF s_per_step=0.022 steps=7651 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D3601 steps=7651 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3601.nc
+  G4D3602 rc=0 PERF s_per_step=0.022 steps=7635 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D3602 steps=7635 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3602.nc
+  G4D3603 rc=0 PERF s_per_step=0.022 steps=7619 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D3603 steps=7619 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3603.nc
+launched G4D3604 frame=1156 n=7603 gpu=0 pid=2108781 (04:59:09)
+launched G4D3605 frame=1172 n=7587 gpu=1 pid=2108784 (04:59:09)
+launched G4D3606 frame=1188 n=7571 gpu=2 pid=2108787 (04:59:09)
+launched G4D3607 frame=1204 n=7555 gpu=3 pid=2108790 (04:59:09)
+  G4D3604 rc=0 PERF s_per_step=0.022 steps=7603 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D3604 steps=7603 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3604.nc
+  G4D3605 rc=0 PERF s_per_step=0.022 steps=7587 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D3605 steps=7587 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3605.nc
+  G4D3606 rc=0 PERF s_per_step=0.022 steps=7571 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D3606 steps=7571 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3606.nc
+  G4D3607 rc=0 PERF s_per_step=0.022 steps=7555 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D3607 steps=7555 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D3607.nc
+launched G4D4300 frame=1092 n=7667 gpu=0 pid=2112099 (05:02:27)
+launched G4D4301 frame=1108 n=7651 gpu=1 pid=2112102 (05:02:27)
+launched G4D4302 frame=1124 n=7635 gpu=2 pid=2112105 (05:02:27)
+launched G4D4303 frame=1140 n=7619 gpu=3 pid=2112108 (05:02:27)
+  G4D4300 rc=0 PERF s_per_step=0.022 steps=7667 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D4300 steps=7667 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4300.nc
+  G4D4301 rc=0 PERF s_per_step=0.022 steps=7651 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D4301 steps=7651 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4301.nc
+  G4D4302 rc=0 PERF s_per_step=0.022 steps=7635 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D4302 steps=7635 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4302.nc
+  G4D4303 rc=0 PERF s_per_step=0.022 steps=7619 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D4303 steps=7619 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4303.nc
+launched G4D4304 frame=1156 n=7603 gpu=0 pid=2115080 (05:05:45)
+launched G4D4305 frame=1172 n=7587 gpu=1 pid=2115083 (05:05:45)
+launched G4D4306 frame=1188 n=7571 gpu=2 pid=2115086 (05:05:45)
+launched G4D4307 frame=1204 n=7555 gpu=3 pid=2115089 (05:05:45)
+  G4D4304 rc=0 PERF s_per_step=0.022 steps=7603 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D4304 steps=7603 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4304.nc
+  G4D4305 rc=0 PERF s_per_step=0.022 steps=7587 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D4305 steps=7587 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4305.nc
+  G4D4306 rc=0 PERF s_per_step=0.022 steps=7571 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D4306 steps=7571 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4306.nc
+  G4D4307 rc=0 PERF s_per_step=0.022 steps=7555 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D4307 steps=7555 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D4307.nc
+launched G4D5600 frame=1092 n=7667 gpu=0 pid=2118081 (05:09:02)
+launched G4D5601 frame=1108 n=7651 gpu=1 pid=2118084 (05:09:02)
+launched G4D5602 frame=1124 n=7635 gpu=2 pid=2118087 (05:09:02)
+launched G4D5603 frame=1140 n=7619 gpu=3 pid=2118090 (05:09:02)
+  G4D5600 rc=0 PERF s_per_step=0.022 steps=7667 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D5600 steps=7667 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5600.nc
+  G4D5601 rc=0 PERF s_per_step=0.022 steps=7651 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D5601 steps=7651 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5601.nc
+  G4D5602 rc=0 PERF s_per_step=0.022 steps=7635 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D5602 steps=7635 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5602.nc
+  G4D5603 rc=0 PERF s_per_step=0.022 steps=7619 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D5603 steps=7619 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5603.nc
+launched G4D5604 frame=1156 n=7603 gpu=0 pid=2121132 (05:12:19)
+launched G4D5605 frame=1172 n=7587 gpu=1 pid=2121135 (05:12:19)
+launched G4D5606 frame=1188 n=7571 gpu=2 pid=2121138 (05:12:19)
+launched G4D5607 frame=1204 n=7555 gpu=3 pid=2121141 (05:12:19)
+  G4D5604 rc=0 PERF s_per_step=0.022 steps=7603 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D5604 steps=7603 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5604.nc
+  G4D5605 rc=0 PERF s_per_step=0.022 steps=7587 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D5605 steps=7587 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5605.nc
+  G4D5606 rc=0 PERF s_per_step=0.022 steps=7571 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D5606 steps=7571 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5606.nc
+  G4D5607 rc=0 PERF s_per_step=0.022 steps=7555 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D5607 steps=7555 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D5607.nc
+launched G4D6300 frame=1092 n=7667 gpu=0 pid=2124131 (05:15:36)
+launched G4D6301 frame=1108 n=7651 gpu=1 pid=2124134 (05:15:36)
+launched G4D6302 frame=1124 n=7635 gpu=2 pid=2124137 (05:15:36)
+launched G4D6303 frame=1140 n=7619 gpu=3 pid=2124140 (05:15:36)
+  G4D6300 rc=0 PERF s_per_step=0.022 steps=7667 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D6300 steps=7667 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6300.nc
+  G4D6301 rc=0 PERF s_per_step=0.022 steps=7651 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D6301 steps=7651 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6301.nc
+  G4D6302 rc=0 PERF s_per_step=0.022 steps=7635 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D6302 steps=7635 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6302.nc
+  G4D6303 rc=0 PERF s_per_step=0.022 steps=7619 peak_gpu_mem_gib=2.13 :: CLIMATE_ROLLOUT_OK member=G4D6303 steps=7619 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6303.nc
+launched G4D6304 frame=1156 n=7603 gpu=0 pid=2127430 (05:18:54)
+launched G4D6305 frame=1172 n=7587 gpu=1 pid=2127433 (05:18:54)
+launched G4D6306 frame=1188 n=7571 gpu=2 pid=2127436 (05:18:54)
+launched G4D6307 frame=1204 n=7555 gpu=3 pid=2127439 (05:18:54)
+  G4D6304 rc=0 PERF s_per_step=0.022 steps=7603 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D6304 steps=7603 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6304.nc
+  G4D6305 rc=0 PERF s_per_step=0.022 steps=7587 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D6305 steps=7587 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6305.nc
+  G4D6306 rc=0 PERF s_per_step=0.022 steps=7571 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D6306 steps=7571 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6306.nc
+  G4D6307 rc=0 PERF s_per_step=0.022 steps=7555 peak_gpu_mem_gib=2.12 :: CLIMATE_ROLLOUT_OK member=G4D6307 steps=7555 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283/member_G4D6307.nc
+--- readout (2026-11-03T05:22:16+00:00) ---
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=-0.6476 L240=-3.241 L368=-3.498 L480=-3.345 L594=-3.897 L600=-4.523 L1828=-1.309 L3288=-3.236 L4748=-1.673 L6208=-1.103 L7555=-0.2701  | lead1=244.728
+  drift Z3_l10  (phys, lead L − lead 1): L120=-28.99 L240=-31.86 L368=-17.71 L480=-13.56 L594=-17.6 L600=-16.26 L1828=-21.16 L3288=-21.39 L4748=-20.45 L6208=-26.29 L7555=-30.47  | lead1=9372.6
+  drift T_l17   (phys, lead L − lead 1): L120=-1.599 L240=-2.428 L368=-2.375 L480=-2.24 L594=-0.8146 L600=-1.235 L1828=-2.364 L3288=-2.218 L4748=-2.243 L6208=-2.347 L7555=-1.815  | lead1=288.512
+  drift PS      (phys, lead L − lead 1): L120=-9.807 L240=-12.43 L368=-5.892 L480=-3.028 L594=+0.8638 L600=+2.153 L1828=-9.165 L3288=-8.618 L4748=-10.58 L6208=-9.601 L7555=-11.88  | lead1=98561
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.696 L240=-2.575 L368=-2.541 L480=-2.372 L594=-0.8046 L600=-1.349 L1828=-2.492 L3288=-2.356 L4748=-2.374 L6208=-2.497 L7555=-1.897  | lead1=288.579
+== G4D5607 ckpt_epoch=56 status=complete steps_run=7555 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+0.8665 L240=+2.355 L368=-0.8032 L480=-3.147 L594=+0.07874 L600=-0.04048 L1828=-4.645 L3288=-1.021 L4748=-0.6122 L6208=-3.658 L7555=-1.551  | lead1=244.701
+  drift Z3_l10  (phys, lead L − lead 1): L120=-23.27 L240=-13.42 L368=-19.25 L480=-17.26 L594=+1.703 L600=+1.74 L1828=-24.61 L3288=-12.22 L4748=-16.63 L6208=-25.54 L7555=-25.57  | lead1=9366.46
+  drift T_l17   (phys, lead L − lead 1): L120=-1.282 L240=-2.031 L368=-2.491 L480=-1.96 L594=-0.3999 L600=-0.898 L1828=-2.673 L3288=-2.421 L4748=-2.187 L6208=-2.168 L7555=-1.581  | lead1=288.316
+  drift PS      (phys, lead L − lead 1): L120=-9.344 L240=-7.595 L368=-6.533 L480=-0.2562 L594=+4.14 L600=+5.26 L1828=-4.757 L3288=-4.473 L4748=-5.935 L6208=-6.451 L7555=-7.949  | lead1=98558.6
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.381 L240=-2.136 L368=-2.612 L480=-2.052 L594=-0.3487 L600=-0.9889 L1828=-2.81 L3288=-2.537 L4748=-2.278 L6208=-2.254 L7555=-1.646  | lead1=288.363
+== G4D6300 ckpt_epoch=63 status=complete steps_run=7667 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=-1.239 L240=-1.397 L368=+0.9783 L480=-2.596 L594=-0.6257 L600=-0.2889 L1828=-0.7029 L3288=-2.545 L4748=-3.79 L6208=+0.4213 L7555=-3.057 L7667=-0.4277  | lead1=244.862
+  drift Z3_l10  (phys, lead L − lead 1): L120=-23.37 L240=-41.11 L368=-36.58 L480=-40.03 L594=-28.29 L600=-27.02 L1828=-49.64 L3288=-55.99 L4748=-52.64 L6208=-42.24 L7555=-47.15 L7667=-45.21  | lead1=9388.3
+  drift T_l17   (phys, lead L − lead 1): L120=-0.9521 L240=-1.976 L368=-2.995 L480=-2.94 L594=-2.159 L600=-2.632 L1828=-2.793 L3288=-2.951 L4748=-2.532 L6208=-2.824 L7555=-1.857 L7667=-2.442  | lead1=289.012
+  drift PS      (phys, lead L − lead 1): L120=-10.01 L240=-15.75 L368=-14.84 L480=-14.44 L594=-7.239 L600=-6.636 L1828=-14.69 L3288=-16.08 L4748=-16.83 L6208=-14.82 L7555=-15.65 L7667=-14.35  | lead1=98565
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.02 L240=-2.079 L368=-3.129 L480=-3.07 L594=-2.153 L600=-2.738 L1828=-2.923 L3288=-3.078 L4748=-2.64 L6208=-2.948 L7555=-1.892 L7667=-2.541  | lead1=289.065
+== G4D6301 ckpt_epoch=63 status=complete steps_run=7651 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+2.1 L240=+1.563 L368=-1.016 L480=-0.5374 L594=+0.4579 L600=+0.7754 L1828=-0.1776 L3288=+0.2058 L4748=-1.804 L6208=+1.123 L7555=-2.482  | lead1=244.665
+  drift Z3_l10  (phys, lead L − lead 1): L120=-24.52 L240=-42.71 L368=-46.19 L480=-41.44 L594=-33.98 L600=-31.91 L1828=-47.5 L3288=-47.28 L4748=-41.72 L6208=-41.02 L7555=-48.58  | lead1=9386.11
+  drift T_l17   (phys, lead L − lead 1): L120=-0.9008 L240=-1.761 L368=-2.612 L480=-2.744 L594=-1.896 L600=-2.437 L1828=-2.684 L3288=-2.934 L4748=-2.732 L6208=-2.526 L7555=-1.661  | lead1=288.826
+  drift PS      (phys, lead L − lead 1): L120=-4.102 L240=-11.92 L368=-15.31 L480=-9.584 L594=-8.826 L600=-6.146 L1828=-13.62 L3288=-13.82 L4748=-13.67 L6208=-13.16 L7555=-15.17  | lead1=98563
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.018 L240=-1.886 L368=-2.77 L480=-2.886 L594=-1.885 L600=-2.566 L1828=-2.827 L3288=-3.101 L4748=-2.881 L6208=-2.651 L7555=-1.774  | lead1=288.909
+== G4D6302 ckpt_epoch=63 status=complete steps_run=7635 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+2.651 L240=+0.1479 L368=-1.286 L480=-1.08 L594=-3.089 L600=-3.104 L1828=-1.044 L3288=+0.06355 L4748=-2.89 L6208=+2.838 L7555=-3.079  | lead1=244.743
+  drift Z3_l10  (phys, lead L − lead 1): L120=-30.65 L240=-48.8 L368=-42.52 L480=-41.15 L594=-49.07 L600=-49.83 L1828=-51.35 L3288=-49.77 L4748=-48.12 L6208=-48.17 L7555=-45.37  | lead1=9390.55
+  drift T_l17   (phys, lead L − lead 1): L120=-0.9315 L240=-1.732 L368=-2.675 L480=-2.737 L594=-1.875 L600=-2.351 L1828=-2.675 L3288=-2.716 L4748=-2.396 L6208=-2.653 L7555=-1.824  | lead1=288.782
+  drift PS      (phys, lead L − lead 1): L120=-7.534 L240=-15.38 L368=-10.99 L480=-10.21 L594=-9.614 L600=-9.114 L1828=-11.16 L3288=-11.59 L4748=-14.41 L6208=-15.06 L7555=-15.22  | lead1=98562.6
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.025 L240=-1.822 L368=-2.823 L480=-2.879 L594=-1.857 L600=-2.471 L1828=-2.83 L3288=-2.856 L4748=-2.533 L6208=-2.787 L7555=-1.915  | lead1=288.856
+== G4D6303 ckpt_epoch=63 status=complete steps_run=7619 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+1.323 L240=+0.883 L368=-1.368 L480=-3.581 L594=-3.912 L600=-4.259 L1828=-0.04325 L3288=-1.512 L4748=+2.685 L6208=-0.9996 L7555=-1.844  | lead1=244.805
+  drift Z3_l10  (phys, lead L − lead 1): L120=-34.35 L240=-49.68 L368=-41.69 L480=-37.9 L594=-40.64 L600=-40.77 L1828=-47.3 L3288=-42.54 L4748=-49.6 L6208=-39.85 L7555=-48.39  | lead1=9390.63
+  drift T_l17   (phys, lead L − lead 1): L120=-0.9681 L240=-2.057 L368=-2.361 L480=-2.231 L594=-1.44 L600=-1.922 L1828=-2.663 L3288=-2.316 L4748=-2.533 L6208=-2.434 L7555=-2.014  | lead1=288.696
+  drift PS      (phys, lead L − lead 1): L120=-8.55 L240=-11.48 L368=-11.76 L480=-4.885 L594=-7.606 L600=-5.973 L1828=-10.47 L3288=-13 L4748=-10.48 L6208=-10.69 L7555=-11.17  | lead1=98561.3
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.055 L240=-2.161 L368=-2.498 L480=-2.373 L594=-1.421 L600=-2.034 L1828=-2.806 L3288=-2.452 L4748=-2.664 L6208=-2.551 L7555=-2.092  | lead1=288.759
+== G4D6304 ckpt_epoch=63 status=complete steps_run=7603 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+2.284 L240=-2.392 L368=-1.57 L480=-1.234 L594=+1.014 L600=+0.4764 L1828=-2.977 L3288=+0.3579 L4748=+0.7401 L6208=-0.1139 L7555=-0.1241  | lead1=244.546
+  drift Z3_l10  (phys, lead L − lead 1): L120=-29.93 L240=-40.79 L368=-39.22 L480=-35.31 L594=-25.64 L600=-25.29 L1828=-45.58 L3288=-46.46 L4748=-40.46 L6208=-40.51 L7555=-49.72  | lead1=9386.33
+  drift T_l17   (phys, lead L − lead 1): L120=-1.046 L240=-1.847 L368=-2.489 L480=-2.41 L594=-1.124 L600=-1.601 L1828=-2.505 L3288=-2.44 L4748=-2.554 L6208=-2.415 L7555=-2.026  | lead1=288.619
+  drift PS      (phys, lead L − lead 1): L120=-10.42 L240=-14.4 L368=-12.13 L480=-8.19 L594=-2.757 L600=-2.511 L1828=-11.71 L3288=-13.35 L4748=-13.95 L6208=-13.2 L7555=-13.91  | lead1=98563.4
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.132 L240=-1.984 L368=-2.622 L480=-2.571 L594=-1.108 L600=-1.71 L1828=-2.635 L3288=-2.578 L4748=-2.703 L6208=-2.545 L7555=-2.114  | lead1=288.69
+== G4D6305 ckpt_epoch=63 status=complete steps_run=7587 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+1.883 L240=-1.963 L368=-3.17 L480=-4.337 L594=-1.979 L600=-1.848 L1828=-0.6586 L3288=-1.2 L4748=-2.761 L6208=+1.379 L7555=-1.097  | lead1=244.933
+  drift Z3_l10  (phys, lead L − lead 1): L120=-31.93 L240=-35.02 L368=-27.51 L480=-29.31 L594=-24.34 L600=-25.98 L1828=-33.48 L3288=-41.27 L4748=-30.5 L6208=-41.21 L7555=-34.92  | lead1=9380
+  drift T_l17   (phys, lead L − lead 1): L120=-1.202 L240=-2.045 L368=-2.39 L480=-2.267 L594=-1.257 L600=-1.776 L1828=-2.256 L3288=-2.284 L4748=-2.508 L6208=-3.041 L7555=-1.472  | lead1=288.5
+  drift PS      (phys, lead L − lead 1): L120=-12.2 L240=-12.54 L368=-11.87 L480=-8.043 L594=-3.065 L600=-2.356 L1828=-7.946 L3288=-12.08 L4748=-8.827 L6208=-13.18 L7555=-12.87  | lead1=98562.5
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.29 L240=-2.151 L368=-2.523 L480=-2.405 L594=-1.223 L600=-1.879 L1828=-2.389 L3288=-2.414 L4748=-2.643 L6208=-3.17 L7555=-1.575  | lead1=288.569
+== G4D6306 ckpt_epoch=63 status=complete steps_run=7571 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+2.96 L240=+0.6405 L368=+0.5709 L480=-0.5579 L594=+0.5446 L600=+1.08 L1828=-0.6446 L3288=-3.243 L4748=-1.138 L6208=-1.829 L7555=-1.205  | lead1=244.607
+  drift Z3_l10  (phys, lead L − lead 1): L120=-21.81 L240=-28.64 L368=-29.27 L480=-22.47 L594=-9.795 L600=-7.461 L1828=-23.58 L3288=-22.6 L4748=-33.59 L6208=-30.64 L7555=-27.03  | lead1=9372.49
+  drift T_l17   (phys, lead L − lead 1): L120=-1.405 L240=-2.099 L368=-2.449 L480=-2.243 L594=-0.989 L600=-1.452 L1828=-2.541 L3288=-2.279 L4748=-2.657 L6208=-2.474 L7555=-1.761  | lead1=288.515
+  drift PS      (phys, lead L − lead 1): L120=-10.46 L240=-13.9 L368=-9.64 L480=-5.496 L594=-2.034 L600=-1.92 L1828=-10.85 L3288=-10.03 L4748=-11.84 L6208=-12.7 L7555=-13.58  | lead1=98561
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.495 L240=-2.225 L368=-2.594 L480=-2.387 L594=-0.9834 L600=-1.548 L1828=-2.662 L3288=-2.395 L4748=-2.804 L6208=-2.625 L7555=-1.851  | lead1=288.588
+== G4D6307 ckpt_epoch=63 status=complete steps_run=7555 truncated_at=-1 ()
+  first past 3σ (anom_rms):  (none)
+  median_cross {"std_sigma": {"3x": -1, "10x": -1}, "anom_rms_sigma": {"3x": -1, "10x": -1}}
+  drift Z3_l17  (phys, lead L − lead 1): L120=+4.583 L240=-1.407 L368=-0.666 L480=+0.3851 L594=-1.987 L600=-2.613 L1828=-1.333 L3288=+0.4659 L4748=-0.5142 L6208=+0.5729 L7555=-1.651  | lead1=244.488
+  drift Z3_l10  (phys, lead L − lead 1): L120=-27.04 L240=-16.85 L368=-11.14 L480=+1.026 L594=-4.209 L600=-2.811 L1828=-15.71 L3288=-15.53 L4748=-24.38 L6208=-28.24 L7555=-33.18  | lead1=9366.4
+  drift T_l17   (phys, lead L − lead 1): L120=-1.29 L240=-1.981 L368=-2.166 L480=-1.812 L594=-0.5961 L600=-0.9257 L1828=-2.515 L3288=-2.147 L4748=-2.377 L6208=-2.432 L7555=-1.584  | lead1=288.314
+  drift PS      (phys, lead L − lead 1): L120=-10.48 L240=-9.44 L368=-2.545 L480=-0.6575 L594=+1.463 L600=+1.816 L1828=-1.237 L3288=-6.492 L4748=-5.958 L6208=-9.673 L7555=-8.765  | lead1=98558.7
+  drift TREFHT  (phys, lead L − lead 1): L120=-1.366 L240=-2.101 L368=-2.284 L480=-1.912 L594=-0.551 L600=-0.995 L1828=-2.671 L3288=-2.277 L4748=-2.5 L6208=-2.565 L7555=-1.686  | lead1=288.368
+CLIMATE_READOUT_OK
+CLIMATE_RUN_OK arms='G4D16 G4D36 G4D43 G4D56 G4D63' members=8 out=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/climate_protocol_7809283
+=== makani_climate_run done 2026-11-03T05:22:19+00:00 ===

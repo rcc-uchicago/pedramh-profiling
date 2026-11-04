@@ -1,0 +1,44 @@
+#!/bin/bash -l
+#PBS -N truth_series
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# E3SM truth series for the five-year figures: truth_series.py for 2044-2049, one process per year, CPU only.
+# 2045-2047 are gated against window_truth/truth_<year>.npz (must be identical). Rerunnable: every year is
+# recomputed from scratch on a restart.
+# Submit from eval-protocol/makani_sfno/.   PASS = TRUTH_SERIES_ALL_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+F=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear
+RUN=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_mn_scaling/e3sm_mn_scaling/f_nosoil_4n_b32_e23_scratch_fp32_dryair_nf4
+YEARS="${YEARS:-2044 2045 2046 2047 2048 2049}"
+export OMP_NUM_THREADS=4 MKL_NUM_THREADS=4
+echo "=== truth_series: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} years='${YEARS}' ==="
+mkdir -p "${F}/truth"
+declare -A PIDS=()
+for y in ${YEARS}; do
+    CUDA_VISIBLE_DEVICES="" "${PY}" "${F}/truth_series.py" --run-dir "${RUN}" --year "${y}" \
+        --years-dir "${F}/truth/years_${y}" --out "${F}/truth/truth_series_${y}.npz" \
+        > "${F}/truth/truth_series_${y}.log" 2>&1 &
+    PIDS[$y]=$!
+done
+ok=1
+for y in ${YEARS}; do
+    wait "${PIDS[$y]}"
+    rc=$?
+    echo "  ${y} rc=${rc}: $(grep -E '^gate:' "${F}/truth/truth_series_${y}.log" | tail -1)"
+    if ! grep -q "^TRUTH_SERIES_OK year=${y}" "${F}/truth/truth_series_${y}.log"; then
+        echo "ERROR TRUTH_SERIES_YEAR_FAILED ${y}: $(grep -E '^ERROR' "${F}/truth/truth_series_${y}.log" | tail -1)"
+        ok=0
+    fi
+done
+[ ${ok} -eq 1 ] && echo "TRUTH_SERIES_ALL_OK years='${YEARS}'" || echo "ERROR TRUTH_SERIES_FAILED"
+echo "=== truth_series done $(date -Iseconds) ==="
+[ ${ok} -eq 1 ]

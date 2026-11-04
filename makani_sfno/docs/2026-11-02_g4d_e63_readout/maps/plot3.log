@@ -1,0 +1,23 @@
+=== maps_plot: 2026-11-04T17:08:01+00:00 host=x3001c0s1b1n0 PBS_JOBID=7813193.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+plot python: /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv/bin/python (matplotlib 3.10.6 scipy 1.16.2)
+wrote rmse_maps_TREFHT.png
+wrote rmse_maps_PRECT.png
+wrote rmse_maps_U10.png
+wrote rmse_maps_U_l17.png
+wrote rmse_maps_Z3_l12.png
+wrote rmse_vs_A243_TREFHT.png
+wrote rmse_vs_A243_PRECT.png
+wrote rmse_vs_A243_U10.png
+wrote rmse_vs_A243_U_l17.png
+wrote rmse_vs_A243_Z3_l12.png
+wrote rmse_vs_G4D16_TREFHT.png
+wrote rmse_vs_G4D16_PRECT.png
+wrote rmse_vs_G4D16_U10.png
+wrote rmse_vs_G4D16_U_l17.png
+wrote rmse_vs_G4D16_Z3_l12.png
+wrote rmse_curves.png
+wrote rmse_ratio_to_A243.png
+wrote bias_maps.png
+wrote summary_table.csv (565 rows)
+MAPS_PLOT_OK figures=18
+=== maps_plot done 2026-11-04T17:09:42+00:00 ===

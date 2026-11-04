@@ -4,12 +4,12 @@
  "campaign": "G4D e63 map figures",
  "register": "figures/summary_table.csv re-keyed",
  "quote_source": "Claude's final report 2026-11-02",
- "date_utc": "2026-11-02T23:44:20Z",
+ "date_utc": "2026-11-04T17:10:17Z",
  "receipts": [
   {
    "alias": "s",
    "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/figures/summary_index.json",
-   "mtime_utc": "2026-11-02T23:44:19Z",
+   "mtime_utc": "2026-11-04T17:10:16Z",
    "status": "loaded"
   }
  ],

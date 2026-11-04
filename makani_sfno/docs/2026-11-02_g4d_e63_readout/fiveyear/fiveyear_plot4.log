@@ -1,0 +1,19 @@
+=== fiveyear plot: 2026-11-03T05:34:35+00:00 host=x3212c0s31b1n0 PBS_JOBID=7809381.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+plot python: /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv/bin/python
+wrote ts_global_G4D16.png
+wrote ts_global_G4D36.png
+wrote ts_global_G4D43.png
+wrote ts_global_G4D56.png
+wrote ts_global_G4D63.png
+wrote ts_bias_all.png
+wrote bias_by_year.png
+wrote hovmoller_TREFHT.png
+wrote hovmoller_PRECT.png
+wrote annual_bias_TREFHT.png
+wrote annual_bias_PRECT.png
+wrote annual_bias_U10.png
+wrote annual_bias_U_l17.png
+wrote annual_bias_Z3_l12.png
+wrote summary_5yr.csv (345 rows)
+FIVEYEAR_PLOT_OK figures=14
+FIVEYEAR_OK

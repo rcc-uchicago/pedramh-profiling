@@ -1,0 +1,68 @@
+#!/bin/bash -l
+#PBS -N fiveyear
+#PBS -A lighthouse-uchicago
+#PBS -q preemptable
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=01:00:00
+#PBS -r y
+#PBS -j oe
+# ============================================================================
+# Five-year figures for G4D16/36/43/56/63. CPU only.
+#   -v MODE=smoke   fake inputs (make_fake_5yr.py) -> plot_5yr.py into fiveyear/smoke/figures. Layout check only.
+#   -v MODE=plot   re-plot from the extracted npz into fiveyear/figures.
+#   -v MODE=real -v RR=<re-roll job id>
+#       test_fiveyear_lib.py -> extract_5yr.py (gates: the re-roll reproduces the original five-year runs)
+#       -> delete the re-roll's member NetCDFs (only after FIVEYEAR_EXTRACT_OK; operator 2026-11-02)
+#       -> plot_5yr.py into fiveyear/figures.
+# Plot python: the SFNO env's if it imports matplotlib + scipy, else the ACE2 env (as maps/polaris_maps_plot.pbs).
+# Submit from eval-protocol/makani_sfno/.   PASS = FIVEYEAR_SMOKE_OK | FIVEYEAR_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+F=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear
+MODE="${MODE:?set -v MODE=smoke|real}"
+echo "=== fiveyear ${MODE}: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+PLOTPY="${PY}"
+if ! "${PLOTPY}" -c "import matplotlib, scipy" 2>/dev/null; then
+    # shellcheck disable=SC1091
+    source /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/ACE2_retrain/polaris/polaris_ace2_env.sh \
+        > /dev/null || exit 2
+    PLOTPY="${ACE2_VENV}/bin/python"
+fi
+echo "plot python: ${PLOTPY}"
+set -o pipefail
+if [ "${MODE}" = "smoke" ]; then
+    "${PY}" "${F}/make_fake_5yr.py" "${F}/smoke" || { echo "ERROR FAKE_FAILED"; exit 1; }
+    "${PLOTPY}" "${F}/plot_5yr.py" --in-dir "${F}/smoke" --out-dir "${F}/smoke/figures" 2>&1 | tail -30
+    rc=$?
+    [ ${rc} -eq 0 ] && echo "FIVEYEAR_SMOKE_OK" || echo "ERROR FIVEYEAR_SMOKE_FAILED rc=${rc}"
+    exit ${rc}
+fi
+if [ "${MODE}" = "plot" ]; then          # re-plot from the extracted npz (the NetCDFs are gone)
+    "${PLOTPY}" "${F}/plot_5yr.py" --in-dir "${F}" --out-dir "${F}/figures" 2>&1 | tail -30
+    rc=$?
+    [ ${rc} -eq 0 ] && echo "FIVEYEAR_OK" || echo "ERROR FIVEYEAR_FAILED at plotting rc=${rc}"
+    exit ${rc}
+fi
+RR="${RR:?set -v RR=<re-roll job id>}"
+t=$("${PY}" "${F}/test_fiveyear_lib.py" | tail -1)
+[ "${t}" = "TEST_FIVEYEAR_LIB_OK" ] || { echo "ERROR LIB_TEST: ${t}"; exit 1; }
+"${PY}" "${F}/extract_5yr.py" --dir "${RR}" --out-dir "${F}" 2>&1 | tee "${F}/extract_${RR}.log"
+if ! grep -q "^FIVEYEAR_EXTRACT_OK" "${F}/extract_${RR}.log"; then
+    echo "ERROR FIVEYEAR_FAILED at extraction; NetCDFs kept"
+    exit 1
+fi
+n=0; b=0
+for f in "${E}/climate_protocol_${RR}"/member_*.nc; do
+    [ -f "${f}" ] || continue
+    sz=$(stat -c %s "${f}"); echo "${f} ${sz} $(date -u -r "${f}" +%FT%TZ)" >> "${F}/freed_nc.txt"
+    rm -f "${f}" && n=$(( n + 1 )) && b=$(( b + sz ))
+done
+echo "freed climate_protocol_${RR}: ${n} NetCDFs, $(( b / 1000000000 )) GB"
+"${PLOTPY}" "${F}/plot_5yr.py" --in-dir "${F}" --out-dir "${F}/figures" 2>&1 | tail -40
+rc=$?
+[ ${rc} -eq 0 ] && echo "FIVEYEAR_OK" || echo "ERROR FIVEYEAR_FAILED at plotting rc=${rc}"
+echo "=== fiveyear done $(date -Iseconds) ==="
+exit ${rc}

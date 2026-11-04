@@ -1,0 +1,346 @@
+figure,variable,model,year,window,metric,value,ci_lo,ci_hi,unit,n,sig_area_pct,significant
+bias_by_year,TREFHT,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.06552530698940018,-0.12221265542693753,-0.008837958551862826,K,8,,1
+bias_by_year,TREFHT,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",0.023489665370902912,-0.026578036725591447,0.07355736746739727,K,8,,0
+bias_by_year,TREFHT,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.0388903277230952,-0.10695429700455028,0.029173641558359886,K,8,,0
+bias_by_year,TREFHT,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.015648886020017017,-0.07784298638298781,0.04654521434295378,K,8,,0
+bias_by_year,TREFHT,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.05783095442581043,-0.10167436679850773,-0.01398754205311313,K,8,,1
+bias_by_year,TREFHT,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.002374984626369097,-0.019598560982869117,0.014848591730130924,K/yr,8,,
+bias_by_year,TREFHT,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.01329155690780226,-0.09848578425941236,0.07190267044380784,K,8,,0
+bias_by_year,TREFHT,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",0.041676691749898964,-0.04465171595352618,0.1280050994533241,K,8,,0
+bias_by_year,TREFHT,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.026722951449812626,-0.07266732142831313,0.12611322432793837,K,8,,0
+bias_by_year,TREFHT,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",0.053891941008828326,-0.041601368379905745,0.1493852503975624,K,8,,0
+bias_by_year,TREFHT,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.012212523135701758,-0.09088059332687576,0.06645554705547224,K,8,,0
+bias_by_year,TREFHT,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.0014373316803233454,-0.03235089102645691,0.035225554387103605,K/yr,8,,
+bias_by_year,TREFHT,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.07653902765503062,-0.14153118162608186,-0.0115468736839794,K,8,,1
+bias_by_year,TREFHT,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",0.01496310885335106,-0.09839643823019262,0.12832265593689474,K,8,,0
+bias_by_year,TREFHT,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.06589041092524894,-0.14403776044506322,0.012256938594565336,K,8,,0
+bias_by_year,TREFHT,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.03357257841594219,-0.14851295471919163,0.08136779788730726,K,8,,0
+bias_by_year,TREFHT,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.07823935797574677,-0.1353616154931841,-0.021117100458309432,K,8,,1
+bias_by_year,TREFHT,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0051936347910647475,-0.021853349966279894,0.011466080384150399,K/yr,8,,
+bias_by_year,TREFHT,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.018290313741033515,-0.09029385439652633,0.0537132269144593,K,8,,0
+bias_by_year,TREFHT,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",0.024879072367070876,-0.0364572685920226,0.08621541332616435,K,8,,0
+bias_by_year,TREFHT,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.002253968944103235,-0.0691614033823215,0.07366934127052797,K,8,,0
+bias_by_year,TREFHT,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.026301103510490975,-0.029873357660183036,0.08247556468116499,K,8,,0
+bias_by_year,TREFHT,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.01933901233888946,-0.1059171726561734,0.06723914797839448,K,8,,0
+bias_by_year,TREFHT,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-6.75366052244117e-05,-0.02031245199003583,0.020177378779587005,K/yr,8,,
+bias_by_year,TREFHT,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.04357977038773697,-0.13305276016654832,0.04589321939107438,K,8,,0
+bias_by_year,TREFHT,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",0.0043077570897480655,-0.08939147409331978,0.09800698827281591,K,8,,0
+bias_by_year,TREFHT,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.019487902769242282,-0.14573482202002624,0.10675901648154168,K,8,,0
+bias_by_year,TREFHT,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",0.01820712854703288,-0.04756876712710299,0.08398302422116875,K,8,,0
+bias_by_year,TREFHT,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.017213753018438638,-0.08673373675076787,0.052306230713890595,K,8,,0
+bias_by_year,TREFHT,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.006663140619577899,-0.02404660167072141,0.037372882909877204,K/yr,8,,
+bias_by_year,PRECT,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",0.025339479582468627,-0.0013519568115167198,0.05203091597645397,mm day^-1,8,,0
+bias_by_year,PRECT,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",0.02839402034534455,0.007218129530795234,0.04956991115989387,mm day^-1,8,,1
+bias_by_year,PRECT,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",0.03582105309781136,0.01825283109744821,0.05338927509817451,mm day^-1,8,,1
+bias_by_year,PRECT,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",0.025349833126685706,-0.0037519694408309837,0.054451635694202395,mm day^-1,8,,0
+bias_by_year,PRECT,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",0.020096782159834792,0.00318935804457008,0.037004206275099503,mm day^-1,8,,1
+bias_by_year,PRECT,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.001352958206392195,-0.010330928421997858,0.007625012009213469,mm day^-1/yr,8,,
+bias_by_year,PRECT,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",0.014883665304585847,-0.006145529522113693,0.03591286013128539,mm day^-1,8,,0
+bias_by_year,PRECT,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",0.022329644389488035,0.006748176589730297,0.03791111218924577,mm day^-1,8,,1
+bias_by_year,PRECT,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.026943713604387742,0.008804521923446978,0.0450829052853285,mm day^-1,8,,1
+bias_by_year,PRECT,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",0.021830386493168596,-0.0016642730980901028,0.04532504608442729,mm day^-1,8,,0
+bias_by_year,PRECT,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",0.010844450453542986,-0.008596495401246091,0.030285396308332064,mm day^-1,8,,0
+bias_by_year,PRECT,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.000857768759839759,-0.006178035003474846,0.004462497483795329,mm day^-1/yr,8,,
+bias_by_year,PRECT,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.00918850716756614,-0.027785781943304274,0.009408767608171994,mm day^-1,8,,0
+bias_by_year,PRECT,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",-0.018062106353137874,-0.041764102205504444,0.005639889499228695,mm day^-1,8,,0
+bias_by_year,PRECT,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.008339610330139635,-0.028373050236796756,0.011693829576517486,mm day^-1,8,,0
+bias_by_year,PRECT,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.008650244279385877,-0.02654558963460017,0.009245101075828415,mm day^-1,8,,0
+bias_by_year,PRECT,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.025306614889965218,-0.041372397292005605,-0.009240832487924826,mm day^-1,8,,1
+bias_by_year,PRECT,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.002282435337104112,-0.007247655785294125,0.002682785111085901,mm day^-1/yr,8,,
+bias_by_year,PRECT,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",0.01047447776444832,-0.00748729740735642,0.02843625293625306,mm day^-1,8,,0
+bias_by_year,PRECT,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",0.01656958289428001,-0.013950725956727819,0.04708989174528784,mm day^-1,8,,0
+bias_by_year,PRECT,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.021658936669152418,-0.004243420053039501,0.047561293391344336,mm day^-1,8,,0
+bias_by_year,PRECT,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.010723439729242834,-0.0047778800237110175,0.026224759482196686,mm day^-1,8,,0
+bias_by_year,PRECT,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",0.008120311421421,-0.005624762715454151,0.021865385558296153,mm day^-1,8,,0
+bias_by_year,PRECT,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0010554475851087004,-0.0063284215007730505,0.00421752633055565,mm day^-1/yr,8,,
+bias_by_year,PRECT,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.0016691232972685377,-0.023612921751578485,0.02027467515704141,mm day^-1,8,,0
+bias_by_year,PRECT,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",0.004541075330616984,-0.020321703339250864,0.02940385400048483,mm day^-1,8,,0
+bias_by_year,PRECT,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",0.0056841107758929255,-0.013125261844816844,0.024493483396602695,mm day^-1,8,,0
+bias_by_year,PRECT,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",0.0035288454175872452,-0.015099542692716988,0.02215723352789148,mm day^-1,8,,0
+bias_by_year,PRECT,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.007676496028026225,-0.02782050066903715,0.0124675086129847,mm day^-1,8,,0
+bias_by_year,PRECT,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0013026975374537994,-0.0064387158281487,0.003833320753241101,mm day^-1/yr,8,,
+bias_by_year,U10,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",0.03662853586785797,-0.007522888100898531,0.08077995983661447,m s^-1,8,,0
+bias_by_year,U10,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",0.048114196324378966,-0.010484788197605094,0.10671318084636303,m s^-1,8,,0
+bias_by_year,U10,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",0.06097895366169226,0.018861850688865665,0.10309605663451885,m s^-1,8,,1
+bias_by_year,U10,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",0.016650503443743858,-0.05177191679676696,0.08507292368425468,m s^-1,8,,0
+bias_by_year,U10,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",0.03157224479258236,-0.02372033989207139,0.08686482947723612,m s^-1,8,,0
+bias_by_year,U10,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0041576275031173365,-0.02759782732051364,0.019282572314278965,m s^-1/yr,8,,
+bias_by_year,U10,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",0.03380083883296958,0.004583158939554216,0.06301851872638495,m s^-1,8,,1
+bias_by_year,U10,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",0.052105417588197867,-0.010326598317576485,0.11453743349397222,m s^-1,8,,0
+bias_by_year,U10,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.0628973756765916,0.015377866722387189,0.11041688463079599,m s^-1,8,,1
+bias_by_year,U10,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",0.01917383252528282,-0.018023436725107832,0.05637110177567347,m s^-1,8,,0
+bias_by_year,U10,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",0.042435236108762986,-0.025765188407315703,0.11063566062484168,m s^-1,8,,0
+bias_by_year,U10,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0015662790511320568,-0.017760307433297227,0.014627749331033113,m s^-1/yr,8,,
+bias_by_year,U10,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",0.013033031980048904,-0.020342885029148793,0.0464089489892466,m s^-1,8,,0
+bias_by_year,U10,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",0.026292440415889295,-0.04865889410715965,0.10124377493893824,m s^-1,8,,0
+bias_by_year,U10,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",0.034532260047575924,-0.013055918615618702,0.08212043871077054,m s^-1,8,,0
+bias_by_year,U10,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",0.010687524017522598,-0.038925380837662234,0.06030042887270743,m s^-1,8,,0
+bias_by_year,U10,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",0.01057220762256339,-0.03203887044066727,0.05318328568579405,m s^-1,8,,0
+bias_by_year,U10,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0020526565113328206,-0.012506032720529404,0.008400719697863764,m s^-1/yr,8,,
+bias_by_year,U10,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",0.047728490271813584,1.9028819468809577e-05,0.09543795172415837,m s^-1,8,,1
+bias_by_year,U10,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",0.05836307504430849,0.010775638277844835,0.10595051181077214,m s^-1,8,,1
+bias_by_year,U10,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.07265268059232177,0.03851469778940526,0.1067906633952383,m s^-1,8,,1
+bias_by_year,U10,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.019232157502698577,-0.02862649987849087,0.06709081488388802,m s^-1,8,,0
+bias_by_year,U10,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",0.04815895691883387,-0.022331747919755576,0.11864966175742332,m s^-1,8,,0
+bias_by_year,U10,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.003826998424756175,-0.017550823241359502,0.009896826391847151,m s^-1/yr,8,,
+bias_by_year,U10,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",0.014406364647269854,-0.036173908248450855,0.06498663754299056,m s^-1,8,,0
+bias_by_year,U10,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",0.030744556926964428,-0.018409052554595795,0.07989816640852465,m s^-1,8,,0
+bias_by_year,U10,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",0.041973995721464874,-0.01363809494322301,0.09758608638615276,m s^-1,8,,0
+bias_by_year,U10,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.0033238474957641984,-0.05676546799934916,0.05011777300782076,m s^-1,8,,0
+bias_by_year,U10,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",0.025459248070967,-0.032225510238755715,0.08314400638068972,m s^-1,8,,0
+bias_by_year,U10,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0011962637575331446,-0.011336670693093399,0.008944143178027109,m s^-1/yr,8,,
+bias_by_year,U_l17,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",0.060754417523973536,0.021844275946115134,0.09966455910183195,m s^-1,8,,1
+bias_by_year,U_l17,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",-0.016112096617738714,-0.06907734119758656,0.03685314796210913,m s^-1,8,,0
+bias_by_year,U_l17,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",0.01939698535861467,-0.02792646198396638,0.06672043270119572,m s^-1,8,,0
+bias_by_year,U_l17,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",0.05023840411584654,0.008900381596190846,0.09157642663550224,m s^-1,8,,1
+bias_by_year,U_l17,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",0.05696372841293934,0.006015318098718116,0.10791213872716057,m s^-1,8,,1
+bias_by_year,U_l17,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.005876912251147011,-0.010990860132581229,0.02274468463487525,m s^-1/yr,8,,
+bias_by_year,U_l17,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",0.06200146882962204,0.020143634995898323,0.10385930266334575,m s^-1,8,,1
+bias_by_year,U_l17,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",-0.029454320895061226,-0.07733852543496178,0.018429883644839322,m s^-1,8,,0
+bias_by_year,U_l17,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.02369600775948366,-0.023859151329460843,0.07125116684842817,m s^-1,8,,0
+bias_by_year,U_l17,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",0.024363720024600133,-0.03227076715581072,0.08099820720501098,m s^-1,8,,0
+bias_by_year,U_l17,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",0.0239921247583455,-0.041267048940226786,0.08925129845691779,m s^-1,8,,0
+bias_by_year,U_l17,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0022200647222924445,-0.021957171897566706,0.017517042452981815,m s^-1/yr,8,,
+bias_by_year,U_l17,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",0.08522701496290591,0.04302377982892484,0.127430250096887,m s^-1,8,,1
+bias_by_year,U_l17,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",0.02730259345180308,-0.03986984460758854,0.0944750315111947,m s^-1,8,,0
+bias_by_year,U_l17,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",0.05040637029201786,0.00601522625020829,0.09479751433382744,m s^-1,8,,1
+bias_by_year,U_l17,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",0.08630413675899376,0.031737445899857615,0.1408708276181299,m s^-1,8,,1
+bias_by_year,U_l17,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",0.10127094248235075,0.04217366854141252,0.16036821642328897,m s^-1,8,,1
+bias_by_year,U_l17,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.009108939834603267,-0.010271216029315062,0.028489095698521594,m s^-1/yr,8,,
+bias_by_year,U_l17,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",0.06616086376898705,0.03277079784734529,0.09955092969062881,m s^-1,8,,1
+bias_by_year,U_l17,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",-0.02843374966022799,-0.09662525110755506,0.039757751787099074,m s^-1,8,,0
+bias_by_year,U_l17,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.008856946833723622,-0.05891258665149131,0.07662648031893855,m s^-1,8,,0
+bias_by_year,U_l17,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.014358574285849857,-0.02721451466525668,0.05593166323695639,m s^-1,8,,0
+bias_by_year,U_l17,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",0.02003575120980894,-0.02170720433422353,0.06177870675384141,m s^-1,8,,0
+bias_by_year,U_l17,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.004945790117230792,-0.021568692492550345,0.011677112258088759,m s^-1/yr,8,,
+bias_by_year,U_l17,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",0.0735001339942925,0.016141002420580454,0.13085926556800456,m s^-1,8,,1
+bias_by_year,U_l17,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",-0.005053317823999703,-0.08876059634554771,0.0786539606975483,m s^-1,8,,0
+bias_by_year,U_l17,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",0.04802194568545065,0.01122658875600583,0.08481730261489548,m s^-1,8,,1
+bias_by_year,U_l17,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",0.0778318085645344,0.03599468388720859,0.1196689332418602,m s^-1,8,,1
+bias_by_year,U_l17,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",0.06532854485721204,-0.004900765481854558,0.13555785519627864,m s^-1,8,,0
+bias_by_year,U_l17,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.006654194811432802,-0.0177985084799743,0.031106898102839904,m s^-1/yr,8,,
+bias_by_year,Z3_l12,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",-1.3800149157805208,-3.1781034501604033,0.4180736185993619,m,8,,0
+bias_by_year,Z3_l12,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",0.2359428757117712,-0.8007538531118017,1.272639604535344,m,8,,0
+bias_by_year,Z3_l12,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.9113658156120437,-2.758061955337241,0.9353303241131536,m,8,,0
+bias_by_year,Z3_l12,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.6801365437777349,-1.823833500579306,0.4635604130238362,m,8,,0
+bias_by_year,Z3_l12,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.9102024147059637,-2.320445056596236,0.5000402271843085,m,8,,0
+bias_by_year,Z3_l12,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.00235455826576899,-0.5673898731924727,0.5720989897240107,m/yr,8,,
+bias_by_year,Z3_l12,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",0.14168094469096104,-1.23379637386825,1.5171582632501721,m,8,,0
+bias_by_year,Z3_l12,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",1.4601177327376718,-0.43033633616204003,3.3505718016373836,m,8,,0
+bias_by_year,Z3_l12,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.6482840120343099,-1.2829076195229845,2.5794756435916044,m,8,,0
+bias_by_year,Z3_l12,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",1.242968080441642,-1.1177768514033177,3.603713012286602,m,8,,0
+bias_by_year,Z3_l12,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",0.11431931281640573,-2.7303920694279507,2.959030695060762,m,8,,0
+bias_by_year,Z3_l12,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.02718729160447854,-0.8300181423568208,0.7756435591478638,m/yr,8,,
+bias_by_year,Z3_l12,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",-1.020274059190342,-2.879868376667741,0.8393202582870569,m,8,,0
+bias_by_year,Z3_l12,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",0.12055273805708566,-2.04286583878068,2.2839713148948513,m,8,,0
+bias_by_year,Z3_l12,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",-2.011924864102184,-4.428636951558136,0.4047872233537677,m,8,,0
+bias_by_year,Z3_l12,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",-1.3904626392777573,-3.9273609669883385,1.146435688432824,m,8,,0
+bias_by_year,Z3_l12,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",-2.2394750076482524,-3.565627020594757,-0.9133229947017476,m,8,,1
+bias_by_year,Z3_l12,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.394941727425158,-0.7780222496334591,-0.011861205216856852,m/yr,8,,
+bias_by_year,Z3_l12,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",0.2627782255249258,-0.9402307535361816,1.4657872045860332,m,8,,0
+bias_by_year,Z3_l12,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",0.7754602781869835,-0.9387732521589502,2.489693808532917,m,8,,0
+bias_by_year,Z3_l12,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.07206739317643951,-1.310424791562211,1.45455957791509,m,8,,0
+bias_by_year,Z3_l12,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.2052399693411644,-1.456123197663948,1.8666031363462767,m,8,,0
+bias_by_year,Z3_l12,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.27879599424340995,-1.8546393356731177,1.2970473471862978,m,8,,0
+bias_by_year,Z3_l12,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.16533687483831935,-0.5090041955675936,0.1783304458909549,m/yr,8,,
+bias_by_year,Z3_l12,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.6800092369985578,-2.669697448657871,1.3096789746607553,m,8,,0
+bias_by_year,Z3_l12,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",0.25452843211951404,-1.4063416298506137,1.9153984940896418,m,8,,0
+bias_by_year,Z3_l12,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.8909638250934222,-2.9857444997438187,1.2038168495569743,m,8,,0
+bias_by_year,Z3_l12,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.3306742581407889,-1.5466745594141595,0.8853260431325818,m,8,,0
+bias_by_year,Z3_l12,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.8803334089388954,-2.3652792294449227,0.6046124115671319,m,8,,0
+bias_by_year,Z3_l12,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0985851034140176,-0.3899372344282181,0.19276702760018288,m/yr,8,,
+bias_by_year,PS,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.001744617667327475,-0.012551650167792985,0.009062414833138036,hPa,8,,0
+bias_by_year,PS,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",0.003216842190568059,-0.00491249978118569,0.011346184162321808,hPa,8,,0
+bias_by_year,PS,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.003903328070578027,-0.011310141412674017,0.0035034852715179633,hPa,8,,0
+bias_by_year,PS,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.0002088008781129247,-0.00871257897265523,0.00829497721642938,hPa,8,,0
+bias_by_year,PS,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.0051873455088298215,-0.012611193732918257,0.002236502715258615,hPa,8,,0
+bias_by_year,PS,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0010311098751936327,-0.005048714026608611,0.0029864942762213463,hPa/yr,8,,
+bias_by_year,PS,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",0.007173323572374102,-0.002806116095071174,0.017152763239819378,hPa,8,,0
+bias_by_year,PS,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",0.012409417823391777,-7.102760768212812e-05,0.024889863254465683,hPa,8,,0
+bias_by_year,PS,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.008297746163179909,-0.000953640001849906,0.017549132328209725,hPa,8,,0
+bias_by_year,PS,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",0.013510522904994104,-0.001974187884324477,0.028995233694312686,hPa,8,,0
+bias_by_year,PS,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",0.006731861578259668,-0.008912509395060508,0.022376232551579844,hPa,8,,0
+bias_by_year,PS,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),2.1818109326307718e-05,-0.004496132520409733,0.004539768739062347,hPa/yr,8,,
+bias_by_year,PS,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",0.001637945944025887,-0.008166497094476163,0.011442388982527937,hPa,8,,0
+bias_by_year,PS,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",0.006677985996248026,-0.005664928329995234,0.019020900322491284,hPa,8,,0
+bias_by_year,PS,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.003817984710849487,-0.01667244238924304,0.009036472967544066,hPa,8,,0
+bias_by_year,PS,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",0.0028151845151569432,-0.00794629455142577,0.013576663581739656,hPa,8,,0
+bias_by_year,PS,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.005533317355002509,-0.01859079883334549,0.00752416412334047,hPa,8,,0
+bias_by_year,PS,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0018205328079083567,-0.005808579874589499,0.0021675142587727863,hPa/yr,8,,
+bias_by_year,PS,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",0.012363748048187517,0.0020773045334574105,0.022650191562917622,hPa,8,,1
+bias_by_year,PS,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",0.015480349166864471,0.0036657937716514204,0.02729490456207752,hPa,8,,1
+bias_by_year,PS,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.01000461090279714,-0.005811985720526026,0.025821207526120306,hPa,8,,0
+bias_by_year,PS,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.014276661591452466,0.0024420188287367917,0.02611130435416814,hPa,8,,1
+bias_by_year,PS,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",0.00571023471513854,-0.0028034755605190996,0.01422394499079618,hPa,8,,0
+bias_by_year,PS,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0014510714241205522,-0.004340877481316727,0.0014387346330756222,hPa/yr,8,,
+bias_by_year,PS,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",0.004558348626460429,-0.0067303733115564295,0.01584707056447729,hPa,8,,0
+bias_by_year,PS,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",0.009682783544803897,0.00279199870063374,0.016573568388974055,hPa,8,,1
+bias_by_year,PS,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.0021020404919909197,-0.015259871300498874,0.011055790316517034,hPa,8,,0
+bias_by_year,PS,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",0.005692112899964741,-0.0047056097682993,0.01608983556822878,hPa,8,,0
+bias_by_year,PS,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.0022936577715881867,-0.011836275909350146,0.007248960366173772,hPa,8,,0
+bias_by_year,PS,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.0017694683441199116,-0.00445728960346231,0.0009183529152224871,hPa/yr,8,,
+bias_by_year,TMQ,G4D16,2045,,"annual global-mean bias, mean of runs minus E3SM",-0.02236285081192335,-0.13086799162760027,0.08614229000375355,kg m^-2,8,,0
+bias_by_year,TMQ,G4D16,2046,,"annual global-mean bias, mean of runs minus E3SM",0.02805639767177226,-0.05569354303345651,0.11180633837700103,kg m^-2,8,,0
+bias_by_year,TMQ,G4D16,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.044428818147220994,-0.1204680721326803,0.03161043583823832,kg m^-2,8,,0
+bias_by_year,TMQ,G4D16,2048,,"annual global-mean bias, mean of runs minus E3SM",-0.006805729132125293,-0.09504769817213735,0.08143623990788676,kg m^-2,8,,0
+bias_by_year,TMQ,G4D16,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.057505488880753575,-0.13421159862643428,0.01920062086492713,kg m^-2,8,,0
+bias_by_year,TMQ,G4D16,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.010514740294150116,-0.05152571039611299,0.03049622980781276,kg m^-2/yr,8,,
+bias_by_year,TMQ,G4D36,2045,,"annual global-mean bias, mean of runs minus E3SM",0.06863965276228967,-0.033075587356758696,0.17035489288133804,kg m^-2,8,,0
+bias_by_year,TMQ,G4D36,2046,,"annual global-mean bias, mean of runs minus E3SM",0.12195061005900243,-0.006453669596000605,0.25035488971400544,kg m^-2,8,,0
+bias_by_year,TMQ,G4D36,2047,,"annual global-mean bias, mean of runs minus E3SM",0.08017891238187858,-0.015805848894172247,0.1761636736579294,kg m^-2,8,,0
+bias_by_year,TMQ,G4D36,2048,,"annual global-mean bias, mean of runs minus E3SM",0.13321555723033995,-0.02561925343280569,0.2920503678934856,kg m^-2,8,,0
+bias_by_year,TMQ,G4D36,2049,,"annual global-mean bias, mean of runs minus E3SM",0.06421529717257712,-0.09535841471281481,0.22378900905796906,kg m^-2,8,,0
+bias_by_year,TMQ,G4D36,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),0.00024162359919468893,-0.04583064192152744,0.04631388911991682,kg m^-2/yr,8,,
+bias_by_year,TMQ,G4D43,2045,,"annual global-mean bias, mean of runs minus E3SM",0.012135882917498009,-0.08816019924668347,0.11243196508167949,kg m^-2,8,,0
+bias_by_year,TMQ,G4D43,2046,,"annual global-mean bias, mean of runs minus E3SM",0.06350214652614383,-0.060403770873126594,0.18740806392541426,kg m^-2,8,,0
+bias_by_year,TMQ,G4D43,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.04329391494359669,-0.1747358783988688,0.08814804851167543,kg m^-2,8,,0
+bias_by_year,TMQ,G4D43,2048,,"annual global-mean bias, mean of runs minus E3SM",0.024296651673076042,-0.08445314828337558,0.13304645162952766,kg m^-2,8,,0
+bias_by_year,TMQ,G4D43,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.06073100467914827,-0.19495553469651675,0.0734935253382202,kg m^-2,8,,0
+bias_by_year,TMQ,G4D43,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.01849392700462773,-0.05915324029449992,0.022165386285244462,kg m^-2/yr,8,,
+bias_by_year,TMQ,G4D56,2045,,"annual global-mean bias, mean of runs minus E3SM",0.12143655048771862,0.017387055930921297,0.22548604504451594,kg m^-2,8,,1
+bias_by_year,TMQ,G4D56,2046,,"annual global-mean bias, mean of runs minus E3SM",0.15302664878342398,0.03117691052547228,0.2748763870413757,kg m^-2,8,,1
+bias_by_year,TMQ,G4D56,2047,,"annual global-mean bias, mean of runs minus E3SM",0.09726514031009614,-0.06351850207381582,0.2580487826940081,kg m^-2,8,,0
+bias_by_year,TMQ,G4D56,2048,,"annual global-mean bias, mean of runs minus E3SM",0.1407248170692874,0.018120629663744253,0.26332900447483054,kg m^-2,8,,1
+bias_by_year,TMQ,G4D56,2049,,"annual global-mean bias, mean of runs minus E3SM",0.0532904698864769,-0.03406479036800851,0.14064573014096232,kg m^-2,8,,0
+bias_by_year,TMQ,G4D56,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.014859399291656574,-0.04441508027367068,0.014696281690357528,kg m^-2/yr,8,,
+bias_by_year,TMQ,G4D63,2045,,"annual global-mean bias, mean of runs minus E3SM",0.041958519243856074,-0.07334592110407649,0.15726295959178865,kg m^-2,8,,0
+bias_by_year,TMQ,G4D63,2046,,"annual global-mean bias, mean of runs minus E3SM",0.09431979990925754,0.02356557196921688,0.1650740278492982,kg m^-2,8,,1
+bias_by_year,TMQ,G4D63,2047,,"annual global-mean bias, mean of runs minus E3SM",-0.025687908362893808,-0.15855097720572653,0.10717516047993891,kg m^-2,8,,0
+bias_by_year,TMQ,G4D63,2048,,"annual global-mean bias, mean of runs minus E3SM",0.053660600561343585,-0.05306061366689277,0.16038181478957994,kg m^-2,8,,0
+bias_by_year,TMQ,G4D63,2049,,"annual global-mean bias, mean of runs minus E3SM",-0.02779513962167357,-0.12317997724190197,0.06758969799855483,kg m^-2,8,,0
+bias_by_year,TMQ,G4D63,2045-2049,,linear trend of the annual global-mean bias (per year); 95% interval inflated sqrt(1/n+1),-0.018016651707890977,-0.045258333568248266,0.009225030152466313,kg m^-2/yr,8,,
+hovmoller_TREFHT,TREFHT,G4D16,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.5924632913777377,,,K,8,10.905017921146953,
+hovmoller_TREFHT,TREFHT,G4D36,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.6195426175663487,,,K,8,13.07347670250896,
+hovmoller_TREFHT,TREFHT,G4D43,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.6007424670151829,,,K,8,4.086021505376344,
+hovmoller_TREFHT,TREFHT,G4D56,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.6409861926208592,,,K,8,9.758064516129032,
+hovmoller_TREFHT,TREFHT,G4D63,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.7233839445818306,,,K,8,30.376344086021508,
+hovmoller_PRECT,PRECT,G4D16,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.35306169394802084,,,mm day^-1,8,0.008960573476702509,
+hovmoller_PRECT,PRECT,G4D36,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.3464231316731851,,,mm day^-1,8,0.008960573476702509,
+hovmoller_PRECT,PRECT,G4D43,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.3577253350234489,,,mm day^-1,8,0.0,
+hovmoller_PRECT,PRECT,G4D56,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.35012100696730786,,,mm day^-1,8,0.2060931899641577,
+hovmoller_PRECT,PRECT,G4D63,,2044-11 to 2049-12,area-weighted RMS of zonal-mean bias over latitudes and months,0.3968812396956815,,,mm day^-1,8,0.044802867383512544,
+annual_bias_TREFHT,TREFHT,G4D16,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5518936082732334,0.5391432887926041,0.5709736942607231,K,8,25.781602525717968,
+annual_bias_TREFHT,TREFHT,G4D36,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5645363725869447,0.5434210153621751,0.5938590429603782,K,8,30.263838108307812,
+annual_bias_TREFHT,TREFHT,G4D43,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5424437851444688,0.5228068203084947,0.5716505140468872,K,8,22.015719536683832,
+annual_bias_TREFHT,TREFHT,G4D56,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5945348471186955,0.5743623677776031,0.6334240876472114,K,8,27.393172824134975,
+annual_bias_TREFHT,TREFHT,G4D63,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5731480756922148,0.5578996972687906,0.5927933649968193,K,8,31.536304955147877,
+annual_bias_TREFHT,TREFHT,G4D16,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.832807210439827,0.8087030417698281,0.8588071928809836,K,8,43.16545533047867,
+annual_bias_TREFHT,TREFHT,G4D36,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8171889855875608,0.802734225104341,0.8362107357140997,K,8,43.83647883118301,
+annual_bias_TREFHT,TREFHT,G4D43,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.754516365961295,0.7365946364034618,0.7837931490132519,K,8,32.657153753798404,
+annual_bias_TREFHT,TREFHT,G4D56,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.83135545682242,0.8132934530020668,0.8541339116442501,K,8,39.458744527493664,
+annual_bias_TREFHT,TREFHT,G4D63,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8720490477321793,0.8593164127815,0.8897760431211774,K,8,49.71437197419449,
+annual_bias_TREFHT,TREFHT,G4D16,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8778972820320683,0.8684669526301594,0.8908076520761002,K,8,45.80229298661104,
+annual_bias_TREFHT,TREFHT,G4D36,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8167645113137425,0.8045200905253441,0.8314624806061073,K,8,43.11975563154037,
+annual_bias_TREFHT,TREFHT,G4D43,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8284649426128945,0.8137466603409157,0.8482765540558816,K,8,34.775111077649605,
+annual_bias_TREFHT,TREFHT,G4D56,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9112739855326775,0.8925159088353095,0.9379625132870896,K,8,37.658331200955146,
+annual_bias_TREFHT,TREFHT,G4D63,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9444439186139415,0.9251561047534991,0.9709350485808091,K,8,49.0877966900402,
+annual_bias_TREFHT,TREFHT,G4D16,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9475664882058419,0.9287221590436057,0.9727993932149226,K,8,48.1008011257935,
+annual_bias_TREFHT,TREFHT,G4D36,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8950460272353115,0.8840698657224173,0.9095790881763727,K,8,43.93444796483905,
+annual_bias_TREFHT,TREFHT,G4D43,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.8815055117141609,0.8669645657823153,0.9026231246919104,K,8,35.49790968092719,
+annual_bias_TREFHT,TREFHT,G4D56,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9777233434442445,0.9561138336504423,1.003789741679127,K,8,40.15056084772346,
+annual_bias_TREFHT,TREFHT,G4D63,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",1.0083377690303463,0.9834650098556421,1.03505047795524,K,8,50.58908415783125,
+annual_bias_TREFHT,TREFHT,G4D16,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9293420359954,0.9152552168022512,0.9500848778752391,K,8,47.3536903425656,
+annual_bias_TREFHT,TREFHT,G4D36,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.892960119395822,0.8746176909344967,0.9146765402064172,K,8,43.361740817926886,
+annual_bias_TREFHT,TREFHT,G4D43,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9305587774363273,0.9205730643688367,0.9444648050021973,K,8,34.30964388951722,
+annual_bias_TREFHT,TREFHT,G4D56,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.9614073684428587,0.943118911551932,0.9849314459129774,K,8,39.21880465259687,
+annual_bias_TREFHT,TREFHT,G4D63,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",1.0129651532946846,0.999240424113107,1.0307932068293486,K,8,50.84680492057553,
+annual_bias_PRECT,PRECT,G4D16,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.4805046557769869,0.4612741231622477,0.5126250755117832,mm day^-1,8,0.38020364899314585,
+annual_bias_PRECT,PRECT,G4D36,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.4646010770700862,0.4458194238380829,0.49705091486090475,mm day^-1,8,0.37968371830606124,
+annual_bias_PRECT,PRECT,G4D43,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.47734442630367285,0.44724246406094964,0.527773827743499,mm day^-1,8,0.5729240190581623,
+annual_bias_PRECT,PRECT,G4D56,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.493014660118554,0.4717287240954728,0.5286313548716487,mm day^-1,8,0.5536014421750456,
+annual_bias_PRECT,PRECT,G4D63,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.49425732004162326,0.4720840241239139,0.5294605441150689,mm day^-1,8,0.9853274403480154,
+annual_bias_PRECT,PRECT,G4D16,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6070940801110387,0.5745907504933011,0.6554102725433237,mm day^-1,8,0.4830507872597537,
+annual_bias_PRECT,PRECT,G4D36,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5446172672504598,0.5275311912225172,0.5728882578422078,mm day^-1,8,0.9949991512125379,
+annual_bias_PRECT,PRECT,G4D43,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5594085118615987,0.5221343756748386,0.6075608863910625,mm day^-1,8,0.5557913116678926,
+annual_bias_PRECT,PRECT,G4D56,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5542260996946139,0.5359299248141853,0.5800240148979185,mm day^-1,8,1.9456981838857645,
+annual_bias_PRECT,PRECT,G4D63,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5873791177412663,0.558873483836676,0.6249011780182774,mm day^-1,8,2.174871990224974,
+annual_bias_PRECT,PRECT,G4D16,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5288363116093971,0.5062104707031307,0.5623749230042517,mm day^-1,8,0.11441079759438233,
+annual_bias_PRECT,PRECT,G4D36,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.4996667203146837,0.4788881696735062,0.5331950974402232,mm day^-1,8,0.3909330620305362,
+annual_bias_PRECT,PRECT,G4D43,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5321063927907522,0.5130031073834348,0.5610069197507936,mm day^-1,8,0.3128052247853978,
+annual_bias_PRECT,PRECT,G4D56,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5548490065454786,0.524751343527216,0.5987843808635759,mm day^-1,8,1.167696728244484,
+annual_bias_PRECT,PRECT,G4D63,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6310376198377123,0.6072727425479906,0.6702061762220126,mm day^-1,8,2.311116389887391,
+annual_bias_PRECT,PRECT,G4D16,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5728325354118482,0.5492408575895474,0.6091854807787874,mm day^-1,8,1.087516666810594,
+annual_bias_PRECT,PRECT,G4D36,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5971192677412025,0.5718562442394902,0.6367850036887053,mm day^-1,8,0.6556551668395382,
+annual_bias_PRECT,PRECT,G4D43,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5845465541322493,0.564831666148158,0.6134903293202784,mm day^-1,8,1.775983165044453,
+annual_bias_PRECT,PRECT,G4D56,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5667934687360837,0.5350016092836574,0.6149809728402094,mm day^-1,8,1.9272102145168002,
+annual_bias_PRECT,PRECT,G4D63,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5846573812848288,0.565249683646603,0.6128878024155932,mm day^-1,8,1.31367859987543,
+annual_bias_PRECT,PRECT,G4D16,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5520331389319699,0.5230252504256389,0.5934023188341551,mm day^-1,8,0.7656979781692498,
+annual_bias_PRECT,PRECT,G4D36,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5250161596708273,0.5008655188460023,0.5601092620053553,mm day^-1,8,0.4972453497777929,
+annual_bias_PRECT,PRECT,G4D43,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5875818572494399,0.5508251553237812,0.6366699471272299,mm day^-1,8,0.4732508651865419,
+annual_bias_PRECT,PRECT,G4D56,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.57181793979113,0.5377331675194533,0.6236849769544616,mm day^-1,8,2.3690861163557613,
+annual_bias_PRECT,PRECT,G4D63,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6131054806560527,0.5898289736106437,0.649918259585318,mm day^-1,8,2.9477932325378724,
+annual_bias_U10,U10,G4D16,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.312920307878516,0.29774273066786616,0.33456452270672593,m s^-1,8,5.018726579680034,
+annual_bias_U10,U10,G4D36,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.31850328857025134,0.3036112316247029,0.33772972772687543,m s^-1,8,5.4038099005847515,
+annual_bias_U10,U10,G4D43,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3306966391983917,0.3149990801042738,0.3520023628823461,m s^-1,8,6.288113293945677,
+annual_bias_U10,U10,G4D56,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3290623208725059,0.3121564539977286,0.351329517467965,m s^-1,8,5.004292548007359,
+annual_bias_U10,U10,G4D63,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3308263936741975,0.31477230469470213,0.3522481975531005,m s^-1,8,7.205531629816752,
+annual_bias_U10,U10,G4D16,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.2979941292050825,0.2873107168645367,0.3144624052979967,m s^-1,8,5.079270526620113,
+annual_bias_U10,U10,G4D36,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.2873415063616631,0.27447168390928556,0.3060944567205217,m s^-1,8,5.2494123760619145,
+annual_bias_U10,U10,G4D43,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.2947036126691966,0.2785838319258543,0.3175500456625086,m s^-1,8,5.091283368872193,
+annual_bias_U10,U10,G4D56,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.32163693343858213,0.31242493924189596,0.3348337442791821,m s^-1,8,6.751187172864304,
+annual_bias_U10,U10,G4D63,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.31690431085250437,0.30027006999777117,0.34048058988817004,m s^-1,8,7.327574362125117,
+annual_bias_U10,U10,G4D16,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.2901357977754306,0.27306066283074387,0.31195361350471484,m s^-1,8,5.101937596670668,
+annual_bias_U10,U10,G4D36,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.30365134562215296,0.28873229612702,0.3260226969237049,m s^-1,8,4.575856944508641,
+annual_bias_U10,U10,G4D43,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.320825172247057,0.3107243309939093,0.33811360714931543,m s^-1,8,7.668194622797339,
+annual_bias_U10,U10,G4D56,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3365221341775211,0.31449596959995896,0.3627881944182815,m s^-1,8,8.470378489550495,
+annual_bias_U10,U10,G4D63,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3766143094111405,0.35132275056347684,0.4090634455237466,m s^-1,8,11.497102059093347,
+annual_bias_U10,U10,G4D16,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.2932629097080058,0.28391398275857743,0.31046471059018005,m s^-1,8,5.288861731392072,
+annual_bias_U10,U10,G4D36,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3007104002496643,0.288836857876032,0.3183876220392113,m s^-1,8,4.5565272975707,
+annual_bias_U10,U10,G4D43,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3106198716637926,0.2958434221730253,0.3327721921934426,m s^-1,8,6.330185671368138,
+annual_bias_U10,U10,G4D56,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.2953225295556232,0.2831549536450586,0.3156549395783253,m s^-1,8,6.542115141907489,
+annual_bias_U10,U10,G4D63,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.328069407506028,0.30782867744767045,0.35319411978972387,m s^-1,8,6.5486481042576425,
+annual_bias_U10,U10,G4D16,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3302471033327614,0.3138130920810357,0.35603240356653637,m s^-1,8,6.0960960676160685,
+annual_bias_U10,U10,G4D36,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3430222630117663,0.32590084343443476,0.36444030776656977,m s^-1,8,5.331864235917648,
+annual_bias_U10,U10,G4D43,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3647657526726191,0.34848794010449663,0.38731716421222045,m s^-1,8,6.618981122572336,
+annual_bias_U10,U10,G4D56,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3573650004946768,0.3408012008764264,0.3784102400036357,m s^-1,8,8.1002681786592,
+annual_bias_U10,U10,G4D63,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.3895876379961424,0.37840985028563856,0.40486368158542596,m s^-1,8,11.110385826760554,
+annual_bias_U_l17,U_l17,G4D16,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5543381854407196,0.5106383084041203,0.6093199236489572,m s^-1,8,1.8371306171784136,
+annual_bias_U_l17,U_l17,G4D36,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5807445097274855,0.5420744020993594,0.6239363098847411,m s^-1,8,2.887735361096615,
+annual_bias_U_l17,U_l17,G4D43,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5882507267179276,0.5548987766094376,0.634176256438922,m s^-1,8,2.635830201576026,
+annual_bias_U_l17,U_l17,G4D56,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6053537274382362,0.5682548261373571,0.6519526541898454,m s^-1,8,2.5548345018554013,
+annual_bias_U_l17,U_l17,G4D63,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6033338746097182,0.5570904344306097,0.6588528869712851,m s^-1,8,2.3298591744816592,
+annual_bias_U_l17,U_l17,G4D16,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5641966648249794,0.5368573476685096,0.6032036212306382,m s^-1,8,3.48778893912743,
+annual_bias_U_l17,U_l17,G4D36,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5316986998680121,0.4867172126769501,0.6004093535755525,m s^-1,8,1.7124348325157408,
+annual_bias_U_l17,U_l17,G4D43,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.4948710513675809,0.4686336095590625,0.5313462451665147,m s^-1,8,2.8053399211070023,
+annual_bias_U_l17,U_l17,G4D56,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5242479675910715,0.5042435770037704,0.5572174377945311,m s^-1,8,4.270690117789539,
+annual_bias_U_l17,U_l17,G4D63,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5001295369217894,0.46189390364148797,0.546646408321477,m s^-1,8,2.569949874136995,
+annual_bias_U_l17,U_l17,G4D16,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5288776602932594,0.4708591032541157,0.6001608331480747,m s^-1,8,2.173361990011288,
+annual_bias_U_l17,U_l17,G4D36,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5558044226231106,0.5143095069032662,0.608346357689839,m s^-1,8,2.586815847081038,
+annual_bias_U_l17,U_l17,G4D43,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6210478734657523,0.591906307927951,0.6618418810512177,m s^-1,8,5.223366648072799,
+annual_bias_U_l17,U_l17,G4D56,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6098761385204788,0.5523414809673477,0.6783797766922712,m s^-1,8,6.163442970420763,
+annual_bias_U_l17,U_l17,G4D63,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.7085158124799374,0.6530940445444867,0.7784639771932734,m s^-1,8,8.846292068619942,
+annual_bias_U_l17,U_l17,G4D16,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.4743983779237899,0.44782732576644635,0.5121619496633076,m s^-1,8,3.7681192126969147,
+annual_bias_U_l17,U_l17,G4D36,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5237960941772873,0.4957217116154329,0.561081807949621,m s^-1,8,4.205747941291488,
+annual_bias_U_l17,U_l17,G4D43,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5259497020497981,0.4839552127023328,0.5848676226578954,m s^-1,8,4.827983381426265,
+annual_bias_U_l17,U_l17,G4D56,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.48634824773489704,0.4650569205024074,0.5209817592519164,m s^-1,8,5.951052126894665,
+annual_bias_U_l17,U_l17,G4D63,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5332058458827221,0.481018904020858,0.6057872931691116,m s^-1,8,4.690889230165049,
+annual_bias_U_l17,U_l17,G4D16,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.5977726693099243,0.5504716009064444,0.6459799229220345,m s^-1,8,3.696737876113613,
+annual_bias_U_l17,U_l17,G4D36,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6682480835598145,0.6163709791269248,0.7326703165306518,m s^-1,8,3.5446920366579406,
+annual_bias_U_l17,U_l17,G4D43,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6965547391310305,0.6395604308825176,0.7713165548391858,m s^-1,8,7.232548693041194,
+annual_bias_U_l17,U_l17,G4D56,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6557408889546247,0.6263072608663092,0.6975938482914197,m s^-1,8,6.224039556389381,
+annual_bias_U_l17,U_l17,G4D63,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",0.6802563971276756,0.6516977856726972,0.715399103882865,m s^-1,8,8.280981125711328,
+annual_bias_Z3_l12,Z3_l12,G4D16,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",44.60296740935817,43.77544871331936,45.5427239319977,m,8,43.78222275792447,
+annual_bias_Z3_l12,Z3_l12,G4D36,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",37.35176454588463,36.74997375805619,38.16948577763149,m,8,44.06734953373772,
+annual_bias_Z3_l12,Z3_l12,G4D43,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",35.06113506889519,34.201703997250426,35.96618777187383,m,8,34.501879393633246,
+annual_bias_Z3_l12,Z3_l12,G4D56,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",42.79978446792622,41.869687045610256,43.785585896454045,m,8,44.00278542823857,
+annual_bias_Z3_l12,Z3_l12,G4D63,2045,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",39.74193135771036,38.6428391216421,40.89885850300137,m,8,44.12724212518924,
+annual_bias_Z3_l12,Z3_l12,G4D16,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",71.28213988923437,70.71082381741894,71.868524498877,m,8,56.13453855479054,
+annual_bias_Z3_l12,Z3_l12,G4D36,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",58.7671805615143,58.23694841938091,59.40597435542733,m,8,55.320481490816995,
+annual_bias_Z3_l12,Z3_l12,G4D43,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",57.09563447543567,56.46836481786733,57.85667092401224,m,8,44.73076103729547,
+annual_bias_Z3_l12,Z3_l12,G4D56,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",64.74990361310967,64.27669550507075,65.35353370874728,m,8,54.139142990269775,
+annual_bias_Z3_l12,Z3_l12,G4D63,2046,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",63.23283210714623,62.55468395579227,63.982969026301824,m,8,58.16340838022376,
+annual_bias_Z3_l12,Z3_l12,G4D16,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",84.98237728213084,84.33594975683997,85.68939508009939,m,8,59.95817048671138,
+annual_bias_Z3_l12,Z3_l12,G4D36,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",68.67594802283288,67.81713498135855,69.6501664640178,m,8,58.232760915753246,
+annual_bias_Z3_l12,Z3_l12,G4D43,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",67.55430163957843,66.99753113977948,68.23591491932197,m,8,46.93329879221586,
+annual_bias_Z3_l12,Z3_l12,G4D56,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",73.86733000844627,73.22339589068957,74.63122699593482,m,8,56.918324257382565,
+annual_bias_Z3_l12,Z3_l12,G4D63,2047,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",75.20797551462485,74.08253409604043,76.57737719127029,m,8,62.003071207220614,
+annual_bias_Z3_l12,Z3_l12,G4D16,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",90.6494821325815,89.98455878706935,91.33872329509384,m,8,62.998809191992876,
+annual_bias_Z3_l12,Z3_l12,G4D36,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",72.03234192147059,71.25709059120028,73.09796715052863,m,8,56.23485964224416,
+annual_bias_Z3_l12,Z3_l12,G4D43,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",73.19789448871099,72.74867345739254,73.68452414871392,m,8,49.930678627299635,
+annual_bias_Z3_l12,Z3_l12,G4D56,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",77.43099223981207,77.03026694298391,77.89151979756575,m,8,58.731625164327106,
+annual_bias_Z3_l12,Z3_l12,G4D63,2048,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",79.34297754569255,78.1250429119303,80.81981816958792,m,8,58.56916683949523,
+annual_bias_Z3_l12,Z3_l12,G4D16,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",95.54571137528679,94.536044479812,96.50099811108439,m,8,63.73069927282871,
+annual_bias_Z3_l12,Z3_l12,G4D36,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",76.61862559686965,75.6680460331057,77.63156088364558,m,8,58.49454255901766,
+annual_bias_Z3_l12,Z3_l12,G4D43,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",77.79874086665832,77.22678273600718,78.49008544499733,m,8,46.43733587159159,
+annual_bias_Z3_l12,Z3_l12,G4D56,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",80.42168524643907,79.87869681208045,81.04105047901419,m,8,60.19898145585465,
+annual_bias_Z3_l12,Z3_l12,G4D63,2049,,"global RMS of annual-mean ensemble-mean bias (model - E3SM); CI = bootstrap over runs, re-centred",84.04197351892972,82.84532698226536,85.4497964666642,m,8,59.30768391631024,

@@ -1,0 +1,341 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/claims_5yr.json",
+ "campaign": "G4D five-year figures",
+ "register": "five-year runs, 2045-2049 (selection window 2045-2047)",
+ "quote_source": "Claude's report 2026-11-03",
+ "date_utc": "2026-11-04T16:52:50Z",
+ "receipts": [
+  {
+   "alias": "s",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/summary_5yr_index.json",
+   "mtime_utc": "2026-11-03T05:37:01Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 32,
+ "matches": 32,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "gates",
+   "label": "G4D16 re-roll float32 cells identical",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D16 re-roll cells compared",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D36 re-roll float32 cells identical",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D36 re-roll cells compared",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D43 re-roll float32 cells identical",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D43 re-roll cells compared",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D56 re-roll float32 cells identical",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D56 re-roll cells compared",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D63 re-roll float32 cells identical",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "G4D63 re-roll cells compared",
+   "mode": "printed",
+   "quoted": "2,592,000",
+   "note": "",
+   "emitted": 2592000,
+   "emitted_printed": "2592000",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "max e rel diff (G4D63)",
+   "mode": "exact",
+   "quoted": "2.98e-16",
+   "note": "",
+   "emitted": "2.98e-16",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "truth 2045 max rel diff",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0.0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "truth 2046 max rel diff",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0.0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "gates",
+   "label": "truth 2047 max rel diff",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0.0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "global mean",
+   "label": "max |TREFHT| annual global bias K",
+   "mode": "printed",
+   "quoted": "0.08",
+   "note": "",
+   "emitted": 0.07823935797574677,
+   "emitted_printed": "0.08",
+   "status": "MATCH"
+  },
+  {
+   "section": "global mean",
+   "label": "max |PS| annual global bias hPa",
+   "mode": "printed",
+   "quoted": "0.015",
+   "note": "",
+   "emitted": 0.015480349166864471,
+   "emitted_printed": "0.015",
+   "status": "MATCH"
+  },
+  {
+   "section": "global mean",
+   "label": "max |TMQ| annual global bias kg/m2",
+   "mode": "printed",
+   "quoted": "0.15",
+   "note": "",
+   "emitted": 0.15302664878342398,
+   "emitted_printed": "0.15",
+   "status": "MATCH"
+  },
+  {
+   "section": "global mean",
+   "label": "TREFHT trends with CI excluding 0",
+   "mode": "printed",
+   "quoted": "0",
+   "note": "",
+   "emitted": 0,
+   "emitted_printed": "0",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2045 min",
+   "mode": "printed",
+   "quoted": "0.54",
+   "note": "",
+   "emitted": 0.5424437851444688,
+   "emitted_printed": "0.54",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2045 max",
+   "mode": "printed",
+   "quoted": "0.59",
+   "note": "",
+   "emitted": 0.5945348471186955,
+   "emitted_printed": "0.59",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2046-2049 min",
+   "mode": "printed",
+   "quoted": "0.75",
+   "note": "",
+   "emitted": 0.754516365961295,
+   "emitted_printed": "0.75",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual maps",
+   "label": "TREFHT RMS 2046-2049 max",
+   "mode": "printed",
+   "quoted": "1.01",
+   "note": "",
+   "emitted": 1.0129651532946846,
+   "emitted_printed": "1.01",
+   "status": "MATCH"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2045 min",
+   "mode": "printed",
+   "quoted": "-0.18",
+   "note": "",
+   "emitted": -0.17525287255848435,
+   "emitted_printed": "-0.18",
+   "status": "MATCH"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2045 max",
+   "mode": "printed",
+   "quoted": "0.31",
+   "note": "",
+   "emitted": 0.309867339643449,
+   "emitted_printed": "0.31",
+   "status": "MATCH"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2046 min",
+   "mode": "printed",
+   "quoted": "0.50",
+   "note": "",
+   "emitted": 0.5041853782233224,
+   "emitted_printed": "0.50",
+   "status": "MATCH"
+  },
+  {
+   "section": "bands",
+   "label": "south of 60S mean bias 2046 max",
+   "mode": "printed",
+   "quoted": "1.38",
+   "note": "",
+   "emitted": 1.3816583917715541,
+   "emitted_printed": "1.38",
+   "status": "MATCH"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D16 % cells significant",
+   "mode": "printed",
+   "quoted": "11",
+   "note": "",
+   "emitted": 10.905017921146953,
+   "emitted_printed": "11",
+   "status": "MATCH"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D36 % cells significant",
+   "mode": "printed",
+   "quoted": "13",
+   "note": "",
+   "emitted": 13.07347670250896,
+   "emitted_printed": "13",
+   "status": "MATCH"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D43 % cells significant",
+   "mode": "printed",
+   "quoted": "4",
+   "note": "",
+   "emitted": 4.086021505376344,
+   "emitted_printed": "4",
+   "status": "MATCH"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D56 % cells significant",
+   "mode": "printed",
+   "quoted": "10",
+   "note": "",
+   "emitted": 9.758064516129032,
+   "emitted_printed": "10",
+   "status": "MATCH"
+  },
+  {
+   "section": "hovmoller",
+   "label": "TREFHT G4D63 % cells significant",
+   "mode": "printed",
+   "quoted": "30",
+   "note": "",
+   "emitted": 30.376344086021508,
+   "emitted_printed": "30",
+   "status": "MATCH"
+  },
+  {
+   "section": "hovmoller",
+   "label": "PRECT max % cells significant",
+   "mode": "printed",
+   "quoted": "0.2",
+   "note": "",
+   "emitted": 0.2060931899641577,
+   "emitted_printed": "0.2",
+   "status": "MATCH"
+  }
+ ]
+}
