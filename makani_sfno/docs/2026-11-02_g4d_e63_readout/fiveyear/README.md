@@ -56,8 +56,11 @@ All numbers are emitall-checked (`claims_5yr.json` → 32/32 MATCH against `summ
     intervals excludes zero (Z3_l12, G4D43), about what chance gives at 95 %.
   - Month to month, all five checkpoints' biases move together (`ts_bias_all.png`). That co-movement is E3SM's own
     single-realisation weather, not model drift.
-- **The spatial TREFHT bias grows during the first ~15 months, then stays flat.**
+- **The spatial TREFHT bias grows fast during the first ~15 months, then more slowly.**
   - Annual pattern RMS: 0.54–0.59 K in 2045, then 0.75–1.01 K in 2046–2049, for every checkpoint.
+  - *Corrected 11-04.* This bullet first said "then stays flat". The per-year values keep rising after 2046:
+    G4D16 goes from 0.833 K in 2046 to 0.948 K in 2048, and G4D43 from 0.755 K to 0.931 K by 2049. In every
+    checkpoint, 2048 or 2049 is above 2046 (`claims_window.json`).
   - The rise sits at high latitudes. The mean bias south of 60°S goes from −0.18…+0.31 K in 2045 to
     +0.50…+1.38 K in 2046, mostly in austral winter (`hovmoller_TREFHT.png`). The northern high latitudes warm in
     winter too.
@@ -79,6 +82,40 @@ unchanged).
 frozen. These figures plot it for G4D16/36/43/56/63, after the pick (G4D16) and the stop decision were made. No
 choice was made on it, but for these five checkpoints it is no longer an unseen hold-out.
 
+## 2048–2049 bias maps (2026-11-04)
+
+**Why.** The operator asked for the reporting window as a map: `bias_maps.png` shows 2045–2047 only, the years the
+checkpoints were ranked on. This is descriptive and selects nothing.
+
+**How** (`plot_window_bias.py`, debug job 7813261, `WINDOW_BIAS_OK`).
+- **Method.** `bias_maps.png`'s method, with the same tests, re-centred CI and colour limits per variable, run
+  through the same code (`plot_maps.fig_bias`). The refactor that made it reusable re-renders all 18 published
+  PNGs and `summary_table.csv` byte-identically (checked in the same job).
+- **The 2048–2049 mean** is the equal-weight mean of the 2048 and 2049 annual means. This holds because every
+  year has the same frame count.
+  - Gate 1: the 2045–2047 annual means rebuild the scorer's 2045–2047 window means to ≤ 8.9e-8 relative (float32
+    storage), for E3SM and every member.
+  - Gate 2: 1459 frames in every year, for every member and E3SM.
+- **Like-for-like row.** `summary_window_bias.csv` also has 2046–2047. That window is two years long like
+  2048–2049, inside the selection window, and after the fast early growth. Comparing 2048–2049 with the 3-year
+  2045–2047 instead would mix in a shorter, noisier average and that early growth.
+
+**Results** (`claims_window.json`: 43/43 MATCH).
+- **The bias is larger in 2048–2049.** It exceeds 2046–2047 in 23 of 25 variable × checkpoint cases. The ratio,
+  2048–2049 over 2046–2047, by variable:
+  - TREFHT 1.093–1.178
+  - PRECT 0.985–1.159
+  - U10 0.995–1.163
+  - U_l17 1.022–1.242
+  - Z3_l12 1.141–1.218
+- **This is mostly growth with time, not the selection effect.**
+  - G4D56 and G4D63, which were not chosen, rise as much as the others.
+  - Z3_l12's annual pattern RMS rises every year in every checkpoint (20 of 20 year steps): G4D16 goes from
+    44.6 m in 2045 to 95.5 m in 2049, and G4D43 from 35.1 m to 77.8 m.
+- **G4D43 has the largest rise in all five variables.** That fits its 2045–2047 numbers being somewhat flattered,
+  but with one seed and one E3SM realisation it is a hint, not a result.
+- **The pick's Z3_l12 weakness holds on unseen years.** G4D16 is 92.9 m against 74.0–81.5 m for the others.
+
 **Superseded figure sets.** These are kept for comparison only.
 - `figures_v1/`: coarse colour scale.
 - `figures_v2_uncentred/`: raw bootstrap CI.
@@ -94,6 +131,8 @@ choice was made on it, but for these five checkpoints it is no longer an unseen 
     statistics. The test runs on the login node's python3.
   - `plot_5yr.py`: figures and `figures/summary_5yr.csv`, which holds every plotted number with its interval.
   - `make_fake_5yr.py`, `smoke/`: the layout smoke (7809296, `FIVEYEAR_SMOKE_OK`).
+  - `plot_window_bias.py`, `polaris_window_bias.pbs`, `window_bias.log`: the 2048–2049 bias maps and the window
+    table. `build_claims_window.py` writes `claims_window.json`.
 
 ## Figures (`figures/`)
 
@@ -104,6 +143,8 @@ choice was made on it, but for these five checkpoints it is no longer an unseen 
 | `bias_by_year.png` | annual global-mean bias, 2045–2049, with 95 % intervals. Filled marker = outside internal variability |
 | `hovmoller_TREFHT.png`, `hovmoller_PRECT.png` | zonal-mean bias, latitude × month, one row per checkpoint |
 | `annual_bias_<VAR>.png` | annual-mean bias maps: rows are 2045–2049, columns are the checkpoints |
+| `bias_maps_2048_2049.png` | bias averaged over 2048–2049 (the reporting window), laid out like `bias_maps.png` and on its colour scale |
+| `summary_window_bias.csv` / `.json` | RMS bias with CI and significant area for 2045–2047, 2046–2047 and 2048–2049 |
 
 Shading or dashed lines mark the selection window, 2045–2047: the years used to rank checkpoints. 2048–2049 were
 never used for selection.

@@ -21,7 +21,8 @@ whether to train G4D further.
 ## Results
 
 All numbers below are checked against their result files with emitall (`claims_final.json`: 30/30 match;
-`figures/claims_figures.json`: 19/19 match; `fiveyear/claims_5yr.json`: 32/32 match).
+`figures/claims_figures.json`: 19/19 match; `fiveyear/claims_5yr.json`: 32/32 match;
+`fiveyear/claims_window.json`: 43/43 match).
 
 **14-day forecasts: longer training keeps helping.** Median RMSE ratio over the 99 shared channels (below 1 =
 more accurate):
@@ -100,9 +101,16 @@ Four more views of the same five-year runs, covering the whole run, 2045–2049,
 - **Source.** The NetCDFs had been deleted for quota, so the runs were re-made. The re-run is bit-identical to the
   scored run in its 2045–2047 means and reproduces the protocol scores (gates in `fiveyear/README.md`).
 - **No global-mean drift** in any checkpoint.
-- **TREFHT.** The spatial bias grows over the first ~15 months, then stays flat. The growth is mostly a
-  high-latitude winter warm bias, largest south of 60°S.
+- **TREFHT.** The spatial bias grows fast over the first ~15 months, then more slowly. The growth is mostly a
+  high-latitude winter warm bias, largest south of 60°S. *Corrected 11-04:* this first said "then stays flat", but
+  the per-year values keep rising after 2046.
 - **PRECT** zonal and annual biases are within internal variability.
+- **2048–2049 bias maps** (`fiveyear/figures/bias_maps_2048_2049.png`, 11-04). The same map as `bias_maps.png`, on
+  its colour scale, for the reporting window. `fiveyear/README.md` has the gates and numbers.
+  - The bias is larger than in 2046–2047, a window of the same length, in 23 of 25 variable × checkpoint cases.
+    This is mostly growth with time rather than the selection effect: the checkpoints that were not chosen rise
+    as much, and Z3_l12's pattern bias rises every year in every checkpoint.
+  - G4D16's Z3_l12 bias stays the largest on these unseen years.
 - **Caveat.** These figures plot 2048–2049, the window the protocol keeps sealed until finalists are frozen. That
   happened after the pick (G4D16) and the stop decision, so no choice was made on it. For these five checkpoints,
   though, it is no longer an unseen hold-out.

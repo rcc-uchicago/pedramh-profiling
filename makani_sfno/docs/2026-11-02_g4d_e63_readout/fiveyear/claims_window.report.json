@@ -1,0 +1,458 @@
+{
+ "run": "emitall",
+ "spec": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/claims_window.json",
+ "campaign": "G4D 2048-2049 bias maps",
+ "register": "reporting window 2048-2049, descriptive",
+ "quote_source": "Claude's report 2026-11-04 and the read-out README",
+ "date_utc": "2026-11-04T17:25:52Z",
+ "receipts": [
+  {
+   "alias": "w",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/figures/summary_window_bias.json",
+   "mtime_utc": "2026-11-04T17:23:28Z",
+   "status": "loaded"
+  },
+  {
+   "alias": "a",
+   "path": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear/summary_5yr_index.json",
+   "mtime_utc": "2026-11-03T05:37:01Z",
+   "status": "loaded"
+  }
+ ],
+ "headlines_emitted": 43,
+ "matches": 43,
+ "findings_count": 0,
+ "FINDINGS": [],
+ "table": [
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 TREFHT RMS bias 2045-2047",
+   "mode": "printed",
+   "quoted": "0.690",
+   "note": "",
+   "emitted": 0.6901397217640262,
+   "emitted_printed": "0.690",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 TREFHT RMS bias 2046-2047",
+   "mode": "printed",
+   "quoted": "0.821",
+   "note": "",
+   "emitted": 0.8209263167290394,
+   "emitted_printed": "0.821",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 TREFHT RMS bias 2048-2049",
+   "mode": "printed",
+   "quoted": "0.912",
+   "note": "",
+   "emitted": 0.9124583672978857,
+   "emitted_printed": "0.912",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 PRECT RMS bias 2045-2047",
+   "mode": "printed",
+   "quoted": "0.380",
+   "note": "",
+   "emitted": 0.37996339010734637,
+   "emitted_printed": "0.380",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 PRECT RMS bias 2046-2047",
+   "mode": "printed",
+   "quoted": "0.464",
+   "note": "",
+   "emitted": 0.46370227863047875,
+   "emitted_printed": "0.464",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 PRECT RMS bias 2048-2049",
+   "mode": "printed",
+   "quoted": "0.464",
+   "note": "",
+   "emitted": 0.46389311533574273,
+   "emitted_printed": "0.464",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U10 RMS bias 2045-2047",
+   "mode": "printed",
+   "quoted": "0.228",
+   "note": "",
+   "emitted": 0.22826730766530656,
+   "emitted_printed": "0.228",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U10 RMS bias 2046-2047",
+   "mode": "printed",
+   "quoted": "0.245",
+   "note": "",
+   "emitted": 0.24507713445666018,
+   "emitted_printed": "0.245",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U10 RMS bias 2048-2049",
+   "mode": "printed",
+   "quoted": "0.258",
+   "note": "",
+   "emitted": 0.2576750261904365,
+   "emitted_printed": "0.258",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U_l17 RMS bias 2045-2047",
+   "mode": "printed",
+   "quoted": "0.356",
+   "note": "",
+   "emitted": 0.3562692044836254,
+   "emitted_printed": "0.356",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U_l17 RMS bias 2046-2047",
+   "mode": "printed",
+   "quoted": "0.408",
+   "note": "",
+   "emitted": 0.40784020341762733,
+   "emitted_printed": "0.408",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U_l17 RMS bias 2048-2049",
+   "mode": "printed",
+   "quoted": "0.417",
+   "note": "",
+   "emitted": 0.41698969435379457,
+   "emitted_printed": "0.417",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 Z3_l12 RMS bias 2045-2047",
+   "mode": "printed",
+   "quoted": "66.3",
+   "note": "",
+   "emitted": 66.25593040341461,
+   "emitted_printed": "66.3",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 Z3_l12 RMS bias 2046-2047",
+   "mode": "printed",
+   "quoted": "77.8",
+   "note": "",
+   "emitted": 77.82286879771456,
+   "emitted_printed": "77.8",
+   "status": "MATCH"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 Z3_l12 RMS bias 2048-2049",
+   "mode": "printed",
+   "quoted": "92.9",
+   "note": "",
+   "emitted": 92.89667433966865,
+   "emitted_printed": "92.9",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "TREFHT ratio 2048-49/2046-47 min over arms",
+   "mode": "printed",
+   "quoted": "1.093",
+   "note": "",
+   "emitted": 1.0925377402167102,
+   "emitted_printed": "1.093",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "TREFHT ratio 2048-49/2046-47 max over arms",
+   "mode": "printed",
+   "quoted": "1.178",
+   "note": "",
+   "emitted": 1.1782334882722967,
+   "emitted_printed": "1.178",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "PRECT ratio 2048-49/2046-47 min over arms",
+   "mode": "printed",
+   "quoted": "0.985",
+   "note": "",
+   "emitted": 0.9849575668750922,
+   "emitted_printed": "0.985",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "PRECT ratio 2048-49/2046-47 max over arms",
+   "mode": "printed",
+   "quoted": "1.159",
+   "note": "",
+   "emitted": 1.1587175887757575,
+   "emitted_printed": "1.159",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "U10 ratio 2048-49/2046-47 min over arms",
+   "mode": "printed",
+   "quoted": "0.995",
+   "note": "",
+   "emitted": 0.9951821838432089,
+   "emitted_printed": "0.995",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "U10 ratio 2048-49/2046-47 max over arms",
+   "mode": "printed",
+   "quoted": "1.163",
+   "note": "",
+   "emitted": 1.1634556213524134,
+   "emitted_printed": "1.163",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "U_l17 ratio 2048-49/2046-47 min over arms",
+   "mode": "printed",
+   "quoted": "1.022",
+   "note": "",
+   "emitted": 1.022434009348505,
+   "emitted_printed": "1.022",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "U_l17 ratio 2048-49/2046-47 max over arms",
+   "mode": "printed",
+   "quoted": "1.242",
+   "note": "",
+   "emitted": 1.2424827987817568,
+   "emitted_printed": "1.242",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 ratio 2048-49/2046-47 min over arms",
+   "mode": "printed",
+   "quoted": "1.141",
+   "note": "",
+   "emitted": 1.1413998237328513,
+   "emitted_printed": "1.141",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 ratio 2048-49/2046-47 max over arms",
+   "mode": "printed",
+   "quoted": "1.218",
+   "note": "",
+   "emitted": 1.2183044987452616,
+   "emitted_printed": "1.218",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "ratios above 1",
+   "mode": "printed",
+   "quoted": "23",
+   "note": "",
+   "emitted": 23,
+   "emitted_printed": "23",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "PRECT G4D16 ratio",
+   "mode": "printed",
+   "quoted": "1.000",
+   "note": "",
+   "emitted": 1.0004115500700743,
+   "emitted_printed": "1.000",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "ratios in total",
+   "mode": "printed",
+   "quoted": "25",
+   "note": "",
+   "emitted": 25,
+   "emitted_printed": "25",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "variables where G4D43 has the largest ratio",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 2048-49 G4D16",
+   "mode": "printed",
+   "quoted": "92.9",
+   "note": "",
+   "emitted": 92.89667433966865,
+   "emitted_printed": "92.9",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 2048-49 other arms min",
+   "mode": "printed",
+   "quoted": "74.0",
+   "note": "",
+   "emitted": 74.04254618534104,
+   "emitted_printed": "74.0",
+   "status": "MATCH"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 2048-49 other arms max",
+   "mode": "printed",
+   "quoted": "81.5",
+   "note": "",
+   "emitted": 81.47184050345842,
+   "emitted_printed": "81.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D16 2045",
+   "mode": "printed",
+   "quoted": "44.6",
+   "note": "",
+   "emitted": 44.60296740935817,
+   "emitted_printed": "44.6",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D16 2049",
+   "mode": "printed",
+   "quoted": "95.5",
+   "note": "",
+   "emitted": 95.54571137528679,
+   "emitted_printed": "95.5",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D43 2045",
+   "mode": "printed",
+   "quoted": "35.1",
+   "note": "",
+   "emitted": 35.06113506889519,
+   "emitted_printed": "35.1",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D43 2049",
+   "mode": "printed",
+   "quoted": "77.8",
+   "note": "",
+   "emitted": 77.79874086665832,
+   "emitted_printed": "77.8",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D16 2045",
+   "mode": "printed",
+   "quoted": "0.552",
+   "note": "",
+   "emitted": 0.5518936082732334,
+   "emitted_printed": "0.552",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D16 2046",
+   "mode": "printed",
+   "quoted": "0.833",
+   "note": "",
+   "emitted": 0.832807210439827,
+   "emitted_printed": "0.833",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D16 2048",
+   "mode": "printed",
+   "quoted": "0.948",
+   "note": "",
+   "emitted": 0.9475664882058419,
+   "emitted_printed": "0.948",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D43 2046",
+   "mode": "printed",
+   "quoted": "0.755",
+   "note": "",
+   "emitted": 0.754516365961295,
+   "emitted_printed": "0.755",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D43 2049",
+   "mode": "printed",
+   "quoted": "0.931",
+   "note": "",
+   "emitted": 0.9305587774363273,
+   "emitted_printed": "0.931",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "Z3_l12 annual RMS rises every year, arm-steps",
+   "mode": "printed",
+   "quoted": "20",
+   "note": "",
+   "emitted": 20,
+   "emitted_printed": "20",
+   "status": "MATCH"
+  },
+  {
+   "section": "annual",
+   "label": "TREFHT 2048 or 2049 above 2046, arms",
+   "mode": "printed",
+   "quoted": "5",
+   "note": "",
+   "emitted": 5,
+   "emitted_printed": "5",
+   "status": "MATCH"
+  }
+ ]
+}

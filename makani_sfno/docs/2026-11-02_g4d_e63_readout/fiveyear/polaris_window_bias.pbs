@@ -1,0 +1,48 @@
+#!/bin/bash -l
+#PBS -N window_bias
+#PBS -A lighthouse-uchicago
+#PBS -q debug
+#PBS -l select=1:system=polaris
+#PBS -l place=scatter
+#PBS -l filesystems=home:eagle
+#PBS -l walltime=00:20:00
+#PBS -r n
+#PBS -j oe
+# ============================================================================
+# The 2048-2049 climatological bias maps and the window table (plot_window_bias.py). CPU only.
+#   1. Refactor check: plot_maps.py (fig_bias now parameterised) re-renders into fiveyear/check_plotmaps, and every
+#      PNG and summary_table.csv must be byte-identical to maps/figures. Stops here otherwise.
+#   2. plot_window_bias.py: gates, then figures/bias_maps_2048_2049.png + summary_window_bias.csv/.json.
+# Plot python as polaris_fiveyear.pbs.  Submit from eval-protocol/makani_sfno/.   PASS = WINDOW_BIAS_OK
+# ============================================================================
+# shellcheck disable=SC1091
+source /eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/maps/env_block.sh
+F=/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear
+echo "=== window_bias: $(date -Iseconds) host=$(hostname) PBS_JOBID=${PBS_JOBID} ==="
+PLOTPY="${PY}"
+if ! "${PLOTPY}" -c "import matplotlib, scipy" 2>/dev/null; then
+    # shellcheck disable=SC1091
+    source /lus/eagle/projects/lighthouse-uchicago/members/mehta5/pedramh-profiling/ACE2_retrain/polaris/polaris_ace2_env.sh \
+        > /dev/null || exit 2
+    PLOTPY="${ACE2_VENV}/bin/python"
+fi
+echo "plot python: ${PLOTPY}"
+set -o pipefail
+CK="${F}/check_plotmaps"
+rm -rf "${CK}"
+"${PLOTPY}" "${M}/plot_maps.py" --in-dir "${M}" --out-dir "${CK}" 2>&1 | tail -3
+diffs=0
+for f in "${M}"/figures/*.png "${M}/figures/summary_table.csv"; do
+    cmp -s "${f}" "${CK}/$(basename "${f}")" || { echo "ERROR PLOTMAPS_CHANGED $(basename "${f}")"; diffs=$(( diffs + 1 )); }
+done
+if [ ${diffs} -ne 0 ]; then
+    echo "ERROR WINDOW_BIAS_FAILED: the fig_bias refactor changed ${diffs} published files (kept in ${CK})"
+    exit 1
+fi
+echo "PLOTMAPS_UNCHANGED: $(ls "${M}"/figures/*.png | wc -l) PNGs + summary_table.csv byte-identical"
+rm -rf "${CK}"
+"${PLOTPY}" "${F}/plot_window_bias.py" 2>&1 | tail -40
+rc=$?
+[ ${rc} -eq 0 ] || echo "ERROR WINDOW_BIAS_FAILED rc=${rc}"
+echo "=== window_bias done $(date -Iseconds) ==="
+exit ${rc}

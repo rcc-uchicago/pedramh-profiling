@@ -517,6 +517,8 @@ extractor. Table 3 is the summary; the list after it spells out each protocol. T
       Benjamini–Hochberg false discovery rate of 10 %. The + 1 counts E3SM's single realisation as one more draw.
     - **Each title.** The RMS bias, i.e. the cos-latitude-weighted global RMS of the map. Its CI is a bootstrap
       over the members, re-centred on the estimate.
+    - **Reporting-window version.** `fiveyear/figures/bias_maps_2048_2049.png` (2026-11-04) applies the same method
+      to 2048–2049, for the five G4D checkpoints only.
 - **14-day forecast sweep (K=56)**: weather-scale accuracy.
   - **What is run.** 24 forecasts per checkpoint: 12 start dates spread monthly through each of the 2 test years,
     2048 and 2049.

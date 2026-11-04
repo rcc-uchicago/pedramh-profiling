@@ -334,13 +334,57 @@ def fig_ratio_curves(K, out):
     finish(fig, os.path.join(out, "rmse_ratio_to_A243.png"))
 
 
-def fig_bias(C, T, lsm, out):
+BIAS_HEADLINE_SELECTION = (
+    "Climatological bias averaged over 2045-2047 only: mean of the 8 five-year runs minus E3SM. The runs start in Oct "
+    "2044 and end in Dec 2049;\n2045-2047 (their years 1-3) is the selection window the checkpoints were ranked on, and "
+    "2048-2049 is not included. CI = bootstrap over the runs, re-centred on the estimate.")  # emitall-lint: allow-literal protocol windows and member count in a title, not results
+BIAS_DOTS = ("\nDots: bias larger than internal variability at a 10% false discovery rate (t-test against the member "
+             "spread, inflated for E3SM's single realisation). A243 is not shown: all its five-year runs blow up within "
+             "0.6 years.")
+
+
+def bias_panel(mm, truth, fac, w):
+    """One checkpoint, one variable: members' window means mm (n, H, W) against E3SM's (H, W), stored units.
+    Returns (bias in plotted units, FDR mask, global RMS bias, CI lo, CI hi, n)."""
+    n = mm.shape[0]
+    bias = (mm.mean(axis=0) - truth) * fac
+    with np.errstate(invalid="ignore", divide="ignore"):
+        t = (mm.mean(axis=0) - truth) / (mm.std(axis=0, ddof=1) * np.sqrt(1.0 / n + 1.0))
+    p = 2 * stats.t.sf(np.abs(t), n - 1)
+    sig = ml.fdr_mask(p, ALPHA_FDR)
+    rms = np.sqrt(ml.area_mean(bias ** 2, w))
+    # Re-centred on rms, as the five-year annual maps are (fiveyear/plot_5yr.py): a resample with repeated
+    # members has a noisier mean, which pushes every resampled RMS up, so the raw percentile interval sits
+    # above the estimate. Same draws as before; only the interval's position changes.
+    lo, hi = boot_ci(lambda ix: np.sqrt(ml.area_mean(((mm[ix].mean(axis=0) - truth) * fac) ** 2, w)), n,
+                     centre=rms)
+    return bias, sig, rms, lo, hi, n
+
+
+def bias_scale(C, T):
+    """fig_bias's default colour limits: per variable, the 98th percentile of |bias| over the checkpoints' maps."""
+    out = {}
+    for var in ml.VAR_KEYS:
+        fac = VINFO[var][2]
+        truth = T["truth_maps"][list(T["var_keys"]).index(var)].astype(np.float64)
+        b = [(C[m]["member_maps"][:, list(C[m]["var_keys"]).index(var)].astype(np.float64).mean(axis=0) - truth) * fac
+             for m in BIAS_MODELS if m in C]
+        out[var] = np.nanpercentile(np.abs(np.stack(b)), 98)
+    return out
+
+
+def fig_bias(C, T, lsm, out, window=(2045, 2047), fname="bias_maps.png", headline=BIAS_HEADLINE_SELECTION,
+             scale=None):
+    """Bias maps of window means: C[model] has member_maps (n, V, H, W) + var_keys, T has truth_maps (V, H, W).
+    scale = {var: colour limit} to share another figure's colours; by default bias_scale(C, T). Returns the
+    limits used."""
     models = [m for m in BIAS_MODELS if m in C]
     lat, lon = T["lat"], T["lon"]
     w = ml.lat_weights(lat)
     nv = len(ml.VAR_KEYS)
     fig, axs = plt.subplots(nv, len(models), figsize=(3.9 * len(models) + 1.2, 2.55 * nv + 1.6), squeeze=False)
     fig.subplots_adjust(left=0.05, right=0.90, top=0.89, bottom=0.07, wspace=0.10, hspace=0.62)
+    scale = scale or bias_scale(C, T)
     for i, var in enumerate(ml.VAR_KEYS):
         name, unit, fac = VINFO[var]
         vi = list(T["var_keys"]).index(var)
@@ -348,21 +392,8 @@ def fig_bias(C, T, lsm, out):
         cells = []
         for m in models:
             mm = C[m]["member_maps"][:, list(C[m]["var_keys"]).index(var)].astype(np.float64)   # (n, H, W)
-            n = mm.shape[0]
-            bias = (mm.mean(axis=0) - truth) * fac
-            with np.errstate(invalid="ignore", divide="ignore"):
-                t = (mm.mean(axis=0) - truth) / (mm.std(axis=0, ddof=1) * np.sqrt(1.0 / n + 1.0))
-            p = 2 * stats.t.sf(np.abs(t), n - 1)
-            sig = ml.fdr_mask(p, ALPHA_FDR)
-            rms = np.sqrt(ml.area_mean(bias ** 2, w))
-            # Re-centred on rms, as the five-year annual maps are (fiveyear/plot_5yr.py): a resample with repeated
-            # members has a noisier mean, which pushes every resampled RMS up, so the raw percentile interval sits
-            # above the estimate. Same draws as before; only the interval's position changes.
-            lo, hi = boot_ci(lambda ix: np.sqrt(ml.area_mean(((mm[ix].mean(axis=0) - truth) * fac) ** 2, w)), n,
-                             centre=rms)
-            cells.append((m, bias, sig, rms, lo, hi, n))
-        vmax = np.nanpercentile(np.abs(np.stack([c[1] for c in cells])), 98)
-        norm, lev = nice_norm(-vmax, vmax, diverging=True)
+            cells.append((m,) + bias_panel(mm, truth, fac, w))
+        norm, lev = nice_norm(-scale[var], scale[var], diverging=True)
         for j, (m, bias, sig, rms, lo, hi, n) in enumerate(cells):
             ax = axs[i, j]
             im = draw_map(ax, bias, lon, lat, lsm, DIV, norm, sig=sig)
@@ -371,7 +402,7 @@ def fig_bias(C, T, lsm, out):
             ax.set_title("%s, %s\nRMS bias %s %s [95%% CI %s, %s]\n%.0f%% of area significant; %d runs"
                          % (LABEL[m], var, s3(rms), unit, s3(lo), s3(hi), area, n), fontsize=6.8, color=INK,
                          loc="left")
-            ROWS.append(dict(figure="bias_maps", variable=var, model=m, lead_h="", window="2045-2047",
+            ROWS.append(dict(figure=fname[:-len(".png")], variable=var, model=m, lead_h="", window="%d-%d" % window,
                              metric="global RMS of ensemble-mean bias (model - E3SM); CI = bootstrap over runs, "
                              "re-centred", value=rms, ci_lo=lo, ci_hi=hi,
                              unit=plain_unit(unit), n=n, sig_area_pct=area))
@@ -380,14 +411,9 @@ def fig_bias(C, T, lsm, out):
         cb = fig.colorbar(im, cax=cax, ticks=lev)
         cb.set_label("%s bias,\nmodel - E3SM (%s)" % (var, unit), color=INK, fontsize=7.5)
         cb.ax.tick_params(labelsize=6.5, colors=INK2)
-    fig.suptitle("Climatological bias averaged over 2045-2047 only: mean of the 8 five-year runs minus E3SM. The runs "
-                 "start in Oct 2044 and end in Dec 2049;\n2045-2047 (their years 1-3) is the selection window the "
-                 "checkpoints were ranked on, and 2048-2049 is not included. CI = bootstrap over the runs, "
-                 "re-centred on the estimate.\nDots: bias larger than internal variability at a 10% false discovery "
-                 "rate (t-test against the member spread, inflated for E3SM's single realisation). A243 is not "
-                 "shown: all its five-year runs blow up within 0.6 years.", fontsize=9.5, color=INK, x=0.05,
-                 ha="left")
-    finish(fig, os.path.join(out, "bias_maps.png"))
+    fig.suptitle(headline + BIAS_DOTS, fontsize=9.5, color=INK, x=0.05, ha="left")
+    finish(fig, os.path.join(out, fname))
+    return scale
 
 
 def main():

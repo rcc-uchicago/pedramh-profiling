@@ -1,0 +1,44 @@
+=== window_bias: 2026-11-04T17:20:52+00:00 host=x3002c0s1b1n0 PBS_JOBID=7813261.polaris-pbs-01.hsn.cm.polaris.alcf.anl.gov ===
+plot python: /eagle/projects/lighthouse-uchicago/members/mehta5/conda-envs/sfno-venv/bin/python
+wrote bias_maps.png
+wrote summary_table.csv (565 rows)
+MAPS_PLOT_OK figures=18
+PLOTMAPS_UNCHANGED: 18 PNGs + summary_table.csv byte-identical
+gate 1 E3SM: mean of 2045-2047 annual means vs clim_truth.npz, max rel 7.19e-08
+gate 1 G4D16: 8 members, max rel 8.32e-08
+gate 1 G4D36: 8 members, max rel 8.33e-08
+gate 1 G4D43: 8 members, max rel 8.88e-08
+gate 1 G4D56: 8 members, max rel 8.34e-08
+gate 1 G4D63: 8 members, max rel 8.35e-08
+gate 2: frames per year [1459]
+wrote bias_maps_2048_2049.png
+published 2045-2047 RMS re-computed: max rel 0.00e+00
+RMS bias by window (2045-2047 | 2046-2047 | 2048-2049; report/like):
+  TREFHT G4D16 0.690 | 0.821 | 0.912  1.111
+  TREFHT G4D36 0.670 | 0.783 | 0.855  1.093
+  TREFHT G4D43 0.638 | 0.743 | 0.876  1.178
+  TREFHT G4D56 0.711 | 0.836 | 0.936  1.120
+  TREFHT G4D63 0.738 | 0.874 | 0.982  1.123
+  PRECT  G4D16 0.380 | 0.464 | 0.464  1.000
+  PRECT  G4D36 0.350 | 0.421 | 0.444  1.054
+  PRECT  G4D43 0.351 | 0.418 | 0.485  1.159
+  PRECT  G4D56 0.371 | 0.446 | 0.458  1.025
+  PRECT  G4D63 0.408 | 0.498 | 0.490  0.985
+  U10    G4D16 0.228 | 0.245 | 0.258  1.051
+  U10    G4D36 0.229 | 0.242 | 0.265  1.098
+  U10    G4D43 0.245 | 0.254 | 0.295  1.163
+  U10    G4D56 0.251 | 0.278 | 0.276  0.995
+  U10    G4D63 0.267 | 0.294 | 0.309  1.052
+  U_l17  G4D16 0.356 | 0.408 | 0.417  1.022
+  U_l17  G4D36 0.382 | 0.393 | 0.464  1.178
+  U_l17  G4D43 0.404 | 0.419 | 0.520  1.242
+  U_l17  G4D56 0.393 | 0.428 | 0.460  1.073
+  U_l17  G4D63 0.437 | 0.463 | 0.488  1.055
+  Z3_l12 G4D16 66.3 | 77.8 | 92.9  1.194
+  Z3_l12 G4D36 54.1 | 63.2 | 74.0  1.171
+  Z3_l12 G4D43 52.3 | 61.8 | 75.2  1.218
+  Z3_l12 G4D56 59.8 | 68.9 | 78.7  1.141
+  Z3_l12 G4D63 58.6 | 68.7 | 81.5  1.185
+wrote summary_window_bias.csv (75 rows) and .json
+WINDOW_BIAS_OK
+=== window_bias done 2026-11-04T17:23:28+00:00 ===

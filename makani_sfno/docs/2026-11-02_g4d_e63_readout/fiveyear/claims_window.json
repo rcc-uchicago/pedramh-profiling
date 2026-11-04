@@ -1,0 +1,280 @@
+{
+ "campaign": "G4D 2048-2049 bias maps",
+ "register": "reporting window 2048-2049, descriptive",
+ "quote_source": "Claude's report 2026-11-04 and the read-out README",
+ "base": "/lus/eagle/projects/lighthouse-uchicago/members/mehta5/runs/makani_eval/g4d_e63_2026-11-02/fiveyear",
+ "receipts": {
+  "w": {
+   "path": "figures/summary_window_bias.json",
+   "newer_than": [
+    "figures/summary_window_bias.csv"
+   ]
+  },
+  "a": {
+   "path": "summary_5yr_index.json",
+   "newer_than": [
+    "figures/summary_5yr.csv"
+   ]
+  }
+ },
+ "claims": [
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 TREFHT RMS bias 2045-2047",
+   "quoted": "0.690",
+   "expr": "f('w','/TREFHT/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 TREFHT RMS bias 2046-2047",
+   "quoted": "0.821",
+   "expr": "f('w','/TREFHT/G4D16/2046-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 TREFHT RMS bias 2048-2049",
+   "quoted": "0.912",
+   "expr": "f('w','/TREFHT/G4D16/2048-2049/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 PRECT RMS bias 2045-2047",
+   "quoted": "0.380",
+   "expr": "f('w','/PRECT/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 PRECT RMS bias 2046-2047",
+   "quoted": "0.464",
+   "expr": "f('w','/PRECT/G4D16/2046-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 PRECT RMS bias 2048-2049",
+   "quoted": "0.464",
+   "expr": "f('w','/PRECT/G4D16/2048-2049/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U10 RMS bias 2045-2047",
+   "quoted": "0.228",
+   "expr": "f('w','/U10/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U10 RMS bias 2046-2047",
+   "quoted": "0.245",
+   "expr": "f('w','/U10/G4D16/2046-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U10 RMS bias 2048-2049",
+   "quoted": "0.258",
+   "expr": "f('w','/U10/G4D16/2048-2049/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U_l17 RMS bias 2045-2047",
+   "quoted": "0.356",
+   "expr": "f('w','/U_l17/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U_l17 RMS bias 2046-2047",
+   "quoted": "0.408",
+   "expr": "f('w','/U_l17/G4D16/2046-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 U_l17 RMS bias 2048-2049",
+   "quoted": "0.417",
+   "expr": "f('w','/U_l17/G4D16/2048-2049/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 Z3_l12 RMS bias 2045-2047",
+   "quoted": "66.3",
+   "expr": "f('w','/Z3_l12/G4D16/2045-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 Z3_l12 RMS bias 2046-2047",
+   "quoted": "77.8",
+   "expr": "f('w','/Z3_l12/G4D16/2046-2047/value')"
+  },
+  {
+   "section": "g4d16 table",
+   "label": "G4D16 Z3_l12 RMS bias 2048-2049",
+   "quoted": "92.9",
+   "expr": "f('w','/Z3_l12/G4D16/2048-2049/value')"
+  },
+  {
+   "section": "window",
+   "label": "TREFHT ratio 2048-49/2046-47 min over arms",
+   "quoted": "1.093",
+   "expr": "min(vals('w','/TREFHT/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "TREFHT ratio 2048-49/2046-47 max over arms",
+   "quoted": "1.178",
+   "expr": "max(vals('w','/TREFHT/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "PRECT ratio 2048-49/2046-47 min over arms",
+   "quoted": "0.985",
+   "expr": "min(vals('w','/PRECT/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "PRECT ratio 2048-49/2046-47 max over arms",
+   "quoted": "1.159",
+   "expr": "max(vals('w','/PRECT/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "U10 ratio 2048-49/2046-47 min over arms",
+   "quoted": "0.995",
+   "expr": "min(vals('w','/U10/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "U10 ratio 2048-49/2046-47 max over arms",
+   "quoted": "1.163",
+   "expr": "max(vals('w','/U10/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "U_l17 ratio 2048-49/2046-47 min over arms",
+   "quoted": "1.022",
+   "expr": "min(vals('w','/U_l17/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "U_l17 ratio 2048-49/2046-47 max over arms",
+   "quoted": "1.242",
+   "expr": "max(vals('w','/U_l17/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 ratio 2048-49/2046-47 min over arms",
+   "quoted": "1.141",
+   "expr": "min(vals('w','/Z3_l12/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 ratio 2048-49/2046-47 max over arms",
+   "quoted": "1.218",
+   "expr": "max(vals('w','/Z3_l12/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "ratios above 1",
+   "quoted": "23",
+   "expr": "len(where(vals('w','/{TREFHT|PRECT|U10|U_l17|Z3_l12}/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'), '>', 1))"
+  },
+  {
+   "section": "window",
+   "label": "PRECT G4D16 ratio",
+   "quoted": "1.000",
+   "expr": "f('w','/PRECT/G4D16/ratio_report_vs_like')"
+  },
+  {
+   "section": "window",
+   "label": "ratios in total",
+   "quoted": "25",
+   "expr": "len(vals('w','/{TREFHT|PRECT|U10|U_l17|Z3_l12}/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))"
+  },
+  {
+   "section": "window",
+   "label": "variables where G4D43 has the largest ratio",
+   "quoted": "5",
+   "expr": "(f('w','/TREFHT/G4D43/ratio_report_vs_like') == max(vals('w','/TREFHT/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))) + (f('w','/PRECT/G4D43/ratio_report_vs_like') == max(vals('w','/PRECT/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))) + (f('w','/U10/G4D43/ratio_report_vs_like') == max(vals('w','/U10/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))) + (f('w','/U_l17/G4D43/ratio_report_vs_like') == max(vals('w','/U_l17/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like'))) + (f('w','/Z3_l12/G4D43/ratio_report_vs_like') == max(vals('w','/Z3_l12/{G4D16|G4D36|G4D43|G4D56|G4D63}/ratio_report_vs_like')))"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 2048-49 G4D16",
+   "quoted": "92.9",
+   "expr": "f('w','/Z3_l12/G4D16/2048-2049/value')"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 2048-49 other arms min",
+   "quoted": "74.0",
+   "expr": "min(vals('w','/Z3_l12/{G4D36|G4D43|G4D56|G4D63}/2048-2049/value'))"
+  },
+  {
+   "section": "window",
+   "label": "Z3_l12 2048-49 other arms max",
+   "quoted": "81.5",
+   "expr": "max(vals('w','/Z3_l12/{G4D36|G4D43|G4D56|G4D63}/2048-2049/value'))"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D16 2045",
+   "quoted": "44.6",
+   "expr": "f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2045/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D16 2049",
+   "quoted": "95.5",
+   "expr": "f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2049/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D43 2045",
+   "quoted": "35.1",
+   "expr": "f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2045/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual Z3_l12 G4D43 2049",
+   "quoted": "77.8",
+   "expr": "f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2049/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D16 2045",
+   "quoted": "0.552",
+   "expr": "f('a','/csv/annual_bias_TREFHT/TREFHT/G4D16/2045/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D16 2046",
+   "quoted": "0.833",
+   "expr": "f('a','/csv/annual_bias_TREFHT/TREFHT/G4D16/2046/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D16 2048",
+   "quoted": "0.948",
+   "expr": "f('a','/csv/annual_bias_TREFHT/TREFHT/G4D16/2048/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D43 2046",
+   "quoted": "0.755",
+   "expr": "f('a','/csv/annual_bias_TREFHT/TREFHT/G4D43/2046/value')"
+  },
+  {
+   "section": "annual",
+   "label": "annual TREFHT G4D43 2049",
+   "quoted": "0.931",
+   "expr": "f('a','/csv/annual_bias_TREFHT/TREFHT/G4D43/2049/value')"
+  },
+  {
+   "section": "annual",
+   "label": "Z3_l12 annual RMS rises every year, arm-steps",
+   "quoted": "20",
+   "expr": "(f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2046/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2045/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2047/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2046/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2048/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2047/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2049/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D16/2048/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2046/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2045/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2047/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2046/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2048/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2047/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2049/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D36/2048/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2046/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2045/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2047/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2046/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2048/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2047/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2049/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D43/2048/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2046/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2045/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2047/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2046/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2048/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2047/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2049/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D56/2048/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2046/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2045/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2047/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2046/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2048/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2047/value')) + (f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2049/value') > f('a','/csv/annual_bias_Z3_l12/Z3_l12/G4D63/2048/value'))"
+  },
+  {
+   "section": "annual",
+   "label": "TREFHT 2048 or 2049 above 2046, arms",
+   "quoted": "5",
+   "expr": "(max(f('a','/csv/annual_bias_TREFHT/TREFHT/G4D16/2048/value'), f('a','/csv/annual_bias_TREFHT/TREFHT/G4D16/2049/value')) > f('a','/csv/annual_bias_TREFHT/TREFHT/G4D16/2046/value')) + (max(f('a','/csv/annual_bias_TREFHT/TREFHT/G4D36/2048/value'), f('a','/csv/annual_bias_TREFHT/TREFHT/G4D36/2049/value')) > f('a','/csv/annual_bias_TREFHT/TREFHT/G4D36/2046/value')) + (max(f('a','/csv/annual_bias_TREFHT/TREFHT/G4D43/2048/value'), f('a','/csv/annual_bias_TREFHT/TREFHT/G4D43/2049/value')) > f('a','/csv/annual_bias_TREFHT/TREFHT/G4D43/2046/value')) + (max(f('a','/csv/annual_bias_TREFHT/TREFHT/G4D56/2048/value'), f('a','/csv/annual_bias_TREFHT/TREFHT/G4D56/2049/value')) > f('a','/csv/annual_bias_TREFHT/TREFHT/G4D56/2046/value')) + (max(f('a','/csv/annual_bias_TREFHT/TREFHT/G4D63/2048/value'), f('a','/csv/annual_bias_TREFHT/TREFHT/G4D63/2049/value')) > f('a','/csv/annual_bias_TREFHT/TREFHT/G4D63/2046/value'))"
+  }
+ ]
+}
