@@ -114,6 +114,14 @@ Format for entries: `YYYY-MM-DD — <what happened> — <result/measurement> —
 
 ## Decisions / changes log
 
+- **2026-11-04** — **SQG: a STRIDE-400 online run reportedly overfit** (user report; run details not seen here).
+  This contradicts the decorrelation entry's advice to sample online pairs at Δt/10–Δt/4. In o1.2, `STRIDE` also sets
+  the data *quantity*: pairs per segment 4,901 → 491, the start buffer (4 segments) 19,604 → 1,964 pairs, fresh pairs
+  per optimizer step S/STRIDE 12 → 1 (S must be a multiple of STRIDE). The 262,144-pair buffer then never fills, so
+  the first pairs are sampled ≈150× (vs ≈7× at STRIDE 40). The 40-step near-duplicates cost no extra solver time
+  and probably also act as augmentation (untested). **Keep STRIDE 40 for online training; do not thin a saved frame
+  store without a test.** No translation augmentation: the forcing is a fixed spatial pattern. A discriminating test
+  is STRIDE 40 with every 10th pair buffered (same solver cost, STRIDE-400 density).
 - **2026-11-04** — **SQG jobs E and F: the solver's GPU work.** E (`profile_solver_fp32.py`, debug **7813816**,
   queued) times the production step in float32 vs float64. It reports only if its builder is bitwise equal to
   `GD.inner` and the f32 HLO holds no full-size f64/c128 field. F (`profile_ab3_ncu*.py/.pbs`, `summarize_ncu.py`;
